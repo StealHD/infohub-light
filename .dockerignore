@@ -30,6 +30,8 @@ docs/
 .env
 data/summaries/
 data/subscribers.json
+data/site/
+logs/
 
 # Build artifacts
 *.egg-info/

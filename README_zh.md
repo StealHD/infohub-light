@@ -215,11 +215,14 @@ cd horizon
 
 # 配置环境
 cp .env.example .env
-cp data/config.example.json data/config.json
-# 编辑 .env 和 data/config.json，填入你的 API 密钥和偏好设置
+# 当前仓库已提供私人 AI 信息雷达版 data/config.json。
+# 编辑 .env 和 data/config.json，填入 API 密钥、信源、阈值和 Webhook。
 
-# 使用 Docker Compose 运行
-docker compose run --rm horizon
+# 启动短频轮询、每日推送和 Web UI
+docker compose up -d
+
+# 手动运行一次抓取 / 打分 / 摘要 / 推送任务
+docker compose run --rm horizon --hours 24
 
 # 或自定义时间窗口
 docker compose run --rm horizon --hours 48
@@ -262,6 +265,19 @@ cp data/config.example.json data/config.json  # 自定义信息源
 }
 ```
 
+小米 MiMo Token Plan 可使用 OpenAI 兼容配置：
+
+```jsonc
+{
+  "ai": {
+    "provider": "xiaomi",
+    "model": "mimo-v2.5-pro",
+    "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+    "api_key_env": "XIAOMI_API_KEY"
+  }
+}
+```
+
 `data/config.json` 里的任意字符串值都可以通过 `${VAR_NAME}` 引用环境变量。这适合用于 `ai.base_url`、私有 RSS 链接、Webhook 地址或自定义请求头模板等字段。
 
 完整配置参考请查看[配置指南](docs/configuration.md)。
@@ -278,11 +294,81 @@ uv run horizon --hours 48   # 抓取最近 48 小时的内容
 #### 使用 Docker
 
 ```bash
+docker compose up -d                         # 启动 scheduler + web UI
 docker compose run --rm horizon              # 使用默认 24 小时窗口
 docker compose run --rm horizon --hours 48   # 抓取最近 48 小时的内容
+docker compose logs -f horizon-scheduler     # 查看定时任务日志
 ```
 
-生成的日报将保存在 `data/summaries/` 目录中。
+生成的日报将保存在 `data/summaries/` 目录中。私人 Web UI 默认通过 [http://localhost:8080](http://localhost:8080) 访问，数据来自 `data/site/`。
+
+## 私人 AI 信息雷达 Docker 部署
+
+本仓库已在 Horizon 原有架构上加入私人定制配置和输出：
+
+- AI 打分输出 `score`、`reason`、`tags`、`category`、`is_featured`、`summary_zh`、`action_suggestion`
+- `>= 7.5` 进入精选，`>= 8.5` 进入每日推送，推送最多 10 条
+- 支持 RSS/Atom、GitHub Releases、GitHub 用户/组织动态、Hacker News、Reddit、Telegram 公共频道、OSS Insight；Twitter/X 通过 Apify 可选开启
+- 静态 Web UI 支持精选信息流、最近 20 条全部动态、历史归档、每日摘要、标签/来源/关键词/分数筛选和 localStorage 收藏
+- Web UI 内置本地配置后台，通过结构化表单维护信源、标签、阈值、模型和 webhook，保存前会校验配置并备份旧文件
+- Docker Compose 默认每 30 分钟增量轮询，`08:30 Asia/Shanghai` 执行每日推送，挂载 `data/`、`logs/`、`.env`，并为 Web UI 配置健康检查
+
+部署步骤：
+
+```bash
+git clone https://github.com/Thysrael/Horizon.git
+cd Horizon
+cp .env.example .env
+
+# 在 .env 中配置 OPENAI_API_KEY 或其他模型密钥。
+# 可在 Web UI 的「配置」页调整信源、标签、阈值和 webhook.enabled。
+docker compose up -d
+docker compose logs -f horizon-scheduler
+```
+
+手动执行与检查：
+
+```bash
+# 手动跑一次完整流程；如果 webhook.enabled=true，会按每日推送规则推送。
+docker compose run --rm horizon --hours 24
+
+# 只预览 Webhook 渲染，不实际发送。
+docker compose run --rm --entrypoint uv horizon run horizon-webhook --lang zh --dry-run
+
+# 打开 Web UI。
+open http://localhost:8080
+```
+
+如果页面看不到信息，先点右上角「清除筛选」。当前页面读取的是 `data/site/radar-data.json`，真实内容需要先配置 `.env` 的模型 API Key 并手动运行一次：
+
+```bash
+docker compose run --rm horizon --hours 24
+```
+
+配置后台：
+
+- 打开 [http://localhost:8080](http://localhost:8080)，切到「配置」
+- 用表单新增/修改 RSS、GitHub、Reddit、Telegram、Hacker News、标签库、AI 模型、阈值和 webhook
+- 点击对应表单的「保存」
+- 页面只显示环境变量是否已设置，不显示 `.env` 中的真实密钥
+
+注意：
+
+- 所有密钥只放 `.env`，`data/config.json` 只写环境变量名，例如 `OPENAI_API_KEY`、`GITHUB_TOKEN`、`APIFY_TOKEN`、`HORIZON_WEBHOOK_URL`。
+- 未配置 `APIFY_TOKEN` 时保持 `sources.twitter.enabled=false`。
+- 未配置 `HORIZON_WEBHOOK_URL` 前保持 `webhook.enabled=false`。
+- 日志写入 `./logs`，也可以通过 `docker compose logs` 查看。
+
+### 源端直采，不依赖 AIHub
+
+本项目不需要、也不逆向第三方 AIHub/AIHOT 类聚合站 API。信息源按 adapter 拆开，从公开源端或官方 API 直接获取：
+
+```bash
+docker compose run --rm --entrypoint uv horizon run horizon-sources
+docker compose run --rm --entrypoint uv horizon run horizon-sources --json
+```
+
+当前直采来源包括 RSS/Atom、GitHub REST API、Hacker News Firebase API、Reddit public JSON、Telegram 公开频道页面、OSS Insight public API 和可选 OpenBB。Twitter/X 由于没有稳定公开源端 API，默认关闭，仅在你配置 `APIFY_TOKEN` 后作为可选源启用。
 
 ### 4. 自动化（可选）
 

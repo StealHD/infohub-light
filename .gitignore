@@ -38,17 +38,20 @@ ENV/
 
 # Data files (keep structure, ignore content)
 data/config.json
+data/*.bak
 data/seen.json
 data/summaries/*.md
 data/subscribers.json
 data/mcp.secrets.json
 data/mcp-secrets.json
 data/mcp-runs/
+data/site/
 
 docs/_posts/*.md
 
 # Logs
 logs/*.log
+logs/*.png
 *.log
 
 # macOS

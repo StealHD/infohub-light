@@ -3,6 +3,7 @@
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import List, Dict
 from urllib.parse import urlparse
 import httpx
@@ -12,6 +13,7 @@ from .models import Config, ContentItem
 from .storage.manager import StorageManager
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
+from .services.daily_push import select_daily_push_items
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
 from .scrapers.rss import RSSScraper
@@ -25,6 +27,7 @@ from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot
+from .ui.site import build_site_payload, load_history_item_ids, write_static_site
 
 
 class HorizonOrchestrator:
@@ -47,11 +50,23 @@ class HorizonOrchestrator:
             else None
         )
 
-    async def run(self, force_hours: int = None) -> None:
+    async def run(
+        self,
+        force_hours: int = None,
+        *,
+        send_notifications: bool = True,
+        write_summaries: bool = True,
+        incremental: bool = False,
+        enrich: bool = True,
+    ) -> None:
         """Execute the complete workflow.
 
         Args:
             force_hours: Optional override for time window in hours
+            send_notifications: Whether to send email/webhook notifications
+            write_summaries: Whether to write Markdown daily summaries
+            incremental: If True, skip items already present in UI history
+            enrich: Whether to run second-stage background enrichment
         """
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
 
@@ -86,12 +101,24 @@ class HorizonOrchestrator:
                     f"→ {len(merged_items)} unique items\n"
                 )
 
+            if incremental:
+                known_ids = load_history_item_ids(self.storage.data_dir / "site")
+                if known_ids:
+                    new_items = [item for item in merged_items if item.id not in known_ids]
+                    skipped = len(merged_items) - len(new_items)
+                    if skipped:
+                        self.console.print(f"⏭️  Skipped {skipped} already-published items\n")
+                    merged_items = new_items
+                if not merged_items:
+                    self.console.print("[yellow]No unpublished content found. Exiting.[/yellow]")
+                    return
+
             # 4. Analyze with AI
             analyzed_items = await self._analyze_content(merged_items)
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
 
-            # 5. Filter by score threshold
-            threshold = self.config.filtering.ai_score_threshold
+            # 5. Filter by featured score threshold
+            threshold = self.config.filtering.featured_score_threshold
             important_items = [
                 item for item in analyzed_items
                 if item.ai_score and item.ai_score >= threshold
@@ -124,65 +151,90 @@ class HorizonOrchestrator:
             self.console.print("")
 
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
-            await self._enrich_important_items(important_items)
+            if enrich:
+                await self._enrich_important_items(important_items)
+            elif important_items:
+                self.console.print("[dim]Skipping background enrichment for incremental poll.[/dim]\n")
+
+            # 6.5 Build static web UI data from all analyzed items.
+            daily_push_items = select_daily_push_items(
+                important_items,
+                threshold=self.config.filtering.daily_push_score_threshold,
+                limit=self.config.filtering.daily_push_limit,
+            )
+            await self._write_web_ui(
+                all_items=analyzed_items,
+                today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                total_fetched=len(all_items),
+            )
+
+            if not write_summaries and not send_notifications:
+                self.console.print("[dim]Skipping daily summary and notifications for incremental poll.[/dim]\n")
+                self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
+                return
 
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer()
                 summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
+                push_summary = await summarizer.generate_summary(
+                    daily_push_items,
+                    today,
+                    len(all_items),
+                    language=lang,
+                )
 
-                # Save to data/summaries/
-                summary_path = self.storage.save_daily_summary(today, summary, language=lang)
-                self.console.print(f"💾 Saved {lang.upper()} summary to: {summary_path}\n")
+                if write_summaries:
+                    # Save to data/summaries/
+                    summary_path = self.storage.save_daily_summary(today, summary, language=lang)
+                    self.console.print(f"💾 Saved {lang.upper()} summary to: {summary_path}\n")
 
-                # Copy to docs/ for GitHub Pages
-                try:
-                    from pathlib import Path
+                    # Copy to docs/ for GitHub Pages
+                    try:
+                        post_filename = f"{today}-summary-{lang}.md"
+                        posts_dir = Path("docs/_posts")
+                        posts_dir.mkdir(parents=True, exist_ok=True)
 
-                    post_filename = f"{today}-summary-{lang}.md"
-                    posts_dir = Path("docs/_posts")
-                    posts_dir.mkdir(parents=True, exist_ok=True)
+                        dest_path = posts_dir / post_filename
 
-                    dest_path = posts_dir / post_filename
+                        # Add Jekyll front matter
+                        front_matter = (
+                            "---\n"
+                            "layout: default\n"
+                            f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
+                            f"date: {today}\n"
+                            f"lang: {lang}\n"
+                            "---\n\n"
+                        )
 
-                    # Add Jekyll front matter
-                    front_matter = (
-                        "---\n"
-                        "layout: default\n"
-                        f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
-                        f"date: {today}\n"
-                        f"lang: {lang}\n"
-                        "---\n\n"
-                    )
+                        # Strip leading H1 header to avoid duplication with Jekyll title
+                        summary_content = summary
+                        first_line = summary_content.strip().split("\n")[0]
+                        if first_line.startswith("# "):
+                            parts = summary_content.split("\n", 1)
+                            if len(parts) > 1:
+                                summary_content = parts[1].strip()
 
-                    # Strip leading H1 header to avoid duplication with Jekyll title
-                    summary_content = summary
-                    first_line = summary_content.strip().split("\n")[0]
-                    if first_line.startswith("# "):
-                        parts = summary_content.split("\n", 1)
-                        if len(parts) > 1:
-                            summary_content = parts[1].strip()
+                        with open(dest_path, "w", encoding="utf-8") as f:
+                            f.write(front_matter + summary_content)
 
-                    with open(dest_path, "w", encoding="utf-8") as f:
-                        f.write(front_matter + summary_content)
-
-                    self.console.print(f"📄 Copied {lang.upper()} summary to GitHub Pages: {dest_path}\n")
-                except Exception as e:
-                    self.console.print(f"[yellow]⚠️  Failed to copy {lang.upper()} summary to docs/: {e}[/yellow]\n")
+                        self.console.print(f"📄 Copied {lang.upper()} summary to GitHub Pages: {dest_path}\n")
+                    except Exception as e:
+                        self.console.print(f"[yellow]⚠️  Failed to copy {lang.upper()} summary to docs/: {e}[/yellow]\n")
 
                 # Send email if configured
-                if self.email_manager and self.config.email and self.config.email.enabled:
+                if send_notifications and self.email_manager and self.config.email and self.config.email.enabled:
                     self.console.print(f"📧 Sending {lang.upper()} email summary...")
                     subscribers = self.storage.load_subscribers()
                     subject = f"Horizon Summary ({lang.upper()}) - {today}"
                     self.email_manager.send_daily_summary(summary, subject, subscribers)
 
                 # Send webhook notification if configured
-                if self.webhook_notifier:
+                if send_notifications and self.webhook_notifier:
                     await self.webhook_notifier.send_daily_summary(
-                        summary=summary,
-                        important_items=important_items,
+                        summary=push_summary,
+                        important_items=daily_push_items,
                         all_items_count=len(all_items),
                         date=today,
                         lang=lang,
@@ -209,7 +261,7 @@ class HorizonOrchestrator:
             self.console.print(f"[bold red]❌ Error: {e}[/bold red]")
 
             # Send webhook failure notification if configured
-            if self.webhook_notifier:
+            if send_notifications and self.webhook_notifier:
                 await self.webhook_notifier.send_failure(
                     date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     error_message=str(e),
@@ -531,6 +583,29 @@ class HorizonOrchestrator:
         enricher = ContentEnricher(ai_client)
         await enricher.enrich_batch(items)
         self.console.print(f"   Enriched {len(items)} items\n")
+
+    async def _write_web_ui(
+        self,
+        all_items: List[ContentItem],
+        today: str,
+        total_fetched: int,
+    ) -> None:
+        """Write the static private radar UI under data/site."""
+        try:
+            payload = build_site_payload(
+                all_items=all_items,
+                date=today,
+                total_fetched=total_fetched,
+                featured_threshold=self.config.filtering.featured_score_threshold,
+                daily_push_threshold=self.config.filtering.daily_push_score_threshold,
+                daily_push_limit=self.config.filtering.daily_push_limit,
+                homepage_min_score=self.config.filtering.homepage_min_score,
+                recent_item_limit=self.config.filtering.recent_item_limit,
+            )
+            data_path = write_static_site(self.storage.data_dir / "site", payload)
+            self.console.print(f"🌐 Updated web UI data: {data_path}\n")
+        except Exception as exc:
+            self.console.print(f"[yellow]⚠️  Failed to update web UI: {exc}[/yellow]\n")
 
     async def _analyze_content(self, items: List[ContentItem]) -> List[ContentItem]:
         """Analyze content items with AI.

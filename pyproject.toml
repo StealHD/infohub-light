@@ -37,6 +37,9 @@ horizon = "src.main:main"
 horizon-mcp = "src.mcp.server:main"
 horizon-wizard = "src.setup.wizard:main"
 horizon-webhook = "src.services.webhook_cli:main"
+horizon-scheduler = "src.services.scheduler:main"
+horizon-sources = "src.scrapers.source_registry_cli:main"
+horizon-web = "src.ui.server:main"
 
 [build-system]
 requires = ["hatchling"]

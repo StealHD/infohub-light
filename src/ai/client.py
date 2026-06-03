@@ -22,6 +22,7 @@ _SECRET_PREFIXES = (
     "xai-",
     "gsk_",
     "hf_",
+    "tp-",
 )
 _DEFAULT_API_KEY_ENVS = {
     AIProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
@@ -32,6 +33,7 @@ _DEFAULT_API_KEY_ENVS = {
     AIProvider.DOUBAO: "DOUBAO_API_KEY",
     AIProvider.MINIMAX: "MINIMAX_API_KEY",
     AIProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
+    AIProvider.XIAOMI: "XIAOMI_API_KEY",
 }
 
 
@@ -170,11 +172,12 @@ class OpenAIClient(AIClient):
         "deepseek": "https://api.deepseek.com",
         "doubao": "https://ark.cn-beijing.volces.com/api/v3",
         "minimax": "https://api.minimax.io/v1",
+        "xiaomi": "https://token-plan-cn.xiaomimimo.com/v1",
         "ollama": "http://localhost:11434/v1",
     }
 
     # Providers that don't support response_format
-    _NO_RESPONSE_FORMAT = {"minimax"}
+    _NO_RESPONSE_FORMAT = {"minimax", "xiaomi"}
 
     # Providers that need temperature clamped to (0, 1]
     _TEMP_CLAMP = {"minimax"}
@@ -194,6 +197,8 @@ class OpenAIClient(AIClient):
         base_url = config.base_url or self._DEFAULT_BASE_URLS.get(config.provider.value)
         if base_url:
             kwargs["base_url"] = base_url
+        if config.provider == AIProvider.XIAOMI:
+            kwargs["default_headers"] = {"api-key": api_key}
 
         self.client = AsyncOpenAI(**kwargs)
         self.model = config.model
@@ -275,8 +280,11 @@ class OpenAIClient(AIClient):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "max_tokens": max_tokens,
         }
+        if self.provider == AIProvider.XIAOMI.value:
+            request_kwargs["max_completion_tokens"] = max_tokens
+        else:
+            request_kwargs["max_tokens"] = max_tokens
         if include_temperature:
             request_kwargs["temperature"] = temperature
         if self.provider not in self._NO_RESPONSE_FORMAT:
@@ -505,6 +513,7 @@ def create_ai_client(config: AIConfig) -> AIClient:
         AIProvider.DOUBAO,
         AIProvider.MINIMAX,
         AIProvider.DEEPSEEK,
+        AIProvider.XIAOMI,
         AIProvider.OLLAMA,
     }:
         return OpenAIClient(config)

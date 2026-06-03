@@ -73,6 +73,7 @@ def configure_ai() -> Optional[AIConfig]:
         "doubao": "DOUBAO_API_KEY",
         "minimax": "MINIMAX_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
+        "xiaomi": "XIAOMI_API_KEY",
     }
     api_key_env = Prompt.ask(
         "API key environment variable name",
@@ -276,6 +277,7 @@ def build_config(
     filtering = FilteringConfig(
         ai_score_threshold=7.0,
         time_window_hours=24,
+        recent_item_limit=20,
     )
 
     return Config(

@@ -71,14 +71,15 @@ class TelegramScraper(BaseScraper):
 
         items = []
         for msg in messages[-cfg.fetch_limit:]:
-            item = self._parse_message(msg, cfg.channel, since)
+            item = self._parse_message(msg, cfg, since)
             if item:
                 items.append(item)
         return items
 
     def _parse_message(
-        self, msg_el, channel: str, since: datetime
+        self, msg_el, cfg: TelegramChannelConfig, since: datetime
     ) -> Optional[ContentItem]:
+        channel = cfg.channel
         # Extract message ID
         data_post = msg_el.get("data-post", "")
         msg_id = data_post.split("/")[-1] if "/" in data_post else data_post
@@ -131,7 +132,11 @@ class TelegramScraper(BaseScraper):
             content=text,
             author=channel,
             published_at=published_at,
-            metadata={"msg_url": msg_url, "channel": channel},
+            metadata={
+                "msg_url": msg_url,
+                "channel": channel,
+                "tags": list(cfg.tags),
+            },
         )
 
     @staticmethod

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI 信息雷达</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>AI 信息雷达</h1>
+        <p id="metaLine">等待数据</p>
+      </div>
+      <div class="topbar-actions">
+        <button id="clearFiltersBtn" type="button" title="清除筛选和本地筛选状态">清除筛选</button>
+        <button id="refreshBtn" type="button" title="重新读取数据">刷新</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="filters" aria-label="筛选">
+        <div class="field">
+          <label for="searchInput">关键词</label>
+          <input id="searchInput" type="search" placeholder="标题、摘要、标签" />
+        </div>
+        <div class="field">
+          <label for="minScoreInput">最低分</label>
+          <input id="minScoreInput" type="range" min="0" max="10" step="0.5" value="0" />
+          <output id="minScoreValue">0</output>
+        </div>
+        <div class="field">
+          <label for="tagSelect">标签</label>
+          <select id="tagSelect">
+            <option value="">全部标签</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sourceSelect">来源</label>
+          <select id="sourceSelect">
+            <option value="">全部来源</option>
+          </select>
+        </div>
+        <label class="checkline">
+          <input id="favoritesOnly" type="checkbox" />
+          只看收藏
+        </label>
+      </aside>
+
+      <section class="content">
+        <nav class="tabs" aria-label="视图">
+          <button class="tab active" type="button" data-view="featured">精选信息流</button>
+          <button class="tab" type="button" data-view="all">全部动态</button>
+          <button class="tab" type="button" data-view="history">历史动态</button>
+          <button class="tab" type="button" data-view="daily">每日摘要</button>
+          <button class="tab" type="button" data-view="config">配置</button>
+        </nav>
+
+        <div class="summary-strip" id="summaryStrip"></div>
+        <div id="itemsList" class="items"></div>
+        <section id="configPanel" class="config-panel hidden" aria-label="配置编辑">
+          <div class="config-head">
+            <div>
+              <h2>配置</h2>
+              <p id="configPath">读取中</p>
+            </div>
+            <div class="config-actions">
+              <button id="reloadConfigBtn" type="button">重新读取</button>
+            </div>
+          </div>
+          <div id="envStatus" class="env-status"></div>
+          <div id="configForms" class="config-forms"></div>
+          <div id="configMessage" class="config-message"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

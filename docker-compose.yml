@@ -1,13 +1,53 @@
 services:
   horizon:
     build: .
-    container_name: horizon
+    container_name: horizon-runner
+    profiles: ["manual"]
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
       - ./.env:/app/.env:ro
     environment:
-      - TZ=UTC
+      TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
+    command: ["--hours", "${HORIZON_FETCH_HOURS:-24}"]
+
+  horizon-scheduler:
+    build: .
+    container_name: horizon-scheduler
     restart: unless-stopped
-    # Run daily at 8:00 AM UTC (adjust as needed)
-    # For one-time run, use: docker compose run --rm horizon
-    command: ["--hours", "24"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
+      HORIZON_TIMEZONE: ${HORIZON_TIMEZONE:-Asia/Shanghai}
+      HORIZON_DAILY_TIME: ${HORIZON_DAILY_TIME:-08:30}
+      HORIZON_FETCH_HOURS: ${HORIZON_FETCH_HOURS:-24}
+      HORIZON_RUN_ON_START: ${HORIZON_RUN_ON_START:-false}
+      HORIZON_POLL_ENABLED: ${HORIZON_POLL_ENABLED:-true}
+      HORIZON_POLL_INTERVAL_MINUTES: ${HORIZON_POLL_INTERVAL_MINUTES:-30}
+      HORIZON_POLL_FETCH_HOURS: ${HORIZON_POLL_FETCH_HOURS:-2}
+    entrypoint: ["uv", "run", "horizon-scheduler"]
+
+  horizon-web:
+    build: .
+    container_name: horizon-web
+    restart: unless-stopped
+    ports:
+      - "${HORIZON_WEB_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
+      HORIZON_WEB_PORT: 8080
+    entrypoint: ["uv", "run", "horizon-web"]
+    command: ["--host", "0.0.0.0", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=3).read(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

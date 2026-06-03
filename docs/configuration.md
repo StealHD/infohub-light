@@ -18,6 +18,7 @@ that variable:
 ```bash
 OPENAI_API_KEY=sk-your-key
 GOOGLE_API_KEY=your-gemini-key
+XIAOMI_API_KEY=your-xiaomi-mimo-token-plan-key
 ```
 
 When Horizon starts, environment variables have priority because
@@ -32,6 +33,7 @@ Common API key variable names:
 | OpenAI | `OPENAI_API_KEY` |
 | Azure OpenAI | `AZURE_OPENAI_API_KEY` |
 | Gemini | `GOOGLE_API_KEY` |
+| Xiaomi MiMo Token Plan | `XIAOMI_API_KEY` |
 | MiniMax | `MINIMAX_API_KEY` |
 | Aliyun DashScope | `DASHSCOPE_API_KEY` |
 | Doubao | `DOUBAO_API_KEY` |
@@ -69,12 +71,40 @@ Common API key variable names:
 {
   "ai": {
     "provider": "gemini",
-    "model": "gemini-2.0-flash",
+    "model": "gemini-2.5-flash",
     "api_key_env": "GOOGLE_API_KEY",
     "throttle_sec": 0
   }
 }
 ```
+
+Use a Google AI Studio / Gemini API key in `.env`:
+
+```bash
+GOOGLE_API_KEY=your-gemini-key
+```
+
+For the native `gemini` provider, leave `base_url` empty. If you instead route
+Gemini through an OpenAI-compatible gateway, use provider `openai` with that
+gateway's `base_url`.
+
+**Xiaomi MiMo Token Plan** (OpenAI-compatible):
+
+```json
+{
+  "ai": {
+    "provider": "xiaomi",
+    "model": "mimo-v2.5-pro",
+    "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+    "api_key_env": "XIAOMI_API_KEY",
+    "throttle_sec": 0
+  }
+}
+```
+
+The Xiaomi MiMo Token Plan endpoint uses the OpenAI-compatible Chat Completions
+API with an `api-key` header. Horizon sends that provider-specific header
+automatically when `provider` is `xiaomi`.
 
 **Azure OpenAI**:
 
@@ -176,6 +206,33 @@ For OpenAI-compatible gateways, Horizon sends `temperature` by default. If a new
 ## Information Sources
 
 All sources are configured under the top-level `sources` key in `config.json`.
+
+### Tags
+
+Horizon keeps a top-level tag library for UI maintenance and optional `tags`
+on each source. The source tags are copied into fetched item metadata and passed
+to the AI scorer as context; the final card tags still come from AI output plus
+these configured tags.
+
+```json
+{
+  "tags": ["AI Agent", "AI 编程", "RAG", "MCP"],
+  "sources": {
+    "rss": [
+      {
+        "name": "Simon Willison",
+        "url": "https://simonwillison.net/atom/everything/",
+        "enabled": true,
+        "category": "ai-tools",
+        "tags": ["AI 编程", "tool use"]
+      }
+    ]
+  }
+}
+```
+
+In the local Web UI, open the **Config** tab to maintain the tag library and
+per-source tags through validated forms.
 
 ### GitHub
 
@@ -399,14 +456,24 @@ Content is scored 0-10:
 ```json
 {
   "filtering": {
-    "ai_score_threshold": 7.0,
-    "time_window_hours": 24
+    "ai_score_threshold": 7.5,
+    "featured_score_threshold": 7.5,
+    "daily_push_score_threshold": 8.5,
+    "daily_push_limit": 10,
+    "homepage_min_score": 6.0,
+    "time_window_hours": 24,
+    "recent_item_limit": 20
   }
 }
 ```
 
-- `ai_score_threshold`: Only include content scoring >= this value
+- `ai_score_threshold`: Backward-compatible score threshold. In the private radar config this is set to `7.5`.
+- `featured_score_threshold`: Items scoring >= this value enter the featured feed and daily summary.
+- `daily_push_score_threshold`: Items scoring >= this value are eligible for webhook daily push.
+- `daily_push_limit`: Maximum number of high-scoring items sent in the daily push.
+- `homepage_min_score`: Items below this score stay in "All Items" and are hidden from featured home views.
 - `time_window_hours`: Fetch content from last N hours
+- `recent_item_limit`: Number of newest items kept in the current web UI payload. Older items are retained in history.
 
 ## Environment Variable Substitution
 

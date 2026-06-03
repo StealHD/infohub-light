@@ -14,13 +14,15 @@ COPY data ./data
 COPY .env.example .env.example
 
 # Install dependencies
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 
 # Create volume mount points
-VOLUME ["/app/data"]
+RUN mkdir -p /app/data /app/logs
+VOLUME ["/app/data", "/app/logs"]
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV TZ=Asia/Shanghai
 
 # Run the application
 ENTRYPOINT ["uv", "run", "horizon"]

@@ -36,6 +36,10 @@ class ContentItem(BaseModel):
     ai_score: Optional[float] = None  # 0-10 importance score
     ai_reason: Optional[str] = None
     ai_summary: Optional[str] = None
+    ai_summary_zh: Optional[str] = None
+    ai_category: Optional[str] = None
+    ai_is_featured: bool = False
+    ai_action_suggestion: Optional[str] = None
     ai_tags: List[str] = Field(default_factory=list)
 
 
@@ -50,6 +54,7 @@ class AIProvider(str, Enum):
     DOUBAO = "doubao"
     MINIMAX = "minimax"
     DEEPSEEK = "deepseek"
+    XIAOMI = "xiaomi"
     OLLAMA = "ollama"
 
 
@@ -79,6 +84,7 @@ class GitHubSourceConfig(BaseModel):
     owner: Optional[str] = None
     repo: Optional[str] = None
     enabled: bool = True
+    tags: List[str] = Field(default_factory=list)
 
 
 class HackerNewsConfig(BaseModel):
@@ -96,6 +102,7 @@ class RSSSourceConfig(BaseModel):
     url: HttpUrl
     enabled: bool = True
     category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
 
 
 class RedditSubredditConfig(BaseModel):
@@ -109,6 +116,7 @@ class RedditSubredditConfig(BaseModel):
     )
     fetch_limit: int = 25
     min_score: int = 10
+    tags: List[str] = Field(default_factory=list)
 
 
 class RedditUserConfig(BaseModel):
@@ -118,6 +126,7 @@ class RedditUserConfig(BaseModel):
     enabled: bool = True
     sort: str = "new"
     fetch_limit: int = 10
+    tags: List[str] = Field(default_factory=list)
 
 
 class RedditConfig(BaseModel):
@@ -135,6 +144,7 @@ class TelegramChannelConfig(BaseModel):
     channel: str  # channel username, e.g. "zaihuapd"
     enabled: bool = True
     fetch_limit: int = 20
+    tags: List[str] = Field(default_factory=list)
 
 
 class TelegramConfig(BaseModel):
@@ -313,7 +323,12 @@ class FilteringConfig(BaseModel):
     """Content filtering configuration."""
 
     ai_score_threshold: float = 7.0
+    featured_score_threshold: float = 7.5
+    daily_push_score_threshold: float = 8.5
+    daily_push_limit: int = 10
+    homepage_min_score: float = 6.0
     time_window_hours: int = 24
+    recent_item_limit: int = 20
 
 
 class Config(BaseModel):
@@ -323,5 +338,6 @@ class Config(BaseModel):
     ai: AIConfig
     sources: SourcesConfig
     filtering: FilteringConfig
+    tags: List[str] = Field(default_factory=list)
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None

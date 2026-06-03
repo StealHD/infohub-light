@@ -8,8 +8,18 @@
     "max_tokens": 4096,
     "throttle_sec": 0,
     "analysis_concurrency": 1,
-    "enrichment_concurrency": 1
+    "enrichment_concurrency": 1,
+    "languages": ["zh"]
   },
+  "tags": [
+    "AI Agent",
+    "AI 编程",
+    "RAG",
+    "MCP",
+    "模型发布",
+    "开源模型",
+    "AI Infra"
+  ],
   "email": {
     "enabled": false,
     "smtp_server": "smtp.qq.com",
@@ -26,13 +36,15 @@
       {
         "type": "user_events",
         "username": "torvalds",
-        "enabled": true
+        "enabled": true,
+        "tags": ["核心开发者"]
       },
       {
         "type": "repo_releases",
         "owner": "astral-sh",
         "repo": "uv",
-        "enabled": true
+        "enabled": true,
+        "tags": ["开发工具", "Python"]
       }
     ],
     "hackernews": {
@@ -45,7 +57,8 @@
         "name": "Simon Willison",
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "ai-tools"
+        "category": "ai-tools",
+        "tags": ["AI 编程", "tool use"]
       },
       {
         "name": "LWN.net (subscriber full-text)",
@@ -63,7 +76,8 @@
           "sort": "hot",
           "time_filter": "day",
           "fetch_limit": 15,
-          "min_score": 50
+          "min_score": 50,
+          "tags": ["机器学习", "研究讨论"]
         }
       ],
       "users": [
@@ -71,7 +85,8 @@
           "username": "iamthatis",
           "enabled": true,
           "sort": "new",
-          "fetch_limit": 10
+          "fetch_limit": 10,
+          "tags": ["社区观点"]
         }
       ],
       "fetch_comments": 5
@@ -110,8 +125,13 @@
     }
   },
   "filtering": {
-    "ai_score_threshold": 6.0,
-    "time_window_hours": 24
+    "ai_score_threshold": 7.5,
+    "featured_score_threshold": 7.5,
+    "daily_push_score_threshold": 8.5,
+    "daily_push_limit": 10,
+    "homepage_min_score": 6.0,
+    "time_window_hours": 24,
+    "recent_item_limit": 20
   },
   "webhook": {
     "enabled": false,

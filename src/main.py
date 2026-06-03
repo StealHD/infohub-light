@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from rich.console import Console
 
+from .logging_utils import configure_logging
 from .storage.manager import ConfigError, StorageManager
 from .orchestrator import HorizonOrchestrator
 
@@ -33,6 +34,7 @@ def print_banner():
 
 def main():
     """Main CLI entry point."""
+    configure_logging()
     print_banner()
 
     parser = argparse.ArgumentParser(description="Horizon - AI-Driven Information Aggregation System")

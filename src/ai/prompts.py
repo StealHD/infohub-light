@@ -20,56 +20,54 @@ Respond with valid JSON only:
 
 If there are no duplicates at all, return: {{"duplicates": []}}"""
 
-CONTENT_ANALYSIS_SYSTEM = """You are an expert content curator helping filter important technical and academic information.
+CONTENT_ANALYSIS_SYSTEM = """You are the ranking editor for a private AI information radar.
 
-Score content on a 0-10 scale based on importance and relevance:
+The reader cares about AI agents, Claude Code, Codex, Cursor, Devin, OpenAI,
+Anthropic, Google DeepMind, Meta AI, RAG, MCP, tool use, long context, AI
+programming, automation, startup products, AI infrastructure, open models,
+inference frameworks, and model releases.
 
-**9-10: Groundbreaking** - Major breakthroughs, paradigm shifts, or highly significant announcements
-- New major version releases of widely-used technologies
-- Significant research breakthroughs
-- Important industry-changing announcements
+Score each item from 0 to 10 using these dimensions:
+- Importance: whether it affects the AI industry or developer workflows.
+- Novelty: whether it is a new release, new change, or emerging trend.
+- Actionability: whether the reader should immediately read, test, save, or share it.
+- Source credibility: official blogs, papers, GitHub projects, and core developers rank higher.
+- Discussion value: high-quality community debate or conflicting viewpoints increase value.
 
-**7-8: High Value** - Important developments worth immediate attention
-- Interesting technical deep-dives
-- Novel approaches to known problems
-- Insightful analysis or commentary
-- Valuable tools or libraries
+Scoring guide:
+- 9-10: major release, important research, product shift, or strong developer workflow impact.
+- 7.5-8.9: high-value item worth reading soon or testing.
+- 6-7.4: useful context, but not urgent.
+- 3-5.9: minor, repetitive, speculative, or mostly promotional.
+- 0-2.9: off-topic, spam, or too thin to evaluate.
 
-**5-6: Interesting** - Worth knowing but not urgent
-- Incremental improvements
-- Useful tutorials
-- Moderate community interest
+Featured rules:
+- score >= 7.5 means is_featured must be true.
+- score >= 8.5 is suitable for the daily push.
+- score < 6 should not be shown in the featured homepage, but it still remains in all items.
 
-**3-4: Low Priority** - Generic or routine content
-- Minor updates
-- Common knowledge
-- Overly promotional content
-
-**0-2: Noise** - Not relevant or low quality
-- Spam or purely promotional
-- Off-topic content
-- Trivial updates
-
-Consider:
-- Technical depth and novelty
-- Potential impact on the field
-- Quality of writing/presentation
-- Relevance to software engineering, AI/ML, and systems research
-- Community discussion quality: insightful comments, diverse viewpoints, and debates increase value
-- Engagement signals: high upvotes/favorites with substantive discussion indicate community-validated importance
+Chinese writing style:
+- Be concise and concrete.
+- Do not use marketing language or exaggerated claims.
+- Do not mechanically translate English.
+- Prioritize: what happened, why it matters, what the reader can do.
 """
 
 CONTENT_ANALYSIS_USER = """Analyze the following content and provide a JSON response with:
-- score (0-10): Importance score
-- reason: Brief explanation for the score (mention discussion quality if comments are provided)
-- summary: One-sentence summary of the content
-- tags: Relevant topic tags (3-5 tags)
+- score: number from 0 to 10.
+- reason: concise Chinese reason for the score; mention source credibility and discussion value when relevant.
+- tags: 3-6 short tags.
+- category: one Chinese category, such as AI Agent, AI 编程, 模型发布, AI Infra, RAG/MCP, 开源模型, 产品创业, 研究论文.
+- is_featured: boolean, true when score >= 7.5.
+- summary_zh: 150-250 Chinese characters, explaining what happened, why it matters, and what the reader can do.
+- action_suggestion: one short Chinese sentence about whether to read, test, save, compare, or share.
 
 Content:
 Title: {title}
 Source: {source}
 Author: {author}
 URL: {url}
+Configured source tags: {source_tags}
 {content_section}
 {discussion_section}
 
@@ -77,8 +75,11 @@ Respond with valid JSON only:
 {{
   "score": <number>,
   "reason": "<explanation>",
-  "summary": "<one-sentence-summary>",
-  "tags": ["<tag1>", "<tag2>", ...]
+  "tags": ["<tag1>", "<tag2>", ...],
+  "category": "<category>",
+  "is_featured": <true-or-false>,
+  "summary_zh": "<150-250字中文摘要>",
+  "action_suggestion": "<what-to-do-next>"
 }}"""
 
 CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.

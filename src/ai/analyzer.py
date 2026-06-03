@@ -1,8 +1,6 @@
 """Content analysis using AI."""
 
 import asyncio
-import json
-import re
 from typing import List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
@@ -13,6 +11,7 @@ from .utils import parse_json_response
 from ..models import ContentItem
 
 DEFAULT_THROTTLE_SEC = 0.0
+DEFAULT_FEATURED_THRESHOLD = 7.5
 
 
 class ContentAnalyzer:
@@ -128,6 +127,9 @@ class ContentAnalyzer:
             discussion_parts.append(f"Community Note: {meta['community_note']}")
 
         discussion_section = "\n".join(discussion_parts) if discussion_parts else ""
+        source_tags = meta.get("tags") or []
+        if not isinstance(source_tags, list):
+            source_tags = []
 
         # Generate user prompt
         user_prompt = CONTENT_ANALYSIS_USER.format(
@@ -135,6 +137,7 @@ class ContentAnalyzer:
             source=f"{item.source_type.value}",
             author=item.author or "Unknown",
             url=str(item.url),
+            source_tags=", ".join(str(tag) for tag in source_tags) or "None",
             content_section=content_section,
             discussion_section=discussion_section
         )
@@ -155,8 +158,20 @@ class ContentAnalyzer:
             item.ai_tags = []
             return
 
-        # Update item with analysis results
-        item.ai_score = float(result.get("score", 0))
+        # Update item with analysis results. Keep backward compatibility with
+        # older prompts that returned "summary" instead of "summary_zh".
+        score = max(0.0, min(10.0, float(result.get("score", 0))))
+        tags = result.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+
+        item.ai_score = score
         item.ai_reason = result.get("reason", "")
-        item.ai_summary = result.get("summary", item.title)
-        item.ai_tags = result.get("tags", [])
+        item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
+        item.ai_summary = result.get("summary") or item.ai_summary_zh or item.title
+        item.ai_tags = [str(tag) for tag in tags][:6]
+        item.ai_category = result.get("category")
+        item.ai_is_featured = bool(
+            result.get("is_featured", score >= DEFAULT_FEATURED_THRESHOLD)
+        )
+        item.ai_action_suggestion = result.get("action_suggestion", "")

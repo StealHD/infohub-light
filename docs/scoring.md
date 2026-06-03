@@ -12,7 +12,7 @@ After fetching content from all sources, Horizon uses an AI model to score each 
 1. **Batch processing** — Items are scored in batches of 10 with a progress bar. Failed items receive a score of 0.
 2. **Content preparation** — For each item, the content is truncated (800 chars if comments are present, 1000 otherwise) and engagement metrics are assembled from metadata (HN score, Reddit upvote ratio, etc.).
 3. **AI analysis** — The prepared content is sent to the configured AI model (temperature 0.3) with a system prompt defining the scoring criteria.
-4. **Response parsing** — The AI response is parsed as JSON (with fallbacks for code-block-wrapped JSON). Each item gets: `ai_score` (float), `ai_reason` (string), `ai_summary` (string), and `ai_tags` (list).
+4. **Response parsing** — The AI response is parsed as JSON (with fallbacks for code-block-wrapped JSON). Each item gets: `ai_score` (float), `ai_reason` (string), `ai_summary_zh` (string), `ai_tags` (list), `ai_category`, `ai_is_featured`, and `ai_action_suggestion`.
 5. **Retry** — Failed AI calls are retried up to 3 times with exponential backoff (2-10 seconds).
 
 ## Scoring Scale
@@ -44,13 +44,16 @@ After scoring, items are filtered by `filtering.ai_score_threshold` (default: `7
 ```json
 {
   "filtering": {
-    "ai_score_threshold": 7.0,
+    "ai_score_threshold": 7.5,
+    "featured_score_threshold": 7.5,
+    "daily_push_score_threshold": 8.5,
+    "daily_push_limit": 10,
     "time_window_hours": 24
   }
 }
 ```
 
-Items scoring 9.0 or above are featured in the "Today's Highlights" section of the summary.
+In the private radar config, items scoring `>= 7.5` enter the featured feed and daily summary. Items scoring `>= 8.5` are eligible for the daily webhook push, capped by `daily_push_limit` (default `10`). Items below `6.0` stay in the all-items JSON/UI data but are hidden from the featured home view.
 
 ## Enrichment
 

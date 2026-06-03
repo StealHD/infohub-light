@@ -95,6 +95,9 @@ class RSSScraper(BaseScraper):
                 # Extract content
                 content = self._extract_content(entry)
 
+                entry_tags = [tag.term for tag in entry.get("tags", [])]
+                source_tags = list(source.tags)
+
                 item = ContentItem(
                     id=self._generate_id("rss", feed_id, entry_hash),
                     source_type=SourceType.RSS,
@@ -106,7 +109,7 @@ class RSSScraper(BaseScraper):
                     metadata={
                         "feed_name": source.name,
                         "category": source.category,
-                        "tags": [tag.term for tag in entry.get("tags", [])],
+                        "tags": list(dict.fromkeys(source_tags + entry_tags)),
                     },
                 )
                 items.append(item)

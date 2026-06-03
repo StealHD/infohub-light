@@ -207,13 +207,16 @@ cd Horizon
 
 # Configure environment
 cp .env.example .env
-cp data/config.example.json data/config.json
-# Edit .env and data/config.json with your API keys and preferences
+# data/config.json is already a private AI radar starter config in this fork.
+# Edit .env and data/config.json with your API keys, sources, thresholds, and webhook.
 
-# Run with Docker Compose
-docker compose run --rm horizon
+# Start short polling, daily push, and the web UI
+docker compose up -d
 
-# Or run with custom time window
+# Run one manual fetch/score/summarize/push job
+docker compose run --rm horizon --hours 24
+
+# Or run with a custom time window
 docker compose run --rm horizon --hours 48
 ```
 
@@ -273,6 +276,19 @@ For Gemini, use `GOOGLE_API_KEY`:
 }
 ```
 
+For Xiaomi MiMo Token Plan, use `XIAOMI_API_KEY` and the China cluster endpoint:
+
+```jsonc
+{
+  "ai": {
+    "provider": "xiaomi",
+    "model": "mimo-v2.5-pro",
+    "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+    "api_key_env": "XIAOMI_API_KEY"
+  }
+}
+```
+
 Any string value in `data/config.json` can reference environment variables with `${VAR_NAME}`. This is useful for values such as `ai.base_url`, private RSS feed URLs, webhook endpoints, or custom header templates.
 
 For the full reference, see the [Configuration Guide](docs/configuration.md).
@@ -289,11 +305,68 @@ uv run horizon --hours 48  # Fetch from last 48 hours
 #### With Docker
 
 ```bash
+docker compose up -d                      # Start scheduler + web UI
 docker compose run --rm horizon           # Run with default 24h window
 docker compose run --rm horizon --hours 48  # Fetch from last 48 hours
+docker compose logs -f horizon-scheduler  # Watch scheduler logs
 ```
 
-The generated report will be saved to `data/summaries/`.
+The generated report is saved to `data/summaries/`. The private web UI is served from `data/site/` at [http://localhost:8080](http://localhost:8080) by default.
+
+## Private AI Radar Docker Deployment
+
+This repository includes a private custom AI information radar configuration in `data/config.json`. It keeps Horizon's original pipeline and adds:
+
+- Chinese scoring output with `score`, `reason`, `tags`, `category`, `is_featured`, `summary_zh`, and `action_suggestion`
+- Featured threshold `>= 7.5`, daily push threshold `>= 8.5`, and top 10 push limit
+- RSS/Atom, GitHub releases, GitHub public events, Hacker News, Reddit, Telegram public channels, OSS Insight, and optional Twitter/X via Apify
+- Static web UI with featured feed, recent 20 all-items feed, historical archive, daily summary, tag/source/search/score filters, and localStorage favorites
+- Structured config UI for sources, tags, thresholds, AI model, and webhook settings, backed by server-side validation and config backups
+- Docker Compose short polling every 30 minutes, daily webhook push at `08:30 Asia/Shanghai`, data mounts, log mounts, and web health check
+
+Deployment:
+
+```bash
+git clone https://github.com/Thysrael/Horizon.git
+cd Horizon
+cp .env.example .env
+
+# Edit OPENAI_API_KEY or another provider key in .env.
+# Use the Web UI config tab to edit sources, tags, thresholds, and webhook.
+docker compose up -d
+docker compose logs -f horizon-scheduler
+```
+
+Manual run and checks:
+
+```bash
+# Run one complete fetch + AI score + summary + optional webhook push.
+docker compose run --rm horizon --hours 24
+
+# Preview webhook rendering without sending.
+docker compose run --rm --entrypoint uv horizon run horizon-webhook --lang zh --dry-run
+
+# Open the static UI.
+open http://localhost:8080
+```
+
+Important config notes:
+
+- Put secrets only in `.env`; `data/config.json` stores environment variable names such as `OPENAI_API_KEY`, `GITHUB_TOKEN`, `APIFY_TOKEN`, and `HORIZON_WEBHOOK_URL`.
+- Keep `sources.twitter.enabled=false` unless `APIFY_TOKEN` is configured.
+- Set `webhook.enabled=true` only after `HORIZON_WEBHOOK_URL` is set. `platform` may be `generic`, `feishu`, `lark`, `dingtalk`, `slack`, or `discord`.
+- Logs are mounted to `./logs`; scheduler failures and webhook failures are written there and also visible via `docker compose logs`.
+
+### Direct Source Fetching, No AIHub Dependency
+
+This private radar does not require or reverse-engineer any third-party AIHub/AIHOT-style aggregator API. Sources are split by adapter and fetched directly from public origin endpoints or official APIs:
+
+```bash
+docker compose run --rm --entrypoint uv horizon run horizon-sources
+docker compose run --rm --entrypoint uv horizon run horizon-sources --json
+```
+
+The current direct-source adapters cover RSS/Atom, GitHub REST API, Hacker News Firebase API, Reddit public JSON, Telegram public channel pages, OSS Insight public API, and optional OpenBB. Twitter/X is disabled by default because this setup has no stable public origin API for it; enable it only when `APIFY_TOKEN` is configured.
 
 ### 4. Automate (Optional)
 

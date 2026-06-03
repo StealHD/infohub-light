@@ -40,11 +40,20 @@ LABELS = {
     },
     "zh": {
         "header": "Horizon 每日速递",
+        "private_header": "AI 信息雷达每日摘要",
         "source": "来源",
+        "published_at": "发布时间",
+        "score": "分数",
+        "category": "分类",
         "background": "背景",
         "discussion": "社区讨论",
+        "related_discussion": "关联讨论",
         "references": "参考链接",
         "tags": "标签",
+        "summary_zh": "150-250 字中文摘要",
+        "recommendation": "推荐理由",
+        "action": "我该关注什么",
+        "original": "原文链接",
         "selected_items": "从 {total} 条内容中筛选出 {selected} 条重要资讯。",
         "empty_analyzed": "已分析 {total} 条内容，但没有达到重要性阈值的条目。",
         "empty_body": (
@@ -92,8 +101,9 @@ class DailySummarizer:
         if not items:
             return self._generate_empty_summary(date, total_fetched, labels)
 
+        header_label = labels.get("private_header", labels["header"])
         header = (
-            f"# {labels['header']} - {date}\n\n"
+            f"# {header_label} - {date}\n\n"
             f"> {labels['selected_items'].format(total=total_fetched, selected=len(items))}\n\n"
             "---\n\n"
         )
@@ -162,6 +172,9 @@ class DailySummarizer:
 
     def _format_item(self, item: ContentItem, labels: dict, language: str, index: int) -> str:
         """Format a single ContentItem into Markdown."""
+        if language == "zh":
+            return self._format_zh_item(item, labels, index)
+
         _title = item.metadata.get(f"title_{language}") or item.title
         title = str(_title).replace("[", "(").replace("]", ")")
         url = str(item.url)
@@ -246,6 +259,102 @@ class DailySummarizer:
         lines.append("")
         lines.append("---")
 
+        return "\n".join(lines) + "\n\n"
+
+    def _format_zh_item(self, item: ContentItem, labels: dict, index: int) -> str:
+        """Format one item as a dense Chinese radar card."""
+        title = str(item.metadata.get("title_zh") or item.title).replace("[", "(").replace("]", ")")
+        title = _pangu(title)
+        url = str(item.url)
+        score = item.ai_score if item.ai_score is not None else "?"
+        score_text = f"{score:g}" if isinstance(score, float) else str(score)
+        meta = item.metadata
+
+        source_type = item.source_type.value
+        source_parts = [source_type]
+        if meta.get("subreddit"):
+            source_parts.append(f"r/{meta['subreddit']}")
+        if meta.get("feed_name"):
+            source_parts.append(str(meta["feed_name"]))
+        elif meta.get("channel"):
+            source_parts.append(f"@{meta['channel']}")
+        elif meta.get("repo"):
+            source_parts.append(str(meta["repo"]))
+        else:
+            source_parts.append(item.author or "unknown")
+
+        published = ""
+        if item.published_at:
+            published = (
+                f"{item.published_at.month}月{item.published_at.day}日 "
+                f"{item.published_at:%H:%M}"
+            )
+            source_parts.append(published)
+        source_line = " · ".join(source_parts)
+
+        summary = (
+            item.ai_summary_zh
+            or meta.get("detailed_summary_zh")
+            or meta.get("detailed_summary")
+            or item.ai_summary
+            or ""
+        )
+        summary = _pangu(str(summary))
+
+        reason = _pangu(item.ai_reason or "")
+        action = _pangu(item.ai_action_suggestion or "阅读原文，判断是否值得测试、收藏或转发。")
+        discussion_url = meta.get("discussion_url")
+        discussion = (
+            meta.get("community_discussion_zh")
+            or meta.get("community_discussion")
+            or ""
+        )
+        if discussion:
+            discussion = _pangu(str(discussion))
+
+        tag_values = list(item.ai_tags)
+        tags_str = ", ".join([f"`#{_pangu(str(tag))}`" for tag in tag_values]) or "无"
+        category = _pangu(item.ai_category or "未分类")
+
+        lines = [
+            f'<a id="item-{index}"></a>',
+            f"## {title}",
+            "",
+            f"**{labels['source']}**: {source_line}",
+            f"**{labels['published_at']}**: {published or '未知'}",
+            f"**{labels['score']}**: {score_text}/10",
+            f"**{labels['category']}**: {category}",
+            f"**{labels['tags']}**: {tags_str}",
+            "",
+            f"**{labels['summary_zh']}**",
+            "",
+            summary,
+            "",
+            f"**{labels['recommendation']}**: {reason}",
+            f"**{labels['action']}**: {action}",
+            f"**{labels['original']}**: {url}",
+        ]
+
+        if discussion_url:
+            discussion_url = str(discussion_url)
+            if discussion_url != url:
+                lines.append(
+                    f"**{labels['related_discussion']}**: {discussion_url} "
+                    f"([{labels['discussion']}]({discussion_url}))"
+                )
+        if discussion:
+            lines.append(f"**{labels['discussion']}**: {discussion}")
+
+        sources = meta.get("sources") or []
+        if sources:
+            items_html = "".join(f'<li><a href="{s["url"]}">{s["title"]}</a></li>\n' for s in sources)
+            lines += [
+                "",
+                f'<details><summary>{labels["references"]}</summary>\n<ul>\n{items_html}\n</ul>\n</details>',
+            ]
+
+        lines.append("")
+        lines.append("---")
         return "\n".join(lines) + "\n\n"
 
     def _generate_empty_summary(self, date: str, total_fetched: int, labels: dict) -> str:
