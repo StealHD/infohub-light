@@ -210,8 +210,8 @@ cp .env.example .env
 # data/config.json is already a private AI radar starter config in this fork.
 # Edit .env and data/config.json with your API keys, sources, thresholds, and webhook.
 
-# Start short polling, daily push, and the web UI
-docker compose up -d
+# Rebuild current workspace, replace old containers, and prune old build cache
+./scripts/up-latest.sh
 
 # Run one manual fetch/score/summarize/push job
 docker compose run --rm horizon --hours 24
@@ -219,6 +219,14 @@ docker compose run --rm horizon --hours 24
 # Or run with a custom time window
 docker compose run --rm horizon --hours 48
 ```
+
+Use `./scripts/up-latest.sh` for local Docker starts. It runs
+`docker compose build --pull --no-cache` by default, recreates the running services with
+`--no-build --force-recreate --remove-orphans`, then prunes old dangling images for this Compose
+project and old Docker build cache. Avoid bare `docker compose up -d` if you want to
+guarantee the container uses the latest local code. Set `HORIZON_BUILD_NO_CACHE=false`
+for faster cached rebuilds, or `HORIZON_PRUNE_BUILD_CACHE_UNTIL=0h` for aggressive build
+cache cleanup.
 
 ### 2. Configure
 
@@ -305,7 +313,7 @@ uv run horizon --hours 48  # Fetch from last 48 hours
 #### With Docker
 
 ```bash
-docker compose up -d                      # Start scheduler + web UI
+./scripts/up-latest.sh                      # Start scheduler + web UI
 docker compose run --rm horizon           # Run with default 24h window
 docker compose run --rm horizon --hours 48  # Fetch from last 48 hours
 docker compose logs -f horizon-scheduler  # Watch scheduler logs
@@ -319,9 +327,10 @@ This repository includes a private custom AI information radar configuration in 
 
 - Chinese scoring output with `score`, `reason`, `tags`, `category`, `is_featured`, `summary_zh`, and `action_suggestion`
 - Featured threshold `>= 7.5`, daily push threshold `>= 8.5`, and top 10 push limit
-- RSS/Atom, GitHub releases, GitHub public events, Hacker News, Reddit, Telegram public channels, OSS Insight, and optional Twitter/X via Apify
+- RSS/Atom, GitHub releases, GitHub public events, Hacker News, Reddit, Telegram public channels, OSS Insight, and Apify social subscriptions for public X, Instagram, Facebook, and Telegram targets
 - Static web UI with featured feed, recent 20 all-items feed, historical archive, daily summary, tag/source/search/score filters, and localStorage favorites
-- Structured config UI for sources, tags, thresholds, AI model, and webhook settings, backed by server-side validation and config backups
+- Structured config UI for sources, controlled tag categories, thresholds, AI model, and webhook settings, backed by server-side validation and config backups
+- Controlled tag taxonomy: AI Agent, AI coding, model releases, RAG/MCP, AI infra, open models, inference, products/startups, research, safety/governance, and industry updates
 - Docker Compose short polling every 30 minutes, daily webhook push at `08:30 Asia/Shanghai`, data mounts, log mounts, and web health check
 
 Deployment:
@@ -333,7 +342,7 @@ cp .env.example .env
 
 # Edit OPENAI_API_KEY or another provider key in .env.
 # Use the Web UI config tab to edit sources, tags, thresholds, and webhook.
-docker compose up -d
+./scripts/up-latest.sh
 docker compose logs -f horizon-scheduler
 ```
 
@@ -353,7 +362,7 @@ open http://localhost:8080
 Important config notes:
 
 - Put secrets only in `.env`; `data/config.json` stores environment variable names such as `OPENAI_API_KEY`, `GITHUB_TOKEN`, `APIFY_TOKEN`, and `HORIZON_WEBHOOK_URL`.
-- Keep `sources.twitter.enabled=false` unless `APIFY_TOKEN` is configured.
+- Keep `sources.apify_social.enabled=false` and `sources.twitter.enabled=false` unless `APIFY_TOKEN` is configured.
 - Set `webhook.enabled=true` only after `HORIZON_WEBHOOK_URL` is set. `platform` may be `generic`, `feishu`, `lark`, `dingtalk`, `slack`, or `discord`.
 - Logs are mounted to `./logs`; scheduler failures and webhook failures are written there and also visible via `docker compose logs`.
 
@@ -366,7 +375,7 @@ docker compose run --rm --entrypoint uv horizon run horizon-sources
 docker compose run --rm --entrypoint uv horizon run horizon-sources --json
 ```
 
-The current direct-source adapters cover RSS/Atom, GitHub REST API, Hacker News Firebase API, Reddit public JSON, Telegram public channel pages, OSS Insight public API, and optional OpenBB. Twitter/X is disabled by default because this setup has no stable public origin API for it; enable it only when `APIFY_TOKEN` is configured.
+The current direct-source adapters cover RSS/Atom, GitHub REST API, Hacker News Firebase API, Reddit public JSON, Telegram public channel pages, OSS Insight public API, and optional OpenBB. Public X, Instagram, Facebook, and Telegram social subscriptions can also be fetched through Apify when `APIFY_TOKEN` is configured; private groups, private channels, friends feeds, cookies, sessions, and passwords are intentionally out of scope.
 
 ### 4. Automate (Optional)
 

@@ -89,6 +89,13 @@ def build_direct_source_registry(config: Config | None = None) -> list[DirectSou
             auth="APIFY_TOKEN",
             notes="Optional only. X/Twitter has no stable public origin API here, so it is disabled by default.",
         ),
+        DirectSourceEndpoint(
+            source="apify_social",
+            adapter="src.scrapers.apify_social.ApifySocialScraper",
+            endpoint="Configured Apify actors for public X, Instagram, Facebook, and Telegram targets",
+            auth="APIFY_TOKEN",
+            notes="Public social subscriptions only; private groups, sessions, cookies, and passwords are out of scope.",
+        ),
     ]
 
     if config is None:

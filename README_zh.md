@@ -218,8 +218,8 @@ cp .env.example .env
 # 当前仓库已提供私人 AI 信息雷达版 data/config.json。
 # 编辑 .env 和 data/config.json，填入 API 密钥、信源、阈值和 Webhook。
 
-# 启动短频轮询、每日推送和 Web UI
-docker compose up -d
+# 按当前代码重新构建镜像，替换旧容器，并清理旧 build 缓存
+./scripts/up-latest.sh
 
 # 手动运行一次抓取 / 打分 / 摘要 / 推送任务
 docker compose run --rm horizon --hours 24
@@ -227,6 +227,13 @@ docker compose run --rm horizon --hours 24
 # 或自定义时间窗口
 docker compose run --rm horizon --hours 48
 ```
+
+`./scripts/up-latest.sh` 是推荐启动方式：默认执行
+`docker compose build --pull --no-cache`，再用
+`docker compose up -d --no-build --force-recreate --remove-orphans` 替换旧容器，并清理本项目旧
+dangling 镜像和旧 Docker build cache。不要再用裸 `docker compose up -d` 启动，否则可能继续跑旧镜像。
+如果要加快构建，可设 `HORIZON_BUILD_NO_CACHE=false`；如果要更激进清理 build cache，
+可设 `HORIZON_PRUNE_BUILD_CACHE_UNTIL=0h`。
 
 ### 2. 配置
 
@@ -294,7 +301,7 @@ uv run horizon --hours 48   # 抓取最近 48 小时的内容
 #### 使用 Docker
 
 ```bash
-docker compose up -d                         # 启动 scheduler + web UI
+./scripts/up-latest.sh                         # 启动 scheduler + web UI
 docker compose run --rm horizon              # 使用默认 24 小时窗口
 docker compose run --rm horizon --hours 48   # 抓取最近 48 小时的内容
 docker compose logs -f horizon-scheduler     # 查看定时任务日志
@@ -308,9 +315,10 @@ docker compose logs -f horizon-scheduler     # 查看定时任务日志
 
 - AI 打分输出 `score`、`reason`、`tags`、`category`、`is_featured`、`summary_zh`、`action_suggestion`
 - `>= 7.5` 进入精选，`>= 8.5` 进入每日推送，推送最多 10 条
-- 支持 RSS/Atom、GitHub Releases、GitHub 用户/组织动态、Hacker News、Reddit、Telegram 公共频道、OSS Insight；Twitter/X 通过 Apify 可选开启
+- 支持 RSS/Atom、GitHub Releases、GitHub 用户/组织动态、Hacker News、Reddit、Telegram 公共频道、OSS Insight；并支持通过 Apify 订阅公开 X、Instagram、Facebook、Telegram 目标
 - 静态 Web UI 支持精选信息流、最近 20 条全部动态、历史归档、每日摘要、标签/来源/关键词/分数筛选和 localStorage 收藏
-- Web UI 内置本地配置后台，通过结构化表单维护信源、标签、阈值、模型和 webhook，保存前会校验配置并备份旧文件
+- Web UI 内置本地配置后台，通过结构化表单维护信源、固定标签大类、阈值、模型和 webhook，保存前会校验配置并备份旧文件
+- 标签强约束为几大类：AI Agent、AI 编程、模型发布、RAG/MCP、AI Infra、开源模型、推理框架、产品创业、研究论文、安全治理、行业动态
 - Docker Compose 默认每 30 分钟增量轮询，`08:30 Asia/Shanghai` 执行每日推送，挂载 `data/`、`logs/`、`.env`，并为 Web UI 配置健康检查
 
 部署步骤：
@@ -322,7 +330,7 @@ cp .env.example .env
 
 # 在 .env 中配置 OPENAI_API_KEY 或其他模型密钥。
 # 可在 Web UI 的「配置」页调整信源、标签、阈值和 webhook.enabled。
-docker compose up -d
+./scripts/up-latest.sh
 docker compose logs -f horizon-scheduler
 ```
 
@@ -355,7 +363,7 @@ docker compose run --rm horizon --hours 24
 注意：
 
 - 所有密钥只放 `.env`，`data/config.json` 只写环境变量名，例如 `OPENAI_API_KEY`、`GITHUB_TOKEN`、`APIFY_TOKEN`、`HORIZON_WEBHOOK_URL`。
-- 未配置 `APIFY_TOKEN` 时保持 `sources.twitter.enabled=false`。
+- 未配置 `APIFY_TOKEN` 时保持 `sources.apify_social.enabled=false` 和 `sources.twitter.enabled=false`。
 - 未配置 `HORIZON_WEBHOOK_URL` 前保持 `webhook.enabled=false`。
 - 日志写入 `./logs`，也可以通过 `docker compose logs` 查看。
 
@@ -368,7 +376,7 @@ docker compose run --rm --entrypoint uv horizon run horizon-sources
 docker compose run --rm --entrypoint uv horizon run horizon-sources --json
 ```
 
-当前直采来源包括 RSS/Atom、GitHub REST API、Hacker News Firebase API、Reddit public JSON、Telegram 公开频道页面、OSS Insight public API 和可选 OpenBB。Twitter/X 由于没有稳定公开源端 API，默认关闭，仅在你配置 `APIFY_TOKEN` 后作为可选源启用。
+当前直采来源包括 RSS/Atom、GitHub REST API、Hacker News Firebase API、Reddit public JSON、Telegram 公开频道页面、OSS Insight public API 和可选 OpenBB。公开 X、Instagram、Facebook、Telegram 也可以通过 Apify 订阅；私密群组、私密频道、好友流、cookie、session 和账号密码不纳入本系统配置。
 
 ### 4. 自动化（可选）
 

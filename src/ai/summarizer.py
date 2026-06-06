@@ -40,7 +40,7 @@ LABELS = {
     },
     "zh": {
         "header": "Horizon 每日速递",
-        "private_header": "AI 信息雷达每日摘要",
+        "private_header": "Inteliscope 每日摘要",
         "source": "来源",
         "published_at": "发布时间",
         "score": "分数",

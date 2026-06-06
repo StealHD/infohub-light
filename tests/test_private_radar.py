@@ -40,7 +40,7 @@ def _make_item(idx: int, score: float = 8.0, source: SourceType = SourceType.RSS
     item.ai_action_suggestion = "阅读原文并评估是否加入工具链。"
     item.ai_category = "AI 编程"
     item.ai_is_featured = score >= 7.5
-    item.ai_tags = ["AI Agent", "Codex", "tool use"]
+    item.ai_tags = ["AI Agent", "AI 编程", "RAG/MCP"]
     return item
 
 
@@ -50,7 +50,7 @@ def test_analyzer_stores_private_radar_fields():
             {
                 "score": 8.7,
                 "reason": "重要发布，可信来源，值得立即测试。",
-                "tags": ["AI Agent", "Codex", "workflow"],
+                "tags": ["AI Agent", "Codex", "workflow", "RandomVendorTag"],
                 "category": "AI 编程",
                 "is_featured": True,
                 "summary_zh": "该动态说明 AI 编程工具链出现了明确变化，开发者可以据此调整自动化流程。",
@@ -67,7 +67,7 @@ def test_analyzer_stores_private_radar_fields():
     assert item.ai_is_featured is True
     assert item.ai_summary_zh.startswith("该动态说明")
     assert item.ai_action_suggestion == "阅读发布说明，并在一个小项目中测试。"
-    assert item.ai_tags == ["AI Agent", "Codex", "workflow"]
+    assert item.ai_tags == ["AI Agent", "AI 编程"]
 
 
 def test_chinese_summary_renders_private_radar_card_fields():
@@ -110,16 +110,16 @@ def test_site_payload_keeps_all_items_and_splits_featured_and_daily_top():
     assert [item["score"] for item in payload["featured_items"]] == [9.2, 8.6, 7.6]
     assert [item["score"] for item in payload["daily_push_items"]] == [9.2, 8.6]
     assert payload["items"][-1]["show_on_featured_home"] is False
-    assert payload["tags"] == ["AI Agent", "Codex", "tool use"]
+    assert payload["tags"] == ["AI Agent", "AI 编程", "RAG/MCP"]
     assert payload["sources"] == ["Example Feed"]
 
 
-def test_select_daily_push_items_uses_threshold_and_limit():
-    items = [_make_item(i, score=score) for i, score in enumerate([9.8, 9.1, 8.8, 8.4, 7.9], start=1)]
+def test_select_daily_push_items_uses_strict_threshold_without_limit():
+    items = [_make_item(i, score=score) for i, score in enumerate([9.8, 9.1, 8.8, 8.5, 8.4, 7.9], start=1)]
 
     selected = select_daily_push_items(items, threshold=8.5, limit=2)
 
-    assert [item.ai_score for item in selected] == [9.8, 9.1]
+    assert [item.ai_score for item in selected] == [9.8, 9.1, 8.8]
 
 
 def test_write_static_site_preserves_history_between_runs(tmp_path):
@@ -232,6 +232,194 @@ def test_write_static_site_backfills_featured_from_recent_high_score_history(tmp
     ]
 
 
+def test_write_static_site_backfills_daily_push_from_history_without_limit(tmp_path):
+    first = build_site_payload(
+        all_items=[_make_item(i, score=score) for i, score in enumerate([9.2, 8.6, 8.3, 8.0, 7.9], start=1)],
+        date="2026-06-03",
+        total_fetched=5,
+        daily_push_threshold=8.0,
+        daily_push_limit=1,
+    )
+    second = build_site_payload(
+        all_items=[_make_item(i, score=6.8) for i in range(6, 31)],
+        date="2026-06-03",
+        total_fetched=25,
+        daily_push_threshold=8.0,
+        daily_push_limit=1,
+    )
+    first["generated_at"] = "2026-06-03T10:00:00+00:00"
+    second["generated_at"] = "2026-06-03T11:00:00+00:00"
+
+    write_static_site(tmp_path, first)
+    write_static_site(tmp_path, second)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+
+    assert [item["score"] for item in current["daily_push_items"]] == [9.2, 8.6, 8.3]
+
+
+def test_write_static_site_preserves_custom_tags_from_tag_library(tmp_path):
+    item = _make_item(1, score=8.0)
+    item.ai_tags = []
+    item.ai_category = "行业动态"
+    item.metadata["tags"] = ["价格监控"]
+    payload = build_site_payload(
+        all_items=[item],
+        date="2026-06-03",
+        total_fetched=1,
+        tag_library=["AI Agent", "行业动态", "价格监控"],
+    )
+    payload["generated_at"] = "2026-06-03T10:00:00+00:00"
+
+    write_static_site(tmp_path, payload)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
+
+    assert current["items"][0]["tags"] == ["价格监控", "行业动态"]
+    assert "价格监控" in current["tags"]
+    assert history["items"][0]["tags"] == ["价格监控", "行业动态"]
+
+
+def test_write_static_site_splits_personal_tags_without_changing_score(tmp_path):
+    item = _make_item(1, score=1.0)
+    item.ai_tags = []
+    item.ai_category = "行业动态"
+    item.metadata["tags"] = ["能黄通"]
+    payload = build_site_payload(
+        all_items=[item],
+        date="2026-06-03",
+        total_fetched=1,
+        featured_threshold=7.5,
+        tag_library=["行业动态", "能黄通"],
+    )
+    payload["generated_at"] = "2026-06-03T10:00:00+00:00"
+
+    write_static_site(tmp_path, payload)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
+    item_payload = current["personal_items"][0]
+
+    assert item_payload["score"] == 1.0
+    assert item_payload["interest_score"] == 8.0
+    assert item_payload["personal_tags"] == ["能黄通"]
+    assert item_payload["show_in_personal_feed"] is True
+    assert current["featured_items"] == []
+    assert history["personal_items"][0]["id"] == "rss:item-1"
+
+
+def test_write_static_site_drops_removed_custom_tags_from_history(tmp_path):
+    item = _make_item(1, score=8.0)
+    item.ai_tags = []
+    item.ai_category = "行业动态"
+    item.metadata["tags"] = ["旧标签"]
+    first = build_site_payload(
+        all_items=[item],
+        date="2026-06-03",
+        total_fetched=1,
+        tag_library=["行业动态", "旧标签"],
+    )
+    first["generated_at"] = "2026-06-03T10:00:00+00:00"
+    second = build_site_payload(
+        all_items=[],
+        date="2026-06-03",
+        total_fetched=0,
+        tag_library=["行业动态"],
+    )
+    second["generated_at"] = "2026-06-03T11:00:00+00:00"
+
+    write_static_site(tmp_path, first)
+    write_static_site(tmp_path, second)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
+
+    assert current["tag_library"] == ["行业动态"]
+    assert history["tag_library"] == ["行业动态"]
+    assert "旧标签" not in current["tags"]
+    assert "旧标签" not in history["tags"]
+    assert history["items"][0]["tags"] == ["行业动态"]
+
+
+def test_write_static_site_serializes_social_media_urls(tmp_path):
+    item = _make_item(1, score=8.0)
+    item.metadata["image_url"] = "https://cdn.example.com/main.jpg"
+    item.metadata["media_urls"] = [
+        "https://cdn.example.com/main.jpg",
+        "https://cdn.example.com/second.jpg",
+    ]
+    payload = build_site_payload(
+        all_items=[item],
+        date="2026-06-03",
+        total_fetched=1,
+    )
+    payload["generated_at"] = "2026-06-03T10:00:00+00:00"
+
+    write_static_site(tmp_path, payload)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
+
+    assert current["items"][0]["image_url"] == "https://cdn.example.com/main.jpg"
+    assert current["items"][0]["media_urls"] == [
+        "https://cdn.example.com/main.jpg",
+        "https://cdn.example.com/second.jpg",
+    ]
+    assert history["items"][0]["image_url"] == "https://cdn.example.com/main.jpg"
+
+
+def test_write_static_site_caches_instagram_media_same_origin(tmp_path, monkeypatch):
+    image_url = "https://scontent-sea5-1.cdninstagram.com/v/t51.82787-15/main.jpg?oh=signed"
+
+    class FakeResponse:
+        headers = {"content-type": "image/jpeg"}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_bytes(self):
+            yield b"fake-jpeg"
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url):
+            assert url == image_url
+            return FakeResponse()
+
+    monkeypatch.setattr("src.ui.media_cache.httpx.Client", FakeClient)
+
+    item = _make_item(1, score=8.0)
+    item.metadata["image_url"] = image_url
+    item.metadata["media_urls"] = [image_url]
+    payload = build_site_payload(
+        all_items=[item],
+        date="2026-06-03",
+        total_fetched=1,
+    )
+    payload["generated_at"] = "2026-06-03T10:00:00+00:00"
+
+    write_static_site(tmp_path, payload)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
+    cached_url = current["items"][0]["image_url"]
+
+    assert cached_url.startswith("media/")
+    assert current["items"][0]["media_urls"] == [cached_url]
+    assert current["items"][0]["remote_image_url"] == image_url
+    assert history["items"][0]["image_url"] == cached_url
+    assert (tmp_path / cached_url).read_bytes() == b"fake-jpeg"
+
+
 def test_load_history_item_ids_supports_incremental_polls(tmp_path):
     payload = build_site_payload(
         all_items=[_make_item(1, score=8.0), _make_item(2, score=7.0)],
@@ -242,3 +430,23 @@ def test_load_history_item_ids_supports_incremental_polls(tmp_path):
     write_static_site(tmp_path, payload)
 
     assert load_history_item_ids(tmp_path) == {"rss:item-1", "rss:item-2"}
+
+
+def test_write_static_site_normalizes_legacy_history_tags(tmp_path):
+    payload = build_site_payload(
+        all_items=[_make_item(1, score=8.0)],
+        date="2026-06-03",
+        total_fetched=1,
+    )
+    payload["items"][0]["tags"] = ["Codex", "workflow", "RandomVendorTag", "OpenAI"]
+    payload["items"][0]["category"] = "AI编程工具"
+
+    write_static_site(tmp_path, payload)
+
+    current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
+
+    assert current["items"][0]["tags"] == ["AI 编程", "模型发布"]
+    assert current["items"][0]["category"] == "AI 编程"
+    assert current["tags"] == ["AI 编程", "模型发布"]
+    assert history["items"][0]["tags"] == ["AI 编程", "模型发布"]

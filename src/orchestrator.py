@@ -20,6 +20,7 @@ from .scrapers.rss import RSSScraper
 from .scrapers.reddit import RedditScraper
 from .scrapers.telegram import TelegramScraper
 from .scrapers.twitter import TwitterScraper
+from .scrapers.apify_social import ApifySocialScraper
 from .scrapers.openbb import OpenBBScraper
 from .scrapers.ossinsight import OSSInsightScraper
 from .ai.client import create_ai_client
@@ -321,6 +322,19 @@ class HorizonOrchestrator:
                 twitter_scraper = TwitterScraper(self.config.sources.twitter, client)
                 tasks.append(self._fetch_with_progress("Twitter", twitter_scraper, since))
 
+            # Unified Apify social subscriptions (X, Instagram, Facebook, Telegram)
+            if (
+                self.config.sources.apify_social
+                and self.config.sources.apify_social.enabled
+            ):
+                apify_social_scraper = ApifySocialScraper(
+                    self.config.sources.apify_social,
+                    client,
+                )
+                tasks.append(
+                    self._fetch_with_progress("Apify Social", apify_social_scraper, since)
+                )
+
             # OpenBB (financial news / filings via the OpenBB Platform SDK)
             if self.config.sources.openbb and self.config.sources.openbb.enabled:
                 openbb_scraper = OpenBBScraper(self.config.sources.openbb, client)
@@ -601,6 +615,7 @@ class HorizonOrchestrator:
                 daily_push_limit=self.config.filtering.daily_push_limit,
                 homepage_min_score=self.config.filtering.homepage_min_score,
                 recent_item_limit=self.config.filtering.recent_item_limit,
+                tag_library=self.config.tags,
             )
             data_path = write_static_site(self.storage.data_dir / "site", payload)
             self.console.print(f"🌐 Updated web UI data: {data_path}\n")

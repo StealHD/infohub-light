@@ -1,5 +1,7 @@
 """AI prompts for content analysis and summarization."""
 
+from ..tag_policy import ALLOWED_TAGS_TEXT
+
 TOPIC_DEDUP_SYSTEM = """You are a news deduplication assistant. Identify groups of news items that cover the exact same real-world event, release, or announcement.
 
 Rules:
@@ -51,13 +53,19 @@ Chinese writing style:
 - Do not use marketing language or exaggerated claims.
 - Do not mechanically translate English.
 - Prioritize: what happened, why it matters, what the reader can do.
-"""
+
+Controlled taxonomy:
+- tags and category MUST be selected exactly from this fixed list:
+  {allowed_tags}
+- Do not invent vendor, product, project, language, or event tags.
+- If a vendor or project name appears, map it to the closest fixed category.
+""".format(allowed_tags=ALLOWED_TAGS_TEXT)
 
 CONTENT_ANALYSIS_USER = """Analyze the following content and provide a JSON response with:
 - score: number from 0 to 10.
 - reason: concise Chinese reason for the score; mention source credibility and discussion value when relevant.
-- tags: 3-6 short tags.
-- category: one Chinese category, such as AI Agent, AI 编程, 模型发布, AI Infra, RAG/MCP, 开源模型, 产品创业, 研究论文.
+- tags: 1-3 tags selected exactly from the fixed taxonomy.
+- category: one value selected exactly from the fixed taxonomy.
 - is_featured: boolean, true when score >= 7.5.
 - summary_zh: 150-250 Chinese characters, explaining what happened, why it matters, and what the reader can do.
 - action_suggestion: one short Chinese sentence about whether to read, test, save, compare, or share.

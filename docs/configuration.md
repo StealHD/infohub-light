@@ -209,14 +209,21 @@ All sources are configured under the top-level `sources` key in `config.json`.
 
 ### Tags
 
-Horizon keeps a top-level tag library for UI maintenance and optional `tags`
-on each source. The source tags are copied into fetched item metadata and passed
-to the AI scorer as context; the final card tags still come from AI output plus
-these configured tags.
+Horizon uses a controlled tag taxonomy for the private radar. The top-level
+`tags` library and optional per-source `tags` must resolve to one of these
+fixed categories:
+
+`AI Agent`, `AI 编程`, `模型发布`, `RAG/MCP`, `AI Infra`, `开源模型`,
+`推理框架`, `产品创业`, `研究论文`, `安全治理`, `行业动态`.
+
+Common aliases such as `Codex`, `Claude Code`, `tool use`, `RAG`, `MCP`,
+`OpenAI`, or `Python` are normalized to the closest fixed category. Unknown
+tags entered in the Web UI are rejected before saving, and AI/feed output is
+sanitized before it reaches the browser data files.
 
 ```json
 {
-  "tags": ["AI Agent", "AI 编程", "RAG", "MCP"],
+  "tags": ["AI Agent", "AI 编程", "RAG/MCP", "模型发布"],
   "sources": {
     "rss": [
       {
@@ -224,15 +231,16 @@ these configured tags.
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
         "category": "ai-tools",
-        "tags": ["AI 编程", "tool use"]
+        "tags": ["AI 编程", "RAG/MCP"]
       }
     ]
   }
 }
 ```
 
-In the local Web UI, open the **Config** tab to maintain the tag library and
-per-source tags through validated forms.
+In the local Web UI, open the **Config** tab to maintain source tags through
+validated forms. Use the fixed categories above; do not create vendor-specific
+or one-off event tags.
 
 ### GitHub
 
@@ -369,6 +377,69 @@ Requires an [Apify](https://apify.com) account. Set `APIFY_TOKEN` in your `.env`
 - `reply_min_likes` — only include replies with at least this many likes (default: 0)
 
 The scraper uses the `altimis/scweet` actor by default. You can override it with `actor_id` if needed.
+
+### Apify Social Subscriptions
+
+Use `sources.apify_social` when you want one UI-managed source list for public X, Instagram, Facebook, and Telegram targets. Set `APIFY_TOKEN` in `.env`; `data/config.json` only stores the environment variable name.
+
+```json
+{
+  "sources": {
+    "apify_social": {
+      "enabled": true,
+      "token_env": "APIFY_TOKEN",
+      "timeout_seconds": 180,
+      "actors": {
+        "x": { "actor_id": "altimis~scweet" },
+        "instagram": { "actor_id": "apify/instagram-api-scraper" },
+        "facebook": { "actor_id": "whoareyouanas/facebook-group-scraper" },
+        "telegram": { "actor_id": "thescrapelab/apify-telegram-scraper" }
+      },
+      "subscriptions": [
+        {
+          "platform": "x",
+          "kind": "profile",
+          "target": "OpenAI",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["AI Agent", "行业动态"]
+        },
+        {
+          "platform": "instagram",
+          "kind": "hashtag",
+          "target": "#aiagents",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["AI Agent"]
+        },
+        {
+          "platform": "facebook",
+          "kind": "page",
+          "target": "https://www.facebook.com/openai",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["模型发布"]
+        },
+        {
+          "platform": "telegram",
+          "kind": "channel",
+          "target": "zaihuapd",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["行业动态"]
+        }
+      ]
+    }
+  }
+}
+```
+
+- `platform` — one of `x`, `instagram`, `facebook`, or `telegram`
+- `kind` — `x`: `profile` or `keyword`; `instagram`: `profile` or `hashtag`; `facebook`: `page`, `group`, or `post`; `telegram`: `channel`
+- `target` — public handle, keyword, hashtag, URL, or channel name according to the selected kind
+- `fetch_limit` — maximum recent items to ask the Actor for in one run
+
+Only public content is supported. Do not store account passwords, cookies, private channel sessions, or friends-feed credentials in this configuration.
 
 ### OpenBB Financial News
 

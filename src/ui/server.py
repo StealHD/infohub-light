@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
 import shutil
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -18,17 +20,32 @@ from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 import feedparser
+import httpx
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from ..models import Config
+from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
+from ..scrapers.apify_social import ApifySocialScraper
 from ..storage.manager import ConfigError, _expand_env_vars
+from ..tag_policy import CANONICAL_TAGS, normalize_tags
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 _ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SECRET_PREFIXES = ("sk-", "sk_", "AIza", "xai-", "gsk_", "hf_", "tp-")
 _USER_AGENT = "Horizon-Private-Radar/1.0"
+_APIFY_SOCIAL_DEFAULT_ACTORS = {
+    "x": "altimis~scweet",
+    "instagram": "apify/instagram-api-scraper",
+    "facebook": "whoareyouanas/facebook-group-scraper",
+    "telegram": "thescrapelab/apify-telegram-scraper",
+}
+_APIFY_SOCIAL_KINDS = {
+    "x": {"profile", "keyword"},
+    "instagram": {"profile", "hashtag"},
+    "facebook": {"page", "group", "post"},
+    "telegram": {"channel"},
+}
 
 
 def normalize_config_payload(body: bytes) -> dict[str, Any]:
@@ -79,23 +96,61 @@ def _env_name(payload: dict[str, Any], key: str, label: str) -> str:
     return value
 
 
-def _tags(payload: dict[str, Any], key: str = "tags") -> list[str]:
+def _env_names(
+    payload: dict[str, Any],
+    key: str,
+    label: str,
+    *,
+    fallback: str = "APIFY_TOKEN",
+) -> list[str]:
+    raw = payload.get(key)
+    if isinstance(raw, list):
+        pieces = [str(part) for part in raw]
+    else:
+        pieces = re.split(r"[,，\n]|\\n", str(raw or ""))
+
+    names: list[str] = []
+    for piece in pieces:
+        name = piece.strip()
+        if not name:
+            continue
+        validated = _env_name({key: name}, key, label)
+        if validated not in names:
+            names.append(validated)
+
+    if not names:
+        names = [_env_name({key: fallback}, key, label)]
+    return names
+
+
+def _tags(
+    payload: dict[str, Any],
+    key: str = "tags",
+    *,
+    allowed_tags: list[str] | None = None,
+    allow_custom: bool = False,
+) -> list[str]:
     raw = payload.get(key, "")
     if isinstance(raw, list):
         pieces = [str(part) for part in raw]
     else:
-        pieces = re.split(r"[,，\n]", str(raw))
+        pieces = re.split(r"[,，\n]|\\n", str(raw))
 
-    tags: list[str] = []
+    raw_tags: list[str] = []
     for piece in pieces:
         tag = piece.strip().lstrip("#").strip()
         if not tag:
             continue
         if len(tag) > 32:
             raise ValueError("标签长度不能超过 32 个字符")
-        if tag not in tags:
-            tags.append(tag)
-    return tags
+        raw_tags.append(tag)
+    return normalize_tags(
+        raw_tags,
+        strict=True,
+        max_tags=None,
+        allowed_tags=allowed_tags,
+        allow_custom=allow_custom,
+    )
 
 
 def _merge_tag_library(data: dict[str, Any], tags: list[str]) -> None:
@@ -103,9 +158,12 @@ def _merge_tag_library(data: dict[str, Any], tags: list[str]) -> None:
     if not isinstance(library, list):
         library = []
         data["tags"] = library
-    for tag in tags:
-        if tag not in library:
-            library.append(tag)
+    data["tags"] = normalize_tags(
+        [*library, *tags],
+        strict=True,
+        max_tags=None,
+        allow_custom=True,
+    ) or list(CANONICAL_TAGS)
 
 
 def _index(payload: dict[str, Any], key: str = "index") -> int | None:
@@ -126,6 +184,123 @@ def _http_url(value: str, label: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{label} 必须是 http/https URL")
     return value
+
+
+def _apify_social_defaults() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "token_env": "APIFY_TOKEN",
+        "token_envs": ["APIFY_TOKEN"],
+        "timeout_seconds": 180,
+        "actors": {
+            key: {"actor_id": actor_id}
+            for key, actor_id in _APIFY_SOCIAL_DEFAULT_ACTORS.items()
+        },
+        "subscriptions": [],
+    }
+
+
+def _apify_social_platform(payload: dict[str, Any]) -> str:
+    platform = str(payload.get("platform") or "").strip().lower()
+    if platform == "twitter":
+        platform = "x"
+    if platform not in _APIFY_SOCIAL_KINDS:
+        raise ValueError("Apify 平台必须是 x、instagram、facebook 或 telegram")
+    return platform
+
+
+def _apify_social_kind(payload: dict[str, Any], platform: str) -> str:
+    kind = str(payload.get("kind") or "").strip().lower()
+    if kind not in _APIFY_SOCIAL_KINDS[platform]:
+        allowed = "、".join(sorted(_APIFY_SOCIAL_KINDS[platform]))
+        raise ValueError(f"{platform} 类型必须是 {allowed}")
+    return kind
+
+
+def _facebook_url(value: str) -> str:
+    url = _http_url(value, "Facebook URL")
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host != "facebook.com" and not host.endswith(".facebook.com"):
+        raise ValueError("Facebook 目标必须是 facebook.com 的公开 Page、Group 或帖子 URL")
+    return url
+
+
+def _x_handle(value: str) -> str:
+    raw = value.strip()
+    if raw.startswith("http"):
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        if host not in {"x.com", "twitter.com"} and not host.endswith(".x.com") and not host.endswith(".twitter.com"):
+            raise ValueError("X 账号 URL 必须来自 x.com 或 twitter.com")
+        raw = parsed.path.strip("/").split("/")[0]
+    handle = raw.lstrip("@").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,15}", handle):
+        raise ValueError("X 账号格式不正确，请填写 @OpenAI、OpenAI 或公开主页 URL")
+    return handle
+
+
+def _instagram_profile(value: str) -> str:
+    raw = value.strip()
+    if raw.startswith("http"):
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        if host != "instagram.com" and not host.endswith(".instagram.com"):
+            raise ValueError("Instagram 主页 URL 必须来自 instagram.com")
+        raw = parsed.path.strip("/").split("/")[0]
+    profile = raw.lstrip("@").strip().strip("/")
+    if not re.fullmatch(r"[A-Za-z0-9._]{1,30}", profile):
+        raise ValueError("Instagram 主页格式不正确，请填写 openai、@openai 或公开主页 URL")
+    return profile
+
+
+def _instagram_hashtag(value: str) -> str:
+    raw = value.strip()
+    if raw.startswith("http"):
+        parsed = urlparse(raw)
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 3 and parts[0] == "explore" and parts[1] == "tags":
+            raw = parts[2]
+    tag = raw.lstrip("#").strip().strip("/")
+    if not re.fullmatch(r"[\w.]{1,80}", tag, flags=re.UNICODE):
+        raise ValueError("Instagram hashtag 格式不正确，请填写 #aiagents 或 aiagents")
+    return f"#{tag}"
+
+
+def _telegram_channel(value: str) -> str:
+    raw = value.strip()
+    if raw.startswith("http"):
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        if host != "t.me":
+            raise ValueError("Telegram 频道 URL 必须来自 t.me")
+        path = parsed.path.strip("/")
+        if path.startswith("s/"):
+            path = path[2:]
+        raw = path.split("/")[0]
+    channel = raw.lstrip("@").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]{5,64}", channel):
+        raise ValueError("Telegram 频道格式不正确，请填写 zaihuapd、@zaihuapd 或 https://t.me/zaihuapd")
+    return channel
+
+
+def _validated_apify_social_target(platform: str, kind: str, target: str) -> str:
+    target = target.strip()
+    if platform == "x":
+        if kind == "profile":
+            return _x_handle(target)
+        if len(target) > 200:
+            raise ValueError("X 关键词不能超过 200 个字符")
+        if not target:
+            raise ValueError("X 关键词不能为空")
+        return target
+    if platform == "instagram":
+        return _instagram_hashtag(target) if kind == "hashtag" else _instagram_profile(target)
+    if platform == "facebook":
+        return _facebook_url(target)
+    if platform == "telegram":
+        return _telegram_channel(target)
+    raise ValueError("未知 Apify 平台")
 
 
 def _fetch_text(url: str, *, headers: dict[str, str] | None = None) -> str:
@@ -157,9 +332,70 @@ def _github_headers() -> dict[str, str]:
     return headers
 
 
+async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, Any]:
+    platform = _apify_social_platform(payload)
+    kind = _apify_social_kind(payload, platform)
+    target = _validated_apify_social_target(
+        platform,
+        kind,
+        _text(payload, "target", "Apify 目标"),
+    )
+    token_envs = _env_names(
+        {"token_envs": payload.get("token_envs")},
+        "token_envs",
+        "Apify Token 环境变量名",
+        fallback=str(payload.get("token_env") or "APIFY_TOKEN"),
+    )
+    if not any(os.getenv(name) for name in token_envs):
+        joined = "、".join(token_envs)
+        raise ValueError(f"{joined} 均未设置，测试 Apify 订阅前请先写入 .env 并重启服务")
+
+    actors = _apify_social_defaults()["actors"]
+    actor_id = str(payload.get("actor_id") or "").strip()
+    if actor_id:
+        actors[platform] = {"actor_id": actor_id}
+
+    subscription = ApifySocialSubscriptionConfig(
+        platform=platform,
+        kind=kind,
+        target=target,
+        fetch_limit=1,
+        enabled=True,
+        tags=[],
+    )
+    config = ApifySocialConfig(
+        enabled=True,
+        token_env=token_envs[0],
+        token_envs=token_envs,
+        timeout_seconds=int(_number(payload, "timeout_seconds", default=120, minimum=1, maximum=900, integer=True)),
+        actors=actors,
+        subscriptions=[subscription],
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        scraper = ApifySocialScraper(config, client)
+        items = await scraper.fetch(datetime.now(timezone.utc) - timedelta(days=3650))
+
+    if not items:
+        raise ValueError("Apify Actor 可运行，但没有返回可解析的公开内容")
+    first = items[0]
+    return {
+        "ok": True,
+        "source_type": "apify_social",
+        "count": len(items),
+        "sample_title": first.title,
+        "sample_url": str(first.url),
+        "sample_image_url": str(first.metadata.get("image_url") or ""),
+        "message": f"Apify {platform}/{kind} 可用，预览到 {len(items)} 条。",
+    }
+
+
 def run_source_test(payload: dict[str, Any]) -> dict[str, Any]:
     """Test one source definition without saving it or calling AI."""
     source_type = _text(payload, "source_type", "信源类型")
+
+    if source_type == "apify_social":
+        return asyncio.run(_run_apify_social_source_test(payload))
 
     if source_type == "rss":
         url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
@@ -309,6 +545,7 @@ def _ensure_sources(data: dict[str, Any]) -> dict[str, Any]:
     sources.setdefault("hackernews", {"enabled": True})
     sources.setdefault("reddit", {"enabled": False, "subreddits": [], "users": [], "fetch_comments": 5})
     sources.setdefault("telegram", {"enabled": False, "channels": []})
+    sources.setdefault("apify_social", _apify_social_defaults())
     return sources
 
 
@@ -340,7 +577,7 @@ def apply_config_action(
 
     if action == "upsert_rss":
         idx = _index(payload)
-        tags = _tags(payload)
+        tags = _tags(payload, allowed_tags=updated.get("tags"))
         item = {
             "name": _text(payload, "name", "RSS 名称"),
             "url": _http_url(_text(payload, "url", "RSS URL"), "RSS URL"),
@@ -359,7 +596,7 @@ def apply_config_action(
 
     elif action == "upsert_github_release":
         idx = _index(payload)
-        tags = _tags(payload)
+        tags = _tags(payload, allowed_tags=updated.get("tags"))
         item = {
             "type": "repo_releases",
             "owner": _text(payload, "owner", "GitHub owner"),
@@ -373,7 +610,7 @@ def apply_config_action(
 
     elif action == "upsert_github_user":
         idx = _index(payload)
-        tags = _tags(payload)
+        tags = _tags(payload, allowed_tags=updated.get("tags"))
         item = {
             "type": "user_events",
             "username": _text(payload, "username", "GitHub username"),
@@ -398,7 +635,7 @@ def apply_config_action(
         reddit = sources.setdefault("reddit", {"enabled": True, "subreddits": [], "users": [], "fetch_comments": 5})
         reddit.setdefault("subreddits", [])
         idx = _index(payload)
-        tags = _tags(payload)
+        tags = _tags(payload, allowed_tags=updated.get("tags"))
         item = {
             "subreddit": _text(payload, "subreddit", "Subreddit"),
             "enabled": _bool(payload.get("enabled", True)),
@@ -422,7 +659,7 @@ def apply_config_action(
         telegram = sources.setdefault("telegram", {"enabled": True, "channels": []})
         telegram.setdefault("channels", [])
         idx = _index(payload)
-        tags = _tags(payload)
+        tags = _tags(payload, allowed_tags=updated.get("tags"))
         item = {
             "channel": _text(payload, "channel", "Telegram channel").lstrip("@"),
             "enabled": _bool(payload.get("enabled", True)),
@@ -438,6 +675,78 @@ def apply_config_action(
         telegram = sources.setdefault("telegram", {"enabled": True, "channels": []})
         telegram.setdefault("channels", [])
         _delete_list_item(telegram["channels"], _index(payload))
+
+    elif action == "set_apify_social_settings":
+        current = sources.setdefault("apify_social", _apify_social_defaults())
+        defaults = _apify_social_defaults()
+        actors = current.setdefault("actors", defaults["actors"])
+        current["enabled"] = _bool(payload.get("enabled", current.get("enabled", True)))
+        token_envs = _env_names(
+            {"token_envs": payload.get("token_envs")},
+            "token_envs",
+            "Apify Token 环境变量名",
+            fallback=str(payload.get("token_env", current.get("token_env", "APIFY_TOKEN"))),
+        )
+        current["token_env"] = token_envs[0]
+        current["token_envs"] = token_envs
+        current["timeout_seconds"] = _number(
+            payload,
+            "timeout_seconds",
+            default=current.get("timeout_seconds", 180),
+            minimum=1,
+            maximum=900,
+            integer=True,
+        )
+        for platform in _APIFY_SOCIAL_DEFAULT_ACTORS:
+            key = f"actor_{platform}"
+            actor_id = str(
+                payload.get(
+                    key,
+                    actors.get(platform, {}).get(
+                        "actor_id",
+                        _APIFY_SOCIAL_DEFAULT_ACTORS[platform],
+                    ),
+                )
+            ).strip()
+            if not actor_id:
+                raise ValueError(f"{platform} Actor ID 不能为空")
+            actors[platform] = {"actor_id": actor_id}
+        current["actors"] = actors
+        current.setdefault("subscriptions", [])
+
+    elif action == "upsert_apify_social_subscription":
+        apify = sources.setdefault("apify_social", _apify_social_defaults())
+        apify.setdefault("subscriptions", [])
+        apify.setdefault("actors", _apify_social_defaults()["actors"])
+        apify.setdefault("token_env", "APIFY_TOKEN")
+        apify.setdefault("token_envs", [apify.get("token_env", "APIFY_TOKEN")])
+        apify.setdefault("timeout_seconds", 180)
+        idx = _index(payload)
+        platform = _apify_social_platform(payload)
+        kind = _apify_social_kind(payload, platform)
+        target = _validated_apify_social_target(
+            platform,
+            kind,
+            _text(payload, "target", "Apify 目标"),
+        )
+        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        item = {
+            "platform": platform,
+            "kind": kind,
+            "target": target,
+            "fetch_limit": _number(payload, "fetch_limit", default=20, minimum=1, maximum=100, integer=True),
+            "enabled": _bool(payload.get("enabled", True)),
+        }
+        if tags:
+            item["tags"] = tags
+        _upsert_list_item(apify["subscriptions"], idx, item)
+        apify["enabled"] = _bool(payload.get("apify_social_enabled", apify.get("enabled", True)))
+        _merge_tag_library(updated, tags)
+
+    elif action == "delete_apify_social_subscription":
+        apify = sources.setdefault("apify_social", _apify_social_defaults())
+        apify.setdefault("subscriptions", [])
+        _delete_list_item(apify["subscriptions"], _index(payload))
 
     elif action == "set_filtering":
         filtering = updated.setdefault("filtering", {})
@@ -467,7 +776,7 @@ def apply_config_action(
         ai["languages"] = languages or ["zh"]
 
     elif action == "set_tags":
-        updated["tags"] = _tags(payload)
+        updated["tags"] = _tags(payload, allow_custom=True) or list(CANONICAL_TAGS)
 
     elif action == "set_webhook":
         webhook = updated.setdefault("webhook", {})
@@ -511,6 +820,10 @@ def build_env_status(config: Config) -> list[dict[str, Any]]:
         add(config.email.password_env, "email.password_env")
     if config.sources.twitter:
         add(config.sources.twitter.apify_token_env, "sources.twitter.apify_token_env")
+    if config.sources.apify_social:
+        add(config.sources.apify_social.token_env, "sources.apify_social.token_env")
+        for token_env in config.sources.apify_social.token_envs:
+            add(token_env, "sources.apify_social.token_envs")
 
     return [
         {"name": name, "set": bool(os.getenv(name)), "used_by": sorted(used_by)}
@@ -550,6 +863,13 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         """Keep default HTTP logs concise."""
         print(f"{self.address_string()} - - {format % args}")
+
+    def end_headers(self) -> None:
+        """Avoid stale browser caches while the generated UI changes locally."""
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
 
     def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -601,9 +921,6 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
         rel = Path(parsed_path.lstrip("/"))
         if ".." in rel.parts:
             return str(self.static_dir / "__missing__")
-
-        if rel.name in {"index.html", "app.js", "styles.css"}:
-            return str(self.static_dir / rel)
 
         generated = self.data_dir / "site" / rel
         if generated.exists():

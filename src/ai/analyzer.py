@@ -9,6 +9,7 @@ from .client import AIClient
 from .prompts import CONTENT_ANALYSIS_SYSTEM, CONTENT_ANALYSIS_USER
 from .utils import parse_json_response
 from ..models import ContentItem
+from ..tag_policy import normalize_category, normalize_tags
 
 DEFAULT_THROTTLE_SEC = 0.0
 DEFAULT_FEATURED_THRESHOLD = 7.5
@@ -166,11 +167,16 @@ class ContentAnalyzer:
             tags = []
 
         item.ai_score = score
+        category = normalize_category(result.get("category"))
         item.ai_reason = result.get("reason", "")
         item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
         item.ai_summary = result.get("summary") or item.ai_summary_zh or item.title
-        item.ai_tags = [str(tag) for tag in tags][:6]
-        item.ai_category = result.get("category")
+        item.ai_tags = normalize_tags(
+            [*tags, *source_tags, category],
+            fallback=category,
+            max_tags=3,
+        )
+        item.ai_category = category
         item.ai_is_featured = bool(
             result.get("is_featured", score >= DEFAULT_FEATURED_THRESHOLD)
         )

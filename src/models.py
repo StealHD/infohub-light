@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, HttpUrl, Field, field_validator
+from pydantic import BaseModel, HttpUrl, Field, field_validator, model_validator
 
 
 class SourceType(str, Enum):
@@ -15,6 +15,8 @@ class SourceType(str, Enum):
     REDDIT = "reddit"
     TELEGRAM = "telegram"
     TWITTER = "twitter"
+    INSTAGRAM = "instagram"
+    FACEBOOK = "facebook"
     OPENBB = "openbb"
     OSSINSIGHT = "ossinsight"
 
@@ -168,6 +170,94 @@ class TwitterConfig(BaseModel):
     reply_min_likes: int = 0
 
 
+class ApifySocialPlatform(str, Enum):
+    """Social platforms fetched through Apify actors."""
+
+    X = "x"
+    INSTAGRAM = "instagram"
+    FACEBOOK = "facebook"
+    TELEGRAM = "telegram"
+
+
+class ApifyActorConfig(BaseModel):
+    """Apify actor selection for one social platform."""
+
+    actor_id: str
+
+
+class ApifySocialActorsConfig(BaseModel):
+    """Default Apify actors used by the social source adapter."""
+
+    x: ApifyActorConfig = Field(
+        default_factory=lambda: ApifyActorConfig(actor_id="altimis~scweet")
+    )
+    instagram: ApifyActorConfig = Field(
+        default_factory=lambda: ApifyActorConfig(actor_id="apify/instagram-api-scraper")
+    )
+    facebook: ApifyActorConfig = Field(
+        default_factory=lambda: ApifyActorConfig(actor_id="whoareyouanas/facebook-group-scraper")
+    )
+    telegram: ApifyActorConfig = Field(
+        default_factory=lambda: ApifyActorConfig(actor_id="thescrapelab/apify-telegram-scraper")
+    )
+
+
+class ApifySocialSubscriptionConfig(BaseModel):
+    """One public social subscription fetched through Apify."""
+
+    platform: ApifySocialPlatform
+    kind: str
+    target: str
+    fetch_limit: int = Field(default=20, ge=1, le=100)
+    enabled: bool = True
+    tags: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_platform_kind(self) -> "ApifySocialSubscriptionConfig":
+        allowed = {
+            ApifySocialPlatform.X: {"profile", "keyword"},
+            ApifySocialPlatform.INSTAGRAM: {"profile", "hashtag"},
+            ApifySocialPlatform.FACEBOOK: {"page", "group", "post"},
+            ApifySocialPlatform.TELEGRAM: {"channel"},
+        }
+        if self.kind not in allowed[self.platform]:
+            allowed_values = ", ".join(sorted(allowed[self.platform]))
+            raise ValueError(
+                f"apify_social kind for {self.platform.value} must be one of {allowed_values}"
+            )
+        if not self.target.strip():
+            raise ValueError("apify_social target cannot be empty")
+        self.target = self.target.strip()
+        return self
+
+
+class ApifySocialConfig(BaseModel):
+    """Unified Apify-backed social source configuration."""
+
+    enabled: bool = False
+    token_env: str = "APIFY_TOKEN"
+    token_envs: List[str] = Field(default_factory=lambda: ["APIFY_TOKEN"])
+    timeout_seconds: int = Field(default=180, ge=1, le=900)
+    actors: ApifySocialActorsConfig = Field(default_factory=ApifySocialActorsConfig)
+    subscriptions: List[ApifySocialSubscriptionConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_token_envs(self) -> "ApifySocialConfig":
+        names: list[str] = []
+        for raw in self.token_envs or []:
+            name = str(raw).strip()
+            if name and name not in names:
+                names.append(name)
+        primary = str(self.token_env or "").strip()
+        if primary and primary not in names:
+            names.insert(0, primary)
+        if not names:
+            names = ["APIFY_TOKEN"]
+        self.token_env = names[0]
+        self.token_envs = names
+        return self
+
+
 class OpenBBWatchlist(BaseModel):
     """A named watchlist of tickers fetched from one OpenBB provider.
 
@@ -231,6 +321,7 @@ class SourcesConfig(BaseModel):
     reddit: RedditConfig = Field(default_factory=RedditConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     twitter: Optional[TwitterConfig] = None
+    apify_social: ApifySocialConfig = Field(default_factory=ApifySocialConfig)
     openbb: Optional[OpenBBConfig] = None
     ossinsight: OSSInsightConfig = Field(default_factory=OSSInsightConfig)
 

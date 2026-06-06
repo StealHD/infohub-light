@@ -3,78 +3,94 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI 信息雷达</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Inteliscope</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css?v=20260606-personal-gallery" />
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <h1>AI 信息雷达</h1>
-        <p id="metaLine">等待数据</p>
-      </div>
-      <div class="topbar-actions">
-        <button id="clearFiltersBtn" type="button" title="清除筛选和本地筛选状态">清除筛选</button>
-        <button id="refreshBtn" type="button" title="重新读取数据">刷新</button>
-      </div>
-    </header>
+      <div class="topbar-inner">
+        <div class="brand">
+          <h1>Inteliscope</h1>
+          <p id="metaLine">等待数据</p>
+        </div>
 
-    <main class="layout">
-      <aside class="filters" aria-label="筛选">
-        <div class="field">
-          <label for="searchInput">关键词</label>
-          <input id="searchInput" type="search" placeholder="标题、摘要、标签" />
-        </div>
-        <div class="field">
-          <label for="minScoreInput">最低分</label>
-          <input id="minScoreInput" type="range" min="0" max="10" step="0.5" value="0" />
-          <output id="minScoreValue">0</output>
-        </div>
-        <div class="field">
-          <label for="tagSelect">标签</label>
-          <select id="tagSelect">
-            <option value="">全部标签</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="sourceSelect">来源</label>
-          <select id="sourceSelect">
-            <option value="">全部来源</option>
-          </select>
-        </div>
-        <label class="checkline">
-          <input id="favoritesOnly" type="checkbox" />
-          只看收藏
-        </label>
-      </aside>
-
-      <section class="content">
         <nav class="tabs" aria-label="视图">
-          <button class="tab active" type="button" data-view="featured">精选信息流</button>
-          <button class="tab" type="button" data-view="all">全部动态</button>
-          <button class="tab" type="button" data-view="history">历史动态</button>
-          <button class="tab" type="button" data-view="daily">每日摘要</button>
+          <button class="tab active" type="button" data-view="featured">精选</button>
+          <button class="tab" type="button" data-view="personal">个人关注</button>
+          <button class="tab" type="button" data-view="all">全部</button>
+          <button class="tab" type="button" data-view="readLater">稍后读</button>
+          <button class="tab" type="button" data-view="history">历史</button>
+          <button class="tab" type="button" data-view="daily">日报</button>
           <button class="tab" type="button" data-view="config">配置</button>
         </nav>
 
-        <div class="summary-strip" id="summaryStrip"></div>
-        <div id="itemsList" class="items"></div>
-        <section id="configPanel" class="config-panel hidden" aria-label="配置编辑">
-          <div class="config-head">
-            <div>
-              <h2>配置</h2>
-              <p id="configPath">读取中</p>
-            </div>
-            <div class="config-actions">
-              <button id="reloadConfigBtn" type="button">重新读取</button>
-            </div>
+        <div class="topbar-actions">
+          <input id="searchInput" class="search-input" type="search" placeholder="搜索标题、摘要、标签" />
+          <button id="densityToggleBtn" class="icon-button" type="button" title="切换阅读密度">Aa</button>
+          <button id="clearFiltersBtn" class="icon-button" type="button" title="清除筛选和本地筛选状态">⌫</button>
+          <button id="refreshBtn" class="primary-button" type="button" title="重新读取数据">刷新</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="readerShell" class="reader-shell">
+      <aside id="readingQueue" class="reading-queue panel" aria-label="阅读清单">
+        <div class="queue-head">
+          <div>
+            <h2 id="queueTitle">今日精选</h2>
+            <p id="queueDescription">按 AI 评分和可行动性排序，适合早晨快速阅读。</p>
           </div>
-          <div id="envStatus" class="env-status"></div>
-          <div id="configForms" class="config-forms"></div>
-          <div id="configMessage" class="config-message"></div>
-        </section>
+          <div id="queueStats" class="queue-stats"></div>
+          <div class="filter-grid" aria-label="筛选">
+            <label class="field">
+              <span>最低分</span>
+              <span class="range-line">
+                <input id="minScoreInput" type="range" min="0" max="10" step="0.5" value="0" />
+                <output id="minScoreValue">0</output>
+              </span>
+            </label>
+            <label class="field">
+              <span>标签</span>
+              <select id="tagSelect">
+                <option value="">全部标签</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>来源</span>
+              <select id="sourceSelect">
+                <option value="">全部来源</option>
+              </select>
+            </label>
+            <label class="checkline">
+              <input id="favoritesOnly" type="checkbox" />
+              <span>只看收藏</span>
+            </label>
+          </div>
+        </div>
+        <div id="itemsList" class="story-list"></div>
+      </aside>
+
+      <section id="readerPanel" class="reader-panel panel" aria-label="阅读正文"></section>
+
+      <aside id="contextPanel" class="context-panel" aria-label="阅读上下文"></aside>
+
+      <section id="configPanel" class="config-panel panel hidden" aria-label="配置编辑">
+        <div class="config-head">
+          <div>
+            <h2>配置</h2>
+            <p id="configPath">读取中</p>
+          </div>
+          <div class="config-actions">
+            <button id="reloadConfigBtn" type="button">重新读取</button>
+          </div>
+        </div>
+        <div id="envStatus" class="env-status"></div>
+        <div id="configForms" class="config-forms"></div>
+        <div id="configMessage" class="config-message"></div>
       </section>
     </main>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=20260606-personal-gallery"></script>
   </body>
 </html>

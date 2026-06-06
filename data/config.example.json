@@ -14,11 +14,15 @@
   "tags": [
     "AI Agent",
     "AI 编程",
-    "RAG",
-    "MCP",
     "模型发布",
+    "RAG/MCP",
+    "AI Infra",
     "开源模型",
-    "AI Infra"
+    "推理框架",
+    "产品创业",
+    "研究论文",
+    "安全治理",
+    "行业动态"
   ],
   "email": {
     "enabled": false,
@@ -37,14 +41,14 @@
         "type": "user_events",
         "username": "torvalds",
         "enabled": true,
-        "tags": ["核心开发者"]
+        "tags": ["行业动态"]
       },
       {
         "type": "repo_releases",
         "owner": "astral-sh",
         "repo": "uv",
         "enabled": true,
-        "tags": ["开发工具", "Python"]
+        "tags": ["AI 编程"]
       }
     ],
     "hackernews": {
@@ -58,7 +62,7 @@
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
         "category": "ai-tools",
-        "tags": ["AI 编程", "tool use"]
+        "tags": ["AI 编程", "RAG/MCP"]
       },
       {
         "name": "LWN.net (subscriber full-text)",
@@ -77,7 +81,7 @@
           "time_filter": "day",
           "fetch_limit": 15,
           "min_score": 50,
-          "tags": ["机器学习", "研究讨论"]
+          "tags": ["研究论文", "行业动态"]
         }
       ],
       "users": [
@@ -86,19 +90,82 @@
           "enabled": true,
           "sort": "new",
           "fetch_limit": 10,
-          "tags": ["社区观点"]
+          "tags": ["行业动态"]
         }
       ],
       "fetch_comments": 5
     },
     "twitter": {
       "enabled": false,
+      "apify_token_env": "APIFY_TOKEN",
       "users": ["karpathy", "ylecun"],
       "fetch_limit": 10,
       "fetch_reply_text": false,
       "max_replies_per_tweet": 3,
       "max_tweets_to_expand": 10,
       "reply_min_likes": 5
+    },
+    "apify_social": {
+      "enabled": false,
+      "token_env": "APIFY_TOKEN",
+      "token_envs": ["APIFY_TOKEN", "APIFY_TOKEN_2", "APIFY_TOKEN_3"],
+      "timeout_seconds": 180,
+      "actors": {
+        "x": {
+          "actor_id": "altimis~scweet"
+        },
+        "instagram": {
+          "actor_id": "apify/instagram-api-scraper"
+        },
+        "facebook": {
+          "actor_id": "whoareyouanas/facebook-group-scraper"
+        },
+        "telegram": {
+          "actor_id": "thescrapelab/apify-telegram-scraper"
+        }
+      },
+      "subscriptions": [
+        {
+          "platform": "x",
+          "kind": "profile",
+          "target": "OpenAI",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["AI Agent", "模型发布", "行业动态"]
+        },
+        {
+          "platform": "instagram",
+          "kind": "hashtag",
+          "target": "#aiagents",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["AI Agent", "产品创业"]
+        },
+        {
+          "platform": "instagram",
+          "kind": "profile",
+          "target": "tsucha_ri",
+          "fetch_limit": 1,
+          "enabled": true,
+          "tags": ["行业动态"]
+        },
+        {
+          "platform": "facebook",
+          "kind": "page",
+          "target": "https://www.facebook.com/openai",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["模型发布", "行业动态"]
+        },
+        {
+          "platform": "telegram",
+          "kind": "channel",
+          "target": "zaihuapd",
+          "fetch_limit": 20,
+          "enabled": true,
+          "tags": ["产品创业", "行业动态"]
+        }
+      ]
     },
     "openbb": {
       "enabled": false,
