@@ -64,6 +64,11 @@ var state = {
   config: null,
   envStatus: [],
   historyData: null,
+  articleGraph: null,
+  articleGraphLoaded: false,
+  articleGraphLoading: false,
+  articleGraphOpen: false,
+  selectedGraphNodeId: '',
 };
 var copyFeedbackTimer = 0;
 

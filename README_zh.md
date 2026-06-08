@@ -313,10 +313,12 @@ docker compose logs -f horizon-scheduler     # 查看定时任务日志
 
 本仓库是基于 Horizon 的 Inteliscope 二开版本，已加入私人定制配置和输出：
 
+- 日常访问、阅读、配置、运维和 Nginx 项目密码说明见 [Inteliscope 使用说明](docs/usage_zh.md)
 - AI 打分输出 `score`、`reason`、`tags`、`category`、`is_featured`、`summary_zh`、`action_suggestion`
 - `>= 7.5` 进入精选，`>= 8.5` 进入每日推送，推送最多 10 条
 - 支持 RSS/Atom、GitHub Releases、GitHub 用户/组织动态、Hacker News、Reddit、Telegram 公共频道、OSS Insight；并支持通过 Apify 订阅公开 X、Instagram、Facebook、Telegram 目标
 - 静态 Web UI 支持精选信息流、最近 20 条全部动态、历史归档、每日摘要、标签/来源/关键词/分数筛选和 localStorage 收藏
+- 右下角「关联分析」可读取预生成的 `article-graph.json`，展示高分文章之间的主题、实体、时间线和同事件关系；按钮点击不实时调用 AI
 - Web UI 内置配置后台，通过结构化表单维护信源、固定标签大类、个人标签、阈值、模型和 webhook，保存前会校验配置并备份旧文件；发布给朋友使用时可开启后台鉴权
 - 标签强约束为几大类：AI Agent、AI 编程、模型发布、RAG/MCP、AI Infra、开源模型、推理框架、产品创业、研究论文、安全治理、行业动态
 - Docker Compose 默认每 30 分钟增量轮询，`08:30 Asia/Shanghai` 执行每日推送，挂载 `data/`、`logs/`、`.env`，并为 Web UI 配置健康检查

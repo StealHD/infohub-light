@@ -14,10 +14,12 @@ def test_static_ui_exposes_reading_layout_contract():
     assert 'id="contextPanel"' in html
     assert 'id="densityToggleBtn"' in html
     assert 'id="configPanel"' in html
+    assert 'id="articleGraphButton"' in html
+    assert 'id="articleGraphPanel"' in html
     assert "STATIC_ASSET_VERSION" in html
-    for css_name in ["base.css", "reader.css", "config.css", "media.css"]:
+    for css_name in ["base.css", "reader.css", "config.css", "media.css", "article_graph.css"]:
         assert f"./{css_name}?v=" in html
-    for script_name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "app.js"]:
+    for script_name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "article_graph.js", "app.js"]:
         assert f"./{script_name}?v=" in html
     assert 'data-view="personal"' in html
     assert 'data-view="readLater"' in html
@@ -26,7 +28,7 @@ def test_static_ui_exposes_reading_layout_contract():
 def test_static_ui_keeps_reader_state_and_render_functions():
     js_bundle = "\n".join(
         (STATIC_DIR / name).read_text(encoding="utf-8")
-        for name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "app.js"]
+        for name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "article_graph.js", "app.js"]
     )
 
     for key in [
@@ -85,6 +87,13 @@ def test_static_ui_keeps_reader_state_and_render_functions():
         "handleAuthLoginSubmit",
         "handleAuthLogout",
         "handleConfigUnauthorized",
+        "ensureArticleGraphLoaded",
+        "openArticleGraph",
+        "closeArticleGraph",
+        "renderArticleGraphPanel",
+        "renderArticleGraphGroups",
+        "renderArticleGraphNodeDetail",
+        "handleArticleGraphClick",
     ]:
         assert f"function {function_name}" in js_bundle
 
@@ -99,6 +108,10 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "handleAuthLogout" in js_bundle
     assert "renderEnvStatus(state.envStatus || [])" in js_bundle
     assert "loadAuthStatus({ silent: true }).finally(loadData)" in js_bundle
+    assert "./article-graph.json?ts=" in js_bundle
+    assert "关联分析" in js_bundle
+    assert "文章关系" in js_bundle
+    assert "./api/article-graph" not in js_bundle
     assert "./api/auth/status" in js_bundle
     assert "./api/auth/login" in js_bundle
     assert "./api/auth/logout" in js_bundle
@@ -194,7 +207,7 @@ def test_static_ui_keeps_reader_state_and_render_functions():
 def test_static_ui_uses_reader_layout_css():
     css = "\n".join(
         (STATIC_DIR / name).read_text(encoding="utf-8")
-        for name in ["base.css", "reader.css", "config.css", "media.css"]
+        for name in ["base.css", "reader.css", "config.css", "media.css", "article_graph.css"]
     )
 
     assert ".reader-shell" in css
@@ -229,6 +242,9 @@ def test_static_ui_uses_reader_layout_css():
     assert ".story-media-strip" in css
     assert ".article-media-thumbs" in css
     assert ".media-lightbox" in css
+    assert ".article-graph-fab" in css
+    assert ".article-graph-panel" in css
+    assert ".graph-edge-card" in css
     assert ".media-lightbox-nav" in css
     assert "object-fit: cover" in css
     assert ".tabs::-webkit-scrollbar" in css

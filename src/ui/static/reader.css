@@ -445,6 +445,29 @@ button.text-link {
   background: var(--panel);
 }
 
+@media (min-width: 1181px) {
+  .reading-queue {
+    height: calc(100vh - 96px);
+  }
+
+  .reader-panel {
+    display: flex;
+    min-height: calc(100vh - 96px);
+    flex-direction: column;
+  }
+
+  .article {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .reading-actions {
+    margin-top: auto;
+  }
+}
+
 .context-title {
   display: flex;
   justify-content: space-between;

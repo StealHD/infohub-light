@@ -439,6 +439,37 @@ class FilteringConfig(BaseModel):
     recent_item_limit: int = 20
 
 
+class PremiumAnalysisConfig(BaseModel):
+    """Optional high-score article deep storage/fetch configuration."""
+
+    enabled: bool = False
+    full_fetch_score_threshold: float = Field(default=8.5, ge=0, le=10)
+    max_full_fetch_per_run: int = Field(default=10, ge=0, le=100)
+    max_full_text_chars: int = Field(default=12000, ge=1000, le=50000)
+    full_fetch_concurrency: int = Field(default=2, ge=1, le=10)
+    keep_premium_articles: int = Field(default=1000, ge=10, le=100000)
+    keep_full_text_days: int = Field(default=90, ge=1, le=3650)
+
+
+class ArticleGraphConfig(BaseModel):
+    """Optional low-cost relationship graph for premium articles."""
+
+    enabled: bool = False
+    premium_score_threshold: float = Field(default=8.5, ge=0, le=10)
+    active_window_days: int = Field(default=30, ge=1, le=3650)
+    extended_window_days: int = Field(default=90, ge=1, le=3650)
+    max_active_nodes: int = Field(default=300, ge=1, le=5000)
+    max_visible_nodes: int = Field(default=30, ge=1, le=300)
+    max_visible_edges: int = Field(default=100, ge=0, le=1000)
+    relation_top_k: int = Field(default=3, ge=1, le=20)
+    min_relation_score: float = Field(default=0.55, ge=0, le=1)
+    strong_relation_score: float = Field(default=0.75, ge=0, le=1)
+    snapshot_min_new_premium_articles: int = Field(default=3, ge=0, le=100)
+    snapshot_max_age_hours: int = Field(default=6, ge=1, le=168)
+    enable_embedding: bool = False
+    enable_ai_group_summary: bool = False
+
+
 class Config(BaseModel):
     """Main configuration model."""
 
@@ -448,5 +479,7 @@ class Config(BaseModel):
     filtering: FilteringConfig
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
+    premium_analysis: PremiumAnalysisConfig = Field(default_factory=PremiumAnalysisConfig)
+    article_graph: ArticleGraphConfig = Field(default_factory=ArticleGraphConfig)
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None

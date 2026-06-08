@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inteliscope</title>
     <link rel="icon" href="data:," />
-    <script>window.STATIC_ASSET_VERSION = "20260608-today-archive";</script>
-    <link rel="stylesheet" href="./base.css?v=20260608-today-archive" />
-    <link rel="stylesheet" href="./reader.css?v=20260608-today-archive" />
-    <link rel="stylesheet" href="./config.css?v=20260608-today-archive" />
-    <link rel="stylesheet" href="./media.css?v=20260608-today-archive" />
+    <script>window.STATIC_ASSET_VERSION = "20260608-article-graph";</script>
+    <link rel="stylesheet" href="./base.css?v=20260608-article-graph" />
+    <link rel="stylesheet" href="./reader.css?v=20260608-article-graph" />
+    <link rel="stylesheet" href="./config.css?v=20260608-article-graph" />
+    <link rel="stylesheet" href="./media.css?v=20260608-article-graph" />
+    <link rel="stylesheet" href="./article_graph.css?v=20260608-article-graph" />
   </head>
   <body>
     <header class="topbar">
@@ -96,12 +97,16 @@
       </section>
     </main>
 
-    <script src="./state.js?v=20260608-today-archive"></script>
-    <script src="./utils.js?v=20260608-today-archive"></script>
-    <script src="./media.js?v=20260608-today-archive"></script>
-    <script src="./auth.js?v=20260608-today-archive"></script>
-    <script src="./reader.js?v=20260608-today-archive"></script>
-    <script src="./config.js?v=20260608-today-archive"></script>
-    <script src="./app.js?v=20260608-today-archive"></script>
+    <button id="articleGraphButton" class="article-graph-fab" type="button" title="查看文章关联分析">关联分析</button>
+    <section id="articleGraphPanel" class="article-graph-panel hidden" aria-label="文章关系" aria-live="polite"></section>
+
+    <script src="./state.js?v=20260608-article-graph"></script>
+    <script src="./utils.js?v=20260608-article-graph"></script>
+    <script src="./media.js?v=20260608-article-graph"></script>
+    <script src="./auth.js?v=20260608-article-graph"></script>
+    <script src="./reader.js?v=20260608-article-graph"></script>
+    <script src="./config.js?v=20260608-article-graph"></script>
+    <script src="./article_graph.js?v=20260608-article-graph"></script>
+    <script src="./app.js?v=20260608-article-graph"></script>
   </body>
 </html>

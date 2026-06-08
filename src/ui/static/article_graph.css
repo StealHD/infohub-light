@@ -1,0 +1,235 @@
+/* Inteliscope static UI: article graph panel. */
+.article-graph-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 82px;
+  z-index: 35;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 113, 227, 0.18);
+}
+
+.article-graph-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 132px;
+  z-index: 34;
+  width: min(420px, calc(100vw - 28px));
+  max-height: min(640px, calc(100vh - 160px));
+  overflow: auto;
+}
+
+.graph-panel-shell {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+
+.graph-panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.graph-panel-head strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.graph-panel-head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-panel-head button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--text);
+}
+
+.graph-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 14px 4px;
+}
+
+.graph-stats span {
+  display: grid;
+  gap: 2px;
+  padding: 9px;
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-stats strong {
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.graph-groups {
+  display: grid;
+  gap: 10px;
+  padding: 10px 14px 0;
+}
+
+.graph-card {
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.graph-loading,
+.graph-empty {
+  padding: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.graph-empty.small {
+  padding: 10px 0;
+  text-align: left;
+}
+
+.graph-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.graph-card-head strong {
+  font-size: 14px;
+}
+
+.graph-card-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.graph-card p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.graph-edge-card,
+.graph-related-item {
+  display: grid;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+.graph-edge-card:hover,
+.graph-related-item:hover {
+  background: #f5f9ff;
+}
+
+.graph-edge-card span,
+.graph-related-item span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-edge-card strong,
+.graph-related-item strong {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.graph-detail {
+  margin: 12px 14px 14px;
+}
+
+.graph-detail h3 {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.graph-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.graph-tags span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef5ff;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.graph-related {
+  margin-top: 10px;
+}
+
+.graph-open-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  margin-top: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.graph-open-link:hover {
+  text-decoration: none;
+}
+
+@media (max-width: 720px) {
+  .article-graph-fab {
+    right: 12px;
+    bottom: 72px;
+  }
+
+  .article-graph-panel {
+    right: 10px;
+    bottom: 120px;
+    width: calc(100vw - 20px);
+  }
+}

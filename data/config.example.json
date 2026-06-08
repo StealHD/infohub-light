@@ -209,6 +209,31 @@
     "time_window_hours": 24,
     "recent_item_limit": 20
   },
+  "premium_analysis": {
+    "enabled": false,
+    "full_fetch_score_threshold": 8.5,
+    "max_full_fetch_per_run": 10,
+    "max_full_text_chars": 12000,
+    "full_fetch_concurrency": 2,
+    "keep_premium_articles": 1000,
+    "keep_full_text_days": 90
+  },
+  "article_graph": {
+    "enabled": false,
+    "premium_score_threshold": 8.5,
+    "active_window_days": 30,
+    "extended_window_days": 90,
+    "max_active_nodes": 300,
+    "max_visible_nodes": 30,
+    "max_visible_edges": 100,
+    "relation_top_k": 3,
+    "min_relation_score": 0.55,
+    "strong_relation_score": 0.75,
+    "snapshot_min_new_premium_articles": 3,
+    "snapshot_max_age_hours": 6,
+    "enable_embedding": false,
+    "enable_ai_group_summary": false
+  },
   "webhook": {
     "enabled": false,
     "url_env": "HORIZON_WEBHOOK_URL",

@@ -14,6 +14,9 @@ from .storage.manager import StorageManager
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .services.daily_push import select_daily_push_items
+from .services.article_graph import build_article_graph_snapshot, write_article_graph_snapshot
+from .services.fulltext import FullTextFetcher
+from .storage.article_store import ArticleStore
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
 from .scrapers.rss import RSSScraper
@@ -171,6 +174,7 @@ class HorizonOrchestrator:
                 today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                 total_fetched=len(all_items),
             )
+            await self._run_article_graph_pipeline(analyzed_items)
 
             if not write_summaries and not send_notifications:
                 self.console.print("[dim]Skipping daily summary and notifications for incremental poll.[/dim]\n")
@@ -665,6 +669,54 @@ class HorizonOrchestrator:
             self.console.print(f"🌐 Updated web UI data: {data_path}\n")
         except Exception as exc:
             self.console.print(f"[yellow]⚠️  Failed to update web UI: {exc}[/yellow]\n")
+
+    async def _run_article_graph_pipeline(self, items: List[ContentItem]) -> None:
+        """Optionally persist light article data and build static relationship graph."""
+        if not (
+            getattr(self.config.premium_analysis, "enabled", False)
+            or getattr(self.config.article_graph, "enabled", False)
+        ):
+            return
+
+        try:
+            store = ArticleStore(self.storage.data_dir)
+            store.initialize()
+            stored = store.upsert_articles_light(items)
+            self.console.print(f"🕸️  Stored {stored} light articles for relationship analysis")
+
+            if self.config.premium_analysis.enabled:
+                fetcher = FullTextFetcher(
+                    store,
+                    score_threshold=self.config.premium_analysis.full_fetch_score_threshold,
+                    max_articles=self.config.premium_analysis.max_full_fetch_per_run,
+                    max_chars=self.config.premium_analysis.max_full_text_chars,
+                    concurrency=self.config.premium_analysis.full_fetch_concurrency,
+                )
+                fetched = await fetcher.fetch_missing()
+                self.console.print(f"   Full-text fetched for {fetched} premium articles")
+
+            if self.config.article_graph.enabled:
+                snapshot = build_article_graph_snapshot(
+                    store,
+                    premium_score_threshold=self.config.article_graph.premium_score_threshold,
+                    relation_top_k=self.config.article_graph.relation_top_k,
+                    min_relation_score=self.config.article_graph.min_relation_score,
+                    max_visible_nodes=self.config.article_graph.max_visible_nodes,
+                    max_visible_edges=self.config.article_graph.max_visible_edges,
+                )
+                graph_path = write_article_graph_snapshot(
+                    self.storage.data_dir / "site",
+                    snapshot,
+                )
+                self.console.print(
+                    "   Article graph: "
+                    f"{snapshot['stats']['nodes']} nodes, "
+                    f"{snapshot['stats']['edges']} edges → {graph_path}\n"
+                )
+        except Exception as exc:
+            self.console.print(
+                f"[yellow]⚠️  Article relationship analysis skipped: {exc}[/yellow]\n"
+            )
 
     async def _analyze_content(self, items: List[ContentItem]) -> List[ContentItem]:
         """Analyze content items with AI.

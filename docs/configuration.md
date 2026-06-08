@@ -546,6 +546,38 @@ Content is scored 0-10:
 - `time_window_hours`: Fetch content from last N hours
 - `recent_item_limit`: Number of newest items kept in the current web UI payload. Older items are retained in history.
 
+## Premium Article Graph
+
+The article relationship graph is optional and disabled by default. It writes a small SQLite index to `data/horizon.db` and a static snapshot to `data/site/article-graph.json`. The browser reads only this static JSON; clicking the graph button does not call the backend or an AI model.
+
+```json
+{
+  "premium_analysis": {
+    "enabled": false,
+    "full_fetch_score_threshold": 8.5,
+    "max_full_fetch_per_run": 10,
+    "max_full_text_chars": 12000,
+    "full_fetch_concurrency": 2
+  },
+  "article_graph": {
+    "enabled": false,
+    "premium_score_threshold": 8.5,
+    "max_visible_nodes": 30,
+    "max_visible_edges": 100,
+    "relation_top_k": 3,
+    "min_relation_score": 0.55
+  }
+}
+```
+
+- `premium_analysis.enabled`: Enables high-score article full-text fetching and premium row storage. Failures are logged as warnings and do not stop the main pipeline.
+- `full_fetch_score_threshold`: Only articles at or above this score are eligible for full-text fetching.
+- `max_full_fetch_per_run`: Caps network fetches per run to keep small VPS deployments stable.
+- `article_graph.enabled`: Enables deterministic relationship edge generation and writes `article-graph.json`.
+- `premium_score_threshold`: Only articles at or above this score enter the graph.
+- `relation_top_k`: Maximum relations retained per article.
+- `min_relation_score`: Minimum deterministic overlap score for a relation edge.
+
 ## Environment Variable Substitution
 
 Any string value in `data/config.json` supports `${VAR_NAME}` syntax. Variables are expanded at runtime from the environment (including values loaded from `.env`). This lets you keep secrets, tenant-specific endpoints, and private URLs out of the checked-in JSON file.

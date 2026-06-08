@@ -350,6 +350,8 @@ function bindEvents() {
     renderItems();
   });
   document.getElementById('readerPanel').addEventListener('click', handleReaderAction);
+  document.getElementById('articleGraphButton').addEventListener('click', openArticleGraph);
+  document.getElementById('articleGraphPanel').addEventListener('click', handleArticleGraphClick);
   document.addEventListener('click', handleLightboxClick);
   document.addEventListener('keydown', handleLightboxKeydown);
 }

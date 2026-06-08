@@ -53,6 +53,31 @@ def test_validate_config_data_accepts_valid_config():
 
     assert validated.ai.provider.value == "openai"
     assert validated.sources.rss[0].name == "Example Feed"
+    assert validated.premium_analysis.enabled is False
+    assert validated.article_graph.enabled is False
+
+
+def test_validate_config_data_accepts_article_graph_config():
+    config = _minimal_config()
+    config["premium_analysis"] = {
+        "enabled": True,
+        "full_fetch_score_threshold": 8.5,
+        "max_full_fetch_per_run": 6,
+        "max_full_text_chars": 8000,
+    }
+    config["article_graph"] = {
+        "enabled": True,
+        "premium_score_threshold": 8.5,
+        "relation_top_k": 3,
+        "min_relation_score": 0.45,
+    }
+
+    validated = validate_config_data(config)
+
+    assert validated.premium_analysis.enabled is True
+    assert validated.premium_analysis.max_full_fetch_per_run == 6
+    assert validated.article_graph.enabled is True
+    assert validated.article_graph.min_relation_score == 0.45
 
 
 def test_migrate_config_tag_layers_moves_custom_tags_to_personal_tags():
