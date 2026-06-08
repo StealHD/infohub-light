@@ -135,7 +135,7 @@ class TelegramScraper(BaseScraper):
             metadata={
                 "msg_url": msg_url,
                 "channel": channel,
-                "tags": list(cfg.tags),
+                **self._tag_metadata(cfg),
             },
         )
 

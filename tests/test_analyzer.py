@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import src.ai.analyzer as analyzer_module
+from src.ai.analysis_cache import AnalysisCache
 from src.ai.analyzer import ContentAnalyzer
 from src.models import ContentItem, SourceType
 
@@ -94,3 +95,68 @@ def test_analyze_batch_concurrent_preserves_order(monkeypatch):
     result = asyncio.run(analyzer.analyze_batch(items))
 
     assert [item.id for item in result] == [item.id for item in items]
+
+
+def test_analyze_item_uses_configured_prompt_limits_and_ignores_personal_tags():
+    calls = []
+
+    class FakeClient:
+        config = SimpleNamespace(
+            analysis_content_chars=12,
+            analysis_comments_chars=8,
+            analysis_concurrency=1,
+            throttle_sec=0,
+        )
+
+        async def complete(self, system, user):
+            calls.append(user)
+            return (
+                '{"score": 8, "reason": "ok", "tags": ["AI Agent"], '
+                '"category": "AI Agent", "is_featured": true, '
+                '"summary_zh": "摘要", "action_suggestion": "阅读"}'
+            )
+
+    item = _make_item("rss:test:limited")
+    item.content = "abcdefghijklmnopqrstuvwxyz--- Top Comments ---1234567890"
+    item.metadata["tags"] = ["AI Agent"]
+    item.metadata["personal_tags"] = ["能黄通"]
+
+    asyncio.run(ContentAnalyzer(FakeClient())._analyze_item(item))
+
+    assert "Content: abcdefghijkl" in calls[0]
+    assert "Community Comments:\n12345678" in calls[0]
+    assert "AI Agent" in calls[0]
+    assert "能黄通" not in calls[0]
+
+
+def test_analyze_batch_reuses_analysis_cache(tmp_path):
+    calls = 0
+
+    class FakeClient:
+        config = SimpleNamespace(
+            analysis_concurrency=1,
+            throttle_sec=0,
+            model="fake-model",
+        )
+
+        async def complete(self, system, user):
+            nonlocal calls
+            calls += 1
+            return (
+                '{"score": 8.2, "reason": "cached", "tags": ["AI Agent"], '
+                '"category": "AI Agent", "is_featured": true, '
+                '"summary_zh": "缓存摘要", "action_suggestion": "收藏"}'
+            )
+
+    cache = AnalysisCache(tmp_path / "analysis-cache.jsonl")
+    first = _make_item("rss:test:cache")
+    first.content = "same body"
+    second = _make_item("rss:test:cache")
+    second.content = "same body"
+
+    asyncio.run(ContentAnalyzer(FakeClient(), cache=cache).analyze_batch([first]))
+    asyncio.run(ContentAnalyzer(FakeClient(), cache=cache).analyze_batch([second]))
+
+    assert calls == 1
+    assert second.ai_score == 8.2
+    assert second.ai_summary_zh == "缓存摘要"

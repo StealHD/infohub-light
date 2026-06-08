@@ -24,10 +24,11 @@ from .scrapers.apify_social import ApifySocialScraper
 from .scrapers.openbb import OpenBBScraper
 from .scrapers.ossinsight import OSSInsightScraper
 from .ai.client import create_ai_client
+from .ai.analysis_cache import AnalysisCache
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
-from .ai.tokens import get_usage_snapshot
+from .ai.tokens import get_usage_snapshot, token_stage
 from .ui.site import build_site_payload, load_history_item_ids, write_static_site
 
 
@@ -115,7 +116,9 @@ class HorizonOrchestrator:
                     return
 
             # 4. Analyze with AI
-            analyzed_items = await self._analyze_content(merged_items)
+            analysis_items, passthrough_items = self.partition_analysis_items(merged_items)
+            analyzed_items = await self._analyze_content(analysis_items)
+            analyzed_items = analyzed_items + passthrough_items
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
 
             # 5. Filter by featured score threshold
@@ -178,13 +181,19 @@ class HorizonOrchestrator:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer()
-                summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
-                push_summary = await summarizer.generate_summary(
-                    daily_push_items,
-                    today,
-                    len(all_items),
-                    language=lang,
-                )
+                with token_stage("summary"):
+                    summary = await summarizer.generate_summary(
+                        important_items,
+                        today,
+                        len(all_items),
+                        language=lang,
+                    )
+                    push_summary = await summarizer.generate_summary(
+                        daily_push_items,
+                        today,
+                        len(all_items),
+                        language=lang,
+                    )
 
                 if write_summaries:
                     # Save to data/summaries/
@@ -257,6 +266,15 @@ class HorizonOrchestrator:
                         f"   • {provider}: {u.total} tokens "
                         f"(in: {u.input_tokens}, out: {u.output_tokens})"
                     )
+                if usage.per_stage:
+                    self.console.print("   By stage:")
+                    for stage, u in sorted(usage.per_stage.items()):
+                        if u.total <= 0:
+                            continue
+                        self.console.print(
+                            f"   • {stage}: {u.total} tokens "
+                            f"(in: {u.input_tokens}, out: {u.output_tokens})"
+                        )
 
         except Exception as e:
             self.console.print(f"[bold red]❌ Error: {e}[/bold red]")
@@ -485,10 +503,11 @@ class HorizonOrchestrator:
 
         try:
             ai_client = create_ai_client(self.config.ai)
-            response = await ai_client.complete(
-                system=TOPIC_DEDUP_SYSTEM,
-                user=TOPIC_DEDUP_USER.format(items=items_text),
-            )
+            with token_stage("dedupe"):
+                response = await ai_client.complete(
+                    system=TOPIC_DEDUP_SYSTEM,
+                    user=TOPIC_DEDUP_USER.format(items=items_text),
+                )
             result = parse_json_response(response)
             if result is None:
                 self.console.print("[yellow]  dedup: could not parse AI response, skipping[/yellow]")
@@ -577,7 +596,7 @@ class HorizonOrchestrator:
             f"   Re-analyzing {len(expanded)} Twitter items with reply context...\n"
         )
         ai_client = create_ai_client(self.config.ai)
-        analyzer = ContentAnalyzer(ai_client)
+        analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache())
         await analyzer.analyze_batch(expanded)
 
     async def _enrich_important_items(self, items: List[ContentItem]) -> None:
@@ -595,8 +614,32 @@ class HorizonOrchestrator:
         self.console.print("📚 Enriching with background knowledge...")
         ai_client = create_ai_client(self.config.ai)
         enricher = ContentEnricher(ai_client)
-        await enricher.enrich_batch(items)
+        with token_stage("enrichment"):
+            await enricher.enrich_batch(items)
         self.console.print(f"   Enriched {len(items)} items\n")
+
+    @staticmethod
+    def partition_analysis_items(items: List[ContentItem]) -> tuple[List[ContentItem], List[ContentItem]]:
+        """Split items that should call AI from personal-only passthrough items."""
+        analysis_items: List[ContentItem] = []
+        passthrough_items: List[ContentItem] = []
+        for item in items:
+            if item.metadata.get("analysis_mode") == "personal_only":
+                item.ai_score = 0.0
+                item.ai_reason = "Personal-only item skipped AI analysis"
+                item.ai_summary = item.ai_summary or item.content or item.title
+                item.ai_summary_zh = item.ai_summary_zh or item.ai_summary
+                item.ai_category = item.ai_category or "行业动态"
+                item.ai_tags = item.ai_tags or list(item.metadata.get("tags") or ["行业动态"])
+                item.ai_is_featured = False
+                item.metadata["show_in_personal_feed"] = True
+                passthrough_items.append(item)
+            else:
+                analysis_items.append(item)
+        return analysis_items, passthrough_items
+
+    def _analysis_cache(self) -> AnalysisCache:
+        return AnalysisCache(self.storage.data_dir / "cache" / "analysis-cache.jsonl")
 
     async def _write_web_ui(
         self,
@@ -616,6 +659,7 @@ class HorizonOrchestrator:
                 homepage_min_score=self.config.filtering.homepage_min_score,
                 recent_item_limit=self.config.filtering.recent_item_limit,
                 tag_library=self.config.tags,
+                personal_tag_library=self.config.personal_tags,
             )
             data_path = write_static_site(self.storage.data_dir / "site", payload)
             self.console.print(f"🌐 Updated web UI data: {data_path}\n")
@@ -631,10 +675,12 @@ class HorizonOrchestrator:
         Returns:
             List[ContentItem]: Analyzed items
         """
+        if not items:
+            return []
         self.console.print("🤖 Analyzing content with AI...")
 
         ai_client = create_ai_client(self.config.ai)
-        analyzer = ContentAnalyzer(ai_client)
+        analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache())
 
         return await analyzer.analyze_batch(items)
 
@@ -660,4 +706,5 @@ class HorizonOrchestrator:
 
         summarizer = DailySummarizer()
 
-        return await summarizer.generate_summary(items, date, total_fetched, language=language)
+        with token_stage("summary"):
+            return await summarizer.generate_summary(items, date, total_fetched, language=language)

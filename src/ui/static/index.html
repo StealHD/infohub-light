@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inteliscope</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./styles.css?v=20260606-personal-gallery" />
+    <script>window.STATIC_ASSET_VERSION = "20260608-today-archive";</script>
+    <link rel="stylesheet" href="./base.css?v=20260608-today-archive" />
+    <link rel="stylesheet" href="./reader.css?v=20260608-today-archive" />
+    <link rel="stylesheet" href="./config.css?v=20260608-today-archive" />
+    <link rel="stylesheet" href="./media.css?v=20260608-today-archive" />
   </head>
   <body>
     <header class="topbar">
@@ -82,6 +86,7 @@
             <p id="configPath">读取中</p>
           </div>
           <div class="config-actions">
+            <button id="logoutBtn" class="hidden" type="button">退出后台</button>
             <button id="reloadConfigBtn" type="button">重新读取</button>
           </div>
         </div>
@@ -91,6 +96,12 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260606-personal-gallery"></script>
+    <script src="./state.js?v=20260608-today-archive"></script>
+    <script src="./utils.js?v=20260608-today-archive"></script>
+    <script src="./media.js?v=20260608-today-archive"></script>
+    <script src="./auth.js?v=20260608-today-archive"></script>
+    <script src="./reader.js?v=20260608-today-archive"></script>
+    <script src="./config.js?v=20260608-today-archive"></script>
+    <script src="./app.js?v=20260608-today-archive"></script>
   </body>
 </html>

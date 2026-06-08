@@ -45,3 +45,10 @@ class BaseScraper(ABC):
             str: Unique ID in format {source}:{subtype}:{native_id}
         """
         return f"{source_type}:{subtype}:{native_id}"
+
+    def _tag_metadata(self, source_config) -> dict:
+        """Return separated AI and personal tags for a configured source."""
+        return {
+            "tags": list(getattr(source_config, "tags", []) or []),
+            "personal_tags": list(getattr(source_config, "personal_tags", []) or []),
+        }

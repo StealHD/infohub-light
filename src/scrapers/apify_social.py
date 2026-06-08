@@ -436,7 +436,11 @@ class ApifySocialScraper(BaseScraper):
             "apify_kind": sub.kind,
             "apify_target": sub.target,
             "tags": list(sub.tags),
+            "personal_tags": list(sub.personal_tags),
+            "analysis_mode": sub.analysis_mode.value,
         }
+        if sub.analysis_mode.value == "personal_only":
+            metadata["show_in_personal_feed"] = True
         metadata.update(extra)
         return metadata
 

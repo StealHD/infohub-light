@@ -6,7 +6,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 
 from .client import AIClient
+from .analysis_cache import ANALYSIS_PROMPT_VERSION, AnalysisCache
 from .prompts import CONTENT_ANALYSIS_SYSTEM, CONTENT_ANALYSIS_USER
+from .tokens import token_stage
 from .utils import parse_json_response
 from ..models import ContentItem
 from ..tag_policy import normalize_category, normalize_tags
@@ -18,8 +20,9 @@ DEFAULT_FEATURED_THRESHOLD = 7.5
 class ContentAnalyzer:
     """Analyzes content items using AI to determine importance."""
 
-    def __init__(self, ai_client: AIClient):
+    def __init__(self, ai_client: AIClient, cache: AnalysisCache | None = None):
         self.client = ai_client
+        self.cache = cache
 
     @staticmethod
     def _parse_json_response(response: str) -> Optional[dict]:
@@ -41,6 +44,18 @@ class ContentAnalyzer:
         concurrency = getattr(config, "analysis_concurrency", 1)
         return max(concurrency, 1)
 
+    def _analysis_model(self) -> str:
+        config = getattr(self.client, "config", None)
+        return str(getattr(config, "model", "unknown-model") or "unknown-model")
+
+    def _analysis_content_chars(self) -> int:
+        config = getattr(self.client, "config", None)
+        return max(100, int(getattr(config, "analysis_content_chars", 1000)))
+
+    def _analysis_comments_chars(self) -> int:
+        config = getattr(self.client, "config", None)
+        return max(0, int(getattr(config, "analysis_comments_chars", 1500)))
+
     async def analyze_batch(self, items: List[ContentItem]) -> List[ContentItem]:
         throttle_sec = self._get_throttle_sec()
         concurrency = self._get_concurrency()
@@ -49,7 +64,21 @@ class ContentAnalyzer:
         async def _process(item: ContentItem, index: int, progress_task) -> ContentItem:
             async with semaphore:
                 try:
-                    await self._analyze_item(item)
+                    if not (
+                        self.cache
+                        and self.cache.apply(
+                            item,
+                            model=self._analysis_model(),
+                            prompt_version=ANALYSIS_PROMPT_VERSION,
+                        )
+                    ):
+                        await self._analyze_item(item)
+                        if self.cache:
+                            self.cache.store(
+                                item,
+                                model=self._analysis_model(),
+                                prompt_version=ANALYSIS_PROMPT_VERSION,
+                            )
                 except Exception as e:
                     print(f"Error analyzing item {item.id}: {e}")
                     item.ai_score = 0.0
@@ -87,20 +116,23 @@ class ContentAnalyzer:
         """
         # Prepare content section
         content_section = ""
+        content_limit = self._analysis_content_chars()
+        comments_limit = self._analysis_comments_chars()
         if item.content:
             # Split off comments if present
             content_text = item.content
             if "--- Top Comments ---" in content_text:
                 main, comments_part = content_text.split("--- Top Comments ---", 1)
-                content_section = f"Content: {main.strip()[:800]}"
+                content_section = f"Content: {main.strip()[:content_limit]}"
             else:
-                content_section = f"Content: {content_text[:1000]}"
+                content_section = f"Content: {content_text[:content_limit]}"
 
         # Prepare discussion section (comments, engagement)
         discussion_parts = []
         if item.content and "--- Top Comments ---" in item.content:
             comments_part = item.content.split("--- Top Comments ---", 1)[1]
-            discussion_parts.append(f"Community Comments:\n{comments_part[:1500]}")
+            if comments_limit:
+                discussion_parts.append(f"Community Comments:\n{comments_part[:comments_limit]}")
 
         meta = item.metadata
         engagement_items = []
@@ -144,10 +176,11 @@ class ContentAnalyzer:
         )
 
         # Get AI completion
-        response = await self.client.complete(
-            system=CONTENT_ANALYSIS_SYSTEM,
-            user=user_prompt,
-        )
+        with token_stage("analysis", item_id=item.id):
+            response = await self.client.complete(
+                system=CONTENT_ANALYSIS_SYSTEM,
+                user=user_prompt,
+            )
 
         # Parse JSON response with robust fallback
         result = self._parse_json_response(response)

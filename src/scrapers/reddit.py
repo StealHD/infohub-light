@@ -98,7 +98,13 @@ class RedditScraper(BaseScraper):
             if child.get("kind") == "t3"
         ]
         return await self._process_posts(
-            posts, since, "subreddit", cfg.subreddit, cfg.min_score, cfg.tags
+            posts,
+            since,
+            "subreddit",
+            cfg.subreddit,
+            cfg.min_score,
+            cfg.tags,
+            cfg.personal_tags,
         )
 
     async def _fetch_subreddit_rss(
@@ -153,6 +159,7 @@ class RedditScraper(BaseScraper):
                         "discussion_url": link,
                         "fallback": "rss",
                         "tags": list(cfg.tags),
+                        "personal_tags": list(cfg.personal_tags),
                     },
                 )
             )
@@ -177,7 +184,13 @@ class RedditScraper(BaseScraper):
             if child.get("kind") == "t3"
         ]
         return await self._process_posts(
-            posts, since, "user", cfg.username, min_score=0, source_tags=cfg.tags
+            posts,
+            since,
+            "user",
+            cfg.username,
+            min_score=0,
+            source_tags=cfg.tags,
+            source_personal_tags=cfg.personal_tags,
         )
 
     async def _process_posts(
@@ -188,6 +201,7 @@ class RedditScraper(BaseScraper):
         source_name: str,
         min_score: int,
         source_tags: List[str],
+        source_personal_tags: List[str],
     ) -> List[ContentItem]:
         valid_posts = []
         comment_tasks = []
@@ -219,7 +233,11 @@ class RedditScraper(BaseScraper):
             if isinstance(comments, Exception):
                 comments = []
             item = self._parse_post(
-                post, cast(List[dict], comments), subtype, source_tags
+                post,
+                cast(List[dict], comments),
+                subtype,
+                source_tags,
+                source_personal_tags,
             )
             if item:
                 items.append(item)
@@ -274,7 +292,12 @@ class RedditScraper(BaseScraper):
         return comments[:fetch_limit]
 
     def _parse_post(
-        self, post: dict, comments: List[dict], subtype: str, source_tags: List[str]
+        self,
+        post: dict,
+        comments: List[dict],
+        subtype: str,
+        source_tags: List[str],
+        source_personal_tags: List[str],
     ) -> Optional[ContentItem]:
         post_id = post["id"]
         title = post.get("title", "")
@@ -326,6 +349,7 @@ class RedditScraper(BaseScraper):
                 "flair": post.get("link_flair_text"),
                 "discussion_url": discussion_url,
                 "tags": list(source_tags),
+                "personal_tags": list(source_personal_tags),
             },
         )
 

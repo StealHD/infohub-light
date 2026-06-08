@@ -38,7 +38,7 @@ services:
     container_name: horizon-web
     restart: unless-stopped
     ports:
-      - "${HORIZON_WEB_PORT:-8080}:8080"
+      - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8080}:8080"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

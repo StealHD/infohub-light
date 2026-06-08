@@ -45,6 +45,7 @@ data/subscribers.json
 data/mcp.secrets.json
 data/mcp-secrets.json
 data/mcp-runs/
+data/cache/
 data/site/
 
 docs/_posts/*.md

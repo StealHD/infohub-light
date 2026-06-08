@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from ..config_migration import normalize_personal_tags
 from ..models import ContentItem
 from ..tag_policy import CANONICAL_TAGS, normalize_category, normalize_tags, order_tags
 from .media_cache import cache_payload_media
@@ -99,6 +100,9 @@ def serialize_item(
     metadata_tags = item.metadata.get("tags") or []
     if not isinstance(metadata_tags, list):
         metadata_tags = []
+    metadata_personal_tags = item.metadata.get("personal_tags") or []
+    if not isinstance(metadata_personal_tags, list):
+        metadata_personal_tags = []
     image_url = str(item.metadata.get("image_url") or "").strip()
     media_urls_raw = item.metadata.get("media_urls") or []
     media_urls = [
@@ -122,7 +126,10 @@ def serialize_item(
         allowed_tags=tag_library,
     )
     category = normalize_category(item.ai_category, fallback=tags[0] if tags else None)
-    personal_tags = _personal_tags(tags)
+    personal_tags = normalize_personal_tags(metadata_personal_tags)
+    for legacy_tag in _personal_tags(tags):
+        if legacy_tag not in personal_tags:
+            personal_tags.append(legacy_tag)
     interest_score = _personal_interest_score(
         personal_tags=personal_tags,
         explicit_score=item.metadata.get("interest_score"),
@@ -190,6 +197,23 @@ def _history_snapshot_name(payload: dict[str, Any]) -> str:
     return generated.strftime("%Y%m%d-%H%M%S") + ".json"
 
 
+def _read_json_payload(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_json_payload(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _normalize_payload_item(
     item: dict[str, Any],
     *,
@@ -207,7 +231,10 @@ def _normalize_payload_item(
         allowed_tags=tag_library,
     )
     normalized["category"] = category
-    personal_tags = _personal_tags(normalized["tags"])
+    personal_tags = normalize_personal_tags(normalized.get("personal_tags") or [])
+    for legacy_tag in _personal_tags(normalized["tags"]):
+        if legacy_tag not in personal_tags:
+            personal_tags.append(legacy_tag)
     normalized["personal_tags"] = personal_tags
     normalized["interest_score"] = _personal_interest_score(
         personal_tags=personal_tags,
@@ -235,6 +262,16 @@ def _payload_tag_library(
 ) -> list[str]:
     if "tag_library" in primary:
         value = primary.get("tag_library")
+        return list(value) if isinstance(value, list) else []
+    return list(fallback or [])
+
+
+def _payload_personal_tag_library(
+    primary: dict[str, Any],
+    fallback: Iterable[str] | None = None,
+) -> list[str]:
+    if "personal_tag_library" in primary:
+        value = primary.get("personal_tag_library")
         return list(value) if isinstance(value, list) else []
     return list(fallback or [])
 
@@ -268,6 +305,231 @@ def _personal_payload_items(items: Iterable[dict[str, Any]]) -> list[dict[str, A
     )
 
 
+def _sort_payload_items(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        items,
+        key=lambda item: (
+            _payload_date(item),
+            _payload_score(item),
+        ),
+        reverse=True,
+    )
+
+
+def _payload_item_collections(
+    items: list[dict[str, Any]],
+    *,
+    thresholds: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    featured_threshold = float(thresholds.get("featured", 7.5))
+    daily_threshold = float(thresholds.get("daily_push", 8.5))
+    featured_items = [item for item in items if _payload_score(item) >= featured_threshold]
+    daily_push_items = _daily_push_payload_items(items, threshold=daily_threshold)
+    personal_items = _personal_payload_items(items)
+    return featured_items, daily_push_items, personal_items
+
+
+def _merge_payload_personal_tags(
+    item: dict[str, Any],
+    existing_item: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not existing_item:
+        return item
+    personal_tags = normalize_personal_tags(
+        [
+            *(item.get("personal_tags") or []),
+            *(existing_item.get("personal_tags") or []),
+        ]
+    )
+    if not personal_tags:
+        return item
+    merged = dict(item)
+    merged["personal_tags"] = personal_tags
+    merged["interest_score"] = _personal_interest_score(
+        personal_tags=personal_tags,
+        explicit_score=merged.get("interest_score"),
+    )
+    merged["show_in_personal_feed"] = True
+    return merged
+
+
+def _merge_payload_items(
+    existing_items: Iterable[dict[str, Any]],
+    current_items: Iterable[dict[str, Any]],
+    *,
+    tag_library: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in existing_items:
+        if isinstance(item, dict) and item.get("id"):
+            by_id[str(item["id"])] = _normalize_payload_item(
+                item,
+                tag_library=tag_library,
+            )
+    for item in current_items:
+        if isinstance(item, dict) and item.get("id"):
+            item_id = str(item["id"])
+            normalized_item = _normalize_payload_item(
+                item,
+                tag_library=tag_library,
+            )
+            by_id[item_id] = _merge_payload_personal_tags(
+                normalized_item,
+                by_id.get(item_id),
+            )
+    return _sort_payload_items(by_id.values())
+
+
+def _empty_history_payload(
+    reference: dict[str, Any],
+    *,
+    tag_library: Iterable[str] | None = None,
+    personal_tag_library: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "generated_at": reference.get("generated_at"),
+        "date": reference.get("date"),
+        "total_fetched": 0,
+        "thresholds": reference.get("thresholds") or {},
+        "items": [],
+        "featured_items": [],
+        "daily_push_items": [],
+        "personal_items": [],
+        "tags": [],
+        "tag_library": list(tag_library or []),
+        "personal_tags": [],
+        "personal_tag_library": list(personal_tag_library or []),
+        "sources": [],
+        "categories": [],
+        "runs": [],
+        "history": True,
+    }
+
+
+def _build_history_payload_from_existing(
+    reference: dict[str, Any],
+    existing: dict[str, Any] | None,
+    *,
+    exclude_item_ids: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    existing = existing or {}
+    tag_library = _payload_tag_library(
+        reference,
+        existing.get("tag_library") or [],
+    )
+    personal_tag_library = _payload_personal_tag_library(
+        reference,
+        existing.get("personal_tag_library") or [],
+    )
+    excluded = {str(item_id) for item_id in (exclude_item_ids or []) if item_id}
+    items = _merge_payload_items(
+        [
+            item
+            for item in existing.get("items", [])
+            if isinstance(item, dict) and str(item.get("id") or "") not in excluded
+        ],
+        [],
+        tag_library=tag_library,
+    )[:HISTORY_ITEM_LIMIT]
+
+    thresholds = reference.get("thresholds") or existing.get("thresholds") or {}
+    featured_items, daily_push_items, personal_items = _payload_item_collections(
+        items,
+        thresholds=thresholds,
+    )
+    runs = list(existing.get("runs", []))[:HISTORY_RUN_LIMIT]
+    if not items and not runs:
+        return _empty_history_payload(
+            reference,
+            tag_library=tag_library,
+            personal_tag_library=personal_tag_library,
+        )
+
+    return {
+        "generated_at": reference.get("generated_at") or existing.get("generated_at"),
+        "date": reference.get("date") or existing.get("date"),
+        "total_fetched": sum(int(run.get("total_fetched") or 0) for run in runs),
+        "thresholds": thresholds,
+        "items": items,
+        "featured_items": featured_items,
+        "daily_push_items": daily_push_items,
+        "personal_items": personal_items,
+        "tags": _unique_tags(
+            (tag for item in items for tag in item.get("tags", [])),
+            tag_library=tag_library,
+        ),
+        "tag_library": list(tag_library or []),
+        "personal_tags": _unique_sorted(
+            tag for item in items for tag in item.get("personal_tags", [])
+        ),
+        "personal_tag_library": list(personal_tag_library or []),
+        "sources": _unique_sorted(str(item.get("source")) for item in items),
+        "categories": _unique_sorted(str(item.get("category")) for item in items),
+        "runs": runs,
+        "history": True,
+    }
+
+
+def _build_today_payload(
+    current: dict[str, Any],
+    existing_today: dict[str, Any] | None,
+) -> dict[str, Any]:
+    existing_today = existing_today or {}
+    same_date = existing_today.get("date") == current.get("date")
+    tag_library = _payload_tag_library(
+        current,
+        existing_today.get("tag_library") or [],
+    )
+    personal_tag_library = _payload_personal_tag_library(
+        current,
+        existing_today.get("personal_tag_library") or [],
+    )
+    items = _merge_payload_items(
+        existing_today.get("items", []) if same_date else [],
+        current.get("items", []),
+        tag_library=tag_library,
+    )
+    thresholds = current.get("thresholds") or existing_today.get("thresholds") or {}
+    featured_items, daily_push_items, personal_items = _payload_item_collections(
+        items,
+        thresholds=thresholds,
+    )
+    base = dict(current)
+    for transient_key in (
+        "history",
+        "history_total_items",
+        "today_items",
+        "today_total_items",
+        "runs",
+    ):
+        base.pop(transient_key, None)
+
+    return {
+        **base,
+        "items": items,
+        "today_items": items,
+        "today_total_items": len(items),
+        "featured_items": featured_items,
+        "daily_push_items": daily_push_items,
+        "personal_items": personal_items,
+        "history_total_items": 0,
+        "total_fetched": (int(existing_today.get("total_fetched") or 0) if same_date else 0)
+        + int(current.get("total_fetched") or 0),
+        "tags": _unique_tags(
+            (tag for item in items for tag in item.get("tags", [])),
+            tag_library=tag_library,
+        ),
+        "tag_library": list(tag_library or []),
+        "personal_tags": _unique_sorted(
+            tag for item in items for tag in item.get("personal_tags", [])
+        ),
+        "personal_tag_library": list(personal_tag_library or []),
+        "sources": _unique_sorted(str(item.get("source")) for item in items),
+        "categories": _unique_sorted(str(item.get("category")) for item in items),
+        "today": True,
+    }
+
+
 def _build_history_payload(
     current: dict[str, Any],
     existing: dict[str, Any] | None,
@@ -278,6 +540,10 @@ def _build_history_payload(
         current,
         existing.get("tag_library") or [],
     )
+    personal_tag_library = _payload_personal_tag_library(
+        current,
+        existing.get("personal_tag_library") or [],
+    )
     for item in existing.get("items", []):
         if isinstance(item, dict) and item.get("id"):
             by_id[str(item["id"])] = _normalize_payload_item(
@@ -286,26 +552,23 @@ def _build_history_payload(
             )
     for item in current.get("items", []):
         if isinstance(item, dict) and item.get("id"):
-            by_id[str(item["id"])] = _normalize_payload_item(
+            item_id = str(item["id"])
+            normalized_item = _normalize_payload_item(
                 item,
                 tag_library=tag_library,
             )
+            by_id[item_id] = _merge_payload_personal_tags(
+                normalized_item,
+                by_id.get(item_id),
+            )
 
-    items = sorted(
-        by_id.values(),
-        key=lambda item: (
-            _parse_dt(str(item.get("published_at") or item.get("fetched_at") or "")),
-            float(item.get("score") or 0),
-        ),
-        reverse=True,
-    )[:HISTORY_ITEM_LIMIT]
+    items = _sort_payload_items(by_id.values())[:HISTORY_ITEM_LIMIT]
 
     thresholds = current.get("thresholds") or existing.get("thresholds") or {}
-    featured_threshold = float(thresholds.get("featured", 7.5))
-    daily_threshold = float(thresholds.get("daily_push", 8.5))
-    featured_items = [item for item in items if float(item.get("score") or 0) >= featured_threshold]
-    daily_push_items = _daily_push_payload_items(items, threshold=daily_threshold)
-    personal_items = _personal_payload_items(items)
+    featured_items, daily_push_items, personal_items = _payload_item_collections(
+        items,
+        thresholds=thresholds,
+    )
 
     runs = list(existing.get("runs", []))
     runs.insert(
@@ -333,6 +596,10 @@ def _build_history_payload(
             tag_library=tag_library,
         ),
         "tag_library": list(tag_library or []),
+        "personal_tags": _unique_sorted(
+            tag for item in items for tag in item.get("personal_tags", [])
+        ),
+        "personal_tag_library": list(personal_tag_library or []),
         "sources": _unique_sorted(str(item.get("source")) for item in items),
         "categories": _unique_sorted(str(item.get("category")) for item in items),
         "runs": runs[:HISTORY_RUN_LIMIT],
@@ -347,23 +614,43 @@ def _build_recent_payload(
     recent_item_limit: int,
 ) -> dict[str, Any]:
     history_items = list(history.get("items", []))
+    history_by_id = {
+        str(item.get("id")): item
+        for item in history_items
+        if isinstance(item, dict) and item.get("id")
+    }
+    today_items = [
+        _merge_payload_personal_tags(item, history_by_id.get(str(item.get("id"))))
+        for item in current.get("items", [])
+        if isinstance(item, dict)
+    ]
     items = history_items[:recent_item_limit]
     thresholds = current.get("thresholds") or history.get("thresholds") or {}
-    featured_threshold = float(thresholds.get("featured", 7.5))
-    daily_threshold = float(thresholds.get("daily_push", 8.5))
     featured_items = [
-        item for item in history_items if float(item.get("score") or 0) >= featured_threshold
-    ][:recent_item_limit]
-    daily_push_items = _daily_push_payload_items(history_items, threshold=daily_threshold)
-    personal_items = _personal_payload_items(history_items)
-    visible_items = items + featured_items + daily_push_items + personal_items
+        _merge_payload_personal_tags(item, history_by_id.get(str(item.get("id"))))
+        for item in current.get("featured_items", [])
+        if isinstance(item, dict)
+    ]
+    daily_push_items = [
+        _merge_payload_personal_tags(item, history_by_id.get(str(item.get("id"))))
+        for item in current.get("daily_push_items", [])
+        if isinstance(item, dict)
+    ]
+    personal_items = _personal_payload_items(today_items)
+    visible_items = today_items + items + featured_items + daily_push_items + personal_items
     tag_library = _payload_tag_library(
         history,
         _payload_tag_library(current),
     )
+    personal_tag_library = _payload_personal_tag_library(
+        history,
+        _payload_personal_tag_library(current),
+    )
 
     return {
         **current,
+        "today_items": today_items,
+        "today_total_items": len(today_items),
         "items": items,
         "featured_items": featured_items,
         "daily_push_items": daily_push_items,
@@ -373,6 +660,10 @@ def _build_recent_payload(
             tag_library=tag_library,
         ),
         "tag_library": tag_library,
+        "personal_tags": _unique_sorted(
+            tag for item in visible_items for tag in item.get("personal_tags", [])
+        ),
+        "personal_tag_library": personal_tag_library,
         "sources": _unique_sorted(str(item.get("source")) for item in visible_items),
         "categories": _unique_sorted(str(item.get("category")) for item in visible_items),
         "recent_item_limit": recent_item_limit,
@@ -391,6 +682,7 @@ def build_site_payload(
     homepage_min_score: float = 6.0,
     recent_item_limit: int = RECENT_ITEM_LIMIT,
     tag_library: Iterable[str] | None = None,
+    personal_tag_library: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Build the JSON payload consumed by the static web UI."""
     serialized = [
@@ -428,66 +720,81 @@ def build_site_payload(
             tag_library=tag_library,
         ),
         "tag_library": list(tag_library or []),
+        "personal_tags": _unique_sorted(
+            tag for item in serialized for tag in item.get("personal_tags", [])
+        ),
+        "personal_tag_library": list(personal_tag_library or []),
         "sources": _unique_sorted(item["source"] for item in serialized),
         "categories": _unique_sorted(item["category"] for item in serialized),
     }
 
 
 def write_static_site(output_dir: Path, payload: dict[str, Any]) -> Path:
-    """Copy static UI files and write recent + historical radar data."""
+    """Copy static UI files and write today + historical radar data."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    for asset in ("index.html", "app.js", "styles.css"):
-        shutil.copy2(STATIC_DIR / asset, output_dir / asset)
+    for asset in STATIC_DIR.iterdir():
+        if asset.suffix in {".html", ".js", ".css"}:
+            shutil.copy2(asset, output_dir / asset.name)
 
     history_dir = output_dir / "history"
     history_dir.mkdir(parents=True, exist_ok=True)
+    today_dir = output_dir / "today"
+    today_dir.mkdir(parents=True, exist_ok=True)
+
     cache_payload_media(payload, output_dir)
-    snapshot_path = history_dir / _history_snapshot_name(payload)
-    snapshot_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    snapshot_path = today_dir / _history_snapshot_name(payload)
+    _write_json_payload(snapshot_path, payload)
 
     history_path = output_dir / "history-data.json"
-    existing_history = None
-    if history_path.exists():
-        try:
-            existing_history = json.loads(history_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            existing_history = None
-    history_payload = _build_history_payload(payload, existing_history)
-    cache_payload_media(history_payload, output_dir)
-    history_path.write_text(
-        json.dumps(history_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    today_path = output_dir / "today-data.json"
+    existing_history = _read_json_payload(history_path)
+    existing_today = _read_json_payload(today_path)
+
+    history_base = existing_history
+    if existing_today and existing_today.get("date") != payload.get("date"):
+        archive_snapshot = history_dir / _history_snapshot_name(existing_today)
+        _write_json_payload(archive_snapshot, existing_today)
+        history_base = _build_history_payload(existing_today, existing_history)
+
+    today_payload = _build_today_payload(payload, existing_today)
+    cache_payload_media(today_payload, output_dir)
+    _write_json_payload(today_path, today_payload)
+
+    today_item_ids = [
+        str(item.get("id"))
+        for item in today_payload.get("items", [])
+        if isinstance(item, dict) and item.get("id")
+    ]
+    history_payload = _build_history_payload_from_existing(
+        today_payload,
+        history_base,
+        exclude_item_ids=today_item_ids,
     )
+    cache_payload_media(history_payload, output_dir)
+    _write_json_payload(history_path, history_payload)
 
     recent_item_limit = int(payload.get("recent_item_limit") or RECENT_ITEM_LIMIT)
     current_payload = _build_recent_payload(
-        payload,
+        today_payload,
         history_payload,
         recent_item_limit=max(recent_item_limit, 1),
     )
     cache_payload_media(current_payload, output_dir)
     data_path = output_dir / "radar-data.json"
-    data_path.write_text(
-        json.dumps(current_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_payload(data_path, current_payload)
     return data_path
 
 
 def load_history_item_ids(output_dir: Path) -> set[str]:
-    """Return item IDs already published into the static UI history."""
-    history_path = output_dir / "history-data.json"
-    if not history_path.exists():
-        return set()
-    try:
-        history = json.loads(history_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return set()
-    return {
-        str(item["id"])
-        for item in history.get("items", [])
-        if isinstance(item, dict) and item.get("id")
-    }
+    """Return item IDs already published into the static UI history or today file."""
+    known_ids: set[str] = set()
+    for file_name in ("history-data.json", "today-data.json"):
+        payload = _read_json_payload(output_dir / file_name)
+        if not payload:
+            continue
+        known_ids.update(
+            str(item["id"])
+            for item in payload.get("items", [])
+            if isinstance(item, dict) and item.get("id")
+        )
+    return known_ids

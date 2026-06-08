@@ -9,6 +9,9 @@
     "throttle_sec": 0,
     "analysis_concurrency": 1,
     "enrichment_concurrency": 1,
+    "analysis_content_chars": 1000,
+    "analysis_comments_chars": 1500,
+    "enrichment_content_chars": 4000,
     "languages": ["zh"]
   },
   "tags": [
@@ -23,6 +26,10 @@
     "研究论文",
     "安全治理",
     "行业动态"
+  ],
+  "personal_tags": [
+    "价格监控",
+    "能黄通"
   ],
   "email": {
     "enabled": false,
@@ -147,7 +154,9 @@
           "target": "tsucha_ri",
           "fetch_limit": 1,
           "enabled": true,
-          "tags": ["行业动态"]
+          "tags": ["行业动态"],
+          "personal_tags": ["能黄通"],
+          "analysis_mode": "personal_only"
         },
         {
           "platform": "facebook",

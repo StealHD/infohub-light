@@ -147,13 +147,16 @@ class ContentEnricher:
         # Extract content text and comments separately
         content_text = ""
         comments_text = ""
+        config = getattr(self.client, "config", None)
+        content_limit = max(500, int(getattr(config, "enrichment_content_chars", 4000)))
+        comments_limit = max(0, content_limit // 2)
         if item.content:
             if "--- Top Comments ---" in item.content:
                 main, comments_part = item.content.split("--- Top Comments ---", 1)
-                content_text = main.strip()[:4000]
-                comments_text = comments_part.strip()[:2000]
+                content_text = main.strip()[:content_limit]
+                comments_text = comments_part.strip()[:comments_limit]
             else:
-                content_text = item.content[:4000]
+                content_text = item.content[:content_limit]
 
         # Step 1: AI identifies concepts to explain
         queries = await self._extract_concepts(item, content_text)

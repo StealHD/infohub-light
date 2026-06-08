@@ -1,0 +1,118 @@
+"""Disk-backed cache for content analysis results."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from ..models import ContentItem
+
+
+ANALYSIS_PROMPT_VERSION = "content-analysis-v2"
+
+
+class AnalysisCache:
+    """Append-friendly JSONL cache keyed by item identity and content hash."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._entries: dict[str, dict[str, Any]] | None = None
+
+    def _load(self) -> dict[str, dict[str, Any]]:
+        if self._entries is not None:
+            return self._entries
+
+        entries: dict[str, dict[str, Any]] = {}
+        if self.path.exists():
+            for line in self.path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                key = str(row.get("key") or "")
+                if key:
+                    entries[key] = row
+        self._entries = entries
+        return entries
+
+    @staticmethod
+    def content_hash(item: ContentItem) -> str:
+        payload = {
+            "id": item.id,
+            "url": str(item.url),
+            "title": item.title,
+            "content": item.content or "",
+            "tags": item.metadata.get("tags") or [],
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def key(
+        self,
+        item: ContentItem,
+        *,
+        model: str,
+        prompt_version: str = ANALYSIS_PROMPT_VERSION,
+    ) -> str:
+        raw = f"{model}\n{prompt_version}\n{self.content_hash(item)}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def apply(
+        self,
+        item: ContentItem,
+        *,
+        model: str,
+        prompt_version: str = ANALYSIS_PROMPT_VERSION,
+    ) -> bool:
+        row = self._load().get(self.key(item, model=model, prompt_version=prompt_version))
+        if not row:
+            return False
+        result = row.get("result")
+        if not isinstance(result, dict):
+            return False
+        item.ai_score = result.get("score")
+        item.ai_reason = result.get("reason") or ""
+        item.ai_summary = result.get("summary") or result.get("summary_zh") or item.title
+        item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
+        item.ai_category = result.get("category") or ""
+        item.ai_is_featured = bool(result.get("is_featured"))
+        item.ai_action_suggestion = result.get("action_suggestion") or ""
+        tags = result.get("tags") or []
+        item.ai_tags = [str(tag) for tag in tags] if isinstance(tags, list) else []
+        return True
+
+    def store(
+        self,
+        item: ContentItem,
+        *,
+        model: str,
+        prompt_version: str = ANALYSIS_PROMPT_VERSION,
+    ) -> None:
+        if item.ai_score is None:
+            return
+        row = {
+            "key": self.key(item, model=model, prompt_version=prompt_version),
+            "item_id": item.id,
+            "content_hash": self.content_hash(item),
+            "model": model,
+            "prompt_version": prompt_version,
+            "result": {
+                "score": item.ai_score,
+                "reason": item.ai_reason or "",
+                "tags": list(item.ai_tags or []),
+                "category": item.ai_category or "",
+                "is_featured": bool(item.ai_is_featured),
+                "summary": item.ai_summary or "",
+                "summary_zh": item.ai_summary_zh or "",
+                "action_suggestion": item.ai_action_suggestion or "",
+            },
+        }
+        entries = self._load()
+        entries[row["key"]] = row
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")

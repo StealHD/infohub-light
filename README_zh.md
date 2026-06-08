@@ -1,16 +1,12 @@
 <div align="center">
 
-# 🌅 Horizon
+# Inteliscope
 
-**你只需享受新闻，剩下交给 Horizon。**
+**基于 Horizon 二次开发的个人 AI 信息雷达。**
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json&style=flat-square)](https://github.com/astral-sh/uv)
-[![Daily Summary](https://github.com/Thysrael/Horizon/actions/workflows/deploy-docs.yml/badge.svg?style=flat-square)](https://thysrael.github.io/Horizon/)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Thysrael/Horizon?style=flat-square)](https://github.com/Thysrael/Horizon/commits/main)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
 ![Sources Welcome](https://img.shields.io/badge/📡_sources-welcome-f97316?style=flat-square)
- <a href="https://hellogithub.com/repository/Thysrael/Horizon" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=7a4b606e28e4477998d35851cf4fdddf&claim_uid=rtjnLkYT7ziQJUG&theme=small" alt="Featured｜HelloGitHub" /></a>
 
 <br>
 
@@ -22,11 +18,15 @@
 ![MiniMax](https://img.shields.io/badge/MiniMax-FF6F00?style=flat-square)
 ![OpenClaw](https://img.shields.io/badge/OpenClaw-C83232?style=flat-square)
 
-📡 构建你专属的 AI 新闻雷达，生成中英双语日报。 | Your own AI-powered news radar.
+📡 面向个人内容阅读的 AI 信息雷达，生成 AI 排序的阅读清单和日报。 | Your own AI-powered reading radar.
 
-[📖 在线演示](https://thysrael.github.io/Horizon/) · [📋 配置指南](https://thysrael.github.io/Horizon/configuration) · [English](README.md)
+[上游 Horizon](https://github.com/Thysrael/Horizon) · [上游演示](https://thysrael.github.io/Horizon/) · [English](README.md)
 
 </div>
+
+> **二开说明**
+>
+> Inteliscope 是基于 [Thysrael/Horizon](https://github.com/Thysrael/Horizon) 的个人二次开发版本。当前版本保留上游的信息源抓取、AI 评分、摘要生成和分发链路，并加入私人配置、内容阅读器式 Web UI，以及面向个人信息追踪的本地工作流调整。
 
 ## 截图
 
@@ -64,11 +64,11 @@
 </table>
 </details>
 
-## 为什么需要 Horizon？
+## 为什么需要 Inteliscope？
 
-好新闻分散在各处，坏信息却源源不断。Horizon 为你先完成第一轮筛选：从 Hacker News、Reddit、Telegram、RSS、Twitter/X、GitHub 和 OpenBB 抓取内容，合并重复新闻，用 AI 打分过滤，并为重要内容补充背景解释和社区讨论。
+好内容分散在各处，噪声却源源不断。Inteliscope 为你先完成第一轮筛选：从 Hacker News、Reddit、Telegram、RSS、Twitter/X、GitHub、OpenBB 等来源抓取内容，合并重复信息，用 AI 打分过滤，并为重要内容补充背景解释和社区讨论。
 
-但 Horizon 不只是又一个摘要工具。AI 很擅长降低噪声，但新闻仍然需要人的品味：你信任哪些信息源，哪些评论改变了你对事件的理解，哪些小众来源值得被更多人看见。Horizon 通过可定制的信息源、筛选标准、模型、语言、分发方式、评论摘要和社区信息源官网，把这层“人味”保留下来。
+这个二开版本更偏个人日常阅读，而不是公开演示站。AI 很擅长降低噪声，但信息追踪仍然需要人的品味：你信任哪些信息源，哪些评论改变了你对事件的理解，哪些信号值得继续跟进。Inteliscope 保留 Horizon 的处理链路，并加入更克制的阅读器式 Web UI 和私人默认配置。
 
 ## 功能特性
 
@@ -180,8 +180,8 @@ Horizon 是一个业余时间维护的开源项目。如果你愿意支持这个
 #### 方式 A：本地安装
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd horizon
+git clone <your-inteliscope-repo-url>
+cd Inteliscope
 
 # 使用 uv 安装（推荐）
 uv sync
@@ -210,12 +210,12 @@ uv pip install --only-binary=:all: openbb openbb-benzinga
 #### 方式 B：Docker
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd horizon
+git clone <your-inteliscope-repo-url>
+cd Inteliscope
 
 # 配置环境
 cp .env.example .env
-# 当前仓库已提供私人 AI 信息雷达版 data/config.json。
+# 当前仓库已提供 Inteliscope 二开版 data/config.json。
 # 编辑 .env 和 data/config.json，填入 API 密钥、信源、阈值和 Webhook。
 
 # 按当前代码重新构建镜像，替换旧容器，并清理旧 build 缓存
@@ -309,26 +309,27 @@ docker compose logs -f horizon-scheduler     # 查看定时任务日志
 
 生成的日报将保存在 `data/summaries/` 目录中。私人 Web UI 默认通过 [http://localhost:8080](http://localhost:8080) 访问，数据来自 `data/site/`。
 
-## 私人 AI 信息雷达 Docker 部署
+## Inteliscope Docker 部署
 
-本仓库已在 Horizon 原有架构上加入私人定制配置和输出：
+本仓库是基于 Horizon 的 Inteliscope 二开版本，已加入私人定制配置和输出：
 
 - AI 打分输出 `score`、`reason`、`tags`、`category`、`is_featured`、`summary_zh`、`action_suggestion`
 - `>= 7.5` 进入精选，`>= 8.5` 进入每日推送，推送最多 10 条
 - 支持 RSS/Atom、GitHub Releases、GitHub 用户/组织动态、Hacker News、Reddit、Telegram 公共频道、OSS Insight；并支持通过 Apify 订阅公开 X、Instagram、Facebook、Telegram 目标
 - 静态 Web UI 支持精选信息流、最近 20 条全部动态、历史归档、每日摘要、标签/来源/关键词/分数筛选和 localStorage 收藏
-- Web UI 内置本地配置后台，通过结构化表单维护信源、固定标签大类、阈值、模型和 webhook，保存前会校验配置并备份旧文件
+- Web UI 内置配置后台，通过结构化表单维护信源、固定标签大类、个人标签、阈值、模型和 webhook，保存前会校验配置并备份旧文件；发布给朋友使用时可开启后台鉴权
 - 标签强约束为几大类：AI Agent、AI 编程、模型发布、RAG/MCP、AI Infra、开源模型、推理框架、产品创业、研究论文、安全治理、行业动态
 - Docker Compose 默认每 30 分钟增量轮询，`08:30 Asia/Shanghai` 执行每日推送，挂载 `data/`、`logs/`、`.env`，并为 Web UI 配置健康检查
 
 部署步骤：
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd Horizon
+git clone <your-inteliscope-repo-url>
+cd Inteliscope
 cp .env.example .env
 
 # 在 .env 中配置 OPENAI_API_KEY 或其他模型密钥。
+# 发布给朋友时建议启用 HORIZON_AUTH_ENABLED，并设置后台密码。
 # 可在 Web UI 的「配置」页调整信源、标签、阈值和 webhook.enabled。
 ./scripts/up-latest.sh
 docker compose logs -f horizon-scheduler
@@ -359,6 +360,27 @@ docker compose run --rm horizon --hours 24
 - 用表单新增/修改 RSS、GitHub、Reddit、Telegram、Hacker News、标签库、AI 模型、阈值和 webhook
 - 点击对应表单的「保存」
 - 页面只显示环境变量是否已设置，不显示 `.env` 中的真实密钥
+- 如果发布给朋友，建议只让普通朋友访问信息流；需要改配置的人使用后台账号登录。
+
+后台鉴权：
+
+```bash
+# 生成密码 hash，替换命令中的 change-me。
+docker compose run --rm --entrypoint sh horizon -lc "python -m src.ui.auth hash-password 'change-me'"
+```
+
+然后在 `.env` 中设置：
+
+```bash
+HORIZON_AUTH_ENABLED=true
+HORIZON_AUTH_USER=admin
+HORIZON_AUTH_PASSWORD_HASH=<上一步生成的 hash>
+HORIZON_AUTH_SESSION_SECRET=<随机长字符串>
+```
+
+内测时也可以临时使用 `HORIZON_AUTH_PASSWORD=` 明文密码，但发布到公网或半公网时优先使用 `HORIZON_AUTH_PASSWORD_HASH`。启用后，信息流仍可读；`/api/config`、配置保存、信源测试等后台接口需要登录。
+
+如果服务器已经有 Nginx，也可以不改应用鉴权，直接使用 Nginx Basic Auth 保护整站。配置模板和步骤见 [deploy/nginx/README_zh.md](deploy/nginx/README_zh.md)。这种方式最省事，但所有朋友会先输入同一套站点访问账号，权限不细分。
 
 注意：
 

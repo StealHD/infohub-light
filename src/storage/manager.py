@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from ..config_migration import migrate_config_tag_layers
 from ..models import Config
 
 
@@ -75,6 +76,8 @@ class StorageManager:
             raise ConfigError(
                 f"Invalid JSON in configuration file: {self.config_path}\n" f"Error: {e}"
             ) from e
+
+        data = migrate_config_tag_layers(data)
 
         # Expand ${VAR} references in every string value before pydantic
         # validation. Keeps credentials / private endpoints / tenant IDs

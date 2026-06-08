@@ -7,6 +7,7 @@ from src.ui.server import (
     RadarWebHandler,
     apply_config_action,
     build_env_status,
+    migrate_config_tag_layers,
     normalize_config_payload,
     run_source_test,
     validate_config_data,
@@ -52,6 +53,20 @@ def test_validate_config_data_accepts_valid_config():
 
     assert validated.ai.provider.value == "openai"
     assert validated.sources.rss[0].name == "Example Feed"
+
+
+def test_migrate_config_tag_layers_moves_custom_tags_to_personal_tags():
+    config = _minimal_config()
+    config["tags"] = ["AI Agent", "价格监控", "RAG/MCP"]
+    config["personal_tags"] = ["能黄通"]
+    config["sources"]["rss"][0]["tags"] = ["AI Agent", "价格监控"]
+
+    migrated = migrate_config_tag_layers(config)
+
+    assert migrated["tags"] == ["AI Agent", "RAG/MCP"]
+    assert migrated["personal_tags"] == ["能黄通", "价格监控"]
+    assert migrated["sources"]["rss"][0]["tags"] == ["AI Agent"]
+    assert migrated["sources"]["rss"][0]["personal_tags"] == ["价格监控"]
 
 
 def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
@@ -244,21 +259,33 @@ def test_apply_config_action_sets_tag_library_from_literal_backslash_n():
     assert updated["tags"] == ["AI Agent", "RAG/MCP"]
 
 
-def test_apply_config_action_sets_custom_tag_library():
+def test_apply_config_action_rejects_custom_tag_in_ai_tag_library():
+    config = _minimal_config()
+
+    with pytest.raises(ValueError, match="未知标签"):
+        apply_config_action(
+            config,
+            "set_tags",
+            {"tags": "AI Agent\n价格监控\n投资信号"},
+        )
+
+
+def test_apply_config_action_sets_personal_tag_library():
     config = _minimal_config()
 
     updated = apply_config_action(
         config,
-        "set_tags",
-        {"tags": "AI Agent\n价格监控\n投资信号"},
+        "set_personal_tags",
+        {"personal_tags": "价格监控\n能黄通"},
     )
 
-    assert updated["tags"] == ["AI Agent", "价格监控", "投资信号"]
+    assert updated["personal_tags"] == ["价格监控", "能黄通"]
 
 
-def test_apply_config_action_allows_source_tag_from_custom_library():
+def test_apply_config_action_allows_source_personal_tags_from_personal_library():
     config = _minimal_config()
-    config["tags"] = ["AI Agent", "价格监控"]
+    config["tags"] = ["AI Agent"]
+    config["personal_tags"] = ["价格监控"]
 
     updated = apply_config_action(
         config,
@@ -266,12 +293,14 @@ def test_apply_config_action_allows_source_tag_from_custom_library():
         {
             "name": "Price Feed",
             "url": "https://example.com/prices.xml",
-            "tags": "价格监控",
+            "tags": "AI Agent",
+            "personal_tags": "价格监控",
             "enabled": True,
         },
     )
 
-    assert updated["sources"]["rss"][-1]["tags"] == ["价格监控"]
+    assert updated["sources"]["rss"][-1]["tags"] == ["AI Agent"]
+    assert updated["sources"]["rss"][-1]["personal_tags"] == ["价格监控"]
 
 
 def test_apply_config_action_rejects_unknown_controlled_tag():
@@ -303,6 +332,8 @@ def test_apply_config_action_adds_apify_social_subscription_without_token(monkey
             "target": "#aiagents",
             "fetch_limit": 12,
             "tags": "AI Agent, 行业动态",
+            "personal_tags": "能黄通",
+            "analysis_mode": "personal_only",
             "enabled": True,
         },
     )
@@ -317,6 +348,8 @@ def test_apply_config_action_adds_apify_social_subscription_without_token(monkey
         "fetch_limit": 12,
         "enabled": True,
         "tags": ["AI Agent", "行业动态"],
+        "personal_tags": ["能黄通"],
+        "analysis_mode": "personal_only",
     }
 
 

@@ -24,10 +24,21 @@ import httpx
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
+from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
 from ..scrapers.apify_social import ApifySocialScraper
 from ..storage.manager import ConfigError, _expand_env_vars
 from ..tag_policy import CANONICAL_TAGS, normalize_tags
+from .auth import (
+    AuthSettings,
+    auth_status,
+    clear_session_cookie_header,
+    create_session_token,
+    session_cookie_header,
+    session_token_from_cookie,
+    verify_login,
+    verify_session_token,
+)
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -64,7 +75,7 @@ def normalize_config_payload(body: bytes) -> dict[str, Any]:
 def validate_config_data(data: dict[str, Any]) -> Config:
     """Validate config data using Horizon's regular config model."""
     try:
-        return Config.model_validate(_expand_env_vars(data))
+        return Config.model_validate(_expand_env_vars(migrate_config_tag_layers(data)))
     except Exception as exc:
         raise ConfigError(str(exc)) from exc
 
@@ -153,6 +164,14 @@ def _tags(
     )
 
 
+def _ai_tags(payload: dict[str, Any], key: str = "tags") -> list[str]:
+    return _tags(payload, key=key, allowed_tags=list(CANONICAL_TAGS))
+
+
+def _personal_tags(payload: dict[str, Any], key: str = "personal_tags") -> list[str]:
+    return _tags(payload, key=key, allow_custom=True)
+
+
 def _merge_tag_library(data: dict[str, Any], tags: list[str]) -> None:
     library = data.setdefault("tags", [])
     if not isinstance(library, list):
@@ -162,8 +181,21 @@ def _merge_tag_library(data: dict[str, Any], tags: list[str]) -> None:
         [*library, *tags],
         strict=True,
         max_tags=None,
-        allow_custom=True,
+        allowed_tags=list(CANONICAL_TAGS),
     ) or list(CANONICAL_TAGS)
+
+
+def _merge_personal_tag_library(data: dict[str, Any], tags: list[str]) -> None:
+    library = data.setdefault("personal_tags", [])
+    if not isinstance(library, list):
+        library = []
+        data["personal_tags"] = library
+    data["personal_tags"] = normalize_tags(
+        [*library, *tags],
+        strict=True,
+        max_tags=None,
+        allow_custom=True,
+    )
 
 
 def _index(payload: dict[str, Any], key: str = "index") -> int | None:
@@ -361,7 +393,9 @@ async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, An
         target=target,
         fetch_limit=1,
         enabled=True,
-        tags=[],
+        tags=_ai_tags(payload),
+        personal_tags=_personal_tags(payload),
+        analysis_mode=str(payload.get("analysis_mode") or "full"),
     )
     config = ApifySocialConfig(
         enabled=True,
@@ -572,12 +606,13 @@ def apply_config_action(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """Apply one validated UI action to config data and return updated copy."""
-    updated = deepcopy(data)
+    updated = migrate_config_tag_layers(deepcopy(data))
     sources = _ensure_sources(updated)
 
     if action == "upsert_rss":
         idx = _index(payload)
-        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        tags = _ai_tags(payload)
+        personal_tags = _personal_tags(payload)
         item = {
             "name": _text(payload, "name", "RSS 名称"),
             "url": _http_url(_text(payload, "url", "RSS URL"), "RSS URL"),
@@ -588,15 +623,19 @@ def apply_config_action(
             item["category"] = category
         if tags:
             item["tags"] = tags
+        if personal_tags:
+            item["personal_tags"] = personal_tags
         _upsert_list_item(sources["rss"], idx, item)
         _merge_tag_library(updated, tags)
+        _merge_personal_tag_library(updated, personal_tags)
 
     elif action == "delete_rss":
         _delete_list_item(sources["rss"], _index(payload))
 
     elif action == "upsert_github_release":
         idx = _index(payload)
-        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        tags = _ai_tags(payload)
+        personal_tags = _personal_tags(payload)
         item = {
             "type": "repo_releases",
             "owner": _text(payload, "owner", "GitHub owner"),
@@ -605,12 +644,16 @@ def apply_config_action(
         }
         if tags:
             item["tags"] = tags
+        if personal_tags:
+            item["personal_tags"] = personal_tags
         _upsert_list_item(sources["github"], idx, item)
         _merge_tag_library(updated, tags)
+        _merge_personal_tag_library(updated, personal_tags)
 
     elif action == "upsert_github_user":
         idx = _index(payload)
-        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        tags = _ai_tags(payload)
+        personal_tags = _personal_tags(payload)
         item = {
             "type": "user_events",
             "username": _text(payload, "username", "GitHub username"),
@@ -618,8 +661,11 @@ def apply_config_action(
         }
         if tags:
             item["tags"] = tags
+        if personal_tags:
+            item["personal_tags"] = personal_tags
         _upsert_list_item(sources["github"], idx, item)
         _merge_tag_library(updated, tags)
+        _merge_personal_tag_library(updated, personal_tags)
 
     elif action == "delete_github":
         _delete_list_item(sources["github"], _index(payload))
@@ -635,7 +681,8 @@ def apply_config_action(
         reddit = sources.setdefault("reddit", {"enabled": True, "subreddits": [], "users": [], "fetch_comments": 5})
         reddit.setdefault("subreddits", [])
         idx = _index(payload)
-        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        tags = _ai_tags(payload)
+        personal_tags = _personal_tags(payload)
         item = {
             "subreddit": _text(payload, "subreddit", "Subreddit"),
             "enabled": _bool(payload.get("enabled", True)),
@@ -646,9 +693,12 @@ def apply_config_action(
         }
         if tags:
             item["tags"] = tags
+        if personal_tags:
+            item["personal_tags"] = personal_tags
         _upsert_list_item(reddit["subreddits"], idx, item)
         reddit["enabled"] = _bool(payload.get("reddit_enabled", reddit.get("enabled", True)))
         _merge_tag_library(updated, tags)
+        _merge_personal_tag_library(updated, personal_tags)
 
     elif action == "delete_reddit_subreddit":
         reddit = sources.setdefault("reddit", {"enabled": True, "subreddits": [], "users": [], "fetch_comments": 5})
@@ -659,7 +709,8 @@ def apply_config_action(
         telegram = sources.setdefault("telegram", {"enabled": True, "channels": []})
         telegram.setdefault("channels", [])
         idx = _index(payload)
-        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        tags = _ai_tags(payload)
+        personal_tags = _personal_tags(payload)
         item = {
             "channel": _text(payload, "channel", "Telegram channel").lstrip("@"),
             "enabled": _bool(payload.get("enabled", True)),
@@ -667,9 +718,12 @@ def apply_config_action(
         }
         if tags:
             item["tags"] = tags
+        if personal_tags:
+            item["personal_tags"] = personal_tags
         _upsert_list_item(telegram["channels"], idx, item)
         telegram["enabled"] = _bool(payload.get("telegram_enabled", telegram.get("enabled", True)))
         _merge_tag_library(updated, tags)
+        _merge_personal_tag_library(updated, personal_tags)
 
     elif action == "delete_telegram_channel":
         telegram = sources.setdefault("telegram", {"enabled": True, "channels": []})
@@ -729,19 +783,27 @@ def apply_config_action(
             kind,
             _text(payload, "target", "Apify 目标"),
         )
-        tags = _tags(payload, allowed_tags=updated.get("tags"))
+        tags = _ai_tags(payload)
+        personal_tags = _personal_tags(payload)
+        analysis_mode = str(payload.get("analysis_mode") or "full").strip()
+        if analysis_mode not in {"full", "personal_only"}:
+            raise ValueError("analysis_mode 必须是 full 或 personal_only")
         item = {
             "platform": platform,
             "kind": kind,
             "target": target,
             "fetch_limit": _number(payload, "fetch_limit", default=20, minimum=1, maximum=100, integer=True),
             "enabled": _bool(payload.get("enabled", True)),
+            "analysis_mode": analysis_mode,
         }
         if tags:
             item["tags"] = tags
+        if personal_tags:
+            item["personal_tags"] = personal_tags
         _upsert_list_item(apify["subscriptions"], idx, item)
         apify["enabled"] = _bool(payload.get("apify_social_enabled", apify.get("enabled", True)))
         _merge_tag_library(updated, tags)
+        _merge_personal_tag_library(updated, personal_tags)
 
     elif action == "delete_apify_social_subscription":
         apify = sources.setdefault("apify_social", _apify_social_defaults())
@@ -774,9 +836,36 @@ def apply_config_action(
             if part.strip()
         ]
         ai["languages"] = languages or ["zh"]
+        ai["analysis_content_chars"] = _number(
+            payload,
+            "analysis_content_chars",
+            default=ai.get("analysis_content_chars", 1000),
+            minimum=100,
+            maximum=10000,
+            integer=True,
+        )
+        ai["analysis_comments_chars"] = _number(
+            payload,
+            "analysis_comments_chars",
+            default=ai.get("analysis_comments_chars", 1500),
+            minimum=0,
+            maximum=20000,
+            integer=True,
+        )
+        ai["enrichment_content_chars"] = _number(
+            payload,
+            "enrichment_content_chars",
+            default=ai.get("enrichment_content_chars", 4000),
+            minimum=500,
+            maximum=30000,
+            integer=True,
+        )
 
     elif action == "set_tags":
-        updated["tags"] = _tags(payload, allow_custom=True) or list(CANONICAL_TAGS)
+        updated["tags"] = _ai_tags(payload) or list(CANONICAL_TAGS)
+
+    elif action == "set_personal_tags":
+        updated["personal_tags"] = _personal_tags(payload)
 
     elif action == "set_webhook":
         webhook = updated.setdefault("webhook", {})
@@ -871,39 +960,93 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
         self.send_header("Expires", "0")
         super().end_headers()
 
-    def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+    def _send_json(
+        self,
+        payload: dict[str, Any],
+        status: int = 200,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
     def _send_error_json(self, message: str, status: int) -> None:
         self._send_json({"error": message}, status=status)
 
+    def _auth_settings(self) -> AuthSettings:
+        return AuthSettings.from_env()
+
+    def _authenticated_username(self, settings: AuthSettings | None = None) -> str | None:
+        auth = settings or self._auth_settings()
+        token = session_token_from_cookie(self.headers.get("Cookie"))
+        return verify_session_token(auth, token)
+
+    def _require_admin(self) -> bool:
+        auth = self._auth_settings()
+        if not auth.enabled:
+            return True
+        if not auth.configured:
+            self._send_error_json(
+                "后台鉴权已启用，但未设置 HORIZON_AUTH_PASSWORD 或 HORIZON_AUTH_PASSWORD_HASH",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return False
+        if self._authenticated_username(auth):
+            return True
+        self._send_error_json("需要登录后才能访问后台配置", HTTPStatus.UNAUTHORIZED)
+        return False
+
+    def _read_json_body(self) -> Any:
+        length = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/auth/status":
+            self._handle_auth_status()
+            return
         if path == "/api/config":
+            if not self._require_admin():
+                return
             self._handle_get_config()
             return
         if path == "/api/env":
+            if not self._require_admin():
+                return
             self._handle_get_env()
             return
         super().do_GET()
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/auth/login":
+            self._handle_auth_login()
+            return
+        if path == "/api/auth/logout":
+            self._handle_auth_logout()
+            return
         if path == "/api/config":
+            if not self._require_admin():
+                return
             self._send_error_json(
                 "直接保存整份配置已关闭，请使用 /api/config/action 的结构化表单接口",
                 HTTPStatus.METHOD_NOT_ALLOWED,
             )
             return
         if path == "/api/config/action":
+            if not self._require_admin():
+                return
             self._handle_config_action()
             return
         if path == "/api/source/test":
+            if not self._require_admin():
+                return
             self._handle_source_test()
             return
         self._send_error_json("Not found", HTTPStatus.NOT_FOUND)
@@ -928,13 +1071,59 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
 
         return str(self.static_dir / rel)
 
+    def _handle_auth_status(self) -> None:
+        auth = self._auth_settings()
+        username = self._authenticated_username(auth)
+        self._send_json(auth_status(auth, username))
+
+    def _handle_auth_login(self) -> None:
+        auth = self._auth_settings()
+        if not auth.enabled:
+            self._send_json({"ok": True, "auth": auth_status(auth, auth.username)})
+            return
+        if not auth.configured:
+            self._send_error_json(
+                "后台鉴权已启用，但未设置 HORIZON_AUTH_PASSWORD 或 HORIZON_AUTH_PASSWORD_HASH",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            payload = self._read_json_body()
+            if not isinstance(payload, dict):
+                raise ValueError("payload 必须是 JSON object")
+            username = str(payload.get("username") or "")
+            password = str(payload.get("password") or "")
+        except json.JSONDecodeError as exc:
+            self._send_error_json(f"Invalid JSON: {exc}", HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_error_json(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+
+        if not verify_login(auth, username, password):
+            self._send_error_json("用户名或密码不正确", HTTPStatus.UNAUTHORIZED)
+            return
+
+        token = create_session_token(auth, auth.username)
+        self._send_json(
+            {"ok": True, "auth": auth_status(auth, auth.username)},
+            headers={"Set-Cookie": session_cookie_header(auth, token)},
+        )
+
+    def _handle_auth_logout(self) -> None:
+        auth = self._auth_settings()
+        self._send_json(
+            {"ok": True, "auth": auth_status(auth, None)},
+            headers={"Set-Cookie": clear_session_cookie_header(auth)},
+        )
+
     def _handle_get_config(self) -> None:
         if not self.config_path.exists():
             self._send_error_json("data/config.json not found", HTTPStatus.NOT_FOUND)
             return
 
         try:
-            data = _read_json(self.config_path)
+            data = migrate_config_tag_layers(_read_json(self.config_path))
             config = validate_config_data(data)
         except Exception as exc:
             self._send_error_json(str(exc), HTTPStatus.BAD_REQUEST)
@@ -950,7 +1139,7 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
 
     def _handle_get_env(self) -> None:
         try:
-            data = _read_json(self.config_path)
+            data = migrate_config_tag_layers(_read_json(self.config_path))
             config = validate_config_data(data)
         except Exception as exc:
             self._send_error_json(str(exc), HTTPStatus.BAD_REQUEST)
@@ -960,8 +1149,9 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
 
     def _handle_save_config(self) -> None:
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            data = normalize_config_payload(self.rfile.read(length))
+            data = migrate_config_tag_layers(
+                normalize_config_payload(json.dumps(self._read_json_body()).encode("utf-8"))
+            )
             config = validate_config_data(data)
             _write_json(self.config_path, data)
         except json.JSONDecodeError as exc:
@@ -981,13 +1171,12 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
 
     def _handle_config_action(self) -> None:
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            request = json.loads(self.rfile.read(length).decode("utf-8"))
+            request = self._read_json_body()
             action = str(request.get("action") or "")
             payload = request.get("payload") or {}
             if not isinstance(payload, dict):
                 raise ValueError("payload 必须是 JSON object")
-            data = _read_json(self.config_path)
+            data = migrate_config_tag_layers(_read_json(self.config_path))
             updated = apply_config_action(data, action, payload)
             config = validate_config_data(updated)
             _write_json(self.config_path, updated)
@@ -1009,8 +1198,7 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
 
     def _handle_source_test(self) -> None:
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            payload = self._read_json_body()
             if not isinstance(payload, dict):
                 raise ValueError("payload 必须是 JSON object")
             result = run_source_test(payload)

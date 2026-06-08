@@ -1,16 +1,12 @@
 <div align="center">
 
-# 🌅 Horizon
+# Inteliscope
 
-**Enjoy the News itself. Leave others to Horizon**
+**A personal AI information radar, second-developed from Horizon for focused reading workflows.**
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json&style=flat-square)](https://github.com/astral-sh/uv)
-[![Daily Summary](https://github.com/Thysrael/Horizon/actions/workflows/deploy-docs.yml/badge.svg?style=flat-square)](https://thysrael.github.io/Horizon/)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Thysrael/Horizon?style=flat-square)](https://github.com/Thysrael/Horizon/commits/main)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
 ![Sources Welcome](https://img.shields.io/badge/📡_sources-welcome-f97316?style=flat-square)
-<a href="https://hellogithub.com/repository/Thysrael/Horizon" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=7a4b606e28e4477998d35851cf4fdddf&claim_uid=rtjnLkYT7ziQJUG&theme=small" alt="Featured｜HelloGitHub" /></a>
 <br>
 
 ![Claude](https://img.shields.io/badge/Claude-f0daba?style=flat-square&logo=anthropic&logoColor=black)
@@ -22,11 +18,15 @@
 ![OpenClaw](https://img.shields.io/badge/OpenClaw-C83232?style=flat-square)
 ![Ollama](https://img.shields.io/badge/Ollama-FFFFFF?style=flat-square&logo=Ollama&logoColor=black)
 
-📡 Your own AI-powered news radar. Generates daily briefings in English & Chinese. | 构建你专属的 AI 新闻雷达
+📡 Your own AI-powered reading radar. Generates AI-ranked briefings and a focused reading UI. | 面向个人内容阅读的 AI 信息雷达
 
-[📖 Live Demo](https://thysrael.github.io/Horizon/) · [📋 Configuration Guide](https://thysrael.github.io/Horizon/configuration) · [简体中文](README_zh.md)
+[Upstream Horizon](https://github.com/Thysrael/Horizon) · [Upstream Demo](https://thysrael.github.io/Horizon/) · [简体中文](README_zh.md)
 
 </div>
+
+> **Fork notice**
+>
+> Inteliscope is a personal second-development edition based on [Thysrael/Horizon](https://github.com/Thysrael/Horizon). It keeps the upstream collection, scoring, summarization, and delivery pipeline, while adding private configuration, a content-reader style web UI, and local workflow adjustments for personal information tracking.
 
 ## Screenshots
 
@@ -64,11 +64,11 @@
 </table>
 </details>
 
-## Why Horizon?
+## Why Inteliscope?
 
-Good news is scattered; bad news is endless. Horizon gives you a personal first pass over Hacker News, Reddit, Telegram, RSS, and GitHub: it fetches, deduplicates, scores, filters, and enriches stories with background context and community discussion.
+Good news is scattered; bad news is endless. Inteliscope gives you a personal first pass over Hacker News, Reddit, Telegram, RSS, GitHub, and other sources: it fetches, deduplicates, scores, filters, and enriches stories with background context and community discussion.
 
-But Horizon is not just another summarizer. AI is great at reducing noise, but news still needs human taste: the sources you trust, the comments that change how you read a story, and the hidden gems only people can share. Horizon keeps that human layer in the loop with customizable sources, thresholds, models, languages, delivery channels, comment summaries, and a community source hub.
+This fork is built around daily reading rather than a public demo site. AI reduces noise, but information tracking still needs human taste: the sources you trust, the comments that change how you read a story, and the signals worth following. Inteliscope keeps Horizon's pipeline and adds a calmer reader-oriented web UI plus private defaults for personal use.
 
 ## Features
 
@@ -172,8 +172,8 @@ flowchart LR
 **Option A: Local Installation**
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd Horizon
+git clone <your-inteliscope-repo-url>
+cd Inteliscope
 
 # Install with uv (recommended)
 uv sync
@@ -202,12 +202,12 @@ uv pip install --only-binary=:all: openbb openbb-benzinga
 **Option B: Docker**
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd Horizon
+git clone <your-inteliscope-repo-url>
+cd Inteliscope
 
 # Configure environment
 cp .env.example .env
-# data/config.json is already a private AI radar starter config in this fork.
+# data/config.json is already an Inteliscope starter config for this fork.
 # Edit .env and data/config.json with your API keys, sources, thresholds, and webhook.
 
 # Rebuild current workspace, replace old containers, and prune old build cache
@@ -321,26 +321,27 @@ docker compose logs -f horizon-scheduler  # Watch scheduler logs
 
 The generated report is saved to `data/summaries/`. The private web UI is served from `data/site/` at [http://localhost:8080](http://localhost:8080) by default.
 
-## Private AI Radar Docker Deployment
+## Inteliscope Docker Deployment
 
-This repository includes a private custom AI information radar configuration in `data/config.json`. It keeps Horizon's original pipeline and adds:
+This repository includes an Inteliscope private reading-radar configuration in `data/config.json`. It keeps Horizon's original pipeline and adds:
 
 - Chinese scoring output with `score`, `reason`, `tags`, `category`, `is_featured`, `summary_zh`, and `action_suggestion`
 - Featured threshold `>= 7.5`, daily push threshold `>= 8.5`, and top 10 push limit
 - RSS/Atom, GitHub releases, GitHub public events, Hacker News, Reddit, Telegram public channels, OSS Insight, and Apify social subscriptions for public X, Instagram, Facebook, and Telegram targets
 - Static web UI with featured feed, recent 20 all-items feed, historical archive, daily summary, tag/source/search/score filters, and localStorage favorites
-- Structured config UI for sources, controlled tag categories, thresholds, AI model, and webhook settings, backed by server-side validation and config backups
+- Structured config UI for sources, controlled tag categories, personal tags, thresholds, AI model, and webhook settings, backed by server-side validation, optional admin auth, and config backups
 - Controlled tag taxonomy: AI Agent, AI coding, model releases, RAG/MCP, AI infra, open models, inference, products/startups, research, safety/governance, and industry updates
 - Docker Compose short polling every 30 minutes, daily webhook push at `08:30 Asia/Shanghai`, data mounts, log mounts, and web health check
 
 Deployment:
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd Horizon
+git clone <your-inteliscope-repo-url>
+cd Inteliscope
 cp .env.example .env
 
 # Edit OPENAI_API_KEY or another provider key in .env.
+# Enable HORIZON_AUTH_ENABLED before sharing the web server with friends.
 # Use the Web UI config tab to edit sources, tags, thresholds, and webhook.
 ./scripts/up-latest.sh
 docker compose logs -f horizon-scheduler
@@ -362,6 +363,7 @@ open http://localhost:8080
 Important config notes:
 
 - Put secrets only in `.env`; `data/config.json` stores environment variable names such as `OPENAI_API_KEY`, `GITHUB_TOKEN`, `APIFY_TOKEN`, and `HORIZON_WEBHOOK_URL`.
+- For shared deployments, set `HORIZON_AUTH_ENABLED=true`, `HORIZON_AUTH_USER`, `HORIZON_AUTH_PASSWORD_HASH`, and `HORIZON_AUTH_SESSION_SECRET`. Generate a hash with `docker compose run --rm --entrypoint sh horizon -lc "python -m src.ui.auth hash-password 'change-me'"`. Once enabled, the feed stays readable while `/api/config`, config saves, and source tests require login.
 - Keep `sources.apify_social.enabled=false` and `sources.twitter.enabled=false` unless `APIFY_TOKEN` is configured.
 - Set `webhook.enabled=true` only after `HORIZON_WEBHOOK_URL` is set. `platform` may be `generic`, `feishu`, `lark`, `dingtalk`, `slack`, or `discord`.
 - Logs are mounted to `./logs`; scheduler failures and webhook failures are written there and also visible via `docker compose logs`.

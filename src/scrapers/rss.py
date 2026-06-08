@@ -109,6 +109,7 @@ class RSSScraper(BaseScraper):
                     metadata={
                         "feed_name": source.name,
                         "category": source.category,
+                        **self._tag_metadata(source),
                         "tags": list(dict.fromkeys(source_tags + entry_tags)),
                     },
                 )

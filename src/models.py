@@ -72,6 +72,9 @@ class AIConfig(BaseModel):
     throttle_sec: float = 0.0
     analysis_concurrency: int = 1
     enrichment_concurrency: int = 1
+    analysis_content_chars: int = Field(default=1000, ge=100, le=10000)
+    analysis_comments_chars: int = Field(default=1500, ge=0, le=20000)
+    enrichment_content_chars: int = Field(default=4000, ge=500, le=30000)
     languages: List[str] = Field(default_factory=lambda: ["en"])
     # Azure OpenAI specific; required when provider == AZURE
     azure_endpoint_env: Optional[str] = None
@@ -87,6 +90,7 @@ class GitHubSourceConfig(BaseModel):
     repo: Optional[str] = None
     enabled: bool = True
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
 
 
 class HackerNewsConfig(BaseModel):
@@ -105,6 +109,7 @@ class RSSSourceConfig(BaseModel):
     enabled: bool = True
     category: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
 
 
 class RedditSubredditConfig(BaseModel):
@@ -119,6 +124,7 @@ class RedditSubredditConfig(BaseModel):
     fetch_limit: int = 25
     min_score: int = 10
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
 
 
 class RedditUserConfig(BaseModel):
@@ -129,6 +135,7 @@ class RedditUserConfig(BaseModel):
     sort: str = "new"
     fetch_limit: int = 10
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
 
 
 class RedditConfig(BaseModel):
@@ -147,6 +154,7 @@ class TelegramChannelConfig(BaseModel):
     enabled: bool = True
     fetch_limit: int = 20
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
 
 
 class TelegramConfig(BaseModel):
@@ -177,6 +185,13 @@ class ApifySocialPlatform(str, Enum):
     INSTAGRAM = "instagram"
     FACEBOOK = "facebook"
     TELEGRAM = "telegram"
+
+
+class AnalysisMode(str, Enum):
+    """How a source item should participate in AI analysis."""
+
+    FULL = "full"
+    PERSONAL_ONLY = "personal_only"
 
 
 class ApifyActorConfig(BaseModel):
@@ -211,6 +226,8 @@ class ApifySocialSubscriptionConfig(BaseModel):
     fetch_limit: int = Field(default=20, ge=1, le=100)
     enabled: bool = True
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
+    analysis_mode: AnalysisMode = AnalysisMode.FULL
 
     @model_validator(mode="after")
     def validate_platform_kind(self) -> "ApifySocialSubscriptionConfig":
@@ -430,5 +447,6 @@ class Config(BaseModel):
     sources: SourcesConfig
     filtering: FilteringConfig
     tags: List[str] = Field(default_factory=list)
+    personal_tags: List[str] = Field(default_factory=list)
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None
