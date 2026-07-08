@@ -20,30 +20,31 @@ function renderMeta() {
       ? '今日 ' + todayCount + ' 条 / 历史 ' + data.history_total_items + ' 条'
       : '抓取 ' + (data.total_fetched || 0) + ' 条';
   }
-  metaLine.textContent = [
-    data.date || '未知日期',
-    countText,
-    '精选 ≥ ' + (thresholds.featured || 7.5),
-    '推送 > ' + (thresholds.daily_push || 8.5),
-  ].join(' · ');
+  var parts = [data.date || '未知日期', countText];
+  if (data.ai_enabled === false) {
+    parts.push('无评分模式');
+  } else {
+    parts.push('精选 ≥ ' + (thresholds.featured || 7.5));
+    parts.push('推送 > ' + (thresholds.daily_push || 8.5));
+  }
+  metaLine.textContent = parts.join(' · ');
+}
+
+function scoreBadge(item) {
+  if (item && item.scoring_disabled) return '未评分';
+  return scoreText((item && item.score) || 0);
 }
 
 function renderQueueStats(data, items) {
   var el = document.getElementById('queueStats');
   var isHistory = state.view === 'history';
-  var dailyCount = data && Array.isArray(data.daily_push_items) ? data.daily_push_items.length : 0;
   var featuredCount = data && Array.isArray(data.featured_items) ? data.featured_items.length : items.length;
   var todayCount = getTodayTotalCount(data);
-  var personalCount = data && Array.isArray(data.personal_items) ? data.personal_items.length : 0;
   var readLaterCount = getReadLaterItems().length;
   var allLabel = isHistory ? '历史动态' : '今日动态';
   var featuredLabel = isHistory ? '历史精选' : '今日精选';
-  var personalLabel = isHistory ? '历史个人' : '个人关注';
-  var dailyLabel = isHistory ? '历史推送' : '每日推送';
   var allTitle = isHistory ? '查看全部历史动态' : '查看今日全部动态';
   var featuredTitle = isHistory ? '查看历史精选' : '查看今日精选';
-  var personalTitle = isHistory ? '查看历史个人关注' : '查看个人关注';
-  var dailyTitle = isHistory ? '查看历史推送' : '查看每日推送';
   function statClass(action) {
     if (!isHistory) return 'queue-stat';
     return 'queue-stat' + (state.historyFilter === action ? ' active' : '');
@@ -51,9 +52,7 @@ function renderQueueStats(data, items) {
   el.innerHTML = [
     '<button class="' + statClass('all') + '" type="button" data-stat-action="all" title="' + allTitle + '"><strong>' + todayCount + '</strong><span>' + allLabel + '</span></button>',
     '<button class="' + statClass('featured') + '" type="button" data-stat-action="featured" title="' + featuredTitle + '"><strong>' + featuredCount + '</strong><span>' + featuredLabel + '</span></button>',
-    '<button class="' + statClass('personal') + '" type="button" data-stat-action="personal" title="' + personalTitle + '"><strong>' + personalCount + '</strong><span>' + personalLabel + '</span></button>',
     '<button class="queue-stat" type="button" data-stat-action="readLater" title="查看稍后读"><strong>' + readLaterCount + '</strong><span>稍后读</span></button>',
-    '<button class="' + statClass('daily') + '" type="button" data-stat-action="daily" title="' + dailyTitle + '"><strong>' + dailyCount + '</strong><span>' + dailyLabel + '</span></button>',
   ].join('');
 }
 
@@ -76,16 +75,18 @@ function renderQueue(items, selectedItem) {
       item.source || item.source_type || '未知来源',
     ];
     if (storyTime && storyTime !== '未知') storyMetaParts.push(storyTime);
-    storyMetaParts.push(item.category || '未分类');
+    storyMetaParts.push(itemChannel(item));
+    var storySignal = signalLabel(item);
+    if (storySignal) storyMetaParts.push(storySignal);
     return [
       '<button class="story' + (selected ? ' selected' : '') + (read ? ' read' : '') + '" type="button" data-select-item="' + escapeHtml(item.id) + '"' + (selected ? ' aria-current="true"' : '') + '>',
       '  <div>',
       '    <div class="story-meta">' + storyMetaParts.map(function (part) { return '<span>' + escapeHtml(part) + '</span>'; }).join('') + '</div>',
       '    <h3>' + escapeHtml(item.title) + '</h3>',
-      '    <p>' + escapeHtml(item.summary_zh || item.reason || '暂无摘要') + '</p>',
+      '    <p>' + escapeHtml(displayText(item.summary_zh || item.reason, '暂无摘要')) + '</p>',
       renderItemMedia(item, 'story'),
       '  </div>',
-      '  <span class="score ' + scoreClass(item.score || 0) + '">' + scoreText(item.score) + '</span>',
+      '  <span class="score ' + scoreClass(item.score || 0) + '">' + scoreBadge(item) + '</span>',
       '</button>',
     ].join('');
   }).join('');
@@ -97,9 +98,49 @@ function renderTags(tags) {
   }).join('');
 }
 
+function itemTopics(item) {
+  return (item && (item.topics || item.tags)) || [];
+}
+
+function signalLabel(item) {
+  if (!item) return '';
+  var strength = {
+    strong: 'Strong signal',
+    developing: 'Developing signal',
+    thin: 'Thin signal',
+  }[item.signal_strength || ''];
+  var type = item.signal_type ? String(item.signal_type).replace(/_/g, ' ') : '';
+  return [strength, type].filter(Boolean).join(' · ');
+}
+
 function emptyMessage() {
   if (state.view === 'readLater') return '还没有稍后读内容。点击条目里的“稍后读”即可加入。';
   return '没有匹配的动态。';
+}
+
+function renderInsightBlocks(item, actionSuggestion) {
+  if (item && item.scoring_disabled) {
+    return [
+      '<section class="article-note">',
+      '  <strong>阅读策略</strong>',
+      '  <p>无评分模式：按发布时间和信源优先级阅读，打开原文后自行判断是否需要跟进。</p>',
+      '</section>',
+    ].join('');
+  }
+  return [
+    '  <section class="article-block">',
+    '    <h3>为什么值得读</h3>',
+    '    <p>' + escapeHtml(displayText(item && item.reason, '暂无推荐理由。')) + '</p>',
+    '  </section>',
+    '  <section class="article-block">',
+    '    <h3>我该关注什么</h3>',
+    '    <p>' + escapeHtml(displayText(actionSuggestion, '阅读原文后判断是否需要跟进。')) + '</p>',
+    '  </section>',
+    '  <section class="article-block">',
+    '    <h3>阅读判断</h3>',
+    '    <p>' + escapeHtml(readingJudgement(item)) + '</p>',
+    '  </section>',
+  ].join('');
 }
 
 function renderReader(item) {
@@ -115,9 +156,10 @@ function renderReader(item) {
   var sourceLine = [
     item.source || item.source_type || '未知来源',
     formatDate(item.published_at),
-    item.category || '未分类',
-    scoreText(item.score),
-  ].join(' · ');
+    itemChannel(item),
+    signalLabel(item),
+    scoreBadge(item),
+  ].filter(Boolean).join(' · ');
 
   panel.innerHTML = [
     '<div class="reader-toolbar">',
@@ -131,33 +173,25 @@ function renderReader(item) {
     '<article class="article">',
     '  <div class="article-source">' + escapeHtml(sourceLine) + '</div>',
     '  <h2>' + escapeHtml(item.title) + '</h2>',
-    '  <p class="article-lead">' + escapeHtml(item.summary_zh || '暂无摘要') + '</p>',
+    '  <p class="article-lead">' + escapeHtml(displayText(item.summary_zh, '暂无摘要')) + '</p>',
     renderItemMedia(item, 'article'),
-    '  <section class="article-block">',
-    '    <h3>为什么值得读</h3>',
-    '    <p>' + escapeHtml(item.reason || '暂无推荐理由。') + '</p>',
-    '  </section>',
-    '  <section class="article-block">',
-    '    <h3>我该关注什么</h3>',
-    '    <p>' + escapeHtml(actionSuggestion) + '</p>',
-    '  </section>',
-    '  <section class="article-block">',
-    '    <h3>阅读判断</h3>',
-    '    <p>' + escapeHtml(readingJudgement(item)) + '</p>',
-    '  </section>',
+    renderInsightBlocks(item, actionSuggestion),
     '  <div class="reading-actions">',
     '    <a class="button-link" href="' + escapeHtml(item.url) + '" target="_blank" rel="noreferrer">打开原文</a>',
     '    <button class="text-link" type="button" data-preview-url="' + escapeHtml(item.url || '') + '">站内预览</button>',
     '    <button class="text-link" type="button" data-favorite-action="' + escapeHtml(item.id) + '">' + (favored ? '取消收藏' : '加入收藏') + '</button>',
     '    <button class="text-link" type="button" data-read-later-action="' + escapeHtml(item.id) + '">' + (later ? '移出稍后读' : '稍后读') + '</button>',
     '  </div>',
-    '  <div class="tag-row">' + renderTags(item.tags) + '</div>',
+    '  <div class="tag-row">' + renderTags(itemTopics(item)) + '</div>',
     '  <section id="inlinePreview" class="inline-preview hidden" aria-live="polite"></section>',
     '</article>',
   ].join('');
 }
 
 function readingJudgement(item) {
+  if (item.scoring_disabled) {
+    return '当前为无评分模式。建议按信源可信度、发布时间和个人兴趣自行判断是否需要跟进。';
+  }
   var score = Number(item.score) || 0;
   if (score >= 8.5) {
     return '这是高优先级条目，建议尽快阅读原文并判断是否需要进入今日行动清单。';
@@ -186,6 +220,7 @@ function renderContext(items, selectedItem) {
   var data = getActiveData() || {};
   var thresholds = data.thresholds || {};
   var dailyCount = (data.daily_push_items || []).length;
+  var scoringEnabled = data.ai_enabled !== false;
   var highestScore = items.reduce(function (max, item) {
     return Math.max(max, Number(item.score) || 0);
   }, 0);
@@ -196,12 +231,12 @@ function renderContext(items, selectedItem) {
 
   panel.innerHTML = [
     '<section class="context-card" data-context-card="summary">',
-    '  <div class="context-title"><strong>今日摘要</strong><span>推送 > ' + escapeHtml(thresholds.daily_push || 8.5) + '</span></div>',
+    '  <div class="context-title"><strong>今日摘要</strong><span>' + (scoringEnabled ? '高优先级 > ' + escapeHtml(thresholds.daily_push || 8.5) : '无评分模式') + '</span></div>',
     '  <p class="brief">' + escapeHtml(contextBrief(items, selectedItem)) + '</p>',
     '  <div class="priority">',
-    '    <div class="priority-row"><i class="dot"></i><span>进入每日推送</span><strong>' + dailyCount + '</strong></div>',
-    '    <div class="priority-row"><i class="dot orange"></i><span>精选阈值</span><strong>' + escapeHtml(thresholds.featured || 7.5) + '</strong></div>',
-    '    <div class="priority-row"><i class="dot red"></i><span>最高评分</span><strong>' + scoreText(highestScore) + '</strong></div>',
+    '    <div class="priority-row"><i class="dot"></i><span>高优先级</span><strong>' + (scoringEnabled ? dailyCount : '关闭') + '</strong></div>',
+    '    <div class="priority-row"><i class="dot orange"></i><span>精选阈值</span><strong>' + (scoringEnabled ? escapeHtml(thresholds.featured || 7.5) : '关闭') + '</strong></div>',
+    '    <div class="priority-row"><i class="dot red"></i><span>最高评分</span><strong>' + (scoringEnabled ? scoreText(highestScore) : '未评分') + '</strong></div>',
     '  </div>',
     '</section>',
     '<section class="context-card" data-context-card="sources">',
@@ -218,10 +253,15 @@ function renderContext(items, selectedItem) {
 
 function contextBrief(items, selectedItem) {
   if (!items.length) return '当前筛选条件下没有可读内容。';
-  var categories = countBy(items, 'category').slice(0, 3).map(function (item) {
+  var categories = countBy(items.map(function (item) {
+    return Object.assign({}, item, { channel: itemChannel(item) });
+  }), 'channel').slice(0, 3).map(function (item) {
     return item.name;
   });
   var selectedText = selectedItem ? '当前选中“' + selectedItem.title + '”。' : '';
+  if (!isAiScoringEnabled()) {
+    return '当前列表按发布时间展示，重点集中在 ' + categories.join('、') + '。建议按你订阅的信源优先级自行阅读。' + selectedText;
+  }
   return '当前列表重点集中在 ' + categories.join('、') + '。建议优先处理高分条目，再按标签扩展阅读。' + selectedText;
 }
 
@@ -268,7 +308,8 @@ function renderItems() {
 function renderAll() {
   var data = getActiveData();
   if (data) {
-    renderGroupedTagSelectOptions(document.getElementById('tagSelect'), getTagFilterOptions(data), '全部标签');
+    renderSelectOptions(document.getElementById('channelSelect'), getChannelFilterOptions(data), '全部频道');
+    renderGroupedTagSelectOptions(document.getElementById('tagSelect'), getTagFilterOptions(data), '全部主题');
     renderSelectOptions(document.getElementById('sourceSelect'), data.sources || [], '全部来源');
   }
   renderMeta();
@@ -323,6 +364,12 @@ function bindEvents() {
     chooseViewForTag(state.tag);
     renderAll();
   });
+  document.getElementById('channelSelect').addEventListener('change', function (event) {
+    state.channel = event.target.value;
+    state.tag = '';
+    state.selectedItemId = '';
+    renderAll();
+  });
   document.getElementById('sourceSelect').addEventListener('change', function (event) {
     state.source = event.target.value;
     renderItems();
@@ -370,14 +417,14 @@ function bindPressFeedback() {
 }
 
 function handleQueueStat(action) {
-  if (state.view === 'history' && (action === 'all' || action === 'featured' || action === 'personal' || action === 'daily')) {
+  if (state.view === 'history' && (action === 'all' || action === 'featured')) {
     state.historyFilter = action;
     state.selectedItemId = '';
     renderAll();
     document.getElementById('readerPanel').scrollIntoView({ block: 'start', behavior: 'smooth' });
     return;
   }
-  if (action === 'all' || action === 'featured' || action === 'personal' || action === 'readLater' || action === 'daily') {
+  if (action === 'all' || action === 'featured' || action === 'readLater') {
     state.view = action;
     state.selectedItemId = '';
     renderAll();
@@ -650,6 +697,7 @@ function copySelectedSummary(id, button) {
 function clearFilters() {
   state.query = '';
   state.minScore = 0;
+  state.channel = '';
   state.tag = '';
   state.source = '';
   state.favoritesOnly = false;
@@ -657,6 +705,7 @@ function clearFilters() {
   document.getElementById('searchInput').value = '';
   document.getElementById('minScoreInput').value = '0';
   document.getElementById('minScoreValue').textContent = '0';
+  document.getElementById('channelSelect').value = '';
   document.getElementById('tagSelect').value = '';
   document.getElementById('sourceSelect').value = '';
   document.getElementById('favoritesOnly').checked = false;

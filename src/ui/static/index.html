@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inteliscope</title>
     <link rel="icon" href="data:," />
-    <script>window.STATIC_ASSET_VERSION = "20260608-article-graph";</script>
-    <link rel="stylesheet" href="./base.css?v=20260608-article-graph" />
-    <link rel="stylesheet" href="./reader.css?v=20260608-article-graph" />
-    <link rel="stylesheet" href="./config.css?v=20260608-article-graph" />
-    <link rel="stylesheet" href="./media.css?v=20260608-article-graph" />
-    <link rel="stylesheet" href="./article_graph.css?v=20260608-article-graph" />
+    <script>window.STATIC_ASSET_VERSION = "20260708-deepseek-models";</script>
+    <link rel="stylesheet" href="./base.css?v=20260708-deepseek-models" />
+    <link rel="stylesheet" href="./reader.css?v=20260708-deepseek-models" />
+    <link rel="stylesheet" href="./config.css?v=20260708-deepseek-models" />
+    <link rel="stylesheet" href="./media.css?v=20260708-deepseek-models" />
+    <link rel="stylesheet" href="./article_graph.css?v=20260708-deepseek-models" />
   </head>
   <body>
     <header class="topbar">
@@ -22,7 +22,6 @@
 
         <nav class="tabs" aria-label="视图">
           <button class="tab active" type="button" data-view="featured">精选</button>
-          <button class="tab" type="button" data-view="personal">个人关注</button>
           <button class="tab" type="button" data-view="all">全部</button>
           <button class="tab" type="button" data-view="readLater">稍后读</button>
           <button class="tab" type="button" data-view="history">历史</button>
@@ -56,9 +55,15 @@
               </span>
             </label>
             <label class="field">
-              <span>标签</span>
+              <span>频道</span>
+              <select id="channelSelect">
+                <option value="">全部频道</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>主题</span>
               <select id="tagSelect">
-                <option value="">全部标签</option>
+                <option value="">全部主题</option>
               </select>
             </label>
             <label class="field">
@@ -100,13 +105,13 @@
     <button id="articleGraphButton" class="article-graph-fab" type="button" title="查看文章关联分析">关联分析</button>
     <section id="articleGraphPanel" class="article-graph-panel hidden" aria-label="文章关系" aria-live="polite"></section>
 
-    <script src="./state.js?v=20260608-article-graph"></script>
-    <script src="./utils.js?v=20260608-article-graph"></script>
-    <script src="./media.js?v=20260608-article-graph"></script>
-    <script src="./auth.js?v=20260608-article-graph"></script>
-    <script src="./reader.js?v=20260608-article-graph"></script>
-    <script src="./config.js?v=20260608-article-graph"></script>
-    <script src="./article_graph.js?v=20260608-article-graph"></script>
-    <script src="./app.js?v=20260608-article-graph"></script>
+    <script src="./state.js?v=20260708-deepseek-models"></script>
+    <script src="./utils.js?v=20260708-deepseek-models"></script>
+    <script src="./media.js?v=20260708-deepseek-models"></script>
+    <script src="./auth.js?v=20260708-deepseek-models"></script>
+    <script src="./reader.js?v=20260708-deepseek-models"></script>
+    <script src="./config.js?v=20260708-deepseek-models"></script>
+    <script src="./article_graph.js?v=20260708-deepseek-models"></script>
+    <script src="./app.js?v=20260708-deepseek-models"></script>
   </body>
 </html>

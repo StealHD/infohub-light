@@ -8,6 +8,22 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function plainText(value) {
+  var text = String(value || '');
+  if (!text) return '';
+  var blockNormalized = text
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(p|div|li|h[1-6])\s*>/gi, '\n');
+  var withoutTags = blockNormalized.replace(/<[^>]*>/g, ' ');
+  var textarea = document.createElement('textarea');
+  textarea.innerHTML = withoutTags;
+  return textarea.value.replace(/\s+/g, ' ').trim();
+}
+
+function displayText(value, fallback) {
+  return plainText(value) || fallback;
+}
+
 function formatDate(value) {
   if (!value) return '未知';
   var date = new Date(value);
@@ -37,7 +53,6 @@ function getBaseItems() {
   if (state.view === 'readLater') return getReadLaterItems();
   if (state.view === 'history') return getHistoryBaseItems();
   if (state.view === 'daily') return state.data.daily_push_items || [];
-  if (state.view === 'personal') return state.data.personal_items || [];
   if (state.view === 'featured') return state.data.featured_items || [];
   if (state.view === 'all') return state.data.today_items || state.data.items || [];
   return state.data.items || [];
@@ -46,8 +61,6 @@ function getBaseItems() {
 function getHistoryBaseItems() {
   var history = state.historyData || state.data || {};
   if (state.historyFilter === 'featured') return history.featured_items || [];
-  if (state.historyFilter === 'personal') return history.personal_items || [];
-  if (state.historyFilter === 'daily') return history.daily_push_items || [];
   return history.items || [];
 }
 
@@ -96,28 +109,41 @@ function getActiveData() {
 function viewLabel() {
   if (state.view === 'history') {
     if (state.historyFilter === 'featured') return '历史精选';
-    if (state.historyFilter === 'personal') return '历史个人关注';
-    if (state.historyFilter === 'daily') return '历史推送';
     return '历史归档';
   }
-  if (state.view === 'daily') return '每日推送';
+  if (!isAiScoringEnabled() && state.view === 'featured') return '全部动态';
+  if (!isAiScoringEnabled() && state.view === 'daily') return '全部动态';
+  if (state.view === 'daily') return '日报';
   if (state.view === 'readLater') return '稍后读';
-  if (state.view === 'personal') return '个人关注';
   if (state.view === 'all') return '今日动态';
   return '今日精选';
+}
+
+function isAiScoringEnabled() {
+  return !state.data || state.data.ai_enabled !== false;
+}
+
+function getEffectiveMinScore() {
+  return isAiScoringEnabled() ? state.minScore : 0;
+}
+
+function shouldShowScoreControls() {
+  return isAiScoringEnabled();
 }
 
 function viewDescription() {
   if (state.view === 'history') {
     if (state.historyFilter === 'featured') return '历史累计精选内容，适合回看高分信息。';
-    if (state.historyFilter === 'personal') return '历史累计个人关注内容，适合按个人标签回看。';
-    if (state.historyFilter === 'daily') return '历史累计达到每日推送阈值的内容。';
     return '历史累计内容按时间回看，适合复盘信息源质量。';
+  }
+  if (!isAiScoringEnabled() && (state.view === 'featured' || state.view === 'daily' || state.view === 'all')) {
+    return '无评分模式下按发布时间展示你配置的信源内容。';
   }
   if (state.view === 'daily') return '只显示达到每日推送阈值的最高优先级内容。';
   if (state.view === 'readLater') return '本机保存的待读清单。移出只会取消标记，不会删除原始动态。';
-  if (state.view === 'personal') return '按你的个人标签和偏好展示，不参与 AI 行业评分排序。';
-  if (state.view === 'all') return '显示今天进入本轮信息流的全部动态，不混入历史归档。';
+  if (state.view === 'all') {
+    return '显示今天进入本轮信息流的全部动态，不混入历史归档。';
+  }
   return '按 AI 评分和可行动性排序，默认只展示超过精选阈值的内容。';
 }
 
@@ -129,16 +155,60 @@ function matchesQuery(item) {
     item.summary_zh,
     item.reason,
     item.action_suggestion,
+    item.channel,
     item.category,
+    (item.topics || []).join(' '),
     (item.tags || []).join(' '),
     (item.personal_tags || []).join(' '),
+    item.signal_strength,
+    item.signal_type,
+    (item.entities || []).join(' '),
   ].join(' ').toLowerCase();
   return haystack.indexOf(state.query.toLowerCase()) !== -1;
 }
 
+function normalizeHubChannel(value) {
+  var raw = String(value || '').trim();
+  var key = raw.toLowerCase().replace(/[\s_\\/#:：,，.\-]+/g, '');
+  var aliases = {
+    ai: 'AI',
+    人工智能: 'AI',
+    ai编程: 'AI',
+    aicoding: 'AI',
+    aiagent: 'AI',
+    agent: 'AI',
+    codex: 'AI',
+    模型发布: 'AI',
+    ragmcp: 'AI',
+    aiinfra: 'AI',
+    投资: '投资',
+    finance: '投资',
+    美股: '投资',
+    估值: '投资',
+    宏观: '投资',
+    产品机会: '产品机会',
+    产品创业: '产品机会',
+    价格监控: '产品机会',
+    工作项目: '工作/项目',
+    朋友动态: '朋友动态',
+    生活: '生活',
+    政策风险: '政策/风险',
+    安全治理: '政策/风险',
+    其他: '其他',
+  };
+  if (HUB_CHANNEL_OPTIONS.indexOf(raw) >= 0) return raw;
+  return aliases[key] || '';
+}
+
+function itemChannel(item) {
+  return normalizeHubChannel(item && (item.channel || item.category)) || '其他';
+}
+
 function getFilteredItems() {
+  var minScore = getEffectiveMinScore();
   return getBaseItems().filter(function (item) {
-    if ((item.score || 0) < state.minScore) return false;
+    if (isAiScoringEnabled() && (item.score || 0) < minScore) return false;
+    if (state.channel && itemChannel(item) !== state.channel) return false;
     if (state.tag && !itemHasTag(item, state.tag)) return false;
     if (state.source && item.source !== state.source) return false;
     if (state.favoritesOnly && !state.favorites.has(item.id)) return false;
@@ -147,16 +217,21 @@ function getFilteredItems() {
 }
 
 function itemHasTag(item, tag) {
-  return (item.tags || []).indexOf(tag) >= 0 || (item.personal_tags || []).indexOf(tag) >= 0;
+  return (item.topics || item.tags || []).indexOf(tag) >= 0 || (item.personal_tags || []).indexOf(tag) >= 0;
+}
+
+function getChannelFilterOptions(data) {
+  return uniqueValues(
+    []
+      .concat(HUB_CHANNEL_OPTIONS)
+      .concat((data && data.channels) || [])
+      .concat(getBaseItems().map(function (item) { return itemChannel(item); }))
+      .map(normalizeHubChannel)
+  );
 }
 
 function chooseViewForTag(tag) {
   if (!tag || getBaseItems().some(function (item) { return itemHasTag(item, tag); })) return;
-  if (((state.data || {}).personal_items || []).some(function (item) { return itemHasTag(item, tag); })) {
-    state.view = 'personal';
-    state.selectedItemId = '';
-    return;
-  }
   if ([].concat(((state.data || {}).today_items) || [], ((state.data || {}).items) || []).some(function (item) { return itemHasTag(item, tag); })) {
     state.view = 'all';
     state.selectedItemId = '';
@@ -228,14 +303,25 @@ function uniqueValues(values) {
 function getTagFilterOptions(data) {
   var aiTags = getConfigTagLibrary();
   var personalTags = getConfigPersonalTagLibrary();
+  var scopedItems = state.channel
+    ? getBaseItems().filter(function (item) { return itemChannel(item) === state.channel; })
+    : [];
+  var scopedTopics = uniqueValues(scopedItems.reduce(function (acc, item) {
+    return acc.concat(item.topics || item.tags || []);
+  }, []));
+  var scopedPersonalTags = uniqueValues(scopedItems.reduce(function (acc, item) {
+    return acc.concat(item.personal_tags || []);
+  }, []));
   if (!aiTags.length && !(state.config && Array.isArray(state.config.tags))) {
     aiTags = uniqueValues([].concat((data && data.tag_library) || [], (data && data.tags) || []));
   }
   if (!personalTags.length && !(state.config && Array.isArray(state.config.personal_tags))) {
     personalTags = uniqueValues([].concat((data && data.personal_tag_library) || [], (data && data.personal_tags) || []));
   }
+  if (state.channel && scopedTopics.length) aiTags = scopedTopics;
+  if (state.channel && scopedPersonalTags.length) personalTags = scopedPersonalTags;
   return [
-    { label: 'AI 大类', values: aiTags },
+    { label: '阅读主题', values: aiTags },
     { label: '个人标签', values: personalTags },
   ];
 }

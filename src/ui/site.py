@@ -10,7 +10,15 @@ from typing import Any, Iterable
 
 from ..config_migration import normalize_personal_tags
 from ..models import ContentItem
-from ..tag_policy import CANONICAL_TAGS, normalize_category, normalize_tags, order_tags
+from ..tag_policy import (
+    HUB_CHANNELS,
+    normalize_channel,
+    normalize_entities,
+    normalize_signal_strength,
+    normalize_signal_type,
+    normalize_tags,
+    order_tags,
+)
 from .media_cache import cache_payload_media
 
 
@@ -57,9 +65,11 @@ def _merge_tags(*tag_groups: Iterable[Any]) -> list[str]:
     return tags
 
 
-def _personal_tags(tags: Iterable[str]) -> list[str]:
-    canonical = set(CANONICAL_TAGS)
-    return [tag for tag in tags if tag and tag not in canonical]
+def _legacy_category_topic(value: Any) -> list[str]:
+    if not value:
+        return []
+    text = str(value).strip()
+    return [] if text in HUB_CHANNELS else [text]
 
 
 def _coerce_float(value: Any, default: float = 0.0) -> float:
@@ -97,7 +107,7 @@ def serialize_item(
         or item.ai_summary
         or ""
     )
-    metadata_tags = item.metadata.get("tags") or []
+    metadata_tags = item.metadata.get("topics") or item.metadata.get("tags") or []
     if not isinstance(metadata_tags, list):
         metadata_tags = []
     metadata_personal_tags = item.metadata.get("personal_tags") or []
@@ -119,17 +129,26 @@ def serialize_item(
         for url in remote_media_urls_raw
         if isinstance(url, str) and str(url).strip()
     ]
-    tags = normalize_tags(
-        _merge_tags(metadata_tags, item.ai_tags, [item.ai_category or ""]),
-        fallback=item.ai_category or item.source_type.value,
-        max_tags=3,
-        allowed_tags=tag_library,
+    channel = normalize_channel(
+        item.ai_channel
+        or item.metadata.get("channel")
+        or item.metadata.get("category")
+        or item.ai_category,
+        fallback=item.source_type.value,
     )
-    category = normalize_category(item.ai_category, fallback=tags[0] if tags else None)
+    tags = normalize_tags(
+        _merge_tags(
+            item.ai_topics,
+            item.ai_tags,
+            metadata_tags,
+            _legacy_category_topic(item.ai_category),
+        ),
+        fallback=channel,
+        max_tags=6,
+        allowed_tags=tag_library,
+        allow_custom=True,
+    )
     personal_tags = normalize_personal_tags(metadata_personal_tags)
-    for legacy_tag in _personal_tags(tags):
-        if legacy_tag not in personal_tags:
-            personal_tags.append(legacy_tag)
     interest_score = _personal_interest_score(
         personal_tags=personal_tags,
         explicit_score=item.metadata.get("interest_score"),
@@ -152,8 +171,16 @@ def serialize_item(
         "fetched_at": _isoformat(item.fetched_at),
         "score": score,
         "reason": item.ai_reason or "",
+        "channel": channel,
+        "topics": tags,
         "tags": tags,
-        "category": category,
+        "category": channel,
+        "signal_strength": normalize_signal_strength(
+            item.ai_signal_strength,
+            score=score,
+        ),
+        "signal_type": normalize_signal_type(item.ai_signal_type),
+        "entities": normalize_entities(item.ai_entities),
         "is_featured": bool(item.ai_is_featured or score >= featured_threshold),
         "show_on_featured_home": score >= featured_threshold and score >= homepage_min_score,
         "summary_zh": str(summary),
@@ -165,6 +192,7 @@ def serialize_item(
         "personal_tags": personal_tags,
         "interest_score": interest_score,
         "show_in_personal_feed": show_in_personal_feed,
+        "scoring_disabled": bool(item.metadata.get("scoring_disabled")),
     }
 
 
@@ -220,21 +248,31 @@ def _normalize_payload_item(
     tag_library: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     normalized = dict(item)
-    tags = normalized.get("tags") or []
+    tags = normalized.get("topics") or normalized.get("tags") or []
     if not isinstance(tags, list):
         tags = []
-    category = normalize_category(normalized.get("category"), fallback=tags[0] if tags else None)
-    normalized["tags"] = normalize_tags(
-        [*tags, category],
-        fallback=category,
-        max_tags=3,
-        allowed_tags=tag_library,
+    channel = normalize_channel(
+        normalized.get("channel") or normalized.get("category"),
+        fallback=tags[0] if tags else None,
     )
-    normalized["category"] = category
+    normalized["topics"] = normalize_tags(
+        [*tags, *_legacy_category_topic(normalized.get("category"))],
+        fallback=channel,
+        max_tags=6,
+        allowed_tags=tag_library,
+        allow_custom=True,
+    )
+    normalized["tags"] = list(normalized["topics"])
+    normalized["channel"] = channel
+    normalized["category"] = channel
+    normalized["signal_strength"] = normalize_signal_strength(
+        normalized.get("signal_strength"),
+        score=_coerce_float(normalized.get("score")),
+    )
+    normalized["signal_type"] = normalize_signal_type(normalized.get("signal_type"))
+    raw_entities = normalized.get("entities") or []
+    normalized["entities"] = normalize_entities(raw_entities if isinstance(raw_entities, list) else [])
     personal_tags = normalize_personal_tags(normalized.get("personal_tags") or [])
-    for legacy_tag in _personal_tags(normalized["tags"]):
-        if legacy_tag not in personal_tags:
-            personal_tags.append(legacy_tag)
     normalized["personal_tags"] = personal_tags
     normalized["interest_score"] = _personal_interest_score(
         personal_tags=personal_tags,
@@ -400,6 +438,7 @@ def _empty_history_payload(
         "personal_tags": [],
         "personal_tag_library": list(personal_tag_library or []),
         "sources": [],
+        "channels": [],
         "categories": [],
         "runs": [],
         "history": True,
@@ -464,6 +503,7 @@ def _build_history_payload_from_existing(
         ),
         "personal_tag_library": list(personal_tag_library or []),
         "sources": _unique_sorted(str(item.get("source")) for item in items),
+        "channels": _unique_sorted(str(item.get("channel") or item.get("category")) for item in items),
         "categories": _unique_sorted(str(item.get("category")) for item in items),
         "runs": runs,
         "history": True,
@@ -525,6 +565,7 @@ def _build_today_payload(
         ),
         "personal_tag_library": list(personal_tag_library or []),
         "sources": _unique_sorted(str(item.get("source")) for item in items),
+        "channels": _unique_sorted(str(item.get("channel") or item.get("category")) for item in items),
         "categories": _unique_sorted(str(item.get("category")) for item in items),
         "today": True,
     }
@@ -601,6 +642,7 @@ def _build_history_payload(
         ),
         "personal_tag_library": list(personal_tag_library or []),
         "sources": _unique_sorted(str(item.get("source")) for item in items),
+        "channels": _unique_sorted(str(item.get("channel") or item.get("category")) for item in items),
         "categories": _unique_sorted(str(item.get("category")) for item in items),
         "runs": runs[:HISTORY_RUN_LIMIT],
         "history": True,
@@ -665,6 +707,7 @@ def _build_recent_payload(
         ),
         "personal_tag_library": personal_tag_library,
         "sources": _unique_sorted(str(item.get("source")) for item in visible_items),
+        "channels": _unique_sorted(str(item.get("channel") or item.get("category")) for item in visible_items),
         "categories": _unique_sorted(str(item.get("category")) for item in visible_items),
         "recent_item_limit": recent_item_limit,
         "history_total_items": len(history.get("items", [])),
@@ -683,6 +726,7 @@ def build_site_payload(
     recent_item_limit: int = RECENT_ITEM_LIMIT,
     tag_library: Iterable[str] | None = None,
     personal_tag_library: Iterable[str] | None = None,
+    ai_enabled: bool = True,
 ) -> dict[str, Any]:
     """Build the JSON payload consumed by the static web UI."""
     serialized = [
@@ -704,6 +748,7 @@ def build_site_payload(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "date": date,
         "total_fetched": total_fetched,
+        "ai_enabled": ai_enabled,
         "recent_item_limit": recent_item_limit,
         "thresholds": {
             "featured": featured_threshold,
@@ -725,8 +770,81 @@ def build_site_payload(
         ),
         "personal_tag_library": list(personal_tag_library or []),
         "sources": _unique_sorted(item["source"] for item in serialized),
+        "channels": _unique_sorted(item["channel"] for item in serialized),
         "categories": _unique_sorted(item["category"] for item in serialized),
     }
+
+
+def _normalize_payload_collections(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize legacy payload items and rebuild derived filter collections."""
+    normalized = dict(payload)
+    tag_library = _payload_tag_library(normalized, normalized.get("tags") or [])
+    personal_tag_library = _payload_personal_tag_library(
+        normalized,
+        normalized.get("personal_tags") or [],
+    )
+    items = _merge_payload_items(
+        normalized.get("items", []),
+        [],
+        tag_library=tag_library,
+    )
+    thresholds = normalized.get("thresholds") or {}
+    featured_items, daily_push_items, personal_items = _payload_item_collections(
+        items,
+        thresholds=thresholds,
+    )
+    normalized["items"] = items
+    normalized["featured_items"] = featured_items
+    normalized["daily_push_items"] = daily_push_items
+    normalized["personal_items"] = personal_items
+    if "today_items" in normalized:
+        normalized["today_items"] = [
+            _normalize_payload_item(item, tag_library=tag_library)
+            for item in normalized.get("today_items", [])
+            if isinstance(item, dict)
+        ]
+        normalized["today_total_items"] = len(normalized["today_items"])
+    normalized["tags"] = _unique_tags(
+        (tag for item in items for tag in item.get("tags", [])),
+        tag_library=tag_library,
+    )
+    normalized["tag_library"] = list(tag_library or [])
+    normalized["personal_tags"] = _unique_sorted(
+        tag for item in items for tag in item.get("personal_tags", [])
+    )
+    normalized["personal_tag_library"] = list(personal_tag_library or [])
+    normalized["sources"] = _unique_sorted(str(item.get("source")) for item in items)
+    normalized["channels"] = _unique_sorted(str(item.get("channel") or item.get("category")) for item in items)
+    normalized["categories"] = _unique_sorted(str(item.get("category")) for item in items)
+    return normalized
+
+
+def backfill_static_site_taxonomy(output_dir: Path | str) -> int:
+    """Rewrite generated site payloads with hub taxonomy compatibility fields.
+
+    This is safe to run repeatedly. It only touches JSON payloads generated by
+    the static UI under ``data/site`` and leaves cached media/assets alone.
+    """
+    root = Path(output_dir)
+    candidates = [
+        root / "radar-data.json",
+        root / "today-data.json",
+        root / "history-data.json",
+    ]
+    history_dir = root / "history"
+    if history_dir.exists():
+        candidates.extend(sorted(history_dir.glob("*.json")))
+
+    changed = 0
+    for path in candidates:
+        payload = _read_json_payload(path)
+        if not payload:
+            continue
+        normalized = _normalize_payload_collections(payload)
+        if normalized != payload:
+            _write_json_payload(path, normalized)
+            changed += 1
+    return changed
 
 
 def write_static_site(output_dir: Path, payload: dict[str, Any]) -> Path:
@@ -740,6 +858,7 @@ def write_static_site(output_dir: Path, payload: dict[str, Any]) -> Path:
     history_dir.mkdir(parents=True, exist_ok=True)
     today_dir = output_dir / "today"
     today_dir.mkdir(parents=True, exist_ok=True)
+    backfill_static_site_taxonomy(output_dir)
 
     cache_payload_media(payload, output_dir)
     snapshot_path = today_dir / _history_snapshot_name(payload)

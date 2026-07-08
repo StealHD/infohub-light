@@ -1,4 +1,4 @@
-"""Controlled tag taxonomy for the private AI radar."""
+"""Controlled taxonomy helpers for the private information hub."""
 
 from __future__ import annotations
 
@@ -6,9 +6,23 @@ import re
 from typing import Iterable
 
 
+HUB_CHANNELS: tuple[str, ...] = (
+    "AI",
+    "投资",
+    "产品机会",
+    "工作/项目",
+    "朋友动态",
+    "生活",
+    "政策/风险",
+    "其他",
+)
+
+
 CANONICAL_TAGS: tuple[str, ...] = (
     "AI Agent",
     "AI 编程",
+    "Agent",
+    "Codex",
     "模型发布",
     "RAG/MCP",
     "AI Infra",
@@ -18,6 +32,33 @@ CANONICAL_TAGS: tuple[str, ...] = (
     "研究论文",
     "安全治理",
     "行业动态",
+    "美股",
+    "AI 芯片",
+    "估值",
+    "宏观",
+    "公司财报",
+    "独立开发",
+    "竞品动态",
+    "增长",
+    "价格监控",
+    "旅行",
+    "健康",
+    "消费",
+    "居住",
+)
+
+
+SIGNAL_STRENGTHS: tuple[str, ...] = ("strong", "developing", "thin")
+SIGNAL_TYPES: tuple[str, ...] = (
+    "release",
+    "funding",
+    "market_move",
+    "opinion",
+    "personal_update",
+    "risk",
+    "tutorial",
+    "opportunity",
+    "other",
 )
 
 
@@ -39,7 +80,7 @@ _ALIASES: dict[str, str] = {
     "ai编程": "AI 编程",
     "aicoding": "AI 编程",
     "coding": "AI 编程",
-    "codex": "AI 编程",
+    "codex": "Codex",
     "claudecode": "AI 编程",
     "cursor": "AI 编程",
     "devin": "AI 编程",
@@ -143,6 +184,136 @@ for _tag in CANONICAL_TAGS:
     _ALIASES[_key(_tag)] = _tag
 
 
+_CHANNEL_ALIASES: dict[str, str] = {
+    "ai": "AI",
+    "人工智能": "AI",
+    "ai编程": "AI",
+    "aicoding": "AI",
+    "aiagent": "AI",
+    "agent": "AI",
+    "agents": "AI",
+    "codex": "AI",
+    "模型": "AI",
+    "模型发布": "AI",
+    "ragmcp": "AI",
+    "mcp": "AI",
+    "aiinfra": "AI",
+    "aiinfrastructure": "AI",
+    "ai-tools": "AI",
+    "aitools": "AI",
+    "投资": "投资",
+    "finance": "投资",
+    "market": "投资",
+    "markets": "投资",
+    "stock": "投资",
+    "stocks": "投资",
+    "美股": "投资",
+    "港股": "投资",
+    "a股": "投资",
+    "估值": "投资",
+    "宏观": "投资",
+    "财报": "投资",
+    "价格": "产品机会",
+    "价格监控": "产品机会",
+    "产品": "产品机会",
+    "产品机会": "产品机会",
+    "product": "产品机会",
+    "startup": "产品机会",
+    "startups": "产品机会",
+    "独立开发": "产品机会",
+    "竞品": "产品机会",
+    "竞品动态": "产品机会",
+    "增长": "产品机会",
+    "工作": "工作/项目",
+    "项目": "工作/项目",
+    "工作项目": "工作/项目",
+    "project": "工作/项目",
+    "projects": "工作/项目",
+    "朋友": "朋友动态",
+    "朋友动态": "朋友动态",
+    "friend": "朋友动态",
+    "friends": "朋友动态",
+    "social": "朋友动态",
+    "生活": "生活",
+    "life": "生活",
+    "旅行": "生活",
+    "健康": "生活",
+    "消费": "生活",
+    "居住": "生活",
+    "政策": "政策/风险",
+    "风险": "政策/风险",
+    "政策风险": "政策/风险",
+    "policy": "政策/风险",
+    "governance": "政策/风险",
+    "safety": "政策/风险",
+    "security": "政策/风险",
+    "安全": "政策/风险",
+    "安全治理": "政策/风险",
+    "其他": "其他",
+    "other": "其他",
+    "unknown": "其他",
+}
+
+for _channel in HUB_CHANNELS:
+    _CHANNEL_ALIASES[_key(_channel)] = _channel
+
+
+_SIGNAL_STRENGTH_ALIASES: dict[str, str] = {
+    "strong": "strong",
+    "strongsignal": "strong",
+    "强": "strong",
+    "强信号": "strong",
+    "高信号": "strong",
+    "developing": "developing",
+    "developingsignal": "developing",
+    "发展中": "developing",
+    "进行中": "developing",
+    "中信号": "developing",
+    "thin": "thin",
+    "thinsignal": "thin",
+    "弱": "thin",
+    "弱信号": "thin",
+    "低信号": "thin",
+}
+
+
+_SIGNAL_TYPE_ALIASES: dict[str, str] = {
+    "release": "release",
+    "launch": "release",
+    "发布": "release",
+    "新版本": "release",
+    "funding": "funding",
+    "融资": "funding",
+    "募资": "funding",
+    "investment": "funding",
+    "marketmove": "market_move",
+    "market": "market_move",
+    "stock": "market_move",
+    "股价": "market_move",
+    "市场异动": "market_move",
+    "opinion": "opinion",
+    "观点": "opinion",
+    "评论": "opinion",
+    "personalupdate": "personal_update",
+    "个人动态": "personal_update",
+    "朋友动态": "personal_update",
+    "risk": "risk",
+    "风险": "risk",
+    "安全": "risk",
+    "漏洞": "risk",
+    "tutorial": "tutorial",
+    "教程": "tutorial",
+    "指南": "tutorial",
+    "howto": "tutorial",
+    "opportunity": "opportunity",
+    "机会": "opportunity",
+    "产品机会": "opportunity",
+    "价格监控": "opportunity",
+    "other": "other",
+    "其他": "other",
+}
+
+
 def clean_custom_tag(value: object) -> str:
     """Return a safe custom tag label for the user-maintained tag library."""
     tag = re.sub(r"\s+", " ", str(value or "").strip().lstrip("#").strip())
@@ -172,6 +343,50 @@ def canonical_tag(value: object) -> str | None:
     return _ALIASES.get(_key(value))
 
 
+def normalize_channel(value: object, *, fallback: object | None = None) -> str:
+    """Normalize a channel to the small top-level hub taxonomy."""
+    channel = _CHANNEL_ALIASES.get(_key(value))
+    if channel:
+        return channel
+    if fallback is not None:
+        fallback_channel = _CHANNEL_ALIASES.get(_key(fallback))
+        if fallback_channel:
+            return fallback_channel
+    return "其他"
+
+
+def normalize_signal_strength(value: object, *, score: float | None = None) -> str:
+    """Normalize signal strength labels for scan-friendly reading priority."""
+    strength = _SIGNAL_STRENGTH_ALIASES.get(_key(value))
+    if strength:
+        return strength
+    if score is not None:
+        if score >= 8.0:
+            return "strong"
+        if score >= 5.0:
+            return "developing"
+    return "thin"
+
+
+def normalize_signal_type(value: object) -> str:
+    """Normalize a signal type used for future archive analysis."""
+    return _SIGNAL_TYPE_ALIASES.get(_key(value)) or "other"
+
+
+def normalize_entities(values: Iterable[object], *, max_entities: int = 8) -> list[str]:
+    """Return safe, unique entity labels for archive analysis."""
+    entities: list[str] = []
+    for value in values or []:
+        entity = re.sub(r"\s+", " ", str(value or "").strip())
+        if not entity or len(entity) > 64:
+            continue
+        if re.search(r"[\n\r\t<>$`{}]", entity):
+            continue
+        if entity not in entities:
+            entities.append(entity)
+    return entities[:max_entities]
+
+
 def normalize_tags(
     values: Iterable[object],
     *,
@@ -196,7 +411,7 @@ def normalize_tags(
         tag = canonical_tag(raw)
         if not tag and allowed:
             tag = allowed.get(_key(raw))
-        if not tag and allow_custom:
+        if not tag and (allow_custom or not strict):
             tag = clean_custom_tag(raw)
         if not tag:
             unknown.append(raw)
@@ -219,15 +434,8 @@ def normalize_tags(
 
 
 def normalize_category(value: object, *, fallback: object | None = None) -> str:
-    """Normalize category to a canonical tag-like category."""
-    tag = canonical_tag(value)
-    if tag:
-        return tag
-    if fallback is not None:
-        fallback_tag = canonical_tag(fallback)
-        if fallback_tag:
-            return fallback_tag
-    return "行业动态"
+    """Normalize legacy category values to a top-level hub channel."""
+    return normalize_channel(value, fallback=fallback)
 
 
 def order_tags(
@@ -249,4 +457,7 @@ def order_tags(
     return ordered
 
 
+ALLOWED_CHANNELS_TEXT = "、".join(HUB_CHANNELS)
 ALLOWED_TAGS_TEXT = "、".join(CANONICAL_TAGS)
+ALLOWED_SIGNAL_STRENGTHS_TEXT = "、".join(SIGNAL_STRENGTHS)
+ALLOWED_SIGNAL_TYPES_TEXT = "、".join(SIGNAL_TYPES)

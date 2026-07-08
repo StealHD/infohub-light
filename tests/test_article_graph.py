@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -101,6 +102,11 @@ def test_article_store_initializes_and_upserts_light_items_idempotently(tmp_path
         tags=["AI 编程"],
         category="AI 编程",
     )
+    item.ai_channel = "AI"
+    item.ai_topics = ["Codex", "AI 编程"]
+    item.ai_signal_strength = "strong"
+    item.ai_signal_type = "release"
+    item.ai_entities = ["OpenAI", "Codex"]
 
     store.initialize()
     assert store.upsert_articles_light([item]) == 1
@@ -110,7 +116,66 @@ def test_article_store_initializes_and_upserts_light_items_idempotently(tmp_path
     assert len(rows) == 1
     assert rows[0]["id"] == "rss:item:1"
     assert rows[0]["normalized_url"] == "example.com/path?b=2&a=1"
-    assert rows[0]["tags"] == ["AI 编程"]
+    assert rows[0]["channel"] == "AI"
+    assert rows[0]["topics"] == ["Codex", "AI 编程"]
+    assert rows[0]["signal_strength"] == "strong"
+    assert rows[0]["signal_type"] == "release"
+    assert rows[0]["entities"] == ["OpenAI", "Codex"]
+    assert rows[0]["category"] == "AI"
+    assert rows[0]["tags"] == ["Codex", "AI 编程"]
+
+
+def test_article_store_migrates_existing_light_table_taxonomy_columns(tmp_path: Path):
+    db_path = tmp_path / "horizon.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE articles_light (
+            id TEXT PRIMARY KEY,
+            source_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            normalized_url TEXT NOT NULL,
+            author TEXT,
+            published_at TEXT,
+            fetched_at TEXT,
+            score REAL NOT NULL DEFAULT 0,
+            reason TEXT,
+            summary_zh TEXT,
+            category TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            content_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.close()
+
+    store = ArticleStore(tmp_path)
+    item = _item(
+        "rss:item:migrated",
+        "Anthropic ships a Claude Code update",
+        tags=["Claude Code"],
+        category="AI",
+    )
+    item.ai_channel = "AI"
+    item.ai_topics = ["Claude Code"]
+    item.ai_signal_strength = "developing"
+    item.ai_signal_type = "release"
+    item.ai_entities = ["Anthropic", "Claude Code"]
+
+    store.initialize()
+    columns = {row["name"] for row in store.connect().execute("PRAGMA table_info(articles_light)")}
+    assert {"channel", "topics_json", "signal_strength", "signal_type", "entities_json"} <= columns
+
+    assert store.upsert_articles_light([item]) == 1
+    rows = store.load_articles_light(min_score=8.5)
+    assert rows[0]["channel"] == "AI"
+    assert rows[0]["topics"] == ["AI 编程"]
+    assert rows[0]["entities"] == ["Anthropic", "Claude Code"]
 
 
 def test_url_normalize_and_content_hash_are_stable():

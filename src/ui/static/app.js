@@ -5,6 +5,12 @@ async function loadData() {
     var response = await fetch('./radar-data.json?ts=' + Date.now());
     if (!response.ok) throw new Error('HTTP ' + response.status);
     state.data = await response.json();
+    if (state.data && state.data.ai_enabled === false && state.view === 'featured') {
+      state.view = 'all';
+    }
+    if (state.data && state.data.ai_enabled === false && state.view === 'daily') {
+      state.view = 'all';
+    }
     state.historyData = null;
     try {
       var historyResponse = await fetch('./history-data.json?ts=' + Date.now());

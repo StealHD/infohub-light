@@ -63,11 +63,13 @@ def test_analyzer_stores_private_radar_fields():
     asyncio.run(analyzer._analyze_item(item))
 
     assert item.ai_score == 8.7
-    assert item.ai_category == "AI 编程"
+    assert item.ai_category == "AI"
+    assert item.ai_channel == "AI"
     assert item.ai_is_featured is True
     assert item.ai_summary_zh.startswith("该动态说明")
     assert item.ai_action_suggestion == "阅读发布说明，并在一个小项目中测试。"
-    assert item.ai_tags == ["AI Agent", "AI 编程"]
+    assert item.ai_topics == ["AI Agent", "Codex", "AI 编程", "RandomVendorTag"]
+    assert item.ai_tags == ["AI Agent", "Codex", "AI 编程", "RandomVendorTag"]
 
 
 def test_chinese_summary_renders_private_radar_card_fields():
@@ -323,13 +325,14 @@ def test_write_static_site_splits_personal_tags_without_changing_score(tmp_path)
     item = _make_item(1, score=1.0)
     item.ai_tags = []
     item.ai_category = "行业动态"
-    item.metadata["tags"] = ["能黄通"]
+    item.metadata["personal_tags"] = ["能黄通"]
     payload = build_site_payload(
         all_items=[item],
         date="2026-06-03",
         total_fetched=1,
         featured_threshold=7.5,
-        tag_library=["行业动态", "能黄通"],
+        tag_library=["行业动态"],
+        personal_tag_library=["能黄通"],
     )
     payload["generated_at"] = "2026-06-03T10:00:00+00:00"
 
@@ -414,7 +417,7 @@ def test_write_static_site_drops_removed_custom_tags_from_history(tmp_path):
 
     assert current["tag_library"] == ["行业动态"]
     assert history["tag_library"] == ["行业动态"]
-    assert "旧标签" not in current["tags"]
+    assert "旧标签" in current["tags"]
     assert "旧标签" not in history["tags"]
     assert history["items"] == []
 
@@ -541,7 +544,9 @@ def test_write_static_site_normalizes_legacy_history_tags(tmp_path):
     current = json.loads((tmp_path / "radar-data.json").read_text(encoding="utf-8"))
     history = json.loads((tmp_path / "history-data.json").read_text(encoding="utf-8"))
 
-    assert current["today_items"][0]["tags"] == ["AI 编程", "模型发布"]
-    assert current["today_items"][0]["category"] == "AI 编程"
-    assert current["tags"] == ["AI 编程", "模型发布"]
+    assert current["today_items"][0]["tags"] == ["AI Agent", "AI 编程", "RAG/MCP"]
+    assert current["today_items"][0]["topics"] == ["AI Agent", "AI 编程", "RAG/MCP"]
+    assert current["today_items"][0]["category"] == "AI"
+    assert current["today_items"][0]["channel"] == "AI"
+    assert current["tags"] == ["AI Agent", "AI 编程", "RAG/MCP"]
     assert history["items"] == []

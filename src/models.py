@@ -1,9 +1,13 @@
 """Core data models for Horizon."""
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, HttpUrl, Field, field_validator, model_validator
+
+_ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SECRET_PREFIXES = ("sk-", "sk_", "AIza", "xai-", "gsk_", "hf_", "tp-")
 
 
 class SourceType(str, Enum):
@@ -43,6 +47,11 @@ class ContentItem(BaseModel):
     ai_is_featured: bool = False
     ai_action_suggestion: Optional[str] = None
     ai_tags: List[str] = Field(default_factory=list)
+    ai_channel: Optional[str] = None
+    ai_topics: List[str] = Field(default_factory=list)
+    ai_signal_strength: Optional[str] = None
+    ai_signal_type: Optional[str] = None
+    ai_entities: List[str] = Field(default_factory=list)
 
 
 class AIProvider(str, Enum):
@@ -63,6 +72,7 @@ class AIProvider(str, Enum):
 class AIConfig(BaseModel):
     """AI client configuration."""
 
+    enabled: bool = True
     provider: AIProvider
     model: str
     base_url: Optional[str] = None
@@ -89,6 +99,8 @@ class GitHubSourceConfig(BaseModel):
     owner: Optional[str] = None
     repo: Optional[str] = None
     enabled: bool = True
+    channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
 
@@ -108,6 +120,8 @@ class RSSSourceConfig(BaseModel):
     url: HttpUrl
     enabled: bool = True
     category: Optional[str] = None
+    channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
 
@@ -123,6 +137,8 @@ class RedditSubredditConfig(BaseModel):
     )
     fetch_limit: int = 25
     min_score: int = 10
+    channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
 
@@ -134,6 +150,8 @@ class RedditUserConfig(BaseModel):
     enabled: bool = True
     sort: str = "new"
     fetch_limit: int = 10
+    channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
 
@@ -153,6 +171,8 @@ class TelegramChannelConfig(BaseModel):
     channel: str  # channel username, e.g. "zaihuapd"
     enabled: bool = True
     fetch_limit: int = 20
+    hub_channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
 
@@ -223,11 +243,26 @@ class ApifySocialSubscriptionConfig(BaseModel):
     platform: ApifySocialPlatform
     kind: str
     target: str
+    token_env: Optional[str] = None
     fetch_limit: int = Field(default=20, ge=1, le=100)
     enabled: bool = True
     tags: List[str] = Field(default_factory=list)
+    channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
     analysis_mode: AnalysisMode = AnalysisMode.FULL
+
+    @field_validator("token_env")
+    @classmethod
+    def validate_token_env(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        name = str(value).strip()
+        if not name:
+            return None
+        if name.startswith(_SECRET_PREFIXES) or not _ENV_VAR_RE.fullmatch(name):
+            raise ValueError("apify_social subscription token_env must be an environment variable name")
+        return name
 
     @model_validator(mode="after")
     def validate_platform_kind(self) -> "ApifySocialSubscriptionConfig":
@@ -288,6 +323,8 @@ class OpenBBWatchlist(BaseModel):
     provider: str = "yfinance"
     fetch_limit: int = 20
     category: Optional[str] = None
+    channel: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)
 
 
 class OpenBBConfig(BaseModel):

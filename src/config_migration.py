@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .tag_policy import CANONICAL_TAGS, canonical_tag, clean_custom_tag
+from .tag_policy import CANONICAL_TAGS, clean_custom_tag, normalize_tags
 
 
 def _append_unique(values: list[str], value: str) -> None:
@@ -14,22 +14,15 @@ def _append_unique(values: list[str], value: str) -> None:
 
 
 def split_ai_and_personal_tags(values: Any) -> tuple[list[str], list[str]]:
-    """Split a tag list into canonical AI tags and custom personal tags."""
-    ai_tags: list[str] = []
-    personal_tags: list[str] = []
-    if not isinstance(values, list):
-        return ai_tags, personal_tags
+    """Normalize legacy tag lists as reading topics.
 
-    for raw in values:
-        text = str(raw or "").strip()
-        if not text:
-            continue
-        canonical = canonical_tag(text)
-        if canonical:
-            _append_unique(ai_tags, canonical)
-            continue
-        _append_unique(personal_tags, clean_custom_tag(text))
-    return ai_tags, personal_tags
+    The old implementation moved unknown values into ``personal_tags`` because
+    ``tags`` represented a fixed AI taxonomy. Tags now represent reading
+    topics, so custom values must remain in the topic layer.
+    """
+    if not isinstance(values, list):
+        return [], []
+    return normalize_tags(values, strict=False, max_tags=None, allow_custom=True), []
 
 
 def normalize_personal_tags(values: Any) -> list[str]:

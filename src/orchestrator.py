@@ -32,6 +32,13 @@ from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot, token_stage
+from .tag_policy import (
+    normalize_channel,
+    normalize_signal_strength,
+    normalize_signal_type,
+    normalize_tags,
+)
+from .source_selection import SourceRef
 from .ui.site import build_site_payload, load_history_item_ids, write_static_site
 
 
@@ -117,6 +124,19 @@ class HorizonOrchestrator:
                 if not merged_items:
                     self.console.print("[yellow]No unpublished content found. Exiting.[/yellow]")
                     return
+
+            if not self._ai_enabled():
+                published_items = self.publish_without_ai(merged_items)
+                await self._write_web_ui(
+                    all_items=published_items,
+                    today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    total_fetched=len(all_items),
+                )
+                self.console.print(
+                    "[dim]AI scoring disabled; skipped scoring, enrichment, summaries, notifications, and article graph.[/dim]\n"
+                )
+                self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
+                return
 
             # 4. Analyze with AI
             analysis_items, passthrough_items = self.partition_analysis_items(merged_items)
@@ -299,6 +319,76 @@ class HorizonOrchestrator:
             hours = self.config.filtering.time_window_hours
             since = datetime.now(timezone.utc) - timedelta(hours=hours)
         return since
+
+    async def run_single_source_update(
+        self,
+        source_ref: SourceRef,
+        force_hours: int,
+    ) -> dict[str, object]:
+        """Fetch and publish one explicitly selected source without side effects.
+
+        This path is used by the config UI/CLI for immediate source refreshes.
+        It deliberately skips notifications, summaries, enrichment, and article
+        graph/full-text work so the user only pays for the requested source.
+        """
+        self.console.print(
+            f"[bold cyan]Horizon - Updating source {source_ref.ref}...[/bold cyan]\n"
+        )
+        since = self._determine_time_window(force_hours)
+        self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+        raw_items = await self.fetch_all_sources(since)
+        merged_items = self.merge_cross_source_duplicates(raw_items)
+        skipped_existing = 0
+
+        known_ids = load_history_item_ids(self.storage.data_dir / "site")
+        if known_ids:
+            new_items = [item for item in merged_items if item.id not in known_ids]
+            skipped_existing = len(merged_items) - len(new_items)
+            merged_items = new_items
+
+        if not merged_items:
+            self.console.print("[yellow]No unpublished content found for selected source.[/yellow]")
+            return {
+                "ok": True,
+                "source_ref": source_ref.ref,
+                "hours": force_hours,
+                "fetched": len(merged_items),
+                "raw_before_merge": len(raw_items),
+                "merged": 0,
+                "skipped_existing": skipped_existing,
+                "analyzed": 0,
+                "passthrough": 0,
+                "web_ui_updated": False,
+            }
+
+        if self._ai_enabled():
+            analysis_items, passthrough_items = self.partition_analysis_items(merged_items)
+            analyzed_items = await self._analyze_content(analysis_items)
+            published_items = analyzed_items + passthrough_items
+        else:
+            analyzed_items = []
+            passthrough_items = self.publish_without_ai(merged_items)
+            published_items = passthrough_items
+            self.console.print("[dim]AI scoring disabled; publishing fetched items without model analysis.[/dim]\n")
+        web_ui_updated = await self._write_web_ui(
+            all_items=published_items,
+            today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            total_fetched=len(raw_items),
+        )
+
+        return {
+            "ok": True,
+            "source_ref": source_ref.ref,
+            "hours": force_hours,
+            "fetched": len(published_items),
+            "raw_before_merge": len(raw_items),
+            "merged": len(merged_items),
+            "skipped_existing": skipped_existing,
+            "analyzed": len(analyzed_items),
+            "passthrough": len(passthrough_items),
+            "web_ui_updated": web_ui_updated,
+        }
 
     async def fetch_all_sources(self, since: datetime) -> List[ContentItem]:
         """Fetch content from all configured sources.
@@ -623,24 +713,92 @@ class HorizonOrchestrator:
         self.console.print(f"   Enriched {len(items)} items\n")
 
     @staticmethod
-    def partition_analysis_items(items: List[ContentItem]) -> tuple[List[ContentItem], List[ContentItem]]:
+    def _source_topics(item: ContentItem) -> list[str]:
+        topics = item.metadata.get("topics") or item.metadata.get("tags") or []
+        return topics if isinstance(topics, list) else []
+
+    @classmethod
+    def _source_channel(cls, item: ContentItem) -> str:
+        return normalize_channel(
+            item.metadata.get("channel") or item.metadata.get("category"),
+            fallback=(cls._source_topics(item) or [item.source_type.value])[0],
+        )
+
+    @classmethod
+    def partition_analysis_items(cls, items: List[ContentItem]) -> tuple[List[ContentItem], List[ContentItem]]:
         """Split items that should call AI from personal-only passthrough items."""
         analysis_items: List[ContentItem] = []
         passthrough_items: List[ContentItem] = []
         for item in items:
             if item.metadata.get("analysis_mode") == "personal_only":
+                channel = cls._source_channel(item)
+                topics = normalize_tags(
+                    cls._source_topics(item),
+                    fallback=channel,
+                    max_tags=6,
+                    allow_custom=True,
+                )
                 item.ai_score = 0.0
                 item.ai_reason = "Personal-only item skipped AI analysis"
                 item.ai_summary = item.ai_summary or item.content or item.title
                 item.ai_summary_zh = item.ai_summary_zh or item.ai_summary
-                item.ai_category = item.ai_category or "行业动态"
-                item.ai_tags = item.ai_tags or list(item.metadata.get("tags") or ["行业动态"])
+                item.ai_channel = item.ai_channel or channel
+                item.ai_topics = item.ai_topics or topics
+                item.ai_category = item.ai_category or channel
+                item.ai_tags = item.ai_tags or topics
+                item.ai_signal_strength = item.ai_signal_strength or "thin"
+                item.ai_signal_type = item.ai_signal_type or "personal_update"
                 item.ai_is_featured = False
                 item.metadata["show_in_personal_feed"] = True
                 passthrough_items.append(item)
             else:
                 analysis_items.append(item)
         return analysis_items, passthrough_items
+
+    def _ai_enabled(self) -> bool:
+        return bool(getattr(self.config.ai, "enabled", True))
+
+    @staticmethod
+    def _fallback_category(item: ContentItem) -> str:
+        return HorizonOrchestrator._source_channel(item)
+
+    @classmethod
+    def publish_without_ai(cls, items: List[ContentItem]) -> List[ContentItem]:
+        """Prepare fetched items for the static UI without model scoring."""
+        published: List[ContentItem] = []
+        for item in items:
+            summary = item.ai_summary_zh or item.ai_summary or item.content or item.title
+            channel = cls._source_channel(item)
+            topics = normalize_tags(
+                cls._source_topics(item),
+                fallback=channel,
+                max_tags=6,
+                allow_custom=True,
+            )
+            item.ai_score = 0.0
+            item.ai_reason = item.ai_reason or "AI scoring is disabled for this run."
+            item.ai_summary = item.ai_summary or summary
+            item.ai_summary_zh = item.ai_summary_zh or summary
+            item.ai_channel = item.ai_channel or channel
+            item.ai_topics = item.ai_topics or topics
+            item.ai_category = item.ai_category or channel
+            item.ai_tags = item.ai_tags or topics
+            item.ai_signal_strength = item.ai_signal_strength or normalize_signal_strength(
+                None,
+                score=0.0,
+            )
+            item.ai_signal_type = item.ai_signal_type or normalize_signal_type(
+                item.metadata.get("signal_type"),
+            )
+            item.ai_is_featured = False
+            item.ai_action_suggestion = (
+                item.ai_action_suggestion or "打开原文后自行判断是否需要跟进。"
+            )
+            item.metadata["scoring_disabled"] = True
+            if item.metadata.get("analysis_mode") == "personal_only":
+                item.metadata["show_in_personal_feed"] = True
+            published.append(item)
+        return published
 
     def _analysis_cache(self) -> AnalysisCache:
         return AnalysisCache(self.storage.data_dir / "cache" / "analysis-cache.jsonl")
@@ -650,7 +808,7 @@ class HorizonOrchestrator:
         all_items: List[ContentItem],
         today: str,
         total_fetched: int,
-    ) -> None:
+    ) -> bool:
         """Write the static private radar UI under data/site."""
         try:
             payload = build_site_payload(
@@ -664,11 +822,14 @@ class HorizonOrchestrator:
                 recent_item_limit=self.config.filtering.recent_item_limit,
                 tag_library=self.config.tags,
                 personal_tag_library=self.config.personal_tags,
+                ai_enabled=self._ai_enabled(),
             )
             data_path = write_static_site(self.storage.data_dir / "site", payload)
             self.console.print(f"🌐 Updated web UI data: {data_path}\n")
+            return True
         except Exception as exc:
             self.console.print(f"[yellow]⚠️  Failed to update web UI: {exc}[/yellow]\n")
+            return False
 
     async def _run_article_graph_pipeline(self, items: List[ContentItem]) -> None:
         """Optionally persist light article data and build static relationship graph."""

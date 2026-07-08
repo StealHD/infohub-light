@@ -80,6 +80,61 @@
   line-height: 1.3;
 }
 
+.config-card h3 .cost-badge {
+  margin-left: 6px;
+}
+
+.config-card.muted {
+  background: #f7f7f9;
+}
+
+.advanced-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.advanced-section > summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.advanced-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-section-body {
+  display: grid;
+  gap: 16px;
+  padding: 0 16px 16px;
+}
+
+.cost-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.form-help {
+  grid-column: 1 / -1;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .auth-card {
   max-width: 560px;
 }
@@ -313,6 +368,15 @@
   resize: vertical;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 13px;
+}
+
+.config-field-multi select[multiple] {
+  min-height: 104px;
+  padding: 6px 8px;
+}
+
+.config-field-multi option {
+  padding: 5px 4px;
 }
 
 .config-field-wide,

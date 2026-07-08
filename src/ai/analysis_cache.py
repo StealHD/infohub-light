@@ -10,7 +10,7 @@ from typing import Any
 from ..models import ContentItem
 
 
-ANALYSIS_PROMPT_VERSION = "content-analysis-v2"
+ANALYSIS_PROMPT_VERSION = "content-analysis-v3"
 
 
 class AnalysisCache:
@@ -46,7 +46,8 @@ class AnalysisCache:
             "url": str(item.url),
             "title": item.title,
             "content": item.content or "",
-            "tags": item.metadata.get("tags") or [],
+            "channel": item.metadata.get("channel") or item.metadata.get("category") or "",
+            "topics": item.metadata.get("topics") or item.metadata.get("tags") or [],
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -78,11 +79,17 @@ class AnalysisCache:
         item.ai_reason = result.get("reason") or ""
         item.ai_summary = result.get("summary") or result.get("summary_zh") or item.title
         item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
-        item.ai_category = result.get("category") or ""
+        item.ai_channel = result.get("channel") or result.get("category") or ""
+        item.ai_category = item.ai_channel
         item.ai_is_featured = bool(result.get("is_featured"))
         item.ai_action_suggestion = result.get("action_suggestion") or ""
-        tags = result.get("tags") or []
-        item.ai_tags = [str(tag) for tag in tags] if isinstance(tags, list) else []
+        topics = result.get("topics") or result.get("tags") or []
+        item.ai_topics = [str(tag) for tag in topics] if isinstance(topics, list) else []
+        item.ai_tags = list(item.ai_topics)
+        item.ai_signal_strength = result.get("signal_strength") or ""
+        item.ai_signal_type = result.get("signal_type") or ""
+        entities = result.get("entities") or []
+        item.ai_entities = [str(entity) for entity in entities] if isinstance(entities, list) else []
         return True
 
     def store(
@@ -103,8 +110,13 @@ class AnalysisCache:
             "result": {
                 "score": item.ai_score,
                 "reason": item.ai_reason or "",
-                "tags": list(item.ai_tags or []),
-                "category": item.ai_category or "",
+                "channel": item.ai_channel or item.ai_category or "",
+                "topics": list(item.ai_topics or item.ai_tags or []),
+                "tags": list(item.ai_topics or item.ai_tags or []),
+                "category": item.ai_channel or item.ai_category or "",
+                "signal_strength": item.ai_signal_strength or "",
+                "signal_type": item.ai_signal_type or "",
+                "entities": list(item.ai_entities or []),
                 "is_featured": bool(item.ai_is_featured),
                 "summary": item.ai_summary or "",
                 "summary_zh": item.ai_summary_zh or "",

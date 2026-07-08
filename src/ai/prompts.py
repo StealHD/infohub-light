@@ -1,6 +1,11 @@
 """AI prompts for content analysis and summarization."""
 
-from ..tag_policy import ALLOWED_TAGS_TEXT
+from ..tag_policy import (
+    ALLOWED_CHANNELS_TEXT,
+    ALLOWED_SIGNAL_STRENGTHS_TEXT,
+    ALLOWED_SIGNAL_TYPES_TEXT,
+    ALLOWED_TAGS_TEXT,
+)
 
 TOPIC_DEDUP_SYSTEM = """You are a news deduplication assistant. Identify groups of news items that cover the exact same real-world event, release, or announcement.
 
@@ -54,18 +59,30 @@ Chinese writing style:
 - Do not mechanically translate English.
 - Prioritize: what happened, why it matters, what the reader can do.
 
-Controlled taxonomy:
-- tags and category MUST be selected exactly from this fixed list:
+Private hub taxonomy:
+- channel MUST be selected exactly from this fixed list:
+  {allowed_channels}
+- topics are reading filters. Prefer these defaults when they fit:
   {allowed_tags}
-- Do not invent vendor, product, project, language, or event tags.
-- If a vendor or project name appears, map it to the closest fixed category.
-""".format(allowed_tags=ALLOWED_TAGS_TEXT)
+- You may include concrete project, company, person, ticker, or custom reading topics when useful.
+- signal_strength MUST be one of: {allowed_signal_strengths}
+- signal_type MUST be one of: {allowed_signal_types}
+- entities should contain concrete companies, people, projects, tickers, or places mentioned in the item.
+""".format(
+    allowed_channels=ALLOWED_CHANNELS_TEXT,
+    allowed_tags=ALLOWED_TAGS_TEXT,
+    allowed_signal_strengths=ALLOWED_SIGNAL_STRENGTHS_TEXT,
+    allowed_signal_types=ALLOWED_SIGNAL_TYPES_TEXT,
+)
 
 CONTENT_ANALYSIS_USER = """Analyze the following content and provide a JSON response with:
 - score: number from 0 to 10.
 - reason: concise Chinese reason for the score; mention source credibility and discussion value when relevant.
-- tags: 1-3 tags selected exactly from the fixed taxonomy.
-- category: one value selected exactly from the fixed taxonomy.
+- channel: one top-level hub channel.
+- topics: 1-6 reading topics.
+- signal_strength: strong, developing, or thin.
+- signal_type: release, funding, market_move, opinion, personal_update, risk, tutorial, opportunity, or other.
+- entities: 0-8 concrete companies, people, projects, tickers, or places.
 - is_featured: boolean, true when score >= 7.5.
 - summary_zh: 150-250 Chinese characters, explaining what happened, why it matters, and what the reader can do.
 - action_suggestion: one short Chinese sentence about whether to read, test, save, compare, or share.
@@ -75,7 +92,8 @@ Title: {title}
 Source: {source}
 Author: {author}
 URL: {url}
-Configured source tags: {source_tags}
+Configured source channel: {source_channel}
+Configured source topics: {source_tags}
 {content_section}
 {discussion_section}
 
@@ -83,8 +101,11 @@ Respond with valid JSON only:
 {{
   "score": <number>,
   "reason": "<explanation>",
-  "tags": ["<tag1>", "<tag2>", ...],
-  "category": "<category>",
+  "channel": "<channel>",
+  "topics": ["<topic1>", "<topic2>", ...],
+  "signal_strength": "<strong|developing|thin>",
+  "signal_type": "<release|funding|market_move|opinion|personal_update|risk|tutorial|opportunity|other>",
+  "entities": ["<entity1>", "<entity2>", ...],
   "is_featured": <true-or-false>,
   "summary_zh": "<150-250字中文摘要>",
   "action_suggestion": "<what-to-do-next>"

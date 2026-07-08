@@ -11,6 +11,7 @@ from rich.console import Console
 from .logging_utils import configure_logging
 from .storage.manager import ConfigError, StorageManager
 from .orchestrator import HorizonOrchestrator
+from .services.source_update import run_source_update
 
 
 console = Console()
@@ -39,6 +40,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Horizon - AI-Driven Information Aggregation System")
     parser.add_argument("--hours", type=int, help="Force fetch from last N hours")
+    parser.add_argument(
+        "--source",
+        help="Immediately update one source, e.g. rss:0, github:1, apify_social:0, or hackernews",
+    )
     args = parser.parse_args()
 
     try:
@@ -73,6 +78,17 @@ def main():
         except Exception as e:
             console.print(f"[bold red]❌ Error loading configuration: {e}[/bold red]")
             sys.exit(1)
+
+        if args.source:
+            hours = args.hours or config.filtering.time_window_hours
+            result = run_source_update(
+                data_dir=data_dir,
+                source_type=args.source,
+                index=None,
+                hours=hours,
+            )
+            console.print(f"[bold green]✅ Source update completed:[/bold green] {result}")
+            return
 
         # Create and run orchestrator
         orchestrator = HorizonOrchestrator(config, storage)

@@ -127,3 +127,92 @@ def test_web_config_api_requires_auth_when_enabled(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_source_update_api_requires_auth_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("HORIZON_AUTH_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_AUTH_USER", "admin")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret")
+    monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "test-session-secret")
+
+    data_dir = tmp_path / "data"
+    static_dir = tmp_path / "static"
+    (data_dir / "site").mkdir(parents=True)
+    static_dir.mkdir()
+    (data_dir / "config.json").write_text(
+        json.dumps(_minimal_config()),
+        encoding="utf-8",
+    )
+    (static_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+
+    server, base_url = _start_server(data_dir, static_dir)
+    try:
+        try:
+            _request_json(
+                base_url + "/api/source/update",
+                payload={"source_type": "hackernews", "hours": 24},
+            )
+        except HTTPError as exc:
+            assert exc.code == 401
+            assert "需要登录" in exc.read().decode("utf-8")
+        else:
+            raise AssertionError("/api/source/update should require auth")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_source_update_api_invokes_update_service(tmp_path, monkeypatch):
+    monkeypatch.setenv("HORIZON_AUTH_ENABLED", "false")
+    calls = []
+
+    def fake_run_source_update(*, data_dir, source_type, index, hours):
+        calls.append(
+            {
+                "data_dir": data_dir,
+                "source_type": source_type,
+                "index": index,
+                "hours": hours,
+            }
+        )
+        return {
+            "ok": True,
+            "source_ref": "rss:0",
+            "fetched": 2,
+            "analyzed": 1,
+            "skipped_existing": 1,
+            "web_ui_updated": True,
+        }
+
+    monkeypatch.setattr("src.ui.server.run_source_update", fake_run_source_update)
+
+    data_dir = tmp_path / "data"
+    static_dir = tmp_path / "static"
+    (data_dir / "site").mkdir(parents=True)
+    static_dir.mkdir()
+    (data_dir / "config.json").write_text(
+        json.dumps(_minimal_config()),
+        encoding="utf-8",
+    )
+    (static_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+
+    server, base_url = _start_server(data_dir, static_dir)
+    try:
+        status, _, payload = _request_json(
+            base_url + "/api/source/update",
+            payload={"source_type": "rss", "index": 0, "hours": 6},
+        )
+
+        assert status == 200
+        assert payload["source_ref"] == "rss:0"
+        assert calls == [
+            {
+                "data_dir": data_dir,
+                "source_type": "rss",
+                "index": 0,
+                "hours": 6,
+            }
+        ]
+    finally:
+        server.shutdown()
+        server.server_close()

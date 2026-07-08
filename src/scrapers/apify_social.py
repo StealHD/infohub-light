@@ -39,25 +39,11 @@ class ApifySocialScraper(BaseScraper):
         if not self.social_config.enabled:
             return []
 
-        token_records = self._token_records()
-        if not token_records:
-            token_envs = ", ".join(self.social_config.token_envs or [self.social_config.token_env])
-            logger.warning(
-                "Apify tokens not found in env vars '%s'. Skipping Apify social sources.",
-                token_envs,
-            )
-            return []
-
         subscriptions = [sub for sub in self.social_config.subscriptions if sub.enabled]
         if not subscriptions:
             return []
 
-        apify = ApifyClient(
-            tokens=token_records,
-            http_client=self.client,
-            timeout_seconds=self.social_config.timeout_seconds,
-        )
-        tasks = [self._fetch_subscription(apify, sub, since) for sub in subscriptions]
+        tasks = [self._fetch_subscription(sub, since) for sub in subscriptions]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         items: list[ContentItem] = []
@@ -70,10 +56,26 @@ class ApifySocialScraper(BaseScraper):
 
     async def _fetch_subscription(
         self,
-        apify: ApifyClient,
         sub: ApifySocialSubscriptionConfig,
         since: datetime,
     ) -> list[ContentItem]:
+        token_records = self._token_records(sub.token_env)
+        if not token_records:
+            token_envs = ", ".join(self._token_env_names(sub.token_env))
+            logger.warning(
+                "Apify token not found in env var(s) '%s'. Skipping %s/%s %s.",
+                token_envs,
+                sub.platform.value,
+                sub.kind,
+                sub.target,
+            )
+            return []
+
+        apify = ApifyClient(
+            tokens=token_records,
+            http_client=self.client,
+            timeout_seconds=self.social_config.timeout_seconds,
+        )
         actor_id = self._actor_id(sub.platform)
         actor_input = self._actor_input(sub)
         rows = await apify.run_actor(actor_id, actor_input)
@@ -119,8 +121,13 @@ class ApifySocialScraper(BaseScraper):
         actors = self.social_config.actors
         return getattr(actors, platform.value).actor_id
 
-    def _token_records(self) -> list[tuple[str, str]]:
-        env_names = self.social_config.token_envs or [self.social_config.token_env]
+    def _token_env_names(self, token_env: Optional[str] = None) -> list[str]:
+        if token_env:
+            return [token_env]
+        return self.social_config.token_envs or [self.social_config.token_env]
+
+    def _token_records(self, token_env: Optional[str] = None) -> list[tuple[str, str]]:
+        env_names = self._token_env_names(token_env)
         records: list[tuple[str, str]] = []
         seen: set[str] = set()
         for env_name in env_names:

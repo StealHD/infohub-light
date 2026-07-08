@@ -111,9 +111,12 @@ def test_analyze_item_uses_configured_prompt_limits_and_ignores_personal_tags():
         async def complete(self, system, user):
             calls.append(user)
             return (
-                '{"score": 8, "reason": "ok", "tags": ["AI Agent"], '
-                '"category": "AI Agent", "is_featured": true, '
-                '"summary_zh": "摘要", "action_suggestion": "阅读"}'
+                '{"score": 8, "reason": "ok", "channel": "AI", '
+                '"topics": ["AI 编程", "Codex"], '
+                '"signal_strength": "strong", "signal_type": "release", '
+                '"entities": ["OpenAI", "Codex"], '
+                '"is_featured": true, "summary_zh": "摘要", '
+                '"action_suggestion": "阅读"}'
             )
 
     item = _make_item("rss:test:limited")
@@ -127,6 +130,13 @@ def test_analyze_item_uses_configured_prompt_limits_and_ignores_personal_tags():
     assert "Community Comments:\n12345678" in calls[0]
     assert "AI Agent" in calls[0]
     assert "能黄通" not in calls[0]
+    assert item.ai_channel == "AI"
+    assert item.ai_category == "AI"
+    assert item.ai_topics == ["AI 编程", "Codex", "AI Agent"]
+    assert item.ai_tags == ["AI 编程", "Codex", "AI Agent"]
+    assert item.ai_signal_strength == "strong"
+    assert item.ai_signal_type == "release"
+    assert item.ai_entities == ["OpenAI", "Codex"]
 
 
 def test_analyze_batch_reuses_analysis_cache(tmp_path):
@@ -143,9 +153,11 @@ def test_analyze_batch_reuses_analysis_cache(tmp_path):
             nonlocal calls
             calls += 1
             return (
-                '{"score": 8.2, "reason": "cached", "tags": ["AI Agent"], '
-                '"category": "AI Agent", "is_featured": true, '
-                '"summary_zh": "缓存摘要", "action_suggestion": "收藏"}'
+                '{"score": 8.2, "reason": "cached", "channel": "AI", '
+                '"topics": ["Agent", "Codex"], "signal_strength": "strong", '
+                '"signal_type": "release", "entities": ["OpenAI"], '
+                '"is_featured": true, "summary_zh": "缓存摘要", '
+                '"action_suggestion": "收藏"}'
             )
 
     cache = AnalysisCache(tmp_path / "analysis-cache.jsonl")
@@ -160,3 +172,8 @@ def test_analyze_batch_reuses_analysis_cache(tmp_path):
     assert calls == 1
     assert second.ai_score == 8.2
     assert second.ai_summary_zh == "缓存摘要"
+    assert second.ai_channel == "AI"
+    assert second.ai_topics == ["Agent", "Codex"]
+    assert second.ai_signal_strength == "strong"
+    assert second.ai_signal_type == "release"
+    assert second.ai_entities == ["OpenAI"]

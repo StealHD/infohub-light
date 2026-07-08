@@ -13,18 +13,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from ..source_selection import VALID_SOURCES, apply_source_filter, get_enabled_sources
 from .errors import HorizonMcpError
 
 
-VALID_SOURCES = {
-    "github",
-    "hackernews",
-    "rss",
-    "reddit",
-    "telegram",
-    "twitter",
-    "openbb",
-}
 ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
@@ -179,65 +171,6 @@ def make_orchestrator(runtime: HorizonRuntime, config: Any, storage: Any) -> Any
     """Build native Horizon orchestrator."""
 
     return runtime.HorizonOrchestrator(config, storage)
-
-
-def apply_source_filter(
-    config: Any, sources: list[str] | None
-) -> tuple[Any, list[str], list[str]]:
-    """Return filtered config and source selection diagnostics."""
-
-    if not sources:
-        enabled = get_enabled_sources(config)
-        return config, enabled, []
-
-    wanted = {s.strip().lower() for s in sources if s.strip()}
-    unknown = sorted(wanted - VALID_SOURCES)
-    chosen = sorted(wanted & VALID_SOURCES)
-
-    clone = config.model_copy(deep=True)
-
-    if "github" not in wanted:
-        clone.sources.github = []
-    if "hackernews" not in wanted:
-        clone.sources.hackernews.enabled = False
-    if "rss" not in wanted:
-        clone.sources.rss = []
-    if "reddit" not in wanted:
-        clone.sources.reddit.enabled = False
-        clone.sources.reddit.subreddits = []
-        clone.sources.reddit.users = []
-    if "telegram" not in wanted:
-        clone.sources.telegram.enabled = False
-        clone.sources.telegram.channels = []
-    if "twitter" not in wanted and getattr(clone.sources, "twitter", None):
-        clone.sources.twitter.enabled = False
-        clone.sources.twitter.users = []
-    if "openbb" not in wanted and getattr(clone.sources, "openbb", None):
-        clone.sources.openbb.enabled = False
-        clone.sources.openbb.watchlists = []
-
-    return clone, chosen, unknown
-
-
-def get_enabled_sources(config: Any) -> list[str]:
-    """List enabled top-level source types in effective config."""
-
-    enabled: list[str] = []
-    if getattr(config.sources, "github", None):
-        enabled.append("github")
-    if getattr(config.sources.hackernews, "enabled", False):
-        enabled.append("hackernews")
-    if getattr(config.sources, "rss", None):
-        enabled.append("rss")
-    if getattr(config.sources.reddit, "enabled", False):
-        enabled.append("reddit")
-    if getattr(config.sources.telegram, "enabled", False):
-        enabled.append("telegram")
-    if getattr(getattr(config.sources, "twitter", None), "enabled", False):
-        enabled.append("twitter")
-    if getattr(getattr(config.sources, "openbb", None), "enabled", False):
-        enabled.append("openbb")
-    return enabled
 
 
 def items_to_dicts(items: list[Any]) -> list[dict[str, Any]]:

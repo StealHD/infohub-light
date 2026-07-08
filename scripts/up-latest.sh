@@ -22,24 +22,36 @@ read_setting() {
   printf '%s' "${value:-$default_value}"
 }
 
-SERVICES=("horizon-web" "horizon-scheduler")
-MANUAL_SERVICE="horizon"
 BUILD_FLAGS=("--pull")
+
+if [[ -f "docker-compose.light.yml" ]]; then
+  COMPOSE=(docker compose -f docker-compose.light.yml)
+  LIGHT_SERVICES=("horizon-web")
+  LIGHT_MANUAL_SERVICE="horizon"
+  SERVICES=("${LIGHT_SERVICES[@]}")
+  MANUAL_SERVICE="$LIGHT_MANUAL_SERVICE"
+  PRUNE_PROJECT="infohub-light"
+else
+  COMPOSE=(docker compose)
+  SERVICES=("horizon-web" "horizon-scheduler")
+  MANUAL_SERVICE="horizon"
+  PRUNE_PROJECT="horizon"
+fi
 
 if [[ "$(read_setting HORIZON_BUILD_NO_CACHE true)" == "true" ]]; then
   BUILD_FLAGS+=("--no-cache")
 fi
 
 echo "==> Building current workspace into Docker images"
-echo "    docker compose build ${BUILD_FLAGS[*]} ${SERVICES[*]} $MANUAL_SERVICE"
-docker compose build "${BUILD_FLAGS[@]}" "${SERVICES[@]}" "$MANUAL_SERVICE"
+echo "    ${COMPOSE[*]} build ${BUILD_FLAGS[*]} ${SERVICES[*]} $MANUAL_SERVICE"
+"${COMPOSE[@]}" build "${BUILD_FLAGS[@]}" "${SERVICES[@]}" "$MANUAL_SERVICE"
 
 echo "==> Recreating running services from freshly built images"
-docker compose up -d --no-build --force-recreate --remove-orphans "${SERVICES[@]}"
+"${COMPOSE[@]}" up -d --no-build --force-recreate --remove-orphans "${SERVICES[@]}"
 
 if [[ "$(read_setting HORIZON_PRUNE_OLD_IMAGES true)" == "true" ]]; then
   echo "==> Removing old dangling images for this Compose project"
-  docker image prune -f --filter "label=com.docker.compose.project=horizon" >/dev/null || true
+  docker image prune -f --filter "label=com.docker.compose.project=$PRUNE_PROJECT" >/dev/null || true
 fi
 
 if [[ "$(read_setting HORIZON_PRUNE_BUILD_CACHE true)" == "true" ]]; then
@@ -49,4 +61,4 @@ if [[ "$(read_setting HORIZON_PRUNE_BUILD_CACHE true)" == "true" ]]; then
 fi
 
 echo "==> Current service status"
-docker compose ps
+"${COMPOSE[@]}" ps

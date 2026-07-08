@@ -1,0 +1,105 @@
+version: "0.1"
+project: "inteliscope-infohub-light"
+primary_runtime_config: "data/config.json"
+
+system:
+  current_phase: "private reading filters and archive-analysis readiness"
+  capability_degrade_enabled: true
+  evidence_required: true
+  default_timezone: "Asia/Shanghai"
+
+features:
+  local_web_enabled: true
+  cli_enabled: true
+  config_api_enabled: true
+  static_site_enabled: true
+  archive_analysis_enabled: "optional"
+  article_graph_enabled: "optional"
+  formal_frontend_enabled: false
+  html_validation_enabled: false
+  scheduler_default_enabled: false
+
+runtime_sources:
+  native:
+    - "rss"
+    - "github"
+    - "hackernews"
+    - "reddit"
+    - "telegram_public"
+    - "ossinsight"
+    - "openbb_optional"
+  apify_optional:
+    - "x"
+    - "instagram"
+    - "facebook"
+    - "telegram_public"
+  out_of_scope:
+    - "private_groups"
+    - "private_channels"
+    - "friends_feeds"
+    - "cookies"
+    - "sessions"
+    - "password_collection"
+
+taxonomy:
+  canonical_fields:
+    - "channel"
+    - "topics"
+    - "signal_strength"
+    - "signal_type"
+    - "entities"
+  legacy_aliases:
+    category: "channel"
+    tags: "topics"
+  channels:
+    - "AI"
+    - "投资"
+    - "产品机会"
+    - "工作/项目"
+    - "朋友动态"
+    - "生活"
+    - "政策/风险"
+    - "其他"
+  custom_topics_allowed: true
+  personal_tags_in_ai_prompt: false
+
+capabilities:
+  default_status: "unknown"
+  allowed_statuses:
+    - "confirmed"
+    - "partial"
+    - "unsupported"
+    - "unknown"
+  degrade_terms:
+    - "capability"
+    - "degrade"
+    - "unsupported"
+    - "unknown"
+
+cost_controls:
+  prefer_targeted_tests: true
+  full_scheduler_requires_explicit_request: true
+  single_source_update_skips:
+    - "notifications"
+    - "summaries"
+    - "enrichment"
+    - "full_text"
+    - "article_graph"
+
+output:
+  concise_agent_response: true
+  retain_source_evidence: true
+  static_payload_contract:
+    required_item_fields:
+      - "channel"
+      - "topics"
+      - "category"
+      - "tags"
+      - "signal_strength"
+      - "signal_type"
+      - "entities"
+
+verification:
+  python_syntax: "python3 -m py_compile <changed python files>"
+  static_js_syntax: "node --check src/ui/static/*.js"
+  control_plane: "python3 ${CODEX_HOME:-$HOME/.codex}/skills/init-pro/scripts/validate_project_controls.py --project-root . --primary-config project-defaults.yaml --output INIT_PRO_VALIDATION.md"

@@ -307,6 +307,42 @@ def test_apify_social_scraper_reads_token_envs_and_maps_instagram_media(monkeypa
     assert set(seen_auth) == {"Bearer backup-token"}
 
 
+def test_apify_social_scraper_uses_subscription_token_env(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "primary-token")
+    monkeypatch.setenv("APIFY_TOKEN_2", "source-token")
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    seen_auth = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_auth.append(request.headers["Authorization"])
+        if request.method == "POST":
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(200, json=_status_resp())
+        if "/datasets/" in request.url.path:
+            return httpx.Response(200, json=[{
+                "id": "ig1",
+                "shortCode": "TSUCHA1",
+                "url": "https://www.instagram.com/p/TSUCHA1/",
+                "caption": "latest photo",
+                "timestamp": now_iso,
+                "ownerUsername": "tsucha_ri",
+            }])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    config = _social_config(
+        _sub("instagram", "profile", "tsucha_ri", token_env="APIFY_TOKEN_2"),
+        token_envs=["APIFY_TOKEN", "APIFY_TOKEN_2"],
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    items = asyncio.run(ApifySocialScraper(config, client).fetch(since))
+    asyncio.run(client.aclose())
+
+    assert [item.id for item in items] == ["instagram:post:TSUCHA1"]
+    assert set(seen_auth) == {"Bearer source-token"}
+
+
 def test_apify_social_scraper_keeps_latest_profile_item_when_window_has_no_new_posts(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "test-token")
     since = datetime.now(timezone.utc) - timedelta(hours=1)

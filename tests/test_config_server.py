@@ -10,7 +10,14 @@ from src.ui.server import (
     migrate_config_tag_layers,
     normalize_config_payload,
     run_source_test,
+    source_update_payload,
     validate_config_data,
+)
+from src.tag_policy import (
+    normalize_channel,
+    normalize_signal_strength,
+    normalize_signal_type,
+    normalize_tags,
 )
 
 
@@ -52,6 +59,7 @@ def test_validate_config_data_accepts_valid_config():
     validated = validate_config_data(_minimal_config())
 
     assert validated.ai.provider.value == "openai"
+    assert validated.ai.enabled is True
     assert validated.sources.rss[0].name == "Example Feed"
     assert validated.premium_analysis.enabled is False
     assert validated.article_graph.enabled is False
@@ -80,7 +88,24 @@ def test_validate_config_data_accepts_article_graph_config():
     assert validated.article_graph.min_relation_score == 0.45
 
 
-def test_migrate_config_tag_layers_moves_custom_tags_to_personal_tags():
+def test_hub_taxonomy_normalizes_channels_topics_and_signals():
+    assert normalize_channel("AI 编程") == "AI"
+    assert normalize_channel("美股") == "投资"
+    assert normalize_channel("价格监控") == "产品机会"
+    assert normalize_channel("unknown") == "其他"
+
+    assert normalize_tags(
+        ["Codex", "价格监控", "投资信号"],
+        max_tags=None,
+    ) == ["Codex", "价格监控", "投资信号"]
+
+    assert normalize_signal_strength("Strong signal") == "strong"
+    assert normalize_signal_strength("弱信号") == "thin"
+    assert normalize_signal_type("融资") == "funding"
+    assert normalize_signal_type("教程") == "tutorial"
+
+
+def test_migrate_config_tag_layers_keeps_custom_tags_as_reading_topics():
     config = _minimal_config()
     config["tags"] = ["AI Agent", "价格监控", "RAG/MCP"]
     config["personal_tags"] = ["能黄通"]
@@ -88,10 +113,10 @@ def test_migrate_config_tag_layers_moves_custom_tags_to_personal_tags():
 
     migrated = migrate_config_tag_layers(config)
 
-    assert migrated["tags"] == ["AI Agent", "RAG/MCP"]
-    assert migrated["personal_tags"] == ["能黄通", "价格监控"]
-    assert migrated["sources"]["rss"][0]["tags"] == ["AI Agent"]
-    assert migrated["sources"]["rss"][0]["personal_tags"] == ["价格监控"]
+    assert migrated["tags"] == ["AI Agent", "价格监控", "RAG/MCP"]
+    assert migrated["personal_tags"] == ["能黄通"]
+    assert migrated["sources"]["rss"][0]["tags"] == ["AI Agent", "价格监控"]
+    assert "personal_tags" not in migrated["sources"]["rss"][0]
 
 
 def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
@@ -113,6 +138,45 @@ def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
         "used_by": ["webhook.url_env"],
     }
     assert "sk-secret-value" not in json.dumps(status)
+
+
+def test_env_status_hides_ai_key_when_ai_disabled(monkeypatch):
+    monkeypatch.delenv("XIAOMI_API_KEY", raising=False)
+    config_data = _minimal_config()
+    config_data["ai"]["enabled"] = False
+    config_data["ai"]["provider"] = "xiaomi"
+    config_data["ai"]["api_key_env"] = "XIAOMI_API_KEY"
+    config = validate_config_data(config_data)
+
+    names = {item["name"] for item in build_env_status(config)}
+
+    assert "XIAOMI_API_KEY" not in names
+
+
+def test_env_status_hides_apify_tokens_when_apify_social_disabled(monkeypatch):
+    monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.delenv("APIFY_TOKEN_2", raising=False)
+    config_data = _minimal_config()
+    config_data["sources"]["apify_social"] = {
+        "enabled": False,
+        "token_env": "APIFY_TOKEN",
+        "token_envs": ["APIFY_TOKEN", "APIFY_TOKEN_2"],
+        "subscriptions": [
+            {
+                "platform": "x",
+                "kind": "profile",
+                "target": "OpenAI",
+                "fetch_limit": 10,
+                "enabled": True,
+            }
+        ],
+    }
+    config = validate_config_data(config_data)
+
+    names = {item["name"] for item in build_env_status(config)}
+
+    assert "APIFY_TOKEN" not in names
+    assert "APIFY_TOKEN_2" not in names
 
 
 def test_build_env_status_reports_apify_social_token(monkeypatch):
@@ -185,6 +249,39 @@ def test_build_env_status_reports_apify_social_token_envs(monkeypatch):
     assert "secret-backup" not in json.dumps(status)
 
 
+def test_build_env_status_reports_apify_social_subscription_token_env(monkeypatch):
+    monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.setenv("APIFY_TOKEN_2", "secret-backup")
+    config_data = _minimal_config()
+    config_data["sources"]["apify_social"] = {
+        "enabled": True,
+        "token_env": "APIFY_TOKEN",
+        "token_envs": ["APIFY_TOKEN", "APIFY_TOKEN_2"],
+        "subscriptions": [
+            {
+                "platform": "instagram",
+                "kind": "profile",
+                "target": "tsucha_ri",
+                "token_env": "APIFY_TOKEN_2",
+                "fetch_limit": 1,
+                "enabled": True,
+            }
+        ],
+    }
+    config = validate_config_data(config_data)
+
+    status = build_env_status(config)
+
+    by_name = {item["name"]: item for item in status}
+    assert "APIFY_TOKEN" not in by_name
+    assert by_name["APIFY_TOKEN_2"] == {
+        "name": "APIFY_TOKEN_2",
+        "set": True,
+        "used_by": ["sources.apify_social.subscriptions[0].token_env"],
+    }
+    assert "secret-backup" not in json.dumps(status)
+
+
 def test_apply_config_action_adds_rss_after_url_validation():
     config = _minimal_config()
 
@@ -203,12 +300,42 @@ def test_apply_config_action_adds_rss_after_url_validation():
     assert updated["sources"]["rss"][-1] == {
         "name": "New Feed",
         "url": "https://example.org/feed.xml",
-        "category": "ai-tools",
+        "channel": "AI",
+        "category": "AI",
+        "topics": ["AI Agent", "RAG/MCP"],
         "tags": ["AI Agent", "RAG/MCP"],
         "enabled": True,
     }
     assert "AI Agent" in updated["tags"]
     assert "RAG/MCP" in updated["tags"]
+
+
+def test_apply_config_action_accepts_explicit_channel_and_topics_fields():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "upsert_rss",
+        {
+            "name": "Investment Feed",
+            "url": "https://example.org/investing.xml",
+            "channel": "投资",
+            "topics": "美股, 估值",
+            "enabled": True,
+        },
+    )
+
+    assert updated["sources"]["rss"][-1] == {
+        "name": "Investment Feed",
+        "url": "https://example.org/investing.xml",
+        "channel": "投资",
+        "category": "投资",
+        "topics": ["美股", "估值"],
+        "tags": ["美股", "估值"],
+        "enabled": True,
+    }
+    assert "美股" in updated["tags"]
+    assert "估值" in updated["tags"]
 
 
 def test_apply_config_action_rejects_invalid_rss_url():
@@ -260,6 +387,27 @@ def test_apply_config_action_rejects_secret_in_api_key_env():
         )
 
 
+def test_apply_config_action_saves_ai_enabled_toggle():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "set_ai",
+        {
+            "enabled": False,
+            "provider": "xiaomi",
+            "model": "mimo-v2.5-pro",
+            "api_key_env": "XIAOMI_API_KEY",
+            "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+            "languages": "zh",
+        },
+    )
+
+    assert updated["ai"]["enabled"] is False
+    assert updated["ai"]["provider"] == "xiaomi"
+    assert updated["ai"]["api_key_env"] == "XIAOMI_API_KEY"
+
+
 def test_apply_config_action_sets_tag_library():
     config = _minimal_config()
 
@@ -284,15 +432,16 @@ def test_apply_config_action_sets_tag_library_from_literal_backslash_n():
     assert updated["tags"] == ["AI Agent", "RAG/MCP"]
 
 
-def test_apply_config_action_rejects_custom_tag_in_ai_tag_library():
+def test_apply_config_action_allows_custom_reading_topics_in_tag_library():
     config = _minimal_config()
 
-    with pytest.raises(ValueError, match="未知标签"):
-        apply_config_action(
-            config,
-            "set_tags",
-            {"tags": "AI Agent\n价格监控\n投资信号"},
-        )
+    updated = apply_config_action(
+        config,
+        "set_tags",
+        {"tags": "AI Agent\n价格监控\n投资信号"},
+    )
+
+    assert updated["tags"] == ["AI Agent", "价格监控", "投资信号"]
 
 
 def test_apply_config_action_sets_personal_tag_library():
@@ -328,20 +477,22 @@ def test_apply_config_action_allows_source_personal_tags_from_personal_library()
     assert updated["sources"]["rss"][-1]["personal_tags"] == ["价格监控"]
 
 
-def test_apply_config_action_rejects_unknown_controlled_tag():
+def test_apply_config_action_allows_custom_source_reading_topics():
     config = _minimal_config()
 
-    with pytest.raises(ValueError, match="未知标签"):
-        apply_config_action(
-            config,
-            "upsert_rss",
-            {
-                "name": "New Feed",
-                "url": "https://example.org/feed.xml",
-                "tags": "RandomVendorTag",
-                "enabled": True,
-            },
-        )
+    updated = apply_config_action(
+        config,
+        "upsert_rss",
+        {
+            "name": "New Feed",
+            "url": "https://example.org/feed.xml",
+            "tags": "RandomVendorTag",
+            "enabled": True,
+        },
+    )
+
+    assert updated["sources"]["rss"][-1]["topics"] == ["RandomVendorTag"]
+    assert updated["sources"]["rss"][-1]["tags"] == ["RandomVendorTag"]
 
 
 def test_apply_config_action_adds_apify_social_subscription_without_token(monkeypatch):
@@ -372,10 +523,31 @@ def test_apply_config_action_adds_apify_social_subscription_without_token(monkey
         "target": "#aiagents",
         "fetch_limit": 12,
         "enabled": True,
+        "topics": ["AI Agent", "行业动态"],
         "tags": ["AI Agent", "行业动态"],
         "personal_tags": ["能黄通"],
         "analysis_mode": "personal_only",
     }
+
+
+def test_apply_config_action_adds_apify_social_subscription_token_env():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "upsert_apify_social_subscription",
+        {
+            "platform": "x",
+            "kind": "profile",
+            "target": "OpenAI",
+            "token_env": "APIFY_TOKEN_2",
+            "fetch_limit": 10,
+            "enabled": True,
+        },
+    )
+
+    item = updated["sources"]["apify_social"]["subscriptions"][-1]
+    assert item["token_env"] == "APIFY_TOKEN_2"
 
 
 def test_apply_config_action_sets_apify_social_token_envs():
@@ -414,6 +586,24 @@ def test_apply_config_action_rejects_secret_in_apify_token_envs():
                 "token_env": "APIFY_TOKEN",
                 "token_envs": "APIFY_TOKEN\nsk-secret-value",
                 "timeout_seconds": 120,
+            },
+        )
+
+
+def test_apply_config_action_rejects_secret_in_apify_subscription_token_env():
+    config = _minimal_config()
+
+    with pytest.raises(ValueError, match="Apify Key 环境变量名"):
+        apply_config_action(
+            config,
+            "upsert_apify_social_subscription",
+            {
+                "platform": "x",
+                "kind": "profile",
+                "target": "OpenAI",
+                "token_env": "sk-secret-value",
+                "fetch_limit": 10,
+                "enabled": True,
             },
         )
 
@@ -469,7 +659,7 @@ def test_source_test_apify_social_requires_token(monkeypatch):
         )
 
 
-def test_web_handler_prefers_generated_site_assets(tmp_path):
+def test_web_handler_serves_bundled_assets_and_generated_data(tmp_path):
     data_dir = tmp_path / "data"
     generated_dir = data_dir / "site"
     static_dir = tmp_path / "static"
@@ -477,14 +667,17 @@ def test_web_handler_prefers_generated_site_assets(tmp_path):
     static_dir.mkdir()
     (generated_dir / "styles.css").write_text("generated", encoding="utf-8")
     (static_dir / "styles.css").write_text("bundled", encoding="utf-8")
+    (generated_dir / "radar-data.json").write_text('{"ok": true}', encoding="utf-8")
 
     handler = object.__new__(RadarWebHandler)
     handler.data_dir = data_dir
     handler.static_dir = static_dir
 
-    resolved = Path(handler.translate_path("/styles.css?v=cache"))
+    resolved_asset = Path(handler.translate_path("/styles.css?v=cache"))
+    resolved_data = Path(handler.translate_path("/radar-data.json?v=cache"))
 
-    assert resolved.read_text(encoding="utf-8") == "generated"
+    assert resolved_asset.read_text(encoding="utf-8") == "bundled"
+    assert resolved_data.read_text(encoding="utf-8") == '{"ok": true}'
 
 
 def test_apply_config_action_adds_github_release():
@@ -501,7 +694,8 @@ def test_apply_config_action_adds_github_release():
         "owner": "openai",
         "repo": "codex",
         "enabled": True,
-        "tags": ["AI 编程"],
+        "topics": ["Codex"],
+        "tags": ["Codex"],
     }
 
 
@@ -532,3 +726,22 @@ def test_source_payload_parses_rss_feed(monkeypatch):
     assert result["ok"] is True
     assert result["count"] == 1
     assert result["sample_title"] == "First item"
+
+
+def test_source_update_payload_validates_hours_and_index():
+    assert source_update_payload({"source_type": "rss", "index": "2", "hours": "48"}) == (
+        "rss",
+        2,
+        48,
+    )
+    assert source_update_payload({"source_type": "hackernews", "hours": ""}) == (
+        "hackernews",
+        None,
+        24,
+    )
+
+    with pytest.raises(ValueError, match="hours"):
+        source_update_payload({"source_type": "rss", "index": 0, "hours": 721})
+
+    with pytest.raises(ValueError, match="index"):
+        source_update_payload({"source_type": "rss", "hours": 24})

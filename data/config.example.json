@@ -1,6 +1,7 @@
 {
   "version": "1.0",
   "ai": {
+    "enabled": true,
     "provider": "openai",
     "model": "gpt-4",
     "api_key_env": "OPENAI_API_KEY",

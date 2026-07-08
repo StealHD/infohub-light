@@ -29,18 +29,114 @@ function inputValue(value) {
   return escapeHtml(value == null ? '' : value);
 }
 
+var AI_PROVIDER_OPTIONS = [
+  ['openai', 'OpenAI'],
+  ['deepseek', 'DeepSeek'],
+  ['anthropic', 'Anthropic / Claude'],
+  ['gemini', 'Google Gemini'],
+  ['xiaomi', '小米 MiMo'],
+  ['minimax', 'MiniMax'],
+  ['ali', '阿里通义'],
+  ['doubao', '豆包'],
+  ['azure', 'Azure OpenAI'],
+  ['ollama', 'Ollama'],
+];
+
+var AI_MODEL_OPTIONS = {
+  openai: [
+    ['gpt-4o-mini', 'gpt-4o-mini'],
+    ['gpt-4o', 'gpt-4o'],
+    ['gpt-4.1-mini', 'gpt-4.1-mini'],
+    ['gpt-4.1', 'gpt-4.1'],
+  ],
+  deepseek: [
+    ['deepseek-v4-flash', 'deepseek-v4-flash'],
+    ['deepseek-v4-pro', 'deepseek-v4-pro'],
+    ['deepseek-chat', 'deepseek-chat（旧兼容，2026-07-24 后弃用）'],
+    ['deepseek-reasoner', 'deepseek-reasoner（旧兼容，2026-07-24 后弃用）'],
+  ],
+  anthropic: [
+    ['claude-3-5-sonnet-latest', 'claude-3-5-sonnet-latest'],
+    ['claude-3-7-sonnet-latest', 'claude-3-7-sonnet-latest'],
+    ['claude-sonnet-4-5', 'claude-sonnet-4-5'],
+  ],
+  gemini: [
+    ['gemini-2.5-flash', 'gemini-2.5-flash'],
+    ['gemini-2.5-pro', 'gemini-2.5-pro'],
+  ],
+  xiaomi: [
+    ['mimo-v2.5-pro', 'mimo-v2.5-pro'],
+  ],
+  minimax: [
+    ['MiniMax-Text-01', 'MiniMax-Text-01'],
+  ],
+  ali: [
+    ['qwen-plus', 'qwen-plus'],
+    ['qwen-max', 'qwen-max'],
+    ['qwen-turbo', 'qwen-turbo'],
+  ],
+  doubao: [
+    ['doubao-1-5-pro-32k-250115', 'doubao-1-5-pro-32k-250115'],
+  ],
+  azure: [
+    ['your-deployment-name', 'your-deployment-name'],
+  ],
+  ollama: [
+    ['llama3.1', 'llama3.1'],
+    ['qwen2.5', 'qwen2.5'],
+  ],
+};
+
+function defaultAiModel(provider) {
+  var options = AI_MODEL_OPTIONS[provider] || [];
+  return options.length ? options[0][0] : '';
+}
+
+function aiModelOptions(provider, currentModel) {
+  var current = String(currentModel || '').trim();
+  var options = (AI_MODEL_OPTIONS[provider] || []).slice();
+  if (current && !options.some(function (option) { return option[0] === current; })) {
+    options.unshift([current, current + '（当前配置）']);
+  }
+  if (!options.length && current) {
+    options.push([current, current]);
+  }
+  return options;
+}
+
 function renderConfigForms(config) {
   var forms = document.getElementById('configForms');
   forms.innerHTML = [
+    renderCoreSettings(config),
+    renderAdvancedSettings(config),
+  ].join('');
+}
+
+function renderCoreSettings(config) {
+  config = config || {};
+  return [
     renderAiForm(config.ai || {}),
-    renderTagLibraryForm(config.tags || []),
     renderPersonalTagLibraryForm(config.personal_tags || []),
+    renderHackerNewsForm((config.sources || {}).hackernews || {}),
+    renderNewSourceForm({ includeCostSources: false }),
+    renderExistingSources(config.sources || {}, { includeCostSources: false }),
+  ].join('');
+}
+
+function renderAdvancedSettings(config) {
+  config = config || {};
+  return [
+    '<details class="advanced-section">',
+    '<summary><span>高级 / 可选能力</span><strong>默认关闭</strong></summary>',
+    '<div class="advanced-section-body">',
+    renderTagLibraryForm(config.tags || []),
     renderFilteringForm(config.filtering || {}),
     renderWebhookForm(config.webhook || {}),
-    renderHackerNewsForm((config.sources || {}).hackernews || {}),
     renderApifySocialSettings((config.sources || {}).apify_social || {}),
-    renderNewSourceForm(),
-    renderExistingSources(config.sources || {}),
+    renderNewSourceForm({ includeCostSources: true, advancedOnly: true }),
+    renderExistingSources(config.sources || {}, { includeCostSources: true, costOnly: true }),
+    '</div>',
+    '</details>',
   ].join('');
 }
 
@@ -48,18 +144,23 @@ function renderTagLibraryForm(tags) {
   var selectedTags = normalizeTagLibrary(tags || []);
   return [
     '<section class="config-card">',
-    '<h3>AI 固定大类</h3>',
+    '<h3>阅读主题库</h3>',
     '<form data-action="set_tags" class="config-grid">',
     '<input type="hidden" name="tags" data-tag-library-value value="' + inputValue(selectedTags.join(', ')) + '">',
     '<div class="tag-editor">',
     '  <label class="config-field tag-add-field">',
-    '    <span>添加大类</span>',
+    '    <span>添加预设主题</span>',
     '    <select data-tag-add-select>' + renderTagAddOptions(selectedTags) + '</select>',
     '  </label>',
     '  <button type="button" data-tag-add>添加预设</button>',
+    '  <label class="config-field tag-add-field">',
+    '    <span>新增自定义主题</span>',
+    '    <input type="text" data-tag-custom-input placeholder="例如：价格监控">',
+    '  </label>',
+    '  <button type="button" data-tag-custom-add>添加主题</button>',
     '</div>',
     '<div class="tag-library-list" data-tag-library-list>' + renderTagLibraryChips(selectedTags) + '</div>',
-    '<div class="form-actions"><button type="submit">保存 AI 大类</button></div>',
+    '<div class="form-actions"><button type="submit">保存阅读主题</button></div>',
     '</form>',
     '</section>',
   ].join('');
@@ -89,7 +190,6 @@ function renderPersonalTagLibraryForm(tags) {
 function normalizeTagLibrary(tags) {
   var seen = {};
   return (tags || []).map(normalizeCustomTag).filter(function (tag) {
-    if (TAG_LIBRARY_OPTIONS.indexOf(tag) === -1) return false;
     if (!tag || seen[tag]) return false;
     seen[tag] = true;
     return true;
@@ -116,14 +216,14 @@ function renderTagAddOptions(selectedTags) {
   var available = TAG_LIBRARY_OPTIONS.filter(function (tag) {
     return selectedTags.indexOf(tag) === -1;
   });
-  if (!available.length) return '<option value="">已添加全部大类</option>';
-  return '<option value="">选择一个固定大类</option>' + available.map(function (tag) {
+  if (!available.length) return '<option value="">已添加全部预设主题</option>';
+  return '<option value="">选择一个预设主题</option>' + available.map(function (tag) {
     return '<option value="' + escapeHtml(tag) + '">' + escapeHtml(tag) + '</option>';
   }).join('');
 }
 
 function renderTagLibraryChips(tags) {
-  if (!tags.length) return '<div class="empty-inline">尚未选择 AI 大类。</div>';
+  if (!tags.length) return '<div class="empty-inline">尚未选择阅读主题。</div>';
   return tags.map(function (tag) {
     return [
       '<span class="tag editable-tag">',
@@ -177,12 +277,16 @@ function setPersonalTagLibraryTags(form, tags) {
 }
 
 function renderAiForm(ai) {
+  var aiEnabled = ai.enabled !== false;
+  var provider = ai.provider || 'openai';
   return [
-    '<section class="config-card">',
+    '<section class="config-card' + (aiEnabled ? '' : ' muted') + '">',
     '<h3>AI 模型</h3>',
+    aiEnabled ? '' : '<p class="form-help">当前为无评分模式：抓取和页面更新不调用模型，也不校验 API Key。</p>',
     '<form data-action="set_ai" class="config-grid">',
-    fieldSelect('provider', 'Provider', ai.provider || 'openai', ['openai', 'anthropic', 'gemini', 'xiaomi', 'deepseek', 'minimax', 'ali', 'doubao', 'azure', 'ollama']),
-    fieldInput('model', 'Model', ai.model || '', 'text'),
+    fieldCheckbox('enabled', '启用 AI 评分', aiEnabled),
+    fieldSelectOptions('provider', 'Provider', provider, AI_PROVIDER_OPTIONS),
+    fieldAiModelSelect(provider, ai.model || ''),
     fieldInput('api_key_env', 'API Key 环境变量名', ai.api_key_env || 'OPENAI_API_KEY', 'text'),
     fieldInput('base_url', 'Base URL 可选', ai.base_url || '', 'url'),
     fieldInput('languages', '输出语言，逗号分隔', (ai.languages || ['zh']).join(','), 'text'),
@@ -243,7 +347,8 @@ function renderHackerNewsForm(hn) {
     fieldCheckbox('enabled', '启用 Hacker News', hn.enabled !== false),
     fieldInput('fetch_top_stories', '抓取 top stories 数量', hn.fetch_top_stories || 40, 'number', '1', '1', '500'),
     fieldInput('min_score', '最低分数', hn.min_score || 80, 'number', '1', '0'),
-    '<div class="form-actions"><button type="button" data-test-source="hackernews">测试订阅</button><button type="submit">保存 HN 设置</button></div>',
+    updateHoursField(),
+    '<div class="form-actions"><button type="button" data-test-source="hackernews">测试订阅</button><button type="button" data-update-source="hackernews">立即更新</button><button type="submit">保存 HN 设置</button></div>',
     '</form>',
     '</section>',
   ].join('');
@@ -257,7 +362,7 @@ function renderApifySocialSettings(apifySocial) {
   }
   return [
     '<section class="config-card">',
-    '<h3>Apify 社交信源</h3>',
+    '<h3>Apify 社交信源 <span class="cost-badge">成本源</span></h3>',
     '<form data-action="set_apify_social_settings" class="config-grid">',
     fieldCheckbox('enabled', '启用 Apify 社交源', apifySocial.enabled !== false),
     '<input type="hidden" name="token_env" value="' + inputValue(tokenEnvNames[0] || 'APIFY_TOKEN') + '">',
@@ -280,20 +385,38 @@ function apifyTokenEnvNames(apifySocial) {
   return uniqueValues(names);
 }
 
-function renderNewSourceForm() {
+function sourceTypeChoices(includeCostSources) {
+  var options = [
+    ['rss', 'RSS / Atom'],
+    ['github_release', 'GitHub Releases'],
+    ['github_user', 'GitHub 用户动态'],
+    ['reddit_subreddit', 'Reddit'],
+    ['telegram_channel', 'Telegram 频道'],
+  ];
+  if (includeCostSources) {
+    options.push(['apify_social', 'Apify 社交信源']);
+  }
+  return options;
+}
+
+function renderNewSourceForm(options) {
+  options = options || {};
+  var choices = sourceTypeChoices(options.includeCostSources === true);
+  if (options.advancedOnly) {
+    choices = choices.filter(function (option) { return option[0] === 'apify_social'; });
+  }
+  if (!choices.length) return '';
+  var initialType = choices[0][0];
+  var formId = options.advancedOnly ? 'advancedSourceForm' : 'newSourceForm';
+  var title = options.advancedOnly ? '新增成本信源' : '新增信源';
   return [
     '<section class="config-card">',
-    '<h3>新增信源</h3>',
-    '<form id="newSourceForm" data-new-source="true" class="config-grid">',
-    fieldSelect('source_type', '信源类型', 'rss', ['rss', 'github_release', 'github_user', 'reddit_subreddit', 'telegram_channel', 'apify_social']),
-    sourceTypeOptions('rss'),
-    '<div class="dynamic-fields" data-source-fields="rss">',
-    fieldInput('name', 'RSS 名称', '', 'text'),
-    fieldInput('url', 'RSS/Atom URL', '', 'url'),
-    fieldInput('category', '分类', '', 'text'),
-    fieldInput('tags', 'AI 大类，逗号分隔', '', 'text'),
-    fieldInput('personal_tags', '个人标签，逗号分隔', '', 'text'),
-    fieldCheckbox('enabled', '启用', true),
+    '<h3>' + title + (options.advancedOnly ? ' <span class="cost-badge">成本源</span>' : '') + '</h3>',
+    '<form id="' + formId + '" data-new-source="true" class="config-grid">',
+    fieldSelectOptions('source_type', '信源类型', initialType, choices),
+    sourceTypeOptions(initialType, choices),
+    '<div class="dynamic-fields" data-source-fields="' + initialType + '">',
+    newSourceFields(initialType),
     '</div>',
     '<div class="form-actions"><button type="button" data-test-source="new">测试订阅</button><button type="submit">新增信源</button></div>',
     '</form>',
@@ -301,15 +424,8 @@ function renderNewSourceForm() {
   ].join('');
 }
 
-function sourceTypeOptions(selectedType) {
-  var options = [
-    ['rss', 'RSS / Atom'],
-    ['github_release', 'GitHub Releases'],
-    ['github_user', 'GitHub 用户动态'],
-    ['reddit_subreddit', 'Reddit'],
-    ['telegram_channel', 'Telegram 频道'],
-    ['apify_social', 'Apify 社交信源'],
-  ];
+function sourceTypeOptions(selectedType, options) {
+  options = options || sourceTypeChoices(true);
   return [
     '<div class="source-type-options" aria-label="新增信源类型">',
     options.map(function (option) {
@@ -321,7 +437,10 @@ function sourceTypeOptions(selectedType) {
   ].join('');
 }
 
-function renderExistingSources(sources) {
+function renderExistingSources(sources, options) {
+  options = options || {};
+  var includeCostSources = options.includeCostSources !== false;
+  var costOnly = options.costOnly === true;
   var parts = ['<section class="config-card"><h3>已配置的信源</h3><div class="source-list source-groups">'];
   var groupCount = 0;
   function addGroup(label, items, renderer) {
@@ -339,11 +458,15 @@ function renderExistingSources(sources) {
       renderSourceStateGroup('未启用', 'disabled', disabledCards),
     ].filter(Boolean)));
   }
-  addGroup('RSS / Atom', sources.rss || [], renderRssCard);
-  addGroup('GitHub', sources.github || [], renderGithubCard);
-  addGroup('Reddit', (((sources.reddit || {}).subreddits) || []), renderRedditCard);
-  addGroup('Telegram', (((sources.telegram || {}).channels) || []), renderTelegramCard);
-  addGroup('Apify 社交信源', ((((sources.apify_social || {}).subscriptions) || [])), renderApifySocialCard);
+  if (!costOnly) {
+    addGroup('RSS / Atom', sources.rss || [], renderRssCard);
+    addGroup('GitHub', sources.github || [], renderGithubCard);
+    addGroup('Reddit', (((sources.reddit || {}).subreddits) || []), renderRedditCard);
+    addGroup('Telegram', (((sources.telegram || {}).channels) || []), renderTelegramCard);
+  }
+  if (includeCostSources) {
+    addGroup('Apify 社交信源（成本源，默认关闭）', ((((sources.apify_social || {}).subscriptions) || [])), renderApifySocialCard);
+  }
   if (!groupCount) {
     parts.push('<div class="empty-inline">暂无信源。</div>');
   }
@@ -386,11 +509,12 @@ function renderRssCard(item, index) {
     '<div class="source-card-head"><strong>RSS / Atom</strong><button type="button" data-delete-action="delete_rss" data-index="' + index + '">删除</button></div>',
     fieldInput('name', '名称', item.name || '', 'text'),
     fieldInput('url', 'URL', item.url || '', 'url'),
-    fieldInput('category', '分类', item.category || '', 'text'),
-    fieldInput('tags', 'AI 大类，逗号分隔', (item.tags || []).join(', '), 'text'),
-    fieldInput('personal_tags', '个人标签，逗号分隔', (item.personal_tags || []).join(', '), 'text'),
+    fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
+    fieldTopicMultiSelect('topics', '阅读主题', item.topics || item.tags || []),
+    fieldPersonalTagMultiSelect('personal_tags', '个人标签', item.personal_tags || []),
     fieldCheckbox('enabled', '启用', item.enabled !== false),
-    '<div class="form-actions"><button type="button" data-test-source="rss">测试订阅</button><button type="submit">保存</button></div>',
+    updateHoursField(),
+    '<div class="form-actions"><button type="button" data-test-source="rss">测试订阅</button><button type="button" data-update-source="rss">立即更新</button><button type="submit">保存</button></div>',
     '</form>',
   ].join('');
 }
@@ -403,10 +527,12 @@ function renderGithubCard(item, index) {
     '<div class="source-card-head"><strong>' + (isRelease ? 'GitHub Release' : 'GitHub 用户动态') + '</strong><button type="button" data-delete-action="delete_github" data-index="' + index + '">删除</button></div>',
     isRelease ? fieldInput('owner', 'Owner', item.owner || '', 'text') : fieldInput('username', 'Username', item.username || '', 'text'),
     isRelease ? fieldInput('repo', 'Repo', item.repo || '', 'text') : '',
-    fieldInput('tags', 'AI 大类，逗号分隔', (item.tags || []).join(', '), 'text'),
-    fieldInput('personal_tags', '个人标签，逗号分隔', (item.personal_tags || []).join(', '), 'text'),
+    fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
+    fieldTopicMultiSelect('topics', '阅读主题', item.topics || item.tags || []),
+    fieldPersonalTagMultiSelect('personal_tags', '个人标签', item.personal_tags || []),
     fieldCheckbox('enabled', '启用', item.enabled !== false),
-    '<div class="form-actions"><button type="button" data-test-source="' + (isRelease ? 'github_release' : 'github_user') + '">测试订阅</button><button type="submit">保存</button></div>',
+    updateHoursField(),
+    '<div class="form-actions"><button type="button" data-test-source="' + (isRelease ? 'github_release' : 'github_user') + '">测试订阅</button><button type="button" data-update-source="github">立即更新</button><button type="submit">保存</button></div>',
     '</form>',
   ].join('');
 }
@@ -421,11 +547,13 @@ function renderRedditCard(item, index) {
     fieldSelect('time_filter', '时间范围', item.time_filter || 'day', ['hour', 'day', 'week', 'month', 'year', 'all']),
     fieldInput('fetch_limit', '抓取数量', item.fetch_limit || 20, 'number', '1', '1', '100'),
     fieldInput('min_score', '最低分数', item.min_score || 10, 'number', '1', '0'),
-    fieldInput('tags', 'AI 大类，逗号分隔', (item.tags || []).join(', '), 'text'),
-    fieldInput('personal_tags', '个人标签，逗号分隔', (item.personal_tags || []).join(', '), 'text'),
+    fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
+    fieldTopicMultiSelect('topics', '阅读主题', item.topics || item.tags || []),
+    fieldPersonalTagMultiSelect('personal_tags', '个人标签', item.personal_tags || []),
     fieldCheckbox('enabled', '启用', item.enabled !== false),
     '<input type="hidden" name="reddit_enabled" value="true">',
-    '<div class="form-actions"><button type="button" data-test-source="reddit_subreddit">测试订阅</button><button type="submit">保存</button></div>',
+    updateHoursField(),
+    '<div class="form-actions"><button type="button" data-test-source="reddit_subreddit">测试订阅</button><button type="button" data-update-source="reddit_subreddit">立即更新</button><button type="submit">保存</button></div>',
     '</form>',
   ].join('');
 }
@@ -437,11 +565,13 @@ function renderTelegramCard(item, index) {
     '<div class="source-card-head"><strong>Telegram 公共频道</strong><button type="button" data-delete-action="delete_telegram_channel" data-index="' + index + '">删除</button></div>',
     fieldInput('channel', 'Channel，不含 @', item.channel || '', 'text'),
     fieldInput('fetch_limit', '抓取数量', item.fetch_limit || 20, 'number', '1', '1', '100'),
-    fieldInput('tags', 'AI 大类，逗号分隔', (item.tags || []).join(', '), 'text'),
-    fieldInput('personal_tags', '个人标签，逗号分隔', (item.personal_tags || []).join(', '), 'text'),
+    fieldHubChannelSelect('category', 'Hub 频道', item.hub_channel || item.category || ''),
+    fieldTopicMultiSelect('topics', '阅读主题', item.topics || item.tags || []),
+    fieldPersonalTagMultiSelect('personal_tags', '个人标签', item.personal_tags || []),
     fieldCheckbox('enabled', '启用', item.enabled !== false),
     '<input type="hidden" name="telegram_enabled" value="true">',
-    '<div class="form-actions"><button type="button" data-test-source="telegram_channel">测试订阅</button><button type="submit">保存</button></div>',
+    updateHoursField(),
+    '<div class="form-actions"><button type="button" data-test-source="telegram_channel">测试订阅</button><button type="button" data-update-source="telegram_channel">立即更新</button><button type="submit">保存</button></div>',
     '</form>',
   ].join('');
 }
@@ -452,19 +582,30 @@ function renderApifySocialCard(item, index) {
   return [
     '<form data-action="upsert_apify_social_subscription" class="source-card" data-apify-social-form="true">',
     '<input type="hidden" name="index" value="' + index + '">',
-    '<div class="source-card-head"><strong>Apify 社交信源</strong><button type="button" data-delete-action="delete_apify_social_subscription" data-index="' + index + '">删除</button></div>',
+    '<div class="source-card-head"><strong>Apify 社交信源 <span class="cost-badge">成本源</span></strong><button type="button" data-delete-action="delete_apify_social_subscription" data-index="' + index + '">删除</button></div>',
     fieldSelect('platform', '平台', platform, ['x', 'instagram', 'facebook', 'telegram']),
     fieldSelectOptions('kind', '类型', kind, apifyKindOptions(platform)),
     fieldInput('target', 'URL / handle / 关键词', item.target || '', 'text'),
+    fieldInput('token_env', 'Apify Key 环境变量名（可选）', item.token_env || '', 'text'),
     fieldInput('fetch_limit', '抓取数量', item.fetch_limit || 20, 'number', '1', '1', '100'),
-    fieldInput('tags', 'AI 大类，逗号分隔', (item.tags || []).join(', '), 'text'),
-    fieldPersonalTagSelect('personal_tags', '个人标签', item.personal_tags || []),
-    fieldSelectOptions('analysis_mode', '分析模式', item.analysis_mode || 'full', [['full', 'AI 评分'], ['personal_only', '个人关注（跳过 AI）']]),
+    fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
+    fieldTopicMultiSelect('topics', '阅读主题', item.topics || item.tags || []),
+    fieldPersonalTagMultiSelect('personal_tags', '个人标签', item.personal_tags || []),
+    fieldSelectOptions('analysis_mode', '分析模式', item.analysis_mode || 'full', [['full', 'AI 评分'], ['personal_only', '只归档（跳过 AI）']]),
     fieldCheckbox('enabled', '启用', item.enabled !== false),
     '<input type="hidden" name="apify_social_enabled" value="true">',
-    '<div class="form-actions"><button type="button" data-test-source="apify_social">测试订阅</button><button type="submit">保存</button></div>',
+    updateHoursField(),
+    '<div class="form-actions"><button type="button" data-test-source="apify_social">测试订阅</button><button type="button" data-update-source="apify_social">立即更新</button><button type="submit">保存</button></div>',
     '</form>',
   ].join('');
+}
+
+function defaultUpdateHours() {
+  return ((((state.config || {}).filtering || {}).time_window_hours) || 24);
+}
+
+function updateHoursField() {
+  return fieldInput('update_hours', '补抓小时数', defaultUpdateHours(), 'number', '1', '1', '720');
 }
 
 function fieldInput(name, label, value, type, step, min, max) {
@@ -526,25 +667,84 @@ function fieldSelectOptions(name, label, value, options) {
   ].join('');
 }
 
-function fieldPersonalTagSelect(name, label, values) {
-  var selectedTags = normalizePersonalTagLibrary(
-    Array.isArray(values)
-      ? values
-      : String(values || '').split(',').map(function (tag) { return tag.trim(); })
+function fieldAiModelSelect(provider, value) {
+  var current = String(value || '').trim() || defaultAiModel(provider);
+  return fieldSelectOptions('model', 'Model', current, aiModelOptions(provider, current));
+}
+
+function fieldHubChannelSelect(name, label, value) {
+  var current = String(value || '').trim();
+  var channelOptions = current && HUB_CHANNEL_OPTIONS.indexOf(current) === -1
+    ? [current].concat(HUB_CHANNEL_OPTIONS)
+    : HUB_CHANNEL_OPTIONS.slice();
+  return fieldSelectOptions(
+    name,
+    label,
+    current,
+    [['', '不设置频道']].concat(channelOptions.map(function (option) {
+      return [option, option];
+    }))
   );
-  var current = selectedTags[0] || '';
-  var options = uniqueValues(getConfigPersonalTagLibrary().concat(selectedTags));
+}
+
+function selectionValues(values) {
+  if (Array.isArray(values)) {
+    return values.map(function (value) { return String(value || '').trim(); }).filter(Boolean);
+  }
+  return String(values || '')
+    .split(/[,，\n]|\\n/)
+    .map(function (value) { return value.trim(); })
+    .filter(Boolean);
+}
+
+function fieldConfigMultiSelect(name, label, values, options, emptyLabel, selectAttrs) {
+  var selectedValues = uniqueValues(selectionValues(values));
+  var choices = uniqueValues((options || []).concat(selectedValues));
+  var size = Math.min(Math.max(choices.length || 1, 3), 7);
   return [
-    '<label class="config-field">',
+    '<label class="config-field config-field-multi">',
     '<span>' + escapeHtml(label) + '</span>',
-    '<select name="' + escapeHtml(name) + '" data-personal-tag-source-select>',
-    '<option value="">不设置个人标签</option>',
-    options.map(function (option) {
-      return '<option value="' + escapeHtml(option) + '"' + selected(current, option) + '>' + escapeHtml(option) + '</option>';
-    }).join(''),
+    '<input type="hidden" name="' + escapeHtml(name) + '" data-config-multi-value="' + escapeHtml(name) + '" value="' + inputValue(selectedValues.join(', ')) + '">',
+    '<select multiple size="' + size + '" data-config-multi-select="' + escapeHtml(name) + '"' + (selectAttrs || '') + '>',
+    choices.length ? choices.map(function (option) {
+      return '<option value="' + escapeHtml(option) + '"' + (selectedValues.indexOf(option) >= 0 ? ' selected' : '') + '>' + escapeHtml(option) + '</option>';
+    }).join('') : '<option value="" disabled>' + escapeHtml(emptyLabel || '暂无可选项') + '</option>',
     '</select>',
     '</label>',
   ].join('');
+}
+
+function fieldTopicMultiSelect(name, label, values) {
+  var topics = getConfigTagLibrary();
+  if (!topics.length) topics = TAG_LIBRARY_OPTIONS.slice();
+  return fieldConfigMultiSelect(name, label, values, topics, '先在阅读主题库添加主题');
+}
+
+function fieldPersonalTagMultiSelect(name, label, values) {
+  return fieldConfigMultiSelect(
+    name,
+    label,
+    values,
+    getConfigPersonalTagLibrary(),
+    '不设置个人标签',
+    ' data-personal-tag-source-select'
+  );
+}
+
+function fieldPersonalTagSelect(name, label, values) {
+  return fieldPersonalTagMultiSelect(name, label, values);
+}
+
+function syncConfigMultiSelect(select) {
+  var name = select.getAttribute('data-config-multi-select');
+  if (!name) return;
+  var form = select.closest('form');
+  var hidden = form ? form.querySelector('[data-config-multi-value="' + name + '"]') : null;
+  if (!hidden) return;
+  hidden.value = Array.from(select.selectedOptions || [])
+    .map(function (option) { return option.value; })
+    .filter(Boolean)
+    .join(', ');
 }
 
 function apifyKindOptions(platform) {
@@ -637,7 +837,7 @@ async function submitConfigAction(action, payload) {
     syncConfigTagLibrary(state.config);
     renderEnvStatus(result.env_status || []);
     renderConfigForms(state.config);
-    setConfigMessage('设置成功。旧配置已备份为 config.json.bak。手动运行一次抓取后数据会刷新。', 'ok');
+    setConfigMessage('设置成功。旧配置已备份为 config.json.bak。可点击对应信源的“立即更新”补抓数据。', 'ok');
   } catch (err) {
     setConfigMessage('设置失败：' + err.message, 'error');
   }
@@ -693,6 +893,21 @@ function handleConfigFormClick(event) {
     return;
   }
 
+  var customTopicButton = event.target.closest('[data-tag-custom-add]');
+  if (customTopicButton) {
+    var customTopicForm = customTopicButton.closest('form');
+    var customTopicInput = customTopicForm.querySelector('[data-tag-custom-input]');
+    var customTopicValue = normalizeCustomTag(customTopicInput ? customTopicInput.value : '');
+    if (!customTopicValue) {
+      setConfigMessage('主题不能为空，不能超过 32 个字符，也不能包含逗号、换行或特殊符号。', 'error');
+      return;
+    }
+    setTagLibraryTags(customTopicForm, getTagLibraryTags(customTopicForm).concat([customTopicValue]));
+    if (customTopicInput) customTopicInput.value = '';
+    setConfigMessage('阅读主题已加入待保存列表，点击“保存阅读主题”后生效。', '');
+    return;
+  }
+
   var personalTagRemoveButton = event.target.closest('[data-personal-tag-remove]');
   if (personalTagRemoveButton) {
     var personalRemoveForm = personalTagRemoveButton.closest('form');
@@ -744,6 +959,14 @@ function handleConfigFormClick(event) {
     return;
   }
 
+  var updateButton = event.target.closest('[data-update-source]');
+  if (updateButton) {
+    var updateForm = updateButton.closest('form');
+    var updatePayload = sourceUpdatePayload(updateForm, updateButton.dataset.updateSource);
+    updateSource(updatePayload);
+    return;
+  }
+
   var button = event.target.closest('[data-delete-action]');
   if (!button) return;
   submitConfigAction(button.dataset.deleteAction, { index: button.dataset.index });
@@ -776,7 +999,53 @@ async function testSource(payload) {
   }
 }
 
+function sourceUpdatePayload(form, sourceType) {
+  var payload = formPayload(form);
+  var hours = payload.update_hours || defaultUpdateHours();
+  var result = {
+    source_type: sourceType,
+    hours: hours,
+  };
+  if (sourceType !== 'hackernews') {
+    result.index = payload.index;
+  }
+  return result;
+}
+
+async function updateSource(payload) {
+  if (!canUseConfig()) {
+    renderAuthGate('请先登录后台再更新信源。');
+    return;
+  }
+  setConfigMessage('正在更新单个信源...', '');
+  try {
+    var response = await fetch('./api/source/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    var result = await response.json();
+    if (!response.ok) {
+      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(result.error)) return;
+      throw new Error(result.error || ('HTTP ' + response.status));
+    }
+    setConfigMessage(
+      '更新完成：' + (result.source_ref || payload.source_type) +
+      '，新增写入 ' + (result.fetched || 0) + ' 条' +
+      '，已跳过 ' + (result.skipped_existing || 0) + ' 条历史内容' +
+      '，AI 分析 ' + (result.analyzed || 0) + ' 条。',
+      'ok'
+    );
+  } catch (err) {
+    setConfigMessage('更新失败：' + err.message, 'error');
+  }
+}
+
 function handleConfigFormChange(event) {
+  if (event.target.hasAttribute('data-config-multi-select')) {
+    syncConfigMultiSelect(event.target);
+    return;
+  }
   if (event.target.name === 'source_type') {
     updateNewSourceFields(event.target.closest('form'), event.target.value);
     return;
@@ -795,8 +1064,14 @@ function attachApifySocialSettings(payload) {
   var actors = apify.actors || {};
   var platform = payload.platform || 'x';
   var tokenEnvNames = apifyTokenEnvNames(apify);
-  payload.token_env = tokenEnvNames[0] || 'APIFY_TOKEN';
-  payload.token_envs = tokenEnvNames.join('\n');
+  var preferredTokenEnv = String(payload.token_env || '').trim();
+  if (preferredTokenEnv) {
+    payload.token_env = preferredTokenEnv;
+    payload.token_envs = preferredTokenEnv;
+  } else {
+    delete payload.token_env;
+    payload.token_envs = tokenEnvNames.join('\n');
+  }
   payload.timeout_seconds = apify.timeout_seconds || 120;
   if ((actors[platform] || {}).actor_id) {
     payload.actor_id = actors[platform].actor_id;
@@ -817,7 +1092,6 @@ function updateNewSourceFields(form, type) {
 
 function applyProviderDefaults(form, provider) {
   if (!form || form.dataset.action !== 'set_ai') return;
-  var model = form.querySelector('[name="model"]');
   var apiKeyEnv = form.querySelector('[name="api_key_env"]');
   var baseUrl = form.querySelector('[name="base_url"]');
   var defaults = {
@@ -825,7 +1099,7 @@ function applyProviderDefaults(form, provider) {
     anthropic: { model: 'claude-3-5-sonnet-latest', env: 'ANTHROPIC_API_KEY', baseUrl: '' },
     gemini: { model: 'gemini-2.5-flash', env: 'GOOGLE_API_KEY', baseUrl: '' },
     xiaomi: { model: 'mimo-v2.5-pro', env: 'XIAOMI_API_KEY', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
-    deepseek: { model: 'deepseek-chat', env: 'DEEPSEEK_API_KEY', baseUrl: '' },
+    deepseek: { model: 'deepseek-v4-flash', env: 'DEEPSEEK_API_KEY', baseUrl: '' },
     minimax: { model: 'MiniMax-Text-01', env: 'MINIMAX_API_KEY', baseUrl: '' },
     ali: { model: 'qwen-plus', env: 'DASHSCOPE_API_KEY', baseUrl: '' },
     doubao: { model: 'doubao-1-5-pro-32k-250115', env: 'DOUBAO_API_KEY', baseUrl: '' },
@@ -834,23 +1108,37 @@ function applyProviderDefaults(form, provider) {
   };
   var next = defaults[provider];
   if (!next) return;
-  if (model) model.value = next.model;
+  updateAiModelOptions(form, provider, next.model);
   if (apiKeyEnv) apiKeyEnv.value = next.env;
   if (baseUrl) baseUrl.value = next.baseUrl;
+}
+
+function updateAiModelOptions(form, provider, preferredModel) {
+  var model = form ? form.querySelector('[name="model"]') : null;
+  if (!model) return;
+  var nextModel = String(preferredModel || '').trim() || defaultAiModel(provider) || model.value;
+  model.innerHTML = aiModelOptions(provider, nextModel).map(function (option) {
+    var optionValue = Array.isArray(option) ? option[0] : option;
+    var optionLabel = Array.isArray(option) ? option[1] : option;
+    return '<option value="' + escapeHtml(optionValue) + '"' + selected(nextModel, optionValue) + '>' + escapeHtml(optionLabel) + '</option>';
+  }).join('');
+  model.value = nextModel;
 }
 
 function newSourceFields(type) {
   if (type === 'github_release') {
     return fieldInput('owner', 'Owner', '', 'text') +
       fieldInput('repo', 'Repo', '', 'text') +
-      fieldInput('tags', 'AI 大类，逗号分隔', '', 'text') +
-      fieldInput('personal_tags', '个人标签，逗号分隔', '', 'text') +
+      fieldHubChannelSelect('channel', 'Hub 频道', '') +
+      fieldTopicMultiSelect('topics', '阅读主题', []) +
+      fieldPersonalTagMultiSelect('personal_tags', '个人标签', []) +
       fieldCheckbox('enabled', '启用', true);
   }
   if (type === 'github_user') {
     return fieldInput('username', 'Username', '', 'text') +
-      fieldInput('tags', 'AI 大类，逗号分隔', '', 'text') +
-      fieldInput('personal_tags', '个人标签，逗号分隔', '', 'text') +
+      fieldHubChannelSelect('channel', 'Hub 频道', '') +
+      fieldTopicMultiSelect('topics', '阅读主题', []) +
+      fieldPersonalTagMultiSelect('personal_tags', '个人标签', []) +
       fieldCheckbox('enabled', '启用', true);
   }
   if (type === 'reddit_subreddit') {
@@ -859,16 +1147,18 @@ function newSourceFields(type) {
       fieldSelect('time_filter', '时间范围', 'day', ['hour', 'day', 'week', 'month', 'year', 'all']) +
       fieldInput('fetch_limit', '抓取数量', 20, 'number', '1', '1', '100') +
       fieldInput('min_score', '最低分数', 10, 'number', '1', '0') +
-      fieldInput('tags', 'AI 大类，逗号分隔', '', 'text') +
-      fieldInput('personal_tags', '个人标签，逗号分隔', '', 'text') +
+      fieldHubChannelSelect('channel', 'Hub 频道', '') +
+      fieldTopicMultiSelect('topics', '阅读主题', []) +
+      fieldPersonalTagMultiSelect('personal_tags', '个人标签', []) +
       '<input type="hidden" name="reddit_enabled" value="true">' +
       fieldCheckbox('enabled', '启用', true);
   }
   if (type === 'telegram_channel') {
     return fieldInput('channel', 'Channel，不含 @', '', 'text') +
       fieldInput('fetch_limit', '抓取数量', 20, 'number', '1', '1', '100') +
-      fieldInput('tags', 'AI 大类，逗号分隔', '', 'text') +
-      fieldInput('personal_tags', '个人标签，逗号分隔', '', 'text') +
+      fieldHubChannelSelect('category', 'Hub 频道', '') +
+      fieldTopicMultiSelect('topics', '阅读主题', []) +
+      fieldPersonalTagMultiSelect('personal_tags', '个人标签', []) +
       '<input type="hidden" name="telegram_enabled" value="true">' +
       fieldCheckbox('enabled', '启用', true);
   }
@@ -876,17 +1166,19 @@ function newSourceFields(type) {
     return fieldSelect('platform', '平台', 'x', ['x', 'instagram', 'facebook', 'telegram']) +
       fieldSelectOptions('kind', '类型', 'profile', apifyKindOptions('x')) +
       fieldInput('target', 'URL / handle / 关键词', '', 'text') +
+      fieldInput('token_env', 'Apify Key 环境变量名（可选）', '', 'text') +
       fieldInput('fetch_limit', '抓取数量', 20, 'number', '1', '1', '100') +
-      fieldInput('tags', 'AI 大类，逗号分隔', '', 'text') +
-      fieldPersonalTagSelect('personal_tags', '个人标签', []) +
-      fieldSelectOptions('analysis_mode', '分析模式', 'full', [['full', 'AI 评分'], ['personal_only', '个人关注（跳过 AI）']]) +
+      fieldHubChannelSelect('channel', 'Hub 频道', '') +
+      fieldTopicMultiSelect('topics', '阅读主题', []) +
+      fieldPersonalTagMultiSelect('personal_tags', '个人标签', []) +
+      fieldSelectOptions('analysis_mode', '分析模式', 'full', [['full', 'AI 评分'], ['personal_only', '只归档（跳过 AI）']]) +
       '<input type="hidden" name="apify_social_enabled" value="true">' +
       fieldCheckbox('enabled', '启用', true);
   }
   return fieldInput('name', 'RSS 名称', '', 'text') +
     fieldInput('url', 'RSS/Atom URL', '', 'url') +
-    fieldInput('category', '分类', '', 'text') +
-    fieldInput('tags', 'AI 大类，逗号分隔', '', 'text') +
-    fieldInput('personal_tags', '个人标签，逗号分隔', '', 'text') +
+    fieldHubChannelSelect('channel', 'Hub 频道', '') +
+    fieldTopicMultiSelect('topics', '阅读主题', []) +
+    fieldPersonalTagMultiSelect('personal_tags', '个人标签', []) +
     fieldCheckbox('enabled', '启用', true);
 }

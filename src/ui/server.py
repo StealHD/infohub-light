@@ -27,8 +27,10 @@ from dotenv import load_dotenv
 from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
 from ..scrapers.apify_social import ApifySocialScraper
+from ..services.source_update import run_source_update
+from ..source_selection import parse_source_ref
 from ..storage.manager import ConfigError, _expand_env_vars
-from ..tag_policy import CANONICAL_TAGS, normalize_tags
+from ..tag_policy import CANONICAL_TAGS, normalize_channel, normalize_tags
 from .auth import (
     AuthSettings,
     auth_status,
@@ -107,6 +109,13 @@ def _env_name(payload: dict[str, Any], key: str, label: str) -> str:
     return value
 
 
+def _optional_env_name(payload: dict[str, Any], key: str, label: str) -> str | None:
+    value = str(payload.get(key, "")).strip()
+    if not value:
+        return None
+    return _env_name({key: value}, key, label)
+
+
 def _env_names(
     payload: dict[str, Any],
     key: str,
@@ -165,11 +174,24 @@ def _tags(
 
 
 def _ai_tags(payload: dict[str, Any], key: str = "tags") -> list[str]:
-    return _tags(payload, key=key, allowed_tags=list(CANONICAL_TAGS))
+    if key == "tags" and payload.get("topics") not in (None, ""):
+        return _tags(payload, key="topics", allow_custom=True)
+    return _tags(payload, key=key, allow_custom=True)
 
 
 def _personal_tags(payload: dict[str, Any], key: str = "personal_tags") -> list[str]:
     return _tags(payload, key=key, allow_custom=True)
+
+
+def _channel(payload: dict[str, Any], key: str = "channel") -> str | None:
+    raw = payload.get(key)
+    if raw in (None, "") and key != "category":
+        raw = payload.get("category")
+    if raw in (None, "") and key == "category":
+        raw = payload.get("channel")
+    if raw in (None, ""):
+        return None
+    return normalize_channel(raw)
 
 
 def _merge_tag_library(data: dict[str, Any], tags: list[str]) -> None:
@@ -181,7 +203,7 @@ def _merge_tag_library(data: dict[str, Any], tags: list[str]) -> None:
         [*library, *tags],
         strict=True,
         max_tags=None,
-        allowed_tags=list(CANONICAL_TAGS),
+        allow_custom=True,
     ) or list(CANONICAL_TAGS)
 
 
@@ -372,12 +394,16 @@ async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, An
         kind,
         _text(payload, "target", "Apify 目标"),
     )
-    token_envs = _env_names(
-        {"token_envs": payload.get("token_envs")},
-        "token_envs",
-        "Apify Token 环境变量名",
-        fallback=str(payload.get("token_env") or "APIFY_TOKEN"),
-    )
+    subscription_token_env = _optional_env_name(payload, "token_env", "Apify Key 环境变量名")
+    if subscription_token_env:
+        token_envs = [subscription_token_env]
+    else:
+        token_envs = _env_names(
+            {"token_envs": payload.get("token_envs")},
+            "token_envs",
+            "Apify Token 环境变量名",
+            fallback="APIFY_TOKEN",
+        )
     if not any(os.getenv(name) for name in token_envs):
         joined = "、".join(token_envs)
         raise ValueError(f"{joined} 均未设置，测试 Apify 订阅前请先写入 .env 并重启服务")
@@ -391,6 +417,7 @@ async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, An
         platform=platform,
         kind=kind,
         target=target,
+        token_env=subscription_token_env,
         fetch_limit=1,
         enabled=True,
         tags=_ai_tags(payload),
@@ -551,6 +578,25 @@ def run_source_test(payload: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"未知信源类型: {source_type}")
 
 
+def source_update_payload(payload: dict[str, Any]) -> tuple[str, int | None, int]:
+    """Validate and normalize a source update request body."""
+
+    source_type = _text(payload, "source_type", "source_type")
+    raw_hours = payload.get("hours", 24)
+    if raw_hours == "":
+        raw_hours = 24
+    try:
+        hours = int(raw_hours)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("hours 必须是 1 到 720 之间的数字") from exc
+    if hours < 1 or hours > 720:
+        raise ValueError("hours 必须是 1 到 720 之间的数字")
+
+    raw_index = payload.get("index")
+    source_ref = parse_source_ref(source_type, raw_index)
+    return source_ref.source_type, source_ref.index, hours
+
+
 def _number(
     payload: dict[str, Any],
     key: str,
@@ -618,10 +664,12 @@ def apply_config_action(
             "url": _http_url(_text(payload, "url", "RSS URL"), "RSS URL"),
             "enabled": _bool(payload.get("enabled", True)),
         }
-        category = _optional_text(payload, "category")
-        if category:
-            item["category"] = category
+        channel = _channel(payload, "category")
+        if channel:
+            item["channel"] = channel
+            item["category"] = channel
         if tags:
+            item["topics"] = tags
             item["tags"] = tags
         if personal_tags:
             item["personal_tags"] = personal_tags
@@ -642,7 +690,12 @@ def apply_config_action(
             "repo": _text(payload, "repo", "GitHub repo"),
             "enabled": _bool(payload.get("enabled", True)),
         }
+        channel = _channel(payload)
+        if channel:
+            item["channel"] = channel
+            item["category"] = channel
         if tags:
+            item["topics"] = tags
             item["tags"] = tags
         if personal_tags:
             item["personal_tags"] = personal_tags
@@ -659,7 +712,12 @@ def apply_config_action(
             "username": _text(payload, "username", "GitHub username"),
             "enabled": _bool(payload.get("enabled", True)),
         }
+        channel = _channel(payload)
+        if channel:
+            item["channel"] = channel
+            item["category"] = channel
         if tags:
+            item["topics"] = tags
             item["tags"] = tags
         if personal_tags:
             item["personal_tags"] = personal_tags
@@ -691,7 +749,12 @@ def apply_config_action(
             "fetch_limit": _number(payload, "fetch_limit", default=20, minimum=1, maximum=100, integer=True),
             "min_score": _number(payload, "min_score", default=10, minimum=0, integer=True),
         }
+        channel = _channel(payload)
+        if channel:
+            item["channel"] = channel
+            item["category"] = channel
         if tags:
+            item["topics"] = tags
             item["tags"] = tags
         if personal_tags:
             item["personal_tags"] = personal_tags
@@ -716,7 +779,12 @@ def apply_config_action(
             "enabled": _bool(payload.get("enabled", True)),
             "fetch_limit": _number(payload, "fetch_limit", default=20, minimum=1, maximum=100, integer=True),
         }
+        hub_channel = _channel(payload, "category")
+        if hub_channel:
+            item["hub_channel"] = hub_channel
+            item["category"] = hub_channel
         if tags:
+            item["topics"] = tags
             item["tags"] = tags
         if personal_tags:
             item["personal_tags"] = personal_tags
@@ -785,6 +853,7 @@ def apply_config_action(
         )
         tags = _ai_tags(payload)
         personal_tags = _personal_tags(payload)
+        token_env = _optional_env_name(payload, "token_env", "Apify Key 环境变量名")
         analysis_mode = str(payload.get("analysis_mode") or "full").strip()
         if analysis_mode not in {"full", "personal_only"}:
             raise ValueError("analysis_mode 必须是 full 或 personal_only")
@@ -796,7 +865,14 @@ def apply_config_action(
             "enabled": _bool(payload.get("enabled", True)),
             "analysis_mode": analysis_mode,
         }
+        if token_env:
+            item["token_env"] = token_env
+        channel = _channel(payload)
+        if channel:
+            item["channel"] = channel
+            item["category"] = channel
         if tags:
+            item["topics"] = tags
             item["tags"] = tags
         if personal_tags:
             item["personal_tags"] = personal_tags
@@ -822,6 +898,7 @@ def apply_config_action(
 
     elif action == "set_ai":
         ai = updated.setdefault("ai", {})
+        ai["enabled"] = _bool(payload.get("enabled", True))
         ai["provider"] = _text(payload, "provider", "AI provider")
         ai["model"] = _text(payload, "model", "AI model")
         ai["api_key_env"] = _env_name(payload, "api_key_env", "API Key 环境变量名")
@@ -901,18 +978,37 @@ def build_env_status(config: Config) -> list[dict[str, Any]]:
             return
         refs.setdefault(name, []).append(used_by)
 
-    add(config.ai.api_key_env, "ai.api_key_env")
-    add(config.ai.azure_endpoint_env, "ai.azure_endpoint_env")
-    if config.webhook:
+    if getattr(config.ai, "enabled", True):
+        add(config.ai.api_key_env, "ai.api_key_env")
+        add(config.ai.azure_endpoint_env, "ai.azure_endpoint_env")
+    if config.webhook and config.webhook.enabled:
         add(config.webhook.url_env, "webhook.url_env")
-    if config.email:
+    if config.email and config.email.enabled:
         add(config.email.password_env, "email.password_env")
-    if config.sources.twitter:
+    if config.sources.twitter and config.sources.twitter.enabled:
         add(config.sources.twitter.apify_token_env, "sources.twitter.apify_token_env")
     if config.sources.apify_social:
-        add(config.sources.apify_social.token_env, "sources.apify_social.token_env")
-        for token_env in config.sources.apify_social.token_envs:
-            add(token_env, "sources.apify_social.token_envs")
+        apify_social = config.sources.apify_social
+        enabled_subscriptions = [
+            subscription
+            for subscription in apify_social.subscriptions
+            if subscription.enabled
+        ]
+        if apify_social.enabled and enabled_subscriptions:
+            uses_global_tokens = any(
+                not subscription.token_env
+                for subscription in enabled_subscriptions
+            )
+            if uses_global_tokens:
+                add(apify_social.token_env, "sources.apify_social.token_env")
+                for token_env in apify_social.token_envs:
+                    add(token_env, "sources.apify_social.token_envs")
+            for index, subscription in enumerate(apify_social.subscriptions):
+                if subscription.enabled and subscription.token_env:
+                    add(
+                        subscription.token_env,
+                        f"sources.apify_social.subscriptions[{index}].token_env",
+                    )
 
     return [
         {"name": name, "set": bool(os.getenv(name)), "used_by": sorted(used_by)}
@@ -1049,13 +1145,18 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
                 return
             self._handle_source_test()
             return
+        if path == "/api/source/update":
+            if not self._require_admin():
+                return
+            self._handle_source_update()
+            return
         self._send_error_json("Not found", HTTPStatus.NOT_FOUND)
 
     def do_PUT(self) -> None:
         self.do_POST()
 
     def translate_path(self, path: str) -> str:
-        """Serve generated site files first, then bundled static assets."""
+        """Serve fresh bundled assets while keeping generated data/media."""
         parsed_path = urlparse(path).path
         parsed_path = unquote(parsed_path)
         if parsed_path in {"", "/"}:
@@ -1065,11 +1166,15 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
         if ".." in rel.parts:
             return str(self.static_dir / "__missing__")
 
+        bundled_asset = self.static_dir / rel
+        if rel.suffix in {".html", ".js", ".css"} and bundled_asset.exists():
+            return str(bundled_asset)
+
         generated = self.data_dir / "site" / rel
         if generated.exists():
             return str(generated)
 
-        return str(self.static_dir / rel)
+        return str(bundled_asset)
 
     def _handle_auth_status(self) -> None:
         auth = self._auth_settings()
@@ -1202,6 +1307,27 @@ class RadarWebHandler(SimpleHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError("payload 必须是 JSON object")
             result = run_source_test(payload)
+        except json.JSONDecodeError as exc:
+            self._send_error_json(f"Invalid JSON: {exc}", HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_error_json(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+
+        self._send_json(result)
+
+    def _handle_source_update(self) -> None:
+        try:
+            payload = self._read_json_body()
+            if not isinstance(payload, dict):
+                raise ValueError("payload 必须是 JSON object")
+            source_type, index, hours = source_update_payload(payload)
+            result = run_source_update(
+                data_dir=self.data_dir,
+                source_type=source_type,
+                index=index,
+                hours=hours,
+            )
         except json.JSONDecodeError as exc:
             self._send_error_json(f"Invalid JSON: {exc}", HTTPStatus.BAD_REQUEST)
             return

@@ -47,8 +47,23 @@ class BaseScraper(ABC):
         return f"{source_type}:{subtype}:{native_id}"
 
     def _tag_metadata(self, source_config) -> dict:
-        """Return separated AI and personal tags for a configured source."""
+        """Return separated reading topics and personal tags for a source."""
+        topics = list(getattr(source_config, "topics", []) or [])
+        legacy_tags = list(getattr(source_config, "tags", []) or [])
+        for tag in legacy_tags:
+            if tag not in topics:
+                topics.append(tag)
+        if hasattr(source_config, "hub_channel"):
+            hub_channel = getattr(source_config, "hub_channel", None) or getattr(
+                source_config, "category", None
+            )
+        else:
+            hub_channel = getattr(source_config, "channel", None) or getattr(
+                source_config, "category", None
+            )
         return {
-            "tags": list(getattr(source_config, "tags", []) or []),
+            "channel": hub_channel,
+            "topics": topics,
+            "tags": topics,
             "personal_tags": list(getattr(source_config, "personal_tags", []) or []),
         }

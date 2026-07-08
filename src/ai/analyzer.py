@@ -11,7 +11,13 @@ from .prompts import CONTENT_ANALYSIS_SYSTEM, CONTENT_ANALYSIS_USER
 from .tokens import token_stage
 from .utils import parse_json_response
 from ..models import ContentItem
-from ..tag_policy import normalize_category, normalize_tags
+from ..tag_policy import (
+    normalize_channel,
+    normalize_entities,
+    normalize_signal_strength,
+    normalize_signal_type,
+    normalize_tags,
+)
 
 DEFAULT_THROTTLE_SEC = 0.0
 DEFAULT_FEATURED_THRESHOLD = 7.5
@@ -160,9 +166,13 @@ class ContentAnalyzer:
             discussion_parts.append(f"Community Note: {meta['community_note']}")
 
         discussion_section = "\n".join(discussion_parts) if discussion_parts else ""
-        source_tags = meta.get("tags") or []
+        source_tags = meta.get("topics") or meta.get("tags") or []
         if not isinstance(source_tags, list):
             source_tags = []
+        source_channel = normalize_channel(
+            meta.get("channel") or meta.get("category"),
+            fallback=item.source_type.value,
+        )
 
         # Generate user prompt
         user_prompt = CONTENT_ANALYSIS_USER.format(
@@ -170,6 +180,7 @@ class ContentAnalyzer:
             source=f"{item.source_type.value}",
             author=item.author or "Unknown",
             url=str(item.url),
+            source_channel=source_channel,
             source_tags=", ".join(str(tag) for tag in source_tags) or "None",
             content_section=content_section,
             discussion_section=discussion_section
@@ -195,21 +206,39 @@ class ContentAnalyzer:
         # Update item with analysis results. Keep backward compatibility with
         # older prompts that returned "summary" instead of "summary_zh".
         score = max(0.0, min(10.0, float(result.get("score", 0))))
-        tags = result.get("tags", [])
-        if not isinstance(tags, list):
-            tags = []
+        topics = result.get("topics")
+        if not isinstance(topics, list):
+            topics = result.get("tags", [])
+        if not isinstance(topics, list):
+            topics = []
+        entities = result.get("entities", [])
+        if not isinstance(entities, list):
+            entities = []
 
         item.ai_score = score
-        category = normalize_category(result.get("category"))
+        channel = normalize_channel(
+            result.get("channel") or result.get("category"),
+            fallback=source_channel,
+        )
         item.ai_reason = result.get("reason", "")
         item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
         item.ai_summary = result.get("summary") or item.ai_summary_zh or item.title
-        item.ai_tags = normalize_tags(
-            [*tags, *source_tags, category],
-            fallback=category,
-            max_tags=3,
+        normalized_topics = normalize_tags(
+            [*topics, *source_tags],
+            fallback=channel,
+            max_tags=6,
+            allow_custom=True,
         )
-        item.ai_category = category
+        item.ai_channel = channel
+        item.ai_topics = normalized_topics
+        item.ai_category = channel
+        item.ai_tags = normalized_topics
+        item.ai_signal_strength = normalize_signal_strength(
+            result.get("signal_strength"),
+            score=score,
+        )
+        item.ai_signal_type = normalize_signal_type(result.get("signal_type"))
+        item.ai_entities = normalize_entities(entities)
         item.ai_is_featured = bool(
             result.get("is_featured", score >= DEFAULT_FEATURED_THRESHOLD)
         )

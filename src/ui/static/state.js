@@ -5,10 +5,12 @@ var STORAGE_FAVORITES = 'ai-radar-favorites';
 var STORAGE_READ_LATER = 'ai-radar-read-later';
 var STORAGE_READ_ITEMS = 'ai-radar-read-items';
 var STORAGE_READER_DENSITY = 'ai-radar-reader-density';
-var VIEW_OPTIONS = ['featured', 'personal', 'all', 'readLater', 'history', 'daily', 'config'];
+var VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'config'];
 var TAG_LIBRARY_OPTIONS = [
   'AI Agent',
   'AI 编程',
+  'Agent',
+  'Codex',
   '模型发布',
   'RAG/MCP',
   'AI Infra',
@@ -18,6 +20,29 @@ var TAG_LIBRARY_OPTIONS = [
   '研究论文',
   '安全治理',
   '行业动态',
+  '美股',
+  'AI 芯片',
+  '估值',
+  '宏观',
+  '公司财报',
+  '独立开发',
+  '竞品动态',
+  '增长',
+  '价格监控',
+  '旅行',
+  '健康',
+  '消费',
+  '居住',
+];
+var HUB_CHANNEL_OPTIONS = [
+  'AI',
+  '投资',
+  '产品机会',
+  '工作/项目',
+  '朋友动态',
+  '生活',
+  '政策/风险',
+  '其他',
 ];
 var APIFY_SOCIAL_KIND_OPTIONS = {
   x: [
@@ -43,6 +68,7 @@ var state = {
   view: getInitialView(),
   query: '',
   minScore: 0,
+  channel: '',
   tag: '',
   source: '',
   favoritesOnly: false,

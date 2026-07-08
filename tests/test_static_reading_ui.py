@@ -1,4 +1,9 @@
 from pathlib import Path
+from datetime import datetime, timezone
+import json
+
+from src.models import ContentItem, SourceType
+from src.ui.site import build_site_payload, backfill_static_site_taxonomy
 
 
 STATIC_DIR = Path("src/ui/static")
@@ -13,6 +18,7 @@ def test_static_ui_exposes_reading_layout_contract():
     assert 'id="readerPanel"' in html
     assert 'id="contextPanel"' in html
     assert 'id="densityToggleBtn"' in html
+    assert 'id="channelSelect"' in html
     assert 'id="configPanel"' in html
     assert 'id="articleGraphButton"' in html
     assert 'id="articleGraphPanel"' in html
@@ -21,7 +27,8 @@ def test_static_ui_exposes_reading_layout_contract():
         assert f"./{css_name}?v=" in html
     for script_name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "article_graph.js", "app.js"]:
         assert f"./{script_name}?v=" in html
-    assert 'data-view="personal"' in html
+    assert 'data-view="personal"' not in html
+    assert ">个人关注<" not in html
     assert 'data-view="readLater"' in html
 
 
@@ -47,6 +54,7 @@ def test_static_ui_keeps_reader_state_and_render_functions():
         "findKnownItem",
         "renderQueue",
         "renderReader",
+        "renderInsightBlocks",
         "renderContext",
         "renderConfigView",
         "emptyMessage",
@@ -55,6 +63,8 @@ def test_static_ui_keeps_reader_state_and_render_functions():
         "renderTagAddOptions",
         "normalizeCustomTag",
         "fieldPersonalTagSelect",
+        "fieldAiModelSelect",
+        "updateAiModelOptions",
         "getTagLibraryTags",
         "setTagLibraryTags",
         "updateNewSourceFields",
@@ -67,6 +77,9 @@ def test_static_ui_keeps_reader_state_and_render_functions():
         "writeClipboardText",
         "writeClipboardTextFallback",
         "getTagFilterOptions",
+        "getChannelFilterOptions",
+        "normalizeHubChannel",
+        "itemChannel",
         "renderItemMedia",
         "syncConfigTagLibrary",
         "getConfigTagLibrary",
@@ -75,6 +88,8 @@ def test_static_ui_keeps_reader_state_and_render_functions():
         "chooseViewForTag",
         "getInitialView",
         "getMediaUrls",
+        "plainText",
+        "displayText",
         "selectedMediaIndex",
         "setMediaIndex",
         "openLightbox",
@@ -98,7 +113,9 @@ def test_static_ui_keeps_reader_state_and_render_functions():
         assert f"function {function_name}" in js_bundle
 
     assert "VIEW_OPTIONS" in js_bundle
-    assert "'personal'" in js_bundle
+    assert "HUB_CHANNEL_OPTIONS" in js_bundle
+    assert "VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'config']" in js_bundle
+    assert "VIEW_OPTIONS = ['featured', 'personal'" not in js_bundle
     assert "historyFilter: 'all'" in js_bundle
     assert "URLSearchParams(window.location.search).get('view')" in js_bundle
     assert "envStatus: []" in js_bundle
@@ -119,9 +136,11 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "data-preview-url" in js_bundle
     assert "formatDate(item.published_at || item.fetched_at)" in js_bundle
     assert "storyMetaParts" in js_bundle
+    assert "displayText(item.summary_zh || item.reason" in js_bundle
+    assert "displayText(item.summary_zh" in js_bundle
     assert 'data-stat-action="readLater"' in js_bundle
-    assert 'data-stat-action="daily"' in js_bundle
-    assert 'data-stat-action="personal"' in js_bundle
+    assert 'data-stat-action="daily"' not in js_bundle
+    assert 'data-stat-action="personal"' not in js_bundle
     assert 'data-stat-action="sources"' not in js_bundle
     assert "today_items" in js_bundle
     assert "today_total_items" in js_bundle
@@ -129,22 +148,41 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "查看今日全部动态" in js_bundle
     assert "历史动态" in js_bundle
     assert "历史精选" in js_bundle
-    assert "历史个人关注" in js_bundle
-    assert "历史推送" in js_bundle
-    assert "查看历史个人关注" in js_bundle
+    assert "历史个人关注" not in js_bundle
+    assert "历史推送" not in js_bundle
+    assert "查看历史个人关注" not in js_bundle
     assert "state.historyFilter = action" in js_bundle
     assert "state.historyFilter = 'all'" in js_bundle
     assert "最新动态" not in js_bundle
-    assert "每日推送" in js_bundle
-    assert "个人关注" in js_bundle
+    assert "个人关注" not in js_bundle
+    assert "state.view === 'personal'" not in js_bundle
     assert "press-feedback" in js_bundle
     assert "pointerdown" in js_bundle
     assert "TAG_LIBRARY_OPTIONS" in js_bundle
     assert "personal_tags" in js_bundle
     assert "data-personal-tag-source-select" in js_bundle
+    assert "data-config-multi-select" in js_bundle
+    assert "fieldHubChannelSelect" in js_bundle
+    assert "fieldTopicMultiSelect" in js_bundle
+    assert "fieldPersonalTagMultiSelect" in js_bundle
     assert "不设置个人标签" in js_bundle
     assert "renderPersonalTagLibraryForm" in js_bundle
-    assert "AI 固定大类" in js_bundle
+    assert "阅读主题库" in js_bundle
+    assert "fieldInput('topics'" not in js_bundle
+    assert "fieldInput('channel', 'Hub 频道'" not in js_bundle
+    assert "fieldInput('category', 'Hub 频道'" not in js_bundle
+    assert "Hub 频道" in js_bundle
+    assert "启用 AI 评分" in js_bundle
+    assert "当前为无评分模式" in js_bundle
+    assert "AI_PROVIDER_OPTIONS" in js_bundle
+    assert "AI_MODEL_OPTIONS" in js_bundle
+    assert "DeepSeek" in js_bundle
+    assert "deepseek-v4-flash" in js_bundle
+    assert "deepseek-v4-pro" in js_bundle
+    assert "deepseek-chat" in js_bundle
+    assert "deepseek-reasoner" in js_bundle
+    assert "DEEPSEEK_API_KEY" in js_bundle
+    assert "aiEnabled" in js_bundle
     assert "个人标签" in js_bundle
     assert "data-tag-add" in js_bundle
     assert "data-personal-tag-custom-input" in js_bundle
@@ -190,8 +228,19 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "Apify 社交信源" in js_bundle
     assert "apify_social" in js_bundle
     assert "renderApifySocialCard" in js_bundle
+    assert "Apify Key 环境变量名（可选）" in js_bundle
+    assert "item.token_env || ''" in js_bundle
     assert "analysis_mode" in js_bundle
     assert "personal_only" in js_bundle
+    assert "item.channel || item.category" in js_bundle
+    assert "item.topics || item.tags" in js_bundle
+    assert "state.channel" in js_bundle
+    assert ".concat((data && data.categories)" not in js_bundle
+    assert ".concat(HUB_CHANNEL_OPTIONS)\n      .concat((data && data.channels)" in js_bundle
+    assert "countBy(items, 'category')" not in js_bundle
+    assert "signal_strength" in js_bundle
+    assert "signal_type" in js_bundle
+    assert "entities" in js_bundle
     assert "X 关键词" in js_bundle
     assert "Instagram hashtag" in js_bundle
     assert "Facebook Group" in js_bundle
@@ -202,6 +251,119 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "复制中" in js_bundle
     assert "复制失败" in js_bundle
     assert "阅读提示" not in js_bundle
+
+
+def test_site_payload_serializes_hub_taxonomy_without_promoting_topics_to_personal_tags():
+    item = ContentItem(
+        id="rss:item:taxonomy",
+        source_type=SourceType.RSS,
+        title="Codex creates a product opportunity",
+        url="https://example.com/codex",
+        published_at=datetime(2026, 7, 6, tzinfo=timezone.utc),
+        metadata={
+            "channel": "产品机会",
+            "topics": ["自定义机会"],
+            "personal_tags": ["能黄通"],
+        },
+    )
+    item.ai_score = 8.6
+    item.ai_channel = "AI"
+    item.ai_topics = ["Codex", "自定义机会"]
+    item.ai_signal_strength = "strong"
+    item.ai_signal_type = "opportunity"
+    item.ai_entities = ["OpenAI", "Codex"]
+    item.ai_summary_zh = "Codex 相关能力带来新的产品机会。"
+    item.ai_reason = "值得跟进。"
+
+    payload = build_site_payload(
+        all_items=[item],
+        date="2026-07-06",
+        total_fetched=1,
+        featured_threshold=7.5,
+        tag_library=["Codex", "自定义机会"],
+    )
+    row = payload["items"][0]
+
+    assert row["channel"] == "AI"
+    assert row["category"] == "AI"
+    assert row["topics"] == ["Codex", "自定义机会"]
+    assert row["tags"] == ["Codex", "自定义机会"]
+    assert row["signal_strength"] == "strong"
+    assert row["signal_type"] == "opportunity"
+    assert row["entities"] == ["OpenAI", "Codex"]
+    assert row["personal_tags"] == ["能黄通"]
+    assert "自定义机会" not in row["personal_tags"]
+    assert payload["channels"] == ["AI"]
+
+
+def test_backfill_static_site_taxonomy_updates_existing_site_payloads(tmp_path):
+    site_dir = tmp_path / "site"
+    history_dir = site_dir / "history"
+    history_dir.mkdir(parents=True)
+    old_payload = {
+        "generated_at": "2026-07-06T00:00:00+00:00",
+        "date": "2026-07-06",
+        "items": [
+            {
+                "id": "rss:item:old",
+                "title": "Old item",
+                "category": "AI 编程",
+                "tags": ["Codex", "价格监控"],
+                "score": 8,
+                "personal_tags": ["能黄通"],
+            }
+        ],
+        "featured_items": [],
+        "daily_push_items": [],
+        "personal_items": [],
+        "tag_library": ["Codex", "价格监控"],
+        "personal_tag_library": ["能黄通"],
+    }
+    for name in ["radar-data.json", "today-data.json", "history-data.json"]:
+        (site_dir / name).write_text(json.dumps(old_payload), encoding="utf-8")
+    (history_dir / "20260706-000000.json").write_text(
+        json.dumps(old_payload),
+        encoding="utf-8",
+    )
+
+    changed = backfill_static_site_taxonomy(site_dir)
+
+    assert changed == 4
+    payload = json.loads((site_dir / "radar-data.json").read_text(encoding="utf-8"))
+    item = payload["items"][0]
+    assert item["channel"] == "AI"
+    assert item["category"] == "AI"
+    assert item["topics"] == ["Codex", "价格监控", "AI 编程"]
+    assert item["tags"] == ["Codex", "价格监控", "AI 编程"]
+    assert item["signal_strength"] == "strong"
+    assert item["signal_type"] == "other"
+    assert item["entities"] == []
+    assert item["personal_tags"] == ["能黄通"]
+
+
+def test_static_ui_has_no_score_mode_labels():
+    utils_js = STATIC_DIR.joinpath("utils.js").read_text(encoding="utf-8")
+    reader_js = STATIC_DIR.joinpath("reader.js").read_text(encoding="utf-8")
+    app_js = STATIC_DIR.joinpath("app.js").read_text(encoding="utf-8")
+
+    assert "function getEffectiveMinScore" in utils_js
+    assert "全部动态" in utils_js
+    assert "无评分模式" in reader_js
+    assert "无评分模式：按发布时间和信源优先级阅读" in reader_js
+    assert "state.view = 'all'" in app_js
+
+
+def test_config_ui_groups_cost_features_as_advanced():
+    config_js = STATIC_DIR.joinpath("config.js").read_text(encoding="utf-8")
+    config_css = STATIC_DIR.joinpath("config.css").read_text(encoding="utf-8")
+
+    assert "renderCoreSettings" in config_js
+    assert "renderAdvancedSettings" in config_js
+    assert "成本源" in config_js
+    assert "高级 / 可选能力" in config_js
+    assert ".advanced-section" in config_css
+    assert ".cost-badge" in config_css
+    assert ".config-field-multi" in config_css
 
 
 def test_static_ui_uses_reader_layout_css():
@@ -218,6 +380,7 @@ def test_static_ui_uses_reader_layout_css():
     assert ".copy-ok" in css
     assert ".copy-error" in css
     assert ".reading-actions" in css
+    assert ".article-note" in css
     assert ".queue-stat.active" in css
     assert "justify-content: center" in css
     assert "min-width: 74px" in css
@@ -249,7 +412,7 @@ def test_static_ui_uses_reader_layout_css():
     assert "object-fit: cover" in css
     assert ".tabs::-webkit-scrollbar" in css
     assert "overflow-x: auto" in css
-    assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in css
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in css
     assert "margin-top: clamp(56px, 9vh, 112px)" in css
     assert "margin-top: 28px" in css
     assert "padding-top: 14px" in css
@@ -257,4 +420,9 @@ def test_static_ui_uses_reader_layout_css():
     assert "grid-column: 2" in css
     assert "font-size: 15px" in css
     assert "-webkit-line-clamp: 7" in css
+    assert "@media (max-width: 720px)" in css
+    assert ".reader-panel {\n    order: 1;" in css
+    assert ".reading-queue {\n    order: 2;" in css
+    assert ".context-panel {\n    order: 3;" in css
+    assert ".story-list {\n    max-height: 480px;" in css
     assert "#0071e3" in css

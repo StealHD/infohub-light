@@ -11,6 +11,22 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from ..models import ContentItem
+from ..tag_policy import (
+    normalize_channel,
+    normalize_entities,
+    normalize_signal_strength,
+    normalize_signal_type,
+    normalize_tags,
+)
+
+
+ARTICLE_LIGHT_TAXONOMY_COLUMNS: dict[str, str] = {
+    "channel": "TEXT",
+    "topics_json": "TEXT NOT NULL DEFAULT '[]'",
+    "signal_strength": "TEXT",
+    "signal_type": "TEXT",
+    "entities_json": "TEXT NOT NULL DEFAULT '[]'",
+}
 
 
 def normalize_url(url: str) -> str:
@@ -78,20 +94,60 @@ def _source_label(item: ContentItem) -> str:
     return item.author or item.source_type.value
 
 
-def _item_tags(item: ContentItem) -> list[str]:
-    tags: list[str] = []
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return [value]
+
+
+def _item_channel(item: ContentItem) -> str:
+    meta = item.metadata if isinstance(item.metadata, dict) else {}
+    return normalize_channel(
+        item.ai_channel
+        or item.ai_category
+        or meta.get("channel")
+        or meta.get("category"),
+        fallback=item.source_type.value,
+    )
+
+
+def _item_topics(item: ContentItem, *, channel: str) -> list[str]:
+    meta = item.metadata if isinstance(item.metadata, dict) else {}
+    values: list[Any] = []
     for group in (
-        item.metadata.get("tags") if isinstance(item.metadata, dict) else [],
+        item.ai_topics,
         item.ai_tags,
-        [item.ai_category] if item.ai_category else [],
+        meta.get("topics"),
+        meta.get("tags"),
     ):
-        if not group:
-            continue
-        for tag in group:
-            text = str(tag).strip()
-            if text and text not in tags:
-                tags.append(text)
-    return tags
+        values.extend(_as_list(group))
+    for legacy_category in (item.ai_category, meta.get("category")):
+        text = str(legacy_category or "").strip()
+        if text and text != channel:
+            values.append(text)
+    return normalize_tags(
+        values,
+        fallback=channel,
+        max_tags=6,
+        allow_custom=True,
+    )
+
+
+def _item_entities(item: ContentItem) -> list[str]:
+    meta = item.metadata if isinstance(item.metadata, dict) else {}
+    return normalize_entities(item.ai_entities or _as_list(meta.get("entities")))
+
+
+def _ensure_articles_light_columns(conn: sqlite3.Connection) -> None:
+    existing = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(articles_light)").fetchall()
+    }
+    for name, definition in ARTICLE_LIGHT_TAXONOMY_COLUMNS.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE articles_light ADD COLUMN {name} {definition}")
 
 
 class ArticleStore:
@@ -138,6 +194,11 @@ class ArticleStore:
                 summary_zh TEXT,
                 category TEXT,
                 tags_json TEXT NOT NULL DEFAULT '[]',
+                channel TEXT,
+                topics_json TEXT NOT NULL DEFAULT '[]',
+                signal_strength TEXT,
+                signal_type TEXT,
+                entities_json TEXT NOT NULL DEFAULT '[]',
                 metadata_json TEXT NOT NULL DEFAULT '{}',
                 content_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -190,6 +251,7 @@ class ArticleStore:
             CREATE INDEX IF NOT EXISTS idx_article_edges_target ON article_edges(target_article_id, score DESC);
             """
         )
+        _ensure_articles_light_columns(conn)
         conn.commit()
 
     def close(self) -> None:
@@ -202,7 +264,10 @@ class ArticleStore:
         now = _now_iso()
         for item in items:
             summary = item.ai_summary_zh or item.metadata.get("detailed_summary_zh") or item.ai_summary or ""
-            tags = _item_tags(item)
+            metadata = item.metadata if isinstance(item.metadata, dict) else {}
+            channel = _item_channel(item)
+            topics = _item_topics(item, channel=channel)
+            entities = _item_entities(item)
             rows.append(
                 {
                     "id": item.id,
@@ -217,8 +282,18 @@ class ArticleStore:
                     "score": float(item.ai_score or 0),
                     "reason": item.ai_reason or "",
                     "summary_zh": str(summary),
-                    "category": item.ai_category or "",
-                    "tags_json": _json_dumps(tags),
+                    "category": channel,
+                    "tags_json": _json_dumps(topics),
+                    "channel": channel,
+                    "topics_json": _json_dumps(topics),
+                    "signal_strength": normalize_signal_strength(
+                        item.ai_signal_strength or metadata.get("signal_strength"),
+                        score=item.ai_score,
+                    ),
+                    "signal_type": normalize_signal_type(
+                        item.ai_signal_type or metadata.get("signal_type")
+                    ),
+                    "entities_json": _json_dumps(entities),
                     "metadata_json": _json_dumps(item.metadata or {}),
                     "content_hash": content_hash(item.title, item.content or "", summary),
                     "created_at": now,
@@ -234,11 +309,13 @@ class ArticleStore:
             INSERT INTO articles_light (
                 id, source_type, source, title, url, normalized_url, author,
                 published_at, fetched_at, score, reason, summary_zh, category,
-                tags_json, metadata_json, content_hash, created_at, updated_at
+                tags_json, channel, topics_json, signal_strength, signal_type,
+                entities_json, metadata_json, content_hash, created_at, updated_at
             ) VALUES (
                 :id, :source_type, :source, :title, :url, :normalized_url, :author,
                 :published_at, :fetched_at, :score, :reason, :summary_zh, :category,
-                :tags_json, :metadata_json, :content_hash, :created_at, :updated_at
+                :tags_json, :channel, :topics_json, :signal_strength, :signal_type,
+                :entities_json, :metadata_json, :content_hash, :created_at, :updated_at
             )
             ON CONFLICT(id) DO UPDATE SET
                 source_type=excluded.source_type,
@@ -254,6 +331,11 @@ class ArticleStore:
                 summary_zh=excluded.summary_zh,
                 category=excluded.category,
                 tags_json=excluded.tags_json,
+                channel=excluded.channel,
+                topics_json=excluded.topics_json,
+                signal_strength=excluded.signal_strength,
+                signal_type=excluded.signal_type,
+                entities_json=excluded.entities_json,
                 metadata_json=excluded.metadata_json,
                 content_hash=excluded.content_hash,
                 updated_at=excluded.updated_at
@@ -475,21 +557,31 @@ class ArticleStore:
 
     @staticmethod
     def _article_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        data = {key: row[key] for key in row.keys()}
+        topics = _json_loads(data.get("topics_json"), [])
+        if not topics:
+            topics = _json_loads(data.get("tags_json"), [])
+        channel = data.get("channel") or data.get("category") or ""
         return {
-            "id": row["id"],
-            "source_type": row["source_type"],
-            "source": row["source"],
-            "title": row["title"],
-            "url": row["url"],
-            "normalized_url": row["normalized_url"],
-            "author": row["author"] or "",
-            "published_at": row["published_at"] or "",
-            "fetched_at": row["fetched_at"] or "",
-            "score": float(row["score"] or 0),
-            "reason": row["reason"] or "",
-            "summary_zh": row["summary_zh"] or "",
-            "category": row["category"] or "",
-            "tags": _json_loads(row["tags_json"], []),
-            "metadata": _json_loads(row["metadata_json"], {}),
-            "content_hash": row["content_hash"],
+            "id": data["id"],
+            "source_type": data["source_type"],
+            "source": data["source"],
+            "title": data["title"],
+            "url": data["url"],
+            "normalized_url": data["normalized_url"],
+            "author": data.get("author") or "",
+            "published_at": data.get("published_at") or "",
+            "fetched_at": data.get("fetched_at") or "",
+            "score": float(data.get("score") or 0),
+            "reason": data.get("reason") or "",
+            "summary_zh": data.get("summary_zh") or "",
+            "channel": channel,
+            "topics": topics,
+            "signal_strength": data.get("signal_strength") or "",
+            "signal_type": data.get("signal_type") or "",
+            "entities": _json_loads(data.get("entities_json"), []),
+            "category": channel,
+            "tags": topics,
+            "metadata": _json_loads(data.get("metadata_json"), {}),
+            "content_hash": data["content_hash"],
         }
