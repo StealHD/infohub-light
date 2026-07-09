@@ -9,6 +9,10 @@ function subscriptionUserIsAdmin() {
   return !!(state.auth.user && ['owner', 'admin'].indexOf(state.auth.user.role) >= 0);
 }
 
+function viewerWriteDisabledAttr() {
+  return subscriptionUserIsViewer() ? ' disabled title="viewer 只读，不能执行写操作" aria-disabled="true"' : '';
+}
+
 function setSubscriptionMessage(message, type) {
   var el = document.getElementById('subscriptionMessage');
   if (!el) return;
@@ -99,13 +103,14 @@ function topicText(topics) {
 
 function renderSourceCard(source, subscribed) {
   var viewer = subscriptionUserIsViewer();
+  var disabledAttr = viewerWriteDisabledAttr();
   var scope = source.scope || '';
   var secretLine = source.secret_env
     ? '<span class="subscription-badge">密钥变量 ' + escapeHtml(source.secret_env) + '</span>'
     : '';
   var action = subscribed
-    ? '<button type="button" data-unsubscribe-source="' + escapeHtml(source.id) + '"' + (viewer ? ' disabled' : '') + '>取消订阅</button>'
-    : '<button class="primary" type="button" data-subscribe-source="' + escapeHtml(source.id) + '"' + (viewer ? ' disabled' : '') + '>订阅</button>';
+    ? '<button type="button" data-unsubscribe-source="' + escapeHtml(source.id) + '"' + disabledAttr + '>取消订阅</button>'
+    : '<button class="primary" type="button" data-subscribe-source="' + escapeHtml(source.id) + '"' + disabledAttr + '>订阅</button>';
   return [
     '<article class="subscription-card">',
     '  <div class="subscription-card-head">',
@@ -126,8 +131,8 @@ function renderSourceCard(source, subscribed) {
     '  </div>',
     '  <div class="subscription-card-actions">',
     action,
-    '    <button type="button" data-source-test="' + escapeHtml(source.id) + '"' + (viewer ? ' disabled' : '') + '>测试</button>',
-    '    <button type="button" data-source-fetch="' + escapeHtml(source.id) + '"' + (viewer ? ' disabled' : '') + '>抓取</button>',
+    '    <button type="button" data-source-test="' + escapeHtml(source.id) + '"' + disabledAttr + '>测试</button>',
+    '    <button type="button" data-source-fetch="' + escapeHtml(source.id) + '"' + disabledAttr + '>抓取</button>',
     '  </div>',
     '</article>',
   ].join('');
@@ -135,6 +140,7 @@ function renderSourceCard(source, subscribed) {
 
 function renderSubscriptionCard(subscription) {
   var viewer = subscriptionUserIsViewer();
+  var disabledAttr = viewerWriteDisabledAttr();
   var enabled = subscription.enabled !== false;
   return [
     '<article class="subscription-card">',
@@ -152,10 +158,10 @@ function renderSubscriptionCard(subscription) {
     '    <span class="subscription-badge">' + escapeHtml(topicText(subscription.override_topics)) + '</span>',
     '    <span class="subscription-badge">' + escapeHtml(subscription.analysis_mode || 'full') + '</span>',
     '    <span class="subscription-badge">优先级 ' + escapeHtml(String(subscription.priority || 0)) + '</span>',
-    '  </div>',
-    '  <div class="subscription-card-actions">',
-    '    <button type="button" data-toggle-subscription="' + escapeHtml(subscription.id) + '" data-enabled="' + (enabled ? '0' : '1') + '"' + (viewer ? ' disabled' : '') + '>' + (enabled ? '停用' : '启用') + '</button>',
-    '    <button type="button" data-unsubscribe-source="' + escapeHtml(subscription.source_id) + '"' + (viewer ? ' disabled' : '') + '>取消订阅</button>',
+  '  </div>',
+  '  <div class="subscription-card-actions">',
+    '    <button type="button" data-toggle-subscription="' + escapeHtml(subscription.id) + '" data-enabled="' + (enabled ? '0' : '1') + '"' + disabledAttr + '>' + (enabled ? '停用' : '启用') + '</button>',
+    '    <button type="button" data-unsubscribe-source="' + escapeHtml(subscription.source_id) + '"' + disabledAttr + '>取消订阅</button>',
     '  </div>',
     '</article>',
   ].join('');
@@ -239,7 +245,7 @@ function renderJobs(jobs) {
         '  <span>' + escapeHtml(job.status || '') + '</span>',
         '  <span>' + escapeHtml(String(job.attempts || 0)) + ' / ' + escapeHtml(String(job.max_attempts || 1)) + '</span>',
         '  <span>' + escapeHtml(formatDate(job.updated_at || job.created_at)) + '</span>',
-        job.error_message ? '  <span class="subscription-job-error">' + escapeHtml(job.error_message) + '</span>' : '',
+        (job.error_code || job.error_message) ? '  <span class="subscription-job-error">' + escapeHtml([job.error_code, job.error_message].filter(Boolean).join(': ')) + '</span>' : '',
         '  <div class="subscription-job-actions">',
         canCancel ? '    <button type="button" data-cancel-job="' + escapeHtml(job.id) + '">取消</button>' : '',
         canRetry ? '    <button type="button" data-retry-job="' + escapeHtml(job.id) + '">重试</button>' : '',
@@ -306,6 +312,7 @@ function renderSubscriptionConsole(data) {
     '队列 ' + (summary.queued_job_count || 0),
   ].filter(Boolean).join(' · ');
   document.getElementById('refreshMyFeedBtn').disabled = viewer;
+  document.getElementById('refreshMyFeedBtn').title = viewer ? 'viewer 只读，不能执行写操作' : '';
 
   document.getElementById('subscriptionConsole').innerHTML = [
     '<section class="subscription-section">',

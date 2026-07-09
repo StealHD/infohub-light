@@ -126,6 +126,24 @@
 - 未解决问题：未运行 Docker 手动 smoke；本组不做归档分析扩展
 - 控制面变更：更新 API 合同、阶段计划和 defaults，记录 API 验收边界
 
+### 2026-07-09 15:25 Codex
+- 任务：实现 Docker 组合 Smoke 与本地验收固化 v1
+- 读取文件：`executing-plans`/`test-driven-development`/`using-git-worktrees` skill、现有 smoke 脚本、Docker compose、smoke 文档、计划/defaults/工作记录
+- 修改文件：`scripts/service_stack_smoke.py`、`tests/test_service_stack_smoke_script.py`、`docs/dev/service-api-smoke.md`、`PLAN.md`、`project-defaults.yaml`、`INIT_PRO_VALIDATION.md`、`WORKLOG.md`
+- 执行验证：`./.venv/bin/pytest tests/test_service_stack_smoke_script.py tests/test_service_api_smoke_script.py tests/test_real_source_smoke_script.py -q` 通过；Python 编译检查通过；init-pro validator 通过；`git diff --check` 通过；Docker API-only stack smoke 通过
+- 结果：新增一条命令启动 Docker API、等待 health、运行核心 API smoke，并可显式追加真实源 smoke 与 worker 的汇总验收脚本
+- 未解决问题：未在本记录追加时运行真实 Docker full smoke；默认 API-only 不访问外网
+- 控制面变更：更新阶段计划和 defaults，记录组合 smoke 验收能力
+
+### 2026-07-09 16:33 Codex
+- 任务：实现静态 UI 最小可用闭环与浏览器验收 v1
+- 读取文件：`executing-plans`/`test-driven-development`/`using-git-worktrees` skill、静态 UI JS、smoke 脚本、静态 UI 测试、smoke 文档、计划/defaults/工作记录
+- 修改文件：`src/ui/static/auth.js`、`src/ui/static/subscriptions.js`、`scripts/service_ui_smoke.py`、`scripts/service_stack_smoke.py`、相关测试、`docs/dev/service-api-smoke.md`、`PLAN.md`、`project-defaults.yaml`、`WORKLOG.md`
+- 执行验证：`./.venv/bin/pytest tests/test_static_reading_ui.py tests/test_service_ui_smoke_script.py tests/test_service_stack_smoke_script.py tests/test_api_service.py -q` 通过；`node --check src/ui/static/*.js` 通过；Python 编译检查通过；init-pro validator 通过；独立 `service_ui_smoke.py` 通过；`git diff --check` 通过；Docker 组合 smoke 在 `docker compose up -d --build horizon-api` 阶段被中断，未完成
+- 结果：统一静态 UI auth API 路径，新增 viewer 只读提示、job 错误码显示、UI smoke 脚本和 stack smoke UI 步骤
+- 未解决问题：Docker 组合 smoke 未完成；不做复杂前端工程，不扩展归档分析或推荐排序
+- 控制面变更：更新阶段计划和 defaults，记录静态 UI smoke 验收能力
+
 ## 追加记录模板
 
 ```md

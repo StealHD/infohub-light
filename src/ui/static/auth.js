@@ -21,7 +21,7 @@ function normalizeAuthPayload(rawPayload) {
 
 async function loadAuthStatus(options) {
   try {
-    var response = await fetch('./api/auth/status?ts=' + Date.now());
+    var response = await fetch('/api/auth/status?ts=' + Date.now());
     var payload = await response.json();
     if (!response.ok) throw new Error(apiErrorMessage(payload, 'HTTP ' + response.status));
     state.auth = normalizeAuthPayload(payload);
@@ -111,7 +111,7 @@ async function handleAuthLoginSubmit(event) {
   var payload = formPayload(form);
   setConfigMessage('正在登录...', '');
   try {
-    var response = await fetch('./api/auth/login', {
+    var response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -135,7 +135,7 @@ async function handleAuthLoginSubmit(event) {
 async function handleAuthLogout() {
   setConfigMessage('正在退出后台...', '');
   try {
-    var response = await fetch('./api/auth/logout', { method: 'POST' });
+    var response = await fetch('/api/auth/logout', { method: 'POST' });
     var result = await response.json();
     if (!response.ok) throw new Error(apiErrorMessage(result, 'HTTP ' + response.status));
     state.auth = normalizeAuthPayload(result.auth || result);

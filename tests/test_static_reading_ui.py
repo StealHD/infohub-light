@@ -160,9 +160,12 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "data.job_type" in js_bundle
     assert "normalizeAuthPayload" in js_bundle
     assert "payload.user.username" in js_bundle
-    assert "./api/auth/status" in js_bundle
-    assert "./api/auth/login" in js_bundle
-    assert "./api/auth/logout" in js_bundle
+    assert "/api/auth/status" in js_bundle
+    assert "/api/auth/login" in js_bundle
+    assert "/api/auth/logout" in js_bundle
+    assert "./api/auth/status" not in js_bundle
+    assert "./api/auth/login" not in js_bundle
+    assert "./api/auth/logout" not in js_bundle
     assert "data-stat-action" in js_bundle
     assert "data-preview-url" in js_bundle
     assert "formatDate(item.published_at || item.fetched_at)" in js_bundle
@@ -325,6 +328,7 @@ def test_subscription_console_static_contract():
     assert "API 状态" in subscriptions_js
     assert 'scope: "private"' in subscriptions_js or 'scope:"private"' in subscriptions_js
     assert "state.auth.user.role === 'viewer'" in subscriptions_js
+    assert "viewer 只读，不能执行写操作" in subscriptions_js
     assert "secret_env" in subscriptions_js
     assert "订阅" in subscriptions_js
     assert "公共源市场" in subscriptions_js
@@ -351,6 +355,7 @@ def test_subscription_console_job_controls_contract():
     assert "retryJob" in subscriptions_js
     assert "attempts" in subscriptions_js
     assert "max_attempts" in subscriptions_js
+    assert "error_code" in subscriptions_js
     assert "error_message" in subscriptions_js
     assert ".subscription-job-actions" in subscriptions_css
 

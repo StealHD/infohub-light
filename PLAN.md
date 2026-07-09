@@ -23,13 +23,13 @@
 13. 真实源验证 v1：catalog `source_fetch` 按 `source_id` 精准合成用户作用域单源配置，Worker 保存用户 feed snapshot，并提供 RSS/Hacker News/GitHub Releases/Telegram 的 Service API smoke 脚本。
 14. 基本功能 API 收口 v1：当前用户 feed item 的已读、收藏、稍后读、忽略和反馈入库，并在静态阅读页提供最小操作按钮。
 15. 核心 Service API 验收与权限矩阵 v1：统一 `/api/*` validation/404 error envelope，补齐角色权限矩阵测试，并新增无外网依赖的核心 API smoke 脚本和 curl 文档。
+16. Docker 组合 Smoke 与本地验收固化 v1：一条命令启动 Docker API、等待 health、运行核心 API smoke，并可显式追加真实源 smoke 与 worker 验收，输出统一汇总报告。
+17. 静态 UI 最小可用闭环 v1：登录、订阅、阅读页统一走 `/api/*`，补齐 viewer 只读提示、job 错误显示、UI smoke 和浏览器验收清单。
 
 当前仍需推进：
 
-1. 在 Docker 本地环境中固定运行 `service_api_smoke.py` 与 `service_real_source_smoke.py` 的组合验收。
-2. 后续再决定是否把用户行为信号用于个人排序或推荐；当前不改排序。
-3. 对登录、订阅、阅读三个静态页面做小范围可用性修补，不引入复杂前端工程。
-4. 清理或归档过期计划，保持唯一真源。
+1. 后续再决定是否把用户行为信号用于个人排序或推荐；当前不改排序。
+2. 清理或归档过期计划，保持唯一真源。
 
 ## 3. Agent 开工前默认读取
 默认先读：

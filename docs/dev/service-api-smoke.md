@@ -27,6 +27,72 @@
 
 `--mutating` 会创建或复用一个 private RSS smoke source、订阅它、创建 `source_test` queued job；如果当前 feed 有 item，会验证 item state 和 feedback API。
 
+## 静态 UI smoke
+
+启动 API 后运行：
+
+```bash
+./.venv/bin/python scripts/service_ui_smoke.py \
+  --base-url http://127.0.0.1:8080 \
+  --username "$HORIZON_AUTH_USER" \
+  --password "$HORIZON_AUTH_PASSWORD" \
+  --json-output logs/service-ui-smoke-latest.json
+```
+
+UI smoke 会登录 API、读取 `/` 和静态 JS/CSS 资源、确认页面包含阅读/订阅/配置入口，并检查静态 JS 不再请求本地 `radar-data.json`、`history-data.json` 或 `article-graph.json`。需要验证 UI 写路径时可增加 `--mutating`，它只创建本地 smoke private RSS source 和 queued `source_test` job，不访问外网。
+
+## Docker 组合验收
+
+默认只验证 Docker API health 和无外网依赖的核心 API smoke：
+
+```bash
+./.venv/bin/python scripts/service_stack_smoke.py \
+  --compose-file docker-compose.light.yml \
+  --base-url http://127.0.0.1:8080 \
+  --username "$HORIZON_AUTH_USER" \
+  --password "$HORIZON_AUTH_PASSWORD" \
+  --api-only \
+  --json-output logs/service-stack-smoke-latest.json
+```
+
+需要同时跑静态 UI smoke 时增加 `--include-ui-smoke`：
+
+```bash
+./.venv/bin/python scripts/service_stack_smoke.py \
+  --compose-file docker-compose.light.yml \
+  --base-url http://127.0.0.1:8080 \
+  --username "$HORIZON_AUTH_USER" \
+  --password "$HORIZON_AUTH_PASSWORD" \
+  --api-only \
+  --include-ui-smoke \
+  --json-output logs/service-stack-smoke-latest.json
+```
+
+需要跑真实公共源闭环时显式开启 full 模式：
+
+```bash
+./.venv/bin/python scripts/service_stack_smoke.py \
+  --compose-file docker-compose.light.yml \
+  --base-url http://127.0.0.1:8080 \
+  --username "$HORIZON_AUTH_USER" \
+  --password "$HORIZON_AUTH_PASSWORD" \
+  --full-real-source \
+  --run-worker \
+  --json-output logs/service-stack-smoke-latest.json
+```
+
+组合报告只汇总 `compose_up`、`api_health`、`api_smoke`、`ui_smoke`、`real_source_smoke` 等步骤状态和子报告路径；核心 API、UI 和真实源 smoke 仍各自写入独立 JSON 报告。默认 `--api-only` 不访问外网，不启动 scheduler，不触发通知或 webhook。
+
+## 浏览器手动验收
+
+Docker API 启动后打开 `http://127.0.0.1:8080/`：
+
+1. 未登录时应显示登录门禁，阅读、订阅写操作不可用。
+2. 登录后阅读页应能加载 `/api/feed/latest` 的空状态或 item。
+3. 订阅页应显示公共源市场、我的订阅、任务队列和 API 状态。
+4. viewer 角色写按钮应禁用，并显示“viewer 只读，不能执行写操作”。
+5. 阅读页 item 的已读、收藏、稍后读、忽略和“不相关”反馈按钮应有可见反馈，浏览器 console 不应出现明显 API 路径错误。
+
 ## curl 最小流程
 
 登录并保存 cookie：

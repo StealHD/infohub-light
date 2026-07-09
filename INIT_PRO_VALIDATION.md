@@ -4,7 +4,7 @@
 
 - Project root: `/Users/stealmac/Documents/Inteliscope/infohub-light`
 - Primary config: `project-defaults.yaml`
-- Generated at: `2026-07-09 15:16:20`
+- Generated at: `2026-07-09 16:38:52`
 - Overall status: `PASS`
 
 - PASS: 42

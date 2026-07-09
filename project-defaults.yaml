@@ -28,6 +28,9 @@ features:
   api_error_envelope_validation_enabled: true
   api_permissions_matrix_enabled: true
   service_api_smoke_enabled: true
+  service_stack_smoke_enabled: true
+  service_ui_smoke_enabled: true
+  static_ui_minimum_flow_enabled: true
   static_site_enabled: true
   archive_analysis_enabled: "optional"
   article_graph_enabled: "optional"
@@ -158,4 +161,6 @@ verification:
   python_syntax: "python3 -m py_compile <changed python files>"
   static_js_syntax: "node --check src/ui/static/*.js"
   control_plane: "python3 ${CODEX_HOME:-$HOME/.codex}/skills/init-pro/scripts/validate_project_controls.py --project-root . --primary-config project-defaults.yaml --output INIT_PRO_VALIDATION.md"
+  service_ui_smoke: "./.venv/bin/python scripts/service_ui_smoke.py --base-url http://127.0.0.1:8080 --json-output logs/service-ui-smoke-latest.json"
+  service_stack_smoke: "./.venv/bin/python scripts/service_stack_smoke.py --compose-file docker-compose.light.yml --base-url http://127.0.0.1:8080 --api-only --json-output logs/service-stack-smoke-latest.json"
   real_source_smoke: "uv run python scripts/service_real_source_smoke.py --base-url http://127.0.0.1:8080 --run-worker --hours 168"
