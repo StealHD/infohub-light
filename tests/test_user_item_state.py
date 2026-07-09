@@ -90,6 +90,42 @@ def test_user_item_state_upserts_toggles_and_isolates_users(tmp_path, monkeypatc
     assert alice_state["is_saved"] is False
 
 
+def test_user_item_state_counts_current_user_flags(tmp_path, monkeypatch):
+    store, workspace, owner, alice = _store_with_visible_items(tmp_path, monkeypatch)
+    states = UserItemStateStore(store)
+
+    states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:1",
+        is_read=True,
+        is_saved=True,
+    )
+    states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:2",
+        is_later=True,
+        dismissed=True,
+    )
+    states.update_state(
+        workspace_id=workspace["id"],
+        user_id=alice["id"],
+        article_id="rss:item:1",
+        is_read=True,
+        is_saved=True,
+        is_later=True,
+        dismissed=True,
+    )
+
+    assert states.count_flags(workspace_id=workspace["id"], user_id=owner["id"]) == {
+        "read_count": 1,
+        "saved_count": 1,
+        "later_count": 1,
+        "dismissed_count": 1,
+    }
+
+
 def test_user_item_feedback_validates_types_and_records_events(tmp_path, monkeypatch):
     store, workspace, owner, _alice = _store_with_visible_items(tmp_path, monkeypatch)
     states = UserItemStateStore(store)

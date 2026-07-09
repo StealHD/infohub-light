@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from src.api.server import create_app
 from src.models import ContentItem, SourceType
 from src.services.user_feed_store import UserFeedStore
+from src.services.user_item_state import UserItemStateStore
 from src.storage.article_store import ArticleStore
 from src.storage.service_store import ServiceStore
 
@@ -442,7 +443,25 @@ def test_dashboard_summary_requires_login_and_returns_counts(tmp_path, monkeypat
         workspace_id=workspace["id"],
         user_id=owner["id"],
         job_id="job_dashboard",
-        payload={"items": [], "generated_at": "2026-07-09T00:00:00+08:00"},
+        payload={
+            "items": [{"id": "rss:item:summary:1"}, {"id": "rss:item:summary:2"}],
+            "generated_at": "2026-07-09T00:00:00+08:00",
+        },
+    )
+    item_states = UserItemStateStore(store)
+    item_states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:summary:1",
+        is_read=True,
+        is_saved=True,
+        is_later=True,
+    )
+    item_states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:summary:2",
+        dismissed=True,
     )
 
     response = client.get("/api/dashboard/summary")
@@ -455,6 +474,12 @@ def test_dashboard_summary_requires_login_and_returns_counts(tmp_path, monkeypat
     assert data["running_job_count"] == 0
     assert data["failed_job_count"] == 0
     assert data["latest_generated_at"] == "2026-07-09T00:00:00+08:00"
+    assert data["item_state_counts"] == {
+        "read_count": 1,
+        "saved_count": 1,
+        "later_count": 1,
+        "dismissed_count": 1,
+    }
     assert data["current_user"]["username"] == "owner"
     assert "password_hash" not in data["current_user"]
 
@@ -728,6 +753,74 @@ def test_item_state_api_updates_visible_items_and_feed_returns_user_state(tmp_pa
     assert latest["items"][0]["user_state"]["is_read"] is True
     assert latest["items"][0]["user_state"]["is_saved"] is True
     assert latest["items"][0]["user_state"]["is_later"] is True
+
+
+def test_feed_latest_applies_current_user_state_filters_and_sorting(tmp_path, monkeypatch):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    member = client.post(
+        "/api/users",
+        json={"username": "member", "password": "member-password", "role": "member"},
+    ).json()["data"]
+    store = ServiceStore(data_dir)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    payload = {
+        "generated_at": "2026-07-09T12:30:00+08:00",
+        "items": [
+            {"id": "rss:item:read", "title": "Read item"},
+            {"id": "rss:item:dismissed", "title": "Dismissed item"},
+            {"id": "rss:item:saved", "title": "Saved item"},
+            {"id": "rss:item:plain", "title": "Plain item"},
+        ],
+    }
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_owner",
+        payload=payload,
+    )
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        job_id="job_member",
+        payload=payload,
+    )
+    states = UserItemStateStore(store)
+    states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:read",
+        is_read=True,
+    )
+    states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:dismissed",
+        dismissed=True,
+    )
+    states.update_state(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id="rss:item:saved",
+        is_saved=True,
+    )
+
+    default_ids = [item["id"] for item in client.get("/api/feed/latest").json()["data"]["items"]]
+    hidden_ids = [item["id"] for item in client.get("/api/feed/latest?hide_dismissed=true").json()["data"]["items"]]
+    unread_ids = [item["id"] for item in client.get("/api/feed/latest?unread_first=true").json()["data"]["items"]]
+    saved_ids = [item["id"] for item in client.get("/api/feed/latest?saved_first=true").json()["data"]["items"]]
+    member_ids = [
+        item["id"]
+        for item in client.get(f"/api/feed/latest?user_id={member['id']}&hide_dismissed=true").json()["data"]["items"]
+    ]
+
+    assert default_ids == ["rss:item:read", "rss:item:dismissed", "rss:item:saved", "rss:item:plain"]
+    assert hidden_ids == ["rss:item:read", "rss:item:saved", "rss:item:plain"]
+    assert unread_ids == ["rss:item:dismissed", "rss:item:saved", "rss:item:plain", "rss:item:read"]
+    assert saved_ids == ["rss:item:saved", "rss:item:read", "rss:item:dismissed", "rss:item:plain"]
+    assert member_ids == ["rss:item:read", "rss:item:dismissed", "rss:item:saved", "rss:item:plain"]
 
 
 def test_viewer_cannot_write_item_state_or_feedback(tmp_path, monkeypatch):

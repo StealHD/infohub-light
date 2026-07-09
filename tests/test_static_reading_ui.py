@@ -33,6 +33,7 @@ def test_static_ui_exposes_reading_layout_contract():
 
 
 def test_static_ui_keeps_reader_state_and_render_functions():
+    html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
     js_bundle = "\n".join(
         (STATIC_DIR / name).read_text(encoding="utf-8")
         for name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "subscriptions.js", "article_graph.js", "app.js"]
@@ -117,6 +118,8 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'subscriptions', 'config']" in js_bundle
     assert "VIEW_OPTIONS = ['featured', 'personal'" not in js_bundle
     assert "historyFilter: 'all'" in js_bundle
+    assert "hideDismissed: false" in js_bundle
+    assert "unreadFirst: false" in js_bundle
     assert "URLSearchParams(window.location.search).get('view')" in js_bundle
     assert "envStatus: []" in js_bundle
     assert "auth_enabled" in js_bundle
@@ -136,6 +139,8 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "./radar-data.json?ts=" not in js_bundle
     assert "./history-data.json?ts=" not in js_bundle
     assert "/api/feed/latest?ts=" in js_bundle
+    assert "hide_dismissed=true" in js_bundle
+    assert "unread_first=true" in js_bundle
     assert "/api/feed/history?ts=" in js_bundle
     assert "/api/config?ts=" in js_bundle
     assert "/api/me/item-state" in js_bundle
@@ -145,6 +150,14 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "user_state" in js_bundle
     assert "data-item-state-action" in js_bundle
     assert "data-feedback-action" in js_bundle
+    assert "hideDismissed" in js_bundle
+    assert "unreadFirst" in js_bundle
+    assert "隐藏已忽略" in html
+    assert "未读优先" in html
+    assert "state.hideDismissed" in js_bundle
+    assert "state.unreadFirst" in js_bundle
+    assert "item_state_counts" in js_bundle
+    assert "dismissed_count" in js_bundle
     assert "/api/config/action" in js_bundle
     assert "/api/source/test" in js_bundle
     assert "/api/source/update" in js_bundle

@@ -144,6 +144,15 @@
 - 未解决问题：Docker 组合 smoke 未完成；不做复杂前端工程，不扩展归档分析或推荐排序
 - 控制面变更：更新阶段计划和 defaults，记录静态 UI smoke 验收能力
 
+### 2026-07-09 19:17 Codex
+- 任务：实现用户行为信号轻量阅读体验 v1
+- 读取文件：`executing-plans`/`test-driven-development` skill、FeedArchiveService、UserItemStateStore、Service API、静态阅读页、目标测试和控制面文件
+- 修改文件：`src/services/user_item_state.py`、`src/services/feed_archive.py`、`src/api/server.py`、`src/ui/static/state.js`、`src/ui/static/index.html`、`src/ui/static/app.js`、`src/ui/static/utils.js`、`src/ui/static/reader.js`、`src/ui/static/subscriptions.js`、相关测试、API/计划/defaults/工作记录
+- 执行验证：目标 RED 测试失败后变绿；`./.venv/bin/pytest tests/test_api_service.py tests/test_user_item_state.py tests/test_static_reading_ui.py -q` 通过；`node --check src/ui/static/*.js` 通过；Python 编译检查通过；init-pro validator 通过；`git diff --check` 通过；独立 `service_ui_smoke.py` 通过
+- 结果：`/api/feed/latest` 支持当前用户 state 过滤/排序，dashboard 返回 item state 计数，阅读页新增隐藏已忽略和未读优先开关
+- 未解决问题：不做推荐模型，不扩展归档趋势或 source-quality
+- 控制面变更：更新 API 合同、阶段计划和 defaults，记录行为信号轻量阅读体验
+
 ## 追加记录模板
 
 ```md

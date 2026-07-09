@@ -91,6 +91,26 @@ class UserItemStateStore:
             article_ids=[article_id],
         ).get(article_id, self._default_state(article_id))
 
+    def count_flags(self, *, workspace_id: str, user_id: str) -> dict[str, int]:
+        row = self.store.connect().execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END), 0) AS read_count,
+                COALESCE(SUM(CASE WHEN is_saved = 1 THEN 1 ELSE 0 END), 0) AS saved_count,
+                COALESCE(SUM(CASE WHEN is_later = 1 THEN 1 ELSE 0 END), 0) AS later_count,
+                COALESCE(SUM(CASE WHEN dismissed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS dismissed_count
+            FROM user_item_state
+            WHERE workspace_id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+        return {
+            "read_count": int(row["read_count"] or 0),
+            "saved_count": int(row["saved_count"] or 0),
+            "later_count": int(row["later_count"] or 0),
+            "dismissed_count": int(row["dismissed_count"] or 0),
+        }
+
     def update_state(
         self,
         *,

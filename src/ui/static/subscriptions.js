@@ -268,6 +268,7 @@ function renderApiStatus(apiStatus, summary) {
   summary = summary || {};
   var snapshots = (apiStatus.history && apiStatus.history.snapshots) || [];
   var latest = snapshots[0] || {};
+  var itemStateCounts = summary.item_state_counts || {};
   var qualityRows = (apiStatus.sourceQuality || []).slice(0, 5);
   return [
     '<div class="subscription-api-status">',
@@ -275,6 +276,10 @@ function renderApiStatus(apiStatus, summary) {
     '    <div><span>最新 snapshot</span><strong>' + escapeHtml(formatDate(latest.generated_at || summary.latest_generated_at || '')) + '</strong></div>',
     '    <div><span>可见 item</span><strong>' + escapeHtml(String(latest.item_count != null ? latest.item_count : 0)) + '</strong></div>',
     '    <div><span>失败任务</span><strong>' + escapeHtml(String(summary.failed_job_count || 0)) + '</strong></div>',
+    '    <div><span>已读</span><strong>' + escapeHtml(String(itemStateCounts.read_count || 0)) + '</strong></div>',
+    '    <div><span>收藏</span><strong>' + escapeHtml(String(itemStateCounts.saved_count || 0)) + '</strong></div>',
+    '    <div><span>稍后读</span><strong>' + escapeHtml(String(itemStateCounts.later_count || 0)) + '</strong></div>',
+    '    <div><span>已忽略</span><strong>' + escapeHtml(String(itemStateCounts.dismissed_count || 0)) + '</strong></div>',
     '  </div>',
     qualityRows.length ? [
       '  <div class="subscription-quality-list">',

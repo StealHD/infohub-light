@@ -25,11 +25,11 @@
 15. 核心 Service API 验收与权限矩阵 v1：统一 `/api/*` validation/404 error envelope，补齐角色权限矩阵测试，并新增无外网依赖的核心 API smoke 脚本和 curl 文档。
 16. Docker 组合 Smoke 与本地验收固化 v1：一条命令启动 Docker API、等待 health、运行核心 API smoke，并可显式追加真实源 smoke 与 worker 验收，输出统一汇总报告。
 17. 静态 UI 最小可用闭环 v1：登录、订阅、阅读页统一走 `/api/*`，补齐 viewer 只读提示、job 错误显示、UI smoke 和浏览器验收清单。
+18. 用户行为信号轻量阅读体验 v1：`/api/feed/latest` 支持当前用户 state 过滤/排序，dashboard 返回 item state 计数，静态阅读页提供隐藏已忽略和未读优先开关。
 
 当前仍需推进：
 
-1. 后续再决定是否把用户行为信号用于个人排序或推荐；当前不改排序。
-2. 清理或归档过期计划，保持唯一真源。
+1. 清理或归档过期计划，保持唯一真源。
 
 ## 3. Agent 开工前默认读取
 默认先读：

@@ -72,6 +72,8 @@ var state = {
   tag: '',
   source: '',
   favoritesOnly: false,
+  hideDismissed: false,
+  unreadFirst: false,
   favorites: loadSet(STORAGE_FAVORITES),
   readLater: loadSet(STORAGE_READ_LATER),
   readItems: loadSet(STORAGE_READ_ITEMS),

@@ -302,7 +302,9 @@ function itemChannel(item) {
 
 function getFilteredItems() {
   var minScore = getEffectiveMinScore();
-  return getBaseItems().filter(function (item) {
+  var items = getBaseItems().filter(function (item) {
+    var userState = itemUserState(item);
+    if (state.hideDismissed && userState.dismissed) return false;
     if (isAiScoringEnabled() && (item.score || 0) < minScore) return false;
     if (state.channel && itemChannel(item) !== state.channel) return false;
     if (state.tag && !itemHasTag(item, state.tag)) return false;
@@ -310,6 +312,12 @@ function getFilteredItems() {
     if (state.favoritesOnly && !state.favorites.has(item.id)) return false;
     return matchesQuery(item);
   });
+  if (state.unreadFirst) {
+    items.sort(function (a, b) {
+      return (itemUserState(a).is_read ? 1 : 0) - (itemUserState(b).is_read ? 1 : 0);
+    });
+  }
+  return items;
 }
 
 function itemHasTag(item, tag) {

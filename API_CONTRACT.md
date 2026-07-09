@@ -99,14 +99,14 @@ capability / degrade：
 
 1. `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`：基于 cookie session 的用户登录状态。
 2. `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`：管理员管理小团体成员。响应不得包含 `password_hash`。
-3. `GET /api/dashboard/summary`：登录后订阅控制台汇总，返回当前用户、可见 source 数、订阅数、queued/running/failed job 数和最新 feed 时间。
+3. `GET /api/dashboard/summary`：登录后订阅控制台汇总，返回当前用户、可见 source 数、订阅数、queued/running/failed job 数、最新 feed 时间和当前用户 `item_state_counts`。
 4. `GET /api/catalog/source-types`：返回 source type registry 元数据、必填字段和 config template。
 5. `GET /api/catalog/sources`, `POST /api/catalog/sources`, `PATCH /api/catalog/sources/{id}`, `DELETE /api/catalog/sources/{id}`：公共、workspace、private source catalog；创建/更新必须通过 registry 校验 config 并写入 `source_key`；删除为软删除。
 6. `POST /api/catalog/import-config-sources`：管理员把 `data/config.json` 中旧 source 列表幂等导入 `source_catalog`，可 `dry_run`，默认为当前管理员创建 subscriptions。
 7. `POST /api/catalog/sources/{id}/subscribe`, `DELETE /api/catalog/sources/{id}/subscription`：当前用户订阅或取消订阅一个可见 catalog source。
 8. `GET /api/me/subscriptions`, `POST /api/me/subscriptions`, `PATCH /api/me/subscriptions/{id}`, `DELETE /api/me/subscriptions/{id}`：当前用户订阅配置。
 9. `POST /api/jobs/source-test`, `POST /api/jobs/source-fetch`, `POST /api/jobs/user-feed-refresh`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/retry`, `GET /api/jobs/{id}`, `GET /api/jobs`：创建、取消、重试和查询异步任务。`source_fetch` 带 `source_id` 时表示按 catalog source 精准抓取当前用户作用域。
-10. `GET /api/feed/latest`, `GET /api/feed/history`：登录后访问当前用户作用域 feed snapshot；无 snapshot 时返回空 payload，并标记 `scope=user/degraded/no_user_snapshot`。
+10. `GET /api/feed/latest`, `GET /api/feed/history`：登录后访问当前用户作用域 feed snapshot；无 snapshot 时返回空 payload，并标记 `scope=user/degraded/no_user_snapshot`。`latest` 支持 `hide_dismissed=true`、`unread_first=true`、`saved_first=true`，只使用目标用户自己的 item state。
 11. `GET /api/me/item-state`, `PATCH /api/me/items/{article_id}/state`, `POST /api/me/items/{article_id}/feedback`：当前用户 feed item 的已读、收藏、稍后读、忽略和简单反馈 API。
 12. `GET /api/archive/graph`, `GET /api/archive/items`, `GET /api/archive/trends`, `GET /api/archive/facets`, `GET /api/archive/source-quality`：登录后访问的用户作用域归档和关系分析读取 API。
 13. `GET /api/config`, `POST /api/config/action`：配置页兼容 facade。读取时返回旧配置页可消费的 `config/env_status`，但 source 列表由 `source_catalog + user_subscriptions` 合成；非 source 全局配置仍写 `data/config.json`。
@@ -167,7 +167,8 @@ Feed / archive 规则：
 
 1. `GET /api/feed/latest` 默认返回当前用户最新 snapshot；不得在多人 Service API 中把全局 `data/site/radar-data.json` 当作用户默认 feed。
 2. `GET /api/feed/latest` 的 item 应包含当前用户的 `user_state`，最少表达 `is_read/is_saved/is_later/dismissed` 和对应时间字段；无状态时返回 false/空时间。
-3. `GET /api/feed/history` 返回 `{snapshots, scope}`，snapshot 摘要包含 `snapshot_id/generated_at/item_count/job_id`。
+3. `GET /api/feed/latest?hide_dismissed=true` 不返回当前用户已忽略 item；`unread_first=true` 将未读 item 稳定排到已读前；`saved_first=true` 将收藏 item 稳定排到未收藏前。默认参数全部为 false，保持 snapshot 原始顺序。
+4. `GET /api/feed/history` 返回 `{snapshots, scope}`，snapshot 摘要包含 `snapshot_id/generated_at/item_count/job_id`。
 4. `GET /api/archive/items` 返回 `{items, page, filters, scope}`，支持 `channel/topic/source/date_from/date_to/min_score/limit/offset/sort/order`。
 5. `GET /api/archive/trends` 支持 `group_by=channel|topic|entity|source` 和 `bucket=none|day|week`。
 6. `GET /api/archive/facets` 返回当前用户可见归档的 `channels/topics/sources/entities` 计数。

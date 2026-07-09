@@ -413,6 +413,16 @@ function bindEvents() {
     state.favoritesOnly = event.target.checked;
     renderItems();
   });
+  document.getElementById('hideDismissed').addEventListener('change', function (event) {
+    state.hideDismissed = event.target.checked;
+    state.selectedItemId = '';
+    loadData();
+  });
+  document.getElementById('unreadFirst').addEventListener('change', function (event) {
+    state.unreadFirst = event.target.checked;
+    state.selectedItemId = '';
+    loadData();
+  });
   document.querySelectorAll('.tab').forEach(function (button) {
     button.addEventListener('click', function () {
       state.view = button.dataset.view;
@@ -489,6 +499,7 @@ async function updateRemoteItemState(articleId, action, button) {
     var payload = await response.json();
     if (!response.ok) throw new Error(apiErrorMessage(payload, '状态更新失败'));
     applyUserItemState(articleId, unwrapApiPayload(payload));
+    if (action === 'dismissed' && state.hideDismissed) state.selectedItemId = '';
     renderItems();
   } catch (err) {
     if (button) showCopyFeedback(button, err.message || '状态更新失败', false, 1800);
@@ -814,6 +825,10 @@ function clearFilters() {
   document.getElementById('tagSelect').value = '';
   document.getElementById('sourceSelect').value = '';
   document.getElementById('favoritesOnly').checked = false;
+  state.hideDismissed = false;
+  state.unreadFirst = false;
+  document.getElementById('hideDismissed').checked = false;
+  document.getElementById('unreadFirst').checked = false;
   if (state.view === 'config') state.view = 'featured';
   if (state.view === 'subscriptions') state.view = 'featured';
   renderAll();

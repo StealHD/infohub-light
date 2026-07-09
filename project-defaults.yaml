@@ -3,7 +3,7 @@ project: "inteliscope-infohub-light"
 primary_runtime_config: "data/config.json"
 
 system:
-  current_phase: "private reading filters and archive-analysis readiness"
+  current_phase: "behavior-aware reading experience"
   capability_degrade_enabled: true
   evidence_required: true
   default_timezone: "Asia/Shanghai"
@@ -25,6 +25,8 @@ features:
   real_source_smoke_enabled: true
   user_item_state_enabled: true
   user_item_feedback_enabled: true
+  feed_behavior_filters_enabled: true
+  item_state_counts_enabled: true
   api_error_envelope_validation_enabled: true
   api_permissions_matrix_enabled: true
   service_api_smoke_enabled: true

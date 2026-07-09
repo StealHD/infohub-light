@@ -1243,6 +1243,7 @@ def create_app(
             user_id=None if _is_admin(user) else user["id"],
         )
         latest = feed_archive.latest_feed(workspace_id=user["workspace_id"], user_id=user["id"])
+        item_state_counts = item_state.count_flags(workspace_id=user["workspace_id"], user_id=user["id"])
         return ok(
             {
                 "source_count": len(sources),
@@ -1251,6 +1252,7 @@ def create_app(
                 "running_job_count": len([job for job in jobs if job["status"] == "running"]),
                 "failed_job_count": len([job for job in jobs if job["status"] == "failed"]),
                 "latest_generated_at": latest.get("generated_at"),
+                "item_state_counts": item_state_counts,
                 "current_user": _sanitize_user(user),
             }
         )
@@ -1258,10 +1260,21 @@ def create_app(
     @app.get("/api/feed/latest")
     async def feed_latest(
         user_id: str | None = None,
+        hide_dismissed: bool = False,
+        unread_first: bool = False,
+        saved_first: bool = False,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         target = target_user_for_scope(user_id, user)
-        return ok(feed_archive.latest_feed(workspace_id=target["workspace_id"], user_id=target["id"]))
+        return ok(
+            feed_archive.latest_feed(
+                workspace_id=target["workspace_id"],
+                user_id=target["id"],
+                hide_dismissed=hide_dismissed,
+                unread_first=unread_first,
+                saved_first=saved_first,
+            )
+        )
 
     @app.get("/api/feed/history")
     async def feed_history(

@@ -6,7 +6,10 @@ async function loadData() {
   }
   document.getElementById('itemsList').innerHTML = '<div class="empty">正在读取数据...</div>';
   try {
-    var response = await fetch('/api/feed/latest?ts=' + Date.now());
+    var feedUrl = '/api/feed/latest?ts=' + Date.now();
+    if (state.hideDismissed) feedUrl += '&hide_dismissed=true';
+    if (state.unreadFirst) feedUrl += '&unread_first=true';
+    var response = await fetch(feedUrl);
     var rawPayload = await response.json();
     if (!response.ok) {
       if (response.status === 401) {

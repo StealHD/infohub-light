@@ -33,7 +33,15 @@ class FeedArchiveService:
             return fallback
         return payload if isinstance(payload, dict) else fallback
 
-    def latest_feed(self, *, workspace_id: str | None = None, user_id: str | None = None) -> dict[str, Any]:
+    def latest_feed(
+        self,
+        *,
+        workspace_id: str | None = None,
+        user_id: str | None = None,
+        hide_dismissed: bool = False,
+        unread_first: bool = False,
+        saved_first: bool = False,
+    ) -> dict[str, Any]:
         if self.store is not None and workspace_id and user_id:
             snapshot = UserFeedStore(self.store).latest_snapshot(
                 workspace_id=workspace_id,
@@ -54,6 +62,17 @@ class FeedArchiveService:
                 for item in items:
                     if isinstance(item, dict) and item.get("id"):
                         item["user_state"] = states.get(str(item["id"]))
+                if hide_dismissed:
+                    items[:] = [
+                        item
+                        for item in items
+                        if not ((item.get("user_state") or {}).get("dismissed"))
+                    ]
+                if unread_first:
+                    items.sort(key=lambda item: 1 if (item.get("user_state") or {}).get("is_read") else 0)
+                if saved_first:
+                    items.sort(key=lambda item: 0 if (item.get("user_state") or {}).get("is_saved") else 1)
+                payload["item_count"] = len(items)
                 return payload
             return {
                 "items": [],
