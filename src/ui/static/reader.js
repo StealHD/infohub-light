@@ -69,7 +69,7 @@ function renderQueue(items, selectedItem) {
 
   list.innerHTML = items.map(function (item) {
     var selected = selectedItem && item.id === selectedItem.id;
-    var read = state.readItems.has(item.id);
+    var read = itemUserState(item).is_read;
     var storyTime = formatDate(item.published_at || item.fetched_at);
     var storyMetaParts = [
       item.source || item.source_type || '未知来源',
@@ -150,8 +150,11 @@ function renderReader(item) {
     return;
   }
 
-  var favored = state.favorites.has(item.id);
-  var later = state.readLater.has(item.id);
+  var userState = itemUserState(item);
+  var read = userState.is_read;
+  var favored = userState.is_saved;
+  var later = userState.is_later;
+  var dismissed = userState.dismissed;
   var actionSuggestion = item.action_suggestion || '阅读原文后判断是否需要跟进。';
   var sourceLine = [
     item.source || item.source_type || '未知来源',
@@ -165,8 +168,9 @@ function renderReader(item) {
     '<div class="reader-toolbar">',
     '  <span>预计阅读 3 分钟 · 已按' + escapeHtml(viewLabel()) + '过滤</span>',
     '  <div class="reader-tools">',
-    '    <button class="' + (later ? 'active' : '') + '" type="button" data-read-later-action="' + escapeHtml(item.id) + '">' + (later ? '已稍后读' : '稍后读') + '</button>',
-    '    <button class="' + (favored ? 'active' : '') + '" type="button" data-favorite-action="' + escapeHtml(item.id) + '">' + (favored ? '已收藏' : '收藏') + '</button>',
+    '    <button class="' + (read ? 'active' : '') + '" type="button" data-item-state-action="is_read" data-item-id="' + escapeHtml(item.id) + '">' + (read ? '已读' : '标记已读') + '</button>',
+    '    <button class="' + (later ? 'active' : '') + '" type="button" data-item-state-action="is_later" data-item-id="' + escapeHtml(item.id) + '">' + (later ? '已稍后读' : '稍后读') + '</button>',
+    '    <button class="' + (favored ? 'active' : '') + '" type="button" data-item-state-action="is_saved" data-item-id="' + escapeHtml(item.id) + '">' + (favored ? '已收藏' : '收藏') + '</button>',
     '    <button type="button" data-copy-summary="' + escapeHtml(item.id) + '">复制摘要</button>',
     '  </div>',
     '</div>',
@@ -179,8 +183,12 @@ function renderReader(item) {
     '  <div class="reading-actions">',
     '    <a class="button-link" href="' + escapeHtml(item.url) + '" target="_blank" rel="noreferrer">打开原文</a>',
     '    <button class="text-link" type="button" data-preview-url="' + escapeHtml(item.url || '') + '">站内预览</button>',
-    '    <button class="text-link" type="button" data-favorite-action="' + escapeHtml(item.id) + '">' + (favored ? '取消收藏' : '加入收藏') + '</button>',
-    '    <button class="text-link" type="button" data-read-later-action="' + escapeHtml(item.id) + '">' + (later ? '移出稍后读' : '稍后读') + '</button>',
+    '    <button class="text-link" type="button" data-item-state-action="is_saved" data-item-id="' + escapeHtml(item.id) + '">' + (favored ? '取消收藏' : '加入收藏') + '</button>',
+    '    <button class="text-link" type="button" data-item-state-action="is_later" data-item-id="' + escapeHtml(item.id) + '">' + (later ? '移出稍后读' : '稍后读') + '</button>',
+    '    <button class="text-link" type="button" data-item-state-action="dismissed" data-item-id="' + escapeHtml(item.id) + '">' + (dismissed ? '已忽略' : '忽略') + '</button>',
+    '    <button class="text-link" type="button" data-feedback-action="more_like_this" data-item-id="' + escapeHtml(item.id) + '">更多类似</button>',
+    '    <button class="text-link" type="button" data-feedback-action="less_like_this" data-item-id="' + escapeHtml(item.id) + '">减少类似</button>',
+    '    <button class="text-link" type="button" data-feedback-action="not_relevant" data-item-id="' + escapeHtml(item.id) + '">不相关</button>',
     '  </div>',
     '  <div class="tag-row">' + renderTags(itemTopics(item)) + '</div>',
     '  <section id="inlinePreview" class="inline-preview hidden" aria-live="polite"></section>',
@@ -269,6 +277,7 @@ function renderConfigView() {
   document.getElementById('readingQueue').classList.add('hidden');
   document.getElementById('readerPanel').classList.add('hidden');
   document.getElementById('contextPanel').classList.add('hidden');
+  document.getElementById('subscriptionPanel').classList.add('hidden');
   document.getElementById('configPanel').classList.remove('hidden');
   document.getElementById('readerShell').classList.add('config-mode');
   if (!canUseConfig()) {
@@ -283,11 +292,32 @@ function renderConfigView() {
   renderConfigForms(state.config || {});
 }
 
+function renderSubscriptionView() {
+  document.getElementById('readingQueue').classList.add('hidden');
+  document.getElementById('readerPanel').classList.add('hidden');
+  document.getElementById('contextPanel').classList.add('hidden');
+  document.getElementById('configPanel').classList.add('hidden');
+  document.getElementById('subscriptionPanel').classList.remove('hidden');
+  document.getElementById('readerShell').classList.add('config-mode');
+  if (!canUseConfig()) {
+    showLoginGate('请先登录后管理订阅。');
+    return;
+  }
+  if (!state.subscriptionConsoleLoaded && typeof loadSubscriptionConsole === 'function') {
+    loadSubscriptionConsole();
+    return;
+  }
+  if (typeof renderSubscriptionConsole === 'function') {
+    renderSubscriptionConsole(state.subscriptionConsole || {});
+  }
+}
+
 function renderReaderView() {
   document.getElementById('readingQueue').classList.remove('hidden');
   document.getElementById('readerPanel').classList.remove('hidden');
   document.getElementById('contextPanel').classList.remove('hidden');
   document.getElementById('configPanel').classList.add('hidden');
+  document.getElementById('subscriptionPanel').classList.add('hidden');
   document.getElementById('readerShell').classList.remove('config-mode');
   var items = getFilteredItems();
   var selectedItem = getSelectedItem(items);
@@ -300,6 +330,10 @@ function renderReaderView() {
 function renderItems() {
   if (state.view === 'config') {
     renderConfigView();
+    return;
+  }
+  if (state.view === 'subscriptions') {
+    renderSubscriptionView();
     return;
   }
   renderReaderView();
@@ -350,6 +384,7 @@ function bindEvents() {
   document.getElementById('configForms').addEventListener('submit', handleConfigFormSubmit);
   document.getElementById('configForms').addEventListener('click', handleConfigFormClick);
   document.getElementById('configForms').addEventListener('change', handleConfigFormChange);
+  if (typeof bindSubscriptionEvents === 'function') bindSubscriptionEvents();
   document.getElementById('searchInput').addEventListener('input', function (event) {
     state.query = event.target.value.trim();
     renderItems();
@@ -382,6 +417,7 @@ function bindEvents() {
     button.addEventListener('click', function () {
       state.view = button.dataset.view;
       if (state.view === 'history') state.historyFilter = 'all';
+      if (state.view === 'subscriptions') state.subscriptionConsoleLoaded = false;
       renderAll();
     });
   });
@@ -433,6 +469,55 @@ function handleQueueStat(action) {
   }
 }
 
+async function updateRemoteItemState(articleId, action, button) {
+  var item = findKnownItem(articleId);
+  var current = itemUserState(item || { id: articleId });
+  var patch = {};
+  if (action === 'dismissed') patch.dismissed = !current.dismissed;
+  if (action === 'is_read') patch.is_read = !current.is_read;
+  if (action === 'is_saved') patch.is_saved = !current.is_saved;
+  if (action === 'is_later') patch.is_later = !current.is_later;
+  if (!Object.keys(patch).length) return;
+
+  if (button) button.disabled = true;
+  try {
+    var response = await fetch('/api/me/items/' + encodeURIComponent(articleId) + '/state', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    var payload = await response.json();
+    if (!response.ok) throw new Error(apiErrorMessage(payload, '状态更新失败'));
+    applyUserItemState(articleId, unwrapApiPayload(payload));
+    renderItems();
+  } catch (err) {
+    if (button) showCopyFeedback(button, err.message || '状态更新失败', false, 1800);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function submitItemFeedback(articleId, feedbackType, button) {
+  if (button) button.disabled = true;
+  try {
+    var response = await fetch('/api/me/items/' + encodeURIComponent(articleId) + '/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        feedback_type: feedbackType,
+        metadata: { surface: 'reader' },
+      }),
+    });
+    var payload = await response.json();
+    if (!response.ok) throw new Error(apiErrorMessage(payload, '反馈提交失败'));
+    if (button) showCopyFeedback(button, '已记录', true, 1200);
+  } catch (err) {
+    if (button) showCopyFeedback(button, err.message || '反馈提交失败', false, 1800);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 function handleReaderAction(event) {
   var mediaThumb = event.target.closest('[data-media-thumb]');
   if (mediaThumb) {
@@ -447,6 +532,26 @@ function handleReaderAction(event) {
     openLightbox(
       mediaOpen.getAttribute('data-open-media') || '',
       mediaOpen.getAttribute('data-media-index')
+    );
+    return;
+  }
+
+  var stateButton = event.target.closest('[data-item-state-action]');
+  if (stateButton) {
+    updateRemoteItemState(
+      stateButton.getAttribute('data-item-id') || '',
+      stateButton.getAttribute('data-item-state-action') || '',
+      stateButton
+    );
+    return;
+  }
+
+  var feedbackButton = event.target.closest('[data-feedback-action]');
+  if (feedbackButton) {
+    submitItemFeedback(
+      feedbackButton.getAttribute('data-item-id') || '',
+      feedbackButton.getAttribute('data-feedback-action') || '',
+      feedbackButton
     );
     return;
   }
@@ -710,5 +815,6 @@ function clearFilters() {
   document.getElementById('sourceSelect').value = '';
   document.getElementById('favoritesOnly').checked = false;
   if (state.view === 'config') state.view = 'featured';
+  if (state.view === 'subscriptions') state.view = 'featured';
   renderAll();
 }

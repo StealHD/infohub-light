@@ -5,7 +5,7 @@ var STORAGE_FAVORITES = 'ai-radar-favorites';
 var STORAGE_READ_LATER = 'ai-radar-read-later';
 var STORAGE_READ_ITEMS = 'ai-radar-read-items';
 var STORAGE_READER_DENSITY = 'ai-radar-reader-density';
-var VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'config'];
+var VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'subscriptions', 'config'];
 var TAG_LIBRARY_OPTIONS = [
   'AI Agent',
   'AI 编程',
@@ -75,6 +75,7 @@ var state = {
   favorites: loadSet(STORAGE_FAVORITES),
   readLater: loadSet(STORAGE_READ_LATER),
   readItems: loadSet(STORAGE_READ_ITEMS),
+  itemState: {},
   readerDensity: loadReaderDensity(),
   selectedItemId: '',
   historyFilter: 'all',
@@ -85,7 +86,11 @@ var state = {
     auth_configured: true,
     authenticated: true,
     username: '',
+    user: null,
   },
+  subscriptionConsoleLoaded: false,
+  subscriptionConsoleLoading: false,
+  subscriptionConsole: null,
   configLoaded: false,
   config: null,
   envStatus: [],

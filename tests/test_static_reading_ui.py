@@ -23,9 +23,9 @@ def test_static_ui_exposes_reading_layout_contract():
     assert 'id="articleGraphButton"' in html
     assert 'id="articleGraphPanel"' in html
     assert "STATIC_ASSET_VERSION" in html
-    for css_name in ["base.css", "reader.css", "config.css", "media.css", "article_graph.css"]:
+    for css_name in ["base.css", "reader.css", "config.css", "media.css", "article_graph.css", "subscriptions.css"]:
         assert f"./{css_name}?v=" in html
-    for script_name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "article_graph.js", "app.js"]:
+    for script_name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "subscriptions.js", "article_graph.js", "app.js"]:
         assert f"./{script_name}?v=" in html
     assert 'data-view="personal"' not in html
     assert ">个人关注<" not in html
@@ -35,7 +35,7 @@ def test_static_ui_exposes_reading_layout_contract():
 def test_static_ui_keeps_reader_state_and_render_functions():
     js_bundle = "\n".join(
         (STATIC_DIR / name).read_text(encoding="utf-8")
-        for name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "article_graph.js", "app.js"]
+        for name in ["state.js", "utils.js", "media.js", "auth.js", "reader.js", "config.js", "subscriptions.js", "article_graph.js", "app.js"]
     )
 
     for key in [
@@ -114,7 +114,7 @@ def test_static_ui_keeps_reader_state_and_render_functions():
 
     assert "VIEW_OPTIONS" in js_bundle
     assert "HUB_CHANNEL_OPTIONS" in js_bundle
-    assert "VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'config']" in js_bundle
+    assert "VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'subscriptions', 'config']" in js_bundle
     assert "VIEW_OPTIONS = ['featured', 'personal'" not in js_bundle
     assert "historyFilter: 'all'" in js_bundle
     assert "URLSearchParams(window.location.search).get('view')" in js_bundle
@@ -124,11 +124,42 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "登录后台" in js_bundle
     assert "handleAuthLogout" in js_bundle
     assert "renderEnvStatus(state.envStatus || [])" in js_bundle
-    assert "loadAuthStatus({ silent: true }).finally(loadData)" in js_bundle
-    assert "./article-graph.json?ts=" in js_bundle
+    assert "function bootApp" in js_bundle
+    assert "loadAuthStatus({ silent: true }).then(bootApp)" in js_bundle
+    assert "loadAuthStatus({ silent: true }).finally(loadData)" not in js_bundle
+    assert "showLoginGate" in js_bundle
+    assert "请先登录后查看信息流。" in js_bundle
+    assert "/api/archive/graph?ts=" in js_bundle
     assert "关联分析" in js_bundle
     assert "文章关系" in js_bundle
-    assert "./api/article-graph" not in js_bundle
+    assert "./article-graph.json?ts=" not in js_bundle
+    assert "./radar-data.json?ts=" not in js_bundle
+    assert "./history-data.json?ts=" not in js_bundle
+    assert "/api/feed/latest?ts=" in js_bundle
+    assert "/api/feed/history?ts=" in js_bundle
+    assert "/api/config?ts=" in js_bundle
+    assert "/api/me/item-state" in js_bundle
+    assert "/api/me/items/" in js_bundle
+    assert "/state" in js_bundle
+    assert "/feedback" in js_bundle
+    assert "user_state" in js_bundle
+    assert "data-item-state-action" in js_bundle
+    assert "data-feedback-action" in js_bundle
+    assert "/api/config/action" in js_bundle
+    assert "/api/source/test" in js_bundle
+    assert "/api/source/update" in js_bundle
+    assert "./api/config?ts=" not in js_bundle
+    assert "./api/config/action" not in js_bundle
+    assert "./api/source/test" not in js_bundle
+    assert "./api/source/update" not in js_bundle
+    assert "unwrapApiPayload(rawPayload)" in js_bundle
+    assert "source_id" in js_bundle
+    assert "subscription_id" in js_bundle
+    assert "scope" in js_bundle
+    assert "任务已排队" in js_bundle
+    assert "data.job_type" in js_bundle
+    assert "normalizeAuthPayload" in js_bundle
+    assert "payload.user.username" in js_bundle
     assert "./api/auth/status" in js_bundle
     assert "./api/auth/login" in js_bundle
     assert "./api/auth/logout" in js_bundle
@@ -251,6 +282,77 @@ def test_static_ui_keeps_reader_state_and_render_functions():
     assert "复制中" in js_bundle
     assert "复制失败" in js_bundle
     assert "阅读提示" not in js_bundle
+
+
+def test_subscription_console_static_contract():
+    html = STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")
+    subscription_js_path = STATIC_DIR.joinpath("subscriptions.js")
+    subscription_css_path = STATIC_DIR.joinpath("subscriptions.css")
+
+    assert 'data-view="subscriptions"' in html
+    assert 'id="subscriptionPanel"' in html
+    assert "./subscriptions.js?v=" in html
+    assert "./subscriptions.css?v=" in html
+    assert subscription_js_path.exists()
+    assert subscription_css_path.exists()
+
+    subscriptions_js = subscription_js_path.read_text(encoding="utf-8")
+    subscriptions_css = subscription_css_path.read_text(encoding="utf-8")
+    for function_name in [
+        "loadSubscriptionConsole",
+        "renderSubscriptionConsole",
+        "subscribeToSource",
+        "unsubscribeFromSource",
+        "toggleSubscription",
+        "refreshMyFeed",
+        "loadJobsPreview",
+        "createPrivateSource",
+        "renderAdvancedSourceForm",
+        "createAdvancedSource",
+        "importConfigSources",
+    ]:
+        assert f"function {function_name}" in subscriptions_js
+    assert "/api/dashboard/summary" in subscriptions_js
+    assert "/api/catalog/sources" in subscriptions_js
+    assert "/api/catalog/source-types" in subscriptions_js
+    assert "/api/catalog/import-config-sources" in subscriptions_js
+    assert "/api/me/subscriptions" in subscriptions_js
+    assert "/api/jobs/user-feed-refresh" in subscriptions_js
+    assert "/api/jobs" in subscriptions_js
+    assert "/api/feed/history" in subscriptions_js
+    assert "/api/archive/source-quality" in subscriptions_js
+    assert "renderApiStatus" in subscriptions_js
+    assert "API 状态" in subscriptions_js
+    assert 'scope: "private"' in subscriptions_js or 'scope:"private"' in subscriptions_js
+    assert "state.auth.user.role === 'viewer'" in subscriptions_js
+    assert "secret_env" in subscriptions_js
+    assert "订阅" in subscriptions_js
+    assert "公共源市场" in subscriptions_js
+    assert "我的订阅" in subscriptions_js
+    assert "私有 RSS 源" in subscriptions_js
+    assert "高级源测试" in subscriptions_js
+    assert "source_type" in subscriptions_js
+    assert "advancedSourceForm" in subscriptions_js
+    assert ".subscription-console" in subscriptions_css
+    assert ".subscription-card" in subscriptions_css
+    assert ".subscription-api-status" in subscriptions_css
+    assert ".advanced-source-form" in subscriptions_css
+
+
+def test_subscription_console_job_controls_contract():
+    subscriptions_js = STATIC_DIR.joinpath("subscriptions.js").read_text(encoding="utf-8")
+    subscriptions_css = STATIC_DIR.joinpath("subscriptions.css").read_text(encoding="utf-8")
+
+    assert "/api/jobs?limit=20" in subscriptions_js
+    assert "/api/jobs/" in subscriptions_js
+    assert "/cancel" in subscriptions_js
+    assert "/retry" in subscriptions_js
+    assert "cancelJob" in subscriptions_js
+    assert "retryJob" in subscriptions_js
+    assert "attempts" in subscriptions_js
+    assert "max_attempts" in subscriptions_js
+    assert "error_message" in subscriptions_js
+    assert ".subscription-job-actions" in subscriptions_css
 
 
 def test_site_payload_serializes_hub_taxonomy_without_promoting_topics_to_personal_tags():

@@ -502,11 +502,26 @@ function renderSourceStateGroup(label, stateName, cards) {
   };
 }
 
+function sourceMetaFields(item, index) {
+  item = item || {};
+  return [
+    '<input type="hidden" name="index" value="' + inputValue(index) + '">',
+    '<input type="hidden" name="source_id" value="' + inputValue(item.source_id || '') + '">',
+    '<input type="hidden" name="subscription_id" value="' + inputValue(item.subscription_id || '') + '">',
+    '<input type="hidden" name="scope" value="' + inputValue(item.scope || '') + '">',
+  ].join('');
+}
+
+function deleteSourceButton(action, index, item) {
+  item = item || {};
+  return '<button type="button" data-delete-action="' + escapeHtml(action) + '" data-index="' + inputValue(index) + '" data-source-id="' + inputValue(item.source_id || '') + '" data-subscription-id="' + inputValue(item.subscription_id || '') + '">删除</button>';
+}
+
 function renderRssCard(item, index) {
   return [
     '<form data-action="upsert_rss" class="source-card">',
-    '<input type="hidden" name="index" value="' + index + '">',
-    '<div class="source-card-head"><strong>RSS / Atom</strong><button type="button" data-delete-action="delete_rss" data-index="' + index + '">删除</button></div>',
+    sourceMetaFields(item, index),
+    '<div class="source-card-head"><strong>RSS / Atom</strong>' + deleteSourceButton('delete_rss', index, item) + '</div>',
     fieldInput('name', '名称', item.name || '', 'text'),
     fieldInput('url', 'URL', item.url || '', 'url'),
     fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
@@ -523,8 +538,8 @@ function renderGithubCard(item, index) {
   var isRelease = item.type === 'repo_releases';
   return [
     '<form data-action="' + (isRelease ? 'upsert_github_release' : 'upsert_github_user') + '" class="source-card">',
-    '<input type="hidden" name="index" value="' + index + '">',
-    '<div class="source-card-head"><strong>' + (isRelease ? 'GitHub Release' : 'GitHub 用户动态') + '</strong><button type="button" data-delete-action="delete_github" data-index="' + index + '">删除</button></div>',
+    sourceMetaFields(item, index),
+    '<div class="source-card-head"><strong>' + (isRelease ? 'GitHub Release' : 'GitHub 用户动态') + '</strong>' + deleteSourceButton('delete_github', index, item) + '</div>',
     isRelease ? fieldInput('owner', 'Owner', item.owner || '', 'text') : fieldInput('username', 'Username', item.username || '', 'text'),
     isRelease ? fieldInput('repo', 'Repo', item.repo || '', 'text') : '',
     fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
@@ -540,8 +555,8 @@ function renderGithubCard(item, index) {
 function renderRedditCard(item, index) {
   return [
     '<form data-action="upsert_reddit_subreddit" class="source-card">',
-    '<input type="hidden" name="index" value="' + index + '">',
-    '<div class="source-card-head"><strong>Reddit Subreddit</strong><button type="button" data-delete-action="delete_reddit_subreddit" data-index="' + index + '">删除</button></div>',
+    sourceMetaFields(item, index),
+    '<div class="source-card-head"><strong>Reddit Subreddit</strong>' + deleteSourceButton('delete_reddit_subreddit', index, item) + '</div>',
     fieldInput('subreddit', 'Subreddit', item.subreddit || '', 'text'),
     fieldSelect('sort', '排序', item.sort || 'hot', ['hot', 'new', 'top', 'rising']),
     fieldSelect('time_filter', '时间范围', item.time_filter || 'day', ['hour', 'day', 'week', 'month', 'year', 'all']),
@@ -561,8 +576,8 @@ function renderRedditCard(item, index) {
 function renderTelegramCard(item, index) {
   return [
     '<form data-action="upsert_telegram_channel" class="source-card">',
-    '<input type="hidden" name="index" value="' + index + '">',
-    '<div class="source-card-head"><strong>Telegram 公共频道</strong><button type="button" data-delete-action="delete_telegram_channel" data-index="' + index + '">删除</button></div>',
+    sourceMetaFields(item, index),
+    '<div class="source-card-head"><strong>Telegram 公共频道</strong>' + deleteSourceButton('delete_telegram_channel', index, item) + '</div>',
     fieldInput('channel', 'Channel，不含 @', item.channel || '', 'text'),
     fieldInput('fetch_limit', '抓取数量', item.fetch_limit || 20, 'number', '1', '1', '100'),
     fieldHubChannelSelect('category', 'Hub 频道', item.hub_channel || item.category || ''),
@@ -581,8 +596,8 @@ function renderApifySocialCard(item, index) {
   var kind = item.kind || defaultApifyKind(platform);
   return [
     '<form data-action="upsert_apify_social_subscription" class="source-card" data-apify-social-form="true">',
-    '<input type="hidden" name="index" value="' + index + '">',
-    '<div class="source-card-head"><strong>Apify 社交信源 <span class="cost-badge">成本源</span></strong><button type="button" data-delete-action="delete_apify_social_subscription" data-index="' + index + '">删除</button></div>',
+    sourceMetaFields(item, index),
+    '<div class="source-card-head"><strong>Apify 社交信源 <span class="cost-badge">成本源</span></strong>' + deleteSourceButton('delete_apify_social_subscription', index, item) + '</div>',
     fieldSelect('platform', '平台', platform, ['x', 'instagram', 'facebook', 'telegram']),
     fieldSelectOptions('kind', '类型', kind, apifyKindOptions(platform)),
     fieldInput('target', 'URL / handle / 关键词', item.target || '', 'text'),
@@ -784,11 +799,12 @@ async function loadConfig(options) {
   }
   if (!opts.silent) setConfigMessage('正在读取配置...', '');
   try {
-    var response = await fetch('./api/config?ts=' + Date.now());
-    var payload = await response.json();
+    var response = await fetch('/api/config?ts=' + Date.now());
+    var rawPayload = await response.json();
+    var payload = unwrapApiPayload(rawPayload);
     if (!response.ok) {
-      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(payload.error)) return;
-      throw new Error(payload.error || ('HTTP ' + response.status));
+      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(apiErrorMessage(rawPayload, '登录已失效，请重新登录后台。'))) return;
+      throw new Error(apiErrorMessage(rawPayload, 'HTTP ' + response.status));
     }
     document.getElementById('configPath').textContent = payload.path || 'data/config.json';
     state.config = payload.config || {};
@@ -823,15 +839,16 @@ async function submitConfigAction(action, payload) {
   }
   setConfigMessage('正在提交...', '');
   try {
-    var response = await fetch('./api/config/action', {
+    var response = await fetch('/api/config/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: action, payload: payload }),
     });
-    var result = await response.json();
+    var rawResult = await response.json();
+    var result = unwrapApiPayload(rawResult);
     if (!response.ok) {
-      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(result.error)) return;
-      throw new Error(result.error || ('HTTP ' + response.status));
+      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(apiErrorMessage(rawResult, '登录已失效，请重新登录后台。'))) return;
+      throw new Error(apiErrorMessage(rawResult, 'HTTP ' + response.status));
     }
     state.config = result.config || state.config;
     syncConfigTagLibrary(state.config);
@@ -969,7 +986,11 @@ function handleConfigFormClick(event) {
 
   var button = event.target.closest('[data-delete-action]');
   if (!button) return;
-  submitConfigAction(button.dataset.deleteAction, { index: button.dataset.index });
+  submitConfigAction(button.dataset.deleteAction, {
+    index: button.dataset.index,
+    source_id: button.dataset.sourceId || '',
+    subscription_id: button.dataset.subscriptionId || '',
+  });
 }
 
 async function testSource(payload) {
@@ -979,21 +1000,26 @@ async function testSource(payload) {
   }
   setConfigMessage('正在测试订阅源...', '');
   try {
-    var response = await fetch('./api/source/test', {
+    var response = await fetch('/api/source/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    var result = await response.json();
+    var rawResult = await response.json();
+    var data = unwrapApiPayload(rawResult);
     if (!response.ok) {
-      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(result.error)) return;
-      throw new Error(result.error || ('HTTP ' + response.status));
+      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(apiErrorMessage(rawResult, '登录已失效，请重新登录后台。'))) return;
+      throw new Error(apiErrorMessage(rawResult, 'HTTP ' + response.status));
     }
-    var detail = result.sample_title
-      ? ' 示例：' + result.sample_title + (result.sample_url ? ' · ' + result.sample_url : '')
+    if (data.job_type) {
+      setConfigMessage('任务已排队：' + data.job_type + ' · ' + data.id, 'ok');
+      return;
+    }
+    var detail = data.sample_title
+      ? ' 示例：' + data.sample_title + (data.sample_url ? ' · ' + data.sample_url : '')
       : '';
-    if (result.sample_image_url) detail += ' · 图片：' + result.sample_image_url;
-    setConfigMessage('测试成功：' + (result.message || '订阅源可用。') + detail, 'ok');
+    if (data.sample_image_url) detail += ' · 图片：' + data.sample_image_url;
+    setConfigMessage('测试成功：' + (data.message || '订阅源可用。') + detail, 'ok');
   } catch (err) {
     setConfigMessage('测试失败：' + err.message, 'error');
   }
@@ -1005,6 +1031,8 @@ function sourceUpdatePayload(form, sourceType) {
   var result = {
     source_type: sourceType,
     hours: hours,
+    source_id: payload.source_id || '',
+    subscription_id: payload.subscription_id || '',
   };
   if (sourceType !== 'hackernews') {
     result.index = payload.index;
@@ -1019,21 +1047,26 @@ async function updateSource(payload) {
   }
   setConfigMessage('正在更新单个信源...', '');
   try {
-    var response = await fetch('./api/source/update', {
+    var response = await fetch('/api/source/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    var result = await response.json();
+    var rawResult = await response.json();
+    var data = unwrapApiPayload(rawResult);
     if (!response.ok) {
-      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(result.error)) return;
-      throw new Error(result.error || ('HTTP ' + response.status));
+      if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(apiErrorMessage(rawResult, '登录已失效，请重新登录后台。'))) return;
+      throw new Error(apiErrorMessage(rawResult, 'HTTP ' + response.status));
+    }
+    if (data.job_type) {
+      setConfigMessage('任务已排队：' + data.job_type + ' · ' + data.id, 'ok');
+      return;
     }
     setConfigMessage(
-      '更新完成：' + (result.source_ref || payload.source_type) +
-      '，新增写入 ' + (result.fetched || 0) + ' 条' +
-      '，已跳过 ' + (result.skipped_existing || 0) + ' 条历史内容' +
-      '，AI 分析 ' + (result.analyzed || 0) + ' 条。',
+      '更新完成：' + (data.source_ref || payload.source_type) +
+      '，新增写入 ' + (data.fetched || 0) + ' 条' +
+      '，已跳过 ' + (data.skipped_existing || 0) + ' 条历史内容' +
+      '，AI 分析 ' + (data.analyzed || 0) + ' 条。',
       'ok'
     );
   } catch (err) {

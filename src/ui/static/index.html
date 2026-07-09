@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inteliscope</title>
     <link rel="icon" href="data:," />
-    <script>window.STATIC_ASSET_VERSION = "20260708-deepseek-models";</script>
-    <link rel="stylesheet" href="./base.css?v=20260708-deepseek-models" />
-    <link rel="stylesheet" href="./reader.css?v=20260708-deepseek-models" />
-    <link rel="stylesheet" href="./config.css?v=20260708-deepseek-models" />
-    <link rel="stylesheet" href="./media.css?v=20260708-deepseek-models" />
-    <link rel="stylesheet" href="./article_graph.css?v=20260708-deepseek-models" />
+    <script>window.STATIC_ASSET_VERSION = "20260709-subscription-console";</script>
+    <link rel="stylesheet" href="./base.css?v=20260709-subscription-console" />
+    <link rel="stylesheet" href="./reader.css?v=20260709-subscription-console" />
+    <link rel="stylesheet" href="./config.css?v=20260709-subscription-console" />
+    <link rel="stylesheet" href="./media.css?v=20260709-subscription-console" />
+    <link rel="stylesheet" href="./article_graph.css?v=20260709-subscription-console" />
+    <link rel="stylesheet" href="./subscriptions.css?v=20260709-subscription-console" />
   </head>
   <body>
     <header class="topbar">
@@ -26,6 +27,7 @@
           <button class="tab" type="button" data-view="readLater">稍后读</button>
           <button class="tab" type="button" data-view="history">历史</button>
           <button class="tab" type="button" data-view="daily">日报</button>
+          <button class="tab" type="button" data-view="subscriptions">订阅</button>
           <button class="tab" type="button" data-view="config">配置</button>
         </nav>
 
@@ -85,6 +87,21 @@
 
       <aside id="contextPanel" class="context-panel" aria-label="阅读上下文"></aside>
 
+      <section id="subscriptionPanel" class="subscription-panel panel hidden" aria-label="订阅控制台">
+        <div class="subscription-head">
+          <div>
+            <h2>订阅</h2>
+            <p id="subscriptionSummary">读取中</p>
+          </div>
+          <div class="subscription-actions">
+            <button id="refreshMyFeedBtn" type="button">刷新我的信息流</button>
+            <button id="reloadSubscriptionsBtn" type="button">重新读取</button>
+          </div>
+        </div>
+        <div id="subscriptionMessage" class="config-message"></div>
+        <div id="subscriptionConsole" class="subscription-console"></div>
+      </section>
+
       <section id="configPanel" class="config-panel panel hidden" aria-label="配置编辑">
         <div class="config-head">
           <div>
@@ -105,13 +122,14 @@
     <button id="articleGraphButton" class="article-graph-fab" type="button" title="查看文章关联分析">关联分析</button>
     <section id="articleGraphPanel" class="article-graph-panel hidden" aria-label="文章关系" aria-live="polite"></section>
 
-    <script src="./state.js?v=20260708-deepseek-models"></script>
-    <script src="./utils.js?v=20260708-deepseek-models"></script>
-    <script src="./media.js?v=20260708-deepseek-models"></script>
-    <script src="./auth.js?v=20260708-deepseek-models"></script>
-    <script src="./reader.js?v=20260708-deepseek-models"></script>
-    <script src="./config.js?v=20260708-deepseek-models"></script>
-    <script src="./article_graph.js?v=20260708-deepseek-models"></script>
-    <script src="./app.js?v=20260708-deepseek-models"></script>
+    <script src="./state.js?v=20260709-subscription-console"></script>
+    <script src="./utils.js?v=20260709-subscription-console"></script>
+    <script src="./media.js?v=20260709-subscription-console"></script>
+    <script src="./auth.js?v=20260709-subscription-console"></script>
+    <script src="./reader.js?v=20260709-subscription-console"></script>
+    <script src="./config.js?v=20260709-subscription-console"></script>
+    <script src="./subscriptions.js?v=20260709-subscription-console"></script>
+    <script src="./article_graph.js?v=20260709-subscription-console"></script>
+    <script src="./app.js?v=20260709-subscription-console"></script>
   </body>
 </html>

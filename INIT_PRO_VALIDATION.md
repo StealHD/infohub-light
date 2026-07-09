@@ -2,9 +2,9 @@
 
 ## Summary
 
-- Project root: `/Users/stealmac/Documents/jie/infohub-light`
+- Project root: `/Users/stealmac/Documents/Inteliscope/infohub-light`
 - Primary config: `project-defaults.yaml`
-- Generated at: `2026-07-08 09:36:45`
+- Generated at: `2026-07-09 15:16:20`
 - Overall status: `PASS`
 
 - PASS: 42

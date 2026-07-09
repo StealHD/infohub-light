@@ -26,7 +26,7 @@ BUILD_FLAGS=("--pull")
 
 if [[ -f "docker-compose.light.yml" ]]; then
   COMPOSE=(docker compose -f docker-compose.light.yml)
-  LIGHT_SERVICES=("horizon-web")
+  LIGHT_SERVICES=("horizon-api")
   LIGHT_MANUAL_SERVICE="horizon"
   SERVICES=("${LIGHT_SERVICES[@]}")
   MANUAL_SERVICE="$LIGHT_MANUAL_SERVICE"

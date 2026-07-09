@@ -16,12 +16,13 @@ function ensureArticleGraphLoaded() {
     return Promise.resolve(state.articleGraph);
   }
   state.articleGraphLoading = true;
-  return fetch('./article-graph.json?ts=' + Date.now())
+  return fetch('/api/archive/graph?ts=' + Date.now())
     .then(function (response) {
       if (!response.ok) throw new Error('HTTP ' + response.status);
       return response.json();
     })
     .then(function (payload) {
+      payload = unwrapApiPayload(payload);
       state.articleGraph = payload;
       state.articleGraphLoaded = true;
       return payload;

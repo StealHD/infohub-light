@@ -14,17 +14,55 @@ Use this checklist after taxonomy code changes when validating against real loca
 ./scripts/up-latest.sh
 ```
 
-The light compose file starts `horizon-web` only by default. It does not start the scheduler unless the scheduler profile is explicitly used.
+The current light compose file starts `horizon-api` by default and serves the static UI through FastAPI. It does not start the scheduler unless the scheduler profile is explicitly used.
 
 Open:
 
 ```text
-http://127.0.0.1:8081
+http://127.0.0.1:8080
 ```
 
 If `HORIZON_WEB_PORT` is set in `.env`, use that port instead.
 
-## 3. Cheap UI Validation
+## 3. Service API Real-Source Smoke
+
+Use this path for the small-group multi-user service. It validates the real catalog flow:
+
+```text
+catalog source -> subscription -> source_test job -> source_fetch job -> worker -> user feed snapshot -> archive/source-quality API
+```
+
+Required sources:
+
+- RSS: `https://github.blog/feed/`
+- Hacker News: public Firebase top stories
+- GitHub Releases: `openai/codex`
+- Telegram public channel: `durov`
+
+Optional/degraded sources:
+
+- Reddit `LocalLLaMA`, which may return 403 from public endpoints.
+- Apify social smoke only when `APIFY_TOKEN` is already present; the script stores only `secret_env=APIFY_TOKEN`.
+
+Run against a local service:
+
+```bash
+docker compose -f docker-compose.light.yml up -d --build horizon-api
+uv run python scripts/service_real_source_smoke.py \
+  --base-url http://127.0.0.1:8080 \
+  --run-worker \
+  --hours 168
+```
+
+Expected:
+
+- The report is written to `logs/service-real-source-smoke-*.json`.
+- Required `source_test` jobs succeed.
+- RSS and Hacker News `source_fetch` jobs succeed.
+- `/api/feed/latest` returns `scope=user`, a `snapshot_id`, and at least one item.
+- `/api/archive/source-quality` returns the user-scoped source quality payload.
+
+## 4. Cheap UI Validation
 
 Run one explicit source first. This path skips notifications, summaries, enrichment, full-text, and article graph work.
 
@@ -61,7 +99,7 @@ Expected:
 - `category` remains a legacy alias for `channel`.
 - Custom reading topics remain in `topics/tags`; they are not moved into `personal_tags`.
 
-## 4. Archive Validation
+## 5. Archive Validation
 
 Enable `premium_analysis.enabled` or `article_graph.enabled` only when you want the SQLite archive path to run. Then run one full workflow:
 
@@ -90,7 +128,7 @@ Expected compatibility:
 - Existing old databases are migrated in place by `ArticleStore.initialize()`.
 - Historical rows without new fields still read back with `channel/category` and `topics/tags` fallbacks.
 
-## 5. Regression Commands
+## 6. Regression Commands
 
 ```bash
 python3 -m py_compile src/tag_policy.py src/config_migration.py src/models.py src/scrapers/base.py src/ui/server.py src/ai/prompts.py src/ai/analyzer.py src/ai/analysis_cache.py src/orchestrator.py src/ui/site.py src/storage/article_store.py

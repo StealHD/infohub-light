@@ -12,6 +12,22 @@ features:
   local_web_enabled: true
   cli_enabled: true
   config_api_enabled: true
+  service_config_compat_enabled: true
+  service_api_enabled: true
+  multi_user_enabled: true
+  sqlite_queue_enabled: true
+  user_scoped_feed_enabled: true
+  user_scoped_archive_api_enabled: true
+  source_type_registry_enabled: true
+  catalog_import_enabled: true
+  catalog_source_key_enabled: true
+  catalog_precise_source_fetch_enabled: true
+  real_source_smoke_enabled: true
+  user_item_state_enabled: true
+  user_item_feedback_enabled: true
+  api_error_envelope_validation_enabled: true
+  api_permissions_matrix_enabled: true
+  service_api_smoke_enabled: true
   static_site_enabled: true
   archive_analysis_enabled: "optional"
   article_graph_enabled: "optional"
@@ -20,6 +36,23 @@ features:
   scheduler_default_enabled: false
 
 runtime_sources:
+  service_catalog_types:
+    - "rss"
+    - "github_release"
+    - "github_user"
+    - "reddit_subreddit"
+    - "reddit_user"
+    - "telegram_channel"
+    - "apify_social"
+    - "hackernews"
+  real_source_smoke_required:
+    - "rss_github_blog"
+    - "hackernews_top"
+    - "github_openai_codex"
+    - "telegram_durov"
+  real_source_smoke_optional:
+    - "reddit_localllama"
+    - "apify_x_openai"
   native:
     - "rss"
     - "github"
@@ -79,12 +112,34 @@ capabilities:
 cost_controls:
   prefer_targeted_tests: true
   full_scheduler_requires_explicit_request: true
+  default_quotas:
+    max_sources_per_user: 100
+    max_fetch_jobs_per_day: 100
+    max_ai_items_per_day: 1000
+  worker_lease_seconds: 900
+  worker_retry_base_seconds: 30
+  job_retention_days: 14
   single_source_update_skips:
     - "notifications"
     - "summaries"
     - "enrichment"
     - "full_text"
     - "article_graph"
+
+agent_context_budget:
+  default_initial_control_files: 2
+  max_initial_markdown_files: 2
+  max_initial_search_result_lines: 120
+  prefer_precise_rg_paths: true
+  default_to_targeted_tests: true
+  full_contract_read_requires_api_or_architecture_task: true
+  default_avoid_paths:
+    - "archive/**"
+    - "data/site/**"
+    - "data/*.db"
+    - "logs/**"
+    - "uv.lock"
+    - "INIT_PRO_VALIDATION.md"
 
 output:
   concise_agent_response: true
@@ -103,3 +158,4 @@ verification:
   python_syntax: "python3 -m py_compile <changed python files>"
   static_js_syntax: "node --check src/ui/static/*.js"
   control_plane: "python3 ${CODEX_HOME:-$HOME/.codex}/skills/init-pro/scripts/validate_project_controls.py --project-root . --primary-config project-defaults.yaml --output INIT_PRO_VALIDATION.md"
+  real_source_smoke: "uv run python scripts/service_real_source_smoke.py --base-url http://127.0.0.1:8080 --run-worker --hours 168"

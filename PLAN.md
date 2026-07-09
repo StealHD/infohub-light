@@ -4,7 +4,7 @@
 本文件定义当前阶段、实施顺序和默认验证策略。后续 agent 应以本文件作为开发入口之一，但不得用它覆盖更细的 API、架构、上下文和决策合同。
 
 ## 2. 当前阶段状态
-结论：当前阶段是私人信息 Hub 的阅读筛选稳定化与长期归档分析准备。
+结论：当前阶段是小团体多人可用的私人信息高定服务 MVP 内核。
 
 已完成：
 
@@ -14,14 +14,22 @@
 4. 静态阅读 UI 的频道优先筛选。
 5. `ArticleStore` 对 Hub taxonomy 字段的归档落库。
 6. init-pro 控制面初始化。
+7. FastAPI service API 入口、Service SQLite 库、单 workspace 用户体系、公共/私有订阅源市场、用户订阅配置、SQLite job queue、配额记录、feed/archive API facade。
+8. 配置页 Service API 兼容层：`/api/config` 投影 service catalog/subscriptions 为旧 UI 结构，source action 写入 service tables，测试/更新按钮创建 queued jobs。
+9. 登录后的订阅控制台 MVP：公共源市场、我的订阅、私有 RSS 源创建、任务队列和手动刷新入口。
+10. Worker/job queue 加固：SQLite lease、stale running 恢复、失败重试退避、取消、重试和任务保留清理。
+11. 用户作用域 Feed 与归档分析 API v1：`user_feed_snapshots/user_feed_items`、用户可见 archive items/trends/facets/source-quality、管理员 `user_id` 排查和订阅页 API 状态面板。
+12. Source Catalog API v1：`source_type_registry`、`source_key` 幂等导入、catalog config 校验、旧 `data/config.json` 高级源导入和订阅页高级源最小测试面板。
+13. 真实源验证 v1：catalog `source_fetch` 按 `source_id` 精准合成用户作用域单源配置，Worker 保存用户 feed snapshot，并提供 RSS/Hacker News/GitHub Releases/Telegram 的 Service API smoke 脚本。
+14. 基本功能 API 收口 v1：当前用户 feed item 的已读、收藏、稍后读、忽略和反馈入库，并在静态阅读页提供最小操作按钮。
+15. 核心 Service API 验收与权限矩阵 v1：统一 `/api/*` validation/404 error envelope，补齐角色权限矩阵测试，并新增无外网依赖的核心 API smoke 脚本和 curl 文档。
 
 当前仍需推进：
 
-1. 用真实来源验证频道、主题和信号字段的分类质量。
-2. 建立分类质量巡检：`其他` 占比、空 topics、弱信号占比、实体缺失率。
-3. 建立归档分析第一版：按 channel/topic/entity 聚合趋势。
-4. 收敛配置页面中来源、主题、个人标签和成本功能的交互边界。
-5. 清理或归档过期计划，保持唯一真源。
+1. 在 Docker 本地环境中固定运行 `service_api_smoke.py` 与 `service_real_source_smoke.py` 的组合验收。
+2. 后续再决定是否把用户行为信号用于个人排序或推荐；当前不改排序。
+3. 对登录、订阅、阅读三个静态页面做小范围可用性修补，不引入复杂前端工程。
+4. 清理或归档过期计划，保持唯一真源。
 
 ## 3. Agent 开工前默认读取
 默认先读：
@@ -52,11 +60,11 @@
 ## 4. 当前实施范围
 本阶段继续做：
 
-1. 私人阅读筛选体验。
+1. 小团体用户、角色、公共源市场和个人订阅配置。
 2. Hub taxonomy 与 legacy alias 的兼容迁移。
-3. 来源配置、抓取、AI 分析、静态 UI、SQLite 归档之间的稳定字段合同。
-4. 低成本验证路径和明确的 capability / degrade 表达。
-5. 面向长期归档分析的最小可查询字段。
+3. 来源配置、抓取任务、AI 分析、静态 UI、SQLite 归档之间的稳定字段合同。
+4. 低成本验证路径、任务队列、配额记录和明确的 capability / degrade 表达。
+5. 面向长期归档分析的最小可查询 API。
 
 本阶段不做：
 
@@ -64,17 +72,18 @@
 2. 私密群组、好友流、cookie、session、账号密码采集。
 3. 未确认的生产推送、邮件群发或 scheduler 启动。
 4. 大规模 embedding、实时模型图谱、复杂可视化，除非单独立项。
-5. 与当前闭环无关的大型重构。
+5. 多 workspace、商业计费、自助注册或复杂前端工程化。
 
 ## 5. API / 模块实现优先级
 当前优先级：
 
-1. 稳定 `ContentItem` 标准模型和来源 metadata 边界。
-2. 稳定静态 JSON 输出合同。
-3. 稳定配置 API action 的请求/响应和错误语义。
-4. 稳定 `ArticleStore` 归档字段与旧库迁移。
-5. 增加分类质量和归档分析的最小查询能力。
-6. 用目标测试覆盖每个兼容边界。
+1. 稳定 `/api/*` service API envelope、鉴权、权限和错误语义。
+2. 稳定 Service SQLite schema、用户、订阅源市场、用户订阅和 job queue。
+3. 稳定从 catalog/subscription 合成现有 `Config` 的兼容路径。
+4. 稳定 source type registry、`source_key`、旧配置导入和 Worker payload 生成。
+5. 稳定静态 UI 只通过 `/api/*` 读写数据和配置。
+6. 稳定 `ArticleStore` 归档字段与旧库迁移。
+7. 用目标测试覆盖每个兼容边界。
 
 ## 6. 当前实现强约束
 1. 不得把外部系统原始字段扩散到业务层。

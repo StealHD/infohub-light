@@ -8,6 +8,21 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function unwrapApiPayload(payload) {
+  if (payload && payload.ok === true && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    return payload.data;
+  }
+  return payload;
+}
+
+function apiErrorMessage(payload, fallback) {
+  var error = payload && payload.error;
+  if (error && typeof error === 'object') {
+    return error.message || error.code || fallback;
+  }
+  return error || fallback;
+}
+
 function plainText(value) {
   var text = String(value || '');
   if (!text) return '';
@@ -99,6 +114,87 @@ function findKnownItem(itemId) {
   return getAllKnownItems().find(function (item) {
     return item && item.id === itemId;
   }) || null;
+}
+
+function defaultUserItemState(articleId) {
+  return {
+    article_id: articleId,
+    is_read: state.readItems.has(articleId),
+    is_saved: state.favorites.has(articleId),
+    is_later: state.readLater.has(articleId),
+    dismissed: false,
+    read_at: null,
+    saved_at: null,
+    later_at: null,
+    dismissed_at: null,
+    updated_at: null,
+  };
+}
+
+function normalizeUserItemState(articleId, value) {
+  var base = defaultUserItemState(articleId);
+  if (!value || typeof value !== 'object') return base;
+  return {
+    article_id: value.article_id || articleId,
+    is_read: !!value.is_read,
+    is_saved: !!value.is_saved,
+    is_later: !!value.is_later,
+    dismissed: !!value.dismissed,
+    read_at: value.read_at || null,
+    saved_at: value.saved_at || null,
+    later_at: value.later_at || null,
+    dismissed_at: value.dismissed_at || null,
+    updated_at: value.updated_at || null,
+  };
+}
+
+function applyUserItemState(articleId, value) {
+  if (!articleId) return defaultUserItemState('');
+  var normalized = normalizeUserItemState(articleId, value);
+  state.itemState[articleId] = normalized;
+  var item = findKnownItem(articleId);
+  if (item) item.user_state = normalized;
+  if (normalized.is_read) state.readItems.add(articleId);
+  else state.readItems.delete(articleId);
+  if (normalized.is_saved) state.favorites.add(articleId);
+  else state.favorites.delete(articleId);
+  if (normalized.is_later) state.readLater.add(articleId);
+  else state.readLater.delete(articleId);
+  saveSet(STORAGE_READ_ITEMS, state.readItems);
+  saveSet(STORAGE_FAVORITES, state.favorites);
+  saveSet(STORAGE_READ_LATER, state.readLater);
+  return normalized;
+}
+
+function syncUserItemStateFromFeed() {
+  state.itemState = {};
+  getAllKnownItems().forEach(function (item) {
+    if (item && item.id && item.user_state) {
+      applyUserItemState(item.id, item.user_state);
+    }
+  });
+}
+
+function itemUserState(item) {
+  if (!item || !item.id) return defaultUserItemState('');
+  if (state.itemState[item.id]) return state.itemState[item.id];
+  if (item.user_state) return applyUserItemState(item.id, item.user_state);
+  return defaultUserItemState(item.id);
+}
+
+async function refreshUserItemStates() {
+  var ids = getAllKnownItems()
+    .map(function (item) { return item && item.id; })
+    .filter(Boolean);
+  if (!ids.length) return;
+  var response = await fetch('/api/me/item-state?article_ids=' + encodeURIComponent(ids.join(',')));
+  var payload = await response.json();
+  if (!response.ok) throw new Error(apiErrorMessage(payload, '读取状态失败'));
+  var data = unwrapApiPayload(payload);
+  var states = (data && data.states) || {};
+  Object.keys(states).forEach(function (articleId) {
+    applyUserItemState(articleId, states[articleId]);
+  });
 }
 
 function getActiveData() {
@@ -260,6 +356,10 @@ function getSelectedItem(items) {
 function markRead(item) {
   if (!item || !item.id || state.readItems.has(item.id)) return;
   state.readItems.add(item.id);
+  state.itemState[item.id] = {
+    ...itemUserState(item),
+    is_read: true,
+  };
   saveSet(STORAGE_READ_ITEMS, state.readItems);
 }
 

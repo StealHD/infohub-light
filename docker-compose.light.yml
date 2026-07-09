@@ -18,6 +18,7 @@ services:
     build: .
     pull_policy: build
     container_name: horizon-light-web
+    profiles: ["legacy-web"]
     restart: unless-stopped
     ports:
       - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8081}:8080"
@@ -36,6 +37,46 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  horizon-api:
+    build: .
+    pull_policy: build
+    container_name: horizon-light-api
+    restart: unless-stopped
+    ports:
+      - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8081}:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
+      HORIZON_WEB_PORT: 8080
+    entrypoint: ["uv", "run", "horizon-api"]
+    command: ["--host", "0.0.0.0", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/auth/status', timeout=3).read(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  horizon-worker:
+    build: .
+    pull_policy: build
+    container_name: horizon-light-worker
+    profiles: ["worker"]
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
+      HORIZON_WORKER_LEASE_SECONDS: ${HORIZON_WORKER_LEASE_SECONDS:-900}
+      HORIZON_WORKER_RETRY_BASE_SECONDS: ${HORIZON_WORKER_RETRY_BASE_SECONDS:-30}
+      HORIZON_JOB_RETENTION_DAYS: ${HORIZON_JOB_RETENTION_DAYS:-14}
+    entrypoint: ["uv", "run", "horizon-worker"]
 
   horizon-scheduler:
     build: .
