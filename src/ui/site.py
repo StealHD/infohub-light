@@ -10,6 +10,7 @@ from typing import Any, Iterable
 
 from ..config_migration import normalize_personal_tags
 from ..models import ContentItem
+from ..services.content_presentation import build_content_presentation
 from ..tag_policy import (
     HUB_CHANNELS,
     normalize_channel,
@@ -158,6 +159,56 @@ def serialize_item(
         or interest_score > 0
         or personal_tags
     )
+    source_ids = list(dict.fromkeys(
+        str(value)
+        for value in [
+            *(item.metadata.get("source_ids") or []),
+            item.metadata.get("source_id"),
+        ]
+        if value
+    ))
+    subscription_ids = list(dict.fromkeys(
+        str(value)
+        for value in [
+            *(item.metadata.get("subscription_ids") or []),
+            item.metadata.get("subscription_id"),
+        ]
+        if value
+    ))
+    source_keys = list(dict.fromkeys(
+        str(value)
+        for value in [
+            *(item.metadata.get("source_keys") or []),
+            item.metadata.get("source_key"),
+        ]
+        if value
+    ))
+    presentation = build_content_presentation(item)
+    presentation["taxonomy"]["channel"] = channel
+    presentation["taxonomy"]["topics"] = tags
+    presentation["analysis"]["signal_strength"] = normalize_signal_strength(
+        item.ai_signal_strength,
+        score=score,
+    )
+    presentation["analysis"]["signal_type"] = normalize_signal_type(
+        item.ai_signal_type
+    )
+    explicit_retention = str(item.metadata.get("retention_policy") or "")
+    if explicit_retention in {"latest_per_source", "time_window"}:
+        retention_policy = explicit_retention
+    else:
+        retention_policy = (
+            "latest_per_source"
+            if (
+                str(item.metadata.get("catalog_source_type") or "")
+                == "apify_social"
+                and str(item.metadata.get("apify_platform") or "").lower()
+                in {"x", "twitter", "instagram"}
+                and str(item.metadata.get("apify_kind") or "").lower()
+                == "profile"
+            )
+            else "time_window"
+        )
 
     return {
         "id": item.id,
@@ -193,6 +244,15 @@ def serialize_item(
         "interest_score": interest_score,
         "show_in_personal_feed": show_in_personal_feed,
         "scoring_disabled": bool(item.metadata.get("scoring_disabled")),
+        "source_id": str(item.metadata.get("source_id") or ""),
+        "subscription_id": str(item.metadata.get("subscription_id") or ""),
+        "source_key": str(item.metadata.get("source_key") or ""),
+        "source_ids": source_ids,
+        "subscription_ids": subscription_ids,
+        "source_keys": source_keys,
+        "analysis_mode": str(item.metadata.get("analysis_mode") or "full"),
+        "retention_policy": retention_policy,
+        "presentation": presentation,
     }
 
 
@@ -817,6 +877,11 @@ def _normalize_payload_collections(payload: dict[str, Any]) -> dict[str, Any]:
     normalized["channels"] = _unique_sorted(str(item.get("channel") or item.get("category")) for item in items)
     normalized["categories"] = _unique_sorted(str(item.get("category")) for item in items)
     return normalized
+
+
+def normalize_feed_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize an in-memory feed payload without writing static files."""
+    return _normalize_payload_collections(payload)
 
 
 def backfill_static_site_taxonomy(output_dir: Path | str) -> int:

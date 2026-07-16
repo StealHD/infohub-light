@@ -18,6 +18,10 @@ def _new_id() -> str:
     return f"job_{uuid.uuid4().hex}"
 
 
+def _new_claim_token() -> str:
+    return uuid.uuid4().hex
+
+
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
@@ -34,6 +38,20 @@ class JobQueue:
     def __init__(self, store: ServiceStore) -> None:
         self.store = store
 
+    @staticmethod
+    def _claim_guard(
+        worker_id: str,
+        claim_token: str,
+    ) -> tuple[str, tuple[str, ...]]:
+        if not worker_id or not claim_token:
+            raise ValueError("worker_id and claim_token are required")
+        return "worker_id = ? AND claim_token = ?", (worker_id, claim_token)
+
+    def _raise_claim_conflict(self, job_id: str) -> None:
+        if self.get_job(job_id) is None:
+            raise LookupError("job not found")
+        raise PermissionError("job claim is no longer active")
+
     def create_job(
         self,
         *,
@@ -48,6 +66,17 @@ class JobQueue:
         delay_seconds: float = 0,
         retention_days: int | None = None,
     ) -> dict[str, Any]:
+        if job_type == "user_feed_refresh":
+            job, _created = self.create_user_feed_refresh_if_absent(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                payload=payload,
+                priority=priority,
+                max_attempts=max_attempts,
+                delay_seconds=delay_seconds,
+                retention_days=retention_days,
+            )
+            return job
         job_id = _new_id()
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
@@ -84,6 +113,182 @@ class JobQueue:
         if job is None:
             raise LookupError("created job not found")
         return job
+
+    def create_user_feed_refresh_if_absent(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        payload: dict[str, Any] | None = None,
+        priority: int = 0,
+        max_attempts: int = 3,
+        delay_seconds: float = 0,
+        retention_days: int | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Atomically return the user's active full refresh or create one."""
+        conn = self.store.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            active_row = conn.execute(
+                """
+                SELECT *
+                FROM fetch_jobs
+                WHERE workspace_id = ?
+                  AND user_id = ?
+                  AND job_type = 'user_feed_refresh'
+                  AND status IN ('queued', 'running')
+                ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+                LIMIT 1
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+            if active_row is not None:
+                job = self.store._job(active_row)
+                if owns_transaction:
+                    conn.commit()
+                if job is None:
+                    raise LookupError("active user feed refresh could not be loaded")
+                return job, False
+
+            job_id = _new_id()
+            now_dt = datetime.now(timezone.utc)
+            now = now_dt.isoformat()
+            next_run_at = (
+                now_dt + timedelta(seconds=max(float(delay_seconds), 0))
+            ).isoformat()
+            expires_at = (
+                (now_dt + timedelta(days=retention_days)).isoformat()
+                if retention_days
+                else None
+            )
+            conn.execute(
+                """
+                INSERT INTO fetch_jobs (
+                    id, workspace_id, user_id, source_id, subscription_id,
+                    job_type, status, priority, attempts, payload_json,
+                    max_attempts, next_run_at, expires_at, created_at, updated_at
+                ) VALUES (?, ?, ?, NULL, NULL, 'user_feed_refresh', 'queued', ?, 0, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    workspace_id,
+                    user_id,
+                    int(priority),
+                    _json_dumps(payload or {}),
+                    max(1, int(max_attempts)),
+                    next_run_at,
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM fetch_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        job = self.store._job(row)
+        if job is None:
+            raise LookupError("created user feed refresh not found")
+        return job, True
+
+    def create_source_fetch_if_absent(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        source_id: str,
+        subscription_id: str,
+        payload: dict[str, Any] | None = None,
+        priority: int = 0,
+        max_attempts: int = 3,
+        delay_seconds: float = 0,
+        retention_days: int | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Atomically return the subscription's active fetch or create one."""
+        conn = self.store.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            active_row = conn.execute(
+                """
+                SELECT *
+                FROM fetch_jobs
+                WHERE workspace_id = ?
+                  AND user_id = ?
+                  AND source_id = ?
+                  AND subscription_id = ?
+                  AND job_type = 'source_fetch'
+                  AND status IN ('queued', 'running')
+                ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+                LIMIT 1
+                """,
+                (workspace_id, user_id, source_id, subscription_id),
+            ).fetchone()
+            if active_row is not None:
+                job = self.store._job(active_row)
+                if owns_transaction:
+                    conn.commit()
+                if job is None:
+                    raise LookupError("active source fetch could not be loaded")
+                return job, False
+
+            job_id = _new_id()
+            now_dt = datetime.now(timezone.utc)
+            now = now_dt.isoformat()
+            next_run_at = (
+                now_dt + timedelta(seconds=max(float(delay_seconds), 0))
+            ).isoformat()
+            expires_at = (
+                (now_dt + timedelta(days=retention_days)).isoformat()
+                if retention_days
+                else None
+            )
+            conn.execute(
+                """
+                INSERT INTO fetch_jobs (
+                    id, workspace_id, user_id, source_id, subscription_id,
+                    job_type, status, priority, attempts, payload_json,
+                    max_attempts, next_run_at, expires_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'source_fetch', 'queued', ?, 0, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    workspace_id,
+                    user_id,
+                    source_id,
+                    subscription_id,
+                    int(priority),
+                    _json_dumps(payload or {}),
+                    max(1, int(max_attempts)),
+                    next_run_at,
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM fetch_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        job = self.store._job(row)
+        if job is None:
+            raise LookupError("created source fetch not found")
+        return job, True
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         return self.store._job(
@@ -127,35 +332,53 @@ class JobQueue:
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
         locked_until = (now_dt + timedelta(seconds=max(float(lease_seconds), 1))).isoformat()
-        row = conn.execute(
-            """
-            SELECT *
-            FROM fetch_jobs
-            WHERE status = 'queued'
-              AND (next_run_at IS NULL OR next_run_at <= ?)
-            ORDER BY priority DESC, created_at
-            LIMIT 1
-            """,
-            (now,),
-        ).fetchone()
-        if row is None:
-            return None
-        job_id = row["id"]
-        conn.execute(
-            """
-            UPDATE fetch_jobs
-            SET status = 'running',
-                attempts = attempts + 1,
-                worker_id = ?,
-                started_at = COALESCE(started_at, ?),
-                locked_until = ?,
-                updated_at = ?
-            WHERE id = ? AND status = 'queued'
-            """,
-            (worker_id, now, locked_until, now, job_id),
-        )
-        conn.commit()
-        return self.get_job(job_id)
+        claim_token = _new_claim_token()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """
+                SELECT id
+                FROM fetch_jobs
+                WHERE status = 'queued'
+                  AND (next_run_at IS NULL OR next_run_at <= ?)
+                ORDER BY priority DESC, created_at
+                LIMIT 1
+                """,
+                (now,),
+            ).fetchone()
+            if row is None:
+                conn.commit()
+                return None
+            job_id = str(row["id"])
+            updated = conn.execute(
+                """
+                UPDATE fetch_jobs
+                SET status = 'running',
+                    attempts = attempts + 1,
+                    worker_id = ?,
+                    claim_token = ?,
+                    started_at = COALESCE(started_at, ?),
+                    locked_until = ?,
+                    updated_at = ?
+                WHERE id = ?
+                  AND status = 'queued'
+                  AND (next_run_at IS NULL OR next_run_at <= ?)
+                """,
+                (worker_id, claim_token, now, locked_until, now, job_id, now),
+            )
+            if updated.rowcount != 1:
+                conn.rollback()
+                return None
+            claimed_row = conn.execute(
+                "SELECT * FROM fetch_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        return self.store._job(claimed_row)
 
     def complete_job(
         self,
@@ -165,22 +388,31 @@ class JobQueue:
         result: dict[str, Any] | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        worker_id: str,
+        claim_token: str,
     ) -> dict[str, Any]:
         if status not in JOB_STATUSES - {"queued", "running"}:
             raise ValueError("completion status must be succeeded, failed, or partial")
         now = _now_iso()
-        self.store.connect().execute(
-            """
+        guard_sql, guard_params = self._claim_guard(worker_id, claim_token)
+        conn = self.store.connect()
+        current = conn.execute(
+            f"""
             UPDATE fetch_jobs
             SET status = ?,
                 result_json = ?,
                 error_code = ?,
                 error_message = ?,
                 worker_id = NULL,
+                claim_token = NULL,
                 locked_until = NULL,
                 finished_at = ?,
                 updated_at = ?
             WHERE id = ?
+              AND status = 'running'
+              AND {guard_sql}
+              AND locked_until IS NOT NULL
+              AND locked_until >= ?
             """,
             (
                 status,
@@ -190,9 +422,14 @@ class JobQueue:
                 now,
                 now,
                 job_id,
+                *guard_params,
+                now,
             ),
         )
-        self.store.connect().commit()
+        if current.rowcount != 1:
+            conn.rollback()
+            self._raise_claim_conflict(job_id)
+        conn.commit()
         job = self.get_job(job_id)
         if job is None:
             raise LookupError("job not found")
@@ -206,56 +443,193 @@ class JobQueue:
         error_message: str,
         retryable: bool = True,
         retry_base_seconds: float = 30,
+        result: dict[str, Any] | None = None,
+        worker_id: str,
+        claim_token: str,
+        commit: bool = True,
     ) -> dict[str, Any]:
-        current = self.get_job(job_id)
-        if current is None:
-            raise LookupError("job not found")
+        conn = self.store.connect()
+        guard_sql, guard_params = self._claim_guard(worker_id, claim_token)
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
-        attempts = int(current.get("attempts") or 0)
-        max_attempts = int(current.get("max_attempts") or 1)
-        should_retry = retryable and attempts < max_attempts
-        if should_retry:
-            delay = max(float(retry_base_seconds), 0) * (2 ** max(attempts - 1, 0))
-            self.store.connect().execute(
-                """
-                UPDATE fetch_jobs
-                SET status = 'queued',
-                    worker_id = NULL,
-                    locked_until = NULL,
-                    next_run_at = ?,
-                    error_code = ?,
-                    error_message = ?,
-                    updated_at = ?
+        try:
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            current_row = conn.execute(
+                f"""
+                SELECT * FROM fetch_jobs
                 WHERE id = ?
+                  AND status = 'running'
+                  AND {guard_sql}
+                  AND locked_until IS NOT NULL
+                  AND locked_until >= ?
                 """,
-                (
-                    (now_dt + timedelta(seconds=delay)).isoformat(),
-                    error_code,
-                    error_message,
-                    now,
-                    job_id,
-                ),
-            )
-        else:
-            self.store.connect().execute(
-                """
-                UPDATE fetch_jobs
-                SET status = 'failed',
-                    worker_id = NULL,
-                    locked_until = NULL,
-                    error_code = ?,
-                    error_message = ?,
-                    finished_at = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (error_code, error_message, now, now, job_id),
-            )
-        self.store.connect().commit()
+                (job_id, *guard_params, now),
+            ).fetchone()
+            if current_row is None:
+                conn.rollback()
+                self._raise_claim_conflict(job_id)
+            current = self.store._job(current_row)
+            attempts = int(current.get("attempts") or 0)
+            max_attempts = int(current.get("max_attempts") or 1)
+            should_retry = retryable and attempts < max_attempts
+            if should_retry:
+                delay = max(float(retry_base_seconds), 0) * (2 ** max(attempts - 1, 0))
+                updated = conn.execute(
+                    f"""
+                    UPDATE fetch_jobs
+                    SET status = 'queued',
+                        worker_id = NULL,
+                        claim_token = NULL,
+                        locked_until = NULL,
+                        next_run_at = ?,
+                        error_code = ?,
+                        error_message = ?,
+                        result_json = COALESCE(?, result_json),
+                        updated_at = ?
+                    WHERE id = ?
+                      AND status = 'running'
+                      AND {guard_sql}
+                      AND locked_until IS NOT NULL
+                      AND locked_until >= ?
+                    """,
+                    (
+                        (now_dt + timedelta(seconds=delay)).isoformat(),
+                        error_code,
+                        error_message,
+                        _json_dumps(result) if result is not None else None,
+                        now,
+                        job_id,
+                        *guard_params,
+                        now,
+                    ),
+                )
+            else:
+                updated = conn.execute(
+                    f"""
+                    UPDATE fetch_jobs
+                    SET status = 'failed',
+                        worker_id = NULL,
+                        claim_token = NULL,
+                        locked_until = NULL,
+                        error_code = ?,
+                        error_message = ?,
+                        result_json = COALESCE(?, result_json),
+                        finished_at = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                      AND status = 'running'
+                      AND {guard_sql}
+                      AND locked_until IS NOT NULL
+                      AND locked_until >= ?
+                    """,
+                    (
+                        error_code,
+                        error_message,
+                        _json_dumps(result) if result is not None else None,
+                        now,
+                        now,
+                        job_id,
+                        *guard_params,
+                        now,
+                    ),
+                )
+            if updated.rowcount != 1:
+                conn.rollback()
+                self._raise_claim_conflict(job_id)
+            if commit:
+                conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
         updated = self.get_job(job_id)
         if updated is None:
             raise LookupError("job not found after update")
+        return updated
+
+    def cancel_claimed_job(
+        self,
+        job_id: str,
+        *,
+        reason: str,
+        worker_id: str,
+        claim_token: str,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        """Cancel the current running claim after a lifecycle invalidation."""
+        guard_sql, guard_values = self._claim_guard(worker_id, claim_token)
+        now = _now_iso()
+        cur = self.store.connect().execute(
+            f"""
+            UPDATE fetch_jobs
+            SET status = 'cancelled',
+                result_json = ?,
+                error_code = 'job_invalidated',
+                error_message = NULL,
+                worker_id = NULL,
+                claim_token = NULL,
+                locked_until = NULL,
+                cancelled_at = ?,
+                finished_at = ?,
+                updated_at = ?
+            WHERE id = ? AND status = 'running' AND {guard_sql}
+            """,
+            (
+                _json_dumps({"invalidation_reason": reason}),
+                now,
+                now,
+                now,
+                job_id,
+                *guard_values,
+            ),
+        )
+        if cur.rowcount != 1:
+            if commit and self.store.connect().in_transaction:
+                self.store.connect().rollback()
+            self._raise_claim_conflict(job_id)
+        if commit:
+            self.store.connect().commit()
+        updated = self.get_job(job_id)
+        if updated is None:
+            raise LookupError("job not found after invalidation")
+        return updated
+
+    def extend_job_lease(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        claim_token: str,
+        lease_seconds: float = 900,
+    ) -> dict[str, Any]:
+        if not worker_id or not claim_token:
+            raise ValueError("worker_id and claim_token are required")
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        locked_until = (now_dt + timedelta(seconds=max(float(lease_seconds), 1))).isoformat()
+        current = self.store.connect().execute(
+            """
+            UPDATE fetch_jobs
+            SET locked_until = CASE
+                    WHEN locked_until IS NULL OR locked_until < ? THEN ?
+                    ELSE locked_until
+                END,
+                updated_at = ?
+            WHERE id = ?
+              AND status = 'running'
+              AND worker_id = ?
+              AND claim_token = ?
+              AND (locked_until IS NULL OR locked_until >= ?)
+            """,
+            (locked_until, locked_until, now, job_id, worker_id, claim_token, now),
+        )
+        self.store.connect().commit()
+        if current.rowcount != 1:
+            self._raise_claim_conflict(job_id)
+        updated = self.get_job(job_id)
+        if updated is None:
+            raise LookupError("job not found after lease extension")
         return updated
 
     def requeue_stale_running_jobs(self, now: datetime | None = None) -> int:
@@ -264,74 +638,165 @@ class JobQueue:
         cur = self.store.connect().execute(
             """
             UPDATE fetch_jobs
-            SET status = 'queued',
+            SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
                 worker_id = NULL,
+                claim_token = NULL,
                 locked_until = NULL,
                 error_code = 'lease_expired',
                 error_message = 'Worker lease expired before completion',
+                finished_at = CASE WHEN attempts >= max_attempts THEN ? ELSE finished_at END,
                 updated_at = ?
             WHERE status = 'running'
               AND locked_until IS NOT NULL
               AND locked_until < ?
             """,
-            (now_iso, now_iso),
+            (now_iso, now_iso, now_iso),
         )
         self.store.connect().commit()
         return cur.rowcount
 
     def cancel_job(self, job_id: str, *, user_id: str | None = None) -> dict[str, Any]:
-        current = self.get_job(job_id)
-        if current is None:
-            raise LookupError("job not found")
-        if user_id is not None and current["user_id"] != user_id:
-            raise PermissionError("cannot cancel another user's job")
-        if current["status"] != "queued":
-            raise ValueError("only queued jobs can be cancelled")
         now = _now_iso()
-        self.store.connect().execute(
-            """
+        conn = self.store.connect()
+        params: list[Any] = [now, now, now, job_id]
+        user_guard = ""
+        if user_id is not None:
+            user_guard = " AND user_id = ?"
+            params.append(user_id)
+        updated_row = conn.execute(
+            f"""
             UPDATE fetch_jobs
             SET status = 'cancelled',
+                worker_id = NULL,
+                claim_token = NULL,
+                locked_until = NULL,
                 cancelled_at = ?,
                 finished_at = ?,
                 updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND status = 'queued'{user_guard}
             """,
-            (now, now, now, job_id),
+            params,
         )
-        self.store.connect().commit()
+        conn.commit()
+        if updated_row.rowcount != 1:
+            current = self.get_job(job_id)
+            if current is None:
+                raise LookupError("job not found")
+            if user_id is not None and current["user_id"] != user_id:
+                raise PermissionError("cannot cancel another user's job")
+            raise ValueError("only queued jobs can be cancelled")
         updated = self.get_job(job_id)
         if updated is None:
             raise LookupError("job not found after cancellation")
         return updated
 
-    def retry_job(self, job_id: str, *, user_id: str | None = None) -> dict[str, Any]:
-        current = self.get_job(job_id)
-        if current is None:
-            raise LookupError("job not found")
-        if user_id is not None and current["user_id"] != user_id:
-            raise PermissionError("cannot retry another user's job")
-        if current["status"] not in {"failed", "partial", "cancelled"}:
-            raise ValueError("only failed, partial, or cancelled jobs can be retried")
+    def retry_job(
+        self,
+        job_id: str,
+        *,
+        user_id: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
         now = _now_iso()
-        self.store.connect().execute(
-            """
-            UPDATE fetch_jobs
-            SET status = 'queued',
-                attempts = 0,
-                worker_id = NULL,
-                locked_until = NULL,
-                next_run_at = ?,
-                cancelled_at = NULL,
-                finished_at = NULL,
-                error_code = NULL,
-                error_message = NULL,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (now, now, job_id),
-        )
-        self.store.connect().commit()
+        conn = self.store.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            current = self.store._job(
+                conn.execute(
+                    "SELECT * FROM fetch_jobs WHERE id = ?",
+                    (job_id,),
+                ).fetchone()
+            )
+            if current is None:
+                raise LookupError("job not found")
+            if user_id is not None and current["user_id"] != user_id:
+                raise PermissionError("cannot retry another user's job")
+            if current["status"] not in {"failed", "partial", "cancelled"}:
+                raise ValueError("only failed, partial, or cancelled jobs can be retried")
+
+            if current["job_type"] == "user_feed_refresh":
+                active_row = conn.execute(
+                    """
+                    SELECT * FROM fetch_jobs
+                    WHERE workspace_id = ?
+                      AND user_id = ?
+                      AND job_type = 'user_feed_refresh'
+                      AND status IN ('queued', 'running')
+                      AND id != ?
+                    ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+                    LIMIT 1
+                    """,
+                    (current["workspace_id"], current["user_id"], job_id),
+                ).fetchone()
+                if active_row is not None:
+                    active = self.store._job(active_row)
+                    if owns_transaction:
+                        conn.commit()
+                    if active is None:
+                        raise LookupError("active user feed refresh could not be loaded")
+                    return active
+
+            if current["job_type"] == "source_fetch" and current.get(
+                "subscription_id"
+            ):
+                active_row = conn.execute(
+                    """
+                    SELECT * FROM fetch_jobs
+                    WHERE workspace_id = ?
+                      AND user_id = ?
+                      AND source_id = ?
+                      AND subscription_id = ?
+                      AND job_type = 'source_fetch'
+                      AND status IN ('queued', 'running')
+                      AND id != ?
+                    ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+                    LIMIT 1
+                    """,
+                    (
+                        current["workspace_id"],
+                        current["user_id"],
+                        current["source_id"],
+                        current["subscription_id"],
+                        job_id,
+                    ),
+                ).fetchone()
+                if active_row is not None:
+                    active = self.store._job(active_row)
+                    if owns_transaction:
+                        conn.commit()
+                    if active is None:
+                        raise LookupError("active source fetch could not be loaded")
+                    return active
+
+            updated_row = conn.execute(
+                """
+                UPDATE fetch_jobs
+                SET status = 'queued',
+                    attempts = 0,
+                    worker_id = NULL,
+                    claim_token = NULL,
+                    locked_until = NULL,
+                    next_run_at = ?,
+                    cancelled_at = NULL,
+                    finished_at = NULL,
+                    error_code = NULL,
+                    error_message = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                  AND status IN ('failed', 'partial', 'cancelled')
+                """,
+                (now, now, job_id),
+            )
+            if updated_row.rowcount != 1:
+                raise ValueError("only failed, partial, or cancelled jobs can be retried")
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
         updated = self.get_job(job_id)
         if updated is None:
             raise LookupError("job not found after retry")

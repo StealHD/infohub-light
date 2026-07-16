@@ -2,10 +2,26 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List
+from typing import Any, List
 import httpx
 
 from ..models import ContentItem
+from ..services.response_schema import extract_response_schema, merge_response_schemas
+
+
+class SourceFetchError(RuntimeError):
+    """A source-level failure with an explicit retry policy."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = True,
+        code: str | None = None,
+    ):
+        super().__init__(message)
+        self.retryable = retryable
+        self.code = code or type(self).__name__
 
 
 class BaseScraper(ABC):
@@ -20,6 +36,19 @@ class BaseScraper(ABC):
         """
         self.config = config
         self.client = http_client
+        self.strict_errors = False
+        self._upstream_response_schemas: list[dict[str, Any]] = []
+
+    def observe_upstream_response(self, value: Any) -> None:
+        """Retain only a bounded structural summary of a transient response."""
+
+        self._upstream_response_schemas.append(extract_response_schema(value))
+
+    @property
+    def upstream_response_schema(self) -> dict[str, Any] | None:
+        if not self._upstream_response_schemas:
+            return None
+        return merge_response_schemas(self._upstream_response_schemas)
 
     @abstractmethod
     async def fetch(self, since: datetime) -> List[ContentItem]:
@@ -61,9 +90,22 @@ class BaseScraper(ABC):
             hub_channel = getattr(source_config, "channel", None) or getattr(
                 source_config, "category", None
             )
-        return {
+        analysis_mode = getattr(source_config, "analysis_mode", "full")
+        if hasattr(analysis_mode, "value"):
+            analysis_mode = analysis_mode.value
+        metadata = {
             "channel": hub_channel,
             "topics": topics,
             "tags": topics,
             "personal_tags": list(getattr(source_config, "personal_tags", []) or []),
+            "source_id": getattr(source_config, "source_id", None),
+            "subscription_id": getattr(source_config, "subscription_id", None),
+            "source_key": getattr(source_config, "source_key", None),
+            "source_display_name": getattr(source_config, "source_display_name", None),
+            "catalog_source_type": getattr(source_config, "catalog_source_type", None),
+            "source_priority": int(getattr(source_config, "source_priority", 0) or 0),
+            "analysis_mode": str(analysis_mode or "full"),
         }
+        if metadata["analysis_mode"] == "personal_only":
+            metadata["show_in_personal_feed"] = True
+        return metadata

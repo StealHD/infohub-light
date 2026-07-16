@@ -1,0 +1,762 @@
+"""Shared, lease-coordinated acquisition for service catalog sources."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import os
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from urllib.parse import urlsplit
+
+from ..models import ContentItem
+from ..storage.service_store import ServiceStore
+
+
+ADAPTER_CONTRACT_VERSION = "service-content-v1"
+_PROJECTION_CONFIG_KEYS = {
+    "analysis_mode",
+    "category",
+    "display_name",
+    "enabled",
+    "hub_channel",
+    "name",
+    "personal_tags",
+    "priority",
+    "source_display_name",
+    "source_id",
+    "source_key",
+    "source_priority",
+    "subscription_id",
+    "tags",
+    "topics",
+}
+_PROJECTION_METADATA_KEYS = {
+    "analysis_mode",
+    "category",
+    "channel",
+    "hub_channel",
+    "personal_tags",
+    "show_in_personal_feed",
+    "source_display_name",
+    "source_id",
+    "source_ids",
+    "source_key",
+    "source_keys",
+    "source_priority",
+    "subscription_id",
+    "subscription_ids",
+    "tags",
+    "topics",
+}
+
+
+class AcquisitionBusyError(RuntimeError):
+    """Another live claim owns this acquisition and did not finish in time."""
+
+    retryable = True
+
+
+class AcquisitionBackoffError(RuntimeError):
+    """The last upstream failure is still inside its bounded backoff window."""
+
+    retryable = True
+
+
+class AcquisitionLeaseLostError(RuntimeError):
+    """The coordinator no longer owns the claim it is trying to publish."""
+
+    retryable = True
+
+
+@dataclass(slots=True)
+class AcquisitionMetrics:
+    """Safe aggregate counters for one user job."""
+
+    cache_hits: int = 0
+    cache_misses: int = 0
+    upstream_attempts: int = 0
+    waits: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "cache_hits": max(int(self.cache_hits), 0),
+            "cache_misses": max(int(self.cache_misses), 0),
+            "upstream_attempts": max(int(self.upstream_attempts), 0),
+            "waits": max(int(self.waits), 0),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _AcquisitionContext:
+    acquisition_key: str
+    config_fingerprint: str
+    isolation_scope: str
+    source_id: str
+    window_hours: int
+
+
+def shared_acquisition_enabled() -> bool:
+    return os.getenv("HORIZON_SHARED_ACQUISITION_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _bounded_env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        return max(int(os.getenv(name, str(default))), minimum)
+    except (TypeError, ValueError):
+        return max(default, minimum)
+
+
+def _normalized_network_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _normalized_network_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            if str(key) not in _PROJECTION_CONFIG_KEYS
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalized_network_value(item) for item in value]
+    return value
+
+
+def _stable_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _canonical_url(url: str) -> str:
+    parsed = urlsplit(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path.rstrip("/")
+    query = f"?{parsed.query}" if parsed.query else ""
+    return f"{hostname}{port}{path}{query}"
+
+
+def _source_value(source: Any, name: str, default: Any = None) -> Any:
+    if isinstance(source, dict):
+        return source.get(name, default)
+    return getattr(source, name, default)
+
+
+class SourceAcquisitionCoordinator:
+    """Reuse neutral source content while keeping user projection isolated."""
+
+    def __init__(
+        self,
+        store: ServiceStore,
+        *,
+        workspace_id: str,
+        user_id: str,
+        job_id: str,
+        lease_seconds: float | None = None,
+        wait_seconds: float = 5.0,
+        poll_seconds: float = 0.1,
+    ) -> None:
+        self.store = store
+        self.workspace_id = str(workspace_id)
+        self.user_id = str(user_id)
+        self.job_id = str(job_id)
+        self.lease_seconds = max(
+            float(
+                lease_seconds
+                if lease_seconds is not None
+                else os.getenv("HORIZON_WORKER_LEASE_SECONDS", "900")
+            ),
+            1.0,
+        )
+        self.wait_seconds = max(float(wait_seconds), 0.0)
+        self.poll_seconds = max(float(poll_seconds), 0.001)
+        self.metrics = AcquisitionMetrics()
+        self._origins: dict[str, str] = {}
+
+    def origin_for(self, source_id: str) -> str | None:
+        """Return whether this coordinator used upstream or cache for one source."""
+
+        return self._origins.get(str(source_id))
+
+    async def acquire(
+        self,
+        *,
+        source: Any,
+        provider: str,
+        window_hours: int,
+        fetch: Callable[[], Awaitable[list[ContentItem]]],
+    ) -> list[ContentItem]:
+        """Return a fresh neutral acquisition projected for the current user."""
+
+        context = self._context(source, window_hours=max(int(window_hours), 1))
+        deadline = time.monotonic() + self.wait_seconds
+        while True:
+            cached = self._load_fresh(context, source)
+            if cached is not None:
+                self.metrics.cache_hits += 1
+                self._origins[context.source_id] = "cache"
+                return cached
+
+            claim_token = uuid.uuid4().hex
+            decision = self._try_claim(context, claim_token)
+            if decision == "cached":
+                continue
+            if decision == "backoff":
+                raise AcquisitionBackoffError("source acquisition is backing off")
+            if decision == "wait":
+                self.metrics.waits += 1
+                if time.monotonic() >= deadline:
+                    raise AcquisitionBusyError("source acquisition is already running")
+                await asyncio.sleep(self.poll_seconds)
+                continue
+
+            self.metrics.cache_misses += 1
+            self.metrics.upstream_attempts += 1
+            try:
+                fetched = await fetch()
+                neutral = self._neutral_items(fetched)
+                self._store_success(
+                    context,
+                    claim_token=claim_token,
+                    provider=provider,
+                    items=neutral,
+                )
+            except BaseException as exc:
+                self._record_failure(context, claim_token=claim_token, exc=exc)
+                raise
+            self._origins[context.source_id] = "upstream"
+            return self._project_items(neutral, source)
+
+    def run_probe(
+        self,
+        *,
+        source: Any,
+        call: Callable[[], Any],
+    ) -> Any:
+        """Serialize an explicit source test without reading or writing content."""
+
+        base_context = self._context(source, window_hours=1)
+        context = _AcquisitionContext(
+            acquisition_key=hashlib.sha256(
+                f"probe:{base_context.acquisition_key}".encode("utf-8")
+            ).hexdigest(),
+            config_fingerprint=base_context.config_fingerprint,
+            isolation_scope=base_context.isolation_scope,
+            source_id=base_context.source_id,
+            window_hours=1,
+        )
+        deadline = time.monotonic() + self.wait_seconds
+        while True:
+            claim_token = uuid.uuid4().hex
+            decision = self._try_claim(context, claim_token)
+            if decision in {"cached", "wait"}:
+                self.metrics.waits += 1
+                if time.monotonic() >= deadline:
+                    raise AcquisitionBusyError("source test is already running")
+                time.sleep(self.poll_seconds)
+                continue
+            if decision == "backoff":
+                raise AcquisitionBackoffError("source test is backing off")
+            self.metrics.cache_misses += 1
+            self.metrics.upstream_attempts += 1
+            try:
+                result = call()
+            except BaseException as exc:
+                self._release_probe(context, claim_token=claim_token, exc=exc)
+                raise
+            self._release_probe(context, claim_token=claim_token)
+            return result
+
+    def _context(self, source: Any, *, window_hours: int) -> _AcquisitionContext:
+        source_id = str(_source_value(source, "source_id") or "")
+        catalog = self.store.get_source(source_id)
+        if not catalog or catalog["workspace_id"] != self.workspace_id:
+            raise LookupError("catalog source not found for acquisition")
+        isolation_scope = (
+            f"user:{self.user_id}"
+            if catalog["scope"] == "private"
+            else f"workspace:{self.workspace_id}"
+        )
+        secret_identity: dict[str, Any] | None = None
+        secret_env = str(catalog.get("secret_env") or "")
+        if secret_env:
+            secret = self.store.get_secret_ref_by_env(
+                workspace_id=self.workspace_id,
+                env_name=secret_env,
+            )
+            secret_identity = (
+                {
+                    "id": secret["id"],
+                    "updated_at": secret["updated_at"],
+                }
+                if secret
+                else {"env_name": secret_env}
+            )
+        fingerprint_payload = {
+            "adapter_contract": ADAPTER_CONTRACT_VERSION,
+            "source_type": catalog["type"],
+            "network_config": _normalized_network_value(catalog.get("config") or {}),
+            "network_policy": {
+                "enforce_public_network": bool(
+                    _source_value(source, "enforce_public_network", False)
+                )
+            },
+            "secret_ref": secret_identity,
+        }
+        config_fingerprint = hashlib.sha256(
+            _stable_json(fingerprint_payload).encode("utf-8")
+        ).hexdigest()
+        acquisition_payload = {
+            "workspace_id": self.workspace_id,
+            "isolation_scope": isolation_scope,
+            "source_id": source_id,
+            "config_fingerprint": config_fingerprint,
+            "window_hours": window_hours,
+        }
+        acquisition_key = hashlib.sha256(
+            _stable_json(acquisition_payload).encode("utf-8")
+        ).hexdigest()
+        return _AcquisitionContext(
+            acquisition_key=acquisition_key,
+            config_fingerprint=config_fingerprint,
+            isolation_scope=isolation_scope,
+            source_id=source_id,
+            window_hours=window_hours,
+        )
+
+    def _freshness_minutes(self, source_id: str) -> int:
+        row = self.store.connect().execute(
+            """
+            SELECT MIN(interval_minutes) AS interval_minutes
+            FROM (
+                SELECT schedules.interval_minutes AS interval_minutes
+                FROM user_source_schedules AS schedules
+                JOIN user_subscriptions AS subscriptions
+                  ON subscriptions.id = schedules.subscription_id
+                JOIN users ON users.id = subscriptions.user_id
+                JOIN source_catalog AS sources ON sources.id = subscriptions.source_id
+                WHERE schedules.source_id = ?
+                  AND schedules.enabled = 1
+                  AND subscriptions.enabled = 1
+                  AND users.enabled = 1
+                  AND users.role != 'viewer'
+                  AND sources.enabled = 1
+                UNION ALL
+                SELECT feeds.interval_minutes AS interval_minutes
+                FROM user_feed_schedules AS feeds
+                JOIN users ON users.id = feeds.user_id
+                JOIN user_subscriptions AS subscriptions
+                  ON subscriptions.user_id = feeds.user_id
+                JOIN source_catalog AS sources ON sources.id = subscriptions.source_id
+                WHERE subscriptions.source_id = ?
+                  AND feeds.enabled = 1
+                  AND subscriptions.enabled = 1
+                  AND users.enabled = 1
+                  AND users.role != 'viewer'
+                  AND sources.enabled = 1
+            )
+            """,
+            (source_id, source_id),
+        ).fetchone()
+        minimum = _bounded_env_int("HORIZON_SHARED_ACQUISITION_MIN_TTL_MINUTES", 5)
+        maximum = _bounded_env_int("HORIZON_SHARED_ACQUISITION_MAX_TTL_MINUTES", 60)
+        if maximum < minimum:
+            maximum = minimum
+        fallback = _bounded_env_int(
+            "HORIZON_SHARED_ACQUISITION_FALLBACK_TTL_MINUTES", 30
+        )
+        scheduled = int(row["interval_minutes"]) if row and row["interval_minutes"] else fallback
+        return min(max(scheduled, minimum), maximum)
+
+    def _latest_snapshot(self, context: _AcquisitionContext) -> Any | None:
+        return self.store.connect().execute(
+            """
+            SELECT * FROM source_content_snapshots
+            WHERE acquisition_key = ? AND config_fingerprint = ?
+            ORDER BY generated_at DESC, created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (context.acquisition_key, context.config_fingerprint),
+        ).fetchone()
+
+    def _load_fresh(
+        self,
+        context: _AcquisitionContext,
+        source: Any,
+    ) -> list[ContentItem] | None:
+        snapshot = self._latest_snapshot(context)
+        if snapshot is None:
+            return None
+        fresh_until = _parse_time(snapshot["fresh_until"])
+        if fresh_until is None or fresh_until <= _utcnow():
+            return None
+        rows = self.store.connect().execute(
+            """
+            SELECT item_json FROM source_content_items
+            WHERE snapshot_id = ?
+            ORDER BY position, id
+            """,
+            (snapshot["id"],),
+        ).fetchall()
+        neutral = [
+            ContentItem.model_validate(json.loads(row["item_json"]))
+            for row in rows
+        ]
+        return self._project_items(neutral, source)
+
+    def _try_claim(self, context: _AcquisitionContext, claim_token: str) -> str:
+        conn = self.store.connect()
+        if conn.in_transaction:
+            raise RuntimeError("source acquisition requires no active transaction")
+        now = _utcnow()
+        now_iso = now.isoformat()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            snapshot = self._latest_snapshot(context)
+            if snapshot is not None:
+                fresh_until = _parse_time(snapshot["fresh_until"])
+                if fresh_until is not None and fresh_until > now:
+                    conn.commit()
+                    return "cached"
+            live_claim = conn.execute(
+                """
+                SELECT 1
+                FROM source_acquisition_states
+                WHERE workspace_id = ?
+                  AND source_id = ?
+                  AND isolation_scope = ?
+                  AND config_fingerprint = ?
+                  AND claim_token IS NOT NULL
+                  AND locked_until > ?
+                LIMIT 1
+                """,
+                (
+                    self.workspace_id,
+                    context.source_id,
+                    context.isolation_scope,
+                    context.config_fingerprint,
+                    now_iso,
+                ),
+            ).fetchone()
+            if live_claim is not None:
+                conn.commit()
+                return "wait"
+            state = conn.execute(
+                "SELECT * FROM source_acquisition_states WHERE acquisition_key = ?",
+                (context.acquisition_key,),
+            ).fetchone()
+            retry_after = _parse_time(state["retry_after"]) if state else None
+            if retry_after is not None and retry_after > now:
+                conn.commit()
+                return "backoff"
+            locked_until = _parse_time(state["locked_until"]) if state else None
+            if locked_until is not None and locked_until > now and state["claim_token"]:
+                conn.commit()
+                return "wait"
+            conn.execute(
+                """
+                INSERT INTO source_acquisition_states (
+                    acquisition_key, workspace_id, source_id, isolation_scope,
+                    config_fingerprint, owner_job_id, claim_token, locked_until,
+                    retry_after, last_error_code, failure_count, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?)
+                ON CONFLICT(acquisition_key) DO UPDATE SET
+                    workspace_id = excluded.workspace_id,
+                    source_id = excluded.source_id,
+                    isolation_scope = excluded.isolation_scope,
+                    config_fingerprint = excluded.config_fingerprint,
+                    owner_job_id = excluded.owner_job_id,
+                    claim_token = excluded.claim_token,
+                    locked_until = excluded.locked_until,
+                    retry_after = NULL,
+                    last_error_code = NULL,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    context.acquisition_key,
+                    self.workspace_id,
+                    context.source_id,
+                    context.isolation_scope,
+                    context.config_fingerprint,
+                    self.job_id,
+                    claim_token,
+                    (now + timedelta(seconds=self.lease_seconds)).isoformat(),
+                    now_iso,
+                ),
+            )
+            conn.commit()
+            return "claimed"
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+
+    @staticmethod
+    def _neutral_items(items: list[ContentItem]) -> list[ContentItem]:
+        neutral_by_id: dict[str, ContentItem] = {}
+        for item in items:
+            copied = item.model_copy(deep=True)
+            copied.metadata = {
+                key: value
+                for key, value in copied.metadata.items()
+                if key not in _PROJECTION_METADATA_KEYS
+            }
+            neutral_by_id.setdefault(copied.id, copied)
+        return list(neutral_by_id.values())
+
+    @staticmethod
+    def _project_items(items: list[ContentItem], source: Any) -> list[ContentItem]:
+        source_id = str(_source_value(source, "source_id") or "")
+        subscription_id = _source_value(source, "subscription_id")
+        source_key = _source_value(source, "source_key")
+        analysis_mode = _source_value(source, "analysis_mode", "full")
+        if hasattr(analysis_mode, "value"):
+            analysis_mode = analysis_mode.value
+        channel = (
+            _source_value(source, "hub_channel")
+            or _source_value(source, "channel")
+            or _source_value(source, "category")
+        )
+        topics = list(_source_value(source, "topics", []) or [])
+        for tag in list(_source_value(source, "tags", []) or []):
+            if tag not in topics:
+                topics.append(tag)
+        projected: list[ContentItem] = []
+        for item in items:
+            copied = item.model_copy(deep=True)
+            copied.metadata.update(
+                {
+                    "channel": channel,
+                    "topics": topics,
+                    "tags": topics,
+                    "personal_tags": list(
+                        _source_value(source, "personal_tags", []) or []
+                    ),
+                    "source_id": source_id,
+                    "subscription_id": subscription_id,
+                    "source_key": source_key,
+                    "source_display_name": _source_value(
+                        source, "source_display_name"
+                    ),
+                    "catalog_source_type": _source_value(
+                        source, "catalog_source_type"
+                    ),
+                    "source_priority": int(
+                        _source_value(source, "source_priority", 0) or 0
+                    ),
+                    "analysis_mode": str(analysis_mode or "full"),
+                }
+            )
+            if str(analysis_mode or "full") == "personal_only":
+                copied.metadata["show_in_personal_feed"] = True
+            else:
+                copied.metadata.pop("show_in_personal_feed", None)
+            projected.append(copied)
+        return projected
+
+    def _store_success(
+        self,
+        context: _AcquisitionContext,
+        *,
+        claim_token: str,
+        provider: str,
+        items: list[ContentItem],
+    ) -> None:
+        conn = self.store.connect()
+        now = _utcnow()
+        snapshot_id = f"acq_{uuid.uuid4().hex}"
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            state = conn.execute(
+                """
+                SELECT claim_token FROM source_acquisition_states
+                WHERE acquisition_key = ?
+                """,
+                (context.acquisition_key,),
+            ).fetchone()
+            if state is None or state["claim_token"] != claim_token:
+                raise AcquisitionLeaseLostError("source acquisition lease was lost")
+            fresh_until = now + timedelta(
+                minutes=self._freshness_minutes(context.source_id)
+            )
+            conn.execute(
+                """
+                INSERT INTO source_content_snapshots (
+                    id, acquisition_key, workspace_id, source_id,
+                    config_fingerprint, isolation_scope, window_hours,
+                    generated_at, fresh_until, item_count, producer_job_id,
+                    diagnostics_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    context.acquisition_key,
+                    self.workspace_id,
+                    context.source_id,
+                    context.config_fingerprint,
+                    context.isolation_scope,
+                    context.window_hours,
+                    now.isoformat(),
+                    fresh_until.isoformat(),
+                    len(items),
+                    self.job_id,
+                    _stable_json(
+                        {
+                            "adapter_contract": ADAPTER_CONTRACT_VERSION,
+                            "provider": str(provider),
+                            "upstream_attempts": 1,
+                        }
+                    ),
+                    now.isoformat(),
+                ),
+            )
+            for position, item in enumerate(items):
+                conn.execute(
+                    """
+                    INSERT INTO source_content_items (
+                        id, snapshot_id, canonical_key, source_item_id,
+                        position, item_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"aci_{uuid.uuid4().hex}",
+                        snapshot_id,
+                        _canonical_url(str(item.url)),
+                        item.id,
+                        position,
+                        _stable_json(item.model_dump(mode="json")),
+                        now.isoformat(),
+                    ),
+                )
+            cursor = conn.execute(
+                """
+                UPDATE source_acquisition_states
+                SET owner_job_id = NULL, claim_token = NULL, locked_until = NULL,
+                    retry_after = NULL, last_error_code = NULL, failure_count = 0,
+                    updated_at = ?
+                WHERE acquisition_key = ? AND claim_token = ?
+                """,
+                (now.isoformat(), context.acquisition_key, claim_token),
+            )
+            if cursor.rowcount != 1:
+                raise AcquisitionLeaseLostError("source acquisition lease was lost")
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+
+    def _record_failure(
+        self,
+        context: _AcquisitionContext,
+        *,
+        claim_token: str,
+        exc: BaseException,
+    ) -> None:
+        conn = self.store.connect()
+        now = _utcnow()
+        base_seconds = _bounded_env_int(
+            "HORIZON_SHARED_ACQUISITION_FAILURE_BACKOFF_SECONDS", 30
+        )
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.execute("BEGIN IMMEDIATE")
+            state = conn.execute(
+                """
+                SELECT failure_count FROM source_acquisition_states
+                WHERE acquisition_key = ? AND claim_token = ?
+                """,
+                (context.acquisition_key, claim_token),
+            ).fetchone()
+            if state is not None:
+                failure_count = int(state["failure_count"] or 0) + 1
+                backoff_seconds = min(base_seconds * (2 ** (failure_count - 1)), 300)
+                conn.execute(
+                    """
+                    UPDATE source_acquisition_states
+                    SET owner_job_id = NULL, claim_token = NULL, locked_until = NULL,
+                        retry_after = ?, last_error_code = ?, failure_count = ?,
+                        updated_at = ?
+                    WHERE acquisition_key = ? AND claim_token = ?
+                    """,
+                    (
+                        (now + timedelta(seconds=backoff_seconds)).isoformat(),
+                        type(exc).__name__,
+                        failure_count,
+                        now.isoformat(),
+                        context.acquisition_key,
+                        claim_token,
+                    ),
+                )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+
+    def _release_probe(
+        self,
+        context: _AcquisitionContext,
+        *,
+        claim_token: str,
+        exc: BaseException | None = None,
+    ) -> None:
+        conn = self.store.connect()
+        now = _utcnow().isoformat()
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                """
+                UPDATE source_acquisition_states
+                SET owner_job_id = NULL, claim_token = NULL, locked_until = NULL,
+                    retry_after = NULL, last_error_code = ?, failure_count = 0,
+                    updated_at = ?
+                WHERE acquisition_key = ? AND claim_token = ?
+                """,
+                (
+                    type(exc).__name__ if exc is not None else None,
+                    now,
+                    context.acquisition_key,
+                    claim_token,
+                ),
+            )
+            if cursor.rowcount != 1 and exc is None:
+                raise AcquisitionLeaseLostError("source test lease was lost")
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            if exc is None:
+                raise

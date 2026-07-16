@@ -168,6 +168,48 @@ def test_viewer_is_read_only_across_core_service_api(tmp_path, monkeypatch):
         _assert_error(response, 403, "forbidden")
 
 
+def test_global_config_actions_require_admin_role(tmp_path, monkeypatch):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _seed_roles_and_sources(client, data_dir)
+    actions = [
+        (
+            "set_ai",
+            {
+                "enabled": False,
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "api_key_env": "OPENAI_API_KEY",
+                "languages": "zh",
+            },
+        ),
+        ("set_filtering", {"ai_score_threshold": 8.0}),
+        ("set_tags", {"tags": "Blocked Topic"}),
+        ("set_personal_tags", {"personal_tags": "Blocked Personal Tag"}),
+        ("set_webhook", {"enabled": False, "url_env": "WEBHOOK_URL"}),
+        ("set_hackernews", {"enabled": True, "fetch_top_stories": 30, "min_score": 100}),
+        ("set_apify_social_settings", {"enabled": False, "token_envs": "APIFY_TOKEN"}),
+    ]
+
+    for username in ("member", "viewer"):
+        _login_as(client, username, f"{username}-password")
+        for action, payload in actions:
+            response = client.post(
+                "/api/config/action",
+                json={"action": action, "payload": payload},
+            )
+            _assert_error(response, 403, "forbidden")
+        _logout(client)
+
+    _login_as(client, "admin", "admin-password")
+    for action, payload in actions:
+        response = client.post(
+            "/api/config/action",
+            json={"action": action, "payload": payload},
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+
 def test_member_source_and_job_permissions_are_user_scoped(tmp_path, monkeypatch):
     client, data_dir = _client(tmp_path, monkeypatch)
     fixture = _seed_roles_and_sources(client, data_dir)
@@ -218,3 +260,19 @@ def test_admin_can_manage_shared_source(tmp_path, monkeypatch):
     assert patched.json()["data"]["display_name"] == "Admin Updated RSS"
     assert deleted.status_code == 200
     assert deleted.json()["data"]["enabled"] is False
+
+
+def test_viewer_can_read_but_cannot_patch_own_feed_schedule(tmp_path, monkeypatch):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _seed_roles_and_sources(client, data_dir)
+    _login_as(client, "viewer", "viewer-password")
+
+    fetched = client.get("/api/me/feed-schedule")
+    patched = client.patch(
+        "/api/me/feed-schedule",
+        json={"enabled": False, "interval_minutes": 360},
+    )
+
+    assert fetched.status_code == 200
+    assert fetched.json()["data"]["enabled"] is False
+    _assert_error(patched, 403, "forbidden")

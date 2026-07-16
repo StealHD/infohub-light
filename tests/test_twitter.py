@@ -297,6 +297,11 @@ def test_fetch_replies_disabled_by_default():
     assert cfg.fetch_reply_text is False
 
 
+def test_legacy_twitter_config_keeps_scweet_actor_default():
+    """The legacy Twitter adapter must not inherit Service Apify Social actors."""
+    assert TwitterConfig().actor_id == "altimis~scweet"
+
+
 def test_fetch_replies_appends_top_comments(monkeypatch):
     """When fetch_reply_text=True, reply lines are appended under Top Comments."""
     monkeypatch.setenv("APIFY_TOKEN", "test_token")
@@ -415,6 +420,5 @@ def test_fetch_replies_no_conversation_id_returns_empty(monkeypatch):
     result = asyncio.run(scraper.fetch_replies_for_item(item))
     asyncio.run(client.aclose())
     assert result == []
-
 
 

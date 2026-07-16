@@ -53,12 +53,14 @@ class UserItemStateStore:
     def is_visible(self, *, workspace_id: str, user_id: str, article_id: str) -> bool:
         row = self.store.connect().execute(
             """
-            SELECT 1
-            FROM user_feed_items
+            SELECT 1 FROM user_content_items
+            WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+            UNION ALL
+            SELECT 1 FROM user_feed_items
             WHERE workspace_id = ? AND user_id = ? AND article_id = ?
             LIMIT 1
             """,
-            (workspace_id, user_id, article_id),
+            (workspace_id, user_id, article_id, workspace_id, user_id, article_id),
         ).fetchone()
         return row is not None
 

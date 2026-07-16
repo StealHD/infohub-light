@@ -38,23 +38,29 @@ ENV/
 
 # Data files (keep structure, ignore content)
 data/config.json
+data/secrets.env
 data/*.bak
 data/seen.json
 data/*.db
+data/backups/
 data/summaries/*.md
 data/subscribers.json
 data/mcp.secrets.json
 data/mcp-secrets.json
 data/mcp-runs/
 data/cache/
+data/media/
 data/site/
 
 docs/_posts/*.md
 
 # Logs
-logs/*.log
-logs/*.png
+logs/
 *.log
+.test-results/
+
+# Local Superpowers design/session state
+.superpowers/
 
 # macOS
 .DS_Store
@@ -66,3 +72,11 @@ logs/*.png
 todo.txt
 .ruff_cache
 .pytest_cache
+
+# React Service UI build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+frontend/*.tsbuildinfo
+src/ui/service_static/

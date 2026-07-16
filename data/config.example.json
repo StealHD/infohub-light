@@ -120,7 +120,7 @@
       "timeout_seconds": 180,
       "actors": {
         "x": {
-          "actor_id": "altimis~scweet"
+          "actor_id": "xquik/x-tweet-scraper"
         },
         "instagram": {
           "actor_id": "apify/instagram-api-scraper"

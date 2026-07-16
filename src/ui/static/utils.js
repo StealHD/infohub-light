@@ -52,6 +52,31 @@ function formatDate(value) {
   }).format(date);
 }
 
+function safeExternalUrl(value) {
+  try {
+    var parsed = new URL(String(value || ''));
+    if (['http:', 'https:'].indexOf(parsed.protocol) < 0) return '';
+    if (parsed.username || parsed.password) return '';
+    return parsed.href;
+  } catch (err) {
+    return '';
+  }
+}
+
+function formatFeedFreshness(value, now) {
+  if (!value) return 'Feed 更新时间未知';
+  var timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'Feed 更新时间未知';
+  var current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  var elapsedSeconds = Math.floor((current - timestamp) / 1000);
+  if (elapsedSeconds < 60) return 'Feed 刚刚更新';
+  var elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return 'Feed 更新于 ' + elapsedMinutes + ' 分钟前';
+  var elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return 'Feed 更新于 ' + elapsedHours + ' 小时前';
+  return 'Feed 更新于 ' + Math.floor(elapsedHours / 24) + ' 天前';
+}
+
 function scoreClass(score) {
   if (score >= 8.5) return 'score-high';
   if (score >= 7.5) return 'score-featured';
@@ -119,7 +144,7 @@ function findKnownItem(itemId) {
 function defaultUserItemState(articleId) {
   return {
     article_id: articleId,
-    is_read: state.readItems.has(articleId),
+    is_read: false,
     is_saved: state.favorites.has(articleId),
     is_later: state.readLater.has(articleId),
     dismissed: false,
@@ -160,7 +185,6 @@ function applyUserItemState(articleId, value) {
   else state.favorites.delete(articleId);
   if (normalized.is_later) state.readLater.add(articleId);
   else state.readLater.delete(articleId);
-  saveSet(STORAGE_READ_ITEMS, state.readItems);
   saveSet(STORAGE_FAVORITES, state.favorites);
   saveSet(STORAGE_READ_LATER, state.readLater);
   return normalized;
@@ -182,19 +206,25 @@ function itemUserState(item) {
   return defaultUserItemState(item.id);
 }
 
-async function refreshUserItemStates() {
+async function refreshUserItemStates(options) {
+  options = options || {};
+  var isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : function () { return true; };
+  if (!isCurrent()) return false;
   var ids = getAllKnownItems()
     .map(function (item) { return item && item.id; })
     .filter(Boolean);
-  if (!ids.length) return;
+  if (!ids.length) return true;
   var response = await fetch('/api/me/item-state?article_ids=' + encodeURIComponent(ids.join(',')));
   var payload = await response.json();
+  if (!isCurrent()) return false;
   if (!response.ok) throw new Error(apiErrorMessage(payload, '读取状态失败'));
   var data = unwrapApiPayload(payload);
   var states = (data && data.states) || {};
+  if (!isCurrent()) return false;
   Object.keys(states).forEach(function (articleId) {
     applyUserItemState(articleId, states[articleId]);
   });
+  return true;
 }
 
 function getActiveData() {
@@ -230,7 +260,7 @@ function shouldShowScoreControls() {
 function viewDescription() {
   if (state.view === 'history') {
     if (state.historyFilter === 'featured') return '历史累计精选内容，适合回看高分信息。';
-    return '历史累计内容按时间回看，适合复盘信息源质量。';
+    return '回看已经离开最新 Feed 的信息。';
   }
   if (!isAiScoringEnabled() && (state.view === 'featured' || state.view === 'daily' || state.view === 'all')) {
     return '无评分模式下按发布时间展示你配置的信源内容。';
@@ -249,8 +279,10 @@ function matchesQuery(item) {
     item.title,
     item.source,
     item.summary_zh,
-    item.reason,
     item.action_suggestion,
+    item.presentation && item.presentation.source && item.presentation.source.name,
+    item.presentation && item.presentation.author && item.presentation.author.name,
+    item.presentation && item.presentation.content && item.presentation.content.excerpt,
     item.channel,
     item.category,
     (item.topics || []).join(' '),
@@ -359,16 +391,6 @@ function getSelectedItem(items) {
     state.selectedItemId = selected.id;
   }
   return selected;
-}
-
-function markRead(item) {
-  if (!item || !item.id || state.readItems.has(item.id)) return;
-  state.readItems.add(item.id);
-  state.itemState[item.id] = {
-    ...itemUserState(item),
-    is_read: true,
-  };
-  saveSet(STORAGE_READ_ITEMS, state.readItems);
 }
 
 function renderSelectOptions(select, values, allLabel) {

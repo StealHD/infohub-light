@@ -1,6 +1,6 @@
 # Inteliscope Nginx Basic Auth 发布配置
 
-适合已有 Nginx 的服务器：Nginx 对公网提供 80/443，反代到本机 `127.0.0.1:8080`，整站用 Basic Auth 保护。
+适用于 `vps-tokyo`：Nginx 为 `rb.jiefs.top` 提供 80/443，反代到本机 `127.0.0.1:8080`，整站先经过 Basic Auth，再进入应用登录。
 
 ## 1. 确认 Docker 只监听本机
 
@@ -54,7 +54,11 @@ sudo ln -sf /etc/nginx/sites-available/inteliscope /etc/nginx/sites-enabled/inte
 sudo nano /etc/nginx/sites-available/inteliscope
 ```
 
-把 `radar.example.com` 改成你的域名。如果已有 HTTPS 证书，启用模板里的 443 server block，并改证书路径。
+模板已使用 `rb.jiefs.top` 和 VPS 当前证书路径。另将登录限流配置安装到 Nginx `http` 上下文：
+
+```bash
+sudo cp deploy/nginx/inteliscope-rate-limit.conf /etc/nginx/conf.d/inteliscope-rate-limit.conf
+```
 
 检查并重载：
 
@@ -88,4 +92,4 @@ curl -I -u friend:你的密码 http://你的域名
 - Basic Auth 会保护整站，包括信息流和配置页。
 - 账号密码会被浏览器缓存；朋友退出通常需要关闭浏览器或访问无效账号覆盖缓存。
 - 强烈建议配合 HTTPS 使用，否则 Basic Auth 密码会以可被中间人解码的形式传输。
-- 如果你同时开启应用内鉴权，访问站点会先过 Nginx Basic Auth，再过应用后台登录；只想省事可以关闭应用内鉴权，只保留 Nginx。
+- Basic Auth 不能替代应用登录和 owner/admin/member/viewer 权限。访问站点会先过 Nginx Basic Auth，再使用个人应用账号登录。

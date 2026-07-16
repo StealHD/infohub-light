@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import pytest
 
 from src.models import RedditConfig, RedditSubredditConfig
 from src.scrapers.reddit import REDDIT_HEADERS, RedditScraper
@@ -17,6 +18,10 @@ def _make_config(fetch_comments: int = 1) -> RedditConfig:
                 sort="hot",
                 fetch_limit=1,
                 min_score=1,
+                source_id="src_reddit",
+                subscription_id="sub_reddit",
+                source_key="reddit_subreddit:localllama",
+                analysis_mode="personal_only",
             )
         ],
         users=[],
@@ -88,6 +93,10 @@ def test_reddit_comment_403_degrades_to_post_without_comments():
     assert len(items) == 1
     assert items[0].title == "Test post"
     assert "Top Comments" not in (items[0].content or "")
+    assert items[0].metadata["source_id"] == "src_reddit"
+    assert items[0].metadata["subscription_id"] == "sub_reddit"
+    assert items[0].metadata["analysis_mode"] == "personal_only"
+    assert items[0].metadata["show_in_personal_feed"] is True
 
 
 def test_reddit_listing_403_falls_back_to_subreddit_rss():
@@ -133,3 +142,31 @@ def test_reddit_listing_403_falls_back_to_subreddit_rss():
     assert items[0].author == "rss_author"
     assert items[0].metadata["subreddit"] == "LocalLLaMA"
     assert items[0].metadata["fallback"] == "rss"
+
+
+def test_reddit_strict_mode_propagates_listing_failure():
+    transport = httpx.MockTransport(lambda _request: httpx.Response(500, text="down"))
+    client = httpx.AsyncClient(transport=transport)
+    scraper = RedditScraper(_make_config(fetch_comments=0), client)
+    scraper.strict_errors = True
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(scraper.fetch(datetime.now(timezone.utc) - timedelta(hours=1)))
+    asyncio.run(client.aclose())
+
+
+def test_reddit_strict_mode_propagates_failed_rss_fallback():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/hot.json"):
+            return httpx.Response(403, text="listing blocked")
+        if request.url.path.endswith("/hot/.rss"):
+            return httpx.Response(503, text="fallback unavailable")
+        raise AssertionError(f"unexpected url: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    scraper = RedditScraper(_make_config(fetch_comments=0), client)
+    scraper.strict_errors = True
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(scraper.fetch(datetime.now(timezone.utc) - timedelta(hours=1)))
+    asyncio.run(client.aclose())

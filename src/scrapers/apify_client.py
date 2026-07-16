@@ -62,12 +62,23 @@ class ApifyClient:
         self.timeout_seconds = timeout_seconds
         self.retry_base_delay = retry_base_delay
 
-    async def run_actor(self, actor_id: str, actor_input: dict[str, Any]) -> list[dict[str, Any]]:
+    async def run_actor(
+        self,
+        actor_id: str,
+        actor_input: dict[str, Any],
+        *,
+        max_total_charge_usd: float | None = None,
+    ) -> list[dict[str, Any]]:
         """Start an actor run, wait for success, then fetch dataset items."""
         run = await self._request(
             "POST",
             f"/acts/{self._actor_path_id(actor_id)}/runs",
             json=actor_input,
+            **(
+                {"params": {"maxTotalChargeUsd": f"{max_total_charge_usd:.2f}"}}
+                if max_total_charge_usd is not None
+                else {}
+            ),
             timeout=30.0,
         )
         data = run.get("data") or {}

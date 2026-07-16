@@ -1,3 +1,4 @@
+<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=CONTEXT_READ_RULES.md -->
 # Inteliscope InfoHub Light 上下文读取规则
 
 ## 1. 文档目的
@@ -22,6 +23,7 @@
 5. 先跑目标测试，最后再跑全量测试。
 6. 只有控制面变化才更新控制文件；普通功能开发只追加短 `WORKLOG.md`。
 
+<!-- init-pro:section name=required-context -->
 ## 3. 默认必读文件
 对于绝大多数普通编码任务，默认只需要先读这些内容：
 
@@ -77,7 +79,8 @@
 | API / CLI / payload | `PLAN.md`、`API_CONTRACT.md` 相关章节、API/CLI 入口、对应 service、接口测试 |
 | Worker / job queue | `PLAN.md`、`project-defaults.yaml` cost/job 段、`src/services/worker.py` 或 `src/services/job_queue.py`、对应测试 |
 | Storage / migration | `PLAN.md`、`ARCHITECTURE_CONTRACT.md` archive/storage 边界、目标 storage 文件、对应测试 |
-| 静态 UI | `PLAN.md`、`project-defaults.yaml` output 段、目标 `src/ui/static/*` 文件、`tests/test_static_reading_ui.py` |
+| React UI | `UI_CONTRACT.md`、目标 `frontend/src/*` 文件、匹配的 Vitest/Playwright 测试 |
+| Legacy 静态 UI | `PLAN.md`、`project-defaults.yaml` output 段、目标 `src/ui/static/*` 文件、`tests/test_static_reading_ui.py` |
 | Scraper / adapter | `PLAN.md`、`ARCHITECTURE_CONTRACT.md` adapter 边界、`src/models.py` 相关模型、目标 scraper、匹配测试 |
 | Docker / 部署 | `PLAN.md`、`project-defaults.yaml` runtime/verification 段、目标 compose/script、light runtime 测试 |
 | 测试修复 | 失败测试、被测代码、最小相关 fixture；不要先读全仓合同 |
@@ -160,14 +163,13 @@
 ### 7.8 前端 / 页面任务
 默认读取：
 
-1. `PLAN.md`
-2. `project-defaults.yaml`
-3. 当前页面或组件文件 under `src/ui/static/`
-4. 当前页面或组件测试
+1. React 任务读取 `UI_CONTRACT.md`、当前 `frontend/src/` 页面或组件及其 Vitest/Playwright 测试。
+2. Legacy UI 任务读取 `PLAN.md`、`project-defaults.yaml`、当前 `src/ui/static/` 文件及匹配测试。
+3. 不得把 legacy CSS/JS 当作 React 视觉系统真源。
 
 只有当前端任务涉及接口字段、错误处理或权限边界时，再读取 `API_CONTRACT.md`。
 
-如当前阶段从“light reading UI”变为“正式复杂前端”，必须追加 `AGENTS.md`、`ARCHITECTURE_CONTRACT.md` 和 `DECISION_LOG.md`。
+如 React 视觉组件边界、主题、布局或验收门禁发生变化，必须更新 `UI_CONTRACT.md` 并追加 `DECISION_LOG.md`。
 
 ### 7.9 Scraper 任务
 默认读取：

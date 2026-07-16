@@ -1,0 +1,271 @@
+{
+  "version": 1,
+  "docs_only_globs": [
+    "*.md",
+    "docs/*.md",
+    "docs/**/*.md",
+    "src/mcp/*.md"
+  ],
+  "full_globs": [
+    ".github/workflows/*",
+    ".dockerignore",
+    ".env.example",
+    "Dockerfile",
+    "docker-compose*.yml",
+    "pyproject.toml",
+    "tests/conftest.py",
+    "tests/test_impact_map.json",
+    "uv.lock"
+  ],
+  "fail_closed_globs": [
+    "*.py",
+    "*.sh",
+    "src/**",
+    "scripts/**",
+    "tests/**",
+    "frontend/**",
+    "deploy/**"
+  ],
+  "ui_globs": [
+    "UI_CONTRACT.md",
+    "src/ui/**",
+    "frontend/**",
+    "tests/*.test.cjs"
+  ],
+  "rules": [
+    {
+      "id": "API/store",
+      "globs": [
+        "src/api/**/*.py",
+        "src/api/*.py",
+        "src/storage/**/*.py",
+        "src/storage/*.py",
+        "src/services/secret_store.py",
+        "src/services/source_type_registry.py",
+        "src/services/user_config_builder.py",
+        "src/services/user_content_store.py",
+        "src/services/user_item_state.py"
+      ],
+      "groups": ["python_api_store"]
+    },
+    {
+      "id": "queue/worker",
+      "globs": [
+        "src/services/feed_schedule.py",
+        "src/services/job_eligibility.py",
+        "src/services/job_queue.py",
+        "src/services/quota.py",
+        "src/services/runtime_status.py",
+        "src/services/scheduler.py",
+        "src/services/source_schedule.py",
+        "src/services/usage_attempt_meter.py",
+        "src/services/worker.py"
+      ],
+      "groups": ["python_queue_worker"]
+    },
+    {
+      "id": "Feed",
+      "globs": [
+        "src/services/article_*.py",
+        "src/services/canonical_content.py",
+        "src/services/content_repair.py",
+        "src/services/content_presentation.py",
+        "src/services/feed_*.py",
+        "src/services/legacy_publisher.py",
+        "src/services/maintenance.py",
+        "src/services/media_cache.py",
+        "src/services/network_policy.py",
+        "src/services/response_schema.py",
+        "src/services/user_analysis_cache.py",
+        "src/services/user_feed_store.py"
+      ],
+      "groups": ["python_feed"]
+    },
+    {
+      "id": "source acquisition",
+      "globs": [
+        "src/services/catalog_source_runner.py",
+        "src/services/source_acquisition.py",
+        "src/services/source_health.py",
+        "src/services/source_update.py"
+      ],
+      "groups": ["python_source_acquisition"]
+    },
+    {
+      "id": "AI/orchestrator",
+      "globs": [
+        "src/ai/**/*.py",
+        "src/ai/*.py",
+        "src/models.py",
+        "src/orchestrator.py",
+        "src/source_selection.py",
+        "src/tag_policy.py"
+      ],
+      "groups": ["python_ai_orchestrator"]
+    },
+    {
+      "id": "scrapers",
+      "globs": ["src/scrapers/**/*.py", "src/scrapers/*.py"],
+      "groups": ["python_scrapers"]
+    },
+    {
+      "id": "Python UI",
+      "globs": ["src/ui/**/*.py", "src/ui/*.py"],
+      "groups": ["python_ui"]
+    },
+    {
+      "id": "scripts",
+      "globs": ["scripts/*.py", "scripts/*.sh"],
+      "groups": ["python_scripts"]
+    },
+    {
+      "id": "legacy UI behavior",
+      "globs": ["src/ui/static/*.js"],
+      "groups": ["legacy_ui"]
+    },
+    {
+      "id": "legacy UI contract",
+      "globs": ["src/ui/static/*.css", "src/ui/static/*.html"],
+      "groups": ["legacy_ui_contract"]
+    },
+    {
+      "id": "React related",
+      "globs": [
+        "frontend/src/**/*.css",
+        "frontend/src/**/*.ts",
+        "frontend/src/**/*.tsx"
+      ],
+      "groups": ["frontend_checks", "frontend_related"]
+    },
+    {
+      "id": "React global Shell",
+      "globs": [
+        "frontend/src/app/App.tsx",
+        "frontend/src/app/AppShell.tsx",
+        "frontend/src/main.tsx",
+        "frontend/src/styles/**",
+        "frontend/src/test/setup.ts",
+        "frontend/src/ui/UiProvider.tsx",
+        "frontend/src/ui/index.ts",
+        "frontend/src/ui/theme.ts"
+      ],
+      "groups": ["frontend_full"]
+    },
+    {
+      "id": "React global configuration",
+      "globs": [
+        "frontend/eslint.config.*",
+        "frontend/index.html",
+        "frontend/package-lock.json",
+        "frontend/package.json",
+        "frontend/playwright.config.*",
+        "frontend/tsconfig*.json",
+        "frontend/vite.config.*",
+        "frontend/vitest.config.*"
+      ],
+      "groups": ["frontend_full"]
+    },
+    {
+      "id": "React E2E",
+      "globs": [
+        "frontend/e2e/**/*.png",
+        "frontend/e2e/**/*.ts",
+        "frontend/e2e/*.ts"
+      ],
+      "groups": ["frontend_full"]
+    }
+  ],
+  "group_tests": {
+    "python_api_store": [
+      "tests/test_api_permissions_matrix.py",
+      "tests/test_api_service.py",
+      "tests/test_auth.py",
+      "tests/test_config_server.py",
+      "tests/test_secret_api.py",
+      "tests/test_secret_store.py",
+      "tests/test_service_store.py",
+      "tests/test_source_type_registry.py",
+      "tests/test_storage.py",
+      "tests/test_user_config_builder.py",
+      "tests/test_user_content_v4_migration.py",
+      "tests/test_content_repair_v5.py",
+      "tests/test_user_item_state.py"
+    ],
+    "python_queue_worker": [
+      "tests/test_feed_schedule.py",
+      "tests/test_job_queue.py",
+      "tests/test_job_queue_reliability.py",
+      "tests/test_scheduler.py",
+      "tests/test_source_health_worker.py",
+      "tests/test_source_schedule.py",
+      "tests/test_worker.py",
+      "tests/test_content_repair_v5.py"
+    ],
+    "python_feed": [
+      "tests/test_content_presentation.py",
+      "tests/test_feed_production.py",
+      "tests/test_feed_run_analysis_usage.py",
+      "tests/test_feed_storage_v3_migration.py",
+      "tests/test_feed_v2_migration.py",
+      "tests/test_maintenance.py",
+      "tests/test_media_cache_unit.py",
+      "tests/test_multi_user_feed_e2e.py",
+      "tests/test_response_schema.py",
+      "tests/test_source_presentation_adapters.py",
+      "tests/test_user_analysis_cache.py",
+      "tests/test_user_content_v4_migration.py",
+      "tests/test_user_feed_store.py",
+      "tests/test_content_repair_v5.py"
+    ],
+    "python_source_acquisition": [
+      "tests/test_catalog_source_runner.py",
+      "tests/test_source_acquisition.py",
+      "tests/test_source_health.py",
+      "tests/test_source_health_api.py",
+      "tests/test_source_health_worker.py",
+      "tests/test_source_schedule.py"
+    ],
+    "python_ai_orchestrator": [
+      "tests/test_analyzer.py",
+      "tests/test_azure_client.py",
+      "tests/test_feed_run_analysis_usage.py",
+      "tests/test_gemini_client.py",
+      "tests/test_minimax_client.py",
+      "tests/test_deepseek_smoke.py",
+      "tests/test_orchestrator_execute.py",
+      "tests/test_orchestrator_token_budget.py",
+      "tests/test_source_selection.py",
+      "tests/test_summarizer.py",
+      "tests/test_summary_policy.py",
+      "tests/test_token_usage.py"
+    ],
+    "python_scrapers": [
+      "tests/test_apify_social.py",
+      "tests/test_openbb_scraper.py",
+      "tests/test_reddit.py",
+      "tests/test_rss.py",
+      "tests/test_source_registry.py",
+      "tests/test_twitter.py"
+    ],
+    "python_ui": [
+      "tests/test_config_server.py",
+      "tests/test_react_service_ui.py",
+      "tests/test_static_reading_ui.py"
+    ],
+    "python_scripts": [
+      "tests/test_bootstrap_local_sources.py",
+      "tests/test_feed_storage_v3_migration.py",
+      "tests/test_feed_v2_migration.py",
+      "tests/test_light_runtime_scripts.py",
+      "tests/test_prepare_service_deployment.py",
+      "tests/test_reset_local_service.py",
+      "tests/test_service_api_smoke_script.py",
+      "tests/test_service_stack_smoke_script.py",
+      "tests/test_source_contract_smoke_script.py",
+      "tests/test_test_gate.py",
+      "tests/test_user_content_v4_migration.py",
+      "tests/test_content_repair_v5.py",
+      "tests/test_deepseek_smoke.py"
+    ]
+  }
+}

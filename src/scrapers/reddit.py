@@ -69,6 +69,8 @@ class RedditScraper(BaseScraper):
         for result in results:
             if isinstance(result, Exception):
                 logger.warning("Error fetching Reddit source: %s", result)
+                if self.strict_errors:
+                    raise result
             elif isinstance(result, list):
                 items.extend(result)
         return items
@@ -89,6 +91,8 @@ class RedditScraper(BaseScraper):
                 cfg.subreddit,
             )
             return await self._fetch_subreddit_rss(cfg, since)
+        if data is not None:
+            self.observe_upstream_response(data)
         if not data:
             return []
 
@@ -103,8 +107,7 @@ class RedditScraper(BaseScraper):
             "subreddit",
             cfg.subreddit,
             cfg.min_score,
-            cfg.tags,
-            cfg.personal_tags,
+            cfg,
         )
 
     async def _fetch_subreddit_rss(
@@ -124,9 +127,14 @@ class RedditScraper(BaseScraper):
             response.raise_for_status()
         except httpx.HTTPError as e:
             logger.warning("Reddit RSS fallback failed for r/%s: %s", cfg.subreddit, e)
+            if self.strict_errors:
+                raise
             return []
 
         feed = feedparser.parse(response.text)
+        self.observe_upstream_response(
+            {"feed": dict(feed.feed), "entries": [dict(entry) for entry in feed.entries]}
+        )
         items = []
         for entry in feed.entries[: cfg.fetch_limit]:
             published_at = self._parse_rss_date(entry)
@@ -158,8 +166,7 @@ class RedditScraper(BaseScraper):
                         "flair": None,
                         "discussion_url": link,
                         "fallback": "rss",
-                        "tags": list(cfg.tags),
-                        "personal_tags": list(cfg.personal_tags),
+                        **self._tag_metadata(cfg),
                     },
                 )
             )
@@ -175,6 +182,8 @@ class RedditScraper(BaseScraper):
         }
         url = f"{REDDIT_BASE}/user/{cfg.username}/submitted.json"
         data = await self._reddit_get(url, params)
+        if data is not None:
+            self.observe_upstream_response(data)
         if not data:
             return []
 
@@ -189,8 +198,7 @@ class RedditScraper(BaseScraper):
             "user",
             cfg.username,
             min_score=0,
-            source_tags=cfg.tags,
-            source_personal_tags=cfg.personal_tags,
+            source_config=cfg,
         )
 
     async def _process_posts(
@@ -200,8 +208,7 @@ class RedditScraper(BaseScraper):
         subtype: str,
         source_name: str,
         min_score: int,
-        source_tags: List[str],
-        source_personal_tags: List[str],
+        source_config: RedditSubredditConfig | RedditUserConfig,
     ) -> List[ContentItem]:
         valid_posts = []
         comment_tasks = []
@@ -236,8 +243,7 @@ class RedditScraper(BaseScraper):
                 post,
                 cast(List[dict], comments),
                 subtype,
-                source_tags,
-                source_personal_tags,
+                source_config,
             )
             if item:
                 items.append(item)
@@ -277,6 +283,8 @@ class RedditScraper(BaseScraper):
 
         async with self._comment_semaphore:
             data = await self._reddit_get(url, params)
+        if data is not None:
+            self.observe_upstream_response(data)
         if not data or not isinstance(data, list) or len(data) < 2:
             return []
 
@@ -296,8 +304,7 @@ class RedditScraper(BaseScraper):
         post: dict,
         comments: List[dict],
         subtype: str,
-        source_tags: List[str],
-        source_personal_tags: List[str],
+        source_config: RedditSubredditConfig | RedditUserConfig,
     ) -> Optional[ContentItem]:
         post_id = post["id"]
         title = post.get("title", "")
@@ -348,8 +355,7 @@ class RedditScraper(BaseScraper):
                 "is_self": is_self,
                 "flair": post.get("link_flair_text"),
                 "discussion_url": discussion_url,
-                "tags": list(source_tags),
-                "personal_tags": list(source_personal_tags),
+                **self._tag_metadata(source_config),
             },
         )
 
@@ -385,4 +391,6 @@ class RedditScraper(BaseScraper):
             raise
         except httpx.HTTPError as e:
             logger.warning("Reddit request failed for %s: %s", url, e)
+            if self.strict_errors:
+                raise
             return None

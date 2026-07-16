@@ -3,24 +3,34 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
 from ..models import Config
 from ..orchestrator import HorizonOrchestrator
 from ..storage.manager import StorageManager
 from ..storage.service_store import ServiceStore
-from .user_config_builder import _append_source, _ensure_sources
-from .user_feed_store import UserFeedStore
+from .user_config_builder import (
+    _append_source,
+    _disable_non_catalog_sources,
+    _ensure_sources,
+    _record_with_network_policy,
+)
+from .feed_production import FeedProductionService, FeedRunFailed
+from .source_health import SourceHealthService
+from .source_acquisition import (
+    SourceAcquisitionCoordinator,
+    shared_acquisition_enabled,
+)
+from .user_analysis_cache import UserAnalysisCache
+from .usage_attempt_meter import UsageAttemptMeter
 
 
 def _reset_sources_for_single_source(data: dict[str, Any]) -> dict[str, Any]:
     sources = _ensure_sources(data)
     sources["rss"] = []
     sources["github"] = []
-    sources["hackernews"] = {"enabled": False, **sources.get("hackernews", {})}
+    sources["hackernews"] = {**sources.get("hackernews", {}), "enabled": False}
     sources["reddit"] = {**sources["reddit"], "enabled": False, "subreddits": [], "users": []}
     sources["telegram"] = {**sources["telegram"], "enabled": False, "channels": []}
     sources["apify_social"] = {
@@ -28,6 +38,7 @@ def _reset_sources_for_single_source(data: dict[str, Any]) -> dict[str, Any]:
         "enabled": False,
         "subscriptions": [],
     }
+    _disable_non_catalog_sources(sources)
     return sources
 
 
@@ -116,7 +127,7 @@ def build_catalog_source_config_data(
         source_id=source_id,
         subscription_id=subscription_id,
     )
-    _append_source(sources, record)
+    _append_source(sources, _record_with_network_policy(store, record))
     return data
 
 
@@ -125,6 +136,7 @@ def run_catalog_source_fetch(
     *,
     data_dir: str,
     store: ServiceStore,
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Execute a source_fetch job for a single catalog source and save a user snapshot."""
 
@@ -149,32 +161,99 @@ def run_catalog_source_fetch(
         )
     )
     payload = job.get("payload_json") or {}
-    asyncio.run(
-        HorizonOrchestrator(config, storage).run(
-            force_hours=int(payload.get("hours") or config.filtering.time_window_hours),
-            send_notifications=False,
-            write_summaries=False,
-            incremental=True,
-            enrich=False,
-        )
-    )
-    payload_path = Path(data_dir) / "site" / "radar-data.json"
-    if payload_path.exists():
-        feed_payload = json.loads(payload_path.read_text(encoding="utf-8"))
-    else:
-        feed_payload = {"items": [], "generated_at": ""}
-    snapshot = UserFeedStore(store).save_snapshot(
+    analysis_cache = UserAnalysisCache(
+        store,
         workspace_id=job["workspace_id"],
         user_id=job["user_id"],
         job_id=job["id"],
-        payload=feed_payload,
     )
+    try:
+        analysis_cache.prune()
+        orchestrator = HorizonOrchestrator(config, storage)
+        if hasattr(orchestrator, "set_service_analysis_cache"):
+            orchestrator.set_service_analysis_cache(analysis_cache)
+        if hasattr(orchestrator, "set_service_attempt_meter"):
+            orchestrator.set_service_attempt_meter(
+                UsageAttemptMeter(
+                    store,
+                    workspace_id=job["workspace_id"],
+                    user_id=job["user_id"],
+                    job_id=job["id"],
+                )
+            )
+        if (
+            shared_acquisition_enabled()
+            and hasattr(orchestrator, "set_service_acquisition_coordinator")
+        ):
+            orchestrator.set_service_acquisition_coordinator(
+                SourceAcquisitionCoordinator(
+                    store,
+                    workspace_id=job["workspace_id"],
+                    user_id=job["user_id"],
+                    job_id=job["id"],
+                )
+            )
+        run_result = asyncio.run(
+            orchestrator.execute(
+                force_hours=int(payload.get("hours") or config.filtering.time_window_hours),
+                enrich=False,
+            )
+        )
+    finally:
+        analysis_cache.close()
+    if run_result.status == "failed":
+        raise FeedRunFailed(run_result)
+    from .media_cache import MediaCacheService
+
+    try:
+        MediaCacheService(store, data_dir=data_dir).cache_items(
+            workspace_id=job["workspace_id"],
+            user_id=job["user_id"],
+            items=list(run_result.items),
+        )
+    except Exception:
+        if store.connect().in_transaction:
+            store.connect().rollback()
+    snapshot = FeedProductionService(store, config).save_run_result(
+        workspace_id=job["workspace_id"],
+        user_id=job["user_id"],
+        job_id=job["id"],
+        job_type="source_fetch",
+        source_id=source_id,
+        result=run_result,
+        commit=False,
+    )
+    source_outcomes = tuple(
+        outcome
+        for outcome in run_result.source_outcomes
+        if outcome.source_id == source_id
+    )
+    fetched_count = sum(
+        max(int(outcome.fetched_count), 0) for outcome in source_outcomes
+    )
+    SourceHealthService(store).apply_outcomes(
+        workspace_id=job["workspace_id"],
+        user_id=job["user_id"],
+        job_id=job["id"],
+        attempted_at=run_result.finished_at,
+        outcomes=source_outcomes,
+        commit=False,
+    )
+    if commit:
+        store.connect().commit()
     return {
         "ok": True,
         "job_type": "source_fetch",
         "source_id": source["id"],
         "source_type": source["type"],
         "source_key": source.get("source_key"),
+        "run_id": run_result.run_id,
+        "run_status": run_result.status,
         "snapshot_id": snapshot["id"],
+        "snapshot_created": bool(snapshot.get("snapshot_created", True)),
+        "fetched_count": fetched_count,
         "item_count": snapshot["item_count"],
+        "analysis_usage": run_result.analysis_usage.as_dict(),
+        "acquisition_usage": run_result.acquisition_usage.as_dict(),
+        "_job_status": run_result.status,
     }

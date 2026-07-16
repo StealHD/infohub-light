@@ -347,45 +347,6 @@ button.text-link {
   padding-bottom: 2px;
 }
 
-.inline-preview {
-  margin-top: 28px;
-  overflow: hidden;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: #fff;
-  scroll-margin-top: 76px;
-}
-
-.inline-preview-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border-soft);
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.inline-preview-head strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.preview-open-link {
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.inline-preview iframe {
-  display: block;
-  width: 100%;
-  height: min(68vh, 760px);
-  border: 0;
-  background: #fff;
-}
-
 .tag {
   display: inline-flex;
   align-items: center;

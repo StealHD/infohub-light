@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Inteliscope Browser E2E</title>
+    <link>https://example.com/e2e</link>
+    <description>Deterministic local browser fixture</description>
+    <item>
+      <guid>inteliscope-browser-e2e-1</guid>
+      <title>Browser E2E private feed item</title>
+      <link>https://example.com/e2e/item-1</link>
+      <pubDate>Tue, 01 Jan 2030 00:00:00 GMT</pubDate>
+      <description>Generated without external network access.</description>
+    </item>
+  </channel>
+</rss>

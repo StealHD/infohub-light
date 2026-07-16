@@ -2,8 +2,11 @@ import asyncio
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from src.models import Config, ContentItem, SourceType
 from src.orchestrator import HorizonOrchestrator
+from src.services.feed_run import FeedRunResult
 from src.source_selection import SourceRef
 from src.storage.manager import StorageManager
 
@@ -57,6 +60,7 @@ def _news_item(item_id: str = "hackernews:item:1") -> ContentItem:
 def test_partition_analysis_items_keeps_personal_only_out_of_ai_queue():
     full = _item("instagram:post:full", "full")
     personal = _item("instagram:post:personal", "personal_only")
+    personal.ai_action_suggestion = "旧建议动作"
 
     analysis_items, passthrough_items = HorizonOrchestrator.partition_analysis_items(
         [full, personal]
@@ -65,7 +69,9 @@ def test_partition_analysis_items_keeps_personal_only_out_of_ai_queue():
     assert analysis_items == [full]
     assert passthrough_items == [personal]
     assert personal.ai_score == 0.0
-    assert personal.ai_reason == "Personal-only item skipped AI analysis"
+    assert personal.ai_reason is None
+    assert personal.ai_action_suggestion is None
+    assert personal.metadata["analysis_status"] == "personal_only"
     assert personal.metadata["show_in_personal_feed"] is True
 
 
@@ -94,6 +100,96 @@ def test_run_publishes_without_ai_when_global_scoring_disabled(tmp_path, monkeyp
     assert today["items"][0]["title"] == "No AI key required"
     assert today["items"][0]["score"] == 0.0
     assert today["items"][0]["summary_zh"].startswith("Fetched content")
+    assert today["items"][0]["presentation"]["analysis"]["status"] == "disabled"
+    assert today["items"][0]["action_suggestion"] == ""
+    assert today["items"][0]["presentation"]["analysis"]["action_suggestion"] == ""
+
+
+def test_legacy_run_delegates_structured_execution_to_legacy_publisher(tmp_path, monkeypatch):
+    storage = StorageManager(data_dir=str(tmp_path))
+    orchestrator = HorizonOrchestrator(_ai_disabled_config(), storage)
+    result = FeedRunResult(
+        run_id="run_legacy",
+        status="succeeded",
+        started_at="2026-07-10T00:00:00+00:00",
+        finished_at="2026-07-10T00:00:01+00:00",
+        items=(_news_item("hackernews:item:legacy"),),
+    )
+    calls = []
+
+    async def fake_execute(*args, **kwargs):
+        calls.append(("execute", args, kwargs))
+        return result
+
+    async def forbidden_fetch(_since):
+        raise AssertionError("legacy run bypassed execute")
+
+    class FakeLegacyPublisher:
+        def __init__(self, owner):
+            assert owner is orchestrator
+
+        def prepare(self):
+            calls.append(("prepare",))
+
+        async def publish(self, published_result, **kwargs):
+            calls.append(("publish", published_result, kwargs))
+
+    monkeypatch.setattr(orchestrator, "execute", fake_execute)
+    monkeypatch.setattr(orchestrator, "fetch_all_sources", forbidden_fetch)
+    monkeypatch.setattr("src.orchestrator.LegacyPublisher", FakeLegacyPublisher, raising=False)
+
+    asyncio.run(
+        orchestrator.run(
+            force_hours=6,
+            send_notifications=False,
+            write_summaries=False,
+            incremental=True,
+            enrich=False,
+        )
+    )
+
+    assert [call[0] for call in calls] == ["prepare", "execute", "publish"]
+    assert calls[1][2]["legacy_sources"] is True
+    assert calls[2][1] is result
+
+
+def test_legacy_run_routes_publishing_failures_to_legacy_notifier(tmp_path, monkeypatch):
+    orchestrator = HorizonOrchestrator(
+        _ai_disabled_config(),
+        StorageManager(data_dir=str(tmp_path)),
+    )
+    result = FeedRunResult(
+        run_id="run_publish_failure",
+        status="succeeded",
+        started_at="2026-07-10T00:00:00+00:00",
+        finished_at="2026-07-10T00:00:01+00:00",
+        items=(_news_item("hackernews:item:publish-failure"),),
+    )
+    failures = []
+
+    async def fake_execute(*_args, **_kwargs):
+        return result
+
+    class FailingPublisher:
+        def __init__(self, _owner):
+            pass
+
+        def prepare(self):
+            pass
+
+        async def publish(self, _result, **_kwargs):
+            raise RuntimeError("publish failed")
+
+        async def notify_failure(self, error, *, send_notifications):
+            failures.append((str(error), send_notifications))
+
+    monkeypatch.setattr(orchestrator, "execute", fake_execute)
+    monkeypatch.setattr("src.orchestrator.LegacyPublisher", FailingPublisher)
+
+    with pytest.raises(RuntimeError, match="publish failed"):
+        asyncio.run(orchestrator.run(send_notifications=True))
+
+    assert failures == [("publish failed", True)]
 
 
 def test_no_ai_run_skips_all_secondary_cost_pipelines(tmp_path, monkeypatch):

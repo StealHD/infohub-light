@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inteliscope</title>
     <link rel="icon" href="data:," />
-    <script>window.STATIC_ASSET_VERSION = "20260709-subscription-console";</script>
-    <link rel="stylesheet" href="./base.css?v=20260709-subscription-console" />
-    <link rel="stylesheet" href="./reader.css?v=20260709-subscription-console" />
-    <link rel="stylesheet" href="./config.css?v=20260709-subscription-console" />
-    <link rel="stylesheet" href="./media.css?v=20260709-subscription-console" />
-    <link rel="stylesheet" href="./article_graph.css?v=20260709-subscription-console" />
-    <link rel="stylesheet" href="./subscriptions.css?v=20260709-subscription-console" />
+    <script>window.STATIC_ASSET_VERSION = "20260713-local-ai-secrets-v2";</script>
+    <link rel="stylesheet" href="./base.css?v=20260713-local-ai-secrets-v2" />
+    <link rel="stylesheet" href="./reader.css?v=20260713-local-ai-secrets-v2" />
+    <link rel="stylesheet" href="./config.css?v=20260713-local-ai-secrets-v2" />
+    <link rel="stylesheet" href="./media.css?v=20260713-local-ai-secrets-v2" />
+    <link rel="stylesheet" href="./subscriptions.css?v=20260713-local-ai-secrets-v2" />
   </head>
   <body>
     <header class="topbar">
@@ -35,12 +34,13 @@
           <input id="searchInput" class="search-input" type="search" placeholder="搜索标题、摘要、标签" />
           <button id="densityToggleBtn" class="icon-button" type="button" title="切换阅读密度">Aa</button>
           <button id="clearFiltersBtn" class="icon-button" type="button" title="清除筛选和本地筛选状态">⌫</button>
-          <button id="refreshBtn" class="primary-button" type="button" title="重新读取数据">刷新</button>
+          <button id="refreshBtn" class="primary-button" type="button" title="创建信息流获取任务">获取新内容</button>
         </div>
       </div>
     </header>
 
     <main id="readerShell" class="reader-shell">
+      <section id="feedActivityBanner" class="feed-activity-banner hidden" aria-live="polite"></section>
       <aside id="readingQueue" class="reading-queue panel" aria-label="阅读清单">
         <div class="queue-head">
           <div>
@@ -102,7 +102,7 @@
             <p id="subscriptionSummary">读取中</p>
           </div>
           <div class="subscription-actions">
-            <button id="refreshMyFeedBtn" type="button">刷新我的信息流</button>
+            <button id="refreshMyFeedBtn" type="button">立即刷新</button>
             <button id="reloadSubscriptionsBtn" type="button">重新读取</button>
           </div>
         </div>
@@ -127,17 +127,13 @@
       </section>
     </main>
 
-    <button id="articleGraphButton" class="article-graph-fab" type="button" title="查看文章关联分析">关联分析</button>
-    <section id="articleGraphPanel" class="article-graph-panel hidden" aria-label="文章关系" aria-live="polite"></section>
-
-    <script src="./state.js?v=20260709-subscription-console"></script>
-    <script src="./utils.js?v=20260709-subscription-console"></script>
-    <script src="./media.js?v=20260709-subscription-console"></script>
-    <script src="./auth.js?v=20260709-subscription-console"></script>
-    <script src="./reader.js?v=20260709-subscription-console"></script>
-    <script src="./config.js?v=20260709-subscription-console"></script>
-    <script src="./subscriptions.js?v=20260709-subscription-console"></script>
-    <script src="./article_graph.js?v=20260709-subscription-console"></script>
-    <script src="./app.js?v=20260709-subscription-console"></script>
+    <script src="./state.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./utils.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./media.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./auth.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./reader.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./config.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./subscriptions.js?v=20260713-local-ai-secrets-v2"></script>
+    <script src="./app.js?v=20260713-local-ai-secrets-v2"></script>
   </body>
 </html>

@@ -7,6 +7,7 @@ import hashlib
 import logging
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import unescape
 from typing import Any, List, Optional
@@ -16,7 +17,7 @@ import httpx
 from dateutil.parser import isoparse
 
 from .apify_client import ApifyClient
-from .base import BaseScraper
+from .base import BaseScraper, SourceFetchError
 from ..models import (
     ApifySocialConfig,
     ApifySocialPlatform,
@@ -26,6 +27,39 @@ from ..models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ActorAdapterContract:
+    platform: ApifySocialPlatform
+    input_style: str
+    max_total_charge_usd: float | None = None
+
+
+ACTOR_ADAPTER_REGISTRY = {
+    "xquik/x-tweet-scraper": ActorAdapterContract(
+        platform=ApifySocialPlatform.X,
+        input_style="xquik",
+        max_total_charge_usd=0.02,
+    ),
+    "apidojo/twitter-scraper-lite": ActorAdapterContract(
+        platform=ApifySocialPlatform.X,
+        input_style="apidojo",
+        max_total_charge_usd=0.02,
+    ),
+    "apify/instagram-api-scraper": ActorAdapterContract(
+        platform=ApifySocialPlatform.INSTAGRAM,
+        input_style="instagram",
+    ),
+    "whoareyouanas/facebook-group-scraper": ActorAdapterContract(
+        platform=ApifySocialPlatform.FACEBOOK,
+        input_style="facebook",
+    ),
+    "thescrapelab/apify-telegram-scraper": ActorAdapterContract(
+        platform=ApifySocialPlatform.TELEGRAM,
+        input_style="telegram",
+    ),
+}
 
 
 class ApifySocialScraper(BaseScraper):
@@ -50,6 +84,8 @@ class ApifySocialScraper(BaseScraper):
         for result in results:
             if isinstance(result, Exception):
                 logger.warning("Apify social subscription failed: %s", result)
+                if self.strict_errors:
+                    raise result
             elif isinstance(result, list):
                 items.extend(result)
         return items
@@ -69,6 +105,11 @@ class ApifySocialScraper(BaseScraper):
                 sub.kind,
                 sub.target,
             )
+            if self.strict_errors:
+                raise SourceFetchError(
+                    f"Apify token not found in env var(s): {token_envs}",
+                    retryable=False,
+                )
             return []
 
         apify = ApifyClient(
@@ -77,15 +118,29 @@ class ApifySocialScraper(BaseScraper):
             timeout_seconds=self.social_config.timeout_seconds,
         )
         actor_id = self._actor_id(sub.platform)
+        contract = self._actor_contract(actor_id, sub.platform)
         actor_input = self._actor_input(sub)
-        rows = await apify.run_actor(actor_id, actor_input)
+        rows = await apify.run_actor(
+            actor_id,
+            actor_input,
+            max_total_charge_usd=contract.max_total_charge_usd,
+        )
+        self.observe_upstream_response(rows)
 
-        candidate_rows = [row for row in rows if not row.get("noResults")]
+        candidate_rows = [row for row in rows if self._is_content_candidate(row)]
+        if rows and not candidate_rows:
+            raise SourceFetchError(
+                "Apify actor returned placeholder records instead of social posts",
+                retryable=False,
+                code="apify_demo_mode",
+            )
         items: list[ContentItem] = []
         for row in candidate_rows:
             parsed = self._parse_row(row, sub, since)
             if parsed:
                 items.append(parsed)
+            if len(items) >= sub.fetch_limit:
+                break
 
         if not items and candidate_rows and self._should_keep_latest_when_stale(sub):
             oldest_since = datetime.min.replace(tzinfo=timezone.utc)
@@ -104,6 +159,26 @@ class ApifySocialScraper(BaseScraper):
                     sub.target,
                     len(items),
                 )
+        if (
+            items
+            and sub.platform == ApifySocialPlatform.INSTAGRAM
+            and sub.kind == "profile"
+            and sub.fetch_profile_details
+            and not any(item.metadata.get("author_avatar_url") for item in items)
+        ):
+            profile_rows = await apify.run_actor(
+                actor_id,
+                {
+                    "directUrls": [self._instagram_url(sub)],
+                    "resultsType": "details",
+                    "resultsLimit": 1,
+                },
+            )
+            self.observe_upstream_response(profile_rows)
+            avatar_url = self._instagram_profile_avatar(profile_rows)
+            if avatar_url:
+                for item in items:
+                    item.metadata["author_avatar_url"] = avatar_url
         logger.info(
             "Fetched %d Apify social items for %s/%s %s",
             len(items),
@@ -120,6 +195,38 @@ class ApifySocialScraper(BaseScraper):
     def _actor_id(self, platform: ApifySocialPlatform) -> str:
         actors = self.social_config.actors
         return getattr(actors, platform.value).actor_id
+
+    @staticmethod
+    def _actor_contract(
+        actor_id: str,
+        platform: ApifySocialPlatform,
+    ) -> ActorAdapterContract:
+        normalized = actor_id.replace("~", "/").lower()
+        return ACTOR_ADAPTER_REGISTRY.get(
+            normalized,
+            ActorAdapterContract(platform=platform, input_style="legacy"),
+        )
+
+    @staticmethod
+    def _is_content_candidate(row: dict[str, Any]) -> bool:
+        if row.get("noResults") or row.get("demo"):
+            return False
+        row_type = str(
+            row.get("resultType")
+            or row.get("result_type")
+            or row.get("type")
+            or row.get("recordType")
+            or row.get("record_type")
+            or ""
+        ).strip().lower()
+        return row_type not in {
+            "diagnostic",
+            "diagnostics",
+            "run-report",
+            "run_report",
+            "receipt",
+            "stats",
+        }
 
     def _token_env_names(self, token_env: Optional[str] = None) -> list[str]:
         if token_env:
@@ -143,6 +250,17 @@ class ApifySocialScraper(BaseScraper):
     def _actor_input(self, sub: ApifySocialSubscriptionConfig) -> dict[str, Any]:
         platform = sub.platform
         if platform == ApifySocialPlatform.X:
+            contract = self._actor_contract(self._actor_id(platform), platform)
+            if contract.input_style in {"xquik", "apidojo"}:
+                payload = (
+                    {"searchTerms": [sub.target.strip()]}
+                    if sub.kind == "keyword"
+                    else {"twitterHandles": [self._x_handle(sub.target)]}
+                )
+                payload["maxItems"] = sub.fetch_limit
+                if contract.input_style == "apidojo":
+                    payload["sort"] = "Latest"
+                return payload
             if sub.kind == "keyword":
                 return {
                     "source_mode": "search",
@@ -213,10 +331,11 @@ class ApifySocialScraper(BaseScraper):
         if not tweet_id:
             return None
 
-        user = row.get("user") or {}
+        user = row.get("user") or row.get("author") or {}
         screen_name = (
             user.get("screen_name")
             or user.get("username")
+            or user.get("userName")
             or user.get("handle")
             or row.get("handle")
             or row.get("username")
@@ -224,9 +343,19 @@ class ApifySocialScraper(BaseScraper):
             or "unknown"
         )
         author = user.get("name") or screen_name
-        text = unescape((row.get("full_text") or row.get("text") or "").strip())
+        text = unescape(
+            (row.get("full_text") or row.get("fullText") or row.get("text") or "").strip()
+        )
         if not text:
             return None
+
+        avatar_url = str(
+            user.get("profilePicture")
+            or user.get("profileImageUrl")
+            or user.get("profile_image_url_https")
+            or ""
+        ).strip()
+        media_urls = self._x_media_urls(row)
 
         url = row.get("url")
         if not url:
@@ -250,9 +379,14 @@ class ApifySocialScraper(BaseScraper):
                 {
                     "tweet_id": tweet_id,
                     "conversation_id": str(row.get("conversation_id") or tweet_id),
-                    "favorite_count": row.get("favorite_count", 0),
-                    "retweet_count": row.get("retweet_count", 0),
-                    "reply_count": row.get("reply_count", 0),
+                    "favorite_count": row.get(
+                        "favorite_count",
+                        row.get("likeCount", row.get("like_count", 0)),
+                    ),
+                    "retweet_count": row.get("retweet_count", row.get("retweetCount", 0)),
+                    "reply_count": row.get("reply_count", row.get("replyCount", 0)),
+                    **({"author_avatar_url": avatar_url} if avatar_url else {}),
+                    **({"image_url": media_urls[0], "media_urls": media_urls} if media_urls else {}),
                 },
             ),
         )
@@ -311,6 +445,16 @@ class ApifySocialScraper(BaseScraper):
         if media_urls:
             metadata["image_url"] = media_urls[0]
             metadata["media_urls"] = media_urls
+        owner = row.get("owner") if isinstance(row.get("owner"), dict) else {}
+        avatar_url = str(
+            row.get("profilePicUrl")
+            or row.get("profilePicture")
+            or owner.get("profilePicUrl")
+            or owner.get("profilePicture")
+            or ""
+        ).strip()
+        if avatar_url:
+            metadata["author_avatar_url"] = avatar_url
 
         return ContentItem(
             id=self._generate_id(SourceType.INSTAGRAM.value, "post", shortcode),
@@ -445,6 +589,12 @@ class ApifySocialScraper(BaseScraper):
             "tags": list(sub.tags),
             "personal_tags": list(sub.personal_tags),
             "analysis_mode": sub.analysis_mode.value,
+            "source_id": sub.source_id,
+            "subscription_id": sub.subscription_id,
+            "source_key": sub.source_key,
+            "source_display_name": sub.source_display_name,
+            "catalog_source_type": sub.catalog_source_type,
+            "source_priority": int(sub.source_priority or 0),
         }
         if sub.analysis_mode.value == "personal_only":
             metadata["show_in_personal_feed"] = True
@@ -578,3 +728,52 @@ class ApifySocialScraper(BaseScraper):
 
         visit(row)
         return urls
+
+    @classmethod
+    def _x_media_urls(cls, row: dict[str, Any]) -> list[str]:
+        urls: list[str] = []
+
+        def visit(value: Any) -> None:
+            if isinstance(value, dict):
+                for key in (
+                    "media_url_https",
+                    "media_url",
+                    "displayUrl",
+                    "imageUrl",
+                    "preview_image_url",
+                ):
+                    url = str(value.get(key) or "").strip()
+                    if cls._is_http_url(url) and url not in urls:
+                        urls.append(url)
+                for key in (
+                    "media",
+                    "photos",
+                    "images",
+                    "extended_entities",
+                    "extendedEntities",
+                    "entities",
+                    "attachments",
+                ):
+                    visit(value.get(key))
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+
+        visit(row)
+        return urls[:6]
+
+    @classmethod
+    def _instagram_profile_avatar(cls, rows: list[dict[str, Any]]) -> str:
+        for row in rows:
+            owner = row.get("owner") if isinstance(row.get("owner"), dict) else {}
+            for value in (
+                row.get("profilePicUrl"),
+                row.get("profilePicture"),
+                row.get("profile_pic_url"),
+                owner.get("profilePicUrl"),
+                owner.get("profilePicture"),
+            ):
+                url = str(value or "").strip()
+                if cls._is_http_url(url):
+                    return url
+        return ""

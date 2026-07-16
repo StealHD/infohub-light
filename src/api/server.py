@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import re
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,14 +15,30 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from ..services.feed_archive import FeedArchiveService
+from ..services.feed_schedule import (
+    ALLOWED_INTERVALS,
+    FeedScheduleService,
+    NoEnabledSubscriptionsError,
+)
+from ..services.job_eligibility import JobEligibilityService
 from ..services.job_queue import JobQueue
 from ..services.quota import QuotaExceeded, QuotaService
+from ..services.runtime_status import RuntimeStatusService
+from ..services.source_health import SourceHealthService
+from ..services.source_schedule import (
+    SOURCE_ALLOWED_INTERVALS,
+    SourceScheduleService,
+    SourceScheduleUnavailableError,
+)
+from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
+from ..services.user_content_store import UserContentStore
+from ..services.media_cache import MediaCacheService
 from ..services.source_type_registry import (
     SourceConfigError,
     list_source_types,
@@ -28,14 +46,44 @@ from ..services.source_type_registry import (
     validate_secret_env_name,
     validate_source_config,
 )
-from ..storage.service_store import ROLES, SOURCE_SCOPES, ServiceStore
-from ..ui.auth import COOKIE_NAME
+from ..storage.service_store import (
+    ROLES,
+    SOURCE_SCOPES,
+    SecretEnvConflictError,
+    ServiceStore,
+    SourceKeyConflictError,
+)
+from ..tag_policy import HUB_CHANNELS
+from ..ui.auth import AuthSettings, COOKIE_NAME
 from ..config_migration import migrate_config_tag_layers
-from ..ui.server import STATIC_DIR, _read_json, _write_json, apply_config_action, build_env_status, validate_config_data
+from ..ui.server import STATIC_DIR as LEGACY_STATIC_DIR, _read_json, _write_json, apply_config_action, build_env_status, validate_config_data
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SECRET_PREFIXES = ("sk-", "sk_", "AIza", "xai-", "gsk_", "hf_", "tp-")
+_LOGGER = logging.getLogger(__name__)
+SERVICE_STATIC_DIR = Path(__file__).resolve().parents[1] / "ui" / "service_static"
+
+
+def resolve_service_static_dir(
+    variant: str | None = None,
+    *,
+    react_dir: Path | str = SERVICE_STATIC_DIR,
+    legacy_dir: Path | str = LEGACY_STATIC_DIR,
+) -> Path:
+    """Resolve the Service UI without changing the legacy CLI/web asset directory."""
+
+    selected = str(variant or os.getenv("HORIZON_SERVICE_UI_VARIANT", "react")).strip().lower()
+    if selected not in {"react", "legacy"}:
+        raise ValueError("HORIZON_SERVICE_UI_VARIANT must be react or legacy")
+    react_path = Path(react_dir)
+    legacy_path = Path(legacy_dir)
+    if selected == "legacy":
+        return legacy_path
+    if (react_path / "index.html").exists():
+        return react_path
+    _LOGGER.warning("React Service UI build is missing; falling back to legacy assets")
+    return legacy_path
 
 
 class ApiError(Exception):
@@ -59,6 +107,11 @@ class ApiError(Exception):
 
 def ok(data: Any) -> dict[str, Any]:
     return {"ok": True, "data": data}
+
+
+def _public_job(job: dict[str, Any]) -> dict[str, Any]:
+    """Remove worker-internal lease credentials from API responses."""
+    return {key: value for key, value in job.items() if key != "claim_token"}
 
 
 def error_response(exc: ApiError) -> JSONResponse:
@@ -113,6 +166,7 @@ class UserPatchRequest(BaseModel):
     role: str | None = None
     display_name: str | None = None
     enabled: bool | None = None
+    password: str | None = None
 
 
 class SourceCreateRequest(BaseModel):
@@ -128,6 +182,8 @@ class SourceCreateRequest(BaseModel):
 
 
 class SourcePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = None
     description: str | None = None
     default_channel: str | None = None
@@ -137,6 +193,22 @@ class SourcePatchRequest(BaseModel):
     enabled: bool | None = None
 
 
+class SecretCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: str
+    provider: str
+    env_name: str
+    value: str
+
+
+class SecretRotateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+
+
 class SubscriptionRequest(BaseModel):
     source_id: str
     enabled: bool = True
@@ -144,7 +216,7 @@ class SubscriptionRequest(BaseModel):
     override_topics: list[str] = Field(default_factory=list)
     personal_tags: list[str] = Field(default_factory=list)
     analysis_mode: str = "full"
-    priority: int = 0
+    priority: StrictInt = Field(default=0, ge=0, le=100)
 
 
 class SubscriptionPatchRequest(BaseModel):
@@ -153,7 +225,24 @@ class SubscriptionPatchRequest(BaseModel):
     override_topics: list[str] | None = None
     personal_tags: list[str] | None = None
     analysis_mode: str | None = None
-    priority: int | None = None
+    priority: StrictInt | None = Field(default=None, ge=0, le=100)
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority_is_not_null(cls, value: int | None) -> int:
+        if value is None:
+            raise ValueError("priority must be an integer between 0 and 100")
+        return value
+
+
+class FeedSchedulePatchRequest(BaseModel):
+    enabled: bool | None = None
+    interval_minutes: int | None = None
+
+
+class SourceSchedulePatchRequest(BaseModel):
+    enabled: bool | None = None
+    interval_minutes: int | None = None
 
 
 class JobCreateRequest(BaseModel):
@@ -217,32 +306,338 @@ SOURCE_META_KEYS = {
 def create_app(
     *,
     data_dir: Path | str = "data",
-    static_dir: Path | str = STATIC_DIR,
+    static_dir: Path | str | None = None,
 ) -> FastAPI:
     """Create the FastAPI app with a local SQLite-backed service store."""
 
     data_path = Path(data_dir)
-    static_path = Path(static_dir)
+    static_path = Path(static_dir) if static_dir is not None else resolve_service_static_dir()
     store = ServiceStore(data_path)
     store.initialize()
     queue = JobQueue(store)
+    runtime_status = RuntimeStatusService(store)
+    source_health = SourceHealthService(store)
+    secret_values = SecretStore(data_path)
+    secret_values.load_into_environ()
     quota = QuotaService(
         store,
         max_fetch_jobs_per_day=int(os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")),
         max_sources_per_user=int(os.getenv("INFOHUB_MAX_SOURCES_PER_USER", "100")),
         max_ai_items_per_day=int(os.getenv("INFOHUB_MAX_AI_ITEMS_PER_DAY", "1000")),
+        max_workspace_ai_attempts_per_day=int(
+            os.getenv("INFOHUB_MAX_WORKSPACE_AI_ATTEMPTS_PER_DAY", "1000")
+        ),
+        max_workspace_fetch_attempts_per_day=int(
+            os.getenv("INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY", "100")
+        ),
+        max_provider_fetch_attempts_per_day=int(
+            os.getenv("INFOHUB_MAX_PROVIDER_FETCH_ATTEMPTS_PER_DAY", "100")
+        ),
     )
+    feed_schedules = FeedScheduleService(store, quota=quota)
+    source_schedules = SourceScheduleService(store, quota=quota)
     feed_archive = FeedArchiveService(data_path, store=store)
     item_state = UserItemStateStore(store)
+    user_content = UserContentStore(store)
+    media_cache = MediaCacheService(store, data_dir=data_path)
+    auth_settings = AuthSettings.from_env()
+
+    def secret_usage(secret: dict[str, Any]) -> list[dict[str, str]]:
+        usages = [
+            {
+                "type": "source",
+                "id": str(source["id"]),
+                "name": str(source.get("display_name") or source["id"]),
+            }
+            for source in store.list_sources_using_secret(
+                workspace_id=secret["workspace_id"],
+                env_name=secret["env_name"],
+            )
+        ]
+        try:
+            _base_data, base_config = read_base_config()
+        except Exception:
+            base_config = None
+        if base_config is not None and base_config.ai.api_key_env == secret["env_name"]:
+            usages.append(
+                {
+                    "type": "ai",
+                    "id": "global-ai",
+                    "name": str(base_config.ai.provider.value),
+                }
+            )
+        return usages
+
+    def public_secret(secret: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": secret["id"],
+            "name": secret["name"],
+            "kind": secret["kind"],
+            "provider": secret["provider"],
+            "env_name": secret["env_name"],
+            "is_set": bool(secret_values.status(secret["env_name"])["is_set"]),
+            "used_by": secret_usage(secret),
+            "created_at": secret["created_at"],
+            "updated_at": secret["updated_at"],
+        }
+
+    def validate_secret_metadata(payload: SecretCreateRequest) -> tuple[str, str, str, str]:
+        name = str(payload.name or "").strip()
+        kind = str(payload.kind or "").strip().lower()
+        provider = str(payload.provider or "").strip().lower()
+        if not name:
+            raise ApiError("invalid_secret", "secret name is required", status_code=400)
+        if kind not in {"ai", "apify"}:
+            raise ApiError("invalid_secret", "secret kind must be ai or apify", status_code=400)
+        allowed_providers = {"gemini", "openai", "anthropic", "deepseek"} if kind == "ai" else {"apify"}
+        if provider not in allowed_providers:
+            raise ApiError(
+                "invalid_secret",
+                f"provider is not valid for {kind}",
+                status_code=400,
+            )
+        try:
+            env_name = secret_values.validate_env_name(payload.env_name)
+            secret_values.validate_value(payload.value)
+        except SecretValueError as exc:
+            raise ApiError("invalid_secret", str(exc), status_code=400) from exc
+        return name, kind, provider, env_name
+
+    def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
+        item = dict(source)
+        avatar = media_cache.avatar_for_source(
+            workspace_id=str(source["workspace_id"]),
+            source_id=str(source["id"]),
+        )
+        item["avatar_url"] = f"/api/media/{avatar['id']}" if avatar else ""
+        env_name = item.get("secret_env")
+        item["secret_configured"] = bool(
+            env_name and secret_values.status(str(env_name))["is_set"]
+        )
+        if not _is_admin(user):
+            item.pop("secret_env", None)
+        return item
+
+    def create_subscription_with_quota(
+        *,
+        user: dict[str, Any],
+        source_id: str,
+        **values: Any,
+    ) -> dict[str, Any]:
+        """Serialize enabled-source admission with the subscription upsert."""
+
+        conn = store.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            if bool(values.get("enabled", True)):
+                quota.ensure_source_allowed(
+                    workspace_id=user["workspace_id"],
+                    user_id=user["id"],
+                    source_id=source_id,
+                )
+            subscription = store.create_subscription(
+                user_id=user["id"],
+                source_id=source_id,
+                commit=False,
+                **values,
+            )
+            if owns_transaction:
+                conn.commit()
+            return subscription
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+
+    def update_subscription_with_quota(
+        *,
+        user: dict[str, Any],
+        subscription_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Serialize re-enable admission with the lifecycle mutation."""
+
+        conn = store.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            current = store.get_subscription(subscription_id)
+            if not current or current["user_id"] != user["id"]:
+                raise ApiError("not_found", "subscription not found", status_code=404)
+            if updates.get("enabled") is True:
+                quota.ensure_source_allowed(
+                    workspace_id=user["workspace_id"],
+                    user_id=user["id"],
+                    source_id=current["source_id"],
+                )
+            updated = store.update_subscription(
+                subscription_id,
+                commit=False,
+                **updates,
+            )
+            if owns_transaction:
+                conn.commit()
+            return updated
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+
+    def visible_sources(
+        user: dict[str, Any],
+        *,
+        include_disabled: bool = False,
+    ) -> list[dict[str, Any]]:
+        return [
+            public_source(source, user)
+            for source in store.list_visible_sources(
+                user,
+                include_disabled=include_disabled,
+            )
+        ]
+
+    def update_catalog_source(
+        source: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update a source and reset stale health in the same transaction."""
+        conn = store.connect()
+        started_transaction = not conn.in_transaction
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            current = store.get_source(source["id"])
+            if current is None:
+                raise LookupError("source not found")
+            config_changed = (
+                "config" in updates and updates["config"] != current["config"]
+            )
+            secret_env_changed = (
+                "secret_env" in updates
+                and updates["secret_env"] != current["secret_env"]
+            )
+            identity_changed = (
+                "source_key" in updates
+                and updates["source_key"] != current.get("source_key")
+            )
+            updated = store.update_source(current["id"], commit=False, **updates)
+            if config_changed or secret_env_changed:
+                source_health.reset_source(
+                    workspace_id=current["workspace_id"],
+                    source_id=current["id"],
+                    commit=False,
+                )
+            if identity_changed:
+                media_cache.invalidate_source_avatar(
+                    workspace_id=current["workspace_id"],
+                    source_id=current["id"],
+                )
+            if started_transaction:
+                conn.commit()
+            return updated
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+
+    def upsert_catalog_source(**values: Any) -> dict[str, Any]:
+        """Upsert a source while invalidating health for identity changes."""
+        conn = store.connect()
+        started_transaction = not conn.in_transaction
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            existing = store.get_source_by_key(
+                workspace_id=values["workspace_id"],
+                source_key=values["source_key"],
+            )
+            updated = store.upsert_source(**values)
+            if existing and (
+                values["config"] != existing["config"]
+                or values.get("secret_env") != existing["secret_env"]
+            ):
+                source_health.reset_source(
+                    workspace_id=existing["workspace_id"],
+                    source_id=existing["id"],
+                    commit=False,
+                )
+            if started_transaction:
+                conn.commit()
+            return updated
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
 
     app = FastAPI(title="InfoHub Light Service API")
+    app.state.service_store = store
+
+    @app.middleware("http")
+    async def _frontend_cache_headers(request: Request, call_next):
+        response = await call_next(request)
+        if response.status_code < 400 and request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif (
+            response.status_code < 400
+            and not request.url.path.startswith("/api/")
+            and response.headers.get("content-type", "").startswith("text/html")
+        ):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.middleware("http")
+    async def _api_database_transaction_boundary(request: Request, call_next):
+        if not request.url.path.startswith("/api/") or request.url.path == "/api/health/live":
+            return await call_next(request)
+
+        with store.request_connection_scope():
+            conn = store.connect()
+            try:
+                response = await call_next(request)
+            except BaseException:
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
+            else:
+                if conn.in_transaction:
+                    conn.rollback()
+                    _LOGGER.error(
+                        "API database transaction leaked method=%s path=%s",
+                        request.method,
+                        request.url.path,
+                    )
+                    return error_response(
+                        ApiError(
+                            "database_transaction_leak",
+                            "request did not finish its database transaction",
+                            status_code=500,
+                            retryable=True,
+                            action="Retry the request and inspect the API logs.",
+                        )
+                    )
+                return response
 
     @app.exception_handler(ApiError)
     async def _api_error_handler(_request: Request, exc: ApiError) -> JSONResponse:
         return error_response(exc)
 
     @app.exception_handler(QuotaExceeded)
-    async def _quota_error_handler(_request: Request, exc: QuotaExceeded) -> JSONResponse:
+    async def _quota_error_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:
+        user = store.get_session_user(request.cookies.get(COOKIE_NAME))
+        if user:
+            try:
+                quota.record_quota_reject(
+                    workspace_id=user["workspace_id"],
+                    user_id=user["id"],
+                    quota="api_admission",
+                )
+            except Exception:
+                if store.connect().in_transaction:
+                    store.connect().rollback()
+                _LOGGER.exception("failed to persist quota rejection metric")
         return error_response(
             ApiError(
                 exc.code,
@@ -274,14 +669,14 @@ def create_app(
             )
         )
 
-    def current_user(request: Request) -> dict[str, Any]:
+    async def current_user(request: Request) -> dict[str, Any]:
         token = request.cookies.get(COOKIE_NAME)
         user = store.get_session_user(token)
         if not user:
             raise ApiError("unauthorized", "login required", status_code=401, action="Log in and retry.")
         return user
 
-    def current_admin(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    async def current_admin(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         if not _is_admin(user):
             raise ApiError("forbidden", "admin role required", status_code=403)
         return user
@@ -299,6 +694,113 @@ def create_app(
             if source["id"] == source_id:
                 return source
         raise ApiError("not_found", "source not found", status_code=404)
+
+    def manageable_source_or_404(
+        source_id: str,
+        user: dict[str, Any],
+    ) -> dict[str, Any]:
+        source = store.get_source(source_id)
+        if source is None or source.get("workspace_id") != user.get("workspace_id"):
+            raise ApiError("not_found", "source not found", status_code=404)
+        if source.get("scope") == "private" and source.get("owner_user_id") != user.get("id"):
+            raise ApiError("not_found", "source not found", status_code=404)
+        return source
+
+    def feed_schedule_response(user: dict[str, Any]) -> dict[str, Any]:
+        schedule = feed_schedules.get_user_schedule(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+        )
+        last_job = queue.get_job(str(schedule.get("last_job_id") or ""))
+        if last_job and (
+            last_job.get("workspace_id") != user["workspace_id"]
+            or last_job.get("user_id") != user["id"]
+        ):
+            last_job = None
+        active_row = store.connect().execute(
+            """
+            SELECT * FROM fetch_jobs
+            WHERE workspace_id = ?
+              AND user_id = ?
+              AND job_type = 'user_feed_refresh'
+              AND status IN ('queued', 'running')
+            ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+            LIMIT 1
+            """,
+            (user["workspace_id"], user["id"]),
+        ).fetchone()
+        active_job = store._job(active_row)
+        worker_status = runtime_status.summary(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+        )["worker_status"]
+        return {
+            "schema_version": 1,
+            "enabled": bool(schedule["enabled"]),
+            "interval_minutes": int(schedule["interval_minutes"]),
+            "allowed_intervals": list(ALLOWED_INTERVALS),
+            "next_run_at": schedule.get("next_run_at"),
+            "last_evaluated_at": schedule.get("last_evaluated_at"),
+            "last_enqueued_at": schedule.get("last_enqueued_at"),
+            "last_skip_reason": schedule.get("last_skip_reason"),
+            "last_job": _public_job(last_job) if last_job else None,
+            "active_job": _public_job(active_job) if active_job else None,
+            "worker_status": worker_status,
+        }
+
+    def source_schedule_response(
+        user: dict[str, Any], subscription_id: str
+    ) -> dict[str, Any]:
+        try:
+            schedule = source_schedules.get_subscription_schedule(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                subscription_id=subscription_id,
+            )
+        except LookupError as exc:
+            raise ApiError(
+                "not_found", "subscription not found", status_code=404
+            ) from exc
+        last_job = queue.get_job(str(schedule.get("last_job_id") or ""))
+        if last_job and (
+            last_job.get("workspace_id") != user["workspace_id"]
+            or last_job.get("user_id") != user["id"]
+            or last_job.get("subscription_id") != subscription_id
+        ):
+            last_job = None
+        active_row = store.connect().execute(
+            """
+            SELECT * FROM fetch_jobs
+            WHERE workspace_id = ?
+              AND user_id = ?
+              AND subscription_id = ?
+              AND job_type = 'source_fetch'
+              AND status IN ('queued', 'running')
+            ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+            LIMIT 1
+            """,
+            (user["workspace_id"], user["id"], subscription_id),
+        ).fetchone()
+        active_job = store._job(active_row)
+        worker_status = runtime_status.summary(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+        )["worker_status"]
+        return {
+            "schema_version": 1,
+            "subscription_id": subscription_id,
+            "source_id": schedule["source_id"],
+            "enabled": bool(schedule["enabled"]),
+            "interval_minutes": int(schedule["interval_minutes"]),
+            "allowed_intervals": list(SOURCE_ALLOWED_INTERVALS),
+            "next_run_at": schedule.get("next_run_at"),
+            "last_evaluated_at": schedule.get("last_evaluated_at"),
+            "last_enqueued_at": schedule.get("last_enqueued_at"),
+            "last_skip_reason": schedule.get("last_skip_reason"),
+            "last_job": _public_job(last_job) if last_job else None,
+            "active_job": _public_job(active_job) if active_job else None,
+            "worker_status": worker_status,
+        }
 
     def read_base_config() -> tuple[dict[str, Any], Any]:
         config_path = data_path / "config.json"
@@ -381,6 +883,10 @@ def create_app(
             sources["reddit"]["enabled"] = True
             sources["reddit"].setdefault("subreddits", []).append(entry)
             return
+        if source_type == "reddit_user":
+            sources["reddit"]["enabled"] = True
+            sources["reddit"].setdefault("users", []).append(entry)
+            return
         if source_type == "telegram_channel":
             sources["telegram"]["enabled"] = True
             sources["telegram"].setdefault("channels", []).append(entry)
@@ -410,10 +916,14 @@ def create_app(
         return {
             "path": str(data_path / "config.json"),
             "config": data,
+            "taxonomy": {
+                "channels": list(HUB_CHANNELS),
+                "topics": list(config.tags),
+            },
             "env_status": build_env_status(config),
             "service": {
                 "current_user": _sanitize_user(user),
-                "sources": store.list_visible_sources(user),
+                "sources": visible_sources(user),
                 "subscriptions": store.list_user_subscriptions(user["id"]),
             },
         }
@@ -624,21 +1134,8 @@ def create_app(
                 workspace_id=user["workspace_id"],
                 source_key=candidate["source_key"],
             )
-            if existing:
-                source = store.update_source(
-                    existing["id"],
-                    display_name=candidate["display_name"],
-                    description=candidate["description"],
-                    default_channel=candidate["default_channel"],
-                    default_topics=candidate["default_topics"],
-                    config=candidate["config"],
-                    source_key=candidate["source_key"],
-                    secret_env=candidate["secret_env"],
-                    enabled=candidate["enabled"],
-                )
-                result["updated"] += 1
-            else:
-                source_id = store.create_source(
+            try:
+                source = upsert_catalog_source(
                     workspace_id=user["workspace_id"],
                     scope="public",
                     owner_user_id=user["id"],
@@ -652,10 +1149,26 @@ def create_app(
                     secret_env=candidate["secret_env"],
                     enabled=candidate["enabled"],
                 )
-                source = store.get_source(source_id)
+            except SourceKeyConflictError as exc:
+                result["skipped"] += 1
+                result["errors"].append(
+                    {
+                        "code": "source_key_conflict",
+                        "message": str(exc),
+                        "source_key": candidate["source_key"],
+                    }
+                )
+                continue
+            if existing:
+                result["updated"] += 1
+            else:
                 result["created"] += 1
             if payload.subscribe_current_user and source:
-                store.create_subscription(user_id=user["id"], source_id=source["id"], enabled=True)
+                create_subscription_with_quota(
+                    user=user,
+                    source_id=source["id"],
+                    enabled=True,
+                )
         return result
 
     def apply_service_source_upsert(
@@ -665,16 +1178,19 @@ def create_app(
     ) -> dict[str, Any]:
         if user.get("role") == "viewer":
             raise ApiError("forbidden", "viewer cannot create or update sources", status_code=403)
+        if not _is_admin(user) and any(
+            str(payload.get(key) or "").strip()
+            for key in ("secret_env", "token_env", "token_envs", "apify_token_env")
+        ):
+            raise ApiError(
+                "forbidden",
+                "only admins can assign a source secret",
+                status_code=403,
+            )
         base_data, _base_config = read_base_config()
         working_data = build_config_data_for_user(base_data, user)
         updated_working = apply_config_action(working_data, action, payload)
         item = source_item_for_upsert(updated_working, action, payload)
-        base_data["tags"] = updated_working.get("tags", base_data.get("tags", []))
-        base_data["personal_tags"] = updated_working.get(
-            "personal_tags",
-            base_data.get("personal_tags", []),
-        )
-        write_base_config(base_data)
 
         source_type = SOURCE_UPSERT_ACTIONS[action]
         source_id = str(payload.get("source_id") or "").strip() or None
@@ -690,13 +1206,31 @@ def create_app(
             catalog_config_for_source_type(source_type, item),
         )
         mutable_source = True
-        if source:
-            mutable_source = can_update_catalog_source(source, user)
-            if not mutable_source and source["scope"] == "private":
-                raise ApiError("forbidden", "cannot update another user's private source", status_code=403)
-            if mutable_source:
-                updated_source = store.update_source(
-                    source["id"],
+        try:
+            if source:
+                mutable_source = can_update_catalog_source(source, user)
+                if not mutable_source and source["scope"] == "private":
+                    raise ApiError("forbidden", "cannot update another user's private source", status_code=403)
+                if mutable_source:
+                    updated_source = update_catalog_source(
+                        source,
+                        {
+                            "display_name": source_display_name(source_type, item),
+                            "default_channel": channel,
+                            "default_topics": topics,
+                            "config": normalized_config,
+                            "source_key": key,
+                            "secret_env": secret_env,
+                            "enabled": True,
+                        },
+                    )
+                    source_id = updated_source["id"]
+            else:
+                updated_source = upsert_catalog_source(
+                    workspace_id=user["workspace_id"],
+                    scope=default_source_scope(user),
+                    owner_user_id=user["id"],
+                    source_type=source_type,
                     display_name=source_display_name(source_type, item),
                     default_channel=channel,
                     default_topics=topics,
@@ -706,23 +1240,16 @@ def create_app(
                     enabled=True,
                 )
                 source_id = updated_source["id"]
-        else:
-            source_id = store.create_source(
-                workspace_id=user["workspace_id"],
-                scope=default_source_scope(user),
-                owner_user_id=user["id"],
-                source_type=source_type,
-                display_name=source_display_name(source_type, item),
-                default_channel=channel,
-                default_topics=topics,
-                config=normalized_config,
-                source_key=key,
-                secret_env=secret_env,
-                enabled=True,
-            )
+        except SourceKeyConflictError as exc:
+            raise ApiError(
+                "source_key_conflict",
+                str(exc),
+                status_code=409,
+                action="Use the existing visible source or choose a different source configuration.",
+            ) from exc
 
-        subscription = store.create_subscription(
-            user_id=user["id"],
+        subscription = create_subscription_with_quota(
+            user=user,
             source_id=source_id,
             enabled=enabled,
             override_channel=None if mutable_source else channel,
@@ -730,6 +1257,13 @@ def create_app(
             personal_tags=personal_tags,
             analysis_mode=analysis_mode,
         )
+        if _is_admin(user):
+            base_data["tags"] = updated_working.get("tags", base_data.get("tags", []))
+            base_data["personal_tags"] = updated_working.get(
+                "personal_tags",
+                base_data.get("personal_tags", []),
+            )
+            write_base_config(base_data)
         return subscription
 
     def apply_service_source_delete(payload: dict[str, Any], user: dict[str, Any]) -> None:
@@ -831,25 +1365,91 @@ def create_app(
             }
         )
 
+    @app.get("/api/health/live")
+    async def health_live() -> dict[str, Any]:
+        return ok(
+            {
+                "status": "live",
+                "version": os.getenv("INTELISCOPE_VERSION", "1.5.0"),
+                "revision": os.getenv("INTELISCOPE_BUILD_REVISION", "unknown"),
+                "built_at": os.getenv("INTELISCOPE_BUILT_AT", "unknown"),
+            }
+        )
+
+    @app.get("/api/health/ready")
+    async def health_ready() -> dict[str, Any]:
+        store.connect().execute("SELECT 1").fetchone()
+        if store.feed_v2_migration_required():
+            raise ApiError(
+                "migration_required",
+                "user feed v2 migration must be applied before feed jobs can run",
+                status_code=503,
+                action="Stop services and run the explicit feed v2 migration command.",
+            )
+        if store.content_index_v4_migration_required():
+            raise ApiError(
+                "migration_required",
+                "user content v4 migration must be applied before feed jobs can run",
+                status_code=503,
+                action="Stop services and run scripts/migrate_user_content_v4.py --apply.",
+            )
+        if not store.has_enabled_user():
+            raise ApiError(
+                "auth_not_configured",
+                "no enabled service user is configured",
+                status_code=503,
+                action=(
+                    "Set HORIZON_AUTH_PASSWORD or HORIZON_AUTH_PASSWORD_HASH, "
+                    "then restart horizon-api."
+                ),
+            )
+        summary = runtime_status.summary(workspace_id=store.get_default_workspace()["id"])
+        require_worker = os.getenv("HORIZON_REQUIRE_WORKER_FOR_READINESS", "false").lower() == "true"
+        if require_worker and summary["worker_status"] != "ready":
+            raise ApiError(
+                "worker_unavailable",
+                f"worker status is {summary['worker_status']}",
+                status_code=503,
+                retryable=True,
+                action="Start or inspect horizon-worker.",
+            )
+        return ok(
+            {
+                "status": "ready",
+                "database": "ready",
+                "worker_status": summary["worker_status"],
+                "checked_at": summary["checked_at"],
+            }
+        )
+
     @app.post("/api/auth/login")
     async def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
         user = store.authenticate_user(payload.username, payload.password)
         if not user:
             raise ApiError("invalid_credentials", "username or password is incorrect", status_code=401)
-        token = store.create_session(user["id"])
+        token = store.create_session(
+            user["id"],
+            ttl_seconds=auth_settings.session_ttl_seconds,
+        )
         response.set_cookie(
             COOKIE_NAME,
             token,
             httponly=True,
             samesite="lax",
-            max_age=7 * 24 * 60 * 60,
+            secure=auth_settings.cookie_secure,
+            max_age=auth_settings.session_ttl_seconds,
         )
         return ok({"authenticated": True, "user": _sanitize_user(user)})
 
     @app.post("/api/auth/logout")
     async def auth_logout(request: Request, response: Response) -> dict[str, Any]:
         store.delete_session(request.cookies.get(COOKIE_NAME))
-        response.delete_cookie(COOKIE_NAME)
+        response.delete_cookie(
+            COOKIE_NAME,
+            httponly=True,
+            samesite="lax",
+            secure=auth_settings.cookie_secure,
+        )
         return ok({"authenticated": False, "user": None})
 
     @app.get("/api/config")
@@ -869,6 +1469,8 @@ def create_app(
         if action in SOURCE_DELETE_ACTIONS:
             apply_service_source_delete(payload, user)
             return ok(config_response(user))
+        if not _is_admin(user):
+            raise ApiError("forbidden", "admin role required", status_code=403)
 
         base_data, _base_config = read_base_config()
         updated = apply_config_action(base_data, action, payload)
@@ -903,17 +1505,126 @@ def create_app(
         payload: UserPatchRequest,
         _admin: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        if payload.role is not None and payload.role not in ROLES:
+            raise ApiError("invalid_role", "role must be owner, admin, member, or viewer", status_code=400)
         updated = store.update_user(
             user_id,
             role=payload.role,
             enabled=payload.enabled,
             display_name=payload.display_name,
+            password=payload.password.strip() if payload.password and payload.password.strip() else None,
         )
         return ok(_sanitize_user(updated))
 
     @app.get("/api/catalog/sources")
-    async def catalog_sources(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok({"sources": store.list_visible_sources(user)})
+    async def catalog_sources(
+        include_disabled: bool = False,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        if include_disabled and not _is_admin(user):
+            raise ApiError(
+                "forbidden",
+                "admin role required to list disabled sources",
+                status_code=403,
+            )
+        return ok(
+            {
+                "sources": visible_sources(
+                    user,
+                    include_disabled=include_disabled,
+                )
+            }
+        )
+
+    @app.get("/api/admin/secrets")
+    async def admin_secrets_list(
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        secret_values.load_into_environ()
+        secrets = store.list_secret_refs(workspace_id=user["workspace_id"])
+        return ok({"secrets": [public_secret(secret) for secret in secrets]})
+
+    @app.post("/api/admin/secrets")
+    async def admin_secrets_create(
+        payload: SecretCreateRequest,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        name, kind, provider, env_name = validate_secret_metadata(payload)
+        if store.get_secret_ref_by_env(workspace_id=user["workspace_id"], env_name=env_name):
+            raise ApiError(
+                "secret_env_conflict",
+                "the environment name is already registered",
+                status_code=409,
+            )
+        try:
+            secret_values.set(env_name, payload.value)
+            secret_values.load_into_environ()
+            secret = store.create_secret_ref(
+                workspace_id=user["workspace_id"],
+                owner_user_id=user["id"],
+                name=name,
+                env_name=env_name,
+                kind=kind,
+                provider=provider,
+                scope="workspace",
+            )
+        except SecretEnvConflictError as exc:
+            secret_values.delete(env_name)
+            secret_values.load_into_environ()
+            raise ApiError(
+                "secret_env_conflict",
+                "the environment name is already registered",
+                status_code=409,
+            ) from exc
+        except SecretValueError as exc:
+            raise ApiError("invalid_secret", str(exc), status_code=400) from exc
+        return ok(public_secret(secret))
+
+    @app.put("/api/admin/secrets/{secret_id}/value")
+    async def admin_secrets_rotate(
+        secret_id: str,
+        payload: SecretRotateRequest,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        secret = store.get_secret_ref(secret_id)
+        if secret is None or secret["workspace_id"] != user["workspace_id"]:
+            raise ApiError("not_found", "secret reference not found", status_code=404)
+        try:
+            secret_values.set(secret["env_name"], payload.value)
+            secret_values.load_into_environ()
+        except SecretValueError as exc:
+            raise ApiError("invalid_secret", str(exc), status_code=400) from exc
+        updated = store.touch_secret_ref(secret_id)
+        if secret["kind"] == "apify":
+            for source in store.list_sources_using_secret(
+                workspace_id=user["workspace_id"],
+                env_name=secret["env_name"],
+            ):
+                source_health.reset_source(
+                    workspace_id=user["workspace_id"],
+                    source_id=source["id"],
+                )
+        return ok(public_secret(updated))
+
+    @app.delete("/api/admin/secrets/{secret_id}")
+    async def admin_secrets_delete(
+        secret_id: str,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        secret = store.get_secret_ref(secret_id)
+        if secret is None or secret["workspace_id"] != user["workspace_id"]:
+            raise ApiError("not_found", "secret reference not found", status_code=404)
+        if secret_usage(secret):
+            raise ApiError(
+                "secret_in_use",
+                "secret is still referenced by AI or a catalog source",
+                status_code=409,
+                action="Reassign every reference before deleting this secret.",
+            )
+        secret_values.delete(secret["env_name"])
+        secret_values.load_into_environ()
+        store.delete_secret_ref(secret_id)
+        return ok({"deleted": True, "id": secret_id})
 
     @app.get("/api/catalog/source-types")
     async def catalog_source_types(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
@@ -932,30 +1643,41 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
+        if payload.secret_env is not None and not _is_admin(user):
+            raise ApiError(
+                "forbidden",
+                "only admins can assign a source secret",
+                status_code=403,
+            )
         scope = payload.scope or default_source_scope(user)
         if scope not in SOURCE_SCOPES:
             raise ApiError("invalid_scope", "scope must be public, workspace, or private")
         if scope != "private" and not _is_admin(user):
             raise ApiError("forbidden", "only admins can create public or workspace sources", status_code=403)
         normalized_config, key = validate_catalog_source_config(payload.type, payload.config)
-        source_id = store.create_source(
-            workspace_id=user["workspace_id"],
-            scope=scope,
-            owner_user_id=user["id"],
-            source_type=payload.type,
-            display_name=payload.display_name,
-            description=payload.description,
-            default_channel=payload.default_channel,
-            default_topics=payload.default_topics,
-            config=normalized_config,
-            source_key=key,
-            secret_env=_validate_secret_env(payload.secret_env),
-            enabled=payload.enabled,
-        )
-        source = store.get_source(source_id)
-        if source is None:
-            raise ApiError("not_found", "created source not found", status_code=500)
-        return ok(source)
+        try:
+            source = upsert_catalog_source(
+                workspace_id=user["workspace_id"],
+                scope=scope,
+                owner_user_id=user["id"],
+                source_type=payload.type,
+                display_name=payload.display_name,
+                description=payload.description,
+                default_channel=payload.default_channel,
+                default_topics=payload.default_topics,
+                config=normalized_config,
+                source_key=key,
+                secret_env=_validate_secret_env(payload.secret_env),
+                enabled=payload.enabled,
+            )
+        except SourceKeyConflictError as exc:
+            raise ApiError(
+                "source_key_conflict",
+                str(exc),
+                status_code=409,
+                action="Use the existing visible source or choose a different source configuration.",
+            ) from exc
+        return ok(public_source(source, user))
 
     @app.patch("/api/catalog/sources/{source_id}")
     async def catalog_patch(
@@ -964,27 +1686,47 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
-        source = visible_source_or_404(source_id, user)
+        source = manageable_source_or_404(source_id, user)
+        if "secret_env" in payload.model_fields_set and not _is_admin(user):
+            raise ApiError(
+                "forbidden",
+                "only admins can assign a source secret",
+                status_code=403,
+            )
         if source["scope"] != "private" and not _is_admin(user):
             raise ApiError("forbidden", "only admins can update shared sources", status_code=403)
         if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
             raise ApiError("forbidden", "cannot update another user's private source", status_code=403)
-        normalized_config = None
-        key = None
-        if payload.config is not None:
-            normalized_config, key = validate_catalog_source_config(source["type"], payload.config)
-        updated = store.update_source(
-            source_id,
-            display_name=payload.display_name,
-            description=payload.description,
-            default_channel=payload.default_channel,
-            default_topics=payload.default_topics,
-            config=normalized_config,
-            source_key=key,
-            secret_env=_validate_secret_env(payload.secret_env),
-            enabled=payload.enabled,
-        )
-        return ok(updated)
+        provided = payload.model_fields_set
+        updates: dict[str, Any] = {}
+        if "display_name" in provided:
+            updates["display_name"] = payload.display_name
+        if "description" in provided:
+            updates["description"] = payload.description
+        if "default_channel" in provided:
+            updates["default_channel"] = payload.default_channel
+        if "default_topics" in provided and payload.default_topics is not None:
+            updates["default_topics"] = payload.default_topics
+        if "config" in provided and payload.config is not None:
+            normalized_config, key = validate_catalog_source_config(
+                source["type"], payload.config
+            )
+            updates["config"] = normalized_config
+            updates["source_key"] = key
+        if "secret_env" in provided:
+            updates["secret_env"] = _validate_secret_env(payload.secret_env)
+        if "enabled" in provided:
+            updates["enabled"] = payload.enabled
+        try:
+            updated = update_catalog_source(source, updates)
+        except SourceKeyConflictError as exc:
+            raise ApiError(
+                "source_key_conflict",
+                str(exc),
+                status_code=409,
+                action="Keep the current source configuration or choose a different source.",
+            ) from exc
+        return ok(public_source(updated, user))
 
     @app.delete("/api/catalog/sources/{source_id}")
     async def catalog_delete(
@@ -992,7 +1734,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
-        source = visible_source_or_404(source_id, user)
+        source = manageable_source_or_404(source_id, user)
         if source["scope"] != "private" and not _is_admin(user):
             raise ApiError("forbidden", "only admins can delete shared sources", status_code=403)
         if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
@@ -1006,7 +1748,10 @@ def create_app(
     ) -> dict[str, Any]:
         require_mutating_member(user)
         visible_source_or_404(source_id, user)
-        subscription = store.create_subscription(user_id=user["id"], source_id=source_id)
+        subscription = create_subscription_with_quota(
+            user=user,
+            source_id=source_id,
+        )
         return ok({"subscription": subscription})
 
     @app.delete("/api/catalog/sources/{source_id}/subscription")
@@ -1023,7 +1768,79 @@ def create_app(
 
     @app.get("/api/me/subscriptions")
     async def subscriptions_list(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok({"subscriptions": store.list_user_subscriptions(user["id"])})
+        subscriptions = store.list_user_subscriptions(user["id"])
+        return ok(
+            {
+                "subscriptions": [
+                    {
+                        **subscription,
+                        "schedule": source_schedule_response(user, subscription["id"]),
+                    }
+                    for subscription in subscriptions
+                ]
+            }
+        )
+
+    @app.get("/api/me/source-health")
+    async def source_health_get(
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return ok(
+            source_health.user_projection(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+            )
+        )
+
+    @app.get("/api/me/feed-schedule")
+    async def feed_schedule_get(
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return ok(feed_schedule_response(user))
+
+    @app.patch("/api/me/feed-schedule")
+    async def feed_schedule_patch(
+        payload: FeedSchedulePatchRequest,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        require_mutating_member(user)
+        if payload.enabled is None and payload.interval_minutes is None:
+            raise ApiError(
+                "invalid_feed_schedule",
+                "enabled or interval_minutes is required",
+                status_code=400,
+            )
+        if (
+            payload.interval_minutes is not None
+            and payload.interval_minutes not in ALLOWED_INTERVALS
+        ):
+            raise ApiError(
+                "invalid_feed_schedule",
+                "interval_minutes must be one of "
+                + ", ".join(str(value) for value in ALLOWED_INTERVALS),
+                status_code=400,
+            )
+        try:
+            feed_schedules.update_user_schedule(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                enabled=payload.enabled,
+                interval_minutes=payload.interval_minutes,
+            )
+        except NoEnabledSubscriptionsError as exc:
+            raise ApiError(
+                exc.code,
+                str(exc),
+                status_code=409,
+                action="Enable at least one subscription and retry.",
+            ) from exc
+        except ValueError as exc:
+            raise ApiError(
+                "invalid_feed_schedule",
+                str(exc),
+                status_code=400,
+            ) from exc
+        return ok(feed_schedule_response(user))
 
     @app.post("/api/me/subscriptions")
     async def subscriptions_create(
@@ -1032,8 +1849,8 @@ def create_app(
     ) -> dict[str, Any]:
         require_mutating_member(user)
         visible_source_or_404(payload.source_id, user)
-        subscription = store.create_subscription(
-            user_id=user["id"],
+        subscription = create_subscription_with_quota(
+            user=user,
             source_id=payload.source_id,
             enabled=payload.enabled,
             override_channel=payload.override_channel,
@@ -1051,19 +1868,76 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
-        current = store.get_subscription(subscription_id)
-        if not current or current["user_id"] != user["id"]:
-            raise ApiError("not_found", "subscription not found", status_code=404)
-        updated = store.update_subscription(
-            subscription_id,
-            enabled=payload.enabled,
-            override_channel=payload.override_channel,
-            override_topics=payload.override_topics,
-            personal_tags=payload.personal_tags,
-            analysis_mode=payload.analysis_mode,
-            priority=payload.priority,
+        provided = payload.model_fields_set
+        updates = {
+            field: getattr(payload, field)
+            for field in (
+                "enabled",
+                "override_channel",
+                "override_topics",
+                "personal_tags",
+                "analysis_mode",
+                "priority",
+            )
+            if field in provided
+        }
+        updated = update_subscription_with_quota(
+            user=user,
+            subscription_id=subscription_id,
+            updates=updates,
         )
         return ok(updated)
+
+    @app.get("/api/me/subscriptions/{subscription_id}/schedule")
+    async def subscription_schedule_get(
+        subscription_id: str,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return ok(source_schedule_response(user, subscription_id))
+
+    @app.patch("/api/me/subscriptions/{subscription_id}/schedule")
+    async def subscription_schedule_patch(
+        subscription_id: str,
+        payload: SourceSchedulePatchRequest,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        require_mutating_member(user)
+        if payload.enabled is None and payload.interval_minutes is None:
+            raise ApiError(
+                "invalid_source_schedule",
+                "enabled or interval_minutes is required",
+                status_code=400,
+            )
+        if (
+            payload.interval_minutes is not None
+            and payload.interval_minutes not in SOURCE_ALLOWED_INTERVALS
+        ):
+            raise ApiError(
+                "invalid_source_schedule",
+                "interval_minutes must be one of "
+                + ", ".join(str(value) for value in SOURCE_ALLOWED_INTERVALS),
+                status_code=400,
+            )
+        try:
+            source_schedules.update_subscription_schedule(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                subscription_id=subscription_id,
+                enabled=payload.enabled,
+                interval_minutes=payload.interval_minutes,
+            )
+        except LookupError as exc:
+            raise ApiError(
+                "not_found", "subscription not found", status_code=404
+            ) from exc
+        except SourceScheduleUnavailableError as exc:
+            raise ApiError(
+                exc.code,
+                str(exc),
+                status_code=409,
+                action="Enable the subscription and source before enabling its schedule.",
+            ) from exc
+        return ok(source_schedule_response(user, subscription_id))
 
     @app.delete("/api/me/subscriptions/{subscription_id}")
     async def subscriptions_delete(
@@ -1137,8 +2011,86 @@ def create_app(
 
     def create_job(payload: JobCreateRequest, job_type: str, user: dict[str, Any]) -> dict[str, Any]:
         require_mutating_member(user)
+        if job_type in {"source_test", "source_fetch"} and not payload.source_id and not _is_admin(user):
+            raise ApiError(
+                "forbidden",
+                "members must run source jobs through a visible catalog source_id",
+                status_code=403,
+            )
         if payload.source_id:
             visible_source_or_404(payload.source_id, user)
+        if job_type == "user_feed_refresh":
+            conn = store.connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                job, created = queue.create_user_feed_refresh_if_absent(
+                    workspace_id=user["workspace_id"],
+                    user_id=user["id"],
+                    payload=payload.payload,
+                    priority=payload.priority,
+                    max_attempts=int(os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")),
+                    retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+                )
+                if created:
+                    quota.ensure_job_allowed(
+                        workspace_id=user["workspace_id"],
+                        user_id=user["id"],
+                    )
+                    quota.record_job_usage(
+                        workspace_id=user["workspace_id"],
+                        user_id=user["id"],
+                        event_type=job_type,
+                        commit=False,
+                    )
+                conn.commit()
+            except Exception:
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
+            return {
+                **_public_job(job),
+                "deduplicated": not created,
+            }
+        if job_type == "source_fetch" and payload.subscription_id:
+            subscription = store.get_subscription(payload.subscription_id)
+            if (
+                subscription is None
+                or subscription["user_id"] != user["id"]
+                or subscription["source_id"] != payload.source_id
+            ):
+                raise ApiError(
+                    "not_found", "subscription not found", status_code=404
+                )
+            conn = store.connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                job, created = queue.create_source_fetch_if_absent(
+                    workspace_id=user["workspace_id"],
+                    user_id=user["id"],
+                    source_id=str(payload.source_id),
+                    subscription_id=payload.subscription_id,
+                    payload=payload.payload,
+                    priority=payload.priority,
+                    max_attempts=int(os.getenv("HORIZON_JOB_MAX_ATTEMPTS", "3")),
+                    retention_days=int(os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")),
+                )
+                if created:
+                    quota.ensure_job_allowed(
+                        workspace_id=user["workspace_id"],
+                        user_id=user["id"],
+                    )
+                    quota.record_job_usage(
+                        workspace_id=user["workspace_id"],
+                        user_id=user["id"],
+                        event_type=job_type,
+                        commit=False,
+                    )
+                conn.commit()
+            except Exception:
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
+            return {**_public_job(job), "deduplicated": not created}
         quota.ensure_job_allowed(workspace_id=user["workspace_id"], user_id=user["id"])
         job = queue.create_job(
             workspace_id=user["workspace_id"],
@@ -1156,7 +2108,7 @@ def create_app(
             user_id=user["id"],
             event_type=job_type,
         )
-        return job
+        return _public_job(job)
 
     @app.post("/api/jobs/source-test")
     async def jobs_source_test(
@@ -1197,25 +2149,64 @@ def create_app(
 
     @app.get("/api/jobs/{job_id}")
     async def jobs_get(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok(job_or_404(job_id, user))
+        return ok(_public_job(job_or_404(job_id, user)))
 
     @app.post("/api/jobs/{job_id}/cancel")
     async def jobs_cancel(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         require_mutating_member(user)
         job_or_404(job_id, user)
         try:
-            return ok(queue.cancel_job(job_id, user_id=None if _is_admin(user) else user["id"]))
+            return ok(_public_job(queue.cancel_job(job_id, user_id=None if _is_admin(user) else user["id"])))
         except ValueError as exc:
             raise ApiError("job_not_cancelable", str(exc), status_code=409) from exc
 
     @app.post("/api/jobs/{job_id}/retry")
     async def jobs_retry(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         require_mutating_member(user)
-        job_or_404(job_id, user)
+        conn = store.connect()
         try:
-            return ok(queue.retry_job(job_id, user_id=None if _is_admin(user) else user["id"]))
+            conn.execute("BEGIN IMMEDIATE")
+            current = job_or_404(job_id, user)
+            eligibility = JobEligibilityService(store).evaluate(current)
+            if not eligibility.allowed:
+                raise ApiError(
+                    "job_not_retryable",
+                    f"job is no longer eligible: {eligibility.reason}",
+                    status_code=409,
+                    action="Re-enable the user, source, or subscription before retrying.",
+                )
+            metered = current.get("job_type") in {
+                "source_test",
+                "source_fetch",
+                "user_feed_refresh",
+            }
+            if metered:
+                quota.ensure_job_allowed(
+                    workspace_id=current["workspace_id"],
+                    user_id=current["user_id"],
+                )
+            retried = queue.retry_job(
+                job_id,
+                user_id=None if _is_admin(user) else user["id"],
+                commit=False,
+            )
+            if metered and retried["id"] == job_id:
+                quota.record_job_usage(
+                    workspace_id=current["workspace_id"],
+                    user_id=current["user_id"],
+                    event_type=current["job_type"],
+                    commit=False,
+                )
+            conn.commit()
+            return ok(_public_job(retried))
         except ValueError as exc:
+            if conn.in_transaction:
+                conn.rollback()
             raise ApiError("job_not_retryable", str(exc), status_code=409) from exc
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
 
     @app.get("/api/jobs")
     async def jobs_list(
@@ -1225,12 +2216,12 @@ def create_app(
     ) -> dict[str, Any]:
         return ok(
             {
-                "jobs": queue.list_jobs(
+                "jobs": [_public_job(job) for job in queue.list_jobs(
                     workspace_id=user["workspace_id"],
                     user_id=None if _is_admin(user) else user["id"],
                     status=status,
                     limit=max(1, min(int(limit), 200)),
-                )
+                )]
             }
         )
 
@@ -1244,6 +2235,7 @@ def create_app(
         )
         latest = feed_archive.latest_feed(workspace_id=user["workspace_id"], user_id=user["id"])
         item_state_counts = item_state.count_flags(workspace_id=user["workspace_id"], user_id=user["id"])
+        runtime = runtime_status.summary(workspace_id=user["workspace_id"], user_id=user["id"])
         return ok(
             {
                 "source_count": len(sources),
@@ -1254,8 +2246,17 @@ def create_app(
                 "latest_generated_at": latest.get("generated_at"),
                 "item_state_counts": item_state_counts,
                 "current_user": _sanitize_user(user),
+                "runtime": {
+                    "worker_status": runtime["worker_status"],
+                    "oldest_queued_age_seconds": runtime["oldest_queued_age_seconds"],
+                    "stale_running_count": runtime["stale_running_count"],
+                },
             }
         )
+
+    @app.get("/api/ops/runtime")
+    async def ops_runtime(user: dict[str, Any] = Depends(current_admin)) -> dict[str, Any]:
+        return ok(runtime_status.summary(workspace_id=user["workspace_id"]))
 
     @app.get("/api/feed/latest")
     async def feed_latest(
@@ -1274,6 +2275,57 @@ def create_app(
                 unread_first=unread_first,
                 saved_first=saved_first,
             )
+        )
+
+    @app.get("/api/feed/saved")
+    async def feed_saved(
+        limit: int = 200,
+        offset: int = 0,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return ok(
+            user_content.saved_items(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                limit=max(1, min(int(limit), 200)),
+                offset=max(0, int(offset)),
+            )
+        )
+
+    @app.get("/api/feed/items/{article_id}")
+    async def feed_item_detail(
+        article_id: str,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        item = user_content.detail_item(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+            article_id=article_id,
+        )
+        if item is None:
+            raise ApiError("not_found", "item not found", status_code=404)
+        return ok(item)
+
+    @app.get("/api/media/{asset_id}")
+    async def media_asset(
+        asset_id: str,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> FileResponse:
+        asset = media_cache.authorized_asset(
+            asset_id=asset_id,
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+        )
+        if asset is None:
+            raise ApiError("not_found", "media not found", status_code=404)
+        path = (data_path / str(asset["local_path"])).resolve()
+        media_root = (data_path / "media").resolve()
+        if media_root not in path.parents or not path.is_file():
+            raise ApiError("not_found", "media not found", status_code=404)
+        return FileResponse(
+            path,
+            media_type=str(asset.get("mime_type") or "application/octet-stream"),
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
 
     @app.get("/api/feed/history")
@@ -1370,7 +2422,17 @@ def create_app(
         raise ApiError("not_found", "API endpoint not found", status_code=404)
 
     if static_path.exists():
-        app.mount("/", StaticFiles(directory=str(static_path), html=True), name="static")
+        assets_path = static_path / "assets"
+        if assets_path.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_path)), name="service-assets")
+            index_path = static_path / "index.html"
+
+            @app.get("/{frontend_path:path}", include_in_schema=False)
+            async def service_frontend(frontend_path: str) -> FileResponse:
+                del frontend_path
+                return FileResponse(index_path, media_type="text/html")
+        else:
+            app.mount("/", StaticFiles(directory=str(static_path), html=True), name="static")
 
     return app
 

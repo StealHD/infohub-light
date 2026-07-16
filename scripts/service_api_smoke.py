@@ -101,6 +101,19 @@ def _find_smoke_source(sources: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _find_smoke_member(users: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for user in users:
+        if user.get("username") == "member-ui-smoke":
+            return user
+    return None
+
+
+def _ensure_no_password_hash(data: Any) -> Any:
+    if "password_hash" in json.dumps(data, ensure_ascii=False):
+        raise RuntimeError("API response leaked password_hash")
+    return data
+
+
 def run_smoke_checks(
     client: Any,
     *,
@@ -111,14 +124,65 @@ def run_smoke_checks(
     checks: list[dict[str, Any]] = []
 
     _check("login", checks, lambda: client.data("POST", "/api/auth/login", {"username": username, "password": password}))
-    _check("auth_status", checks, lambda: client.data("GET", "/api/auth/status"))
+    auth_data = _check("auth_status", checks, lambda: client.data("GET", "/api/auth/status")) or {}
     _check("config", checks, lambda: client.data("GET", "/api/config"))
     _check("dashboard", checks, lambda: client.data("GET", "/api/dashboard/summary"))
+    auth_user = auth_data.get("user") if isinstance(auth_data, dict) else {}
+    is_admin = isinstance(auth_user, dict) and auth_user.get("role") in {"owner", "admin"}
+    users_data: dict[str, Any] = {}
+    if is_admin:
+        users_data = _check("users", checks, lambda: client.data("GET", "/api/users")) or {}
+    else:
+        checks.append({"name": "users_skipped", "ok": True, "reason": "not_admin"})
     sources_data = _check("catalog_sources", checks, lambda: client.data("GET", "/api/catalog/sources")) or {}
     feed = _check("feed_latest", checks, lambda: client.data("GET", "/api/feed/latest")) or {}
     _check("jobs", checks, lambda: client.data("GET", "/api/jobs"))
 
     if mutating:
+        if is_admin:
+            users = users_data.get("users") if isinstance(users_data, dict) else []
+            smoke_member = _find_smoke_member(users or [])
+            if smoke_member is None:
+                smoke_member = _check(
+                    "create_smoke_member",
+                    checks,
+                    lambda: _ensure_no_password_hash(
+                        client.data(
+                            "POST",
+                            "/api/users",
+                            {
+                                "username": "member-ui-smoke",
+                                "password": "member-ui-smoke-password",
+                                "role": "member",
+                                "display_name": "Member UI Smoke",
+                                "enabled": True,
+                            },
+                        )
+                    ),
+                )
+            else:
+                checks.append({"name": "create_smoke_member", "ok": True, "reused": True})
+
+            if smoke_member and smoke_member.get("id"):
+                member_id = str(smoke_member["id"])
+                _check(
+                    "patch_smoke_member",
+                    checks,
+                    lambda: _ensure_no_password_hash(
+                        client.data(
+                            "PATCH",
+                            f"/api/users/{_quote(member_id)}",
+                            {
+                                "role": "member",
+                                "display_name": "Member UI Smoke",
+                                "enabled": True,
+                            },
+                        )
+                    ),
+                )
+        else:
+            checks.append({"name": "create_smoke_member_skipped", "ok": True, "reason": "not_admin"})
+
         sources = sources_data.get("sources") if isinstance(sources_data, dict) else []
         source = _find_smoke_source(sources or [])
         if source is None:
@@ -203,6 +267,7 @@ def write_report(report: dict[str, Any], output: str | None) -> Path | None:
         path = Path("logs") / f"service-api-smoke-{stamp}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text + "\n", encoding="utf-8")
+    path.chmod(0o600)
     print(f"wrote {path}")
     return path
 

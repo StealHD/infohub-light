@@ -10,7 +10,57 @@ from typing import Any
 from ..models import ContentItem
 
 
-ANALYSIS_PROMPT_VERSION = "content-analysis-v3"
+ANALYSIS_PROMPT_VERSION = "content-analysis-v7-presentation-no-reason-no-action"
+
+
+def analysis_prompt_version(topic_library: list[str] | tuple[str, ...] | None = None) -> str:
+    normalized = ["__builtin_defaults__"] if topic_library is None else sorted({str(topic).strip().casefold() for topic in topic_library if str(topic).strip()})
+    digest = hashlib.sha256(json.dumps(normalized, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
+    return f"{ANALYSIS_PROMPT_VERSION}:{digest}"
+
+
+def apply_analysis_result(item: ContentItem, result: dict[str, Any]) -> None:
+    """Apply the safe, inference-only cache projection to one item."""
+    item.ai_score = result.get("score")
+    item.ai_reason = None
+    item.ai_summary = result.get("summary") or result.get("summary_zh") or item.title
+    item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
+    item.ai_channel = result.get("channel") or result.get("category") or ""
+    item.ai_category = item.ai_channel
+    item.ai_is_featured = bool(result.get("is_featured"))
+    item.ai_action_suggestion = result.get("action_suggestion") or ""
+    topics = result.get("topics") or result.get("tags") or []
+    item.ai_topics = [str(tag) for tag in topics] if isinstance(topics, list) else []
+    item.ai_tags = list(item.ai_topics)
+    item.ai_signal_strength = result.get("signal_strength") or ""
+    item.ai_signal_type = result.get("signal_type") or ""
+    entities = result.get("entities") or []
+    item.ai_entities = [str(entity) for entity in entities] if isinstance(entities, list) else []
+    item.metadata["analysis_status"] = "ai"
+    inferred_topics = result.get("inferred_topics") or []
+    item.metadata["inferred_topics"] = (
+        [str(tag) for tag in inferred_topics]
+        if isinstance(inferred_topics, list)
+        else []
+    )
+
+
+def safe_analysis_result(item: ContentItem) -> dict[str, Any]:
+    """Return cached inference fields without source content or legacy reason."""
+    return {
+        "score": item.ai_score,
+        "channel": item.ai_channel or item.ai_category or "",
+        "topics": list(item.ai_topics or item.ai_tags or []),
+        "inferred_topics": list(item.metadata.get("inferred_topics") or []),
+        "tags": list(item.ai_topics or item.ai_tags or []),
+        "category": item.ai_channel or item.ai_category or "",
+        "signal_strength": item.ai_signal_strength or "",
+        "signal_type": item.ai_signal_type or "",
+        "entities": list(item.ai_entities or []),
+        "is_featured": bool(item.ai_is_featured),
+        "summary": item.ai_summary or "",
+        "summary_zh": item.ai_summary_zh or "",
+    }
 
 
 class AnalysisCache:
@@ -46,6 +96,11 @@ class AnalysisCache:
             "url": str(item.url),
             "title": item.title,
             "content": item.content or "",
+            "author": item.author or "",
+            "published_at": item.published_at.isoformat(),
+            "source_name": item.metadata.get("source_display_name") or "",
+            "catalog_source_type": item.metadata.get("catalog_source_type") or "",
+            "platform": item.metadata.get("apify_platform") or item.source_type.value,
             "channel": item.metadata.get("channel") or item.metadata.get("category") or "",
             "topics": item.metadata.get("topics") or item.metadata.get("tags") or [],
         }
@@ -75,21 +130,8 @@ class AnalysisCache:
         result = row.get("result")
         if not isinstance(result, dict):
             return False
-        item.ai_score = result.get("score")
-        item.ai_reason = result.get("reason") or ""
-        item.ai_summary = result.get("summary") or result.get("summary_zh") or item.title
-        item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
-        item.ai_channel = result.get("channel") or result.get("category") or ""
-        item.ai_category = item.ai_channel
-        item.ai_is_featured = bool(result.get("is_featured"))
-        item.ai_action_suggestion = result.get("action_suggestion") or ""
-        topics = result.get("topics") or result.get("tags") or []
-        item.ai_topics = [str(tag) for tag in topics] if isinstance(topics, list) else []
-        item.ai_tags = list(item.ai_topics)
-        item.ai_signal_strength = result.get("signal_strength") or ""
-        item.ai_signal_type = result.get("signal_type") or ""
-        entities = result.get("entities") or []
-        item.ai_entities = [str(entity) for entity in entities] if isinstance(entities, list) else []
+        apply_analysis_result(item, result)
+        item.metadata["analysis_cache_hit"] = True
         return True
 
     def store(
@@ -107,21 +149,7 @@ class AnalysisCache:
             "content_hash": self.content_hash(item),
             "model": model,
             "prompt_version": prompt_version,
-            "result": {
-                "score": item.ai_score,
-                "reason": item.ai_reason or "",
-                "channel": item.ai_channel or item.ai_category or "",
-                "topics": list(item.ai_topics or item.ai_tags or []),
-                "tags": list(item.ai_topics or item.ai_tags or []),
-                "category": item.ai_channel or item.ai_category or "",
-                "signal_strength": item.ai_signal_strength or "",
-                "signal_type": item.ai_signal_type or "",
-                "entities": list(item.ai_entities or []),
-                "is_featured": bool(item.ai_is_featured),
-                "summary": item.ai_summary or "",
-                "summary_zh": item.ai_summary_zh or "",
-                "action_suggestion": item.ai_action_suggestion or "",
-            },
+            "result": safe_analysis_result(item),
         }
         entries = self._load()
         entries[row["key"]] = row

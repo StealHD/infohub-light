@@ -21,6 +21,7 @@ function renderMeta() {
       : '抓取 ' + (data.total_fetched || 0) + ' 条';
   }
   var parts = [data.date || '未知日期', countText];
+  parts.push(formatFeedFreshness((state.data || data).generated_at));
   if (data.ai_enabled === false) {
     parts.push('无评分模式');
   } else {
@@ -28,6 +29,138 @@ function renderMeta() {
     parts.push('推送 > ' + (thresholds.daily_push || 8.5));
   }
   metaLine.textContent = parts.join(' · ');
+}
+
+function shortFeedActivityText(value) {
+  var text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  return text.length > 160 ? text.slice(0, 157) + '...' : text;
+}
+
+function feedActivityIssues(job) {
+  var result = (job && job.result_json) || {};
+  var issues = Array.isArray(result.issues) ? result.issues.slice() : [];
+  if (!issues.length && Array.isArray(result.source_outcomes)) {
+    result.source_outcomes.forEach(function (outcome) {
+      if (outcome && outcome.status === 'failed' && outcome.issue) issues.push(outcome.issue);
+    });
+  }
+  if (!issues.length && job && (job.error_code || job.error_message)) {
+    issues.push({
+      code: job.error_code || '',
+      message: job.error_message || '',
+      retryable: false,
+    });
+  }
+  return issues;
+}
+
+function feedActivityIssueHtml(job) {
+  var issues = feedActivityIssues(job).slice(0, 2);
+  if (!issues.length) return '';
+  return '<div class="feed-activity-issues">' + issues.map(function (issue) {
+    var retryability = Object.prototype.hasOwnProperty.call(issue || {}, 'retryable')
+      ? '<span class="feed-activity-retryability">' + (issue.retryable ? '可重试' : '不可重试') + '</span>'
+      : '';
+    return [
+      '<div>',
+      issue && issue.code ? '<strong>' + escapeHtml(issue.code) + '</strong>' : '',
+      issue && issue.message ? '<span>' + escapeHtml(shortFeedActivityText(issue.message)) + '</span>' : '',
+      retryability,
+      '</div>',
+    ].join('');
+  }).join('') + '</div>';
+}
+
+function feedActivityElapsedText(job) {
+  var startedAt = Date.parse((job && (job.started_at || job.updated_at || job.created_at)) || '');
+  if (!Number.isFinite(startedAt)) return '正在执行';
+  var elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (elapsedSeconds < 60) return '已运行 ' + elapsedSeconds + ' 秒';
+  return '已运行 ' + Math.floor(elapsedSeconds / 60) + ' 分钟';
+}
+
+function setFeedActivity(job, options) {
+  if (!job || job.job_type !== 'user_feed_refresh') return false;
+  options = options || {};
+  state.feedActivity = {
+    job: job,
+    workerStatus: options.workerStatus ||
+      ((state.feedSchedule && state.feedSchedule.worker_status) || 'unknown'),
+  };
+  state.feedActivityLoaded = true;
+  if (state.view !== 'subscriptions' && state.view !== 'config') renderFeedActivityBanner();
+  return true;
+}
+
+function renderFeedActivityBanner() {
+  var banner = document.getElementById('feedActivityBanner');
+  if (!banner) return;
+  var activity = state.feedActivity;
+  var job = activity && activity.job;
+  if (!job || state.view === 'subscriptions' || state.view === 'config') {
+    banner.innerHTML = '';
+    banner.classList.add('hidden');
+    return;
+  }
+  var result = job.result_json || {};
+  var status = job.status || 'queued';
+  var title = {
+    queued: '排队中',
+    running: '正在刷新',
+    succeeded: '刷新完成',
+    partial: '部分完成',
+    failed: '刷新失败',
+    cancelled: '刷新已取消',
+  }[status] || status;
+  var detail = '';
+  if (status === 'queued') detail = 'Worker ' + escapeHtml(activity.workerStatus || 'unknown');
+  if (status === 'running') detail = escapeHtml(feedActivityElapsedText(job));
+  if (status === 'succeeded') {
+    detail = escapeHtml(String(result.item_count == null ? 0 : result.item_count)) + ' 条 · ' +
+      escapeHtml(formatDate(job.finished_at || job.updated_at));
+  }
+  if (status === 'partial') {
+    detail = escapeHtml(String(result.item_count == null ? 0 : result.item_count)) + ' 条可用';
+  }
+  if (status === 'failed') detail = '本次没有生成新 Feed';
+  if (status === 'cancelled') detail = '任务未执行完成';
+  var canRetry = ['partial', 'failed', 'cancelled'].indexOf(status) >= 0;
+  var showFailedSources = ['partial', 'failed'].indexOf(status) >= 0;
+  banner.className = 'feed-activity-banner status-' + escapeHtml(status);
+  banner.innerHTML = [
+    '<div class="feed-activity-main">',
+    '  <strong>' + escapeHtml(title) + '</strong>',
+    detail ? '  <span>' + detail + '</span>' : '',
+    '</div>',
+    feedActivityIssueHtml(job),
+    '<div class="feed-activity-actions">',
+    showFailedSources ? '  <button type="button" data-view-failed-sources>查看失败来源</button>' : '',
+    canRetry ? '  <button type="button" data-retry-feed-activity="' + escapeHtml(job.id || '') + '">重试</button>' : '',
+    '</div>',
+  ].join('');
+  banner.classList.remove('hidden');
+}
+
+function viewFailedSourceHealth() {
+  state.sourceHealthFilter = 'attention';
+  state.subscriptionConsoleLoaded = false;
+  state.view = 'subscriptions';
+  renderAll();
+}
+
+function handleFeedActivityAction(event) {
+  var failedSources = event.target.closest('[data-view-failed-sources]');
+  if (failedSources) {
+    viewFailedSourceHealth();
+    return;
+  }
+  var retryButton = event.target.closest('[data-retry-feed-activity]');
+  if (retryButton && typeof retryJob === 'function') {
+    retryJob(
+      retryButton.getAttribute('data-retry-feed-activity'),
+      state.feedActivity && state.feedActivity.job
+    );
+  }
 }
 
 function scoreBadge(item) {
@@ -83,7 +216,7 @@ function renderQueue(items, selectedItem) {
       '  <div>',
       '    <div class="story-meta">' + storyMetaParts.map(function (part) { return '<span>' + escapeHtml(part) + '</span>'; }).join('') + '</div>',
       '    <h3>' + escapeHtml(item.title) + '</h3>',
-      '    <p>' + escapeHtml(displayText(item.summary_zh || item.reason, '暂无摘要')) + '</p>',
+      '    <p>' + escapeHtml(displayText(item.summary_zh, '暂无摘要')) + '</p>',
       renderItemMedia(item, 'story'),
       '  </div>',
       '  <span class="score ' + scoreClass(item.score || 0) + '">' + scoreBadge(item) + '</span>',
@@ -129,8 +262,8 @@ function renderInsightBlocks(item, actionSuggestion) {
   }
   return [
     '  <section class="article-block">',
-    '    <h3>为什么值得读</h3>',
-    '    <p>' + escapeHtml(displayText(item && item.reason, '暂无推荐理由。')) + '</p>',
+    '    <h3>来源摘录</h3>',
+    '    <p>' + escapeHtml(displayText(item && item.presentation && item.presentation.content && item.presentation.content.excerpt, '暂无来源摘录。')) + '</p>',
     '  </section>',
     '  <section class="article-block">',
     '    <h3>我该关注什么</h3>',
@@ -168,7 +301,7 @@ function renderReader(item) {
     '<div class="reader-toolbar">',
     '  <span>预计阅读 3 分钟 · 已按' + escapeHtml(viewLabel()) + '过滤</span>',
     '  <div class="reader-tools">',
-    '    <button class="' + (read ? 'active' : '') + '" type="button" data-item-state-action="is_read" data-item-id="' + escapeHtml(item.id) + '">' + (read ? '已读' : '标记已读') + '</button>',
+    '    <button class="' + (read ? 'active' : '') + '" type="button" data-item-state-action="is_read" data-item-id="' + escapeHtml(item.id) + '"' + (read ? ' disabled aria-disabled="true"' : '') + '>' + (read ? '已读' : '标记已读') + '</button>',
     '    <button class="' + (later ? 'active' : '') + '" type="button" data-item-state-action="is_later" data-item-id="' + escapeHtml(item.id) + '">' + (later ? '已稍后读' : '稍后读') + '</button>',
     '    <button class="' + (favored ? 'active' : '') + '" type="button" data-item-state-action="is_saved" data-item-id="' + escapeHtml(item.id) + '">' + (favored ? '已收藏' : '收藏') + '</button>',
     '    <button type="button" data-copy-summary="' + escapeHtml(item.id) + '">复制摘要</button>',
@@ -182,16 +315,11 @@ function renderReader(item) {
     renderInsightBlocks(item, actionSuggestion),
     '  <div class="reading-actions">',
     '    <a class="button-link" href="' + escapeHtml(item.url) + '" target="_blank" rel="noreferrer">打开原文</a>',
-    '    <button class="text-link" type="button" data-preview-url="' + escapeHtml(item.url || '') + '">站内预览</button>',
     '    <button class="text-link" type="button" data-item-state-action="is_saved" data-item-id="' + escapeHtml(item.id) + '">' + (favored ? '取消收藏' : '加入收藏') + '</button>',
     '    <button class="text-link" type="button" data-item-state-action="is_later" data-item-id="' + escapeHtml(item.id) + '">' + (later ? '移出稍后读' : '稍后读') + '</button>',
     '    <button class="text-link" type="button" data-item-state-action="dismissed" data-item-id="' + escapeHtml(item.id) + '">' + (dismissed ? '已忽略' : '忽略') + '</button>',
-    '    <button class="text-link" type="button" data-feedback-action="more_like_this" data-item-id="' + escapeHtml(item.id) + '">更多类似</button>',
-    '    <button class="text-link" type="button" data-feedback-action="less_like_this" data-item-id="' + escapeHtml(item.id) + '">减少类似</button>',
-    '    <button class="text-link" type="button" data-feedback-action="not_relevant" data-item-id="' + escapeHtml(item.id) + '">不相关</button>',
     '  </div>',
     '  <div class="tag-row">' + renderTags(itemTopics(item)) + '</div>',
-    '  <section id="inlinePreview" class="inline-preview hidden" aria-live="polite"></section>',
     '</article>',
   ].join('');
 }
@@ -274,6 +402,8 @@ function contextBrief(items, selectedItem) {
 }
 
 function renderConfigView() {
+  var activityBanner = document.getElementById('feedActivityBanner');
+  if (activityBanner) activityBanner.classList.add('hidden');
   document.getElementById('readingQueue').classList.add('hidden');
   document.getElementById('readerPanel').classList.add('hidden');
   document.getElementById('contextPanel').classList.add('hidden');
@@ -293,6 +423,8 @@ function renderConfigView() {
 }
 
 function renderSubscriptionView() {
+  var activityBanner = document.getElementById('feedActivityBanner');
+  if (activityBanner) activityBanner.classList.add('hidden');
   document.getElementById('readingQueue').classList.add('hidden');
   document.getElementById('readerPanel').classList.add('hidden');
   document.getElementById('contextPanel').classList.add('hidden');
@@ -319,9 +451,9 @@ function renderReaderView() {
   document.getElementById('configPanel').classList.add('hidden');
   document.getElementById('subscriptionPanel').classList.add('hidden');
   document.getElementById('readerShell').classList.remove('config-mode');
+  renderFeedActivityBanner();
   var items = getFilteredItems();
   var selectedItem = getSelectedItem(items);
-  markRead(selectedItem);
   renderQueue(items, selectedItem);
   renderReader(selectedItem);
   renderContext(items, selectedItem);
@@ -368,7 +500,7 @@ function applyReaderDensity() {
 
 function bindEvents() {
   bindPressFeedback();
-  document.getElementById('refreshBtn').addEventListener('click', loadData);
+  document.getElementById('refreshBtn').addEventListener('click', refreshMyFeed);
   document.getElementById('clearFiltersBtn').addEventListener('click', clearFilters);
   document.getElementById('densityToggleBtn').addEventListener('click', function () {
     state.readerDensity = state.readerDensity === 'compact' ? 'comfortable' : 'compact';
@@ -385,6 +517,8 @@ function bindEvents() {
   document.getElementById('configForms').addEventListener('click', handleConfigFormClick);
   document.getElementById('configForms').addEventListener('change', handleConfigFormChange);
   if (typeof bindSubscriptionEvents === 'function') bindSubscriptionEvents();
+  var activityBanner = document.getElementById('feedActivityBanner');
+  if (activityBanner) activityBanner.addEventListener('click', handleFeedActivityAction);
   document.getElementById('searchInput').addEventListener('input', function (event) {
     state.query = event.target.value.trim();
     renderItems();
@@ -443,8 +577,6 @@ function bindEvents() {
     renderItems();
   });
   document.getElementById('readerPanel').addEventListener('click', handleReaderAction);
-  document.getElementById('articleGraphButton').addEventListener('click', openArticleGraph);
-  document.getElementById('articleGraphPanel').addEventListener('click', handleArticleGraphClick);
   document.addEventListener('click', handleLightboxClick);
   document.addEventListener('keydown', handleLightboxKeydown);
 }
@@ -480,11 +612,15 @@ function handleQueueStat(action) {
 }
 
 async function updateRemoteItemState(articleId, action, button) {
+  if (button && button.disabled) return;
   var item = findKnownItem(articleId);
   var current = itemUserState(item || { id: articleId });
   var patch = {};
   if (action === 'dismissed') patch.dismissed = !current.dismissed;
-  if (action === 'is_read') patch.is_read = !current.is_read;
+  if (action === 'is_read') {
+    if (current.is_read) return;
+    patch.is_read = true;
+  }
   if (action === 'is_saved') patch.is_saved = !current.is_saved;
   if (action === 'is_later') patch.is_later = !current.is_later;
   if (!Object.keys(patch).length) return;
@@ -503,27 +639,6 @@ async function updateRemoteItemState(articleId, action, button) {
     renderItems();
   } catch (err) {
     if (button) showCopyFeedback(button, err.message || '状态更新失败', false, 1800);
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
-async function submitItemFeedback(articleId, feedbackType, button) {
-  if (button) button.disabled = true;
-  try {
-    var response = await fetch('/api/me/items/' + encodeURIComponent(articleId) + '/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        feedback_type: feedbackType,
-        metadata: { surface: 'reader' },
-      }),
-    });
-    var payload = await response.json();
-    if (!response.ok) throw new Error(apiErrorMessage(payload, '反馈提交失败'));
-    if (button) showCopyFeedback(button, '已记录', true, 1200);
-  } catch (err) {
-    if (button) showCopyFeedback(button, err.message || '反馈提交失败', false, 1800);
   } finally {
     if (button) button.disabled = false;
   }
@@ -557,16 +672,6 @@ function handleReaderAction(event) {
     return;
   }
 
-  var feedbackButton = event.target.closest('[data-feedback-action]');
-  if (feedbackButton) {
-    submitItemFeedback(
-      feedbackButton.getAttribute('data-item-id') || '',
-      feedbackButton.getAttribute('data-feedback-action') || '',
-      feedbackButton
-    );
-    return;
-  }
-
   var favoriteButton = event.target.closest('[data-favorite-action]');
   if (favoriteButton) {
     var favoriteId = favoriteButton.getAttribute('data-favorite-action');
@@ -593,10 +698,6 @@ function handleReaderAction(event) {
     return;
   }
 
-  var previewButton = event.target.closest('[data-preview-url]');
-  if (previewButton) {
-    toggleInlinePreview(previewButton.getAttribute('data-preview-url'));
-  }
 }
 
 function ensureLightbox() {
@@ -717,29 +818,6 @@ function handleLightboxKeydown(event) {
   if (event.key === 'ArrowRight') moveLightbox(1);
 }
 
-function toggleInlinePreview(url) {
-  var preview = document.getElementById('inlinePreview');
-  if (!preview || !url) return;
-  var iframe = preview.querySelector('iframe');
-  if (!preview.classList.contains('hidden') && iframe && iframe.src === url) {
-    preview.classList.add('hidden');
-    iframe.removeAttribute('src');
-    return;
-  }
-  preview.innerHTML = [
-    '<div class="inline-preview-head">',
-    '  <strong>原网页预览</strong>',
-    '  <span>如果来源禁止嵌入，请在本窗口打开。</span>',
-    '  <a class="preview-open-link" href="">在本窗口打开</a>',
-    '</div>',
-    '<iframe title="原网页预览" loading="lazy" referrerpolicy="no-referrer"></iframe>',
-  ].join('');
-  preview.querySelector('.preview-open-link').href = url;
-  preview.querySelector('iframe').src = url;
-  preview.classList.remove('hidden');
-  preview.scrollIntoView({ block: 'start', behavior: 'smooth' });
-}
-
 function showCopyFeedback(button, message, ok, duration) {
   if (!button) return;
   window.clearTimeout(copyFeedbackTimer);
@@ -796,8 +874,7 @@ function copySelectedSummary(id, button) {
     '',
     item.summary_zh || '',
     '',
-    '推荐理由：' + (item.reason || '暂无'),
-    '我该关注什么：' + (item.action_suggestion || '阅读原文后判断是否需要跟进。'),
+    '建议动作：' + (item.action_suggestion || '阅读原文后判断是否需要跟进。'),
     item.url || '',
   ].join('\n');
   showCopyFeedback(button, '复制中', true, 0);

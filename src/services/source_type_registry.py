@@ -30,12 +30,41 @@ class SourceConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class SourceFieldDefinition:
+    """Safe UI metadata for one non-secret source configuration field."""
+
+    name: str
+    label: str
+    input_type: str
+    required: bool
+    default: Any
+    options: tuple[Any, ...]
+    minimum: int | None
+    maximum: int | None
+    help: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "label": self.label,
+            "input_type": self.input_type,
+            "required": self.required,
+            "default": self.default,
+            "options": list(self.options),
+            "min": self.minimum,
+            "max": self.maximum,
+            "help": self.help,
+        }
+
+
+@dataclass(frozen=True)
 class SourceTypeDefinition:
     type: str
     label: str
     description: str
     required_fields: tuple[str, ...]
     template: dict[str, Any]
+    fields: tuple[SourceFieldDefinition, ...]
     supports_secret_env: bool = False
 
     def as_dict(self) -> dict[str, Any]:
@@ -45,8 +74,34 @@ class SourceTypeDefinition:
             "description": self.description,
             "required_fields": list(self.required_fields),
             "template": dict(self.template),
+            "fields": [field.as_dict() for field in self.fields],
             "supports_secret_env": self.supports_secret_env,
         }
+
+
+def _field(
+    name: str,
+    label: str,
+    input_type: str,
+    *,
+    required: bool = False,
+    default: Any = None,
+    options: tuple[Any, ...] = (),
+    minimum: int | None = None,
+    maximum: int | None = None,
+    help: str,
+) -> SourceFieldDefinition:
+    return SourceFieldDefinition(
+        name=name,
+        label=label,
+        input_type=input_type,
+        required=required,
+        default=default,
+        options=options,
+        minimum=minimum,
+        maximum=maximum,
+        help=help,
+    )
 
 
 _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
@@ -56,6 +111,28 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Direct RSS or Atom feed URL.",
         required_fields=("url",),
         template={"name": "Example Feed", "url": "https://example.com/feed.xml"},
+        fields=(
+            _field(
+                "url",
+                "Feed URL",
+                "url",
+                required=True,
+                help="HTTP or HTTPS RSS/Atom URL without embedded credentials.",
+            ),
+            _field(
+                "name",
+                "Feed name",
+                "text",
+                help="Optional display name; the feed URL is used when omitted.",
+            ),
+            _field(
+                "keep_latest_item",
+                "Keep latest item",
+                "boolean",
+                default=False,
+                help="When the time window is empty, return and retain the newest dated feed item.",
+            ),
+        ),
         supports_secret_env=True,
     ),
     SourceTypeDefinition(
@@ -64,6 +141,22 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Repository release feed from the GitHub REST API.",
         required_fields=("owner", "repo"),
         template={"owner": "openai", "repo": "codex"},
+        fields=(
+            _field(
+                "owner",
+                "Repository owner",
+                "text",
+                required=True,
+                help="GitHub organization or account name.",
+            ),
+            _field(
+                "repo",
+                "Repository",
+                "text",
+                required=True,
+                help="GitHub repository name without the owner prefix.",
+            ),
+        ),
         supports_secret_env=True,
     ),
     SourceTypeDefinition(
@@ -72,6 +165,15 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Public GitHub user activity events.",
         required_fields=("username",),
         template={"username": "openai"},
+        fields=(
+            _field(
+                "username",
+                "Username",
+                "text",
+                required=True,
+                help="Public GitHub account name.",
+            ),
+        ),
         supports_secret_env=True,
     ),
     SourceTypeDefinition(
@@ -80,6 +182,48 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Public subreddit posts through Reddit JSON endpoints.",
         required_fields=("subreddit",),
         template={"subreddit": "LocalLLaMA", "sort": "hot"},
+        fields=(
+            _field(
+                "subreddit",
+                "Subreddit",
+                "text",
+                required=True,
+                help="Subreddit name, with or without the r/ prefix.",
+            ),
+            _field(
+                "sort",
+                "Sort",
+                "select",
+                default="hot",
+                options=("hot", "new", "top", "rising", "controversial"),
+                help="Reddit listing order.",
+            ),
+            _field(
+                "time_filter",
+                "Time filter",
+                "select",
+                default="day",
+                options=("hour", "day", "week", "month", "year", "all"),
+                help="Time range used by Reddit ranking modes.",
+            ),
+            _field(
+                "fetch_limit",
+                "Fetch limit",
+                "number",
+                default=25,
+                minimum=1,
+                maximum=100,
+                help="Maximum posts requested per fetch.",
+            ),
+            _field(
+                "min_score",
+                "Minimum score",
+                "number",
+                default=10,
+                minimum=0,
+                help="Discard posts below this Reddit score.",
+            ),
+        ),
     ),
     SourceTypeDefinition(
         type="reddit_user",
@@ -87,6 +231,32 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Public Reddit user posts.",
         required_fields=("username",),
         template={"username": "spez", "sort": "new"},
+        fields=(
+            _field(
+                "username",
+                "Username",
+                "text",
+                required=True,
+                help="Reddit account name, with or without the u/ prefix.",
+            ),
+            _field(
+                "sort",
+                "Sort",
+                "select",
+                default="new",
+                options=("hot", "new", "top", "rising", "controversial"),
+                help="Reddit listing order.",
+            ),
+            _field(
+                "fetch_limit",
+                "Fetch limit",
+                "number",
+                default=10,
+                minimum=1,
+                maximum=100,
+                help="Maximum posts requested per fetch.",
+            ),
+        ),
     ),
     SourceTypeDefinition(
         type="telegram_channel",
@@ -94,6 +264,24 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Public Telegram channel web preview.",
         required_fields=("channel",),
         template={"channel": "durov"},
+        fields=(
+            _field(
+                "channel",
+                "Channel",
+                "text",
+                required=True,
+                help="Public Telegram channel name, with or without @.",
+            ),
+            _field(
+                "fetch_limit",
+                "Fetch limit",
+                "number",
+                default=20,
+                minimum=1,
+                maximum=100,
+                help="Maximum channel posts requested per fetch.",
+            ),
+        ),
     ),
     SourceTypeDefinition(
         type="apify_social",
@@ -101,6 +289,59 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Apify-backed public social target.",
         required_fields=("platform", "kind", "target"),
         template={"platform": "x", "kind": "profile", "target": "openai"},
+        fields=(
+            _field(
+                "platform",
+                "Platform",
+                "select",
+                required=True,
+                options=("x", "instagram", "facebook", "telegram"),
+                help="Social platform handled by the Apify source.",
+            ),
+            _field(
+                "kind",
+                "Target kind",
+                "select",
+                required=True,
+                options=(
+                    "profile",
+                    "keyword",
+                    "hashtag",
+                    "page",
+                    "group",
+                    "post",
+                    "channel",
+                ),
+                help="Target kind; available values depend on the selected platform.",
+            ),
+            _field(
+                "target",
+                "Target",
+                "text",
+                required=True,
+                help=(
+                    "Public profile, keyword, hashtag, page, group, post, "
+                    "or channel identifier."
+                ),
+            ),
+            _field(
+                "fetch_limit",
+                "Fetch limit",
+                "number",
+                default=20,
+                minimum=1,
+                maximum=100,
+                help="Maximum social items requested per fetch.",
+            ),
+            _field(
+                "analysis_mode",
+                "Analysis mode",
+                "select",
+                default="full",
+                options=("full", "personal_only"),
+                help="Choose normal analysis or personal-only collection.",
+            ),
+        ),
         supports_secret_env=True,
     ),
     SourceTypeDefinition(
@@ -109,6 +350,25 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         description="Hacker News top stories from the public Firebase API.",
         required_fields=(),
         template={"fetch_top_stories": 30, "min_score": 100},
+        fields=(
+            _field(
+                "fetch_top_stories",
+                "Top stories to fetch",
+                "number",
+                default=30,
+                minimum=1,
+                maximum=500,
+                help="Number of top-story identifiers requested before filtering.",
+            ),
+            _field(
+                "min_score",
+                "Minimum score",
+                "number",
+                default=100,
+                minimum=0,
+                help="Discard stories below this Hacker News score.",
+            ),
+        ),
     ),
 )
 
@@ -186,9 +446,13 @@ def _base_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_http_url(url: str) -> str:
+    if "${" in url:
+        raise SourceConfigError("RSS URLs cannot contain environment-variable placeholders")
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise SourceConfigError("url must be an http or https URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise SourceConfigError("RSS URLs cannot contain credentials")
     return url
 
 
@@ -210,6 +474,9 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
         url = _validate_http_url(_text(data, "url", "url"))
         data["url"] = url
         data["name"] = str(data.get("name") or url).strip()
+        data["keep_latest_item"] = _bool(
+            data.get("keep_latest_item"), default=False
+        )
         return data
 
     if source_type == "github_release":
@@ -303,6 +570,11 @@ def build_source_payload(source: dict[str, Any]) -> dict[str, Any]:
     source_type = str(source.get("type") or "")
     payload = validate_source_config(source_type, source.get("config") or {})
     payload["source_type"] = source_type
+    if source.get("id"):
+        payload["source_id"] = str(source["id"])
+    if source.get("display_name"):
+        payload["source_display_name"] = str(source["display_name"])
+    payload["catalog_source_type"] = source_type
     secret_env = validate_secret_env_name(source.get("secret_env"))
     if secret_env and not payload.get("token_env"):
         payload["token_env"] = secret_env

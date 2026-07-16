@@ -6,13 +6,14 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import List
+from typing import Callable, List
 from email.utils import parsedate_to_datetime
 import httpx
 import feedparser
 
 from .base import BaseScraper
 from ..models import ContentItem, SourceType, RSSSourceConfig
+from ..services.network_policy import fetch_public_http
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,12 @@ logger = logging.getLogger(__name__)
 class RSSScraper(BaseScraper):
     """Scraper for RSS/Atom feeds."""
 
-    def __init__(self, sources: List[RSSSourceConfig], http_client: httpx.AsyncClient):
+    def __init__(
+        self,
+        sources: List[RSSSourceConfig],
+        http_client: httpx.AsyncClient,
+        public_http_transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
+    ):
         """Initialize RSS scraper.
 
         Args:
@@ -28,6 +34,7 @@ class RSSScraper(BaseScraper):
             http_client: Shared async HTTP client
         """
         super().__init__({"sources": sources}, http_client)
+        self.public_http_transport_factory = public_http_transport_factory
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
         """Fetch RSS feed items.
@@ -72,18 +79,32 @@ class RSSScraper(BaseScraper):
                 str(source.url),
             )
 
-            # Fetch feed content
-            response = await self.client.get(feed_url, follow_redirects=True)
-            response.raise_for_status()
+            response = await self._request_feed(
+                feed_url,
+                enforce_public_network=source.enforce_public_network,
+            )
 
             # Parse feed
             feed = feedparser.parse(response.text)
+            self.observe_upstream_response(
+                {"feed": dict(feed.feed), "entries": [dict(entry) for entry in feed.entries]}
+            )
+            feed_icon_url = self._feed_icon_url(feed.feed)
 
+            dated_entries = []
             for entry in feed.entries:
-                # Parse published date
                 published_at = self._parse_date(entry)
-                if not published_at or published_at < since:
-                    continue
+                if published_at is not None:
+                    dated_entries.append((published_at, entry))
+
+            selected = [
+                candidate for candidate in dated_entries if candidate[0] >= since
+            ]
+            if not selected and source.keep_latest_item and dated_entries:
+                selected = [max(dated_entries, key=lambda candidate: candidate[0])]
+            latest = max(selected, key=lambda candidate: candidate[0], default=None)
+
+            for published_at, entry in selected:
 
                 # Generate unique ID from feed URL and entry ID
                 feed_id = str(source.url).split("//")[1].replace("/", "_")
@@ -94,10 +115,18 @@ class RSSScraper(BaseScraper):
 
                 # Extract content
                 content = self._extract_content(entry)
+                media_urls = self._extract_media_urls(entry, content)
 
                 entry_tags = [tag.term for tag in entry.get("tags", [])]
                 source_tags = list(source.tags)
 
+                retention_policy = (
+                    "latest_per_source"
+                    if source.keep_latest_item
+                    and latest is not None
+                    and entry is latest[1]
+                    else "time_window"
+                )
                 item = ContentItem(
                     id=self._generate_id("rss", feed_id, entry_hash),
                     source_type=SourceType.RSS,
@@ -109,18 +138,41 @@ class RSSScraper(BaseScraper):
                     metadata={
                         "feed_name": source.name,
                         "category": source.category,
+                        **({"feed_icon_url": feed_icon_url} if feed_icon_url else {}),
+                        **({"image_url": media_urls[0], "media_urls": media_urls} if media_urls else {}),
                         **self._tag_metadata(source),
                         "tags": list(dict.fromkeys(source_tags + entry_tags)),
+                        "retention_policy": retention_policy,
                     },
                 )
                 items.append(item)
 
         except httpx.HTTPError as e:
             logger.warning("Error fetching RSS feed %s: %s", source.name, e)
+            if self.strict_errors:
+                raise
         except Exception as e:
             logger.warning("Error parsing RSS feed %s: %s", source.name, e)
+            if self.strict_errors:
+                raise
 
         return items
+
+    async def _request_feed(
+        self,
+        feed_url: str,
+        *,
+        enforce_public_network: bool,
+    ) -> httpx.Response:
+        if enforce_public_network:
+            response = await fetch_public_http(
+                feed_url,
+                transport_factory=self.public_http_transport_factory,
+            )
+        else:
+            response = await self.client.get(feed_url, follow_redirects=True)
+        response.raise_for_status()
+        return response
 
     def _parse_date(self, entry: dict) -> datetime:
         """Parse publication date from feed entry.
@@ -157,13 +209,51 @@ class RSSScraper(BaseScraper):
         Returns:
             str: Extracted text content
         """
-        # Try different content fields
+        if "content" in entry and entry.content:
+            # content is usually a list
+            return entry.content[0].get("value", "")
         if "summary" in entry:
             return entry.summary
         if "description" in entry:
             return entry.description
-        if "content" in entry and entry.content:
-            # content is usually a list
-            return entry.content[0].get("value", "")
 
         return ""
+
+    @staticmethod
+    def _feed_icon_url(feed: dict) -> str:
+        image = feed.get("image") if isinstance(feed.get("image"), dict) else {}
+        for value in (
+            image.get("href"),
+            image.get("url"),
+            feed.get("icon"),
+            feed.get("logo"),
+        ):
+            url = str(value or "").strip()
+            if url.startswith(("https://", "http://")):
+                return url
+        return ""
+
+    @staticmethod
+    def _extract_media_urls(entry: dict, content: str) -> list[str]:
+        urls: list[str] = []
+
+        def add(value) -> None:
+            url = str(value or "").strip()
+            if url.startswith(("https://", "http://")) and url not in urls:
+                urls.append(url)
+
+        for key in ("media_content", "media_thumbnail", "enclosures"):
+            for media in entry.get(key, []) or []:
+                if not isinstance(media, dict):
+                    continue
+                mime = str(media.get("type") or "").lower()
+                if key == "enclosures" and mime and not mime.startswith("image/"):
+                    continue
+                add(media.get("url") or media.get("href"))
+        for match in re.finditer(
+            r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"']",
+            str(content or ""),
+            flags=re.IGNORECASE,
+        ):
+            add(match.group(1))
+        return urls[:6]

@@ -15,7 +15,7 @@ class FakeAIClient:
         self.payload = payload
         self.config = SimpleNamespace(throttle_sec=0, analysis_concurrency=1)
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str, **_kwargs) -> str:
         return json.dumps(self.payload, ensure_ascii=False)
 
 
@@ -67,7 +67,7 @@ def test_analyzer_stores_private_radar_fields():
     assert item.ai_channel == "AI"
     assert item.ai_is_featured is True
     assert item.ai_summary_zh.startswith("该动态说明")
-    assert item.ai_action_suggestion == "阅读发布说明，并在一个小项目中测试。"
+    assert item.ai_action_suggestion is None
     assert item.ai_topics == ["AI Agent", "Codex", "AI 编程", "RandomVendorTag"]
     assert item.ai_tags == ["AI Agent", "Codex", "AI 编程", "RandomVendorTag"]
 

@@ -3,7 +3,6 @@
 
 var STORAGE_FAVORITES = 'ai-radar-favorites';
 var STORAGE_READ_LATER = 'ai-radar-read-later';
-var STORAGE_READ_ITEMS = 'ai-radar-read-items';
 var STORAGE_READER_DENSITY = 'ai-radar-reader-density';
 var VIEW_OPTIONS = ['featured', 'all', 'readLater', 'history', 'daily', 'subscriptions', 'config'];
 var TAG_LIBRARY_OPTIONS = [
@@ -65,6 +64,8 @@ var APIFY_SOCIAL_KIND_OPTIONS = {
 
 var state = {
   data: null,
+  feedDataLoadToken: 0,
+  feedDataLoadUserId: null,
   view: getInitialView(),
   query: '',
   minScore: 0,
@@ -76,7 +77,7 @@ var state = {
   unreadFirst: false,
   favorites: loadSet(STORAGE_FAVORITES),
   readLater: loadSet(STORAGE_READ_LATER),
-  readItems: loadSet(STORAGE_READ_ITEMS),
+  readItems: new Set(),
   itemState: {},
   readerDensity: loadReaderDensity(),
   selectedItemId: '',
@@ -90,18 +91,47 @@ var state = {
     username: '',
     user: null,
   },
+  secrets: [],
   subscriptionConsoleLoaded: false,
   subscriptionConsoleLoading: false,
+  subscriptionConsoleLoadToken: 0,
+  subscriptionConsoleLoadUserId: null,
   subscriptionConsole: null,
+  feedSchedule: null,
+  feedScheduleLoaded: false,
+  feedScheduleLoading: false,
+  feedScheduleLoadToken: 0,
+  feedScheduleWatcherStarted: false,
+  feedScheduleWatchInFlight: false,
+  feedScheduleWatchTimer: null,
+  feedScheduleWatchLastJobId: null,
+  feedScheduleWatchGeneration: 0,
+  feedScheduleWatchUserId: null,
+  feedScheduleHandledJobId: null,
+  feedScheduleHandledJobIds: {},
+  feedScheduleReloadingJobId: null,
+  sourceHealth: null,
+  sourceHealthLoaded: false,
+  sourceHealthLoading: false,
+  sourceHealthLoadToken: 0,
+  sourceHealthLoadUserId: null,
+  sourceHealthLoadPromise: null,
+  sourceHealthSyncedJobIds: {},
+  sourceHealthTerminalSyncPromises: {},
+  sourceHealthFilter: '',
+  feedActivity: null,
+  feedActivityLoaded: false,
+  feedActivityLoading: false,
+  feedActivityLoadToken: 0,
+  feedActivityLoadUserId: null,
+  subscriptionActionGeneration: 0,
+  subscriptionJobSubmission: false,
+  subscriptionJobPoll: null,
+  subscriptionJobPollGeneration: 0,
   configLoaded: false,
   config: null,
   envStatus: [],
   historyData: null,
-  articleGraph: null,
-  articleGraphLoaded: false,
-  articleGraphLoading: false,
-  articleGraphOpen: false,
-  selectedGraphNodeId: '',
 };
 var copyFeedbackTimer = 0;
 

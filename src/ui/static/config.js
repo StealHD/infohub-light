@@ -61,6 +61,7 @@ var AI_MODEL_OPTIONS = {
     ['claude-sonnet-4-5', 'claude-sonnet-4-5'],
   ],
   gemini: [
+    ['gemini-3.5-flash', 'gemini-3.5-flash'],
     ['gemini-2.5-flash', 'gemini-2.5-flash'],
     ['gemini-2.5-pro', 'gemini-2.5-pro'],
   ],
@@ -107,8 +108,73 @@ function aiModelOptions(provider, currentModel) {
 function renderConfigForms(config) {
   var forms = document.getElementById('configForms');
   forms.innerHTML = [
+    renderSecretManager(state.secrets || []),
     renderCoreSettings(config),
     renderAdvancedSettings(config),
+  ].join('');
+}
+
+function configUserIsAdmin() {
+  var user = state.auth && state.auth.user;
+  return !!user && ['owner', 'admin'].indexOf(user.role) >= 0;
+}
+
+function secretOptions(kind, provider) {
+  return (state.secrets || []).filter(function (secret) {
+    if (!secret || secret.kind !== kind || !secret.is_set) return false;
+    return !provider || secret.provider === provider;
+  }).map(function (secret) {
+    return [secret.env_name, secret.name + ' · 已设置'];
+  });
+}
+
+function fieldSecretSelect(name, label, kind, provider, current) {
+  var options = secretOptions(kind, provider);
+  var value = String(current || '');
+  if (value && !options.some(function (option) { return option[0] === value; })) {
+    options.unshift([value, value + ' · 未在密钥管理登记']);
+  }
+  options.unshift(['', '请选择已设置的 Key']);
+  return fieldSelectOptions(name, label, value, options);
+}
+
+function renderSecretManager(secrets) {
+  if (!configUserIsAdmin()) return '';
+  var rows = (secrets || []).map(function (secret) {
+    var references = secret.used_by || [];
+    var usage = references.map(function (item) { return item.name; }).join('、') || '未使用';
+    var deleteState = references.length
+      ? ' disabled aria-disabled="true" title="正在使用，不能删除"'
+      : '';
+    return [
+      '<article class="source-card" data-secret-id="' + escapeHtml(secret.id) + '">',
+      '<h4>' + escapeHtml(secret.name) + '</h4>',
+      '<p class="form-help">' + escapeHtml(secret.kind + ' / ' + secret.provider) + ' · ' +
+        (secret.is_set ? '已设置' : '未设置') + ' · ' + escapeHtml(usage) + '</p>',
+      '<form data-secret-rotate-form="' + escapeHtml(secret.id) + '" class="config-grid">',
+      fieldInput('value', '轮换 Key（写入后不回显）', '', 'password'),
+      '<div class="form-actions"><button type="submit" data-secret-rotate="' + escapeHtml(secret.id) + '">轮换</button>' +
+        '<button type="button" data-secret-delete="' + escapeHtml(secret.id) + '"' + deleteState + '>删除</button></div>',
+      '</form>',
+      '</article>',
+    ].join('');
+  }).join('');
+  return [
+    '<section class="config-card">',
+    '<h3>密钥管理</h3>',
+    '<p class="form-help">真实值仅写入本机密钥文件，保存后立即清空，页面永不回显。</p>',
+    '<form id="secretCreateForm" class="config-grid">',
+    fieldInput('name', 'Key 名称', '', 'text'),
+    fieldSelectOptions('kind', '类型', 'ai', [['ai', 'AI'], ['apify', 'Apify']]),
+    fieldSelectOptions('provider', 'Provider', 'gemini', [
+      ['gemini', 'Gemini'], ['openai', 'OpenAI'], ['anthropic', 'Anthropic'], ['apify', 'Apify'],
+    ]),
+    fieldInput('env_name', '环境变量名', '', 'text'),
+    fieldInput('value', '真实 Key（写入后不回显）', '', 'password'),
+    '<div class="form-actions"><button type="submit">新增 Key</button></div>',
+    '</form>',
+    rows || '<p class="form-help">尚未登记 Key。</p>',
+    '</section>',
   ].join('');
 }
 
@@ -207,7 +273,7 @@ function normalizePersonalTagLibrary(tags) {
 
 function normalizeCustomTag(value) {
   var tag = String(value || '').trim().replace(/^#+/, '').trim().replace(/\s+/g, ' ');
-  if (!tag || tag.length > 32) return '';
+  if (!tag || tag.length > 40) return '';
   if (/[,，\n\r\t<>$`{}]/.test(tag)) return '';
   return tag;
 }
@@ -279,6 +345,9 @@ function setPersonalTagLibraryTags(form, tags) {
 function renderAiForm(ai) {
   var aiEnabled = ai.enabled !== false;
   var provider = ai.provider || 'openai';
+  var keyField = configUserIsAdmin()
+    ? fieldSecretSelect('api_key_env', 'API Key', 'ai', provider, ai.api_key_env || '')
+    : '<p class="form-help">API Key 由管理员配置。</p>';
   return [
     '<section class="config-card' + (aiEnabled ? '' : ' muted') + '">',
     '<h3>AI 模型</h3>',
@@ -287,11 +356,13 @@ function renderAiForm(ai) {
     fieldCheckbox('enabled', '启用 AI 评分', aiEnabled),
     fieldSelectOptions('provider', 'Provider', provider, AI_PROVIDER_OPTIONS),
     fieldAiModelSelect(provider, ai.model || ''),
-    fieldInput('api_key_env', 'API Key 环境变量名', ai.api_key_env || 'OPENAI_API_KEY', 'text'),
+    keyField,
     fieldInput('base_url', 'Base URL 可选', ai.base_url || '', 'url'),
     fieldInput('languages', '输出语言，逗号分隔', (ai.languages || ['zh']).join(','), 'text'),
     fieldInput('analysis_content_chars', '评分正文截断字符', ai.analysis_content_chars || 1000, 'number', '1', '100', '10000'),
     fieldInput('analysis_comments_chars', '评分评论截断字符', ai.analysis_comments_chars || 1500, 'number', '1', '0', '20000'),
+    fieldInput('summary_max_chars', '单篇中文概括最多字符', ai.summary_max_chars || 200, 'number', '1', '100', '500'),
+    fieldInput('analysis_max_output_tokens', '单篇分析最大输出 Token', ai.analysis_max_output_tokens || 800, 'number', '1', '256', '2048'),
     fieldInput('enrichment_content_chars', '补充分析截断字符', ai.enrichment_content_chars || 4000, 'number', '1', '500', '30000'),
     '<div class="form-actions"><button type="submit">保存 AI 设置</button></div>',
     '</form>',
@@ -365,10 +436,12 @@ function renderApifySocialSettings(apifySocial) {
     '<h3>Apify 社交信源 <span class="cost-badge">成本源</span></h3>',
     '<form data-action="set_apify_social_settings" class="config-grid">',
     fieldCheckbox('enabled', '启用 Apify 社交源', apifySocial.enabled !== false),
-    '<input type="hidden" name="token_env" value="' + inputValue(tokenEnvNames[0] || 'APIFY_TOKEN') + '">',
-    fieldTextarea('token_envs', 'Apify Token 环境变量名，每行一个', tokenEnvNames.join('\n')),
+    (configUserIsAdmin()
+      ? fieldSecretSelect('token_env', '默认 Apify Key', 'apify', 'apify', tokenEnvNames[0] || '')
+      : '<p class="form-help">Apify Key 由管理员配置。</p>'),
+    '<input type="hidden" name="token_envs" value="' + inputValue(tokenEnvNames.join(',')) + '">',
     fieldInput('timeout_seconds', 'Actor 超时秒数', apifySocial.timeout_seconds || 180, 'number', '1', '1', '900'),
-    fieldInput('actor_x', 'X Actor ID', actorValue('x', 'altimis~scweet'), 'text'),
+    fieldInput('actor_x', 'X Actor ID', actorValue('x', 'xquik/x-tweet-scraper'), 'text'),
     fieldInput('actor_instagram', 'Instagram Actor ID', actorValue('instagram', 'apify/instagram-api-scraper'), 'text'),
     fieldInput('actor_facebook', 'Facebook Actor ID', actorValue('facebook', 'whoareyouanas/facebook-group-scraper'), 'text'),
     fieldInput('actor_telegram', 'Telegram Actor ID', actorValue('telegram', 'thescrapelab/apify-telegram-scraper'), 'text'),
@@ -601,7 +674,9 @@ function renderApifySocialCard(item, index) {
     fieldSelect('platform', '平台', platform, ['x', 'instagram', 'facebook', 'telegram']),
     fieldSelectOptions('kind', '类型', kind, apifyKindOptions(platform)),
     fieldInput('target', 'URL / handle / 关键词', item.target || '', 'text'),
-    fieldInput('token_env', 'Apify Key 环境变量名（可选）', item.token_env || '', 'text'),
+    (configUserIsAdmin()
+      ? fieldSecretSelect('token_env', 'Apify Key', 'apify', 'apify', item.token_env || '')
+      : '<p class="form-help">Apify Key 由管理员配置。</p>'),
     fieldInput('fetch_limit', '抓取数量', item.fetch_limit || 20, 'number', '1', '1', '100'),
     fieldHubChannelSelect('channel', 'Hub 频道', item.channel || item.category || ''),
     fieldTopicMultiSelect('topics', '阅读主题', item.topics || item.tags || []),
@@ -788,27 +863,110 @@ function setConfigMessage(text, kind) {
   el.className = 'config-message ' + (kind || '');
 }
 
+async function loadAdminSecrets() {
+  if (!configUserIsAdmin()) {
+    state.secrets = [];
+    return [];
+  }
+  var response = await fetch('/api/admin/secrets?ts=' + Date.now());
+  var rawPayload = await response.json();
+  if (!response.ok) throw new Error(apiErrorMessage(rawPayload, '密钥状态读取失败'));
+  var payload = unwrapApiPayload(rawPayload) || {};
+  state.secrets = payload.secrets || [];
+  return state.secrets;
+}
+
+async function secretAdminRequest(path, options) {
+  var response = await fetch(path, options || {});
+  var rawPayload = await response.json();
+  if (!response.ok) throw new Error(apiErrorMessage(rawPayload, '密钥操作失败'));
+  return unwrapApiPayload(rawPayload);
+}
+
+async function createAdminSecret(form) {
+  if (!configUserIsAdmin() || !form) return false;
+  try {
+    await secretAdminRequest('/api/admin/secrets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: String(form.elements.name.value || '').trim(),
+        kind: String(form.elements.kind.value || '').trim(),
+        provider: String(form.elements.provider.value || '').trim(),
+        env_name: String(form.elements.env_name.value || '').trim(),
+        value: String(form.elements.value.value || ''),
+      }),
+    });
+    form.reset();
+    setConfigMessage('Key 已保存，真实值不会回显。', 'ok');
+    await loadConfig({ silent: true });
+    return true;
+  } catch (err) {
+    if (form.elements.value) form.elements.value.value = '';
+    setConfigMessage('Key 保存失败：' + err.message, 'error');
+    return false;
+  }
+}
+
+async function rotateAdminSecret(form, secretId) {
+  if (!configUserIsAdmin() || !form || !secretId) return false;
+  var value = String((form.elements.value && form.elements.value.value) || '');
+  try {
+    await secretAdminRequest('/api/admin/secrets/' + encodeURIComponent(secretId) + '/value', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: value }),
+    });
+    form.reset();
+    setConfigMessage('Key 已轮换并立即生效。', 'ok');
+    await loadConfig({ silent: true });
+    return true;
+  } catch (err) {
+    if (form.elements.value) form.elements.value.value = '';
+    setConfigMessage('Key 轮换失败：' + err.message, 'error');
+    return false;
+  }
+}
+
+async function deleteAdminSecret(secretId) {
+  if (!configUserIsAdmin() || !secretId) return false;
+  try {
+    await secretAdminRequest('/api/admin/secrets/' + encodeURIComponent(secretId), { method: 'DELETE' });
+    setConfigMessage('未引用的 Key 已删除。', 'ok');
+    await loadConfig({ silent: true });
+    return true;
+  } catch (err) {
+    setConfigMessage('Key 删除失败：' + err.message, 'error');
+    return false;
+  }
+}
+
 async function loadConfig(options) {
   var opts = options || {};
+  var isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : function () { return true; };
   if (!canUseConfig()) {
     state.configLoaded = false;
     if (opts.renderForms !== false || state.view === 'config') {
       renderAuthGate();
     }
-    return;
+    return false;
   }
   if (!opts.silent) setConfigMessage('正在读取配置...', '');
   try {
     var response = await fetch('/api/config?ts=' + Date.now());
     var rawPayload = await response.json();
+    if (!isCurrent()) return false;
     var payload = unwrapApiPayload(rawPayload);
     if (!response.ok) {
       if ((response.status === 401 || response.status === 503) && await handleConfigUnauthorized(apiErrorMessage(rawPayload, '登录已失效，请重新登录后台。'))) return;
       throw new Error(apiErrorMessage(rawPayload, 'HTTP ' + response.status));
     }
+    if (!isCurrent()) return false;
     document.getElementById('configPath').textContent = payload.path || 'data/config.json';
     state.config = payload.config || {};
     state.envStatus = payload.env_status || [];
+    await loadAdminSecrets();
+    if (!isCurrent()) return false;
     syncConfigTagLibrary(state.config);
     if (opts.renderForms !== false) {
       renderEnvStatus(state.envStatus);
@@ -816,8 +974,11 @@ async function loadConfig(options) {
     }
     state.configLoaded = true;
     if (!opts.silent) setConfigMessage('配置已读取。通过表单提交后，后端会校验并保存。', 'ok');
+    return true;
   } catch (err) {
+    if (!isCurrent()) return false;
     if (!opts.silent) setConfigMessage('读取失败：' + err.message, 'error');
+    return false;
   }
 }
 
@@ -870,6 +1031,16 @@ function handleConfigFormSubmit(event) {
     return;
   }
 
+  if (form.id === 'secretCreateForm') {
+    createAdminSecret(form);
+    return;
+  }
+
+  if (form.hasAttribute('data-secret-rotate-form')) {
+    rotateAdminSecret(form, form.getAttribute('data-secret-rotate-form'));
+    return;
+  }
+
   if (form.dataset.newSource) {
     var payload = formPayload(form);
     var type = payload.source_type;
@@ -890,6 +1061,11 @@ function handleConfigFormSubmit(event) {
 }
 
 function handleConfigFormClick(event) {
+  var secretDeleteButton = event.target.closest('[data-secret-delete]');
+  if (secretDeleteButton) {
+    deleteAdminSecret(secretDeleteButton.getAttribute('data-secret-delete'));
+    return;
+  }
   var tagAddButton = event.target.closest('[data-tag-add]');
   if (tagAddButton) {
     var tagForm = tagAddButton.closest('form');
@@ -916,7 +1092,7 @@ function handleConfigFormClick(event) {
     var customTopicInput = customTopicForm.querySelector('[data-tag-custom-input]');
     var customTopicValue = normalizeCustomTag(customTopicInput ? customTopicInput.value : '');
     if (!customTopicValue) {
-      setConfigMessage('主题不能为空，不能超过 32 个字符，也不能包含逗号、换行或特殊符号。', 'error');
+      setConfigMessage('主题不能为空，不能超过 40 个字符，也不能包含逗号、换行或特殊符号。', 'error');
       return;
     }
     setTagLibraryTags(customTopicForm, getTagLibraryTags(customTopicForm).concat([customTopicValue]));
@@ -1130,7 +1306,7 @@ function applyProviderDefaults(form, provider) {
   var defaults = {
     openai: { model: 'gpt-4o-mini', env: 'OPENAI_API_KEY', baseUrl: '' },
     anthropic: { model: 'claude-3-5-sonnet-latest', env: 'ANTHROPIC_API_KEY', baseUrl: '' },
-    gemini: { model: 'gemini-2.5-flash', env: 'GOOGLE_API_KEY', baseUrl: '' },
+    gemini: { model: 'gemini-3.5-flash', env: 'GOOGLE_API_KEY', baseUrl: '' },
     xiaomi: { model: 'mimo-v2.5-pro', env: 'XIAOMI_API_KEY', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
     deepseek: { model: 'deepseek-v4-flash', env: 'DEEPSEEK_API_KEY', baseUrl: '' },
     minimax: { model: 'MiniMax-Text-01', env: 'MINIMAX_API_KEY', baseUrl: '' },
@@ -1199,7 +1375,9 @@ function newSourceFields(type) {
     return fieldSelect('platform', '平台', 'x', ['x', 'instagram', 'facebook', 'telegram']) +
       fieldSelectOptions('kind', '类型', 'profile', apifyKindOptions('x')) +
       fieldInput('target', 'URL / handle / 关键词', '', 'text') +
-      fieldInput('token_env', 'Apify Key 环境变量名（可选）', '', 'text') +
+      (configUserIsAdmin()
+        ? fieldSecretSelect('token_env', 'Apify Key', 'apify', 'apify', '')
+        : '<p class="form-help">Apify Key 由管理员配置。</p>') +
       fieldInput('fetch_limit', '抓取数量', 20, 'number', '1', '1', '100') +
       fieldHubChannelSelect('channel', 'Hub 频道', '') +
       fieldTopicMultiSelect('topics', '阅读主题', []) +

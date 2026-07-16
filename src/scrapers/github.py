@@ -89,6 +89,7 @@ class GitHubScraper(BaseScraper):
             response = await self.client.get(url, headers=self._get_headers(), follow_redirects=True)
             response.raise_for_status()
             events = response.json()
+            self.observe_upstream_response(events)
 
             for event in events:
                 created_at = datetime.fromisoformat(
@@ -112,6 +113,8 @@ class GitHubScraper(BaseScraper):
 
         except httpx.HTTPError as e:
             logger.warning("Error fetching GitHub events for %s: %s", username, e)
+            if self.strict_errors:
+                raise
 
         return items
 
@@ -197,6 +200,7 @@ class GitHubScraper(BaseScraper):
             response = await self.client.get(url, headers=self._get_headers(), follow_redirects=True)
             response.raise_for_status()
             releases = response.json()
+            self.observe_upstream_response(releases)
 
             for release in releases:
                 published_at = datetime.fromisoformat(
@@ -225,5 +229,7 @@ class GitHubScraper(BaseScraper):
 
         except httpx.HTTPError as e:
             logger.warning("Error fetching releases for %s/%s: %s", owner, repo, e)
+            if self.strict_errors:
+                raise
 
         return items

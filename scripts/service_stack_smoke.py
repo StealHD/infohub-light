@@ -87,7 +87,7 @@ def _command_step(
 
 
 def wait_for_api_health(base_url: str, timeout_seconds: int = 90) -> dict[str, Any]:
-    endpoint = f"{base_url.rstrip('/')}/api/auth/status"
+    endpoint = f"{base_url.rstrip('/')}/api/health/ready"
     deadline = time.monotonic() + timeout_seconds
     last_error = ""
     while time.monotonic() < deadline:
@@ -118,8 +118,8 @@ def wait_for_api_health(base_url: str, timeout_seconds: int = 90) -> dict[str, A
     }
 
 
-def _child_report_path(prefix: str) -> str:
-    return str(Path("logs") / f"{prefix}-latest.json")
+def _child_report_path(prefix: str, report_dir: str) -> str:
+    return str(Path(report_dir) / f"{prefix}-latest.json")
 
 
 def run_stack_smoke(
@@ -132,18 +132,60 @@ def run_stack_smoke(
     full_real_source: bool,
     run_worker: bool,
     include_ui_smoke: bool = False,
+    project_name: str | None = None,
+    cleanup: bool = False,
+    report_dir: str = "logs",
     runner: Runner = _default_runner,
     health_checker: HealthChecker = wait_for_api_health,
     health_timeout_seconds: int = 90,
     hours: int = 168,
 ) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
+    command_runner = runner
+    if runner is _default_runner:
+        child_environment = dict(os.environ)
+        child_environment["HORIZON_AUTH_USER"] = username
+        child_environment["HORIZON_AUTH_PASSWORD"] = password
+        if api_only and not run_worker:
+            child_environment["HORIZON_REQUIRE_WORKER_FOR_READINESS"] = "false"
 
+        def command_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                env=child_environment,
+            )
+
+    compose_prefix = ["docker", "compose", "-f", compose_file]
+    if project_name:
+        compose_prefix.extend(["-p", project_name])
+
+    def finish() -> dict[str, Any]:
+        if cleanup:
+            steps.append(
+                _command_step(
+                    "compose_down",
+                    [*compose_prefix, "down", "--volumes", "--remove-orphans"],
+                    runner=command_runner,
+                )
+            )
+        return build_report(steps)
+
+    compose_services = ["horizon-api"]
+    if run_worker:
+        compose_services.append("horizon-worker")
     steps.append(
         _command_step(
             "compose_up",
-            ["docker", "compose", "-f", compose_file, "up", "-d", "--build", "horizon-api"],
-            runner=runner,
+            [
+                *compose_prefix,
+                "up",
+                "-d",
+                "--build",
+                *compose_services,
+            ],
+            runner=command_runner,
         )
     )
     if steps[-1]["status"] != "passed":
@@ -176,7 +218,7 @@ def run_stack_smoke(
                 "reason": "compose_up_failed",
             }
         )
-        return build_report(steps)
+        return finish()
 
     try:
         health_step = health_checker(base_url, health_timeout_seconds)
@@ -190,6 +232,13 @@ def run_stack_smoke(
     health_step.setdefault("name", "api_health")
     steps.append(health_step)
     if health_step.get("status") != "passed":
+        steps.append(
+            _command_step(
+                "api_container_logs",
+                [*compose_prefix, "logs", "--no-color", "--tail", "120", "horizon-api"],
+                runner=command_runner,
+            )
+        )
         steps.append(
             {
                 "name": "api_smoke",
@@ -212,9 +261,9 @@ def run_stack_smoke(
                 "reason": "api_health_failed",
             }
         )
-        return build_report(steps)
+        return finish()
 
-    api_report_path = _child_report_path("service-api-smoke")
+    api_report_path = _child_report_path("service-api-smoke", report_dir)
     steps.append(
         _command_step(
             "api_smoke",
@@ -225,18 +274,16 @@ def run_stack_smoke(
                 base_url,
                 "--username",
                 username,
-                "--password",
-                password,
                 "--json-output",
                 api_report_path,
             ],
-            runner=runner,
+            runner=command_runner,
             report_path=api_report_path,
         )
     )
 
     if include_ui_smoke:
-        ui_report_path = _child_report_path("service-ui-smoke")
+        ui_report_path = _child_report_path("service-ui-smoke", report_dir)
         steps.append(
             _command_step(
                 "ui_smoke",
@@ -247,12 +294,10 @@ def run_stack_smoke(
                     base_url,
                     "--username",
                     username,
-                    "--password",
-                    password,
                     "--json-output",
                     ui_report_path,
                 ],
-                runner=runner,
+                runner=command_runner,
                 report_path=ui_report_path,
             )
         )
@@ -265,7 +310,7 @@ def run_stack_smoke(
                 "reason": "full_real_source_not_requested",
             }
         )
-        return build_report(steps)
+        return finish()
 
     if run_worker:
         steps.append(
@@ -284,7 +329,7 @@ def run_stack_smoke(
             }
         )
 
-    real_report_path = _child_report_path("service-real-source-smoke")
+    real_report_path = _child_report_path("service-real-source-smoke", report_dir)
     real_command = [
         sys.executable,
         "scripts/service_real_source_smoke.py",
@@ -301,12 +346,12 @@ def run_stack_smoke(
         _command_step(
             "real_source_smoke",
             real_command,
-            runner=runner,
+            runner=command_runner,
             report_path=real_report_path,
         )
     )
 
-    return build_report(steps)
+    return finish()
 
 
 def write_report(report: dict[str, Any], output: str | None) -> Path | None:
@@ -320,6 +365,7 @@ def write_report(report: dict[str, Any], output: str | None) -> Path | None:
         path = Path("logs") / "service-stack-smoke-latest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text + "\n", encoding="utf-8")
+    path.chmod(0o600)
     print(f"wrote {path}")
     return path
 
@@ -334,6 +380,9 @@ def main() -> int:
     parser.add_argument("--full-real-source", action="store_true")
     parser.add_argument("--run-worker", action="store_true")
     parser.add_argument("--include-ui-smoke", action="store_true")
+    parser.add_argument("--project-name", default=None)
+    parser.add_argument("--cleanup", action="store_true")
+    parser.add_argument("--report-dir", default="logs")
     parser.add_argument("--hours", type=int, default=168)
     parser.add_argument("--health-timeout", type=int, default=90)
     parser.add_argument("--json-output", default=None)
@@ -354,6 +403,9 @@ def main() -> int:
         full_real_source=args.full_real_source,
         run_worker=args.run_worker,
         include_ui_smoke=args.include_ui_smoke,
+        project_name=args.project_name,
+        cleanup=args.cleanup,
+        report_dir=args.report_dir,
         health_timeout_seconds=args.health_timeout,
         hours=args.hours,
     )

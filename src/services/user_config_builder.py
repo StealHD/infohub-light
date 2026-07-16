@@ -32,6 +32,12 @@ def _ensure_sources(data: dict[str, Any]) -> dict[str, Any]:
 def _entry_with_overrides(record: dict[str, Any]) -> dict[str, Any]:
     entry = deepcopy(record["config"])
     entry.setdefault("enabled", True)
+    entry["source_id"] = record.get("source_id")
+    entry["subscription_id"] = record.get("subscription_id")
+    entry["source_key"] = record.get("source_key")
+    entry["source_display_name"] = record.get("display_name")
+    entry["catalog_source_type"] = record.get("type")
+    entry["source_priority"] = int(record.get("priority") or 0)
     channel = record.get("override_channel") or record.get("default_channel")
     if channel:
         normalized_channel = normalize_channel(channel)
@@ -55,7 +61,41 @@ def _entry_with_overrides(record: dict[str, Any]) -> dict[str, Any]:
         entry["analysis_mode"] = record["analysis_mode"]
     if record.get("secret_env"):
         entry["token_env"] = record["secret_env"]
+    if record.get("type") == "rss":
+        entry["enforce_public_network"] = bool(record.get("enforce_public_network", True))
     return entry
+
+
+def _record_with_network_policy(store: ServiceStore, record: dict[str, Any]) -> dict[str, Any]:
+    prepared = dict(record)
+    if prepared.get("type") == "rss":
+        owner = store.get_user(str(prepared.get("owner_user_id") or ""))
+        prepared["enforce_public_network"] = not (
+            owner and owner.get("role") in {"owner", "admin"}
+        )
+    if prepared.get("type") == "apify_social":
+        config = deepcopy(prepared.get("config") or {})
+        if config.get("platform") == "instagram" and config.get("kind") == "profile":
+            avatar = store.connect().execute(
+                """
+                SELECT 1 FROM media_assets
+                WHERE workspace_id = ? AND source_id = ?
+                  AND asset_kind = 'source_avatar' AND status = 'ready'
+                LIMIT 1
+                """,
+                (prepared.get("workspace_id"), prepared.get("source_id")),
+            ).fetchone()
+            config["fetch_profile_details"] = avatar is None
+            prepared["config"] = config
+    return prepared
+
+
+def _disable_non_catalog_sources(sources: dict[str, Any]) -> None:
+    """Prevent a user-scoped run from inheriting unrelated global sources."""
+    for key in ("twitter", "openbb", "ossinsight"):
+        current = sources.get(key)
+        if isinstance(current, dict):
+            sources[key] = {**current, "enabled": False}
 
 
 def _append_source(sources: dict[str, Any], record: dict[str, Any]) -> None:
@@ -133,7 +173,7 @@ def build_user_config_data(
     sources = _ensure_sources(data)
     for key in ("rss", "github"):
         sources[key] = []
-    sources["hackernews"] = {"enabled": False, **sources.get("hackernews", {})}
+    sources["hackernews"] = {**sources.get("hackernews", {}), "enabled": False}
     sources["reddit"] = {**sources["reddit"], "enabled": False, "subreddits": [], "users": []}
     sources["telegram"] = {**sources["telegram"], "enabled": False, "channels": []}
     sources["apify_social"] = {
@@ -141,13 +181,14 @@ def build_user_config_data(
         "enabled": False,
         "subscriptions": [],
     }
+    _disable_non_catalog_sources(sources)
 
     records = store.list_enabled_user_subscriptions_with_sources(
         workspace_id=workspace_id,
         user_id=user_id,
     )
     for record in records:
-        _append_source(sources, record)
+        _append_source(sources, _record_with_network_policy(store, record))
     return data
 
 

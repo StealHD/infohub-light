@@ -99,6 +99,11 @@ function showLoginGate(message) {
   document.getElementById('contextPanel').classList.add('hidden');
   var subscriptionPanel = document.getElementById('subscriptionPanel');
   if (subscriptionPanel) subscriptionPanel.classList.add('hidden');
+  var activityBanner = document.getElementById('feedActivityBanner');
+  if (activityBanner) {
+    activityBanner.innerHTML = '';
+    activityBanner.classList.add('hidden');
+  }
   document.getElementById('configPanel').classList.remove('hidden');
   document.getElementById('readerShell').classList.add('config-mode');
   if (typeof updateActiveTab === 'function') updateActiveTab();
@@ -122,7 +127,16 @@ async function handleAuthLoginSubmit(event) {
     var result = await response.json();
     if (!response.ok) throw new Error(apiErrorMessage(result, 'HTTP ' + response.status));
     state.auth = normalizeAuthPayload(result.auth || result);
+    if (typeof invalidateSubscriptionActions === 'function') invalidateSubscriptionActions();
+    if (typeof invalidateFeedDataLoads === 'function') invalidateFeedDataLoads();
+    if (typeof invalidateSourceHealthLoads === 'function') invalidateSourceHealthLoads(true);
+    if (typeof invalidateFeedActivityLoads === 'function') invalidateFeedActivityLoads(true);
+    if (typeof invalidateSubscriptionConsoleLoads === 'function') invalidateSubscriptionConsoleLoads(true);
+    state.data = null;
+    state.historyData = null;
+    state.itemState = {};
     state.configLoaded = false;
+    state.subscriptionConsole = null;
     state.subscriptionConsoleLoaded = false;
     applyAuthUi();
     state.view = 'all';
@@ -139,11 +153,20 @@ async function handleAuthLogout() {
     var result = await response.json();
     if (!response.ok) throw new Error(apiErrorMessage(result, 'HTTP ' + response.status));
     state.auth = normalizeAuthPayload(result.auth || result);
+    if (typeof invalidateSubscriptionActions === 'function') invalidateSubscriptionActions();
+    if (typeof invalidateFeedDataLoads === 'function') invalidateFeedDataLoads();
+    if (typeof invalidateSourceHealthLoads === 'function') invalidateSourceHealthLoads(true);
+    if (typeof invalidateFeedActivityLoads === 'function') invalidateFeedActivityLoads(true);
+    if (typeof invalidateSubscriptionConsoleLoads === 'function') invalidateSubscriptionConsoleLoads(true);
     state.config = null;
     state.envStatus = [];
     state.configLoaded = false;
     state.subscriptionConsole = null;
     state.subscriptionConsoleLoaded = false;
+    state.data = null;
+    state.historyData = null;
+    state.itemState = {};
+    if (typeof stopFeedScheduleWatcher === 'function') stopFeedScheduleWatcher();
     applyAuthUi();
     showLoginGate('已退出后台。');
   } catch (err) {
@@ -154,6 +177,17 @@ async function handleAuthLogout() {
 async function handleConfigUnauthorized(message) {
   await loadAuthStatus({ silent: true });
   if (state.auth.auth_enabled && !state.auth.authenticated) {
+    if (typeof invalidateSubscriptionActions === 'function') invalidateSubscriptionActions();
+    if (typeof invalidateFeedDataLoads === 'function') invalidateFeedDataLoads();
+    if (typeof invalidateSourceHealthLoads === 'function') invalidateSourceHealthLoads(true);
+    if (typeof invalidateFeedActivityLoads === 'function') invalidateFeedActivityLoads(true);
+    if (typeof invalidateSubscriptionConsoleLoads === 'function') invalidateSubscriptionConsoleLoads(true);
+    state.subscriptionConsole = null;
+    state.subscriptionConsoleLoaded = false;
+    state.data = null;
+    state.historyData = null;
+    state.itemState = {};
+    if (typeof stopFeedScheduleWatcher === 'function') stopFeedScheduleWatcher();
     renderAuthGate(message || '登录已失效，请重新登录后台。');
     return true;
   }
