@@ -4,11 +4,11 @@
 
 This file is the single source of truth for the default React Service UI visual system, component ownership, responsive layout, interaction states, and visual verification gates. Product scope and API behavior remain owned by `PLAN.md` and `API_CONTRACT.md`.
 
-The current delivery scope is the global application shell, the shared Feed workspace used by `/feed`, `/later`, and `/history`, and the subscription/source workspace at `/subscriptions`. Settings and login page bodies remain on their current CSS Modules until a later migration, but they must render inside the same shell without regressions.
+The current production experience remains the Material UI light shell. A separately gated `next` experience is now the target for the shell, Feed, saved collection, history, and OpenClaw context handoff. Subscriptions and settings retain their current information architecture and receive only a visual bridge during this phase; login remains unchanged.
 
-The approved direction is **Material You Intelligence Cabin**: light-only, desktop-first, calm tonal surfaces, rounded containers, balanced Feed density, and a decision-brief reader. The earlier editorial and alternate Material UI mockups remain design references, not implementation variants.
+Mac Codex is a visual-language reference for the `next` experience, not a pixel-perfect target or the sole source of truth. Inteliscope owns its information architecture, Web behavior, responsive rules, accessibility, and interaction feedback. The `next` experience must pass a fixed-data visual prototype review before any real Feed or Agent data wiring becomes the default.
 
-## 2. Theme authority
+## 2. Legacy theme authority
 
 All new shell, Feed, and subscription visual values must come from the Material UI theme. Raw color, shadow, or radius literals are allowed only in the theme definition.
 
@@ -46,6 +46,14 @@ All new shell, Feed, and subscription visual values must come from the Material 
 - Use theme spacing and transitions. Sidebar width transitions use the theme's shortest standard duration and honor reduced motion.
 - Shadows are reserved for overlays, menus, temporary drawers, and task alerts. Static page panels use tonal separation and outlines.
 
+### 2.4 Next workbench theme and visual gate
+
+- The `next` theme is dark-only for this phase. It uses canvas `#151516`, paper `#1B1B1D`, high surface `#242429`, primary `#A99AF7`, primary container `#312C47`, primary text `#F2F2F4`, secondary text `#A3A3AA`, and low-contrast semantic outlines. Raw values remain theme-only.
+- Next radii are 16 px panels, 14 px cards, 10 px controls, and 8 px small controls. Static cards use surface contrast plus a one-pixel outline, not glow or full-card accent borders.
+- Motion is limited to 120–220 ms for card expansion, panel changes, progress feedback, and context insertion. Reduced Motion reduces these transitions to effectively zero.
+- The dev-only `/__preview/workbench` route is deterministic, does not require authentication or call `/api/*`, and exists only as the visual approval surface.
+- Visual review evaluates hierarchy, density, reading comfort, operation reachability, focus, and state clarity. Pixel overlay parity with Mac Codex is explicitly not a gate.
+
 ## 3. Component boundary
 
 `frontend/src/ui/**` owns the theme, provider, approved Material UI exports, and semantic wrappers. Feature code must import controlled inputs, buttons, icon actions, chips, tabs, surfaces, status presentation, empty states, and filter overlays from that layer.
@@ -60,7 +68,7 @@ Feature code may not:
 
 Layout primitives remain allowed through the internal UI export layer. Existing CSS Modules outside the migrated shell, Feed, and subscription workspace are compatibility code and do not define the future visual system.
 
-## 4. Shell contract
+## 4. Legacy shell contract
 
 - App bar height is 64 px and retains brand, global search, and acquisition action.
 - Desktop navigation is a permanent Material UI Drawer, collapsed to 72 px by default and expandable to 240 px.
@@ -72,7 +80,15 @@ Layout primitives remain allowed through the internal UI export layer. Existing 
 - “更新信息流” means fetching every enabled subscription, deduplicating results, and refreshing the Feed; it does not change subscription settings. Each request first refreshes Worker state and creates a job only when the Worker is `ready`.
 - Queued/running progress is represented by the action button and run history, not by a permanent Snackbar. Success notifications close after 4 seconds; blocked, partial, and failed notifications close after at most 8 seconds. Every notification is manually closeable and a dismissed `job_id + status` event must not reopen during polling.
 
-## 5. Feed workspace contract
+### 4.1 Next workbench shell contract
+
+- Navigation contains 信息流、收藏、历史、订阅、助手连接和设置. 稍后读 is absent.
+- At 1360 px and above the grid is `232 px navigation + minmax(640 px, 1fr) Feed + 360 px Agent`. From 1200–1359 px navigation is 72 px while all three columns remain visible. From 768–1199 px navigation stays 72 px and Agent becomes an on-demand overlay. At 767 px and below the Feed is single-column, navigation moves to the bottom, and Agent becomes a bottom sheet.
+- The header is 52 px and uses browser-native Web behavior. It must not reproduce macOS traffic lights, window chrome, drag regions, or desktop-only navigation affordances.
+- Navigation, Feed, and Agent use independent scroll regions. Toggling either side panel must preserve the active route, expanded story, and Feed scroll anchor.
+- The production rollout uses `VITE_UI_EXPERIENCE=next|legacy`; `next` does not become the default until the visual gate and automated verification pass. Legacy remains available for at least one release.
+
+## 5. Legacy Feed workspace contract
 
 - At 1200 px and above, the list is 420–440 px wide and the reader consumes the remaining space. At 1440×900, 6–8 rows must be visible without horizontal overflow.
 - Feed mode uses Tabs and remains represented by the `mode` URL parameter. Item selection remains represented by `item`.
@@ -88,6 +104,17 @@ Layout primitives remain allowed through the internal UI export layer. Existing 
 - Direct actions are open original, read later, and save. More actions contain explicit mark read/unread, copy summary, and dismiss. Viewers may open and copy but may not mutate item state.
 - Missing data must degrade explicitly: `未评分`, `未分类频道`, `未分类类型`, `暂无概括；请打开原文核对完整内容。`, and `该条内容未保存正文片段；重新获取来源后可显示。`.
 - Loading uses Skeleton; fetch errors use Alert with retry; empty filtered results include a clear-filters action.
+
+### 5.1 Next Feed and context contract
+
+- Feed has one mode: 全部. 精选 and 日报 tabs, mode preference, and mode-specific copy are absent. Legacy `mode` query parameters are removed while preserving `item`.
+- Older content is above newer content. Initial entry anchors to the bottom. New content follows only when the user is within 96 px of the bottom; otherwise it preserves position and presents an explicit `N 条新内容` action.
+- Stories are slightly elevated cards showing source, time, title, one summary, channel/topics, and optional media. A user click expands bounded plain-text content in place without replacing the list or moving the scroll anchor.
+- Direct actions are open original, save, and add/remove Agent context. Mark read/unread, copy summary, and dismiss remain in a compact overflow menu. There is no read-later action.
+- A 100–115 px short tick rail represents relative Feed position. Its active tick is the only bright line; each tick is keyboard reachable and can jump to its content segment. It never becomes a full-height timeline.
+- The OpenClaw panel holds at most eight ordered item IDs plus a user question. It generates a deterministic handoff prompt instructing OpenClaw to call `get_item`; it does not claim the Agent is online and does not implement site chat or streaming.
+- Connection copy is limited to 已配置、未配置、检查失败. A credential record is never presented as online presence.
+- The prototype uses fixed sanitized stories. After approval, `/feed` reads only `items`, while saved and history reuse the same card/scroll components. Long lists use virtualization and retain stable expansion keys.
 
 ## 6. Subscription and source workspace contract
 
@@ -128,5 +155,7 @@ Every shell, Feed, or subscription visual change must pass:
 4. Playwright at 1440×900 collapsed, 1440×900 expanded, 1024×768 overlay, and 390×844 mobile regression.
 5. Axe with no serious or critical violations.
 6. Visual review using fixtures with at least eight mixed-state items, long Chinese text, missing optional fields, and multiple source-health states.
+
+The `next` workbench additionally requires 1440 px three-column, 1024 px overlay, and 390 px mobile captures; card actions must remain reachable with Agent open, the short rail must stay bounded, and a 200-item fixture must keep the rendered card count bounded. The visual prototype review is a mandatory checkpoint before real-data wiring.
 
 Snapshot updates require an intentional UI contract or approved design change; they are not an automatic fix for a failing visual test.

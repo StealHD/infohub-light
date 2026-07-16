@@ -3,7 +3,7 @@ import { extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const controlledRoots = ['src/app', 'src/features/feed']
+const controlledRoots = ['src/app', 'src/features/feed', 'src/features/workbench']
 const sourceExtensions = new Set(['.ts', '.tsx'])
 const violations = []
 

@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -19,6 +19,10 @@ import { ActionFeedbackProvider } from './ActionFeedback'
 
 type AppErrorBoundaryProps = { children: ReactNode }
 type AppErrorBoundaryState = { failed: boolean }
+
+const WorkbenchPreview = import.meta.env.DEV
+  ? lazy(() => import('../features/workbench/WorkbenchPreview').then(({ WorkbenchPreview: Preview }) => ({ default: Preview })))
+  : null
 
 export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
   state: AppErrorBoundaryState = { failed: false }
@@ -84,7 +88,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   </AppShell></ActionFeedbackProvider>
 }
 
-export function AppRoutes({ api }: { api: ServiceApi }) {
+function ServiceRoutes({ api }: { api: ServiceApi }) {
   const queryClient = useQueryClient()
   const location = useLocation()
   const auth = useQuery({ queryKey: queryKeys.auth, queryFn: ({ signal }) => api.authStatus(signal), retry: false })
@@ -109,4 +113,12 @@ export function AppRoutes({ api }: { api: ServiceApi }) {
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>
   </AppErrorBoundary>
+}
+
+export function AppRoutes({ api }: { api: ServiceApi }) {
+  const location = useLocation()
+  if (WorkbenchPreview && location.pathname === '/__preview/workbench') {
+    return <Suspense fallback={<main className="app-loading" role="status">正在准备工作台预览…</main>}><WorkbenchPreview /></Suspense>
+  }
+  return <ServiceRoutes api={api} />
 }

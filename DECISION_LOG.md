@@ -218,3 +218,11 @@
 - 影响范围：新增 schema v6 `agent_delegations`、Cookie Session 管理 API、精确 `/mcp` 路由、`/agents` 页面和本地 Skill 包。所有角色都可创建自己的连接，但管理员令牌仍只能读管理员自己的数据。旧 `src/mcp/server.py` 继续作为本地 stdio/legacy 能力，不对外暴露。
 - 非目标：OAuth、站内聊天、本地 Agent URL、写操作、刷新/抓取、审批流、管理员 delegation 控制台、ClawHub 发布、服务器侧 Agent 或模型。
 - 回退：将 `HORIZON_REMOTE_MCP_ENABLED=false` 并移除 Nginx 精确 `/mcp` 路由；保留 additive v6 表，不做降级迁移。
+
+### D025 Next Web 工作台借鉴 Codex 视觉语言但以 Inteliscope 交互为准
+
+- 决策日期：2026-07-17
+- 当前状态：固定数据交互原型已实现，等待人工视觉确认后接入真实数据
+- 决策内容：Mac Codex 只作为暗色层级、紧凑密度、三栏结构、短刻度与克制动效的参考，不做像素复刻。Next 工作台保留 Inteliscope 的信息流、收藏、历史、订阅和 Remote MCP 边界；信息流固定为“全部”，移除精选、日报和稍后读。OpenClaw 侧栏只整理最多 8 条上下文并生成 `get_item` 交接提示词，不提供站内聊天或在线状态。
+- 原因：视觉相似不能替代 Web 的滚动稳定性、操作可达性、响应式布局、键盘支持和状态解释；同时接入真实数据会让视觉问题与数据问题混在一起，增加返工成本。
+- 兼容/回退：开发预览不需要认证且不调用 API；真实体验后续通过 `VITE_UI_EXPERIENCE=next|legacy` 切换，现有 Material UI 页面和后端兼容字段继续保留至少一个版本。

@@ -8,6 +8,17 @@ import type { ServiceApi } from '../api/service'
 import { AppRoutes } from './App'
 
 describe('App routes', () => {
+  it('opens the development workbench preview without requiring an API session', async () => {
+    const authStatus = vi.fn().mockResolvedValue({ authenticated: false, user: null })
+    const api = { authStatus } as unknown as ServiceApi
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '信息流' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+    expect(authStatus).not.toHaveBeenCalled()
+  })
+
   it('redirects protected deep links to the login page when no session exists', async () => {
     const api = { authStatus: vi.fn().mockResolvedValue({ authenticated: false, user: null }) } as unknown as ServiceApi
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

@@ -56,6 +56,7 @@
 43. 收藏、站内阅读与社交媒体完整性 v1：additive `user_content_items/media_assets`、Presentation v2 详情、用户隔离收藏/媒体 API、显式已读/未读、按用户持久化 Feed 偏好、RSS/Instagram/X 图片和统一头像缓存、社交 profile 最新一条保留、Xquik adapter 与 v4 显式迁移已实现。Xquik 真实 canary 尚未通过：当前备用 Key 所在 FREE tier 单条价格为 `$0.015`，因此计划固定的 `$0.01` 运行上限被 Apify 拒绝；正式 X Actor 配置仍保持旧值，等待明确授权把 canary cap 提升到至少 `$0.02`。
 44. Feed 事件、历史修复与 DeepSeek v1：Feed terminal 通知只消费当前会话观察到的真实 snapshot 事件；认证动作按 user/action/entity 提供局部状态；v5 显式修复、reconcile 和 `content_repair` 保持零 snapshot/AI，当前内容为 24 captured/2 excerpt-only；DeepSeek Secret/UI、`deepseek-v4-flash`、模型无关 input hash、安全跨模型复用、零 Token 预检与单次 smoke 已实现。真实 DeepSeek 启用仍等待轮换 Key。
 45. OpenClaw Remote MCP v1：每用户本地 OpenClaw + 服务端六个只读工具、schema v6 delegation、`/agents` 凭证页、Nginx 边界和本地 Skill 包已实现，默认保持关闭。当前只做本地完整 gate；正式打开仍须 API-only staging、TLS `/mcp`、真实 OpenClaw `doctor --probe`、六工具 canary、吊销立即 401 和两生产用户隔离验收。
+46. Codex-inspired Next Web 工作台视觉原型：开发专用无认证路由、暗色语义主题、精简导航、旧上新下卡片流、短刻度、新内容提示和最多 8 条 OpenClaw 上下文交接已实现；真实 API、默认路由和生产体验尚未切换，等待人工视觉确认。
 
 当前仍需推进：
 
@@ -68,6 +69,7 @@
 7. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
 8. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
 9. 人工确认 Material UI Feed、订阅与设置页在 1440 折叠/展开、1024 覆盖式侧栏、822 和 390 移动视口的最终截图；自动化通过不替代这一步视觉确认。
+10. 人工确认 Next 工作台固定数据原型的桌面层级、卡片密度、短刻度、展开态和 Agent 交接；确认后才接入真实 Feed、saved/history 与连接状态，并启用 `VITE_UI_EXPERIENCE` 回滚开关。
 
 兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 仍可保留；兼容接口存在不等于当前产品能力，也不构成后续建设承诺。
 
@@ -120,7 +122,7 @@
 2. 私密群组、好友流、cookie、session、账号密码采集。
 3. 未确认的生产推送、邮件群发或 scheduler 启动。
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
-5. 多 workspace、商业计费、自助注册、深色主题或独立移动 App。
+5. 多 workspace、商业计费、自助注册、全站明暗主题切换或独立移动 App；本期 Next 工作台仅提供暗色主题。
 6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
 7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、Remote MCP 写操作、OAuth 或 ClawHub 发布。
 

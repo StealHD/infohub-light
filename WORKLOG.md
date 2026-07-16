@@ -864,3 +864,11 @@
 - 结果：功能默认关闭且未改动生产；每位用户可创建最多 5 个 90 天只读连接，令牌仅显示一次且数据库只保存 hash；Remote MCP 精确暴露六个自有数据工具，Web UI 不连接本地 Gateway，Skill 使用环境变量引用令牌
 - 未解决问题：尚未创建真实一次性连接或执行 `openclaw mcp doctor inteliscope --probe`，也未执行 staging、生产 Nginx/canary 和功能开关启用；这些步骤需要部署环境与真实用户凭证
 - 控制面变更：新增 D024；API/架构/UI 合同和 PLAN 增加 Remote MCP、delegation、助手连接及本地 OpenClaw 边界；新增测试影响映射，`project-defaults.yaml` 能力词汇无需变更
+
+### 2026-07-17 01:05 Codex
+- 任务：实现 Codex-inspired Next Web 工作台的固定数据视觉原型
+- 修改文件：新增 Next 暗色主题与 `/__preview/workbench`，实现精简导航、卡片展开、收藏切换、短刻度、新内容提示和 OpenClaw 上下文交接；同步 UI/计划/决策合同与测试
+- 执行验证：基线 103 项 Vitest 通过；新增路由、收藏与交互测试完成 RED→GREEN，最终 107 项通过；三视口 Playwright/Axe 3 项通过；UI contract、TypeScript、ESLint 与 Vite build 通过；1280×720 与 658×889 人工浏览器检查无横向溢出，收藏状态可切换，并修正 Agent 面板遮挡卡片操作的问题；最终 `test_gate full` 22/22 命令通过、`mapping_miss=false`
+- 结果：原型可在本地无登录打开，未调用 API、未切换默认 UI、未修改生产；等待人工视觉确认后再接真实 Feed 与连接状态
+- 未解决问题：尚未执行真实数据接入、虚拟列表、legacy/next 切换和完整多视口 Playwright 基线
+- 控制面变更：新增 D025；UI_CONTRACT 明确 Codex 仅为视觉语言参考且视觉原型为真实数据接入门禁
