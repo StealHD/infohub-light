@@ -848,3 +848,11 @@
 - 结果：`v1.6.0` 发布完成；tag 源码已上传至 `/opt/inteliscope/releases/v1.6.0-658589901945` 并开始构建，但尚未切换 `/opt/inteliscope/current`、`.env`、数据库或生产容器
 - 未解决问题：Tokyo 在无 swap、旧 API/Worker 在线时执行远端 `npm ci` 后耗尽主机响应能力；构建已从客户端中止，但 SSH banner 与公网健康检查持续超时。必须先通过云厂商控制台重启 VPS，再停止残留构建、确认旧服务/数据库、配置 2 GB swap 后重试镜像构建与切换
 - 控制面变更：项目版本从 `1.5.0` 升为 `1.6.0`；未更改 API/架构合同语义
+
+### 2026-07-16 13:58 Codex
+- 任务：恢复重启后的 `vps-tokyo`，完成 `v1.6.0` Docker 部署
+- 修改文件：`WORKLOG.md`；VPS `/etc/fstab` 增加 2 GiB swap，`/opt/inteliscope/current` 切换至 `releases/v1.6.0-658589901945`
+- 执行验证：镜像 `inteliscope-service:v1.6.0-658589901945` 构建成功；迁移补齐 29 条 user content 索引，数据库 integrity=`ok`、foreign keys=0；API/Worker 均 healthy、RestartCount=0；公网 root=200，live 返回 version=`1.6.0`/revision=`658589901945`，ready 返回 database/worker=`ready`
+- 结果：Tokyo 已完成 `v1.6.0` 切换；发布前备份位于 `/opt/inteliscope/backups/pre-v1.6.0-658589901945-20260716T054847Z`，迁移专用备份位于 `/opt/inteliscope/data/backups/service-user-content-v4-20260716T055503103067Z.db`
+- 未解决问题：无
+- 控制面变更：生产运行版本更新至 `v1.6.0`；未更改 API/架构合同语义
