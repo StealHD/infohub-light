@@ -110,7 +110,15 @@ Layout primitives remain allowed through the internal UI export layer. Existing 
 - Feed terminal job 是一次性事件：首次加载的历史 terminal job 静默标记已见；只有 `snapshot_created=true` 的成功任务显示“信息流已更新”。成功 no-op 静默，partial/failed 可以提示但无 snapshot 时不得声称“已更新”。轮询与跨路由不得重放同一 `job_id + status`。
 - 详情页按顺序展示全部同源缓存图片。`captured` 显示来源正文；当 `excerpt_only` 与上方 AI 概括相同，只显示一次概括并明确说明来源全文尚不可用。
 
-## 7. Verification gates
+## 7. Assistant connection workspace contract
+
+1. `/agents` 页面标题为“助手连接”，桌面侧栏入口在“订阅”之后；移动端不增加底部导航数量，只从设置页入口进入。
+2. 页面只管理当前用户的 Remote MCP 连接凭证，支持列表、创建、重命名、吊销、复制配置和故障排查。不输入或保存本地 Gateway URL，不请求 `127.0.0.1:18789`，不连 WebSocket，不探测 OpenClaw 在线状态，不提供站内聊天。
+3. 创建成功后，明文令牌只存在当前 Dialog 的 React local state。Dialog 不可背景点击或 Escape 关闭；用户必须点击“我已保存”，随后立即清除。令牌不得进入 Query cache、URL、日志、localStorage 或 sessionStorage，生成的 OpenClaw 配置只包含 `${INTELISCOPE_MCP_TOKEN}` 引用。
+4. 页面不轮询；窗口聚焦和手动刷新时重读列表。active 且 `last_used_at=null` 固定显示“从未使用”，任何 `last_used_at` 都只能标记为“最近使用”，不得推断“在线”。viewer 与其他角色具有相同的连接管理能力。
+5. 加载、空、错误重试、功能关闭、五连接上限、重命名和吊销状态复用现有 MUI 受控组件与 theme，不建立独立 CSS 或视觉体系。
+
+## 8. Verification gates
 
 Every shell, Feed, or subscription visual change must pass:
 

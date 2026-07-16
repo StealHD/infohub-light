@@ -14,6 +14,32 @@ export type AuthStatus = {
   user: User | null
 }
 
+export type AgentDelegation = {
+  id: string
+  name: string
+  client_type: 'openclaw'
+  scopes: ['inteliscope:read']
+  token_prefix: string
+  created_at: string
+  expires_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+  status: 'active' | 'expired' | 'revoked'
+}
+
+export type AgentDelegationsResponse = {
+  enabled: boolean
+  mcp_url: string
+  token_ttl_days: 90
+  max_active: 5
+  connections: AgentDelegation[]
+}
+
+export type AgentDelegationCreated = {
+  connection: AgentDelegation
+  token: string
+}
+
 export type UserItemState = {
   is_read: boolean
   is_saved: boolean

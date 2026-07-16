@@ -1,6 +1,9 @@
 import type { ApiClient } from './client'
 import type {
   AuthStatus,
+  AgentDelegation,
+  AgentDelegationCreated,
+  AgentDelegationsResponse,
   CatalogSource,
   ConfigResponse,
   FeedHistory,
@@ -72,6 +75,11 @@ export function createServiceApi(client: ApiClient) {
     feedSchedule: (signal?: AbortSignal) => client.get<FeedSchedule>('/api/me/feed-schedule', signal),
     updateFeedSchedule: (patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>('/api/me/feed-schedule', patch),
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
+
+    agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
+    createAgentDelegation: (name: string) => client.post<AgentDelegationCreated>('/api/me/agent-delegations', { name }),
+    renameAgentDelegation: (delegationId: string, name: string) => client.patch<AgentDelegation>(resource('/api/me/agent-delegations', delegationId), { name }),
+    revokeAgentDelegation: (delegationId: string) => client.delete<{ revoked: boolean }>(resource('/api/me/agent-delegations', delegationId)),
 
     config: (signal?: AbortSignal) => client.get<ConfigResponse>('/api/config', signal),
     configAction: (action: string, payload: Record<string, unknown>) => client.post<ConfigResponse>('/api/config/action', { action, payload }),

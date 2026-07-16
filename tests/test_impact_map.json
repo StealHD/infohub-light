@@ -49,6 +49,16 @@
       "groups": ["python_api_store"]
     },
     {
+      "id": "Remote MCP/OpenClaw",
+      "globs": [
+        "src/mcp/remote_*.py",
+        "integrations/openclaw/inteliscope/**",
+        "deploy/nginx/inteliscope-basic-auth.conf",
+        "deploy/nginx/inteliscope-rate-limit.conf"
+      ],
+      "groups": ["python_api_store"]
+    },
+    {
       "id": "queue/worker",
       "globs": [
         "src/services/feed_schedule.py",
@@ -177,6 +187,8 @@
   ],
   "group_tests": {
     "python_api_store": [
+      "tests/test_agent_delegation_api.py",
+      "tests/test_agent_delegations.py",
       "tests/test_api_permissions_matrix.py",
       "tests/test_api_service.py",
       "tests/test_auth.py",
@@ -189,7 +201,13 @@
       "tests/test_user_config_builder.py",
       "tests/test_user_content_v4_migration.py",
       "tests/test_content_repair_v5.py",
-      "tests/test_user_item_state.py"
+      "tests/test_user_item_state.py",
+      "tests/test_nginx_remote_mcp.py",
+      "tests/test_openclaw_skill.py",
+      "tests/test_remote_mcp_config.py",
+      "tests/test_remote_mcp_http.py",
+      "tests/test_remote_mcp_performance_script.py",
+      "tests/test_remote_mcp_read_service.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",
@@ -258,6 +276,7 @@
       "tests/test_feed_v2_migration.py",
       "tests/test_light_runtime_scripts.py",
       "tests/test_prepare_service_deployment.py",
+      "tests/test_remote_mcp_performance_script.py",
       "tests/test_reset_local_service.py",
       "tests/test_service_api_smoke_script.py",
       "tests/test_service_stack_smoke_script.py",

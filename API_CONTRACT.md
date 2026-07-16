@@ -124,9 +124,10 @@ capability / degrade：
 18. `GET /api/health/live`：表达 API 进程存活，并返回 `status/version/revision/built_at` 以识别不可变镜像；`GET /api/health/ready`：依次检查数据库、Feed v2 migration、user content v4 migration、数据库内至少一个 enabled user 和可选 Worker readiness，未就绪返回 503 的统一 error envelope。fresh DB 没有可登录用户时返回 `auth_not_configured`，action 要求设置 `HORIZON_AUTH_PASSWORD` 或 `HORIZON_AUTH_PASSWORD_HASH` 后重启；一旦数据库已有 enabled user，后续 readiness 不再依赖 bootstrap 密码环境变量。
 19. `GET /api/ops/runtime`：仅 `owner/admin` 可读，返回 Worker heartbeat、队列积压、最老 queued job、stale running、最新 snapshot 年龄，以及用户 Feed 计划字段、`source_schedule_count/overdue_source_schedule_count/next_source_scheduled_at` 和三个 Source Health 聚合字段；`schedule_stats` 包含最近评估、最近入队和 skip reason 计数。响应不返回 claim token、source payload、密钥或 Webhook。
 20. `GET /api/admin/secrets`、`POST /api/admin/secrets`、`PUT /api/admin/secrets/{id}/value`、`DELETE /api/admin/secrets/{id}`：仅 `owner/admin` 管理 AI/Apify 密钥引用和值。值只在 create/rotate 请求中出现，任何成功或失败响应都不得回显。
-21. FastAPI 默认托管 React Service UI：`/assets/*` 为带内容哈希的 immutable 资源，非 `/api/*` 路径回退到 no-cache `index.html`。`HORIZON_SERVICE_UI_VARIANT=react|legacy` 控制 Service 前端，默认 `react`；React 构建缺失时可安全回退 legacy。
+21. `GET /api/me/agent-delegations`、`POST /api/me/agent-delegations`、`PATCH /api/me/agent-delegations/{id}`、`DELETE /api/me/agent-delegations/{id}`：当前用户管理自己的 OpenClaw 只读连接。GET 同时返回 `enabled/mcp_url/token_ttl_days/max_active/connections`；POST 仅接受 `name`，固定 90 天、最多 5 个有效连接，且只在 201 + `Cache-Control: no-store` 响应中返回一次明文令牌；PATCH 仅重命名；DELETE 幂等吊销。功能关闭时仍可查看和吊销，但创建返回 `remote_mcp_disabled`。
+22. FastAPI 默认托管 React Service UI：`/assets/*` 为带内容哈希的 immutable 资源，非 `/api/*` 路径回退到 no-cache `index.html`。`HORIZON_SERVICE_UI_VARIANT=react|legacy` 控制 Service 前端，默认 `react`；React 构建缺失时可安全回退 legacy。`/mcp` 为精确协议路由，不参与 SPA fallback，不通过重定向修正路径。
 
-稳定前端路由为 `/feed?mode=featured|all|daily&item=<id>`、`/later?item=<id>`、`/saved?item=<id>`、`/history?item=<id>`、`/subscriptions`、`/settings`、`/login`。旧根路径 `?view=featured|all|daily|readLater|history|subscriptions|config` 只做客户端重定向，不改变 API 合同。
+稳定前端路由为 `/feed?mode=featured|all|daily&item=<id>`、`/later?item=<id>`、`/saved?item=<id>`、`/history?item=<id>`、`/subscriptions`、`/agents`、`/settings`、`/login`。旧根路径 `?view=featured|all|daily|readLater|history|subscriptions|config` 只做客户端重定向，不改变 API 合同。
 
 权限规则：
 
@@ -146,6 +147,7 @@ capability / degrade：
 13A. 订阅级 schedule 同样只允许操作当前用户自己的订阅，不接受 `user_id` 代查；`viewer` 可以 GET，PATCH 返回 `forbidden`。订阅、来源或用户未启用时不得开启。
 14. `owner/admin/member/viewer` 都可以读取自己的 Source Health；`GET /api/me/source-health` 不提供跨用户代理，即使 `owner/admin` 附带 `user_id` 查询参数也仍只返回当前登录用户的数据。
 15. 密钥列表、创建、轮换、删除以及 catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。非管理员 source 响应只给出 `secret_configured`，不得暴露环境变量名。
+16. `owner/admin/member/viewer` 都可创建、查看、重命名和吊销自己的 Agent delegation；不提供管理员代查或代管接口。delegation 令牌始终只映射其创建者，即使创建者是 `owner/admin`，Remote MCP 也不得使用管理员跨用户读权限。禁用用户时必须在同一事务永久吊销其全部连接，重新启用不恢复旧令牌。
 
 错误 envelope 规则：
 
@@ -153,6 +155,15 @@ capability / degrade：
 2. Pydantic/body/query 校验失败返回 `invalid_request`，HTTP status 使用 400。
 3. 不存在的 `/api/*` 路径返回 `not_found` envelope；不得返回 FastAPI 默认 `{"detail": ...}`。
 4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。
+
+## 5B. Remote MCP 合同
+
+1. Remote MCP 由现有 `horizon-api` 以 Streamable HTTP 精确暴露在 `/mcp`，固定 `stateless_http=true` 且不保存会话。功能默认关闭；启用时 `HORIZON_REMOTE_MCP_PUBLIC_URL` 必须以 `/mcp` 结束，loopback 可用 HTTP，其他主机必须 HTTPS。Host/Origin 白名单从该 URL 推导；无 Origin 的原生客户端允许，其他浏览器 Origin 拒绝。
+2. 认证只接受 `Authorization: Bearer <delegation token>`，令牌固定 scope 为 `inteliscope:read`。无效、过期、吊销、用户禁用统一 HTTP 401，scope 不足为 403；不提供 OAuth、登录、刷新或动态客户端注册。数据库仅保存完整令牌 SHA-256 和展示前缀，令牌格式为 `ih_mcp_v1_` 加 32-byte URL-safe 随机值。
+3. 工具清单精确为 `get_my_feed`、`get_item`、`list_subscriptions`、`source_health`、`list_jobs`、`get_job`。全部标记 read-only、non-destructive、idempotent、closed-world，不接受 `user_id/workspace`、任意 URL、SQL 或文件路径；工具结果直接返回 structured content，不包装 REST `{ok,data}`。跨用户 ID 与不存在 ID 统一 `not_found`。
+4. `get_my_feed` 支持 `latest/history/saved/later`，`limit` 默认 20、最大 50；later 使用 latest+history 去重语义。列表只返回安全 Presentation v1 和必要 user state，不返回完整正文、媒体、原始 metadata 或 legacy reason。`get_item` 默认返回最多 4000 字符正文，上限 8000，并显式返回截断状态。
+5. Subscription 投影不含 `personal_tags`、source config 或 secret ref；Job 投影不含 workspace/user、worker、claim/lock、payload 或原始 result，只返回固定结果摘要；Source Health 复用本合同既有安全投影。普通工具调用不写 `usage_events`，只允许每 15 分钟最多一次的 `last_used_at` 写入。
+6. 应用内按 delegation 限制 60 次/分钟、burst 10；请求 body 上限 256 KiB。日志只记 delegation ID、工具名、结果、耗时和 request ID，不记令牌、参数、正文或文章 ID。内部异常对外只返回 `internal_error` 和 request ID。
 
 用户 Feed schedule 规则：
 

@@ -20,6 +20,7 @@ services:
       HORIZON_SERVICE_UI_VARIANT: react
       HORIZON_REQUIRE_WORKER_FOR_READINESS: "false"
       HORIZON_SQLITE_JOURNAL_MODE: DELETE
+      HORIZON_REMOTE_MCP_ENABLED: "false"
       HORIZON_AUTH_USER: ${HORIZON_AUTH_USER:-admin}
       HORIZON_AUTH_PASSWORD: ${HORIZON_AUTH_PASSWORD:?test-gate password is required}
     entrypoint: ["uv", "run", "--no-sync", "horizon-api"]

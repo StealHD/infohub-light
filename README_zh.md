@@ -472,9 +472,28 @@ Horizon 支持通过多种方式发布和分发生成的日报：
 | **GitHub Pages 日报站点** | 将生成的 Markdown 复制到 `docs/`，通过 GitHub Pages 发布为每日更新的静态日报站点 |
 | **邮件订阅** | 通过 SMTP/IMAP 向订阅者发送日报，并自动处理订阅/退订请求 |
 | **Webhook 通知** | 在成功或失败时将结果推送到飞书、钉钉、Slack、Discord 或任意 Webhook 端点 |
-| **MCP Server** | 将抓取、打分、过滤、富化、摘要和完整 pipeline 暴露为工具，供 AI 助手调用 |
+| **Legacy 本地 MCP Server** | 将抓取、打分、过滤、富化、摘要和完整 pipeline 暴露为本地工具，不通过 Service `/mcp` 对外公开 |
 
 具体配置见[配置指南](docs/configuration.md)。MCP 工具说明和客户端接入见 [`src/mcp/README.md`](src/mcp/README.md) 与 [`src/mcp/integration.md`](src/mcp/integration.md)。
+
+## OpenClaw 本地助手
+
+Remote MCP 默认关闭，服务器不运行 Agent 或新模型。启用后，每个 `owner/admin/member/viewer` 都可在“助手连接”页创建自己的 90 天只读凭证，仅能读取凭证所属用户的信息流、详情、订阅、来源健康和任务。
+
+本地开发可设置：
+
+```bash
+HORIZON_REMOTE_MCP_ENABLED=true
+HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
+```
+
+OpenClaw 的本地 Skill 安装、令牌保存和 MCP 配置见 [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md)。
+
+可使用隔离的临时数据库、真实 MCP Client 和 100 次顺序调用验证延迟/RSS 门槛：
+
+```bash
+./.venv/bin/python scripts/benchmark_remote_mcp.py
+```
 
 ## 文档
 

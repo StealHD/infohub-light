@@ -24,6 +24,10 @@ def test_agent_delegation_schema_and_marker_are_initialized(tmp_path, monkeypatc
         row["name"]
         for row in store.connect().execute("PRAGMA index_list(agent_delegations)")
     }
+    foreign_keys = {
+        (row["from"], row["table"], row["to"], row["on_delete"])
+        for row in store.connect().execute("PRAGMA foreign_key_list(agent_delegations)")
+    }
     migration = store.connect().execute(
         "SELECT name, checksum FROM schema_migrations WHERE version = 6"
     ).fetchone()
@@ -46,6 +50,10 @@ def test_agent_delegation_schema_and_marker_are_initialized(tmp_path, monkeypatc
     }
     assert "idx_agent_delegations_user_created" in indexes
     assert "idx_agent_delegations_workspace_user_status" in indexes
+    assert foreign_keys == {
+        ("workspace_id", "workspaces", "id", "CASCADE"),
+        ("user_id", "users", "id", "CASCADE"),
+    }
     assert migration["name"] == "agent_delegations_v6"
     assert migration["checksum"] == "agent-delegations-v6-remote-mcp"
 
@@ -231,20 +239,21 @@ def test_expired_agent_delegation_no_longer_authenticates_or_counts_toward_limit
     store = ServiceStore(tmp_path)
     store.initialize()
     user = store.get_user_by_username("owner")
-    _, expired_token = store.create_agent_delegation(
-        workspace_id=user["workspace_id"],
-        user_id=user["id"],
-        name="Expired",
-        ttl_days=1,
-        max_active=1,
-    )
+    tokens = [
+        store.create_agent_delegation(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+            name=f"Expiring {index}",
+        )[1]
+        for index in range(5)
+    ]
 
-    clock[0] += timedelta(days=1)
+    clock[0] += timedelta(days=90)
+    expired_token = tokens[0]
     assert store.authenticate_agent_delegation(expired_token) is None
     replacement, _ = store.create_agent_delegation(
         workspace_id=user["workspace_id"],
         user_id=user["id"],
         name="Replacement",
-        max_active=1,
     )
     assert replacement["status"] == "active"

@@ -19,6 +19,11 @@ def test_react_service_ui_serves_deep_links_and_cache_headers(tmp_path: Path) ->
     assert "React UI" in deep_link.text
     assert deep_link.headers["cache-control"] == "no-cache"
 
+    agents_deep_link = client.get("/agents")
+    assert agents_deep_link.status_code == 200
+    assert "React UI" in agents_deep_link.text
+    assert agents_deep_link.headers["cache-control"] == "no-cache"
+
     asset = client.get("/assets/app-hash.js")
     assert asset.status_code == 200
     assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"

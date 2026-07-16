@@ -78,6 +78,17 @@ async function mockApi(page: Page) {
       ],
     }
     else if (url.pathname === '/api/feed/history') data = { schema_version: 2, scope: 'user', items: feedItems, featured_items: feedItems, item_count: feedItems.length, snapshots: [] }
+    else if (url.pathname === '/api/me/agent-delegations') data = {
+      enabled: true,
+      mcp_url: 'https://rb.jiefs.top/mcp',
+      token_ttl_days: 90,
+      max_active: 5,
+      connections: [{
+        id: 'agent-1', name: 'Local OpenClaw', client_type: 'openclaw', scopes: ['inteliscope:read'],
+        token_prefix: 'ih_mcp_v1_example', created_at: '2026-07-16T00:00:00Z',
+        expires_at: '2026-10-14T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active',
+      }],
+    }
     else if (url.pathname === '/api/jobs') data = { jobs: [] }
     else if (/^\/api\/me\/items\/[^/]+\/state$/.test(url.pathname)) data = state({ is_saved: true })
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
@@ -136,6 +147,31 @@ test('responsive feed has no overflow and no serious accessibility violations', 
       return bounds.width >= 44 && bounds.height >= 44
     }))).toBe(true)
     await expect(page).toHaveScreenshot('feed-390-mobile.png', { animations: 'disabled' })
+  }
+})
+
+test('assistant connection deep link is accessible and never probes a local agent', async ({ page }, testInfo) => {
+  const forbiddenRequests: string[] = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.port === '18789' || url.pathname === '/mcp' || url.protocol === 'ws:' || url.protocol === 'wss:') {
+      forbiddenRequests.push(request.url())
+    }
+  })
+
+  await page.goto('/agents')
+  await expect(page.getByRole('heading', { name: '助手连接' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Local OpenClaw' })).toBeVisible()
+  await expect(page.getByText(/^从未使用/)).toBeVisible()
+  await expect(page.getByTestId('openclaw-config-page')).toContainText('${INTELISCOPE_MCP_TOKEN}')
+  await expect(page.locator('body')).not.toContainText('ih_mcp_v1_one_time')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  expect(forbiddenRequests).toEqual([])
+
+  if (testInfo.project.name === 'mobile') {
+    await expect(page.getByRole('navigation', { name: '移动端主导航' }).getByRole('link')).toHaveCount(6)
   }
 })
 

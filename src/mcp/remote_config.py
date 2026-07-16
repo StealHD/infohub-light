@@ -43,6 +43,8 @@ class RemoteMCPSettings:
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
             or parsed.path != "/mcp"
             or parsed.query
             or parsed.fragment
@@ -61,4 +63,3 @@ class RemoteMCPSettings:
     def origin(self) -> str:
         parsed = urlsplit(self.public_url)
         return f"{parsed.scheme}://{parsed.netloc}"
-

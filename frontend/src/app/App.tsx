@@ -8,6 +8,7 @@ import { queryKeys } from '../api/queryKeys'
 import { FeedPage } from '../features/feed/FeedPage'
 import { LoginPage } from '../features/auth/LoginPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
+import { AgentsPage } from '../features/agents/AgentsPage'
 import { SubscriptionsPage } from '../features/subscriptions/SubscriptionsPage'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { AppShell } from './AppShell'
@@ -102,6 +103,7 @@ export function AppRoutes({ api }: { api: ServiceApi }) {
         <Route path="/saved" element={<FeedPage kind="saved" />} />
         <Route path="/history" element={<FeedPage kind="history" />} />
         <Route path="/subscriptions" element={<SubscriptionsPage />} />
+        <Route path="/agents" element={<AgentsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />

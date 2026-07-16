@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Save, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -198,6 +199,7 @@ export function SettingsPage() {
   return <div className={styles.page}>
     <header><div><h1>设置</h1><p>当前账户：{user.display_name || user.username} · {user.role}</p></div><ShieldCheck size={30} /></header>
     {message && <div className={styles.success} role="status">{message}</div>}{error && <div className={styles.error} role="alert">{error}</div>}
+    <section className={styles.card}><h2>助手连接</h2><p>在自己的电脑运行 OpenClaw，通过只读 Remote MCP 使用当前账户的数据。</p><Button component={NavLink} to="/agents" variant="outlined">管理助手连接</Button></section>
     {!admin && <section className={styles.card}><h2>工作区设置只读</h2><p>全局 AI、成员和 Key 仅 owner/admin 可管理。你的个人订阅参数仍可在订阅页维护。</p></section>}
     {admin && <>
       <section className={styles.card}><h2>AI 概括</h2><form className={styles.formGrid} onSubmit={saveAi}>

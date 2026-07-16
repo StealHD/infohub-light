@@ -67,6 +67,7 @@ describe('AppShell', () => {
     expect(navigation.getByRole('link', { name: '收藏' })).toHaveAttribute('href', '/saved')
     expect(navigation.getByRole('link', { name: '历史' })).toHaveAttribute('href', '/history')
     expect(navigation.getByRole('link', { name: '订阅' })).toHaveAttribute('href', '/subscriptions')
+    expect(navigation.getByRole('link', { name: '助手' })).toHaveAttribute('href', '/agents')
     expect(screen.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings')
     expect(screen.queryByRole('navigation', { name: '移动端主导航' })).not.toBeInTheDocument()
     expect(screen.getByRole('searchbox', { name: '搜索信息流' })).toBeInTheDocument()
@@ -114,6 +115,7 @@ describe('AppShell', () => {
 
     const navigation = within(screen.getByRole('navigation', { name: '移动端主导航' }))
     expect(navigation.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings')
+    expect(navigation.queryByRole('link', { name: '助手' })).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument()
   })
 

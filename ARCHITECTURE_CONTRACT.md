@@ -81,6 +81,12 @@ Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_run
 
 compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数据库已完成 Feed storage v3 migration 时启用。storage v2 snapshot payload 保存 metadata、item id 顺序及集合成员 id，完整 item 只写 child rows；reader 必须同时支持 legacy full payload 和 compact payload。现存数据但未迁移时 writer 保持 storage v1、Worker maintenance 保持延后；真正无 v3 遗留数据的新空库可在 additive 初始化时自动记录 marker。迁移不得原地改写 legacy body，只能 backfill hash、执行 retention、记录 migration 并在 UTC backup 后校验 integrity/foreign keys。
 
+### 3.6F Local Agent / Remote MCP Boundary
+
+OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑上；Service 端不新增 Agent、LLM、Worker、端口或容器。`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter，`src/mcp/remote_service.py` 只组装有界的安全读投影，两者都不经内部 HTTP 回环访问 Service。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
+
+Remote MCP 的六个只读工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。
+
 ### 3.7 Secret Boundary
 Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥。真实 AI/Apify 值由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、DOM 和非管理员 source 投影不得返回真实值；引用中的 ref 不可删除，只能原地轮换。
 
@@ -152,6 +158,7 @@ DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归
 7. 禁止静态 UI 直接读取 `radar-data.json`、`history-data.json`、`article-graph.json` 或依赖 `data/config.json` 源列表文件结构。
 8. 禁止默认 Service UI 调用 archive analytics、source-quality、Graph 或 feedback compatibility routes。
 9. 禁止用 legacy scheduler、第三个 dispatcher、摘要/通知或静态 publisher 承担用户 Feed schedule。
+10. 禁止 Remote MCP 复用 legacy MCP 工具注册、接受客户端指定的 user/workspace，或运行任何服务器侧 Agent/模型。
 
 ## 5. 扩展原则
 新增来源、规则、输出或存储时，应先扩展抽象合同，再实现具体适配。

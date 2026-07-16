@@ -93,3 +93,16 @@ curl -I -u friend:你的密码 http://你的域名
 - 账号密码会被浏览器缓存；朋友退出通常需要关闭浏览器或访问无效账号覆盖缓存。
 - 强烈建议配合 HTTPS 使用，否则 Basic Auth 密码会以可被中间人解码的形式传输。
 - Basic Auth 不能替代应用登录和 owner/admin/member/viewer 权限。访问站点会先过 Nginx Basic Auth，再使用个人应用账号登录。
+
+## Remote MCP
+
+Remote MCP 必须使用精确的 `/mcp` location。该 location 关闭浏览器 Basic Auth，改由应用验证每位用户的一次性 Bearer 令牌；同时限制 256 KiB 请求体、每 IP 120 请求/分钟和 8 个并发连接，并显式透传 `Authorization`。
+
+生产启用前设置：
+
+```bash
+HORIZON_REMOTE_MCP_ENABLED=true
+HORIZON_REMOTE_MCP_PUBLIC_URL=https://rb.jiefs.top/mcp
+```
+
+本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 的 additive 表保留。

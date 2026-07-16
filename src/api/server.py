@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +41,7 @@ from ..services.user_item_state import UserItemStateStore
 from ..services.user_content_store import UserContentStore
 from ..services.media_cache import MediaCacheService
 from ..mcp.remote_config import RemoteMCPSettings
+from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
     SourceConfigError,
     list_source_types,
@@ -591,8 +593,39 @@ def create_app(
                 conn.rollback()
             raise
 
-    app = FastAPI(title="InfoHub Light Service API")
+    remote_mcp = (
+        create_remote_mcp(store, remote_mcp_settings)
+        if remote_mcp_settings.enabled
+        else None
+    )
+
+    @asynccontextmanager
+    async def app_lifespan(_app: FastAPI):
+        if remote_mcp is None:
+            yield
+            return
+        async with remote_mcp.server.session_manager.run():
+            yield
+
+    app = FastAPI(title="InfoHub Light Service API", lifespan=app_lifespan)
     app.state.service_store = store
+    app.state.remote_mcp = remote_mcp.server if remote_mcp else None
+
+    @app.middleware("http")
+    async def _remote_mcp_body_limit(request: Request, call_next):
+        if request.url.path == "/mcp":
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    too_large = int(content_length) > 256 * 1024
+                except ValueError:
+                    too_large = True
+                if too_large:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"error": "request_body_too_large"},
+                    )
+        return await call_next(request)
 
     @app.middleware("http")
     async def _frontend_cache_headers(request: Request, call_next):
@@ -609,7 +642,8 @@ def create_app(
 
     @app.middleware("http")
     async def _api_database_transaction_boundary(request: Request, call_next):
-        if not request.url.path.startswith("/api/") or request.url.path == "/api/health/live":
+        database_scoped = request.url.path.startswith("/api/") or request.url.path == "/mcp"
+        if not database_scoped or request.url.path == "/api/health/live":
             return await call_next(request)
 
         with store.request_connection_scope():
@@ -2504,6 +2538,37 @@ def create_app(
     @app.api_route("/api/{_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def api_not_found(_path: str) -> dict[str, Any]:
         raise ApiError("not_found", "API endpoint not found", status_code=404)
+
+    if remote_mcp is not None:
+        app.add_route(
+            "/mcp",
+            remote_mcp.exact_path_app,
+            methods=["GET", "POST", "DELETE"],
+            name="remote-mcp",
+            include_in_schema=False,
+        )
+    else:
+        @app.api_route(
+            "/mcp",
+            methods=["GET", "POST", "DELETE"],
+            include_in_schema=False,
+        )
+        async def remote_mcp_disabled() -> JSONResponse:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "remote_mcp_disabled"},
+            )
+
+    @app.api_route(
+        "/mcp/{_path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def remote_mcp_non_exact_path(_path: str) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "not_found"},
+        )
 
     if static_path.exists():
         assets_path = static_path / "assets"

@@ -1021,7 +1021,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=0.3.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "markdown", specifier = ">=3.10.2" },
-    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "mcp", specifier = ">=1.26,<2" },
     { name = "openai", specifier = ">=1.54.0" },
     { name = "openbb", marker = "extra == 'openbb'", specifier = ">=4.4.0" },
     { name = "openbb-benzinga", marker = "extra == 'openbb'", specifier = ">=1.6.0" },

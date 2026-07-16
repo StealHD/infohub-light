@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
@@ -1331,8 +1331,6 @@ class ServiceStore:
         workspace_id: str,
         user_id: str,
         name: str,
-        ttl_days: int = AGENT_DELEGATION_TTL_DAYS,
-        max_active: int = AGENT_DELEGATION_MAX_ACTIVE,
     ) -> tuple[dict[str, Any], str]:
         delegation_name = str(name or "").strip()
         if not delegation_name:
@@ -1341,7 +1339,7 @@ class ServiceStore:
             raise ValueError("name must not exceed 80 characters")
         now = _now_iso()
         expires_at = (
-            datetime.fromisoformat(now) + timedelta(days=ttl_days)
+            datetime.fromisoformat(now) + timedelta(days=AGENT_DELEGATION_TTL_DAYS)
         ).isoformat()
         token = f"ih_mcp_v1_{secrets.token_urlsafe(32)}"
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -1368,7 +1366,7 @@ class ServiceStore:
                 """,
                 (user_id, now),
             ).fetchone()[0]
-            if active_count >= max_active:
+            if active_count >= AGENT_DELEGATION_MAX_ACTIVE:
                 raise AgentDelegationLimitError(
                     "agent delegation active limit reached"
                 )

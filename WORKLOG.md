@@ -856,3 +856,11 @@
 - 结果：Tokyo 已完成 `v1.6.0` 切换；发布前备份位于 `/opt/inteliscope/backups/pre-v1.6.0-658589901945-20260716T054847Z`，迁移专用备份位于 `/opt/inteliscope/data/backups/service-user-content-v4-20260716T055503103067Z.db`
 - 未解决问题：无
 - 控制面变更：生产运行版本更新至 `v1.6.0`；未更改 API/架构合同语义
+
+### 2026-07-16 15:16 Codex
+- 任务：实现 Inteliscope × OpenClaw 本地 Agent 的用户级只读 Remote MCP 接入
+- 修改文件：新增 schema v6 delegation 生命周期、六个只读 MCP 工具与 HTTP transport、`/agents` 助手连接页面、OpenClaw Skill、Nginx 限流、性能脚本及隔离/安全/前后端测试；同步 API/架构/UI/计划/决策合同
+- 执行验证：定向后端与前端测试通过；最终 `test_gate full` 22/22 命令通过、`mapping_miss=false`；Playwright 16 项通过、11 项按环境预期跳过；真实 MCP Python Client 完成 initialize/list/call；100 次 MCP 顺序调用 p95=7.499 ms、相对 REST 增量=6.411 ms、RSS 增量=0.578 MiB；Skill 校验通过；本机 OpenClaw 2026.7.1 的 MCP/Skill CLI 参数检查通过
+- 结果：功能默认关闭且未改动生产；每位用户可创建最多 5 个 90 天只读连接，令牌仅显示一次且数据库只保存 hash；Remote MCP 精确暴露六个自有数据工具，Web UI 不连接本地 Gateway，Skill 使用环境变量引用令牌
+- 未解决问题：尚未创建真实一次性连接或执行 `openclaw mcp doctor inteliscope --probe`，也未执行 staging、生产 Nginx/canary 和功能开关启用；这些步骤需要部署环境与真实用户凭证
+- 控制面变更：新增 D024；API/架构/UI 合同和 PLAN 增加 Remote MCP、delegation、助手连接及本地 OpenClaw 边界；新增测试影响映射，`project-defaults.yaml` 能力词汇无需变更

@@ -55,6 +55,7 @@
 43. 低 Token 分层测试门禁 v1：`scripts/test_gate.py` 提供 snapshot/plan/targeted/full/release，`tests/test_impact_map.json` 负责确定性映射，完整日志私有落盘并只输出 2 KiB 成功或 8 KiB 首失败摘要；PR/main 并行跑 full backend/frontend，UI 改动追加 Playwright，正式发布追加隔离的 API-only Docker smoke。
 43. 收藏、站内阅读与社交媒体完整性 v1：additive `user_content_items/media_assets`、Presentation v2 详情、用户隔离收藏/媒体 API、显式已读/未读、按用户持久化 Feed 偏好、RSS/Instagram/X 图片和统一头像缓存、社交 profile 最新一条保留、Xquik adapter 与 v4 显式迁移已实现。Xquik 真实 canary 尚未通过：当前备用 Key 所在 FREE tier 单条价格为 `$0.015`，因此计划固定的 `$0.01` 运行上限被 Apify 拒绝；正式 X Actor 配置仍保持旧值，等待明确授权把 canary cap 提升到至少 `$0.02`。
 44. Feed 事件、历史修复与 DeepSeek v1：Feed terminal 通知只消费当前会话观察到的真实 snapshot 事件；认证动作按 user/action/entity 提供局部状态；v5 显式修复、reconcile 和 `content_repair` 保持零 snapshot/AI，当前内容为 24 captured/2 excerpt-only；DeepSeek Secret/UI、`deepseek-v4-flash`、模型无关 input hash、安全跨模型复用、零 Token 预检与单次 smoke 已实现。真实 DeepSeek 启用仍等待轮换 Key。
+45. OpenClaw Remote MCP v1：每用户本地 OpenClaw + 服务端六个只读工具、schema v6 delegation、`/agents` 凭证页、Nginx 边界和本地 Skill 包已实现，默认保持关闭。当前只做本地完整 gate；正式打开仍须 API-only staging、TLS `/mcp`、真实 OpenClaw `doctor --probe`、六工具 canary、吊销立即 401 和两生产用户隔离验收。
 
 当前仍需推进：
 
@@ -111,6 +112,7 @@
 9. Presentation v1 通用展示合同、来源解析 fixture、用户级 AI cache 和按 run 的 `analysis_usage` 成本诊断。
 10. Material UI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与统一 Drawer 账户卡片。
 11. `test_gate` 映射观察期：保留全量覆盖，记录连续 10 个不同 CI 提交的 selector、`mapping_miss` 和日志/摘要一致性。
+12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、六个安全只读投影、助手连接 UI 和本地 Skill。
 
 本阶段不做：
 
@@ -120,6 +122,7 @@
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
 5. 多 workspace、商业计费、自助注册、深色主题或独立移动 App。
 6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
+7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、Remote MCP 写操作、OAuth 或 ClawHub 发布。
 
 <!-- init-pro:section name=priorities -->
 ## 5. API / 模块实现优先级

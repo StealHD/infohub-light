@@ -14,6 +14,7 @@ import {
   RefreshRounded,
   SearchRounded,
   SettingsRounded,
+  SmartToyRounded,
   StarBorderRounded,
 } from '../ui/icons'
 import { NavLink, useLocation } from 'react-router-dom'
@@ -63,7 +64,7 @@ type AppShellProps = {
   children: ReactNode
 }
 
-const navItems = [
+const primaryNavItems = [
   { to: '/feed', label: '信息流', icon: RadioRounded },
   { to: '/later', label: '稍后读', icon: BookmarkBorderRounded },
   { to: '/saved', label: '收藏', icon: StarBorderRounded },
@@ -71,7 +72,12 @@ const navItems = [
   { to: '/subscriptions', label: '订阅', icon: NotificationsNoneRounded },
 ]
 
-const mobileNavItems = [...navItems, { to: '/settings', label: '设置', icon: SettingsRounded }]
+const navItems = [
+  ...primaryNavItems,
+  { to: '/agents', label: '助手', icon: SmartToyRounded },
+]
+
+const mobileNavItems = [...primaryNavItems, { to: '/settings', label: '设置', icon: SettingsRounded }]
 
 const roleLabels: Record<User['role'], string> = {
   owner: '所有者',

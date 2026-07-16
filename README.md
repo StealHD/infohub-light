@@ -13,6 +13,7 @@ Inteliscope is a small-group, multi-user information feed built from Horizon. It
 - User-scoped Feed snapshots, stable saved/later content, explicit read/unread state, captured-body detail, protected media, history, and source health.
 - Editable source and subscription settings, connection tests, refetch, partial/failure diagnostics, and source priority ordering.
 - Bounded per-item summaries and owner/admin write-only management of AI and Apify keys.
+- Optional read-only Remote MCP for each user's own local OpenClaw, with self-managed 90-day connections and a bundled Skill.
 
 Graph, archive analytics, recommendation learning, in-site article proxying, daily summary publishing, and notifications are not part of the default Service product. The legacy CLI and scheduler remain optional compatibility paths only.
 
@@ -74,6 +75,25 @@ HORIZON_AUTH_SESSION_TTL_SECONDS=604800
 ```
 
 Nginx Basic Auth may be used as an additional outer gate, but it never replaces the application account and role checks.
+
+## Local OpenClaw assistant
+
+Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once and only reads that user's Feed, item details, subscriptions, source health, and jobs.
+
+For local development:
+
+```bash
+HORIZON_REMOTE_MCP_ENABLED=true
+HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
+```
+
+Install and configure the bundled Skill by following [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md). The legacy stdio MCP remains separate and is never exposed by `/mcp`.
+
+The local acceptance benchmark uses an isolated temporary database and 100 real MCP client calls:
+
+```bash
+./.venv/bin/python scripts/benchmark_remote_mcp.py
+```
 
 ## `rb.jiefs.top` RC deployment
 
