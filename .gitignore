@@ -61,6 +61,7 @@ logs/
 
 # Local Superpowers design/session state
 .superpowers/
+.worktrees/
 
 # macOS
 .DS_Store
