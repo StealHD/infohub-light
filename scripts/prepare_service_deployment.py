@@ -54,6 +54,19 @@ def prepare_deployment_database(
                 raise RuntimeError("source database is missing the Feed v2 migration")
             connection.execute("BEGIN IMMEDIATE")
             sessions_removed = connection.execute("DELETE FROM sessions").rowcount
+            has_agent_delegations = bool(
+                connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'table' AND name = 'agent_delegations'
+                    """
+                ).fetchone()
+            )
+            agent_delegations_removed = (
+                connection.execute("DELETE FROM agent_delegations").rowcount
+                if has_agent_delegations
+                else 0
+            )
             heartbeats_removed = connection.execute(
                 "DELETE FROM worker_heartbeats"
             ).rowcount
@@ -102,6 +115,7 @@ def prepare_deployment_database(
             "output": str(output_path),
             "size_bytes": output_path.stat().st_size,
             "sessions_removed": sessions_removed,
+            "agent_delegations_removed": agent_delegations_removed,
             "heartbeats_removed": heartbeats_removed,
             "jobs_cancelled": jobs_cancelled,
             "integrity_check": integrity_check,

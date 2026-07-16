@@ -17,6 +17,9 @@ def _source_database(tmp_path, monkeypatch):
     workspace = store.get_default_workspace()
     owner = store.get_user_by_username("owner")
     store.create_session(owner["id"], ttl_seconds=3600)
+    store.create_agent_delegation(
+        workspace_id=workspace["id"], user_id=owner["id"], name="Local OpenClaw"
+    )
     store.upsert_worker_heartbeat("old-worker", "running")
     queue = JobQueue(store)
     queued = queue.create_job(
@@ -43,6 +46,7 @@ def test_prepare_deployment_database_sanitizes_copy_without_mutating_source(tmp_
 
     assert result["output"] == str(target)
     assert result["sessions_removed"] == 1
+    assert result["agent_delegations_removed"] == 1
     assert result["heartbeats_removed"] == 1
     assert result["jobs_cancelled"] == 2
     assert result["integrity_check"] == "ok"
@@ -55,12 +59,18 @@ def test_prepare_deployment_database_sanitizes_copy_without_mutating_source(tmp_
     target_db = sqlite3.connect(target)
     try:
         assert source_db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
+        assert source_db.execute(
+            "SELECT COUNT(*) FROM agent_delegations"
+        ).fetchone()[0] == 1
         assert source_db.execute("SELECT COUNT(*) FROM worker_heartbeats").fetchone()[0] == 1
         assert source_db.execute(
             "SELECT COUNT(*) FROM fetch_jobs WHERE status IN ('queued', 'running')"
         ).fetchone()[0] == 2
 
         assert target_db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
+        assert target_db.execute(
+            "SELECT COUNT(*) FROM agent_delegations"
+        ).fetchone()[0] == 0
         assert target_db.execute("SELECT COUNT(*) FROM worker_heartbeats").fetchone()[0] == 0
         assert target_db.execute(
             "SELECT COUNT(*) FROM fetch_jobs WHERE status IN ('queued', 'running')"

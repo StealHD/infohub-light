@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import secrets
 import sqlite3
@@ -25,6 +26,10 @@ SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
 WORKER_STATES = {"starting", "idle", "running", "stopping"}
 SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
+AGENT_DELEGATION_SCOPE = "inteliscope:read"
+AGENT_DELEGATION_TTL_DAYS = 90
+AGENT_DELEGATION_MAX_ACTIVE = 5
+AGENT_DELEGATION_USAGE_TOUCH_MINUTES = 15
 _UNSET = object()
 
 
@@ -38,6 +43,10 @@ class SourceKeyConflictError(ValueError):
 
 class SecretEnvConflictError(ValueError):
     """A workspace already registered the requested secret environment name."""
+
+
+class AgentDelegationLimitError(ValueError):
+    """A user already owns the maximum number of active agent connections."""
 
 
 def _now_iso() -> str:
@@ -230,6 +239,30 @@ class ServiceStore:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS agent_delegations (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                client_type TEXT NOT NULL DEFAULT 'openclaw'
+                    CHECK(client_type = 'openclaw'),
+                token_hash TEXT NOT NULL UNIQUE,
+                token_prefix TEXT NOT NULL,
+                scopes_json TEXT NOT NULL DEFAULT '["inteliscope:read"]',
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                last_used_at TEXT,
+                revoked_at TEXT,
+                revocation_reason TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_delegations_user_created
+                ON agent_delegations(user_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_agent_delegations_workspace_user_status
+                ON agent_delegations(workspace_id, user_id, revoked_at, expires_at);
 
             CREATE TABLE IF NOT EXISTS source_catalog (
                 id TEXT PRIMARY KEY,
@@ -742,6 +775,7 @@ class ServiceStore:
             self.mark_feed_storage_v3_migrated(commit=False)
         if not has_content_index_v4_artifacts and not content_index_v4_migrated:
             self.mark_content_index_v4_migrated(commit=False)
+        self.mark_agent_delegations_v6_migrated(commit=False)
         self._bootstrap_default_workspace()
         self._bootstrap_admin_user()
         conn.commit()
@@ -808,6 +842,17 @@ class ServiceStore:
             """
             INSERT OR REPLACE INTO schema_migrations (version, name, checksum, applied_at)
             VALUES (5, 'user_content_v5', 'user-content-v5-repair-hash-media', ?)
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def mark_agent_delegations_v6_migrated(self, *, commit: bool = True) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (6, 'agent_delegations_v6', 'agent-delegations-v6-remote-mcp', ?)
             """,
             (_now_iso(),),
         )
@@ -932,6 +977,28 @@ class ServiceStore:
             key: value
             for key, value in user.items()
             if key not in {"password_hash"}
+        }
+
+    @staticmethod
+    def _agent_delegation(row: sqlite3.Row, *, now: str) -> dict[str, Any]:
+        revoked_at = row["revoked_at"]
+        if revoked_at is not None:
+            status = "revoked"
+        elif row["expires_at"] <= now:
+            status = "expired"
+        else:
+            status = "active"
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "client_type": row["client_type"],
+            "scopes": _json_loads(row["scopes_json"], []),
+            "token_prefix": row["token_prefix"],
+            "created_at": row["created_at"],
+            "expires_at": row["expires_at"],
+            "last_used_at": row["last_used_at"],
+            "revoked_at": revoked_at,
+            "status": status,
         }
 
     @staticmethod
@@ -1214,6 +1281,17 @@ class ServiceStore:
                         user_id,
                     ),
                 )
+            if not target_enabled:
+                conn.execute(
+                    """
+                    UPDATE agent_delegations
+                    SET revoked_at = ?,
+                        revocation_reason = 'user_disabled',
+                        updated_at = ?
+                    WHERE user_id = ? AND revoked_at IS NULL
+                    """,
+                    (now, now, user_id),
+                )
             if owns_transaction:
                 conn.commit()
         except Exception:
@@ -1246,6 +1324,204 @@ class ServiceStore:
         )
         self.connect().commit()
         return token
+
+    def create_agent_delegation(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        name: str,
+        ttl_days: int = AGENT_DELEGATION_TTL_DAYS,
+        max_active: int = AGENT_DELEGATION_MAX_ACTIVE,
+    ) -> tuple[dict[str, Any], str]:
+        delegation_name = str(name or "").strip()
+        if not delegation_name:
+            raise ValueError("name is required")
+        if len(delegation_name) > 80:
+            raise ValueError("name must not exceed 80 characters")
+        now = _now_iso()
+        expires_at = (
+            datetime.fromisoformat(now) + timedelta(days=ttl_days)
+        ).isoformat()
+        token = f"ih_mcp_v1_{secrets.token_urlsafe(32)}"
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        delegation_id = _new_id("agd")
+        conn = self.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            user = self.get_user(user_id)
+            if (
+                user is None
+                or not user["enabled"]
+                or user["workspace_id"] != workspace_id
+            ):
+                raise LookupError("enabled user not found")
+            active_count = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM agent_delegations
+                WHERE user_id = ?
+                  AND revoked_at IS NULL
+                  AND expires_at > ?
+                """,
+                (user_id, now),
+            ).fetchone()[0]
+            if active_count >= max_active:
+                raise AgentDelegationLimitError(
+                    "agent delegation active limit reached"
+                )
+            conn.execute(
+                """
+                INSERT INTO agent_delegations (
+                    id, workspace_id, user_id, name, client_type,
+                    token_hash, token_prefix, scopes_json, created_at,
+                    expires_at, last_used_at, revoked_at, revocation_reason,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, 'openclaw', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+                """,
+                (
+                    delegation_id,
+                    workspace_id,
+                    user_id,
+                    delegation_name,
+                    token_hash,
+                    token[:18],
+                    _json_dumps([AGENT_DELEGATION_SCOPE]),
+                    now,
+                    expires_at,
+                    now,
+                ),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        row = conn.execute(
+            "SELECT * FROM agent_delegations WHERE id = ?", (delegation_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError("created agent delegation not found")
+        return self._agent_delegation(row, now=now), token
+
+    def list_agent_delegations(self, user_id: str) -> list[dict[str, Any]]:
+        now = _now_iso()
+        rows = self.connect().execute(
+            """
+            SELECT * FROM agent_delegations
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+        return [self._agent_delegation(row, now=now) for row in rows]
+
+    def rename_agent_delegation(
+        self,
+        user_id: str,
+        delegation_id: str,
+        name: str,
+    ) -> dict[str, Any] | None:
+        delegation_name = str(name or "").strip()
+        if not delegation_name:
+            raise ValueError("name is required")
+        if len(delegation_name) > 80:
+            raise ValueError("name must not exceed 80 characters")
+        now = _now_iso()
+        cursor = self.connect().execute(
+            """
+            UPDATE agent_delegations
+            SET name = ?, updated_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (delegation_name, now, delegation_id, user_id),
+        )
+        self.connect().commit()
+        if cursor.rowcount == 0:
+            return None
+        row = self.connect().execute(
+            "SELECT * FROM agent_delegations WHERE id = ? AND user_id = ?",
+            (delegation_id, user_id),
+        ).fetchone()
+        return self._agent_delegation(row, now=now) if row else None
+
+    def revoke_agent_delegation(
+        self,
+        user_id: str,
+        delegation_id: str,
+        *,
+        reason: str = "user_revoked",
+    ) -> bool:
+        now = _now_iso()
+        row = self.connect().execute(
+            "SELECT 1 FROM agent_delegations WHERE id = ? AND user_id = ?",
+            (delegation_id, user_id),
+        ).fetchone()
+        if row is None:
+            return False
+        self.connect().execute(
+            """
+            UPDATE agent_delegations
+            SET revoked_at = COALESCE(revoked_at, ?),
+                revocation_reason = COALESCE(revocation_reason, ?),
+                updated_at = CASE WHEN revoked_at IS NULL THEN ? ELSE updated_at END
+            WHERE id = ? AND user_id = ?
+            """,
+            (now, reason, now, delegation_id, user_id),
+        )
+        self.connect().commit()
+        return True
+
+    def authenticate_agent_delegation(
+        self,
+        token: str,
+    ) -> dict[str, Any] | None:
+        candidate = str(token or "")
+        if not candidate.startswith("ih_mcp_v1_"):
+            return None
+        token_hash = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        now = _now_iso()
+        row = self.connect().execute(
+            """
+            SELECT delegation.*, users.role, users.enabled
+            FROM agent_delegations AS delegation
+            JOIN users ON users.id = delegation.user_id
+            WHERE delegation.token_hash = ?
+              AND delegation.revoked_at IS NULL
+              AND delegation.expires_at > ?
+              AND users.enabled = 1
+            """,
+            (token_hash, now),
+        ).fetchone()
+        if row is None:
+            return None
+        last_used_at = row["last_used_at"]
+        touch_before = (
+            datetime.fromisoformat(now)
+            - timedelta(minutes=AGENT_DELEGATION_USAGE_TOUCH_MINUTES)
+        ).isoformat()
+        if last_used_at is None or last_used_at <= touch_before:
+            self.connect().execute(
+                """
+                UPDATE agent_delegations
+                SET last_used_at = ?, updated_at = ?
+                WHERE id = ?
+                  AND (last_used_at IS NULL OR last_used_at <= ?)
+                """,
+                (now, now, row["id"], touch_before),
+            )
+            self.connect().commit()
+        return {
+            "delegation_id": row["id"],
+            "workspace_id": row["workspace_id"],
+            "user_id": row["user_id"],
+            "role": row["role"],
+            "scopes": _json_loads(row["scopes_json"], []),
+            "expires_at": row["expires_at"],
+        }
 
     def get_session_user(self, token: str | None) -> dict[str, Any] | None:
         if not token:

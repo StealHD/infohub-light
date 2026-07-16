@@ -39,6 +39,7 @@ from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
 from ..services.user_content_store import UserContentStore
 from ..services.media_cache import MediaCacheService
+from ..mcp.remote_config import RemoteMCPSettings
 from ..services.source_type_registry import (
     SourceConfigError,
     list_source_types,
@@ -47,8 +48,11 @@ from ..services.source_type_registry import (
     validate_source_config,
 )
 from ..storage.service_store import (
+    AGENT_DELEGATION_MAX_ACTIVE,
+    AGENT_DELEGATION_TTL_DAYS,
     ROLES,
     SOURCE_SCOPES,
+    AgentDelegationLimitError,
     SecretEnvConflictError,
     ServiceStore,
     SourceKeyConflictError,
@@ -266,6 +270,20 @@ class ItemFeedbackRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentDelegationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("name is required")
+        return name
+
+
 class ConfigImportSourcesRequest(BaseModel):
     dry_run: bool = False
     subscribe_current_user: bool = True
@@ -341,6 +359,7 @@ def create_app(
     user_content = UserContentStore(store)
     media_cache = MediaCacheService(store, data_dir=data_path)
     auth_settings = AuthSettings.from_env()
+    remote_mcp_settings = RemoteMCPSettings.from_env()
 
     def secret_usage(secret: dict[str, Any]) -> list[dict[str, str]]:
         usages = [
@@ -1780,6 +1799,71 @@ def create_app(
                 ]
             }
         )
+
+    @app.get("/api/me/agent-delegations")
+    async def agent_delegations_list(
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return ok(
+            {
+                "enabled": remote_mcp_settings.enabled,
+                "mcp_url": remote_mcp_settings.public_url,
+                "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
+                "max_active": AGENT_DELEGATION_MAX_ACTIVE,
+                "connections": store.list_agent_delegations(user["id"]),
+            }
+        )
+
+    @app.post("/api/me/agent-delegations", status_code=201)
+    async def agent_delegations_create(
+        payload: AgentDelegationRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        if not remote_mcp_settings.enabled:
+            raise ApiError(
+                "remote_mcp_disabled",
+                "Remote MCP is disabled",
+                status_code=409,
+                action="Ask an administrator to enable Remote MCP.",
+            )
+        try:
+            connection, token = store.create_agent_delegation(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                name=payload.name,
+            )
+        except AgentDelegationLimitError as exc:
+            raise ApiError(
+                "agent_delegation_limit",
+                str(exc),
+                status_code=409,
+                action="Revoke an unused connection before creating another.",
+            ) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"connection": connection, "token": token})
+
+    @app.patch("/api/me/agent-delegations/{delegation_id}")
+    async def agent_delegations_patch(
+        delegation_id: str,
+        payload: AgentDelegationRequest,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        connection = store.rename_agent_delegation(
+            user["id"], delegation_id, payload.name
+        )
+        if connection is None:
+            raise ApiError("not_found", "connection not found", status_code=404)
+        return ok(connection)
+
+    @app.delete("/api/me/agent-delegations/{delegation_id}")
+    async def agent_delegations_delete(
+        delegation_id: str,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        if not store.revoke_agent_delegation(user["id"], delegation_id):
+            raise ApiError("not_found", "connection not found", status_code=404)
+        return ok({"revoked": True})
 
     @app.get("/api/me/source-health")
     async def source_health_get(
