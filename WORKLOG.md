@@ -840,3 +840,11 @@
 - 结果：X 头像将在下一次成功抓取时安全缓存；远端 path 变化即时换版，同 path 24 小时后按 checksum 复验，候选失败保留旧头像。新 Job 只保存深度 6/256 字段/8 KiB 单层/64 KiB 单 Job 的字段路径与类型，不保存任何响应值；共享缓存明确标记 `cached`
 - 未解决问题：现有 X 稳定内容没有保留旧 `author_avatar_url`，无法无上游调用回填当前缺失头像；为避免额外付费，本轮未触发 X 抓取。此前多次确认的根因是机械执行设计技能门槛，后续同一具体方案中的“修复/继续/可以”直接视为授权，除付费、不可逆或架构歧义外不重复确认
 - 控制面变更：新增 D023；API/架构/UI 合同增加响应结构与头像换版边界；VPS Tokyo 未修改
+
+### 2026-07-16 12:13 Codex
+- 任务：发布 `v1.6.0` tag/GitHub Release，并更新 `vps-tokyo` Docker 版本
+- 修改文件：版本标识与发布候选已在提交 `6585899` 固化；本条更新 `WORKLOG.md`
+- 执行验证：本地 release gate 24/24 通过、`mapping_miss=false`；tag 与 GitHub Release 已发布；Tokyo 部署前数据库 integrity=`ok`、foreign keys=0、active jobs=0，旧 API/Worker 当时均 healthy
+- 结果：`v1.6.0` 发布完成；tag 源码已上传至 `/opt/inteliscope/releases/v1.6.0-658589901945` 并开始构建，但尚未切换 `/opt/inteliscope/current`、`.env`、数据库或生产容器
+- 未解决问题：Tokyo 在无 swap、旧 API/Worker 在线时执行远端 `npm ci` 后耗尽主机响应能力；构建已从客户端中止，但 SSH banner 与公网健康检查持续超时。必须先通过云厂商控制台重启 VPS，再停止残留构建、确认旧服务/数据库、配置 2 GB swap 后重试镜像构建与切换
+- 控制面变更：项目版本从 `1.5.0` 升为 `1.6.0`；未更改 API/架构合同语义
