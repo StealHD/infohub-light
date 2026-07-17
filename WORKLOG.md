@@ -888,3 +888,11 @@
 - 结果：正式业务只能经 design-system 使用 HeroUI；固定数据原型保留直接导入例外；QueryClient、认证、ServiceApi 与现有 MUI 页面边界不变
 - 未解决问题：既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning 不属于本任务
 - 控制面变更：新增 D027；UI_CONTRACT 固化 HeroUI 生产迁移边界与渐进 bootstrap
+
+### 2026-07-17 12:01 Codex
+- 任务：修复 Task 1 评审发现的 HeroUI 有效圆角和动效时长越界
+- 修改文件：`frontend/src/design-system/theme.css`、`frontend/e2e/design-system-contract.spec.ts`、Task 1 报告
+- 执行验证：真实 Vite+Tailwind 编译 CSS 的浏览器 computed-style 测试完成 RED→GREEN；最终 Vitest 29 文件/116 项、UI contract、TypeScript、build/preview exclusion 与定向 Playwright 2 项通过，ESLint 0 error
+- 结果：Tabs/Table/溢出控件圆角固定为 14/16/8px；正式主题内 transition/animation 固定为 160/220ms，Toast view transition 同步覆盖，Reduced Motion 保持 1ms
+- 未解决问题：保留既有 Fast Refresh warning 与 Vite 500 kB chunk warning
+- 控制面变更：无；仅修正既有 D027 主题实现偏差

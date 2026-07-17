@@ -3,6 +3,12 @@
 @import "@heroui/styles";
 @import "@fontsource-variable/noto-sans-sc/wght.css";
 
+:root {
+  --inteliscope-motion-fast: 120ms;
+  --inteliscope-motion-standard: 160ms;
+  --inteliscope-motion-deliberate: 220ms;
+}
+
 .inteliscope-design-system[data-inteliscope-theme="graphite-purple"] {
   color-scheme: dark;
   --background: oklch(0.14 0.008 286);
@@ -47,9 +53,6 @@
   --radius-4xl: var(--inteliscope-radius-panel);
   --field-radius: var(--inteliscope-radius-control);
 
-  --inteliscope-motion-fast: 120ms;
-  --inteliscope-motion-standard: 160ms;
-  --inteliscope-motion-deliberate: 220ms;
   --default-transition-duration: var(--inteliscope-motion-standard);
   --drawer-enter-duration: var(--inteliscope-motion-deliberate);
   --drawer-exit-duration: var(--inteliscope-motion-standard);
@@ -58,6 +61,35 @@
   background: var(--background);
   color: var(--foreground);
   font-family: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.inteliscope-design-system :where(.tabs__list-container) {
+  border-radius: var(--inteliscope-radius-card);
+}
+
+.inteliscope-design-system :where(.table-root--primary) {
+  border-radius: var(--inteliscope-radius-panel);
+}
+
+.inteliscope-design-system :where(
+  .tabs__list-container__scroll-prev,
+  .tabs__list-container__scroll-next
+) {
+  border-radius: var(--inteliscope-radius-compact);
+}
+
+.inteliscope-design-system *,
+.inteliscope-design-system *::before,
+.inteliscope-design-system *::after {
+  animation-duration: var(--inteliscope-motion-deliberate) !important;
+  transition-duration: var(--inteliscope-motion-standard) !important;
+}
+
+::view-transition-new(.toast-bottom):only-child,
+::view-transition-old(.toast-bottom):only-child,
+::view-transition-new(.toast-top):only-child,
+::view-transition-old(.toast-top):only-child {
+  animation-duration: var(--inteliscope-motion-deliberate) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -69,5 +101,12 @@
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+
+  ::view-transition-new(.toast-bottom):only-child,
+  ::view-transition-old(.toast-bottom):only-child,
+  ::view-transition-new(.toast-top):only-child,
+  ::view-transition-old(.toast-top):only-child {
+    animation-duration: 1ms !important;
   }
 }
