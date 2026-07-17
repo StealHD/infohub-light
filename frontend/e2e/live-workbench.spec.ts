@@ -10,7 +10,7 @@ const items = Array.from({ length: 200 }, (_, index) => ({
   published_at: new Date(Date.UTC(2026, 6, 1, 0, index)).toISOString(),
   channel: index % 2 ? 'AI' : '开发',
   topics: ['Codex'],
-  user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+  user_state: { is_read: index % 3 === 0, is_saved: false, is_later: false, dismissed: false },
 }))
 const rollingItem = {
   ...items.at(-1)!,
@@ -20,6 +20,15 @@ const rollingItem = {
   summary_zh: '固定长度窗口中的新内容',
   published_at: '2026-07-01T04:00:00.000Z',
 }
+const batchRollingItems = Array.from({ length: 80 }, (_, index) => ({
+  ...items.at(-1)!,
+  id: `live-${201 + index}`,
+  title: `实时条目 ${201 + index}`,
+  url: `https://example.com/live-${201 + index}`,
+  source: index % 2 ? 'OpenAI Blog' : 'GitHub',
+  published_at: new Date(Date.UTC(2026, 6, 1, 4, index)).toISOString(),
+  user_state: { is_read: index % 3 === 0, is_saved: false, is_later: false, dismissed: false },
+}))
 
 async function topVisibleSnapshot(page: Page) {
   const feedScroll = page.getByTestId('workbench-feed-scroll')
@@ -42,7 +51,10 @@ test.beforeEach(async ({ page }) => {
     const url = new URL(route.request().url())
     let data: unknown
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } }
-    else if (url.pathname === '/api/feed/latest') data = { schema_version: 2, items: refreshCreated ? [...items.slice(1), rollingItem] : items }
+    else if (url.pathname === '/api/feed/latest') {
+      const batchMode = new URL(page.url()).searchParams.has('batch')
+      data = { schema_version: 2, items: refreshCreated ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem] : items }
+    }
     else if (url.pathname === '/api/jobs/user-feed-refresh' && route.request().method() === 'POST') {
       refreshCreated = true
       data = { id: 'refresh-1', user_id: 'e2e-user', job_type: 'user_feed_refresh', status: 'queued', created_at: '2026-07-17T04:00:00Z' }
@@ -227,4 +239,29 @@ test('a proven-stale initial deep link returns the real Feed viewport to the bot
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   const remaining = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
   expect(remaining).toBeLessThanOrEqual(96)
+})
+
+test('a filtered unread-first Feed restores an unmounted anchor with the rendered card index', async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem('inteliscope.ui.feed.v2:e2e-user', JSON.stringify({
+    unreadFirst: true,
+    source: 'GitHub',
+    channel: '',
+    topic: '',
+  })))
+  await page.goto('/__preview/workbench-live?batch=1')
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByText('未读优先')).toBeVisible()
+  await feedScroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await page.waitForTimeout(100)
+  await feedScroll.dispatchEvent('scroll')
+  const anchorBefore = await topVisibleSnapshot(page)
+  expect(anchorBefore.name).not.toBe('')
+
+  await page.getByRole('button', { name: '更新信息流' }).click()
+  await expect(page.getByRole('button', { name: '查看 80 条新内容' })).toBeVisible({ timeout: 7000 })
+  await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBefore.name)
+  await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBefore.offset)).toBeLessThanOrEqual(2)
 })

@@ -202,7 +202,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       const row = Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]'))
         .find((element) => element.dataset.itemId === anchor.id)
       if (!row) {
-        const index = sourceSignature.split('\u0000').indexOf(anchor.id)
+        const index = props.cards.findIndex((card) => card.id === anchor.id)
         if (index >= 0) virtualizer.scrollToIndex(index, { align: 'start' })
         if (remainingFrames-- > 0) frame = window.requestAnimationFrame(restore)
         return
@@ -214,7 +214,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
     restore()
     return () => window.cancelAnimationFrame(frame)
-  }, [sourceSignature, virtualizer])
+  }, [props.cards, sourceSignature, virtualizer])
 
   useLayoutEffect(() => {
     if (inlineScrollAnchor.current === null || !scrollRef.current) return

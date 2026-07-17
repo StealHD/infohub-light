@@ -6,6 +6,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
+import { queryKeys } from '../api/queryKeys'
 import type { ServiceApi } from '../api/service'
 import type { FeedItem } from '../api/types'
 import { AppRoutes } from './App'
@@ -54,8 +55,12 @@ function detailedItem(id: string, overrides: Partial<FeedItem> = {}): FeedItem {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => { resolve = next })
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((next, fail) => {
+    resolve = next
+    reject = fail
+  })
+  return { promise, resolve, reject }
 }
 
 describe('App routes', () => {
@@ -200,6 +205,46 @@ describe('App routes', () => {
     }
   })
 
+  it('keeps unread-first ordering when a selected detail bypasses exclusionary filters', async () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-live', JSON.stringify({ unreadFirst: true, source: 'matching-source', channel: '', topic: '' }))
+    const sourceItem = (id: string, title: string, published_at: string, is_read: boolean): FeedItem => ({
+      id,
+      title,
+      url: `https://example.com/${id}`,
+      source_id: 'matching-source',
+      published_at,
+      user_state: { is_read, is_saved: false, is_later: false, dismissed: false },
+    })
+    const detail = detailedItem('between-read', {
+      published_at: '2026-07-17T02:00:00Z',
+      user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
+    })
+    if (detail.presentation) detail.presentation.timing.published_at = '2026-07-17T02:00:00Z'
+    const api = liveApi({
+      latestFeed: vi.fn().mockResolvedValue({
+        schema_version: 2,
+        items: [
+          sourceItem('older-read', '较旧已读条目', '2026-07-17T01:00:00Z', true),
+          sourceItem('newer-unread', '较新未读条目', '2026-07-17T03:00:00Z', false),
+        ],
+      }),
+      feedItem: vi.fn().mockResolvedValue(detail),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=between-read']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      await screen.findByRole('article', { name: '详情标题 between-read' })
+      expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual([
+        '较新未读条目',
+        '较旧已读条目',
+        '详情标题 between-read',
+      ])
+    } finally {
+      window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
+    }
+  })
+
   it('keeps an expanded snapshot when detail 404 resolves before the source query', async () => {
     const latest = deferred<{ schema_version: number; items: FeedItem[] }>()
     const api = liveApi({
@@ -218,6 +263,37 @@ describe('App routes', () => {
     }))
     expect(await screen.findByRole('article', { name: '快照回退条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 快照回退条目' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
+  })
+
+  it('keeps a cached-missing selection while its active source refetch can still return the target', async () => {
+    const latest = deferred<{ schema_version: number; items: FeedItem[] }>()
+    const detail = deferred<FeedItem>()
+    const api = liveApi({
+      latestFeed: vi.fn().mockReturnValue(latest.promise),
+      feedItem: vi.fn().mockReturnValue(detail.promise),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(queryKeys.feed('user-live', { hideDismissed: false, unreadFirst: false }), {
+      schema_version: 2,
+      items: [{ id: 'cached-other', title: '缓存旧条目', url: 'https://example.com/cached-other', published_at: '2026-07-17T01:00:00Z' }],
+    })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+
+    await waitFor(() => {
+      expect(api.latestFeed).toHaveBeenCalled()
+      expect(api.feedItem).toHaveBeenCalled()
+    })
+    await act(async () => detail.reject(new ApiError(404, { code: 'not_found', message: '不存在' })))
+    expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
+    expect(screen.queryByText(/这条信息已不可用/)).not.toBeInTheDocument()
+
+    await act(async () => latest.resolve({
+      schema_version: 2,
+      items: [{ id: 'live-1', title: '后台刷新目标', url: 'https://example.com/live-1', published_at: '2026-07-17T02:00:00Z' }],
+    }))
+    expect(await screen.findByRole('article', { name: '后台刷新目标' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起 后台刷新目标' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
   })
 

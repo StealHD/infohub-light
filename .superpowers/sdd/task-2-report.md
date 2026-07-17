@@ -192,6 +192,46 @@ GREEN: 6/6 passed across desktop/tablet/mobile, covering strict top-card ID/rela
 - Delegation loading exposes one skeleton-only `aria-busy` status. Terminal text appears once.
 - Closing the desktop Agent unmounts the 360 px aside and switches the shell from three columns to two without losing the Feed position; reopening restores the third column.
 
+## Third review-fix appendix (2026-07-17)
+
+### RED commands and results
+
+```text
+npm test -- src/app/App.test.tsx -t 'cached-missing selection'
+RED: 1/1 failed — a cached-success Feed with an active background refetch removed `?item=live-1` immediately after detail 404, before the refetch returned the target.
+
+npm test -- src/app/App.test.tsx -t 'unread-first ordering'
+RED: 1/1 failed — pinning returned raw chronology `[较旧已读条目, selected, 较新未读条目]` instead of preserving unread-first order.
+
+npm run e2e -- e2e/live-workbench.spec.ts --project=desktop --grep 'filtered unread-first'
+RED: 1/1 failed — after a filtered/unread-first 80-row rolling replacement moved the anchor beyond overscan, fallback jumped from `实时条目 147` to raw-source-index row `实时条目 277`.
+```
+
+### GREEN commands and results
+
+```text
+npm test -- src/app/App.test.tsx -t 'cached-missing selection|detail 404|proven-stale'
+GREEN: 3/3 selected tests passed.
+
+npm test -- src/app/App.test.tsx -t 'filter-pinned|unread-first ordering|persisted filters'
+GREEN: 3/3 selected tests passed.
+
+npm run e2e -- e2e/live-workbench.spec.ts --project=desktop --grep 'filtered unread-first'
+GREEN: 1/1 passed with the same anchor ID and a strict 2 px maximum relative-offset delta.
+
+npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build
+GREEN: UI contract passed; ESLint 0 errors with the pre-existing ActionFeedback Fast Refresh warning; TypeScript passed; Vitest 33 files / 152 tests passed; Vite build and preview exclusion passed.
+
+npm run e2e -- e2e/live-workbench.spec.ts
+GREEN: 9/9 passed across desktop/tablet/mobile, including the filtered unread-first fallback regression and Axe serious/critical zero.
+```
+
+### Third review-fix implementation notes
+
+- A 404 source proof now requires the active query to be both successful and not fetching; cached success cannot clear a target while its background refetch is unresolved.
+- The pin candidates still use `mergedItems.filter(matches || selected)`, then reapply only `filterFeedItems`' stable unread-first partition so exclusionary filters remain bypassed without discarding display order.
+- An unmounted virtual anchor falls back through `props.cards.findIndex`, the exact count/order consumed by TanStack Virtual, rather than raw source IDs.
+
 ## Final verification
 
 ```text
@@ -199,11 +239,11 @@ npm run check:ui && npm run lint && npm run typecheck && npm test && npm run bui
 UI contract: passed
 ESLint: 0 errors, 1 pre-existing Fast Refresh warning
 TypeScript: passed
-Vitest: 33 files / 150 tests passed
+Vitest: 33 files / 152 tests passed
 Vite production build and preview exclusion: passed
 
 npm run e2e -- e2e/live-workbench.spec.ts
-6/6 passed across desktop, tablet, and mobile; Axe serious/critical zero
+9/9 passed across desktop, tablet, and mobile; Axe serious/critical zero
 
 npm run e2e -- e2e/design-system-contract.spec.ts --project=desktop -g 'real Modal and Tooltip portals'
 1/1 passed; portal theme acquisition/release contract preserved
@@ -213,5 +253,5 @@ python3 -m json.tool project-defaults.yaml
 Both hygiene checks passed
 
 python3 scripts/test_gate.py run --mode full
-22/22 commands passed; mapping_miss=false; 57.375s
+22/22 commands passed; mapping_miss=false; 53.140s
 ```

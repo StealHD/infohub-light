@@ -928,3 +928,11 @@
 - 结果：404 仅在 active source 成功且确证缺失后清理；真实缺失深链回到底部区；筛选钉选保持时序；固定长度窗口严格保持 top-visible ID 与 ≤2px 相对偏移；桌面 Agent 关闭卸载 360px 空栏并保持 Feed，loading 只显示 skeleton busy 状态
 - 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
 - 控制面变更：无；未修改 backend/API/query key/权限/Remote MCP/MUI 与 Task 3 边界
+
+### 2026-07-17 15:22 Codex
+- 任务：修复 Task 2 三次评审发现的 cached-success 404 竞态、pin/unread-first 排序与过滤态虚拟 fallback 索引问题
+- 修改文件：`HeroWorkbenchPage`、`VirtualFeed`、App/三视口 Playwright 回归与 Task 2 报告
+- 执行验证：三项 focused RED→GREEN；全量 Vitest 33 文件/152 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Playwright/Axe 9 项均通过；最终 `test_gate full` 22/22、`mapping_miss=false`、53.140 秒
+- 结果：404 仅在 active source 成功且停止 fetching 后确证缺失；钉选详情绕过排除筛选但保持 unread-first 稳定分组；未挂载锚点按 `props.cards` 的真实虚拟顺序恢复并严格保持 ID/≤2px 偏移
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
+- 控制面变更：无；未修改 backend/API/query key/权限/Remote MCP/MUI 与 Task 3 边界
