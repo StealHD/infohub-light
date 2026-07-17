@@ -992,3 +992,11 @@
 - 结果：显式导航统一清除旧 viewport fallback，刷新响应在 rail click 后 microtask 内返回也不能抢回旧锚点；真实 Vite preview-story bundle、`.Mui-disabled` 产物、动态 CSS Module 与现代 CSS 色彩均由实际 checker 失败，负向覆盖不再依赖源码字符串或可独立 tree-shake 标记
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或正式门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 23:44 Codex
+- 任务：修复 Task 4 终审发现的列表缩短后 progress rail 待导航索引没有同步截断，导致后续卡片更新可能重新抢占滚动位置
+- 修改文件：`VirtualFeed`、导航纯函数及其 Vitest、生产工作台 Playwright、Task 4 报告与本工作日志
+- 执行验证：RED→GREEN 导航索引截断测试；关键桌面竞态 4/4；UI contract、lint、TypeScript、Vitest 29 文件/167 项、build/artifact、三视口 Playwright、Python API 69 项、`test_gate full`、三份 Compose config 与 `git diff --check` 均通过
+- 结果：高索引 rail target 在 200→50 收缩时写回真实末项索引；抵达后可释放 ownership，后续 dismissed 卡片更新不会跳回旧目标
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

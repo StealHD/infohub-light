@@ -175,3 +175,39 @@ npm run e2e
 git diff --check
 PASS
 ```
+
+## Final review follow-up: clamped navigation ownership
+
+- A refresh can replace 200 cards with 50 while a progress-rail action still refers to a former high index. The navigation target is now clamped once against the committed list and the clamped index is written back to `pendingNavigation`; arriving at the real final item can therefore clear ownership instead of retaining an unreachable pre-refresh index.
+- Added a pure RED→GREEN regression for the navigation state transition and a production-browser scenario: request a refresh, jump to the former 182nd item in the same event loop, commit a 50-item response, then dismiss a top card. The later card update remains at the intended viewport rather than reclaiming the obsolete target.
+
+Final follow-up verification:
+
+```text
+npm run check:ui / lint / typecheck
+PASS
+
+npm test -- --reporter=dot
+29 files / 167 tests passed
+
+npm run build
+PASS; production artifact scan passed
+(Vite retains the informational >500 kB chunk warning.)
+
+npm run e2e
+51 scheduled across desktop, tablet, and mobile; passed with the new desktop-only rail regression
+
+.venv/bin/python -m pytest -q tests/test_api_service.py tests/test_react_service_ui.py
+69 passed
+
+.venv/bin/python scripts/test_gate.py run --mode full
+PASS
+
+docker compose -f docker-compose.yml config --quiet
+docker compose -f docker-compose.light.yml config --quiet
+docker compose -f docker-compose.test-gate.yml config --quiet
+PASS
+
+git diff --check
+PASS
+```

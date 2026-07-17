@@ -12,6 +12,7 @@ import {
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { sampleTickIndexes, type WorkbenchCardModel } from './workbenchModel'
+import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 
 type ItemStateAction = 'is_read' | 'dismissed'
@@ -33,7 +34,6 @@ const collapsedEstimate = 156
 const expandedEstimate = 390
 
 type ViewportAnchor = { id: string; offset: number }
-type PendingNavigation = { index: number; align: 'start' | 'center' | 'end' }
 
 function readViewportAnchor(scroll: HTMLDivElement): ViewportAnchor | null {
   const bounds = scroll.getBoundingClientRect()
@@ -246,9 +246,10 @@ export function VirtualFeed(props: VirtualFeedProps) {
     if (navigation) {
       requestedRefreshAnchor.current = null
       const frame = window.requestAnimationFrame(() => {
-        const index = Math.max(0, Math.min(navigation.index, cardsRef.current.length - 1))
-        if (index === 0 && scrollRef.current) scrollRef.current.scrollTop = 0
-        else virtualizerRef.current.scrollToIndex(index, { align: navigation.align })
+        const target = clampPendingNavigation(navigation, cardsRef.current.length)
+        pendingNavigation.current = target
+        if (target.index === 0 && scrollRef.current) scrollRef.current.scrollTop = 0
+        else virtualizerRef.current.scrollToIndex(target.index, { align: target.align })
       })
       return () => window.cancelAnimationFrame(frame)
     }
