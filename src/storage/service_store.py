@@ -1773,6 +1773,43 @@ class ServiceStore:
             "expires_at": row["expires_at"],
         }
 
+    def get_active_agent_delegation_principal(
+        self,
+        delegation_id: str,
+    ) -> dict[str, Any] | None:
+        """Re-read one delegation's live authorization state without its token.
+
+        Proposal services use this after bearer-token verification so role,
+        user status, revocation, expiry, and persisted scopes cannot be frozen
+        into an earlier request claim or replaced by caller-provided fields.
+        This read intentionally does not touch ``last_used_at``.
+        """
+
+        now = _now_iso()
+        row = self.connect().execute(
+            """
+            SELECT delegation.*, users.role
+            FROM agent_delegations AS delegation
+            JOIN users ON users.id = delegation.user_id
+            WHERE delegation.id = ?
+              AND delegation.revoked_at IS NULL
+              AND delegation.expires_at > ?
+              AND users.enabled = 1
+              AND users.workspace_id = delegation.workspace_id
+            """,
+            (str(delegation_id), now),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "delegation_id": row["id"],
+            "workspace_id": row["workspace_id"],
+            "user_id": row["user_id"],
+            "role": row["role"],
+            "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
+            "expires_at": row["expires_at"],
+        }
+
     def create_agent_change_proposal(
         self,
         *,

@@ -924,6 +924,42 @@ def get_source_setup_guide(
     }
 
 
+def catalog_source_matches_agent_type(
+    source_type: str,
+    source: dict[str, Any],
+) -> bool:
+    """Match a safe discovery filter to the registry's public Agent type.
+
+    Several public setup types deliberately share one internal catalog type.
+    Keep that mapping owned by this registry instead of making MCP adapters
+    duplicate it.  Managed X is the only Apify subset with a narrower public
+    identity; the generic ``apify`` filter covers every managed Apify row.
+    """
+
+    definition = _AGENT_BY_TYPE.get(str(source_type))
+    if definition is None:
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    if source.get("type") != definition.catalog_source_type:
+        return False
+    config = source.get("config")
+    if source_type == "twitter":
+        return bool(
+            isinstance(config, dict)
+            and config.get("platform") == "x"
+            and config.get("kind") == "profile"
+            and isinstance(config.get("target"), str)
+            and config.get("target")
+        )
+    if source_type == "youtube":
+        if not isinstance(config, dict) or not isinstance(config.get("url"), str):
+            return False
+        try:
+            normalize_source_setup_input("youtube", {"url": config["url"]})
+        except SourceConfigError:
+            return False
+    return True
+
+
 def _safe_urlparse(value: str) -> Any:
     """Parse untrusted URL-shaped text under the public SourceConfigError contract."""
 

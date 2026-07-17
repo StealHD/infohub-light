@@ -1025,3 +1025,11 @@
 - 结果：scope 使用专用 512 字符、四层 JSON 容器上限解析器；原始值仅接受 `str`，BLOB（含可解码 JSON）、损坏/超长/过深/非 list/未知/重复值全部投影空 scope，GET 稳定 200，MCP 缺 read scope 返回 403
 - 未解决问题：无；未修改通用 `_json_loads()`，未实现 Task 5+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现 Task 5 安全来源发现与 prepare-only 订阅变更提案
+- 修改文件：proposal service、Remote MCP subscription facade、source type discovery mapping、live delegation principal、Task 5 回归、`.superpowers/sdd/task-5-report.md`、`WORKLOG.md`
+- 执行验证：新测试先因两个 Task 5 模块不存在按预期 RED；GREEN 15 项、指定 focused 252 项、Python compile、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：动态 flag/scope/live role/actor binding 在 planner 前失败关闭；v2 snapshot、store 权威 UTC 10 分钟、confirmation hash-only 与 proposal limit 完成；发现仅投影当前用户可见来源并限制 secret checker 与 managed Apify
+- 未解决问题：Task 6 仍需实现 atomic apply/stale/single-use；本任务未实现 apply、MCP 工具注册、server wiring 或 UI
+- 控制面变更：无；仅新增内部 Task 5 服务边界，外部 MCP/API 合同由后续统一任务更新
