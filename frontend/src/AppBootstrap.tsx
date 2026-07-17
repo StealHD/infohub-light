@@ -7,6 +7,7 @@ import { createServiceApi } from './api/service'
 import type { AuthStatus } from './api/types'
 import { AppRoutes } from './app/App'
 import { clearUserCache } from './app/sessionCache'
+import { DesignSystemRouterProvider } from './design-system/DesignSystemRouterProvider'
 import { UiProvider } from './ui'
 import './styles/global.css'
 
@@ -30,7 +31,9 @@ const api = createServiceApi(client)
 export function AppBootstrap() {
   return <UiProvider>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter><AppRoutes api={api} /></BrowserRouter>
+      <BrowserRouter>
+        <DesignSystemRouterProvider><AppRoutes api={api} /></DesignSystemRouterProvider>
+      </BrowserRouter>
     </QueryClientProvider>
   </UiProvider>
 }

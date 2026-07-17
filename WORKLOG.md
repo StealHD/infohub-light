@@ -880,3 +880,11 @@
 - 结果：HeroUI 路由在应用根入口提前分流，不进入 MUI、认证、Query Client、API 或生产全局 CSS；实现卡片展开、收藏、搜索、短刻度、新内容、最多 8 条 Agent 上下文和确定性交接复制；平板覆盖面板、手机 Bottom Sheet、Escape/关闭按钮焦点归还和 Reduced Motion 均已验证
 - 未解决问题：当前仍为固定净化数据的视觉原型；等待用户与 MUI 版对比确认后，才决定是否采用 HeroUI 生产迁移或仅提取视觉语言
 - 控制面变更：新增 D026；UI_CONTRACT 明确 HeroUI 原型边界、组件要求、生产排除与视觉验收门禁
+
+### 2026-07-17 11:46 Codex
+- 任务：建立 HeroUI 正式设计系统与应用 bootstrap 边界，不迁移业务页或移除 MUI
+- 修改文件：新增 `frontend/src/design-system/**`、Router bridge 与静态导入契约测试；更新 `AppBootstrap`、UI/Decision 合同和全站迁移计划
+- 执行验证：TDD RED→GREEN；最终 Vitest 29 文件/116 项、UI contract、TypeScript、Vite build 与 preview exclusion 通过；ESLint 0 error、保留既有 1 warning
+- 结果：正式业务只能经 design-system 使用 HeroUI；固定数据原型保留直接导入例外；QueryClient、认证、ServiceApi 与现有 MUI 页面边界不变
+- 未解决问题：既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning 不属于本任务
+- 控制面变更：新增 D027；UI_CONTRACT 固化 HeroUI 生产迁移边界与渐进 bootstrap

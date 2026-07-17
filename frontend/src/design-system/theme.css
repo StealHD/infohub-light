@@ -1,0 +1,73 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@fontsource-variable/noto-sans-sc/wght.css";
+
+.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] {
+  color-scheme: dark;
+  --background: oklch(0.14 0.008 286);
+  --foreground: oklch(0.94 0.005 286);
+  --surface: oklch(0.18 0.008 286);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.215 0.009 286);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.25 0.01 286);
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: var(--surface-tertiary);
+  --overlay-foreground: var(--foreground);
+  --accent: oklch(0.72 0.12 292);
+  --accent-foreground: oklch(0.16 0.018 292);
+  --muted: oklch(0.68 0.012 286);
+  --default: oklch(0.265 0.009 286);
+  --default-foreground: var(--foreground);
+  --field-background: var(--surface);
+  --field-foreground: var(--foreground);
+  --field-border: oklch(0.33 0.012 286);
+  --field-border-width: 1px;
+  --border: oklch(0.31 0.011 286);
+  --separator: oklch(0.27 0.009 286);
+  --focus: var(--accent);
+  --link: oklch(0.79 0.09 292);
+  --surface-shadow: 0 1px 2px oklch(0.05 0.005 286 / 0.32);
+  --overlay-shadow: 0 16px 40px oklch(0.05 0.005 286 / 0.48);
+  --field-shadow: none;
+
+  --inteliscope-radius-panel: 16px;
+  --inteliscope-radius-card: 14px;
+  --inteliscope-radius-control: 10px;
+  --inteliscope-radius-compact: 8px;
+  --radius: var(--inteliscope-radius-compact);
+  --radius-xs: var(--inteliscope-radius-compact);
+  --radius-sm: var(--inteliscope-radius-compact);
+  --radius-md: var(--inteliscope-radius-compact);
+  --radius-lg: var(--inteliscope-radius-compact);
+  --radius-xl: var(--inteliscope-radius-control);
+  --radius-2xl: var(--inteliscope-radius-card);
+  --radius-3xl: var(--inteliscope-radius-panel);
+  --radius-4xl: var(--inteliscope-radius-panel);
+  --field-radius: var(--inteliscope-radius-control);
+
+  --inteliscope-motion-fast: 120ms;
+  --inteliscope-motion-standard: 160ms;
+  --inteliscope-motion-deliberate: 220ms;
+  --default-transition-duration: var(--inteliscope-motion-standard);
+  --drawer-enter-duration: var(--inteliscope-motion-deliberate);
+  --drawer-exit-duration: var(--inteliscope-motion-standard);
+
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inteliscope-design-system,
+  .inteliscope-design-system *,
+  .inteliscope-design-system *::before,
+  .inteliscope-design-system *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

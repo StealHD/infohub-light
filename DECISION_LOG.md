@@ -234,3 +234,11 @@
 - 决策内容：新增开发专用 `/__preview/workbench-heroui`，实际使用 HeroUI v3.2.2 与 Tailwind v4.3.3；它和 MUI 原型共用固定信息、导航与 OpenClaw 交接模型，但拥有独立主题、样式入口和渲染根。HeroUI 不进入认证、Query Client、API 或生产构建，也不允许在生产业务页面直接导入。
 - 原因：用户认可 HeroUI 的卡片、胶囊控件、焦点环和按压反馈，需要以真实组件验证整体观感；并行候选比只模仿视觉语言更能公平判断组件体系，同时避免在视觉方向确认前改写现有生产 UI。
 - 兼容/回退：原 `/__preview/workbench` 保持可用，默认 UI、API、Query Key、权限和数据均不变。选择 HeroUI 视觉方向不等于授权生产迁移；后续迁移必须另行确定范围、回滚和真实数据验收。
+
+### D027 HeroUI 生产迁移采用单一设计系统边界与渐进 bootstrap
+
+- 决策日期：2026-07-17
+- 当前状态：设计系统与应用边界已建立，业务页面尚未迁移
+- 决策内容：`frontend/src/design-system/**` 集中拥有 HeroUI v3 组件、表单能力、Lucide 图标、石墨紫主题与 React Router 导航桥接；正式业务代码只能通过该边界使用 HeroUI。固定数据 HeroUI 原型是唯一可直接导入 `@heroui/*` 的 feature 例外。
+- 原因：HeroUI 方向进入正式迁移后，需要先固定组件、主题和 SPA 导航合同，再分批迁移真实页面；直接在业务页散落库导入会使主题、可访问性和最终依赖清理无法统一验证。
+- 兼容/回退：本阶段只在现有 authenticated bootstrap 中增加无 DOM 的 HeroUI Router bridge，保留 MUI provider、Query Client、认证、`ServiceApi`、API 与 Query Key；旧页面不套用新暗色主题，也不删除 MUI。原型继续由开发入口隔离，生产构建排除原型本身。
