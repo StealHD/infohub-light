@@ -85,6 +85,10 @@ class AgentProposalAuthorizationError(ValueError):
     """A proposal write no longer has an active writable principal."""
 
 
+class AgentProposalExpiredTransitionError(ValueError):
+    """An apply transition reached the authoritative expiry boundary."""
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -343,6 +347,11 @@ class ServiceStore:
             with self._connections_lock:
                 self._connections.append(connection)
         return connection
+
+    def authoritative_agent_proposal_time(self) -> datetime:
+        """Return the store-owned UTC clock for proposal state transitions."""
+
+        return _authoritative_proposal_time()
 
     @contextmanager
     def request_connection_scope(self) -> Iterator[None]:
@@ -1952,12 +1961,15 @@ class ServiceStore:
         now: str,
         commit: bool = True,
     ) -> dict[str, Any] | None:
-        now_iso = _parse_proposal_time(now).isoformat()
+        # Retain the argument for the existing store interface, but never use a
+        # caller-selected timestamp to decide proposal eligibility.
+        _parse_proposal_time(now)
         conn = self.connect()
         started_transaction = bool(commit and not conn.in_transaction)
         try:
             if started_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            now_iso = self.authoritative_agent_proposal_time().isoformat()
             conn.execute(
                 """
                 UPDATE agent_change_proposals
@@ -2011,11 +2023,16 @@ class ServiceStore:
             )
             if cursor.rowcount != 1:
                 existing = conn.execute(
-                    "SELECT 1 FROM agent_change_proposals WHERE id = ?",
+                    "SELECT status, expires_at FROM agent_change_proposals WHERE id = ?",
                     (proposal_id,),
                 ).fetchone()
                 if existing is None:
                     raise LookupError("proposal not found")
+                if (
+                    existing["status"] == "pending"
+                    and existing["expires_at"] <= applied_iso
+                ):
+                    raise AgentProposalExpiredTransitionError("proposal expired")
                 raise ValueError("proposal is not pending")
             row = conn.execute(
                 "SELECT * FROM agent_change_proposals WHERE id = ?",

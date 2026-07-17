@@ -735,7 +735,7 @@ git commit -m "feat: prepare subscription change proposals"
 - Consumes: Pending proposal rows and `SubscriptionMutationService.apply_plan()`.
 - Produces: `apply_subscription_change()` with exact confirmation, delegation isolation, expiry, stale detection, atomic proposal consumption, and safe result summary.
 
-- [ ] **Step 1: Add failing apply lifecycle and concurrency tests**
+- [x] **Step 1: Add failing apply lifecycle and concurrency tests**
 
 ```python
 def test_apply_requires_exact_phrase_and_does_not_consume_on_failure(service, prepared):
@@ -766,13 +766,13 @@ def test_concurrent_apply_has_exactly_one_business_write(service, prepared):
 
 Add cases for exact 10-minute boundary, cross-user, cross-delegation, revoked/expired delegation, role downgrade, feature flag change, target `updated_at` change, source-key collision, quota change, and mutation exception rollback.
 
-- [ ] **Step 2: Run apply tests and verify RED**
+- [x] **Step 2: Run apply tests and verify RED**
 
 Run: `pytest tests/test_remote_mcp_subscription_service.py tests/test_agent_change_proposals.py -q`
 
 Expected: FAIL because apply is absent.
 
-- [ ] **Step 3: Implement apply with all checks inside one immediate transaction**
+- [x] **Step 3: Implement apply with all checks inside one immediate transaction**
 
 ```python
 def apply(self, actor: DelegatedActor, *, proposal_id: str, confirmation_text: str) -> dict[str, Any]:
@@ -829,17 +829,17 @@ def apply(self, actor: DelegatedActor, *, proposal_id: str, confirmation_text: s
 
 On expiry, commit only the proposal status change, discard the collector, then return `proposal_expired`; on every other rejection/exception, roll back and discard. A successful outer commit is the only path that calls `cleanup.run()`. `_require_same_actor_pending()` maps absent or cross-scope IDs to `not_found`, applied to `proposal_consumed`, and expired to `proposal_expired`.
 
-- [ ] **Step 4: Re-authenticate current delegation state before applying**
+- [x] **Step 4: Re-authenticate current delegation state before applying**
 
 Add `ServiceStore.get_active_agent_delegation_principal(delegation_id)` and use it inside apply to confirm active token lifetime, enabled user, current role, and current scopes without needing the opaque token. Build a fresh `DelegatedActor`; do not trust role/scopes captured in the MCP request if they changed after initialize.
 
-- [ ] **Step 5: Run lifecycle, transaction, and concurrency tests**
+- [x] **Step 5: Run lifecycle, transaction, and concurrency tests**
 
 Run: `pytest tests/test_remote_mcp_subscription_service.py tests/test_agent_change_proposals.py tests/test_subscription_mutation_service.py -q`
 
 Expected: PASS; exactly one concurrent apply succeeds, stale/denied applies change no business rows, and failed mutations leave the proposal pending.
 
-- [ ] **Step 6: Commit atomic apply**
+- [x] **Step 6: Commit atomic apply**
 
 ```bash
 git add src/services/agent_change_proposal.py src/mcp/remote_subscription_service.py src/storage/service_store.py tests/test_remote_mcp_subscription_service.py tests/test_agent_change_proposals.py

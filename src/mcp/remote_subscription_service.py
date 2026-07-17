@@ -38,6 +38,7 @@ class RemoteMCPSubscriptionService:
         self.store = store
         self.mutations = mutations
         self.proposals = proposals
+        self.proposals.bind_mutations(mutations)
         self.secret_is_set = secret_is_set
 
     @staticmethod
@@ -230,3 +231,16 @@ class RemoteMCPSubscriptionService:
         except SubscriptionMutationError as exc:
             raise self._proposal_error(exc) from exc
         return self.proposals.prepare(live_actor, plan)
+
+    def apply_subscription_change(
+        self,
+        *,
+        actor: DelegatedActor,
+        proposal_id: str,
+        confirmation_text: str,
+    ) -> dict[str, Any]:
+        return self.proposals.apply(
+            actor,
+            proposal_id=proposal_id,
+            confirmation_text=confirmation_text,
+        )

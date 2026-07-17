@@ -1049,3 +1049,11 @@
 - 结果：existing create 在 planner 与 apply 均要求 enabled/visible，facade 后竞态不生成 proposal、plan 后禁用不能应用；8 项 public source type 在目录扫描前稳定校验；REST 专用 mutation 权限保持不变
 - 未解决问题：Task 6+ 未实现；本任务未新增内部 allow-disabled Agent 能力
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现 Task 6 proposal 原子 apply、过期/陈旧处理与单次并发消费
+- 修改文件：proposal service/facade、store 权威 transition、Task 6 回归、主实施计划、`.superpowers/sdd/task-6-report.md`、`WORKLOG.md`
+- 执行验证：新增 apply 17 项与 store clock 专项先按预期 RED；Task6/mutation 280 项、delegation/media 36 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：apply 自有 `BEGIN IMMEDIATE` 并在锁内重验动态 flag/scope/live principal；store UTC 10 分钟边界、time crossing 仅提交 expired、exact HMAC compare、v2 duplicate/stale、safe summary、post-commit cleanup 与 exactly-once 并发完成；所有非 expiry 失败保持 pending 且业务零变化
+- 未解决问题：Task 7+、MCP 工具注册/server wiring、UI/Skill 与生产启用仍未实现
+- 控制面变更：仅勾选既有主实施计划 Task 6 执行状态；未改变对外 API/架构/UI 合同

@@ -857,7 +857,7 @@ def test_create_expires_elapsed_rows_and_only_prunes_old_rows_for_same_delegatio
 
 
 def test_proposal_status_changes_are_legal_and_respect_transaction_ownership(
-    store, delegation
+    store, delegation, proposal_clock
 ):
     connection = store.connect()
     store.create_agent_change_proposal(**proposal_values(delegation, 1))
@@ -875,8 +875,9 @@ def test_proposal_status_changes_are_legal_and_respect_transaction_ownership(
     connection.rollback()
     assert store.get_agent_change_proposal("agp_1")["status"] == "pending"
 
+    proposal_clock[0] = NOW + timedelta(minutes=10)
     expired = store.expire_agent_change_proposal(
-        "agp_1", now=(NOW + timedelta(minutes=10)).isoformat()
+        "agp_1", now=(NOW - timedelta(days=30)).isoformat()
     )
     assert expired["status"] == "expired"
     assert store.expire_agent_change_proposal(
@@ -890,13 +891,34 @@ def test_proposal_status_changes_are_legal_and_respect_transaction_ownership(
         )
 
 
+def test_expire_transition_uses_authoritative_store_clock_not_caller_time(
+    store, delegation, proposal_clock
+):
+    store.create_agent_change_proposal(**proposal_values(delegation, 1))
+
+    still_pending = store.expire_agent_change_proposal(
+        "agp_1", now=(NOW + timedelta(days=365)).isoformat()
+    )
+    assert still_pending["status"] == "pending"
+
+    proposal_clock[0] = NOW + timedelta(minutes=10)
+    expired = store.expire_agent_change_proposal(
+        "agp_1", now=(NOW - timedelta(days=365)).isoformat()
+    )
+    assert expired["status"] == "expired"
+    assert expired["updated_at"] == (NOW + timedelta(minutes=10)).isoformat()
+
+
 def test_backdated_applied_at_cannot_apply_a_really_expired_proposal(
     store, delegation, proposal_clock
 ):
     store.create_agent_change_proposal(**proposal_values(delegation, 1))
     proposal_clock[0] = NOW + timedelta(minutes=11)
 
-    with pytest.raises(ValueError, match="proposal is not pending"):
+    with pytest.raises(
+        service_store.AgentProposalExpiredTransitionError,
+        match="proposal expired",
+    ):
         store.apply_agent_change_proposal(
             "agp_1",
             applied_at=(NOW + timedelta(minutes=1)).isoformat(),
