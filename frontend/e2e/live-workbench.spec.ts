@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const items = Array.from({ length: 200 }, (_, index) => ({
   id: `live-${index + 1}`,
@@ -19,6 +19,21 @@ const rollingItem = {
   url: 'https://example.com/live-201',
   summary_zh: '固定长度窗口中的新内容',
   published_at: '2026-07-01T04:00:00.000Z',
+}
+
+async function topVisibleSnapshot(page: Page) {
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  return page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollElement) => {
+    const bounds = (scrollElement as HTMLElement).getBoundingClientRect()
+    const visible = cards
+      .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
+      .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)
+    const top = visible[0]
+    return {
+      name: top?.getAttribute('aria-label') ?? '',
+      offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
+    }
+  }, await feedScroll.elementHandle())
 }
 
 test.beforeEach(async ({ page }) => {
@@ -41,7 +56,14 @@ test.beforeEach(async ({ page }) => {
       max_active: 5,
       connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
-    else if (url.pathname.startsWith('/api/feed/items/')) data = [...items, rollingItem].find((item) => item.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
+    else if (url.pathname.startsWith('/api/feed/items/')) {
+      const item = [...items, rollingItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
+      if (!item) {
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: 'not found' } }) })
+        return
+      }
+      data = item
+    }
     else {
       await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: 'not found' } }) })
       return
@@ -80,6 +102,23 @@ test('live HeroUI workbench preserves responsive shell, virtualization and Agent
 
     await page.setViewportSize({ width: 1280, height: 800 })
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
+    expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
+
+    const desktopFeed = page.getByTestId('workbench-feed-scroll')
+    const bottomDistance = () => desktopFeed.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+    await desktopFeed.evaluate((element) => {
+      element.scrollTop = element.scrollHeight - element.clientHeight
+      element.dispatchEvent(new Event('scroll'))
+    })
+    expect(await bottomDistance()).toBeLessThanOrEqual(2)
+    await page.getByRole('button', { name: '收起 Agent 面板' }).click()
+    await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveCount(0)
+    expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(2)
+    await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '关闭 Agent 面板' })).toHaveCount(0)
+    expect(await bottomDistance()).toBeLessThanOrEqual(96)
+    await page.getByRole('button', { name: '展开 Agent 面板' }).click()
+    await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeVisible()
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
   } else {
     const toggle = page.getByRole('button', { name: '展开 Agent 面板' })
@@ -154,8 +193,12 @@ test('live HeroUI workbench preserves responsive shell, virtualization and Agent
   expect(topVisibleAfter).toBe(anchorName)
   await card.getByRole('button', { name: `将 ${anchorName} 加入 Agent 上下文` }).click()
 
+  const rollingAnchorBefore = await topVisibleSnapshot(page)
   await page.getByRole('button', { name: '更新信息流' }).click()
   await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible({ timeout: 7000 })
+  const rollingAnchorAfter = await topVisibleSnapshot(page)
+  expect(rollingAnchorAfter.name).toBe(rollingAnchorBefore.name)
+  expect(Math.abs(rollingAnchorAfter.offset - rollingAnchorBefore.offset)).toBeLessThanOrEqual(2)
   await feedScroll.evaluate((element) => {
     element.scrollTop = element.scrollHeight - element.clientHeight
     element.dispatchEvent(new Event('scroll'))
@@ -175,4 +218,13 @@ test('live HeroUI workbench preserves responsive shell, virtualization and Agent
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('a proven-stale initial deep link returns the real Feed viewport to the bottom', async ({ page }) => {
+  await page.goto('/__preview/workbench-live?item=missing')
+  await expect(page.getByText(/这条信息已不可用/)).toBeVisible()
+  await expect(page).toHaveURL('/__preview/workbench-live')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  const remaining = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+  expect(remaining).toBeLessThanOrEqual(96)
 })

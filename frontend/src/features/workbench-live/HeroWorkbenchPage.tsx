@@ -42,6 +42,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     saved: savedQuery.data,
     history: historyQuery.data,
   }), [feedQuery.data, historyQuery.data, kind, savedQuery.data])
+  const sourceQuerySucceeded = kind === 'feed' ? feedQuery.isSuccess : kind === 'saved' ? savedQuery.isSuccess : historyQuery.isSuccess
+  const selectedInSource = Boolean(selectedId && sourceItems.some((item) => item.id === selectedId))
   const detailQuery = useQuery({
     queryKey: queryKeys.feedItem(user.id, selectedId || ''),
     queryFn: ({ signal }) => api.feedItem(selectedId!, signal),
@@ -56,14 +58,14 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [location.pathname, location.search, navigate, params])
 
   useEffect(() => {
-    if (!detailQuery.isError || !(detailQuery.error instanceof ApiError) || detailQuery.error.status !== 404) return
+    if (!detailQuery.isError || !(detailQuery.error instanceof ApiError) || detailQuery.error.status !== 404 || !sourceQuerySucceeded || selectedInSource) return
     const next = new URLSearchParams(params)
     next.delete('item')
     navigate({ pathname: location.pathname, search: next.toString() ? `?${next.toString()}` : '' }, {
       replace: true,
       state: { ...(location.state as object | null), staleItem: true },
     })
-  }, [detailQuery.error, detailQuery.isError, location.pathname, location.state, navigate, params])
+  }, [detailQuery.error, detailQuery.isError, location.pathname, location.state, navigate, params, selectedInSource, sourceQuerySucceeded])
 
   const mergedItems = useMemo(() => mergeDeepLinkedItem(sourceItems, detailQuery.data), [detailQuery.data, sourceItems])
   const filteredItems = useMemo(() => {
@@ -80,9 +82,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     )
     if (!selectedId || !detailQuery.data) return matching
     const matchingIds = new Set(matching.map((item) => item.id))
-    if (matchingIds.has(selectedId)) return matching
-    const selectedItem = mergedItems.find((item) => item.id === selectedId)
-    return selectedItem ? [...matching, selectedItem] : matching
+    return mergedItems.filter((item) => matchingIds.has(item.id) || item.id === selectedId)
   }, [detailQuery.data, mergedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
@@ -158,7 +158,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       cards={cards}
       sourceItemIds={sourceItemIds}
       expandedId={selectedId}
-      navigationTargetId={initialNavigationTargetId}
+      navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
       contextIds={agent.draft.itemIds}
       readonly={user.role === 'viewer'}
       onToggleExpanded={toggleExpanded}

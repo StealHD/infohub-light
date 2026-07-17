@@ -64,7 +64,7 @@ function initialMobile() {
     : false
 }
 
-type AgentStatus = '检查中' | '已配置' | '未配置' | '检查失败'
+type AgentStatus = '已配置' | '未配置' | '检查失败'
 
 function AgentPanelContent({
   open,
@@ -74,7 +74,7 @@ function AgentPanelContent({
 }: {
   open: boolean
   onClose: () => void
-  status: AgentStatus
+  status?: AgentStatus
   value: WorkbenchAgentContextValue
 }) {
   const [notice, setNotice] = useState('')
@@ -92,9 +92,9 @@ function AgentPanelContent({
     <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
       <Icons.Sparkles size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 上下文</strong>
-      {status === '检查中'
-        ? <span role="status" className="flex items-center gap-1.5 text-xs text-muted"><Skeleton className="h-4 w-8 rounded-lg" />检查中</span>
-        : <Chip size="sm" color={status === '已配置' ? 'accent' : 'default'} variant="primary"><Chip.Label>{status}</Chip.Label></Chip>}
+      {status
+        ? <Chip size="sm" color={status === '已配置' ? 'accent' : 'default'} variant="primary"><Chip.Label>{status}</Chip.Label></Chip>
+        : <span role="status" aria-busy="true" aria-label="正在检查 Agent 连接"><Skeleton className="h-4 w-8 rounded-lg" /></span>}
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>
@@ -144,8 +144,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
   const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false })
-  const agentStatus: AgentStatus = delegations.isLoading
-    ? '检查中'
+  const agentStatus: AgentStatus | undefined = delegations.isLoading
+    ? undefined
     : delegations.isError
     ? '检查失败'
     : delegations.data?.enabled && delegations.data.connections.some((connection) => connection.status === 'active')
@@ -154,6 +154,9 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running'
   const noticeKey = props.refreshEventKey || `${props.refreshState}:${props.refreshMessage ?? ''}`
   const noticeOpen = Boolean(props.refreshMessage) && !refreshing && dismissedNotice !== noticeKey
+  const desktopGridColumns = wideDesktop && agentOpen
+    ? 'min-[1200px]:grid-cols-[72px_minmax(640px,1fr)_360px] min-[1360px]:grid-cols-[232px_minmax(640px,1fr)_360px]'
+    : 'min-[1200px]:grid-cols-[72px_minmax(0,1fr)] min-[1360px]:grid-cols-[232px_minmax(0,1fr)]'
 
   const persistDraft = useCallback((next: AgentContextDraftV1) => {
     setDraft(writeAgentContextDraft(props.user.id, next))
@@ -210,7 +213,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     <WorkbenchAgentContext.Provider value={agentValue}>
       <div
         data-testid="live-workbench-shell"
-        className="grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] min-[1200px]:grid-cols-[72px_minmax(640px,1fr)_360px] min-[1360px]:grid-cols-[232px_minmax(640px,1fr)_360px]"
+        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`}
       >
         <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
           <div className="flex h-[52px] items-center px-3 font-semibold min-[1360px]:px-5"><span className="min-[1360px]:hidden">I</span><span className="hidden min-[1360px]:inline">Inteliscope</span></div>
@@ -265,7 +268,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           {props.children}
         </main>
 
-        {wideDesktop ? <aside
+        {wideDesktop ? agentOpen && <aside
           id="live-agent-panel"
           role="complementary"
           aria-label="OpenClaw 上下文"

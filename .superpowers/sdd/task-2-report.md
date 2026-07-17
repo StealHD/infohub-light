@@ -39,9 +39,9 @@ Implementation followed focused RED→GREEN loops before production code:
 - `.superpowers/sdd/task-2-report.md`
 - `WORKLOG.md`
 
-## Final verification
+## Historical initial verification (superseded)
 
-Fresh final frontend chain:
+Initial implementation frontend chain:
 
 ```text
 npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build
@@ -52,14 +52,14 @@ Vitest: 33 files / 138 tests passed
 Vite production build and preview exclusion: passed
 ```
 
-Fresh responsive browser acceptance:
+Initial responsive browser acceptance:
 
 ```text
 npx playwright test e2e/live-workbench.spec.ts
 3 passed (desktop, tablet, mobile; Axe serious/critical zero)
 ```
 
-Fresh repository gate and hygiene:
+Initial repository gate and hygiene:
 
 ```text
 git diff --check
@@ -135,10 +135,10 @@ git diff --check && python3 -m json.tool project-defaults.yaml >/dev/null
 GREEN: both hygiene checks passed.
 
 python3 scripts/test_gate.py run --mode full
-GREEN (fresh final retry): 22/22 commands passed; mapping_miss=false; 68.966s.
+GREEN (accepted first re-review gate at that time): 22/22 commands passed; mapping_miss=false; 68.966s.
 ```
 
-One immediately preceding full-gate attempt reached the frontend Vitest phase under host contention and timed out eight unrelated 5-second UI tests (29 files/140 tests passed). A standalone retry showed the same timeout pattern; no product assertion failed. The required unmodified full gate was rerun after contention subsided and produced the fresh 22/22 result above.
+One immediately preceding full-gate attempt reached the frontend Vitest phase under host contention and timed out eight unrelated 5-second UI tests (29 files/140 tests passed). A standalone retry showed the same timeout pattern; no product assertion failed. The required unmodified full gate was rerun after contention subsided and produced the accepted 22/22 result above.
 
 ### Review-fix implementation notes
 
@@ -148,3 +148,70 @@ One immediately preceding full-gate attempt reached the frontend Vitest phase un
 - Replaced count deltas with source-ID set diffs, retained the visible anchor during inline detail/layout settlement, and clears the new-content badge on manual return to the bottom zone.
 - Replaced the narrow custom sliding surface with a controlled HeroUI Drawer/Backdrop/Content/Dialog; delegation status remains neutral `检查中` until the request resolves.
 - Fixed portal foreground inheritance once in the design-system document-root contract; no business-layer theme-variable copy or raw backdrop color was introduced.
+
+## Second review-fix appendix (2026-07-17)
+
+### RED commands and results
+
+```text
+npm test -- src/app/App.test.tsx -t 'delegation loading|real modal dialog|filter-pinned|detail 404|proven-stale'
+RED: 4/5 selected tests failed — loading exposed visible status text, filter pinning appended out of order, an early detail 404 cleared a still-valid snapshot, and a proven-stale initial target did not take the normal bottom-position path. The existing real modal test passed.
+
+npm run e2e -- e2e/live-workbench.spec.ts --project=desktop
+RED: desktop close retained one empty `OpenClaw 上下文` complementary panel instead of unmounting it.
+
+npm run e2e -- e2e/live-workbench.spec.ts --project=tablet --grep 'preserves responsive'
+RED: rolling-window replacement preserved the card ID but shifted its relative viewport offset by 186 px, exactly one collapsed row.
+```
+
+### GREEN commands and results
+
+```text
+npm test -- src/app/App.test.tsx -t 'delegation loading|real modal dialog|filter-pinned|detail 404|proven-stale'
+GREEN: 5/5 selected tests passed.
+
+npm test -- src/app/App.test.tsx src/features/workbench-live/VirtualFeed.test.tsx
+GREEN: 2 files / 23 tests passed.
+
+npm run check:ui && npm run lint && npm run typecheck && npm run build
+GREEN: UI contract passed; ESLint 0 errors with the pre-existing ActionFeedback Fast Refresh warning; TypeScript passed; Vite build and preview exclusion passed.
+
+npm test
+GREEN: 33 files / 150 tests passed.
+
+npm run e2e -- e2e/live-workbench.spec.ts
+GREEN: 6/6 passed across desktop/tablet/mobile, covering strict top-card ID/relative-offset preservation (2 px maximum), desktop Agent two/three-column close/reopen, actual stale-deep-link near-bottom placement, no overflow, and Axe serious/critical zero.
+```
+
+### Second review-fix implementation notes
+
+- A detail 404 can clear `item` only after the active Feed/saved/history query succeeds and proves the selected ID absent; a source snapshot that arrives later and contains the ID remains selected and expanded.
+- A proven-stale initial target is suppressed through navigation state so the existing bottom-first Feed path runs; Playwright verifies the real viewport lands inside the Feed's 96 px bottom zone.
+- Persisted filters pin a selected detail with `mergedItems.filter(matches || selected)`, preserving the stable oldest-to-newest merged order.
+- Rolling fixed-window updates retain the top-visible item ID and relative offset through stable DOM item IDs and public DOM geometry. The fallback uses only public `scrollToIndex`; no TanStack private cache or state is read.
+- Delegation loading exposes one skeleton-only `aria-busy` status. Terminal text appears once.
+- Closing the desktop Agent unmounts the 360 px aside and switches the shell from three columns to two without losing the Feed position; reopening restores the third column.
+
+## Final verification
+
+```text
+npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build
+UI contract: passed
+ESLint: 0 errors, 1 pre-existing Fast Refresh warning
+TypeScript: passed
+Vitest: 33 files / 150 tests passed
+Vite production build and preview exclusion: passed
+
+npm run e2e -- e2e/live-workbench.spec.ts
+6/6 passed across desktop, tablet, and mobile; Axe serious/critical zero
+
+npm run e2e -- e2e/design-system-contract.spec.ts --project=desktop -g 'real Modal and Tooltip portals'
+1/1 passed; portal theme acquisition/release contract preserved
+
+git diff --check
+python3 -m json.tool project-defaults.yaml
+Both hygiene checks passed
+
+python3 scripts/test_gate.py run --mode full
+22/22 commands passed; mapping_miss=false; 57.375s
+```

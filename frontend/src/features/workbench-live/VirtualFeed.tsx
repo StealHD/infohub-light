@@ -148,6 +148,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const wasNearBottom = useRef(true)
   const previousSourceIds = useRef(new Set(sourceItemIds))
+  const previousSourceSignature = useRef(sourceSignature)
+  const viewportAnchor = useRef<{ id: string; offset: number } | null>(null)
   const inlineScrollAnchor = useRef<number | null>(null)
   const inlineAnchorTimer = useRef<number | undefined>(undefined)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
@@ -186,6 +188,33 @@ export function VirtualFeed(props: VirtualFeedProps) {
       return () => observer.disconnect()
     },
   })
+
+  useLayoutEffect(() => {
+    if (previousSourceSignature.current === sourceSignature) return
+    previousSourceSignature.current = sourceSignature
+    const anchor = viewportAnchor.current
+    const scroll = scrollRef.current
+    if (!anchor || !scroll || wasNearBottom.current) return
+
+    let remainingFrames = 12
+    let frame = 0
+    const restore = () => {
+      const row = Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]'))
+        .find((element) => element.dataset.itemId === anchor.id)
+      if (!row) {
+        const index = sourceSignature.split('\u0000').indexOf(anchor.id)
+        if (index >= 0) virtualizer.scrollToIndex(index, { align: 'start' })
+        if (remainingFrames-- > 0) frame = window.requestAnimationFrame(restore)
+        return
+      }
+      const currentOffset = row.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      scroll.scrollTop += currentOffset - anchor.offset
+      if (remainingFrames-- > 0) frame = window.requestAnimationFrame(restore)
+    }
+
+    restore()
+    return () => window.cancelAnimationFrame(frame)
+  }, [sourceSignature, virtualizer])
 
   useLayoutEffect(() => {
     if (inlineScrollAnchor.current === null || !scrollRef.current) return
@@ -231,6 +260,14 @@ export function VirtualFeed(props: VirtualFeedProps) {
     if (wasNearBottom.current) setNewItemCount(0)
     const visible = virtualizer.getVirtualItems().filter((item) => item.end >= element.scrollTop && item.start <= element.scrollTop + element.clientHeight)
     if (visible.length) setActiveIndex(visible[Math.floor((visible.length - 1) / 2)].index)
+    const bounds = element.getBoundingClientRect()
+    const topRow = Array.from(element.querySelectorAll<HTMLElement>('[data-item-id]'))
+      .filter((row) => row.getBoundingClientRect().bottom > bounds.top)
+      .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
+    if (topRow?.dataset.itemId) viewportAnchor.current = {
+      id: topRow.dataset.itemId,
+      offset: topRow.getBoundingClientRect().top - bounds.top,
+    }
   }
 
   function jumpTo(index: number) {
@@ -290,6 +327,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
           return <div
             key={virtualItem.key}
             data-index={virtualItem.index}
+            data-item-id={card.id}
             ref={virtualizer.measureElement}
             className="absolute left-0 top-0 w-full pb-3"
             style={{ transform: `translateY(${virtualItem.start}px)` }}

@@ -920,3 +920,11 @@
 - 结果：保留生产 `/later`；inline `?item=` 不再 remount/跳中；详情始终获取并合并 v2；深链穿透筛选；固定窗口按 ID 识别新内容；窄屏使用受控 HeroUI Drawer，delegation 加载显示中性状态，Portal 统一继承主题前景色
 - 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
 - 控制面变更：无；仅修复既有 D027/Task 2 实现偏差
+
+### 2026-07-17 14:53 Codex
+- 任务：修复 Task 2 二次评审发现的异步 404 误清理、失效初始深链定位、筛选钉选顺序、滚动窗口锚点、Agent loading 文案与桌面关闭空栏问题
+- 修改文件：`HeroWorkbenchPage`、`VirtualFeed`、`HeroWorkbenchShell`、App/三视口 Playwright 回归、Task 2 报告与实施计划
+- 执行验证：focused Vitest 23 项、全量 Vitest 33 文件/150 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、Portal 契约 1 项、三视口 Playwright/Axe 6 项均通过；最终 `test_gate full` 22/22、`mapping_miss=false`、57.375 秒
+- 结果：404 仅在 active source 成功且确证缺失后清理；真实缺失深链回到底部区；筛选钉选保持时序；固定长度窗口严格保持 top-visible ID 与 ≤2px 相对偏移；桌面 Agent 关闭卸载 360px 空栏并保持 Feed，loading 只显示 skeleton busy 状态
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
+- 控制面变更：无；未修改 backend/API/query key/权限/Remote MCP/MUI 与 Task 3 边界
