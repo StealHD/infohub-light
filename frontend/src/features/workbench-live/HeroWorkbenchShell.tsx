@@ -1,0 +1,259 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { NavLink, useLocation } from 'react-router-dom'
+
+import type { ServiceApi } from '../../api/service'
+import type { User } from '../../api/types'
+import { queryKeys } from '../../api/queryKeys'
+import {
+  AvatarFallback,
+  AvatarRoot,
+  Button,
+  Card,
+  Chip,
+  DesignSystemProvider,
+  Icons,
+  SearchField,
+  TextArea,
+} from '../../design-system'
+import {
+  buildAgentHandoffPrompt,
+  readAgentContextDraft,
+  updateAgentContextDraft,
+  writeAgentContextDraft,
+  type AgentContextDraftV1,
+} from './agentContext'
+import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
+
+type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
+
+type HeroWorkbenchShellProps = {
+  api: ServiceApi
+  user: User
+  query: string
+  onQueryChange: (value: string) => void
+  onRefresh?: () => void
+  onRetry?: () => void
+  onLogout: () => void
+  refreshState: RefreshState
+  refreshMessage?: string
+  refreshEventKey?: string
+  children: ReactNode
+}
+
+const navigation = [
+  { id: 'feed', label: '信息流', href: '/__preview/workbench-live', icon: Icons.Radio },
+  { id: 'saved', label: '收藏', href: '/__preview/workbench-live/saved', icon: Icons.Star },
+  { id: 'history', label: '历史', href: '/__preview/workbench-live/history', icon: Icons.History },
+  { id: 'subscriptions', label: '订阅', href: '/subscriptions', icon: Icons.Bell },
+  { id: 'agents', label: '助手连接', href: '/agents', icon: Icons.Bot },
+  { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
+] as const
+
+function initialAgentOpen() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(min-width: 1200px)').matches
+    : false
+}
+
+function AgentPanel({
+  open,
+  onClose,
+  status,
+  value,
+}: {
+  open: boolean
+  onClose: () => void
+  status: '已配置' | '未配置' | '检查失败'
+  value: WorkbenchAgentContextValue
+}) {
+  const [notice, setNotice] = useState('')
+
+  async function copyHandoff() {
+    try {
+      await navigator.clipboard.writeText(buildAgentHandoffPrompt(value.draft))
+      setNotice('交接提示词已复制')
+    } catch {
+      setNotice('无法写入剪贴板，请手动复制')
+    }
+  }
+
+  return <aside
+    id="live-agent-panel"
+    role="complementary"
+    aria-label="OpenClaw 上下文"
+    data-open={open ? 'true' : 'false'}
+    className="fixed inset-x-0 bottom-0 z-40 grid h-[min(78dvh,640px)] min-h-0 translate-y-full grid-rows-[52px_minmax(0,1fr)_auto] border-t border-separator bg-surface transition-transform duration-200 data-[open=true]:translate-y-0 min-[768px]:inset-y-0 min-[768px]:left-auto min-[768px]:right-0 min-[768px]:h-dvh min-[768px]:w-[360px] min-[768px]:translate-x-full min-[768px]:translate-y-0 min-[768px]:border-l min-[768px]:border-t-0 min-[768px]:data-[open=true]:translate-x-0 min-[1200px]:static min-[1200px]:col-start-3 min-[1200px]:row-span-2 min-[1200px]:h-auto min-[1200px]:w-auto min-[1200px]:translate-x-0"
+  >
+    <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
+      <Icons.Sparkles size={17} aria-hidden="true" />
+      <strong className="min-w-0 flex-1 truncate">OpenClaw 上下文</strong>
+      <Chip size="sm" color={status === '已配置' ? 'accent' : 'default'} variant="soft"><Chip.Label>{status}</Chip.Label></Chip>
+      <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" onPress={onClose}>
+        <Icons.X size={17} aria-hidden="true" />
+      </Button>
+    </header>
+    {open && <>
+      <div className="min-h-0 overflow-y-auto p-4" data-testid="agent-scroll-region">
+        <div className="mb-3 flex justify-between text-xs text-muted"><span>已选上下文</span><span>{value.draft.itemIds.length} / 8</span></div>
+        {!value.draft.itemIds.length && <Card variant="transparent" className="p-3">
+          <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
+        </Card>}
+        <div className="grid gap-2">
+          {value.draft.itemIds.map((id, index) => <Card key={id} variant="secondary" className="flex-row items-center gap-2 p-3">
+            <span className="text-xs text-muted">{String(index + 1).padStart(2, '0')}</span>
+            <code className="min-w-0 flex-1 truncate text-xs">{id}</code>
+            <Button size="sm" variant="ghost" isIconOnly aria-label={`移除 ${id}`} onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+          </Card>)}
+        </div>
+      </div>
+      <div className="border-t border-separator p-4">
+        <TextArea
+          fullWidth
+          variant="secondary"
+          aria-label="交给 OpenClaw 的问题"
+          value={value.draft.question}
+          maxLength={1200}
+          rows={4}
+          placeholder="例如：提炼这些信息中的产品机会"
+          onChange={(event) => value.setQuestion(event.target.value)}
+        />
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span role="status" className="text-xs text-muted">{notice || '仅生成交接提示词，不在站内运行 Agent'}</span>
+          <Button size="sm" isDisabled={!value.draft.itemIds.length} aria-label="复制并交给 OpenClaw" onPress={() => void copyHandoff()}>
+            <Icons.Copy size={15} aria-hidden="true" />复制交接
+          </Button>
+        </div>
+      </div>
+    </>}
+  </aside>
+}
+
+export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
+  const location = useLocation()
+  const agentToggleRef = useRef<HTMLButtonElement>(null)
+  const [agentOpen, setAgentOpen] = useState(initialAgentOpen)
+  const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
+  const [dismissedNotice, setDismissedNotice] = useState('')
+  const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false })
+  const agentStatus = delegations.isError
+    ? '检查失败'
+    : delegations.data?.enabled && delegations.data.connections.some((connection) => connection.status === 'active')
+      ? '已配置'
+      : '未配置'
+  const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running'
+  const noticeKey = props.refreshEventKey || `${props.refreshState}:${props.refreshMessage ?? ''}`
+  const noticeOpen = Boolean(props.refreshMessage) && !refreshing && dismissedNotice !== noticeKey
+
+  const persistDraft = useCallback((next: AgentContextDraftV1) => {
+    setDraft(writeAgentContextDraft(props.user.id, next))
+  }, [props.user.id])
+
+  const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
+    draft,
+    toggleItem: (id) => persistDraft(updateAgentContextDraft(draft, id)),
+    removeItem: (id) => persistDraft({ ...draft, itemIds: draft.itemIds.filter((value) => value !== id) }),
+    setQuestion: (question) => persistDraft({ ...draft, question }),
+  }), [draft, persistDraft])
+
+  const closeAgent = useCallback(() => {
+    setAgentOpen(false)
+    window.requestAnimationFrame(() => agentToggleRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia('(min-width: 1200px)')
+    const change = (event: MediaQueryListEvent) => setAgentOpen(event.matches)
+    media.addEventListener('change', change)
+    return () => media.removeEventListener('change', change)
+  }, [])
+
+  useEffect(() => {
+    if (!agentOpen) return
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeAgent()
+    }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [agentOpen, closeAgent])
+
+  useEffect(() => {
+    if (!noticeOpen) return
+    const longNotice = props.refreshState === 'failed' || props.refreshState === 'partial' || props.refreshState === 'blocked'
+    const timer = window.setTimeout(() => setDismissedNotice(noticeKey), longNotice ? 8000 : 4000)
+    return () => window.clearTimeout(timer)
+  }, [noticeKey, noticeOpen, props.refreshState])
+
+  return <DesignSystemProvider>
+    <WorkbenchAgentContext.Provider value={agentValue}>
+      <div
+        data-testid="live-workbench-shell"
+        className="grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] min-[1200px]:grid-cols-[72px_minmax(640px,1fr)_360px] min-[1360px]:grid-cols-[232px_minmax(640px,1fr)_360px]"
+      >
+        <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
+          <div className="flex h-[52px] items-center px-3 font-semibold min-[1360px]:px-5"><span className="min-[1360px]:hidden">I</span><span className="hidden min-[1360px]:inline">Inteliscope</span></div>
+          <nav aria-label="工作台导航" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+            {navigation.map(({ label, href, icon: Icon }) => <NavLink
+              key={href}
+              to={href}
+              end={href === '/__preview/workbench-live'}
+              aria-label={label}
+              className={({ isActive }) => `mb-1 flex min-h-11 items-center justify-center gap-3 rounded-xl px-3 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus min-[1360px]:justify-start${isActive ? ' bg-default text-foreground' : ''}`}
+            ><Icon size={18} aria-hidden="true" /><span className="hidden min-[1360px]:inline">{label}</span></NavLink>)}
+          </nav>
+          <div className="border-t border-separator p-2">
+            <div className="flex items-center justify-center gap-2 rounded-xl p-2 min-[1360px]:justify-start">
+              <AvatarRoot className="size-8"><AvatarFallback>{(props.user.display_name || props.user.username).slice(0, 1).toUpperCase()}</AvatarFallback></AvatarRoot>
+              <span className="hidden min-w-0 flex-1 truncate text-sm min-[1360px]:inline">{props.user.display_name || props.user.username}</span>
+              <Button size="sm" variant="ghost" isIconOnly aria-label="退出登录" onPress={props.onLogout}><Icons.LogOut size={15} /></Button>
+            </div>
+          </div>
+        </aside>
+
+        <header className="col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator bg-surface px-3 min-[768px]:col-start-2 min-[768px]:px-4">
+          <h1 className="shrink-0 text-base font-semibold">{location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'}</h1>
+          <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
+            <SearchField.Group>
+              <SearchField.SearchIcon><Icons.Search size={16} /></SearchField.SearchIcon>
+              <SearchField.Input placeholder="搜索标题、来源或主题" />
+              <SearchField.ClearButton aria-label="清除搜索" />
+            </SearchField.Group>
+          </SearchField>
+          <Button size="sm" variant="ghost" aria-label="更新信息流" isDisabled={refreshing || !props.onRefresh} onPress={props.onRefresh}>
+            <Icons.RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+            <span className="hidden min-[560px]:inline">{props.refreshState === 'queued' ? '已排队' : refreshing ? '更新中' : '更新信息流'}</span>
+          </Button>
+          <Button
+            ref={agentToggleRef}
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            aria-label={agentOpen ? '收起 Agent 面板' : '展开 Agent 面板'}
+            aria-expanded={agentOpen}
+            aria-controls="live-agent-panel"
+            onPress={() => setAgentOpen((value) => !value)}
+          >{agentOpen ? <Icons.PanelRightClose size={17} /> : <Icons.PanelRightOpen size={17} />}</Button>
+        </header>
+
+        <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
+          {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted">
+            <span className="flex-1">{props.refreshMessage}</span>{props.onRetry && <Button size="sm" variant="ghost" onPress={props.onRetry}>重试</Button>}
+            <Button size="sm" variant="ghost" isIconOnly aria-label="关闭更新提示" onPress={() => setDismissedNotice(noticeKey)}><Icons.X size={15} /></Button>
+          </div>}
+          {props.children}
+        </main>
+
+        <AgentPanel open={agentOpen} onClose={closeAgent} status={agentStatus} value={agentValue} />
+
+        <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
+          {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/__preview/workbench-live'} aria-label={label} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-[10px] text-muted aria-[current=page]:text-accent">
+            <Icon size={17} aria-hidden="true" /><span>{label}</span>
+          </NavLink>)}
+        </nav>
+      </div>
+    </WorkbenchAgentContext.Provider>
+  </DesignSystemProvider>
+}

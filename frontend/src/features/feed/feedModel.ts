@@ -2,11 +2,25 @@ import type { FeedItem, FeedSnapshot, SourceHealthItem, SourceHealthStatus } fro
 
 export type FeedMode = 'featured' | 'all' | 'daily'
 
+export function sortWorkbenchItems(items: FeedItem[]): FeedItem[] {
+  return items.map((item, index) => {
+    const value = item.presentation?.timing?.published_at || item.published_at
+    const timestamp = value ? new Date(value).getTime() : Number.NaN
+    return { item, index, timestamp }
+  }).sort((left, right) => {
+    const leftValid = Number.isFinite(left.timestamp)
+    const rightValid = Number.isFinite(right.timestamp)
+    if (leftValid && rightValid) return left.timestamp - right.timestamp || left.index - right.index
+    if (leftValid !== rightValid) return leftValid ? -1 : 1
+    return left.index - right.index
+  }).map(({ item }) => item)
+}
+
 export function selectModeItems(snapshot: FeedSnapshot | undefined, mode: FeedMode): FeedItem[] {
   if (!snapshot) return []
   if (mode === 'featured') return snapshot.featured_items ?? []
   if (mode === 'daily') return snapshot.daily_push_items ?? []
-  return snapshot.items ?? snapshot.today_items ?? []
+  return sortWorkbenchItems(snapshot.items ?? snapshot.today_items ?? [])
 }
 
 export type FeedFilterOptions = {

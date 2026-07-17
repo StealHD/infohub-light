@@ -904,3 +904,11 @@
 - 结果：正式 provider 以引用计数同步并精确恢复文档根主题；有限动效改为组件级选择器，静态元素不新增动效，Skeleton/Spinner 保留连续节奏，Portal Reduced Motion 生效
 - 未解决问题：保留既有 Fast Refresh warning 与 Vite 500 kB chunk warning
 - 控制面变更：无；仅修正既有 D027 主题实现偏差
+
+### 2026-07-17 13:00 Codex
+- 任务：实现 HeroUI 正式核心工作台、虚拟信息流与本地 OpenClaw Agent 上下文交接
+- 修改文件：新增 `frontend/src/features/workbench-live/**`、真实 API 开发验收路由和三视口 Playwright；提取共享乐观更新、增加 Feed v2 偏好/稳定排序/Agent session 清理，并安装精确版本 `@tanstack/react-virtual@3.14.6`
+- 执行验证：TDD RED→GREEN；UI contract、TypeScript、Vite build/preview exclusion 通过；ESLint 0 error（保留既有 1 warning）；Vitest 33 文件/138 项、三视口 Playwright/Axe 3 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、56.39 秒
+- 结果：开发专用认证路由 `/__preview/workbench-live` 已接真实 ServiceApi，实现 Feed/收藏/历史统一卡片、动态虚拟列表、深链降级、筛选、刷新反馈、权限与回滚、响应式 Agent 面板及确定性交接；MUI 仍为生产默认，固定数据 HeroUI 原型未变，Task 3 页面未迁移
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换等待 Task 4
+- 控制面变更：无；复用现有 API、查询键、权限、Remote MCP 和 ActionGeneration 合同，仅新增开发验收入口

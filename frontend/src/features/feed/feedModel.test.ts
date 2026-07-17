@@ -29,6 +29,18 @@ describe('feed model', () => {
     expect(selectModeItems(snapshot, 'featured')).toEqual(featured)
     expect(selectModeItems(snapshot, 'daily')).toEqual(daily)
   })
+
+  it('orders all Feed items from older to newer while keeping invalid timestamps stable', () => {
+    const invalidFirst = item({ id: 'invalid-first', published_at: 'unknown' })
+    const newer = item({ id: 'newer', published_at: '2026-07-13T10:00:00Z' })
+    const older = item({ id: 'older', published_at: '2026-07-13T08:00:00Z' })
+    const invalidSecond = item({ id: 'invalid-second', published_at: '' })
+
+    expect(selectModeItems({
+      schema_version: 2,
+      items: [invalidFirst, newer, older, invalidSecond],
+    }, 'all').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
+  })
   it('searches real item fields and keeps unread items before read items', () => {
     const values = [
       item({ id: 'read', title: 'Other', user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false } }),

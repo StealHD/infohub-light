@@ -23,6 +23,12 @@ type AppErrorBoundaryState = { failed: boolean }
 const WorkbenchPreview = import.meta.env.DEV
   ? lazy(() => import('../features/workbench/WorkbenchPreview').then(({ WorkbenchPreview: Preview }) => ({ default: Preview })))
   : null
+const HeroWorkbenchShell = import.meta.env.DEV
+  ? lazy(() => import('../features/workbench-live/HeroWorkbenchShell').then(({ HeroWorkbenchShell: Shell }) => ({ default: Shell })))
+  : null
+const HeroWorkbenchPage = import.meta.env.DEV
+  ? lazy(() => import('../features/workbench-live/HeroWorkbenchPage').then(({ HeroWorkbenchPage: Page }) => ({ default: Page })))
+  : null
 
 export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
   state: AppErrorBoundaryState = { failed: false }
@@ -49,7 +55,12 @@ function LegacyEntry() {
   return <Navigate to={destination} replace />
 }
 
-function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
+function LaterRedirect() {
+  const location = useLocation()
+  return <Navigate to={{ pathname: '/saved', search: location.search }} replace />
+}
+
+function AuthenticatedLayout({ api, user, experience = 'legacy' }: { api: ServiceApi; user: User; experience?: 'legacy' | 'live' }) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const previousUserId = useRef(user.id)
@@ -73,6 +84,27 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, { authenticated: false, user: null })
   }
 
+  const outlet = <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+
+  if (experience === 'live' && HeroWorkbenchShell) {
+    return <ActionFeedbackProvider key={user.id} userId={user.id}>
+      <Suspense fallback={<main className="app-loading" role="status">正在准备实时工作台…</main>}>
+        <HeroWorkbenchShell
+          api={api}
+          user={user}
+          query={query}
+          onQueryChange={setQuery}
+          onRefresh={canMutate ? feedActivity.refresh : undefined}
+          onRetry={canMutate ? feedActivity.retry : undefined}
+          onLogout={() => void logout()}
+          refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
+          refreshMessage={feedActivity.notice?.message}
+          refreshEventKey={feedActivity.notice?.key}
+        >{outlet}</HeroWorkbenchShell>
+      </Suspense>
+    </ActionFeedbackProvider>
+  }
+
   return <ActionFeedbackProvider key={user.id} userId={user.id}><AppShell
     user={user}
     query={query}
@@ -84,7 +116,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
     refreshMessage={feedActivity.notice?.message}
     refreshEventKey={feedActivity.notice?.key}
   >
-    <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+    {outlet}
   </AppShell></ActionFeedbackProvider>
 }
 
@@ -103,13 +135,18 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
       <Route element={user ? <AuthenticatedLayout api={api} user={user} /> : <Navigate to="/login" replace />}>
         <Route path="/" element={<LegacyEntry />} />
         <Route path="/feed" element={<FeedPage kind="feed" />} />
-        <Route path="/later" element={<FeedPage kind="later" />} />
+        <Route path="/later" element={<LaterRedirect />} />
         <Route path="/saved" element={<FeedPage kind="saved" />} />
         <Route path="/history" element={<FeedPage kind="history" />} />
         <Route path="/subscriptions" element={<SubscriptionsPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
+      {HeroWorkbenchPage && <Route element={user ? <AuthenticatedLayout api={api} user={user} experience="live" /> : <Navigate to="/login" replace />}>
+        <Route path="/__preview/workbench-live" element={<HeroWorkbenchPage kind="feed" />} />
+        <Route path="/__preview/workbench-live/saved" element={<HeroWorkbenchPage kind="saved" />} />
+        <Route path="/__preview/workbench-live/history" element={<HeroWorkbenchPage kind="history" />} />
+      </Route>}
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>
   </AppErrorBoundary>

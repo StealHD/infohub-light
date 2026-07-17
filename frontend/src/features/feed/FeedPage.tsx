@@ -1,17 +1,16 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import type { FeedHistory, FeedItem, FeedSnapshot, UserItemState } from '../../api/types'
+import type { FeedHistory, FeedItem, FeedSnapshot } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
-import { useActionFeedback } from '../../app/ActionFeedback'
 import { FeedFilters } from './FeedFilters'
 import { FeedWorkspace } from './FeedWorkspace'
-import { patchItemStateInData } from './feedCache'
 import { filterFeedItems, selectModeItems, type FeedMode } from './feedModel'
-import { readFeedPreference, writeFeedPreference } from './feedPreference'
+import { readLegacyFeedPreference, writeLegacyFeedPreference } from './feedPreference'
+import { useOptimisticItemState } from './useOptimisticItemState'
 
 type FeedPageProps = { kind: 'feed' | 'later' | 'saved' | 'history' }
 
@@ -24,12 +23,10 @@ function uniqueItems(values: FeedItem[]): FeedItem[] {
 
 export function FeedPage({ kind }: FeedPageProps) {
   const { api, user, query, beginAction, isActionCurrent } = useAppContext()
-  const feedback = useActionFeedback()
-  const queryClient = useQueryClient()
   const location = useLocation()
   const [params, setParams] = useSearchParams()
-  const [preference, setPreference] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
-  const activePreference = preference.userId === user.id ? preference.value : readFeedPreference(user.id)
+  const [preference, setPreference] = useState(() => ({ userId: user.id, value: readLegacyFeedPreference(user.id) }))
+  const activePreference = preference.userId === user.id ? preference.value : readLegacyFeedPreference(user.id)
   const unreadFirst = activePreference.unreadFirst
   const [sourceId, setSourceId] = useState('')
   const [channel, setChannel] = useState('')
@@ -75,29 +72,7 @@ export function FeedPage({ kind }: FeedPageProps) {
   const channels = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.channel || item.category).filter(Boolean) as string[])).sort(), [sourceItems])
   const topics = useMemo(() => Array.from(new Set(sourceItems.flatMap((item) => item.topics ?? item.tags ?? []))).sort(), [sourceItems])
 
-  const stateMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<UserItemState>; token: ReturnType<typeof beginAction> }) => api.updateItemState(id, patch),
-    onMutate: async ({ id, patch, token }) => {
-      const action = String(Object.keys(patch)[0] ?? 'state')
-      feedback.begin(`item-${action}`, id)
-      const prefix = ['user', user.id] as const
-      await queryClient.cancelQueries({ queryKey: prefix })
-      const previous = queryClient.getQueriesData({ queryKey: prefix })
-      queryClient.setQueriesData({ queryKey: prefix }, (data) => patchItemStateInData(data, id, patch))
-      return { previous, token }
-    },
-    onError: (caught, variables, context) => {
-      if (context && isActionCurrent(context.token)) context.previous.forEach(([key, data]) => queryClient.setQueryData(key, data))
-      const action = String(Object.keys(variables.patch)[0] ?? 'state')
-      feedback.fail(`item-${action}`, variables.id, caught instanceof ApiError ? `${caught.message}，状态已恢复。` : '阅读状态保存失败，状态已恢复。')
-    },
-    onSuccess: (result, variables, context) => {
-      if (!context || !isActionCurrent(context.token)) return
-      queryClient.setQueriesData({ queryKey: ['user', user.id] }, (data) => patchItemStateInData(data, variables.id, result))
-      const action = String(Object.keys(variables.patch)[0] ?? 'state')
-      feedback.succeed(`item-${action}`, variables.id)
-    },
-  })
+  const stateMutation = useOptimisticItemState({ api, user, beginAction, isActionCurrent })
 
   const selectItem = (id: string) => {
     const next = new URLSearchParams(params)
@@ -116,12 +91,12 @@ export function FeedPage({ kind }: FeedPageProps) {
     setParams(next)
     const value = { ...activePreference, mode: nextMode }
     setPreference({ userId: user.id, value })
-    writeFeedPreference(user.id, value)
+    writeLegacyFeedPreference(user.id, value)
   }
   const setUnreadPreference = (value: boolean) => {
     const next = { ...activePreference, unreadFirst: value }
     setPreference({ userId: user.id, value: next })
-    writeFeedPreference(user.id, next)
+    writeLegacyFeedPreference(user.id, next)
   }
   const clearFilters = () => {
     setUnreadPreference(false)
@@ -149,7 +124,7 @@ export function FeedPage({ kind }: FeedPageProps) {
     selectedItem={detailQuery.data}
     onSelect={selectItem}
     onBack={clearSelection}
-    onStateAction={(id, action, value) => stateMutation.mutate({ id, patch: { [action]: value }, token: beginAction() })}
+    onStateAction={(id, action, value) => stateMutation.mutateItem(id, { [action]: value })}
     sourceHealth={healthQuery.data?.items ?? []}
     loading={feedQuery.isLoading || historyQuery.isLoading || savedQuery.isLoading}
     error={error ? (error instanceof ApiError ? error.message : '信息流加载失败，请稍后重试。') : undefined}
@@ -157,7 +132,7 @@ export function FeedPage({ kind }: FeedPageProps) {
     onDismissActionError={() => stateMutation.reset()}
     onClearFilters={clearFilters}
     readonly={user.role === 'viewer'}
-    isStateActionPending={(action) => Boolean(selectedId && feedback.isPending(`item-${action}`, selectedId))}
+    isStateActionPending={(action) => Boolean(selectedId && stateMutation.isItemActionPending(action, selectedId))}
     toolbar={<FeedFilters
       showModes={kind === 'feed'}
       mode={mode}

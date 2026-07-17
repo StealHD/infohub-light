@@ -14,4 +14,15 @@ describe('session cache isolation', () => {
     expect(queryClient.getQueryData(['user', 'user-a', 'feed'])).toBeUndefined()
     expect(queryClient.getQueryData(['user', 'user-b', 'feed'])).toEqual({ items: ['b'] })
   })
+
+  it('clears only the departing user Agent context draft', async () => {
+    const queryClient = new QueryClient()
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:user-a', '{"itemIds":["a"]}')
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:user-b', '{"itemIds":["b"]}')
+
+    await clearUserCache(queryClient, 'user-a')
+
+    expect(window.sessionStorage.getItem('inteliscope.agent-context.v1:user-a')).toBeNull()
+    expect(window.sessionStorage.getItem('inteliscope.agent-context.v1:user-b')).not.toBeNull()
+  })
 })

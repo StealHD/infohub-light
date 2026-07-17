@@ -1,4 +1,7 @@
 export {
+  AvatarFallback,
+  AvatarImage,
+  AvatarRoot,
   Button,
   Card,
   Checkbox,
@@ -16,6 +19,7 @@ export {
   Link,
   Modal,
   NumberField,
+  Popover,
   Radio,
   RadioGroup,
   ScrollShadow,

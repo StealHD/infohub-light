@@ -17,15 +17,35 @@ function memoryStorage(): Storage {
 describe('feed preference', () => {
   beforeEach(() => Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() }))
 
-  it('persists feed mode and unread-first independently per user', () => {
-    writeFeedPreference('user-a', { mode: 'all', unreadFirst: true })
+  it('persists only the v2 workbench filters independently per user', () => {
+    writeFeedPreference('user-a', {
+      unreadFirst: true,
+      source: 'source-a',
+      channel: 'AI',
+      topic: 'Codex',
+      minScore: 8,
+    })
 
-    expect(readFeedPreference('user-a')).toEqual({ mode: 'all', unreadFirst: true })
-    expect(readFeedPreference('user-b')).toEqual({ mode: 'featured', unreadFirst: false })
+    expect(readFeedPreference('user-a')).toEqual({
+      unreadFirst: true,
+      source: 'source-a',
+      channel: 'AI',
+      topic: 'Codex',
+      minScore: 8,
+    })
+    expect(readFeedPreference('user-b')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })
+    expect(window.localStorage.getItem('inteliscope.ui.feed.v2:user-a')).not.toBeNull()
   })
 
-  it('falls back safely when stored data is malformed', () => {
-    window.localStorage.setItem('inteliscope.ui.feed.v1:user-a', '{broken')
-    expect(readFeedPreference('user-a')).toEqual({ mode: 'featured', unreadFirst: false })
+  it('migrates only unread-first from v1 and ignores the retired mode', () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v1:user-a', JSON.stringify({ mode: 'daily', unreadFirst: true }))
+
+    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: true, source: '', channel: '', topic: '', minScore: undefined })
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:user-a') || '{}')).toEqual({ unreadFirst: true })
+  })
+
+  it('falls back safely when v2 data is malformed', () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-a', '{broken')
+    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })
   })
 })
