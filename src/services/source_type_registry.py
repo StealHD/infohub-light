@@ -46,6 +46,20 @@ _CREDENTIAL_ASSIGNMENT_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Za-z0-9_-]+)\s*[:=]",
     flags=re.IGNORECASE,
 )
+_SECURITY_CLASSIFICATION_MAX_CHARS = 16_384
+_SECURITY_PERCENT_DECODE_ROUNDS = 2
+_DEFAULT_IGNORABLE_RANGES = (
+    (0x034F, 0x034F),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFFA0, 0xFFA0),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
 _SUPPORTED_REDDIT_SORTS = {"hot", "new", "top", "rising", "controversial"}
 _SUPPORTED_REDDIT_TIME_FILTERS = {"hour", "day", "week", "month", "year", "all"}
 _APIFY_KINDS = {
@@ -939,12 +953,41 @@ def _safe_urlparse(value: str) -> Any:
         raise SourceConfigError("invalid URL") from exc
 
 
+def _security_classification_copy(value: str) -> str | None:
+    """Build a bounded normalized copy for classification without rewriting input."""
+
+    candidate = value.strip()
+    if len(candidate) > _SECURITY_CLASSIFICATION_MAX_CHARS:
+        return None
+    for _ in range(_SECURITY_PERCENT_DECODE_ROUNDS):
+        candidate = unicodedata.normalize("NFKC", candidate)
+        decoded = unquote(candidate)
+        if len(decoded) > _SECURITY_CLASSIFICATION_MAX_CHARS:
+            return None
+        if decoded == candidate:
+            break
+        candidate = decoded
+    candidate = unicodedata.normalize("NFKC", candidate)
+    if len(candidate) > _SECURITY_CLASSIFICATION_MAX_CHARS:
+        return None
+    return "".join(
+        character
+        for character in candidate
+        if unicodedata.category(character) != "Cf"
+        and not any(
+            start <= ord(character) <= end
+            for start, end in _DEFAULT_IGNORABLE_RANGES
+        )
+    )
+
+
 def _credential_key_shape(value: Any) -> bool:
     """Recognize credential-bearing keys without returning their input values."""
 
-    normalized = re.sub(
-        r"[^a-z0-9]+", "", unicodedata.normalize("NFKC", str(value)).lower()
-    )
+    classified = _security_classification_copy(str(value))
+    if classified is None:
+        return True
+    normalized = re.sub(r"[^a-z0-9]+", "", classified.lower())
     if normalized in {
         "secret", "secretenv", "token", "tokenenv", "apikey", "key",
         "password", "cookie", "cookies", "authorization", "header", "headers",
@@ -965,20 +1008,22 @@ def _credential_key_shape(value: Any) -> bool:
 def _sensitive_query_name(value: Any) -> bool:
     """Fail closed for credential-bearing query names, including compounds."""
 
-    normalized = re.sub(
-        r"[^a-z0-9]+", "", unicodedata.normalize("NFKC", str(value)).lower()
-    )
+    classified = _security_classification_copy(str(value))
+    if classified is None:
+        return True
+    normalized = re.sub(r"[^a-z0-9]+", "", classified.lower())
     return any(marker in normalized for marker in _SENSITIVE_RSS_QUERY_PARTS)
 
 
 def _contains_credential_assignment(value: str) -> bool:
     """Recognize credential header and assignment syntax in arbitrary text."""
 
+    candidate = _security_classification_copy(value)
+    if candidate is None:
+        return True
     return any(
         _credential_key_shape(match.group(1))
-        for match in _CREDENTIAL_ASSIGNMENT_RE.finditer(
-            unicodedata.normalize("NFKC", value)
-        )
+        for match in _CREDENTIAL_ASSIGNMENT_RE.finditer(candidate)
     )
 
 
@@ -995,7 +1040,9 @@ def _contains_secret_shape(value: Any) -> bool:
     if not isinstance(value, str):
         return False
 
-    candidate = unicodedata.normalize("NFKC", value.strip())
+    candidate = _security_classification_copy(value)
+    if candidate is None:
+        return True
     lowered = candidate.lower()
     if lowered.startswith(tuple(prefix.lower() for prefix in _SECRET_PREFIXES)):
         return True
@@ -1070,6 +1117,10 @@ def _github_path(value: str, *, kind: str) -> tuple[str, str] | str:
         if len(parts) != 2:
             raise SourceConfigError("repository must be owner/repository")
         owner, repo = parts
+        if repo.lower().endswith(".git"):
+            # GitHub's standard HTTPS clone form and its common bare equivalent
+            # both identify the repository without the transport suffix.
+            repo = repo[:-4]
         if (
             len(owner) > 39
             or not _GITHUB_OWNER_RE.fullmatch(owner)
@@ -1114,6 +1165,25 @@ def _reddit_name(value: str, *, user: bool) -> str:
 
 
 _TELEGRAM_PUBLIC_HANDLE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+_TELEGRAM_RESERVED_ROUTES = {
+    "addemoji",
+    "addlist",
+    "addstickers",
+    "bg",
+    "boost",
+    "confirmphone",
+    "contact",
+    "giftcode",
+    "invoice",
+    "iv",
+    "joinchat",
+    "login",
+    "proxy",
+    "setlanguage",
+    "share",
+    "socks",
+    "s",
+}
 _TWITTER_PUBLIC_HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 
@@ -1131,13 +1201,21 @@ def _telegram_channel(value: str) -> str:
         parts = [part for part in parsed.path.split("/") if part]
         if (
             len(parts) != 1
+            or parsed.path != f"/{parts[0]}"
             or parts[0].startswith("+")
-            or parts[0].lower() in {"joinchat", "s"}
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+            or "?" in text
+            or "#" in text
         ):
             raise SourceConfigError("channel must be a public Telegram channel name")
         text = parts[0]
     channel = text.lstrip("@")
-    if not _TELEGRAM_PUBLIC_HANDLE_RE.fullmatch(channel):
+    if (
+        channel.lower() in _TELEGRAM_RESERVED_ROUTES
+        or not _TELEGRAM_PUBLIC_HANDLE_RE.fullmatch(channel)
+    ):
         raise SourceConfigError("channel must be a public Telegram channel name")
     return channel
 
@@ -1245,6 +1323,56 @@ def _validate_agent_field_types(
             raise SourceConfigError(f"{name} must be a boolean")
 
 
+_HISTORICAL_IPV4_COMPONENT_RE = re.compile(r"(?:0[xX][0-9A-Fa-f]+|[0-9]+)")
+
+
+def _historical_ipv4_literal(host: str) -> ipaddress.IPv4Address | None:
+    """Parse inet_aton-style IPv4 text locally, without treating domains as IPs."""
+
+    parts = host.split(".")
+    if not 1 <= len(parts) <= 4 or any(
+        _HISTORICAL_IPV4_COMPONENT_RE.fullmatch(part) is None for part in parts
+    ):
+        return None
+
+    values: list[int] = []
+    try:
+        for part in parts:
+            if part.lower().startswith("0x"):
+                base = 16
+            elif len(part) > 1 and part.startswith("0"):
+                base = 8
+            else:
+                base = 10
+            values.append(int(part, base))
+    except ValueError:
+        return None
+
+    component_limits = {
+        1: (0xFFFFFFFF,),
+        2: (0xFF, 0xFFFFFF),
+        3: (0xFF, 0xFF, 0xFFFF),
+        4: (0xFF, 0xFF, 0xFF, 0xFF),
+    }[len(values)]
+    if any(value > limit for value, limit in zip(values, component_limits)):
+        return None
+
+    if len(values) == 1:
+        address = values[0]
+    elif len(values) == 2:
+        address = (values[0] << 24) | values[1]
+    elif len(values) == 3:
+        address = (values[0] << 24) | (values[1] << 16) | values[2]
+    else:
+        address = (
+            (values[0] << 24)
+            | (values[1] << 16)
+            | (values[2] << 8)
+            | values[3]
+        )
+    return ipaddress.IPv4Address(address)
+
+
 def _validate_public_network_literal(value: str) -> None:
     """Reject local hostnames and non-public IP literals without resolving DNS."""
 
@@ -1265,7 +1393,9 @@ def _validate_public_network_literal(value: str) -> None:
     try:
         literal = ipaddress.ip_address(host.split("%", 1)[0])
     except ValueError:
-        return
+        literal = _historical_ipv4_literal(host)
+        if literal is None:
+            return
     if (
         not literal.is_global
         or literal.is_loopback

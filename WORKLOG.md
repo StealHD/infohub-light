@@ -897,3 +897,11 @@
 - 结果：凭据检测按 query name/value/free text 分层并先做 NFKC；RSS/website 输出强制公网 policy 且本地拒绝 localhost/非公网 IP literal；GitHub/YouTube identity 使用离线真实语法；Apify 仅接收 lookup identity；guide summary 补齐 `required_fields`，旧 REST 投影不变
 - 未解决问题：Task 3 必须无视 owner/admin 放宽逻辑，按 `policy.public_network_only=true` 绑定既有逐跳 DNS pinning 公网执行路径；本 Task 未修改 runner/proposal/MCP/UI
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第四轮复审的四项 Important
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：四组回归先出现 33 个预期失败，Telegram 边界自审再确认 4 个预期失败；focused 246 项、Python compile、full gate 22/22（`mapping_miss=false`）和 `git diff --check` 通过
+- 结果：凭据安全副本加入有界 percent decode 与 Unicode ignorable 折叠；RSS/website 拒绝历史 IPv4 本地地址；GitHub clone `.git` 规范化；Telegram query/fragment 与保留路由失败关闭
+- 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
+- 控制面变更：无

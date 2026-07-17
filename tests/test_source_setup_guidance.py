@@ -255,6 +255,41 @@ def test_agent_normalization_rejects_private_or_non_channel_telegram_urls(value)
         normalize_source_setup_input("telegram", {"channel": value})
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://t.me/durov?single=1",
+        "https://t.me/durov#post",
+        "https://t.me/durov?",
+        "https://t.me/durov#",
+        "https://t.me//durov",
+        "https://t.me/share?url=https%3A%2F%2Fexample.com",
+        "https://t.me/proxy?server=example.com",
+        "https://t.me/socks?server=example.com",
+        "https://t.me/confirmphone?phone=123",
+        "https://t.me/addlist/example",
+        "share",
+        "@proxy",
+        "socks",
+        "confirmphone",
+        "joinchat",
+        "addlist",
+    ],
+)
+def test_agent_normalization_rejects_telegram_routes_and_url_suffixes(value):
+    with pytest.raises(SourceConfigError, match="public Telegram channel"):
+        normalize_source_setup_input("telegram", {"channel": value})
+
+
+@pytest.mark.parametrize(
+    "value", ["durov", "@durov", "https://t.me/durov", "https://t.me/durov/"]
+)
+def test_agent_normalization_accepts_public_telegram_username_roots(value):
+    result = normalize_source_setup_input("telegram", {"channel": value})
+
+    assert result["config"]["channel"] == "durov"
+
+
 def test_agent_normalization_wraps_malformed_url_as_source_config_error():
     with pytest.raises(SourceConfigError) as exc_info:
         normalize_source_setup_input("website", {"url": "https://[broken"})
@@ -342,6 +377,38 @@ def test_query_values_and_free_text_do_not_treat_substrings_as_credentials():
 
     assert rss["config"]["name"] == "Monkey: Daily"
     assert rss["config"]["url"].endswith("?q=monkey&title=authentic")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Authori\u200bzation: Bearer never-store-this",
+        "Authori\ufe0fzation: Bearer never-store-this",
+        "Authorization%3A%20Bearer%20never-store-this",
+        "Authorization%253A%2520Bearer%2520never-store-this",
+    ],
+)
+def test_free_text_credential_classification_folds_ignorable_and_encoded_syntax(name):
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input(
+            "rss", {"url": "https://example.com/feed", "name": name}
+        )
+
+    assert str(exc_info.value) == CREDENTIAL_ERROR
+    assert "never-store-this" not in str(exc_info.value)
+
+
+def test_free_text_security_classification_does_not_rewrite_persisted_safe_text():
+    result = normalize_source_setup_input(
+        "rss",
+        {
+            "url": "https://example.com/feed?q=monkey",
+            "name": "Release%20Notes — Monkey: Daily",
+        },
+    )
+
+    assert result["config"]["name"] == "Release%20Notes — Monkey: Daily"
+    assert result["config"]["url"].endswith("?q=monkey")
 
 
 @pytest.mark.parametrize(
@@ -545,6 +612,20 @@ def test_github_normalization_accepts_realistic_offline_repository_grammar(
 @pytest.mark.parametrize(
     "repository",
     [
+        "https://github.com/openai/codex.git",
+        "openai/codex.git",
+    ],
+)
+def test_github_normalization_strips_clone_suffix_from_url_and_bare_identity(repository):
+    result = normalize_source_setup_input("github", {"repository": repository})
+
+    assert result["config"]["owner"] == "openai"
+    assert result["config"]["repo"] == "codex"
+
+
+@pytest.mark.parametrize(
+    "repository",
+    [
         "bad owner/repo name",
         "-owner/repo",
         "owner-/repo",
@@ -595,6 +676,44 @@ def test_github_normalization_rejects_invalid_or_ambiguous_repository_identities
 def test_agent_rss_urls_reject_non_public_local_targets_without_dns(source_type, url):
     with pytest.raises(SourceConfigError, match="public network"):
         normalize_source_setup_input(source_type, {"url": url})
+
+
+@pytest.mark.parametrize("source_type", ["rss", "website"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.1/feed",
+        "http://127.0.1/feed",
+        "http://2130706433/feed",
+        "http://0x7f000001/feed",
+        "http://0x7f.1/feed",
+        "http://0177.0.0.1/feed",
+        "http://0177.1/feed",
+        "http://017700000001/feed",
+    ],
+)
+def test_agent_rss_urls_reject_historical_loopback_ipv4_forms_without_dns(
+    source_type, url
+):
+    with pytest.raises(SourceConfigError, match="public network"):
+        normalize_source_setup_input(source_type, {"url": url})
+
+
+@pytest.mark.parametrize("source_type", ["rss", "website"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://127.example.com/feed",
+        "https://0x7f000001.example.com/feed",
+        "https://release-0177.example/feed",
+    ],
+)
+def test_agent_rss_urls_do_not_confuse_normal_domains_with_historical_ipv4(
+    source_type, url
+):
+    result = normalize_source_setup_input(source_type, {"url": url})
+
+    assert result["config"]["url"] == url
 
 
 @pytest.mark.parametrize("source_type", ["rss", "website"])
