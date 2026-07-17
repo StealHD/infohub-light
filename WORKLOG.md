@@ -953,3 +953,11 @@
 - 结果：NFKC/camelCase/分隔归一后的 compact key 以受控 credential 后缀失败关闭，JSON 与 percent-decoded query 统一覆盖；`sk-` 仅在长连续 token 且右边界时拒绝，`SK-Engineering Weekly` 保持允许
 - 未解决问题：无；未改动 schema、时钟、事务、retention、sanitizer，未实现 Task 3+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 第四轮复审的字符串值编码绕过 Important 与长 `sk-` 业务标题误拒 Minor
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`.superpowers/sdd/task-2-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：三轮回归分别出现 9、2、1 个预期 RED；proposal 86 项、指定 focused 99 项、Python compile 与 full gate 22/22（`mapping_miss=false`）通过，提交前重跑 `git diff --check`
+- 结果：所有 proposal 字符串值使用 16 KiB、NFKC、最多两轮 percent-decode 的非持久化分类副本，query name/value 同步覆盖且安全 `%20` 原值不变；真实形态 `sk` 假 token 继续拒绝，两个指定长业务标题允许
+- 未解决问题：无；未改动 key suffix、schema、权威时钟、事务、retention、sanitizer，未实现 Task 3+
+- 控制面变更：无

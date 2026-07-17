@@ -296,6 +296,107 @@ def test_proposal_payload_rejects_compact_credential_suffix_query_names(
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        "ｓｋ－abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+        "sk%2Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+        "%2573%256B%252Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+    ],
+)
+def test_proposal_payload_rejects_nfkc_and_percent_encoded_token_values(
+    store, delegation, text
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"notes": text}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert text not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/feed?cursor=sk%2Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+        "https://example.com/feed?cursor=sk%252Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+        "https://example.com/feed?cursor=%EF%BD%93%EF%BD%8B%EF%BC%8Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+    ],
+)
+def test_proposal_payload_rejects_encoded_tokens_in_query_values(
+    store, delegation, url
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"config": {"url": url}}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert url not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/feed?sk%252Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL=cursor",
+        "https://example.com/feed?cursor=sk%252Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+    ],
+)
+def test_sensitive_query_classifies_each_name_and_value(url):
+    assert service_store._contains_sensitive_query(url) is True
+
+
+def test_proposal_result_summary_rejects_twice_encoded_token_without_echo(
+    store, delegation
+):
+    store.create_agent_change_proposal(**proposal_values(delegation, 1))
+    token = "%2573%256B%252Dabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL"
+
+    with pytest.raises(ValueError) as error:
+        store.apply_agent_change_proposal(
+            "agp_1",
+            applied_at=(NOW + timedelta(minutes=1)).isoformat(),
+            result_summary={"message": token},
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert token not in str(error.value)
+    assert store.get_agent_change_proposal("agp_1")["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "x" * 16_385,
+        "\ufdfa" * 8_192,
+    ],
+    ids=["input-over-limit", "nfkc-expansion-over-limit"],
+)
+def test_proposal_classification_copy_fails_closed_at_bounded_size(
+    store, delegation, text
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"notes": text}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert text not in str(error.value)
+
+
+@pytest.mark.parametrize(
     "key",
     ["monkey", "hockey", "keyboard_layout", "keynote", "tokenizer", "tokenization"],
 )
@@ -333,9 +434,14 @@ def test_proposal_payload_allows_basic_and_bearer_business_names(
 
 @pytest.mark.parametrize(
     "display_name",
-    ["SK-Engineering Weekly", "sk-Engineering Weekly"],
+    [
+        "SK-Engineering Weekly",
+        "sk-Engineering Weekly",
+        "SK-Engineering-Newsletter",
+        "SK-Software-Knowledge-Hub",
+    ],
 )
-def test_proposal_payload_allows_short_sk_business_names(store, delegation, display_name):
+def test_proposal_payload_allows_sk_business_names(store, delegation, display_name):
     values = proposal_values(
         delegation,
         1,
@@ -348,6 +454,26 @@ def test_proposal_payload_allows_short_sk_business_names(store, delegation, disp
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        "Quarterly%20Engineering%20Newsletter",
+        "https://example.com/feed?cursor=Quarterly%20Engineering",
+    ],
+)
+def test_proposal_payload_preserves_safe_percent_encoded_values(
+    store, delegation, value
+):
+    payload = {"source": {"notes": value}}
+
+    created = store.create_agent_change_proposal(
+        **proposal_values(delegation, 1, payload=payload)
+    )
+
+    assert created["payload"] == payload
+    assert store.get_agent_change_proposal("agp_1")["payload"] == payload
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "Authorization: Basic dXNlcjpwYXNz",
@@ -356,7 +482,7 @@ def test_proposal_payload_allows_short_sk_business_names(store, delegation, disp
         "Cookie: session=do-not-echo-header-secret",
         "X-API-Key: do-not-echo-header-secret",
         "token=do-not-echo-header-secret",
-        "sk-do-not-echo-prefix-secret",
+        "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
         "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
         "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.do-not-echo-jwt-secret",
     ],
