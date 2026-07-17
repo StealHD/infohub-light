@@ -1024,3 +1024,10 @@
 - 结果：控制文件显式规则优先于 docs-only；静态模板动态导入不能绕过 checker/ESLint；390px 可访问全部六个目的地；筛选由 HeroUI overlay 承担 Escape/焦点归还；必填 Apify 下拉项显示帮助与字段错误且阻止无效创建；已有 snapshot 展开不再请求 feedItem；release 只运行构建产物并排除 DEV-only 预览/fixture
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 01:30 Codex
+- 任务：关闭 Task 4 最终复审中的 release Playwright 命令、来源表单原生校验、深链请求时序、字段帮助和筛选外点焦点归还缺口
+- 修改文件：`test_gate.py` 与 Python 门禁回归、Hero 来源表单、工作台深链查询、App RTL、生产 Playwright、Task 4 报告与本工作日志
+- 执行验证：RED→GREEN（exact release argv、深链 source-settle、Apify 选项错误清除、来源 URL/数值/NaN 约束）；UI contract、lint、TypeScript、Vitest 29 文件/178 项、build/artifact、release build+preview 三视口 29 通过/4 既定 skip；导航 RAF 与移动过滤锚点各 30x/5-worker 压力 30/30；`test_gate full` 22/22、`mapping_miss=false`、51.941 秒；三份 Compose config 与 `git diff --check` 均通过
+- 结果：release gate 强制调用 `e2e:release`；来源表单移除 `noValidate` 并在修正输入后清除字段错误；已在 source snapshot 的深链不再提前取 detail；正常字段输出 help；筛选支持外点关闭并归还触发器焦点
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

@@ -295,3 +295,53 @@ PASS
 - 移动导航保留六个目的地；筛选改用 HeroUI Popover/Select/NumberField，来源选项支持 required/help/error。
 - `feedItem` 仅用于不在 source list 中的深链，既有卡片展开不再发送重复详情请求。
 - 新增 release Playwright：`build + vite preview --port 4174`、`reuseExistingServer=false`，并排除 DEV-only preview 与 portal fixture；完整生产三视口 29 通过、4 个既定 desktop-only skip。
+
+## Sixth review follow-up: release command, source validation, and query timing
+
+- Release verification now invokes the dedicated `npm run e2e:release` command exactly; the Python gate regression asserts the complete argv rather than merely checking that a release spec exists.
+- Source creation no longer bypasses browser validation. Empty display names, malformed URLs, non-finite values, and numeric bounds prevent mutation and show field-level Chinese errors. Registry option values are held in React state, and their prior error is cleared when the user makes a valid selection; normal text, URL, numeric, and boolean registry fields now expose their `help` text.
+- Deep-link detail loading waits until the active source snapshot settles. A selected item already present in that snapshot renders/expands without a redundant `feedItem` request; genuinely missing and 404 deep links retain the existing fallback behavior.
+- The production filter Popover now has browser coverage for outside-pointer dismissal and trigger-focus restoration, in addition to Escape dismissal.
+
+Focused follow-up verification:
+
+```text
+npm test -- --run src/app/App.test.tsx
+47 tests passed
+
+npm run typecheck
+PASS
+
+npm run e2e:release
+29 passed / 4 intentional desktop-only skips across desktop, tablet, and mobile
+```
+
+Independent completion verification:
+
+```text
+npm run check:ui / lint / typecheck
+PASS
+
+npm test -- --reporter=default
+29 files / 178 tests passed
+
+npm run build
+PASS; production artifact scan passed
+
+npx playwright test -c playwright.release.config.ts ...wheel-release... --repeat-each=30 --workers=5
+30/30 passed
+
+npx playwright test -c playwright.release.config.ts ...filtered-unread... --repeat-each=30 --workers=5
+30/30 passed
+
+npm run e2e:release
+29 passed / 4 intentional desktop-only skips across desktop, tablet, and mobile
+
+.venv/bin/python scripts/test_gate.py run --mode full
+22/22 passed; mapping_miss=false; 51.941s
+
+git diff --check
+PASS
+```
+
+The release-only stress run exposed two fixture races, not product regressions: the RAF gate reused live browser RAF IDs and could replay Virtualizer reconciliation, while the mobile anchor assertion sampled geometry in an earlier browser task than the refresh request. The gate now uses a disjoint synthetic ID range and replays only explicitly cancelled callbacks; the anchor is sampled and the refresh clicked in the same browser task.

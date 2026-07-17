@@ -247,6 +247,7 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     assert any("vitest related" in command and "feedModel.ts" in command for command in targeted_commands)
     assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
     assert "release_playwright" in release_by_id
+    assert release_by_id["release_playwright"].argv == ("npm", "run", "e2e:release")
     smoke = release_by_id["release_api_docker_smoke"]
     smoke_command = " ".join(smoke.argv)
     assert "--api-only" in smoke_command

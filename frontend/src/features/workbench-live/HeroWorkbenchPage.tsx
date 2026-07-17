@@ -52,7 +52,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const detailQuery = useQuery({
     queryKey: queryKeys.feedItem(user.id, selectedId || ''),
     queryFn: ({ signal }) => api.feedItem(selectedId!, signal),
-    enabled: Boolean(selectedId && !selectedInSource),
+    enabled: Boolean(selectedId && sourceQuerySettled && !selectedInSource),
     retry: false,
   })
   const stateMutation = useOptimisticItemState({ api, user, beginAction, isActionCurrent, publishFeedback: false })

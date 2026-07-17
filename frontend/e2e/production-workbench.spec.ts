@@ -328,12 +328,24 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
-  const anchorBefore = await alignVisibleCardToTop(page)
-  expect(anchorBefore.name).not.toBe('')
+  await alignVisibleCardToTop(page)
 
-  // Preserve the geometry sampled above at the exact refresh boundary; actionability
-  // waiting may span a later virtualizer measurement and create a different anchor.
-  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
+  // Sample and click in one browser task so a later Virtualizer measurement cannot make
+  // the expected anchor older than the request-time geometry captured by the application.
+  const anchorBefore = await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement, scrollElement) => {
+    const scroll = scrollElement as HTMLElement
+    const bounds = scroll.getBoundingClientRect()
+    const top = Array.from(scroll.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
+      .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
+      .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
+    const anchor = {
+      name: top?.getAttribute('aria-label') ?? '',
+      offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
+    }
+    element.click()
+    return anchor
+  }, await feedScroll.elementHandle())
+  expect(anchorBefore.name).not.toBe('')
   await expect(page.getByRole('button', { name: '查看 80 条新内容' })).toBeVisible({ timeout: 7000 })
   await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBefore.name)
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBefore.offset)).toBeLessThanOrEqual(2)
@@ -361,6 +373,11 @@ test('live unread-first and source filters preserve the surviving rendered-card 
   await expect(filterDialog).toBeVisible()
   await expect(filterDialog.getByRole('button', { name: /来源/ })).toBeVisible()
   await page.keyboard.press('Escape')
+  await expect(filterDialog).toBeHidden()
+  await expect(page.getByRole('button', { name: '筛选信息流' })).toBeFocused()
+  await page.getByRole('button', { name: '筛选信息流' }).click()
+  await expect(filterDialog).toBeVisible()
+  await page.mouse.click(4, 100)
   await expect(filterDialog).toBeHidden()
   await expect(page.getByRole('button', { name: '筛选信息流' })).toBeFocused()
   await page.keyboard.press('Enter')
@@ -507,8 +524,11 @@ test('a wheel release after cards commit cancels the pending navigation RAF', as
   await shrinkingRefreshStarted
   await page.getByRole('button', { name: '跳转到第 182 条信息' }).evaluate((element: HTMLElement) => element.click())
   await page.evaluate(() => {
-    let nextFrameId = 1
+    // Keep synthetic IDs outside the browser's live RAF range so stale native IDs held by
+    // unrelated subsystems cannot cancel a gated callback by numeric collision.
+    let nextFrameId = 1_000_000_000
     const scheduled = new Map<number, FrameRequestCallback>()
+    const cancelled: FrameRequestCallback[] = []
     const nativeRequest = window.requestAnimationFrame
     const nativeCancel = window.cancelAnimationFrame
     Object.assign(window, {
@@ -518,10 +538,13 @@ test('a wheel release after cards commit cancels the pending navigation RAF', as
         return id
       },
       cancelAnimationFrame(id: number) {
+        const callback = scheduled.get(id)
+        if (callback) cancelled.push(callback)
         scheduled.delete(id)
       },
-      __flushNavigationRafGate() {
-        const callbacks = [...scheduled.values()]
+      __flushCancelledNavigationRafGate() {
+        const callbacks = [...cancelled]
+        cancelled.length = 0
         scheduled.clear()
         for (const callback of callbacks) callback(performance.now())
         window.requestAnimationFrame = nativeRequest
@@ -529,6 +552,9 @@ test('a wheel release after cards commit cancels the pending navigation RAF', as
       },
       __navigationRafGateSize() {
         return scheduled.size
+      },
+      __cancelledNavigationRafGateSize() {
+        return cancelled.length
       },
     })
     void (window as typeof window & { releaseRafGateRefresh: () => Promise<void> }).releaseRafGateRefresh()
@@ -539,7 +565,10 @@ test('a wheel release after cards commit cancels the pending navigation RAF', as
     element.scrollTop = 0
     element.dispatchEvent(new WheelEvent('wheel', { bubbles: true }))
   })
-  await page.evaluate(() => (window as typeof window & { __flushNavigationRafGate: () => void }).__flushNavigationRafGate())
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __cancelledNavigationRafGateSize: () => number }).__cancelledNavigationRafGateSize())).toBeGreaterThan(0)
+  // Replay only callbacks the app explicitly cancelled. Flushing every queued RAF would also
+  // execute Virtualizer reconciliation and measure unrelated behavior instead of this ownership gate.
+  await page.evaluate(() => (window as typeof window & { __flushCancelledNavigationRafGate: () => void }).__flushCancelledNavigationRafGate())
   await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
 })
 

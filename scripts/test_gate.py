@@ -493,7 +493,7 @@ def _release_specs(root: Path) -> list[CommandSpec]:
     return [
         _spec(
             "release_playwright",
-            ["npm", "run", "e2e"],
+            ["npm", "run", "e2e:release"],
             root / "frontend",
             domain="e2e",
         ),

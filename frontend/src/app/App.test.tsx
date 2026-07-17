@@ -9,6 +9,7 @@ import { ApiError } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import type { ServiceApi } from '../api/service'
 import type { FeedItem, Job } from '../api/types'
+import { validateRegistryFields } from '../features/admin-heroui/sourceFormValidation'
 import { AppRoutes } from './App'
 
 function LocationProbe() {
@@ -64,6 +65,13 @@ function deferred<T>() {
 }
 
 describe('App routes', () => {
+  it('reports a non-finite source registry number before it can form a mutation payload', () => {
+    const form = new FormData()
+    form.set('limit', 'NaN')
+    const errors = validateRegistryFields({ type: 'rss', fields: [{ name: 'limit', label: '获取数量', input_type: 'number', required: true, default: 1, min: 1, max: 10 }] }, form, {})
+    expect(errors).toEqual({ limit: '获取数量必须是有效数字。' })
+  })
+
   it('does not expose the removed fixed-data MUI preview route', async () => {
     const authStatus = vi.fn().mockResolvedValue({ authenticated: false, user: null })
     const api = { authStatus } as unknown as ServiceApi
@@ -643,10 +651,81 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('option', { name: 'X' }))
     await browser.click(screen.getByLabelText('来源类别'))
     await browser.click(await screen.findByRole('option', { name: '账号' }))
+    expect(screen.getByLabelText('平台')).toHaveTextContent('X')
+    expect(screen.getByLabelText('来源类别')).toHaveTextContent('账号')
+    expect(screen.queryByText('平台不能为空。')).not.toBeInTheDocument()
+    expect(screen.queryByText('来源类别不能为空。')).not.toBeInTheDocument()
+    const sourceForm = screen.getByRole('button', { name: '创建来源' }).closest('form') as HTMLFormElement
+    expect(Array.from(sourceForm.elements).filter((element): element is HTMLInputElement => element instanceof HTMLInputElement && !element.validity.valid).map((element) => ({ name: element.name, value: element.value, required: element.required, validity: element.validity.valid }))).toEqual([])
     await browser.click(screen.getByRole('button', { name: '创建来源' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
       config: expect.objectContaining({ platform: 'x', kind: 'account' }),
     })))
+  })
+
+  it('keeps invalid registry source fields out of submission and explains their constraints', async () => {
+    const browser = userEvent.setup()
+    const createSource = vi.fn().mockResolvedValue({ id: 'validated-source' })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{
+        type: 'validated_rss', label: '受限 RSS', fields: [
+          { name: 'url', label: 'RSS 地址', input_type: 'url', required: true, default: '', help: '请输入完整的 HTTPS 地址。' },
+          { name: 'limit', label: '获取数量', input_type: 'number', required: true, default: 3, min: 1, max: 10, help: '范围为 1 到 10。' },
+          { name: 'include_archived', label: '包含归档内容', input_type: 'boolean', required: false, default: false, help: '仅在需要历史内容时开启。' },
+        ],
+      }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      createSource,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: '受限 RSS' }))
+    expect(screen.getByText('请输入完整的 HTTPS 地址。')).toBeInTheDocument()
+    expect(screen.getByText('范围为 1 到 10。')).toBeInTheDocument()
+    expect(screen.getByText('仅在需要历史内容时开启。')).toBeInTheDocument()
+
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(await screen.findByText('来源名称不能为空。')).toBeInTheDocument()
+    expect(createSource).not.toHaveBeenCalled()
+
+    await browser.type(screen.getByRole('textbox', { name: '来源名称' }), '受限订阅')
+    await browser.type(screen.getByRole('textbox', { name: 'RSS 地址' }), 'not-a-url')
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(await screen.findByText('RSS 地址必须是有效 URL。')).toBeInTheDocument()
+    expect(createSource).not.toHaveBeenCalled()
+
+    const url = screen.getByRole('textbox', { name: 'RSS 地址' })
+    const limit = screen.getByRole('spinbutton', { name: '获取数量' })
+    await browser.clear(url)
+    await browser.type(url, 'https://example.com/feed.xml')
+    await browser.clear(limit)
+    await browser.type(limit, '11')
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(await screen.findByText('获取数量不能大于 10。')).toBeInTheDocument()
+    expect(createSource).not.toHaveBeenCalled()
+
+    await browser.clear(limit)
+    await browser.type(limit, '0')
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(await screen.findByText('获取数量不能小于 1。')).toBeInTheDocument()
+    expect(createSource).not.toHaveBeenCalled()
+
+    await browser.clear(limit)
+    fireEvent.input(limit, { target: { value: 'NaN' } })
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(await screen.findByText(/获取数量(不能为空|必须是有效数字)。/)).toBeInTheDocument()
+    expect(createSource).not.toHaveBeenCalled()
+
+    await browser.clear(limit)
+    await browser.type(limit, '4')
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ url: 'https://example.com/feed.xml', limit: 4 }) })))
   })
 
   it('applies the existing provider defaults in the live AI form', async () => {
@@ -746,6 +825,20 @@ describe('App routes', () => {
     expect(feedItem).toHaveBeenCalledWith('deep', expect.any(AbortSignal))
   })
 
+  it('waits for the source snapshot before deciding whether an initial deep link needs feedItem', async () => {
+    const snapshot = deferred<{ schema_version: number; items: FeedItem[] }>()
+    const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
+    const api = liveApi({ latestFeed: vi.fn().mockReturnValue(snapshot.promise), feedItem } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await waitFor(() => expect(api.latestFeed).toHaveBeenCalled())
+    expect(feedItem).not.toHaveBeenCalled()
+    await act(async () => snapshot.resolve({ schema_version: 2, items: [{ id: 'live-1', title: '真实 API 条目', url: 'https://example.com/live-1', published_at: '2026-07-17T02:00:00Z' }] }))
+    expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
+    expect(feedItem).not.toHaveBeenCalled()
+  })
+
   it('expands an item already in the snapshot without fetching its detail again', async () => {
     const user = userEvent.setup()
     const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
@@ -759,13 +852,15 @@ describe('App routes', () => {
     expect(feedItem).not.toHaveBeenCalled()
   })
 
-  it('keeps the snapshot card usable when selected detail cannot be loaded', async () => {
-    const api = liveApi({ feedItem: vi.fn().mockRejectedValue(new ApiError(503, { code: 'detail_failed', message: '详情失败' })) } as Partial<ServiceApi>)
+  it('keeps the snapshot card usable without a detail request when it is selected by an initial deep link', async () => {
+    const feedItem = vi.fn().mockRejectedValue(new ApiError(503, { code: 'detail_failed', message: '详情失败' }))
+    const api = liveApi({ feedItem } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法读取深链条目')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(feedItem).not.toHaveBeenCalled()
   })
 
   it('pins a successfully fetched deep link despite persisted filters and dismissed state', async () => {
@@ -860,7 +955,7 @@ describe('App routes', () => {
     }
   })
 
-  it('keeps an expanded snapshot when detail 404 resolves before the source query', async () => {
+  it('waits for the source query before resolving an initial deep link that is present in its snapshot', async () => {
     const latest = deferred<{ schema_version: number; items: FeedItem[] }>()
     const api = liveApi({
       latestFeed: vi.fn().mockReturnValue(latest.promise),
@@ -869,7 +964,8 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
-    await waitFor(() => expect(api.feedItem).toHaveBeenCalled())
+    await waitFor(() => expect(api.latestFeed).toHaveBeenCalled())
+    expect(api.feedItem).not.toHaveBeenCalled()
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
     expect(screen.queryByText(/这条信息已不可用/)).not.toBeInTheDocument()
     await act(async () => latest.resolve({
@@ -879,14 +975,14 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '快照回退条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 快照回退条目' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
+    expect(api.feedItem).not.toHaveBeenCalled()
   })
 
-  it('keeps a cached-missing selection while its active source refetch can still return the target', async () => {
+  it('does not fetch a cached-missing selection before its active source refetch settles', async () => {
     const latest = deferred<{ schema_version: number; items: FeedItem[] }>()
-    const detail = deferred<FeedItem>()
     const api = liveApi({
       latestFeed: vi.fn().mockReturnValue(latest.promise),
-      feedItem: vi.fn().mockReturnValue(detail.promise),
+      feedItem: vi.fn(),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     queryClient.setQueryData(queryKeys.feed('user-live', { hideDismissed: false, unreadFirst: false }), {
@@ -897,9 +993,8 @@ describe('App routes', () => {
 
     await waitFor(() => {
       expect(api.latestFeed).toHaveBeenCalled()
-      expect(api.feedItem).toHaveBeenCalled()
     })
-    await act(async () => detail.reject(new ApiError(404, { code: 'not_found', message: '不存在' })))
+    expect(api.feedItem).not.toHaveBeenCalled()
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
     expect(screen.queryByText(/这条信息已不可用/)).not.toBeInTheDocument()
 
@@ -910,6 +1005,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '后台刷新目标' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 后台刷新目标' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
+    expect(api.feedItem).not.toHaveBeenCalled()
   })
 
   it('removes a proven-stale 404 deep link and falls back to bottom-first Feed positioning', async () => {
@@ -1002,7 +1098,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '稍后读迁移条目' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/saved?item=live-1'))
     expect(savedFeed).toHaveBeenCalledWith(200, 0, expect.any(AbortSignal))
-    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
+    expect(feedItem).not.toHaveBeenCalled()
   })
 
   it('does not remount the authenticated workbench when inline expansion changes search params', async () => {
