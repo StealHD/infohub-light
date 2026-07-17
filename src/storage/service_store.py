@@ -34,7 +34,9 @@ SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
 WORKER_STATES = {"starting", "idle", "running", "stopping"}
 SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
-AGENT_DELEGATION_SCOPE = "inteliscope:read"
+AGENT_DELEGATION_READ_SCOPE = "inteliscope:read"
+AGENT_DELEGATION_WRITE_SCOPE = "inteliscope:subscriptions:write"
+AGENT_DELEGATION_SCOPE = AGENT_DELEGATION_READ_SCOPE
 AGENT_DELEGATION_TTL_DAYS = 90
 AGENT_DELEGATION_MAX_ACTIVE = 5
 AGENT_DELEGATION_USAGE_TOUCH_MINUTES = 15
@@ -102,6 +104,36 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return fallback
+
+
+def _scopes_for_access(access: str) -> list[str]:
+    if access == "read":
+        return [AGENT_DELEGATION_READ_SCOPE]
+    if access == "subscriptions_write":
+        return [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
+    raise ValueError("access must be read or subscriptions_write")
+
+
+def _safe_agent_delegation_scopes(scopes_json: str | None) -> list[str]:
+    raw_scopes = _json_loads(scopes_json, None)
+    if (
+        not isinstance(raw_scopes, list)
+        or not all(isinstance(scope, str) for scope in raw_scopes)
+        or len(raw_scopes) != len(set(raw_scopes))
+    ):
+        return []
+    scopes = set(raw_scopes)
+    if scopes == {AGENT_DELEGATION_READ_SCOPE}:
+        return [AGENT_DELEGATION_READ_SCOPE]
+    if scopes == {AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE}:
+        return [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
+    return []
+
+
+def _access_for_scopes(scopes: list[str]) -> str:
+    if scopes == [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]:
+        return "subscriptions_write"
+    return "read"
 
 
 def _proposal_classification_copies(value: str) -> tuple[str, ...] | None:
@@ -1146,11 +1178,13 @@ class ServiceStore:
             status = "expired"
         else:
             status = "active"
+        scopes = _safe_agent_delegation_scopes(row["scopes_json"])
         return {
             "id": row["id"],
             "name": row["name"],
             "client_type": row["client_type"],
-            "scopes": _json_loads(row["scopes_json"], []),
+            "access": _access_for_scopes(scopes),
+            "scopes": scopes,
             "token_prefix": row["token_prefix"],
             "created_at": row["created_at"],
             "expires_at": row["expires_at"],
@@ -1509,7 +1543,9 @@ class ServiceStore:
         workspace_id: str,
         user_id: str,
         name: str,
+        access: str = "read",
     ) -> tuple[dict[str, Any], str]:
+        scopes = _scopes_for_access(access)
         delegation_name = str(name or "").strip()
         if not delegation_name:
             raise ValueError("name is required")
@@ -1564,7 +1600,7 @@ class ServiceStore:
                     delegation_name,
                     token_hash,
                     token[:18],
-                    _json_dumps([AGENT_DELEGATION_SCOPE]),
+                    _json_dumps(scopes),
                     now,
                     expires_at,
                     now,
@@ -1695,7 +1731,7 @@ class ServiceStore:
             "workspace_id": row["workspace_id"],
             "user_id": row["user_id"],
             "role": row["role"],
-            "scopes": _json_loads(row["scopes_json"], []),
+            "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
             "expires_at": row["expires_at"],
         }
 

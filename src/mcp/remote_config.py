@@ -17,22 +17,37 @@ def _is_loopback(hostname: str) -> bool:
         return False
 
 
+def _boolean_env(name: str) -> bool:
+    value = os.getenv(name, "false")
+    if value not in {"true", "false"}:
+        raise ValueError(f"{name} must be true or false")
+    return value == "true"
+
+
 @dataclass(frozen=True, slots=True)
 class RemoteMCPSettings:
     enabled: bool
     public_url: str
+    subscription_writes_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "RemoteMCPSettings":
-        enabled = os.getenv("HORIZON_REMOTE_MCP_ENABLED", "false").strip().lower()
-        if enabled not in {"true", "false"}:
-            raise ValueError("HORIZON_REMOTE_MCP_ENABLED must be true or false")
+        enabled = _boolean_env("HORIZON_REMOTE_MCP_ENABLED")
+        subscription_writes_enabled = _boolean_env(
+            "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED"
+        )
         public_url = os.getenv("HORIZON_REMOTE_MCP_PUBLIC_URL", "").strip()
-        settings = cls(enabled=enabled == "true", public_url=public_url)
+        settings = cls(
+            enabled=enabled,
+            public_url=public_url,
+            subscription_writes_enabled=subscription_writes_enabled,
+        )
         settings.validate()
         return settings
 
     def validate(self) -> None:
+        if self.subscription_writes_enabled and not self.enabled:
+            raise ValueError("subscription writes require Remote MCP to be enabled")
         if not self.enabled:
             return
         if not self.public_url:

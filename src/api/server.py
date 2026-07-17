@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import uvicorn
 from dotenv import load_dotenv
@@ -278,6 +278,21 @@ class ItemFeedbackRequest(BaseModel):
 
 
 class AgentDelegationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    access: Literal["read", "subscriptions_write"] = "read"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("name is required")
+        return name
+
+
+class AgentDelegationRenameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=80)
@@ -1801,6 +1816,9 @@ def create_app(
             {
                 "enabled": remote_mcp_settings.enabled,
                 "mcp_url": remote_mcp_settings.public_url,
+                "subscription_writes_enabled": (
+                    remote_mcp_settings.subscription_writes_enabled
+                ),
                 "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
                 "max_active": AGENT_DELEGATION_MAX_ACTIVE,
                 "connections": store.list_agent_delegations(user["id"]),
@@ -1820,11 +1838,26 @@ def create_app(
                 status_code=409,
                 action="Ask an administrator to enable Remote MCP.",
             )
+        if payload.access == "subscriptions_write":
+            if user.get("role") == "viewer":
+                raise ApiError(
+                    "forbidden",
+                    "viewer users cannot create subscription write connections",
+                    status_code=403,
+                )
+            if not remote_mcp_settings.subscription_writes_enabled:
+                raise ApiError(
+                    "subscription_writes_disabled",
+                    "subscription writes are disabled",
+                    status_code=409,
+                    action="Ask an administrator to enable subscription writes.",
+                )
         try:
             connection, token = store.create_agent_delegation(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
                 name=payload.name,
+                access=payload.access,
             )
         except AgentDelegationLimitError as exc:
             raise ApiError(
@@ -1839,7 +1872,7 @@ def create_app(
     @app.patch("/api/me/agent-delegations/{delegation_id}")
     async def agent_delegations_patch(
         delegation_id: str,
-        payload: AgentDelegationRequest,
+        payload: AgentDelegationRenameRequest,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         connection = store.rename_agent_delegation(

@@ -1009,3 +1009,11 @@
 - 结果：create/upsert 与 update 共用最终 schedule 计算，final disabled subject 的显式 schedule enable 在 prepare 拒绝，sealed preview 与 apply 实态不一致会回滚；quota 仅对最终 inactive→active 转换 admission，真实 source re-enable 仍独立检查；brief 同步 v2/v1 fail-closed/reprepare
 - 未解决问题：Task 5/6 仍待按既有 v2 snapshot 合同实现 proposal/MCP 业务；本任务未实现后续业务、迁移或兼容 fallback
 - 控制面变更：仅同步忽略目录中的 Task 3 scratch brief，无对外 API 或主实施计划变更
+
+### 2026-07-17 Codex subagent
+- 任务：实现 delegation 显式订阅写权限与独立默认关闭功能开关
+- 修改文件：delegation store/API、Remote MCP 配置、三组 focused 测试、`.superpowers/sdd/task-4-report.md`、`WORKLOG.md`
+- 执行验证：required focused 先出现 17 个 RED，修正测试夹具后确认目标 RED；GREEN 32 项、相关 TokenVerifier/store 回归 113 项、full gate 22/22（`mapping_miss=false`）通过，提交前重跑 diff/JSON 检查
+- 结果：新增 read/write canonical scope 与安全 access 投影；旧行不迁移，未知/额外 scope 失败关闭；写开关严格 `true|false` 且依赖 Remote MCP；GET/POST/PATCH 权限、viewer 稳定 403 和 rename 防升级完成
+- 未解决问题：Task 8 写工具仍须在每次调用时检查 live flag；本任务未实现 proposal、MCP 写工具、UI 或生产启用
+- 控制面变更：无；总方案后续文档任务统一更新 API/架构/UI 合同
