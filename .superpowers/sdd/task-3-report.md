@@ -189,3 +189,37 @@ Passed.
 python3 scripts/test_gate.py run --mode full
 22/22 commands passed; mapping_miss=false; 60.132s.
 ```
+
+## Invalidation-order remediation — 2026-07-17
+
+Schedule, subscribe, unsubscribe, and retry now retain their entity-scoped pending feedback until the corresponding TanStack Query invalidation promise settles. Each success callback awaits the existing invalidation set before publishing success, so controls cannot unlock against stale server-backed state. API calls, query keys, invalidation scope, permissions, and source-fetch lifecycle behavior are unchanged.
+
+Focused RED→GREEN evidence:
+
+```text
+npm test -- --run src/app/App.test.tsx -t 'keeps successful live mutations pending'
+RED: 1 failed / 40 skipped against the pre-fix callback order. All four API promises were resolved, the QueryClient.invalidateQueries spy had received the exact 19 expected calls, and every invalidation returned the same unresolved deferred promise; the active schedule control had already reverted to ordinary `关闭自动更新` instead of remaining `更新中 自动更新`.
+GREEN: 1 passed / 40 skipped after awaiting invalidation before ActionFeedback success. Schedule, subscribe, unsubscribe, and retry all remained disabled/pending, duplicate submissions stayed suppressed, and refreshed controls appeared only after the deferred invalidation resolved.
+```
+
+Final verification:
+
+```text
+npm test -- --run src/app/App.test.tsx src/features/admin-heroui/HeroActionNotice.test.tsx src/features/admin-heroui/HeroResponseSchemaDetails.test.tsx src/features/subscriptions/subscriptionModel.test.ts
+4 files / 61 tests passed.
+
+npm test
+35 files / 183 tests passed.
+
+npm run check:ui && npm run lint && npm run typecheck && npm run build
+UI contract, TypeScript, and production build/preview exclusion passed; ESLint 0 errors with the existing 1 Fast Refresh warning.
+
+npx playwright test e2e/live-admin.spec.ts
+6/6 passed across desktop/tablet/mobile with the existing Axe assertions.
+
+git diff --check && python3 -m json.tool project-defaults.yaml >/dev/null
+Passed.
+
+python3 scripts/test_gate.py run --mode full
+22/22 commands passed; mapping_miss=false.
+```

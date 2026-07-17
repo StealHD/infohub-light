@@ -415,6 +415,85 @@ describe('App routes', () => {
     expect(api.retryJob).toHaveBeenCalledOnce()
   })
 
+  it('keeps successful live mutations pending until refreshed server state is ready', async () => {
+    const browser = userEvent.setup()
+    const subscribedSource = { id: 'refresh-subscribed', type: 'rss', display_name: '刷新前已订阅', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const availableSource = { id: 'refresh-available', type: 'rss', display_name: '刷新前未订阅', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const originalSubscription = { id: 'refresh-original-sub', user_id: 'user-live', source_id: subscribedSource.id, source_display_name: subscribedSource.display_name, source_type: subscribedSource.type, enabled: true }
+    const refreshedSubscription = { id: 'refresh-new-sub', user_id: 'user-live', source_id: availableSource.id, source_display_name: availableSource.display_name, source_type: availableSource.type, enabled: true }
+    const retryJob = { id: 'refresh-retry-job', user_id: 'user-live', job_type: 'source_fetch' as const, source_id: subscribedSource.id, status: 'failed' as const, retryable: true, created_at: '2026-07-17T01:00:00Z', finished_at: '2026-07-17T01:00:01Z' }
+    const scheduleRequest = deferred<unknown>()
+    const subscribeRequest = deferred<unknown>()
+    const unsubscribeRequest = deferred<unknown>()
+    const retryRequest = deferred<unknown>()
+    const invalidation = deferred<void>()
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [subscribedSource, availableSource] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [originalSubscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }), sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [retryJob] }),
+      updateFeedSchedule: vi.fn().mockReturnValue(scheduleRequest.promise), subscribe: vi.fn().mockReturnValue(subscribeRequest.promise), unsubscribe: vi.fn().mockReturnValue(unsubscribeRequest.promise), retryJob: vi.fn().mockReturnValue(retryRequest.promise),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockReturnValue(invalidation.promise)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    const scheduleButton = await screen.findByRole('button', { name: '关闭自动更新' })
+    invalidate.mockClear()
+    await browser.click(scheduleButton)
+    expect(await screen.findByRole('button', { name: '更新中 自动更新' })).toBeDisabled()
+    await browser.click(screen.getByRole('tab', { name: '来源库' }))
+    await browser.click(await screen.findByRole('button', { name: '取消订阅 刷新前已订阅' }))
+    expect(await screen.findByRole('button', { name: '取消中 刷新前已订阅' })).toBeDisabled()
+    await browser.click(screen.getByRole('button', { name: '订阅 刷新前未订阅' }))
+    expect(await screen.findByRole('button', { name: '订阅中 刷新前未订阅' })).toBeDisabled()
+    await browser.click(screen.getByRole('tab', { name: '运行记录' }))
+    await browser.click(await screen.findByRole('button', { name: '重试' }))
+    expect(await screen.findByRole('button', { name: /重试中/ })).toBeDisabled()
+
+    await act(async () => {
+      scheduleRequest.resolve({})
+      subscribeRequest.resolve({})
+      unsubscribeRequest.resolve({})
+      retryRequest.resolve({})
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(19))
+
+    await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
+    const schedulePending = screen.getByRole('button', { name: '更新中 自动更新' })
+    expect(schedulePending).toBeDisabled()
+    fireEvent.click(schedulePending)
+    expect(api.updateFeedSchedule).toHaveBeenCalledOnce()
+
+    await browser.click(screen.getByRole('tab', { name: '运行记录' }))
+    const retryPending = screen.getByRole('button', { name: /重试中/ })
+    expect(retryPending).toBeDisabled()
+    fireEvent.click(retryPending)
+    expect(api.retryJob).toHaveBeenCalledOnce()
+
+    await browser.click(screen.getByRole('tab', { name: '来源库' }))
+    const unsubscribePending = screen.getByRole('button', { name: '取消中 刷新前已订阅' })
+    const subscribePending = screen.getByRole('button', { name: '订阅中 刷新前未订阅' })
+    fireEvent.click(unsubscribePending)
+    fireEvent.click(subscribePending)
+    expect(api.unsubscribe).toHaveBeenCalledOnce()
+    expect(api.subscribe).toHaveBeenCalledOnce()
+
+    act(() => {
+      queryClient.setQueryData(queryKeys.feedSchedule('user-live'), { enabled: false, interval_minutes: 60, worker_status: 'ready' })
+      queryClient.setQueryData(queryKeys.subscriptions('user-live'), { subscriptions: [refreshedSubscription] })
+      queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...retryJob, status: 'queued', retryable: false }] })
+      invalidation.resolve()
+    })
+
+    await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
+    expect(await screen.findByRole('button', { name: '开启自动更新' })).toBeEnabled()
+    await browser.click(screen.getByRole('tab', { name: '来源库' }))
+    expect(await screen.findByRole('button', { name: '订阅 刷新前已订阅' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '取消订阅 刷新前未订阅' })).toBeEnabled()
+    await browser.click(screen.getByRole('tab', { name: '运行记录' }))
+    expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
+  })
+
   it('renders local accessible errors for live schedule, subscribe, unsubscribe and retry actions', async () => {
     const browser = userEvent.setup()
     const subscribedSource = { id: 'error-subscribed', type: 'rss', display_name: '错误已订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }

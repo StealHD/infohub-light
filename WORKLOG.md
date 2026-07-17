@@ -960,3 +960,11 @@
 - 结果：schedule/subscribe/unsubscribe/retry 复用 ActionFeedback 实现实体级 pending/错误/成功状态与重复请求抑制；Hero 本地 live region 保证错误可见；来源通知支持手动关闭及 4/8 秒自动关闭，同终态轮询不重开也不重置计时
 - 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
 - 控制面变更：无；未修改 backend/API/query key/权限函数/Remote MCP/生产路由
+
+### 2026-07-17 17:45 Codex
+- 任务：修复 Task 3 复评发现的 mutation API 成功后、查询失效完成前提前解锁竞态
+- 修改文件：Hero 订阅页四类 mutation 成功回调、App 全家族 invalidation-pending 回归、Task 3 报告与本工作日志
+- 执行验证：可信 RED→GREEN（API 已完成、19 次 `invalidateQueries` 挂起）；focused 4 文件/61 项、全量 Vitest 35 文件/183 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Admin Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`
+- 结果：schedule/subscribe/unsubscribe/retry 在既有 query invalidation promise 完成前持续保留实体级 pending/禁用状态，并继续抑制重复提交；仅刷新后发布成功和解锁
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
+- 控制面变更：无；未修改 backend/API/query key/失效范围/权限函数/Remote MCP/生产路由
