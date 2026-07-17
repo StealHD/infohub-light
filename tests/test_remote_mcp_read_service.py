@@ -312,6 +312,44 @@ def test_remote_mcp_subscriptions_health_and_jobs_are_safe_and_self_scoped(
         service.get_job(**scope, job_id=member_job["id"])
 
 
+def test_remote_mcp_job_reads_stay_narrow_when_diagnostics_need_raw_errors(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, _member, owner_job, _member_job = _context(
+        tmp_path, monkeypatch
+    )
+    service = RemoteMCPReadService(store)
+    scope = {"workspace_id": workspace["id"], "user_id": owner["id"]}
+
+    listed = service.list_jobs(**scope)["items"][0]
+    fetched = service.get_job(**scope, job_id=owner_job["id"])
+
+    expected_keys = {
+        "id",
+        "job_type",
+        "status",
+        "source_id",
+        "subscription_id",
+        "priority",
+        "attempts",
+        "max_attempts",
+        "next_run_at",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "cancelled_at",
+        "updated_at",
+        "error",
+        "result_summary",
+    }
+    assert set(listed) == expected_keys
+    assert set(fetched) == expected_keys
+    assert listed["error"] == {"code": "upstream_failed"}
+    assert fetched["error"] == {"code": "upstream_failed"}
+    assert "message" not in _all_keys({"listed": listed, "fetched": fetched})
+    assert "Bearer secret" not in repr({"listed": listed, "fetched": fetched})
+
+
 def test_all_remote_mcp_read_methods_leave_business_tables_unchanged(
     tmp_path, monkeypatch
 ):

@@ -1065,3 +1065,11 @@
 - 结果：commit 后 cleanup 异常静默 best-effort，不再伪装 mutation 失败或泄露异常内容；update/delete keep/delete disable_private 均验证业务提交、proposal applied、stored/returned 精确 safe summary 与 second-use consumed
 - 未解决问题：Task 7+、MCP 工具注册/server wiring、UI/Skill 与生产启用仍未实现
 - 控制面变更：仅修正既有主实施计划中的 post-commit cleanup 内部错误语义；未改变对外 API/架构/UI 合同
+
+### 2026-07-17 Codex subagent
+- 任务：实现 Task 7 确定性来源/任务诊断与严格安全投影
+- 修改文件：诊断服务、Remote MCP safe job result helper、诊断/read-service 回归、主实施计划、`.superpowers/sdd/task-7-report.md`、`WORKLOG.md`
+- 执行验证：模块缺失与 safe-code retention 专项均先按预期 RED；focused 75 项、runtime/MCP 邻接 70 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：固定 precedence/code/message/unknown 分类、跨用户 not_found、URL/query/Bearer 与内部字段零泄漏、secret bool/anonymous Worker evidence、ordinary list/get job 投影不变均已实现
+- 未解决问题：Task 8+ 的 MCP 工具注册/server wiring、UI/Skill、生产启用与 canary 尚未实现
+- 控制面变更：仅勾选既有主实施计划 Task 7；未更新对外 API/架构/UI 合同

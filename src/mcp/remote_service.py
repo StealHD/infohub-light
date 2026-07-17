@@ -99,6 +99,11 @@ def _safe_feed_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def safe_job_result_summary(job: dict[str, Any]) -> dict[str, Any]:
+    """Project the shared fixed allowlist from one internal job row."""
+    return _pick(job.get("result_json"), _JOB_RESULT_FIELDS)
+
+
 def _page(items: list[dict[str, Any]], *, limit: int, offset: int) -> dict[str, Any]:
     selected = items[offset : offset + limit]
     return {
@@ -303,7 +308,6 @@ class RemoteMCPReadService:
 
     @staticmethod
     def _safe_job(job: dict[str, Any]) -> dict[str, Any]:
-        result = job.get("result_json")
         error = None
         if job.get("error_code"):
             error = {"code": job.get("error_code")}
@@ -323,7 +327,7 @@ class RemoteMCPReadService:
             "cancelled_at": job.get("cancelled_at"),
             "updated_at": job.get("updated_at"),
             "error": error,
-            "result_summary": _pick(result, _JOB_RESULT_FIELDS),
+            "result_summary": safe_job_result_summary(job),
         }
 
     def list_jobs(

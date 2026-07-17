@@ -861,7 +861,7 @@ git commit -m "feat: apply subscription proposals atomically"
 - Consumes: `SourceHealthService`, `JobQueue`, `RuntimeStatusService`, `sanitize_issue_message()`, subscription/source/schedule rows, a `secret_is_set` callback, and the existing safe job result allowlist.
 - Produces: `RemoteMCPDiagnostics.diagnose_source()` and `.diagnose_job()` with one shared response shape.
 
-- [ ] **Step 1: Write failing classification, unknown, sanitization, and isolation tests**
+- [x] **Step 1: Write failing classification, unknown, sanitization, and isolation tests**
 
 ```python
 @pytest.mark.parametrize("code,category", [
@@ -888,13 +888,13 @@ def test_diagnostic_degrades_to_unknown_without_evidence(diagnostics, unknown_su
 
 Also assert that another user's IDs return `RemoteMCPNotFound`, no payload/raw result/worker ID/claim/lock/config/secret environment/secret value/user/workspace field appears, and only anonymous `worker_status` plus `secret_configured: bool` may be used as evidence.
 
-- [ ] **Step 2: Run diagnostic tests and verify RED**
+- [x] **Step 2: Run diagnostic tests and verify RED**
 
 Run: `pytest tests/test_remote_mcp_diagnostics.py tests/test_remote_mcp_read_service.py -q`
 
 Expected: FAIL because diagnostics service is absent and safe jobs do not expose sanitized diagnostic messages internally.
 
-- [ ] **Step 3: Implement fixed evidence precedence and cause mapping**
+- [x] **Step 3: Implement fixed evidence precedence and cause mapping**
 
 Use this precedence:
 
@@ -938,17 +938,17 @@ Return the fixed shape:
 
 Actions use only modes `prepare_change`, `web`, `wait`, or `contact_admin`. Titles/labels are fixed localized strings; they never claim a repair ran.
 
-- [ ] **Step 4: Keep ordinary job list/get projection narrow**
+- [x] **Step 4: Keep ordinary job list/get projection narrow**
 
 Do not add error messages to `list_jobs` or `get_job`. Let diagnostics query the owned raw job internally, sanitize its message with `sanitize_issue_message()`, and apply the existing result allowlist. This preserves the current six-tool data-minimization contract.
 
-- [ ] **Step 5: Run diagnostic and leak-regression tests**
+- [x] **Step 5: Run diagnostic and leak-regression tests**
 
 Run: `pytest tests/test_remote_mcp_diagnostics.py tests/test_remote_mcp_read_service.py tests/test_source_health.py tests/test_job_queue.py -q`
 
 Expected: PASS with deterministic confidence wording and zero sensitive-field leakage.
 
-- [ ] **Step 6: Commit diagnostics**
+- [x] **Step 6: Commit diagnostics**
 
 ```bash
 git add src/mcp/remote_diagnostics.py src/mcp/remote_service.py tests/test_remote_mcp_diagnostics.py tests/test_remote_mcp_read_service.py
