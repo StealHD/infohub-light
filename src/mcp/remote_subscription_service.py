@@ -12,6 +12,7 @@ from ..services.agent_change_proposal import (
 from ..services.source_type_registry import (
     catalog_source_matches_agent_type,
     get_source_setup_guide,
+    validate_agent_source_type,
 )
 from ..services.subscription_mutation import (
     SubscriptionMutationError,
@@ -65,13 +66,18 @@ class RemoteMCPSubscriptionService:
         unsubscribed_only: bool = False,
     ) -> dict[str, Any]:
         live_actor = self.proposals.require_read_actor(actor)
+        validated_source_type = (
+            validate_agent_source_type(source_type)
+            if source_type is not None
+            else None
+        )
         user = {"workspace_id": live_actor.workspace_id, "id": live_actor.user_id}
         visible = self.store.list_visible_sources(user, include_disabled=False)
-        if source_type is not None:
+        if validated_source_type is not None:
             visible = [
                 source
                 for source in visible
-                if catalog_source_matches_agent_type(source_type, source)
+                if catalog_source_matches_agent_type(validated_source_type, source)
             ]
         subscribed_source_ids = {
             str(subscription["source_id"])

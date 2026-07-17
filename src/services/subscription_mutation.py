@@ -1009,7 +1009,7 @@ class SubscriptionMutationService:
                     "invalid_request", "existing source requires only source_id"
                 )
             target_source = self.store.get_source(str(source.get("source_id") or ""))
-            if target_source is None or not self._accessible(target_source, actor):
+            if target_source is None or not self._visible(target_source, actor):
                 raise self._error("not_found", "source not found", status_code=404)
             existing_subscription = self.store.get_user_subscription_for_source(
                 actor.user_id, str(target_source["id"])
@@ -1425,7 +1425,7 @@ class SubscriptionMutationService:
                 source = self.store.get_source(
                     str(source_values.get("source_id") or "")
                 )
-                if source is None or not self._accessible(source, actor):
+                if source is None or not self._visible(source, actor):
                     raise self._error("not_found", "source not found", status_code=404)
                 subscription = self.store.get_user_subscription_for_source(
                     actor.user_id, str(source["id"])

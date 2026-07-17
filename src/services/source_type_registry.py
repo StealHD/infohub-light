@@ -903,6 +903,15 @@ def list_source_types() -> list[dict[str, Any]]:
     return [item.as_dict() for item in _SOURCE_TYPES]
 
 
+def validate_agent_source_type(source_type: str) -> str:
+    """Validate one of the registry-owned public Agent source types."""
+
+    public_type = str(source_type)
+    if public_type not in _AGENT_BY_TYPE:
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    return public_type
+
+
 def get_source_setup_guide(
     source_type: str | None = None,
     locale: str = "zh-CN",
@@ -915,9 +924,7 @@ def get_source_setup_guide(
             "locale": selected_locale,
             "source_types": [item.guide_summary(selected_locale) for item in _AGENT_SOURCE_TYPES],
         }
-    definition = _AGENT_BY_TYPE.get(str(source_type))
-    if definition is None:
-        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    definition = _AGENT_BY_TYPE[validate_agent_source_type(source_type)]
     return {
         "locale": selected_locale,
         "source_type": definition.guide_detail(selected_locale),
@@ -937,9 +944,7 @@ def catalog_source_matches_agent_type(
     generic Apify owns the remaining managed rows.
     """
 
-    public_type = str(source_type)
-    if public_type not in _AGENT_BY_TYPE:
-        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    public_type = validate_agent_source_type(source_type)
     catalog_type = str(source.get("type") or "")
     config = source.get("config")
 

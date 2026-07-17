@@ -1041,3 +1041,11 @@
 - 结果：proposal 最终授权与 insert 由同一 `BEGIN IMMEDIATE` 锁定并增加 store active-principal 纵深条件；discovery 使用八类显式 matcher、YouTube/RSS 边界、Twitter/Apify 分区及稳定去重排序；secret checker 异常固定脱敏为 `source_discovery_unavailable`
 - 未解决问题：Task 6 仍需实现 atomic apply/stale/single-use；本任务未实现 Task 6+、MCP 注册、server wiring 或 UI
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 5 二次复审的一个 Important 与一个 Minor
+- 修改文件：Agent-safe subscription planner/apply revalidation、source discovery public type validator、Task 5/Task 3/registry 回归、`.superpowers/sdd/task-5-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：disabled existing 与空目录 unknown type 回归先出现 6 个预期 RED；GREEN 专项 9 项、focused 433 项、Remote MCP 邻接 308 项及 Python compile 通过；最终 full gate、JSON 与 diff 检查见报告
+- 结果：existing create 在 planner 与 apply 均要求 enabled/visible，facade 后竞态不生成 proposal、plan 后禁用不能应用；8 项 public source type 在目录扫描前稳定校验；REST 专用 mutation 权限保持不变
+- 未解决问题：Task 6+ 未实现；本任务未新增内部 allow-disabled Agent 能力
+- 控制面变更：无

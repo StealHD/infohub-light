@@ -698,58 +698,14 @@ def test_existing_subscription_create_disable_preview_matches_store_cascade(
 
 
 @pytest.mark.parametrize("existing_subscription", [False, True], ids=["new", "existing"])
-@pytest.mark.parametrize("schedule_request", [None, {}], ids=["omitted", "empty"])
-def test_disabled_existing_source_create_keeps_final_schedule_disabled(
+def test_agent_create_rejects_disabled_existing_source(
     existing_subscription,
-    schedule_request,
     mutation_context,
 ):
     actor = SubscriptionActor.from_user(mutation_context["member"])
     source_id = _create_shared_source(
         mutation_context,
-        suffix=f"disabled-source-{existing_subscription}-{schedule_request is None}",
-    )
-    expected_interval = 60
-    if existing_subscription:
-        subscription = mutation_context["store"].create_subscription(
-            user_id=actor.user_id,
-            source_id=source_id,
-            enabled=False,
-        )
-        mutation_context["schedules"].update_subscription_schedule(
-            workspace_id=actor.workspace_id,
-            user_id=actor.user_id,
-            subscription_id=subscription["id"],
-            enabled=False,
-            interval_minutes=180,
-        )
-        expected_interval = 180
-    mutation_context["store"].update_source(source_id, enabled=False)
-
-    plan = mutation_context["service"].plan_create(
-        actor,
-        source={"mode": "existing", "source_id": source_id},
-        subscription={"enabled": True},
-        schedule=schedule_request,
-    )
-    expected = {"enabled": False, "interval_minutes": expected_interval}
-
-    assert plan.payload["source"]["enabled"] is False
-    assert plan.payload["schedule_preview"] == expected
-    result = mutation_context["service"].apply_plan(actor, plan)
-    assert result["subscription"]["enabled"] is True
-    assert result["schedule"]["enabled"] is False
-    assert result["schedule"]["interval_minutes"] == expected_interval
-
-
-@pytest.mark.parametrize("existing_subscription", [False, True], ids=["new", "existing"])
-def test_disabled_existing_source_rejects_explicit_schedule_enable_at_prepare(
-    existing_subscription,
-    mutation_context,
-):
-    actor = SubscriptionActor.from_user(mutation_context["member"])
-    source_id = _create_shared_source(
-        mutation_context, suffix=f"disabled-explicit-{existing_subscription}"
+        suffix=f"disabled-source-{existing_subscription}",
     )
     if existing_subscription:
         mutation_context["store"].create_subscription(
@@ -764,11 +720,11 @@ def test_disabled_existing_source_rejects_explicit_schedule_enable_at_prepare(
             actor,
             source={"mode": "existing", "source_id": source_id},
             subscription={"enabled": True},
-            schedule={"enabled": True},
+            schedule=None,
         )
 
-    assert exc_info.value.code == "source_schedule_unavailable"
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "not_found"
+    assert exc_info.value.status_code == 404
 
 
 def test_existing_disabled_subscription_can_reenable_with_schedule_in_same_create_plan(
@@ -878,7 +834,7 @@ def test_create_apply_live_binding_includes_existing_source_enabled_state(
     with pytest.raises(SubscriptionMutationError) as exc_info:
         mutation_context["service"].apply_plan(actor, plan)
 
-    assert exc_info.value.code == "invalid_plan_snapshot"
+    assert exc_info.value.code == "not_found"
     assert (
         mutation_context["store"].get_user_subscription_for_source(
             actor.user_id, source_id
@@ -1984,33 +1940,21 @@ def _inactive_private_quota_target(
     return actor, source_id, subscription
 
 
-@pytest.mark.parametrize("path", ["create", "update"])
-def test_subscription_enable_on_disabled_source_is_quota_neutral(
-    path,
-    mutation_context,
-):
+def test_subscription_update_on_disabled_source_is_quota_neutral(mutation_context):
     actor, source_id, subscription = _inactive_private_quota_target(
         mutation_context,
-        suffix=f"disabled-source-{path}",
+        suffix="disabled-source-update",
         source_enabled=False,
         subscription_enabled=False,
     )
 
-    if path == "create":
-        plan = mutation_context["service"].plan_create(
-            actor,
-            source={"mode": "existing", "source_id": source_id},
-            subscription={"enabled": True},
-            schedule=None,
-        )
-    else:
-        plan = mutation_context["service"].plan_update(
-            actor,
-            subscription_id=subscription["id"],
-            source_updates=None,
-            subscription_updates={"enabled": True},
-            schedule_updates=None,
-        )
+    plan = mutation_context["service"].plan_update(
+        actor,
+        subscription_id=subscription["id"],
+        source_updates=None,
+        subscription_updates={"enabled": True},
+        schedule_updates=None,
+    )
     result = mutation_context["service"].apply_plan(actor, plan)
 
     assert result["subscription"]["enabled"] is True

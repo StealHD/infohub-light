@@ -14,6 +14,7 @@ from src.services.agent_change_proposal import (
     AgentProposalError,
     DelegatedActor,
 )
+from src.services.source_type_registry import SourceConfigError
 from src.services.subscription_mutation import SubscriptionMutationService
 from src.storage.service_store import (
     AGENT_DELEGATION_READ_SCOPE,
@@ -352,6 +353,22 @@ def test_available_source_filter_uses_explicit_public_type_matrix(context):
         assert rows["hackernews"]["id"] not in result_ids
 
 
+@pytest.mark.parametrize("catalog_populated", [False, True], ids=["empty", "populated"])
+def test_available_source_filter_rejects_unknown_public_type_before_catalog_scan(
+    context,
+    catalog_populated,
+):
+    if catalog_populated:
+        _source(context, name="Visible source")
+
+    with pytest.raises(SourceConfigError, match="unsupported source type"):
+        context["service"].list_available_sources(
+            actor=_read_actor(context),
+            source_type="hackernews",
+            unsubscribed_only=False,
+        )
+
+
 def test_secret_checker_failure_is_fixed_and_does_not_retain_secret_env(context):
     secret_env = "DO_NOT_EXPOSE_DISCOVERY_TOKEN_ENV"
     _source(
@@ -677,6 +694,37 @@ def test_prepare_create_persists_only_complete_v2_plan_and_hash(context):
     assert "config" not in repr(result["preview"])
     assert set(result["preview"]) >= {"impact", "warnings"}
     assert _business_dump(context) == before
+
+
+def test_prepare_existing_source_disabled_between_facade_check_and_planner_fails_closed(
+    context,
+    monkeypatch,
+):
+    source = _source(context, name="Visibility race")
+    actor = _actor(context, "member")
+    original_get_source = context["store"].get_source
+    reads = 0
+
+    def disable_before_planner_read(source_id):
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            context["store"].update_source(source_id, enabled=False)
+        return original_get_source(source_id)
+
+    monkeypatch.setattr(context["store"], "get_source", disable_before_planner_read)
+
+    with pytest.raises(AgentProposalError) as error:
+        context["service"].prepare_create_subscription(
+            actor=actor,
+            source={"mode": "existing", "source_id": source["id"]},
+            subscription={},
+            schedule=None,
+        )
+
+    assert reads == 2
+    assert error.value.code == "not_found"
+    assert _proposal_count(context) == 0
 
 
 def test_prepare_reads_write_flag_dynamically_for_existing_write_actor(context):

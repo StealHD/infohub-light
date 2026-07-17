@@ -1,5 +1,6 @@
 import pytest
 
+import src.services.source_type_registry as source_type_registry
 from src.services.source_type_registry import (
     SourceConfigError,
     build_source_payload,
@@ -8,6 +9,26 @@ from src.services.source_type_registry import (
     validate_secret_env_name,
     validate_source_config,
 )
+
+
+def test_agent_source_type_validator_owns_exact_public_enum():
+    public_types = {
+        "rss",
+        "telegram",
+        "github",
+        "reddit",
+        "twitter",
+        "website",
+        "youtube",
+        "apify",
+    }
+
+    assert {
+        source_type_registry.validate_agent_source_type(item)
+        for item in public_types
+    } == public_types
+    with pytest.raises(SourceConfigError, match="unsupported source type"):
+        source_type_registry.validate_agent_source_type("hackernews")
 
 
 def test_source_type_registry_lists_supported_types_and_templates():
