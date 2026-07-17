@@ -864,3 +864,12 @@
 - 结果：功能默认关闭且未改动生产；每位用户可创建最多 5 个 90 天只读连接，令牌仅显示一次且数据库只保存 hash；Remote MCP 精确暴露六个自有数据工具，Web UI 不连接本地 Gateway，Skill 使用环境变量引用令牌
 - 未解决问题：尚未创建真实一次性连接或执行 `openclaw mcp doctor inteliscope --probe`，也未执行 staging、生产 Nginx/canary 和功能开关启用；这些步骤需要部署环境与真实用户凭证
 - 控制面变更：新增 D024；API/架构/UI 合同和 PLAN 增加 Remote MCP、delegation、助手连接及本地 OpenClaw 边界；新增测试影响映射，`project-defaults.yaml` 能力词汇无需变更
+
+### 2026-07-17 10:56 Codex subagent
+- 任务：实现 Remote MCP 八类来源的双语配置指引与安全输入规范化
+- 读取文件：`AGENTS.md`、任务 brief、source type registry 与相关测试
+- 修改文件：`src/services/source_type_registry.py`、来源 registry/setup guidance 测试、`WORKLOG.md`
+- 执行验证：新增测试先因缺少接口失败；focused 8 项通过；`test_gate` full 成功
+- 结果：新增中英 setup guide、公开 URL/别名规范化和凭据/敏感 RSS 查询拒绝，REST registry 投影保持不变
+- 未解决问题：无
+- 控制面变更：无

@@ -26,6 +26,15 @@ def test_source_type_registry_lists_supported_types_and_templates():
     }.issubset(by_type)
     assert by_type["github_release"]["required_fields"] == ["owner", "repo"]
     assert by_type["apify_social"]["template"]["platform"] == "x"
+    assert set(by_type["rss"]) == {
+        "type",
+        "label",
+        "description",
+        "required_fields",
+        "template",
+        "fields",
+        "supports_secret_env",
+    }
 
 
 def test_source_type_registry_exposes_safe_canonical_field_metadata():
