@@ -143,7 +143,9 @@ def _source_payload_from_catalog(
     canonical = build_source_payload(source)
     if source.get("type") == "rss":
         owner = store.get_user(str(source.get("owner_user_id") or ""))
-        canonical["enforce_public_network"] = not (
+        canonical["enforce_public_network"] = bool(
+            source.get("enforce_public_network")
+        ) or not (
             owner and owner.get("role") in {"owner", "admin"}
         )
     runtime_payload = {

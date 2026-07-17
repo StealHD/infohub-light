@@ -961,3 +961,11 @@
 - 结果：所有 proposal 字符串值使用 16 KiB、NFKC、最多两轮 percent-decode 的非持久化分类副本，query name/value 同步覆盖且安全 `%20` 原值不变；真实形态 `sk` 假 token 继续拒绝，两个指定长业务标题允许
 - 未解决问题：无；未改动 key suffix、schema、权威时钟、事务、retention、sanitizer，未实现 Task 3+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现共享订阅变更领域服务并让现有 REST mutation 复用
+- 修改文件：`src/services/subscription_mutation.py`、`src/api/server.py`、`src/storage/service_store.py`、RSS 执行投影、Task 3/API 测试、`.superpowers/sdd/task-3-report.md`、`WORKLOG.md`
+- 执行验证：初始 module、REST context、metadata/config credential 与内部标记投影均先按预期 RED；领域 36 项、指定 focused 165 项、store/config/Worker 43 项、full gate 和 `git diff --check` 通过
+- 结果：typed plan/error/actor、Agent private-only planner、安全 preview/指纹、显式 delete disposition、原子 create/update/delete 与完整回滚已实现；REST admin/member/viewer 和 omission/null/list clear 合同保持；Agent RSS/website 公网执行选择持久且 owner/admin 不可绕过
+- 未解决问题：Task 4+ 仍需在 proposal 转换事务内消费本服务，并继续隐藏内部公网标记；本任务未实现 proposal orchestration、MCP、delegation flag/scope、新 REST endpoint 或 UI
+- 控制面变更：无

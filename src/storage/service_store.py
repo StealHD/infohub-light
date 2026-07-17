@@ -521,6 +521,8 @@ class ServiceStore:
                 config_json TEXT NOT NULL DEFAULT '{}',
                 source_key TEXT,
                 secret_env TEXT,
+                enforce_public_network INTEGER NOT NULL DEFAULT 0
+                    CHECK(enforce_public_network IN (0, 1)),
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -934,6 +936,11 @@ class ServiceStore:
             """
         )
         self._ensure_column("fetch_jobs", "max_attempts", "INTEGER NOT NULL DEFAULT 3")
+        self._ensure_column(
+            "source_catalog",
+            "enforce_public_network",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
         self._ensure_column("fetch_jobs", "claim_token", "TEXT")
         self._ensure_column("fetch_jobs", "next_run_at", "TEXT")
         self._ensure_column("fetch_jobs", "locked_until", "TEXT")
@@ -1282,6 +1289,9 @@ class ServiceStore:
             return None
         data = dict(row)
         data["enabled"] = _bool(data.get("enabled"))
+        data["enforce_public_network"] = _bool(
+            data.get("enforce_public_network")
+        )
         data["default_topics"] = _json_loads(data.pop("default_topics_json", None), [])
         data["config"] = _json_loads(data.pop("config_json", None), {})
         return data
@@ -2217,6 +2227,7 @@ class ServiceStore:
         default_topics: list[str] | None = None,
         source_key: str | None = None,
         secret_env: str | None = None,
+        enforce_public_network: bool = False,
         enabled: bool = True,
         commit: bool = True,
     ) -> str:
@@ -2238,8 +2249,9 @@ class ServiceStore:
                 INSERT INTO source_catalog (
                     id, workspace_id, scope, owner_user_id, type, display_name,
                     description, default_channel, default_topics_json, config_json,
-                    source_key, secret_env, enabled, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_key, secret_env, enforce_public_network, enabled,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source_id,
@@ -2254,6 +2266,7 @@ class ServiceStore:
                     _json_dumps(config),
                     source_key,
                     secret_env,
+                    1 if enforce_public_network else 0,
                     1 if enabled else 0,
                     now,
                     now,
@@ -2288,6 +2301,7 @@ class ServiceStore:
         default_channel: str | None = None,
         default_topics: list[str] | None = None,
         secret_env: str | None = None,
+        enforce_public_network: bool | None = None,
         enabled: bool = True,
     ) -> dict[str, Any]:
         """Atomically create or update one compatible workspace source key."""
@@ -2330,6 +2344,11 @@ class ServiceStore:
                     config=config,
                     source_key=source_key,
                     secret_env=secret_env,
+                    enforce_public_network=(
+                        _UNSET
+                        if enforce_public_network is None
+                        else enforce_public_network
+                    ),
                     enabled=enabled,
                     commit=False,
                 )
@@ -2340,8 +2359,9 @@ class ServiceStore:
                     INSERT INTO source_catalog (
                         id, workspace_id, scope, owner_user_id, type, display_name,
                         description, default_channel, default_topics_json, config_json,
-                        source_key, secret_env, enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        source_key, secret_env, enforce_public_network, enabled,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         source_id,
@@ -2356,6 +2376,7 @@ class ServiceStore:
                         _json_dumps(config),
                         source_key,
                         secret_env,
+                        1 if enforce_public_network else 0,
                         1 if enabled else 0,
                         now,
                         now,
@@ -2420,6 +2441,7 @@ class ServiceStore:
         config: Any = _UNSET,
         source_key: Any = _UNSET,
         secret_env: Any = _UNSET,
+        enforce_public_network: Any = _UNSET,
         enabled: Any = _UNSET,
         commit: bool = True,
     ) -> dict[str, Any]:
@@ -2460,7 +2482,7 @@ class ServiceStore:
                 UPDATE source_catalog
                 SET display_name = ?, description = ?, default_channel = ?,
                     default_topics_json = ?, config_json = ?, source_key = ?, secret_env = ?,
-                    enabled = ?, updated_at = ?
+                    enforce_public_network = ?, enabled = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -2477,6 +2499,11 @@ class ServiceStore:
                     ),
                     next_source_key,
                     current["secret_env"] if secret_env is _UNSET else secret_env,
+                    (
+                        (1 if current["enforce_public_network"] else 0)
+                        if enforce_public_network is _UNSET
+                        else 1 if enforce_public_network else 0
+                    ),
                     1 if target_enabled else 0,
                     now,
                     source_id,
@@ -2676,6 +2703,7 @@ class ServiceStore:
                 sc.config_json,
                 sc.source_key,
                 sc.secret_env,
+                sc.enforce_public_network,
                 sc.enabled AS source_enabled
             FROM user_subscriptions us
             JOIN source_catalog sc ON sc.id = us.source_id
@@ -2730,6 +2758,7 @@ class ServiceStore:
                 sc.config_json,
                 sc.source_key,
                 sc.secret_env,
+                sc.enforce_public_network,
                 sc.enabled AS source_enabled
             FROM user_subscriptions us
             JOIN source_catalog sc ON sc.id = us.source_id

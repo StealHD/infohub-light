@@ -12,6 +12,7 @@ from src.models import ContentItem, SourceType
 from src.services.feed_archive import FeedArchiveService
 from src.services.job_queue import JobQueue
 from src.services.quota import QuotaService
+from src.services.subscription_mutation import SubscriptionMutationService
 from src.services.user_feed_store import UserFeedStore
 from src.services.user_item_state import UserItemStateStore
 from src.storage.article_store import ArticleStore
@@ -183,6 +184,44 @@ def test_catalog_source_post_is_idempotent_by_workspace_source_key(tmp_path, mon
     sources = client.get("/api/catalog/sources").json()["data"]["sources"]
     matching = [source for source in sources if source["source_key"] == "rss:https://example.com/stable.xml"]
     assert len(matching) == 1
+
+
+def test_rest_subscription_mutations_use_shared_service_without_exposing_network_marker(
+    tmp_path, monkeypatch
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    service = client.app.state.subscription_mutations
+    assert isinstance(service, SubscriptionMutationService)
+
+    source_response = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "rss",
+            "display_name": "Shared boundary",
+            "config": {"url": "https://example.com/shared-boundary.xml"},
+        },
+    )
+    source = source_response.json()["data"]
+    assert "enforce_public_network" not in source
+
+    calls = []
+    original = service.rest_create_subscription
+
+    def tracked_create(actor, *, source_id, values):
+        calls.append((actor.user_id, source_id, dict(values)))
+        return original(actor, source_id=source_id, values=values)
+
+    monkeypatch.setattr(service, "rest_create_subscription", tracked_create)
+    response = client.post(
+        "/api/me/subscriptions",
+        json={"source_id": source["id"], "priority": 33},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["priority"] == 33
+    assert len(calls) == 1
+    assert calls[0][1] == source["id"]
 
 
 def test_catalog_source_patch_key_collision_returns_structured_conflict(tmp_path, monkeypatch):
