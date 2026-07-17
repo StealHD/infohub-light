@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]{1,127}$")
@@ -36,6 +36,12 @@ _SENSITIVE_RSS_QUERY_PARTS = (
     "password",
     "signature",
     "credential",
+)
+_CREDENTIAL_ERROR = "credentials are not accepted; configure secrets in Web"
+_UNSUPPORTED_SOURCE_TYPE_ERROR = "unsupported source type"
+_CREDENTIAL_ASSIGNMENT_RE = re.compile(
+    r"(?<![A-Za-z0-9])([A-Za-z0-9_-]+)\s*[:=]",
+    flags=re.IGNORECASE,
 )
 _SUPPORTED_REDDIT_SORTS = {"hot", "new", "top", "rising", "controversial"}
 _SUPPORTED_REDDIT_TIME_FILTERS = {"hour", "day", "week", "month", "year", "all"}
@@ -150,6 +156,19 @@ class AgentSourceTypeDefinition:
     required_fields: tuple[str, ...]
     fields: tuple[SourceFieldDefinition, ...]
     guide_metadata: dict[str, dict[str, Any]]
+
+    def execution_policy(self) -> dict[str, Any]:
+        """Return the operation boundary that normalization consumers must obey."""
+
+        metadata = self.guide_metadata["en"]
+        self_service = bool(metadata["self_service"])
+        return {
+            "resolution_mode": (
+                "create_or_existing" if self_service else "existing_visible_only"
+            ),
+            "self_service": self_service,
+            "requires_web_setup": bool(metadata["requires_web_setup"]),
+        }
 
     def guide_summary(self, locale: str) -> dict[str, Any]:
         copy = self.guide_metadata[_guide_locale(locale)]
@@ -895,7 +914,7 @@ def get_source_setup_guide(
         }
     definition = _AGENT_BY_TYPE.get(str(source_type))
     if definition is None:
-        raise SourceConfigError(f"unsupported source type: {source_type}")
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     return {
         "locale": selected_locale,
         "source_type": definition.guide_detail(selected_locale),
@@ -924,7 +943,24 @@ def _credential_key_shape(value: Any) -> bool:
     return any(
         marker in normalized
         for marker in ("token", "secret", "password", "cookie", "authorization", "credential", "signature")
-    ) or normalized.endswith("header") or normalized.endswith("headers")
+    ) or normalized.endswith(("accesskey", "privatekey", "apikey", "header", "headers"))
+
+
+def _sensitive_query_name(value: Any) -> bool:
+    """Fail closed for credential-bearing query names, including compounds."""
+
+    normalized = re.sub(r"[^a-z0-9]+", "", str(value).lower())
+    return any(marker in normalized for marker in _SENSITIVE_RSS_QUERY_PARTS)
+
+
+def _contains_credential_assignment(value: str) -> bool:
+    """Recognize credential header and assignment syntax in arbitrary text."""
+
+    return any(
+        _sensitive_query_name(match.group(1))
+        or _credential_key_shape(match.group(1))
+        for match in _CREDENTIAL_ASSIGNMENT_RE.finditer(value)
+    )
 
 
 def _contains_secret_shape(value: Any) -> bool:
@@ -945,6 +981,8 @@ def _contains_secret_shape(value: Any) -> bool:
     if lowered.startswith(tuple(prefix.lower() for prefix in _SECRET_PREFIXES)):
         return True
     if re.match(r"^(bearer|basic)\s+\S+", candidate, flags=re.IGNORECASE):
+        return True
+    if _contains_credential_assignment(candidate):
         return True
     parsed = _safe_urlparse(candidate)
     if parsed.username is not None or parsed.password is not None:
@@ -969,14 +1007,15 @@ def _validate_public_url_inputs(value: Any) -> None:
 
     parsed = _safe_urlparse(value.strip())
     if parsed.username is not None or parsed.password is not None:
-        raise SourceConfigError("credentials are not accepted; configure secrets in Web")
+        raise SourceConfigError(_CREDENTIAL_ERROR)
     for name, query_value in parse_qsl(parsed.query, keep_blank_values=True):
         if (
-            _credential_key_shape(name)
+            _sensitive_query_name(name)
+            or _sensitive_query_name(query_value)
             or _credential_key_shape(query_value)
             or _contains_secret_shape(query_value)
         ):
-            raise SourceConfigError("credentials are not accepted; configure secrets in Web")
+            raise SourceConfigError(_CREDENTIAL_ERROR)
 
 
 def _github_path(value: str, *, kind: str) -> tuple[str, str] | str:
@@ -1000,7 +1039,7 @@ def _github_path(value: str, *, kind: str) -> tuple[str, str] | str:
 
 
 def _reddit_name(value: str, *, user: bool) -> str:
-    text = value.strip().strip("/")
+    text = value.strip()
     parsed = _safe_urlparse(text)
     prefix = "u" if user else "r"
     if parsed.scheme:
@@ -1010,12 +1049,22 @@ def _reddit_name(value: str, *, user: bool) -> str:
             "www.reddit.com",
             "old.reddit.com",
         }:
-            raise SourceConfigError(f"{prefix}eddit value must be a public Reddit URL or name")
-        parts = [part for part in parsed.path.split("/") if part]
-        if len(parts) < 2 or parts[0].lower() != prefix:
-            raise SourceConfigError(f"expected a public Reddit {prefix}/name URL")
-        return parts[1]
-    return text.removeprefix(f"{prefix}/")
+            raise SourceConfigError("subreddit must be a public subreddit name or root URL")
+        if parsed.query or parsed.fragment or parsed.params:
+            raise SourceConfigError("subreddit must be a public subreddit name or root URL")
+        match = re.fullmatch(r"/r/([A-Za-z0-9_]{3,21})/?", parsed.path, re.IGNORECASE)
+        if prefix != "r" or match is None:
+            raise SourceConfigError("subreddit must be a public subreddit name or root URL")
+        return match.group(1)
+
+    bare_match = re.fullmatch(
+        rf"(?:{prefix}/)?([A-Za-z0-9_]{{3,21}})/?",
+        text,
+        re.IGNORECASE,
+    )
+    if bare_match is None:
+        raise SourceConfigError("subreddit must be a public subreddit name or root URL")
+    return bare_match.group(1)
 
 
 _TELEGRAM_PUBLIC_HANDLE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
@@ -1065,6 +1114,34 @@ def _twitter_handle(value: str) -> str:
     return handle
 
 
+_YOUTUBE_FEED_HOSTS = {"youtube.com", "www.youtube.com"}
+_YOUTUBE_FEED_PATH = "/feeds/videos.xml"
+_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _youtube_feed_url(value: str) -> str:
+    """Validate a YouTube feed identity and return its canonical RSS URL."""
+
+    parsed = _safe_urlparse(value.strip())
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc.lower() not in _YOUTUBE_FEED_HOSTS
+        or parsed.path != _YOUTUBE_FEED_PATH
+        or parsed.params
+        or parsed.fragment
+        or len(pairs) != 1
+    ):
+        raise SourceConfigError("url must be a public YouTube feed URL")
+    identity_name, identity_value = pairs[0]
+    if (
+        identity_name not in {"channel_id", "playlist_id"}
+        or not _YOUTUBE_ID_RE.fullmatch(identity_value)
+    ):
+        raise SourceConfigError("url must be a public YouTube feed URL")
+    return f"https://www.youtube.com{_YOUTUBE_FEED_PATH}?{urlencode(pairs)}"
+
+
 def _normalize_agent_aliases(source_type: str, config: dict[str, Any]) -> dict[str, Any]:
     data = dict(config)
     if source_type == "github" and "repository" in data:
@@ -1081,6 +1158,8 @@ def _normalize_agent_aliases(source_type: str, config: dict[str, Any]) -> dict[s
             "kind": "profile",
             "target": _twitter_handle(data["handle"]),
         }
+    elif source_type == "youtube" and "url" in data:
+        data["url"] = _youtube_feed_url(data["url"])
     return data
 
 
@@ -1111,20 +1190,35 @@ def normalize_source_setup_input(
 
     source_type = str(source_type or "").strip()
     if source_type not in _AGENT_BY_TYPE:
-        raise SourceConfigError(f"unsupported source type: {source_type}")
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     if not isinstance(config, dict):
         raise SourceConfigError("config must be an object")
     raw = dict(config)
     if _contains_secret_shape(raw):
-        raise SourceConfigError("credentials are not accepted; configure secrets in Web")
+        raise SourceConfigError(_CREDENTIAL_ERROR)
     _validate_public_url_inputs(raw)
     definition = _AGENT_BY_TYPE[source_type]
     _validate_agent_field_types(definition, raw)
     aliased = _normalize_agent_aliases(source_type, raw)
     normalized = validate_source_config(definition.catalog_source_type, aliased)
+    policy = definition.execution_policy()
+    if not policy["self_service"]:
+        identity_fields = {
+            key: normalized[key]
+            for key in ("platform", "kind", "target")
+            if key in normalized
+        }
+        return {
+            "lookup_identity": {
+                "catalog_source_type": definition.catalog_source_type,
+                "config": identity_fields,
+            },
+            "policy": policy,
+        }
     return {
         "catalog_source_type": definition.catalog_source_type,
         "config": normalized,
+        "policy": policy,
     }
 
 
@@ -1214,7 +1308,7 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
 
     source_type = str(source_type or "").strip()
     if source_type not in _BY_TYPE:
-        raise SourceConfigError(f"unsupported source type: {source_type}")
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     data = _base_config(config or {})
 
     if source_type == "rss":
@@ -1282,7 +1376,7 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
         data["min_score"] = _int(data, "min_score", default=100, minimum=0)
         return data
 
-    raise SourceConfigError(f"unsupported source type: {source_type}")
+    raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
 
 
 def source_key(source_type: str, config: dict[str, Any]) -> str:
@@ -1308,7 +1402,7 @@ def source_key(source_type: str, config: dict[str, Any]) -> str:
         )
     if source_type == "hackernews":
         return "hackernews:top"
-    raise SourceConfigError(f"unsupported source type: {source_type}")
+    raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
 
 
 def build_source_payload(source: dict[str, Any]) -> dict[str, Any]:
