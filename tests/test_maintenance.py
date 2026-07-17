@@ -132,7 +132,10 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
         job_type="source_test",
     )
     delegation, _token = store.create_agent_delegation(
-        workspace_id=workspace["id"], user_id=owner["id"], name="Maintenance"
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        name="Maintenance",
+        access="subscriptions_write",
     )
     proposal_created_at = now - timedelta(days=31, minutes=10)
     store.create_agent_change_proposal(

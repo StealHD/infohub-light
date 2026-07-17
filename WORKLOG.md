@@ -1033,3 +1033,11 @@
 - 结果：动态 flag/scope/live role/actor binding 在 planner 前失败关闭；v2 snapshot、store 权威 UTC 10 分钟、confirmation hash-only 与 proposal limit 完成；发现仅投影当前用户可见来源并限制 secret checker 与 managed Apify
 - 未解决问题：Task 6 仍需实现 atomic apply/stale/single-use；本任务未实现 apply、MCP 工具注册、server wiring 或 UI
 - 控制面变更：无；仅新增内部 Task 5 服务边界，外部 MCP/API 合同由后续统一任务更新
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 5 独立复审的两个 Important 与一个 Minor
+- 修改文件：proposal service/store、source discovery registry/facade、Task 5/maintenance/deployment 回归、`.superpowers/sdd/task-5-fix-report.md`、`WORKLOG.md`
+- 执行验证：facade 6 项与 store 4 项回归先按预期 RED，最终动态 flag guard mutation check 再确认 RED/GREEN；focused 594 项、maintenance/deployment 6 项、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：proposal 最终授权与 insert 由同一 `BEGIN IMMEDIATE` 锁定并增加 store active-principal 纵深条件；discovery 使用八类显式 matcher、YouTube/RSS 边界、Twitter/Apify 分区及稳定去重排序；secret checker 异常固定脱敏为 `source_discovery_unavailable`
+- 未解决问题：Task 6 仍需实现 atomic apply/stale/single-use；本任务未实现 Task 6+、MCP 注册、server wiring 或 UI
+- 控制面变更：无

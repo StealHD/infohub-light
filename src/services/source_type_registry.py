@@ -930,34 +930,56 @@ def catalog_source_matches_agent_type(
 ) -> bool:
     """Match a safe discovery filter to the registry's public Agent type.
 
-    Several public setup types deliberately share one internal catalog type.
-    Keep that mapping owned by this registry instead of making MCP adapters
-    duplicate it.  Managed X is the only Apify subset with a narrower public
-    identity; the generic ``apify`` filter covers every managed Apify row.
+    Several public setup types deliberately map to sets or subsets of internal
+    catalog types.  RSS and Website intentionally expose the same non-YouTube
+    RSS rows because persisted rows have no discriminator that can separate
+    those two public labels.  Twitter owns the managed X/profile subset while
+    generic Apify owns the remaining managed rows.
     """
 
-    definition = _AGENT_BY_TYPE.get(str(source_type))
-    if definition is None:
+    public_type = str(source_type)
+    if public_type not in _AGENT_BY_TYPE:
         raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
-    if source.get("type") != definition.catalog_source_type:
-        return False
+    catalog_type = str(source.get("type") or "")
     config = source.get("config")
-    if source_type == "twitter":
+
+    def is_youtube_rss() -> bool:
+        if catalog_type != "rss" or not isinstance(config, dict):
+            return False
+        url = config.get("url")
+        if not isinstance(url, str):
+            return False
+        try:
+            normalize_source_setup_input("youtube", {"url": url})
+        except SourceConfigError:
+            return False
+        return True
+
+    def is_twitter_managed() -> bool:
         return bool(
-            isinstance(config, dict)
+            catalog_type == "apify_social"
+            and isinstance(config, dict)
             and config.get("platform") == "x"
             and config.get("kind") == "profile"
             and isinstance(config.get("target"), str)
             and config.get("target")
         )
-    if source_type == "youtube":
-        if not isinstance(config, dict) or not isinstance(config.get("url"), str):
-            return False
-        try:
-            normalize_source_setup_input("youtube", {"url": config["url"]})
-        except SourceConfigError:
-            return False
-    return True
+
+    if public_type in {"rss", "website"}:
+        return catalog_type == "rss" and not is_youtube_rss()
+    if public_type == "youtube":
+        return is_youtube_rss()
+    if public_type == "github":
+        return catalog_type in {"github_release", "github_user"}
+    if public_type == "reddit":
+        return catalog_type in {"reddit_subreddit", "reddit_user"}
+    if public_type == "telegram":
+        return catalog_type == "telegram_channel"
+    if public_type == "twitter":
+        return is_twitter_managed()
+    if public_type == "apify":
+        return catalog_type == "apify_social" and not is_twitter_managed()
+    return False
 
 
 def _safe_urlparse(value: str) -> Any:

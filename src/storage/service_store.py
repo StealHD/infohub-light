@@ -81,6 +81,10 @@ class AgentProposalLimitError(ValueError):
     """A delegation already owns the maximum number of pending proposals."""
 
 
+class AgentProposalAuthorizationError(ValueError):
+    """A proposal write no longer has an active writable principal."""
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -1847,15 +1851,30 @@ class ServiceStore:
                 authoritative_now
                 + timedelta(minutes=AGENT_PROPOSAL_TTL_MINUTES)
             ).isoformat()
-            delegation = conn.execute(
+            principal = conn.execute(
                 """
-                SELECT 1 FROM agent_delegations
-                WHERE id = ? AND workspace_id = ? AND user_id = ?
+                SELECT delegation.scopes_json, users.role
+                FROM agent_delegations AS delegation
+                JOIN users ON users.id = delegation.user_id
+                WHERE delegation.id = ?
+                  AND delegation.workspace_id = ?
+                  AND delegation.user_id = ?
+                  AND delegation.revoked_at IS NULL
+                  AND delegation.expires_at > ?
+                  AND users.enabled = 1
+                  AND users.workspace_id = delegation.workspace_id
                 """,
-                (delegation_id, workspace_id, user_id),
+                (delegation_id, workspace_id, user_id, created_iso),
             ).fetchone()
-            if delegation is None:
-                raise LookupError("agent delegation not found")
+            if (
+                principal is None
+                or principal["role"] not in {"owner", "admin", "member"}
+                or AGENT_DELEGATION_WRITE_SCOPE
+                not in _safe_agent_delegation_scopes(principal["scopes_json"])
+            ):
+                raise AgentProposalAuthorizationError(
+                    "agent proposal delegation is not authorized"
+                )
             self._cleanup_agent_change_proposals_locked(
                 now=authoritative_now,
                 delegation_id=delegation_id,
@@ -2428,7 +2447,7 @@ class ServiceStore:
                 scope IN ('public', 'workspace')
                 OR (scope = 'private' AND owner_user_id = ?)
               )
-            ORDER BY scope, display_name
+            ORDER BY scope, display_name, id
             """,
             (user["workspace_id"], 1 if include_disabled else 0, user["id"]),
         ).fetchall()

@@ -80,26 +80,53 @@ class RemoteMCPSubscriptionService:
             )
         }
         items: list[dict[str, Any]] = []
+        seen_source_ids: set[str] = set()
         for source in visible:
-            subscribed = str(source["id"]) in subscribed_source_ids
+            source_id = str(source["id"])
+            if source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
+            subscribed = source_id in subscribed_source_ids
             if unsubscribed_only and subscribed:
                 continue
             secret_env = source.get("secret_env")
+            secret_configured = False
+            secret_error: AgentProposalError | None = None
+            if secret_env:
+                try:
+                    secret_configured = bool(
+                        self.secret_is_set(str(secret_env))
+                    )
+                except Exception:
+                    secret_error = AgentProposalError(
+                        "source_discovery_unavailable",
+                        "source discovery is unavailable",
+                        status_code=503,
+                    )
+            # Raise outside the callback exception context so neither chaining
+            # nor common exception serializers can retain the environment name.
+            if secret_error is not None:
+                raise secret_error
             items.append(
                 {
-                    "id": source["id"],
+                    "id": source_id,
                     "name": source["display_name"],
                     "type": source["type"],
                     "scope": source["scope"],
                     "enabled": bool(source["enabled"]),
                     "default_channel": source.get("default_channel"),
                     "default_topics": list(source.get("default_topics") or []),
-                    "secret_configured": bool(
-                        secret_env and self.secret_is_set(str(secret_env))
-                    ),
+                    "secret_configured": secret_configured,
                     "subscribed": subscribed,
                 }
             )
+        items.sort(
+            key=lambda item: (
+                str(item["scope"]),
+                str(item["name"]).casefold(),
+                str(item["id"]),
+            )
+        )
         return {"items": items}
 
     @staticmethod

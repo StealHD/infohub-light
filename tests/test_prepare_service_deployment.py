@@ -18,7 +18,10 @@ def _source_database(tmp_path, monkeypatch):
     owner = store.get_user_by_username("owner")
     store.create_session(owner["id"], ttl_seconds=3600)
     delegation, _token = store.create_agent_delegation(
-        workspace_id=workspace["id"], user_id=owner["id"], name="Local OpenClaw"
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        name="Local OpenClaw",
+        access="subscriptions_write",
     )
     created_at = "2026-07-17T00:00:00+00:00"
     store.create_agent_change_proposal(

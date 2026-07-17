@@ -11,6 +11,7 @@ from typing import Any, Callable
 from ..storage.service_store import (
     AGENT_DELEGATION_READ_SCOPE,
     AGENT_DELEGATION_WRITE_SCOPE,
+    AgentProposalAuthorizationError,
     AgentProposalLimitError,
     ServiceStore,
 )
@@ -256,8 +257,10 @@ class AgentChangeProposalService:
     ) -> dict[str, Any]:
         """Persist one complete v2 plan; return its plaintext phrase once."""
 
-        live_actor = self.require_write_actor(actor)
-        snapshot = self._validated_snapshot(plan)
+        # Keep the cheap preflight for direct service callers.  The facade has
+        # already run the same guard before planning, but persistence must not
+        # rely on either earlier read.
+        self.require_write_actor(actor)
         proposal_id = f"agp_{uuid.uuid4().hex}"
         confirmation_text = f"确认执行 {proposal_id[-8:]}"
         confirmation_hash = hashlib.sha256(
@@ -271,6 +274,11 @@ class AgentChangeProposalService:
             )
         try:
             conn.execute("BEGIN IMMEDIATE")
+            # This is the authoritative flag -> request scope -> live principal
+            # guard.  BEGIN IMMEDIATE serializes every DB-backed principal field
+            # through the proposal insert below.
+            live_actor = self.require_write_actor(actor)
+            snapshot = self._validated_snapshot(plan)
             row = self.store.create_agent_change_proposal(
                 proposal_id=proposal_id,
                 workspace_id=live_actor.workspace_id,
@@ -295,6 +303,10 @@ class AgentChangeProposalService:
                 confirmation_hash=confirmation_hash,
             )
             conn.commit()
+        except AgentProposalAuthorizationError as exc:
+            if conn.in_transaction:
+                conn.rollback()
+            raise self._unauthorized() from exc
         except AgentProposalLimitError as exc:
             if conn.in_transaction:
                 conn.rollback()

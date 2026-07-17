@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -248,36 +249,142 @@ def test_available_sources_are_current_user_scoped_and_secret_safe(context):
     assert "OTHER_TOKEN" not in serialized
 
 
-def test_available_source_filter_maps_public_agent_types_to_catalog_rows(context):
-    github = _source(
-        context,
-        name="GitHub",
-        source_type="github_release",
-        config={"owner": "openai", "repo": "codex"},
-    )
-    twitter = _source(
-        context,
-        name="X",
-        source_type="apify_social",
-        config={"platform": "x", "kind": "profile", "target": "openai"},
-        secret_env="VISIBLE_TOKEN",
-    )
+def test_available_source_filter_uses_explicit_public_type_matrix(context):
+    rows = {
+        "rss": _source(
+            context,
+            name="Z ordinary RSS",
+            source_type="rss",
+            config={"url": "https://example.com/feed.xml"},
+        ),
+        "youtube": _source(
+            context,
+            name="YouTube RSS",
+            source_type="rss",
+            config={
+                "url": (
+                    "https://www.youtube.com/feeds/videos.xml?"
+                    "channel_id=UCabcdefghijklmnopqrstuv"
+                )
+            },
+        ),
+        "github_release": _source(
+            context,
+            name="Z GitHub release",
+            source_type="github_release",
+            config={"owner": "openai", "repo": "codex"},
+        ),
+        "github_user": _source(
+            context,
+            name="A GitHub user",
+            source_type="github_user",
+            config={"username": "openai"},
+        ),
+        "reddit_subreddit": _source(
+            context,
+            name="Z Reddit subreddit",
+            source_type="reddit_subreddit",
+            config={"subreddit": "LocalLLaMA"},
+        ),
+        "reddit_user": _source(
+            context,
+            name="A Reddit user",
+            source_type="reddit_user",
+            config={"username": "spez"},
+        ),
+        "telegram": _source(
+            context,
+            name="Telegram",
+            source_type="telegram_channel",
+            config={"channel": "durov"},
+        ),
+        "twitter": _source(
+            context,
+            name="Twitter",
+            source_type="apify_social",
+            config={"platform": "x", "kind": "profile", "target": "openai"},
+        ),
+        "apify": _source(
+            context,
+            name="Generic Apify",
+            source_type="apify_social",
+            config={
+                "platform": "instagram",
+                "kind": "profile",
+                "target": "openai",
+            },
+        ),
+        "hackernews": _source(
+            context,
+            name="Hacker News",
+            source_type="hackernews",
+            config={"fetch_top_stories": 30, "min_score": 100},
+        ),
+    }
+    expected = {
+        # RSS and Website intentionally share the same non-YouTube RSS set:
+        # persisted catalog rows have no discriminator that can separate them.
+        "rss": [rows["rss"]["id"]],
+        "website": [rows["rss"]["id"]],
+        "youtube": [rows["youtube"]["id"]],
+        "github": [rows["github_user"]["id"], rows["github_release"]["id"]],
+        "reddit": [rows["reddit_user"]["id"], rows["reddit_subreddit"]["id"]],
+        "telegram": [rows["telegram"]["id"]],
+        "twitter": [rows["twitter"]["id"]],
+        "apify": [rows["apify"]["id"]],
+    }
+
+    for source_type, expected_ids in expected.items():
+        first = context["service"].list_available_sources(
+            actor=_read_actor(context),
+            source_type=source_type,
+            unsubscribed_only=False,
+        )
+        second = context["service"].list_available_sources(
+            actor=_read_actor(context),
+            source_type=source_type,
+            unsubscribed_only=False,
+        )
+        result_ids = [item["id"] for item in first["items"]]
+        assert result_ids == expected_ids
+        assert result_ids == [item["id"] for item in second["items"]]
+        assert len(result_ids) == len(set(result_ids))
+        assert rows["hackernews"]["id"] not in result_ids
+
+
+def test_secret_checker_failure_is_fixed_and_does_not_retain_secret_env(context):
+    secret_env = "DO_NOT_EXPOSE_DISCOVERY_TOKEN_ENV"
     _source(
         context,
-        name="Instagram",
-        source_type="apify_social",
-        config={"platform": "instagram", "kind": "profile", "target": "openai"},
+        name="Secret-backed source",
+        secret_env=secret_env,
     )
 
-    github_result = context["service"].list_available_sources(
-        actor=_read_actor(context), source_type="github", unsubscribed_only=False
-    )
-    twitter_result = context["service"].list_available_sources(
-        actor=_read_actor(context), source_type="twitter", unsubscribed_only=False
-    )
+    def unavailable(name: str) -> bool:
+        raise KeyError(name)
 
-    assert [item["id"] for item in github_result["items"]] == [github["id"]]
-    assert [item["id"] for item in twitter_result["items"]] == [twitter["id"]]
+    service = RemoteMCPSubscriptionService(
+        store=context["store"],
+        mutations=context["mutations"],
+        proposals=context["proposals"],
+        secret_is_set=unavailable,
+    )
+    with pytest.raises(AgentProposalError) as error:
+        service.list_available_sources(
+            actor=_read_actor(context),
+            source_type="rss",
+            unsubscribed_only=False,
+        )
+
+    assert error.value.code == "source_discovery_unavailable"
+    assert str(error.value) == "source discovery is unavailable"
+    assert secret_env not in str(error.value)
+    assert secret_env not in repr(error.value)
+    assert secret_env not in repr(
+        {"code": error.value.code, "message": str(error.value)}
+    )
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 def test_unsubscribed_filter_uses_only_the_current_users_subscriptions(context):
@@ -424,6 +531,104 @@ def test_prepare_rechecks_revocation_and_live_user_role(context):
             schedule=None,
         )
     assert revoked.value.code == "unauthorized"
+    assert _proposal_count(context) == 0
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("revoke", "unauthorized"),
+        ("disable", "unauthorized"),
+        ("role", "forbidden"),
+        ("scopes", "unauthorized"),
+    ],
+)
+def test_prepare_final_guard_is_atomic_with_principal_changes(
+    context, mutation, expected_code
+):
+    actor = _actor(context, "member")
+    plan = context["mutations"].plan_create(
+        actor,
+        source={
+            "mode": "private",
+            "type": "rss",
+            "display_name": f"Race {mutation}",
+            "config": {"url": f"https://example.com/race-{mutation}.xml"},
+        },
+        subscription={},
+        schedule=None,
+    )
+    competing_store = ServiceStore(
+        context["store"].data_dir,
+        db_path=context["store"].db_path,
+    )
+    mutated = [False]
+
+    def mutate() -> None:
+        conn = competing_store.connect()
+        if mutation == "revoke":
+            conn.execute(
+                "UPDATE agent_delegations SET revoked_at = ? WHERE id = ?",
+                (NOW.isoformat(), actor.delegation_id),
+            )
+        elif mutation == "disable":
+            conn.execute(
+                "UPDATE users SET enabled = 0 WHERE id = ?", (actor.user_id,)
+            )
+        elif mutation == "role":
+            conn.execute(
+                "UPDATE users SET role = 'viewer' WHERE id = ?", (actor.user_id,)
+            )
+        else:
+            conn.execute(
+                "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+                ('["inteliscope:read"]', actor.delegation_id),
+            )
+        conn.commit()
+
+    def clock_after_preflight() -> datetime:
+        if not mutated[0]:
+            mutated[0] = True
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(mutate).result(timeout=5)
+        return NOW
+
+    context["proposals"].now = clock_after_preflight
+    try:
+        with pytest.raises(AgentProposalError) as error:
+            context["proposals"].prepare(actor, plan)
+    finally:
+        competing_store.close()
+
+    assert mutated == [True]
+    assert error.value.code == expected_code
+    assert error.value.code != "invalid_plan_snapshot"
+    assert _proposal_count(context) == 0
+
+
+def test_prepare_final_guard_rereads_dynamic_write_flag_before_insert(context):
+    actor = _actor(context, "member")
+    plan = context["mutations"].plan_create(
+        actor,
+        source={
+            "mode": "private",
+            "type": "rss",
+            "display_name": "Flag race",
+            "config": {"url": "https://example.com/flag-race.xml"},
+        },
+        subscription={},
+        schedule=None,
+    )
+
+    def disable_after_preflight() -> datetime:
+        context["writes_enabled"][0] = False
+        return NOW
+
+    context["proposals"].now = disable_after_preflight
+    with pytest.raises(AgentProposalError) as error:
+        context["proposals"].prepare(actor, plan)
+
+    assert error.value.code == "subscription_writes_disabled"
     assert _proposal_count(context) == 0
 
 

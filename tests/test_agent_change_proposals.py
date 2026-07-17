@@ -46,6 +46,7 @@ def delegation(store):
         workspace_id=workspace["id"],
         user_id=owner["id"],
         name="Proposal tests",
+        access="subscriptions_write",
     )
     return {
         "id": row["id"],
@@ -152,6 +153,42 @@ def test_proposal_projection_parses_json_without_exposing_raw_columns(
     assert created["fingerprints"] == {"source_updated_at": None}
     assert created["result_summary"] is None
     assert not any(key.endswith("_json") for key in created)
+
+
+@pytest.mark.parametrize("mutation", ["revoke", "disable", "role", "scopes"])
+def test_proposal_store_rejects_inactive_write_principal_in_locked_create(
+    store, delegation, mutation
+):
+    connection = store.connect()
+    if mutation == "revoke":
+        connection.execute(
+            "UPDATE agent_delegations SET revoked_at = ? WHERE id = ?",
+            (NOW.isoformat(), delegation["id"]),
+        )
+    elif mutation == "disable":
+        connection.execute(
+            "UPDATE users SET enabled = 0 WHERE id = ?", (delegation["user_id"],)
+        )
+    elif mutation == "role":
+        connection.execute(
+            "UPDATE users SET role = 'viewer' WHERE id = ?",
+            (delegation["user_id"],),
+        )
+    else:
+        connection.execute(
+            "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+            ('["inteliscope:read"]', delegation["id"]),
+        )
+    connection.commit()
+
+    with pytest.raises(
+        ValueError, match="agent proposal delegation is not authorized"
+    ):
+        store.create_agent_change_proposal(**proposal_values(delegation, 1))
+
+    assert connection.execute(
+        "SELECT COUNT(*) FROM agent_change_proposals"
+    ).fetchone()[0] == 0
 
 
 @pytest.mark.parametrize(
@@ -780,6 +817,7 @@ def test_create_expires_elapsed_rows_and_only_prunes_old_rows_for_same_delegatio
         workspace_id=delegation["workspace_id"],
         user_id=delegation["user_id"],
         name="Other delegation",
+        access="subscriptions_write",
     )
     other_delegation = {**delegation, "id": other["id"]}
     ancient = NOW - timedelta(days=2)
