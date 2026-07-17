@@ -641,6 +641,12 @@ describe('App routes', () => {
     await browser.click(screen.getByRole('button', { name: /来源类型/ }))
     await browser.click(await screen.findByRole('option', { name: 'Apify 社交来源' }))
     await browser.type(await screen.findByRole('textbox', { name: '来源名称' }), 'Codex 动态')
+    const platformControl = screen.getByLabelText('平台')
+    const kindControl = screen.getByLabelText('来源类别')
+    expect(platformControl.parentElement).toHaveAttribute('data-required', 'true')
+    expect(kindControl.parentElement).toHaveAttribute('data-required', 'true')
+    expect(platformControl.parentElement?.querySelector('select')).toBeRequired()
+    expect(kindControl.parentElement?.querySelector('select')).toBeRequired()
     expect(screen.getByText('选择要抓取的平台。')).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '创建来源' }))
     expect(createSource).not.toHaveBeenCalled()
@@ -726,6 +732,48 @@ describe('App routes', () => {
     await browser.type(limit, '4')
     await browser.click(screen.getByRole('button', { name: '创建来源' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ url: 'https://example.com/feed.xml', limit: 4 }) })))
+  })
+
+  it('resets registry defaults when the create-source type changes', async () => {
+    const browser = userEvent.setup()
+    const createSource = vi.fn().mockResolvedValue({ id: 'switched-source' })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [
+        {
+          type: 'first_registry', label: '第一种来源', fields: [
+            { name: 'mode', label: '抓取模式', input_type: 'select', required: true, default: 'first', options: [{ value: 'first', label: '第一默认值' }] },
+          ],
+        },
+        {
+          type: 'second_registry', label: '第二种来源', fields: [
+            { name: 'mode', label: '抓取模式', input_type: 'select', required: true, default: 'second', options: [{ value: 'second', label: '第二默认值' }] },
+          ],
+        },
+      ] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      createSource,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: '第一种来源' }))
+    expect(screen.getByLabelText('抓取模式')).toHaveTextContent('第一默认值')
+
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: '第二种来源' }))
+    expect(screen.getByLabelText('抓取模式')).toHaveTextContent('第二默认值')
+    await browser.type(screen.getByRole('textbox', { name: '来源名称' }), '切换后的来源')
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+
+    await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'second_registry',
+      config: expect.objectContaining({ mode: 'second' }),
+    })))
   })
 
   it('applies the existing provider defaults in the live AI form', async () => {

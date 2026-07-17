@@ -68,7 +68,7 @@ function RegistryFields({ definition, values, errors, onOptionChange, onFieldCha
 }
 
 function RegistryOptionField({ field, value, error, onChange }: { field: CatalogField; value: string; error?: string; onChange: (value: string) => void }) {
-  return <HeroSelect label={field.label} value={value} onChange={onChange} description={field.help} errorMessage={error} options={(field.options ?? []).map((option) => typeof option === 'string' ? { id: option, label: option } : { id: option.value, label: option.label })} />
+  return <HeroSelect label={field.label} value={value} onChange={onChange} isRequired={field.required} description={field.help} errorMessage={error} options={(field.options ?? []).map((option) => typeof option === 'string' ? { id: option, label: option } : { id: option.value, label: option.label })} />
 }
 
 export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, onSubmit }: {
@@ -152,7 +152,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     })
   }
 
-  return <form className="grid gap-4" onSubmit={submit} onInvalidCapture={captureInvalid}>
+  return <form className="grid gap-4" noValidate onSubmit={submit} onInvalidCapture={captureInvalid}>
     <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired isInvalid={Boolean(fieldErrors.display_name)}><Label>来源名称</Label><Input onChange={() => clearFieldError('display_name')} />{fieldErrors.display_name && <FieldError>{fieldErrors.display_name}</FieldError>}</TextField>
     <TextField fullWidth name="description" defaultValue={source?.description ?? ''}><Label>来源说明</Label><Input /></TextField>
     {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}

@@ -345,3 +345,23 @@ PASS
 ```
 
 The release-only stress run exposed two fixture races, not product regressions: the RAF gate reused live browser RAF IDs and could replay Virtualizer reconciliation, while the mobile anchor assertion sampled geometry in an earlier browser task than the refresh request. The gate now uses a disjoint synthetic ID range and replays only explicitly cancelled callbacks; the anchor is sampled and the refresh clicked in the same browser task.
+
+## Final minor review follow-up: source type isolation and required semantics
+
+- The create-source registry form is now keyed by the selected source type, so switching between registry definitions remounts the form and reloads the new definition's defaults instead of retaining values from the prior type.
+- Required registry options once again pass HeroUI/React Aria `isRequired`. The visible control exposes the required state and its hidden native select retains `required`; the form intentionally disables browser-native messages so the existing field-level Chinese validation remains the single error path.
+- Regression coverage switches between two definitions with the same field name but different defaults, then verifies the submitted type/config pair. The Apify test also asserts the required semantics and the existing empty-field errors.
+
+Focused verification:
+
+```text
+npm test -- --run src/app/App.test.tsx \
+  -t "blocks incomplete required Apify options|resets registry defaults|keeps invalid registry source fields"
+3 passed
+
+npm run check:ui / lint / typecheck
+PASS
+
+npm test -- --reporter=default
+29 files / 179 tests passed
+```

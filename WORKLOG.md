@@ -1031,3 +1031,11 @@
 - 执行验证：RED→GREEN（exact release argv、深链 source-settle、Apify 选项错误清除、来源 URL/数值/NaN 约束）；UI contract、lint、TypeScript、Vitest 29 文件/178 项、build/artifact、release build+preview 三视口 29 通过/4 既定 skip；导航 RAF 与移动过滤锚点各 30x/5-worker 压力 30/30；`test_gate full` 22/22、`mapping_miss=false`、51.941 秒；三份 Compose config 与 `git diff --check` 均通过
 - 结果：release gate 强制调用 `e2e:release`；来源表单移除 `noValidate` 并在修正输入后清除字段错误；已在 source snapshot 的深链不再提前取 detail；正常字段输出 help；筛选支持外点关闭并归还触发器焦点
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 03:19 Codex
+- 任务：关闭全分支终审中的来源类型切换状态串用与必填下拉无障碍语义缺口
+- 修改文件：Hero 来源创建对话框/注册表选项、App RTL 回归、Task 4 报告与本工作日志
+- 执行验证：可信 RED→GREEN（类型切换仍显示旧/空选项、required 语义缺失）；focused 3 项、UI contract、lint、TypeScript、全量 Vitest 29 文件/179 项通过
+- 结果：来源类型变化时按 type 重建 SourceForm 并加载该定义默认值；必填选项保留 HeroUI/React Aria required 语义，同时继续由统一中文字段校验输出错误
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
