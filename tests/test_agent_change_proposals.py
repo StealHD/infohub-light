@@ -218,6 +218,33 @@ def test_proposal_payload_rejects_controlled_compact_credential_keys(
 
 
 @pytest.mark.parametrize(
+    "key",
+    [
+        "githubtoken",
+        "GITHUBTOKEN",
+        "ｇｉｔｈｕｂｔｏｋｅｎ",
+        "webhooksecret",
+        "WEBHOOKSECRET",
+        "ｗｅｂｈｏｏｋｓｅｃｒｅｔ",
+    ],
+)
+def test_proposal_payload_rejects_compact_credential_suffix_keys(
+    store, delegation, key
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"config": {key: "do-not-echo-suffix-secret"}}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert "do-not-echo-suffix-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
     "url",
     [
         "https://example.com/feed?apikey=do-not-echo-query-secret",
@@ -244,8 +271,33 @@ def test_proposal_payload_rejects_compact_and_percent_decoded_query_names(
 
 
 @pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/feed?githubtoken=do-not-echo-query-secret",
+        "https://example.com/feed?GITHUBTOKEN=do-not-echo-query-secret",
+        "https://example.com/feed?%67%69%74%68%75%62%74%6f%6b%65%6e=do-not-echo-query-secret",
+        "https://example.com/feed?webhooksecret=do-not-echo-query-secret",
+    ],
+)
+def test_proposal_payload_rejects_compact_credential_suffix_query_names(
+    store, delegation, url
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"config": {"url": url}}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert "do-not-echo-query-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
     "key",
-    ["monkey", "hockey", "keyboard_layout", "keynote"],
+    ["monkey", "hockey", "keyboard_layout", "keynote", "tokenizer", "tokenization"],
 )
 def test_proposal_payload_allows_safe_keys_containing_key_text(
     store, delegation, key
@@ -280,6 +332,22 @@ def test_proposal_payload_allows_basic_and_bearer_business_names(
 
 
 @pytest.mark.parametrize(
+    "display_name",
+    ["SK-Engineering Weekly", "sk-Engineering Weekly"],
+)
+def test_proposal_payload_allows_short_sk_business_names(store, delegation, display_name):
+    values = proposal_values(
+        delegation,
+        1,
+        payload={"source": {"display_name": display_name}},
+    )
+
+    created = store.create_agent_change_proposal(**values)
+
+    assert created["payload"] == values["payload"]
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "Authorization: Basic dXNlcjpwYXNz",
@@ -289,6 +357,7 @@ def test_proposal_payload_allows_basic_and_bearer_business_names(
         "X-API-Key: do-not-echo-header-secret",
         "token=do-not-echo-header-secret",
         "sk-do-not-echo-prefix-secret",
+        "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
         "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.do-not-echo-jwt-secret",
     ],
 )

@@ -72,6 +72,17 @@ _PROPOSAL_SENSITIVE_COMPACT_KEYS = {
     "tokenenv",
     "xapikey",
 }
+_PROPOSAL_SENSITIVE_COMPACT_SUFFIXES = (
+    "authorization",
+    "credential",
+    "credentials",
+    "cookie",
+    "cookies",
+    "password",
+    "secret",
+    "signature",
+    "token",
+)
 _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
     "article_body",
     "article_content",
@@ -88,7 +99,7 @@ _PROPOSAL_CREDENTIAL_PATTERN = re.compile(
     r"x[-_\s]+api[-_\s]+key|api[-_\s]+key|access[-_\s]+token|"
     r"auth[-_\s]+token|refresh[-_\s]+token|client[-_\s]+(?:secret|token)|"
     r"password|secret|token)\s*[:=]\s*\S+"
-    r"|(?:^|[^a-z0-9])(?:sk-[a-z0-9_-]{8,}|ghp_[a-z0-9]{8,}"
+    r"|(?:^|[^a-z0-9])(?:sk-[a-z0-9_-]{20,}(?=$|[^a-z0-9_-])|ghp_[a-z0-9]{8,}"
     r"|github_pat_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}"
     r"|ih_mcp_v1_[a-z0-9_-]{8,})"
     r"|(?:^|[^a-z0-9_-])eyj[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}"
@@ -156,7 +167,10 @@ def _is_sensitive_proposal_key(value: Any) -> bool:
         return True
     if normalized in _PROPOSAL_PROHIBITED_CONTENT_KEYS:
         return True
-    if normalized.replace("_", "") in _PROPOSAL_SENSITIVE_COMPACT_KEYS:
+    compact = normalized.replace("_", "")
+    if compact in _PROPOSAL_SENSITIVE_COMPACT_KEYS:
+        return True
+    if compact.endswith(_PROPOSAL_SENSITIVE_COMPACT_SUFFIXES):
         return True
     parts = normalized.split("_")
     return any(

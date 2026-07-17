@@ -945,3 +945,11 @@
 - 结果：JSON/query 共用受控 compact credential key 分类并覆盖 NFKC/percent decode；明确凭据 header/assignment、已知 prefix 与 JWT 仍拒绝，`Basic Engineering News`、`Bearer Market Report` 和 `monkey`/`hockey` 等安全词允许
 - 未解决问题：无；未修改权威时钟、事务、schema、cleanup、sanitizer，未实现 Task 3+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 第三轮复审的 compact credential 后缀 Important 与短 `sk-` 名称 Minor
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`.superpowers/sdd/task-2-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：新增 12 个回归先按预期 RED；proposal 与指定 focused 测试通过，full gate 通过，`git diff --check` 通过
+- 结果：NFKC/camelCase/分隔归一后的 compact key 以受控 credential 后缀失败关闭，JSON 与 percent-decoded query 统一覆盖；`sk-` 仅在长连续 token 且右边界时拒绝，`SK-Engineering Weekly` 保持允许
+- 未解决问题：无；未改动 schema、时钟、事务、retention、sanitizer，未实现 Task 3+
+- 控制面变更：无
