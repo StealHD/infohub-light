@@ -40,6 +40,8 @@ AGENT_DELEGATION_SCOPE = AGENT_DELEGATION_READ_SCOPE
 AGENT_DELEGATION_TTL_DAYS = 90
 AGENT_DELEGATION_MAX_ACTIVE = 5
 AGENT_DELEGATION_USAGE_TOUCH_MINUTES = 15
+AGENT_DELEGATION_SCOPES_JSON_MAX_LENGTH = 512
+AGENT_DELEGATION_SCOPES_JSON_MAX_DEPTH = 4
 AGENT_PROPOSAL_TTL_MINUTES = 10
 AGENT_PROPOSAL_MAX_PENDING = 10
 AGENT_PROPOSAL_PREPARE_EXPIRED_RETENTION_HOURS = 24
@@ -114,8 +116,44 @@ def _scopes_for_access(access: str) -> list[str]:
     raise ValueError("access must be read or subscriptions_write")
 
 
-def _safe_agent_delegation_scopes(scopes_json: str | None) -> list[str]:
-    raw_scopes = _json_loads(scopes_json, None)
+def _bounded_agent_delegation_scopes_json(value: Any) -> list[str] | None:
+    """Parse delegation scope storage without accepting SQLite dynamic values."""
+
+    if not isinstance(value, str) or len(value) > AGENT_DELEGATION_SCOPES_JSON_MAX_LENGTH:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in value:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > AGENT_DELEGATION_SCOPES_JSON_MAX_DEPTH:
+                return None
+        elif character in "]}":
+            depth -= 1
+            if depth < 0:
+                return None
+    if depth != 0 or in_string:
+        return None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, RecursionError):
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _safe_agent_delegation_scopes(scopes_json: Any) -> list[str]:
+    raw_scopes = _bounded_agent_delegation_scopes_json(scopes_json)
     if (
         not isinstance(raw_scopes, list)
         or not all(isinstance(scope, str) for scope in raw_scopes)

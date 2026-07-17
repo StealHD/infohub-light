@@ -1,5 +1,6 @@
 import hashlib
 import re
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 
@@ -341,4 +342,55 @@ def test_unknown_or_extra_stored_scopes_fail_closed(tmp_path, monkeypatch):
 
     assert listed["access"] == "read"
     assert listed["scopes"] == []
+    assert principal["scopes"] == []
+
+
+@pytest.mark.parametrize(
+    "stored_scopes",
+    [
+        "[",
+        sqlite3.Binary(b"\x80"),
+        sqlite3.Binary(b'[\"inteliscope:read\"]'),
+        '["inteliscope:read"]' + (" " * 513),
+        "[" * 65 + '"inteliscope:read"' + "]" * 65,
+        '{"scope":"inteliscope:read"}',
+        '["unexpected"]',
+        '["inteliscope:read","inteliscope:read"]',
+    ],
+    ids=[
+        "invalid-json",
+        "invalid-utf8-blob",
+        "valid-json-blob",
+        "oversized",
+        "deeply-nested",
+        "non-list",
+        "unknown",
+        "duplicate",
+    ],
+)
+def test_corrupt_stored_delegation_scopes_fail_closed_without_raising(
+    tmp_path, monkeypatch, stored_scopes
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    user = store.get_user_by_username("owner")
+    connection, token = store.create_agent_delegation(
+        workspace_id=user["workspace_id"],
+        user_id=user["id"],
+        name="Corrupt scopes",
+    )
+    store.connect().execute(
+        "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+        (stored_scopes, connection["id"]),
+    )
+    store.connect().commit()
+
+    listed = store.list_agent_delegations(user["id"])[0]
+    principal = store.authenticate_agent_delegation(token)
+
+    assert listed["access"] == "read"
+    assert listed["scopes"] == []
+    assert principal is not None
     assert principal["scopes"] == []

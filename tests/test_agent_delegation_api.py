@@ -1,4 +1,5 @@
 import pytest
+import sqlite3
 
 from fastapi.testclient import TestClient
 
@@ -107,6 +108,40 @@ def test_agent_delegation_api_returns_secret_once_and_supports_rename_and_revoke
     assert client.get("/api/me/agent-delegations").json()["data"]["connections"][
         0
     ]["status"] == "revoked"
+
+
+@pytest.mark.parametrize(
+    "stored_scopes",
+    [
+        "[",
+        sqlite3.Binary(b"\x80"),
+        sqlite3.Binary(b'[\"inteliscope:read\"]'),
+        '["inteliscope:read"]' + (" " * 513),
+        "[" * 65 + '"inteliscope:read"' + "]" * 65,
+        '{"scope":"inteliscope:read"}',
+        '["unexpected"]',
+        '["inteliscope:read","inteliscope:read"]',
+    ],
+)
+def test_agent_delegation_api_lists_corrupt_scopes_as_empty_read_connections(
+    tmp_path, monkeypatch, stored_scopes
+):
+    client = _client(tmp_path, monkeypatch, enabled=True)
+    _login(client)
+    created = client.post("/api/me/agent-delegations", json={"name": "Corrupt"})
+    connection_id = created.json()["data"]["connection"]["id"]
+    client.app.state.service_store.connect().execute(
+        "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+        (stored_scopes, connection_id),
+    )
+    client.app.state.service_store.connect().commit()
+
+    response = client.get("/api/me/agent-delegations")
+
+    assert response.status_code == 200
+    connection = response.json()["data"]["connections"][0]
+    assert connection["access"] == "read"
+    assert connection["scopes"] == []
 
 
 def test_agent_delegation_api_allows_viewer_and_isolates_connections_by_user(

@@ -1017,3 +1017,11 @@
 - 结果：新增 read/write canonical scope 与安全 access 投影；旧行不迁移，未知/额外 scope 失败关闭；写开关严格 `true|false` 且依赖 Remote MCP；GET/POST/PATCH 权限、viewer 稳定 403 和 rename 防升级完成
 - 未解决问题：Task 8 写工具仍须在每次调用时检查 live flag；本任务未实现 proposal、MCP 写工具、UI 或生产启用
 - 控制面变更：无；总方案后续文档任务统一更新 API/架构/UI 合同
+
+### 2026-07-17 Codex subagent
+- 任务：修复 Task 4 delegation scope 损坏值导致的 GET/TokenVerifier 异常
+- 修改文件：`src/storage/service_store.py`、delegation/API/真实 MCP 回归、`.superpowers/sdd/task-4-fix-report.md`、`WORKLOG.md`
+- 执行验证：四个 Task 4 模块新增回归先出现 9 个预期 RED；GREEN 64 项、full gate 22/22（`mapping_miss=false`、`first_failure=null`）及最终 `git diff --check` 通过
+- 结果：scope 使用专用 512 字符、四层 JSON 容器上限解析器；原始值仅接受 `str`，BLOB（含可解码 JSON）、损坏/超长/过深/非 list/未知/重复值全部投影空 scope，GET 稳定 200，MCP 缺 read scope 返回 403
+- 未解决问题：无；未修改通用 `_json_loads()`，未实现 Task 5+
+- 控制面变更：无

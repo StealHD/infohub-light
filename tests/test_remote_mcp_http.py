@@ -1,10 +1,12 @@
 import httpx
 import pytest
+import sqlite3
 from fastapi.testclient import TestClient
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from src.api.server import create_app
+from src.mcp.remote_server import AgentDelegationTokenVerifier
 from src.services.job_queue import JobQueue
 from src.services.user_feed_store import UserFeedStore
 
@@ -349,6 +351,52 @@ async def test_remote_mcp_rejects_missing_scope_revoked_and_disabled_user_tokens
     assert revoked.status_code == 401
     assert disabled.status_code == 401
     assert invalid.text == revoked.text == disabled.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "stored_scopes",
+    [
+        "[",
+        sqlite3.Binary(b"\x80"),
+        sqlite3.Binary(b'[\"inteliscope:read\"]'),
+        '["inteliscope:read"]' + (" " * 513),
+        "[" * 65 + '"inteliscope:read"' + "]" * 65,
+        '{"scope":"inteliscope:read"}',
+        '["unexpected"]',
+        '["inteliscope:read","inteliscope:read"]',
+    ],
+)
+async def test_remote_mcp_rejects_corrupt_stored_scope_values_without_500(
+    tmp_path, monkeypatch, stored_scopes
+):
+    app = _app(tmp_path, monkeypatch)
+    _user, connection, token = _token(app)
+    store = app.state.service_store
+    store.connect().execute(
+        "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+        (stored_scopes, connection["id"]),
+    )
+    store.connect().commit()
+
+    verified = await AgentDelegationTokenVerifier(store).verify_token(token)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1:8080"
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                json=_initialize_payload(),
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+
+    assert verified is not None
+    assert verified.scopes == []
+    assert response.status_code == 403
 
 
 @pytest.mark.anyio
