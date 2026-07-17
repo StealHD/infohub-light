@@ -78,11 +78,57 @@
   border-radius: var(--inteliscope-radius-compact);
 }
 
-.inteliscope-design-system *,
-.inteliscope-design-system *::before,
-.inteliscope-design-system *::after {
-  animation-duration: var(--inteliscope-motion-deliberate) !important;
+.inteliscope-design-system :where(
+  .button,
+  .input,
+  .textarea,
+  .tabs__list-container__scroll-prev,
+  .tabs__list-container__scroll-next,
+  .tabs__tab,
+  .tabs__separator,
+  .tabs__indicator,
+  .modal__trigger,
+  .drawer__trigger,
+  .drawer__backdrop,
+  .drawer__dialog,
+  .select__trigger,
+  .select__indicator,
+  .combo-box__trigger,
+  [data-slot="combo-box-trigger-default-icon"],
+  .popover__trigger,
+  .table__sortable-column-indicator,
+  .tooltip__trigger,
+  .toast__close-button,
+  .checkbox__control,
+  .checkbox__control::before,
+  [data-slot="checkbox-default-indicator--checkmark"],
+  .radio__control,
+  .radio__indicator::before,
+  .switch__control,
+  .switch__thumb,
+  .close-button,
+  .list-box-item,
+  .list-box-item__indicator,
+  [data-slot="list-box-item-indicator--checkmark"]
+) {
   transition-duration: var(--inteliscope-motion-standard) !important;
+}
+
+.inteliscope-design-system :where(
+  .modal__backdrop[data-entering="true"],
+  .modal__backdrop[data-exiting="true"],
+  .modal__container[data-entering="true"],
+  .modal__container[data-exiting="true"],
+  .select__popover[data-entering="true"],
+  .select__popover[data-exiting="true"],
+  .combo-box__popover[data-entering="true"],
+  .combo-box__popover[data-exiting="true"],
+  .popover[data-entering="true"],
+  .popover[data-exiting="true"],
+  .tooltip[data-entering="true"],
+  .tooltip[data-exiting="true"]
+) {
+  animation-duration: var(--inteliscope-motion-deliberate) !important;
 }
 
 ::view-transition-new(.toast-bottom):only-child,
@@ -93,14 +139,68 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .inteliscope-design-system,
-  .inteliscope-design-system *,
-  .inteliscope-design-system *::before,
-  .inteliscope-design-system *::after {
+  .inteliscope-design-system {
+    --inteliscope-motion-standard: 1ms;
+    --inteliscope-motion-deliberate: 1ms;
     scroll-behavior: auto !important;
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
+  }
+
+  .inteliscope-design-system :where(
+    .button,
+    .input,
+    .textarea,
+    .tabs__list-container__scroll-prev,
+    .tabs__list-container__scroll-next,
+    .tabs__tab,
+    .tabs__separator,
+    .tabs__indicator,
+    .modal__trigger,
+    .drawer__trigger,
+    .drawer__backdrop,
+    .drawer__dialog,
+    .select__trigger,
+    .select__indicator,
+    .combo-box__trigger,
+    [data-slot="combo-box-trigger-default-icon"],
+    .popover__trigger,
+    .table__sortable-column-indicator,
+    .tooltip__trigger,
+    .toast__close-button,
+    .checkbox__control,
+    .checkbox__control::before,
+    [data-slot="checkbox-default-indicator--checkmark"],
+    .radio__control,
+    .radio__indicator::before,
+    .switch__control,
+    .switch__thumb,
+    .close-button,
+    .list-box-item,
+    .list-box-item__indicator,
+    [data-slot="list-box-item-indicator--checkmark"]
+  ) {
+    transition-property: none !important;
+  }
+
+  .inteliscope-design-system :where(
+    .modal__backdrop[data-entering="true"],
+    .modal__backdrop[data-exiting="true"],
+    .modal__container[data-entering="true"],
+    .modal__container[data-exiting="true"],
+    .select__popover[data-entering="true"],
+    .select__popover[data-exiting="true"],
+    .combo-box__popover[data-entering="true"],
+    .combo-box__popover[data-exiting="true"],
+    .popover[data-entering="true"],
+    .popover[data-exiting="true"],
+    .tooltip[data-entering="true"],
+    .tooltip[data-exiting="true"],
+    .skeleton,
+    .skeleton::before,
+    .skeleton::after,
+    .spinner
+  ) {
+    animation-name: none !important;
+    transition-property: none !important;
   }
 
   ::view-transition-new(.toast-bottom):only-child,
@@ -108,5 +208,6 @@
   ::view-transition-new(.toast-top):only-child,
   ::view-transition-old(.toast-top):only-child {
     animation-duration: 1ms !important;
+    animation-name: none !important;
   }
 }

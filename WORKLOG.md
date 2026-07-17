@@ -896,3 +896,11 @@
 - 结果：Tabs/Table/溢出控件圆角固定为 14/16/8px；正式主题内 transition/animation 固定为 160/220ms，Toast view transition 同步覆盖，Reduced Motion 保持 1ms
 - 未解决问题：保留既有 Fast Refresh warning 与 Vite 500 kB chunk warning
 - 控制面变更：无；仅修正既有 D027 主题实现偏差
+
+### 2026-07-17 12:17 Codex
+- 任务：修复 Task 1 二次评审发现的 HeroUI Portal 主题逃逸与全局动效覆盖
+- 修改文件：`frontend/src/design-system/DesignSystemProvider.tsx`、`theme.css`、设计系统 Playwright 契约与隔离 fixture、Task 1 报告
+- 执行验证：真实 Modal/Tooltip 与连续动画 computed-style 测试完成 RED→GREEN；Vitest 29 文件/116 项、UI contract、TypeScript、build/preview exclusion、Playwright 5 项通过；full gate 22/22 通过、`mapping_miss=false`，ESLint 0 error
+- 结果：正式 provider 以引用计数同步并精确恢复文档根主题；有限动效改为组件级选择器，静态元素不新增动效，Skeleton/Spinner 保留连续节奏，Portal Reduced Motion 生效
+- 未解决问题：保留既有 Fast Refresh warning 与 Vite 500 kB chunk warning
+- 控制面变更：无；仅修正既有 D027 主题实现偏差
