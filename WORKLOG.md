@@ -1000,3 +1000,11 @@
 - 结果：高索引 rail target 在 200→50 收缩时写回真实末项索引；抵达后可释放 ownership，后续 dismissed 卡片更新不会跳回旧目标
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 23:58 Codex
+- 任务：关闭 Task 4 第四审中 cards commit 与下一帧之间用户取消无法阻止 pending-navigation RAF 回写的竞态
+- 修改文件：`VirtualFeed`、生产工作台 Playwright、Task 4 报告与本工作日志
+- 执行验证：真实 RAF gate RED（旧实现 wheel 后回跳至 scrollTop 7231）→GREEN；关键桌面竞态 2/2；UI contract、lint、TypeScript、Vitest 29 文件/167 项、build/artifact、三视口 Playwright 54 scheduled（50 pass/4 desktop-only skip）、Python API 69 项、`test_gate full`、三份 Compose config 与 `git diff --check` 均通过
+- 结果：release 路径会取消 cards commit 的 pending RAF，回调亦校验仍持有同一导航对象；缩短列表回归改用 Shell 搜索触发后续 cards update，不再借由卡片 pointer action 隐式释放
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

@@ -168,6 +168,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const requestedRefreshAnchor = useRef<ViewportAnchor | null>(null)
   const restorationAnchor = useRef<ViewportAnchor | null>(null)
   const pendingNavigation = useRef<PendingNavigation | null>(null)
+  const pendingNavigationFrame = useRef<number | undefined>(undefined)
   const navigationBoundary = useRef<'start' | 'end' | null>(null)
   const navigationBoundaryTimer = useRef<number | undefined>(undefined)
   const navigationBoundaryFrame = useRef<number | undefined>(undefined)
@@ -220,6 +221,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
     inlineScrollAnchor.current = null
     viewportAnchor.current = null
     pendingNavigation.current = null
+    window.cancelAnimationFrame(pendingNavigationFrame.current ?? 0)
+    pendingNavigationFrame.current = undefined
     navigationBoundary.current = null
     window.clearTimeout(inlineAnchorTimer.current)
     window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
@@ -246,12 +249,18 @@ export function VirtualFeed(props: VirtualFeedProps) {
     if (navigation) {
       requestedRefreshAnchor.current = null
       const frame = window.requestAnimationFrame(() => {
+        if (pendingNavigation.current !== navigation) return
+        pendingNavigationFrame.current = undefined
         const target = clampPendingNavigation(navigation, cardsRef.current.length)
         pendingNavigation.current = target
         if (target.index === 0 && scrollRef.current) scrollRef.current.scrollTop = 0
         else virtualizerRef.current.scrollToIndex(target.index, { align: target.align })
       })
-      return () => window.cancelAnimationFrame(frame)
+      pendingNavigationFrame.current = frame
+      return () => {
+        window.cancelAnimationFrame(frame)
+        if (pendingNavigationFrame.current === frame) pendingNavigationFrame.current = undefined
+      }
     }
     const anchor = requestedRefreshAnchor.current ?? restorationAnchor.current ?? viewportAnchor.current
     requestedRefreshAnchor.current = null

@@ -211,3 +211,43 @@ PASS
 git diff --check
 PASS
 ```
+
+## Fourth review follow-up: release before navigation frame
+
+- The cards-commit navigation replay now stores its RAF handle. `releaseNavigationOwnership` cancels that handle, and the callback also verifies that it still owns the same pending-navigation object before writing state or scrolling. A wheel, pointer, touch, or keyboard release between React commit and the next animation frame therefore wins deterministically.
+- The production regression pauses the browser RAF queue after a refresh commits a 50-item replacement, dispatches a real wheel release, then flushes the queued callbacks. It was RED before the fix (`scrollTop` was reclaimed to 7231px) and is GREEN after it. The shrink regression now causes a later list change through the Shell search field rather than a card action, so it no longer receives an implicit Feed pointer-release pass.
+
+Fourth follow-up verification:
+
+```text
+npx playwright test e2e/production-workbench.spec.ts --project=desktop \
+  --grep "clamped rail jump releases ownership|wheel release after cards commit"
+2/2 passed
+
+npm run check:ui / lint / typecheck
+PASS
+
+npm test -- --reporter=dot
+29 files / 167 tests passed
+
+npm run build
+PASS; production artifact scan passed
+(Vite retains the informational >500 kB chunk warning.)
+
+npm run e2e
+54 scheduled across desktop, tablet, and mobile; 50 passed, 4 intentional desktop-only skips
+
+.venv/bin/python -m pytest -q tests/test_api_service.py tests/test_react_service_ui.py
+69 passed
+
+.venv/bin/python scripts/test_gate.py run --mode full
+PASS
+
+docker compose -f docker-compose.yml config --quiet
+docker compose -f docker-compose.light.yml config --quiet
+docker compose -f docker-compose.test-gate.yml config --quiet
+PASS
+
+git diff --check
+PASS
+```

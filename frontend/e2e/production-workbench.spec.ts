@@ -411,7 +411,7 @@ test('a jump during an in-flight refresh releases the captured refresh anchor', 
   expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(400)
 })
 
-test('a clamped rail jump releases ownership before a later card update', async ({ page }, testInfo) => {
+test('a clamped rail jump releases ownership before a later external search update', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The navigation ownership regression uses the desktop progress rail.')
 
   let refreshRequested = false
@@ -423,9 +423,6 @@ test('a clamped rail jump releases ownership before a later card update', async 
   await page.route('**/api/jobs/user-feed-refresh', async (route) => {
     refreshRequested = true
     await route.fallback()
-  })
-  await page.route('**/api/me/items/**/state', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { is_read: false, is_saved: false, is_later: false, dismissed: true } }) })
   })
   await page.route('**/api/feed/latest', async (route) => {
     if (!refreshRequested) return route.fallback()
@@ -461,11 +458,76 @@ test('a clamped rail jump releases ownership before a later card update', async 
     element.scrollTop = 0
     element.dispatchEvent(new Event('scroll'))
   })
-  const firstCard = page.getByRole('article', { name: '实时条目 1', exact: true })
-  await expect(firstCard).toBeVisible()
-  await firstCard.getByRole('button', { name: '更多操作 实时条目 1' }).click()
-  await firstCard.getByRole('button', { name: '忽略' }).click()
-  await expect(firstCard).toBeHidden()
+  await page.getByRole('searchbox', { name: '搜索信息流' }).fill('实时条目 1')
+  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
+})
+
+test('a wheel release after cards commit cancels the pending navigation RAF', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The navigation-RAF regression uses the desktop progress rail.')
+
+  let refreshRequested = false
+  let signalShrinkingRefresh!: () => void
+  let releaseShrinkingRefresh!: () => void
+  const shrinkingRefreshStarted = new Promise<void>((resolve) => { signalShrinkingRefresh = resolve })
+  const shrinkingRefreshReleased = new Promise<void>((resolve) => { releaseShrinkingRefresh = resolve })
+  await page.exposeFunction('releaseRafGateRefresh', () => releaseShrinkingRefresh())
+  await page.route('**/api/jobs/user-feed-refresh', async (route) => {
+    refreshRequested = true
+    await route.fallback()
+  })
+  await page.route('**/api/feed/latest', async (route) => {
+    if (!refreshRequested) return route.fallback()
+    signalShrinkingRefresh()
+    await shrinkingRefreshReleased
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { schema_version: 2, items: items.slice(0, 50) } }) })
+  })
+
+  await page.goto('/feed')
+  await page.evaluate(() => document.fonts.ready)
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await feedScroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.7)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await alignVisibleCardToTop(page)
+  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
+  await shrinkingRefreshStarted
+  await page.getByRole('button', { name: '跳转到第 182 条信息' }).evaluate((element: HTMLElement) => element.click())
+  await page.evaluate(() => {
+    let nextFrameId = 1
+    const scheduled = new Map<number, FrameRequestCallback>()
+    const nativeRequest = window.requestAnimationFrame
+    const nativeCancel = window.cancelAnimationFrame
+    Object.assign(window, {
+      requestAnimationFrame(callback: FrameRequestCallback) {
+        const id = nextFrameId++
+        scheduled.set(id, callback)
+        return id
+      },
+      cancelAnimationFrame(id: number) {
+        scheduled.delete(id)
+      },
+      __flushNavigationRafGate() {
+        const callbacks = [...scheduled.values()]
+        scheduled.clear()
+        for (const callback of callbacks) callback(performance.now())
+        window.requestAnimationFrame = nativeRequest
+        window.cancelAnimationFrame = nativeCancel
+      },
+      __navigationRafGateSize() {
+        return scheduled.size
+      },
+    })
+    void (window as typeof window & { releaseRafGateRefresh: () => Promise<void> }).releaseRafGateRefresh()
+  })
+  await expect(page.getByText(/旧内容在上，最新内容在下 · 50 条/)).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __navigationRafGateSize: () => number }).__navigationRafGateSize())).toBeGreaterThan(0)
+  await feedScroll.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new WheelEvent('wheel', { bubbles: true }))
+  })
+  await page.evaluate(() => (window as typeof window & { __flushNavigationRafGate: () => void }).__flushNavigationRafGate())
   await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
 })
 
