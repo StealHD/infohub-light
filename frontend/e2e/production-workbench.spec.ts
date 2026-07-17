@@ -45,6 +45,53 @@ async function topVisibleSnapshot(page: Page) {
   }, await feedScroll.elementHandle())
 }
 
+async function stableTopVisibleSnapshot(page: Page) {
+  let previous = await topVisibleSnapshot(page)
+  let stableFrames = 0
+  for (let frame = 0; frame < 120 && stableFrames < 3; frame += 1) {
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    const current = await topVisibleSnapshot(page)
+    stableFrames = current.name === previous.name && Math.abs(current.offset - previous.offset) <= 0.5
+      ? stableFrames + 1
+      : 0
+    previous = current
+  }
+  expect(stableFrames).toBe(3)
+  return previous
+}
+
+async function alignVisibleCardToTop(page: Page) {
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  const targetName = await page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollElement) => {
+    const bounds = (scrollElement as HTMLElement).getBoundingClientRect()
+    return cards
+      .filter((card) => card.getBoundingClientRect().top >= bounds.top)
+      .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
+      ?.getAttribute('aria-label') ?? ''
+  }, await feedScroll.elementHandle())
+  expect(targetName).not.toBe('')
+
+  let stableFrames = 0
+  for (let frame = 0; frame < 120 && stableFrames < 3; frame += 1) {
+    const delta = await page.getByRole('article', { name: targetName }).evaluate((card, scrollElement) => (
+      card.getBoundingClientRect().top - (scrollElement as HTMLElement).getBoundingClientRect().top
+    ), await feedScroll.elementHandle())
+    if (Math.abs(delta) <= 0.5) stableFrames += 1
+    else {
+      stableFrames = 0
+      await feedScroll.evaluate((element, correction) => {
+        element.scrollTop += correction
+        element.dispatchEvent(new Event('scroll'))
+      }, delta)
+    }
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+  }
+  expect(stableFrames).toBe(3)
+  const anchor = await topVisibleSnapshot(page)
+  expect(anchor.name).toBe(targetName)
+  return anchor
+}
+
 test.beforeEach(async ({ page }) => {
   let refreshCreated = false
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
@@ -84,9 +131,9 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('live HeroUI workbench preserves responsive shell, virtualization and Agent handoff', async ({ context, page }, testInfo) => {
+test('production HeroUI workbench preserves responsive shell, virtualization and Agent handoff', async ({ context, page }, testInfo) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.goto('/__preview/workbench-live')
+  await page.goto('/feed')
   await expect(page.getByRole('heading', { name: '信息流' })).toBeVisible()
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
@@ -108,12 +155,27 @@ test('live HeroUI workbench preserves responsive shell, virtualization and Agent
   if (testInfo.project.name === 'desktop') {
     await expect(desktopNavigation).toBeVisible()
     await expect(mobileNavigation).toBeHidden()
-    expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
+    expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
     await expect(agent.getByText('已配置')).toBeVisible()
+    await page.getByRole('button', { name: '展开侧栏' }).click()
+    expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
+    expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.sidebar.v1:e2e-user'))).toBe('expanded')
+
+    const fullyVisibleCards = await page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollSelector) => {
+      const viewport = document.querySelector(scrollSelector as string)?.getBoundingClientRect()
+      if (!viewport) return 0
+      return cards.filter((card) => {
+        const bounds = card.getBoundingClientRect()
+        return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom
+      }).length
+    }, '[data-testid="workbench-feed-scroll"]')
+    expect(fullyVisibleCards).toBeGreaterThanOrEqual(4)
+    expect(fullyVisibleCards).toBeLessThanOrEqual(5)
 
     await page.setViewportSize({ width: 1280, height: 800 })
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
+    await expect(page.getByRole('button', { name: /侧栏/ })).toHaveCount(0)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
 
     const desktopFeed = page.getByTestId('workbench-feed-scroll')
@@ -183,39 +245,29 @@ test('live HeroUI workbench preserves responsive shell, virtualization and Agent
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
-  await page.waitForTimeout(100)
-  const anchorName = await page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollElement) => {
-    const bounds = (scrollElement as HTMLElement).getBoundingClientRect()
-    const visible = cards.filter((card) => card.getBoundingClientRect().bottom > bounds.top).sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)
-    return visible[0]?.getAttribute('aria-label') ?? ''
-  }, await feedScroll.elementHandle())
+  const anchorName = (await stableTopVisibleSnapshot(page)).name
+  await feedScroll.dispatchEvent('scroll')
   const card = page.getByRole('article', { name: anchorName })
   const anchorScrollTop = await feedScroll.evaluate((element) => element.scrollTop)
   // Invoke the already-visible control directly: Playwright's actionability helper otherwise
   // scrolls a partially visible first card before dispatching the click, unlike a pointer click.
   await card.getByRole('button', { name: `展开 ${anchorName}` }).evaluate((element: HTMLElement) => element.click())
   await expect(page).toHaveURL(/item=live-/)
-  await page.waitForTimeout(100)
+  await expect(card.getByRole('button', { name: `收起 ${anchorName}` })).toBeVisible()
   expect(await feedScroll.evaluate((element) => element.scrollTop)).toBe(anchorScrollTop)
-  const topVisibleAfter = await page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollElement) => {
-    const bounds = (scrollElement as HTMLElement).getBoundingClientRect()
-    const visible = cards.filter((candidate) => candidate.getBoundingClientRect().bottom > bounds.top).sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)
-    return visible[0]?.getAttribute('aria-label') ?? ''
-  }, await feedScroll.elementHandle())
+  const topVisibleAfter = (await stableTopVisibleSnapshot(page)).name
   expect(topVisibleAfter).toBe(anchorName)
   await card.getByRole('button', { name: `将 ${anchorName} 加入 Agent 上下文` }).click()
 
-  const rollingAnchorBefore = await topVisibleSnapshot(page)
-  await page.getByRole('button', { name: '更新信息流' }).click()
+  const rollingAnchorBefore = await alignVisibleCardToTop(page)
+  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
   await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible({ timeout: 7000 })
   const rollingAnchorAfter = await topVisibleSnapshot(page)
   expect(rollingAnchorAfter.name).toBe(rollingAnchorBefore.name)
   expect(Math.abs(rollingAnchorAfter.offset - rollingAnchorBefore.offset)).toBeLessThanOrEqual(2)
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = element.scrollHeight - element.clientHeight
-    element.dispatchEvent(new Event('scroll'))
-  })
+  await page.getByRole('button', { name: '查看 1 条新内容' }).click()
   await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeHidden()
+  await expect.poll(() => feedScroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(96)
 
   const openAgent = page.getByRole('button', { name: '展开 Agent 面板' })
   if (await openAgent.isVisible()) await openAgent.click()
@@ -233,9 +285,9 @@ test('live HeroUI workbench preserves responsive shell, virtualization and Agent
 })
 
 test('a proven-stale initial deep link returns the real Feed viewport to the bottom', async ({ page }) => {
-  await page.goto('/__preview/workbench-live?item=missing')
+  await page.goto('/feed?item=missing')
   await expect(page.getByText(/这条信息已不可用/)).toBeVisible()
-  await expect(page).toHaveURL('/__preview/workbench-live')
+  await expect(page).toHaveURL('/feed')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   const remaining = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
   expect(remaining).toBeLessThanOrEqual(96)
@@ -248,20 +300,28 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
     channel: '',
     topic: '',
   })))
-  await page.goto('/__preview/workbench-live?batch=1')
+  await page.goto('/feed?batch=1')
+  await page.evaluate(() => document.fonts.ready)
   const feedScroll = page.getByTestId('workbench-feed-scroll')
   await expect(page.getByText('未读优先')).toBeVisible()
   await feedScroll.evaluate((element) => {
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
-  await page.waitForTimeout(100)
-  await feedScroll.dispatchEvent('scroll')
-  const anchorBefore = await topVisibleSnapshot(page)
+  const anchorBefore = await alignVisibleCardToTop(page)
   expect(anchorBefore.name).not.toBe('')
 
-  await page.getByRole('button', { name: '更新信息流' }).click()
+  // Preserve the geometry sampled above at the exact refresh boundary; actionability
+  // waiting may span a later virtualizer measurement and create a different anchor.
+  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
   await expect(page.getByRole('button', { name: '查看 80 条新内容' })).toBeVisible({ timeout: 7000 })
   await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBefore.name)
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBefore.offset)).toBeLessThanOrEqual(2)
+
+  const beforeJump = await feedScroll.evaluate((element) => element.scrollTop)
+  await page.getByRole('button', { name: '跳转到第 1 条信息' }).click()
+  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(beforeJump / 2)
+  const afterJump = await feedScroll.evaluate((element) => element.scrollTop)
+  await stableTopVisibleSnapshot(page)
+  expect(Math.abs(await feedScroll.evaluate((element) => element.scrollTop) - afterJump)).toBeLessThanOrEqual(2)
 })

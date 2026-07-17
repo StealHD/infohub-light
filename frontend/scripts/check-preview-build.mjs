@@ -7,9 +7,14 @@ const buildRoot = join(root, '../src/ui/service_static')
 const searchableExtensions = new Set(['.html', '.js', '.css', '.map'])
 const forbidden = [
   '/__preview/workbench-heroui',
-  'data-ui-system="heroui"',
   'hero-workbench',
   '正在准备 HeroUI 工作台预览',
+  '/__preview/workbench-live',
+  '/__preview/workbench',
+  '@mui/',
+  '@emotion/',
+  'Mui',
+  '切换到 MUI 版',
 ]
 const violations = []
 
@@ -32,8 +37,8 @@ for (const file of await files(buildRoot)) {
 }
 
 if (violations.length) {
-  console.error(`Preview build exclusion check failed:\n${violations.map((value) => `- ${value}`).join('\n')}`)
+  console.error(`Production UI artifact check failed:\n${violations.map((value) => `- ${value}`).join('\n')}`)
   process.exitCode = 1
 } else {
-  console.log('Preview build exclusion check passed.')
+  console.log('Production UI artifact check passed.')
 }

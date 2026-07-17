@@ -222,23 +222,32 @@
 ### D025 Next Web 工作台借鉴 Codex 视觉语言但以 Inteliscope 交互为准
 
 - 决策日期：2026-07-17
-- 当前状态：固定数据交互原型已实现，等待人工视觉确认后接入真实数据
+- 当前状态：已由 D028 的 HeroUI 生产切换完成；本条保留为设计方向的历史依据
 - 决策内容：Mac Codex 只作为暗色层级、紧凑密度、三栏结构、短刻度与克制动效的参考，不做像素复刻。Next 工作台保留 Inteliscope 的信息流、收藏、历史、订阅和 Remote MCP 边界；信息流固定为“全部”，移除精选、日报和稍后读。OpenClaw 侧栏只整理最多 8 条上下文并生成 `get_item` 交接提示词，不提供站内聊天或在线状态。
 - 原因：视觉相似不能替代 Web 的滚动稳定性、操作可达性、响应式布局、键盘支持和状态解释；同时接入真实数据会让视觉问题与数据问题混在一起，增加返工成本。
-- 兼容/回退：开发预览不需要认证且不调用 API；真实体验后续通过 `VITE_UI_EXPERIENCE=next|legacy` 切换，现有 Material UI 页面和后端兼容字段继续保留至少一个版本。
+- 兼容/回退：开发预览继续不需要认证且不调用 API；原计划的 `VITE_UI_EXPERIENCE` 分叉已由 D028 取代，回退使用上一不可变生产镜像而不保留双 UI 源码。
 
 ### D026 HeroUI v3 作为独立候选原型，不与生产 MUI 混用
 
 - 决策日期：2026-07-17
-- 当前状态：HeroUI 固定数据原型已实现，等待与 MUI 版本进行人工视觉比较
+- 当前状态：候选已由 D028 选为生产体系；固定数据 HeroUI 预览保留，MUI 对照预览已删除
 - 决策内容：新增开发专用 `/__preview/workbench-heroui`，实际使用 HeroUI v3.2.2 与 Tailwind v4.3.3；它和 MUI 原型共用固定信息、导航与 OpenClaw 交接模型，但拥有独立主题、样式入口和渲染根。HeroUI 不进入认证、Query Client、API 或生产构建，也不允许在生产业务页面直接导入。
 - 原因：用户认可 HeroUI 的卡片、胶囊控件、焦点环和按压反馈，需要以真实组件验证整体观感；并行候选比只模仿视觉语言更能公平判断组件体系，同时避免在视觉方向确认前改写现有生产 UI。
-- 兼容/回退：原 `/__preview/workbench` 保持可用，默认 UI、API、Query Key、权限和数据均不变。选择 HeroUI 视觉方向不等于授权生产迁移；后续迁移必须另行确定范围、回滚和真实数据验收。
+- 兼容/回退：`/__preview/workbench-heroui` 保持开发隔离和生产剔除；`/__preview/workbench` 已删除。API、Query Key、权限和数据边界仍不变。
 
 ### D027 HeroUI 生产迁移采用单一设计系统边界与渐进 bootstrap
 
 - 决策日期：2026-07-17
-- 当前状态：设计系统与应用边界已建立，业务页面尚未迁移
+- 当前状态：设计系统边界和业务迁移已由 D028 完成
 - 决策内容：`frontend/src/design-system/**` 集中拥有 HeroUI v3 组件、表单能力、Lucide 图标、石墨紫主题与 React Router 导航桥接；正式业务代码只能通过该边界使用 HeroUI。固定数据 HeroUI 原型是唯一可直接导入 `@heroui/*` 的 feature 例外。
 - 原因：HeroUI 方向进入正式迁移后，需要先固定组件、主题和 SPA 导航合同，再分批迁移真实页面；直接在业务页散落库导入会使主题、可访问性和最终依赖清理无法统一验证。
-- 兼容/回退：本阶段只在现有 authenticated bootstrap 中增加无 DOM 的 HeroUI Router bridge，保留 MUI provider、Query Client、认证、`ServiceApi`、API 与 Query Key；旧页面不套用新暗色主题，也不删除 MUI。原型继续由开发入口隔离，生产构建排除原型本身。
+- 兼容/回退：D028 完成后，HeroUI provider 成为唯一生产 UI provider；Query Client、认证、`ServiceApi`、API 与 Query Key 继续保持。原型仍由开发入口隔离并从生产构建排除。
+
+### D028 生产 UI 单一切换到 HeroUI，并删除双栈回滚
+
+- 决策日期：2026-07-17
+- 当前状态：本地实现与全量自动化验收完成
+- 决策内容：生产 Shell、Feed/saved/history、subscriptions/agents/settings 与 login 统一使用 `frontend/src/design-system/**` 的 HeroUI 体系；`AppBootstrap` 是唯一 provider 所有者。MUI、MUI Icons、Emotion、旧 UI 层、MUI 原型、真实数据 preview 与 UI-experience 分叉全部删除。视觉、响应式和验收规则只以 `UI_CONTRACT.md` 为准，本决策不复制这些规则。
+- 原因：保留两套 provider、页面和依赖会让路由、主题、可访问性和构建产物持续分叉，也无法用静态门禁证明生产只有一个视觉体系。单一切换把候选验证结果落实为可维护的生产边界。
+- 影响范围：`frontend/` 生产 bootstrap、路由、页面、设计系统、静态 UI 契约、Playwright/Axe 与生产构建产物检查；不影响 API、数据库、角色权限、Query Key、Remote MCP、history、VPS 或运行开关。
+- 兼容/回退：`/later` 仅替换到 `/saved` 并保留 `item`；固定数据 `/__preview/workbench-heroui` 只在开发存在。故障回退使用上一不可变 Docker 镜像，不在当前源码保留 MUI 双栈或 feature flag。

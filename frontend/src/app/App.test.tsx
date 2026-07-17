@@ -64,15 +64,14 @@ function deferred<T>() {
 }
 
 describe('App routes', () => {
-  it('opens the development workbench preview without requiring an API session', async () => {
+  it('does not expose the removed fixed-data MUI preview route', async () => {
     const authStatus = vi.fn().mockResolvedValue({ authenticated: false, user: null })
     const api = { authStatus } as unknown as ServiceApi
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
-    expect(authStatus).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: '登录私人信息雷达' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(authStatus).toHaveBeenCalled()
   })
 
   it('redirects protected deep links to the login page when no session exists', async () => {
@@ -83,20 +82,19 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '登录私人信息雷达' })).toBeInTheDocument()
   })
 
-  it('keeps the live HeroUI workbench inside the authenticated real-API boundary', async () => {
+  it('renders the production feed with the authenticated HeroUI workbench', async () => {
     const api = liveApi()
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('article', { name: '真实 API 条目' })).toBeInTheDocument())
-    expect(document.querySelector('[data-ui-system="heroui"]')).toBeInTheDocument()
     expect(api.latestFeed).toHaveBeenCalled()
     expect(api.agentDelegations).toHaveBeenCalled()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
-  it('keeps live administration routes in the HeroUI shell without an Agent panel', async () => {
+  it('renders production administration routes in the HeroUI shell without an Agent panel', async () => {
     const source = {
       id: 'source-live', type: 'rss', display_name: '覆盖频道来源', scope: 'private' as const,
       owner_user_id: 'user-live', default_channel: '工作/项目', enabled: true,
@@ -120,13 +118,12 @@ describe('App routes', () => {
       createSourceFetch: vi.fn().mockResolvedValue({ id: 'source-fetch-live', user_id: 'user-live', job_type: 'source_fetch', status: 'queued' }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '订阅与来源' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(3)
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Agent 面板/ })).not.toBeInTheDocument()
-    expect(document.querySelector('[data-ui-system="heroui"]')).toBeInTheDocument()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'AI' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
@@ -158,7 +155,7 @@ describe('App routes', () => {
       ] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), secrets: vi.fn().mockResolvedValue({ secrets: [] }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByText('Workspace Failing')
     await browser.click(screen.getByRole('button', { name: /来源类型/ }))
@@ -191,7 +188,7 @@ describe('App routes', () => {
       sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }), sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 4, total: 4 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('button', { name: '编辑 Own Private 来源' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '编辑 Other Private 来源' })).not.toBeInTheDocument()
@@ -209,7 +206,7 @@ describe('App routes', () => {
       }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/agents']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/agents']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '创建连接' }))
     const createDialog = screen.getByRole('dialog', { name: '创建助手连接' })
@@ -242,7 +239,7 @@ describe('App routes', () => {
       createSourceFetch,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 阻塞来源' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('后台获取服务当前不可用')
@@ -267,7 +264,7 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 生命周期来源' }))
     expect(await screen.findByRole('button', { name: '已排队 生命周期来源' })).toBeDisabled()
@@ -300,7 +297,7 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 可关闭来源' }))
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [terminal] }))
@@ -329,7 +326,7 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 终态来源' }))
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status, error_message: errorMessage, retryable: status === 'failed', result: { debug_payload: 'never expose this terminal payload' } }] }))
@@ -350,7 +347,7 @@ describe('App routes', () => {
       ] }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
     expect(await screen.findAllByText(/创建：.*2026/)).toHaveLength(3)
@@ -381,7 +378,7 @@ describe('App routes', () => {
       retryJob: vi.fn().mockReturnValue(retryRequest.promise),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '关闭自动更新' }))
     const schedulePending = await screen.findByRole('button', { name: '更新中 自动更新' })
@@ -434,7 +431,7 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockReturnValue(invalidation.promise)
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const scheduleButton = await screen.findByRole('button', { name: '关闭自动更新' })
     invalidate.mockClear()
@@ -509,7 +506,7 @@ describe('App routes', () => {
       retryJob: vi.fn().mockRejectedValue(new Error('重试请求失败')),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '关闭自动更新' }))
     expect((await screen.findByText('计划保存失败')).closest('[role="alert"]')).not.toBeNull()
@@ -536,7 +533,7 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
@@ -558,17 +555,16 @@ describe('App routes', () => {
     expect(screen.getByLabelText('Key 值')).toHaveValue('')
   }, 10_000)
 
-  it('exposes a DEV-only HeroUI login without changing login errors', async () => {
+  it('uses the production HeroUI login without changing login errors', async () => {
     const browser = userEvent.setup()
     const api = {
       authStatus: vi.fn().mockResolvedValue({ authenticated: false, user: null }),
       login: vi.fn().mockRejectedValue(new ApiError(401, { code: 'invalid_credentials', message: '账号或密码错误' })),
     } as unknown as ServiceApi
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/login']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/login']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '登录私人信息雷达' })).toBeInTheDocument()
-    expect(document.querySelector('[data-ui-system="heroui"]')).toBeInTheDocument()
     await browser.type(screen.getByLabelText('用户名'), 'owner')
     await browser.type(screen.getByLabelText('密码'), 'wrong-secret')
     await browser.click(screen.getByRole('button', { name: '登录' }))
@@ -577,7 +573,7 @@ describe('App routes', () => {
     expect(api.login).toHaveBeenCalledWith('owner', 'wrong-secret')
   })
 
-  it('redirects a successful HeroUI login back into the live workbench', async () => {
+  it('redirects a successful HeroUI login back into the production workbench', async () => {
     const browser = userEvent.setup()
     let authenticated = false
     const user = { id: 'login-live', username: 'owner', role: 'owner' as const, enabled: true }
@@ -586,12 +582,12 @@ describe('App routes', () => {
       login: vi.fn().mockImplementation(async () => { authenticated = true; return { authenticated: true, user } }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/login']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/login']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
     await browser.type(await screen.findByLabelText('用户名'), 'owner')
     await browser.type(screen.getByLabelText('密码'), 'correct-secret')
     await browser.click(screen.getByRole('button', { name: '登录' }))
-    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/__preview/workbench-live'))
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/feed'))
     expect(api.login).toHaveBeenCalledWith('owner', 'correct-secret')
     expect(await screen.findByRole('heading', { name: '信息流' })).toBeInTheDocument()
   })
@@ -606,7 +602,7 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '编辑 Advanced RSS 来源' }))
     const dialog = await screen.findByRole('dialog', { name: 'Advanced RSS · 来源设置' })
@@ -625,7 +621,7 @@ describe('App routes', () => {
       configAction,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '助手与 AI' })
     await browser.click(screen.getByRole('button', { name: /Provider/ }))
@@ -650,7 +646,7 @@ describe('App routes', () => {
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }), secrets: vi.fn().mockResolvedValue({ secrets: [] }), users, updateUser,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '成员' })
     expect(screen.queryByRole('button', { name: /角色 workspace-owner/ })).not.toBeInTheDocument()
@@ -668,7 +664,7 @@ describe('App routes', () => {
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }), users,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByText('工作区设置只读')
     expect(screen.queryByRole('heading', { name: '成员' })).not.toBeInTheDocument()
@@ -680,7 +676,7 @@ describe('App routes', () => {
     const user = userEvent.setup()
     const api = liveApi({ agentDelegations: vi.fn().mockImplementation(() => new Promise(() => undefined)) } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await user.click(await screen.findByRole('button', { name: '展开 Agent 面板' }))
     expect(await screen.findByRole('status', { name: '正在检查 Agent 连接' })).toHaveAttribute('aria-busy', 'true')
@@ -692,7 +688,7 @@ describe('App routes', () => {
     const user = userEvent.setup()
     const api = liveApi()
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const toggle = await screen.findByRole('button', { name: '展开 Agent 面板' })
     await user.click(toggle)
@@ -704,7 +700,7 @@ describe('App routes', () => {
     const feedItem = vi.fn().mockResolvedValue({ id: 'deep', title: '深链条目', url: 'https://example.com/deep', published_at: '2026-07-17T01:00:00Z' })
     const api = liveApi({ feedItem } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('article', { name: '深链条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 深链条目' })).toHaveAttribute('aria-expanded', 'true')
@@ -716,7 +712,7 @@ describe('App routes', () => {
     const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
     const api = liveApi({ feedItem } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await user.click(await screen.findByRole('button', { name: '展开 真实 API 条目' }))
     expect(await screen.findByText('完整详情正文')).toBeInTheDocument()
@@ -727,7 +723,7 @@ describe('App routes', () => {
   it('keeps the snapshot card usable when selected detail cannot be loaded', async () => {
     const api = liveApi({ feedItem: vi.fn().mockRejectedValue(new ApiError(503, { code: 'detail_failed', message: '详情失败' })) } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=live-1']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
     expect(await screen.findByRole('alert')).toHaveTextContent('无法读取深链条目')
@@ -739,7 +735,7 @@ describe('App routes', () => {
     const api = liveApi({ feedItem: vi.fn().mockResolvedValue(deep) } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=filtered-deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=filtered-deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
       expect(await screen.findByRole('article', { name: '详情标题 filtered-deep' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: '收起 详情标题 filtered-deep' })).toHaveAttribute('aria-expanded', 'true')
@@ -772,7 +768,7 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=between']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=between']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
       await screen.findByRole('article', { name: '详情标题 between' })
       expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual([
@@ -812,7 +808,7 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=between-read']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=between-read']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
       await screen.findByRole('article', { name: '详情标题 between-read' })
       expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual([
@@ -832,7 +828,7 @@ describe('App routes', () => {
       feedItem: vi.fn().mockRejectedValue(new ApiError(404, { code: 'not_found', message: '不存在' })),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
     await waitFor(() => expect(api.feedItem).toHaveBeenCalled())
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
@@ -858,7 +854,7 @@ describe('App routes', () => {
       schema_version: 2,
       items: [{ id: 'cached-other', title: '缓存旧条目', url: 'https://example.com/cached-other', published_at: '2026-07-17T01:00:00Z' }],
     })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
     await waitFor(() => {
       expect(api.latestFeed).toHaveBeenCalled()
@@ -893,11 +889,11 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=missing']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=missing']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
       expect(await screen.findByText(/这条信息已不可用/)).toBeInTheDocument()
       await waitFor(() => expect(screen.getAllByRole('article').length).toBeGreaterThan(0))
-      expect(screen.getByLabelText('当前位置')).toHaveTextContent('/__preview/workbench-live')
+      expect(screen.getByLabelText('当前位置')).toHaveTextContent('/feed')
       expect(screen.getByLabelText('当前位置')).not.toHaveTextContent('item=')
       await waitFor(() => expect(scrollTo.mock.calls.some(([options]) => (options as ScrollToOptions).behavior === 'auto')).toBe(true))
     } finally {
@@ -906,16 +902,16 @@ describe('App routes', () => {
     }
   })
 
-  it('keeps the legacy later route in place before the final cutover', async () => {
+  it('replaces the legacy later route with saved, preserving item and dropping obsolete mode', async () => {
     const api = liveApi({
       historyFeed: vi.fn().mockResolvedValue({ items: [] }),
       sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/later?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/later?mode=featured&item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('heading', { name: '稍后读' })).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/later?item=live-1'))
+    expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/saved?item=live-1'))
   })
 
   it('does not remount the authenticated workbench when inline expansion changes search params', async () => {
@@ -941,7 +937,7 @@ describe('App routes', () => {
     const originalScrollTo = HTMLElement.prototype.scrollTo
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: scrollTo })
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
       const shell = await screen.findByTestId('live-workbench-shell', undefined, { timeout: 5000 })
       const feedScroll = await screen.findByTestId('workbench-feed-scroll')
@@ -979,7 +975,7 @@ describe('App routes', () => {
       updateItemState: vi.fn().mockRejectedValue(new ApiError(500, { code: 'save_failed', message: '收藏失败' })),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const save = await screen.findByRole('button', { name: '收藏 真实 API 条目' })
     await user.click(save)

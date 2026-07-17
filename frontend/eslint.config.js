@@ -30,11 +30,16 @@ export default [
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
-          { group: ['@mui/material', '@mui/material/*'], message: '请从内部 UI 导出层 src/ui 引入受控 MUI 组件。' },
-          { group: ['@mui/icons-material', '@mui/icons-material/*'], message: '请从内部图标导出层 src/ui/icons 引入图标。' },
-          { group: ['@emotion/*'], message: '业务层不得直接依赖 Emotion。' },
+          { group: ['@mui/*', '@emotion/*'], message: 'MUI 与 Emotion 已从生产前端移除。' },
+          { group: ['@heroui/*'], message: 'HeroUI 必须通过 src/design-system 引入。' },
         ],
       }],
+    },
+  },
+  {
+    files: ['src/features/workbench-heroui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
 ]

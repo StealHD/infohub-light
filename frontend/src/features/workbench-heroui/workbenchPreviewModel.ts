@@ -8,7 +8,6 @@ export type WorkbenchPreviewStory = {
   channel: string
   topics: string[]
 }
-
 export type WorkbenchPreviewNavigationItem = {
   id: 'feed' | 'saved' | 'history' | 'subscriptions' | 'agents' | 'settings'
   label: string

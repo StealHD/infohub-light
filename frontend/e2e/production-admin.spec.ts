@@ -65,18 +65,18 @@ async function expectHeroAdminPage(page: Page, heading: string) {
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 }
 
-test('live administration routes are full-width HeroUI pages at every acceptance viewport', async ({ page }) => {
+test('production administration routes are full-width HeroUI pages at every acceptance viewport', async ({ page }) => {
   await mockAdminApi(page)
 
-  await page.goto('/__preview/workbench-live/subscriptions')
+  await page.goto('/subscriptions')
   await expectHeroAdminPage(page, '订阅与来源')
   await expect(page.getByRole('tab')).toHaveCount(3)
 
-  await page.goto('/__preview/workbench-live/agents')
+  await page.goto('/agents')
   await expectHeroAdminPage(page, '助手连接')
   await expect(page.getByText('本机 OpenClaw')).toBeVisible()
 
-  await page.goto('/__preview/workbench-live/settings')
+  await page.goto('/settings')
   await expectHeroAdminPage(page, '设置')
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
@@ -84,9 +84,9 @@ test('live administration routes are full-width HeroUI pages at every acceptance
   await expect(page.getByRole('heading', { name: '成员' })).toBeVisible()
 })
 
-test('live login is a standalone HeroUI page at every acceptance viewport', async ({ page }) => {
+test('production login is a standalone HeroUI page at every acceptance viewport', async ({ page }) => {
   await mockAdminApi(page, false)
-  await page.goto('/__preview/workbench-live/login')
+  await page.goto('/login')
   await expect(page.getByRole('heading', { name: '登录私人信息雷达' })).toBeVisible()
   await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
   await expect(page.locator('[class*="Mui"]')).toHaveCount(0)

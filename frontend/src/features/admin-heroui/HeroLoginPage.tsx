@@ -5,7 +5,6 @@ import type { ServiceApi } from '../../api/service'
 import {
   Button,
   Card,
-  DesignSystemProvider,
   FieldError,
   Form,
   Icons,
@@ -38,8 +37,7 @@ export function HeroLoginPage({ api, onAuthenticated }: { api: ServiceApi; onAut
     }
   }
 
-  return <DesignSystemProvider>
-    <main className="grid min-h-dvh place-items-center bg-background p-4">
+  return <main className="grid min-h-dvh place-items-center bg-background p-4">
       <Card variant="secondary" className="w-full max-w-md p-6 min-[640px]:p-8" aria-labelledby="hero-login-title">
         <div className="mb-6 flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground"><Icons.Radar size={21} aria-hidden="true" /></div>
         <Card.Title id="hero-login-title" className="text-2xl">登录私人信息雷达</Card.Title>
@@ -59,6 +57,5 @@ export function HeroLoginPage({ api, onAuthenticated }: { api: ServiceApi; onAut
           <Button type="submit" fullWidth isPending={pending} isDisabled={pending}>{pending ? '登录中…' : '登录'}</Button>
         </Form>
       </Card>
-    </main>
-  </DesignSystemProvider>
+  </main>
 }

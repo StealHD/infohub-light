@@ -13,7 +13,7 @@ test('HeroUI workbench keeps its isolated responsive interaction contract', asyn
 
   await expect(page.getByRole('heading', { name: '信息流' })).toBeVisible()
   await expect(page.locator('[data-ui-system="heroui"][data-theme="dark"]')).toBeVisible()
-  await expect(page.locator('a[aria-label="切换到 MUI 版"]')).toHaveAttribute('href', '/__preview/workbench')
+  await expect(page.locator('a[aria-label*="MUI"]')).toHaveCount(0)
   await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
   await expect(page.getByText('精选')).toHaveCount(0)
   await expect(page.getByText('日报')).toHaveCount(0)
@@ -86,7 +86,6 @@ test('HeroUI workbench keeps its isolated responsive interaction contract', asyn
   }
 
   if (testInfo.project.name === 'mobile') {
-    await expect(page.locator('.hero-version-switch')).toBeVisible()
     const mobileNavigation = page.getByRole('navigation', { name: '移动端主导航' })
     await expect(mobileNavigation).toBeVisible()
     expect(await mobileNavigation.getByRole('link').evaluateAll((links) => links.every((link) => {

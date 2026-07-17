@@ -7,8 +7,7 @@ import { createServiceApi } from './api/service'
 import type { AuthStatus } from './api/types'
 import { AppRoutes } from './app/App'
 import { clearUserCache } from './app/sessionCache'
-import { DesignSystemRouterProvider } from './design-system/DesignSystemRouterProvider'
-import { UiProvider } from './ui'
+import { DesignSystemProvider } from './design-system'
 import './styles/global.css'
 
 const queryClient = new QueryClient({
@@ -29,11 +28,11 @@ const client = createApiClient({
 const api = createServiceApi(client)
 
 export function AppBootstrap() {
-  return <UiProvider>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <DesignSystemRouterProvider><AppRoutes api={api} /></DesignSystemRouterProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
-  </UiProvider>
+  return <QueryClientProvider client={queryClient}>
+    <BrowserRouter>
+      <DesignSystemProvider>
+        <AppRoutes api={api} />
+      </DesignSystemProvider>
+    </BrowserRouter>
+  </QueryClientProvider>
 }

@@ -46,7 +46,7 @@ describe('HeroWorkbenchPreview', () => {
     expect(navigation.getByRole('link', { name: '订阅' })).toHaveAttribute('href', '/subscriptions')
     expect(navigation.getByRole('link', { name: '助手连接' })).toHaveAttribute('href', '/agents')
     expect(navigation.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings')
-    expect(screen.getByRole('link', { name: '切换到 MUI 版' })).toHaveAttribute('href', '/__preview/workbench')
+    expect(screen.queryByRole('link', { name: /切换到 MUI/ })).not.toBeInTheDocument()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
     expect(screen.queryByText('精选')).not.toBeInTheDocument()
     expect(screen.queryByText('日报')).not.toBeInTheDocument()

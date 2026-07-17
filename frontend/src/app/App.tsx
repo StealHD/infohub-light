@@ -1,17 +1,17 @@
-import { Component, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
 import type { ServiceApi } from '../api/service'
 import type { AuthStatus, User } from '../api/types'
 import { queryKeys } from '../api/queryKeys'
-import { FeedPage } from '../features/feed/FeedPage'
-import { LoginPage } from '../features/auth/LoginPage'
-import { SettingsPage } from '../features/settings/SettingsPage'
-import { AgentsPage } from '../features/agents/AgentsPage'
-import { SubscriptionsPage } from '../features/subscriptions/SubscriptionsPage'
+import { HeroAgentsPage } from '../features/admin-heroui/HeroAgentsPage'
+import { HeroLoginPage } from '../features/admin-heroui/HeroLoginPage'
+import { HeroSettingsPage } from '../features/admin-heroui/HeroSettingsPage'
+import { HeroSubscriptionsPage } from '../features/admin-heroui/HeroSubscriptionsPage'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
-import { AppShell } from './AppShell'
+import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
+import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
 import { clearUserCache } from './sessionCache'
 import { legacyViewDestination } from './legacyRoute'
 import { ActionGeneration, type ActionToken } from './actionGeneration'
@@ -19,28 +19,6 @@ import { ActionFeedbackProvider } from './ActionFeedback'
 
 type AppErrorBoundaryProps = { children: ReactNode }
 type AppErrorBoundaryState = { failed: boolean }
-
-const WorkbenchPreview = import.meta.env.DEV
-  ? lazy(() => import('../features/workbench/WorkbenchPreview').then(({ WorkbenchPreview: Preview }) => ({ default: Preview })))
-  : null
-const HeroWorkbenchShell = import.meta.env.DEV
-  ? lazy(() => import('../features/workbench-live/HeroWorkbenchShell').then(({ HeroWorkbenchShell: Shell }) => ({ default: Shell })))
-  : null
-const HeroWorkbenchPage = import.meta.env.DEV
-  ? lazy(() => import('../features/workbench-live/HeroWorkbenchPage').then(({ HeroWorkbenchPage: Page }) => ({ default: Page })))
-  : null
-const HeroSubscriptionsPage = import.meta.env.DEV
-  ? lazy(() => import('../features/admin-heroui/HeroSubscriptionsPage').then(({ HeroSubscriptionsPage: Page }) => ({ default: Page })))
-  : null
-const HeroAgentsPage = import.meta.env.DEV
-  ? lazy(() => import('../features/admin-heroui/HeroAgentsPage').then(({ HeroAgentsPage: Page }) => ({ default: Page })))
-  : null
-const HeroSettingsPage = import.meta.env.DEV
-  ? lazy(() => import('../features/admin-heroui/HeroSettingsPage').then(({ HeroSettingsPage: Page }) => ({ default: Page })))
-  : null
-const HeroLoginPage = import.meta.env.DEV
-  ? lazy(() => import('../features/admin-heroui/HeroLoginPage').then(({ HeroLoginPage: Page }) => ({ default: Page })))
-  : null
 
 export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
   state: AppErrorBoundaryState = { failed: false }
@@ -67,7 +45,16 @@ function LegacyEntry() {
   return <Navigate to={destination} replace />
 }
 
-function AuthenticatedLayout({ api, user, experience = 'legacy' }: { api: ServiceApi; user: User; experience?: 'legacy' | 'live' }) {
+function LegacyLaterRedirect() {
+  const location = useLocation()
+  const source = new URLSearchParams(location.search)
+  const target = new URLSearchParams()
+  const item = source.get('item')
+  if (item) target.set('item', item)
+  return <Navigate to={{ pathname: '/saved', search: target.toString() ? `?${target.toString()}` : '' }} replace />
+}
+
+function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const previousUserId = useRef(user.id)
@@ -93,38 +80,20 @@ function AuthenticatedLayout({ api, user, experience = 'legacy' }: { api: Servic
 
   const outlet = <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
 
-  if (experience === 'live' && HeroWorkbenchShell) {
-    return <ActionFeedbackProvider key={user.id} userId={user.id} noticeSurface="none">
-      <Suspense fallback={<main className="app-loading" role="status">正在准备实时工作台…</main>}>
-        <HeroWorkbenchShell
-          api={api}
-          user={user}
-          query={query}
-          onQueryChange={setQuery}
-          onRefresh={canMutate ? feedActivity.refresh : undefined}
-          onRetry={canMutate ? feedActivity.retry : undefined}
-          onLogout={() => void logout()}
-          refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
-          refreshMessage={feedActivity.notice?.message}
-          refreshEventKey={feedActivity.notice?.key}
-        >{outlet}</HeroWorkbenchShell>
-      </Suspense>
-    </ActionFeedbackProvider>
-  }
-
-  return <ActionFeedbackProvider key={user.id} userId={user.id}><AppShell
-    user={user}
-    query={query}
-    onQueryChange={setQuery}
-    onRefresh={canMutate ? feedActivity.refresh : undefined}
-    onRetry={canMutate ? feedActivity.retry : undefined}
-    onLogout={() => void logout()}
-    refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
-    refreshMessage={feedActivity.notice?.message}
-    refreshEventKey={feedActivity.notice?.key}
-  >
-    {outlet}
-  </AppShell></ActionFeedbackProvider>
+  return <ActionFeedbackProvider key={user.id} userId={user.id}>
+    <HeroWorkbenchShell
+      api={api}
+      user={user}
+      query={query}
+      onQueryChange={setQuery}
+      onRefresh={canMutate ? feedActivity.refresh : undefined}
+      onRetry={canMutate ? feedActivity.retry : undefined}
+      onLogout={() => void logout()}
+      refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
+      refreshMessage={feedActivity.notice?.message}
+      refreshEventKey={feedActivity.notice?.key}
+    >{outlet}</HeroWorkbenchShell>
+  </ActionFeedbackProvider>
 }
 
 function ServiceRoutes({ api }: { api: ServiceApi }) {
@@ -134,39 +103,26 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
   if (auth.isLoading) return <main className="app-loading" role="status">正在连接 Inteliscope…</main>
   if (auth.isError) return <main className="app-loading app-error" role="alert">无法连接服务，请确认 API 已启动后重试。</main>
   const user = auth.data?.authenticated ? auth.data.user : null
-  const login = <LoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
+  const login = <HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
 
   return <AppErrorBoundary key={location.pathname}>
     <Routes>
-      {HeroLoginPage && <Route path="/__preview/workbench-live/login" element={user ? <Navigate to="/__preview/workbench-live" replace /> : <Suspense fallback={<main className="app-loading" role="status">正在准备登录页…</main>}><HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} /></Suspense>} />}
       <Route path="/login" element={user ? <Navigate to="/feed" replace /> : login} />
       <Route element={user ? <AuthenticatedLayout api={api} user={user} /> : <Navigate to="/login" replace />}>
         <Route path="/" element={<LegacyEntry />} />
-        <Route path="/feed" element={<FeedPage kind="feed" />} />
-        <Route path="/later" element={<FeedPage kind="later" />} />
-        <Route path="/saved" element={<FeedPage kind="saved" />} />
-        <Route path="/history" element={<FeedPage kind="history" />} />
-        <Route path="/subscriptions" element={<SubscriptionsPage />} />
-        <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/feed" element={<HeroWorkbenchPage kind="feed" />} />
+        <Route path="/later" element={<LegacyLaterRedirect />} />
+        <Route path="/saved" element={<HeroWorkbenchPage kind="saved" />} />
+        <Route path="/history" element={<HeroWorkbenchPage kind="history" />} />
+        <Route path="/subscriptions" element={<HeroSubscriptionsPage />} />
+        <Route path="/agents" element={<HeroAgentsPage />} />
+        <Route path="/settings" element={<HeroSettingsPage />} />
       </Route>
-      {HeroWorkbenchPage && <Route element={user ? <AuthenticatedLayout api={api} user={user} experience="live" /> : <Navigate to="/login" replace />}>
-        <Route path="/__preview/workbench-live" element={<HeroWorkbenchPage kind="feed" />} />
-        <Route path="/__preview/workbench-live/saved" element={<HeroWorkbenchPage kind="saved" />} />
-        <Route path="/__preview/workbench-live/history" element={<HeroWorkbenchPage kind="history" />} />
-        {HeroSubscriptionsPage && <Route path="/__preview/workbench-live/subscriptions" element={<HeroSubscriptionsPage />} />}
-        {HeroAgentsPage && <Route path="/__preview/workbench-live/agents" element={<HeroAgentsPage />} />}
-        {HeroSettingsPage && <Route path="/__preview/workbench-live/settings" element={<HeroSettingsPage />} />}
-      </Route>}
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>
   </AppErrorBoundary>
 }
 
 export function AppRoutes({ api }: { api: ServiceApi }) {
-  const location = useLocation()
-  if (WorkbenchPreview && location.pathname === '/__preview/workbench') {
-    return <Suspense fallback={<main className="app-loading" role="status">正在准备工作台预览…</main>}><WorkbenchPreview /></Suspense>
-  }
   return <ServiceRoutes api={api} />
 }

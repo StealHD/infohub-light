@@ -968,3 +968,11 @@
 - 结果：schedule/subscribe/unsubscribe/retry 在既有 query invalidation promise 完成前持续保留实体级 pending/禁用状态，并继续抑制重复提交；仅刷新后发布成功和解锁
 - 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
 - 控制面变更：无；未修改 backend/API/query key/失效范围/权限函数/Remote MCP/生产路由
+
+### 2026-07-17 20:15 Codex
+- 任务：完成 Task 4 HeroUI 全站生产切换、旧 MUI/Emotion 双栈清理与完整门禁
+- 修改文件：生产 bootstrap/路由、Hero Shell/虚拟 Feed、ActionFeedback、固定 Hero preview、静态 UI/构建产物检查、三视口 production E2E；删除 MUI 页面、`frontend/src/ui/**`、MUI 原型/CSS/快照与依赖；更新 UI/计划/决策合同和测试影响映射
+- 执行验证：TDD 覆盖生产路由/provider/依赖/侧栏/静态契约/刷新锚点/显式导航；UI contract、lint 0 warning/error、TypeScript、Vitest 28 文件/154 项、build/artifact、Playwright/Axe 36/36 通过；移动过滤锚点 20x/5-worker 压力 20/20；Python API 69 项；`test_gate full` 22/22、`mapping_miss=false`、49.076 秒
+- 结果：HeroUI 成为唯一生产 UI；`/feed|saved|history` 使用工作台，admin/settings/login 使用 Hero 页面，`/later` 替换至 `/saved`；固定 `/__preview/workbench-heroui` 继续 DEV-only 且生产剔除；MUI/Emotion 与旧页面完全删除
+- 未解决问题：仅保留 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：新增 D028；`UI_CONTRACT.md` 重写为唯一视觉真源，PLAN/影响映射改为引用与当前 Hero 路径；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

@@ -167,7 +167,7 @@ export function HeroSettingsPage() {
     {message && <HeroNotice title={message} status="success" role="status" />}{error && <HeroNotice title={error} />}
 
     <AdminSection title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
-      <Button size="sm" variant="secondary" onPress={() => navigate('/__preview/workbench-live/agents')}><Icons.Bot size={16} />管理助手连接</Button>
+      <Button size="sm" variant="secondary" onPress={() => navigate('/agents')}><Icons.Bot size={16} />管理助手连接</Button>
       {!admin && <Card variant="transparent" className="mt-4 p-4"><Card.Title>工作区设置只读</Card.Title><Card.Description className="mt-1">全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。</Card.Description></Card>}
       {admin && <form className="mt-5 grid gap-4" onSubmit={saveAi}>
         <Checkbox name="enabled" defaultSelected={ai.enabled !== false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 分析</Checkbox.Content></Checkbox>

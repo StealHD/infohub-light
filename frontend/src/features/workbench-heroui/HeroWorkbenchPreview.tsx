@@ -36,7 +36,7 @@ import {
   workbenchPreviewStories,
   type WorkbenchPreviewNavigationItem,
   type WorkbenchPreviewStory,
-} from '../workbench/workbenchPreviewModel'
+} from './workbenchPreviewModel'
 import './heroui-workbench.css'
 
 const navigationIcons = {
@@ -246,13 +246,7 @@ export function HeroWorkbenchPreview() {
 
     <section className="hero-feed-column" aria-label="信息流工作区">
       <header className="hero-toolbar">
-        <div className="hero-toolbar__title-row">
-          <h1>信息流</h1>
-          <div className="hero-version-switch" aria-label="原型版本">
-            <a href="/__preview/workbench" aria-label="切换到 MUI 版">MUI</a>
-            <span aria-current="page">HeroUI</span>
-          </div>
-        </div>
+        <div className="hero-toolbar__title-row"><h1>信息流</h1></div>
         <SearchField
           aria-label="搜索信息流"
           value={search}
