@@ -1081,3 +1081,11 @@
 - 结果：Health/Schedule 显式 FK 完整验证并优先 active schedule、owned full-refresh 可关联；Job no-items 仅认自身 succeeded+明确零 fetched count；credential key label 在 code/result/name 零泄漏；每个公开诊断使用单一 checked_at
 - 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
 - 控制面变更：仅同步既有 Task 7 内部证据选择、安全过滤与一致时钟语义；普通六工具与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第二轮独立审查的四个 Important
+- 修改文件：Job/Source 独立归因、关联 provenance、严格 count/credential-label 投影、诊断回归、主实施计划、`.superpowers/sdd/task-7-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：34 项主反例与 1 项完整 name 标量专项按预期 RED；GREEN 后 Task 7 focused 139 项、schedule/runtime/MCP 邻接 70 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：Job 仅按自身归因且 Worker readiness 仅限 active；Source 更新 Schedule terminal failure 胜过旧 Health 并标记历史 evidence；畸形 count 不再归零；完整对外标量严格拒绝 access/private/key-env/api-key-env labels
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部归因与安全投影语义；普通六工具、通用 credential mapping classifier 与对外注册面不变

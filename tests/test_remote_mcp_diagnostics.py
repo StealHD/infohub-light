@@ -13,6 +13,15 @@ from src.storage.service_store import ServiceStore
 
 NOW = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
 ALLOWED_ACTION_MODES = {"prepare_change", "web", "wait", "contact_admin"}
+CREDENTIAL_LABELS = (
+    "AWS_ACCESS_KEY_ID",
+    "SSH_PRIVATE_KEY",
+    "OPENAI_KEY_ENV",
+    "OPENAI_API_KEY_ENV",
+    "RSS_PRIVATE_SECRET_ENV",
+    "GITHUB_TOKEN_ENV",
+    "MY_API_KEY",
+)
 FORBIDDEN_KEYS = {
     "payload",
     "payload_json",
@@ -163,6 +172,7 @@ def _create_job(
     *,
     owner=True,
     source=True,
+    job_type=None,
     status="failed",
     error_code=None,
     error_message=None,
@@ -182,7 +192,7 @@ def _create_job(
         user_id=user["id"],
         source_id=source_id,
         subscription_id=subscription_id,
-        job_type="source_fetch" if source else "user_feed_refresh",
+        job_type=job_type or ("source_fetch" if source else "user_feed_refresh"),
         payload={
             "authorization": "Bearer payload-secret",
             "url": "https://payload.example/a?api_key=payload-secret",
@@ -535,6 +545,67 @@ def test_active_job_with_stale_worker_uses_only_anonymous_status(context):
     _assert_fixed_safe_shape(result, kind="job", target_id=job["id"])
 
 
+def test_terminal_job_ignores_disabled_schedule_and_uses_its_own_failure(context):
+    _insert_schedule(context, enabled=False)
+    job = _create_job(
+        context,
+        job_type="source_test",
+        status="failed",
+        error_code="TimeoutError",
+        error_message="connection timed out",
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert result["status"] == "failed"
+    assert result["cause"] == {
+        "category": "network_timeout",
+        "code": "TimeoutError",
+        "title": "上游连接超时",
+        "message": "连接上游时超时或网络不可用",
+        "confidence": "confirmed",
+        "retryable": True,
+    }
+    assert not any(
+        item["kind"].startswith("schedule_") for item in result["evidence"]
+    )
+
+
+def test_terminal_successful_job_ignores_old_failing_health(context):
+    old_job = _create_job(
+        context,
+        status="failed",
+        error_code="Unauthorized",
+        error_message="credential missing",
+    )
+    _insert_health(
+        context,
+        job_id=old_job["id"],
+        status="failing",
+        error_code="Unauthorized",
+        error_message="credential missing",
+    )
+    job = _create_job(
+        context,
+        job_type="source_test",
+        status="succeeded",
+        result={"fetched_count": 3},
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["cause"]["category"] == "unknown"
+    assert result["cause"]["code"] is None
+    assert not any(
+        item["kind"].startswith("health_") for item in result["evidence"]
+    )
+
+
 def test_source_prefers_new_active_schedule_job_over_old_health_job(context):
     old_job = _create_job(
         context,
@@ -592,6 +663,93 @@ def test_source_accepts_owned_full_refresh_linked_by_health_fk(context):
         "kind": "result_summary",
         "value": {"fetched_count": 7},
     } in result["evidence"]
+
+
+def test_source_uses_newer_failed_schedule_job_over_old_healthy_health(context):
+    old_job = _create_job(
+        context,
+        status="succeeded",
+        result={"fetched_count": 4},
+    )
+    _insert_health(
+        context,
+        job_id=old_job["id"],
+        status="healthy",
+        fetched_count=4,
+    )
+    failed_job = _create_job(
+        context,
+        status="failed",
+        error_code="SourceConfigError",
+        error_message="invalid source config",
+    )
+    context["store"].connect().executemany(
+        "UPDATE fetch_jobs SET created_at = ? WHERE id = ?",
+        (
+            (NOW.isoformat(), old_job["id"]),
+            ((NOW + timedelta(minutes=1)).isoformat(), failed_job["id"]),
+        ),
+    )
+    context["store"].connect().commit()
+    _insert_schedule(context, enabled=True, last_job_id=failed_job["id"])
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == failed_job["id"]
+    assert result["status"] == "failed"
+    assert result["cause"]["category"] == "invalid_source_config"
+    assert {
+        "kind": "related_job_provenance",
+        "value": "schedule",
+    } in result["evidence"]
+    assert {
+        "kind": "health_evidence_role",
+        "value": "historical",
+    } in result["evidence"]
+
+
+def test_source_newer_schedule_failure_wins_conflicting_old_health_code(context):
+    old_job = _create_job(
+        context,
+        status="failed",
+        error_code="TimeoutError",
+        error_message="connection timed out",
+    )
+    _insert_health(
+        context,
+        job_id=old_job["id"],
+        status="failing",
+        error_code="TimeoutError",
+        error_message="connection timed out",
+    )
+    failed_job = _create_job(
+        context,
+        status="failed",
+        error_code="Unauthorized",
+        error_message="credential missing",
+    )
+    context["store"].connect().executemany(
+        "UPDATE fetch_jobs SET created_at = ? WHERE id = ?",
+        (
+            (NOW.isoformat(), old_job["id"]),
+            ((NOW + timedelta(minutes=1)).isoformat(), failed_job["id"]),
+        ),
+    )
+    context["store"].connect().commit()
+    _insert_schedule(context, enabled=True, last_job_id=failed_job["id"])
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == failed_job["id"]
+    assert result["status"] == "failed"
+    assert result["cause"]["category"] == "auth_missing"
+    assert result["cause"]["code"] == "Unauthorized"
 
 
 def test_safe_code_precedes_conflicting_sanitized_message(context):
@@ -660,6 +818,51 @@ def test_job_zero_items_requires_explicit_zero_fetched_count(context):
 
     assert result["cause"]["category"] == "unknown"
     assert result["cause"]["confidence"] == "unknown"
+
+
+@pytest.mark.parametrize("invalid_count", [False, True, -1, 0.5, "0"])
+def test_job_zero_items_rejects_non_json_nonnegative_integer_counts(
+    context, invalid_count
+):
+    job = _create_job(
+        context,
+        source=False,
+        status="succeeded",
+        result={"fetched_count": invalid_count},
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert result["cause"]["category"] == "unknown"
+    assert not any(
+        item["kind"] == "result_summary" and "fetched_count" in item["value"]
+        for item in result["evidence"]
+    )
+
+
+@pytest.mark.parametrize("invalid_count", [False, True, -1, 0.5, "0"])
+def test_source_zero_items_rejects_non_json_nonnegative_integer_job_counts(
+    context, invalid_count
+):
+    job = _create_job(
+        context,
+        status="succeeded",
+        result={"fetched_count": invalid_count},
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == job["id"]
+    assert result["cause"]["category"] == "unknown"
+    assert not any(
+        item["kind"] == "result_summary" and "fetched_count" in item["value"]
+        for item in result["evidence"]
+    )
 
 
 def test_source_zero_items_accepts_a_validated_related_successful_job(context):
@@ -751,7 +954,7 @@ def test_source_diagnostic_combines_health_related_job_and_secret_boolean(contex
 
 @pytest.mark.parametrize(
     "credential_label",
-    ["RSS_PRIVATE_SECRET_ENV", "GITHUB_TOKEN_ENV", "MY_API_KEY"],
+    CREDENTIAL_LABELS,
 )
 def test_job_diagnostic_rejects_credential_key_labels_in_codes(
     context, credential_label
@@ -773,7 +976,7 @@ def test_job_diagnostic_rejects_credential_key_labels_in_codes(
 
 @pytest.mark.parametrize(
     "credential_label",
-    ["RSS_PRIVATE_SECRET_ENV", "GITHUB_TOKEN_ENV", "MY_API_KEY"],
+    CREDENTIAL_LABELS,
 )
 def test_source_diagnostic_rejects_credential_key_labels_in_health_codes(
     context, credential_label
@@ -793,9 +996,28 @@ def test_source_diagnostic_rejects_credential_key_labels_in_health_codes(
     assert credential_label not in repr(result)
 
 
+@pytest.mark.parametrize("credential_label", CREDENTIAL_LABELS)
+def test_source_diagnostic_rejects_credential_key_labels_in_schedule_codes(
+    context, credential_label
+):
+    _insert_schedule(
+        context,
+        enabled=True,
+        last_skip_reason=credential_label,
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["cause"]["code"] == "schedule_blocked"
+    assert credential_label not in repr(result)
+
+
 @pytest.mark.parametrize(
     "credential_label",
-    ["RSS_PRIVATE_SECRET_ENV", "GITHUB_TOKEN_ENV", "MY_API_KEY"],
+    CREDENTIAL_LABELS,
 )
 def test_job_diagnostic_rejects_credential_key_labels_in_result_identifiers(
     context, credential_label
@@ -819,13 +1041,10 @@ def test_job_diagnostic_rejects_credential_key_labels_in_result_identifiers(
     )
 
 
+@pytest.mark.parametrize("credential_label", CREDENTIAL_LABELS)
 @pytest.mark.parametrize(
-    "diagnostic_kind,credential_label,fallback_name",
-    [
-        ("source", "RSS_PRIVATE_SECRET_ENV", "来源"),
-        ("job", "GITHUB_TOKEN_ENV", "来源抓取任务"),
-        ("job", "MY_API_KEY", "来源抓取任务"),
-    ],
+    "diagnostic_kind,fallback_name",
+    [("source", "来源"), ("job", "来源抓取任务")],
 )
 def test_diagnostic_target_name_rejects_credential_key_labels(
     context, diagnostic_kind, credential_label, fallback_name
@@ -846,6 +1065,21 @@ def test_diagnostic_target_name_rejects_credential_key_labels(
 
     assert result["target"]["name"] == fallback_name
     assert credential_label not in repr(result)
+
+
+def test_source_target_name_classifies_the_complete_scalar_before_truncation(context):
+    credential_label = f"{'public-prefix-' * 12}AWS_ACCESS_KEY_ID"
+    context["store"].update_source(
+        context["source_id"], display_name=credential_label
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["target"]["name"] == "来源"
+    assert "AWS_ACCESS_KEY_ID" not in repr(result)
 
 
 @pytest.mark.parametrize("diagnostic_kind", ["source", "job"])

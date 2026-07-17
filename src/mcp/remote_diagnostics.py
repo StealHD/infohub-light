@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 from ..security import (
+    classification_copies,
     is_sensitive_credential_key,
     public_data_contains_credentials,
 )
@@ -168,6 +169,11 @@ _HEALTH_STATUSES = {"healthy", "degraded", "failing"}
 _WORKER_STATUSES = {"ready", "stale", "missing"}
 
 
+class _RelatedSourceJob(NamedTuple):
+    job: dict[str, Any]
+    provenance: str
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -178,12 +184,49 @@ def _compact(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.casefold())
 
 
+def _normalized_scalar_label(value: str) -> str:
+    candidate = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", value)
+    candidate = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", candidate)
+    return re.sub(r"[^a-z0-9]+", "_", candidate.casefold()).strip("_")
+
+
+def _contains_label_parts(parts: list[str], expected: tuple[str, ...]) -> bool:
+    size = len(expected)
+    return any(
+        tuple(parts[index : index + size]) == expected
+        for index in range(len(parts))
+    )
+
+
+def _is_sensitive_public_scalar_label(value: Any) -> bool:
+    """Apply a strict credential-label policy to one complete public scalar."""
+
+    copies = classification_copies(str(value))
+    if copies is None:
+        return True
+    for copy in copies:
+        if is_sensitive_credential_key(copy):
+            return True
+        parts = _normalized_scalar_label(copy).split("_")
+        if any(
+            _contains_label_parts(parts, pattern)
+            for pattern in (
+                ("access", "key", "id"),
+                ("private", "key"),
+                ("key", "env"),
+                ("api", "key", "env"),
+            )
+        ):
+            return True
+    return False
+
+
 def _safe_code(value: Any) -> str | None:
     code = str(value or "").strip()
     if (
         not _SAFE_CODE_RE.fullmatch(code)
         or _SECRET_SHAPED_CODE_RE.search(code)
-        or is_sensitive_credential_key(code)
+        or _is_sensitive_public_scalar_label(code)
         or public_data_contains_credentials(code)
     ):
         return None
@@ -213,14 +256,15 @@ def _message_category(value: Any) -> str | None:
 
 
 def _safe_name(value: Any, *, fallback: str) -> str:
-    candidate = " ".join(str(value or "").split())[:120]
+    complete = " ".join(str(value or "").split())
+    candidate = complete[:120]
     if (
         not candidate
-        or "://" in candidate
-        or "?" in candidate
-        or re.search(r"\b(?:authorization|bearer|basic)\b", candidate, re.I)
-        or is_sensitive_credential_key(candidate)
-        or public_data_contains_credentials(candidate)
+        or "://" in complete
+        or "?" in complete
+        or re.search(r"\b(?:authorization|bearer|basic)\b", complete, re.I)
+        or _is_sensitive_public_scalar_label(complete)
+        or public_data_contains_credentials(complete)
     ):
         return fallback
     return candidate
@@ -239,12 +283,10 @@ def _strict_result_summary(job: dict[str, Any] | None) -> dict[str, Any]:
     selected = safe_job_result_summary(job)
     safe: dict[str, Any] = {}
     for field in ("fetched_count", "item_count", "issue_count"):
-        if field not in selected or isinstance(selected[field], bool):
+        value = selected.get(field)
+        if type(value) is not int or value < 0:
             continue
-        try:
-            safe[field] = max(int(selected[field]), 0)
-        except (TypeError, ValueError):
-            continue
+        safe[field] = value
     if isinstance(selected.get("partial"), bool):
         safe["partial"] = selected["partial"]
     for field in ("snapshot_id", "run_status"):
@@ -252,7 +294,7 @@ def _strict_result_summary(job: dict[str, Any] | None) -> dict[str, Any]:
         if (
             value
             and _SAFE_RESULT_IDENTIFIER_RE.fullmatch(value)
-            and not is_sensitive_credential_key(value)
+            and not _is_sensitive_public_scalar_label(value)
             and not public_data_contains_credentials(value)
         ):
             safe[field] = value
@@ -289,20 +331,25 @@ class RemoteMCPDiagnostics:
         subject = self._owned_subscription(actor, subscription_id)
         health = self._owned_health(actor, subject)
         schedule = self._owned_schedule(actor, subject)
-        related_job = self._related_source_job(
+        related = self._related_source_job(
             actor,
             subject,
             health=health,
             schedule=schedule,
         )
+        related_job = related.job if related is not None else None
+        job_overrides_health = self._schedule_job_overrides_health(
+            health=health,
+            related=related,
+        )
         worker_status = self._worker_status(actor, checked_at=checked_at)
-        category, code, confidence = self._classify(
+        category, code, confidence = self._classify_source(
             subject=subject,
             schedule=schedule,
             health=health,
             job=related_job,
             worker_status=worker_status,
-            prefer_job=False,
+            job_overrides_health=job_overrides_health,
             checked_at=checked_at,
         )
         status = self._source_status(
@@ -311,6 +358,7 @@ class RemoteMCPDiagnostics:
             health=health,
             job=related_job,
             category=category,
+            job_overrides_health=job_overrides_health,
         )
         secret_configured = self._secret_configured(subject.get("secret_env"))
         evidence = self._source_evidence(
@@ -318,6 +366,8 @@ class RemoteMCPDiagnostics:
             schedule=schedule,
             health=health,
             job=related_job,
+            related_provenance=(related.provenance if related else None),
+            health_is_historical=job_overrides_health,
             worker_status=worker_status,
             secret_configured=secret_configured,
             checked_at=checked_at,
@@ -345,17 +395,10 @@ class RemoteMCPDiagnostics:
         checked_at = _utc(self.now())
         job = self._owned_job(actor, job_id)
         subject = self._job_subject(actor, job)
-        schedule = self._owned_schedule(actor, subject) if subject else None
-        health = self._owned_health(actor, subject) if subject else None
         worker_status = self._worker_status(actor, checked_at=checked_at)
-        category, code, confidence = self._classify(
-            subject=subject,
-            schedule=schedule,
-            health=health,
+        category, code, confidence = self._classify_job(
             job=job,
             worker_status=worker_status,
-            prefer_job=True,
-            checked_at=checked_at,
         )
         fallback_name = {
             "source_fetch": "来源抓取任务",
@@ -502,7 +545,7 @@ class RemoteMCPDiagnostics:
         *,
         health: dict[str, Any] | None,
         schedule: dict[str, Any] | None,
-    ) -> dict[str, Any] | None:
+    ) -> _RelatedSourceJob | None:
         explicit_candidates: list[tuple[str, dict[str, Any]]] = []
         for link_kind, candidate_id in (
             ("health", (health or {}).get("last_job_id")),
@@ -523,13 +566,24 @@ class RemoteMCPDiagnostics:
             candidates = active_schedule_jobs or [
                 job for _link_kind, job in explicit_candidates
             ]
-            return max(
+            selected = max(
                 candidates,
                 key=lambda job: (
                     str(job.get("created_at") or ""),
                     str(job.get("id") or ""),
                 ),
             )
+            selected_links = {
+                link_kind
+                for link_kind, candidate in explicit_candidates
+                if candidate.get("id") == selected.get("id")
+            }
+            provenance = (
+                "health_and_schedule"
+                if selected_links == {"health", "schedule"}
+                else next(iter(selected_links))
+            )
+            return _RelatedSourceJob(selected, provenance)
         row = self.store.connect().execute(
             """
             SELECT id
@@ -551,7 +605,9 @@ class RemoteMCPDiagnostics:
             ),
         ).fetchone()
         job = self.jobs.get_job(str(row["id"])) if row is not None else None
-        return job if self._job_matches_subject(actor, subject, job) else None
+        if not self._job_matches_subject(actor, subject, job):
+            return None
+        return _RelatedSourceJob(job, "fallback")
 
     @staticmethod
     def _explicit_job_matches_subject(
@@ -632,20 +688,85 @@ class RemoteMCPDiagnostics:
             return "overdue"
         return "ready"
 
-    def _classify(
+    @staticmethod
+    def _schedule_job_overrides_health(
+        *,
+        health: dict[str, Any] | None,
+        related: _RelatedSourceJob | None,
+    ) -> bool:
+        if related is None or "schedule" not in related.provenance:
+            return False
+        return bool(
+            related.job.get("status") == "failed"
+            and related.job.get("id") != (health or {}).get("last_job_id")
+        )
+
+    @staticmethod
+    def _classify_records(
+        records: tuple[dict[str, Any] | None, ...],
+    ) -> tuple[str | None, str | None, str | None]:
+        retained_code: str | None = None
+        for record in records:
+            if not record:
+                continue
+            raw_code = (
+                record.get("error_code")
+                if "error_code" in record
+                else record.get("last_issue_code")
+            )
+            category, safe_code = _mapped_category(raw_code)
+            retained_code = retained_code or safe_code
+            if category:
+                return category, safe_code, "confirmed"
+        for record in records:
+            if not record:
+                continue
+            raw_message = (
+                record.get("error_message")
+                if "error_message" in record
+                else record.get("last_issue_message")
+            )
+            category = _message_category(raw_message)
+            if category:
+                return category, retained_code, "likely"
+        return None, retained_code, None
+
+    def _classify_job(
         self,
         *,
-        subject: dict[str, Any] | None,
+        job: dict[str, Any],
+        worker_status: str,
+    ) -> tuple[str, str | None, str]:
+        if (
+            self._job_status(job) in _ACTIVE_JOB_STATUSES
+            and worker_status in {"missing", "stale"}
+        ):
+            return "worker_unavailable", f"worker_{worker_status}", "confirmed"
+        category, code, confidence = self._classify_records((job,))
+        if category and confidence:
+            return category, code, confidence
+        if self._successful_zero_item_attempt(
+            health=None,
+            job=job,
+            job_only=True,
+        ):
+            return "no_items", code, "confirmed"
+        return "unknown", code, "unknown"
+
+    def _classify_source(
+        self,
+        *,
+        subject: dict[str, Any],
         schedule: dict[str, Any] | None,
         health: dict[str, Any] | None,
         job: dict[str, Any] | None,
         worker_status: str,
-        prefer_job: bool,
+        job_overrides_health: bool,
         checked_at: datetime,
     ) -> tuple[str, str | None, str]:
-        if subject is not None and not bool(subject.get("source_enabled")):
+        if not bool(subject.get("source_enabled")):
             return "source_disabled", "source_disabled", "confirmed"
-        if subject is not None and not bool(subject.get("subscription_enabled")):
+        if not bool(subject.get("subscription_enabled")):
             return "subscription_disabled", "subscription_disabled", "confirmed"
         schedule_state = self._schedule_state(schedule, checked_at=checked_at)
         if schedule is not None and schedule_state in {"disabled", "blocked", "overdue"}:
@@ -657,35 +778,14 @@ class RemoteMCPDiagnostics:
         ):
             return "worker_unavailable", f"worker_{worker_status}", "confirmed"
 
-        evidence_order = (job, health) if prefer_job else (health, job)
-        retained_code: str | None = None
-        for evidence in evidence_order:
-            if not evidence:
-                continue
-            raw_code = (
-                evidence.get("error_code")
-                if "error_code" in evidence
-                else evidence.get("last_issue_code")
-            )
-            category, safe_code = _mapped_category(raw_code)
-            retained_code = retained_code or safe_code
-            if category:
-                return category, safe_code, "confirmed"
-        for evidence in evidence_order:
-            if not evidence:
-                continue
-            raw_message = (
-                evidence.get("error_message")
-                if "error_message" in evidence
-                else evidence.get("last_issue_message")
-            )
-            category = _message_category(raw_message)
-            if category:
-                return category, retained_code, "likely"
+        records = (job,) if job_overrides_health else (health, job)
+        category, retained_code, confidence = self._classify_records(records)
+        if category and confidence:
+            return category, retained_code, confidence
         if self._successful_zero_item_attempt(
-            health=health,
+            health=None if job_overrides_health else health,
             job=job,
-            job_only=prefer_job,
+            job_only=job_overrides_health,
         ):
             return "no_items", retained_code, "confirmed"
         return "unknown", retained_code, "unknown"
@@ -718,11 +818,14 @@ class RemoteMCPDiagnostics:
         health: dict[str, Any] | None,
         job: dict[str, Any] | None,
         category: str,
+        job_overrides_health: bool,
     ) -> str:
         if category in {"source_disabled", "subscription_disabled"}:
             return "disabled"
         if category == "schedule_blocked":
             return "blocked"
+        if job_overrides_health and job is not None:
+            return self._job_status(job)
         health_status = str((health or {}).get("status") or "")
         if health_status in _HEALTH_STATUSES:
             return health_status
@@ -742,6 +845,8 @@ class RemoteMCPDiagnostics:
         schedule: dict[str, Any] | None,
         health: dict[str, Any] | None,
         job: dict[str, Any] | None,
+        related_provenance: str | None,
+        health_is_historical: bool,
         worker_status: str,
         secret_configured: bool,
         checked_at: datetime,
@@ -758,11 +863,24 @@ class RemoteMCPDiagnostics:
             },
             {"kind": "secret_configured", "value": bool(secret_configured)},
         ]
+        if related_provenance is not None:
+            evidence.append(
+                {
+                    "kind": "related_job_provenance",
+                    "value": related_provenance,
+                }
+            )
         if schedule and schedule.get("last_skip_reason"):
             skip_code = _safe_code(schedule.get("last_skip_reason"))
             if skip_code:
                 evidence.append({"kind": "schedule_skip_reason", "value": skip_code})
         if health:
+            evidence.append(
+                {
+                    "kind": "health_evidence_role",
+                    "value": "historical" if health_is_historical else "current",
+                }
+            )
             evidence.extend(
                 [
                     {"kind": "health_status", "value": str(health["status"])},
