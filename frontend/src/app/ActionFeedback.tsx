@@ -18,6 +18,7 @@ type ActionFeedback = {
   fail: (action: string, entity: string, message: string) => void
   clear: (action: string, entity: string) => void
   phase: (action: string, entity: string) => ActionPhase | undefined
+  message: (action: string, entity: string) => string | undefined
   isPending: (action: string, entity: string) => boolean
 }
 
@@ -63,6 +64,7 @@ function ActionFeedbackState({ userId, children, noticeSurface }: { userId: stri
       return next
     }),
     phase: (action, entity) => records[actionKey(action, entity)]?.phase,
+    message: (action, entity) => records[actionKey(action, entity)]?.message,
     isPending: (action, entity) => activePhases.has(records[actionKey(action, entity)]?.phase as ActionPhase),
   }), [advance, records])
 

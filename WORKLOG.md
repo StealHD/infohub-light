@@ -944,3 +944,11 @@
 - 结果：复用现有 API/query key/权限/模型完成三标签订阅、Worker/任务、一次性 Agent 令牌、角色化设置/SecretStore 与登录；非工作台页面全宽且无 Agent，MUI/生产默认未变
 - 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；一次合并 Playwright 并发运行触发既有移动端锚点波动，原用例隔离重跑通过
 - 控制面变更：无；HeroUI 页面仍为 DEV-only，未修改 backend/API/Remote MCP/生产路由
+
+### 2026-07-17 17:09 Codex
+- 任务：修复 Task 3 评审发现的来源获取生命周期、成员角色编辑、运行时间字段、覆盖缺口与高级来源编辑器问题
+- 修改文件：HeroUI 订阅/设置/来源表单、ActionFeedback、App/权限/响应结构测试、测试环境兼容层、Task 3 报告与本工作日志
+- 执行验证：focused 3 文件/51 项、全量 Vitest 34 文件/173 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Admin Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、57.642 秒
+- 结果：单源获取恢复 queued→running→terminal 与终态失效/安全反馈；Owner/Admin 可编辑非 Owner 角色；运行时间拆分；筛选、权限、结构状态和登录具备行为覆盖；高级编辑器改用设计系统 Fieldset
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
+- 控制面变更：无；未修改 backend/API/query key/权限函数/Remote MCP/生产路由

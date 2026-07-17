@@ -86,3 +86,55 @@ python3 scripts/test_gate.py run --mode full
 - A combined 15-test Playwright run under concurrency had one pre-existing mobile virtual-anchor assertion shift from item 147 to 149; the original isolated command immediately passed 1/1. Task 3's six acceptance tests passed in that combined run and in standalone runs.
 - ESLint retains the pre-existing `ActionFeedback.tsx` Fast Refresh warning, and Vite retains the existing >500 kB chunk warning.
 - The HeroUI route family remains intentionally DEV-only until the coordinated production cutover task.
+
+## Review remediation — 2026-07-17
+
+The Task 3 review findings were closed without changing backend, API, query-key, permission, or production-route contracts:
+
+- Restored full single-source fetch lifecycle parity: optimistic `queued`, authoritative `running`, terminal `succeeded` / `partial` / `failed` / `cancelled`, per-job initiated metadata, terminal deduplication, terminal health/jobs/feed/history invalidation, sanitized local notices, and an idempotent running transition.
+- Restored Owner/Admin member-role editing with the HeroUI Select while keeping Owner role/status protected and hiding member administration from Member/Viewer roles.
+- Split run creation and completion timestamps, added the unfinished fallback, and retained retry for retryable terminal jobs.
+- Added operational type/health/scope filter coverage, the complete source-edit permission matrix, safe response-schema state/value-redaction coverage, and successful HeroUI login redirect coverage.
+- Replaced the nested native advanced-source `<details>` editor and native subscription fieldset with design-system `Fieldset` composition.
+- Added a jsdom `getAnimations` compatibility shim required by HeroUI tab collection transitions in component tests.
+
+Focused RED→GREEN evidence:
+
+```text
+npm test -- --run src/app/App.test.tsx -t 'settles a live source fetch|surfaces sanitized live source fetch|shows run creation'
+RED: 5 failed / 24 skipped before lifecycle restoration.
+GREEN: 5 passed / 32 skipped after queued/running/terminal parity and idempotence.
+
+npm test -- --run src/app/App.test.tsx src/features/subscriptions/subscriptionModel.test.ts -t 'lets a live|does not expose live member|complete shared'
+RED: Owner/Admin role-edit cases failed; Member/Viewer and model cases passed.
+GREEN: 5 passed / 41 skipped.
+
+npm test -- --run src/app/App.test.tsx -t 'redirects a successful HeroUI login|advanced source configuration'
+RED: advanced editor still used native details; login redirect passed.
+GREEN: 2 passed / 35 skipped.
+
+npm test -- --run src/app/App.test.tsx src/features/admin-heroui/HeroResponseSchemaDetails.test.tsx -t 'operates live source|member-owned private|presents safe'
+GREEN coverage confirmation: 3 passed / 33 skipped.
+```
+
+Final verification:
+
+```text
+npm test -- --run src/app/App.test.tsx src/features/subscriptions/subscriptionModel.test.ts src/features/admin-heroui/HeroResponseSchemaDetails.test.tsx
+3 files / 51 tests passed.
+
+npm test
+34 files / 173 tests passed.
+
+npm run check:ui && npm run lint && npm run typecheck && npm run build
+UI contract, TypeScript, and production build/preview exclusion passed; ESLint 0 errors with the existing 1 Fast Refresh warning.
+
+npx playwright test e2e/live-admin.spec.ts
+6/6 passed across desktop/tablet/mobile.
+
+git diff --check && python3 -m json.tool project-defaults.yaml >/dev/null
+Passed.
+
+python3 scripts/test_gate.py run --mode full
+22/22 commands passed; mapping_miss=false; 57.642s.
+```

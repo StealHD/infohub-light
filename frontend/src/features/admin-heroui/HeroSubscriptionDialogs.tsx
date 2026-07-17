@@ -9,6 +9,7 @@ import {
   Checkbox,
   Chip,
   ComboBox,
+  Fieldset,
   Icons,
   Input,
   Label,
@@ -121,7 +122,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
     {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
     <Checkbox name="enabled" defaultSelected={source?.enabled ?? true}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>
-    <details><summary className="cursor-pointer text-sm font-medium">高级配置</summary><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} className="mt-3" /></details>
+    <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>
     {error && <HeroNotice title={error} />}
     <Button type="submit" isDisabled={pending}>{pending ? '保存中…' : submitLabel}</Button>
   </form>
@@ -163,7 +164,8 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
   }
 
   return <form className="grid gap-4" onSubmit={submit}>
-    <fieldset disabled={readonly || pending} className="grid gap-4">
+    <Fieldset disabled={readonly || pending} className="grid gap-4">
+      <Fieldset.Legend>订阅配置</Fieldset.Legend>
       <HeroSelect name="override_channel" label="个人频道" value={channel} onChange={setChannel} options={[{ id: '', label: '继承来源默认频道' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
       <TopicCombo label="阅读主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
       <TextField fullWidth name="personal_tags" defaultValue={(subscription.personal_tags ?? []).join(', ')}><Label>个人标签</Label><Input /></TextField>
@@ -172,7 +174,7 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       <Checkbox name="enabled" defaultSelected={subscription.enabled}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用订阅</Checkbox.Content></Checkbox>
       <HeroSelect name="source_schedule_interval" label="单源自动获取" value={interval} onChange={setInterval} options={(subscription.schedule?.allowed_intervals ?? [30, 60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value === 30 ? '每 30 分钟' : `每 ${value / 60} 小时` }))} />
       <Checkbox name="source_schedule_enabled" defaultSelected={subscription.schedule?.enabled ?? false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用单源周期</Checkbox.Content></Checkbox>
-    </fieldset>
+    </Fieldset>
     {error && <HeroNotice title={error} />}
     {!readonly && <div className="flex flex-wrap gap-2"><Button type="submit" name="intent" value="save">保存订阅</Button><Button type="submit" name="intent" value="test" variant="secondary">测试连接</Button><Button type="submit" name="intent" value="fetch" variant="secondary">保存并立即抓取</Button><Button type="submit" name="intent" value="unsubscribe" variant="danger">取消订阅</Button></div>}
   </form>

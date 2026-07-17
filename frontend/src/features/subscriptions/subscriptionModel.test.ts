@@ -17,6 +17,23 @@ describe('subscription model', () => {
     expect(canEditSource(user('admin', 'admin-1'), { ...source, scope: 'private', owner_user_id: 'user-1' })).toBe(false)
   })
 
+  it('covers the complete shared and private source ownership matrix', () => {
+    const shared = [{ ...source, scope: 'public' as const }, { ...source, scope: 'workspace' as const }]
+    const ownPrivate = { ...source, scope: 'private' as const, owner_user_id: 'member-1' }
+    const otherPrivate = { ...source, scope: 'private' as const, owner_user_id: 'other-user' }
+
+    for (const candidate of shared) {
+      expect(canEditSource(user('owner', 'owner-1'), candidate)).toBe(true)
+      expect(canEditSource(user('admin', 'admin-1'), candidate)).toBe(true)
+      expect(canEditSource(user('member', 'member-1'), candidate)).toBe(false)
+      expect(canEditSource(user('viewer', 'viewer-1'), candidate)).toBe(false)
+    }
+    expect(canEditSource(user('member', 'member-1'), ownPrivate)).toBe(true)
+    expect(canEditSource(user('member', 'member-1'), otherPrivate)).toBe(false)
+    expect(canEditSource(user('admin', 'admin-1'), otherPrivate)).toBe(false)
+    expect(canEditSource(user('viewer', 'member-1'), ownPrivate)).toBe(false)
+  })
+
   it('prefills registry-driven fields without defining source rules in the UI', () => {
     const definition: SourceTypeDefinition = {
       type: 'rss',

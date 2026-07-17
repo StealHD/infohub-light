@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Chip,
   Icons,
   Input,
   Label,
@@ -209,7 +210,7 @@ export function HeroSettingsPage() {
 
       <AdminSection title="成员" description="管理工作区成员角色和可用状态。">
         <form className="grid gap-3 min-[760px]:grid-cols-5" onSubmit={createUser}><FormField name="username" label="用户名" required /><FormField name="display_name" label="显示名" /><FormField name="password" label="初始密码" type="password" required /><HeroSelect label="角色" value={newUserRole} onChange={setNewUserRole} options={[{ id: 'admin', label: 'admin' }, { id: 'member', label: 'member' }, { id: 'viewer', label: 'viewer' }]} /><Button className="self-end" type="submit" isDisabled={feedback.isPending('member-create', 'new')}><Icons.UserPlus size={15} />{feedback.isPending('member-create', 'new') ? '创建中…' : '新增成员'}</Button></form>
-        <div className="mt-5 grid gap-2">{(users.data?.users ?? []).map((member) => <Card key={member.id} variant="transparent" className="flex-row items-center gap-3 p-3"><div className="min-w-0 flex-1"><Card.Title>{member.display_name || member.username}</Card.Title><Card.Description>{member.username} · {member.role}</Card.Description></div><Button size="sm" variant="ghost" isDisabled={member.role === 'owner' || feedback.isPending('member-update', member.id)} onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}>{member.enabled ? '停用' : '启用'}</Button></Card>)}</div>
+        <div className="mt-5 grid gap-2">{(users.data?.users ?? []).map((member) => { const pending = feedback.isPending('member-update', member.id); return <Card key={member.id} variant="transparent" className="flex-row flex-wrap items-center gap-3 p-3"><div className="min-w-0 flex-1"><Card.Title>{member.display_name || member.username}</Card.Title><Card.Description>{member.username} · {member.role}</Card.Description></div>{member.role === 'owner' ? <Chip size="sm" variant="soft"><Chip.Label>owner · 受保护</Chip.Label></Chip> : <HeroSelect label={`角色 ${member.username}`} value={member.role} onChange={(role) => memberMutation.mutate({ id: member.id, patch: { role } })} isDisabled={pending} options={[{ id: 'admin', label: 'admin' }, { id: 'member', label: 'member' }, { id: 'viewer', label: 'viewer' }]} />}<Button size="sm" variant="ghost" aria-label={`切换 ${member.username} 状态`} isDisabled={member.role === 'owner' || pending} onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}>{pending ? '保存中…' : member.enabled ? '停用' : '启用'}</Button></Card> })}</div>
       </AdminSection>
     </>}
   </div></div>

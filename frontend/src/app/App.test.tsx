@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import type { ServiceApi } from '../api/service'
-import type { FeedItem } from '../api/types'
+import type { FeedItem, Job } from '../api/types'
 import { AppRoutes } from './App'
 
 function LocationProbe() {
@@ -139,6 +139,66 @@ describe('App routes', () => {
     expect(api.createSourceFetch).toHaveBeenCalledWith(source.id, subscription.id)
   }, 10_000)
 
+  it('operates live source type, health and scope filters together', async () => {
+    const browser = userEvent.setup()
+    const sources = [
+      { id: 'filter-private', type: 'rss', display_name: 'Private Healthy', scope: 'private' as const, owner_user_id: 'filter-owner', default_channel: 'AI', enabled: true },
+      { id: 'filter-workspace', type: 'github_release', display_name: 'Workspace Failing', scope: 'workspace' as const, default_channel: 'AI', enabled: true },
+      { id: 'filter-public', type: 'rss', display_name: 'Public Degraded', scope: 'public' as const, default_channel: 'AI', enabled: true },
+    ]
+    const subscriptions = sources.map((source, index) => ({ id: `filter-sub-${index}`, user_id: 'filter-owner', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: index }))
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'filter-owner', username: 'owner', role: 'owner', enabled: true } }),
+      sources: vi.fn().mockResolvedValue({ sources }), subscriptions: vi.fn().mockResolvedValue({ subscriptions }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }, { type: 'github_release', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 1, degraded: 1, failing: 1, unknown: 0, total: 3 }, items: [
+        { subscription_id: 'filter-sub-0', source_id: 'filter-private', status: 'healthy', consecutive_failures: 0 },
+        { subscription_id: 'filter-sub-1', source_id: 'filter-workspace', status: 'failing', consecutive_failures: 3 },
+        { subscription_id: 'filter-sub-2', source_id: 'filter-public', status: 'degraded', consecutive_failures: 1 },
+      ] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByText('Workspace Failing')
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: 'GitHub 发布' }))
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+    expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
+    expect(screen.queryByText('Public Degraded')).not.toBeInTheDocument()
+
+    await browser.click(screen.getByRole('button', { name: /健康状态/ }))
+    await browser.click(await screen.findByRole('option', { name: '连续失败' }))
+    await browser.click(screen.getByRole('button', { name: /可见范围/ }))
+    await browser.click(await screen.findByRole('option', { name: '团队来源' }))
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+
+    await browser.click(screen.getByRole('button', { name: /健康状态/ }))
+    await browser.click(await screen.findByRole('option', { name: '正常' }))
+    expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
+  })
+
+  it('shows source edit controls only for a member-owned private source', async () => {
+    const sources = [
+      { id: 'matrix-own', type: 'rss', display_name: 'Own Private', scope: 'private' as const, owner_user_id: 'matrix-member', default_channel: 'AI', enabled: true },
+      { id: 'matrix-other', type: 'rss', display_name: 'Other Private', scope: 'private' as const, owner_user_id: 'other-member', default_channel: 'AI', enabled: true },
+      { id: 'matrix-shared', type: 'rss', display_name: 'Workspace Shared', scope: 'workspace' as const, default_channel: 'AI', enabled: true },
+      { id: 'matrix-public', type: 'rss', display_name: 'Public Shared', scope: 'public' as const, default_channel: 'AI', enabled: true },
+    ]
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'matrix-member', username: 'member', role: 'member', enabled: true } }), sources: vi.fn().mockResolvedValue({ sources }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: sources.map((source, index) => ({ id: `matrix-sub-${index}`, user_id: 'matrix-member', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true })) }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }), sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 4, total: 4 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('button', { name: '编辑 Own Private 来源' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编辑 Other Private 来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编辑 Workspace Shared 来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编辑 Public Shared 来源' })).not.toBeInTheDocument()
+  })
+
   it('protects and explicitly clears a live one-time Agent token', async () => {
     const browser = userEvent.setup()
     const api = liveApi({
@@ -187,6 +247,88 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('button', { name: '立即获取 阻塞来源' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('后台获取服务当前不可用')
     expect(createSourceFetch).not.toHaveBeenCalled()
+  })
+
+  it('settles a live source fetch through queued, running and terminal lifecycle states', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'lifecycle-source', type: 'rss', display_name: '生命周期来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'lifecycle-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: 0 }
+    const queued: Job = { id: 'lifecycle-job', user_id: 'user-live', job_type: 'source_fetch', source_id: source.id, subscription_id: subscription.id, status: 'queued', created_at: '2026-07-17T01:00:00Z' }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: { tags: [] }, taxonomy: { channels: ['AI'], topics: [] } }),
+      jobs: vi.fn().mockResolvedValue({ jobs: [] }),
+      createSourceFetch: vi.fn().mockResolvedValue(queued),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '立即获取 生命周期来源' }))
+    expect(await screen.findByRole('button', { name: '已排队 生命周期来源' })).toBeDisabled()
+    invalidate.mockClear()
+
+    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'running', started_at: '2026-07-17T01:00:01Z' }] }))
+    expect(await screen.findByRole('button', { name: '获取中 生命周期来源' })).toBeDisabled()
+    expect(invalidate).not.toHaveBeenCalled()
+
+    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4 } }] }))
+    expect(await screen.findByText('生命周期来源 获取完成，共 4 条。')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '立即获取 生命周期来源' })).toBeEnabled()
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
+      expect(keys).toContain(JSON.stringify(queryKeys.sourceHealth('user-live')))
+      expect(keys).toContain(JSON.stringify(queryKeys.jobs('user-live')))
+      expect(keys).toContain(JSON.stringify(['user', 'user-live', 'feed']))
+      expect(keys).toContain(JSON.stringify(queryKeys.history('user-live')))
+    })
+  }, 10_000)
+
+  it.each([
+    ['partial', undefined, '终态来源 部分完成，请查看运行记录。'],
+    ['failed', '上游连接超时', '上游连接超时'],
+    ['cancelled', undefined, '终态来源 获取已取消。'],
+  ] as const)('surfaces sanitized live source fetch terminal state %s', async (status, errorMessage, expected) => {
+    const browser = userEvent.setup()
+    const source = { id: `terminal-${status}`, type: 'rss', display_name: '终态来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: `terminal-sub-${status}`, user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: 0 }
+    const queued: Job = { id: `terminal-job-${status}`, user_id: 'user-live', job_type: 'source_fetch', source_id: source.id, subscription_id: subscription.id, status: 'queued', created_at: '2026-07-17T01:00:00Z' }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }), sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '立即获取 终态来源' }))
+    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status, error_message: errorMessage, retryable: status === 'failed', result: { debug_payload: 'never expose this terminal payload' } }] }))
+    expect(await screen.findByText(expected)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '立即获取 终态来源' })).toBeEnabled()
+    expect(screen.queryByText('never expose this terminal payload')).not.toBeInTheDocument()
+  }, 10_000)
+
+  it('shows run creation and completion times as separate fields with a pending fallback', async () => {
+    const browser = userEvent.setup()
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [] }), sourceTypes: vi.fn().mockResolvedValue({ source_types: [] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
+      jobs: vi.fn().mockResolvedValue({ jobs: [
+        { id: 'pending-job', user_id: 'user-live', job_type: 'source_fetch', status: 'running', created_at: '2026-07-17T01:00:00Z', started_at: '2026-07-17T01:00:01Z' },
+        { id: 'done-job', user_id: 'user-live', job_type: 'source_test', status: 'succeeded', created_at: '2026-07-17T02:00:00Z', finished_at: '2026-07-17T02:00:04Z' },
+        { id: 'failed-job', user_id: 'user-live', job_type: 'source_fetch', status: 'failed', created_at: '2026-07-17T03:00:00Z', finished_at: '2026-07-17T03:00:04Z', retryable: true, error_message: '安全错误摘要' },
+      ] }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
+    expect(await screen.findAllByText(/创建：.*2026/)).toHaveLength(3)
+    expect(screen.getByText('完成：尚未完成')).toBeInTheDocument()
+    expect(screen.getAllByText(/完成：.*2026/)).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
   })
 
   it('shows role-scoped live settings and clears only a failed secret value', async () => {
@@ -241,6 +383,43 @@ describe('App routes', () => {
     expect(api.login).toHaveBeenCalledWith('owner', 'wrong-secret')
   })
 
+  it('redirects a successful HeroUI login back into the live workbench', async () => {
+    const browser = userEvent.setup()
+    let authenticated = false
+    const user = { id: 'login-live', username: 'owner', role: 'owner' as const, enabled: true }
+    const api = liveApi({
+      authStatus: vi.fn().mockImplementation(async () => ({ authenticated, user: authenticated ? user : null })),
+      login: vi.fn().mockImplementation(async () => { authenticated = true; return { authenticated: true, user } }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/login']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+
+    await browser.type(await screen.findByLabelText('用户名'), 'owner')
+    await browser.type(screen.getByLabelText('密码'), 'correct-secret')
+    await browser.click(screen.getByRole('button', { name: '登录' }))
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/__preview/workbench-live'))
+    expect(api.login).toHaveBeenCalledWith('owner', 'correct-secret')
+    expect(await screen.findByRole('heading', { name: '信息流' })).toBeInTheDocument()
+  })
+
+  it('keeps advanced source configuration visible without a nested native details editor', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'advanced-source', type: 'rss', display_name: 'Advanced RSS', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true, config: { url: 'https://example.com/rss.xml' } }
+    const subscription = { id: 'advanced-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [{ name: 'url', label: 'RSS 地址', input_type: 'url', required: true, default: '' }] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '编辑 Advanced RSS 来源' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Advanced RSS · 来源设置' })
+    expect(within(dialog).getByText('高级配置')).toBeVisible()
+    expect(dialog.querySelector('details')).not.toBeInTheDocument()
+  })
+
   it('applies the existing provider defaults in the live AI form', async () => {
     const browser = userEvent.setup()
     const configAction = vi.fn().mockResolvedValue({ config: { ai: {} } })
@@ -261,6 +440,46 @@ describe('App routes', () => {
     expect(screen.getByLabelText('AI Key')).toHaveTextContent('DeepSeek Key')
     await browser.click(screen.getByRole('button', { name: '保存 AI 设置' }))
     expect(configAction).toHaveBeenCalledWith('set_ai', expect.objectContaining({ provider: 'deepseek', model: 'deepseek-v4-flash', api_key_env: 'DEEPSEEK_API_KEY' }))
+  })
+
+  it.each(['owner', 'admin'] as const)('lets a live %s change non-owner member roles while protecting owners', async (actorRole) => {
+    const browser = userEvent.setup()
+    const workspaceOwner = { id: 'workspace-owner', username: 'workspace-owner', display_name: 'Workspace Owner', role: 'owner' as const, enabled: true }
+    let editableMember = { id: 'editable-member', username: 'editable', display_name: 'Editable Member', role: 'member' as const, enabled: true }
+    const users = vi.fn().mockImplementation(async () => ({ users: [workspaceOwner, editableMember] }))
+    const updateUser = vi.fn().mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+      editableMember = { ...editableMember, role: String(patch.role) as 'member' }
+      return editableMember
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: `actor-${actorRole}`, username: actorRole, role: actorRole, enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }), secrets: vi.fn().mockResolvedValue({ secrets: [] }), users, updateUser,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '成员' })
+    expect(screen.queryByRole('button', { name: /角色 workspace-owner/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '切换 workspace-owner 状态' })).toBeDisabled()
+    await browser.click(screen.getByRole('button', { name: /角色 editable/ }))
+    await browser.click(await screen.findByRole('option', { name: 'viewer' }))
+    expect(updateUser).toHaveBeenCalledWith('editable-member', { role: 'viewer' })
+    expect(screen.getByRole('button', { name: '切换 editable 状态' })).toBeEnabled()
+  })
+
+  it.each(['member', 'viewer'] as const)('does not expose live member administration controls to a %s', async (actorRole) => {
+    const users = vi.fn()
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: `actor-${actorRole}`, username: actorRole, role: actorRole, enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }), users,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByText('工作区设置只读')
+    expect(screen.queryByRole('heading', { name: '成员' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^角色 / })).not.toBeInTheDocument()
+    expect(users).not.toHaveBeenCalled()
   })
 
   it('shows a neutral Agent connection state while delegation loading is unresolved', async () => {
