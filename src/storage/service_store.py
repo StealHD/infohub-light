@@ -55,6 +55,23 @@ _PROPOSAL_SENSITIVE_KEY_PARTS = {
     "token",
     "token_env",
 }
+_PROPOSAL_SENSITIVE_COMPACT_KEYS = {
+    "accesskey",
+    "accesstoken",
+    "apikey",
+    "authtoken",
+    "clientkey",
+    "clientsecret",
+    "clienttoken",
+    "privatekey",
+    "proxyauthorization",
+    "refreshtoken",
+    "secretenv",
+    "sessiontoken",
+    "setcookie",
+    "tokenenv",
+    "xapikey",
+}
 _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
     "article_body",
     "article_content",
@@ -67,10 +84,15 @@ _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
     "raw_result",
 }
 _PROPOSAL_CREDENTIAL_PATTERN = re.compile(
-    r"(?i)(?:authorization\s*[:=]\s*)?(?:bearer|basic)\s+[a-z0-9._~+/=-]+"
+    r"(?i)(?<![a-z0-9])(?:authorization|proxy[-_\s]+authorization|cookie|"
+    r"x[-_\s]+api[-_\s]+key|api[-_\s]+key|access[-_\s]+token|"
+    r"auth[-_\s]+token|refresh[-_\s]+token|client[-_\s]+(?:secret|token)|"
+    r"password|secret|token)\s*[:=]\s*\S+"
     r"|(?:^|[^a-z0-9])(?:sk-[a-z0-9_-]{8,}|ghp_[a-z0-9]{8,}"
     r"|github_pat_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}"
-    r"|ih_mcp_v1_[a-z0-9_-]{8,})",
+    r"|ih_mcp_v1_[a-z0-9_-]{8,})"
+    r"|(?:^|[^a-z0-9_-])eyj[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}"
+    r"\.[a-z0-9_-]{8,}(?:$|[^a-z0-9_-])",
 )
 
 
@@ -133,6 +155,8 @@ def _is_sensitive_proposal_key(value: Any) -> bool:
     if normalized in _PROPOSAL_SENSITIVE_KEY_PARTS:
         return True
     if normalized in _PROPOSAL_PROHIBITED_CONTENT_KEYS:
+        return True
+    if normalized.replace("_", "") in _PROPOSAL_SENSITIVE_COMPACT_KEYS:
         return True
     parts = normalized.split("_")
     return any(

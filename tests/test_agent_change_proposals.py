@@ -182,6 +182,132 @@ def test_proposal_payload_rejects_sensitive_shapes_without_echoing_values(
     ).fetchone()[0] == 0
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        "apikey",
+        "APIKEY",
+        "ａｐｉｋｅｙ",
+        "ＡＰＩＫＥＹ",
+        "accesskey",
+        "ACCESSKEY",
+        "ａｃｃｅｓｓｋｅｙ",
+        "accesstoken",
+        "ACCESSTOKEN",
+        "ａｃｃｅｓｓｔｏｋｅｎ",
+        "authtoken",
+        "refreshtoken",
+        "clientsecret",
+        "clienttoken",
+    ],
+)
+def test_proposal_payload_rejects_controlled_compact_credential_keys(
+    store, delegation, key
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"config": {key: "do-not-echo-compact-secret"}}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert "do-not-echo-compact-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/feed?apikey=do-not-echo-query-secret",
+        "https://example.com/feed?APIKEY=do-not-echo-query-secret",
+        "https://example.com/feed?%61%70%69%6b%65%79=do-not-echo-query-secret",
+        "https://example.com/feed?%EF%BD%81%EF%BD%90%EF%BD%89%EF%BD%8B%EF%BD%85%EF%BD%99=do-not-echo-query-secret",
+        "https://example.com/feed?clienttoken=do-not-echo-query-secret",
+    ],
+)
+def test_proposal_payload_rejects_compact_and_percent_decoded_query_names(
+    store, delegation, url
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"config": {"url": url}}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert "do-not-echo-query-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["monkey", "hockey", "keyboard_layout", "keynote"],
+)
+def test_proposal_payload_allows_safe_keys_containing_key_text(
+    store, delegation, key
+):
+    values = proposal_values(
+        delegation,
+        1,
+        payload={"source": {"config": {key: "safe-business-value"}}},
+    )
+
+    created = store.create_agent_change_proposal(**values)
+
+    assert created["payload"] == values["payload"]
+
+
+@pytest.mark.parametrize(
+    "display_name",
+    ["Basic Engineering News", "Bearer Market Report"],
+)
+def test_proposal_payload_allows_basic_and_bearer_business_names(
+    store, delegation, display_name
+):
+    values = proposal_values(
+        delegation,
+        1,
+        payload={"source": {"display_name": display_name}},
+    )
+
+    created = store.create_agent_change_proposal(**values)
+
+    assert created["payload"] == values["payload"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Authorization: Basic dXNlcjpwYXNz",
+        "Authorization: Bearer do-not-echo-header-secret",
+        "Proxy-Authorization=Bearer do-not-echo-header-secret",
+        "Cookie: session=do-not-echo-header-secret",
+        "X-API-Key: do-not-echo-header-secret",
+        "token=do-not-echo-header-secret",
+        "sk-do-not-echo-prefix-secret",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.do-not-echo-jwt-secret",
+    ],
+)
+def test_proposal_payload_rejects_explicit_credential_contexts_and_secret_shapes(
+    store, delegation, text
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"notes": text}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert "do-not-echo" not in str(error.value)
+
+
 def test_proposal_ttl_is_exactly_ten_minutes(store, delegation):
     values = proposal_values(delegation, 1)
     values["expires_at"] = (NOW + timedelta(minutes=9, seconds=59)).isoformat()

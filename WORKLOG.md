@@ -937,3 +937,11 @@
 - 结果：create/apply 生命周期改用事务内权威 UTC now，调用参数只保留兼容校验；固定持久化 now/now+10m，未来/回填时间不能绕过配额或过期；敏感键先 NFKC/camelCase 拆词，安全业务 ID shape 保持允许
 - 未解决问题：无；未实现 Task 3+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 第二轮复审的 compact 敏感键 Important 与自由文本误拒 Minor
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`.superpowers/sdd/task-2-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：新增回归先出现 25 个预期 RED；proposal 56 项、focused 69 项、full gate 22/22（`mapping_miss=false`）通过；`git diff --check` 通过
+- 结果：JSON/query 共用受控 compact credential key 分类并覆盖 NFKC/percent decode；明确凭据 header/assignment、已知 prefix 与 JWT 仍拒绝，`Basic Engineering News`、`Bearer Market Report` 和 `monkey`/`hockey` 等安全词允许
+- 未解决问题：无；未修改权威时钟、事务、schema、cleanup、sanitizer，未实现 Task 3+
+- 控制面变更：无
