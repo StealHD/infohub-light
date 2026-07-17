@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 
 import src.storage.service_store as service_store
+from src.services.media_cache import PostCommitMediaCleanup
+from src.services.subscription_mutation import (
+    SubscriptionActor,
+    SubscriptionMutationService,
+)
 
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
@@ -482,6 +488,8 @@ def test_proposal_payload_preserves_safe_percent_encoded_values(
         "Cookie: session=do-not-echo-header-secret",
         "X-API-Key: do-not-echo-header-secret",
         "token=do-not-echo-header-secret",
+        "xoxe-12345678-abcdefgh",
+        "ih_mcp_v1_abcdefgh12345678",
         "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
         "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
         "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.do-not-echo-jwt-secret",
@@ -501,6 +509,204 @@ def test_proposal_payload_rejects_explicit_credential_contexts_and_secret_shapes
 
     assert str(error.value) == "proposal data contains prohibited sensitive content"
     assert "do-not-echo" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Feed " + "AIza" + "A" * 35,
+        "Feed%20gsk%255F" + "B" * 32,
+        "Feed ｈｆ＿" + "C" * 32,
+    ],
+    ids=["raw-aiza", "encoded-gsk", "fullwidth-hf"],
+)
+def test_proposal_payload_rejects_embedded_known_prefixes_without_echo(
+    store,
+    delegation,
+    text,
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"display_name": text}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert text not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Result " + "AIza" + "D" * 35,
+        "Result%20gsk%255F" + "E" * 32,
+        "Result ｈｆ＿" + "F" * 32,
+    ],
+    ids=["raw-aiza", "encoded-gsk", "fullwidth-hf"],
+)
+def test_proposal_result_summary_rejects_embedded_known_prefixes_without_echo(
+    store,
+    delegation,
+    text,
+):
+    store.create_agent_change_proposal(**proposal_values(delegation, 1))
+
+    with pytest.raises(ValueError) as error:
+        store.apply_agent_change_proposal(
+            "agp_1",
+            applied_at=(NOW + timedelta(minutes=1)).isoformat(),
+            result_summary={"message": text},
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert text not in str(error.value)
+    assert store.get_agent_change_proposal("agp_1")["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/feed?cursor=" + "AIza" + "G" * 35,
+        "https://example.com/feed?cursor=gsk%255F" + "H" * 32,
+        "https://example.com/feed#ｈｆ＿" + "I" * 32,
+    ],
+    ids=["raw-aiza-query", "encoded-gsk-query", "fullwidth-hf-fragment"],
+)
+def test_proposal_query_values_and_fragments_reject_known_prefixes_without_echo(
+    store,
+    delegation,
+    url,
+):
+    with pytest.raises(ValueError) as error:
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                1,
+                payload={"source": {"config": {"url": url}}},
+            )
+        )
+
+    assert str(error.value) == "proposal data contains prohibited sensitive content"
+    assert url not in str(error.value)
+
+
+def test_proposal_payload_allows_sk_internationalization_business_title(
+    store,
+    delegation,
+):
+    values = proposal_values(
+        delegation,
+        1,
+        payload={"source": {"display_name": "SK-Internationalization"}},
+    )
+
+    created = store.create_agent_change_proposal(**values)
+
+    assert created["payload"] == values["payload"]
+
+
+def test_versioned_plan_snapshot_matches_real_proposal_row_and_outer_cleanup_contract(
+    store,
+    delegation,
+):
+    owner = store.get_user(delegation["user_id"])
+    actor = SubscriptionActor.from_user(owner)
+    mutations = SubscriptionMutationService(store)
+
+    def persist_plan(index: int, suffix: str):
+        plan = mutations.plan_create(
+            actor,
+            source={
+                "mode": "private",
+                "type": "rss",
+                "display_name": f"Proposal seam {suffix}",
+                "config": {"url": f"https://example.com/{suffix}.xml"},
+            },
+            subscription={"priority": index},
+            schedule={"enabled": False, "interval_minutes": 60},
+        )
+        snapshot = json.loads(json.dumps(plan.to_snapshot()))
+        values = proposal_values(
+            delegation,
+            index,
+            payload={"plan_snapshot": snapshot},
+        )
+        values.update(
+            {
+                "kind": snapshot["kind"],
+                "source_id": snapshot["targets"].get("source_id"),
+                "subscription_id": snapshot["targets"].get("subscription_id"),
+                "preview": snapshot["preview"],
+                "fingerprints": snapshot["fingerprints"],
+            }
+        )
+        row = store.create_agent_change_proposal(**values)
+        stored_snapshot = row["payload"]["plan_snapshot"]
+        assert row["kind"] == stored_snapshot["kind"]
+        assert row["preview"] == stored_snapshot["preview"]
+        assert row["fingerprints"] == stored_snapshot["fingerprints"]
+        assert row["source_id"] == stored_snapshot["targets"].get("source_id")
+        assert row["subscription_id"] == stored_snapshot["targets"].get(
+            "subscription_id"
+        )
+        return row, mutations.restore_plan_snapshot(stored_snapshot)
+
+    committed_row, committed_plan = persist_plan(91, "proposal-seam-commit")
+    connection = store.connect()
+    connection.execute("BEGIN IMMEDIATE")
+    committed_cleanup = PostCommitMediaCleanup()
+    committed_result = mutations.apply_plan(
+        actor,
+        committed_plan,
+        commit=False,
+        post_commit_cleanup=committed_cleanup,
+    )
+    store.apply_agent_change_proposal(
+        committed_row["id"],
+        applied_at=(NOW + timedelta(minutes=1)).isoformat(),
+        result_summary={
+            "action": committed_result["action"],
+            "subscription_id": committed_result["subscription"]["id"],
+        },
+        commit=False,
+    )
+    connection.commit()
+    assert committed_cleanup.run() == 0
+    assert store.get_agent_change_proposal(committed_row["id"])["status"] == "applied"
+    assert store.get_source_by_key(
+        workspace_id=actor.workspace_id,
+        source_key="rss:https://example.com/proposal-seam-commit.xml",
+    ) is not None
+
+    rolled_back_row, rolled_back_plan = persist_plan(92, "proposal-seam-rollback")
+    connection.execute("BEGIN IMMEDIATE")
+    rolled_back_cleanup = PostCommitMediaCleanup()
+    rolled_back_result = mutations.apply_plan(
+        actor,
+        rolled_back_plan,
+        commit=False,
+        post_commit_cleanup=rolled_back_cleanup,
+    )
+    store.apply_agent_change_proposal(
+        rolled_back_row["id"],
+        applied_at=(NOW + timedelta(minutes=2)).isoformat(),
+        result_summary={
+            "action": rolled_back_result["action"],
+            "subscription_id": rolled_back_result["subscription"]["id"],
+        },
+        commit=False,
+    )
+    connection.rollback()
+    rolled_back_cleanup.discard()
+
+    assert store.get_agent_change_proposal(rolled_back_row["id"])["status"] == "pending"
+    assert store.get_source_by_key(
+        workspace_id=actor.workspace_id,
+        source_key="rss:https://example.com/proposal-seam-rollback.xml",
+    ) is None
 
 
 def test_proposal_ttl_is_exactly_ten_minutes(store, delegation):

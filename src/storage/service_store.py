@@ -11,15 +11,19 @@ import secrets
 import sqlite3
 import threading
 import time
-import unicodedata
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import unquote, urlsplit
 
+from ..security import (
+    classification_copies,
+    is_sensitive_credential_key,
+    text_contains_credential,
+    url_contains_credentials,
+)
 from ..ui.auth import hash_password, verify_password_hash
 
 
@@ -38,52 +42,8 @@ AGENT_PROPOSAL_TTL_MINUTES = 10
 AGENT_PROPOSAL_MAX_PENDING = 10
 AGENT_PROPOSAL_PREPARE_EXPIRED_RETENTION_HOURS = 24
 AGENT_PROPOSAL_MAINTENANCE_RETENTION_DAYS = 30
-_PROPOSAL_CLASSIFICATION_MAX_CHARS = 16_384
 _UNSET = object()
 
-_PROPOSAL_SENSITIVE_KEY_PARTS = {
-    "api_key",
-    "authorization",
-    "cookie",
-    "cookies",
-    "credential",
-    "credentials",
-    "header",
-    "headers",
-    "password",
-    "secret",
-    "secret_env",
-    "token",
-    "token_env",
-}
-_PROPOSAL_SENSITIVE_COMPACT_KEYS = {
-    "accesskey",
-    "accesstoken",
-    "apikey",
-    "authtoken",
-    "clientkey",
-    "clientsecret",
-    "clienttoken",
-    "privatekey",
-    "proxyauthorization",
-    "refreshtoken",
-    "secretenv",
-    "sessiontoken",
-    "setcookie",
-    "tokenenv",
-    "xapikey",
-}
-_PROPOSAL_SENSITIVE_COMPACT_SUFFIXES = (
-    "authorization",
-    "credential",
-    "credentials",
-    "cookie",
-    "cookies",
-    "password",
-    "secret",
-    "signature",
-    "token",
-)
 _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
     "article_body",
     "article_content",
@@ -95,18 +55,6 @@ _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
     "raw_error",
     "raw_result",
 }
-_PROPOSAL_CREDENTIAL_PATTERN = re.compile(
-    r"(?i)(?<![a-z0-9])(?:authorization|proxy[-_\s]+authorization|cookie|"
-    r"x[-_\s]+api[-_\s]+key|api[-_\s]+key|access[-_\s]+token|"
-    r"auth[-_\s]+token|refresh[-_\s]+token|client[-_\s]+(?:secret|token)|"
-    r"password|secret|token)\s*[:=]\s*\S+"
-    r"|(?:^|[^a-z0-9])(?:sk-proj-[a-z0-9_-]{20,}(?=$|[^a-z0-9_-])"
-    r"|sk-[a-z0-9]{20,}(?=$|[^a-z0-9])|ghp_[a-z0-9]{8,}"
-    r"|github_pat_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}"
-    r"|ih_mcp_v1_[a-z0-9_-]{8,})"
-    r"|(?:^|[^a-z0-9_-])eyj[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}"
-    r"\.[a-z0-9_-]{8,}(?:$|[^a-z0-9_-])",
-)
 
 
 class SourceKeyConflictError(ValueError):
@@ -159,29 +107,11 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
 def _proposal_classification_copies(value: str) -> tuple[str, ...] | None:
     """Build bounded, non-persistent copies for credential classification."""
 
-    if len(value) > _PROPOSAL_CLASSIFICATION_MAX_CHARS:
-        return None
-    copies: list[str] = []
-    candidate = value
-    for decode_round in range(3):
-        candidate = unicodedata.normalize("NFKC", candidate)
-        if len(candidate) > _PROPOSAL_CLASSIFICATION_MAX_CHARS:
-            return None
-        if not copies or candidate != copies[-1]:
-            copies.append(candidate)
-        if decode_round == 2 or "%" not in candidate:
-            break
-        decoded = unquote(candidate, errors="replace")
-        if len(decoded) > _PROPOSAL_CLASSIFICATION_MAX_CHARS:
-            return None
-        if decoded == candidate:
-            break
-        candidate = decoded
-    return tuple(copies)
+    return classification_copies(value)
 
 
 def _normalized_sensitive_key(value: Any) -> str:
-    candidate = unicodedata.normalize("NFKC", str(value))
+    candidate = str(value)
     candidate = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", candidate)
     candidate = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", candidate)
     return re.sub(r"[^a-z0-9]+", "_", candidate.casefold()).strip("_")
@@ -196,47 +126,13 @@ def _is_sensitive_proposal_key(value: Any) -> bool:
 
 def _is_classified_sensitive_proposal_key(value: str) -> bool:
     normalized = _normalized_sensitive_key(value)
-    if normalized in _PROPOSAL_SENSITIVE_KEY_PARTS:
-        return True
     if normalized in _PROPOSAL_PROHIBITED_CONTENT_KEYS:
         return True
-    compact = normalized.replace("_", "")
-    if compact in _PROPOSAL_SENSITIVE_COMPACT_KEYS:
-        return True
-    if compact.endswith(_PROPOSAL_SENSITIVE_COMPACT_SUFFIXES):
-        return True
-    parts = normalized.split("_")
-    return any(
-        part in {"authorization", "cookie", "credential", "password", "secret", "token"}
-        for part in parts
-    ) or normalized.endswith("_api_key")
-
-
-def _classified_string_matches_credential(value: str) -> bool:
-    copies = _proposal_classification_copies(value)
-    if copies is None:
-        return True
-    return any(_PROPOSAL_CREDENTIAL_PATTERN.search(copy) for copy in copies)
+    return is_sensitive_credential_key(value)
 
 
 def _contains_sensitive_query(value: str) -> bool:
-    try:
-        parsed = urlsplit(value)
-    except ValueError:
-        return True
-    if parsed.username is not None or parsed.password is not None:
-        return True
-    if not parsed.query:
-        return False
-    for field in parsed.query.split("&"):
-        name, separator, query_value = field.partition("=")
-        if _is_sensitive_proposal_key(name) or _classified_string_matches_credential(
-            name
-        ):
-            return True
-        if separator and _classified_string_matches_credential(query_value):
-            return True
-    return False
+    return url_contains_credentials(value)
 
 
 def _proposal_data_contains_sensitive_content(value: Any) -> bool:
@@ -253,10 +149,7 @@ def _proposal_data_contains_sensitive_content(value: Any) -> bool:
         copies = _proposal_classification_copies(value)
         if copies is None:
             return True
-        return bool(
-            any(_PROPOSAL_CREDENTIAL_PATTERN.search(copy) for copy in copies)
-            or _contains_sensitive_query(copies[0])
-        )
+        return text_contains_credential(value) or url_contains_credentials(value)
     if value is None or isinstance(value, (bool, int)):
         return False
     if isinstance(value, float):

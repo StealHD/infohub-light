@@ -360,8 +360,10 @@ class SubscriptionMutationService:
         try:
             validate_public_source_metadata(values)
         except SourceConfigError as exc:
-            if str(exc) == "credentials are not accepted; configure secrets in Web":
-                raise self._error("invalid_source_config", str(exc)) from exc
+            raise self._error(
+                "invalid_source_config",
+                "credentials are not accepted; configure secrets in Web",
+            ) from exc
 
     @staticmethod
     def _visible(source: dict[str, Any], actor: SubscriptionActor) -> bool:

@@ -14,6 +14,11 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 
+from ..security import (
+    public_data_contains_credentials,
+    url_contains_credentials,
+)
+
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]{1,127}$")
 _SECRET_PREFIXES = ("sk-", "sk_", "AIza", "xai-", "gsk_", "hf_", "tp-")
@@ -30,50 +35,11 @@ _FORBIDDEN_AGENT_CONFIG_KEYS = {
     "authorization",
     "headers",
 }
-_SENSITIVE_RSS_QUERY_PARTS = (
-    "token",
-    "key",
-    "secret",
-    "auth",
-    "password",
-    "signature",
-    "credential",
-)
 _CREDENTIAL_ERROR = "credentials are not accepted; configure secrets in Web"
 _UNSUPPORTED_SOURCE_TYPE_ERROR = "unsupported source type"
 _SOURCE_REQUIRES_WEB_SETUP_ERROR = "source_requires_web_setup"
 _OPAQUE_CATALOG_DISPLAY_NAME = "Web-managed source"
 _OPAQUE_CATALOG_PUBLIC_TARGET = "web_setup_required"
-_CREDENTIAL_ASSIGNMENT_RE = re.compile(
-    r"(?<![A-Za-z0-9])([A-Za-z0-9_-]+)\s*[:=]",
-    flags=re.IGNORECASE,
-)
-_KNOWN_CREDENTIAL_VALUE_RE = re.compile(
-    r"(?i)(?<![a-z0-9])(?:authorization|proxy[-_\s]+authorization|cookie|"
-    r"x[-_\s]+api[-_\s]+key|api[-_\s]+key|access[-_\s]+token|"
-    r"auth[-_\s]+token|refresh[-_\s]+token|client[-_\s]+(?:secret|token)|"
-    r"password|secret|token)\s*[:=]\s*\S+"
-    r"|(?:^|[^a-z0-9])(?:sk-proj-[a-z0-9_-]{20,}(?=$|[^a-z0-9_-])"
-    r"|sk-[a-z0-9]{20,}(?=$|[^a-z0-9])|ghp_[a-z0-9]{8,}"
-    r"|github_pat_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}"
-    r"|ih_mcp_v1_[a-z0-9_-]{8,})"
-    r"|(?:^|[^a-z0-9_-])eyj[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}"
-    r"\.[a-z0-9_-]{8,}(?:$|[^a-z0-9_-])",
-)
-_SECURITY_CLASSIFICATION_MAX_CHARS = 16_384
-_SECURITY_PERCENT_DECODE_ROUNDS = 2
-_DEFAULT_IGNORABLE_RANGES = (
-    (0x034F, 0x034F),
-    (0x115F, 0x1160),
-    (0x17B4, 0x17B5),
-    (0x180B, 0x180F),
-    (0x3164, 0x3164),
-    (0xFE00, 0xFE0F),
-    (0xFFA0, 0xFFA0),
-    (0x1BCA0, 0x1BCA3),
-    (0x1D173, 0x1D17A),
-    (0xE0000, 0xE0FFF),
-)
 _SUPPORTED_REDDIT_SORTS = {"hot", "new", "top", "rising", "controversial"}
 _SUPPORTED_REDDIT_TIME_FILTERS = {"hour", "day", "week", "month", "year", "all"}
 _APIFY_KINDS = {
@@ -967,107 +933,10 @@ def _safe_urlparse(value: str) -> Any:
         raise SourceConfigError("invalid URL") from exc
 
 
-def _security_classification_copy(value: str) -> str | None:
-    """Build a bounded normalized copy for classification without rewriting input."""
-
-    candidate = value.strip()
-    if len(candidate) > _SECURITY_CLASSIFICATION_MAX_CHARS:
-        return None
-    for _ in range(_SECURITY_PERCENT_DECODE_ROUNDS):
-        candidate = unicodedata.normalize("NFKC", candidate)
-        decoded = unquote(candidate)
-        if len(decoded) > _SECURITY_CLASSIFICATION_MAX_CHARS:
-            return None
-        if decoded == candidate:
-            break
-        candidate = decoded
-    candidate = unicodedata.normalize("NFKC", candidate)
-    if len(candidate) > _SECURITY_CLASSIFICATION_MAX_CHARS:
-        return None
-    return "".join(
-        character
-        for character in candidate
-        if unicodedata.category(character) != "Cf"
-        and not any(
-            start <= ord(character) <= end
-            for start, end in _DEFAULT_IGNORABLE_RANGES
-        )
-    )
-
-
-def _credential_key_shape(value: Any) -> bool:
-    """Recognize credential-bearing keys without returning their input values."""
-
-    classified = _security_classification_copy(str(value))
-    if classified is None:
-        return True
-    normalized = re.sub(r"[^a-z0-9]+", "", classified.lower())
-    if normalized in {
-        "secret", "secretenv", "token", "tokenenv", "apikey", "key",
-        "password", "cookie", "cookies", "authorization", "header", "headers",
-        "credential", "credentials", "auth", "accesstoken", "authtoken",
-        "refreshtoken", "sessiontoken", "signature", "accesskey", "privatekey",
-        "clientkey", "clientsecret", "xapikey", "proxyauthorization", "setcookie",
-    }:
-        return True
-    return normalized.endswith(
-        (
-            "token", "secret", "password", "cookie", "authorization",
-            "credential", "signature", "accesskey", "privatekey", "apikey",
-            "clientsecret", "header", "headers",
-        )
-    )
-
-
-def _sensitive_query_name(value: Any) -> bool:
-    """Fail closed for credential-bearing query names, including compounds."""
-
-    classified = _security_classification_copy(str(value))
-    if classified is None:
-        return True
-    normalized = re.sub(r"[^a-z0-9]+", "", classified.lower())
-    return any(marker in normalized for marker in _SENSITIVE_RSS_QUERY_PARTS)
-
-
-def _contains_credential_assignment(value: str) -> bool:
-    """Recognize credential header and assignment syntax in arbitrary text."""
-
-    candidate = _security_classification_copy(value)
-    if candidate is None:
-        return True
-    return any(
-        _credential_key_shape(match.group(1))
-        for match in _CREDENTIAL_ASSIGNMENT_RE.finditer(candidate)
-    )
-
-
 def _contains_secret_shape(value: Any) -> bool:
     """Detect secret-like values without persisting or returning them."""
 
-    if isinstance(value, dict):
-        return any(
-            _credential_key_shape(key) or _contains_secret_shape(key) or _contains_secret_shape(item)
-            for key, item in value.items()
-        )
-    if isinstance(value, (list, tuple, set)):
-        return any(_contains_secret_shape(item) for item in value)
-    if not isinstance(value, str):
-        return False
-
-    candidate = _security_classification_copy(value)
-    if candidate is None:
-        return True
-    lowered = candidate.lower()
-    if lowered.startswith(tuple(prefix.lower() for prefix in _SECRET_PREFIXES)):
-        return True
-    if _KNOWN_CREDENTIAL_VALUE_RE.search(candidate):
-        return True
-    if _contains_credential_assignment(candidate):
-        return True
-    parsed = _safe_urlparse(candidate)
-    if parsed.username is not None or parsed.password is not None:
-        return True
-    return False
+    return public_data_contains_credentials(value)
 
 
 def _validate_public_url_inputs(value: Any) -> None:
@@ -1084,17 +953,8 @@ def _validate_public_url_inputs(value: Any) -> None:
         return
     if not isinstance(value, str):
         return
-
-    parsed = _safe_urlparse(value.strip())
-    if parsed.username is not None or parsed.password is not None:
+    if url_contains_credentials(value):
         raise SourceConfigError(_CREDENTIAL_ERROR)
-    for name, query_value in parse_qsl(parsed.query, keep_blank_values=True):
-        if (
-            _sensitive_query_name(name)
-            or _credential_key_shape(query_value)
-            or _contains_secret_shape(query_value)
-        ):
-            raise SourceConfigError(_CREDENTIAL_ERROR)
 
 
 _ENCODED_PATH_SEPARATOR_RE = re.compile(r"%(?:2f|5c)", flags=re.IGNORECASE)

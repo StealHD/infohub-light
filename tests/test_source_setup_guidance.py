@@ -353,7 +353,6 @@ def test_agent_normalization_rejects_composite_sensitive_query_names(
     [
         "https://example.com/feed?cursor=access_key",
         "https://example.com/feed?cursor=x_api_key",
-        "https://example.com/feed?cursor=sk-never-store-this",
         "https://example.com/feed?cursor=ok&cursor=private_key",
         "https://example.com/feed?cursor=Authorization%3A+Bearer+never-store-this",
     ],
@@ -370,13 +369,18 @@ def test_query_values_and_free_text_do_not_treat_substrings_as_credentials():
     rss = normalize_source_setup_input(
         "rss",
         {
-            "url": "https://example.com/feed?q=monkey&title=authentic",
+            "url": (
+                "https://example.com/feed?q=monkey&title=authentic"
+                "&cursor=sk-never-store-this"
+            ),
             "name": "Monkey: Daily",
         },
     )
 
     assert rss["config"]["name"] == "Monkey: Daily"
-    assert rss["config"]["url"].endswith("?q=monkey&title=authentic")
+    assert rss["config"]["url"].endswith(
+        "?q=monkey&title=authentic&cursor=sk-never-store-this"
+    )
 
 
 @pytest.mark.parametrize(

@@ -34,6 +34,7 @@
 
 | File | Responsibility |
 |---|---|
+| `src/security.py` | Shared bounded, context-sensitive credential classification used by public source projection and proposal persistence; classification never rewrites persisted values. |
 | `src/services/source_type_registry.py` | Canonical bilingual guide metadata, accepted formats, examples, safe self-service boundary, and Agent input normalization for all eight source types. |
 | `src/storage/service_store.py` | Schema v7 proposal table, delegation scope persistence, proposal CRUD/cleanup, transaction-safe source creation, and row projections. |
 | `src/services/subscription_mutation.py` | Shared role/ownership/quota/source/schedule validation, normalized change plans, atomic create/update/delete execution, and REST-compatible domain errors. |
@@ -50,11 +51,13 @@
 The core interfaces introduced by Tasks 3–6 are fixed before implementation:
 
 - `SubscriptionActor(workspace_id: str, user_id: str, role: str)`.
-- `SubscriptionChangePlan(kind, payload, preview, target_ids, fingerprints)` with kind `create|update|delete`.
+- `SubscriptionChangePlan` is sealed: only the mutation planners and `SubscriptionMutationService.restore_plan_snapshot()` may create an executable plan; its public constructor stays closed.
+- `SubscriptionChangePlan.to_snapshot()` returns the complete versioned JSON envelope `{version,kind,normalized,preview,targets,fingerprints}`; proposal persistence stores that envelope intact.
+- `SubscriptionMutationService.restore_plan_snapshot(snapshot) -> SubscriptionChangePlan` validates the exact envelope, normalized invariants, preview binding, targets, and fingerprints.
 - `SubscriptionMutationService.plan_create(actor, *, source, subscription, schedule) -> SubscriptionChangePlan`.
 - `SubscriptionMutationService.plan_update(actor, *, subscription_id, source_updates, subscription_updates, schedule_updates) -> SubscriptionChangePlan`.
 - `SubscriptionMutationService.plan_delete(actor, *, subscription_id, source_disposition) -> SubscriptionChangePlan`.
-- `SubscriptionMutationService.apply_plan(actor, plan, *, commit=True) -> dict[str, Any]`.
+- `SubscriptionMutationService.apply_plan(actor, plan, *, commit=True, post_commit_cleanup=None) -> dict[str, Any]`; a caller-owned transaction must pass an explicit `PostCommitMediaCleanup`, commit before `run()`, and call `discard()` on every rollback or rejection path.
 - `DelegatedActor` extends `SubscriptionActor` with `delegation_id: str` and `scopes: tuple[str, ...]`.
 - `AgentChangeProposalService.prepare(actor, plan) -> dict[str, Any]`.
 - `AgentChangeProposalService.apply(actor, *, proposal_id, confirmation_text) -> dict[str, Any]`.
@@ -325,6 +328,8 @@ git commit -m "feat: persist agent change proposals"
 ### Task 3: Shared Subscription Mutation Domain Service
 
 **Files:**
+- Create: `src/security.py`
+- Modify: `src/services/source_type_registry.py`
 - Create: `src/services/subscription_mutation.py`
 - Modify: `src/api/server.py`
 - Modify: `src/storage/service_store.py`
@@ -334,7 +339,7 @@ git commit -m "feat: persist agent change proposals"
 
 **Interfaces:**
 - Consumes: Task 1 normalization, `QuotaService`, `SourceScheduleService`, `SourceHealthService`, `MediaCacheService`, and transaction-aware store operations from Task 2.
-- Produces: `SubscriptionActor`, `SubscriptionChangePlan`, `SubscriptionMutationError`, `plan_create()`, `plan_update()`, `plan_delete()`, `apply_plan()`, and thin REST wrappers.
+- Produces: `SubscriptionActor`, sealed `SubscriptionChangePlan`, `SubscriptionMutationError`, `plan_create()`, `plan_update()`, `plan_delete()`, `to_snapshot()`, `restore_plan_snapshot()`, `apply_plan(..., post_commit_cleanup=...)`, and thin REST wrappers.
 
 - [ ] **Step 1: Write failing domain tests for every atomic mutation**
 
@@ -397,16 +402,24 @@ class SubscriptionActor:
     def from_user(cls, user: dict[str, Any]) -> "SubscriptionActor":
         return cls(str(user["workspace_id"]), str(user["id"]), str(user["role"]))
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class SubscriptionChangePlan:
+    # No public trusted constructor. Planner and restore entrypoints seal
+    # canonical JSON and expose defensive-copy properties only.
     kind: Literal["create", "update", "delete"]
-    payload: dict[str, Any]
-    preview: dict[str, Any]
-    target_ids: dict[str, str]
-    fingerprints: dict[str, str | None]
+
+    def to_snapshot(self) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "kind": self.kind,
+            "normalized": self.payload,
+            "preview": self.preview,
+            "targets": self.target_ids,
+            "fingerprints": self.fingerprints,
+        }
 ```
 
-Fingerprint existing source/subscription/schedule rows with their `updated_at`; a missing schedule fingerprints as `None`. Preview contains safe source name/type/normalized public target, subscription fields, schedule fields, action, impact, warnings, and delete disposition. The public target is the non-secret RSS URL, repository/user/subreddit/channel identifier, social target summary, or Hacker News settings selected by the user; the preview never exposes a raw config object, credentials, or internal identity fields.
+`restore_plan_snapshot()` is the only persistence-consumer entrypoint and must validate the exact versioned envelope plus all normalized/preview/target/fingerprint invariants before returning a plan. Fingerprint existing source/subscription/schedule rows with their `updated_at`; a missing schedule fingerprints as `None`. Preview contains safe source name/type/normalized public target, subscription fields, schedule fields, action, impact, warnings, and delete disposition. The public target is the non-secret RSS URL, repository/user/subreddit/channel identifier, social target summary, or Hacker News settings selected by the user; the preview never exposes a raw config object, credentials, or internal identity fields.
 
 - [ ] **Step 4: Implement plan normalization and atomic apply**
 
@@ -424,21 +437,26 @@ For private mode, call `normalize_source_setup_input()`, compute `source_key()`,
 ```python
 conn = self.store.connect()
 owns_transaction = not conn.in_transaction
+if (not owns_transaction or not commit) and post_commit_cleanup is None:
+    raise SubscriptionMutationError("post_commit_cleanup_required", ...)
+cleanup = post_commit_cleanup or PostCommitMediaCleanup()
 try:
     if owns_transaction:
         conn.execute("BEGIN IMMEDIATE")
-    current = self._rebuild_and_revalidate(actor, plan)
-    if current.fingerprints != plan.fingerprints:
-        raise SubscriptionMutationError("proposal_stale", "proposal targets changed", status_code=409)
-    result = self._apply_normalized(actor, current)
+    self._revalidate_live_plan(actor, plan)
+    result = self._apply_normalized(actor, plan, cleanup=cleanup)
     if owns_transaction and commit:
         conn.commit()
+        cleanup.run()
     return result
 except Exception:
     if owns_transaction and conn.in_transaction:
         conn.rollback()
+        cleanup.discard()
     raise
 ```
+
+The service owns cleanup only when it owns the commit. Task 6 owns the outer proposal transaction, so it must create and pass the collector, commit the database transaction, then run the collector; every rollback or rejected apply discards it.
 
 Create source/subscription/schedule, update source/subscription/schedule, and delete subscription/optionally disable source within that one transaction. Call quota again before enabling, reset health on config identity changes, invalidate avatar on source-key change, and preserve existing schedule/job/feed invalidation behavior by reusing `ServiceStore` and `SourceScheduleService` methods with the outer transaction active.
 
@@ -644,17 +662,19 @@ def prepare(self, actor: DelegatedActor, plan: SubscriptionChangePlan) -> dict[s
     created_at = self.now().astimezone(timezone.utc)
     expires_at = created_at + timedelta(minutes=10)
     confirmation_text = f"确认执行 {proposal_id[-8:]}"
+    snapshot = plan.to_snapshot()
     row = self.store.create_agent_change_proposal(
         proposal_id=proposal_id,
         workspace_id=actor.workspace_id,
         user_id=actor.user_id,
         delegation_id=actor.delegation_id,
-        kind=plan.kind,
-        source_id=plan.target_ids.get("source_id"),
-        subscription_id=plan.target_ids.get("subscription_id"),
-        payload=plan.payload,
-        preview=plan.preview,
-        fingerprints=plan.fingerprints,
+        kind=snapshot["kind"],
+        source_id=snapshot["targets"].get("source_id"),
+        subscription_id=snapshot["targets"].get("subscription_id"),
+        payload={"plan_snapshot": snapshot},
+        # Safe duplicate columns keep existing proposal projection/index usage.
+        preview=snapshot["preview"],
+        fingerprints=snapshot["fingerprints"],
         confirmation_hash=hashlib.sha256(confirmation_text.encode()).hexdigest(),
         created_at=created_at.isoformat(),
         expires_at=expires_at.isoformat(),
@@ -663,10 +683,10 @@ def prepare(self, actor: DelegatedActor, plan: SubscriptionChangePlan) -> dict[s
         "proposal_id": row["id"], "kind": row["kind"],
         "preview": row["preview"], "created_at": row["created_at"],
         "expires_at": row["expires_at"], "confirmation_text": confirmation_text,
-    }
+}
 ```
 
-Map `AgentProposalLimitError` to `proposal_limit`. The confirmation phrase is returned from prepare but only its SHA-256 is stored.
+Map `AgentProposalLimitError` to `proposal_limit`. The confirmation phrase is returned from prepare but only its SHA-256 is stored. The complete versioned envelope is authoritative; `kind`, target columns, `preview`, and `fingerprints` are safe duplicates that Task 6 must compare with the envelope before calling `restore_plan_snapshot()`. A mismatch fails closed and never falls back to the old public-constructor shape.
 
 - [ ] **Step 5: Add the MCP-facing facade and safe source discovery**
 
@@ -757,6 +777,7 @@ def apply(self, actor: DelegatedActor, *, proposal_id: str, confirmation_text: s
     self._require_write(actor)
     conn = self.store.connect()
     owns_transaction = not conn.in_transaction
+    cleanup = PostCommitMediaCleanup()
     try:
         if owns_transaction:
             conn.execute("BEGIN IMMEDIATE")
@@ -767,33 +788,44 @@ def apply(self, actor: DelegatedActor, *, proposal_id: str, confirmation_text: s
             self.store.expire_agent_change_proposal(proposal_id, now=now.isoformat(), commit=False)
             if owns_transaction:
                 conn.commit()
+            cleanup.discard()
             raise AgentProposalError("proposal_expired", "proposal expired")
         actual = hashlib.sha256(str(confirmation_text).encode()).hexdigest()
         if not hmac.compare_digest(actual, row["confirmation_hash"]):
             raise AgentProposalError("confirmation_mismatch", "confirmation text does not match")
-        plan = SubscriptionChangePlan(
-            kind=row["kind"], payload=row["payload"], preview=row["preview"],
-            target_ids={key: value for key, value in {
-                "source_id": row.get("source_id"),
-                "subscription_id": row.get("subscription_id"),
-            }.items() if value},
-            fingerprints=row["fingerprints"],
+        snapshot = row["payload"].get("plan_snapshot")
+        duplicate_targets = {key: value for key, value in {
+            "source_id": row.get("source_id"),
+            "subscription_id": row.get("subscription_id"),
+        }.items() if value}
+        if (
+            not isinstance(snapshot, dict)
+            or row["kind"] != snapshot.get("kind")
+            or row["preview"] != snapshot.get("preview")
+            or row["fingerprints"] != snapshot.get("fingerprints")
+            or duplicate_targets != snapshot.get("targets")
+        ):
+            raise AgentProposalError("proposal_stale", "proposal snapshot does not match stored projection")
+        plan = self.mutations.restore_plan_snapshot(snapshot)
+        result = self.mutations.apply_plan(
+            actor, plan, commit=False, post_commit_cleanup=cleanup,
         )
-        result = self.mutations.apply_plan(actor, plan, commit=False)
         self.store.apply_agent_change_proposal(
             proposal_id, applied_at=now.isoformat(),
             result_summary=self._safe_result(result), commit=False,
         )
         if owns_transaction:
             conn.commit()
+            cleanup.run()
         return {"proposal_id": proposal_id, "status": "applied", "result": self._safe_result(result)}
     except Exception:
         if owns_transaction and conn.in_transaction:
             conn.rollback()
+        cleanup.discard()
         raise
 ```
 
-On expiry, commit only the proposal status change before returning `proposal_expired`; on every other rejection/exception, roll back. `_require_same_actor_pending()` maps absent or cross-scope IDs to `not_found`, applied to `proposal_consumed`, and expired to `proposal_expired`.
+On expiry, commit only the proposal status change, discard the collector, then return `proposal_expired`; on every other rejection/exception, roll back and discard. A successful outer commit is the only path that calls `cleanup.run()`. `_require_same_actor_pending()` maps absent or cross-scope IDs to `not_found`, applied to `proposal_consumed`, and expired to `proposal_expired`.
 
 - [ ] **Step 4: Re-authenticate current delegation state before applying**
 

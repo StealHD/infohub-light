@@ -985,3 +985,11 @@
 - 结果：planner/restore/apply 共用严格版本化 invariant builder；subscription 幂等与 source re-enable admission 分离；外层事务缺 cleanup collector 在 mutation 前失败关闭；公开投影覆盖嵌入式常见 token 且保留安全 Bearer 标题；schedule preview 展示 existing 合并态或 new 默认态
 - 未解决问题：Task 4+ 外层事务调用 mutation service 时须显式传 collector，commit 后执行、rollback 时丢弃；本任务未实现 Task 4+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 第三轮复审的两个 Important
+- 修改文件：共享安全分类器、来源公开投影/metadata、proposal sanitizer、snapshot consumer 计划、三组合同测试、`.superpowers/sdd/task-3-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：Task 3/Task 2 新回归分别先出现 9/10 个预期 RED，`xox*` 扩展再确认 1 个 RED；focused 591 项、Python compile、full gate 22/22（`mapping_miss=false`、`ui_impacted=false`）、默认配置 JSON 校验及 `git diff --check` 通过
+- 结果：Task 1/2 共用 16 KiB、NFKC、最多两轮 percent decode 的上下文凭据分类器并覆盖 query value/fragment/known prefixes；metadata parser 异常固定失败关闭；Task 5/6 计划固定为完整 versioned snapshot + restore + outer collector 生命周期，真实 proposal row seam 已验证 commit/run 与 rollback/discard
+- 未解决问题：Task 5/6 仍待按已同步合同实现 proposal/MCP 业务；本任务未重开 public constructor 或实现后续业务
+- 控制面变更：同步实施计划中的既有 Task 3/5/6 内部接口示例，无对外 API 变更

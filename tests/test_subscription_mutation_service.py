@@ -674,16 +674,38 @@ def test_projector_makes_embedded_known_token_values_opaque_without_echo(
     assert secret_text not in repr(plan.preview)
 
 
-def test_projector_keeps_safe_bearer_business_title_public(mutation_context):
+@pytest.mark.parametrize(
+    ("url", "secret_text"),
+    [
+        (
+            "https://example.com/feed#" + "AIza" + "A" * 35,
+            "AIza" + "A" * 35,
+        ),
+        (
+            "https://example.com/feed#gsk%255F" + "B" * 32,
+            "gsk%255F" + "B" * 32,
+        ),
+        (
+            "https://example.com/feed#ｈｆ＿" + "C" * 32,
+            "ｈｆ＿" + "C" * 32,
+        ),
+    ],
+    ids=["raw-aiza-fragment", "encoded-gsk-fragment", "fullwidth-hf-fragment"],
+)
+def test_projector_makes_known_prefix_fragments_opaque_without_echo(
+    url,
+    secret_text,
+    mutation_context,
+):
     member = mutation_context["member"]
     source_id = mutation_context["store"].create_source(
         workspace_id=member["workspace_id"],
         scope="private",
         owner_user_id=member["id"],
         source_type="rss",
-        display_name="Bearer Market Report",
-        config={"url": "https://example.com/bearer-market-report.xml"},
-        source_key="rss:https://example.com/bearer-market-report.xml",
+        display_name="Legacy fragment source",
+        config={"url": url},
+        source_key=f"legacy-prefix-fragment:{len(secret_text)}:{url[-1]}",
     )
     actor = SubscriptionActor.from_user(member)
 
@@ -695,7 +717,36 @@ def test_projector_keeps_safe_bearer_business_title_public(mutation_context):
     )
 
     assert plan.preview["source"] == {
-        "display_name": "Bearer Market Report",
+        "display_name": "Web-managed source",
+        "type": "rss",
+        "public_target": "web_setup_required",
+    }
+    assert secret_text not in repr(plan.preview)
+
+
+@pytest.mark.parametrize("display_name", ["Bearer Market Report", "SK-Internationalization"])
+def test_projector_keeps_safe_business_title_public(display_name, mutation_context):
+    member = mutation_context["member"]
+    source_id = mutation_context["store"].create_source(
+        workspace_id=member["workspace_id"],
+        scope="private",
+        owner_user_id=member["id"],
+        source_type="rss",
+        display_name=display_name,
+        config={"url": "https://example.com/bearer-market-report.xml"},
+        source_key=f"rss:https://example.com/{display_name.lower()}.xml",
+    )
+    actor = SubscriptionActor.from_user(member)
+
+    plan = mutation_context["service"].plan_create(
+        actor,
+        source={"mode": "existing", "source_id": source_id},
+        subscription={},
+        schedule=None,
+    )
+
+    assert plan.preview["source"] == {
+        "display_name": display_name,
         "type": "rss",
         "public_target": "https://example.com/bearer-market-report.xml",
     }
@@ -821,6 +872,81 @@ def test_agent_create_rejects_credentials_in_source_metadata_without_echo(
 
     assert exc_info.value.code == "invalid_source_config"
     assert "never-echo-this" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "display_name",
+    [
+        "Feed " + "AIza" + "A" * 35,
+        "Feed%20gsk%255F" + "B" * 32,
+        "Feed ｈｆ＿" + "C" * 32,
+    ],
+    ids=["raw-aiza", "encoded-gsk", "fullwidth-hf"],
+)
+def test_agent_create_rejects_embedded_known_prefixes_in_private_metadata(
+    display_name,
+    mutation_context,
+):
+    actor = SubscriptionActor.from_user(mutation_context["member"])
+
+    with pytest.raises(SubscriptionMutationError) as exc_info:
+        mutation_context["service"].plan_create(
+            actor,
+            source={
+                "mode": "private",
+                "type": "rss",
+                "display_name": display_name,
+                "config": {"url": "https://example.com/private-prefix.xml"},
+            },
+            subscription={},
+            schedule=None,
+        )
+
+    assert exc_info.value.code == "invalid_source_config"
+    assert str(exc_info.value) == "credentials are not accepted; configure secrets in Web"
+    assert display_name not in str(exc_info.value)
+
+
+def test_agent_metadata_classifier_fails_closed_without_echoing_parser_errors(
+    mutation_context,
+):
+    actor = SubscriptionActor.from_user(mutation_context["member"])
+    display_name = "https://alice:do-not-echo@[broken"
+
+    with pytest.raises(SubscriptionMutationError) as exc_info:
+        mutation_context["service"].plan_create(
+            actor,
+            source={
+                "mode": "private",
+                "type": "rss",
+                "display_name": display_name,
+                "config": {"url": "https://example.com/parser-failure.xml"},
+            },
+            subscription={},
+            schedule=None,
+        )
+
+    assert exc_info.value.code == "invalid_source_config"
+    assert str(exc_info.value) == "credentials are not accepted; configure secrets in Web"
+    assert "do-not-echo" not in str(exc_info.value)
+
+
+def test_agent_create_keeps_safe_long_sk_business_title(mutation_context):
+    actor = SubscriptionActor.from_user(mutation_context["member"])
+
+    plan = mutation_context["service"].plan_create(
+        actor,
+        source={
+            "mode": "private",
+            "type": "rss",
+            "display_name": "SK-Internationalization",
+            "config": {"url": "https://example.com/internationalization.xml"},
+        },
+        subscription={},
+        schedule=None,
+    )
+
+    assert plan.preview["source"]["display_name"] == "SK-Internationalization"
 
 
 def test_apify_customization_keeps_stable_web_setup_error(mutation_context):
