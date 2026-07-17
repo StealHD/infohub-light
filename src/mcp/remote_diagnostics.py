@@ -6,7 +6,10 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from ..security import public_data_contains_credentials
+from ..security import (
+    is_sensitive_credential_key,
+    public_data_contains_credentials,
+)
 from ..services.job_queue import JobQueue
 from ..services.runtime_status import RuntimeStatusService
 from ..services.source_health import SourceHealthService, sanitize_issue_message
@@ -180,6 +183,7 @@ def _safe_code(value: Any) -> str | None:
     if (
         not _SAFE_CODE_RE.fullmatch(code)
         or _SECRET_SHAPED_CODE_RE.search(code)
+        or is_sensitive_credential_key(code)
         or public_data_contains_credentials(code)
     ):
         return None
@@ -215,6 +219,7 @@ def _safe_name(value: Any, *, fallback: str) -> str:
         or "://" in candidate
         or "?" in candidate
         or re.search(r"\b(?:authorization|bearer|basic)\b", candidate, re.I)
+        or is_sensitive_credential_key(candidate)
         or public_data_contains_credentials(candidate)
     ):
         return fallback
@@ -247,6 +252,7 @@ def _strict_result_summary(job: dict[str, Any] | None) -> dict[str, Any]:
         if (
             value
             and _SAFE_RESULT_IDENTIFIER_RE.fullmatch(value)
+            and not is_sensitive_credential_key(value)
             and not public_data_contains_credentials(value)
         ):
             safe[field] = value
@@ -279,6 +285,7 @@ class RemoteMCPDiagnostics:
         actor: SubscriptionActor,
         subscription_id: str,
     ) -> dict[str, Any]:
+        checked_at = _utc(self.now())
         subject = self._owned_subscription(actor, subscription_id)
         health = self._owned_health(actor, subject)
         schedule = self._owned_schedule(actor, subject)
@@ -288,7 +295,7 @@ class RemoteMCPDiagnostics:
             health=health,
             schedule=schedule,
         )
-        worker_status = self._worker_status(actor)
+        worker_status = self._worker_status(actor, checked_at=checked_at)
         category, code, confidence = self._classify(
             subject=subject,
             schedule=schedule,
@@ -296,6 +303,7 @@ class RemoteMCPDiagnostics:
             job=related_job,
             worker_status=worker_status,
             prefer_job=False,
+            checked_at=checked_at,
         )
         status = self._source_status(
             subject=subject,
@@ -312,6 +320,7 @@ class RemoteMCPDiagnostics:
             job=related_job,
             worker_status=worker_status,
             secret_configured=secret_configured,
+            checked_at=checked_at,
         )
         return self._response(
             kind="source",
@@ -333,11 +342,12 @@ class RemoteMCPDiagnostics:
         actor: SubscriptionActor,
         job_id: str,
     ) -> dict[str, Any]:
+        checked_at = _utc(self.now())
         job = self._owned_job(actor, job_id)
         subject = self._job_subject(actor, job)
         schedule = self._owned_schedule(actor, subject) if subject else None
         health = self._owned_health(actor, subject) if subject else None
-        worker_status = self._worker_status(actor)
+        worker_status = self._worker_status(actor, checked_at=checked_at)
         category, code, confidence = self._classify(
             subject=subject,
             schedule=schedule,
@@ -345,6 +355,7 @@ class RemoteMCPDiagnostics:
             job=job,
             worker_status=worker_status,
             prefer_job=True,
+            checked_at=checked_at,
         )
         fallback_name = {
             "source_fetch": "来源抓取任务",
@@ -492,16 +503,33 @@ class RemoteMCPDiagnostics:
         health: dict[str, Any] | None,
         schedule: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
-        candidate_ids = [
-            (health or {}).get("last_job_id"),
-            (schedule or {}).get("last_job_id"),
-        ]
-        for candidate_id in candidate_ids:
+        explicit_candidates: list[tuple[str, dict[str, Any]]] = []
+        for link_kind, candidate_id in (
+            ("health", (health or {}).get("last_job_id")),
+            ("schedule", (schedule or {}).get("last_job_id")),
+        ):
             if not candidate_id:
                 continue
             job = self.jobs.get_job(str(candidate_id))
-            if self._job_matches_subject(actor, subject, job):
-                return job
+            if self._explicit_job_matches_subject(actor, subject, job):
+                explicit_candidates.append((link_kind, job))
+        if explicit_candidates:
+            active_schedule_jobs = [
+                job
+                for link_kind, job in explicit_candidates
+                if link_kind == "schedule"
+                and self._job_status(job) in _ACTIVE_JOB_STATUSES
+            ]
+            candidates = active_schedule_jobs or [
+                job for _link_kind, job in explicit_candidates
+            ]
+            return max(
+                candidates,
+                key=lambda job: (
+                    str(job.get("created_at") or ""),
+                    str(job.get("id") or ""),
+                ),
+            )
         row = self.store.connect().execute(
             """
             SELECT id
@@ -526,6 +554,23 @@ class RemoteMCPDiagnostics:
         return job if self._job_matches_subject(actor, subject, job) else None
 
     @staticmethod
+    def _explicit_job_matches_subject(
+        actor: SubscriptionActor,
+        subject: dict[str, Any],
+        job: dict[str, Any] | None,
+    ) -> bool:
+        if not job:
+            return False
+        if (
+            job.get("workspace_id") != actor.workspace_id
+            or job.get("user_id") != actor.user_id
+        ):
+            return False
+        if job.get("job_type") == "user_feed_refresh":
+            return True
+        return RemoteMCPDiagnostics._job_matches_subject(actor, subject, job)
+
+    @staticmethod
     def _job_matches_subject(
         actor: SubscriptionActor,
         subject: dict[str, Any],
@@ -543,13 +588,18 @@ class RemoteMCPDiagnostics:
             }
         )
 
-    def _worker_status(self, actor: SubscriptionActor) -> str:
+    def _worker_status(
+        self,
+        actor: SubscriptionActor,
+        *,
+        checked_at: datetime,
+    ) -> str:
         try:
             status = str(
                 self.runtime_status.summary(
                     workspace_id=actor.workspace_id,
                     user_id=actor.user_id,
-                    now=_utc(self.now()),
+                    now=checked_at,
                 ).get("worker_status")
                 or ""
             )
@@ -565,7 +615,12 @@ class RemoteMCPDiagnostics:
         except Exception:
             return False
 
-    def _schedule_state(self, schedule: dict[str, Any] | None) -> str:
+    @staticmethod
+    def _schedule_state(
+        schedule: dict[str, Any] | None,
+        *,
+        checked_at: datetime,
+    ) -> str:
         if schedule is None:
             return "not_configured"
         if not bool(schedule.get("enabled")):
@@ -573,7 +628,7 @@ class RemoteMCPDiagnostics:
         if schedule.get("last_skip_reason"):
             return "blocked"
         next_run_at = _safe_timestamp(schedule.get("next_run_at"))
-        if next_run_at and datetime.fromisoformat(next_run_at) <= _utc(self.now()):
+        if next_run_at and datetime.fromisoformat(next_run_at) <= checked_at:
             return "overdue"
         return "ready"
 
@@ -586,12 +641,13 @@ class RemoteMCPDiagnostics:
         job: dict[str, Any] | None,
         worker_status: str,
         prefer_job: bool,
+        checked_at: datetime,
     ) -> tuple[str, str | None, str]:
         if subject is not None and not bool(subject.get("source_enabled")):
             return "source_disabled", "source_disabled", "confirmed"
         if subject is not None and not bool(subject.get("subscription_enabled")):
             return "subscription_disabled", "subscription_disabled", "confirmed"
-        schedule_state = self._schedule_state(schedule)
+        schedule_state = self._schedule_state(schedule, checked_at=checked_at)
         if schedule is not None and schedule_state in {"disabled", "blocked", "overdue"}:
             return "schedule_blocked", "schedule_blocked", "confirmed"
         if (
@@ -626,7 +682,11 @@ class RemoteMCPDiagnostics:
             category = _message_category(raw_message)
             if category:
                 return category, retained_code, "likely"
-        if self._successful_zero_item_attempt(health=health, job=job):
+        if self._successful_zero_item_attempt(
+            health=health,
+            job=job,
+            job_only=prefer_job,
+        ):
             return "no_items", retained_code, "confirmed"
         return "unknown", retained_code, "unknown"
 
@@ -635,9 +695,11 @@ class RemoteMCPDiagnostics:
         *,
         health: dict[str, Any] | None,
         job: dict[str, Any] | None,
+        job_only: bool,
     ) -> bool:
         if (
-            health
+            not job_only
+            and health
             and health.get("status") == "healthy"
             and health.get("last_attempt_at")
             and int(health.get("last_fetched_count") or 0) == 0
@@ -646,10 +708,7 @@ class RemoteMCPDiagnostics:
         if not job or job.get("status") != "succeeded":
             return False
         result = _strict_result_summary(job)
-        return any(
-            field in result and result[field] == 0
-            for field in ("fetched_count", "item_count")
-        )
+        return "fetched_count" in result and result["fetched_count"] == 0
 
     def _source_status(
         self,
@@ -685,6 +744,7 @@ class RemoteMCPDiagnostics:
         job: dict[str, Any] | None,
         worker_status: str,
         secret_configured: bool,
+        checked_at: datetime,
     ) -> list[dict[str, Any]]:
         evidence = [
             {"kind": "source_enabled", "value": bool(subject["source_enabled"])},
@@ -692,7 +752,10 @@ class RemoteMCPDiagnostics:
                 "kind": "subscription_enabled",
                 "value": bool(subject["subscription_enabled"]),
             },
-            {"kind": "schedule_status", "value": self._schedule_state(schedule)},
+            {
+                "kind": "schedule_status",
+                "value": self._schedule_state(schedule, checked_at=checked_at),
+            },
             {"kind": "secret_configured", "value": bool(secret_configured)},
         ]
         if schedule and schedule.get("last_skip_reason"):

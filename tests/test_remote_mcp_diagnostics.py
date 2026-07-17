@@ -254,7 +254,14 @@ def _insert_health(
     context["store"].connect().commit()
 
 
-def _insert_schedule(context, *, enabled, last_skip_reason=None, overdue=False):
+def _insert_schedule(
+    context,
+    *,
+    enabled,
+    last_skip_reason=None,
+    overdue=False,
+    last_job_id=None,
+):
     timestamp = NOW.isoformat()
     next_run_at = (
         NOW - timedelta(minutes=1) if overdue else NOW + timedelta(hours=1)
@@ -266,7 +273,7 @@ def _insert_schedule(context, *, enabled, last_skip_reason=None, overdue=False):
             interval_minutes, next_run_at, last_evaluated_at,
             last_enqueued_at, last_job_id, last_skip_reason,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 60, ?, ?, NULL, NULL, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, 60, ?, ?, NULL, ?, ?, ?, ?)
         """,
         (
             context["subscription"]["id"],
@@ -276,6 +283,7 @@ def _insert_schedule(context, *, enabled, last_skip_reason=None, overdue=False):
             1 if enabled else 0,
             next_run_at,
             timestamp,
+            last_job_id,
             last_skip_reason,
             timestamp,
             timestamp,
@@ -527,6 +535,65 @@ def test_active_job_with_stale_worker_uses_only_anonymous_status(context):
     _assert_fixed_safe_shape(result, kind="job", target_id=job["id"])
 
 
+def test_source_prefers_new_active_schedule_job_over_old_health_job(context):
+    old_job = _create_job(
+        context,
+        status="succeeded",
+        result={"fetched_count": 4},
+    )
+    _insert_health(
+        context,
+        job_id=old_job["id"],
+        status="healthy",
+        fetched_count=4,
+    )
+    active_job = _create_job(context, status="queued")
+    context["store"].connect().execute(
+        "UPDATE fetch_jobs SET created_at = ? WHERE id = ?",
+        ((NOW + timedelta(minutes=1)).isoformat(), active_job["id"]),
+    )
+    context["store"].connect().commit()
+    _insert_schedule(context, enabled=True, last_job_id=active_job["id"])
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["cause"]["category"] == "worker_unavailable"
+    assert result["related_job_id"] == active_job["id"]
+    assert {"kind": "job_status", "value": "queued"} in result["evidence"]
+    assert old_job["id"] not in repr(result)
+
+
+def test_source_accepts_owned_full_refresh_linked_by_health_fk(context):
+    refresh_job = _create_job(
+        context,
+        source=False,
+        status="succeeded",
+        result={"fetched_count": 7},
+    )
+    assert refresh_job["source_id"] is None
+    assert refresh_job["subscription_id"] is None
+    _insert_health(
+        context,
+        job_id=refresh_job["id"],
+        status="healthy",
+        fetched_count=7,
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == refresh_job["id"]
+    assert {
+        "kind": "result_summary",
+        "value": {"fetched_count": 7},
+    } in result["evidence"]
+
+
 def test_safe_code_precedes_conflicting_sanitized_message(context):
     job = _create_job(
         context,
@@ -561,6 +628,54 @@ def test_successful_zero_item_attempt_is_confirmed_no_items(context):
         "evidence"
     ]
     assert "raw-result-secret" not in repr(result)
+
+
+def test_job_zero_items_does_not_use_an_older_source_health_attempt(context):
+    _insert_health(context, status="healthy", fetched_count=0)
+    job = _create_job(
+        context,
+        status="failed",
+        result={"fetched_count": 5},
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert result["cause"]["category"] == "unknown"
+    assert result["cause"]["confidence"] == "unknown"
+
+
+def test_job_zero_items_requires_explicit_zero_fetched_count(context):
+    job = _create_job(
+        context,
+        source=False,
+        status="succeeded",
+        result={"fetched_count": 5, "item_count": 0},
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert result["cause"]["category"] == "unknown"
+    assert result["cause"]["confidence"] == "unknown"
+
+
+def test_source_zero_items_accepts_a_validated_related_successful_job(context):
+    job = _create_job(
+        context,
+        status="succeeded",
+        result={"fetched_count": 0},
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["cause"]["category"] == "no_items"
+    assert result["related_job_id"] == job["id"]
 
 
 def test_successful_zero_item_source_health_is_confirmed_no_items(context):
@@ -632,6 +747,147 @@ def test_source_diagnostic_combines_health_related_job_and_secret_boolean(contex
     assert "worker-private-id" not in rendered
     assert "claim-private-token" not in rendered
     assert "source-secret" not in rendered
+
+
+@pytest.mark.parametrize(
+    "credential_label",
+    ["RSS_PRIVATE_SECRET_ENV", "GITHUB_TOKEN_ENV", "MY_API_KEY"],
+)
+def test_job_diagnostic_rejects_credential_key_labels_in_codes(
+    context, credential_label
+):
+    job = _create_job(
+        context,
+        source=False,
+        error_code=credential_label,
+        error_message="unmapped failure",
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert result["cause"]["code"] is None
+    assert credential_label not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "credential_label",
+    ["RSS_PRIVATE_SECRET_ENV", "GITHUB_TOKEN_ENV", "MY_API_KEY"],
+)
+def test_source_diagnostic_rejects_credential_key_labels_in_health_codes(
+    context, credential_label
+):
+    _insert_health(
+        context,
+        error_code=credential_label,
+        error_message="unmapped failure",
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["cause"]["code"] is None
+    assert credential_label not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "credential_label",
+    ["RSS_PRIVATE_SECRET_ENV", "GITHUB_TOKEN_ENV", "MY_API_KEY"],
+)
+def test_job_diagnostic_rejects_credential_key_labels_in_result_identifiers(
+    context, credential_label
+):
+    job = _create_job(
+        context,
+        source=False,
+        result={
+            "snapshot_id": credential_label,
+            "run_status": credential_label,
+        },
+    )
+
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
+    )
+
+    assert credential_label not in repr(result)
+    assert not any(
+        item["kind"] == "result_summary" for item in result["evidence"]
+    )
+
+
+@pytest.mark.parametrize(
+    "diagnostic_kind,credential_label,fallback_name",
+    [
+        ("source", "RSS_PRIVATE_SECRET_ENV", "来源"),
+        ("job", "GITHUB_TOKEN_ENV", "来源抓取任务"),
+        ("job", "MY_API_KEY", "来源抓取任务"),
+    ],
+)
+def test_diagnostic_target_name_rejects_credential_key_labels(
+    context, diagnostic_kind, credential_label, fallback_name
+):
+    context["store"].update_source(
+        context["source_id"], display_name=credential_label
+    )
+    if diagnostic_kind == "source":
+        result = context["diagnostics"].diagnose_source(
+            actor=context["actor"],
+            subscription_id=context["subscription"]["id"],
+        )
+    else:
+        job = _create_job(context)
+        result = context["diagnostics"].diagnose_job(
+            actor=context["actor"], job_id=job["id"]
+        )
+
+    assert result["target"]["name"] == fallback_name
+    assert credential_label not in repr(result)
+
+
+@pytest.mark.parametrize("diagnostic_kind", ["source", "job"])
+def test_each_public_diagnostic_uses_one_consistent_checked_at(
+    context, diagnostic_kind
+):
+    _insert_schedule(context, enabled=True)
+    boundary = NOW + timedelta(seconds=1)
+    context["store"].connect().execute(
+        "UPDATE user_source_schedules SET next_run_at = ? WHERE subscription_id = ?",
+        (boundary.isoformat(), context["subscription"]["id"]),
+    )
+    context["store"].connect().commit()
+    observed_times = []
+
+    def increasing_clock():
+        current = NOW + timedelta(seconds=len(observed_times) * 2)
+        observed_times.append(current)
+        return current
+
+    diagnostics = RemoteMCPDiagnostics(
+        context["store"],
+        runtime_status=RuntimeStatusService(context["store"]),
+        secret_is_set=lambda _env_name: True,
+        now=increasing_clock,
+    )
+    if diagnostic_kind == "source":
+        result = diagnostics.diagnose_source(
+            actor=context["actor"],
+            subscription_id=context["subscription"]["id"],
+        )
+        assert {"kind": "schedule_status", "value": "ready"} in result[
+            "evidence"
+        ]
+    else:
+        job = _create_job(context, status="failed")
+        result = diagnostics.diagnose_job(
+            actor=context["actor"], job_id=job["id"]
+        )
+
+    assert result["cause"]["category"] == "unknown"
+    assert observed_times == [NOW]
 
 
 def test_cross_user_and_missing_targets_share_not_found(context):

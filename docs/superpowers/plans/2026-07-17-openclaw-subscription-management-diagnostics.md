@@ -904,7 +904,7 @@ Use this precedence:
 4. queued/running job plus runtime `missing|stale` → `worker_unavailable` / confirmed;
 5. normalized error code mapping → confirmed;
 6. sanitized message keyword mapping → likely;
-7. successful attempt with fetched count 0 → `no_items` / confirmed;
+7. target-specific successful attempt with an explicit `fetched_count == 0` → `no_items` / confirmed;
 8. otherwise `unknown` / unknown.
 
 Code matching is case-insensitive and deterministic:
@@ -934,7 +934,11 @@ Return the fixed shape:
 }
 ```
 
-`diagnose_source()` must combine subscription/source enabled state, schedule state and `last_skip_reason`, persisted Source Health, its related job, and a boolean `secret_configured` computed through the injected callback. Evidence may contain only the boolean; it never contains the environment-variable name.
+`diagnose_source()` must combine subscription/source enabled state, schedule state and `last_skip_reason`, persisted Source Health, its related job, and a boolean `secret_configured` computed through the injected callback. Collect and validate both Health and Schedule `last_job_id` references against the actor before choosing one; an owned `user_feed_refresh` is valid when reached through either real foreign-key link even though its own source/subscription columns are empty. Prefer an active Schedule-linked Job, otherwise choose the latest explicit candidate by `(created_at, id)`; run the direct source/subscription fallback query only when no valid explicit candidate exists. Evidence may contain only the secret boolean; it never contains the environment-variable name.
+
+`diagnose_job()` may classify `no_items` only from that exact Job when it is `succeeded` and its allowlisted result explicitly contains `fetched_count == 0`; Source Health and `item_count` cannot substitute. `diagnose_source()` may use the current healthy last-success attempt or its validated related succeeded Job under the same explicit fetched-count rule.
+
+Each public diagnostic captures one `checked_at` and passes it unchanged to runtime freshness, schedule precedence, and evidence construction. Every externally controlled scalar projection, including error/skip codes, result identifiers, and target display names, must reject both credential values/URLs and standalone sensitive credential-key labels such as `*_SECRET_ENV`, `*_TOKEN_ENV`, and `*_API_KEY`.
 
 Actions use only modes `prepare_change`, `web`, `wait`, or `contact_admin`. Titles/labels are fixed localized strings; they never claim a repair ran.
 
