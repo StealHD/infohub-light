@@ -921,3 +921,11 @@
 - 结果：公网 literal 分类前拒绝 authority/hostname 中的反斜杠，使用固定非回显错误；普通域名、numeric-label 域名与 `policy.public_network_only=true` 回归保持
 - 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现 schema v7 Agent 变更提案持久化、保留清理与部署数据库脱敏
+- 修改文件：`src/storage/service_store.py`、`src/services/maintenance.py`、`scripts/prepare_service_deployment.py`、proposal/maintenance/deployment 测试、Task 2 报告、`WORKLOG.md`
+- 执行验证：proposal 测试先出现 17 个预期 RED，自审补充未知 JSON 对象失败关闭再确认 1 个 RED；focused 27 项通过，full gate 22/22 通过且 `mapping_miss=false`，Python compile 与 `git diff --check` 通过
+- 结果：新增 v7 additive proposal 表、级联外键/索引/marker、10 分钟 TTL 与 delegation 原子 pending 上限、安全 JSON 投影/写入、30 天维护清理、旧库兼容部署清空，以及 `create_source(commit=False)` 事务支持
+- 未解决问题：Task 3+ 仍需在外层 `BEGIN IMMEDIATE` 中消费 `commit=False` 接口并完成业务 apply；本任务未实现 mutation service、MCP 或 UI
+- 控制面变更：无

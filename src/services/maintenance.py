@@ -276,6 +276,11 @@ class MaintenanceService:
             "DELETE FROM sessions WHERE expires_at < ?",
             (now.isoformat(),),
         ).rowcount
+        proposal_cleanup = self.store.cleanup_agent_change_proposals(
+            now=now.isoformat(),
+            maintenance=True,
+            commit=False,
+        )
         return {
             "feed_snapshots": len(feed_delete_ids),
             "source_snapshots": len(source_delete_ids),
@@ -285,4 +290,5 @@ class MaintenanceService:
             "usage_events": max(int(usage), 0),
             "jobs": max(int(jobs), 0),
             "sessions": max(int(sessions), 0),
+            "agent_change_proposals": proposal_cleanup["deleted"],
         }
