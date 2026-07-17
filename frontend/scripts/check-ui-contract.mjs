@@ -25,8 +25,8 @@ function sourceViolations(file, source) {
   }
   if (isBusinessSource && !isHeroWorkbench) {
     const checks = [
-      [/\bimport\s+(?:[^'"\n]+\s+from\s+)?['"][^'"]*\.module\.css['"]/, 'Shell 与业务页不得使用页面级 CSS Modules'],
-      [/(?:#[0-9a-f]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\()/i, '业务页面不得定义原始颜色值'],
+      [/\bimport\s*(?:\(\s*)?(?:[^'"\n]+\s+from\s+)?['"][^'"]*\.module\.css['"]\s*\)?/, 'Shell 与业务页不得使用页面级 CSS Modules'],
+      [/(?:#[0-9a-f]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\(|\b(?:oklch|oklab|lab|lch)\s*\(|\bcolor\s*\(\s*display-p3\b)/i, '业务页面不得定义原始颜色值'],
       [/\b(?:borderRadius|boxShadow|transitionDuration|animationDuration)\s*:\s*(?:['"]?\d|['"][^'"]+)|\b(?:border-radius|box-shadow|transition-duration|animation-duration)\s*:/, '视觉常量必须来自设计系统主题'],
     ]
     for (const [pattern, message] of checks) if (pattern.test(source)) violations.push(`${file}: ${message}`)

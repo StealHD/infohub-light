@@ -984,3 +984,11 @@
 - 结果：rendered cards 成为唯一滚动恢复边界，raw source 不再重复恢复；所有显式导航/用户取消统一释放 refresh/restoration/inline timer+RAF ownership；business CSS/CSS Module 与固定 preview 产物绕过被封堵，MUI 检测不再误报无关 `Mui` 子串；`/saved`、`/history`、`/later` 真实集合路由具备生产验收
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 23:08 Codex
+- 任务：关闭 Task 4 二次评审中的刷新/轨道导航同事件循环竞态，并把 UI/产物负向测试升级为真实不可绕过执行门禁
+- 修改文件：`VirtualFeed` 与生产竞态 Playwright；UI source/artifact checker；固定 preview fixture 运行时 marker；可执行 Vitest 负向用例；Task 4 报告与本工作日志
+- 执行验证：真实负向门禁 2 文件/21 项、竞态三视口 3/3、全量 Vitest 28 文件/166 项、UI contract、lint 0 error/warning、TypeScript、build/artifact、三视口 Playwright/Axe 48/48、Python API 69 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、50.462 秒；`git diff --check` 通过
+- 结果：显式导航统一清除旧 viewport fallback，刷新响应在 rail click 后 microtask 内返回也不能抢回旧锚点；真实 Vite preview-story bundle、`.Mui-disabled` 产物、动态 CSS Module 与现代 CSS 色彩均由实际 checker 失败，负向覆盖不再依赖源码字符串或可独立 tree-shake 标记
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或正式门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

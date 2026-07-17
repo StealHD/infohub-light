@@ -1,10 +1,29 @@
 /// <reference types="node" />
 
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { build } from 'vite'
+import { afterEach, describe, expect, it } from 'vitest'
 
 const frontendRoot = process.cwd()
+const artifactChecker = resolve(frontendRoot, 'scripts/check-preview-build.mjs')
+const temporaryRoots: string[] = []
+
+function temporaryRoot() {
+  const root = mkdtempSync(join(tmpdir(), 'inteliscope-ui-artifact-'))
+  temporaryRoots.push(root)
+  return root
+}
+
+function checkArtifact(buildRoot: string) {
+  return spawnSync(process.execPath, [artifactChecker, '--build-root', buildRoot], { encoding: 'utf8' })
+}
+
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
 
 describe('final HeroUI cutover contract', () => {
   it('has no MUI or Emotion dependency declarations', () => {
@@ -34,13 +53,41 @@ describe('final HeroUI cutover contract', () => {
     expect(bootstrap).not.toContain("from './ui'")
   })
 
-  it('guards the fixed preview fixture with a stable marker and only matches real MUI artifacts', () => {
-    const previewModel = readFileSync(resolve(frontendRoot, 'src/features/workbench-heroui/workbenchPreviewModel.ts'), 'utf8')
-    const artifactChecker = readFileSync(resolve(frontendRoot, 'scripts/check-preview-build.mjs'), 'utf8')
+  it('rejects an actual MUI global-state class in a built CSS artifact', () => {
+    const buildRoot = temporaryRoot()
+    writeFileSync(join(buildRoot, 'app.css'), '.button.Mui-disabled{opacity:.4}\n')
 
-    expect(previewModel).toContain("fixedPreviewFixtureMarker = 'inteliscope-fixed-preview-fixture-v1'")
-    expect(artifactChecker).toContain('inteliscope-fixed-preview-fixture-v1')
-    expect(artifactChecker).not.toMatch(/['"]Mui['"]\s*,/)
-    expect(artifactChecker).toMatch(/Mui.*-/)
+    const result = checkArtifact(buildRoot)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('MUI class marker')
+  })
+
+  it('rejects a production bundle that imports the fixed preview stories', async () => {
+    const root = temporaryRoot()
+    const output = join(root, 'dist')
+    const entry = join(root, 'entry.ts')
+    const previewModel = resolve(frontendRoot, 'src/features/workbench-heroui/workbenchPreviewModel.ts')
+    mkdirSync(output, { recursive: true })
+    writeFileSync(entry, [
+      `import { workbenchPreviewStories } from ${JSON.stringify(previewModel)}`,
+      "document.body.textContent = workbenchPreviewStories.map((story) => story.title).join(' | ')",
+    ].join('\n'))
+
+    await build({
+      configFile: false,
+      logLevel: 'silent',
+      root,
+      build: {
+        emptyOutDir: true,
+        minify: true,
+        outDir: output,
+        rollupOptions: { input: entry, output: { entryFileNames: 'fixture.js' } },
+      },
+    })
+    const result = checkArtifact(output)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('inteliscope-fixed-preview-fixture-v1')
   })
 })

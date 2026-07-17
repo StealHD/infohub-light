@@ -376,6 +376,7 @@ test('a jump during an in-flight refresh releases the captured refresh anchor', 
   let releaseSecondRequest!: () => void
   const secondRequestStarted = new Promise<void>((resolve) => { signalSecondRequest = resolve })
   const secondRequestReleased = new Promise<void>((resolve) => { releaseSecondRequest = resolve })
+  await page.exposeFunction('releaseRefreshResponse', () => releaseSecondRequest())
   await page.route('**/api/jobs/user-feed-refresh', async (route) => {
     refreshRequested = true
     await route.fallback()
@@ -399,9 +400,12 @@ test('a jump during an in-flight refresh releases the captured refresh anchor', 
   await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
   await secondRequestStarted
 
-  await page.getByRole('button', { name: '跳转到第 1 条信息' }).click()
-  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(400)
-  releaseSecondRequest()
+  await page.getByRole('button', { name: '跳转到第 1 条信息' }).evaluate((element: HTMLElement) => {
+    element.click()
+    queueMicrotask(() => {
+      void (window as typeof window & { releaseRefreshResponse: () => Promise<void> }).releaseRefreshResponse()
+    })
+  })
   await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible({ timeout: 7000 })
   await stableTopVisibleSnapshot(page)
   expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(400)

@@ -10,13 +10,23 @@ export type WorkbenchPreviewStory = {
 }
 
 export const fixedPreviewFixtureMarker = 'inteliscope-fixed-preview-fixture-v1'
+
+function markFixedPreviewFixture<T extends WorkbenchPreviewStory[]>(stories: T): T {
+  Object.defineProperty(stories, 'fixedPreviewFixtureMarker', {
+    configurable: false,
+    enumerable: false,
+    value: fixedPreviewFixtureMarker,
+    writable: false,
+  })
+  return stories
+}
 export type WorkbenchPreviewNavigationItem = {
   id: 'feed' | 'saved' | 'history' | 'subscriptions' | 'agents' | 'settings'
   label: string
   href: string
 }
 
-export const workbenchPreviewStories: WorkbenchPreviewStory[] = [
+export const workbenchPreviewStories: WorkbenchPreviewStory[] = markFixedPreviewFixture([
   {
     id: 'signal-01',
     source: 'OpenAI News',
@@ -117,7 +127,7 @@ export const workbenchPreviewStories: WorkbenchPreviewStory[] = [
     channel: '系统',
     topics: ['新内容', '状态反馈'],
   },
-]
+])
 
 export const workbenchPreviewNavigation: WorkbenchPreviewNavigationItem[] = [
   { id: 'feed', label: '信息流', href: '/feed' },

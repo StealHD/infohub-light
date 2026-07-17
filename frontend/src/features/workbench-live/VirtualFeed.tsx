@@ -33,6 +33,7 @@ const collapsedEstimate = 156
 const expandedEstimate = 390
 
 type ViewportAnchor = { id: string; offset: number }
+type PendingNavigation = { index: number; align: 'start' | 'center' | 'end' }
 
 function readViewportAnchor(scroll: HTMLDivElement): ViewportAnchor | null {
   const bounds = scroll.getBoundingClientRect()
@@ -166,6 +167,10 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const viewportAnchor = useRef<ViewportAnchor | null>(null)
   const requestedRefreshAnchor = useRef<ViewportAnchor | null>(null)
   const restorationAnchor = useRef<ViewportAnchor | null>(null)
+  const pendingNavigation = useRef<PendingNavigation | null>(null)
+  const navigationBoundary = useRef<'start' | 'end' | null>(null)
+  const navigationBoundaryTimer = useRef<number | undefined>(undefined)
+  const navigationBoundaryFrame = useRef<number | undefined>(undefined)
   const inlineScrollAnchor = useRef<number | null>(null)
   const inlineAnchorTimer = useRef<number | undefined>(undefined)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
@@ -213,14 +218,22 @@ export function VirtualFeed(props: VirtualFeedProps) {
     requestedRefreshAnchor.current = null
     restorationAnchor.current = null
     inlineScrollAnchor.current = null
+    viewportAnchor.current = null
+    pendingNavigation.current = null
+    navigationBoundary.current = null
     window.clearTimeout(inlineAnchorTimer.current)
     window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
+    window.clearTimeout(navigationBoundaryTimer.current)
+    window.cancelAnimationFrame(navigationBoundaryFrame.current ?? 0)
   }, [])
 
   useEffect(() => {
     const capture = () => {
+      const liveAnchor = scrollRef.current ? readViewportAnchor(scrollRef.current) : null
+      const storedAnchor = viewportAnchor.current
+      const anchor = liveAnchor ?? storedAnchor
       releaseNavigationOwnership()
-      if (scrollRef.current) requestedRefreshAnchor.current = readViewportAnchor(scrollRef.current)
+      requestedRefreshAnchor.current = anchor
     }
     window.addEventListener(workbenchRefreshRequestEvent, capture)
     return () => window.removeEventListener(workbenchRefreshRequestEvent, capture)
@@ -229,7 +242,17 @@ export function VirtualFeed(props: VirtualFeedProps) {
   useLayoutEffect(() => {
     if (previousCardsSignature.current === cardsSignature) return
     previousCardsSignature.current = cardsSignature
-    const anchor = requestedRefreshAnchor.current ?? viewportAnchor.current
+    const navigation = pendingNavigation.current
+    if (navigation) {
+      requestedRefreshAnchor.current = null
+      const frame = window.requestAnimationFrame(() => {
+        const index = Math.max(0, Math.min(navigation.index, cardsRef.current.length - 1))
+        if (index === 0 && scrollRef.current) scrollRef.current.scrollTop = 0
+        else virtualizerRef.current.scrollToIndex(index, { align: navigation.align })
+      })
+      return () => window.cancelAnimationFrame(frame)
+    }
+    const anchor = requestedRefreshAnchor.current ?? restorationAnchor.current ?? viewportAnchor.current
     requestedRefreshAnchor.current = null
     const scroll = scrollRef.current
     if (!anchor || !scroll || wasNearBottom.current) return
@@ -275,7 +298,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     const virtualSurface = scroll.firstElementChild
     if (virtualSurface) observer.observe(virtualSurface, { attributes: true, subtree: true, attributeFilter: ['style'] })
     return () => {
-      restorationAnchor.current = null
       observer.disconnect()
       window.cancelAnimationFrame(frame)
     }
@@ -326,7 +348,12 @@ export function VirtualFeed(props: VirtualFeedProps) {
     wasNearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 96
     if (wasNearBottom.current) setNewItemCount(0)
     const visible = virtualizer.getVirtualItems().filter((item) => item.end >= element.scrollTop && item.start <= element.scrollTop + element.clientHeight)
-    if (visible.length) setActiveIndex(visible[Math.floor((visible.length - 1) / 2)].index)
+    if (visible.length) {
+      setActiveIndex(visible[Math.floor((visible.length - 1) / 2)].index)
+      if (pendingNavigation.current && visible.some((item) => item.index === pendingNavigation.current?.index)) {
+        pendingNavigation.current = null
+      }
+    }
     const activeRestoration = restorationAnchor.current
     if (activeRestoration) {
       const row = Array.from(element.querySelectorAll<HTMLElement>('[data-item-id]'))
@@ -341,9 +368,32 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }
 
   function jumpTo(index: number) {
+    const refreshInFlight = requestedRefreshAnchor.current !== null
+    const align = index <= 0 ? 'start' : index >= props.cards.length - 1 ? 'end' : 'center'
+    const navigation = { index, align } satisfies PendingNavigation
     releaseNavigationOwnership()
+    if (refreshInFlight) pendingNavigation.current = navigation
     setActiveIndex(index)
-    virtualizer.scrollToIndex(index, { align: 'center' })
+    if (index === 0 && scrollRef.current) {
+      scrollRef.current.scrollTop = 0
+      holdNavigationBoundary('start')
+    }
+    else virtualizerRef.current.scrollToIndex(index, { align })
+  }
+
+  function holdNavigationBoundary(boundary: 'start' | 'end') {
+    navigationBoundary.current = boundary
+    const hold = () => {
+      const scroll = scrollRef.current
+      if (!scroll || navigationBoundary.current !== boundary) return
+      scroll.scrollTop = boundary === 'start' ? 0 : scroll.scrollHeight - scroll.clientHeight
+      navigationBoundaryFrame.current = window.requestAnimationFrame(hold)
+    }
+    navigationBoundaryFrame.current = window.requestAnimationFrame(hold)
+    navigationBoundaryTimer.current = window.setTimeout(() => {
+      if (navigationBoundary.current === boundary) navigationBoundary.current = null
+      window.cancelAnimationFrame(navigationBoundaryFrame.current ?? 0)
+    }, 3000)
   }
 
   function toggleExpandedInline(id: string) {

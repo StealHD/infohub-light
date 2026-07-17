@@ -1,9 +1,12 @@
 import { readFile, readdir } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const buildRoot = join(root, '../src/ui/service_static')
+const buildRootOption = process.argv.indexOf('--build-root')
+const buildRoot = buildRootOption >= 0
+  ? resolve(process.argv[buildRootOption + 1] ?? '')
+  : join(root, '../src/ui/service_static')
 const searchableExtensions = new Set(['.html', '.js', '.css', '.map'])
 const forbidden = [
   'inteliscope-fixed-preview-fixture-v1',
@@ -17,7 +20,7 @@ const forbidden = [
   '切换到 MUI 版',
 ]
 const forbiddenPatterns = [
-  { pattern: /\bMui[A-Z][A-Za-z0-9]*-[A-Za-z0-9-]+\b/, label: 'MUI class marker' },
+  { pattern: /\bMui(?:[A-Z][A-Za-z0-9]*)?-[A-Za-z0-9-]+\b/, label: 'MUI class marker' },
 ]
 const violations = []
 

@@ -127,3 +127,51 @@ npx playwright test e2e/production-workbench.spec.ts --project=mobile \
 git diff --check
 PASS
 ```
+
+## Second review follow-up: release invalidation and executable negative gates
+
+The final ownership and gate-bypass review is closed.
+
+- `releaseNavigationOwnership` now invalidates the pre-release viewport fallback in addition to the requested refresh, active restoration, inline anchor, timers, RAFs, and pending navigation. Refresh capture reads the current request-boundary geometry first, then releases older ownership, then records only that newly captured request anchor.
+- A rail action during an in-flight refresh owns the result even when the response is released from a microtask immediately after `element.click()`. The regression does not wait for a scroll event or landing before resolving the response. A pending navigation target replays against the committed card set, while the first-item boundary remains fixed during late virtual measurements and yields immediately to pointer, wheel, touch, or keyboard input.
+- Source checks now reject dynamic CSS Module imports and raw `oklch()`, `oklab()`, `lab()`, `lch()`, and `color(display-p3 ...)` colors. Tests invoke the real checker process rather than inspecting checker source.
+- Artifact checks accept an explicit build root and reject the real `.Mui-disabled` global-state class. The fixed preview story array carries a non-enumerable runtime marker, and an actual Vite production bundle that imports `workbenchPreviewStories` is rejected, so the marker cannot pass merely because an unrelated export was tree-shaken.
+
+Second follow-up verification:
+
+```text
+npx vitest run src/design-system/uiContract.test.ts src/design-system/cutoverContract.test.ts
+2 files / 21 tests passed
+
+npx playwright test e2e/production-workbench.spec.ts \
+  --grep "jump during an in-flight refresh" --workers=3
+3/3 passed across desktop, tablet, and mobile
+
+npm run check:ui
+PASS
+
+npm run lint
+PASS, 0 errors / 0 warnings
+
+npm run typecheck
+PASS
+
+npm test
+28 files / 166 tests passed
+
+npm run build
+PASS; production artifact scan passed
+(Vite retains the informational >500 kB chunk warning.)
+
+npm run e2e
+48/48 passed across desktop, tablet, and mobile
+
+.venv/bin/python -m pytest -q tests/test_api_service.py tests/test_react_service_ui.py
+69 passed
+
+.venv/bin/python scripts/test_gate.py run --mode full
+22/22 commands passed; mapping_miss=false; 50.462s
+
+git diff --check
+PASS
+```
