@@ -372,10 +372,9 @@ class SubscriptionMutationService:
             ) from exc
 
     @staticmethod
-    def _visible(source: dict[str, Any], actor: SubscriptionActor) -> bool:
+    def _accessible(source: dict[str, Any], actor: SubscriptionActor) -> bool:
         return bool(
             source.get("workspace_id") == actor.workspace_id
-            and source.get("enabled")
             and (
                 source.get("scope") in {"public", "workspace"}
                 or (
@@ -384,6 +383,10 @@ class SubscriptionMutationService:
                 )
             )
         )
+
+    @classmethod
+    def _visible(cls, source: dict[str, Any], actor: SubscriptionActor) -> bool:
+        return bool(source.get("enabled") and cls._accessible(source, actor))
 
     def _subscription_context(
         self, actor: SubscriptionActor, subscription_id: str
@@ -750,12 +753,14 @@ class SubscriptionMutationService:
             elif source_values.get("mode") == "existing":
                 self._require_exact_keys(
                     source_values,
-                    {"mode", "source_id", "public_summary"},
+                    {"mode", "source_id", "enabled", "public_summary"},
                     "existing source plan",
                 )
                 source_id = self._require_identifier(
                     source_values["source_id"], "source_id"
                 )
+                if not isinstance(source_values["enabled"], bool):
+                    raise ValueError("existing source enabled state is invalid")
                 self._validate_public_summary(source_values["public_summary"])
                 if not isinstance(targets, dict) or set(targets) not in (
                     {"source_id"},
@@ -789,11 +794,42 @@ class SubscriptionMutationService:
             schedule_preview = self._validate_schedule_preview(
                 normalized["schedule_preview"]
             )
+            final_source_enabled = bool(
+                True
+                if source_values["mode"] == "private"
+                else source_values["enabled"]
+            )
+            final_subscription_enabled = bool(subscription["enabled"])
+            subject_enabled = final_source_enabled and final_subscription_enabled
             if (
-                source_values["mode"] == "private"
-                or "subscription_id" not in targets
-            ) and schedule_preview != self._final_schedule_preview(None, schedule):
-                raise ValueError("schedule preview does not match final schedule")
+                schedule is not None
+                and schedule.get("enabled") is True
+                and not subject_enabled
+            ):
+                raise ValueError("disabled source schedule update is invalid")
+            if not subject_enabled and schedule_preview["enabled"]:
+                raise ValueError("disabled source schedule preview is invalid")
+            if source_values["mode"] == "private" or "subscription_id" not in targets:
+                if schedule_preview != self._final_schedule_preview(
+                    None,
+                    schedule,
+                    source_enabled=final_source_enabled,
+                    subscription_enabled=final_subscription_enabled,
+                ):
+                    raise ValueError("schedule preview does not match final schedule")
+            elif schedule is not None:
+                if (
+                    "enabled" in schedule
+                    and schedule_preview["enabled"]
+                    != bool(schedule["enabled"] and subject_enabled)
+                ):
+                    raise ValueError("schedule preview enabled does not match update")
+                if (
+                    "interval_minutes" in schedule
+                    and schedule_preview["interval_minutes"]
+                    != schedule["interval_minutes"]
+                ):
+                    raise ValueError("schedule preview interval does not match update")
         elif kind == "update":
             normalized = self._require_exact_keys(
                 payload,
@@ -973,7 +1009,7 @@ class SubscriptionMutationService:
                     "invalid_request", "existing source requires only source_id"
                 )
             target_source = self.store.get_source(str(source.get("source_id") or ""))
-            if target_source is None or not self._visible(target_source, actor):
+            if target_source is None or not self._accessible(target_source, actor):
                 raise self._error("not_found", "source not found", status_code=404)
             existing_subscription = self.store.get_user_subscription_for_source(
                 actor.user_id, str(target_source["id"])
@@ -986,6 +1022,7 @@ class SubscriptionMutationService:
             normalized_source = {
                 "mode": "existing",
                 "source_id": str(target_source["id"]),
+                "enabled": bool(target_source["enabled"]),
                 "public_summary": safe_summary,
             }
             preview_type = str(safe_summary["type"])
@@ -1087,9 +1124,26 @@ class SubscriptionMutationService:
                 "invalid_request", "source mode must be existing or private"
             )
 
+        final_source_enabled = bool(
+            target_source.get("enabled") if target_source is not None else True
+        )
+        final_subscription_enabled = bool(normalized_subscription["enabled"])
+        if (
+            normalized_schedule is not None
+            and normalized_schedule.get("enabled") is True
+            and not (final_source_enabled and final_subscription_enabled)
+        ):
+            raise self._error(
+                "source_schedule_unavailable",
+                "automatic source fetch requires an enabled subscription",
+                status_code=409,
+                action="Enable the subscription and source before enabling its schedule.",
+            )
         schedule_preview = self._final_schedule_preview(
             existing_schedule if existing_subscription is not None else None,
             normalized_schedule,
+            source_enabled=final_source_enabled,
+            subscription_enabled=final_subscription_enabled,
         )
         payload = {
             "source": normalized_source,
@@ -1371,7 +1425,7 @@ class SubscriptionMutationService:
                 source = self.store.get_source(
                     str(source_values.get("source_id") or "")
                 )
-                if source is None or not self._visible(source, actor):
+                if source is None or not self._accessible(source, actor):
                     raise self._error("not_found", "source not found", status_code=404)
                 subscription = self.store.get_user_subscription_for_source(
                     actor.user_id, str(source["id"])
@@ -1387,8 +1441,16 @@ class SubscriptionMutationService:
                 live_context_valid = bool(
                     source_values["public_summary"]
                     == project_catalog_source_public_summary(source)
+                    and source_values["enabled"] == bool(source.get("enabled"))
                     and payload["schedule_preview"]
-                    == self._final_schedule_preview(schedule, payload.get("schedule"))
+                    == self._final_schedule_preview(
+                        schedule,
+                        payload.get("schedule"),
+                        source_enabled=bool(source.get("enabled")),
+                        subscription_enabled=bool(
+                            payload["subscription"]["enabled"]
+                        ),
+                    )
                 )
             elif source_values.get("mode") == "private":
                 source = None
@@ -1569,12 +1631,25 @@ class SubscriptionMutationService:
             else:
                 source_id = source_values["source_id"]
             subscription_values = dict(plan.payload["subscription"])
-            if subscription_values.get("enabled", True):
-                self.quota.ensure_source_allowed(
-                    workspace_id=actor.workspace_id,
-                    user_id=actor.user_id,
-                    source_id=source_id,
-                )
+            source = self.store.get_source(source_id)
+            if source is None:
+                raise LookupError("created source not found")
+            existing_subscription = self.store.get_user_subscription_for_source(
+                actor.user_id, source_id
+            )
+            self._ensure_final_active_transition_allowed(
+                actor,
+                source_id=source_id,
+                was_source_enabled=bool(source.get("enabled")),
+                was_subscription_enabled=bool(
+                    existing_subscription and existing_subscription.get("enabled")
+                ),
+                final_source_enabled=bool(source.get("enabled")),
+                final_subscription_enabled=bool(
+                    subscription_values.get("enabled", True)
+                ),
+                source_reenable=False,
+            )
             subscription = self.store.create_subscription(
                 user_id=actor.user_id,
                 source_id=source_id,
@@ -1584,9 +1659,15 @@ class SubscriptionMutationService:
             schedule = self._apply_schedule(
                 actor, subscription, plan.payload.get("schedule")
             )
-            source = self.store.get_source(source_id)
-            if source is None:
-                raise LookupError("created source not found")
+            actual_schedule = {
+                "enabled": bool(schedule.get("enabled")),
+                "interval_minutes": int(schedule["interval_minutes"]),
+            }
+            if actual_schedule != plan.payload["schedule_preview"]:
+                raise self._error(
+                    "invalid_plan_snapshot",
+                    "final schedule does not match subscription change plan",
+                )
             return {
                 "action": "created",
                 "source": source,
@@ -1600,33 +1681,32 @@ class SubscriptionMutationService:
         if plan.kind == "update":
             source_updates = plan.payload.get("source_updates")
             subscription_updates = plan.payload.get("subscription_updates")
-            source_will_enable = bool(
-                source_updates is not None
-                and source_updates.get("enabled") is True
-                and not source.get("enabled")
+            final_source_enabled = bool(
+                source_updates.get("enabled", source.get("enabled"))
+                if source_updates is not None
+                else source.get("enabled")
             )
-            subscription_will_be_enabled = bool(
+            final_subscription_enabled = bool(
                 subscription_updates.get("enabled", subscription.get("enabled"))
                 if subscription_updates is not None
                 else subscription.get("enabled")
             )
-            if source_will_enable and subscription_will_be_enabled:
-                self.quota.ensure_source_reenable_allowed(
-                    workspace_id=actor.workspace_id,
-                    user_id=actor.user_id,
-                    source_id=str(source["id"]),
-                )
+            self._ensure_final_active_transition_allowed(
+                actor,
+                source_id=str(source["id"]),
+                was_source_enabled=bool(source.get("enabled")),
+                was_subscription_enabled=bool(subscription.get("enabled")),
+                final_source_enabled=final_source_enabled,
+                final_subscription_enabled=final_subscription_enabled,
+                source_reenable=bool(
+                    not source.get("enabled") and final_source_enabled
+                ),
+            )
             if source_updates is not None:
                 source = self._update_source_locked(
                     source, source_updates, cleanup=cleanup
                 )
             if subscription_updates is not None:
-                if subscription_updates.get("enabled") is True:
-                    self.quota.ensure_source_allowed(
-                        workspace_id=actor.workspace_id,
-                        user_id=actor.user_id,
-                        source_id=str(source["id"]),
-                    )
                 subscription = self.store.update_subscription(
                     str(subscription["id"]),
                     commit=False,
@@ -1680,6 +1760,36 @@ class SubscriptionMutationService:
             "source_id": source_id,
             "source_disabled": source_disabled,
         }
+
+    def _ensure_final_active_transition_allowed(
+        self,
+        actor: SubscriptionActor,
+        *,
+        source_id: str,
+        was_source_enabled: bool,
+        was_subscription_enabled: bool,
+        final_source_enabled: bool,
+        final_subscription_enabled: bool,
+        source_reenable: bool,
+    ) -> None:
+        """Admit only a real inactive-to-active final source transition."""
+
+        was_active = bool(was_source_enabled and was_subscription_enabled)
+        final_active = bool(final_source_enabled and final_subscription_enabled)
+        if was_active or not final_active:
+            return
+        if source_reenable:
+            self.quota.ensure_source_reenable_allowed(
+                workspace_id=actor.workspace_id,
+                user_id=actor.user_id,
+                source_id=source_id,
+            )
+            return
+        self.quota.ensure_source_allowed(
+            workspace_id=actor.workspace_id,
+            user_id=actor.user_id,
+            source_id=source_id,
+        )
 
     def _apply_schedule(
         self,

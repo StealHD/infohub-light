@@ -1001,3 +1001,11 @@
 - 结果：八个公开 Agent 类型均以 forward normalizer 做确定性反向校验并要求精确相等；update plan 携带 source/subscription/schedule 合并后的完整最终 schedule，禁用级联明确预览，同一计划对 disabled target 显式启用 schedule 在 prepare 阶段稳定拒绝；restore/apply 共用绑定并在 apply 后核对实际最终 schedule；snapshot 升级为 v2，v1 失败关闭且须重新 prepare
 - 未解决问题：Task 5/6 仍待按已同步的 v2 snapshot 合同实现 proposal/MCP 业务；本任务未实现后续业务、迁移或兼容 fallback
 - 控制面变更：同步实施计划中的 Task 3/5/6 内部 snapshot 版本与消费者合同，无对外 API 变更
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 第五轮复审的两个 Important 与一个 Minor
+- 修改文件：create/upsert 最终 schedule plan/restore/apply、quota final-active admission、Task 3 brief、mutation/API 回归、`.superpowers/sdd/task-3-fix-r5-report.md`、`WORKLOG.md`
+- 执行验证：21 个 create/quota 回归先出现 13 个预期失败，GREEN 后补充 forged snapshot/live binding 2 项；12 文件 focused 693 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）与 `git diff --check` 通过
+- 结果：create/upsert 与 update 共用最终 schedule 计算，final disabled subject 的显式 schedule enable 在 prepare 拒绝，sealed preview 与 apply 实态不一致会回滚；quota 仅对最终 inactive→active 转换 admission，真实 source re-enable 仍独立检查；brief 同步 v2/v1 fail-closed/reprepare
+- 未解决问题：Task 5/6 仍待按既有 v2 snapshot 合同实现 proposal/MCP 业务；本任务未实现后续业务、迁移或兼容 fallback
+- 控制面变更：仅同步忽略目录中的 Task 3 scratch brief，无对外 API 或主实施计划变更

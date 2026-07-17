@@ -77,20 +77,27 @@ class QuotaService:
         user_id: str,
         source_id: str,
     ) -> None:
-        enabled_subscription = self.store.connect().execute(
+        final_state = self.store.connect().execute(
             """
-            SELECT 1
-            FROM user_subscriptions us
-            JOIN source_catalog sc ON sc.id = us.source_id
-            WHERE us.user_id = ?
-              AND us.source_id = ?
-              AND sc.workspace_id = ?
-              AND us.enabled = 1
+            SELECT
+                sc.enabled AS source_enabled,
+                COALESCE(us.enabled, 0) AS subscription_enabled
+            FROM source_catalog sc
+            LEFT JOIN user_subscriptions us
+              ON us.source_id = sc.id AND us.user_id = ?
+            WHERE sc.id = ? AND sc.workspace_id = ?
             LIMIT 1
             """,
             (user_id, source_id, workspace_id),
         ).fetchone()
-        if enabled_subscription is not None:
+        # Admission is based on the final active pair, not the requested
+        # subscription flag alone. A disabled source cannot consume active
+        # capacity, and an already-enabled subscription is idempotent. Real
+        # source false->true transitions use ensure_source_reenable_allowed().
+        if final_state is not None and (
+            not bool(final_state["source_enabled"])
+            or bool(final_state["subscription_enabled"])
+        ):
             return
         self._ensure_active_source_capacity(
             workspace_id=workspace_id,

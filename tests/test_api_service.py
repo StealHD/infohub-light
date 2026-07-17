@@ -934,7 +934,7 @@ def test_subscription_creation_enforces_enabled_source_quota(tmp_path, monkeypat
     assert runtime["operational_counts"]["quota_rejects"] == 1
 
 
-def test_disabled_source_subscription_patch_is_idempotent_but_source_reenable_is_admitted(
+def test_disabled_source_subscription_enable_is_quota_neutral_but_source_reenable_is_admitted(
     tmp_path,
     monkeypatch,
 ):
@@ -961,13 +961,17 @@ def test_disabled_source_subscription_patch_is_idempotent_but_source_reenable_is
         f"/api/catalog/sources/{disabled_source['id']}",
         json={"enabled": False},
     ).status_code == 200
+    assert client.patch(
+        f"/api/me/subscriptions/{disabled_subscription['id']}",
+        json={"enabled": False},
+    ).status_code == 200
 
     active_source = create_source("Active target", "quota-active-target")
     assert client.post(
         f"/api/catalog/sources/{active_source['id']}/subscribe"
     ).status_code == 200
 
-    idempotent = client.patch(
+    quota_neutral_enable = client.patch(
         f"/api/me/subscriptions/{disabled_subscription['id']}",
         json={"enabled": True},
     )
@@ -976,8 +980,8 @@ def test_disabled_source_subscription_patch_is_idempotent_but_source_reenable_is
         json={"enabled": True},
     )
 
-    assert idempotent.status_code == 200
-    assert idempotent.json()["data"]["enabled"] is True
+    assert quota_neutral_enable.status_code == 200
+    assert quota_neutral_enable.json()["data"]["enabled"] is True
     assert rejected_reenable.status_code == 429
     assert rejected_reenable.json()["error"]["code"] == "quota_exceeded"
     store = ServiceStore(data_dir)
