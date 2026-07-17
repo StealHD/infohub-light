@@ -459,7 +459,9 @@ test('a clamped rail jump releases ownership before a later external search upda
     element.dispatchEvent(new Event('scroll'))
   })
   await page.getByRole('searchbox', { name: '搜索信息流' }).fill('实时条目 1')
-  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
+  await expect(page.getByText('旧内容在上，最新内容在下 · 11 条')).toBeVisible()
+  await stableTopVisibleSnapshot(page)
+  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
 })
 
 test('a wheel release after cards commit cancels the pending navigation RAF', async ({ page }, testInfo) => {

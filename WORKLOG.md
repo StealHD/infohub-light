@@ -1008,3 +1008,11 @@
 - 结果：release 路径会取消 cards commit 的 pending RAF，回调亦校验仍持有同一导航对象；缩短列表回归改用 Shell 搜索触发后续 cards update，不再借由卡片 pointer action 隐式释放
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 00:10 Codex
+- 任务：关闭 Task 4 第五审中 shrink + 外部搜索回归可能在过滤 cards commit 前即通过的测试时序缺口
+- 修改文件：生产工作台 Playwright、Task 4 报告与本工作日志
+- 执行验证：关键桌面竞态 2/2；UI contract、lint、TypeScript、Vitest 29 文件/167 项、build/artifact、三视口 Playwright 54 scheduled（50 pass/4 desktop-only skip）、`test_gate full`、三份 Compose config 与 `git diff --check` 均通过
+- 结果：搜索后先确认过滤结果为 11 条，再完成稳定多帧视口采样，最后断言未回弹；专用 wheel/RAF gate 保持独立覆盖 commit-to-next-frame 取消窗口
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

@@ -251,3 +251,40 @@ PASS
 git diff --check
 PASS
 ```
+
+## Fifth review follow-up: committed-card timing assertion
+
+- The shrinking-list external-search assertion no longer polls `scrollTop` immediately after filling the search field: that first poll could observe the pre-commit layout before the pending-navigation frame ran. It now waits for the computed `11 条` filtered-card count, performs stable multi-frame viewport sampling, and only then asserts the Feed remains at the intended top position.
+- The dedicated wheel/RAF gate remains separate and continues to prove cancellation in the commit-to-next-frame window.
+
+Fifth follow-up verification:
+
+```text
+npx playwright test e2e/production-workbench.spec.ts --project=desktop \
+  --grep "clamped rail jump releases ownership|wheel release after cards commit"
+2/2 passed
+
+npm run check:ui / lint / typecheck
+PASS
+
+npm test -- --reporter=dot
+29 files / 167 tests passed
+
+npm run build
+PASS; production artifact scan passed
+(Vite retains the informational >500 kB chunk warning.)
+
+npm run e2e
+54 scheduled across desktop, tablet, and mobile; 50 passed, 4 intentional desktop-only skips
+
+.venv/bin/python scripts/test_gate.py run --mode full
+PASS
+
+docker compose -f docker-compose.yml config --quiet
+docker compose -f docker-compose.light.yml config --quiet
+docker compose -f docker-compose.test-gate.yml config --quiet
+PASS
+
+git diff --check
+PASS
+```
