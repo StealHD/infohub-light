@@ -52,8 +52,8 @@ The core interfaces introduced by Tasks 3–6 are fixed before implementation:
 
 - `SubscriptionActor(workspace_id: str, user_id: str, role: str)`.
 - `SubscriptionChangePlan` is sealed: only the mutation planners and `SubscriptionMutationService.restore_plan_snapshot()` may create an executable plan; its public constructor stays closed.
-- `SubscriptionChangePlan.to_snapshot()` returns the complete versioned JSON envelope `{version,kind,normalized,preview,targets,fingerprints}`; proposal persistence stores that envelope intact.
-- `SubscriptionMutationService.restore_plan_snapshot(snapshot) -> SubscriptionChangePlan` validates the exact envelope, normalized invariants, preview binding, targets, and fingerprints.
+- `SubscriptionChangePlan.to_snapshot()` returns the complete version-2 JSON envelope `{version,kind,normalized,preview,targets,fingerprints}`; proposal persistence stores that envelope intact. Version 2 requires update plans to carry the complete final `schedule_preview` after merging live source/subscription/schedule state with every requested delta.
+- `SubscriptionMutationService.restore_plan_snapshot(snapshot) -> SubscriptionChangePlan` validates the exact envelope, Agent-type canonical reverse-normalization invariants, final schedule preview binding, targets, and fingerprints. Version-1 snapshots fail closed: Task 5/6 are not implemented in production yet, so there is no persisted proposal migration or legacy fallback; any development-only v1 proposal must be prepared again.
 - `SubscriptionMutationService.plan_create(actor, *, source, subscription, schedule) -> SubscriptionChangePlan`.
 - `SubscriptionMutationService.plan_update(actor, *, subscription_id, source_updates, subscription_updates, schedule_updates) -> SubscriptionChangePlan`.
 - `SubscriptionMutationService.plan_delete(actor, *, subscription_id, source_disposition) -> SubscriptionChangePlan`.
@@ -410,7 +410,7 @@ class SubscriptionChangePlan:
 
     def to_snapshot(self) -> dict[str, Any]:
         return {
-            "version": 1,
+            "version": 2,
             "kind": self.kind,
             "normalized": self.payload,
             "preview": self.preview,
@@ -419,7 +419,9 @@ class SubscriptionChangePlan:
         }
 ```
 
-`restore_plan_snapshot()` is the only persistence-consumer entrypoint and must validate the exact versioned envelope plus all normalized/preview/target/fingerprint invariants before returning a plan. Fingerprint existing source/subscription/schedule rows with their `updated_at`; a missing schedule fingerprints as `None`. Preview contains safe source name/type/normalized public target, subscription fields, schedule fields, action, impact, warnings, and delete disposition. The public target is the non-secret RSS URL, repository/user/subreddit/channel identifier, social target summary, or Hacker News settings selected by the user; the preview never exposes a raw config object, credentials, or internal identity fields.
+`restore_plan_snapshot()` is the only persistence-consumer entrypoint and must validate the exact versioned envelope plus all normalized/preview/target/fingerprint invariants before returning a plan. It reverse-normalizes every public Agent type from canonical catalog config or managed lookup identity and requires the rebuilt `{catalog_source_type,config|lookup_identity,policy}` result to match exactly. Fingerprint existing source/subscription/schedule rows with their `updated_at`; a missing schedule fingerprints as `None`. Update normalized payloads carry a full final `schedule_preview`: source or subscription final disablement forces `enabled=false`, while an explicit request to enable the schedule against a final disabled subject fails during prepare with `source_schedule_unavailable`. Preview contains safe source name/type/normalized public target, subscription fields, the full final schedule fields, action, impact, warnings, and delete disposition. Apply recomputes that final schedule against live state and requires its result to match. The public target is the non-secret RSS URL, repository/user/subreddit/channel identifier, social target summary, or Hacker News settings selected by the user; the preview never exposes a raw config object, credentials, or internal identity fields.
+
+Snapshot compatibility is deliberately fail-closed: version 2 is the only accepted version. Task 5/6 have not shipped proposal orchestration, so no production proposal rows require migration; development-only version-1 proposals must be discarded and prepared again, and consumers must not synthesize missing `schedule_preview` values or reopen the sealed constructor.
 
 - [ ] **Step 4: Implement plan normalization and atomic apply**
 
@@ -686,7 +688,7 @@ def prepare(self, actor: DelegatedActor, plan: SubscriptionChangePlan) -> dict[s
 }
 ```
 
-Map `AgentProposalLimitError` to `proposal_limit`. The confirmation phrase is returned from prepare but only its SHA-256 is stored. The complete versioned envelope is authoritative; `kind`, target columns, `preview`, and `fingerprints` are safe duplicates that Task 6 must compare with the envelope before calling `restore_plan_snapshot()`. A mismatch fails closed and never falls back to the old public-constructor shape.
+Map `AgentProposalLimitError` to `proposal_limit`. The confirmation phrase is returned from prepare but only its SHA-256 is stored. The complete version-2 envelope is authoritative; `kind`, target columns, `preview`, and `fingerprints` are safe duplicates that Task 6 must compare with the envelope before calling `restore_plan_snapshot()`. A mismatch or any version-1 snapshot fails closed and never falls back to the old public-constructor shape; the caller must prepare a new proposal.
 
 - [ ] **Step 5: Add the MCP-facing facade and safe source discovery**
 

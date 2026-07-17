@@ -53,7 +53,7 @@ _SUBSCRIPTION_FIELDS = {
     "priority",
 }
 _SCHEDULE_FIELDS = {"enabled", "interval_minutes"}
-_PLAN_SNAPSHOT_VERSION = 1
+_PLAN_SNAPSHOT_VERSION = 2
 _PLAN_FACTORY_TOKEN = object()
 _PLAN_SNAPSHOT_KEYS = {
     "version",
@@ -72,6 +72,12 @@ _CATALOG_SOURCE_TYPES = {
     "telegram_channel",
     "apify_social",
     "hackernews",
+}
+_SELF_SERVICE_AGENT_TYPE_BY_CATALOG = {
+    "rss": "rss",
+    "github_release": "github",
+    "reddit_subreddit": "reddit",
+    "telegram_channel": "telegram",
 }
 
 
@@ -524,6 +530,9 @@ class SubscriptionMutationService:
     def _final_schedule_preview(
         existing_schedule: dict[str, Any] | None,
         updates: dict[str, Any] | None,
+        *,
+        source_enabled: bool = True,
+        subscription_enabled: bool = True,
     ) -> dict[str, Any]:
         result = {
             "enabled": bool(existing_schedule and existing_schedule.get("enabled")),
@@ -535,7 +544,25 @@ class SubscriptionMutationService:
         }
         if updates:
             result.update(updates)
+        if not source_enabled or not subscription_enabled:
+            result["enabled"] = False
         return result
+
+    @staticmethod
+    def _validate_agent_catalog_config(
+        source_type: str,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        normalized = validate_source_config(source_type, config)
+        agent_type = _SELF_SERVICE_AGENT_TYPE_BY_CATALOG.get(source_type)
+        if agent_type is None:
+            return normalized
+        setup = validate_normalized_source_setup(
+            agent_type,
+            source_type,
+            normalized,
+        )
+        return dict(setup["config"])
 
     def _validate_source_updates_snapshot(
         self,
@@ -570,11 +597,7 @@ class SubscriptionMutationService:
             config = value["config"]
             if not isinstance(config, dict):
                 raise ValueError("source config is invalid")
-            normalized = (
-                validate_normalized_source_setup("rss", "rss", config)["config"]
-                if source_type == "rss"
-                else validate_source_config(source_type, config)
-            )
+            normalized = self._validate_agent_catalog_config(source_type, config)
             if normalized != config or value.get("source_key") != source_key(
                 source_type, config
             ):
@@ -620,7 +643,7 @@ class SubscriptionMutationService:
                 "action": "update_subscription",
                 "source": payload["preview_source"],
                 "subscription": payload["subscription_updates"] or {},
-                "schedule": payload["schedule_updates"] or {},
+                "schedule": payload["schedule_preview"],
                 "impact": "Update the selected private source or subscription.",
                 "warnings": [],
             }
@@ -780,6 +803,7 @@ class SubscriptionMutationService:
                     "source_updates",
                     "subscription_updates",
                     "schedule_updates",
+                    "schedule_preview",
                     "preview_source",
                 },
                 "update plan",
@@ -802,6 +826,35 @@ class SubscriptionMutationService:
             )
             if schedule_updates != normalized["schedule_updates"]:
                 raise ValueError("schedule updates are not normalized")
+            schedule_preview = self._validate_schedule_preview(
+                normalized["schedule_preview"]
+            )
+            source_updates = normalized["source_updates"] or {}
+            subscription_updates = normalized["subscription_updates"] or {}
+            subject_forced_disabled = bool(
+                source_updates.get("enabled") is False
+                or subscription_updates.get("enabled") is False
+            )
+            if subject_forced_disabled and schedule_preview["enabled"]:
+                raise ValueError("disabled source schedule preview is invalid")
+            if schedule_updates is not None:
+                if (
+                    schedule_updates.get("enabled") is True
+                    and subject_forced_disabled
+                ):
+                    raise ValueError("disabled source schedule update is invalid")
+                if (
+                    "enabled" in schedule_updates
+                    and not subject_forced_disabled
+                    and schedule_preview["enabled"] != schedule_updates["enabled"]
+                ):
+                    raise ValueError("schedule preview enabled does not match update")
+                if (
+                    "interval_minutes" in schedule_updates
+                    and schedule_preview["interval_minutes"]
+                    != schedule_updates["interval_minutes"]
+                ):
+                    raise ValueError("schedule preview interval does not match update")
             self._validate_public_summary(normalized["preview_source"])
             if all(
                 normalized[key] is None
@@ -1150,6 +1203,9 @@ class SubscriptionMutationService:
                             config = validate_source_config(
                                 str(source["type"]), value
                             )
+                        config = self._validate_agent_catalog_config(
+                            str(source["type"]), config
+                        )
                         key = source_key(str(source["type"]), config)
                     except SourceConfigError as exc:
                         raise self._error(
@@ -1164,6 +1220,31 @@ class SubscriptionMutationService:
             else self._normalize_subscription(subscription_updates, create=False)
         )
         normalized_schedule_updates = self._normalize_schedule(schedule_updates)
+        final_source_enabled = bool(
+            (normalized_source_updates or {}).get("enabled", source.get("enabled"))
+        )
+        final_subscription_enabled = bool(
+            (normalized_subscription_updates or {}).get(
+                "enabled", subscription.get("enabled")
+            )
+        )
+        if (
+            normalized_schedule_updates is not None
+            and normalized_schedule_updates.get("enabled") is True
+            and not (final_source_enabled and final_subscription_enabled)
+        ):
+            raise self._error(
+                "source_schedule_unavailable",
+                "automatic source fetch requires an enabled subscription",
+                status_code=409,
+                action="Enable the subscription and source before enabling its schedule.",
+            )
+        schedule_preview = self._final_schedule_preview(
+            schedule,
+            normalized_schedule_updates,
+            source_enabled=final_source_enabled,
+            subscription_enabled=final_subscription_enabled,
+        )
         preview_source_values = dict(source)
         if normalized_source_updates is not None:
             preview_source_values.update(normalized_source_updates)
@@ -1176,6 +1257,7 @@ class SubscriptionMutationService:
             "source_updates": normalized_source_updates,
             "subscription_updates": normalized_subscription_updates,
             "schedule_updates": normalized_schedule_updates,
+            "schedule_preview": schedule_preview,
             "preview_source": preview_source,
         }
         return self._build_plan(
@@ -1185,7 +1267,7 @@ class SubscriptionMutationService:
                 "action": "update_subscription",
                 "source": preview_source,
                 "subscription": dict(normalized_subscription_updates or {}),
-                "schedule": dict(normalized_schedule_updates or {}),
+                "schedule": dict(schedule_preview),
                 "impact": "Update the selected private source or subscription.",
                 "warnings": [],
             },
@@ -1355,10 +1437,27 @@ class SubscriptionMutationService:
                 preview_source_values = dict(source)
                 if payload.get("source_updates") is not None:
                     preview_source_values.update(payload["source_updates"])
+                final_source_enabled = bool(
+                    (payload.get("source_updates") or {}).get(
+                        "enabled", source.get("enabled")
+                    )
+                )
+                final_subscription_enabled = bool(
+                    (payload.get("subscription_updates") or {}).get(
+                        "enabled", subscription.get("enabled")
+                    )
+                )
                 live_context_valid = bool(
                     payload.get("catalog_source_type") == source.get("type")
                     and payload.get("preview_source")
                     == project_catalog_source_public_summary(preview_source_values)
+                    and payload.get("schedule_preview")
+                    == self._final_schedule_preview(
+                        schedule,
+                        payload.get("schedule_updates"),
+                        source_enabled=final_source_enabled,
+                        subscription_enabled=final_subscription_enabled,
+                    )
                 )
             else:
                 live_context_valid = bool(
@@ -1536,6 +1635,15 @@ class SubscriptionMutationService:
             schedule = self._apply_schedule(
                 actor, subscription, plan.payload.get("schedule_updates")
             )
+            actual_schedule = {
+                "enabled": bool(schedule.get("enabled")),
+                "interval_minutes": int(schedule["interval_minutes"]),
+            }
+            if actual_schedule != plan.payload["schedule_preview"]:
+                raise self._error(
+                    "invalid_plan_snapshot",
+                    "final schedule does not match subscription change plan",
+                )
             return {
                 "action": "updated",
                 "source": source,

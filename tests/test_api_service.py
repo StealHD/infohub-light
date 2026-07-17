@@ -2931,6 +2931,46 @@ def test_source_schedule_get_defaults_patch_round_trip_and_runtime_counts(
     assert runtime.json()["data"]["overdue_source_schedule_count"] == 1
 
 
+def test_source_schedule_patch_preserves_omission_and_explicit_null_compatibility(
+    tmp_path,
+    monkeypatch,
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Schedule patch compatibility",
+            "config": {"url": "https://example.com/schedule-patch.xml"},
+        },
+    ).json()["data"]
+    subscription = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    route = f"/api/me/subscriptions/{subscription['id']}/schedule"
+    client.patch(route, json={"enabled": True, "interval_minutes": 30})
+
+    omitted_enabled = client.patch(route, json={"interval_minutes": 180})
+    explicit_null_enabled = client.patch(
+        route,
+        json={"enabled": None, "interval_minutes": 360},
+    )
+    null_only = client.patch(route, json={"enabled": None})
+    omitted_only = client.patch(route, json={})
+
+    assert omitted_enabled.status_code == 200
+    assert omitted_enabled.json()["data"]["enabled"] is True
+    assert omitted_enabled.json()["data"]["interval_minutes"] == 180
+    assert explicit_null_enabled.status_code == 200
+    assert explicit_null_enabled.json()["data"]["enabled"] is True
+    assert explicit_null_enabled.json()["data"]["interval_minutes"] == 360
+    for rejected in (null_only, omitted_only):
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "invalid_source_schedule"
+
+
 def test_source_schedule_is_current_user_only_and_viewer_is_read_only(
     tmp_path, monkeypatch
 ):

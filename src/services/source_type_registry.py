@@ -1355,20 +1355,73 @@ def validate_normalized_source_setup(
         raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     if not isinstance(config, dict):
         raise SourceConfigError("config must be an object")
-    if _contains_secret_shape(config):
-        raise SourceConfigError(_CREDENTIAL_ERROR)
-    _validate_public_url_inputs(config)
-    normalized = validate_source_config(definition.catalog_source_type, config)
-    if normalized != config:
-        raise SourceConfigError("normalized source config does not match catalog contract")
+    if source_type == "rss":
+        reverse_input = {
+            key: config[key]
+            for key in ("url", "name", "keep_latest_item")
+            if key in config
+        }
+    elif source_type == "telegram":
+        reverse_input = {
+            key: config[key]
+            for key in ("channel", "fetch_limit")
+            if key in config
+        }
+    elif source_type == "github":
+        owner = config.get("owner")
+        repo = config.get("repo")
+        if not isinstance(owner, str) or not isinstance(repo, str):
+            raise SourceConfigError(
+                "normalized source config does not match Agent contract"
+            )
+        reverse_input = {"repository": f"{owner}/{repo}"}
+    elif source_type == "reddit":
+        reverse_input = {
+            key: config[key]
+            for key in (
+                "subreddit",
+                "sort",
+                "time_filter",
+                "fetch_limit",
+                "min_score",
+            )
+            if key in config
+        }
+    elif source_type == "twitter":
+        reverse_input = {"handle": config.get("target")}
+    elif source_type in {"website", "youtube"}:
+        reverse_input = {"url": config.get("url")}
+    elif source_type == "apify":
+        reverse_input = {
+            key: config[key]
+            for key in ("platform", "kind", "target")
+            if key in config
+        }
+    else:  # pragma: no cover - registry membership above closes this branch
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+
+    rebuilt = normalize_source_setup_input(source_type, reverse_input)
     policy = definition.execution_policy()
-    if policy.get("public_network_only") is True:
-        _validate_public_network_literal(str(normalized.get("url") or ""))
-    return {
-        "catalog_source_type": definition.catalog_source_type,
-        "config": normalized,
-        "policy": policy,
-    }
+    expected = (
+        {
+            "catalog_source_type": definition.catalog_source_type,
+            "config": config,
+            "policy": policy,
+        }
+        if policy["self_service"]
+        else {
+            "lookup_identity": {
+                "catalog_source_type": definition.catalog_source_type,
+                "config": config,
+            },
+            "policy": policy,
+        }
+    )
+    if rebuilt != expected:
+        raise SourceConfigError(
+            "normalized source config does not match Agent contract"
+        )
+    return rebuilt
 
 
 def validate_public_source_metadata(value: dict[str, Any]) -> None:

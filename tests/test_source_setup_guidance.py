@@ -8,6 +8,7 @@ from src.services.source_type_registry import (
     list_source_types,
     normalize_source_setup_input,
     source_key,
+    validate_normalized_source_setup,
     validate_source_config,
 )
 
@@ -901,3 +902,136 @@ def test_managed_sources_return_lookup_identity_and_existing_visible_only_policy
         "self_service": False,
         "requires_web_setup": True,
     }
+
+
+@pytest.mark.parametrize(
+    ("source_type", "config"),
+    [
+        ("rss", {"url": "https://example.com/reverse.xml", "name": "Reverse"}),
+        ("telegram", {"channel": "durov", "fetch_limit": 40}),
+        ("github", {"repository": "openai/codex"}),
+        (
+            "reddit",
+            {
+                "subreddit": "LocalLLaMA",
+                "sort": "top",
+                "time_filter": "week",
+                "fetch_limit": 50,
+                "min_score": 25,
+            },
+        ),
+        ("twitter", {"handle": "@openai"}),
+        ("website", {"url": "https://example.com/website.xml"}),
+        (
+            "youtube",
+            {
+                "url": (
+                    "https://youtube.com/feeds/videos.xml"
+                    f"?channel_id={YOUTUBE_CHANNEL_ID}"
+                )
+            },
+        ),
+        ("apify", {"platform": "x", "kind": "profile", "target": "openai"}),
+    ],
+)
+def test_normalized_reverse_validator_round_trips_all_public_agent_types(
+    source_type,
+    config,
+):
+    forward = normalize_source_setup_input(source_type, config)
+    identity = forward.get("lookup_identity", forward)
+
+    restored = validate_normalized_source_setup(
+        source_type,
+        identity["catalog_source_type"],
+        identity["config"],
+    )
+
+    assert restored == forward
+
+
+@pytest.mark.parametrize(
+    ("source_type", "catalog_source_type", "config"),
+    [
+        (
+            "youtube",
+            "rss",
+            validate_source_config(
+                "rss", {"url": "https://example.com/not-youtube.xml"}
+            ),
+        ),
+        (
+            "github",
+            "github_release",
+            validate_source_config(
+                "github_release", {"owner": "-invalid", "repo": "codex"}
+            ),
+        ),
+        (
+            "reddit",
+            "reddit_subreddit",
+            validate_source_config(
+                "reddit_subreddit",
+                {"subreddit": "python/comments/abc/post"},
+            ),
+        ),
+        (
+            "telegram",
+            "telegram_channel",
+            validate_source_config(
+                "telegram_channel", {"channel": "joinchat"}
+            ),
+        ),
+        (
+            "telegram",
+            "telegram_channel",
+            validate_source_config(
+                "telegram_channel", {"channel": "+privateinvite"}
+            ),
+        ),
+        (
+            "rss",
+            "rss",
+            validate_source_config(
+                "rss", {"url": "https://example.com/disabled.xml", "enabled": False}
+            ),
+        ),
+        (
+            "website",
+            "rss",
+            validate_source_config(
+                "rss",
+                {
+                    "url": "https://example.com/website-custom.xml",
+                    "name": "Not available in the website Agent grammar",
+                },
+            ),
+        ),
+        (
+            "twitter",
+            "apify_social",
+            {
+                "platform": "x",
+                "kind": "profile",
+                "target": "openai/status/1",
+            },
+        ),
+    ],
+    ids=[
+        "youtube-generic-rss",
+        "github-invalid-owner",
+        "reddit-post-path",
+        "telegram-reserved-route",
+        "telegram-private-invite",
+        "rss-noncanonical-enabled-marker",
+        "website-noncanonical-rss-options",
+        "twitter-noncanonical-handle",
+    ],
+)
+def test_normalized_reverse_validator_rejects_noncanonical_agent_identities(
+    source_type,
+    catalog_source_type,
+    config,
+):
+    with pytest.raises(SourceConfigError):
+        validate_normalized_source_setup(source_type, catalog_source_type, config)

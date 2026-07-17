@@ -993,3 +993,11 @@
 - 结果：Task 1/2 共用 16 KiB、NFKC、最多两轮 percent decode 的上下文凭据分类器并覆盖 query value/fragment/known prefixes；metadata parser 异常固定失败关闭；Task 5/6 计划固定为完整 versioned snapshot + restore + outer collector 生命周期，真实 proposal row seam 已验证 commit/run 与 rollback/discard
 - 未解决问题：Task 5/6 仍待按已同步合同实现 proposal/MCP 业务；本任务未重开 public constructor 或实现后续业务
 - 控制面变更：同步实施计划中的既有 Task 3/5/6 内部接口示例，无对外 API 变更
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 第四轮复审的两个 Important
+- 修改文件：Agent 来源反向规范化、订阅变更 plan/restore/apply、Task 3/5/6 内部接口计划、三组合同测试、`.superpowers/sdd/task-3-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：反向规范化回归先出现 9 个预期失败，update 共享校验再出现 3 个预期失败；schedule final-state 回归先出现 28 个预期失败；focused 657 项通过，Python compile、默认配置 JSON 校验、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：八个公开 Agent 类型均以 forward normalizer 做确定性反向校验并要求精确相等；update plan 携带 source/subscription/schedule 合并后的完整最终 schedule，禁用级联明确预览，同一计划对 disabled target 显式启用 schedule 在 prepare 阶段稳定拒绝；restore/apply 共用绑定并在 apply 后核对实际最终 schedule；snapshot 升级为 v2，v1 失败关闭且须重新 prepare
+- 未解决问题：Task 5/6 仍待按已同步的 v2 snapshot 合同实现 proposal/MCP 业务；本任务未实现后续业务、迁移或兼容 fallback
+- 控制面变更：同步实施计划中的 Task 3/5/6 内部 snapshot 版本与消费者合同，无对外 API 变更
