@@ -872,3 +872,11 @@
 - 结果：原型可在本地无登录打开，未调用 API、未切换默认 UI、未修改生产；等待人工视觉确认后再接真实 Feed 与连接状态
 - 未解决问题：尚未执行真实数据接入、虚拟列表、legacy/next 切换和完整多视口 Playwright 基线
 - 控制面变更：新增 D025；UI_CONTRACT 明确 Codex 仅为视觉语言参考且视觉原型为真实数据接入门禁
+
+### 2026-07-17 10:17 Codex
+- 任务：实现 HeroUI v3 独立工作台视觉原型，与现有 MUI 原型进行同数据、同布局和同交互对照
+- 修改文件：新增开发专用 `/__preview/workbench-heroui`、HeroUI 复合卡片与响应式三栏样式、共享预览数据模型、入口隔离和生产包排除检查；更新 MUI 版本切换、UI/计划/决策合同与测试
+- 执行验证：UI contract 通过；ESLint 0 error（保留既有 Fast Refresh warning）；TypeScript 通过；Vitest 27 个文件共 111 项通过；Vite 生产构建与 HeroUI 排除检查通过；MUI/HeroUI 三视口 Playwright+Axe 9 项通过；最终 `test_gate full` 22/22 命令通过、`mapping_miss=false`、48.427 秒；1440×900 人工检查显示 5 张完整卡片，无横向溢出
+- 结果：HeroUI 路由在应用根入口提前分流，不进入 MUI、认证、Query Client、API 或生产全局 CSS；实现卡片展开、收藏、搜索、短刻度、新内容、最多 8 条 Agent 上下文和确定性交接复制；平板覆盖面板、手机 Bottom Sheet、Escape/关闭按钮焦点归还和 Reduced Motion 均已验证
+- 未解决问题：当前仍为固定净化数据的视觉原型；等待用户与 MUI 版对比确认后，才决定是否采用 HeroUI 生产迁移或仅提取视觉语言
+- 控制面变更：新增 D026；UI_CONTRACT 明确 HeroUI 原型边界、组件要求、生产排除与视觉验收门禁

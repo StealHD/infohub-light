@@ -57,6 +57,7 @@
 44. Feed 事件、历史修复与 DeepSeek v1：Feed terminal 通知只消费当前会话观察到的真实 snapshot 事件；认证动作按 user/action/entity 提供局部状态；v5 显式修复、reconcile 和 `content_repair` 保持零 snapshot/AI，当前内容为 24 captured/2 excerpt-only；DeepSeek Secret/UI、`deepseek-v4-flash`、模型无关 input hash、安全跨模型复用、零 Token 预检与单次 smoke 已实现。真实 DeepSeek 启用仍等待轮换 Key。
 45. OpenClaw Remote MCP v1：每用户本地 OpenClaw + 服务端六个只读工具、schema v6 delegation、`/agents` 凭证页、Nginx 边界和本地 Skill 包已实现，默认保持关闭。当前只做本地完整 gate；正式打开仍须 API-only staging、TLS `/mcp`、真实 OpenClaw `doctor --probe`、六工具 canary、吊销立即 401 和两生产用户隔离验收。
 46. Codex-inspired Next Web 工作台视觉原型：开发专用无认证路由、暗色语义主题、精简导航、旧上新下卡片流、短刻度、新内容提示和最多 8 条 OpenClaw 上下文交接已实现；真实 API、默认路由和生产体验尚未切换，等待人工视觉确认。
+47. HeroUI v3 独立候选原型：开发专用 `/__preview/workbench-heroui` 实际使用 HeroUI v3/Tailwind v4，与 MUI 原型共用固定数据和交互；三档响应式、Axe、焦点归还及生产构建剔除已建立，等待人工比较后再决定生产视觉体系。
 
 当前仍需推进：
 
@@ -69,7 +70,7 @@
 7. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
 8. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
 9. 人工确认 Material UI Feed、订阅与设置页在 1440 折叠/展开、1024 覆盖式侧栏、822 和 390 移动视口的最终截图；自动化通过不替代这一步视觉确认。
-10. 人工确认 Next 工作台固定数据原型的桌面层级、卡片密度、短刻度、展开态和 Agent 交接；确认后才接入真实 Feed、saved/history 与连接状态，并启用 `VITE_UI_EXPERIENCE` 回滚开关。
+10. 对比确认 MUI 与 HeroUI 两套 Next 工作台固定数据原型的桌面层级、卡片密度、短刻度、展开态和 Agent 交接；确认候选后才接入真实 Feed、saved/history 与连接状态，并启用 `VITE_UI_EXPERIENCE` 回滚开关。
 
 兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 仍可保留；兼容接口存在不等于当前产品能力，也不构成后续建设承诺。
 

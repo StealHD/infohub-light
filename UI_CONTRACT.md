@@ -52,6 +52,8 @@ All new shell, Feed, and subscription visual values must come from the Material 
 - Next radii are 16 px panels, 14 px cards, 10 px controls, and 8 px small controls. Static cards use surface contrast plus a one-pixel outline, not glow or full-card accent borders.
 - Motion is limited to 120–220 ms for card expansion, panel changes, progress feedback, and context insertion. Reduced Motion reduces these transitions to effectively zero.
 - The dev-only `/__preview/workbench` route is deterministic, does not require authentication or call `/api/*`, and exists only as the visual approval surface.
+- The dev-only `/__preview/workbench-heroui` route is the independent HeroUI v3 candidate. It uses the same sanitized stories, navigation, breakpoints, card actions, short rail, and OpenClaw handoff model as `/__preview/workbench`; differences are limited to the candidate component system and its dedicated graphite-purple theme.
+- The HeroUI candidate uses HeroUI Card, Button, SearchField, Chip, TextArea, Tooltip, Avatar, ScrollShadow, and Separator with Tailwind v4. It preserves the library's focus ring, press feedback, rounded controls, and Reduced Motion behavior without adding glow or heavy shadow.
 - Visual review evaluates hierarchy, density, reading comfort, operation reachability, focus, and state clarity. Pixel overlay parity with Mac Codex is explicitly not a gate.
 
 ## 3. Component boundary
@@ -67,6 +69,8 @@ Feature code may not:
 5. Add new shell, Feed, or subscription CSS Modules.
 
 Layout primitives remain allowed through the internal UI export layer. Existing CSS Modules outside the migrated shell, Feed, and subscription workspace are compatibility code and do not define the future visual system.
+
+The HeroUI candidate is an explicit exception limited to `frontend/src/features/workbench-heroui/**`. That boundary may import `@heroui/*` and its dedicated stylesheet, but it may not import MUI, Emotion, or `frontend/src/ui/**`. Production feature code may not import `@heroui/*`. The application entry must load this boundary only behind `import.meta.env.DEV`; opening it must not initialize the authenticated application bootstrap, production global CSS, Query Client, or API client. A production build must contain neither the HeroUI preview route nor its component/CSS markers. Visual approval selects a direction; it does not automatically authorize replacing the production MUI system.
 
 ## 4. Legacy shell contract
 
@@ -86,6 +90,7 @@ Layout primitives remain allowed through the internal UI export layer. Existing 
 - At 1360 px and above the grid is `232 px navigation + minmax(640 px, 1fr) Feed + 360 px Agent`. From 1200–1359 px navigation is 72 px while all three columns remain visible. From 768–1199 px navigation stays 72 px and Agent becomes an on-demand overlay. At 767 px and below the Feed is single-column, navigation moves to the bottom, and Agent becomes a bottom sheet.
 - The header is 52 px and uses browser-native Web behavior. It must not reproduce macOS traffic lights, window chrome, drag regions, or desktop-only navigation affordances.
 - Navigation, Feed, and Agent use independent scroll regions. Toggling either side panel must preserve the active route, expanded story, and Feed scroll anchor.
+- Both development prototypes expose an in-page MUI/HeroUI switch using independent URLs. At 1440×900 the HeroUI candidate shows four to five complete cards; the version switch, responsive panel changes, and card actions do not create API requests or reset the other prototype's source fixtures.
 - The production rollout uses `VITE_UI_EXPERIENCE=next|legacy`; `next` does not become the default until the visual gate and automated verification pass. Legacy remains available for at least one release.
 
 ## 5. Legacy Feed workspace contract
@@ -156,6 +161,6 @@ Every shell, Feed, or subscription visual change must pass:
 5. Axe with no serious or critical violations.
 6. Visual review using fixtures with at least eight mixed-state items, long Chinese text, missing optional fields, and multiple source-health states.
 
-The `next` workbench additionally requires 1440 px three-column, 1024 px overlay, and 390 px mobile captures; card actions must remain reachable with Agent open, the short rail must stay bounded, and a 200-item fixture must keep the rendered card count bounded. The visual prototype review is a mandatory checkpoint before real-data wiring.
+The `next` workbench additionally requires 1440 px three-column, 1024 px overlay, and 390 px mobile captures; card actions must remain reachable with Agent open, the short rail must stay bounded, and a 200-item fixture must keep the rendered card count bounded. The HeroUI candidate additionally requires four to five complete cards at 1440×900, actual HeroUI component slots, zero MUI DOM classes, zero `/api/*` requests, focus restoration after closing overlays, and a production-build exclusion check. The visual prototype review is a mandatory checkpoint before real-data wiring.
 
 Snapshot updates require an intentional UI contract or approved design change; they are not an automatic fix for a failing visual test.

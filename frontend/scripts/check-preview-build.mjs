@@ -1,0 +1,39 @@
+import { readFile, readdir } from 'node:fs/promises'
+import { extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
+const buildRoot = join(root, '../src/ui/service_static')
+const searchableExtensions = new Set(['.html', '.js', '.css', '.map'])
+const forbidden = [
+  '/__preview/workbench-heroui',
+  'data-ui-system="heroui"',
+  'hero-workbench',
+  '正在准备 HeroUI 工作台预览',
+]
+const violations = []
+
+async function files(directory) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const result = []
+  for (const entry of entries) {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) result.push(...await files(path))
+    else if (searchableExtensions.has(extname(entry.name))) result.push(path)
+  }
+  return result
+}
+
+for (const file of await files(buildRoot)) {
+  const source = await readFile(file, 'utf8')
+  for (const marker of forbidden) {
+    if (source.includes(marker)) violations.push(`${file}: 包含开发专用 HeroUI 标记 ${marker}`)
+  }
+}
+
+if (violations.length) {
+  console.error(`Preview build exclusion check failed:\n${violations.map((value) => `- ${value}`).join('\n')}`)
+  process.exitCode = 1
+} else {
+  console.log('Preview build exclusion check passed.')
+}

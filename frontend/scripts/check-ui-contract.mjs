@@ -3,7 +3,7 @@ import { extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const controlledRoots = ['src/app', 'src/features/feed', 'src/features/workbench']
+const controlledRoots = ['src/app', 'src/features/feed', 'src/features/workbench', 'src/features/workbench-heroui']
 const sourceExtensions = new Set(['.ts', '.tsx'])
 const violations = []
 
@@ -16,6 +16,22 @@ async function sourceFiles(directory) {
     else if (sourceExtensions.has(extname(entry.name)) && !entry.name.includes('.test.')) files.push(path)
   }
   return files
+}
+
+for (const file of await sourceFiles('src')) {
+  const source = await readFile(join(root, file), 'utf8')
+  const isHeroWorkbench = file.startsWith('src/features/workbench-heroui/')
+  if (!isHeroWorkbench && /(?:from|import\s*)\s*['"]@heroui\//.test(source)) {
+    violations.push(`${relative(root, join(root, file))}: HeroUI 只能用于独立工作台原型边界`)
+  }
+  if (isHeroWorkbench && /from\s+['"]\.\.\/\.\.\/ui(?:\/[^'"]*)?['"]/.test(source)) {
+    violations.push(`${relative(root, join(root, file))}: HeroUI 原型不得引入 MUI 内部导出层`)
+  }
+}
+
+const mainSource = await readFile(join(root, 'src/main.tsx'), 'utf8')
+if (!/import\.meta\.env\.DEV[\s\S]*workbench-heroui/.test(mainSource)) {
+  violations.push('src/main.tsx: HeroUI 原型必须由 import.meta.env.DEV 条件动态导入')
 }
 
 for (const directory of controlledRoots) {
