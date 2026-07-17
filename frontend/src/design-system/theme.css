@@ -34,6 +34,8 @@
   --separator: oklch(0.27 0.009 286);
   --focus: var(--accent);
   --link: oklch(0.79 0.09 292);
+  --danger: oklch(0.56 0.19 25);
+  --danger-foreground: oklch(0.98 0.003 286);
   --surface-shadow: 0 1px 2px oklch(0.05 0.005 286 / 0.32);
   --overlay-shadow: 0 16px 40px oklch(0.05 0.005 286 / 0.48);
   --field-shadow: none;

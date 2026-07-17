@@ -936,3 +936,11 @@
 - 结果：404 仅在 active source 成功且停止 fetching 后确证缺失；钉选详情绕过排除筛选但保持 unread-first 稳定分组；未挂载锚点按 `props.cards` 的真实虚拟顺序恢复并严格保持 ID/≤2px 偏移
 - 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
 - 控制面变更：无；未修改 backend/API/query key/权限/Remote MCP/MUI 与 Task 3 边界
+
+### 2026-07-17 16:10 Codex
+- 任务：实现 Task 3 的 HeroUI 订阅、助手连接、设置与登录 DEV 验收页面
+- 修改文件：新增 `frontend/src/features/admin-heroui/**` 与 `live-admin.spec.ts`，扩展 live 路由/Shell、design-system facade/theme、App 回归测试与 Task 3 报告
+- 执行验证：focused RED→GREEN；Vitest 33 文件/158 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`
+- 结果：复用现有 API/query key/权限/模型完成三标签订阅、Worker/任务、一次性 Agent 令牌、角色化设置/SecretStore 与登录；非工作台页面全宽且无 Agent，MUI/生产默认未变
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；一次合并 Playwright 并发运行触发既有移动端锚点波动，原用例隔离重跑通过
+- 控制面变更：无；HeroUI 页面仍为 DEV-only，未修改 backend/API/Remote MCP/生产路由

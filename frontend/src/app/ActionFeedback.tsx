@@ -33,11 +33,11 @@ function severity(phase: ActionPhase): 'success' | 'warning' | 'error' | 'info' 
   return 'info'
 }
 
-export function ActionFeedbackProvider({ userId, children }: { userId: string; children: ReactNode }) {
-  return <ActionFeedbackState key={userId} userId={userId}>{children}</ActionFeedbackState>
+export function ActionFeedbackProvider({ userId, children, noticeSurface = 'legacy' }: { userId: string; children: ReactNode; noticeSurface?: 'legacy' | 'none' }) {
+  return <ActionFeedbackState key={userId} userId={userId} noticeSurface={noticeSurface}>{children}</ActionFeedbackState>
 }
 
-function ActionFeedbackState({ userId, children }: { userId: string; children: ReactNode }) {
+function ActionFeedbackState({ userId, children, noticeSurface }: { userId: string; children: ReactNode; noticeSurface: 'legacy' | 'none' }) {
   const mobile = useMediaQuery('(max-width:767px)')
   const [records, setRecords] = useState<Record<string, ActionRecord>>({})
   const [notice, setNotice] = useState<ActionNotice>()
@@ -71,7 +71,7 @@ function ActionFeedbackState({ userId, children }: { userId: string; children: R
 
   return <ActionFeedbackContext.Provider value={value}>
     {children}
-    <Snackbar
+    {noticeSurface === 'legacy' && <Snackbar
       key={`${userId}:${notice?.key ?? ''}:${sequence}`}
       open={open}
       autoHideDuration={notice?.phase === 'failed' || notice?.phase === 'partial' || notice?.phase === 'blocked' ? 8000 : 4000}
@@ -82,7 +82,7 @@ function ActionFeedbackState({ userId, children }: { userId: string; children: R
       <Alert role={role} severity={notice ? severity(notice.phase) : 'info'} variant="filled" onClose={() => setNotice(undefined)}>
         {notice?.message}
       </Alert>
-    </Snackbar>
+    </Snackbar>}
   </ActionFeedbackContext.Provider>
 }
 

@@ -96,6 +96,173 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
+  it('keeps live administration routes in the HeroUI shell without an Agent panel', async () => {
+    const source = {
+      id: 'source-live', type: 'rss', display_name: '覆盖频道来源', scope: 'private' as const,
+      owner_user_id: 'user-live', default_channel: '工作/项目', enabled: true,
+    }
+    const subscription = {
+      id: 'subscription-live', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name,
+      source_type: source.type, enabled: true, priority: 80, override_channel: 'AI',
+      schedule: { enabled: false, interval_minutes: 60, worker_status: 'ready' },
+    }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceHealth: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        scope: 'user',
+        summary: { healthy: 1, degraded: 0, failing: 0, unknown: 0, total: 1 },
+        items: [{ subscription_id: subscription.id, source_id: source.id, status: 'healthy', consecutive_failures: 0 }],
+      }),
+      config: vi.fn().mockResolvedValue({ config: { tags: [] }, taxonomy: { channels: ['AI', '其他'], topics: [] } }),
+      createSourceFetch: vi.fn().mockResolvedValue({ id: 'source-fetch-live', user_id: 'user-live', job_type: 'source_fetch', status: 'queued' }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '订阅与来源' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(3)
+    expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent 面板/ })).not.toBeInTheDocument()
+    expect(document.querySelector('[data-ui-system="heroui"]')).toBeInTheDocument()
+    expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'AI' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '收起 AI' }))
+    expect(screen.queryByRole('button', { name: '立即获取 覆盖频道来源' })).not.toBeInTheDocument()
+    await userEvent.type(screen.getByRole('searchbox', { name: '搜索来源' }), '覆盖频道')
+    expect(screen.getByRole('button', { name: '立即获取 覆盖频道来源' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '立即获取 覆盖频道来源' }))
+    expect(api.feedSchedule).toHaveBeenCalled()
+    expect(api.createSourceFetch).toHaveBeenCalledWith(source.id, subscription.id)
+  }, 10_000)
+
+  it('protects and explicitly clears a live one-time Agent token', async () => {
+    const browser = userEvent.setup()
+    const api = liveApi({
+      agentDelegations: vi.fn().mockResolvedValue({ enabled: true, mcp_url: '/mcp', token_ttl_days: 90, max_active: 5, connections: [] }),
+      createAgentDelegation: vi.fn().mockResolvedValue({
+        connection: { id: 'agent-new', name: 'Desk Mac', client_type: 'openclaw', scopes: ['inteliscope:read'], token_prefix: 'ih_new', created_at: '2026-07-17T00:00:00Z', expires_at: '2026-10-17T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' },
+        token: 'ih_mcp_one_time_live',
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/agents']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const createDialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.type(within(createDialog).getByRole('textbox', { name: '连接名称' }), 'Desk Mac')
+    await browser.click(within(createDialog).getByRole('button', { name: '生成一次性令牌' }))
+    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性令牌' })
+    expect(within(tokenDialog).getByText('ih_mcp_one_time_live')).toBeInTheDocument()
+    await browser.keyboard('{Escape}')
+    expect(screen.getByRole('dialog', { name: '保存一次性令牌' })).toBeInTheDocument()
+    await browser.click(screen.getByTestId('one-time-token-backdrop'))
+    expect(screen.getByRole('dialog', { name: '保存一次性令牌' })).toBeInTheDocument()
+    await browser.click(within(tokenDialog).getByRole('button', { name: '我已保存' }))
+    expect(screen.queryByText('ih_mcp_one_time_live')).not.toBeInTheDocument()
+    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain('ih_mcp_one_time_live')
+    expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
+  }, 10_000)
+
+  it('explains a live single-source fetch block without queueing work', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'blocked-source', type: 'rss', display_name: '阻塞来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'blocked-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: 0 }
+    const createSourceFetch = vi.fn()
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: { tags: [] }, taxonomy: { channels: ['AI'], topics: [] } }),
+      feedSchedule: vi.fn().mockResolvedValue({ enabled: false, interval_minutes: 360, worker_status: 'stale' }),
+      createSourceFetch,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '立即获取 阻塞来源' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('后台获取服务当前不可用')
+    expect(createSourceFetch).not.toHaveBeenCalled()
+  })
+
+  it('shows role-scoped live settings and clears only a failed secret value', async () => {
+    const browser = userEvent.setup()
+    const createSecret = vi.fn().mockRejectedValue(new ApiError(400, { code: 'invalid_secret', message: 'Key 保存失败' }))
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-live', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: ['AI'], topics: ['Agent'] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      createSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '密钥' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '成员' })).toBeInTheDocument()
+    expect(screen.queryByText('精选阈值')).not.toBeInTheDocument()
+    expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
+    expect(screen.queryByText('日报条数')).not.toBeInTheDocument()
+
+    await browser.type(screen.getByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
+    await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
+    await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
+    await browser.type(screen.getByLabelText('Key 值'), 'secret-value')
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Key 保存失败')
+    expect(screen.getByRole('textbox', { name: 'Key 名称' })).toHaveValue('DeepSeek')
+    expect(screen.getByRole('textbox', { name: 'Key provider' })).toHaveValue('deepseek')
+    expect(screen.getByRole('textbox', { name: '环境变量名' })).toHaveValue('DEEPSEEK_API_KEY')
+    expect(screen.getByLabelText('Key 值')).toHaveValue('')
+  }, 10_000)
+
+  it('exposes a DEV-only HeroUI login without changing login errors', async () => {
+    const browser = userEvent.setup()
+    const api = {
+      authStatus: vi.fn().mockResolvedValue({ authenticated: false, user: null }),
+      login: vi.fn().mockRejectedValue(new ApiError(401, { code: 'invalid_credentials', message: '账号或密码错误' })),
+    } as unknown as ServiceApi
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/login']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '登录私人信息雷达' })).toBeInTheDocument()
+    expect(document.querySelector('[data-ui-system="heroui"]')).toBeInTheDocument()
+    await browser.type(screen.getByLabelText('用户名'), 'owner')
+    await browser.type(screen.getByLabelText('密码'), 'wrong-secret')
+    await browser.click(screen.getByRole('button', { name: '登录' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('账号或密码错误')
+    expect(screen.getByLabelText('密码')).toHaveValue('')
+    expect(api.login).toHaveBeenCalledWith('owner', 'wrong-secret')
+  })
+
+  it('applies the existing provider defaults in the live AI form', async () => {
+    const browser = userEvent.setup()
+    const configAction = vi.fn().mockResolvedValue({ config: { ai: {} } })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-ai', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: { provider: 'gemini' }, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'deepseek-key', name: 'DeepSeek Key', kind: 'ai', provider: 'deepseek', env_name: 'DEEPSEEK_API_KEY', is_set: true, used_by: [] }] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      configAction,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '助手与 AI' })
+    await browser.click(screen.getByRole('button', { name: /Provider/ }))
+    await browser.click(await screen.findByRole('option', { name: 'DeepSeek' }))
+    expect(screen.getByRole('textbox', { name: '模型' })).toHaveValue('deepseek-v4-flash')
+    expect(screen.getByLabelText('AI Key')).toHaveTextContent('DeepSeek Key')
+    await browser.click(screen.getByRole('button', { name: '保存 AI 设置' }))
+    expect(configAction).toHaveBeenCalledWith('set_ai', expect.objectContaining({ provider: 'deepseek', model: 'deepseek-v4-flash', api_key_env: 'DEEPSEEK_API_KEY' }))
+  })
+
   it('shows a neutral Agent connection state while delegation loading is unresolved', async () => {
     const user = userEvent.setup()
     const api = liveApi({ agentDelegations: vi.fn().mockImplementation(() => new Promise(() => undefined)) } as Partial<ServiceApi>)

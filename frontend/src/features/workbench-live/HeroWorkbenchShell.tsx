@@ -47,9 +47,9 @@ const navigation = [
   { id: 'feed', label: '信息流', href: '/__preview/workbench-live', icon: Icons.Radio },
   { id: 'saved', label: '收藏', href: '/__preview/workbench-live/saved', icon: Icons.Star },
   { id: 'history', label: '历史', href: '/__preview/workbench-live/history', icon: Icons.History },
-  { id: 'subscriptions', label: '订阅', href: '/subscriptions', icon: Icons.Bell },
-  { id: 'agents', label: '助手连接', href: '/agents', icon: Icons.Bot },
-  { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
+  { id: 'subscriptions', label: '订阅', href: '/__preview/workbench-live/subscriptions', icon: Icons.Bell },
+  { id: 'agents', label: '助手连接', href: '/__preview/workbench-live/agents', icon: Icons.Bot },
+  { id: 'settings', label: '设置', href: '/__preview/workbench-live/settings', icon: Icons.Settings },
 ] as const
 
 function initialWideDesktop() {
@@ -137,13 +137,15 @@ function AgentPanelContent({
 
 export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
+  const contentRoute = ['/__preview/workbench-live', '/__preview/workbench-live/saved', '/__preview/workbench-live/history'].includes(location.pathname)
+  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const agentToggleRef = useRef<HTMLButtonElement>(null)
   const [wideDesktop, setWideDesktop] = useState(initialWideDesktop)
   const [mobile, setMobile] = useState(initialMobile)
   const [agentOpen, setAgentOpen] = useState(initialWideDesktop)
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
-  const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false })
+  const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: contentRoute })
   const agentStatus: AgentStatus | undefined = delegations.isLoading
     ? undefined
     : delegations.isError
@@ -154,7 +156,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running'
   const noticeKey = props.refreshEventKey || `${props.refreshState}:${props.refreshMessage ?? ''}`
   const noticeOpen = Boolean(props.refreshMessage) && !refreshing && dismissedNotice !== noticeKey
-  const desktopGridColumns = wideDesktop && agentOpen
+  const desktopGridColumns = contentRoute && wideDesktop && agentOpen
     ? 'min-[1200px]:grid-cols-[72px_minmax(640px,1fr)_360px] min-[1360px]:grid-cols-[232px_minmax(640px,1fr)_360px]'
     : 'min-[1200px]:grid-cols-[72px_minmax(0,1fr)] min-[1360px]:grid-cols-[232px_minmax(0,1fr)]'
 
@@ -180,7 +182,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     const mobileMedia = window.matchMedia('(max-width: 767px)')
     const changeDesktop = (event: MediaQueryListEvent) => {
       setWideDesktop(event.matches)
-      setAgentOpen(event.matches)
+      setAgentOpen(contentRoute && event.matches)
     }
     const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
     desktopMedia.addEventListener('change', changeDesktop)
@@ -189,7 +191,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       desktopMedia.removeEventListener('change', changeDesktop)
       mobileMedia.removeEventListener('change', changeMobile)
     }
-  }, [])
+  }, [contentRoute])
 
   useEffect(() => {
     if (!agentOpen || !wideDesktop) return
@@ -236,19 +238,19 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         </aside>
 
         <header className="col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator bg-surface px-3 min-[768px]:col-start-2 min-[768px]:px-4">
-          <h1 className="shrink-0 text-base font-semibold">{location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'}</h1>
-          <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
+          {contentRoute ? <h1 className="shrink-0 text-base font-semibold">{pageTitle}</h1> : <strong className="shrink-0 text-base font-semibold">{pageTitle}</strong>}
+          {contentRoute ? <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group>
               <SearchField.SearchIcon><Icons.Search size={16} /></SearchField.SearchIcon>
               <SearchField.Input placeholder="搜索标题、来源或主题" />
               <SearchField.ClearButton aria-label="清除搜索" />
             </SearchField.Group>
-          </SearchField>
-          <Button size="sm" variant="ghost" aria-label="更新信息流" isDisabled={refreshing || !props.onRefresh} onPress={props.onRefresh}>
+          </SearchField> : <span className="flex-1" />}
+          {contentRoute && <Button size="sm" variant="ghost" aria-label="更新信息流" isDisabled={refreshing || !props.onRefresh} onPress={props.onRefresh}>
             <Icons.RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             <span className="hidden min-[560px]:inline">{props.refreshState === 'queued' ? '已排队' : refreshing ? '更新中' : '更新信息流'}</span>
-          </Button>
-          <Button
+          </Button>}
+          {contentRoute && <Button
             ref={agentToggleRef}
             size="sm"
             variant="ghost"
@@ -257,7 +259,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             aria-expanded={agentOpen}
             aria-controls="live-agent-panel"
             onPress={() => setAgentOpen((value) => !value)}
-          >{agentOpen ? <Icons.PanelRightClose size={17} /> : <Icons.PanelRightOpen size={17} />}</Button>
+          >{agentOpen ? <Icons.PanelRightClose size={17} /> : <Icons.PanelRightOpen size={17} />}</Button>}
         </header>
 
         <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
@@ -268,7 +270,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           {props.children}
         </main>
 
-        {wideDesktop ? agentOpen && <aside
+        {contentRoute && (wideDesktop ? agentOpen && <aside
           id="live-agent-panel"
           role="complementary"
           aria-label="OpenClaw 上下文"
@@ -286,10 +288,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>
-        </Drawer>}
+        </Drawer>)}
 
-        <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
-          {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/__preview/workbench-live'} aria-label={label} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-[10px] text-muted aria-[current=page]:text-accent">
+        <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-5 border-t border-separator bg-surface min-[768px]:hidden">
+          {navigation.filter(({ id }) => id !== 'agents').map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/__preview/workbench-live'} aria-label={label} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-[10px] text-muted aria-[current=page]:text-accent">
             <Icon size={17} aria-hidden="true" /><span>{label}</span>
           </NavLink>)}
         </nav>

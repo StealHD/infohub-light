@@ -29,6 +29,18 @@ const HeroWorkbenchShell = import.meta.env.DEV
 const HeroWorkbenchPage = import.meta.env.DEV
   ? lazy(() => import('../features/workbench-live/HeroWorkbenchPage').then(({ HeroWorkbenchPage: Page }) => ({ default: Page })))
   : null
+const HeroSubscriptionsPage = import.meta.env.DEV
+  ? lazy(() => import('../features/admin-heroui/HeroSubscriptionsPage').then(({ HeroSubscriptionsPage: Page }) => ({ default: Page })))
+  : null
+const HeroAgentsPage = import.meta.env.DEV
+  ? lazy(() => import('../features/admin-heroui/HeroAgentsPage').then(({ HeroAgentsPage: Page }) => ({ default: Page })))
+  : null
+const HeroSettingsPage = import.meta.env.DEV
+  ? lazy(() => import('../features/admin-heroui/HeroSettingsPage').then(({ HeroSettingsPage: Page }) => ({ default: Page })))
+  : null
+const HeroLoginPage = import.meta.env.DEV
+  ? lazy(() => import('../features/admin-heroui/HeroLoginPage').then(({ HeroLoginPage: Page }) => ({ default: Page })))
+  : null
 
 export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
   state: AppErrorBoundaryState = { failed: false }
@@ -82,7 +94,7 @@ function AuthenticatedLayout({ api, user, experience = 'legacy' }: { api: Servic
   const outlet = <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
 
   if (experience === 'live' && HeroWorkbenchShell) {
-    return <ActionFeedbackProvider key={user.id} userId={user.id}>
+    return <ActionFeedbackProvider key={user.id} userId={user.id} noticeSurface="none">
       <Suspense fallback={<main className="app-loading" role="status">正在准备实时工作台…</main>}>
         <HeroWorkbenchShell
           api={api}
@@ -126,6 +138,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
 
   return <AppErrorBoundary key={location.pathname}>
     <Routes>
+      {HeroLoginPage && <Route path="/__preview/workbench-live/login" element={user ? <Navigate to="/__preview/workbench-live" replace /> : <Suspense fallback={<main className="app-loading" role="status">正在准备登录页…</main>}><HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} /></Suspense>} />}
       <Route path="/login" element={user ? <Navigate to="/feed" replace /> : login} />
       <Route element={user ? <AuthenticatedLayout api={api} user={user} /> : <Navigate to="/login" replace />}>
         <Route path="/" element={<LegacyEntry />} />
@@ -141,6 +154,9 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/__preview/workbench-live" element={<HeroWorkbenchPage kind="feed" />} />
         <Route path="/__preview/workbench-live/saved" element={<HeroWorkbenchPage kind="saved" />} />
         <Route path="/__preview/workbench-live/history" element={<HeroWorkbenchPage kind="history" />} />
+        {HeroSubscriptionsPage && <Route path="/__preview/workbench-live/subscriptions" element={<HeroSubscriptionsPage />} />}
+        {HeroAgentsPage && <Route path="/__preview/workbench-live/agents" element={<HeroAgentsPage />} />}
+        {HeroSettingsPage && <Route path="/__preview/workbench-live/settings" element={<HeroSettingsPage />} />}
       </Route>}
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>
