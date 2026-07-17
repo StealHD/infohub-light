@@ -380,6 +380,50 @@ def test_query_values_and_free_text_do_not_treat_substrings_as_credentials():
 
 
 @pytest.mark.parametrize(
+    "config",
+    [
+        {
+            "url": "https://example.com/feed",
+            "name": "Feed ghp_1234567890abcdef",
+        },
+        {
+            "url": "https://example.com/feed",
+            "name": "Release github_pat_12345678_abcdefgh",
+        },
+        {
+            "url": "https://example.com/feed?cursor=xoxb-12345678-abcdefgh",
+        },
+        {
+            "url": "https://example.com/feed#xoxp-12345678-abcdefgh",
+        },
+        {
+            "url": "https://example.com/feed#github%255Fpat%255F12345678%255Fabcdefgh",
+        },
+    ],
+)
+def test_agent_normalization_rejects_embedded_known_token_values_in_all_url_parts(
+    config,
+):
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input("rss", config)
+
+    assert str(exc_info.value) == CREDENTIAL_ERROR
+    assert "12345678" not in str(exc_info.value)
+
+
+def test_bearer_business_title_is_safe_without_credential_context():
+    result = normalize_source_setup_input(
+        "rss",
+        {
+            "url": "https://example.com/bearer-market-report.xml",
+            "name": "Bearer Market Report",
+        },
+    )
+
+    assert result["config"]["name"] == "Bearer Market Report"
+
+
+@pytest.mark.parametrize(
     "name",
     [
         "Authori\u200bzation: Bearer never-store-this",

@@ -77,7 +77,7 @@ class QuotaService:
         user_id: str,
         source_id: str,
     ) -> None:
-        active_target = self.store.connect().execute(
+        enabled_subscription = self.store.connect().execute(
             """
             SELECT 1
             FROM user_subscriptions us
@@ -86,13 +86,43 @@ class QuotaService:
               AND us.source_id = ?
               AND sc.workspace_id = ?
               AND us.enabled = 1
-              AND sc.enabled = 1
             LIMIT 1
             """,
             (user_id, source_id, workspace_id),
         ).fetchone()
-        if active_target is not None:
+        if enabled_subscription is not None:
             return
+        self._ensure_active_source_capacity(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+    def ensure_source_reenable_allowed(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        source_id: str,
+    ) -> None:
+        """Admit a real disabled-to-enabled source transition.
+
+        Unlike ``ensure_source_allowed``, this helper deliberately has no
+        enabled-subscription idempotence shortcut: its caller has established
+        that enabling ``source_id`` will add one active source for the user.
+        """
+
+        del source_id  # the transition target is not part of the current count
+        self._ensure_active_source_capacity(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+    def _ensure_active_source_capacity(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> None:
         row = self.store.connect().execute(
             """
             SELECT COUNT(*) AS total

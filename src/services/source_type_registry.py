@@ -48,6 +48,18 @@ _CREDENTIAL_ASSIGNMENT_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Za-z0-9_-]+)\s*[:=]",
     flags=re.IGNORECASE,
 )
+_KNOWN_CREDENTIAL_VALUE_RE = re.compile(
+    r"(?i)(?<![a-z0-9])(?:authorization|proxy[-_\s]+authorization|cookie|"
+    r"x[-_\s]+api[-_\s]+key|api[-_\s]+key|access[-_\s]+token|"
+    r"auth[-_\s]+token|refresh[-_\s]+token|client[-_\s]+(?:secret|token)|"
+    r"password|secret|token)\s*[:=]\s*\S+"
+    r"|(?:^|[^a-z0-9])(?:sk-proj-[a-z0-9_-]{20,}(?=$|[^a-z0-9_-])"
+    r"|sk-[a-z0-9]{20,}(?=$|[^a-z0-9])|ghp_[a-z0-9]{8,}"
+    r"|github_pat_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}"
+    r"|ih_mcp_v1_[a-z0-9_-]{8,})"
+    r"|(?:^|[^a-z0-9_-])eyj[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}"
+    r"\.[a-z0-9_-]{8,}(?:$|[^a-z0-9_-])",
+)
 _SECURITY_CLASSIFICATION_MAX_CHARS = 16_384
 _SECURITY_PERCENT_DECODE_ROUNDS = 2
 _DEFAULT_IGNORABLE_RANGES = (
@@ -1048,7 +1060,7 @@ def _contains_secret_shape(value: Any) -> bool:
     lowered = candidate.lower()
     if lowered.startswith(tuple(prefix.lower() for prefix in _SECRET_PREFIXES)):
         return True
-    if re.match(r"^(bearer|basic)\s+\S+", candidate, flags=re.IGNORECASE):
+    if _KNOWN_CREDENTIAL_VALUE_RE.search(candidate):
         return True
     if _contains_credential_assignment(candidate):
         return True
@@ -1462,6 +1474,51 @@ def normalize_source_setup_input(
         "config": normalized,
         "policy": policy,
     }
+
+
+def validate_normalized_source_setup(
+    source_type: str,
+    catalog_source_type: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate a planner-normalized setup without retaining the raw request.
+
+    Persisted mutation plans contain the public Agent type and its normalized
+    catalog config.  Restoration uses this reverse check to prove the mapping,
+    catalog config, and execution policy still match the registry contract.
+    """
+
+    definition = _AGENT_BY_TYPE.get(str(source_type))
+    if definition is None:
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    if str(catalog_source_type) != definition.catalog_source_type:
+        raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
+    if not isinstance(config, dict):
+        raise SourceConfigError("config must be an object")
+    if _contains_secret_shape(config):
+        raise SourceConfigError(_CREDENTIAL_ERROR)
+    _validate_public_url_inputs(config)
+    normalized = validate_source_config(definition.catalog_source_type, config)
+    if normalized != config:
+        raise SourceConfigError("normalized source config does not match catalog contract")
+    policy = definition.execution_policy()
+    if policy.get("public_network_only") is True:
+        _validate_public_network_literal(str(normalized.get("url") or ""))
+    return {
+        "catalog_source_type": definition.catalog_source_type,
+        "config": normalized,
+        "policy": policy,
+    }
+
+
+def validate_public_source_metadata(value: dict[str, Any]) -> None:
+    """Reject credential shapes in safe-to-display planner metadata."""
+
+    if not isinstance(value, dict):
+        raise SourceConfigError("source metadata must be an object")
+    if _contains_secret_shape(value):
+        raise SourceConfigError(_CREDENTIAL_ERROR)
+    _validate_public_url_inputs(value)
 
 
 def project_catalog_source_public_summary(

@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import pytest
 
 from src.services import media_cache
 from src.storage.service_store import ServiceStore
@@ -36,7 +37,7 @@ def test_media_cache_download_uses_narrow_x_and_instagram_synthetic_dns_suffixes
     )
 
 
-def test_default_avatar_invalidation_inside_outer_transaction_is_rollback_safe(
+def test_default_avatar_invalidation_inside_outer_transaction_fails_before_mutation(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
@@ -73,9 +74,17 @@ def test_default_avatar_invalidation_inside_outer_transaction_is_rollback_safe(
     conn.commit()
     conn.execute("BEGIN IMMEDIATE")
 
-    media_cache.MediaCacheService(store, data_dir=tmp_path).invalidate_source_avatar(
-        workspace_id=workspace["id"], source_id=source_id
-    )
+    with pytest.raises(RuntimeError, match="post_commit_cleanup is required"):
+        media_cache.MediaCacheService(
+            store, data_dir=tmp_path
+        ).invalidate_source_avatar(
+            workspace_id=workspace["id"], source_id=source_id
+        )
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM media_assets WHERE id = 'med_rollback_avatar'"
+    ).fetchone()[0] == 1
+    assert avatar_path.read_bytes() == avatar_bytes
     conn.rollback()
 
     assert conn.execute(

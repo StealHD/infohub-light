@@ -18,6 +18,7 @@ from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .quota import QuotaExceeded, QuotaService
 from .source_health import SourceHealthService
 from .source_schedule import (
+    DEFAULT_SOURCE_INTERVAL_MINUTES,
     SOURCE_ALLOWED_INTERVALS,
     SourceScheduleService,
     SourceScheduleUnavailableError,
@@ -27,6 +28,8 @@ from .source_type_registry import (
     normalize_source_setup_input,
     project_catalog_source_public_summary,
     source_key,
+    validate_normalized_source_setup,
+    validate_public_source_metadata,
     validate_source_config,
 )
 
@@ -50,6 +53,26 @@ _SUBSCRIPTION_FIELDS = {
     "priority",
 }
 _SCHEDULE_FIELDS = {"enabled", "interval_minutes"}
+_PLAN_SNAPSHOT_VERSION = 1
+_PLAN_FACTORY_TOKEN = object()
+_PLAN_SNAPSHOT_KEYS = {
+    "version",
+    "kind",
+    "normalized",
+    "preview",
+    "targets",
+    "fingerprints",
+}
+_CATALOG_SOURCE_TYPES = {
+    "rss",
+    "github_release",
+    "github_user",
+    "reddit_subreddit",
+    "reddit_user",
+    "telegram_channel",
+    "apify_social",
+    "hackernews",
+}
 
 
 class SubscriptionMutationError(ValueError):
@@ -91,28 +114,38 @@ class SubscriptionChangePlan:
     _preview_json: str
     _target_ids_json: str
     _fingerprints_json: str
+    _factory_token: object
 
-    def __init__(
-        self,
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError(
+            "subscription change plans require a planner or restore entrypoint"
+        )
+
+    @classmethod
+    def _from_validated_snapshot(
+        cls,
         kind: Literal["create", "update", "delete"],
         payload: dict[str, Any],
         preview: dict[str, Any],
         target_ids: dict[str, str],
         fingerprints: dict[str, str | None],
-    ) -> None:
+    ) -> "SubscriptionChangePlan":
         if kind not in {"create", "update", "delete"}:
             raise ValueError("invalid subscription change kind")
-        object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "_payload_json", self._seal(payload, "payload"))
-        object.__setattr__(self, "_preview_json", self._seal(preview, "preview"))
+        plan = object.__new__(cls)
+        object.__setattr__(plan, "kind", kind)
+        object.__setattr__(plan, "_payload_json", cls._seal(payload, "payload"))
+        object.__setattr__(plan, "_preview_json", cls._seal(preview, "preview"))
         object.__setattr__(
-            self, "_target_ids_json", self._seal(target_ids, "target_ids")
+            plan, "_target_ids_json", cls._seal(target_ids, "target_ids")
         )
         object.__setattr__(
-            self,
+            plan,
             "_fingerprints_json",
-            self._seal(fingerprints, "fingerprints"),
+            cls._seal(fingerprints, "fingerprints"),
         )
+        object.__setattr__(plan, "_factory_token", _PLAN_FACTORY_TOKEN)
+        return plan
 
     @staticmethod
     def _seal(value: dict[str, Any], field: str) -> str:
@@ -151,6 +184,18 @@ class SubscriptionChangePlan:
     @property
     def fingerprints(self) -> dict[str, str | None]:
         return self._copy(self._fingerprints_json)
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """Return the versioned JSON-safe representation used by proposals."""
+
+        return {
+            "version": _PLAN_SNAPSHOT_VERSION,
+            "kind": self.kind,
+            "normalized": self.payload,
+            "preview": self.preview,
+            "targets": self.target_ids,
+            "fingerprints": self.fingerprints,
+        }
 
 
 class SubscriptionMutationService:
@@ -313,13 +358,7 @@ class SubscriptionMutationService:
         """Reuse Task 1 credential classification for non-config source fields."""
 
         try:
-            normalize_source_setup_input(
-                "rss",
-                {
-                    "url": "https://example.com/metadata-validation",
-                    "__source_metadata__": values,
-                },
-            )
+            validate_public_source_metadata(values)
         except SourceConfigError as exc:
             if str(exc) == "credentials are not accepted; configure secrets in Web":
                 raise self._error("invalid_source_config", str(exc)) from exc
@@ -392,6 +431,469 @@ class SubscriptionMutationService:
             }
         return None
 
+    @staticmethod
+    def _require_exact_keys(
+        value: Any,
+        expected: set[str],
+        field: str,
+    ) -> dict[str, Any]:
+        if not isinstance(value, dict) or set(value) != expected:
+            raise ValueError(f"{field} has an invalid schema")
+        return value
+
+    @staticmethod
+    def _require_identifier(value: Any, field: str) -> str:
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"{field} must be a non-empty string")
+        return value
+
+    def _validate_fingerprints(
+        self, value: Any
+    ) -> dict[str, str | None]:
+        fingerprints = self._require_exact_keys(
+            value, {"source", "subscription", "schedule"}, "fingerprints"
+        )
+        if any(
+            item is not None and (not isinstance(item, str) or not item)
+            for item in fingerprints.values()
+        ):
+            raise ValueError("fingerprints contain an invalid value")
+        return fingerprints
+
+    def _validate_public_summary(self, value: Any) -> dict[str, Any]:
+        summary = self._require_exact_keys(
+            value, {"display_name", "type", "public_target"}, "source summary"
+        )
+        display_name = summary["display_name"]
+        source_type = summary["type"]
+        target = summary["public_target"]
+        if not isinstance(display_name, str) or not display_name:
+            raise ValueError("source summary display_name is invalid")
+        if source_type not in _CATALOG_SOURCE_TYPES | {"unknown"}:
+            raise ValueError("source summary type is invalid")
+        if target == "web_setup_required":
+            if display_name != "Web-managed source":
+                raise ValueError("opaque source summary is invalid")
+        elif source_type in {
+            "rss",
+            "github_release",
+            "github_user",
+            "reddit_subreddit",
+            "reddit_user",
+            "telegram_channel",
+        }:
+            if not isinstance(target, str) or not target:
+                raise ValueError("source summary target is invalid")
+        elif source_type == "apify_social":
+            target_values = self._require_exact_keys(
+                target, {"platform", "kind", "target"}, "social target"
+            )
+            if any(not isinstance(item, str) or not item for item in target_values.values()):
+                raise ValueError("social target is invalid")
+        elif source_type == "hackernews":
+            target_values = self._require_exact_keys(
+                target,
+                {"fetch_top_stories", "min_score"},
+                "hackernews target",
+            )
+            if any(isinstance(item, bool) or not isinstance(item, int) for item in target_values.values()):
+                raise ValueError("hackernews target is invalid")
+        else:
+            raise ValueError("unknown source summary must be opaque")
+        self._reject_agent_sensitive_metadata(summary)
+        return summary
+
+    def _validate_schedule_preview(self, value: Any) -> dict[str, Any]:
+        preview = self._require_exact_keys(
+            value, {"enabled", "interval_minutes"}, "schedule preview"
+        )
+        if not isinstance(preview["enabled"], bool):
+            raise ValueError("schedule preview enabled is invalid")
+        interval = preview["interval_minutes"]
+        if (
+            isinstance(interval, bool)
+            or not isinstance(interval, int)
+            or interval not in SOURCE_ALLOWED_INTERVALS
+        ):
+            raise ValueError("schedule preview interval is invalid")
+        return preview
+
+    @staticmethod
+    def _final_schedule_preview(
+        existing_schedule: dict[str, Any] | None,
+        updates: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        result = {
+            "enabled": bool(existing_schedule and existing_schedule.get("enabled")),
+            "interval_minutes": int(
+                (existing_schedule or {}).get(
+                    "interval_minutes", DEFAULT_SOURCE_INTERVAL_MINUTES
+                )
+            ),
+        }
+        if updates:
+            result.update(updates)
+        return result
+
+    def _validate_source_updates_snapshot(
+        self,
+        source_type: str,
+        value: Any,
+    ) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("source updates must be an object or null")
+        allowed = _SOURCE_UPDATE_FIELDS | {"source_key", "enforce_public_network"}
+        if set(value) - allowed:
+            raise ValueError("source updates contain an unsupported field")
+        for field, item in value.items():
+            if field in {"display_name", "description"}:
+                if not isinstance(item, str) or (
+                    field == "display_name" and not item.strip()
+                ):
+                    raise ValueError("source metadata is invalid")
+            elif field == "default_channel":
+                if item is not None and not isinstance(item, str):
+                    raise ValueError("source default channel is invalid")
+            elif field == "default_topics":
+                if not isinstance(item, list) or any(
+                    not isinstance(topic, str) for topic in item
+                ):
+                    raise ValueError("source default topics are invalid")
+            elif field == "enabled" and not isinstance(item, bool):
+                raise ValueError("source enabled is invalid")
+        has_config = "config" in value
+        if has_config:
+            config = value["config"]
+            if not isinstance(config, dict):
+                raise ValueError("source config is invalid")
+            normalized = (
+                validate_normalized_source_setup("rss", "rss", config)["config"]
+                if source_type == "rss"
+                else validate_source_config(source_type, config)
+            )
+            if normalized != config or value.get("source_key") != source_key(
+                source_type, config
+            ):
+                raise ValueError("source config identity is invalid")
+            if source_type == "rss":
+                if value.get("enforce_public_network") is not True:
+                    raise ValueError("RSS public network marker is invalid")
+            elif "enforce_public_network" in value:
+                raise ValueError("unexpected public network marker")
+        elif "source_key" in value or "enforce_public_network" in value:
+            raise ValueError("source identity fields require config")
+        self._reject_agent_sensitive_metadata(value)
+        return value
+
+    def _expected_preview(
+        self,
+        kind: Literal["create", "update", "delete"],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if kind == "create":
+            source_values = payload["source"]
+            if source_values["mode"] == "private":
+                preview_source = {
+                    "display_name": source_values["display_name"],
+                    "type": source_values["agent_type"],
+                    "public_target": self._public_target(
+                        source_values["catalog_source_type"],
+                        source_values["config"],
+                    ),
+                }
+            else:
+                preview_source = source_values["public_summary"]
+            return {
+                "action": "create_subscription",
+                "source": preview_source,
+                "subscription": payload["subscription"],
+                "schedule": payload["schedule_preview"],
+                "impact": "Create or enable the caller's subscription.",
+                "warnings": [],
+            }
+        if kind == "update":
+            return {
+                "action": "update_subscription",
+                "source": payload["preview_source"],
+                "subscription": payload["subscription_updates"] or {},
+                "schedule": payload["schedule_updates"] or {},
+                "impact": "Update the selected private source or subscription.",
+                "warnings": [],
+            }
+        disposition = payload["source_disposition"]
+        return {
+            "action": "delete_subscription",
+            "source": payload["preview_source"],
+            "subscription": {"id": payload["subscription_id"]},
+            "schedule": {},
+            "source_disposition": disposition,
+            "impact": "Delete the caller's subscription.",
+            "warnings": (
+                ["The private source will also be disabled."]
+                if disposition == "disable_private"
+                else []
+            ),
+        }
+
+    def _validate_plan_parts(
+        self,
+        kind: Literal["create", "update", "delete"],
+        payload: Any,
+        preview: Any,
+        target_ids: Any,
+        fingerprints: Any,
+    ) -> None:
+        targets = target_ids
+        fingerprints = self._validate_fingerprints(fingerprints)
+        if kind == "create":
+            normalized = self._require_exact_keys(
+                payload,
+                {"source", "subscription", "schedule", "schedule_preview"},
+                "create plan",
+            )
+            source_values = normalized["source"]
+            if not isinstance(source_values, dict):
+                raise ValueError("source plan is invalid")
+            if source_values.get("mode") == "private":
+                self._require_exact_keys(
+                    source_values,
+                    {
+                        "mode",
+                        "agent_type",
+                        "catalog_source_type",
+                        "display_name",
+                        "description",
+                        "default_channel",
+                        "default_topics",
+                        "config",
+                        "source_key",
+                        "enforce_public_network",
+                    },
+                    "private source plan",
+                )
+                if not isinstance(source_values["display_name"], str) or not source_values[
+                    "display_name"
+                ].strip():
+                    raise ValueError("private source display name is invalid")
+                if not isinstance(source_values["description"], str):
+                    raise ValueError("private source description is invalid")
+                if source_values["default_channel"] is not None and not isinstance(
+                    source_values["default_channel"], str
+                ):
+                    raise ValueError("private source channel is invalid")
+                if not isinstance(source_values["default_topics"], list) or any(
+                    not isinstance(item, str)
+                    for item in source_values["default_topics"]
+                ):
+                    raise ValueError("private source topics are invalid")
+                setup = validate_normalized_source_setup(
+                    source_values["agent_type"],
+                    source_values["catalog_source_type"],
+                    source_values["config"],
+                )
+                policy = setup["policy"]
+                if (
+                    policy.get("resolution_mode") != "create_or_existing"
+                    or policy.get("self_service") is not True
+                    or source_values["catalog_source_type"] == "apify_social"
+                    or source_values["enforce_public_network"]
+                    is not bool(policy.get("public_network_only", False))
+                    or source_values["source_key"]
+                    != source_key(
+                        source_values["catalog_source_type"], source_values["config"]
+                    )
+                ):
+                    raise ValueError("private source policy is invalid")
+                self._reject_agent_sensitive_metadata(
+                    {
+                        key: source_values[key]
+                        for key in (
+                            "display_name",
+                            "description",
+                            "default_channel",
+                            "default_topics",
+                        )
+                    }
+                )
+                if targets != {} or any(
+                    fingerprints[key] is not None
+                    for key in ("source", "subscription", "schedule")
+                ):
+                    raise ValueError("private create targets are invalid")
+            elif source_values.get("mode") == "existing":
+                self._require_exact_keys(
+                    source_values,
+                    {"mode", "source_id", "public_summary"},
+                    "existing source plan",
+                )
+                source_id = self._require_identifier(
+                    source_values["source_id"], "source_id"
+                )
+                self._validate_public_summary(source_values["public_summary"])
+                if not isinstance(targets, dict) or set(targets) not in (
+                    {"source_id"},
+                    {"source_id", "subscription_id"},
+                ):
+                    raise ValueError("existing create targets are invalid")
+                if targets["source_id"] != source_id:
+                    raise ValueError("existing create source target is invalid")
+                if fingerprints["source"] is None:
+                    raise ValueError("existing create source fingerprint is invalid")
+                if "subscription_id" in targets:
+                    self._require_identifier(
+                        targets["subscription_id"], "subscription_id"
+                    )
+                    if fingerprints["subscription"] is None:
+                        raise ValueError("subscription fingerprint is invalid")
+                elif fingerprints["subscription"] is not None or fingerprints[
+                    "schedule"
+                ] is not None:
+                    raise ValueError("missing subscription target is invalid")
+            else:
+                raise ValueError("source mode is invalid")
+            subscription = self._normalize_subscription(
+                normalized["subscription"], create=True
+            )
+            if subscription != normalized["subscription"]:
+                raise ValueError("subscription snapshot is not normalized")
+            schedule = self._normalize_schedule(normalized["schedule"])
+            if schedule != normalized["schedule"]:
+                raise ValueError("schedule snapshot is not normalized")
+            schedule_preview = self._validate_schedule_preview(
+                normalized["schedule_preview"]
+            )
+            if (
+                source_values["mode"] == "private"
+                or "subscription_id" not in targets
+            ) and schedule_preview != self._final_schedule_preview(None, schedule):
+                raise ValueError("schedule preview does not match final schedule")
+        elif kind == "update":
+            normalized = self._require_exact_keys(
+                payload,
+                {
+                    "subscription_id",
+                    "catalog_source_type",
+                    "source_updates",
+                    "subscription_updates",
+                    "schedule_updates",
+                    "preview_source",
+                },
+                "update plan",
+            )
+            self._require_identifier(normalized["subscription_id"], "subscription_id")
+            source_type = normalized["catalog_source_type"]
+            if source_type not in _CATALOG_SOURCE_TYPES:
+                raise ValueError("catalog source type is invalid")
+            self._validate_source_updates_snapshot(
+                source_type, normalized["source_updates"]
+            )
+            if normalized["subscription_updates"] is not None:
+                subscription_updates = self._normalize_subscription(
+                    normalized["subscription_updates"], create=False
+                )
+                if subscription_updates != normalized["subscription_updates"]:
+                    raise ValueError("subscription updates are not normalized")
+            schedule_updates = self._normalize_schedule(
+                normalized["schedule_updates"]
+            )
+            if schedule_updates != normalized["schedule_updates"]:
+                raise ValueError("schedule updates are not normalized")
+            self._validate_public_summary(normalized["preview_source"])
+            if all(
+                normalized[key] is None
+                for key in (
+                    "source_updates",
+                    "subscription_updates",
+                    "schedule_updates",
+                )
+            ):
+                raise ValueError("update plan has no updates")
+            if not isinstance(targets, dict) or set(targets) != {
+                "source_id",
+                "subscription_id",
+            }:
+                raise ValueError("update targets are invalid")
+            if targets["subscription_id"] != normalized["subscription_id"]:
+                raise ValueError("update subscription target is invalid")
+            self._require_identifier(targets["source_id"], "source_id")
+            if fingerprints["source"] is None or fingerprints["subscription"] is None:
+                raise ValueError("update fingerprints are invalid")
+        else:
+            normalized = self._require_exact_keys(
+                payload,
+                {"subscription_id", "source_disposition", "preview_source"},
+                "delete plan",
+            )
+            self._require_identifier(normalized["subscription_id"], "subscription_id")
+            if normalized["source_disposition"] not in {"keep", "disable_private"}:
+                raise ValueError("source disposition is invalid")
+            self._validate_public_summary(normalized["preview_source"])
+            if not isinstance(targets, dict) or set(targets) != {
+                "source_id",
+                "subscription_id",
+            }:
+                raise ValueError("delete targets are invalid")
+            if targets["subscription_id"] != normalized["subscription_id"]:
+                raise ValueError("delete subscription target is invalid")
+            self._require_identifier(targets["source_id"], "source_id")
+            if fingerprints["source"] is None or fingerprints["subscription"] is None:
+                raise ValueError("delete fingerprints are invalid")
+        if preview != self._expected_preview(kind, payload):
+            raise ValueError("preview does not match normalized plan")
+
+    def _build_plan(
+        self,
+        kind: Literal["create", "update", "delete"],
+        payload: dict[str, Any],
+        preview: dict[str, Any],
+        target_ids: dict[str, str],
+        fingerprints: dict[str, str | None],
+    ) -> SubscriptionChangePlan:
+        self._validate_plan_parts(
+            kind, payload, preview, target_ids, fingerprints
+        )
+        return SubscriptionChangePlan._from_validated_snapshot(
+            kind, payload, preview, target_ids, fingerprints
+        )
+
+    def restore_plan_snapshot(self, snapshot: dict[str, Any]) -> SubscriptionChangePlan:
+        """Restore only an exact, versioned, normalized plan snapshot."""
+
+        try:
+            data = self._require_exact_keys(
+                snapshot, _PLAN_SNAPSHOT_KEYS, "plan snapshot"
+            )
+            version = data["version"]
+            if (
+                isinstance(version, bool)
+                or not isinstance(version, int)
+                or version != _PLAN_SNAPSHOT_VERSION
+            ):
+                raise ValueError("unsupported plan snapshot version")
+            kind = data["kind"]
+            if kind not in {"create", "update", "delete"}:
+                raise ValueError("invalid plan snapshot kind")
+            self._validate_plan_parts(
+                kind,
+                data["normalized"],
+                data["preview"],
+                data["targets"],
+                data["fingerprints"],
+            )
+            return SubscriptionChangePlan._from_validated_snapshot(
+                kind,
+                data["normalized"],
+                data["preview"],
+                data["targets"],
+                data["fingerprints"],
+            )
+        except (KeyError, TypeError, ValueError, SourceConfigError, SubscriptionMutationError) as exc:
+            raise self._error(
+                "invalid_plan_snapshot", "invalid subscription change plan snapshot"
+            ) from exc
+
     def plan_create(
         self,
         actor: SubscriptionActor,
@@ -425,11 +927,12 @@ class SubscriptionMutationService:
                 existing_schedule = self.store.get_source_schedule(
                     str(existing_subscription["id"])
                 )
+            safe_summary = project_catalog_source_public_summary(target_source)
             normalized_source = {
                 "mode": "existing",
                 "source_id": str(target_source["id"]),
+                "public_summary": safe_summary,
             }
-            safe_summary = project_catalog_source_public_summary(target_source)
             preview_type = str(safe_summary["type"])
             public_target = safe_summary["public_target"]
             display_name = str(safe_summary["display_name"])
@@ -529,10 +1032,15 @@ class SubscriptionMutationService:
                 "invalid_request", "source mode must be existing or private"
             )
 
+        schedule_preview = self._final_schedule_preview(
+            existing_schedule if existing_subscription is not None else None,
+            normalized_schedule,
+        )
         payload = {
             "source": normalized_source,
             "subscription": normalized_subscription,
             "schedule": normalized_schedule,
+            "schedule_preview": schedule_preview,
         }
         preview = {
             "action": "create_subscription",
@@ -542,7 +1050,7 @@ class SubscriptionMutationService:
                 "public_target": public_target,
             },
             "subscription": dict(normalized_subscription),
-            "schedule": dict(normalized_schedule or {"enabled": False}),
+            "schedule": dict(schedule_preview),
             "impact": "Create or enable the caller's subscription.",
             "warnings": [],
         }
@@ -551,7 +1059,7 @@ class SubscriptionMutationService:
             target_ids["source_id"] = str(target_source["id"])
         if existing_subscription is not None:
             target_ids["subscription_id"] = str(existing_subscription["id"])
-        return SubscriptionChangePlan(
+        return self._build_plan(
             "create",
             payload,
             preview,
@@ -654,19 +1162,21 @@ class SubscriptionMutationService:
             else self._normalize_subscription(subscription_updates, create=False)
         )
         normalized_schedule_updates = self._normalize_schedule(schedule_updates)
-        payload = {
-            "subscription_id": str(subscription_id),
-            "source_updates": normalized_source_updates,
-            "subscription_updates": normalized_subscription_updates,
-            "schedule_updates": normalized_schedule_updates,
-        }
         preview_source_values = dict(source)
         if normalized_source_updates is not None:
             preview_source_values.update(normalized_source_updates)
         preview_source = project_catalog_source_public_summary(
             preview_source_values
         )
-        return SubscriptionChangePlan(
+        payload = {
+            "subscription_id": str(subscription_id),
+            "catalog_source_type": str(source["type"]),
+            "source_updates": normalized_source_updates,
+            "subscription_updates": normalized_subscription_updates,
+            "schedule_updates": normalized_schedule_updates,
+            "preview_source": preview_source,
+        }
+        return self._build_plan(
             "update",
             payload,
             {
@@ -711,15 +1221,17 @@ class SubscriptionMutationService:
                 "disable_private requires the caller's private source",
                 status_code=403,
             )
-        return SubscriptionChangePlan(
+        preview_source = project_catalog_source_public_summary(source)
+        return self._build_plan(
             "delete",
             {
                 "subscription_id": str(subscription_id),
                 "source_disposition": source_disposition,
+                "preview_source": preview_source,
             },
             {
                 "action": "delete_subscription",
-                "source": project_catalog_source_public_summary(source),
+                "source": preview_source,
                 "subscription": {"id": str(subscription_id)},
                 "schedule": {},
                 "source_disposition": source_disposition,
@@ -740,11 +1252,33 @@ class SubscriptionMutationService:
     def _revalidate_live_plan(
         self, actor: SubscriptionActor, plan: SubscriptionChangePlan
     ) -> None:
-        if not isinstance(plan, SubscriptionChangePlan):
+        if (
+            not isinstance(plan, SubscriptionChangePlan)
+            or plan._factory_token is not _PLAN_FACTORY_TOKEN
+        ):
             raise self._error("invalid_request", "invalid subscription change plan")
+        try:
+            self._validate_plan_parts(
+                plan.kind,
+                plan.payload,
+                plan.preview,
+                plan.target_ids,
+                plan.fingerprints,
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            SourceConfigError,
+            SubscriptionMutationError,
+        ) as exc:
+            raise self._error(
+                "invalid_plan_snapshot", "invalid subscription change plan snapshot"
+            ) from exc
         self._live_actor(actor)
         payload = plan.payload
         expected_target_ids: dict[str, str] = {}
+        live_context_valid = True
         if plan.kind == "create":
             source_values = payload.get("source")
             if not isinstance(source_values, dict):
@@ -766,6 +1300,12 @@ class SubscriptionMutationService:
                 expected_target_ids["source_id"] = str(source["id"])
                 if subscription is not None:
                     expected_target_ids["subscription_id"] = str(subscription["id"])
+                live_context_valid = bool(
+                    source_values["public_summary"]
+                    == project_catalog_source_public_summary(source)
+                    and payload["schedule_preview"]
+                    == self._final_schedule_preview(schedule, payload.get("schedule"))
+                )
             elif source_values.get("mode") == "private":
                 source = None
                 subscription = None
@@ -809,6 +1349,20 @@ class SubscriptionMutationService:
                     "disable_private requires the caller's private source",
                     status_code=403,
                 )
+            if plan.kind == "update":
+                preview_source_values = dict(source)
+                if payload.get("source_updates") is not None:
+                    preview_source_values.update(payload["source_updates"])
+                live_context_valid = bool(
+                    payload.get("catalog_source_type") == source.get("type")
+                    and payload.get("preview_source")
+                    == project_catalog_source_public_summary(preview_source_values)
+                )
+            else:
+                live_context_valid = bool(
+                    payload.get("preview_source")
+                    == project_catalog_source_public_summary(source)
+                )
         else:  # pragma: no cover - constructor rejects this state
             raise self._error("invalid_request", "invalid subscription change kind")
 
@@ -817,6 +1371,10 @@ class SubscriptionMutationService:
         ) != plan.fingerprints:
             raise self._error(
                 "proposal_stale", "proposal targets changed", status_code=409
+            )
+        if not live_context_valid:
+            raise self._error(
+                "invalid_plan_snapshot", "invalid subscription change plan snapshot"
             )
 
     def apply_plan(
@@ -827,14 +1385,14 @@ class SubscriptionMutationService:
         commit: bool = True,
         post_commit_cleanup: PostCommitMediaCleanup | None = None,
     ) -> dict[str, Any]:
-        if not commit and post_commit_cleanup is None:
-            raise self._error(
-                "post_commit_cleanup_required",
-                "post_commit_cleanup is required when commit=False",
-                status_code=500,
-            )
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
+        if (not owns_transaction or not commit) and post_commit_cleanup is None:
+            raise self._error(
+                "post_commit_cleanup_required",
+                "post_commit_cleanup is required for a caller-owned transaction",
+                status_code=500,
+            )
         cleanup = post_commit_cleanup or PostCommitMediaCleanup()
         try:
             if owns_transaction:
@@ -952,7 +1510,7 @@ class SubscriptionMutationService:
                 else subscription.get("enabled")
             )
             if source_will_enable and subscription_will_be_enabled:
-                self.quota.ensure_source_allowed(
+                self.quota.ensure_source_reenable_allowed(
                     workspace_id=actor.workspace_id,
                     user_id=actor.user_id,
                     source_id=str(source["id"]),
@@ -1189,6 +1747,7 @@ class SubscriptionMutationService:
         *,
         source_id: str,
         updates: dict[str, Any],
+        post_commit_cleanup: PostCommitMediaCleanup | None = None,
     ) -> dict[str, Any]:
         user = self._live_actor(actor)
         source = self._rest_source(actor, source_id)
@@ -1198,10 +1757,32 @@ class SubscriptionMutationService:
             )
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
-        cleanup = PostCommitMediaCleanup()
+        if not owns_transaction and post_commit_cleanup is None:
+            raise self._error(
+                "post_commit_cleanup_required",
+                "post_commit_cleanup is required for a caller-owned transaction",
+                status_code=500,
+            )
+        cleanup = post_commit_cleanup or PostCommitMediaCleanup()
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            if updates.get("enabled") is True and not source.get("enabled"):
+                enabled_subscribers = conn.execute(
+                    """
+                    SELECT user_id
+                    FROM user_subscriptions
+                    WHERE source_id = ? AND enabled = 1
+                    ORDER BY user_id
+                    """,
+                    (source_id,),
+                ).fetchall()
+                for subscriber in enabled_subscribers:
+                    self.quota.ensure_source_reenable_allowed(
+                        workspace_id=actor.workspace_id,
+                        user_id=str(subscriber["user_id"]),
+                        source_id=source_id,
+                    )
             config_changed = (
                 "config" in updates and updates["config"] != source.get("config")
             )

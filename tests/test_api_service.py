@@ -934,6 +934,57 @@ def test_subscription_creation_enforces_enabled_source_quota(tmp_path, monkeypat
     assert runtime["operational_counts"]["quota_rejects"] == 1
 
 
+def test_disabled_source_subscription_patch_is_idempotent_but_source_reenable_is_admitted(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("INFOHUB_MAX_SOURCES_PER_USER", "1")
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+
+    def create_source(name, suffix):
+        return client.post(
+            "/api/catalog/sources",
+            json={
+                "scope": "public",
+                "type": "rss",
+                "display_name": name,
+                "config": {"url": f"https://example.com/{suffix}.xml"},
+            },
+        ).json()["data"]
+
+    disabled_source = create_source("Disabled target", "quota-disabled-target")
+    disabled_subscription = client.post(
+        f"/api/catalog/sources/{disabled_source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    assert client.patch(
+        f"/api/catalog/sources/{disabled_source['id']}",
+        json={"enabled": False},
+    ).status_code == 200
+
+    active_source = create_source("Active target", "quota-active-target")
+    assert client.post(
+        f"/api/catalog/sources/{active_source['id']}/subscribe"
+    ).status_code == 200
+
+    idempotent = client.patch(
+        f"/api/me/subscriptions/{disabled_subscription['id']}",
+        json={"enabled": True},
+    )
+    rejected_reenable = client.patch(
+        f"/api/catalog/sources/{disabled_source['id']}",
+        json={"enabled": True},
+    )
+
+    assert idempotent.status_code == 200
+    assert idempotent.json()["data"]["enabled"] is True
+    assert rejected_reenable.status_code == 429
+    assert rejected_reenable.json()["error"]["code"] == "quota_exceeded"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    assert store.get_source(disabled_source["id"])["enabled"] is False
+
+
 def test_concurrent_subscription_creation_enforces_quota_atomically(
     tmp_path, monkeypatch
 ):

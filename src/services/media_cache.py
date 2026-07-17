@@ -434,6 +434,10 @@ class MediaCacheService:
 
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
+        if not owns_transaction and post_commit_cleanup is None:
+            raise RuntimeError(
+                "post_commit_cleanup is required inside an outer transaction"
+            )
         cleanup = post_commit_cleanup or PostCommitMediaCleanup()
         try:
             if owns_transaction:

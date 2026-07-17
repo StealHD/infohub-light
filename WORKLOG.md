@@ -977,3 +977,11 @@
 - 结果：确认后的 normalized plan 使用 canonical snapshot 且 apply 不再重规范化；Agent RSS 更新/runner fallback 均维持公网执行；来源重启用先做 quota admission；头像仅在 owner commit 后物理清理，`commit=False` 缺 collector 失败关闭；遗留不安全 catalog preview 返回稳定 opaque summary
 - 未解决问题：Task 4+ 外层事务调用 `apply_plan(commit=False)` 时必须显式传入 cleanup collector，并在 commit 后执行、rollback 时丢弃；本任务未实现 Task 4+
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 修正后复审的五项 Important
+- 修改文件：订阅变更 plan/restore、quota、media cleanup、来源公开元数据分类器、相关 focused 测试、`.superpowers/sdd/task-3-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：五组回归先按预期 RED；Python compile 与 focused 484 项通过；full gate 22/22（`mapping_miss=false`、`ui_impacted=false`）、默认配置 JSON 校验及 `git diff --check` 通过
+- 结果：planner/restore/apply 共用严格版本化 invariant builder；subscription 幂等与 source re-enable admission 分离；外层事务缺 cleanup collector 在 mutation 前失败关闭；公开投影覆盖嵌入式常见 token 且保留安全 Bearer 标题；schedule preview 展示 existing 合并态或 new 默认态
+- 未解决问题：Task 4+ 外层事务调用 mutation service 时须显式传 collector，commit 后执行、rollback 时丢弃；本任务未实现 Task 4+
+- 控制面变更：无
