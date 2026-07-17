@@ -905,3 +905,11 @@
 - 结果：凭据安全副本加入有界 percent decode 与 Unicode ignorable 折叠；RSS/website 拒绝历史 IPv4 本地地址；GitHub clone `.git` 规范化；Telegram query/fragment 与保留路由失败关闭
 - 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第五轮复审的单项 Important（percent-escaped hostname）
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r5-report.md`、`WORKLOG.md`
+- 执行验证：新增 10 个 RSS/website percent-escaped hostname 与 IPv6 zone-id 回归先均为 RED；focused 256 项、Python compile、full gate 和 `git diff --check` 通过
+- 结果：主机名含 `%` 在公网 literal 分类前以固定非回显错误失败关闭；普通数字标签域名和 `policy.public_network_only=true` 回归保持
+- 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
+- 控制面变更：无

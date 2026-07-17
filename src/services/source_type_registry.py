@@ -1383,6 +1383,11 @@ def _validate_public_network_literal(value: str) -> None:
         raise SourceConfigError("url must target the public network") from exc
     if not raw_host:
         return
+    # Hostname percent escapes can be decoded by downstream URL implementations
+    # into local literals. Reject them, including IPv6 zone identifiers, before
+    # local literal classification rather than rewriting the accepted URL.
+    if "%" in raw_host:
+        raise SourceConfigError("url must target the public network")
     normalized_host = unicodedata.normalize("NFKC", raw_host).lower().rstrip(".")
     try:
         host = normalized_host.encode("idna").decode("ascii")

@@ -703,6 +703,27 @@ def test_agent_rss_urls_reject_historical_loopback_ipv4_forms_without_dns(
 @pytest.mark.parametrize(
     "url",
     [
+        "http://127%2e0%2e0%2e1/feed",
+        "http://%31%32%37.0.0.1/feed",
+        "http://localhost%2e/feed",
+        "http://%6cocalhost/feed",
+        "http://[2001:4860:4860::8888%25zone]/feed",
+    ],
+)
+def test_agent_rss_urls_reject_percent_escaped_hostnames_without_echoing_input(
+    source_type, url
+):
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input(source_type, {"url": url})
+
+    assert str(exc_info.value) == "url must target the public network"
+    assert url not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("source_type", ["rss", "website"])
+@pytest.mark.parametrize(
+    "url",
+    [
         "https://127.example.com/feed",
         "https://0x7f000001.example.com/feed",
         "https://release-0177.example/feed",
