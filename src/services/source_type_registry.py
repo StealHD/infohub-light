@@ -1383,6 +1383,11 @@ def _validate_public_network_literal(value: str) -> None:
         raise SourceConfigError("url must target the public network") from exc
     if not raw_host:
         return
+    # Backslashes in the authority are interpreted as path separators by some
+    # downstream URL implementations, which can turn an apparent hostname
+    # into a local literal. Reject before hostname classification.
+    if "\\" in parsed.netloc or "\\" in raw_host:
+        raise SourceConfigError("url must target the public network")
     # Hostname percent escapes can be decoded by downstream URL implementations
     # into local literals. Reject them, including IPv6 zone identifiers, before
     # local literal classification rather than rewriting the accepted URL.

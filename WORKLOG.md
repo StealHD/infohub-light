@@ -913,3 +913,11 @@
 - 结果：主机名含 `%` 在公网 literal 分类前以固定非回显错误失败关闭；普通数字标签域名和 `policy.public_network_only=true` 回归保持
 - 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第六轮复审的单项 Important（反斜杠 authority）
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r6-report.md`、`WORKLOG.md`
+- 执行验证：RSS/website 反斜杠 authority 回归先均为 RED；focused 258 项、Python compile、full gate 和 `git diff --check` 通过
+- 结果：公网 literal 分类前拒绝 authority/hostname 中的反斜杠，使用固定非回显错误；普通域名、numeric-label 域名与 `policy.public_network_only=true` 回归保持
+- 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
+- 控制面变更：无

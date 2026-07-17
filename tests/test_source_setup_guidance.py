@@ -721,6 +721,17 @@ def test_agent_rss_urls_reject_percent_escaped_hostnames_without_echoing_input(
 
 
 @pytest.mark.parametrize("source_type", ["rss", "website"])
+def test_agent_rss_urls_reject_backslash_authorities_without_echoing_input(source_type):
+    url = "http://127.0.0.1\\example.com/feed"
+
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input(source_type, {"url": url})
+
+    assert str(exc_info.value) == "url must target the public network"
+    assert url not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("source_type", ["rss", "website"])
 @pytest.mark.parametrize(
     "url",
     [
