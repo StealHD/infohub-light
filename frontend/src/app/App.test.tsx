@@ -902,16 +902,68 @@ describe('App routes', () => {
     }
   })
 
+  it('renders the saved production route from savedFeed without falling through to latestFeed', async () => {
+    const savedItem: FeedItem = {
+      id: 'saved-route-item',
+      title: '收藏路由条目',
+      url: 'https://example.com/saved-route-item',
+      published_at: '2026-07-17T02:00:00Z',
+      user_state: { is_read: false, is_saved: true, is_later: false, dismissed: false },
+    }
+    const savedFeed = vi.fn().mockResolvedValue({ items: [savedItem] })
+    const latestFeed = vi.fn().mockResolvedValue({ schema_version: 2, items: [] })
+    const api = liveApi({ savedFeed, latestFeed } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/saved']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: '收藏路由条目' })).toBeInTheDocument()
+    expect(savedFeed).toHaveBeenCalledWith(200, 0, expect.any(AbortSignal))
+    expect(latestFeed).not.toHaveBeenCalled()
+  })
+
+  it('renders the history production route from historyFeed without falling through to latestFeed', async () => {
+    const historyItem: FeedItem = {
+      id: 'history-route-item',
+      title: '历史路由条目',
+      url: 'https://example.com/history-route-item',
+      published_at: '2026-07-17T01:00:00Z',
+      user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
+    }
+    const historyFeed = vi.fn().mockResolvedValue({ items: [historyItem] })
+    const latestFeed = vi.fn().mockResolvedValue({ schema_version: 2, items: [] })
+    const api = liveApi({ historyFeed, latestFeed } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/history']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '历史' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: '历史路由条目' })).toBeInTheDocument()
+    expect(historyFeed).toHaveBeenCalledWith(expect.any(AbortSignal))
+    expect(latestFeed).not.toHaveBeenCalled()
+  })
+
   it('replaces the legacy later route with saved, preserving item and dropping obsolete mode', async () => {
+    const savedItem: FeedItem = {
+      id: 'live-1',
+      title: '稍后读迁移条目',
+      url: 'https://example.com/live-1',
+      published_at: '2026-07-17T02:00:00Z',
+      user_state: { is_read: false, is_saved: true, is_later: false, dismissed: false },
+    }
+    const savedFeed = vi.fn().mockResolvedValue({ items: [savedItem] })
+    const feedItem = vi.fn().mockResolvedValue(savedItem)
     const api = liveApi({
-      historyFeed: vi.fn().mockResolvedValue({ items: [] }),
-      sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
+      savedFeed,
+      feedItem,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/later?mode=featured&item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: '稍后读迁移条目' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/saved?item=live-1'))
+    expect(savedFeed).toHaveBeenCalledWith(200, 0, expect.any(AbortSignal))
+    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
   it('does not remount the authenticated workbench when inline expansion changes search params', async () => {

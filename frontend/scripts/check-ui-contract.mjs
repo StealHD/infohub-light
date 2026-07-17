@@ -3,7 +3,7 @@ import { extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const sourceExtensions = new Set(['.ts', '.tsx'])
+const sourceExtensions = new Set(['.ts', '.tsx', '.css'])
 
 function sourceViolations(file, source) {
   const violations = []
@@ -25,9 +25,9 @@ function sourceViolations(file, source) {
   }
   if (isBusinessSource && !isHeroWorkbench) {
     const checks = [
-      [/from\s+['"].*\.module\.css['"]/, 'Shell 与业务页不得使用页面级 CSS Modules'],
+      [/\bimport\s+(?:[^'"\n]+\s+from\s+)?['"][^'"]*\.module\.css['"]/, 'Shell 与业务页不得使用页面级 CSS Modules'],
       [/(?:#[0-9a-f]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\()/i, '业务页面不得定义原始颜色值'],
-      [/\b(?:borderRadius|boxShadow|transitionDuration|animationDuration)\s*:\s*(?:['"]?\d|['"][^'"]+)/, '视觉常量必须来自设计系统主题'],
+      [/\b(?:borderRadius|boxShadow|transitionDuration|animationDuration)\s*:\s*(?:['"]?\d|['"][^'"]+)|\b(?:border-radius|box-shadow|transition-duration|animation-duration)\s*:/, '视觉常量必须来自设计系统主题'],
     ]
     for (const [pattern, message] of checks) if (pattern.test(source)) violations.push(`${file}: ${message}`)
   }

@@ -8,6 +8,8 @@ export type WorkbenchPreviewStory = {
   channel: string
   topics: string[]
 }
+
+export const fixedPreviewFixtureMarker = 'inteliscope-fixed-preview-fixture-v1'
 export type WorkbenchPreviewNavigationItem = {
   id: 'feed' | 'saved' | 'history' | 'subscriptions' | 'agents' | 'settings'
   label: string

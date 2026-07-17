@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
@@ -36,14 +36,12 @@ type ViewportAnchor = { id: string; offset: number }
 
 function readViewportAnchor(scroll: HTMLDivElement): ViewportAnchor | null {
   const bounds = scroll.getBoundingClientRect()
-  const topRow = Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]'))
-    .filter((row) => {
-      const card = row.querySelector<HTMLElement>('[data-testid="workbench-card"]')
-      return card ? card.getBoundingClientRect().bottom > bounds.top : false
-    })
+  const topCard = Array.from(scroll.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
+    .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
     .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
-  if (!topRow?.dataset.itemId) return null
-  return { id: topRow.dataset.itemId, offset: topRow.getBoundingClientRect().top - bounds.top }
+  const topRow = topCard?.closest<HTMLElement>('[data-item-id]')
+  if (!topCard || !topRow?.dataset.itemId) return null
+  return { id: topRow.dataset.itemId, offset: topCard.getBoundingClientRect().top - bounds.top }
 }
 
 function WorkbenchCard({
@@ -160,10 +158,11 @@ function WorkbenchCard({
 export function VirtualFeed(props: VirtualFeedProps) {
   const sourceItemIds = props.sourceItemIds ?? props.cards.map((card) => card.id)
   const sourceSignature = sourceItemIds.join('\u0000')
+  const cardsSignature = props.cards.map((card) => card.id).join('\u0000')
   const scrollRef = useRef<HTMLDivElement>(null)
   const wasNearBottom = useRef(true)
   const previousSourceIds = useRef(new Set(sourceItemIds))
-  const previousSourceSignature = useRef(sourceSignature)
+  const previousCardsSignature = useRef(cardsSignature)
   const viewportAnchor = useRef<ViewportAnchor | null>(null)
   const requestedRefreshAnchor = useRef<ViewportAnchor | null>(null)
   const restorationAnchor = useRef<ViewportAnchor | null>(null)
@@ -210,17 +209,26 @@ export function VirtualFeed(props: VirtualFeedProps) {
   cardsRef.current = props.cards
   virtualizerRef.current = virtualizer
 
+  const releaseNavigationOwnership = useCallback(() => {
+    requestedRefreshAnchor.current = null
+    restorationAnchor.current = null
+    inlineScrollAnchor.current = null
+    window.clearTimeout(inlineAnchorTimer.current)
+    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
+  }, [])
+
   useEffect(() => {
     const capture = () => {
+      releaseNavigationOwnership()
       if (scrollRef.current) requestedRefreshAnchor.current = readViewportAnchor(scrollRef.current)
     }
     window.addEventListener(workbenchRefreshRequestEvent, capture)
     return () => window.removeEventListener(workbenchRefreshRequestEvent, capture)
-  }, [])
+  }, [releaseNavigationOwnership])
 
   useLayoutEffect(() => {
-    if (previousSourceSignature.current === sourceSignature) return
-    previousSourceSignature.current = sourceSignature
+    if (previousCardsSignature.current === cardsSignature) return
+    previousCardsSignature.current = cardsSignature
     const anchor = requestedRefreshAnchor.current ?? viewportAnchor.current
     requestedRefreshAnchor.current = null
     const scroll = scrollRef.current
@@ -228,8 +236,12 @@ export function VirtualFeed(props: VirtualFeedProps) {
     restorationAnchor.current = anchor
 
     let frame = 0
+    let remainingMeasurementFrames = 120
+    let stableMeasurementFrames = 0
     const restore = () => {
       if (restorationAnchor.current !== anchor) return
+      if (remainingMeasurementFrames <= 0) return
+      remainingMeasurementFrames -= 1
       const row = Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]'))
         .find((element) => element.dataset.itemId === anchor.id)
       if (!row) {
@@ -242,9 +254,17 @@ export function VirtualFeed(props: VirtualFeedProps) {
         frame = window.requestAnimationFrame(restore)
         return
       }
-      const currentOffset = row.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      const card = row.querySelector<HTMLElement>('[data-testid="workbench-card"]')
+      if (!card) return
+      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top
       const correction = currentOffset - anchor.offset
-      if (Math.abs(correction) > 0.5) scroll.scrollTop += correction
+      if (Math.abs(correction) > 0.5) {
+        stableMeasurementFrames = 0
+        scroll.scrollTop += correction
+      } else stableMeasurementFrames += 1
+      if (stableMeasurementFrames < 6) {
+        frame = window.requestAnimationFrame(restore)
+      }
     }
 
     restore()
@@ -259,7 +279,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       observer.disconnect()
       window.cancelAnimationFrame(frame)
     }
-  }, [sourceSignature])
+  }, [cardsSignature])
 
   useLayoutEffect(() => {
     if (inlineScrollAnchor.current === null || !scrollRef.current) return
@@ -272,10 +292,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
     return () => window.cancelAnimationFrame(frame)
   }, [props.cards, props.expandedId])
 
-  useEffect(() => () => {
-    window.clearTimeout(inlineAnchorTimer.current)
-    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
-  }, [])
+  useEffect(() => () => releaseNavigationOwnership(), [releaseNavigationOwnership])
 
   useEffect(() => {
     if (didInitialScroll.current || props.cards.length === 0) return
@@ -283,22 +300,23 @@ export function VirtualFeed(props: VirtualFeedProps) {
     if (props.navigationTargetId && targetIndex < 0) return
     didInitialScroll.current = true
     const frame = window.requestAnimationFrame(() => {
-      restorationAnchor.current = null
+      releaseNavigationOwnership()
       virtualizer.scrollToIndex(targetIndex, { align: props.navigationTargetId ? 'center' : 'end' })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [props.cards, props.navigationTargetId, virtualizer])
+  }, [props.cards, props.navigationTargetId, releaseNavigationOwnership, virtualizer])
 
   useEffect(() => {
     const addedCount = sourceItemIds.filter((id) => !previousSourceIds.current.has(id)).length
     previousSourceIds.current = new Set(sourceItemIds)
+    requestedRefreshAnchor.current = null
     if (addedCount <= 0) return
     if (wasNearBottom.current) {
-      restorationAnchor.current = null
+      releaseNavigationOwnership()
       virtualizer.scrollToIndex(props.cards.length - 1, { align: 'end' })
     }
     else setNewItemCount((count) => count + addedCount)
-  }, [props.cards.length, sourceItemIds, sourceSignature, virtualizer])
+  }, [props.cards.length, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
 
   const virtualItems = virtualizer.getVirtualItems()
 
@@ -313,8 +331,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
     if (activeRestoration) {
       const row = Array.from(element.querySelectorAll<HTMLElement>('[data-item-id]'))
         .find((candidate) => candidate.dataset.itemId === activeRestoration.id)
-      if (row) {
-        const correction = row.getBoundingClientRect().top - element.getBoundingClientRect().top - activeRestoration.offset
+      const card = row?.querySelector<HTMLElement>('[data-testid="workbench-card"]')
+      if (card) {
+        const correction = card.getBoundingClientRect().top - element.getBoundingClientRect().top - activeRestoration.offset
         if (Math.abs(correction) > 0.5) element.scrollTop += correction
       }
     }
@@ -322,15 +341,14 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }
 
   function jumpTo(index: number) {
-    restorationAnchor.current = null
+    releaseNavigationOwnership()
     setActiveIndex(index)
     virtualizer.scrollToIndex(index, { align: 'center' })
   }
 
   function toggleExpandedInline(id: string) {
+    releaseNavigationOwnership()
     inlineScrollAnchor.current = scrollRef.current?.scrollTop ?? null
-    window.clearTimeout(inlineAnchorTimer.current)
-    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
     const holdAnchor = () => {
       const element = scrollRef.current
       if (!element || inlineScrollAnchor.current === null) return
@@ -346,10 +364,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }
 
   function cancelInlineAnchor() {
-    restorationAnchor.current = null
-    inlineScrollAnchor.current = null
-    window.clearTimeout(inlineAnchorTimer.current)
-    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
+    releaseNavigationOwnership()
   }
 
   return <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -405,9 +420,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
       className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2"
       aria-label={`查看 ${newItemCount} 条新内容`}
       onPress={() => {
+        releaseNavigationOwnership()
         setNewItemCount(0)
         wasNearBottom.current = true
-        restorationAnchor.current = null
         virtualizer.scrollToIndex(props.cards.length - 1, { align: 'end' })
       }}
     >{newItemCount} 条新内容</Button>}

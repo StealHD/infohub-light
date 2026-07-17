@@ -6,6 +6,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const buildRoot = join(root, '../src/ui/service_static')
 const searchableExtensions = new Set(['.html', '.js', '.css', '.map'])
 const forbidden = [
+  'inteliscope-fixed-preview-fixture-v1',
   '/__preview/workbench-heroui',
   'hero-workbench',
   '正在准备 HeroUI 工作台预览',
@@ -13,8 +14,10 @@ const forbidden = [
   '/__preview/workbench',
   '@mui/',
   '@emotion/',
-  'Mui',
   '切换到 MUI 版',
+]
+const forbiddenPatterns = [
+  { pattern: /\bMui[A-Z][A-Za-z0-9]*-[A-Za-z0-9-]+\b/, label: 'MUI class marker' },
 ]
 const violations = []
 
@@ -33,6 +36,9 @@ for (const file of await files(buildRoot)) {
   const source = await readFile(file, 'utf8')
   for (const marker of forbidden) {
     if (source.includes(marker)) violations.push(`${file}: 包含开发专用 HeroUI 标记 ${marker}`)
+  }
+  for (const { pattern, label } of forbiddenPatterns) {
+    if (pattern.test(source)) violations.push(`${file}: 包含已删除的 ${label}`)
   }
 }
 

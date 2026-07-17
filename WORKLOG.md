@@ -976,3 +976,11 @@
 - 结果：HeroUI 成为唯一生产 UI；`/feed|saved|history` 使用工作台，admin/settings/login 使用 Hero 页面，`/later` 替换至 `/saved`；固定 `/__preview/workbench-heroui` 继续 DEV-only 且生产剔除；MUI/Emotion 与旧页面完全删除
 - 未解决问题：仅保留 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：新增 D028；`UI_CONTRACT.md` 重写为唯一视觉真源，PLAN/影响映射改为引用与当前 Hero 路径；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 21:49 Codex
+- 任务：修复 Task 4 评审发现的 rendered-order 锚点、导航 ownership、UI/产物门禁与 saved/history/later 验收缺口
+- 修改文件：`VirtualFeed`/筛选面板、生产路由单测与三视口 Playwright、UI source/artifact checker、固定 preview marker、Task 4 报告与本工作日志
+- 执行验证：四组 focused RED→GREEN；UI contract、lint 0 error/warning、TypeScript、Vitest 28 文件/160 项、build/artifact、三视口 Playwright/Axe 48/48、移动锚点 20x/5-worker 压力 20/20、Python API 69 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、65.117 秒；`git diff --check` 通过
+- 结果：rendered cards 成为唯一滚动恢复边界，raw source 不再重复恢复；所有显式导航/用户取消统一释放 refresh/restoration/inline timer+RAF ownership；business CSS/CSS Module 与固定 preview 产物绕过被封堵，MUI 检测不再误报无关 `Mui` 子串；`/saved`、`/history`、`/later` 真实集合路由具备生产验收
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

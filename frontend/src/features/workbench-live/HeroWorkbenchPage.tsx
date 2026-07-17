@@ -4,13 +4,14 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import { Button, Card, Chip, Icons, Popover, Skeleton, Switch } from '../../design-system'
+import { Button, Card, Chip, Icons, Skeleton, Switch } from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
 import { filterFeedItems } from '../feed/feedModel'
 import { readFeedPreference, writeFeedPreference, type FeedPreference } from '../feed/feedPreference'
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
+import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
   cleanLegacyModeSearch,
   mergeDeepLinkedItem,
@@ -25,6 +26,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
@@ -102,6 +104,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
   function updatePreference(patch: Partial<FeedPreference>) {
     const next = { ...preference, ...patch }
+    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     setPreferenceState({ userId: user.id, value: next })
     writeFeedPreference(user.id, next)
   }
@@ -118,13 +121,12 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <span className="text-xs text-muted">旧内容在上，最新内容在下 · {cards.length} 条</span>
       <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>
       {preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
-      <Popover>
-        <Popover.Trigger aria-label="筛选信息流" className="flex min-h-8 items-center gap-2 rounded-xl px-3 text-sm text-muted hover:bg-default hover:text-foreground">
+      <div className="relative">
+        <Button size="sm" variant="ghost" aria-label="筛选信息流" aria-expanded={filtersOpen} className="text-muted" onPress={() => setFiltersOpen((open) => !open)}>
           <Icons.SlidersHorizontal size={15} />筛选
-        </Popover.Trigger>
-        <Popover.Content placement="bottom end" className="w-[min(340px,calc(100vw-24px))]">
-          <Popover.Dialog className="grid gap-3 p-4">
-            <Popover.Heading className="font-semibold">信息流筛选</Popover.Heading>
+        </Button>
+        {filtersOpen && <Card role="dialog" aria-label="信息流筛选" className="absolute right-0 top-[calc(100%+8px)] z-30 grid w-[min(340px,calc(100vw-24px))] gap-3 p-4">
+            <h2 className="font-semibold">信息流筛选</h2>
             <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
             <label className="grid gap-1 text-sm">来源
               <select aria-label="来源" value={preference.source} onChange={(event) => updatePreference({ source: event.target.value })} className="min-h-10 rounded-xl border border-field-border bg-field-background px-3">
@@ -145,9 +147,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               <input aria-label="最低分" type="number" min="0" max="10" step="0.5" value={preference.minScore ?? ''} onChange={(event) => updatePreference({ minScore: event.target.value === '' ? undefined : Number(event.target.value) })} className="min-h-10 rounded-xl border border-field-border bg-field-background px-3" />
             </label>
             <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })}>清除筛选</Button>
-          </Popover.Dialog>
-        </Popover.Content>
-      </Popover>
+        </Card>}
+      </div>
     </div>
 
     {deepLinkNotice && <div role="status" className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}

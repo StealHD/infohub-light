@@ -29,6 +29,20 @@ const batchRollingItems = Array.from({ length: 80 }, (_, index) => ({
   published_at: new Date(Date.UTC(2026, 6, 1, 4, index)).toISOString(),
   user_state: { is_read: index % 3 === 0, is_saved: false, is_later: false, dismissed: false },
 }))
+const savedRouteItem = {
+  ...items[0],
+  id: 'saved-route-item',
+  title: '生产收藏路由条目',
+  url: 'https://example.com/saved-route-item',
+  user_state: { is_read: false, is_saved: true, is_later: false, dismissed: false },
+}
+const historyRouteItem = {
+  ...items[0],
+  id: 'history-route-item',
+  title: '生产历史路由条目',
+  url: 'https://example.com/history-route-item',
+  user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
+}
 
 async function topVisibleSnapshot(page: Page) {
   const feedScroll = page.getByTestId('workbench-feed-scroll')
@@ -102,6 +116,8 @@ test.beforeEach(async ({ page }) => {
       const batchMode = new URL(page.url()).searchParams.has('batch')
       data = { schema_version: 2, items: refreshCreated ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem] : items }
     }
+    else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
+    else if (url.pathname === '/api/feed/history') data = { items: [historyRouteItem] }
     else if (url.pathname === '/api/jobs/user-feed-refresh' && route.request().method() === 'POST') {
       refreshCreated = true
       data = { id: 'refresh-1', user_id: 'e2e-user', job_type: 'user_feed_refresh', status: 'queued', created_at: '2026-07-17T04:00:00Z' }
@@ -116,7 +132,7 @@ test.beforeEach(async ({ page }) => {
       connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
     else if (url.pathname.startsWith('/api/feed/items/')) {
-      const item = [...items, rollingItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
+      const item = [...items, rollingItem, savedRouteItem, historyRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
       if (!item) {
         await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: 'not found' } }) })
         return
@@ -324,4 +340,105 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
   const afterJump = await feedScroll.evaluate((element) => element.scrollTop)
   await stableTopVisibleSnapshot(page)
   expect(Math.abs(await feedScroll.evaluate((element) => element.scrollTop) - afterJump)).toBeLessThanOrEqual(2)
+})
+
+test('live unread-first and source filters preserve the surviving rendered-card anchor', async ({ page }) => {
+  await page.goto('/feed')
+  await page.evaluate(() => document.fonts.ready)
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  await feedScroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await alignVisibleCardToTop(page)
+
+  await page.getByRole('button', { name: '筛选信息流' }).click()
+  const filterDialog = page.getByRole('dialog', { name: '信息流筛选' })
+  await expect(filterDialog).toBeVisible()
+  const anchorAtTransition = await alignVisibleCardToTop(page)
+  const itemNumber = Number(anchorAtTransition.name.match(/\d+/)?.[0])
+  const survivingSource = itemNumber % 2 === 1 ? 'GitHub' : 'OpenAI Blog'
+  await filterDialog.getByText('未读优先', { exact: true }).click()
+  await expect(page.getByText('未读优先', { exact: true }).first()).toBeVisible()
+  await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorAtTransition.name)
+  await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorAtTransition.offset)).toBeLessThanOrEqual(2)
+
+  const sourceSelect = page.getByRole('combobox', { name: '来源' })
+  if (!(await sourceSelect.isVisible())) await page.getByRole('button', { name: '筛选信息流' }).click()
+  await sourceSelect.selectOption({ label: survivingSource })
+  await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorAtTransition.name)
+  await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorAtTransition.offset)).toBeLessThanOrEqual(2)
+})
+
+test('a jump during an in-flight refresh releases the captured refresh anchor', async ({ page }) => {
+  let refreshRequested = false
+  let signalSecondRequest!: () => void
+  let releaseSecondRequest!: () => void
+  const secondRequestStarted = new Promise<void>((resolve) => { signalSecondRequest = resolve })
+  const secondRequestReleased = new Promise<void>((resolve) => { releaseSecondRequest = resolve })
+  await page.route('**/api/jobs/user-feed-refresh', async (route) => {
+    refreshRequested = true
+    await route.fallback()
+  })
+  await page.route('**/api/feed/latest', async (route) => {
+    if (refreshRequested) {
+      signalSecondRequest()
+      await secondRequestReleased
+    }
+    await route.fallback()
+  })
+
+  await page.goto('/feed')
+  await page.evaluate(() => document.fonts.ready)
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  await feedScroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.72)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await alignVisibleCardToTop(page)
+  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
+  await secondRequestStarted
+
+  await page.getByRole('button', { name: '跳转到第 1 条信息' }).click()
+  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(400)
+  releaseSecondRequest()
+  await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible({ timeout: 7000 })
+  await stableTopVisibleSnapshot(page)
+  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(400)
+})
+
+test('an immediate rail jump after inline expansion is not reclaimed one second later', async ({ page }) => {
+  await page.goto('/feed')
+  await page.evaluate(() => document.fonts.ready)
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  await feedScroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const anchor = await alignVisibleCardToTop(page)
+  const beforeJump = await feedScroll.evaluate((element) => element.scrollTop)
+
+  await page.evaluate(({ expandLabel, jumpLabel }) => {
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+    buttons.find((button) => button.getAttribute('aria-label') === expandLabel)?.click()
+    buttons.find((button) => button.getAttribute('aria-label') === jumpLabel)?.click()
+  }, { expandLabel: `展开 ${anchor.name}`, jumpLabel: '跳转到第 1 条信息' })
+  await page.waitForTimeout(1100)
+
+  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(beforeJump / 2)
+})
+
+test('saved, history and legacy later are accepted by the production workbench routes', async ({ page }) => {
+  await page.goto('/saved')
+  await expect(page.getByRole('heading', { name: '收藏', exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: savedRouteItem.title })).toBeVisible()
+
+  await page.goto('/history')
+  await expect(page.getByRole('heading', { name: '历史', exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: historyRouteItem.title })).toBeVisible()
+
+  await page.goto('/later?mode=featured&item=saved-route-item')
+  await expect(page).toHaveURL('/saved?item=saved-route-item')
+  await expect(page.getByRole('heading', { name: '收藏', exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: savedRouteItem.title })).toBeVisible()
 })

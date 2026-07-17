@@ -32,6 +32,7 @@ import {
 
 import {
   buildWorkbenchHandoffPrompt,
+  fixedPreviewFixtureMarker,
   workbenchPreviewNavigation,
   workbenchPreviewStories,
   type WorkbenchPreviewNavigationItem,
@@ -241,7 +242,7 @@ export function HeroWorkbenchPreview() {
     }
   }
 
-  return <main className="hero-workbench dark" data-theme="dark" data-ui-system="heroui">
+  return <main className="hero-workbench dark" data-fixed-preview-fixture={fixedPreviewFixtureMarker} data-theme="dark" data-ui-system="heroui">
     <HeroNavigation />
 
     <section className="hero-feed-column" aria-label="信息流工作区">

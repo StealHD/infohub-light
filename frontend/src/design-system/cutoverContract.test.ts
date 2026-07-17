@@ -33,4 +33,14 @@ describe('final HeroUI cutover contract', () => {
     expect(bootstrap).not.toContain('UiProvider')
     expect(bootstrap).not.toContain("from './ui'")
   })
+
+  it('guards the fixed preview fixture with a stable marker and only matches real MUI artifacts', () => {
+    const previewModel = readFileSync(resolve(frontendRoot, 'src/features/workbench-heroui/workbenchPreviewModel.ts'), 'utf8')
+    const artifactChecker = readFileSync(resolve(frontendRoot, 'scripts/check-preview-build.mjs'), 'utf8')
+
+    expect(previewModel).toContain("fixedPreviewFixtureMarker = 'inteliscope-fixed-preview-fixture-v1'")
+    expect(artifactChecker).toContain('inteliscope-fixed-preview-fixture-v1')
+    expect(artifactChecker).not.toMatch(/['"]Mui['"]\s*,/)
+    expect(artifactChecker).toMatch(/Mui.*-/)
+  })
 })

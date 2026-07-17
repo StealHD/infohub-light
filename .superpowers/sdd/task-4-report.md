@@ -82,3 +82,48 @@ PASS
 ## Remaining note
 
 Vite reports one existing informational chunk-size warning for the HeroUI application chunk. It does not fail the artifact or full gate and is not a correctness or cutover blocker.
+
+## Review follow-up: rendered anchors, ownership, gates, and route acceptance
+
+All four Important review groups are closed.
+
+- Rendered-order transitions now have their own `cardsSignature` boundary. It is the sole layout-restoration owner; raw `sourceSignature` remains limited to added-ID/new-content accounting and never creates a second observer. Live unread-first and source narrowing preserve the surviving rendered card ID and relative offset within 2 px. A single bounded stabilization loop allows at most 120 virtualizer measurement frames and requires six stable frames; later style mutations reuse the same observer. User/programmatic release invalidates the anchor identity immediately, so pending restoration frames become no-ops.
+- `releaseNavigationOwnership` centrally clears the requested refresh anchor, active restoration anchor, inline numeric anchor, inline timer, and inline RAF. Refresh capture releases old ownership before recording the new request-boundary anchor. Initial/deep-link positioning, bottom auto-follow, progress-rail jumps, new-content jumps, inline expansion replacement, and pointer/wheel/touch/keyboard cancellation all use the central release path. Focused browser tests prove that a jump during an in-flight refresh does not snap back when data arrives and that a rail jump immediately after expansion is not reclaimed one second later.
+- The UI source gate now scans business `.css` as well as TypeScript, rejects both default and side-effect CSS Module imports, and rejects raw business colors/shadows/radii/duration declarations outside the design-system/fixed-preview boundary. The production artifact gate now rejects the stable `inteliscope-fixed-preview-fixture-v1` module marker even if route/class/copy markers are changed, while MUI detection is narrowed to actual `Mui…-…` class markers and `@mui/` modules instead of an unrelated bare substring. Bypass regression tests cover each rule.
+- `/saved`, `/history`, and legacy `/later?...item=...` now have explicit unit and production-browser acceptance. The tests prove saved/history use their own API collections, `/later` preserves `item`, removes obsolete `mode`, redirects to `/saved`, and renders the selected saved item.
+
+Follow-up verification:
+
+```text
+npm run check:ui
+PASS
+
+npm run lint
+PASS, 0 errors / 0 warnings
+
+npm run typecheck
+PASS
+
+npm test -- --reporter=dot
+28 files / 160 tests passed
+
+npm run build
+PASS; production artifact scan passed
+(Vite retains the informational >500 kB chunk warning.)
+
+npm run e2e
+48/48 passed across desktop, tablet, and mobile
+
+npx playwright test e2e/production-workbench.spec.ts --project=mobile \
+  --grep "filtered unread-first" --repeat-each=20 --workers=5
+20/20 passed
+
+.venv/bin/python -m pytest -q tests/test_api_service.py tests/test_react_service_ui.py
+69 passed
+
+.venv/bin/python scripts/test_gate.py run --mode full
+22/22 commands passed; mapping_miss=false; 65.117s
+
+git diff --check
+PASS
+```

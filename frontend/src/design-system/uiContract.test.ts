@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -55,5 +56,27 @@ describe('HeroUI import contract', () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain(message)
+  })
+
+  it.each([
+    "import styles from './Feed.module.css'\nexport const value = styles.root\n",
+    "import './Feed.module.css'\nexport const value = true\n",
+  ])('rejects default and side-effect CSS Module imports from business code', (source) => {
+    const result = checkSource('src/features/feed/FeedSurface.tsx', source)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Shell 与业务页不得使用页面级 CSS Modules')
+  })
+
+  it('rejects visual constants in business CSS and includes CSS in the workspace scan', () => {
+    const result = checkSource(
+      'src/features/feed/feed-surface.css',
+      '.feed-surface { box-shadow: var(--shadow-raised); border-radius: 18px; }\n',
+    )
+    const checkerSource = readFileSync(checker, 'utf8')
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('视觉常量必须来自设计系统主题')
+    expect(checkerSource).toContain("'.css'")
   })
 })
