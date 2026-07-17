@@ -11,6 +11,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import unicodedata
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -97,6 +98,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _proposal_utc_now() -> datetime:
+    """Return the authoritative proposal lifecycle clock in UTC."""
+
+    return datetime.now(timezone.utc)
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
@@ -115,7 +122,10 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
 
 
 def _normalized_sensitive_key(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", str(value).casefold()).strip("_")
+    candidate = unicodedata.normalize("NFKC", str(value))
+    candidate = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", candidate)
+    candidate = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", candidate)
+    return re.sub(r"[^a-z0-9]+", "_", candidate.casefold()).strip("_")
 
 
 def _is_sensitive_proposal_key(value: Any) -> bool:
@@ -180,6 +190,13 @@ def _parse_proposal_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("proposal timestamp must include a timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _authoritative_proposal_time() -> datetime:
+    current = _proposal_utc_now()
+    if not isinstance(current, datetime) or current.tzinfo is None:
+        raise RuntimeError("proposal clock must return a timezone-aware datetime")
+    return current.astimezone(timezone.utc)
 
 
 def _bool(value: Any) -> bool:
@@ -1718,13 +1735,17 @@ class ServiceStore:
             raise ValueError("proposal expiry must be exactly ten minutes")
         _require_safe_proposal_data(payload, preview, fingerprints)
 
-        created_iso = created.isoformat()
-        expires_iso = expires.isoformat()
         conn = self.connect()
         started_transaction = not conn.in_transaction
         try:
             if started_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            authoritative_now = _authoritative_proposal_time()
+            created_iso = authoritative_now.isoformat()
+            expires_iso = (
+                authoritative_now
+                + timedelta(minutes=AGENT_PROPOSAL_TTL_MINUTES)
+            ).isoformat()
             delegation = conn.execute(
                 """
                 SELECT 1 FROM agent_delegations
@@ -1735,7 +1756,7 @@ class ServiceStore:
             if delegation is None:
                 raise LookupError("agent delegation not found")
             self._cleanup_agent_change_proposals_locked(
-                now=created,
+                now=authoritative_now,
                 delegation_id=delegation_id,
                 maintenance=False,
             )
@@ -1846,12 +1867,13 @@ class ServiceStore:
         commit: bool = True,
     ) -> dict[str, Any]:
         _require_safe_proposal_data(result_summary)
-        applied_iso = _parse_proposal_time(applied_at).isoformat()
+        _parse_proposal_time(applied_at)
         conn = self.connect()
         started_transaction = bool(commit and not conn.in_transaction)
         try:
             if started_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            applied_iso = _authoritative_proposal_time().isoformat()
             cursor = conn.execute(
                 """
                 UPDATE agent_change_proposals

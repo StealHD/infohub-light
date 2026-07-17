@@ -157,6 +157,19 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
     )
     conn.execute(
         """
+        UPDATE agent_change_proposals
+        SET created_at = ?, expires_at = ?, applied_at = ?, updated_at = ?
+        WHERE id = 'agp-maintenance-old'
+        """,
+        (
+            proposal_created_at.isoformat(),
+            (proposal_created_at + timedelta(minutes=10)).isoformat(),
+            (proposal_created_at + timedelta(minutes=5)).isoformat(),
+            (proposal_created_at + timedelta(minutes=5)).isoformat(),
+        ),
+    )
+    conn.execute(
+        """
         UPDATE fetch_jobs
         SET status = 'succeeded', finished_at = ?, updated_at = ?, expires_at = NULL
         WHERE id = ?

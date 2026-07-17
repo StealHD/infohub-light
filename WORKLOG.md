@@ -929,3 +929,11 @@
 - 结果：新增 v7 additive proposal 表、级联外键/索引/marker、10 分钟 TTL 与 delegation 原子 pending 上限、安全 JSON 投影/写入、30 天维护清理、旧库兼容部署清空，以及 `create_source(commit=False)` 事务支持
 - 未解决问题：Task 3+ 仍需在外层 `BEGIN IMMEDIATE` 中消费 `commit=False` 接口并完成业务 apply；本任务未实现 mutation service、MCP 或 UI
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 复审的两个 Important（权威 proposal 时钟与 camelCase/NFKC 敏感键）
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`tests/test_maintenance.py`、`.superpowers/sdd/task-2-fix-report.md`、`WORKLOG.md`
+- 执行验证：8 个针对性回归先按预期 RED；focused 36 项通过；full gate 22/22 通过且 `mapping_miss=false`；Python compile 与 `git diff --check` 通过
+- 结果：create/apply 生命周期改用事务内权威 UTC now，调用参数只保留兼容校验；固定持久化 now/now+10m，未来/回填时间不能绕过配额或过期；敏感键先 NFKC/camelCase 拆词，安全业务 ID shape 保持允许
+- 未解决问题：无；未实现 Task 3+
+- 控制面变更：无

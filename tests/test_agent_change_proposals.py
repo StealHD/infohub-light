@@ -12,7 +12,19 @@ NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
+def proposal_clock(monkeypatch):
+    clock = [NOW]
+    monkeypatch.setattr(
+        service_store,
+        "_proposal_utc_now",
+        lambda: clock[0],
+        raising=False,
+    )
+    return clock
+
+
+@pytest.fixture
+def store(tmp_path, monkeypatch, proposal_clock):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
     instance = service_store.ServiceStore(tmp_path)
@@ -142,6 +154,14 @@ def test_proposal_projection_parses_json_without_exposing_raw_columns(
         ({"source": {"config": {"secret_env": "RSS_TOKEN"}}}, "RSS_TOKEN"),
         ({"request": {"headers": {"Authorization": "Bearer hidden"}}}, "hidden"),
         ({"source": {"url": "https://example.com/feed?api_key=hidden"}}, "hidden"),
+        ({"source": {"config": {"apiKey": "plain-api-key"}}}, "plain-api-key"),
+        ({"source": {"config": {"accessToken": "plain-token"}}}, "plain-token"),
+        ({"source": {"config": {"clientSecret": "plain-secret"}}}, "plain-secret"),
+        ({"source": {"config": {"ａｐｉＫｅｙ": "nfkc-secret"}}}, "nfkc-secret"),
+        (
+            {"source": {"url": "https://example.com/feed?accessToken=query-secret"}},
+            "query-secret",
+        ),
         ({"notes": ["Authorization: Basic dXNlcjpwYXNz"]}, "dXNlcjpwYXNz"),
         ({"job": {"payload": {"target": "private-body"}}}, "private-body"),
         ({"source": {"config": {"opaque": b"Bearer hidden-bytes"}}}, "hidden-bytes"),
@@ -168,6 +188,43 @@ def test_proposal_ttl_is_exactly_ten_minutes(store, delegation):
 
     with pytest.raises(ValueError, match="proposal expiry must be exactly ten minutes"):
         store.create_agent_change_proposal(**values)
+
+
+def test_proposal_persists_authoritative_now_and_fixed_ttl(store, delegation):
+    caller_time = NOW - timedelta(days=30)
+
+    created = store.create_agent_change_proposal(
+        **proposal_values(delegation, 1, created_at=caller_time)
+    )
+
+    assert created["created_at"] == NOW.isoformat()
+    assert created["expires_at"] == (NOW + timedelta(minutes=10)).isoformat()
+    assert created["updated_at"] == NOW.isoformat()
+
+
+def test_future_created_at_cannot_expire_pending_rows_or_bypass_limit(
+    store, delegation
+):
+    for index in range(10):
+        store.create_agent_change_proposal(
+            **proposal_values(delegation, index)
+        )
+
+    with pytest.raises(
+        service_store.AgentProposalLimitError,
+        match="agent proposal pending limit reached",
+    ):
+        store.create_agent_change_proposal(
+            **proposal_values(
+                delegation,
+                10,
+                created_at=NOW + timedelta(days=365),
+            )
+        )
+
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM agent_change_proposals WHERE status = 'pending'"
+    ).fetchone()[0] == 10
 
 
 def test_proposal_pending_limit_is_atomic_under_concurrency(store, delegation):
@@ -200,15 +257,29 @@ def test_create_expires_elapsed_rows_and_only_prunes_old_rows_for_same_delegatio
     other_delegation = {**delegation, "id": other["id"]}
     ancient = NOW - timedelta(days=2)
     recent = NOW - timedelta(minutes=11)
-    store.create_agent_change_proposal(
-        **proposal_values(delegation, 1, created_at=ancient)
-    )
-    store.create_agent_change_proposal(
-        **proposal_values(delegation, 2, created_at=recent)
-    )
-    store.create_agent_change_proposal(
-        **proposal_values(other_delegation, 3, created_at=ancient)
-    )
+    store.create_agent_change_proposal(**proposal_values(delegation, 1))
+    store.create_agent_change_proposal(**proposal_values(delegation, 2))
+    store.create_agent_change_proposal(**proposal_values(other_delegation, 3))
+    connection = store.connect()
+    for proposal_id, timestamp in (
+        ("agp_1", ancient),
+        ("agp_2", recent),
+        ("agp_3", ancient),
+    ):
+        connection.execute(
+            """
+            UPDATE agent_change_proposals
+            SET created_at = ?, expires_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                timestamp.isoformat(),
+                (timestamp + timedelta(minutes=10)).isoformat(),
+                timestamp.isoformat(),
+                proposal_id,
+            ),
+        )
+    connection.commit()
 
     created = store.create_agent_change_proposal(
         **proposal_values(delegation, 4, created_at=NOW)
@@ -254,26 +325,75 @@ def test_proposal_status_changes_are_legal_and_respect_transaction_ownership(
         )
 
 
+def test_backdated_applied_at_cannot_apply_a_really_expired_proposal(
+    store, delegation, proposal_clock
+):
+    store.create_agent_change_proposal(**proposal_values(delegation, 1))
+    proposal_clock[0] = NOW + timedelta(minutes=11)
+
+    with pytest.raises(ValueError, match="proposal is not pending"):
+        store.apply_agent_change_proposal(
+            "agp_1",
+            applied_at=(NOW + timedelta(minutes=1)).isoformat(),
+            result_summary={},
+        )
+
+    assert store.get_agent_change_proposal("agp_1")["status"] == "pending"
+
+
+def test_safe_business_identifier_keys_remain_allowed(store, delegation):
+    values = proposal_values(
+        delegation,
+        1,
+        payload={
+            "source_id": "src_1",
+            "subscription_id": "sub_1",
+            "confirmation_hash": "sha256-public-proof",
+        },
+    )
+
+    created = store.create_agent_change_proposal(**values)
+
+    assert created["payload"] == values["payload"]
+
+
 def test_proposal_cleanup_maintenance_deletes_only_old_consumed_rows(
     store, delegation
 ):
     old = NOW - timedelta(days=31, minutes=10)
     pending_old = NOW - timedelta(days=31)
-    store.create_agent_change_proposal(
-        **proposal_values(delegation, 1, created_at=old)
-    )
+    store.create_agent_change_proposal(**proposal_values(delegation, 1))
     store.apply_agent_change_proposal(
         "agp_1",
         applied_at=(old + timedelta(minutes=5)).isoformat(),
         result_summary={},
     )
-    store.create_agent_change_proposal(
-        **proposal_values(delegation, 2, created_at=pending_old)
-    )
+    store.create_agent_change_proposal(**proposal_values(delegation, 2))
     connection = store.connect()
     connection.execute(
-        "UPDATE agent_change_proposals SET expires_at = ? WHERE id = 'agp_2'",
-        ((NOW + timedelta(days=1)).isoformat(),),
+        """
+        UPDATE agent_change_proposals
+        SET created_at = ?, expires_at = ?, applied_at = ?, updated_at = ?
+        WHERE id = 'agp_1'
+        """,
+        (
+            old.isoformat(),
+            (old + timedelta(minutes=10)).isoformat(),
+            (old + timedelta(minutes=5)).isoformat(),
+            (old + timedelta(minutes=5)).isoformat(),
+        ),
+    )
+    connection.execute(
+        """
+        UPDATE agent_change_proposals
+        SET created_at = ?, expires_at = ?, updated_at = ?
+        WHERE id = 'agp_2'
+        """,
+        (
+            pending_old.isoformat(),
+            (NOW + timedelta(days=1)).isoformat(),
+            pending_old.isoformat(),
+        ),
     )
     connection.commit()
 
