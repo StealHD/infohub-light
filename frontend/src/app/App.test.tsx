@@ -723,6 +723,12 @@ describe('App routes', () => {
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
+    await browser.type(limit, '1.5')
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(await screen.findByText('获取数量必须是整数。')).toBeInTheDocument()
+    expect(createSource).not.toHaveBeenCalled()
+
+    await browser.clear(limit)
     fireEvent.input(limit, { target: { value: 'NaN' } })
     await browser.click(screen.getByRole('button', { name: '创建来源' }))
     expect(await screen.findByText(/获取数量(不能为空|必须是有效数字)。/)).toBeInTheDocument()

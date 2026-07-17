@@ -1033,9 +1033,9 @@
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
 
 ### 2026-07-18 03:19 Codex
-- 任务：关闭全分支终审中的来源类型切换状态串用与必填下拉无障碍语义缺口
+- 任务：关闭全分支终审中的来源类型切换状态串用、必填下拉无障碍语义及整数静默截断缺口
 - 修改文件：Hero 来源创建对话框/注册表选项、App RTL 回归、Task 4 报告与本工作日志
 - 执行验证：可信 RED→GREEN（类型切换仍显示旧/空选项、required 语义缺失）；focused 3 项、UI contract、lint、TypeScript、全量 Vitest 29 文件/179 项通过
-- 结果：来源类型变化时按 type 重建 SourceForm 并加载该定义默认值；必填选项保留 HeroUI/React Aria required 语义，同时继续由统一中文字段校验输出错误
+- 结果：来源类型变化时按 type 重建 SourceForm 并加载该定义默认值；必填选项保留 HeroUI/React Aria required 语义，同时继续由统一中文字段校验输出错误；整数型 registry 字段拒绝小数并显式使用 step=1，避免后端静默截断
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

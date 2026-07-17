@@ -24,6 +24,7 @@ export function validateRegistryFields(
     if (field.input_type === 'number') {
       const value = Number(raw)
       if (!Number.isFinite(value)) errors[field.name] = `${field.label}必须是有效数字。`
+      else if (!Number.isInteger(value)) errors[field.name] = `${field.label}必须是整数。`
       else if (field.min !== null && field.min !== undefined && value < field.min) errors[field.name] = `${field.label}不能小于 ${field.min}。`
       else if (field.max !== null && field.max !== undefined && value > field.max) errors[field.name] = `${field.label}不能大于 ${field.max}。`
     }

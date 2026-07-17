@@ -350,6 +350,7 @@ The release-only stress run exposed two fixture races, not product regressions: 
 
 - The create-source registry form is now keyed by the selected source type, so switching between registry definitions remounts the form and reloads the new definition's defaults instead of retaining values from the prior type.
 - Required registry options once again pass HeroUI/React Aria `isRequired`. The visible control exposes the required state and its hidden native select retains `required`; the form intentionally disables browser-native messages so the existing field-level Chinese validation remains the single error path.
+- Registry `number` metadata represents integer-backed values. The custom validation now rejects finite decimals before mutation with a Chinese integer error, and number controls declare `step=1`, preventing the backend from silently truncating values such as `1.5` to `1`.
 - Regression coverage switches between two definitions with the same field name but different defaults, then verifies the submitted type/config pair. The Apify test also asserts the required semantics and the existing empty-field errors.
 
 Focused verification:
