@@ -889,3 +889,11 @@
 - 结果：复合敏感 query/header/assignment 和 source type 错误均安全失败；YouTube/Reddit identity 严格规范化；自助来源显式携带 create policy，Twitter/Apify 仅返回 existing-visible lookup identity
 - 未解决问题：后续 service 消费方须使用新的 policy-bearing normalization shape；本 Task 未实现 proposal/MCP/UI
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第三轮复审的四项 Important 与 guide summary Minor
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：review 回归先按预期覆盖五组 RED，自审的 GitHub 双斜杠 identity 再单独 RED；focused 197 项、Python compile、full gate 22/22（`mapping_miss=false`）和 `git diff --check` 通过
+- 结果：凭据检测按 query name/value/free text 分层并先做 NFKC；RSS/website 输出强制公网 policy 且本地拒绝 localhost/非公网 IP literal；GitHub/YouTube identity 使用离线真实语法；Apify 仅接收 lookup identity；guide summary 补齐 `required_fields`，旧 REST 投影不变
+- 未解决问题：Task 3 必须无视 owner/admin 放宽逻辑，按 `policy.public_network_only=true` 绑定既有逐跳 DNS pinning 公网执行路径；本 Task 未修改 runner/proposal/MCP/UI
+- 控制面变更：无

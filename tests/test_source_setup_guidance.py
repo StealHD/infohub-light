@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 import pytest
 
 from src.services.source_type_registry import (
@@ -23,6 +25,14 @@ SOURCE_TYPES = {
 
 CREDENTIAL_ERROR = "credentials are not accepted; configure secrets in Web"
 UNSUPPORTED_SOURCE_TYPE_ERROR = "unsupported source type"
+SOURCE_REQUIRES_WEB_SETUP_ERROR = "source_requires_web_setup"
+YOUTUBE_CHANNEL_ID = "UCabcdefghijklmnopqrstuv"
+YOUTUBE_PLAYLIST_IDS = (
+    "PLabcdefghijklmnopqrstuvwxyz012345",
+    "UUabcdefghijklmnopqrstuv",
+    "LLabcdefghijklmnopqrstuv",
+    "FLabcdefghijklmnopqrstuv",
+)
 
 
 def test_setup_guide_is_complete_bilingual_and_secret_safe():
@@ -34,6 +44,7 @@ def test_setup_guide_is_complete_bilingual_and_secret_safe():
     for locale, payload in (("zh-CN", zh), ("en", en)):
         assert payload["locale"] == locale
         for summary in payload["source_types"]:
+            assert "required_fields" in summary
             detail = get_source_setup_guide(summary["type"], locale)["source_type"]
             assert set(detail) >= {
                 "type",
@@ -64,6 +75,24 @@ def test_setup_guide_is_complete_bilingual_and_secret_safe():
     assert "secret_env" not in serialized
     assert "token_env" not in serialized
     assert "sk-" not in serialized
+
+
+def test_setup_guide_summaries_include_safe_minimum_required_fields():
+    summaries = {
+        item["type"]: item["required_fields"]
+        for item in get_source_setup_guide(None, "en")["source_types"]
+    }
+
+    assert summaries == {
+        "rss": ["url"],
+        "telegram": ["channel"],
+        "github": ["repository"],
+        "reddit": ["subreddit"],
+        "twitter": ["handle"],
+        "website": ["url"],
+        "youtube": ["url"],
+        "apify": ["platform", "kind", "target"],
+    }
 
 
 def test_agent_setup_contract_is_distinct_from_the_rest_catalog_projection():
@@ -100,7 +129,8 @@ def test_agent_normalization_maps_public_types_to_catalog_types():
         "website", {"url": "https://example.com/feed.xml"}
     )
     youtube = normalize_source_setup_input(
-        "youtube", {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC123"}
+        "youtube",
+        {"url": f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}"},
     )
     apify = normalize_source_setup_input(
         "apify", {"platform": "x", "kind": "profile", "target": "openai"}
@@ -258,7 +288,12 @@ def test_agent_normalization_rejects_credentials_without_echoing_them():
         ("reddit", lambda query: {"subreddit": f"https://reddit.com/r/LocalLLaMA?{query}=value"}),
         ("twitter", lambda query: {"handle": f"https://x.com/openai?{query}=value"}),
         ("website", lambda query: {"url": f"https://example.com/feed?{query}=value"}),
-        ("youtube", lambda query: {"url": f"https://www.youtube.com/feeds/videos.xml?channel_id=UC123&{query}=value"}),
+        (
+            "youtube",
+            lambda query: {
+                "url": f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}&{query}=value"
+            },
+        ),
         (
             "apify",
             lambda query: {
@@ -294,6 +329,54 @@ def test_agent_normalization_safely_checks_decoded_and_repeated_query_values(url
 
     assert str(exc_info.value) == CREDENTIAL_ERROR
     assert "never-store-this" not in str(exc_info.value)
+
+
+def test_query_values_and_free_text_do_not_treat_substrings_as_credentials():
+    rss = normalize_source_setup_input(
+        "rss",
+        {
+            "url": "https://example.com/feed?q=monkey&title=authentic",
+            "name": "Monkey: Daily",
+        },
+    )
+
+    assert rss["config"]["name"] == "Monkey: Daily"
+    assert rss["config"]["url"].endswith("?q=monkey&title=authentic")
+
+
+@pytest.mark.parametrize(
+    "query_name",
+    [
+        "ｔｏｋｅｎ",
+        "ａｐｉ＿ｋｅｙ",
+        quote("ｔｏｋｅｎ", safe=""),
+        quote("ａｐｉ＿ｋｅｙ", safe=""),
+    ],
+)
+def test_agent_normalization_rejects_nfkc_sensitive_query_names(query_name):
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input(
+            "rss", {"url": f"https://example.com/feed?{query_name}=value"}
+        )
+
+    assert str(exc_info.value) == CREDENTIAL_ERROR
+
+
+@pytest.mark.parametrize(
+    "query_value",
+    [
+        "ａｐｉ＿ｋｅｙ",
+        quote("ａｐｉ＿ｋｅｙ", safe=""),
+        quote("Ａｕｔｈｏｒｉｚａｔｉｏｎ： Ｂｅａｒｅｒ value", safe=""),
+    ],
+)
+def test_agent_normalization_rejects_nfkc_credential_query_values(query_value):
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input(
+            "website", {"url": f"https://example.com/feed?cursor={query_value}"}
+        )
+
+    assert str(exc_info.value) == CREDENTIAL_ERROR
 
 
 @pytest.mark.parametrize(
@@ -358,13 +441,16 @@ def test_unsupported_source_type_errors_are_constant_and_do_not_echo_input(sourc
     ("url", "canonical_url"),
     [
         (
-            "https://youtube.com/feeds/videos.xml?channel_id=UC123",
-            "https://www.youtube.com/feeds/videos.xml?channel_id=UC123",
+            f"https://youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}",
+            f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}",
         ),
-        (
-            "https://www.youtube.com/feeds/videos.xml?playlist_id=PLabc_123-xyz",
-            "https://www.youtube.com/feeds/videos.xml?playlist_id=PLabc_123-xyz",
-        ),
+        *[
+            (
+                f"https://www.youtube.com/feeds/videos.xml?playlist_id={playlist_id}",
+                f"https://www.youtube.com/feeds/videos.xml?playlist_id={playlist_id}",
+            )
+            for playlist_id in YOUTUBE_PLAYLIST_IDS
+        ],
     ],
 )
 def test_youtube_normalization_accepts_only_feed_identities_and_returns_canonical_url(
@@ -379,15 +465,22 @@ def test_youtube_normalization_accepts_only_feed_identities_and_returns_canonica
 @pytest.mark.parametrize(
     "url",
     [
-        "https://example.com/feeds/videos.xml?channel_id=UC123",
+        f"https://example.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}",
         "https://www.youtube.com/watch?v=abc",
         "https://www.youtube.com/feeds/videos.xml",
         "https://www.youtube.com/feeds/videos.xml?channel_id=",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=UC123&channel_id=UC456",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=UC123&playlist_id=PL123",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=UC123&feature=shared",
-        "https://www.youtube.com/feeds/videos.xml?channel_id=UC123#fragment",
-        "https://www.youtube.com:443/feeds/videos.xml?channel_id=UC123",
+        f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}&channel_id=UCabcdefghijklmnopqrstuw",
+        f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}&playlist_id={YOUTUBE_PLAYLIST_IDS[0]}",
+        f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}&feature=shared",
+        f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}#fragment",
+        f"https://www.youtube.com:443/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=x",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstu",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuvx",
+        "https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstu%2F",
+        "https://www.youtube.com/feeds/videos.xml?playlist_id=XXabcdefghijklmnopqrstuvwxyz012345",
+        "https://www.youtube.com/feeds/videos.xml?playlist_id=PLshort",
+        "https://www.youtube.com/feeds/videos.xml?playlist_id=UUabcdefghijklmnopqrstuvx",
     ],
 )
 def test_youtube_normalization_rejects_non_feed_or_ambiguous_identity_urls(url):
@@ -431,6 +524,130 @@ def test_reddit_normalization_rejects_posts_users_multisegment_and_invalid_names
 
 
 @pytest.mark.parametrize(
+    ("repository", "owner", "repo"),
+    [
+        ("a/b", "a", "b"),
+        ("openai/repo.name", "openai", "repo.name"),
+        ("openai/.github", "openai", ".github"),
+        ("https://github.com/open%61i/codex", "openai", "codex"),
+        (f"{'a' * 39}/{'b' * 100}", "a" * 39, "b" * 100),
+    ],
+)
+def test_github_normalization_accepts_realistic_offline_repository_grammar(
+    repository, owner, repo
+):
+    result = normalize_source_setup_input("github", {"repository": repository})
+
+    assert result["config"]["owner"] == owner
+    assert result["config"]["repo"] == repo
+
+
+@pytest.mark.parametrize(
+    "repository",
+    [
+        "bad owner/repo name",
+        "-owner/repo",
+        "owner-/repo",
+        "owner--name/repo",
+        f"{'a' * 40}/repo",
+        f"owner/{'b' * 101}",
+        "owner/.",
+        "owner/..",
+        "owner/repo%2Fextra",
+        "owner%2Frepo",
+        "owner/repo%0Aname",
+        "owner/repo\nname",
+        "owner//repo",
+        "https://github.com//openai/codex",
+        "https://github.com/openai/codex?tab=readme",
+        "https://github.com/openai/codex#readme",
+        "https://github.com:443/openai/codex",
+    ],
+)
+def test_github_normalization_rejects_invalid_or_ambiguous_repository_identities(
+    repository,
+):
+    with pytest.raises(SourceConfigError, match="repository"):
+        normalize_source_setup_input("github", {"repository": repository})
+
+
+@pytest.mark.parametrize("source_type", ["rss", "website"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost/feed",
+        "http://feeds.localhost/feed",
+        "http://LOCALHOST./feed",
+        "http://127.0.0.1/feed",
+        "http://10.0.0.1/feed",
+        "http://169.254.169.254/feed",
+        "http://0.0.0.0/feed",
+        "http://192.0.2.1/feed",
+        "http://224.0.0.1/feed",
+        "http://[::1]/feed",
+        "http://[fc00::1]/feed",
+        "http://[fe80::1]/feed",
+        "http://[::]/feed",
+        "http://[2001:db8::1]/feed",
+        "http://[ff02::1]/feed",
+    ],
+)
+def test_agent_rss_urls_reject_non_public_local_targets_without_dns(source_type, url):
+    with pytest.raises(SourceConfigError, match="public network"):
+        normalize_source_setup_input(source_type, {"url": url})
+
+
+@pytest.mark.parametrize("source_type", ["rss", "website"])
+def test_agent_rss_policy_requires_public_network_execution(source_type):
+    result = normalize_source_setup_input(
+        source_type, {"url": "http://93.184.216.34/feed.xml"}
+    )
+
+    assert result["policy"] == {
+        "resolution_mode": "create_or_existing",
+        "self_service": True,
+        "requires_web_setup": False,
+        "public_network_only": True,
+    }
+
+
+def test_apify_lookup_accepts_only_identity_fields_and_guide_matches():
+    guide = get_source_setup_guide("apify", "en")["source_type"]
+
+    assert [field["name"] for field in guide["fields"]] == [
+        "platform",
+        "kind",
+        "target",
+    ]
+
+
+@pytest.mark.parametrize(
+    "customization",
+    [
+        {"fetch_limit": 20},
+        {"fetch_limit": 99},
+        {"analysis_mode": "full"},
+        {"analysis_mode": "personal_only"},
+    ],
+)
+def test_apify_lookup_rejects_source_customization_with_stable_web_setup_error(
+    customization,
+):
+    with pytest.raises(SourceConfigError) as exc_info:
+        normalize_source_setup_input(
+            "apify",
+            {
+                "platform": "x",
+                "kind": "profile",
+                "target": "openai",
+                **customization,
+            },
+        )
+
+    assert str(exc_info.value) == SOURCE_REQUIRES_WEB_SETUP_ERROR
+
+
+@pytest.mark.parametrize(
     ("source_type", "config", "catalog_source_type"),
     [
         ("rss", {"url": "https://example.com/feed.xml"}, "rss"),
@@ -440,7 +657,7 @@ def test_reddit_normalization_rejects_posts_users_multisegment_and_invalid_names
         ("website", {"url": "https://example.com/feed.xml"}, "rss"),
         (
             "youtube",
-            {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC123"},
+            {"url": f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}"},
             "rss",
         ),
     ],
@@ -452,11 +669,14 @@ def test_self_service_normalization_returns_create_config_with_explicit_policy(
 
     assert result["catalog_source_type"] == catalog_source_type
     assert result["config"]["enabled"] is True
-    assert result["policy"] == {
+    expected_policy = {
         "resolution_mode": "create_or_existing",
         "self_service": True,
         "requires_web_setup": False,
     }
+    if source_type in {"rss", "website"}:
+        expected_policy["public_network_only"] = True
+    assert result["policy"] == expected_policy
 
 
 @pytest.mark.parametrize(

@@ -7,10 +7,12 @@ so API writes, config imports, and worker payloads use the same rules.
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]{1,127}$")
@@ -39,6 +41,7 @@ _SENSITIVE_RSS_QUERY_PARTS = (
 )
 _CREDENTIAL_ERROR = "credentials are not accepted; configure secrets in Web"
 _UNSUPPORTED_SOURCE_TYPE_ERROR = "unsupported source type"
+_SOURCE_REQUIRES_WEB_SETUP_ERROR = "source_requires_web_setup"
 _CREDENTIAL_ASSIGNMENT_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Za-z0-9_-]+)\s*[:=]",
     flags=re.IGNORECASE,
@@ -162,13 +165,18 @@ class AgentSourceTypeDefinition:
 
         metadata = self.guide_metadata["en"]
         self_service = bool(metadata["self_service"])
-        return {
+        policy = {
             "resolution_mode": (
                 "create_or_existing" if self_service else "existing_visible_only"
             ),
             "self_service": self_service,
             "requires_web_setup": bool(metadata["requires_web_setup"]),
         }
+        if self.type in {"rss", "website"}:
+            # Agent-created URLs must retain the public-network fetch path even
+            # when the eventual source owner is an owner or administrator.
+            policy["public_network_only"] = True
+        return policy
 
     def guide_summary(self, locale: str) -> dict[str, Any]:
         copy = self.guide_metadata[_guide_locale(locale)]
@@ -178,6 +186,7 @@ class AgentSourceTypeDefinition:
             "description": copy["description"],
             "self_service": copy["self_service"],
             "requires_web_setup": copy["requires_web_setup"],
+            "required_fields": list(self.required_fields),
         }
 
     def guide_detail(self, locale: str) -> dict[str, Any]:
@@ -864,7 +873,7 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
             "url": _guide_field(
                 "YouTube feed URL", "YouTube 订阅地址", "Public YouTube RSS feed URL.", "公开 YouTube RSS 订阅地址。",
                 ("https://www.youtube.com/feeds/videos.xml?channel_id=...",), ("https://www.youtube.com/feeds/videos.xml?channel_id=...",),
-                ("https://www.youtube.com/feeds/videos.xml?channel_id=UC123",), ("https://www.youtube.com/feeds/videos.xml?channel_id=UC123",),
+                ("https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv",), ("https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv",),
                 "Copy the public RSS feed URL for the channel.", "复制频道公开 RSS 订阅地址。",
             ),
         },
@@ -889,7 +898,7 @@ _AGENT_SOURCE_TYPES: tuple[AgentSourceTypeDefinition, ...] = (
     ),
     AgentSourceTypeDefinition("website", "rss", ("url",), _BY_TYPE["rss"].fields[:1], _AGENT_GUIDE_METADATA["website"]),
     AgentSourceTypeDefinition("youtube", "rss", ("url",), _BY_TYPE["rss"].fields[:1], _AGENT_GUIDE_METADATA["youtube"]),
-    AgentSourceTypeDefinition("apify", "apify_social", _BY_TYPE["apify_social"].required_fields, _BY_TYPE["apify_social"].fields, _AGENT_GUIDE_METADATA["apify"]),
+    AgentSourceTypeDefinition("apify", "apify_social", _BY_TYPE["apify_social"].required_fields, _BY_TYPE["apify_social"].fields[:3], _AGENT_GUIDE_METADATA["apify"]),
 )
 _AGENT_BY_TYPE = {item.type: item for item in _AGENT_SOURCE_TYPES}
 
@@ -933,23 +942,32 @@ def _safe_urlparse(value: str) -> Any:
 def _credential_key_shape(value: Any) -> bool:
     """Recognize credential-bearing keys without returning their input values."""
 
-    normalized = re.sub(r"[^a-z0-9]+", "", str(value).lower())
+    normalized = re.sub(
+        r"[^a-z0-9]+", "", unicodedata.normalize("NFKC", str(value)).lower()
+    )
     if normalized in {
         "secret", "secretenv", "token", "tokenenv", "apikey", "key",
         "password", "cookie", "cookies", "authorization", "header", "headers",
-        "credential", "credentials", "auth", "accesstoken", "authtoken", "signature",
+        "credential", "credentials", "auth", "accesstoken", "authtoken",
+        "refreshtoken", "sessiontoken", "signature", "accesskey", "privatekey",
+        "clientkey", "clientsecret", "xapikey", "proxyauthorization", "setcookie",
     }:
         return True
-    return any(
-        marker in normalized
-        for marker in ("token", "secret", "password", "cookie", "authorization", "credential", "signature")
-    ) or normalized.endswith(("accesskey", "privatekey", "apikey", "header", "headers"))
+    return normalized.endswith(
+        (
+            "token", "secret", "password", "cookie", "authorization",
+            "credential", "signature", "accesskey", "privatekey", "apikey",
+            "clientsecret", "header", "headers",
+        )
+    )
 
 
 def _sensitive_query_name(value: Any) -> bool:
     """Fail closed for credential-bearing query names, including compounds."""
 
-    normalized = re.sub(r"[^a-z0-9]+", "", str(value).lower())
+    normalized = re.sub(
+        r"[^a-z0-9]+", "", unicodedata.normalize("NFKC", str(value)).lower()
+    )
     return any(marker in normalized for marker in _SENSITIVE_RSS_QUERY_PARTS)
 
 
@@ -957,9 +975,10 @@ def _contains_credential_assignment(value: str) -> bool:
     """Recognize credential header and assignment syntax in arbitrary text."""
 
     return any(
-        _sensitive_query_name(match.group(1))
-        or _credential_key_shape(match.group(1))
-        for match in _CREDENTIAL_ASSIGNMENT_RE.finditer(value)
+        _credential_key_shape(match.group(1))
+        for match in _CREDENTIAL_ASSIGNMENT_RE.finditer(
+            unicodedata.normalize("NFKC", value)
+        )
     )
 
 
@@ -976,7 +995,7 @@ def _contains_secret_shape(value: Any) -> bool:
     if not isinstance(value, str):
         return False
 
-    candidate = value.strip()
+    candidate = unicodedata.normalize("NFKC", value.strip())
     lowered = candidate.lower()
     if lowered.startswith(tuple(prefix.lower() for prefix in _SECRET_PREFIXES)):
         return True
@@ -1011,28 +1030,55 @@ def _validate_public_url_inputs(value: Any) -> None:
     for name, query_value in parse_qsl(parsed.query, keep_blank_values=True):
         if (
             _sensitive_query_name(name)
-            or _sensitive_query_name(query_value)
             or _credential_key_shape(query_value)
             or _contains_secret_shape(query_value)
         ):
             raise SourceConfigError(_CREDENTIAL_ERROR)
 
 
+_ENCODED_PATH_SEPARATOR_RE = re.compile(r"%(?:2f|5c)", flags=re.IGNORECASE)
+_GITHUB_OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
+_GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+
+
 def _github_path(value: str, *, kind: str) -> tuple[str, str] | str:
-    text = value.strip().strip("/")
-    parsed = _safe_urlparse(text)
+    raw = value.strip()
+    parsed = _safe_urlparse(raw)
+    text = raw
     if parsed.scheme:
-        if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in {
-            "github.com",
-            "www.github.com",
-        }:
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.netloc.lower() not in {"github.com", "www.github.com"}
+            or parsed.query
+            or parsed.fragment
+            or parsed.params
+        ):
             raise SourceConfigError(f"{kind} must be a public GitHub URL or name")
-        text = parsed.path.strip("/")
+        text = parsed.path
+    elif parsed.query or parsed.fragment or parsed.params:
+        raise SourceConfigError(f"{kind} must be a public GitHub URL or name")
+    if _ENCODED_PATH_SEPARATOR_RE.search(text):
+        raise SourceConfigError(f"{kind} must be a public GitHub URL or name")
+    decoded = unquote(text)
+    if "//" in decoded or any(
+        ord(character) < 32 or ord(character) == 127 for character in decoded
+    ):
+        raise SourceConfigError(f"{kind} must be a public GitHub URL or name")
+    text = decoded.strip("/")
     parts = [part for part in text.split("/") if part]
     if kind == "repository":
         if len(parts) != 2:
             raise SourceConfigError("repository must be owner/repository")
-        return parts[0], parts[1]
+        owner, repo = parts
+        if (
+            len(owner) > 39
+            or not _GITHUB_OWNER_RE.fullmatch(owner)
+            or "--" in owner
+            or repo in {".", ".."}
+            or not _GITHUB_REPO_RE.fullmatch(repo)
+        ):
+            raise SourceConfigError("repository must be owner/repository")
+        return owner, repo
     if len(parts) != 1:
         raise SourceConfigError("username must be a GitHub account name")
     return parts[0]
@@ -1116,7 +1162,20 @@ def _twitter_handle(value: str) -> str:
 
 _YOUTUBE_FEED_HOSTS = {"youtube.com", "www.youtube.com"}
 _YOUTUBE_FEED_PATH = "/feeds/videos.xml"
-_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+# YouTube's public feed identities use 34-character user playlists (`PL`)
+# or 24-character channel-derived uploads/likes/favorites playlists.
+_YOUTUBE_PLAYLIST_ID_LENGTHS = {"PL": 34, "UU": 24, "LL": 24, "FL": 24}
+_YOUTUBE_URLSAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _valid_youtube_playlist_id(value: str) -> bool:
+    expected_length = _YOUTUBE_PLAYLIST_ID_LENGTHS.get(value[:2])
+    return (
+        expected_length is not None
+        and len(value) == expected_length
+        and _YOUTUBE_URLSAFE_ID_RE.fullmatch(value) is not None
+    )
 
 
 def _youtube_feed_url(value: str) -> str:
@@ -1134,10 +1193,14 @@ def _youtube_feed_url(value: str) -> str:
     ):
         raise SourceConfigError("url must be a public YouTube feed URL")
     identity_name, identity_value = pairs[0]
-    if (
-        identity_name not in {"channel_id", "playlist_id"}
-        or not _YOUTUBE_ID_RE.fullmatch(identity_value)
-    ):
+    valid_identity = (
+        _YOUTUBE_CHANNEL_ID_RE.fullmatch(identity_value) is not None
+        if identity_name == "channel_id"
+        else _valid_youtube_playlist_id(identity_value)
+        if identity_name == "playlist_id"
+        else False
+    )
+    if not valid_identity:
         raise SourceConfigError("url must be a public YouTube feed URL")
     return f"https://www.youtube.com{_YOUTUBE_FEED_PATH}?{urlencode(pairs)}"
 
@@ -1182,6 +1245,39 @@ def _validate_agent_field_types(
             raise SourceConfigError(f"{name} must be a boolean")
 
 
+def _validate_public_network_literal(value: str) -> None:
+    """Reject local hostnames and non-public IP literals without resolving DNS."""
+
+    parsed = _safe_urlparse(value.strip())
+    try:
+        raw_host = parsed.hostname
+    except ValueError as exc:
+        raise SourceConfigError("url must target the public network") from exc
+    if not raw_host:
+        return
+    normalized_host = unicodedata.normalize("NFKC", raw_host).lower().rstrip(".")
+    try:
+        host = normalized_host.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise SourceConfigError("url must target the public network") from exc
+    if host == "localhost" or host.endswith(".localhost"):
+        raise SourceConfigError("url must target the public network")
+    try:
+        literal = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return
+    if (
+        not literal.is_global
+        or literal.is_loopback
+        or literal.is_private
+        or literal.is_link_local
+        or literal.is_unspecified
+        or literal.is_reserved
+        or literal.is_multicast
+    ):
+        raise SourceConfigError("url must target the public network")
+
+
 def normalize_source_setup_input(
     source_type: str,
     config: dict[str, Any],
@@ -1198,8 +1294,12 @@ def normalize_source_setup_input(
         raise SourceConfigError(_CREDENTIAL_ERROR)
     _validate_public_url_inputs(raw)
     definition = _AGENT_BY_TYPE[source_type]
+    if source_type == "apify" and set(raw) - {"platform", "kind", "target"}:
+        raise SourceConfigError(_SOURCE_REQUIRES_WEB_SETUP_ERROR)
     _validate_agent_field_types(definition, raw)
     aliased = _normalize_agent_aliases(source_type, raw)
+    if source_type in {"rss", "website"} and isinstance(aliased.get("url"), str):
+        _validate_public_network_literal(aliased["url"])
     normalized = validate_source_config(definition.catalog_source_type, aliased)
     policy = definition.execution_policy()
     if not policy["self_service"]:
