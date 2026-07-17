@@ -247,7 +247,10 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
         if not _is_safe_relative_path(relative):
             raise GateConfigError(f"unsafe changed path: {relative!r}")
         ui_path = _matches(relative, mapping.get("ui_globs", []))
-        if _matches(relative, mapping.get("docs_only_globs", [])):
+        matching_rules = [
+            rule for rule in mapping["rules"] if _matches(relative, rule["globs"])
+        ]
+        if _matches(relative, mapping.get("docs_only_globs", [])) and not matching_rules:
             reasons.append(f"{relative}: documentation/control formatting only")
             continue
         if _matches(relative, mapping.get("full_globs", [])):
@@ -264,12 +267,10 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
             legacy_test_targets.append(relative)
             reasons.append(f"{relative}: changed legacy Node test runs itself")
             continue
-        matched = False
-        for rule in mapping["rules"]:
-            if _matches(relative, rule["globs"]):
-                matched = True
-                groups.update(rule["groups"])
-                reasons.append(f"{relative}: {rule['id']}")
+        matched = bool(matching_rules)
+        for rule in matching_rules:
+            groups.update(rule["groups"])
+            reasons.append(f"{relative}: {rule['id']}")
         if "frontend_related" in groups and relative.startswith("frontend/src/"):
             frontend_related_files.append(relative.removeprefix("frontend/"))
         if not matched and _matches(relative, mapping.get("fail_closed_globs", [])):

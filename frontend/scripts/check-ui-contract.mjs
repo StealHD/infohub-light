@@ -10,11 +10,11 @@ function sourceViolations(file, source) {
   const isDesignSystem = file.startsWith('src/design-system/')
   const isHeroWorkbench = file.startsWith('src/features/workbench-heroui/')
   const isBusinessSource = file.startsWith('src/app/') || file.startsWith('src/features/')
-  const importsHeroUi = /\b(?:from\s*|import\s*(?:\(\s*)?)['"]@heroui\//.test(source)
+  const importsHeroUi = /\b(?:from\s*|import\s*(?:\(\s*)?)['"`]@heroui\//.test(source)
   if (importsHeroUi && !isDesignSystem && !isHeroWorkbench) {
     violations.push(`${file}: HeroUI 必须通过 src/design-system 引入`)
   }
-  if (/['"]@(?:mui|emotion)\//.test(source)) {
+  if (/['"`]@(?:mui|emotion)\//.test(source)) {
     violations.push(`${file}: MUI/Emotion 已从源码移除`)
   }
   if (isBusinessSource && /\bDesignSystemProvider\b/.test(source)) {
@@ -25,7 +25,7 @@ function sourceViolations(file, source) {
   }
   if (isBusinessSource && !isHeroWorkbench) {
     const checks = [
-      [/\bimport\s*(?:\(\s*)?(?:[^'"\n]+\s+from\s+)?['"][^'"]*\.module\.css['"]\s*\)?/, 'Shell 与业务页不得使用页面级 CSS Modules'],
+      [/\bimport\s*(?:\(\s*)?(?:[^'"`\n]+\s+from\s+)?['"`][^'"`]*\.module\.css['"`]\s*\)?/, 'Shell 与业务页不得使用页面级 CSS Modules'],
       [/(?:#[0-9a-f]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\(|\b(?:oklch|oklab|lab|lch)\s*\(|\bcolor\s*\(\s*display-p3\b)/i, '业务页面不得定义原始颜色值'],
       [/\b(?:borderRadius|boxShadow|transitionDuration|animationDuration)\s*:\s*(?:['"]?\d|['"][^'"]+)|\b(?:border-radius|box-shadow|transition-duration|animation-duration)\s*:/, '视觉常量必须来自设计系统主题'],
     ]

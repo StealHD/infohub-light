@@ -419,7 +419,7 @@ export function HeroWorkbenchPreview() {
     </aside>
 
     <nav aria-label="移动端主导航" className="hero-mobile-navigation">
-      {workbenchPreviewNavigation.slice(0, 4).map((item) => {
+      {workbenchPreviewNavigation.map((item) => {
         const Icon = navigationIcons[item.id]
         return <a key={item.id} href={item.href} aria-label={item.label}><Icon size={19} aria-hidden="true" /><span>{item.label}</span></a>
       })}

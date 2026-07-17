@@ -288,3 +288,10 @@ PASS
 git diff --check
 PASS
 ```
+# 2026-07-18 终审修复补充
+
+- 关闭 docs-only 优先级遮蔽显式 UI 契约映射的问题，并由 Python 回归锁定。
+- executable checker 与 ESLint 现在都拒绝 `import(\`@heroui/*\`)`、MUI/Emotion 与 CSS Module 的静态模板导入。
+- 移动导航保留六个目的地；筛选改用 HeroUI Popover/Select/NumberField，来源选项支持 required/help/error。
+- `feedItem` 仅用于不在 source list 中的深链，既有卡片展开不再发送重复详情请求。
+- 新增 release Playwright：`build + vite preview --port 4174`、`reuseExistingServer=false`，并排除 DEV-only preview 与 portal fixture；完整生产三视口 29 通过、4 个既定 desktop-only skip。

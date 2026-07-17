@@ -3,6 +3,8 @@ import type { Key, ReactNode } from 'react'
 import {
   Alert,
   Card,
+  Description,
+  FieldError,
   Icons,
   Label,
   ListBox,
@@ -11,13 +13,16 @@ import {
 
 export type SelectOption = { id: string; label: string }
 
-export function HeroSelect({ label, value, options, onChange, isDisabled = false, name }: {
+export function HeroSelect({ label, value, options, onChange, isDisabled = false, name, isRequired = false, description, errorMessage }: {
   label: string
   value: string
   options: SelectOption[]
   onChange: (value: string) => void
   isDisabled?: boolean
   name?: string
+  isRequired?: boolean
+  description?: string
+  errorMessage?: string
 }) {
   return <Select
     aria-label={label}
@@ -25,6 +30,8 @@ export function HeroSelect({ label, value, options, onChange, isDisabled = false
     selectedKey={value}
     onSelectionChange={(key: Key | null) => key !== null && onChange(String(key))}
     isDisabled={isDisabled}
+    isRequired={isRequired}
+    isInvalid={Boolean(errorMessage)}
     className="min-w-40"
   >
     <Label>{label}</Label>
@@ -37,6 +44,8 @@ export function HeroSelect({ label, value, options, onChange, isDisabled = false
         {(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}
       </ListBox>
     </Select.Popover>
+    {description && <Description>{description}</Description>}
+    {errorMessage && <FieldError>{errorMessage}</FieldError>}
   </Select>
 }
 

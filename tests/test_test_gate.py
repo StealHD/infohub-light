@@ -146,6 +146,7 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         ),
         (["frontend/vite.config.ts"], {"control", "frontend_full"}, True, False),
         (["frontend/src/AppBootstrap.tsx"], {"control", "frontend_full"}, True, False),
+        (["UI_CONTRACT.md"], {"control", "frontend_full"}, True, False),
         (["tests/test_worker.py"], {"control", "python_test_files"}, False, False),
         (["tests/conftest.py"], {"control", "full"}, False, False),
         (["tests/reading_ui_behavior.test.cjs"], {"control", "legacy_test_files"}, True, False),

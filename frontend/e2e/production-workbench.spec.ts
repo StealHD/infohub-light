@@ -255,6 +255,10 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await expect(toggle).toBeFocused()
     await expect(agent).toBeHidden()
   }
+  if (testInfo.project.name === 'mobile') {
+    await expect(mobileNavigation.getByRole('link')).toHaveCount(6)
+    await expect(mobileNavigation.getByRole('link', { name: '助手连接' })).toBeVisible()
+  }
 
   const feedScroll = page.getByTestId('workbench-feed-scroll')
   await feedScroll.evaluate((element) => {
@@ -355,6 +359,12 @@ test('live unread-first and source filters preserve the surviving rendered-card 
   await page.getByRole('button', { name: '筛选信息流' }).click()
   const filterDialog = page.getByRole('dialog', { name: '信息流筛选' })
   await expect(filterDialog).toBeVisible()
+  await expect(filterDialog.getByRole('button', { name: /来源/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(filterDialog).toBeHidden()
+  await expect(page.getByRole('button', { name: '筛选信息流' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(filterDialog).toBeVisible()
   const anchorAtTransition = await alignVisibleCardToTop(page)
   const itemNumber = Number(anchorAtTransition.name.match(/\d+/)?.[0])
   const survivingSource = itemNumber % 2 === 1 ? 'GitHub' : 'OpenAI Blog'
@@ -363,9 +373,9 @@ test('live unread-first and source filters preserve the surviving rendered-card 
   await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorAtTransition.name)
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorAtTransition.offset)).toBeLessThanOrEqual(2)
 
-  const sourceSelect = page.getByRole('combobox', { name: '来源' })
-  if (!(await sourceSelect.isVisible())) await page.getByRole('button', { name: '筛选信息流' }).click()
-  await sourceSelect.selectOption({ label: survivingSource })
+  const sourceSelect = filterDialog.getByRole('button', { name: /来源/ })
+  await sourceSelect.click()
+  await page.getByRole('option', { name: survivingSource }).click()
   await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorAtTransition.name)
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorAtTransition.offset)).toBeLessThanOrEqual(2)
 })

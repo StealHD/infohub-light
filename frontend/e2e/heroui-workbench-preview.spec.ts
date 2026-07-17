@@ -88,6 +88,8 @@ test('HeroUI workbench keeps its isolated responsive interaction contract', asyn
   if (testInfo.project.name === 'mobile') {
     const mobileNavigation = page.getByRole('navigation', { name: '移动端主导航' })
     await expect(mobileNavigation).toBeVisible()
+    await expect(mobileNavigation.getByRole('link')).toHaveCount(6)
+    await expect(mobileNavigation.getByRole('link', { name: '助手连接' })).toBeVisible()
     expect(await mobileNavigation.getByRole('link').evaluateAll((links) => links.every((link) => {
       const bounds = link.getBoundingClientRect()
       return bounds.width >= 44 && bounds.height >= 44

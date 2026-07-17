@@ -1016,3 +1016,11 @@
 - 结果：搜索后先确认过滤结果为 11 条，再完成稳定多帧视口采样，最后断言未回弹；专用 wheel/RAF gate 保持独立覆盖 commit-to-next-frame 取消窗口
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 00:40 Codex
+- 任务：关闭 Task 4 终审中的门禁优先级/导入绕过、移动导航、筛选可访问性、来源选项校验、生产 E2E 与深链重复请求缺口
+- 修改文件：test gate 规划器与可执行 UI/ESLint 门禁；Hero Shell/Feed/预览导航与筛选；来源注册表 Select；release Playwright 配置及 RTL/E2E 回归
+- 执行验证：RED→GREEN：`UI_CONTRACT.md` 映射与 7 个模板导入负例；App RTL 44 项、全量 Vitest 29 文件/175 项、UI contract、lint、TypeScript、build/artifact；DEV preview mobile 2 项、release build+preview 三视口 29 通过/4 既定跳过、`test_gate full` 22/22、`git diff --check` 均通过
+- 结果：控制文件显式规则优先于 docs-only；静态模板动态导入不能绕过 checker/ESLint；390px 可访问全部六个目的地；筛选由 HeroUI overlay 承担 Escape/焦点归还；必填 Apify 下拉项显示帮助与字段错误且阻止无效创建；已有 snapshot 展开不再请求 feedItem；release 只运行构建产物并排除 DEV-only 预览/fixture
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

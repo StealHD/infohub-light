@@ -13,6 +13,12 @@ function checkSource(file: string, source: string) {
   })
 }
 
+function checkLint(file: string, source: string) {
+  return spawnSync('npx', ['eslint', '--no-ignore', '--stdin', '--stdin-filename', file], {
+    cwd: process.cwd(), encoding: 'utf8', input: source,
+  })
+}
+
 describe('HeroUI import contract', () => {
   it('rejects direct HeroUI imports from production feature code', () => {
     const result = checkSource(
@@ -66,6 +72,28 @@ describe('HeroUI import contract', () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Shell 与业务页不得使用页面级 CSS Modules')
+  })
+
+  it.each([
+    ["import(`@heroui/react`)", 'HeroUI 必须通过 src/design-system 引入'],
+    ["import(`@mui/material`)", 'MUI/Emotion 已从源码移除'],
+    ["import(`./Feed.module.css`)", 'Shell 与业务页不得使用页面级 CSS Modules'],
+  ])('rejects static template-literal imports in the executable checker: %s', (source, message) => {
+    const result = checkSource('src/features/feed/TemplateImport.tsx', source)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(message)
+  })
+
+  it.each([
+    "import(`@heroui/react`)",
+    "import(`@mui/material`)",
+    "import(`@emotion/styled`)",
+    "import(`./Feed.module.css`)",
+  ])('rejects static template-literal UI imports in ESLint: %s', (source) => {
+    const result = checkLint('src/features/feed/TemplateImport.tsx', source)
+
+    expect(result.status).toBe(1)
   })
 
   it('rejects visual constants in business CSS', () => {

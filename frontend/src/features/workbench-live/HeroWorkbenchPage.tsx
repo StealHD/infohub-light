@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import { Button, Card, Chip, Icons, Skeleton, Switch } from '../../design-system'
+import { Button, Card, Chip, Icons, ListBox, NumberField, Popover, Select, Skeleton, Switch } from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
 import { filterFeedItems } from '../feed/feedModel'
 import { readFeedPreference, writeFeedPreference, type FeedPreference } from '../feed/feedPreference'
@@ -26,7 +26,6 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const [filtersOpen, setFiltersOpen] = useState(false)
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
@@ -53,7 +52,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const detailQuery = useQuery({
     queryKey: queryKeys.feedItem(user.id, selectedId || ''),
     queryFn: ({ signal }) => api.feedItem(selectedId!, signal),
-    enabled: Boolean(selectedId),
+    enabled: Boolean(selectedId && !selectedInSource),
     retry: false,
   })
   const stateMutation = useOptimisticItemState({ api, user, beginAction, isActionCurrent, publishFeedback: false })
@@ -121,34 +120,24 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <span className="text-xs text-muted">旧内容在上，最新内容在下 · {cards.length} 条</span>
       <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>
       {preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
-      <div className="relative">
-        <Button size="sm" variant="ghost" aria-label="筛选信息流" aria-expanded={filtersOpen} className="text-muted" onPress={() => setFiltersOpen((open) => !open)}>
+      <Popover>
+        <Popover.Trigger aria-label="筛选信息流" className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
           <Icons.SlidersHorizontal size={15} />筛选
-        </Button>
-        {filtersOpen && <Card role="dialog" aria-label="信息流筛选" className="absolute right-0 top-[calc(100%+8px)] z-30 grid w-[min(340px,calc(100vw-24px))] gap-3 p-4">
-            <h2 className="font-semibold">信息流筛选</h2>
+        </Popover.Trigger>
+        <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
+          <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
+            <Popover.Heading className="font-semibold">信息流筛选</Popover.Heading>
             <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
-            <label className="grid gap-1 text-sm">来源
-              <select aria-label="来源" value={preference.source} onChange={(event) => updatePreference({ source: event.target.value })} className="min-h-10 rounded-xl border border-field-border bg-field-background px-3">
-                <option value="">全部来源</option>{sources.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">频道
-              <select aria-label="频道" value={preference.channel} onChange={(event) => updatePreference({ channel: event.target.value })} className="min-h-10 rounded-xl border border-field-border bg-field-background px-3">
-                <option value="">全部频道</option>{channels.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">主题
-              <select aria-label="主题" value={preference.topic} onChange={(event) => updatePreference({ topic: event.target.value })} className="min-h-10 rounded-xl border border-field-border bg-field-background px-3">
-                <option value="">全部主题</option>{topics.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">最低分
-              <input aria-label="最低分" type="number" min="0" max="10" step="0.5" value={preference.minScore ?? ''} onChange={(event) => updatePreference({ minScore: event.target.value === '' ? undefined : Number(event.target.value) })} className="min-h-10 rounded-xl border border-field-border bg-field-background px-3" />
-            </label>
+            <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
+            <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
+            <FilterSelect label="主题" value={preference.topic} onChange={(value) => updatePreference({ topic: value })} options={[{ id: '', label: '全部主题' }, ...topics.map((value) => ({ id: value, label: value }))]} />
+            <NumberField aria-label="最低分" value={preference.minScore} minValue={0} maxValue={10} step={0.5} onChange={(value) => updatePreference({ minScore: value ?? undefined })}>
+              <NumberField.Group><NumberField.Input /></NumberField.Group>
+            </NumberField>
             <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })}>清除筛选</Button>
-        </Card>}
-      </div>
+          </Popover.Dialog>
+        </Popover.Content>
+      </Popover>
     </div>
 
     {deepLinkNotice && <div role="status" className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
@@ -173,4 +162,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       onItemAction={(id, action, value) => stateMutation.mutateItem(id, { [action]: value })}
     />}
   </section>
+}
+
+function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: Array<{ id: string; label: string }>; onChange: (value: string) => void }) {
+  return <Select aria-label={label} selectedKey={value} onSelectionChange={(key) => key !== null && onChange(String(key))}>
+    <Select.Trigger><Select.Value /><Select.Indicator><Icons.ChevronDown size={15} /></Select.Indicator></Select.Trigger>
+    <Select.Popover><ListBox items={options}>{(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}</ListBox></Select.Popover>
+  </Select>
 }

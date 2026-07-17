@@ -55,18 +55,18 @@ function fieldValue(field: CatalogField, form: FormData) {
   return field.input_type === 'number' ? raw === '' ? field.default : Number(raw) : raw
 }
 
-function RegistryFields({ definition, source }: { definition: SourceTypeDefinition; source?: CatalogSource }) {
+function RegistryFields({ definition, source, errors }: { definition: SourceTypeDefinition; source?: CatalogSource; errors: Record<string, string> }) {
   const values = formValuesForSource(definition, source)
   return <>{definition.fields.map((field) => field.options?.length
-    ? <RegistryOptionField key={field.name} field={field} value={String(values[field.name] ?? '')} />
+    ? <RegistryOptionField key={field.name} field={field} value={String(values[field.name] ?? '')} error={errors[field.name]} />
     : field.input_type === 'checkbox' || field.input_type === 'boolean'
       ? <Checkbox key={field.name} name={field.name} defaultSelected={Boolean(values[field.name])}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>{field.label}</Checkbox.Content></Checkbox>
       : <TextField key={field.name} fullWidth name={field.name} defaultValue={String(values[field.name] ?? '')} isRequired={field.required}><Label>{field.label}</Label><Input type={field.input_type === 'number' ? 'number' : field.input_type === 'url' ? 'url' : 'text'} min={field.min ?? undefined} max={field.max ?? undefined} /></TextField>)}</>
 }
 
-function RegistryOptionField({ field, value }: { field: CatalogField; value: string }) {
+function RegistryOptionField({ field, value, error }: { field: CatalogField; value: string; error?: string }) {
   const [selected, setSelected] = useState(value)
-  return <HeroSelect label={field.label} name={field.name} value={selected} onChange={setSelected} options={(field.options ?? []).map((option) => typeof option === 'string' ? { id: option, label: option } : { id: option.value, label: option.label })} />
+  return <HeroSelect label={field.label} name={field.name} value={selected} onChange={setSelected} isRequired={field.required} description={field.help} errorMessage={error} options={(field.options ?? []).map((option) => typeof option === 'string' ? { id: option, label: option } : { id: option.value, label: option.label })} />
 }
 
 export function SourceForm({ definition, source, secrets, allowSecret, scopes, taxonomy, submitLabel, onSubmit }: {
@@ -87,12 +87,21 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   const [topics, setTopics] = useState(source?.default_topics ?? [])
   const [secretEnv, setSecretEnv] = useState(source?.secret_env ?? '')
   const [advanced, setAdvanced] = useState(JSON.stringify(source?.config ?? {}, null, 2))
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const entity = source?.id ?? 'new'
-    setError(''); setPending(true); feedback.begin('source-save', entity)
+    setError(''); setFieldErrors({})
     const form = new FormData(event.currentTarget)
+    const nextFieldErrors = Object.fromEntries(definition.fields
+      .filter((field) => field.required && field.input_type !== 'checkbox' && field.input_type !== 'boolean' && !String(form.get(field.name) ?? '').trim())
+      .map((field) => [field.name, `${field.label}不能为空。`]))
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors)
+      return
+    }
+    setPending(true); feedback.begin('source-save', entity)
     try {
       const config = advanced.trim() ? JSON.parse(advanced) as Record<string, unknown> : {}
       for (const field of definition.fields) config[field.name] = fieldValue(field, form)
@@ -113,11 +122,11 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     } finally { setPending(false) }
   }
 
-  return <form className="grid gap-4" onSubmit={submit}>
+  return <form className="grid gap-4" onSubmit={submit} noValidate>
     <TextField fullWidth name="display_name" defaultValue={source?.display_name ?? ''} isRequired><Label>来源名称</Label><Input /></TextField>
     <TextField fullWidth name="description" defaultValue={source?.description ?? ''}><Label>来源说明</Label><Input /></TextField>
     {!source && <HeroSelect name="scope" label="可见范围" value={scope} onChange={(value) => setScope(value as CatalogSource['scope'])} options={scopes.map((value) => ({ id: value, label: sourceScopeLabel(value) }))} />}
-    <RegistryFields definition={definition} source={source} />
+    <RegistryFields definition={definition} source={source} errors={fieldErrors} />
     <HeroSelect name="default_channel" label="默认频道" value={channel} onChange={setChannel} options={[{ id: '', label: '未设置' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
     <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
     {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}

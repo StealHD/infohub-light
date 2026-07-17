@@ -610,6 +610,45 @@ describe('App routes', () => {
     expect(dialog.querySelector('details')).not.toBeInTheDocument()
   })
 
+  it('blocks incomplete required Apify options and submits their real registry metadata after selection', async () => {
+    const browser = userEvent.setup()
+    const createSource = vi.fn().mockResolvedValue({ id: 'apify-new' })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{
+        type: 'apify_social', label: 'Apify 社交来源', fields: [
+          { name: 'platform', label: '平台', input_type: 'select', required: true, default: '', options: [{ value: 'x', label: 'X' }], help: '选择要抓取的平台。' },
+          { name: 'kind', label: '来源类别', input_type: 'select', required: true, default: '', options: [{ value: 'account', label: '账号' }], help: '选择账号或关键词来源。' },
+        ],
+      }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      createSource,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: 'Apify 社交来源' }))
+    await browser.type(await screen.findByRole('textbox', { name: '来源名称' }), 'Codex 动态')
+    expect(screen.getByText('选择要抓取的平台。')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    expect(createSource).not.toHaveBeenCalled()
+    expect(await screen.findByText('平台不能为空。')).toBeInTheDocument()
+    expect(screen.getByText('来源类别不能为空。')).toBeInTheDocument()
+
+    await browser.click(screen.getByLabelText('平台'))
+    await browser.click(await screen.findByRole('option', { name: 'X' }))
+    await browser.click(screen.getByLabelText('来源类别'))
+    await browser.click(await screen.findByRole('option', { name: '账号' }))
+    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ platform: 'x', kind: 'account' }),
+    })))
+  })
+
   it('applies the existing provider defaults in the live AI form', async () => {
     const browser = userEvent.setup()
     const configAction = vi.fn().mockResolvedValue({ config: { ai: {} } })
@@ -707,7 +746,7 @@ describe('App routes', () => {
     expect(feedItem).toHaveBeenCalledWith('deep', expect.any(AbortSignal))
   })
 
-  it('always fetches selected detail and renders its v2 body over the snapshot copy', async () => {
+  it('expands an item already in the snapshot without fetching its detail again', async () => {
     const user = userEvent.setup()
     const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
     const api = liveApi({ feedItem } as Partial<ServiceApi>)
@@ -715,9 +754,9 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await user.click(await screen.findByRole('button', { name: '展开 真实 API 条目' }))
-    expect(await screen.findByText('完整详情正文')).toBeInTheDocument()
-    expect(screen.getByRole('article', { name: '详情标题 live-1' })).toBeInTheDocument()
-    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
+    expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
+    expect(screen.queryByText('完整详情正文')).not.toBeInTheDocument()
+    expect(feedItem).not.toHaveBeenCalled()
   })
 
   it('keeps the snapshot card usable when selected detail cannot be loaded', async () => {
@@ -1010,7 +1049,7 @@ describe('App routes', () => {
 
       await user.click(within(topCard).getByRole('button', { name: /展开 锚点条目/ }))
       await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('item=anchor-'))
-      await waitFor(() => expect(within(topCard).getByText('完整详情正文')).toBeInTheDocument())
+      await waitFor(() => expect(within(topCard).getByText('该条内容未保存正文片段；重新获取来源后可显示。')).toBeInTheDocument())
       expect(screen.getByTestId('live-workbench-shell')).toBe(shell)
       expect(feedScroll.scrollTop).toBe(4200)
       expect(topVisibleCard()?.dataset.index).toBe(topIndex)

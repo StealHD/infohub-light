@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview --host 127.0.0.1",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:release": "playwright test -c playwright.release.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.2.10",

@@ -525,7 +525,7 @@
     backdrop-filter: blur(16px);
   }
   .hero-mobile-navigation a {
-    min-width: 54px;
+    min-width: 44px;
     min-height: 44px;
     display: flex;
     flex-direction: column;
