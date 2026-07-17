@@ -247,6 +247,8 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('button', { name: '立即获取 阻塞来源' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('后台获取服务当前不可用')
     expect(createSourceFetch).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('button', { name: '关闭通知' }))
+    expect(screen.queryByText(/后台获取服务当前不可用/)).not.toBeInTheDocument()
   })
 
   it('settles a live source fetch through queued, running and terminal lifecycle states', async () => {
@@ -286,6 +288,32 @@ describe('App routes', () => {
       expect(keys).toContain(JSON.stringify(queryKeys.history('user-live')))
     })
   }, 10_000)
+
+  it('keeps a manually dismissed source-fetch terminal notice closed across polling rerenders', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'dismiss-source', type: 'rss', display_name: '可关闭来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'dismiss-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
+    const queued: Job = { id: 'dismiss-job', user_id: 'user-live', job_type: 'source_fetch', source_id: source.id, subscription_id: subscription.id, status: 'queued', created_at: '2026-07-17T01:00:00Z' }
+    const terminal: Job = { ...queued, status: 'failed', finished_at: '2026-07-17T01:00:01Z', error_message: '可关闭的抓取失败' }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }), sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '立即获取 可关闭来源' }))
+    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [terminal] }))
+    expect(await screen.findByText('可关闭的抓取失败')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '关闭通知' }))
+    expect(screen.queryByText('可关闭的抓取失败')).not.toBeInTheDocument()
+
+    await act(async () => {
+      queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...terminal }] })
+      await Promise.resolve()
+    })
+    expect(screen.queryByText('可关闭的抓取失败')).not.toBeInTheDocument()
+  })
 
   it.each([
     ['partial', undefined, '终态来源 部分完成，请查看运行记录。'],
@@ -329,6 +357,93 @@ describe('App routes', () => {
     expect(screen.getByText('完成：尚未完成')).toBeInTheDocument()
     expect(screen.getAllByText(/完成：.*2026/)).toHaveLength(2)
     expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
+  })
+
+  it('scopes live schedule, subscribe, unsubscribe and retry pending controls to their own entity', async () => {
+    const browser = userEvent.setup()
+    const subscribedSource = { id: 'pending-subscribed', type: 'rss', display_name: '已订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const availableSource = { id: 'pending-available', type: 'rss', display_name: '未订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'pending-subscription', user_id: 'user-live', source_id: subscribedSource.id, source_display_name: subscribedSource.display_name, source_type: subscribedSource.type, enabled: true }
+    const scheduleRequest = deferred<unknown>()
+    const subscribeRequest = deferred<unknown>()
+    const unsubscribeRequest = deferred<unknown>()
+    const retryRequest = deferred<unknown>()
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [subscribedSource, availableSource] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      jobs: vi.fn().mockResolvedValue({ jobs: [{ id: 'pending-retry-job', user_id: 'user-live', job_type: 'source_fetch', source_id: subscribedSource.id, status: 'failed', retryable: true, created_at: '2026-07-17T01:00:00Z', finished_at: '2026-07-17T01:00:01Z' }] }),
+      updateFeedSchedule: vi.fn().mockReturnValue(scheduleRequest.promise),
+      subscribe: vi.fn().mockReturnValue(subscribeRequest.promise),
+      unsubscribe: vi.fn().mockReturnValue(unsubscribeRequest.promise),
+      retryJob: vi.fn().mockReturnValue(retryRequest.promise),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '关闭自动更新' }))
+    const schedulePending = await screen.findByRole('button', { name: '更新中 自动更新' })
+    expect(schedulePending).toBeDisabled()
+    expect(screen.getByRole('button', { name: /更新周期/ })).toBeDisabled()
+    fireEvent.click(schedulePending)
+    expect(api.updateFeedSchedule).toHaveBeenCalledOnce()
+
+    await browser.click(screen.getByRole('tab', { name: '来源库' }))
+    const unsubscribeButton = await screen.findByRole('button', { name: '取消订阅 已订阅来源' })
+    const subscribeButton = screen.getByRole('button', { name: '订阅 未订阅来源' })
+    await browser.click(unsubscribeButton)
+    const unsubscribePending = await screen.findByRole('button', { name: '取消中 已订阅来源' })
+    expect(unsubscribePending).toBeDisabled()
+    expect(subscribeButton).toBeEnabled()
+    fireEvent.click(unsubscribePending)
+    expect(api.unsubscribe).toHaveBeenCalledOnce()
+
+    await browser.click(subscribeButton)
+    const subscribePending = await screen.findByRole('button', { name: '订阅中 未订阅来源' })
+    expect(subscribePending).toBeDisabled()
+    expect(unsubscribePending).toBeDisabled()
+    fireEvent.click(subscribePending)
+    expect(api.subscribe).toHaveBeenCalledOnce()
+
+    await browser.click(screen.getByRole('tab', { name: '运行记录' }))
+    await browser.click(await screen.findByRole('button', { name: '重试' }))
+    const retryPending = await screen.findByRole('button', { name: /重试中/ })
+    expect(retryPending).toBeDisabled()
+    fireEvent.click(retryPending)
+    expect(api.retryJob).toHaveBeenCalledOnce()
+  })
+
+  it('renders local accessible errors for live schedule, subscribe, unsubscribe and retry actions', async () => {
+    const browser = userEvent.setup()
+    const subscribedSource = { id: 'error-subscribed', type: 'rss', display_name: '错误已订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const availableSource = { id: 'error-available', type: 'rss', display_name: '错误未订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'error-subscription', user_id: 'user-live', source_id: subscribedSource.id, source_display_name: subscribedSource.display_name, source_type: subscribedSource.type, enabled: true }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [subscribedSource, availableSource] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }), sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      jobs: vi.fn().mockResolvedValue({ jobs: [{ id: 'error-retry-job', user_id: 'user-live', job_type: 'source_fetch', source_id: subscribedSource.id, status: 'failed', retryable: true, created_at: '2026-07-17T01:00:00Z', finished_at: '2026-07-17T01:00:01Z' }] }),
+      updateFeedSchedule: vi.fn().mockRejectedValue(new Error('计划保存失败')),
+      subscribe: vi.fn().mockRejectedValue(new Error('订阅请求失败')),
+      unsubscribe: vi.fn().mockRejectedValue(new Error('取消订阅失败')),
+      retryJob: vi.fn().mockRejectedValue(new Error('重试请求失败')),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '关闭自动更新' }))
+    expect((await screen.findByText('计划保存失败')).closest('[role="alert"]')).not.toBeNull()
+
+    await browser.click(screen.getByRole('tab', { name: '来源库' }))
+    await browser.click(await screen.findByRole('button', { name: '取消订阅 错误已订阅来源' }))
+    expect((await screen.findByText('取消订阅失败')).closest('[role="alert"]')).not.toBeNull()
+    await browser.click(screen.getByRole('button', { name: '订阅 错误未订阅来源' }))
+    expect((await screen.findByText('订阅请求失败')).closest('[role="alert"]')).not.toBeNull()
+
+    await browser.click(screen.getByRole('tab', { name: '运行记录' }))
+    await browser.click(await screen.findByRole('button', { name: '重试' }))
+    expect((await screen.findByText('重试请求失败')).closest('[role="alert"]')).not.toBeNull()
   })
 
   it('shows role-scoped live settings and clears only a failed secret value', async () => {

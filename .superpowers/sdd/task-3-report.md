@@ -138,3 +138,54 @@ Passed.
 python3 scripts/test_gate.py run --mode full
 22/22 commands passed; mapping_miss=false; 57.642s.
 ```
+
+## Feedback re-review remediation — 2026-07-17
+
+The Important and Minor feedback findings were closed while retaining `ActionFeedback` as the only mutation feedback state and preserving the existing terminal invalidation/deduplication flow:
+
+- Schedule, subscribe, unsubscribe, and retry now register pending/success/error records using action/entity keys. Their Select/Button labels and disabled states read those same entity records, suppressing duplicate requests without blocking unrelated rows.
+- The Hero subscriptions page renders those records through an accessible local HeroUI alert/status surface, so the live shell's intentionally suppressed legacy notice surface no longer makes failures silent.
+- Source-fetch success notices auto-dismiss at 4 seconds; partial, failed, blocked, cancelled-as-failure, and Worker-unavailable notices auto-dismiss at 8 seconds. Every notice has an accessible manual close button.
+- Closing clears the same ActionFeedback record. The existing `seenTerminalJobs` `job_id:status` key remains populated, so polling/cache rerenders cannot recreate a dismissed terminal event. The timer keeps its original deadline across ordinary parent/query rerenders while using the latest close callback.
+
+Focused RED→GREEN evidence:
+
+```text
+npm test -- --run src/app/App.test.tsx -t 'scopes live schedule'
+RED: 1 failed / 37 skipped; the pending schedule label was absent.
+GREEN: 1 passed / 37 skipped; schedule, subscribe, unsubscribe, and retry controls were independently pending and duplicate clicks were suppressed.
+
+npm test -- --run src/app/App.test.tsx -t 'renders local accessible errors'
+RED: 1 failed / 38 skipped; the schedule failure was absent from the Hero page.
+GREEN (combined feedback slice): 2 passed / 37 skipped; all four action failures rendered in local alerts.
+
+npm test -- --run src/features/admin-heroui/HeroActionNotice.test.tsx
+RED: suite failed because the bounded/dismissible notice component did not exist.
+GREEN: 6/6 passed, covering 4-second success, 8-second partial/failed/blocked, manual close, and a polling rerender that does not restart the timer.
+
+npm test -- --run src/app/App.test.tsx -t 'keeps a manually dismissed source-fetch'
+RED: 1 failed / 39 skipped; no close button existed.
+GREEN (combined page/component slice): 2 files / 9 passed / 37 skipped, including same `job_id:status` cache rewrites that stay dismissed.
+```
+
+Final verification:
+
+```text
+npm test -- --run src/app/App.test.tsx src/features/admin-heroui/HeroActionNotice.test.tsx src/features/admin-heroui/HeroResponseSchemaDetails.test.tsx src/features/subscriptions/subscriptionModel.test.ts
+4 files / 60 tests passed.
+
+npm test
+35 files / 182 tests passed.
+
+npm run check:ui && npm run lint && npm run typecheck && npm run build
+UI contract, TypeScript, and production build/preview exclusion passed; ESLint 0 errors with the existing 1 Fast Refresh warning.
+
+npx playwright test e2e/live-admin.spec.ts
+6/6 passed across desktop/tablet/mobile with the existing Axe assertions.
+
+git diff --check && python3 -m json.tool project-defaults.yaml >/dev/null
+Passed.
+
+python3 scripts/test_gate.py run --mode full
+22/22 commands passed; mapping_miss=false; 60.132s.
+```

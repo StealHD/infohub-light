@@ -952,3 +952,11 @@
 - 结果：单源获取恢复 queued→running→terminal 与终态失效/安全反馈；Owner/Admin 可编辑非 Owner 角色；运行时间拆分；筛选、权限、结构状态和登录具备行为覆盖；高级编辑器改用设计系统 Fieldset
 - 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
 - 控制面变更：无；未修改 backend/API/query key/权限函数/Remote MCP/生产路由
+
+### 2026-07-17 17:31 Codex
+- 任务：修复 Task 3 复评发现的 Hero 订阅实体级 mutation 反馈与来源获取通知关闭/超时问题
+- 修改文件：新增 `HeroActionNotice` 及 fake-timer 测试，更新 Hero 订阅页、App 行为测试、Task 3 报告与本工作日志
+- 执行验证：focused 4 文件/60 项、全量 Vitest 35 文件/182 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Admin Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、60.132 秒
+- 结果：schedule/subscribe/unsubscribe/retry 复用 ActionFeedback 实现实体级 pending/错误/成功状态与重复请求抑制；Hero 本地 live region 保证错误可见；来源通知支持手动关闭及 4/8 秒自动关闭，同终态轮询不重开也不重置计时
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
+- 控制面变更：无；未修改 backend/API/query key/权限函数/Remote MCP/生产路由
