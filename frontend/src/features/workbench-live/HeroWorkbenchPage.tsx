@@ -29,6 +29,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
   const selectedId = params.get('item') ?? undefined
+  const [initialNavigationTargetId] = useState(selectedId)
   const feedQuery = useQuery({
     queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => api.latestFeed(signal),
@@ -41,11 +42,10 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     saved: savedQuery.data,
     history: historyQuery.data,
   }), [feedQuery.data, historyQuery.data, kind, savedQuery.data])
-  const selectedInSource = Boolean(selectedId && sourceItems.some((item) => item.id === selectedId))
   const detailQuery = useQuery({
     queryKey: queryKeys.feedItem(user.id, selectedId || ''),
     queryFn: ({ signal }) => api.feedItem(selectedId!, signal),
-    enabled: Boolean(selectedId && !selectedInSource),
+    enabled: Boolean(selectedId),
     retry: false,
   })
   const stateMutation = useOptimisticItemState({ api, user, beginAction, isActionCurrent, publishFeedback: false })
@@ -66,20 +66,28 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [detailQuery.error, detailQuery.isError, location.pathname, location.state, navigate, params])
 
   const mergedItems = useMemo(() => mergeDeepLinkedItem(sourceItems, detailQuery.data), [detailQuery.data, sourceItems])
-  const filteredItems = useMemo(() => filterFeedItems(
-    mergedItems.filter((item) => !item.user_state?.dismissed),
-    {
-      query,
-      unreadFirst: preference.unreadFirst,
-      sourceId: preference.source || undefined,
-      channel: preference.channel || undefined,
-      topic: preference.topic || undefined,
-      minScore: preference.minScore,
-    },
-  ), [mergedItems, preference, query])
+  const filteredItems = useMemo(() => {
+    const matching = filterFeedItems(
+      mergedItems.filter((item) => !item.user_state?.dismissed),
+      {
+        query,
+        unreadFirst: preference.unreadFirst,
+        sourceId: preference.source || undefined,
+        channel: preference.channel || undefined,
+        topic: preference.topic || undefined,
+        minScore: preference.minScore,
+      },
+    )
+    if (!selectedId || !detailQuery.data) return matching
+    const matchingIds = new Set(matching.map((item) => item.id))
+    if (matchingIds.has(selectedId)) return matching
+    const selectedItem = mergedItems.find((item) => item.id === selectedId)
+    return selectedItem ? [...matching, selectedItem] : matching
+  }, [detailQuery.data, mergedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
+  const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
-    const value = item.source_id || item.source || ''
+    const value = item.presentation?.source.id || item.source_id || item.source || ''
     return [value, item.presentation?.source?.name || item.source || item.source_type || value] as const
   }).filter(([value]) => Boolean(value))).entries()), [sourceItems])
   const channels = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.presentation?.taxonomy?.channel || item.channel || item.category).filter(Boolean) as string[])).sort(), [sourceItems])
@@ -148,9 +156,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     {!loading && !loadError && cards.length === 0 && <Card variant="transparent" className="m-auto p-6 text-center"><Card.Title>没有匹配的信息</Card.Title><Card.Description>清除筛选或等待下一次更新。</Card.Description></Card>}
     {!loading && !loadError && cards.length > 0 && <VirtualFeed
       cards={cards}
-      sourceItemCount={mergedItems.length}
+      sourceItemIds={sourceItemIds}
       expandedId={selectedId}
-      targetId={selectedId}
+      navigationTargetId={initialNavigationTargetId}
       contextIds={agent.draft.itemIds}
       readonly={user.role === 'viewer'}
       onToggleExpanded={toggleExpanded}

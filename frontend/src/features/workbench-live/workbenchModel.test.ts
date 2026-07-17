@@ -51,6 +51,36 @@ describe('live workbench model', () => {
     expect(mergeDeepLinkedItem([older, middle], middle)).toHaveLength(2)
   })
 
+  it('replaces a late snapshot copy with fetched v2 detail while preserving user state', () => {
+    const snapshot = item('selected', '2026-07-13T10:00:00Z')
+    snapshot.user_state = { is_read: false, is_saved: true, is_later: false, dismissed: false }
+    const detail: FeedItem = {
+      id: 'selected',
+      title: '旧兼容标题',
+      url: 'https://example.com/selected',
+      presentation: {
+        version: 2,
+        source: { id: 'source-v2', catalog_type: 'rss', platform: 'rss', name: 'V2 来源' },
+        author: { name: '作者', kind: 'person' },
+        timing: { published_at: '2026-07-13T10:00:00Z', fetched_at: '2026-07-13T10:01:00Z' },
+        links: { canonical_url: 'https://example.com/selected', source_url: 'https://example.com/selected' },
+        content: { title: '详情标题', title_origin: 'native', excerpt: '详情摘录', body_text: '完整详情正文', content_kind: 'post_body', excerpt_truncated: false, body_truncated: false },
+        taxonomy: { channel: '详情频道', configured_topics: [], inferred_topics: [], topics: ['详情主题'], entities: [] },
+        engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+        analysis: { status: 'ai', score: 9, signal_strength: 'strong', signal_type: 'update', summary_zh: '详情概括' },
+      },
+    }
+
+    const [merged] = mergeDeepLinkedItem([snapshot], detail)
+    expect(merged.user_state?.is_saved).toBe(true)
+    expect(toWorkbenchCardModel(merged)).toMatchObject({
+      title: '详情标题',
+      body: '完整详情正文',
+      summary: '详情概括',
+      source: 'V2 来源',
+    })
+  })
+
   it('cleans retired mode parameters while preserving item deep links', () => {
     expect(cleanLegacyModeSearch('?mode=daily&item=article-1&source=rss')).toBe('?item=article-1&source=rss')
   })

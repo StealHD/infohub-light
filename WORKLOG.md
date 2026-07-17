@@ -912,3 +912,11 @@
 - 结果：开发专用认证路由 `/__preview/workbench-live` 已接真实 ServiceApi，实现 Feed/收藏/历史统一卡片、动态虚拟列表、深链降级、筛选、刷新反馈、权限与回滚、响应式 Agent 面板及确定性交接；MUI 仍为生产默认，固定数据 HeroUI 原型未变，Task 3 页面未迁移
 - 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换等待 Task 4
 - 控制面变更：无；复用现有 API、查询键、权限、Remote MCP 和 ActionGeneration 合同，仅新增开发验收入口
+
+### 2026-07-17 14:23 Codex
+- 任务：修复 Task 2 评审发现的 legacy 路由、详情合并、筛选、虚拟流锚点/新内容、Agent Drawer 与 loading 状态问题
+- 修改文件：`App` 路由/回归测试、Feed/workbench 模型与虚拟列表、HeroUI Shell、design-system portal foreground、三视口 Playwright、Task 2 报告
+- 执行验证：定向 Vitest 4 文件/34 项、全量 Vitest 33 文件/148 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、Portal 契约 1 项、三视口 Playwright/Axe 3 项均通过；最终 `test_gate full` 22/22、`mapping_miss=false`、68.966 秒
+- 结果：保留生产 `/later`；inline `?item=` 不再 remount/跳中；详情始终获取并合并 v2；深链穿透筛选；固定窗口按 ID 识别新内容；窄屏使用受控 HeroUI Drawer，delegation 加载显示中性状态，Portal 统一继承主题前景色
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
+- 控制面变更：无；仅修复既有 D027/Task 2 实现偏差

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
@@ -17,9 +17,9 @@ type ItemStateAction = 'is_read' | 'dismissed'
 
 type VirtualFeedProps = {
   cards: WorkbenchCardModel[]
-  sourceItemCount?: number
+  sourceItemIds?: string[]
   expandedId?: string
-  targetId?: string
+  navigationTargetId?: string
   contextIds: string[]
   readonly?: boolean
   onToggleExpanded: (id: string) => void
@@ -143,15 +143,19 @@ function WorkbenchCard({
 }
 
 export function VirtualFeed(props: VirtualFeedProps) {
-  const sourceItemCount = props.sourceItemCount ?? props.cards.length
+  const sourceItemIds = props.sourceItemIds ?? props.cards.map((card) => card.id)
+  const sourceSignature = sourceItemIds.join('\u0000')
   const scrollRef = useRef<HTMLDivElement>(null)
   const wasNearBottom = useRef(true)
-  const previousSourceCount = useRef(sourceItemCount)
+  const previousSourceIds = useRef(new Set(sourceItemIds))
+  const inlineScrollAnchor = useRef<number | null>(null)
+  const inlineAnchorTimer = useRef<number | undefined>(undefined)
+  const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
   const [activeIndex, setActiveIndex] = useState(Math.max(0, props.cards.length - 1))
   const [newItemCount, setNewItemCount] = useState(0)
   const ticks = useMemo(() => sampleTickIndexes(props.cards.length), [props.cards.length])
-  const initialTargetIndex = props.targetId ? props.cards.findIndex((card) => card.id === props.targetId) : props.cards.length - 1
+  const initialTargetIndex = props.navigationTargetId ? props.cards.findIndex((card) => card.id === props.navigationTargetId) : props.cards.length - 1
   // TanStack Virtual intentionally returns mutable imperative methods; React Compiler skips this component safely.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -183,31 +187,40 @@ export function VirtualFeed(props: VirtualFeedProps) {
     },
   })
 
+  useLayoutEffect(() => {
+    if (inlineScrollAnchor.current === null || !scrollRef.current) return
+    const scroll = scrollRef.current
+    const restore = () => {
+      if (inlineScrollAnchor.current !== null) scroll.scrollTop = inlineScrollAnchor.current
+    }
+    restore()
+    const frame = window.requestAnimationFrame(restore)
+    return () => window.cancelAnimationFrame(frame)
+  }, [props.cards, props.expandedId])
+
+  useEffect(() => () => {
+    window.clearTimeout(inlineAnchorTimer.current)
+    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
+  }, [])
+
   useEffect(() => {
     if (didInitialScroll.current || props.cards.length === 0) return
+    const targetIndex = props.navigationTargetId ? props.cards.findIndex((card) => card.id === props.navigationTargetId) : props.cards.length - 1
+    if (props.navigationTargetId && targetIndex < 0) return
     didInitialScroll.current = true
-    const targetIndex = props.targetId ? props.cards.findIndex((card) => card.id === props.targetId) : props.cards.length - 1
     const frame = window.requestAnimationFrame(() => {
-      virtualizer.scrollToIndex(targetIndex >= 0 ? targetIndex : props.cards.length - 1, { align: props.targetId ? 'center' : 'end' })
+      virtualizer.scrollToIndex(targetIndex, { align: props.navigationTargetId ? 'center' : 'end' })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [props.cards, props.targetId, virtualizer])
+  }, [props.cards, props.navigationTargetId, virtualizer])
 
   useEffect(() => {
-    const delta = sourceItemCount - previousSourceCount.current
-    previousSourceCount.current = sourceItemCount
-    if (delta <= 0) return
+    const addedCount = sourceItemIds.filter((id) => !previousSourceIds.current.has(id)).length
+    previousSourceIds.current = new Set(sourceItemIds)
+    if (addedCount <= 0) return
     if (wasNearBottom.current) virtualizer.scrollToIndex(props.cards.length - 1, { align: 'end' })
-    else setNewItemCount((count) => count + delta)
-  }, [props.cards.length, sourceItemCount, virtualizer])
-
-  useEffect(() => {
-    if (!props.targetId) return
-    const index = props.cards.findIndex((card) => card.id === props.targetId)
-    if (index < 0) return
-    const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: 'center' }))
-    return () => window.cancelAnimationFrame(frame)
-  }, [props.cards, props.targetId, virtualizer])
+    else setNewItemCount((count) => count + addedCount)
+  }, [props.cards.length, sourceItemIds, sourceSignature, virtualizer])
 
   const virtualItems = virtualizer.getVirtualItems()
 
@@ -215,6 +228,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
     const element = scrollRef.current
     if (!element) return
     wasNearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 96
+    if (wasNearBottom.current) setNewItemCount(0)
     const visible = virtualizer.getVirtualItems().filter((item) => item.end >= element.scrollTop && item.start <= element.scrollTop + element.clientHeight)
     if (visible.length) setActiveIndex(visible[Math.floor((visible.length - 1) / 2)].index)
   }
@@ -222,6 +236,30 @@ export function VirtualFeed(props: VirtualFeedProps) {
   function jumpTo(index: number) {
     setActiveIndex(index)
     virtualizer.scrollToIndex(index, { align: 'center' })
+  }
+
+  function toggleExpandedInline(id: string) {
+    inlineScrollAnchor.current = scrollRef.current?.scrollTop ?? null
+    window.clearTimeout(inlineAnchorTimer.current)
+    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
+    const holdAnchor = () => {
+      const element = scrollRef.current
+      if (!element || inlineScrollAnchor.current === null) return
+      element.scrollTop = inlineScrollAnchor.current
+      inlineAnchorFrame.current = window.requestAnimationFrame(holdAnchor)
+    }
+    inlineAnchorFrame.current = window.requestAnimationFrame(holdAnchor)
+    inlineAnchorTimer.current = window.setTimeout(() => {
+      inlineScrollAnchor.current = null
+      window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
+    }, 1000)
+    props.onToggleExpanded(id)
+  }
+
+  function cancelInlineAnchor() {
+    inlineScrollAnchor.current = null
+    window.clearTimeout(inlineAnchorTimer.current)
+    window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
   }
 
   return <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -238,8 +276,12 @@ export function VirtualFeed(props: VirtualFeedProps) {
     <div
       ref={scrollRef}
       data-testid="workbench-feed-scroll"
-      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 pr-10 sm:px-5 sm:pr-12"
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 pr-10 [overflow-anchor:none] sm:px-5 sm:pr-12"
       onScroll={updateScrollState}
+      onWheel={cancelInlineAnchor}
+      onTouchStart={cancelInlineAnchor}
+      onPointerDown={cancelInlineAnchor}
+      onKeyDown={cancelInlineAnchor}
     >
       <div className="relative mx-auto w-full max-w-3xl" style={{ height: virtualizer.getTotalSize() }}>
         {virtualItems.map((virtualItem) => {
@@ -258,7 +300,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
               inContext={props.contextIds.includes(card.id)}
               contextFull={props.contextIds.length >= 8}
               readonly={props.readonly}
-              onToggleExpanded={() => props.onToggleExpanded(card.id)}
+              onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
               onToggleContext={() => props.onToggleContext(card.id)}
               onItemAction={(action, value) => props.onItemAction(card.id, action, value)}

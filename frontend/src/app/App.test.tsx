@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentType, ReactNode } from 'react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
 import type { ServiceApi } from '../api/service'
+import type { FeedItem } from '../api/types'
 import { AppRoutes } from './App'
 
 function LocationProbe() {
@@ -27,6 +28,28 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     updateItemState: vi.fn(),
     ...overrides,
   } as unknown as ServiceApi
+}
+
+function detailedItem(id: string, overrides: Partial<FeedItem> = {}): FeedItem {
+  return {
+    id,
+    title: `兼容标题 ${id}`,
+    url: `https://example.com/${id}`,
+    published_at: '2026-07-17T02:00:00Z',
+    user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+    presentation: {
+      version: 2,
+      source: { id: 'detail-source', catalog_type: 'rss', platform: 'rss', name: '详情来源' },
+      author: { name: '详情作者', kind: 'person' },
+      timing: { published_at: '2026-07-17T02:00:00Z', fetched_at: '2026-07-17T02:01:00Z' },
+      links: { canonical_url: `https://example.com/${id}`, source_url: `https://example.com/${id}` },
+      content: { title: `详情标题 ${id}`, title_origin: 'native', excerpt: '详情摘录', body_text: '完整详情正文', content_kind: 'post_body', excerpt_truncated: false, body_truncated: false },
+      taxonomy: { channel: '详情频道', configured_topics: [], inferred_topics: [], topics: ['详情主题'], entities: [] },
+      engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+      analysis: { status: 'ai', score: 9, signal_strength: 'strong', signal_type: 'update', summary_zh: '详情概括' },
+    },
+    ...overrides,
+  }
 }
 
 describe('App routes', () => {
@@ -62,6 +85,28 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
+  it('shows a neutral Agent connection state while delegation loading is unresolved', async () => {
+    const user = userEvent.setup()
+    const api = liveApi({ agentDelegations: vi.fn().mockImplementation(() => new Promise(() => undefined)) } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await user.click(await screen.findByRole('button', { name: '展开 Agent 面板' }))
+    expect(await screen.findByText('检查中')).toBeInTheDocument()
+    expect(screen.queryByText('未配置')).not.toBeInTheDocument()
+  })
+
+  it('opens the narrow-screen Agent surface as a real modal dialog', async () => {
+    const user = userEvent.setup()
+    const api = liveApi()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    const toggle = await screen.findByRole('button', { name: '展开 Agent 面板' })
+    await user.click(toggle)
+    expect(await screen.findByRole('dialog', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+  })
+
   it('temporarily inserts a deep-linked item returned by feedItem', async () => {
     const feedItem = vi.fn().mockResolvedValue({ id: 'deep', title: '深链条目', url: 'https://example.com/deep', published_at: '2026-07-17T01:00:00Z' })
     const api = liveApi({ feedItem } as Partial<ServiceApi>)
@@ -71,6 +116,43 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '深链条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 深链条目' })).toHaveAttribute('aria-expanded', 'true')
     expect(feedItem).toHaveBeenCalledWith('deep', expect.any(AbortSignal))
+  })
+
+  it('always fetches selected detail and renders its v2 body over the snapshot copy', async () => {
+    const user = userEvent.setup()
+    const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
+    const api = liveApi({ feedItem } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await user.click(await screen.findByRole('button', { name: '展开 真实 API 条目' }))
+    expect(await screen.findByText('完整详情正文')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '详情标题 live-1' })).toBeInTheDocument()
+    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
+  })
+
+  it('keeps the snapshot card usable when selected detail cannot be loaded', async () => {
+    const api = liveApi({ feedItem: vi.fn().mockRejectedValue(new ApiError(503, { code: 'detail_failed', message: '详情失败' })) } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=live-1']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法读取深链条目')
+  })
+
+  it('pins a successfully fetched deep link despite persisted filters and dismissed state', async () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-live', JSON.stringify({ unreadFirst: true, source: 'other-source', channel: '其他频道', topic: '其他主题', minScore: 10 }))
+    const deep = detailedItem('filtered-deep', { user_state: { is_read: true, is_saved: false, is_later: false, dismissed: true } })
+    const api = liveApi({ feedItem: vi.fn().mockResolvedValue(deep) } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live?item=filtered-deep']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('article', { name: '详情标题 filtered-deep' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '收起 详情标题 filtered-deep' })).toHaveAttribute('aria-expanded', 'true')
+    } finally {
+      window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
+    }
   })
 
   it('removes a stale 404 deep link and leaves the Feed usable', async () => {
@@ -86,12 +168,71 @@ describe('App routes', () => {
     expect(screen.getByLabelText('当前位置')).not.toHaveTextContent('item=')
   })
 
-  it('redirects later to saved while preserving the item parameter', async () => {
-    const api = liveApi({ savedFeed: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', items: [], item_count: 0, limit: 200, offset: 0 }) } as Partial<ServiceApi>)
+  it('keeps the legacy later route in place before the final cutover', async () => {
+    const api = liveApi({
+      historyFeed: vi.fn().mockResolvedValue({ items: [] }),
+      sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
+    } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/later?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
-    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/saved?item=live-1'))
+    expect(await screen.findByRole('heading', { name: '稍后读' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/later?item=live-1'))
+  })
+
+  it('does not remount the authenticated workbench when inline expansion changes search params', async () => {
+    const user = userEvent.setup()
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      id: `anchor-${index}`,
+      title: `锚点条目 ${index}`,
+      url: `https://example.com/anchor-${index}`,
+      published_at: new Date(Date.UTC(2026, 6, 17, 0, index)).toISOString(),
+      user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+    }))
+    const api = liveApi({
+      latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items }),
+      feedItem: vi.fn().mockImplementation((id: string) => {
+        const publishedAt = items.find((item) => item.id === id)?.published_at ?? '2026-07-17T02:00:00Z'
+        const detail = detailedItem(id, { published_at: publishedAt })
+        if (detail.presentation) detail.presentation.timing.published_at = publishedAt
+        return Promise.resolve(detail)
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const scrollTo = vi.fn()
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: scrollTo })
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/__preview/workbench-live']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+
+      const shell = await screen.findByTestId('live-workbench-shell', undefined, { timeout: 5000 })
+      const feedScroll = await screen.findByTestId('workbench-feed-scroll')
+      await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+      Object.defineProperties(feedScroll, {
+        scrollHeight: { configurable: true, value: 8000 },
+        clientHeight: { configurable: true, value: 720 },
+        scrollTop: { configurable: true, writable: true, value: 4200 },
+      })
+      fireEvent.scroll(feedScroll)
+      const topVisibleCard = () => Array.from(feedScroll.querySelectorAll<HTMLElement>('[data-index]'))
+        .filter((element) => Number(element.style.transform.match(/[-\d.]+/)?.[0] ?? 0) <= feedScroll.scrollTop)
+        .sort((left, right) => Number(right.style.transform.match(/[-\d.]+/)?.[0] ?? 0) - Number(left.style.transform.match(/[-\d.]+/)?.[0] ?? 0))[0]
+      const topCard = topVisibleCard()
+      expect(topCard).toBeDefined()
+      const topIndex = topCard.dataset.index
+      scrollTo.mockClear()
+
+      await user.click(within(topCard).getByRole('button', { name: /展开 锚点条目/ }))
+      await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('item=anchor-'))
+      await waitFor(() => expect(within(topCard).getByText('完整详情正文')).toBeInTheDocument())
+      expect(screen.getByTestId('live-workbench-shell')).toBe(shell)
+      expect(feedScroll.scrollTop).toBe(4200)
+      expect(topVisibleCard()?.dataset.index).toBe(topIndex)
+      expect(scrollTo.mock.calls.some(([options]) => Math.abs(Number((options as ScrollToOptions).top) - 4200) < 1000)).toBe(false)
+    } finally {
+      if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: originalScrollTo })
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
+    }
   })
 
   it('rolls optimistic saves back inside a HeroUI-only failure surface', async () => {

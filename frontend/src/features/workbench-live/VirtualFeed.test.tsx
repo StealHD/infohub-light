@@ -82,6 +82,7 @@ describe('VirtualFeed', () => {
     const initial = [0, 1].map((index) => toWorkbenchCardModel(makeItem(index)))
     const view = render(<VirtualFeed
       cards={initial}
+      {...{ sourceItemIds: initial.map((card) => card.id) }}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
@@ -98,6 +99,7 @@ describe('VirtualFeed', () => {
 
     view.rerender(<VirtualFeed
       cards={[...initial, toWorkbenchCardModel(makeItem(2))]}
+      {...{ sourceItemIds: ['item-0', 'item-1', 'item-2'] }}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
@@ -115,7 +117,7 @@ describe('VirtualFeed', () => {
     const initial = [0, 1].map((index) => toWorkbenchCardModel(makeItem(index)))
     const view = render(<VirtualFeed
       cards={initial}
-      sourceItemCount={3}
+      {...{ sourceItemIds: ['item-0', 'item-1', 'item-2'] }}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
@@ -132,7 +134,7 @@ describe('VirtualFeed', () => {
 
     view.rerender(<VirtualFeed
       cards={[...initial, toWorkbenchCardModel(makeItem(2))]}
-      sourceItemCount={3}
+      {...{ sourceItemIds: ['item-0', 'item-1', 'item-2'] }}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
@@ -141,5 +143,71 @@ describe('VirtualFeed', () => {
     />)
 
     expect(screen.queryByRole('button', { name: /条新内容/ })).not.toBeInTheDocument()
+  })
+
+  it('detects a newly added ID in a fixed-length rolling window', async () => {
+    const initial = [0, 1].map((index) => toWorkbenchCardModel(makeItem(index)))
+    const view = render(<VirtualFeed
+      cards={initial}
+      {...{ sourceItemIds: ['item-0', 'item-1'] }}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 720 },
+      scrollTop: { configurable: true, writable: true, value: 200 },
+    })
+    fireEvent.scroll(scroll)
+
+    view.rerender(<VirtualFeed
+      cards={[1, 2].map((index) => toWorkbenchCardModel(makeItem(index)))}
+      {...{ sourceItemIds: ['item-1', 'item-2'] }}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(await screen.findByRole('button', { name: '查看 1 条新内容' })).toBeInTheDocument()
+  })
+
+  it('clears the new-content badge when the user manually returns to the bottom zone', async () => {
+    const initial = [0, 1].map((index) => toWorkbenchCardModel(makeItem(index)))
+    const view = render(<VirtualFeed
+      cards={initial}
+      {...{ sourceItemIds: ['item-0', 'item-1'] }}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 720 },
+      scrollTop: { configurable: true, writable: true, value: 200 },
+    })
+    fireEvent.scroll(scroll)
+    view.rerender(<VirtualFeed
+      cards={[...initial, toWorkbenchCardModel(makeItem(2))]}
+      {...{ sourceItemIds: ['item-0', 'item-1', 'item-2'] }}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(await screen.findByRole('button', { name: '查看 1 条新内容' })).toBeInTheDocument()
+
+    scroll.scrollTop = 1280
+    fireEvent.scroll(scroll)
+    expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()
   })
 })

@@ -63,6 +63,10 @@
   font-family: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
+html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
+  color: var(--foreground);
+}
+
 .inteliscope-design-system :where(.tabs__list-container) {
   border-radius: var(--inteliscope-radius-card);
 }

@@ -79,6 +79,31 @@ describe('feed model', () => {
     }).map((value) => value.id)).toEqual(['match'])
   })
 
+  it('filters with canonical presentation fields before legacy fallbacks', () => {
+    const canonical = item({
+      id: 'canonical',
+      source_id: 'legacy-source',
+      channel: '旧频道',
+      topics: ['旧主题'],
+      score: 1,
+      presentation: {
+        version: 2,
+        source: { id: 'canonical-source', catalog_type: 'rss', platform: 'rss', name: 'Canonical Source' },
+        author: { name: 'Author', kind: 'person' },
+        timing: { published_at: '2026-07-13T08:00:00Z', fetched_at: '2026-07-13T08:01:00Z' },
+        links: { canonical_url: 'https://example.com/canonical', source_url: 'https://example.com/canonical' },
+        content: { title: 'Canonical', title_origin: 'native', excerpt: 'canonical body', content_kind: 'feed_summary', excerpt_truncated: false },
+        taxonomy: { channel: '新频道', configured_topics: [], inferred_topics: [], topics: ['新主题'], entities: [] },
+        engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+        analysis: { status: 'ai', score: 8.5, signal_strength: 'strong', signal_type: 'update', summary_zh: '概括' },
+      },
+    })
+
+    expect(filterFeedItems([canonical], {
+      query: '', unreadFirst: false, sourceId: 'canonical-source', channel: '新频道', topic: '新主题', minScore: 8,
+    })).toEqual([canonical])
+  })
+
   it('uses the most concerning source health across duplicate provenance', () => {
     const health: SourceHealthItem[] = [
       { subscription_id: 'sub-a', source_id: 'source-a', status: 'healthy', consecutive_failures: 0 },

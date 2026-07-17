@@ -12,7 +12,7 @@ Implementation followed focused RED→GREEN loops before production code:
 - Stable workbench sorting expected valid timestamps old-to-new with invalid timestamps retaining API order; RED returned API order. GREEN: 7/7 feed-model tests.
 - Workbench and Agent-context tests initially failed module resolution because the new model modules did not exist. GREEN: 8/8.
 - Virtual feed tests initially failed module resolution because the component did not exist. Subsequent runtime coverage caught direct icon star exports resolving `undefined`; the formal design-system runtime surface was corrected. GREEN: 5/5.
-- Authenticated live-route coverage initially rendered the legacy MUI fallback. The final route, deep-link insertion/404 degradation, `/later` redirect, and optimistic rollback suite is GREEN: 8/8.
+- Authenticated live-route coverage initially rendered the legacy MUI fallback. The final route, deep-link insertion/404 degradation, `/later` compatibility, and optimistic rollback suite is GREEN: 8/8.
 - Logout/session tests expected the user-scoped Agent draft to be cleared; RED retained the session entry. GREEN after integrating draft cleanup into the existing user-cache boundary.
 
 ## Implementation
@@ -26,7 +26,7 @@ Implementation followed focused RED→GREEN loops before production code:
 - Added compact search and preference controls for unread/source/channel/topic/minimum score. V2 preference storage contains only those fields and migrates only `unreadFirst` from v1.
 - Reused the existing feed refresh preflight/polling path. Terminal notices are closable and use 4-second success or 8-second failure/partial/blocked lifetimes.
 - Added user-scoped `AgentContextDraftV1` session storage, ordered unique IDs capped at eight, a 1200-character question limit, delegation configured/unconfigured/check-failed status, and deterministic OpenClaw handoff text with numbered `get_item item_id` calls. Logout/user switching clears the draft.
-- Added a development-only authenticated real-API route family for acceptance. Production routing and the fixed-data preview remain isolated; `/later` redirects to `/saved` while preserving query parameters, and legacy `mode` is removed with replace while preserving `item`.
+- Added a development-only authenticated real-API route family for acceptance. Production routing and the fixed-data preview remain isolated; legacy `/later` remains its own page, and legacy `mode` is removed with replace while preserving `item`.
 
 ## Files changed
 
@@ -85,3 +85,66 @@ python3 scripts/test_gate.py run --mode full
 - ESLint retains the pre-existing Fast Refresh warning in `frontend/src/app/ActionFeedback.tsx`; this task did not create it.
 - Vite retains the existing JavaScript chunk-size warning above 500 kB; the build succeeds and production code splitting is outside Task 2.
 - The live workbench is deliberately development-only until Task 4 performs the coordinated production switch; this is an acceptance surface, not a production rollout flag.
+
+## Review-fix appendix (2026-07-17)
+
+### RED commands and results
+
+```text
+npm test -- src/app/App.test.tsx
+RED: 2/9 failed — `/later` was redirected and changing `?item=` remounted the authenticated tree.
+
+npm test -- src/features/feed/feedModel.test.ts
+RED: 1/8 failed — v2 presentation source/channel/topics/score did not control filtering.
+
+npm test -- src/features/workbench-live/workbenchModel.test.ts
+RED: 1/5 failed — an existing snapshot row discarded fetched v2 detail instead of merging it.
+
+npm test -- src/app/App.test.tsx
+RED after adding detail/filter regressions: 2/12 failed — selected snapshot detail was not fetched and a filtered dismissed deep link disappeared.
+
+npm test -- src/features/workbench-live/VirtualFeed.test.tsx
+RED: 3/7 failed — filter reveal was counted as new, fixed-length ID replacement was missed, and manual bottom return did not clear the badge.
+
+npm test -- src/app/App.test.tsx -t 'neutral Agent|real modal dialog'
+RED: 2/2 failed — delegation loading claimed `未配置` and the narrow surface was not a modal dialog.
+
+npm run e2e -- e2e/live-workbench.spec.ts
+RED iterations: 3/3 failed on exact inline scroll anchoring; the next run exposed mobile overlay scroll drift plus two missing rolling-window badges; the following run exposed 2/3 Axe portal foreground failures.
+
+npm run e2e -- e2e/live-workbench.spec.ts --project=tablet
+RED: 1/1 failed — portal-visible `body` foreground was rgb(27, 28, 25), not the leased design-system foreground oklch(0.94 0.005 286).
+```
+
+### GREEN commands and results
+
+```text
+npm test -- src/app/App.test.tsx src/features/feed/feedModel.test.ts src/features/workbench-live/workbenchModel.test.ts src/features/workbench-live/VirtualFeed.test.tsx
+GREEN: 4 files / 34 tests passed.
+
+npm run check:ui && npm run lint && npm run typecheck && npm test && npm run build
+GREEN: UI contract passed; ESLint 0 errors with the pre-existing ActionFeedback Fast Refresh warning; TypeScript passed; Vitest 33 files / 148 tests passed; Vite build and preview exclusion passed.
+
+npm run e2e -- e2e/design-system-contract.spec.ts --project=desktop -g 'real Modal and Tooltip portals'
+GREEN: 1/1 passed.
+
+npm run e2e -- e2e/live-workbench.spec.ts
+GREEN: 3/3 passed across desktop/tablet/mobile, including controlled HeroUI Drawer semantics, exact scroll anchoring, fixed-window ID diff, focus/inert/Escape behavior, no overflow, and Axe serious/critical zero.
+
+git diff --check && python3 -m json.tool project-defaults.yaml >/dev/null
+GREEN: both hygiene checks passed.
+
+python3 scripts/test_gate.py run --mode full
+GREEN (fresh final retry): 22/22 commands passed; mapping_miss=false; 68.966s.
+```
+
+One immediately preceding full-gate attempt reached the frontend Vitest phase under host contention and timed out eight unrelated 5-second UI tests (29 files/140 tests passed). A standalone retry showed the same timeout pattern; no product assertion failed. The required unmodified full gate was rerun after contention subsided and produced the fresh 22/22 result above.
+
+### Review-fix implementation notes
+
+- Restored the production legacy `/later` page and keyed the route error boundary by pathname only, so inline search-parameter expansion preserves the authenticated shell and scroll state.
+- Always fetches selected detail, structurally merges v2 presentation data into snapshot rows, keeps non-404 failures usable, and pins a successful selected target through persisted filters without disturbing the matching list order.
+- Uses canonical v2 presentation fields for filters and source options, with legacy fallback only when canonical values are absent.
+- Replaced count deltas with source-ID set diffs, retained the visible anchor during inline detail/layout settlement, and clears the new-content badge on manual return to the bottom zone.
+- Replaced the narrow custom sliding surface with a controlled HeroUI Drawer/Backdrop/Content/Dialog; delegation status remains neutral `检查中` until the request resolves.
+- Fixed portal foreground inheritance once in the design-system document-root contract; no business-layer theme-variable copy or raw backdrop color was introduced.

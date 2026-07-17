@@ -90,6 +90,9 @@ test('real Modal and Tooltip portals inherit the theme and release the document 
   await expect(page.locator('html')).toHaveClass(/inteliscope-design-system/)
   await expect(modal).toHaveCSS('border-radius', '16px')
   await expect(tooltip).toHaveCSS('border-radius', '10px')
+  const themedForeground = await page.getByTestId('static-surface').evaluate((element) => getComputedStyle(element).color)
+  await expect(modal).toHaveCSS('color', themedForeground)
+  await expect(tooltip).toHaveCSS('color', themedForeground)
 
   const portalDurations = await Promise.all([
     modalContainer.evaluate((element) => {

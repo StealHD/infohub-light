@@ -61,8 +61,37 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
   }
 }
 
+function mergeDetailedItem(snapshot: FeedItem, detail: FeedItem): FeedItem {
+  const basePresentation = snapshot.presentation
+  const detailPresentation = detail.presentation
+  const presentation = detailPresentation && basePresentation ? {
+    ...basePresentation,
+    ...detailPresentation,
+    source: { ...basePresentation.source, ...detailPresentation.source },
+    author: { ...basePresentation.author, ...detailPresentation.author },
+    timing: { ...basePresentation.timing, ...detailPresentation.timing },
+    links: { ...basePresentation.links, ...detailPresentation.links },
+    content: { ...basePresentation.content, ...detailPresentation.content },
+    media: detailPresentation.media ?? basePresentation.media,
+    taxonomy: { ...basePresentation.taxonomy, ...detailPresentation.taxonomy },
+    engagement: { ...basePresentation.engagement, ...detailPresentation.engagement },
+    analysis: { ...basePresentation.analysis, ...detailPresentation.analysis },
+  } : detailPresentation ?? basePresentation
+  return {
+    ...snapshot,
+    ...detail,
+    presentation,
+    user_state: snapshot.user_state || detail.user_state
+      ? { ...snapshot.user_state, ...detail.user_state } as UserItemState
+      : undefined,
+  }
+}
+
 export function mergeDeepLinkedItem(items: FeedItem[], detail?: FeedItem): FeedItem[] {
-  if (!detail || items.some((item) => item.id === detail.id)) return items
+  if (!detail) return items
+  if (items.some((item) => item.id === detail.id)) {
+    return sortWorkbenchItems(items.map((item) => item.id === detail.id ? mergeDetailedItem(item, detail) : item))
+  }
   return sortWorkbenchItems([...items, detail])
 }
 

@@ -53,11 +53,15 @@ function searchableText(item: FeedItem): string {
 export function filterFeedItems(items: FeedItem[], filters: FeedFilterOptions): FeedItem[] {
   const query = filters.query.trim().toLocaleLowerCase()
   const filtered = items.filter((item) => {
+    const sourceId = item.presentation?.source.id || item.source_id || item.source
+    const channel = item.presentation?.taxonomy.channel || item.channel || item.category
+    const topics = item.presentation?.taxonomy.topics ?? item.topics ?? item.tags ?? []
+    const score = item.presentation?.analysis.score ?? item.score ?? 0
     if (query && !searchableText(item).includes(query)) return false
-    if (filters.sourceId && item.source_id !== filters.sourceId && item.source !== filters.sourceId) return false
-    if (filters.channel && (item.channel ?? item.category) !== filters.channel) return false
-    if (filters.topic && !(item.topics ?? item.tags ?? []).includes(filters.topic)) return false
-    if (filters.minScore !== undefined && Number(item.score ?? 0) < filters.minScore) return false
+    if (filters.sourceId && sourceId !== filters.sourceId) return false
+    if (filters.channel && channel !== filters.channel) return false
+    if (filters.topic && !topics.includes(filters.topic)) return false
+    if (filters.minScore !== undefined && Number(score) < filters.minScore) return false
     return true
   })
   if (!filters.unreadFirst) return filtered

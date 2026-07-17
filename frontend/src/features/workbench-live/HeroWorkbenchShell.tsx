@@ -12,8 +12,10 @@ import {
   Card,
   Chip,
   DesignSystemProvider,
+  Drawer,
   Icons,
   SearchField,
+  Skeleton,
   TextArea,
 } from '../../design-system'
 import {
@@ -50,13 +52,21 @@ const navigation = [
   { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
 ] as const
 
-function initialAgentOpen() {
+function initialWideDesktop() {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia('(min-width: 1200px)').matches
     : false
 }
 
-function AgentPanel({
+function initialMobile() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(max-width: 767px)').matches
+    : false
+}
+
+type AgentStatus = '检查中' | '已配置' | '未配置' | '检查失败'
+
+function AgentPanelContent({
   open,
   onClose,
   status,
@@ -64,7 +74,7 @@ function AgentPanel({
 }: {
   open: boolean
   onClose: () => void
-  status: '已配置' | '未配置' | '检查失败'
+  status: AgentStatus
   value: WorkbenchAgentContextValue
 }) {
   const [notice, setNotice] = useState('')
@@ -78,17 +88,13 @@ function AgentPanel({
     }
   }
 
-  return <aside
-    id="live-agent-panel"
-    role="complementary"
-    aria-label="OpenClaw 上下文"
-    data-open={open ? 'true' : 'false'}
-    className="fixed inset-x-0 bottom-0 z-40 grid h-[min(78dvh,640px)] min-h-0 translate-y-full grid-rows-[52px_minmax(0,1fr)_auto] border-t border-separator bg-surface transition-transform duration-200 data-[open=true]:translate-y-0 min-[768px]:inset-y-0 min-[768px]:left-auto min-[768px]:right-0 min-[768px]:h-dvh min-[768px]:w-[360px] min-[768px]:translate-x-full min-[768px]:translate-y-0 min-[768px]:border-l min-[768px]:border-t-0 min-[768px]:data-[open=true]:translate-x-0 min-[1200px]:static min-[1200px]:col-start-3 min-[1200px]:row-span-2 min-[1200px]:h-auto min-[1200px]:w-auto min-[1200px]:translate-x-0"
-  >
+  return <>
     <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
       <Icons.Sparkles size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 上下文</strong>
-      <Chip size="sm" color={status === '已配置' ? 'accent' : 'default'} variant="soft"><Chip.Label>{status}</Chip.Label></Chip>
+      {status === '检查中'
+        ? <span role="status" className="flex items-center gap-1.5 text-xs text-muted"><Skeleton className="h-4 w-8 rounded-lg" />检查中</span>
+        : <Chip size="sm" color={status === '已配置' ? 'accent' : 'default'} variant="primary"><Chip.Label>{status}</Chip.Label></Chip>}
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>
@@ -126,17 +132,21 @@ function AgentPanel({
         </div>
       </div>
     </>}
-  </aside>
+  </>
 }
 
 export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
   const agentToggleRef = useRef<HTMLButtonElement>(null)
-  const [agentOpen, setAgentOpen] = useState(initialAgentOpen)
+  const [wideDesktop, setWideDesktop] = useState(initialWideDesktop)
+  const [mobile, setMobile] = useState(initialMobile)
+  const [agentOpen, setAgentOpen] = useState(initialWideDesktop)
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
   const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false })
-  const agentStatus = delegations.isError
+  const agentStatus: AgentStatus = delegations.isLoading
+    ? '检查中'
+    : delegations.isError
     ? '检查失败'
     : delegations.data?.enabled && delegations.data.connections.some((connection) => connection.status === 'active')
       ? '已配置'
@@ -163,14 +173,23 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
-    const media = window.matchMedia('(min-width: 1200px)')
-    const change = (event: MediaQueryListEvent) => setAgentOpen(event.matches)
-    media.addEventListener('change', change)
-    return () => media.removeEventListener('change', change)
+    const desktopMedia = window.matchMedia('(min-width: 1200px)')
+    const mobileMedia = window.matchMedia('(max-width: 767px)')
+    const changeDesktop = (event: MediaQueryListEvent) => {
+      setWideDesktop(event.matches)
+      setAgentOpen(event.matches)
+    }
+    const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
+    desktopMedia.addEventListener('change', changeDesktop)
+    mobileMedia.addEventListener('change', changeMobile)
+    return () => {
+      desktopMedia.removeEventListener('change', changeDesktop)
+      mobileMedia.removeEventListener('change', changeMobile)
+    }
   }, [])
 
   useEffect(() => {
-    if (!agentOpen) return
+    if (!agentOpen || !wideDesktop) return
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.preventDefault()
@@ -178,7 +197,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     }
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
-  }, [agentOpen, closeAgent])
+  }, [agentOpen, closeAgent, wideDesktop])
 
   useEffect(() => {
     if (!noticeOpen) return
@@ -246,7 +265,25 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           {props.children}
         </main>
 
-        <AgentPanel open={agentOpen} onClose={closeAgent} status={agentStatus} value={agentValue} />
+        {wideDesktop ? <aside
+          id="live-agent-panel"
+          role="complementary"
+          aria-label="OpenClaw 上下文"
+          className="col-start-3 row-span-2 hidden min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-l border-separator bg-surface min-[1200px]:grid"
+        ><AgentPanelContent open={agentOpen} onClose={closeAgent} status={agentStatus} value={agentValue} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
+          <Drawer.Trigger aria-hidden="true" className="hidden">打开 Agent 面板</Drawer.Trigger>
+          <Drawer.Backdrop isDismissable variant="blur" data-testid="agent-drawer-backdrop">
+            <Drawer.Content placement={mobile ? 'bottom' : 'right'}>
+              <Drawer.Dialog
+                id="live-agent-panel"
+                aria-label="OpenClaw 上下文"
+                className={`grid min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(78dvh,640px)] max-h-[78dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
+              >
+                <AgentPanelContent open onClose={closeAgent} status={agentStatus} value={agentValue} />
+              </Drawer.Dialog>
+            </Drawer.Content>
+          </Drawer.Backdrop>
+        </Drawer>}
 
         <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
           {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/__preview/workbench-live'} aria-label={label} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-[10px] text-muted aria-[current=page]:text-accent">
