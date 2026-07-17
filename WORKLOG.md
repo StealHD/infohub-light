@@ -881,3 +881,11 @@
 - 结果：Agent guide 固定为 `rss/telegram/github/reddit/twitter/website/youtube/apify`，显式映射至 catalog 类型；REST 投影不变；拒绝所有 URL userinfo/敏感 query、嵌套凭据形状、非标量字段、Telegram 私邀和畸形 URL
 - 未解决问题：后续 Task 3 消费 normalization 时应读取其 `catalog_source_type/config` 结构，而非把公共类型直接写入 catalog
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第二轮复审的六项来源规范化安全与执行策略缺口
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：新增回归先出现 66 个预期失败，自审补充 mapping key 回归再确认 1 个预期失败；focused 119 项通过，Python compile 通过，full gate 22/22 通过且 `mapping_miss=false`，`git diff --check` 通过
+- 结果：复合敏感 query/header/assignment 和 source type 错误均安全失败；YouTube/Reddit identity 严格规范化；自助来源显式携带 create policy，Twitter/Apify 仅返回 existing-visible lookup identity
+- 未解决问题：后续 service 消费方须使用新的 policy-bearing normalization shape；本 Task 未实现 proposal/MCP/UI
+- 控制面变更：无
