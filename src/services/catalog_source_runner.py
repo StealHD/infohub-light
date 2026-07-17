@@ -69,6 +69,7 @@ def _record_from_source_and_subscription(
         "config": source["config"],
         "source_key": source.get("source_key"),
         "secret_env": source.get("secret_env"),
+        "enforce_public_network": bool(source.get("enforce_public_network")),
         "source_enabled": bool(source["enabled"]),
     }
 

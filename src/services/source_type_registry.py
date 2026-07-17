@@ -42,6 +42,8 @@ _SENSITIVE_RSS_QUERY_PARTS = (
 _CREDENTIAL_ERROR = "credentials are not accepted; configure secrets in Web"
 _UNSUPPORTED_SOURCE_TYPE_ERROR = "unsupported source type"
 _SOURCE_REQUIRES_WEB_SETUP_ERROR = "source_requires_web_setup"
+_OPAQUE_CATALOG_DISPLAY_NAME = "Web-managed source"
+_OPAQUE_CATALOG_PUBLIC_TARGET = "web_setup_required"
 _CREDENTIAL_ASSIGNMENT_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Za-z0-9_-]+)\s*[:=]",
     flags=re.IGNORECASE,
@@ -1459,6 +1461,114 @@ def normalize_source_setup_input(
         "catalog_source_type": definition.catalog_source_type,
         "config": normalized,
         "policy": policy,
+    }
+
+
+def project_catalog_source_public_summary(
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Project a stored catalog row without echoing unsafe legacy metadata."""
+
+    source_type = str(source.get("type") or "")
+    safe_type = source_type if source_type in _BY_TYPE else "unknown"
+
+    def opaque() -> dict[str, Any]:
+        return {
+            "display_name": _OPAQUE_CATALOG_DISPLAY_NAME,
+            "type": safe_type,
+            "public_target": _OPAQUE_CATALOG_PUBLIC_TARGET,
+        }
+
+    display_name = source.get("display_name")
+    config = source.get("config")
+    if not isinstance(display_name, str) or not isinstance(config, dict):
+        return opaque()
+    classification_input = {
+        "display_name": display_name,
+        "config": config,
+    }
+    try:
+        if _contains_secret_shape(classification_input):
+            return opaque()
+        _validate_public_url_inputs(classification_input)
+
+        if source_type == "rss":
+            setup = normalize_source_setup_input(
+                "rss",
+                {
+                    key: config[key]
+                    for key in ("url", "name", "keep_latest_item")
+                    if key in config
+                },
+            )
+            public_target: Any = setup["config"]["url"]
+        elif source_type == "github_release":
+            setup = normalize_source_setup_input(
+                "github",
+                {"repository": f"{config.get('owner', '')}/{config.get('repo', '')}"},
+            )
+            normalized = setup["config"]
+            public_target = f"{normalized['owner']}/{normalized['repo']}"
+        elif source_type == "github_user":
+            normalized = validate_source_config(source_type, config)
+            public_target = normalized["username"]
+        elif source_type == "reddit_subreddit":
+            setup = normalize_source_setup_input(
+                "reddit",
+                {
+                    key: config[key]
+                    for key in (
+                        "subreddit",
+                        "sort",
+                        "time_filter",
+                        "fetch_limit",
+                        "min_score",
+                    )
+                    if key in config
+                },
+            )
+            public_target = setup["config"]["subreddit"]
+        elif source_type == "reddit_user":
+            normalized = validate_source_config(source_type, config)
+            public_target = normalized["username"]
+        elif source_type == "telegram_channel":
+            setup = normalize_source_setup_input(
+                "telegram",
+                {
+                    key: config[key]
+                    for key in ("channel", "fetch_limit")
+                    if key in config
+                },
+            )
+            public_target = setup["config"]["channel"]
+        elif source_type == "apify_social":
+            setup = normalize_source_setup_input(
+                "apify",
+                {
+                    key: config[key]
+                    for key in ("platform", "kind", "target")
+                    if key in config
+                },
+            )
+            identity = setup["lookup_identity"]["config"]
+            public_target = {
+                key: identity.get(key) for key in ("platform", "kind", "target")
+            }
+        elif source_type == "hackernews":
+            normalized = validate_source_config(source_type, config)
+            public_target = {
+                key: normalized[key]
+                for key in ("fetch_top_stories", "min_score")
+            }
+        else:
+            return opaque()
+    except (KeyError, SourceConfigError, TypeError, ValueError):
+        return opaque()
+
+    return {
+        "display_name": display_name,
+        "type": safe_type,
+        "public_target": public_target,
     }
 
 

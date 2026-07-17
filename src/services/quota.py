@@ -77,8 +77,21 @@ class QuotaService:
         user_id: str,
         source_id: str,
     ) -> None:
-        existing = self.store.get_user_subscription_for_source(user_id, source_id)
-        if existing is not None and existing.get("enabled"):
+        active_target = self.store.connect().execute(
+            """
+            SELECT 1
+            FROM user_subscriptions us
+            JOIN source_catalog sc ON sc.id = us.source_id
+            WHERE us.user_id = ?
+              AND us.source_id = ?
+              AND sc.workspace_id = ?
+              AND us.enabled = 1
+              AND sc.enabled = 1
+            LIMIT 1
+            """,
+            (user_id, source_id, workspace_id),
+        ).fetchone()
+        if active_target is not None:
             return
         row = self.store.connect().execute(
             """

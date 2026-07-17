@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from unittest.mock import Mock
 
@@ -18,6 +19,8 @@ from src.services.subscription_mutation import (
 from src.services.user_config_builder import build_user_config_data
 from src.services.worker import _source_payload_from_catalog
 from src.storage.service_store import ServiceStore
+import src.services.subscription_mutation as subscription_mutation_module
+import src.services.media_cache as media_cache_module
 
 
 @pytest.fixture
@@ -62,6 +65,7 @@ def mutation_context(tmp_path, monkeypatch):
         "health": health,
         "media": media,
         "service": service,
+        "data_dir": tmp_path,
     }
 
 
@@ -105,6 +109,9 @@ def _insert_health_and_avatar(context, result):
     now = "2026-07-17T00:00:00+00:00"
     source = result["source"]
     subscription = result["subscription"]
+    avatar_path = context["data_dir"] / "media" / "missing-avatar.png"
+    avatar_path.parent.mkdir(parents=True, exist_ok=True)
+    avatar_path.write_bytes(b"\x89PNG\r\n\x1a\noriginal-avatar-bytes")
     conn = context["store"].connect()
     conn.execute(
         """
@@ -137,6 +144,7 @@ def _insert_health_and_avatar(context, result):
         (source["workspace_id"], source["id"], now, now),
     )
     conn.commit()
+    return avatar_path
 
 
 def test_actor_plan_and_error_are_typed_and_plan_is_immutable(mutation_context):
@@ -159,6 +167,68 @@ def test_actor_plan_and_error_are_typed_and_plan_is_immutable(mutation_context):
     assert error.code == "proposal_stale"
     assert error.status_code == 409
     assert error.action == "Retry."
+
+
+def test_plan_exposes_only_defensive_copies_of_every_nested_snapshot(
+    mutation_context,
+):
+    _actor, plan = _private_rss_plan(mutation_context)
+    expected_payload = deepcopy(plan.payload)
+    expected_preview = deepcopy(plan.preview)
+    expected_target_ids = deepcopy(plan.target_ids)
+    expected_fingerprints = deepcopy(plan.fingerprints)
+
+    exposed_payload = plan.payload
+    exposed_payload["source"]["config"]["url"] = "https://attacker.invalid/feed"
+    exposed_payload["source"]["default_topics"].append("unconfirmed")
+    exposed_preview = plan.preview
+    exposed_preview["source"]["display_name"] = "Unconfirmed"
+    exposed_preview["warnings"].append("unconfirmed")
+    exposed_target_ids = plan.target_ids
+    exposed_target_ids["source_id"] = "src_forged"
+    exposed_fingerprints = plan.fingerprints
+    exposed_fingerprints["source"] = "forged"
+
+    assert plan.payload == expected_payload
+    assert plan.preview == expected_preview
+    assert plan.target_ids == expected_target_ids
+    assert plan.fingerprints == expected_fingerprints
+
+
+def test_apply_executes_sealed_normalized_payload_without_renormalizing(
+    mutation_context, monkeypatch
+):
+    actor = SubscriptionActor.from_user(mutation_context["member"])
+    source_request = {
+        "mode": "private",
+        "type": "rss",
+        "display_name": "Sealed",
+        "default_topics": ["confirmed"],
+        "config": {"url": "https://example.com/confirmed.xml"},
+    }
+    plan = mutation_context["service"].plan_create(
+        actor,
+        source=source_request,
+        subscription={"override_topics": ["confirmed"]},
+        schedule=None,
+    )
+    source_request["config"]["url"] = "https://example.com/unconfirmed.xml"
+    source_request["default_topics"].append("unconfirmed")
+
+    def normalization_must_not_run(*_args, **_kwargs):
+        raise AssertionError("apply must not re-normalize a confirmed plan")
+
+    monkeypatch.setattr(
+        subscription_mutation_module,
+        "normalize_source_setup_input",
+        normalization_must_not_run,
+    )
+
+    result = mutation_context["service"].apply_plan(actor, plan)
+
+    assert result["source"]["config"]["url"] == "https://example.com/confirmed.xml"
+    assert result["source"]["default_topics"] == ["confirmed"]
+    assert result["subscription"]["override_topics"] == ["confirmed"]
 
 
 def test_private_source_subscription_and_schedule_are_created_atomically(
@@ -193,6 +263,106 @@ def test_plan_preview_is_safe_and_does_not_expose_config_or_internal_identity(
     assert "owner_user_id" not in serialized
     assert "source_key" not in serialized
     assert "secret_env" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("display_name", "config", "secret_text"),
+    [
+        (
+            "Authorization: Bearer legacy-display-secret",
+            {"url": "https://example.com/legacy.xml"},
+            "legacy-display-secret",
+        ),
+        (
+            "Legacy userinfo",
+            {"url": "https://legacy-user:legacy-password@example.com/feed.xml"},
+            "legacy-password",
+        ),
+        (
+            "Legacy signed query",
+            {"url": "https://example.com/feed.xml?access_token=legacy-query-secret"},
+            "legacy-query-secret",
+        ),
+        (
+            "Legacy header config",
+            {
+                "url": "https://example.com/header.xml",
+                "headers": {"Authorization": "Bearer legacy-header-secret"},
+            },
+            "legacy-header-secret",
+        ),
+    ],
+)
+def test_existing_legacy_source_preview_uses_stable_opaque_safe_summary(
+    display_name, config, secret_text, mutation_context
+):
+    member = mutation_context["member"]
+    source_id = mutation_context["store"].create_source(
+        workspace_id=member["workspace_id"],
+        scope="private",
+        owner_user_id=member["id"],
+        source_type="rss",
+        display_name=display_name,
+        config=config,
+        source_key=f"legacy-unsafe:{secret_text}",
+    )
+    actor = SubscriptionActor.from_user(member)
+
+    plan = mutation_context["service"].plan_create(
+        actor,
+        source={"mode": "existing", "source_id": source_id},
+        subscription={},
+        schedule=None,
+    )
+
+    assert plan.preview["source"] == {
+        "display_name": "Web-managed source",
+        "type": "rss",
+        "public_target": "web_setup_required",
+    }
+    assert secret_text not in repr(plan.preview)
+
+
+def test_update_and_delete_previews_do_not_echo_unsafe_existing_catalog_values(
+    mutation_context,
+):
+    member = mutation_context["member"]
+    source_id = mutation_context["store"].create_source(
+        workspace_id=member["workspace_id"],
+        scope="private",
+        owner_user_id=member["id"],
+        source_type="rss",
+        display_name="Legacy signed source",
+        config={
+            "url": "https://example.com/feed.xml?signature=legacy-preview-secret"
+        },
+        source_key="legacy-unsafe:update-delete",
+    )
+    subscription = mutation_context["store"].create_subscription(
+        user_id=member["id"], source_id=source_id
+    )
+    actor = SubscriptionActor.from_user(member)
+
+    update_plan = mutation_context["service"].plan_update(
+        actor,
+        subscription_id=subscription["id"],
+        source_updates=None,
+        subscription_updates={"priority": 10},
+        schedule_updates=None,
+    )
+    delete_plan = mutation_context["service"].plan_delete(
+        actor,
+        subscription_id=subscription["id"],
+        source_disposition="keep",
+    )
+
+    for plan in (update_plan, delete_plan):
+        assert plan.preview["source"] == {
+            "display_name": "Web-managed source",
+            "type": "rss",
+            "public_target": "web_setup_required",
+        }
+        assert "legacy-preview-secret" not in repr(plan.preview)
 
 
 def test_agent_private_create_consumes_policy_and_keeps_public_type_separate(
@@ -429,6 +599,48 @@ def test_agent_update_rejects_credentials_in_config_or_metadata_without_echo(
         assert "never-echo-this" not in str(exc_info.value)
 
 
+def test_agent_rss_update_rejects_local_target_and_forces_public_network_marker(
+    mutation_context,
+):
+    store = mutation_context["store"]
+    owner = mutation_context["owner"]
+    source_id = store.create_source(
+        workspace_id=owner["workspace_id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Web-created RSS",
+        config={"url": "https://example.com/web-created.xml"},
+        source_key="rss:https://example.com/web-created.xml",
+        enforce_public_network=False,
+    )
+    subscription = store.create_subscription(user_id=owner["id"], source_id=source_id)
+    actor = SubscriptionActor.from_user(owner)
+
+    with pytest.raises(SubscriptionMutationError) as local_error:
+        mutation_context["service"].plan_update(
+            actor,
+            subscription_id=subscription["id"],
+            source_updates={"config": {"url": "http://localhost/private-feed"}},
+            subscription_updates=None,
+            schedule_updates=None,
+        )
+    assert local_error.value.code == "invalid_source_config"
+    assert "localhost" not in str(local_error.value)
+
+    plan = mutation_context["service"].plan_update(
+        actor,
+        subscription_id=subscription["id"],
+        source_updates={"config": {"url": "https://example.com/agent-updated.xml"}},
+        subscription_updates=None,
+        schedule_updates=None,
+    )
+    updated = mutation_context["service"].apply_plan(actor, plan)
+
+    assert updated["source"]["config"]["url"] == "https://example.com/agent-updated.xml"
+    assert updated["source"]["enforce_public_network"] is True
+
+
 @pytest.mark.parametrize("interval_minutes", SOURCE_ALLOWED_INTERVALS)
 def test_agent_schedule_accepts_only_existing_interval_set(
     interval_minutes, mutation_context
@@ -489,6 +701,46 @@ def test_quota_is_rechecked_at_apply_and_source_creation_rolls_back(
     ).fetchone()[0] == 0
 
 
+def test_reenabling_disabled_source_with_enabled_subscription_obeys_active_quota(
+    mutation_context,
+):
+    actor, _active = _create_private_subscription(
+        mutation_context, suffix="active-at-quota"
+    )
+    mutation_context["quota"].max_sources_per_user = 1
+    store = mutation_context["store"]
+    source_id = store.create_source(
+        workspace_id=actor.workspace_id,
+        scope="private",
+        owner_user_id=actor.user_id,
+        source_type="rss",
+        display_name="Disabled but subscribed",
+        config={"url": "https://example.com/disabled-at-quota.xml"},
+        source_key="rss:https://example.com/disabled-at-quota.xml",
+        enabled=False,
+    )
+    subscription = store.create_subscription(
+        user_id=actor.user_id,
+        source_id=source_id,
+        enabled=True,
+    )
+    plan = mutation_context["service"].plan_update(
+        actor,
+        subscription_id=subscription["id"],
+        source_updates={"enabled": True},
+        subscription_updates=None,
+        schedule_updates=None,
+    )
+
+    with pytest.raises(
+        SubscriptionMutationError, match="enabled source quota exceeded"
+    ) as exc_info:
+        mutation_context["service"].apply_plan(actor, plan)
+
+    assert exc_info.value.code == "quota_exceeded"
+    assert store.get_source(source_id)["enabled"] is False
+
+
 def test_create_rolls_back_source_subscription_and_schedule_on_late_failure(
     mutation_context, monkeypatch
 ):
@@ -517,7 +769,8 @@ def test_update_failure_rolls_back_source_subscription_schedule_health_and_cache
     mutation_context, monkeypatch
 ):
     actor, created = _create_private_subscription(mutation_context)
-    _insert_health_and_avatar(mutation_context, created)
+    avatar_path = _insert_health_and_avatar(mutation_context, created)
+    avatar_bytes = avatar_path.read_bytes()
     before_source = mutation_context["store"].get_source(created["source"]["id"])
     before_subscription = mutation_context["store"].get_subscription(
         created["subscription"]["id"]
@@ -559,6 +812,77 @@ def test_update_failure_rolls_back_source_subscription_schedule_health_and_cache
     assert store.connect().execute(
         "SELECT COUNT(*) FROM media_assets WHERE id = 'media_avatar'"
     ).fetchone()[0] == 1
+    assert avatar_path.read_bytes() == avatar_bytes
+
+
+def test_commit_false_exposes_explicit_post_commit_avatar_cleanup(
+    mutation_context,
+):
+    actor, created = _create_private_subscription(
+        mutation_context, suffix="caller-owned-cleanup"
+    )
+    avatar_path = _insert_health_and_avatar(mutation_context, created)
+    plan = mutation_context["service"].plan_update(
+        actor,
+        subscription_id=created["subscription"]["id"],
+        source_updates={
+            "config": {"url": "https://example.com/caller-owned-cleanup-new.xml"}
+        },
+        subscription_updates=None,
+        schedule_updates=None,
+    )
+    cleanup = media_cache_module.PostCommitMediaCleanup()
+    conn = mutation_context["store"].connect()
+    conn.execute("BEGIN IMMEDIATE")
+
+    result = mutation_context["service"].apply_plan(
+        actor,
+        plan,
+        commit=False,
+        post_commit_cleanup=cleanup,
+    )
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM media_assets WHERE id = 'media_avatar'"
+    ).fetchone()[0] == 0
+    assert avatar_path.exists()
+    assert "cleanup" not in result
+    assert "local_path" not in repr(result)
+    conn.commit()
+    cleanup.run()
+    assert not avatar_path.exists()
+
+
+def test_commit_false_requires_explicit_post_commit_cleanup_collector(
+    mutation_context,
+):
+    actor, created = _create_private_subscription(
+        mutation_context, suffix="caller-owned-cleanup-required"
+    )
+    avatar_path = _insert_health_and_avatar(mutation_context, created)
+    source_before = mutation_context["store"].get_source(created["source"]["id"])
+    plan = mutation_context["service"].plan_update(
+        actor,
+        subscription_id=created["subscription"]["id"],
+        source_updates={
+            "config": {
+                "url": "https://example.com/caller-owned-cleanup-required-new.xml"
+            }
+        },
+        subscription_updates=None,
+        schedule_updates=None,
+    )
+
+    with pytest.raises(SubscriptionMutationError) as error:
+        mutation_context["service"].apply_plan(actor, plan, commit=False)
+
+    assert error.value.code == "post_commit_cleanup_required"
+    assert mutation_context["store"].connect().in_transaction is False
+    assert mutation_context["store"].get_source(created["source"]["id"]) == source_before
+    assert mutation_context["store"].connect().execute(
+        "SELECT COUNT(*) FROM media_assets WHERE id = 'media_avatar'"
+    ).fetchone()[0] == 1
+    assert avatar_path.exists()
 
 
 def test_source_key_conflict_is_rejected_at_prepare_and_rechecked_at_apply(

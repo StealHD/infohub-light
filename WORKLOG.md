@@ -969,3 +969,11 @@
 - 结果：typed plan/error/actor、Agent private-only planner、安全 preview/指纹、显式 delete disposition、原子 create/update/delete 与完整回滚已实现；REST admin/member/viewer 和 omission/null/list clear 合同保持；Agent RSS/website 公网执行选择持久且 owner/admin 不可绕过
 - 未解决问题：Task 4+ 仍需在 proposal 转换事务内消费本服务，并继续隐藏内部公网标记；本任务未实现 proposal orchestration、MCP、delegation flag/scope、新 REST endpoint 或 UI
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 独立复审的五项 Important
+- 修改文件：订阅变更领域服务、来源公开投影/runner、quota、media cleanup、相关 focused 测试、`.superpowers/sdd/task-3-fix-report.md`、`WORKLOG.md`
+- 执行验证：计划密封、RSS 公网 marker、quota re-enable、头像 late rollback、安全 preview 与 cleanup collector 回归均先按预期 RED；Python compile 和 focused 452 项通过；full gate 22/22（`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：确认后的 normalized plan 使用 canonical snapshot 且 apply 不再重规范化；Agent RSS 更新/runner fallback 均维持公网执行；来源重启用先做 quota admission；头像仅在 owner commit 后物理清理，`commit=False` 缺 collector 失败关闭；遗留不安全 catalog preview 返回稳定 opaque summary
+- 未解决问题：Task 4+ 外层事务调用 `apply_plan(commit=False)` 时必须显式传入 cleanup collector，并在 commit 后执行、rollback 时丢弃；本任务未实现 Task 4+
+- 控制面变更：无

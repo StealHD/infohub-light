@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+import src.services.media_cache as media_cache_module
 from src.api.server import create_app
 from src.models import ContentItem, SourceType
 from src.services.feed_archive import FeedArchiveService
@@ -222,6 +223,64 @@ def test_rest_subscription_mutations_use_shared_service_without_exposing_network
     assert response.json()["data"]["priority"] == 33
     assert len(calls) == 1
     assert calls[0][1] == source["id"]
+
+
+def test_rest_source_identity_commit_removes_avatar_file_without_exposing_path(
+    tmp_path, monkeypatch
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Avatar identity source",
+            "config": {"url": "https://example.com/avatar-before.xml"},
+        },
+    ).json()["data"]
+    avatar_path = data_dir / "media" / "identity-avatar.png"
+    avatar_path.parent.mkdir(parents=True, exist_ok=True)
+    avatar_path.write_bytes(b"\x89PNG\r\n\x1a\nidentity-avatar")
+    store = client.app.state.service_store
+    now = "2026-07-17T00:00:00+00:00"
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+            id, workspace_id, source_id, asset_kind, remote_url, local_path,
+            mime_type, byte_size, checksum, visibility_scope, status,
+            created_at, updated_at
+        ) VALUES ('med_identity_avatar', ?, ?, 'source_avatar', '',
+                  'media/identity-avatar.png', 'image/png', 23, 'checksum',
+                  'private', 'ready', ?, ?)
+        """,
+        (source["workspace_id"], source["id"], now, now),
+    )
+    store.connect().commit()
+    cleanup_run_transaction_states = []
+    original_cleanup_run = media_cache_module.PostCommitMediaCleanup.run
+
+    def tracked_cleanup_run(cleanup):
+        cleanup_run_transaction_states.append(store.connect().in_transaction)
+        return original_cleanup_run(cleanup)
+
+    monkeypatch.setattr(
+        media_cache_module.PostCommitMediaCleanup, "run", tracked_cleanup_run
+    )
+
+    response = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={"config": {"url": "https://example.com/avatar-after.xml"}},
+    )
+
+    assert response.status_code == 200
+    assert cleanup_run_transaction_states == [False]
+    assert not avatar_path.exists()
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM media_assets WHERE id = 'med_identity_avatar'"
+    ).fetchone()[0] == 0
+    assert "local_path" not in repr(response.json())
+    assert "identity-avatar.png" not in repr(response.json())
 
 
 def test_catalog_source_patch_key_collision_returns_structured_conflict(tmp_path, monkeypatch):

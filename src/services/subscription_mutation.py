@@ -9,11 +9,12 @@ reduced to the Agent boundary.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..storage.service_store import ServiceStore, SourceKeyConflictError
-from .media_cache import MediaCacheService
+from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .quota import QuotaExceeded, QuotaService
 from .source_health import SourceHealthService
 from .source_schedule import (
@@ -24,6 +25,7 @@ from .source_schedule import (
 from .source_type_registry import (
     SourceConfigError,
     normalize_source_setup_input,
+    project_catalog_source_public_summary,
     source_key,
     validate_source_config,
 )
@@ -82,13 +84,73 @@ class SubscriptionActor:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class SubscriptionChangePlan:
     kind: Literal["create", "update", "delete"]
-    payload: dict[str, Any]
-    preview: dict[str, Any]
-    target_ids: dict[str, str]
-    fingerprints: dict[str, str | None]
+    _payload_json: str
+    _preview_json: str
+    _target_ids_json: str
+    _fingerprints_json: str
+
+    def __init__(
+        self,
+        kind: Literal["create", "update", "delete"],
+        payload: dict[str, Any],
+        preview: dict[str, Any],
+        target_ids: dict[str, str],
+        fingerprints: dict[str, str | None],
+    ) -> None:
+        if kind not in {"create", "update", "delete"}:
+            raise ValueError("invalid subscription change kind")
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "_payload_json", self._seal(payload, "payload"))
+        object.__setattr__(self, "_preview_json", self._seal(preview, "preview"))
+        object.__setattr__(
+            self, "_target_ids_json", self._seal(target_ids, "target_ids")
+        )
+        object.__setattr__(
+            self,
+            "_fingerprints_json",
+            self._seal(fingerprints, "fingerprints"),
+        )
+
+    @staticmethod
+    def _seal(value: dict[str, Any], field: str) -> str:
+        if not isinstance(value, dict):
+            raise TypeError(f"{field} must be an object")
+        try:
+            return json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise TypeError(f"{field} must contain canonical JSON data") from exc
+
+    @staticmethod
+    def _copy(serialized: str) -> dict[str, Any]:
+        value = json.loads(serialized)
+        if not isinstance(value, dict):  # guarded by _seal; retain fail-closed shape
+            raise TypeError("sealed plan field must be an object")
+        return value
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return self._copy(self._payload_json)
+
+    @property
+    def preview(self) -> dict[str, Any]:
+        return self._copy(self._preview_json)
+
+    @property
+    def target_ids(self) -> dict[str, str]:
+        return self._copy(self._target_ids_json)
+
+    @property
+    def fingerprints(self) -> dict[str, str | None]:
+        return self._copy(self._fingerprints_json)
 
 
 class SubscriptionMutationService:
@@ -367,11 +429,10 @@ class SubscriptionMutationService:
                 "mode": "existing",
                 "source_id": str(target_source["id"]),
             }
-            preview_type = str(target_source["type"])
-            public_target = self._public_target(
-                preview_type, target_source.get("config") or {}
-            )
-            display_name = str(target_source["display_name"])
+            safe_summary = project_catalog_source_public_summary(target_source)
+            preview_type = str(safe_summary["type"])
+            public_target = safe_summary["public_target"]
+            display_name = str(safe_summary["display_name"])
         elif mode == "private":
             allowed = {
                 "mode",
@@ -470,7 +531,6 @@ class SubscriptionMutationService:
 
         payload = {
             "source": normalized_source,
-            "source_request": dict(source),
             "subscription": normalized_subscription,
             "schedule": normalized_schedule,
         }
@@ -564,7 +624,22 @@ class SubscriptionMutationService:
                             "invalid_source_config", "config must be an object"
                         )
                     try:
-                        config = validate_source_config(str(source["type"]), value)
+                        if source["type"] == "rss":
+                            setup = normalize_source_setup_input("rss", value)
+                            policy = setup.get("policy") or {}
+                            if (
+                                setup.get("catalog_source_type") != "rss"
+                                or policy.get("public_network_only") is not True
+                            ):
+                                raise SourceConfigError("source_requires_web_setup")
+                            config = dict(setup["config"])
+                            normalized_source_updates[
+                                "enforce_public_network"
+                            ] = True
+                        else:
+                            config = validate_source_config(
+                                str(source["type"]), value
+                            )
                         key = source_key(str(source["type"]), config)
                     except SourceConfigError as exc:
                         raise self._error(
@@ -582,28 +657,15 @@ class SubscriptionMutationService:
         payload = {
             "subscription_id": str(subscription_id),
             "source_updates": normalized_source_updates,
-            "source_update_request": (
-                dict(source_updates) if source_updates is not None else None
-            ),
             "subscription_updates": normalized_subscription_updates,
             "schedule_updates": normalized_schedule_updates,
         }
-        preview_source = {
-            "display_name": normalized_source_updates.get(
-                "display_name", source["display_name"]
-            )
-            if normalized_source_updates is not None
-            else source["display_name"],
-            "type": source["type"],
-            "public_target": self._public_target(
-                str(source["type"]),
-                (
-                    normalized_source_updates.get("config", source["config"])
-                    if normalized_source_updates is not None
-                    else source["config"]
-                ),
-            ),
-        }
+        preview_source_values = dict(source)
+        if normalized_source_updates is not None:
+            preview_source_values.update(normalized_source_updates)
+        preview_source = project_catalog_source_public_summary(
+            preview_source_values
+        )
         return SubscriptionChangePlan(
             "update",
             payload,
@@ -657,13 +719,7 @@ class SubscriptionMutationService:
             },
             {
                 "action": "delete_subscription",
-                "source": {
-                    "display_name": source["display_name"],
-                    "type": source["type"],
-                    "public_target": self._public_target(
-                        str(source["type"]), source.get("config") or {}
-                    ),
-                },
+                "source": project_catalog_source_public_summary(source),
                 "subscription": {"id": str(subscription_id)},
                 "schedule": {},
                 "source_disposition": source_disposition,
@@ -681,37 +737,87 @@ class SubscriptionMutationService:
             self._fingerprints(source, subscription, schedule),
         )
 
-    def _rebuild(
+    def _revalidate_live_plan(
         self, actor: SubscriptionActor, plan: SubscriptionChangePlan
-    ) -> SubscriptionChangePlan:
+    ) -> None:
         if not isinstance(plan, SubscriptionChangePlan):
             raise self._error("invalid_request", "invalid subscription change plan")
+        self._live_actor(actor)
+        payload = plan.payload
+        expected_target_ids: dict[str, str] = {}
         if plan.kind == "create":
-            return self.plan_create(
-                actor,
-                source=dict(plan.payload.get("source_request") or {}),
-                subscription=dict(plan.payload.get("subscription") or {}),
-                schedule=(
-                    dict(plan.payload["schedule"])
-                    if plan.payload.get("schedule") is not None
+            source_values = payload.get("source")
+            if not isinstance(source_values, dict):
+                raise self._error("invalid_request", "invalid sealed source plan")
+            if source_values.get("mode") == "existing":
+                source = self.store.get_source(
+                    str(source_values.get("source_id") or "")
+                )
+                if source is None or not self._visible(source, actor):
+                    raise self._error("not_found", "source not found", status_code=404)
+                subscription = self.store.get_user_subscription_for_source(
+                    actor.user_id, str(source["id"])
+                )
+                schedule = (
+                    self.store.get_source_schedule(str(subscription["id"]))
+                    if subscription is not None
                     else None
-                ),
+                )
+                expected_target_ids["source_id"] = str(source["id"])
+                if subscription is not None:
+                    expected_target_ids["subscription_id"] = str(subscription["id"])
+            elif source_values.get("mode") == "private":
+                source = None
+                subscription = None
+                schedule = None
+                existing = self.store.get_source_by_key(
+                    workspace_id=actor.workspace_id,
+                    source_key=str(source_values.get("source_key") or ""),
+                )
+                if existing is not None:
+                    raise self._error(
+                        "source_key_conflict",
+                        "source_key already belongs to another catalog source",
+                        status_code=409,
+                        action="Use the existing visible source or choose a different source configuration.",
+                    )
+            else:
+                raise self._error("invalid_request", "invalid sealed source mode")
+        elif plan.kind in {"update", "delete"}:
+            subscription, source, schedule = self._subscription_context(
+                actor, str(payload.get("subscription_id") or "")
             )
-        if plan.kind == "update":
-            return self.plan_update(
-                actor,
-                subscription_id=str(plan.payload.get("subscription_id") or ""),
-                source_updates=plan.payload.get("source_update_request"),
-                subscription_updates=plan.payload.get("subscription_updates"),
-                schedule_updates=plan.payload.get("schedule_updates"),
+            expected_target_ids = {
+                "source_id": str(source["id"]),
+                "subscription_id": str(subscription["id"]),
+            }
+            if payload.get("source_updates") is not None and (
+                source.get("scope") != "private"
+                or source.get("owner_user_id") != actor.user_id
+            ):
+                raise self._error(
+                    "forbidden",
+                    "Agent changes cannot modify shared sources",
+                    status_code=403,
+                )
+            if payload.get("source_disposition") == "disable_private" and (
+                source.get("scope") != "private"
+                or source.get("owner_user_id") != actor.user_id
+            ):
+                raise self._error(
+                    "forbidden",
+                    "disable_private requires the caller's private source",
+                    status_code=403,
+                )
+        else:  # pragma: no cover - constructor rejects this state
+            raise self._error("invalid_request", "invalid subscription change kind")
+
+        if expected_target_ids != plan.target_ids or self._fingerprints(
+            source, subscription, schedule
+        ) != plan.fingerprints:
+            raise self._error(
+                "proposal_stale", "proposal targets changed", status_code=409
             )
-        if plan.kind == "delete":
-            return self.plan_delete(
-                actor,
-                subscription_id=str(plan.payload.get("subscription_id") or ""),
-                source_disposition=plan.payload.get("source_disposition", _MISSING),
-            )
-        raise self._error("invalid_request", "invalid subscription change kind")
 
     def apply_plan(
         self,
@@ -719,24 +825,30 @@ class SubscriptionMutationService:
         plan: SubscriptionChangePlan,
         *,
         commit: bool = True,
+        post_commit_cleanup: PostCommitMediaCleanup | None = None,
     ) -> dict[str, Any]:
+        if not commit and post_commit_cleanup is None:
+            raise self._error(
+                "post_commit_cleanup_required",
+                "post_commit_cleanup is required when commit=False",
+                status_code=500,
+            )
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
+        cleanup = post_commit_cleanup or PostCommitMediaCleanup()
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
-            current = self._rebuild(actor, plan)
-            if current.fingerprints != plan.fingerprints:
-                raise self._error(
-                    "proposal_stale", "proposal targets changed", status_code=409
-                )
-            result = self._apply_normalized(actor, current)
+            self._revalidate_live_plan(actor, plan)
+            result = self._apply_normalized(actor, plan, cleanup=cleanup)
             if owns_transaction and commit:
                 conn.commit()
+                cleanup.run()
             return result
         except QuotaExceeded as exc:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
+                cleanup.discard()
             raise self._error(
                 exc.code, str(exc), status_code=429,
                 action="Reduce enabled sources or increase the workspace quota.",
@@ -744,6 +856,7 @@ class SubscriptionMutationService:
         except SourceKeyConflictError as exc:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
+                cleanup.discard()
             raise self._error(
                 "source_key_conflict",
                 str(exc),
@@ -753,6 +866,7 @@ class SubscriptionMutationService:
         except SourceScheduleUnavailableError as exc:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
+                cleanup.discard()
             raise self._error(
                 exc.code,
                 str(exc),
@@ -762,10 +876,15 @@ class SubscriptionMutationService:
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
+                cleanup.discard()
             raise
 
     def _apply_normalized(
-        self, actor: SubscriptionActor, plan: SubscriptionChangePlan
+        self,
+        actor: SubscriptionActor,
+        plan: SubscriptionChangePlan,
+        *,
+        cleanup: PostCommitMediaCleanup,
     ) -> dict[str, Any]:
         if plan.kind == "create":
             source_values = plan.payload["source"]
@@ -821,9 +940,27 @@ class SubscriptionMutationService:
         )
         if plan.kind == "update":
             source_updates = plan.payload.get("source_updates")
-            if source_updates is not None:
-                source = self._update_source_locked(source, source_updates)
             subscription_updates = plan.payload.get("subscription_updates")
+            source_will_enable = bool(
+                source_updates is not None
+                and source_updates.get("enabled") is True
+                and not source.get("enabled")
+            )
+            subscription_will_be_enabled = bool(
+                subscription_updates.get("enabled", subscription.get("enabled"))
+                if subscription_updates is not None
+                else subscription.get("enabled")
+            )
+            if source_will_enable and subscription_will_be_enabled:
+                self.quota.ensure_source_allowed(
+                    workspace_id=actor.workspace_id,
+                    user_id=actor.user_id,
+                    source_id=str(source["id"]),
+                )
+            if source_updates is not None:
+                source = self._update_source_locked(
+                    source, source_updates, cleanup=cleanup
+                )
             if subscription_updates is not None:
                 if subscription_updates.get("enabled") is True:
                     self.quota.ensure_source_allowed(
@@ -896,7 +1033,11 @@ class SubscriptionMutationService:
         )
 
     def _update_source_locked(
-        self, source: dict[str, Any], updates: dict[str, Any]
+        self,
+        source: dict[str, Any],
+        updates: dict[str, Any],
+        *,
+        cleanup: PostCommitMediaCleanup,
     ) -> dict[str, Any]:
         config_changed = (
             "config" in updates and updates["config"] != source.get("config")
@@ -918,6 +1059,7 @@ class SubscriptionMutationService:
             self.media_cache.invalidate_source_avatar(
                 workspace_id=str(source["workspace_id"]),
                 source_id=str(source["id"]),
+                post_commit_cleanup=cleanup,
             )
         return updated
 
@@ -1056,6 +1198,7 @@ class SubscriptionMutationService:
             )
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
+        cleanup = PostCommitMediaCleanup()
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
@@ -1081,13 +1224,16 @@ class SubscriptionMutationService:
                 self.media_cache.invalidate_source_avatar(
                     workspace_id=actor.workspace_id,
                     source_id=source_id,
+                    post_commit_cleanup=cleanup,
                 )
             if owns_transaction:
                 conn.commit()
+                cleanup.run()
             return result
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
+                cleanup.discard()
             raise
 
     def rest_upsert_source(
