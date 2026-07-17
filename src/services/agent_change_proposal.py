@@ -604,7 +604,12 @@ class AgentChangeProposalService:
                     "invalid_result_summary", "stored mutation result is invalid", status_code=500
                 )
             conn.commit()
-            cleanup.run()
+            try:
+                cleanup.run()
+            except Exception:
+                # The mutation and proposal are already committed.  Cleanup is
+                # best-effort, and its exception may contain private paths.
+                pass
             return {
                 "proposal_id": str(proposal_id),
                 "status": "applied",

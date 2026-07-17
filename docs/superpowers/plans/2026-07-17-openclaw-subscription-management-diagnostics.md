@@ -818,7 +818,10 @@ def apply(self, actor: DelegatedActor, *, proposal_id: str, confirmation_text: s
         )
         if owns_transaction:
             conn.commit()
-            cleanup.run()
+            try:
+                cleanup.run()
+            except Exception:
+                pass
         return {"proposal_id": proposal_id, "status": "applied", "result": self._safe_result(result)}
     except Exception:
         if owns_transaction and conn.in_transaction:
@@ -827,7 +830,7 @@ def apply(self, actor: DelegatedActor, *, proposal_id: str, confirmation_text: s
         raise
 ```
 
-On expiry, commit only the proposal status change, discard the collector, then return `proposal_expired`; on every other rejection/exception, roll back and discard. A successful outer commit is the only path that calls `cleanup.run()`. `_require_same_actor_pending()` maps absent or cross-scope IDs to `not_found`, applied to `proposal_consumed`, and expired to `proposal_expired`.
+On expiry, commit only the proposal status change, discard the collector, then return `proposal_expired`; on every other rejection/exception, roll back and discard. A successful outer commit is the only path that calls `cleanup.run()`; once commit succeeds, cleanup is best-effort and its exception is silently discarded so it cannot expose private paths or turn a committed mutation into an apply failure. `_require_same_actor_pending()` maps absent or cross-scope IDs to `not_found`, applied to `proposal_consumed`, and expired to `proposal_expired`.
 
 - [x] **Step 4: Re-authenticate current delegation state before applying**
 

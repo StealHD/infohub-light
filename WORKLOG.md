@@ -1057,3 +1057,11 @@
 - 结果：apply 自有 `BEGIN IMMEDIATE` 并在锁内重验动态 flag/scope/live principal；store UTC 10 分钟边界、time crossing 仅提交 expired、exact HMAC compare、v2 duplicate/stale、safe summary、post-commit cleanup 与 exactly-once 并发完成；所有非 expiry 失败保持 pending 且业务零变化
 - 未解决问题：Task 7+、MCP 工具注册/server wiring、UI/Skill 与生产启用仍未实现
 - 控制面变更：仅勾选既有主实施计划 Task 6 执行状态；未改变对外 API/架构/UI 合同
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 6 复审的一个 Important 与一个 Minor
+- 修改文件：proposal apply cleanup 边界、成功 update/delete apply 回归、主实施计划、`.superpowers/sdd/task-6-fix-r1-report.md`、`WORKLOG.md`
+- 执行验证：cleanup 抛错回归先按预期 RED，update 与 delete 两种 disposition 同轮通过；GREEN 专项 4 项、Task 6 focused 284 项、邻接 36 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：commit 后 cleanup 异常静默 best-effort，不再伪装 mutation 失败或泄露异常内容；update/delete keep/delete disable_private 均验证业务提交、proposal applied、stored/returned 精确 safe summary 与 second-use consumed
+- 未解决问题：Task 7+、MCP 工具注册/server wiring、UI/Skill 与生产启用仍未实现
+- 控制面变更：仅修正既有主实施计划中的 post-commit cleanup 内部错误语义；未改变对外 API/架构/UI 合同

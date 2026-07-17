@@ -205,6 +205,49 @@ def _prepare_private(
     )
 
 
+_CREATE_UPDATE_RESULT_KEYS = {
+    "action",
+    "source_id",
+    "subscription_id",
+    "source_enabled",
+    "subscription_enabled",
+    "schedule_enabled",
+    "schedule_interval_minutes",
+}
+_DELETE_RESULT_KEYS = {
+    "action",
+    "source_id",
+    "subscription_id",
+    "source_disabled",
+}
+
+
+def _assert_applied_summary_and_consumed(
+    context: dict[str, Any],
+    *,
+    actor: DelegatedActor,
+    prepared: dict[str, Any],
+    applied: dict[str, Any],
+    expected_result_keys: set[str],
+) -> None:
+    row = context["store"].get_agent_change_proposal(prepared["proposal_id"])
+    assert row["status"] == "applied"
+    assert applied == {
+        "proposal_id": prepared["proposal_id"],
+        "status": "applied",
+        "result": row["result_summary"],
+    }
+    assert set(applied["result"]) == expected_result_keys
+
+    with pytest.raises(AgentProposalError) as consumed:
+        context["service"].apply_subscription_change(
+            actor=actor,
+            proposal_id=prepared["proposal_id"],
+            confirmation_text=prepared["confirmation_text"],
+        )
+    assert consumed.value.code == "proposal_consumed"
+
+
 def test_setup_guide_is_safe_and_does_not_require_write_scope(context):
     result = context["service"].get_source_setup_guide(
         actor=_read_actor(context), source_type="rss", locale="en"
@@ -922,22 +965,13 @@ def test_apply_requires_exact_phrase_is_single_use_and_stores_same_safe_result(
         proposal_id=prepared["proposal_id"],
         confirmation_text=prepared["confirmation_text"],
     )
-    row = context["store"].get_agent_change_proposal(prepared["proposal_id"])
-    assert applied == {
-        "proposal_id": prepared["proposal_id"],
-        "status": "applied",
-        "result": row["result_summary"],
-    }
-    assert row["status"] == "applied"
-    assert set(applied["result"]) == {
-        "action",
-        "source_id",
-        "subscription_id",
-        "source_enabled",
-        "subscription_enabled",
-        "schedule_enabled",
-        "schedule_interval_minutes",
-    }
+    _assert_applied_summary_and_consumed(
+        context,
+        actor=actor,
+        prepared=prepared,
+        applied=applied,
+        expected_result_keys=_CREATE_UPDATE_RESULT_KEYS,
+    )
     serialized = repr(applied).lower()
     for forbidden in (
         "config",
@@ -949,15 +983,6 @@ def test_apply_requires_exact_phrase_is_single_use_and_stores_same_safe_result(
         "file_path",
     ):
         assert forbidden not in serialized
-
-    with pytest.raises(AgentProposalError) as consumed:
-        context["service"].apply_subscription_change(
-            actor=actor,
-            proposal_id=prepared["proposal_id"],
-            confirmation_text=prepared["confirmation_text"],
-        )
-    assert consumed.value.code == "proposal_consumed"
-
 
 def test_apply_hides_absent_cross_user_and_cross_delegation_ids(context):
     actor = _actor(context, "member")
@@ -1088,6 +1113,154 @@ def test_apply_runs_cleanup_only_after_success_and_discards_rejections(
         confirmation_text=success["confirmation_text"],
     )
     assert events == ["discard", "discard", "run"]
+
+
+def test_apply_cleanup_failure_is_best_effort_after_committed_success(
+    context, monkeypatch, caplog
+):
+    events: list[str] = []
+    sensitive_cleanup_detail = "cleanup-private-path-/secret/cache.png"
+
+    class CleanupSpy:
+        def run(self) -> int:
+            events.append("run")
+            raise RuntimeError(sensitive_cleanup_detail)
+
+        def discard(self) -> None:
+            events.append("discard")
+
+    monkeypatch.setattr(proposal_service_module, "PostCommitMediaCleanup", CleanupSpy)
+    actor = _actor(context, "member")
+    prepared = _prepare_private(context, suffix="cleanup-failure", actor=actor)
+
+    applied = context["service"].apply_subscription_change(
+        actor=actor,
+        proposal_id=prepared["proposal_id"],
+        confirmation_text=prepared["confirmation_text"],
+    )
+
+    assert events == ["run"]
+    source_id = applied["result"]["source_id"]
+    subscription_id = applied["result"]["subscription_id"]
+    assert context["store"].get_source(source_id) is not None
+    assert context["store"].get_subscription(subscription_id) is not None
+    assert context["store"].get_source_schedule(subscription_id) is not None
+    assert len(context["store"].list_user_subscriptions(actor.user_id)) == 1
+    _assert_applied_summary_and_consumed(
+        context,
+        actor=actor,
+        prepared=prepared,
+        applied=applied,
+        expected_result_keys=_CREATE_UPDATE_RESULT_KEYS,
+    )
+    assert events == ["run", "discard"]
+    assert sensitive_cleanup_detail not in caplog.text
+
+
+def test_apply_update_commits_business_result_and_exact_safe_summary(context):
+    actor = _actor(context, "member")
+    prepared_create = _prepare_private(
+        context, suffix="update-success", actor=actor
+    )
+    created = context["service"].apply_subscription_change(
+        actor=actor,
+        proposal_id=prepared_create["proposal_id"],
+        confirmation_text=prepared_create["confirmation_text"],
+    )
+    source_id = created["result"]["source_id"]
+    subscription_id = created["result"]["subscription_id"]
+    prepared = context["service"].prepare_update_subscription(
+        actor=actor,
+        subscription_id=subscription_id,
+        source_updates={"display_name": "Applied update"},
+        subscription_updates={"override_channel": "AI", "priority": 42},
+        schedule_updates={"enabled": True, "interval_minutes": 180},
+    )
+
+    applied = context["service"].apply_subscription_change(
+        actor=actor,
+        proposal_id=prepared["proposal_id"],
+        confirmation_text=prepared["confirmation_text"],
+    )
+
+    source = context["store"].get_source(source_id)
+    subscription = context["store"].get_subscription(subscription_id)
+    schedule = context["store"].get_source_schedule(subscription_id)
+    assert source["display_name"] == "Applied update"
+    assert subscription["override_channel"] == "AI"
+    assert subscription["priority"] == 42
+    assert schedule["enabled"] is True
+    assert schedule["interval_minutes"] == 180
+    assert applied["result"] == {
+        "action": "updated",
+        "source_id": source_id,
+        "subscription_id": subscription_id,
+        "source_enabled": True,
+        "subscription_enabled": True,
+        "schedule_enabled": True,
+        "schedule_interval_minutes": 180,
+    }
+    _assert_applied_summary_and_consumed(
+        context,
+        actor=actor,
+        prepared=prepared,
+        applied=applied,
+        expected_result_keys=_CREATE_UPDATE_RESULT_KEYS,
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_disposition", "expected_source_enabled", "expected_source_disabled"),
+    [
+        pytest.param("keep", True, False, id="keep"),
+        pytest.param("disable_private", False, True, id="disable-private"),
+    ],
+)
+def test_apply_delete_commits_each_disposition_and_exact_safe_summary(
+    context,
+    source_disposition,
+    expected_source_enabled,
+    expected_source_disabled,
+):
+    actor = _actor(context, "member")
+    prepared_create = _prepare_private(
+        context, suffix=f"delete-{source_disposition}", actor=actor
+    )
+    created = context["service"].apply_subscription_change(
+        actor=actor,
+        proposal_id=prepared_create["proposal_id"],
+        confirmation_text=prepared_create["confirmation_text"],
+    )
+    source_id = created["result"]["source_id"]
+    subscription_id = created["result"]["subscription_id"]
+    prepared = context["service"].prepare_delete_subscription(
+        actor=actor,
+        subscription_id=subscription_id,
+        source_disposition=source_disposition,
+    )
+
+    applied = context["service"].apply_subscription_change(
+        actor=actor,
+        proposal_id=prepared["proposal_id"],
+        confirmation_text=prepared["confirmation_text"],
+    )
+
+    assert context["store"].get_subscription(subscription_id) is None
+    assert context["store"].get_source_schedule(subscription_id) is None
+    assert context["store"].get_source(source_id)["enabled"] is expected_source_enabled
+    assert applied["result"] == {
+        "action": "deleted",
+        "source_id": source_id,
+        "subscription_id": subscription_id,
+        "source_disabled": expected_source_disabled,
+    }
+    _assert_applied_summary_and_consumed(
+        context,
+        actor=actor,
+        prepared=prepared,
+        applied=applied,
+        expected_result_keys=_DELETE_RESULT_KEYS,
+    )
 
 
 @pytest.mark.parametrize(
