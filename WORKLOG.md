@@ -873,3 +873,11 @@
 - 结果：新增中英 setup guide、公开 URL/别名规范化和凭据/敏感 RSS 查询拒绝，REST registry 投影保持不变
 - 未解决问题：无
 - 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：修复 Task 1 Agent setup 公共类型与输入安全审查项
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`WORKLOG.md`
+- 执行验证：先验证公共八类/敏感 query value 回归为 RED；focused 37 项通过，`./.venv/bin/python scripts/test_gate.py run --mode full` 通过
+- 结果：Agent guide 固定为 `rss/telegram/github/reddit/twitter/website/youtube/apify`，显式映射至 catalog 类型；REST 投影不变；拒绝所有 URL userinfo/敏感 query、嵌套凭据形状、非标量字段、Telegram 私邀和畸形 URL
+- 未解决问题：后续 Task 3 消费 normalization 时应读取其 `catalog_source_type/config` 结构，而非把公共类型直接写入 catalog
+- 控制面变更：无

@@ -136,6 +136,53 @@ class SourceTypeDefinition:
         return result
 
 
+@dataclass(frozen=True)
+class AgentSourceTypeDefinition:
+    """Public Agent setup type mapped to one catalog storage type.
+
+    Agent setup uses a deliberately smaller, user-facing taxonomy than the
+    REST catalog.  The mapping is kept here so callers never need to infer a
+    catalog type from a displayed label.
+    """
+
+    type: str
+    catalog_source_type: str
+    required_fields: tuple[str, ...]
+    fields: tuple[SourceFieldDefinition, ...]
+    guide_metadata: dict[str, dict[str, Any]]
+
+    def guide_summary(self, locale: str) -> dict[str, Any]:
+        copy = self.guide_metadata[_guide_locale(locale)]
+        return {
+            "type": self.type,
+            "label": copy["label"],
+            "description": copy["description"],
+            "self_service": copy["self_service"],
+            "requires_web_setup": copy["requires_web_setup"],
+        }
+
+    def guide_detail(self, locale: str) -> dict[str, Any]:
+        copy = self.guide_metadata[_guide_locale(locale)]
+        result = self.guide_summary(locale) | {
+            "required_fields": list(self.required_fields),
+            "fields": [],
+            "web_setup_note": copy["web_setup_note"],
+        }
+        for field in self.fields:
+            field_copy = copy["fields"][field.name]
+            result["fields"].append(
+                field.as_dict()
+                | {
+                    "label": field_copy["label"],
+                    "help": field_copy["help"],
+                    "accepted_formats": list(field_copy["accepted_formats"]),
+                    "examples": list(field_copy["examples"]),
+                    "how_to_find": field_copy["how_to_find"],
+                }
+            )
+        return result
+
+
 def _field(
     name: str,
     label: str,
@@ -727,6 +774,107 @@ _GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 
+_AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
+    "rss": _GUIDE_METADATA["rss"],
+    "telegram": _GUIDE_METADATA["telegram_channel"],
+    "github": _guide_source(
+        "GitHub Releases",
+        "GitHub 发布版本",
+        "Follow releases from a public GitHub repository.",
+        "关注公开 GitHub 仓库的发布版本。",
+        self_service=True,
+        requires_web_setup=False,
+        en_web_setup_note="Private repositories or token-only access must be configured in Web.",
+        zh_web_setup_note="私有仓库或仅令牌可访问的仓库请在 Web 中配置。",
+        fields={
+            "repository": _guide_field(
+                "Repository", "仓库", "Public owner/repository name or URL.", "公开 owner/repository 名称或网址。",
+                ("owner/repository", "https://github.com/owner/repository"), ("owner/repository", "https://github.com/owner/repository"),
+                ("openai/codex", "https://github.com/openai/codex"), ("openai/codex", "https://github.com/openai/codex"),
+                "Copy the repository path from its public GitHub page.", "从公开 GitHub 页面复制仓库路径。",
+            ),
+        },
+    ),
+    "reddit": _GUIDE_METADATA["reddit_subreddit"],
+    "twitter": _guide_source(
+        "X / Twitter",
+        "X / Twitter",
+        "Follow a public X account through a preconfigured Apify source.",
+        "通过预配置的 Apify 来源关注公开 X 账号。",
+        self_service=False,
+        requires_web_setup=True,
+        en_web_setup_note="X sources require Web setup because they use a managed Apify credential.",
+        zh_web_setup_note="X 来源使用托管的 Apify 凭据，需在 Web 中配置。",
+        fields={
+            "handle": _guide_field(
+                "Handle", "账号", "Public X handle or profile URL.", "公开 X 账号或主页网址。",
+                ("name", "@name", "https://x.com/name"), ("名称", "@名称", "https://x.com/名称"),
+                ("openai", "@openai", "https://x.com/openai"), ("openai", "@openai", "https://x.com/openai"),
+                "Copy the handle from the public X profile URL.", "从公开 X 主页网址复制账号。",
+            ),
+        },
+    ),
+    "website": _guide_source(
+        "Website Feed",
+        "网站订阅源",
+        "Add a public RSS or Atom feed published by a website.",
+        "添加网站发布的公开 RSS 或 Atom 订阅源。",
+        self_service=True,
+        requires_web_setup=False,
+        en_web_setup_note="Authenticated feeds must be configured in Web.",
+        zh_web_setup_note="需要登录或授权的订阅请在 Web 中配置。",
+        fields={
+            "url": _guide_field(
+                "Feed URL", "订阅地址", "Public HTTP or HTTPS RSS/Atom URL.", "公开 HTTP 或 HTTPS RSS/Atom 地址。",
+                ("https://host/path.xml",), ("https://域名/路径.xml",),
+                ("https://example.com/feed.xml",), ("https://example.com/feed.xml",),
+                "Copy the feed link from the publisher's RSS page.", "从发布者的 RSS 页面复制订阅链接。",
+            ),
+        },
+    ),
+    "youtube": _guide_source(
+        "YouTube Feed",
+        "YouTube 订阅源",
+        "Add a public YouTube RSS feed URL.",
+        "添加公开的 YouTube RSS 订阅地址。",
+        self_service=True,
+        requires_web_setup=False,
+        en_web_setup_note="Private or authenticated channels must be configured in Web.",
+        zh_web_setup_note="私有或需授权的频道请在 Web 中配置。",
+        fields={
+            "url": _guide_field(
+                "YouTube feed URL", "YouTube 订阅地址", "Public YouTube RSS feed URL.", "公开 YouTube RSS 订阅地址。",
+                ("https://www.youtube.com/feeds/videos.xml?channel_id=...",), ("https://www.youtube.com/feeds/videos.xml?channel_id=...",),
+                ("https://www.youtube.com/feeds/videos.xml?channel_id=UC123",), ("https://www.youtube.com/feeds/videos.xml?channel_id=UC123",),
+                "Copy the public RSS feed URL for the channel.", "复制频道公开 RSS 订阅地址。",
+            ),
+        },
+    ),
+    "apify": _GUIDE_METADATA["apify_social"],
+}
+
+
+_AGENT_SOURCE_TYPES: tuple[AgentSourceTypeDefinition, ...] = (
+    AgentSourceTypeDefinition("rss", "rss", ("url",), _BY_TYPE["rss"].fields, _AGENT_GUIDE_METADATA["rss"]),
+    AgentSourceTypeDefinition("telegram", "telegram_channel", ("channel",), _BY_TYPE["telegram_channel"].fields, _AGENT_GUIDE_METADATA["telegram"]),
+    AgentSourceTypeDefinition(
+        "github", "github_release", ("repository",),
+        (_field("repository", "Repository", "text", required=True, help="Public GitHub owner/repository name or URL."),),
+        _AGENT_GUIDE_METADATA["github"],
+    ),
+    AgentSourceTypeDefinition("reddit", "reddit_subreddit", ("subreddit",), _BY_TYPE["reddit_subreddit"].fields, _AGENT_GUIDE_METADATA["reddit"]),
+    AgentSourceTypeDefinition(
+        "twitter", "apify_social", ("handle",),
+        (_field("handle", "Handle", "text", required=True, help="Public X account handle or profile URL."),),
+        _AGENT_GUIDE_METADATA["twitter"],
+    ),
+    AgentSourceTypeDefinition("website", "rss", ("url",), _BY_TYPE["rss"].fields[:1], _AGENT_GUIDE_METADATA["website"]),
+    AgentSourceTypeDefinition("youtube", "rss", ("url",), _BY_TYPE["rss"].fields[:1], _AGENT_GUIDE_METADATA["youtube"]),
+    AgentSourceTypeDefinition("apify", "apify_social", _BY_TYPE["apify_social"].required_fields, _BY_TYPE["apify_social"].fields, _AGENT_GUIDE_METADATA["apify"]),
+)
+_AGENT_BY_TYPE = {item.type: item for item in _AGENT_SOURCE_TYPES}
+
+
 def list_source_types() -> list[dict[str, Any]]:
     """Return source type metadata for API clients."""
 
@@ -743,9 +891,9 @@ def get_source_setup_guide(
     if source_type is None:
         return {
             "locale": selected_locale,
-            "source_types": [item.guide_summary(selected_locale) for item in _SOURCE_TYPES],
+            "source_types": [item.guide_summary(selected_locale) for item in _AGENT_SOURCE_TYPES],
         }
-    definition = _BY_TYPE.get(str(source_type))
+    definition = _AGENT_BY_TYPE.get(str(source_type))
     if definition is None:
         raise SourceConfigError(f"unsupported source type: {source_type}")
     return {
@@ -754,11 +902,39 @@ def get_source_setup_guide(
     }
 
 
+def _safe_urlparse(value: str) -> Any:
+    """Parse untrusted URL-shaped text under the public SourceConfigError contract."""
+
+    try:
+        return urlparse(value)
+    except ValueError as exc:
+        raise SourceConfigError("invalid URL") from exc
+
+
+def _credential_key_shape(value: Any) -> bool:
+    """Recognize credential-bearing keys without returning their input values."""
+
+    normalized = re.sub(r"[^a-z0-9]+", "", str(value).lower())
+    if normalized in {
+        "secret", "secretenv", "token", "tokenenv", "apikey", "key",
+        "password", "cookie", "cookies", "authorization", "header", "headers",
+        "credential", "credentials", "auth", "accesstoken", "authtoken", "signature",
+    }:
+        return True
+    return any(
+        marker in normalized
+        for marker in ("token", "secret", "password", "cookie", "authorization", "credential", "signature")
+    ) or normalized.endswith("header") or normalized.endswith("headers")
+
+
 def _contains_secret_shape(value: Any) -> bool:
     """Detect secret-like values without persisting or returning them."""
 
     if isinstance(value, dict):
-        return any(_contains_secret_shape(item) for item in value.values())
+        return any(
+            _credential_key_shape(key) or _contains_secret_shape(key) or _contains_secret_shape(item)
+            for key, item in value.items()
+        )
     if isinstance(value, (list, tuple, set)):
         return any(_contains_secret_shape(item) for item in value)
     if not isinstance(value, str):
@@ -770,23 +946,42 @@ def _contains_secret_shape(value: Any) -> bool:
         return True
     if re.match(r"^(bearer|basic)\s+\S+", candidate, flags=re.IGNORECASE):
         return True
-    parsed = urlparse(candidate)
+    parsed = _safe_urlparse(candidate)
     if parsed.username is not None or parsed.password is not None:
         return True
     return False
 
 
-def _has_sensitive_rss_query(value: Any) -> bool:
-    parsed = urlparse(str(value or "").strip())
-    return any(
-        any(part in name.lower() for part in _SENSITIVE_RSS_QUERY_PARTS)
-        for name, _ in parse_qsl(parsed.query, keep_blank_values=True)
-    )
+def _validate_public_url_inputs(value: Any) -> None:
+    """Reject credentials from every URL before aliases can discard them."""
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _validate_public_url_inputs(key)
+            _validate_public_url_inputs(item)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            _validate_public_url_inputs(item)
+        return
+    if not isinstance(value, str):
+        return
+
+    parsed = _safe_urlparse(value.strip())
+    if parsed.username is not None or parsed.password is not None:
+        raise SourceConfigError("credentials are not accepted; configure secrets in Web")
+    for name, query_value in parse_qsl(parsed.query, keep_blank_values=True):
+        if (
+            _credential_key_shape(name)
+            or _credential_key_shape(query_value)
+            or _contains_secret_shape(query_value)
+        ):
+            raise SourceConfigError("credentials are not accepted; configure secrets in Web")
 
 
-def _github_path(value: Any, *, kind: str) -> tuple[str, str] | str:
-    text = str(value or "").strip().strip("/")
-    parsed = urlparse(text)
+def _github_path(value: str, *, kind: str) -> tuple[str, str] | str:
+    text = value.strip().strip("/")
+    parsed = _safe_urlparse(text)
     if parsed.scheme:
         if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in {
             "github.com",
@@ -804,9 +999,9 @@ def _github_path(value: Any, *, kind: str) -> tuple[str, str] | str:
     return parts[0]
 
 
-def _reddit_name(value: Any, *, user: bool) -> str:
-    text = str(value or "").strip().strip("/")
-    parsed = urlparse(text)
+def _reddit_name(value: str, *, user: bool) -> str:
+    text = value.strip().strip("/")
+    parsed = _safe_urlparse(text)
     prefix = "u" if user else "r"
     if parsed.scheme:
         host = parsed.netloc.lower()
@@ -823,9 +1018,13 @@ def _reddit_name(value: Any, *, user: bool) -> str:
     return text.removeprefix(f"{prefix}/")
 
 
-def _telegram_channel(value: Any) -> str:
-    text = str(value or "").strip().strip("/")
-    parsed = urlparse(text)
+_TELEGRAM_PUBLIC_HANDLE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+_TWITTER_PUBLIC_HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
+
+
+def _telegram_channel(value: str) -> str:
+    text = value.strip().strip("/")
+    parsed = _safe_urlparse(text)
     if parsed.scheme:
         if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in {
             "t.me",
@@ -835,27 +1034,73 @@ def _telegram_channel(value: Any) -> str:
         }:
             raise SourceConfigError("channel must be a public Telegram URL or name")
         parts = [part for part in parsed.path.split("/") if part]
-        if len(parts) != 1:
+        if (
+            len(parts) != 1
+            or parts[0].startswith("+")
+            or parts[0].lower() in {"joinchat", "s"}
+        ):
             raise SourceConfigError("channel must be a public Telegram channel name")
-        return parts[0]
-    return text.lstrip("@")
+        text = parts[0]
+    channel = text.lstrip("@")
+    if not _TELEGRAM_PUBLIC_HANDLE_RE.fullmatch(channel):
+        raise SourceConfigError("channel must be a public Telegram channel name")
+    return channel
 
 
-def _normalize_public_aliases(source_type: str, config: dict[str, Any]) -> dict[str, Any]:
+def _twitter_handle(value: str) -> str:
+    text = value.strip().strip("/")
+    parsed = _safe_urlparse(text)
+    if parsed.scheme:
+        if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in {
+            "x.com", "www.x.com", "twitter.com", "www.twitter.com",
+        }:
+            raise SourceConfigError("handle must be a public X URL or name")
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) != 1:
+            raise SourceConfigError("handle must be a public X account name")
+        text = parts[0]
+    handle = text.lstrip("@")
+    if not _TWITTER_PUBLIC_HANDLE_RE.fullmatch(handle):
+        raise SourceConfigError("handle must be a public X account name")
+    return handle
+
+
+def _normalize_agent_aliases(source_type: str, config: dict[str, Any]) -> dict[str, Any]:
     data = dict(config)
-    if source_type == "github_release" and "repository" in data:
+    if source_type == "github" and "repository" in data:
         owner, repo = _github_path(data.pop("repository"), kind="repository")
-        data.setdefault("owner", owner)
-        data.setdefault("repo", repo)
-    elif source_type == "github_user" and "username" in data:
-        data["username"] = _github_path(data["username"], kind="username")
-    elif source_type == "reddit_subreddit" and "subreddit" in data:
+        data["owner"] = owner
+        data["repo"] = repo
+    elif source_type == "reddit" and "subreddit" in data:
         data["subreddit"] = _reddit_name(data["subreddit"], user=False)
-    elif source_type == "reddit_user" and "username" in data:
-        data["username"] = _reddit_name(data["username"], user=True)
-    elif source_type == "telegram_channel" and "channel" in data:
+    elif source_type == "telegram" and "channel" in data:
         data["channel"] = _telegram_channel(data["channel"])
+    elif source_type == "twitter" and "handle" in data:
+        data = {
+            "platform": "x",
+            "kind": "profile",
+            "target": _twitter_handle(data["handle"]),
+        }
     return data
+
+
+def _validate_agent_field_types(
+    definition: AgentSourceTypeDefinition, config: dict[str, Any]
+) -> None:
+    fields = {field.name: field for field in definition.fields}
+    unknown = set(config) - set(fields)
+    if unknown:
+        raise SourceConfigError("unsupported fields: " + ", ".join(sorted(unknown)))
+    for name, value in config.items():
+        field = fields[name]
+        if field.input_type in {"text", "url", "select"} and not isinstance(value, str):
+            raise SourceConfigError(f"{name} must be a string")
+        if field.input_type == "number" and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
+            raise SourceConfigError(f"{name} must be an integer")
+        if field.input_type == "boolean" and not isinstance(value, bool):
+            raise SourceConfigError(f"{name} must be a boolean")
 
 
 def normalize_source_setup_input(
@@ -865,22 +1110,22 @@ def normalize_source_setup_input(
     """Normalize agent-supplied public setup inputs before catalog validation."""
 
     source_type = str(source_type or "").strip()
-    if source_type not in _BY_TYPE:
+    if source_type not in _AGENT_BY_TYPE:
         raise SourceConfigError(f"unsupported source type: {source_type}")
-    raw = dict(config or {})
-    forbidden = {str(key).lower() for key in raw} & _FORBIDDEN_AGENT_CONFIG_KEYS
-    if (
-        forbidden
-        or _contains_secret_shape(raw)
-        or (source_type == "rss" and _has_sensitive_rss_query(raw.get("url")))
-    ):
+    if not isinstance(config, dict):
+        raise SourceConfigError("config must be an object")
+    raw = dict(config)
+    if _contains_secret_shape(raw):
         raise SourceConfigError("credentials are not accepted; configure secrets in Web")
-    aliased = _normalize_public_aliases(source_type, raw)
-    allowed = {field.name for field in _BY_TYPE[source_type].fields}
-    unknown = set(aliased) - allowed
-    if unknown:
-        raise SourceConfigError("unsupported fields: " + ", ".join(sorted(unknown)))
-    return validate_source_config(source_type, aliased)
+    _validate_public_url_inputs(raw)
+    definition = _AGENT_BY_TYPE[source_type]
+    _validate_agent_field_types(definition, raw)
+    aliased = _normalize_agent_aliases(source_type, raw)
+    normalized = validate_source_config(definition.catalog_source_type, aliased)
+    return {
+        "catalog_source_type": definition.catalog_source_type,
+        "config": normalized,
+    }
 
 
 def validate_secret_env_name(value: str | None) -> str | None:
