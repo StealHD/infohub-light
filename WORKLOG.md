@@ -1121,3 +1121,11 @@
 - 结果：全站统一 macOS/system UI 字体栈；业务层不能再自行写字号、字重、行高或字距；真实 486px Feed 中“4 条内容 / 最新优先 / 筛选”计算样式均为 13px、500、20px，页面无横向溢出
 - 运行验收：重建前确认无 queued/running Job；一次构建镜像 `inteliscope-service:ui-typography-20260718202652` 已替换本地 8080 API/Worker，live revision=`398009563055-typography-dirty`、database/worker ready；应用内浏览器刷新后完成计算样式与截图复核
 - 控制面变更：更新唯一视觉真源并新增 D032；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度语义
+
+### 2026-07-19 02:23 Codex
+- 任务：执行 Quiet Studio 全站 UI 统一，将已确认的信息流视觉语言扩展至收藏、历史、订阅、助手连接、设置、登录和 OpenClaw 响应式面板
+- 修改文件：设计系统共享 `PageFrame/PageHeader/ViewBar/PageSection/CompactSelect` 与状态模式、三条内容路由、OpenClaw `HandoffComposer`、四条管理/认证路由、UI 静态契约、Vitest/Playwright，以及 `UI_CONTRACT.md`、D033、PLAN 和本工作日志
+- 执行验证：页面宽度契约完成可信 RED→GREEN；内容工作台聚焦 74 项、管理页 58 项、UI 契约 36 项均通过；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、58.253 秒；release build 三视口 Playwright/Axe 27/27 通过，Axe 零 serious/critical；`git diff --check` 通过
+- 结果：全部生产路由统一消费 Quiet Studio 语义页面模式；收藏/历史删除 collection 轨道并复用阅读卡片和 ViewBar；管理页只保留 Shell 中的唯一 H1，登录使用 auth 框架；三种 Agent 容器复用统一交接编辑器。静态契约会拒绝业务页重新定义 820/1180/420px 页面宽度
+- 运行验收：重建前确认主数据库无 queued/running Job；一次构建镜像 `inteliscope-service:quiet-studio-c6e83554a16d` 同时替换本地 8080 API/Worker，live revision=`c6e83554a16d`、database/worker ready、两容器同 image ID 且 healthy，六条生产路由 HTTP 200；应用内浏览器真实数据复核设置/订阅唯一标题与统一分区、收藏统一空态、历史 7 张 Quiet Studio 卡片、0 个进度轨且无横向溢出
+- 控制面变更：Quiet Studio 成为全站生产视觉语言并新增 D033；未修改 backend/API/DB/query key/权限/任务/Remote MCP/history/VPS/数据/调度语义
