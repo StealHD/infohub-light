@@ -188,6 +188,8 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '订阅与来源' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(3)
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Agent 面板/ })).not.toBeInTheDocument()
@@ -275,6 +277,9 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/agents']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
+    expect(await screen.findByRole('heading', { name: '助手连接' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     await browser.click(await screen.findByRole('button', { name: '创建连接' }))
     const createDialog = screen.getByRole('dialog', { name: '创建助手连接' })
     await browser.type(within(createDialog).getByRole('textbox', { name: '连接名称' }), 'Desk Mac')
@@ -603,6 +608,8 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '密钥' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '成员' })).toBeInTheDocument()
@@ -632,6 +639,8 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/login']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '登录私人信息雷达' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(document.querySelector('[data-page-frame="auth"]')).toBeInTheDocument()
     await browser.type(screen.getByLabelText('用户名'), 'owner')
     await browser.type(screen.getByLabelText('密码'), 'wrong-secret')
     await browser.click(screen.getByRole('button', { name: '登录' }))

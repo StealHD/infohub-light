@@ -15,7 +15,8 @@ import {
   Icons,
   Input,
   Label,
-  Skeleton,
+  LoadingState,
+  PageFrame,
   TextField,
 } from '../../design-system'
 import {
@@ -160,10 +161,10 @@ export function HeroSettingsPage() {
   }
 
   const ready = settingsDataReady({ admin, configLoaded: config.isSuccess, secretsLoaded: secrets.isSuccess })
-  if (!ready) return <div className="grid gap-4 p-5" role={config.isError || secrets.isError ? 'alert' : 'status'}><h1 className="type-display">设置</h1>{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <Skeleton className="h-36 rounded-2xl" />}</div>
+  if (!ready) return <PageFrame width="admin" className="p-5">{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <LoadingState label="正在读取设置" rows={1} />}</PageFrame>
 
-  return <div className="h-full overflow-y-auto"><div className="mx-auto grid w-full max-w-[1440px] gap-5 p-4 min-[768px]:p-6">
-    <AdminPageHeader title="设置" description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
+  return <div className="h-full overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+    <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {message && <HeroNotice title={message} status="success" role="status" />}{error && <HeroNotice title={error} />}
 
     <AdminSection title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
@@ -213,5 +214,5 @@ export function HeroSettingsPage() {
         <div className="mt-5 grid gap-2">{(users.data?.users ?? []).map((member) => { const pending = feedback.isPending('member-update', member.id); return <Card key={member.id} variant="transparent" className="flex-row flex-wrap items-center gap-3 p-3"><div className="min-w-0 flex-1"><Card.Title>{member.display_name || member.username}</Card.Title><Card.Description>{member.username} · {member.role}</Card.Description></div>{member.role === 'owner' ? <Chip size="sm" variant="soft"><Chip.Label>owner · 受保护</Chip.Label></Chip> : <HeroSelect label={`角色 ${member.username}`} value={member.role} onChange={(role) => memberMutation.mutate({ id: member.id, patch: { role } })} isDisabled={pending} options={[{ id: 'admin', label: 'admin' }, { id: 'member', label: 'member' }, { id: 'viewer', label: 'viewer' }]} />}<Button size="sm" variant="ghost" aria-label={`切换 ${member.username} 状态`} isDisabled={member.role === 'owner' || pending} onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}>{pending ? '保存中…' : member.enabled ? '停用' : '启用'}</Button></Card> })}</div>
       </AdminSection>
     </>}
-  </div></div>
+  </PageFrame></div>
 }

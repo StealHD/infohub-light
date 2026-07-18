@@ -13,11 +13,12 @@ import {
   Icons,
   Input,
   Label,
+  LoadingState,
   Modal,
-  Skeleton,
+  PageFrame,
   TextField,
 } from '../../design-system'
-import { AdminPageHeader, HeroNotice } from './HeroAdminControls'
+import { AdminPageHeader, AdminSection, HeroNotice } from './HeroAdminControls'
 
 const TOKEN_REFERENCE = '${INTELISCOPE_MCP_TOKEN}'
 const TOOL_FILTER = ['get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job']
@@ -118,16 +119,16 @@ export function HeroAgentsPage() {
     catch { setError('无法写入剪贴板，请手动复制。') }
   }
 
-  if (query.isLoading) return <div className="grid gap-4 p-5" role="status"><h1 className="type-display">助手连接</h1><Skeleton className="h-32 rounded-2xl" /></div>
-  if (query.isError || !query.data) return <div className="grid gap-4 p-5"><h1 className="type-display">助手连接</h1><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></div>
+  if (query.isLoading) return <PageFrame width="admin" className="p-5"><LoadingState label="正在读取助手连接" rows={1} /></PageFrame>
+  if (query.isError || !query.data) return <PageFrame width="admin" className="p-5"><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></PageFrame>
 
   const activeCount = query.data.connections.filter((connection) => connection.status === 'active').length
   const limitReached = activeCount >= query.data.max_active
   const creationDisabled = !query.data.enabled || limitReached
 
   return <div className="h-full overflow-y-auto">
-    <div className="mx-auto grid w-full max-w-[1440px] gap-5 p-4 min-[768px]:p-6">
-      <AdminPageHeader title="助手连接" description="让你自己电脑上的 OpenClaw 只读访问当前账户的数据。" actions={<>
+    <PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+      <AdminPageHeader description="让你自己电脑上的 OpenClaw 只读访问当前账户的数据。" actions={<>
         <Button size="sm" variant="ghost" isIconOnly aria-label="刷新最近使用时间" onPress={() => void query.refetch()}><Icons.RefreshCw size={16} /></Button>
         <Button size="sm" isDisabled={creationDisabled} onPress={() => setCreateOpen(true)}><Icons.Bot size={16} />创建连接</Button>
       </>} />
@@ -136,10 +137,10 @@ export function HeroAgentsPage() {
       {!query.data.enabled && <HeroNotice title="管理员尚未启用 Remote MCP。" status="warning" role="status" />}
       {limitReached && <HeroNotice title={`已达到 ${query.data.max_active} 个有效连接上限。`} status="accent" role="status" />}
 
-      <Card variant="secondary" className="p-5"><Card.Title>连接方式</Card.Title><Card.Description className="type-body mt-2">Inteliscope 不连接本地 Gateway，也不会在服务器运行 Agent。“最近使用”不能代表在线。</Card.Description><code className="type-body mt-4 block overflow-wrap-anywhere rounded-lg bg-default p-3">{query.data.mcp_url || '功能尚未启用'}</code></Card>
+      <AdminSection title="连接方式" description="Inteliscope 不连接本地 Gateway，也不会在服务器运行 Agent。“最近使用”不能代表在线。"><code className="type-body block overflow-wrap-anywhere rounded-lg bg-default p-3">{query.data.mcp_url || '功能尚未启用'}</code></AdminSection>
 
-      <section aria-labelledby="agent-list-title" className="grid gap-3">
-        <div className="flex items-center justify-between"><h2 id="agent-list-title" className="type-section-title">我的连接</h2><span className="type-body text-muted">{activeCount}/{query.data.max_active} 个有效连接</span></div>
+      <AdminSection title="我的连接" description={`${activeCount}/${query.data.max_active} 个有效连接`}>
+        <div className="grid gap-3">
         {!query.data.connections.length && <Card variant="transparent" className="p-6 text-center"><Card.Description>还没有助手连接。</Card.Description></Card>}
         {query.data.connections.map((connection) => {
           const status = statusLabel(connection)
@@ -150,11 +151,12 @@ export function HeroAgentsPage() {
             </div>
           </Card>
         })}
-      </section>
+        </div>
+      </AdminSection>
 
-      <Card variant="secondary" className="p-5"><div className="flex items-center justify-between gap-3"><Card.Title>OpenClaw 配置</Card.Title><Button size="sm" variant="ghost" onPress={() => void copy(configuration, '配置已复制。')}><Icons.Copy size={15} />复制配置</Button></div><pre aria-label="OpenClaw 配置命令" tabIndex={0} className="type-meta mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-4">{configuration}</pre><Card.Description className="type-body mt-3">令牌保存在本机 ~/.openclaw/.env 并设置 0600 权限，不要配置 OAuth。</Card.Description></Card>
-      <Card variant="secondary" className="p-5"><Card.Title>故障排查</Card.Title><ol className="type-body mt-3 list-decimal space-y-2 pl-5 text-muted"><li>确认环境文件权限为 0600，并重新启动 OpenClaw。</li><li>运行 doctor 和 status；401 表示令牌无效、过期、已吊销或用户已禁用。</li><li>“最近使用”只表示服务收到过调用，不能判断本地 Agent 是否在线。</li></ol></Card>
-    </div>
+      <AdminSection title="OpenClaw 配置" description="令牌保存在本机 ~/.openclaw/.env 并设置 0600 权限，不要配置 OAuth。"><div className="flex justify-end"><Button size="sm" variant="ghost" onPress={() => void copy(configuration, '配置已复制。')}><Icons.Copy size={15} />复制配置</Button></div><pre aria-label="OpenClaw 配置命令" tabIndex={0} className="type-meta mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-4">{configuration}</pre></AdminSection>
+      <AdminSection title="故障排查"><ol className="type-body list-decimal space-y-2 pl-5 text-muted"><li>确认环境文件权限为 0600，并重新启动 OpenClaw。</li><li>运行 doctor 和 status；401 表示令牌无效、过期、已吊销或用户已禁用。</li><li>“最近使用”只表示服务收到过调用，不能判断本地 Agent 是否在线。</li></ol></AdminSection>
+    </PageFrame>
 
     <Modal isOpen={createOpen} onOpenChange={(open) => !createPending && setCreateOpen(open)}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开创建连接</Modal.Trigger>

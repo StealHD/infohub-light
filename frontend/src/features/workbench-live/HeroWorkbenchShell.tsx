@@ -187,7 +187,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
-  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
+  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const agentToggleRef = useRef<HTMLButtonElement>(null)
   const tabletNavToggleRef = useRef<HTMLDivElement>(null)
   const [wideDesktop, setWideDesktop] = useState(initialWideDesktop)
