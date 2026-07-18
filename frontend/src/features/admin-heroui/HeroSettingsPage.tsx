@@ -64,7 +64,7 @@ function HeroSecretCard({ secret, onChanged }: { secret: SecretRef; onChanged: (
   }
 
   return <Card variant="transparent" className="p-4">
-    <div className="flex flex-wrap items-center gap-2"><Icons.KeyRound size={17} /><Card.Title>{presentation.name}</Card.Title><span className="text-xs text-muted">{presentation.provider} · {presentation.status} · {presentation.usage}</span></div>
+    <div className="flex flex-wrap items-center gap-2"><Icons.KeyRound size={17} /><Card.Title>{presentation.name}</Card.Title><span className="type-meta text-muted">{presentation.provider} · {presentation.status} · {presentation.usage}</span></div>
     <form className="mt-3 flex flex-col gap-2 min-[640px]:flex-row" onSubmit={rotate}><TextField fullWidth value={value} onChange={setValue} isRequired><Label>{`轮换 ${secret.name}`}</Label><Input type="password" autoComplete="new-password" placeholder="粘贴新 Key（不会回显）" /></TextField><Button className="self-end" type="submit" isDisabled={rotating}>{rotating ? '轮换中…' : '轮换'}</Button><Button className="self-end" type="button" variant="danger" isDisabled={secret.used_by.length > 0 || removing} onPress={() => void remove()}>{removing ? '删除中…' : '删除'}</Button></form>
     {error && <div className="mt-3"><HeroNotice title={error} /></div>}
   </Card>
@@ -160,7 +160,7 @@ export function HeroSettingsPage() {
   }
 
   const ready = settingsDataReady({ admin, configLoaded: config.isSuccess, secretsLoaded: secrets.isSuccess })
-  if (!ready) return <div className="grid gap-4 p-5" role={config.isError || secrets.isError ? 'alert' : 'status'}><h1 className="text-2xl font-semibold">设置</h1>{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <Skeleton className="h-36 rounded-2xl" />}</div>
+  if (!ready) return <div className="grid gap-4 p-5" role={config.isError || secrets.isError ? 'alert' : 'status'}><h1 className="type-display">设置</h1>{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <Skeleton className="h-36 rounded-2xl" />}</div>
 
   return <div className="h-full overflow-y-auto"><div className="mx-auto grid w-full max-w-[1440px] gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader title="设置" description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
@@ -193,7 +193,7 @@ export function HeroSettingsPage() {
     {admin && <>
       <AdminSection title="获取与主题" description="控制兼容评分、抓取窗口和未来可选主题；精选与日报字段不在当前产品中显示。">
         <form className="grid gap-4" onSubmit={saveFiltering}><div className="grid gap-4 min-[720px]:grid-cols-4"><FormField name="ai_score_threshold" label="兼容阈值" type="number" min={0} max={10} defaultValue={Number(filtering.ai_score_threshold ?? 7.5)} /><FormField name="homepage_min_score" label="首页最低分" type="number" min={0} max={10} defaultValue={Number(filtering.homepage_min_score ?? 6)} /><FormField name="time_window_hours" label="抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} /><FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} /></div><Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button></form>
-        <div className="mt-6 border-t border-separator pt-5"><h3 className="mb-4 font-medium">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
+        <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
       </AdminSection>
 
       <AdminSection title="密钥" description="真实 Key 只写入 SecretStore，保存后永不回显。">

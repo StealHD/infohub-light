@@ -142,7 +142,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
 
     expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
-    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-feed-typography', 'mac-system')
+    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
     expect(screen.getByRole('heading', { name: '信息流' })).toBeInTheDocument()
     const toggle = screen.getByRole('button', { name: '收起 Agent 面板' })
     expect(toggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
@@ -153,12 +153,12 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.getByRole('heading', { name: '信息流' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
   })
 
-  it('keeps collection header controls and the default typography scope', () => {
+  it('keeps collection header controls inside the same application typography scope', () => {
     render(<Shell path="/saved" user={{ id: 'saved-visual', username: 'saved', role: 'member', enabled: true }} />)
 
     expect(screen.getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '更新信息流' })).toBeInTheDocument()
-    expect(screen.getByTestId('live-workbench-shell')).not.toHaveAttribute('data-feed-typography')
+    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
     const collectionToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
     expect(collectionToggle).not.toHaveAttribute('data-agent-toggle-visual')
     expect(screen.getByRole('heading', { name: '收藏' }).closest('header')).not.toHaveAttribute('data-header-visual')

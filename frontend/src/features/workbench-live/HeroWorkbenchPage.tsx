@@ -151,23 +151,24 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           ? 'mx-auto flex min-h-10 w-full max-w-[820px] items-center gap-1 rounded-xl border border-separator/80 bg-surface-secondary/70 px-2.5'
           : 'flex w-full flex-wrap items-center gap-2'}
       >
-        <span className="mr-auto text-xs text-muted">{quietStudio ? `${cards.length} 条内容` : `旧内容在上，最新内容在下 · ${cards.length} 条`}</span>
+        <span className="type-control mr-auto text-muted">{quietStudio ? `${cards.length} 条内容` : `旧内容在上，最新内容在下 · ${cards.length} 条`}</span>
         {!quietStudio && <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>}
         {!quietStudio && preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
         {quietStudio && <Button
           size="sm"
           variant="ghost"
+          className="type-control"
           aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
           onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' })}
         ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>}
         <Popover>
-          <Popover.Trigger aria-label="筛选信息流" className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
+          <Popover.Trigger aria-label="筛选信息流" className="type-control inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
           <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选
-          {quietStudio && activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="rounded-md bg-accent/15 px-1.5 text-xs text-accent">{activeFilterCount}</span>}
+          {quietStudio && activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="type-micro rounded-md bg-accent/15 px-1.5 text-accent">{activeFilterCount}</span>}
           </Popover.Trigger>
           <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
             <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
-              <Popover.Heading className="font-semibold">信息流筛选</Popover.Heading>
+              <Popover.Heading className="type-page-title">信息流筛选</Popover.Heading>
               <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
               <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
               <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
@@ -182,12 +183,12 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       </div>
     </div>
 
-    {deepLinkNotice && <div role="status" className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
-    {stateMutation.isError && <div role="alert" className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted">
+    {deepLinkNotice && <div role="status" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
+    {stateMutation.isError && <div role="alert" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
       <span className="flex-1">{stateMutation.error instanceof ApiError ? `${stateMutation.error.message}，状态已恢复。` : '阅读状态保存失败，状态已恢复。'}</span>
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭操作错误" onPress={() => stateMutation.reset()}><Icons.X size={15} /></Button>
     </div>}
-    {detailQuery.isError && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="border-b border-separator px-4 py-2 text-sm text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
+    {detailQuery.isError && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
     {loading && <div aria-label="正在读取信息流" className="grid gap-3 p-5">{Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-40 rounded-2xl" />)}</div>}
     {loadError && <Card variant="transparent" className="m-5 p-5" role="alert"><Card.Title>信息流加载失败</Card.Title><Card.Description>{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</Card.Description></Card>}
     {!loading && !loadError && cards.length === 0 && <Card variant="transparent" className="m-auto p-6 text-center"><Card.Title>没有匹配的信息</Card.Title><Card.Description>清除筛选或等待下一次更新。</Card.Description></Card>}

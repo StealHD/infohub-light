@@ -118,8 +118,8 @@ export function HeroAgentsPage() {
     catch { setError('无法写入剪贴板，请手动复制。') }
   }
 
-  if (query.isLoading) return <div className="grid gap-4 p-5" role="status"><h1 className="text-2xl font-semibold">助手连接</h1><Skeleton className="h-32 rounded-2xl" /></div>
-  if (query.isError || !query.data) return <div className="grid gap-4 p-5"><h1 className="text-2xl font-semibold">助手连接</h1><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></div>
+  if (query.isLoading) return <div className="grid gap-4 p-5" role="status"><h1 className="type-display">助手连接</h1><Skeleton className="h-32 rounded-2xl" /></div>
+  if (query.isError || !query.data) return <div className="grid gap-4 p-5"><h1 className="type-display">助手连接</h1><HeroNotice title="连接列表读取失败。"><Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试</Button></HeroNotice></div>
 
   const activeCount = query.data.connections.filter((connection) => connection.status === 'active').length
   const limitReached = activeCount >= query.data.max_active
@@ -136,10 +136,10 @@ export function HeroAgentsPage() {
       {!query.data.enabled && <HeroNotice title="管理员尚未启用 Remote MCP。" status="warning" role="status" />}
       {limitReached && <HeroNotice title={`已达到 ${query.data.max_active} 个有效连接上限。`} status="accent" role="status" />}
 
-      <Card variant="secondary" className="p-5"><Card.Title>连接方式</Card.Title><Card.Description className="mt-2">Inteliscope 不连接本地 Gateway，也不会在服务器运行 Agent。“最近使用”不能代表在线。</Card.Description><code className="mt-4 block overflow-wrap-anywhere rounded-lg bg-default p-3 text-sm">{query.data.mcp_url || '功能尚未启用'}</code></Card>
+      <Card variant="secondary" className="p-5"><Card.Title>连接方式</Card.Title><Card.Description className="type-body mt-2">Inteliscope 不连接本地 Gateway，也不会在服务器运行 Agent。“最近使用”不能代表在线。</Card.Description><code className="type-body mt-4 block overflow-wrap-anywhere rounded-lg bg-default p-3">{query.data.mcp_url || '功能尚未启用'}</code></Card>
 
       <section aria-labelledby="agent-list-title" className="grid gap-3">
-        <div className="flex items-center justify-between"><h2 id="agent-list-title" className="text-lg font-semibold">我的连接</h2><span className="text-sm text-muted">{activeCount}/{query.data.max_active} 个有效连接</span></div>
+        <div className="flex items-center justify-between"><h2 id="agent-list-title" className="type-section-title">我的连接</h2><span className="type-body text-muted">{activeCount}/{query.data.max_active} 个有效连接</span></div>
         {!query.data.connections.length && <Card variant="transparent" className="p-6 text-center"><Card.Description>还没有助手连接。</Card.Description></Card>}
         {query.data.connections.map((connection) => {
           const status = statusLabel(connection)
@@ -152,14 +152,14 @@ export function HeroAgentsPage() {
         })}
       </section>
 
-      <Card variant="secondary" className="p-5"><div className="flex items-center justify-between gap-3"><Card.Title>OpenClaw 配置</Card.Title><Button size="sm" variant="ghost" onPress={() => void copy(configuration, '配置已复制。')}><Icons.Copy size={15} />复制配置</Button></div><pre aria-label="OpenClaw 配置命令" tabIndex={0} className="mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-4 text-xs">{configuration}</pre><Card.Description className="mt-3">令牌保存在本机 ~/.openclaw/.env 并设置 0600 权限，不要配置 OAuth。</Card.Description></Card>
-      <Card variant="secondary" className="p-5"><Card.Title>故障排查</Card.Title><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted"><li>确认环境文件权限为 0600，并重新启动 OpenClaw。</li><li>运行 doctor 和 status；401 表示令牌无效、过期、已吊销或用户已禁用。</li><li>“最近使用”只表示服务收到过调用，不能判断本地 Agent 是否在线。</li></ol></Card>
+      <Card variant="secondary" className="p-5"><div className="flex items-center justify-between gap-3"><Card.Title>OpenClaw 配置</Card.Title><Button size="sm" variant="ghost" onPress={() => void copy(configuration, '配置已复制。')}><Icons.Copy size={15} />复制配置</Button></div><pre aria-label="OpenClaw 配置命令" tabIndex={0} className="type-meta mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-4">{configuration}</pre><Card.Description className="type-body mt-3">令牌保存在本机 ~/.openclaw/.env 并设置 0600 权限，不要配置 OAuth。</Card.Description></Card>
+      <Card variant="secondary" className="p-5"><Card.Title>故障排查</Card.Title><ol className="type-body mt-3 list-decimal space-y-2 pl-5 text-muted"><li>确认环境文件权限为 0600，并重新启动 OpenClaw。</li><li>运行 doctor 和 status；401 表示令牌无效、过期、已吊销或用户已禁用。</li><li>“最近使用”只表示服务收到过调用，不能判断本地 Agent 是否在线。</li></ol></Card>
     </div>
 
     <Modal isOpen={createOpen} onOpenChange={(open) => !createPending && setCreateOpen(open)}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开创建连接</Modal.Trigger>
       <DialogFrame title="创建助手连接" footer={<><Button variant="ghost" isDisabled={createPending} onPress={() => setCreateOpen(false)}>取消</Button><Button isDisabled={!createName.trim() || createPending} onPress={() => void createConnection()}>{createPending ? '生成中…' : '生成一次性令牌'}</Button></>}>
-        <Form onSubmit={(event) => { event.preventDefault(); void createConnection() }}><TextField autoFocus fullWidth isRequired value={createName} onChange={setCreateName}><Label>连接名称</Label><Input maxLength={80} /><p className="text-xs text-muted">令牌有效 {query.data.token_ttl_days} 天，只会显示一次。</p></TextField></Form>
+        <Form onSubmit={(event) => { event.preventDefault(); void createConnection() }}><TextField autoFocus fullWidth isRequired value={createName} onChange={setCreateName}><Label>连接名称</Label><Input maxLength={80} /><p className="type-meta text-muted">令牌有效 {query.data.token_ttl_days} 天，只会显示一次。</p></TextField></Form>
       </DialogFrame>
     </Modal>
 
@@ -168,8 +168,8 @@ export function HeroAgentsPage() {
       <DialogFrame title="保存一次性令牌" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeToken(null); setNotice('一次性令牌已从页面清除。') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
         <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeToken}</code><Button variant="ghost" onPress={() => oneTimeToken && void copy(oneTimeToken, '令牌已复制。')}><Icons.Copy size={15} />复制令牌</Button></div>
-        <pre aria-label="本地令牌环境命令" className="mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3 text-xs">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
-        <pre aria-label="OpenClaw 配置命令" className="mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3 text-xs">{configuration}</pre>
+        <pre aria-label="本地令牌环境命令" className="type-meta mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
+        <pre aria-label="OpenClaw 配置命令" className="type-meta mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{configuration}</pre>
       </DialogFrame>
     </Modal>
 
@@ -183,7 +183,7 @@ export function HeroAgentsPage() {
     <Modal isOpen={Boolean(revokeTarget)} onOpenChange={(open) => !open && !revoke.isPending && setRevokeTarget(null)}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开吊销连接</Modal.Trigger>
       <DialogFrame title="吊销助手连接" footer={<><Button variant="ghost" onPress={() => setRevokeTarget(null)}>取消</Button><Button variant="danger" isDisabled={revoke.isPending} onPress={() => revoke.mutate()}>确认吊销</Button></>}>
-        <p className="text-sm text-muted">吊销后无法恢复，OpenClaw 的下一次请求会立即失败。需要恢复时请创建新连接。</p>
+        <p className="type-body text-muted">吊销后无法恢复，OpenClaw 的下一次请求会立即失败。需要恢复时请创建新连接。</p>
       </DialogFrame>
     </Modal>
   </div>

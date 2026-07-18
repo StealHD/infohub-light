@@ -16,6 +16,24 @@ This file is the sole source of truth for production UI technology, visual langu
 ## 3. Visual language
 
 - Production is dark-only in this phase, using a graphite canvas, elevated neutral surfaces, restrained purple accents, semantic separators, and visible accessible focus rings. Raw palette values belong only in design-system theme assets.
+- The entire production application uses one system UI font stack: `-apple-system`, `BlinkMacSystemFont`, SF Pro where available, `PingFang SC` for Chinese on Apple platforms, then the self-hosted `Noto Sans SC Variable` and system sans-serif fallbacks. Routes and feature components may not define a competing font stack.
+- Typography has exactly ten semantic roles. Their implementation lives in `frontend/src/design-system/theme.css`; business code selects a role and never recreates its size, weight, line height, or letter spacing.
+
+| Role | Size / line | Weight | Intended use |
+|---|---:|---:|---|
+| `type-display` | 24 / 32 px | 600 | standalone administration and login page titles |
+| `type-section-title` | 18 / 26 px | 600 | major page sections |
+| `type-page-title` | 16 / 24 px | 600 | workbench headers, dialogs, card section headers |
+| `type-card-title` | 16 / 23 px | 600 | Feed and collection card titles |
+| `type-body` | 14 / 22 px | 400 | summaries, descriptions, notices, ordinary content |
+| `type-control` | 13 / 20 px | 500 | buttons, toolbar values, navigation and menu actions |
+| `type-meta` | 12 / 18 px | 400 | source, time, counts and technical metadata |
+| `type-label` | 11 / 16 px | 500 | navigation group labels and compact composer labels |
+| `type-micro` | 10 / 14 px | 500 | chips and mobile navigation captions |
+| `type-prose` | 14 / 26 px | 400 | expanded captured body text |
+
+- Elements in one functional group use the same semantic role. In particular, the Feed view bar count, order control and filter control all use `type-control`; source and time share `type-meta`; channel/topic chips share `type-micro`.
+- Production business code may not use Tailwind font-size, font-weight, line-height, or letter-spacing utilities (`text-xs`, `text-[…]`, `font-*`, `leading-*`, `tracking-*`). The executable UI contract rejects them. Alignment and semantic color utilities such as `text-left` and `text-muted` remain allowed.
 - Radius scale: 16 px panels, 14 px cards, 10 px controls, and 8 px small controls. Static surfaces use contrast and a thin separator rather than glow or heavy shadow.
 - Purposeful transitions run for 120–220 ms. Reduced Motion makes nonessential transitions effectively immediate while preserving loading indicators' understandable state.
 - Feature code does not define raw colors, shadows, radii, transition durations, or new page-level CSS visual systems. Native layout values may be used only where the static contract explicitly permits them.
@@ -42,7 +60,7 @@ This file is the sole source of truth for production UI technology, visual langu
 - Expanded navigation is organized as 浏览（信息流、收藏、历史）、常用视图（未读、AI、朋友动态、产品机会）and 管理（订阅、助手连接、设置）. 稍后读 is absent. Quick views only transform the existing user-isolated Feed preference and introduce no API or URL state.
 - The collapsed brand uses the Inteliscope scope mark rather than a text initial. The bottom account avatar/row is the only account trigger; its Popover contains identity, Chinese role, settings, and an explicit logout action. A standalone logout icon is not rendered.
 - Header height is 52 px. The Web application does not imitate macOS traffic lights, window chrome, drag regions, or desktop-only operating-system controls.
-- `/feed` uses the macOS system UI font stack on Apple platforms, with `PingFang SC` and the self-hosted Noto Sans SC variable font as Chinese and cross-platform fallbacks. This typography scope does not change other routes.
+- `/feed`, collection routes, administration pages and authentication all inherit the application font stack and semantic typography scale from the design system. A route must not switch typography independently.
 - During the Feed visual-confirmation phase, `/feed` keeps a quiet header containing only the page title and Agent toggle; search and manual refresh are absent. `/saved` and `/history` retain their current collection header controls.
 - At 1360 px and above, the user-isolated sidebar may toggle between 72 px and 232 px; the preference key is `inteliscope.ui.sidebar.v1:<user_id>`, accepted values are `collapsed` and `expanded`, and absent or invalid values resolve to collapsed. Accounts never share the preference.
 - From 1200–1359 px, navigation remains 72 px and the three-column workbench remains visible. The scope mark opens the categorized 260 px overlay without changing Feed width or scroll; the persisted width toggle is not presented.

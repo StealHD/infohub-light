@@ -7,7 +7,28 @@
   --inteliscope-motion-fast: 120ms;
   --inteliscope-motion-standard: 160ms;
   --inteliscope-motion-deliberate: 220ms;
-  --inteliscope-font-feed: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang SC", "Noto Sans SC Variable", sans-serif;
+  --inteliscope-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
+
+  --inteliscope-type-display-size: 24px;
+  --inteliscope-type-display-line: 32px;
+  --inteliscope-type-section-title-size: 18px;
+  --inteliscope-type-section-title-line: 26px;
+  --inteliscope-type-page-title-size: 16px;
+  --inteliscope-type-page-title-line: 24px;
+  --inteliscope-type-card-title-size: 16px;
+  --inteliscope-type-card-title-line: 23px;
+  --inteliscope-type-body-size: 14px;
+  --inteliscope-type-body-line: 22px;
+  --inteliscope-type-control-size: 13px;
+  --inteliscope-type-control-line: 20px;
+  --inteliscope-type-meta-size: 12px;
+  --inteliscope-type-meta-line: 18px;
+  --inteliscope-type-label-size: 11px;
+  --inteliscope-type-label-line: 16px;
+  --inteliscope-type-micro-size: 10px;
+  --inteliscope-type-micro-line: 14px;
+  --inteliscope-type-prose-size: 14px;
+  --inteliscope-type-prose-line: 26px;
 }
 
 .inteliscope-design-system[data-inteliscope-theme="graphite-purple"] {
@@ -64,11 +85,143 @@
   min-height: 100dvh;
   background: var(--background);
   color: var(--foreground);
-  font-family: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--inteliscope-font-ui);
 }
 
 html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   color: var(--foreground);
+}
+
+.inteliscope-design-system .type-display {
+  font-size: var(--inteliscope-type-display-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-display-line);
+  letter-spacing: -0.02em;
+}
+
+.inteliscope-design-system .type-section-title {
+  font-size: var(--inteliscope-type-section-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-section-title-line);
+  letter-spacing: -0.015em;
+}
+
+.inteliscope-design-system .type-page-title {
+  font-size: var(--inteliscope-type-page-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-page-title-line);
+  letter-spacing: -0.01em;
+}
+
+.inteliscope-design-system .type-card-title {
+  font-size: var(--inteliscope-type-card-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-card-title-line);
+  letter-spacing: -0.012em;
+}
+
+.inteliscope-design-system .type-body {
+  font-size: var(--inteliscope-type-body-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-body-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system .type-control {
+  font-size: var(--inteliscope-type-control-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-control-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system .type-meta {
+  font-size: var(--inteliscope-type-meta-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-meta-line);
+  letter-spacing: 0.005em;
+  font-variant-numeric: tabular-nums;
+}
+
+.inteliscope-design-system .type-label {
+  font-size: var(--inteliscope-type-label-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-label-line);
+  letter-spacing: 0.04em;
+}
+
+.inteliscope-design-system .type-micro {
+  font-size: var(--inteliscope-type-micro-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-micro-line);
+  letter-spacing: 0.02em;
+}
+
+.inteliscope-design-system .type-prose {
+  font-size: var(--inteliscope-type-prose-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-prose-line);
+  letter-spacing: 0.003em;
+}
+
+/*
+ * HeroUI primitives inherit the same semantic type roles as feature markup.
+ * Feature code may override a primitive with an explicit `.type-*` role, but it
+ * must never need a raw Tailwind font-size or font-weight utility.
+ */
+.inteliscope-design-system :where(
+  .button,
+  .select__trigger,
+  .combo-box__trigger,
+  .tabs__tab,
+  .list-box-item,
+  .menu-item,
+  .popover__trigger,
+  .search-field__input,
+  .number-field__input,
+  .input,
+  .textarea,
+  .label
+) {
+  font-size: var(--inteliscope-type-control-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-control-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system :where(
+  .card__title,
+  .modal__heading,
+  .popover__heading,
+  .drawer__heading,
+  .alert-dialog__heading,
+  .alert__title
+) {
+  font-size: var(--inteliscope-type-page-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-page-title-line);
+  letter-spacing: -0.01em;
+}
+
+.inteliscope-design-system :where(
+  .card__description,
+  .alert__description,
+  .toast__description,
+  .fieldset__description
+) {
+  font-size: var(--inteliscope-type-body-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-body-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system :where(
+  .chip__label,
+  .badge__label
+) {
+  font-size: var(--inteliscope-type-micro-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-micro-line);
+  letter-spacing: 0.02em;
 }
 
 .inteliscope-design-system :where(.tabs__list-container) {

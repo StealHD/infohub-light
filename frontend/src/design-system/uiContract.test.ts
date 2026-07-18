@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -116,5 +117,50 @@ describe('HeroUI import contract', () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('业务页面不得定义原始颜色值')
+  })
+
+  it.each([
+    'text-sm',
+    'text-[13px]',
+    'font-semibold',
+    'leading-5',
+    'leading-[1.38]',
+    'tracking-wide',
+  ])('rejects arbitrary typography utility %s from production business code', (utility) => {
+    const result = checkSource(
+      'src/features/feed/ArbitraryTypography.tsx',
+      `export const Example = () => <span className="${utility}">内容</span>\n`,
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('业务文字必须使用设计系统语义排版')
+  })
+
+  it('allows semantic typography classes from the design-system scale', () => {
+    const result = checkSource(
+      'src/features/feed/SemanticTypography.tsx',
+      'export const Example = () => <span className="type-control text-muted">内容</span>\n',
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+  })
+
+  it('defines one application font stack and the complete semantic typography scale', () => {
+    const theme = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
+
+    expect(theme).toContain('--inteliscope-font-ui:')
+    for (const role of ['display', 'section-title', 'page-title', 'card-title', 'body', 'control', 'meta', 'label', 'micro', 'prose']) {
+      expect(theme).toContain(`.type-${role}`)
+    }
+  })
+
+  it('maps HeroUI text-bearing primitives onto the semantic scale', () => {
+    const theme = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
+
+    expect(theme).toMatch(/:where\([^)]*\.button[^)]*\.select__trigger[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-control-size\)/s)
+    expect(theme).toMatch(/:where\([^)]*\.card__title[^)]*\.modal__heading[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-page-title-size\)/s)
+    expect(theme).toMatch(/:where\([^)]*\.card__description[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-body-size\)/s)
+    expect(theme).toMatch(/:where\([^)]*\.chip__label[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-micro-size\)/s)
   })
 })

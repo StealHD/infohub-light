@@ -62,7 +62,7 @@ export function HeroNotice({ title, children, status = 'danger', role = 'alert' 
 
 export function AdminPageHeader({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
   return <header className="flex flex-col gap-4 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between">
-    <div><h1 className="text-2xl font-semibold tracking-tight">{title}</h1><p className="mt-1 text-sm text-muted">{description}</p></div>
+    <div><h1 className="type-display">{title}</h1><p className="type-body mt-1 text-muted">{description}</p></div>
     {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
   </header>
 }
@@ -74,7 +74,7 @@ export function AdminSection({ title, description, children, className = '' }: {
   className?: string
 }) {
   return <Card variant="secondary" className={`p-4 min-[640px]:p-5 ${className}`}>
-    <Card.Header className="px-0 pt-0"><div><Card.Title className="text-base">{title}</Card.Title>{description && <Card.Description className="mt-1">{description}</Card.Description>}</div></Card.Header>
+    <Card.Header className="px-0 pt-0"><div><Card.Title className="type-page-title">{title}</Card.Title>{description && <Card.Description className="type-body mt-1">{description}</Card.Description>}</div></Card.Header>
     <Card.Content className="px-0 pb-0">{children}</Card.Content>
   </Card>
 }

@@ -96,19 +96,19 @@ function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigatio
     end={href === '/feed'}
     aria-label={label}
     onClick={onNavigate}
-    className={({ isActive }) => `mb-0.5 flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm text-muted transition-colors hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
+    className={({ isActive }) => `type-control mb-0.5 flex min-h-10 items-center gap-3 rounded-xl px-3 text-muted transition-colors hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
   ><Icon size={17} aria-hidden="true" /><span>{label}</span></NavLink>
 }
 
 function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate }: CategorizedNavigationProps) {
   return <nav aria-label="分类导航内容" className="min-h-0 overflow-y-auto px-2 pb-3">
-    <p className="px-3 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted/70">浏览</p>
+    <p className="type-label px-3 pb-1 pt-2 text-muted/70">浏览</p>
     {browseNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
 
     <Button
       size="sm"
       variant="ghost"
-      className="mt-3 w-full justify-between px-3 text-[11px] font-medium tracking-wide text-muted/70"
+      className="type-label mt-3 w-full justify-between px-3 text-muted/70"
       aria-expanded={quickViewsOpen}
       onPress={onQuickViewsToggle}
     >常用视图<Icons.ChevronDown size={14} className={`transition-transform ${quickViewsOpen ? '' : '-rotate-90'}`} /></Button>
@@ -117,13 +117,13 @@ function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsTo
         key={view.id}
         size="sm"
         variant="ghost"
-        className={`min-h-9 justify-start gap-3 px-3 text-sm ${activeQuickView === view.id ? 'bg-default text-foreground' : 'text-muted'}`}
+        className={`type-control min-h-9 justify-start gap-3 px-3 ${activeQuickView === view.id ? 'bg-default text-foreground' : 'text-muted'}`}
         aria-label={view.label}
         onPress={() => onQuickView(view.id)}
       ><span className={`size-1.5 rounded-full ${activeQuickView === view.id ? 'bg-accent' : 'bg-muted/35'}`} aria-hidden="true" />{view.label}</Button>)}
     </div>}
 
-    <p className="mt-3 px-3 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted/70">管理</p>
+    <p className="type-label mt-3 px-3 pb-1 pt-2 text-muted/70">管理</p>
     {managementNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
   </nav>
 }
@@ -189,14 +189,14 @@ function AgentPanelContent({
     </header>
     {open && <>
       <div className="min-h-0 overflow-y-auto p-4" data-testid="agent-scroll-region">
-        <div className="mb-3 flex justify-between text-xs text-muted"><span>已选上下文</span><span>{value.draft.itemIds.length} / 8</span></div>
+        <div className="type-meta mb-3 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.itemIds.length} / 8</span></div>
         {!value.draft.itemIds.length && <Card variant="transparent" className="p-3">
           <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
         </Card>}
         <div className="grid gap-2">
           {value.draft.itemIds.map((id, index) => <Card key={id} variant="secondary" className="flex-row items-center gap-2 p-3">
-            <span className="text-xs text-muted">{String(index + 1).padStart(2, '0')}</span>
-            <code className="min-w-0 flex-1 truncate text-xs">{id}</code>
+            <span className="type-meta text-muted">{String(index + 1).padStart(2, '0')}</span>
+            <code className="type-meta min-w-0 flex-1 truncate">{id}</code>
             <Button size="sm" variant="ghost" isIconOnly aria-label={`移除 ${id}`} onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
           </Card>)}
         </div>
@@ -206,7 +206,7 @@ function AgentPanelContent({
           <TextArea
             fullWidth
             variant="secondary"
-            className="[font-family:var(--inteliscope-font-feed)]"
+            className="type-body"
             aria-label="交给 OpenClaw 的问题"
             value={value.draft.question}
             maxLength={1200}
@@ -216,19 +216,19 @@ function AgentPanelContent({
           />
           <div className="mt-2 flex min-w-0 items-center gap-1.5 px-1 pb-0.5">
             <Tooltip delay={300}>
-              <Tooltip.Trigger aria-label="交接模式说明" className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[11px] text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
+              <Tooltip.Trigger aria-label="交接模式说明" className="type-label inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
                 <Icons.Waypoints size={13} aria-hidden="true" />交接模式
               </Tooltip.Trigger>
               <Tooltip.Content>只复制交接提示词，由本地 OpenClaw 执行。</Tooltip.Content>
             </Tooltip>
-            <span className="shrink-0 text-[11px] text-muted">{value.draft.itemIds.length}/8</span>
+            <span className="type-label shrink-0 text-muted">{value.draft.itemIds.length}/8</span>
             <Select
               aria-label="模型偏好"
               selectedKey={value.draft.modelPreference}
               onSelectionChange={(key) => key !== null && value.setModelPreference(String(key) as AgentModelPreference)}
               className="min-w-0 flex-1"
             >
-              <Select.Trigger aria-label="模型偏好" className="min-h-8 border-0 bg-transparent px-1.5 text-[11px] shadow-none">
+              <Select.Trigger aria-label="模型偏好" className="type-label min-h-8 border-0 bg-transparent px-1.5 shadow-none">
                 <Select.Value />
                 <Select.Indicator><Icons.ChevronDown size={12} aria-hidden="true" /></Select.Indicator>
               </Select.Trigger>
@@ -240,7 +240,7 @@ function AgentPanelContent({
                 ]}>{(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}</ListBox>
               </Select.Popover>
             </Select>
-            <span role="status" aria-label="交接状态" aria-live="polite" className="min-w-0 truncate text-[11px] text-muted">{notice}</span>
+            <span role="status" aria-label="交接状态" aria-live="polite" className="type-label min-w-0 truncate text-muted">{notice}</span>
             <Button
               size="sm"
               isIconOnly
@@ -391,11 +391,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   return <WorkbenchAgentContext.Provider value={agentValue}>
       <div
         data-testid="live-workbench-shell"
-        data-feed-typography={feedRoute ? 'mac-system' : undefined}
-        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns} ${feedRoute ? '[font-family:var(--inteliscope-font-feed)]' : ''}`}
+      data-ui-typography="system"
+      className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`}
       >
         <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
-          <div className={`flex h-[52px] shrink-0 items-center gap-2 px-3 font-semibold ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
+          <div className={`type-page-title flex h-[52px] shrink-0 items-center gap-2 px-3 ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
             {extraWideDesktop ? sidebarExpanded ? <>
               <Icons.InteliscopeMark size={20} aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">Inteliscope</span>
@@ -465,15 +465,15 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               >
                 <AvatarRoot className="size-8 shrink-0"><AvatarFallback>{(props.user.display_name || props.user.username).slice(0, 1).toUpperCase()}</AvatarFallback></AvatarRoot>
                 {sidebarExpanded && <>
-                  <span className="min-w-0 flex-1"><span className="block truncate text-sm">{props.user.display_name || props.user.username}</span><span className="block text-[11px] text-muted">{roleLabel[props.user.role]}</span></span>
+                  <span className="min-w-0 flex-1"><span className="type-control block truncate">{props.user.display_name || props.user.username}</span><span className="type-label block text-muted">{roleLabel[props.user.role]}</span></span>
                   <Icons.ChevronUp size={15} className="text-muted" aria-hidden="true" />
                 </>}
               </Popover.Trigger>
               <Popover.Content placement="right bottom" offset={8} className="z-50 w-56 p-0">
                 <Popover.Dialog aria-label="账户菜单" className="p-2">
                   <div className="px-2 py-2">
-                    <strong className="block truncate text-sm">{props.user.display_name || props.user.username}</strong>
-                    <span className="text-xs text-muted">{props.user.username} · {roleLabel[props.user.role]}</span>
+                    <strong className="type-control block truncate">{props.user.display_name || props.user.username}</strong>
+                    <span className="type-meta text-muted">{props.user.username} · {roleLabel[props.user.role]}</span>
                   </div>
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
@@ -489,7 +489,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           data-header-visual={feedRoute ? 'quiet-studio' : undefined}
           className={`col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator px-3 min-[768px]:col-start-2 min-[768px]:px-4 ${feedRoute ? 'bg-surface/95 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg' : 'bg-surface'}`}
         >
-          {contentRoute ? <h1 className="shrink-0 text-base font-semibold">{pageTitle}</h1> : <strong className="shrink-0 text-base font-semibold">{pageTitle}</strong>}
+          {contentRoute ? <h1 className="type-page-title shrink-0">{pageTitle}</h1> : <strong className="type-page-title shrink-0">{pageTitle}</strong>}
           {collectionHeaderControls ? <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group>
               <SearchField.SearchIcon><Icons.Search size={16} /></SearchField.SearchIcon>
@@ -523,7 +523,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         </header>
 
         <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
-          {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted">
+          {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
             <span className="flex-1">{props.refreshMessage}</span>{props.onRetry && <Button size="sm" variant="ghost" onPress={props.onRetry}>重试</Button>}
             <Button size="sm" variant="ghost" isIconOnly aria-label="关闭更新提示" onPress={() => setDismissedNotice(noticeKey)}><Icons.X size={15} /></Button>
           </div>}
@@ -551,7 +551,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         </Drawer>)}
 
         <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
-          {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-[10px] text-muted aria-[current=page]:text-accent">
+          {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">
             <Icon size={17} aria-hidden="true" /><span>{label}</span>
           </NavLink>)}
         </nav>

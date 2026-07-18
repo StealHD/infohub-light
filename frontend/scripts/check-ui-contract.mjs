@@ -24,10 +24,12 @@ function sourceViolations(file, source) {
     violations.push(`${file}: 已删除的验收路由或 MUI 原型文案`)
   }
   if (isBusinessSource && !isHeroWorkbench) {
+    const arbitraryTypographyUtility = /(?:^|[^A-Za-z0-9_-])(?:text-(?:xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl|\[[^\]]+\])|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|\[[^\]]+\])|leading-(?:none|tight|snug|normal|relaxed|loose|[3-9]|10|\[[^\]]+\])|tracking-(?:tighter|tight|normal|wide|wider|widest|\[[^\]]+\]))(?=$|[^A-Za-z0-9_[\]-])/
     const checks = [
       [/\bimport\s*(?:\(\s*)?(?:[^'"`\n]+\s+from\s+)?['"`][^'"`]*\.module\.css['"`]\s*\)?/, 'Shell 与业务页不得使用页面级 CSS Modules'],
       [/(?:#[0-9a-f]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\(|\b(?:oklch|oklab|lab|lch)\s*\(|\bcolor\s*\(\s*display-p3\b)/i, '业务页面不得定义原始颜色值'],
       [/\b(?:borderRadius|boxShadow|transitionDuration|animationDuration)\s*:\s*(?:['"]?\d|['"][^'"]+)|\b(?:border-radius|box-shadow|transition-duration|animation-duration)\s*:/, '视觉常量必须来自设计系统主题'],
+      [arbitraryTypographyUtility, '业务文字必须使用设计系统语义排版'],
     ]
     for (const [pattern, message] of checks) if (pattern.test(source)) violations.push(`${file}: ${message}`)
   }

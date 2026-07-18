@@ -48,7 +48,7 @@ function TopicCombo({ label, options, values, onChange }: { label: string; optio
       <ComboBox.InputGroup><Input aria-label={label} onKeyDown={(event) => { if (event.key === 'Enter' && input.trim()) { event.preventDefault(); add(input) } }} /><ComboBox.Trigger aria-label={`打开${label}候选`}><Icons.ChevronDown size={15} /></ComboBox.Trigger></ComboBox.InputGroup>
       <ComboBox.Popover><ListBox>{options.filter((option) => !values.includes(option)).map((option) => <ListBox.Item id={option} key={option}>{option}</ListBox.Item>)}</ListBox></ComboBox.Popover>
     </ComboBox>
-    <div className="flex flex-wrap gap-2">{values.map((topic) => <Chip key={topic} variant="soft"><Chip.Label>{topic}{!active.has(topic.toLocaleLowerCase()) && <span className="ml-1 text-[10px] text-muted">已停用</span>}</Chip.Label><button type="button" aria-label={`移除 ${topic}`} onClick={() => onChange(values.filter((value) => value !== topic))}><Icons.X size={12} /></button></Chip>)}</div>
+    <div className="flex flex-wrap gap-2">{values.map((topic) => <Chip key={topic} variant="soft"><Chip.Label>{topic}{!active.has(topic.toLocaleLowerCase()) && <span className="type-micro ml-1 text-muted">已停用</span>}</Chip.Label><button type="button" aria-label={`移除 ${topic}`} onClick={() => onChange(values.filter((value) => value !== topic))}><Icons.X size={12} /></button></Chip>)}</div>
   </div>
 }
 

@@ -1113,3 +1113,11 @@
 - 执行验证：四批 focused TDD 均 RED→GREEN；最终聚焦 Vitest 6 文件/44 项、ESLint（0 error/1 既有 warning）、TypeScript、Vite build/artifact 通过；桌面 Playwright 主流程、过滤刷新锚点与 Reduced Motion 共 3 项通过，主流程含 Axe 零 serious/critical；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、56.647 秒
 - 结果：左栏按浏览/常用视图/管理分类，账户通过菜单显式退出；Feed 默认最新在上并可按用户切换顺序，工具条与 820px 卡片列对齐，重复摘要不再展示；OpenClaw 改为带模型提示偏好、实时状态和单一复制动作的紧凑交接编辑器，不产生网络执行
 - 控制面变更：更新唯一视觉真源并新增 D031；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/Worker/scheduler
+
+### 2026-07-18 20:35 Codex
+- 任务：从设计系统根部修复全站字体与字号分叉，消除 Feed 工具栏“内容数 / 排序 / 筛选”及后续页面修改的排版不一致
+- 修改文件：HeroUI 主题与全局字体入口、UI 静态契约和回归、工作台及管理页语义排版迁移、`UI_CONTRACT.md`、D032 与本工作日志
+- 执行验证：契约测试先出现 7 项可信 RED，再完成十级 `type-*` 角色、HeroUI primitive 默认映射与 raw Tailwind 排版拦截；focused Vitest 4 文件/105 项、UI contract、TypeScript、ESLint（0 error/1 既有 warning）、Vite build/artifact 通过；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、55.633 秒，`git diff --check` 通过
+- 结果：全站统一 macOS/system UI 字体栈；业务层不能再自行写字号、字重、行高或字距；真实 486px Feed 中“4 条内容 / 最新优先 / 筛选”计算样式均为 13px、500、20px，页面无横向溢出
+- 运行验收：重建前确认无 queued/running Job；一次构建镜像 `inteliscope-service:ui-typography-20260718202652` 已替换本地 8080 API/Worker，live revision=`398009563055-typography-dirty`、database/worker ready；应用内浏览器刷新后完成计算样式与截图复核
+- 控制面变更：更新唯一视觉真源并新增 D032；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度语义

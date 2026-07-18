@@ -1,5 +1,5 @@
 :root {
-  font-family: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--inteliscope-font-ui);
   color: var(--foreground);
   background: var(--background);
   color-scheme: dark;

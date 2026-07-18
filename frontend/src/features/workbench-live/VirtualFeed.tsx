@@ -94,7 +94,7 @@ function WorkbenchCard({
       aria-expanded={expanded}
       onClick={onToggleExpanded}
     >
-      <span className={`mb-2 flex items-center gap-2 text-muted ${quietStudio ? 'text-[11px]' : 'text-xs'}`}>
+      <span className="type-meta mb-2 flex items-center gap-2 text-muted">
         <AvatarRoot className={`${quietStudio ? 'size-[25px]' : 'size-7'} shrink-0`}>
           {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
           <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
@@ -103,8 +103,8 @@ function WorkbenchCard({
         <span aria-hidden="true">·</span>
         <span>{relativeTime(card.publishedAt)}</span>
       </span>
-      <Card.Title className={`${expanded ? '' : 'line-clamp-2 '}${quietStudio ? 'text-base font-semibold leading-[1.38]' : 'text-base leading-6'}`}>{card.title}</Card.Title>
-      {card.summary && <Card.Description className={`${expanded ? '' : 'line-clamp-2 '}${quietStudio ? 'mt-1.5 text-[13px] leading-5 text-muted' : 'mt-1 leading-5'}`}>{card.summary}</Card.Description>}
+      <Card.Title className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
+      {card.summary && <Card.Description className={`type-body text-muted ${expanded ? '' : 'line-clamp-2'} ${quietStudio ? 'mt-1.5' : 'mt-1'}`}>{card.summary}</Card.Description>}
     </button>
 
     {quietStudio ? <div
@@ -114,24 +114,24 @@ function WorkbenchCard({
       className={`grid px-[19px] transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
     >
       <div className="min-h-0 overflow-hidden">
-        <div className="border-t border-separator pb-1 pt-3 text-sm leading-7 text-foreground whitespace-pre-wrap">
+        <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
           {card.body || '该条内容未保存正文片段；重新获取来源后可显示。'}
         </div>
-        {card.bodyTruncated && <p className="mt-2 text-xs text-muted">内容已截断，打开原文查看完整内容。</p>}
+        {card.bodyTruncated && <p className="type-meta mt-2 text-muted">内容已截断，打开原文查看完整内容。</p>}
         {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.title} 内容图片`} loading="lazy" />}
       </div>
     </div> : expanded && <Card.Content className="px-4 pt-3">
-      <div className="border-t border-separator pt-3 text-sm leading-7 text-foreground whitespace-pre-wrap">
+      <div className="type-prose border-t border-separator pt-3 text-foreground whitespace-pre-wrap">
         {card.body || '该条内容未保存正文片段；重新获取来源后可显示。'}
       </div>
-      {card.bodyTruncated && <p className="mt-2 text-xs text-muted">内容已截断，打开原文查看完整内容。</p>}
+      {card.bodyTruncated && <p className="type-meta mt-2 text-muted">内容已截断，打开原文查看完整内容。</p>}
       {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.title} 内容图片`} loading="lazy" />}
     </Card.Content>}
 
     <Card.Footer className={`flex flex-wrap items-center justify-between gap-2 ${quietStudio ? 'px-[19px] pb-[15px] pt-[10px]' : 'px-4 pb-4 pt-3'}`}>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5" aria-label="频道和主题">
-        <Chip size="sm" color="accent" variant="soft" className={quietStudio ? 'text-[10px]' : undefined}><Chip.Label>{card.channel}</Chip.Label></Chip>
-        {card.topics.slice(0, 3).map((topic) => <Chip key={topic} size="sm" variant="soft" className={quietStudio ? 'text-[10px]' : undefined}><Chip.Label>{topic}</Chip.Label></Chip>)}
+        <Chip size="sm" color="accent" variant="soft" className="type-micro"><Chip.Label>{card.channel}</Chip.Label></Chip>
+        {card.topics.slice(0, 3).map((topic) => <Chip key={topic} size="sm" variant="soft" className="type-micro"><Chip.Label>{topic}</Chip.Label></Chip>)}
       </div>
       <div
         data-card-actions
@@ -174,13 +174,13 @@ function WorkbenchCard({
             className={`flex cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
           ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
           <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
-            <button disabled={readonly} type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40" onClick={() => onItemAction('is_read', !card.userState.is_read)}>
+            <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('is_read', !card.userState.is_read)}>
               <Icons.Check size={14} aria-hidden="true" />{card.userState.is_read ? '标记未读' : '标记已读'}
             </button>
-            <button type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm" onClick={copySummary}>
+            <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={copySummary}>
               <Icons.Copy size={14} aria-hidden="true" />复制摘要
             </button>
-            <button disabled={readonly} type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40" onClick={() => onItemAction('dismissed', !card.userState.dismissed)}>
+            <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('dismissed', !card.userState.dismissed)}>
               <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
             </button>
           </div>
