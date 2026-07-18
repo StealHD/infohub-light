@@ -221,7 +221,14 @@ def _source_health_job(store, workspace, owner, *, source_index=0):
         ),
     )
     store.connect().execute(
-        "UPDATE fetch_jobs SET status = 'partial' WHERE id = ?", (job["id"],)
+        """
+        UPDATE fetch_jobs
+        SET status = 'partial',
+            result_json = '{"fetched_count":0,"run_status":"partial","snapshot_id":"snap-old"}',
+            started_at = '2026-07-18T00:59:00+00:00'
+        WHERE id = ?
+        """,
+        (job["id"],),
     )
     store.connect().commit()
     return source_id, subscription, job
@@ -243,6 +250,8 @@ def test_retry_job_reopens_health_application_inside_caller_transaction(
     during = SourceHealthService(store).get_health(subscription["id"])
 
     assert retried["status"] == "queued"
+    assert retried["result_json"] is None
+    assert retried["started_at"] is None
     assert conn.in_transaction is True
     assert during["last_job_id"] is None
     assert during["status"] == before["status"] == "healthy"
@@ -255,7 +264,14 @@ def test_retry_job_reopens_health_application_inside_caller_transaction(
     conn.rollback()
 
     rolled_back = SourceHealthService(store).get_health(subscription["id"])
-    assert queue.get_job(job["id"])["status"] == "partial"
+    rolled_back_job = queue.get_job(job["id"])
+    assert rolled_back_job["status"] == "partial"
+    assert rolled_back_job["result_json"] == {
+        "fetched_count": 0,
+        "run_status": "partial",
+        "snapshot_id": "snap-old",
+    }
+    assert rolled_back_job["started_at"] == "2026-07-18T00:59:00+00:00"
     assert rolled_back["last_job_id"] == job["id"]
     assert conn.execute(
         "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",

@@ -783,6 +783,8 @@ class JobQueue:
                     finished_at = NULL,
                     error_code = NULL,
                     error_message = NULL,
+                    result_json = NULL,
+                    started_at = NULL,
                     updated_at = ?
                 WHERE id = ?
                   AND status IN ('failed', 'partial', 'cancelled')

@@ -1105,3 +1105,11 @@
 - 结果：retry 成功转 queued 的同一事务清除该 Job application ledger 并断开 Health `last_job_id`，保留旧健康字段；新 attempt 可重新幂等写 Health，多订阅、外事务回滚与并发语义稳定；诊断不再用状态/时间猜代际
 - 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
 - 控制面变更：仅同步 Task 7 内部 retry/Health attempt provenance；普通六工具与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第五轮独立审查的一个 Important
+- 修改文件：JobQueue retry attempt-local 清理、真实 Worker/read/diagnostics 与事务回归、Task 7 主计划、R5 报告、`WORKLOG.md`
+- 执行验证：两项专项先精确 RED，最小修复后 GREEN；focused 288 项、R4 邻接 238 项、full gate 22/22、Python compile、两个 JSON 和 diff 检查通过
+- 结果：same-ID manual retry 在成功条件 UPDATE 中原子清除旧 `result_json/started_at`；queued/running 与第二 attempt pre-result failure 的普通 list/get、Job/Source diagnostics 均不再暴露旧 summary，下一 claim 重写当前开始时间
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部 retry attempt attribution；普通六工具 shape、权限、active/rollback/concurrency 与 R4 Health provenance 不变

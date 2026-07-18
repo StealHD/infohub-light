@@ -4,7 +4,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from src.mcp.remote_diagnostics import RemoteMCPDiagnostics
-from src.mcp.remote_service import RemoteMCPNotFound
+from src.mcp.remote_service import (
+    RemoteMCPNotFound,
+    RemoteMCPReadService,
+)
 from src.models import ContentItem, SourceType
 from src.services.feed_run import FeedRunResult, RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
@@ -969,6 +972,190 @@ def test_catalog_partial_retry_success_reapplies_health_and_diagnostics(
     assert result_summary["fetched_count"] == 3
     assert result_summary["item_count"] == 3
     assert result_summary["run_status"] == "succeeded"
+
+
+def test_catalog_partial_manual_retry_drops_old_result_before_a_pre_result_failure(
+    context, monkeypatch
+):
+    (context["data_dir"] / "config.json").write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "ai": {
+                    "enabled": False,
+                    "provider": "openai",
+                    "model": "gpt-4o-mini",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "sources": {
+                    "rss": [],
+                    "github": [],
+                    "hackernews": {"enabled": False},
+                },
+                "filtering": {"time_window_hours": 24},
+            }
+        ),
+        encoding="utf-8",
+    )
+    attempts = iter(
+        (
+            _catalog_worker_result(
+                context,
+                run_id="run_partial_with_snapshot",
+                status="partial",
+                fetched_count=1,
+            ),
+            RuntimeError("failed before FeedRunResult"),
+        )
+    )
+    running_views = {}
+
+    class FakeOrchestrator:
+        def __init__(self, _config, _storage):
+            pass
+
+        async def execute(self, **_kwargs):
+            attempt = next(attempts)
+            if isinstance(attempt, Exception):
+                running_job = JobQueue(context["store"]).get_job(job["id"])
+                reads = RemoteMCPReadService(context["store"])
+                running_views.update(
+                    {
+                        "job": running_job,
+                        "listed": reads.list_jobs(
+                            workspace_id=context["workspace"]["id"],
+                            user_id=context["owner"]["id"],
+                        )["items"][0],
+                        "fetched": reads.get_job(
+                            workspace_id=context["workspace"]["id"],
+                            user_id=context["owner"]["id"],
+                            job_id=job["id"],
+                        ),
+                        "job_diagnostic": context["diagnostics"].diagnose_job(
+                            actor=context["actor"],
+                            job_id=job["id"],
+                        ),
+                        "source_diagnostic": context[
+                            "diagnostics"
+                        ].diagnose_source(
+                            actor=context["actor"],
+                            subscription_id=context["subscription"]["id"],
+                        ),
+                    }
+                )
+                raise attempt
+            return attempt
+
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.HorizonOrchestrator", FakeOrchestrator
+    )
+    queue = JobQueue(context["store"])
+    job, created = queue.create_source_fetch_if_absent(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        source_id=context["source_id"],
+        subscription_id=context["subscription"]["id"],
+        payload={},
+        max_attempts=1,
+    )
+    first = run_worker_once(
+        data_dir=str(context["data_dir"]),
+        worker_id="diagnostic-old-result-first",
+        enqueue_schedules=False,
+    )
+    first_summary = RemoteMCPReadService(context["store"]).get_job(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        job_id=job["id"],
+    )["result_summary"]
+    old_started_at = first["started_at"]
+    old_snapshot_id = first_summary["snapshot_id"]
+
+    assert created is True
+    assert first["status"] == "partial"
+    assert first_summary == {
+        "fetched_count": 1,
+        "item_count": 1,
+        "snapshot_id": old_snapshot_id,
+        "run_status": "partial",
+    }
+
+    retried = queue.retry_job(job["id"], user_id=context["owner"]["id"])
+    reads = RemoteMCPReadService(context["store"])
+    queued_views = {
+        "listed": reads.list_jobs(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["owner"]["id"],
+        )["items"][0],
+        "fetched": reads.get_job(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["owner"]["id"],
+            job_id=job["id"],
+        ),
+        "job_diagnostic": context["diagnostics"].diagnose_job(
+            actor=context["actor"],
+            job_id=job["id"],
+        ),
+        "source_diagnostic": context["diagnostics"].diagnose_source(
+            actor=context["actor"],
+            subscription_id=context["subscription"]["id"],
+        ),
+    }
+
+    assert retried["status"] == "queued"
+    assert retried["result_json"] is None
+    assert retried["started_at"] is None
+    for phase in (queued_views,):
+        assert phase["listed"]["result_summary"] == {}
+        assert phase["fetched"]["result_summary"] == {}
+        assert not any(
+            item["kind"] == "result_summary"
+            for key in ("job_diagnostic", "source_diagnostic")
+            for item in phase[key]["evidence"]
+        )
+        assert old_snapshot_id not in repr(phase)
+
+    second = run_worker_once(
+        data_dir=str(context["data_dir"]),
+        worker_id="diagnostic-pre-result-second",
+        enqueue_schedules=False,
+    )
+    final_views = {
+        "listed": reads.list_jobs(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["owner"]["id"],
+        )["items"][0],
+        "fetched": reads.get_job(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["owner"]["id"],
+            job_id=job["id"],
+        ),
+        "job_diagnostic": context["diagnostics"].diagnose_job(
+            actor=context["actor"],
+            job_id=job["id"],
+        ),
+        "source_diagnostic": context["diagnostics"].diagnose_source(
+            actor=context["actor"],
+            subscription_id=context["subscription"]["id"],
+        ),
+    }
+
+    assert running_views["job"]["status"] == "running"
+    assert running_views["job"]["result_json"] is None
+    assert running_views["job"]["started_at"]
+    assert running_views["job"]["started_at"] != old_started_at
+    assert second["status"] == "failed"
+    assert second["error_code"] == "RuntimeError"
+    assert second["result_json"] is None
+    for phase in (running_views, final_views):
+        assert phase["listed"]["result_summary"] == {}
+        assert phase["fetched"]["result_summary"] == {}
+        assert not any(
+            item["kind"] == "result_summary"
+            for key in ("job_diagnostic", "source_diagnostic")
+            for item in phase[key]["evidence"]
+        )
+        assert old_snapshot_id not in repr(phase)
 
 
 @pytest.mark.parametrize(
