@@ -23,4 +23,9 @@ def test_remote_mcp_readonly_rollout_is_api_only_sanitized_and_reversible():
     assert "只启动 `horizon-api`" in runbook
     assert "不得启动 `horizon-worker`" in runbook
     assert "不得整份覆盖当前 Nginx server block" in runbook
+    assert 'mkdir -p "$STAGING_ROOT/data" "$STAGING_ROOT/logs"' in runbook
+    assert '-v "$STAGING_ROOT/logs:/app/logs"' in runbook
+    assert '-v "$BASE/logs:/app/logs"' not in runbook
+    assert "`/etc/nginx/sites-enabled/cfl.conf`" in runbook
+    assert "docker stop horizon-light-api horizon-light-worker" in runbook
     assert "INTELISCOPE_MCP_TOKEN=<" not in runbook

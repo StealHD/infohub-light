@@ -48,7 +48,7 @@ proposals、heartbeat 和 active job claim：
 
 ```bash
 STAGING_ROOT="$BASE/staging/$RELEASE_ID"
-mkdir -p "$STAGING_ROOT/data"
+mkdir -p "$STAGING_ROOT/data" "$STAGING_ROOT/logs"
 python3 "$RELEASE_DIR/scripts/prepare_service_deployment.py" \
   --source "$BASE/data/service.db" \
   --output "$STAGING_ROOT/data/service.db"
@@ -66,7 +66,7 @@ docker rm -f horizon-mcp-staging 2>/dev/null || true
 docker run -d --name horizon-mcp-staging \
   -p 127.0.0.1:18080:8080 \
   -v "$STAGING_ROOT/data:/app/data" \
-  -v "$BASE/logs:/app/logs" \
+  -v "$STAGING_ROOT/logs:/app/logs" \
   -v "$BASE/.env:/app/.env:ro" \
   -e HORIZON_REMOTE_MCP_ENABLED=true \
   -e HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:18080/mcp \
@@ -104,28 +104,38 @@ openclaw mcp status --verbose
 ## 3. Nginx 精确路由
 
 只把 `deploy/nginx/inteliscope-rate-limit.conf` 的 MCP zone 加入 `http` context，
-并把 `location = /mcp` 合入当前线上 `rb.jiefs.top` server。不得整份覆盖当前 Nginx server block，也不得改变站点现有登录和其他 location。
+并把 `location = /mcp` 最小合入当前线上
+`/etc/nginx/sites-enabled/cfl.conf` 的 `rb.jiefs.top cfl.rb.jiefs.top` server。
+不得整份覆盖当前 Nginx server block，也不得改变 `/cfl`、现有域名或其他
+location。修改前保留带 release ID 的原文件备份。
 
 必须保留以下边界：`auth_basic off`、`client_max_body_size 256k`、每 IP
 120 req/min、burst 10、8 个并发连接、`Authorization` 原样透传、
-`proxy_buffering off`。运行：
+`proxy_buffering off`。先安装限流区、备份并编辑站点，只做配置校验：
 
 ```bash
+sudo cp deploy/nginx/inteliscope-rate-limit.conf \
+  /etc/nginx/conf.d/inteliscope-rate-limit.conf
+sudo cp -a /etc/nginx/sites-enabled/cfl.conf \
+  "/etc/nginx/sites-enabled/cfl.conf.${RELEASE_ID}.bak"
+# 只向现有 443 server 增加 deploy 模板中的精确 location = /mcp。
 sudo nginx -t
-sudo systemctl reload nginx
 ```
 
-此时生产 Remote MCP flag 仍为 false，公网 `/mcp` 不得落入 SPA HTML。
+此时不要 reload：旧 API 不具备 Remote MCP 的精确 fallback。新 API 健康后再
+reload，确保公网 `/mcp` 从未落入旧 SPA HTML。
 
 ## 4. 生产 API-only 切换
 
-记录旧镜像和 release。停止 API 后创建 `0600` 备份；正常回滚保留 additive
-schema v7，不恢复旧 schema：
+记录旧镜像和 release。在 active jobs 为 0 时同时停止 API 与 Worker，再创建
+`0600` 备份；正常回滚保留 additive schema v7，不恢复旧 schema：
 
 ```bash
 PREVIOUS_IMAGE="$(docker inspect horizon-light-api --format '{{.Config.Image}}')"
 PREVIOUS_RELEASE="$(readlink "$BASE/current" || true)"
-docker stop horizon-light-api
+docker stop horizon-light-api horizon-light-worker
+! docker ps --format '{{.Names}}' | grep -E \
+  'horizon-light-(api|worker|scheduler)'
 BACKUP="$BASE/backups/mcp-read-${RELEASE_ID}"
 mkdir -p "$BACKUP"
 install -m 600 "$BASE/data/service.db" "$BACKUP/service.db"
@@ -163,6 +173,8 @@ docker compose -f docker-compose.light.yml up -d --no-build --force-recreate hor
 curl -fsS http://127.0.0.1:8080/api/health/live
 curl -fsS http://127.0.0.1:8080/api/health/ready
 ! docker ps --format '{{.Names}}' | grep -E 'horizon-light-worker|horizon-light-scheduler'
+sudo nginx -t
+sudo systemctl reload nginx
 ln -sfn "$RELEASE_DIR" "$BASE/current"
 ```
 
