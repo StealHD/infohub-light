@@ -255,8 +255,16 @@
 ### D029 Feed 视觉确认先采用单页 Codex 风格微调
 
 - 决策日期：2026-07-18
-- 当前状态：用户已确认实施范围，等待 `/feed` 实页视觉验收
+- 当前状态：已由 D030 的 Quiet Studio 方案取代；本条保留为被替代轨道方案的历史依据
 - 决策内容：本轮只调整生产 `/feed`：隐藏顶部搜索和手动刷新，使用 macOS 系统字体栈，并把信息流进度改为左侧、无容器、带当前与相邻刻度动效的短轨。收藏、历史和其他页面继续保持现状；精确视觉规则只见 `UI_CONTRACT.md`。
 - 原因：用户希望先用真实信息流确认版式和动效，再决定是否把该风格扩散到全局；提前同步修改其他路由会增加视觉判断变量和返工范围。
 - 影响范围：Hero 工作台 Shell 的 `/feed` 路由分支、虚拟 Feed 的显式轨道变体、设计系统字体 token、相关 RTL/浏览器回归；不影响 API、数据库、Query Key、权限、Remote MCP、Worker 或刷新任务语义。
 - 后续：只有用户完成 `/feed` 人工验收并明确授权后，才评估将字体、安静顶部或动态轨道扩散到收藏、历史及其他页面。
+
+### D030 — Feed adopts the approved Quiet Studio variant
+
+- 决策日期：2026-07-18
+- 当前状态：实现、自动化验收和 revision-locked 本地运行已完成；应用内浏览器在本次执行环境不可用，三路由人工运行态复核待补
+- Decision: Remove the Feed progress rail and its gutter; use the split-panel Agent glyph, centered Quiet Studio cards, route-scoped motion, and inline expansion. Keep collection routes unchanged.
+- Rationale: User approved visual direction A and its interaction prototype; the result follows Apple-inspired hierarchy and restraint without copying platform chrome or applying glass to content.
+- Compatibility: No API, query, permission, Worker, Remote MCP, data, or dependency changes.

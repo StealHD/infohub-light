@@ -1083,3 +1083,10 @@
 - 执行验证：release RED（旧轨道/刷新断言 11 项失败）→GREEN；Vite build/artifact 通过，desktop/tablet/mobile Playwright 21/21 通过，`git diff --check` 通过
 - 结果：生产验收覆盖无 Feed rail、后台任务刷新、18px/820px 卡片、原位展开、Agent 图标、Reduced Motion、键盘/44px 触控与 collection 隔离；移除 Feed rail-only 用例和固定等待
 - 控制面变更：无；未修改生产组件、backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 Codex
+- 任务：固化 Quiet Studio Feed 合同、完成一次最终门禁并发布 revision-locked 本地 8080 预览
+- 修改文件：`UI_CONTRACT.md`、`DECISION_LOG.md`、`PLAN.md`、本工作日志
+- 执行验证：Task 1–3 focused TDD RED→GREEN（52 项及 49 项补充、58 项、64 项）；Task 4 release build/artifact 与三视口 Playwright 21/21、Axe 零 serious/critical；本次 `test_gate full` 22/22、`mapping_miss=false`、55.339 秒；镜像 `inteliscope-service:feed-quiet-fef5862f1c48` 的 live revision=`fef5862f1c48`、ready database/worker=`ready`、`/feed` HTTP 200，API/Worker 同镜像且 healthy
+- 结果：D030 与唯一视觉真源已收口，主仓库 light Compose 的本地 API/Worker 已换为一次构建的 Quiet Studio 镜像；应用内浏览器不可用（可用浏览器列表为空），因此 `/feed`、`/saved`、`/history` 人工视觉和 console error 数未取得，未以 standalone Playwright 冒充该证据
+- 控制面变更：仅 Feed 视觉合同和交付状态；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器
