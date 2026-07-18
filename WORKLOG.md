@@ -1137,3 +1137,11 @@
 - 结果：已认证已注册调用在预检前共享每 delegation `60/minute, burst 10`；validation/成功/业务错误各消费一次且每 call 恰好一条七字段日志；unauthenticated/unknown 不计费不审计，每 app 独立且零敏感泄漏
 - 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
 - 控制面变更：仅补充既有 Task 8 delegation limiter 执行顺序与证据；未修改对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 8 第三轮复审的 pre-parse 异常绕过稳定错误与审计 Important
+- 修改文件：app-local MCP validation adapter、两类真实 Client pre-parse 回归、Task 8 主计划、R3 报告、`WORKLOG.md`
+- 执行验证：ValueError/RecursionError 两项专项先 2/2 RED 后 GREEN；Task 8 focused/transport/diagnostics/Nginx 230 项、Task 1/4–7 邻接 854 项、full gate 22/22、Python compile、两个 JSON 与 diff 检查通过
+- 结果：超长整数与深嵌套 JSON 的 SDK pre-parse 异常统一为精确 `invalid_request`，每次恰好一次 bucket charge 与一条七字段日志，输入/异常零泄漏；成功路径仍委托 SDK
+- 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅补充既有 Task 8 输入拒绝边界与执行证据；未修改对外 API/架构/UI 合同

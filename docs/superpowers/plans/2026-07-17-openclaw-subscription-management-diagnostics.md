@@ -1109,6 +1109,26 @@ Run the five RED selectors, both Task 8 HTTP files, transport/diagnostics/Nginx 
 
 Write `.superpowers/sdd/task-8-fix-r2-report.md`, append the compact `WORKLOG.md` entry, mark Steps 11–14 complete only after fresh verification, and create one independent commit containing only the Task 8 R2 fix and evidence.
 
+- [x] **Step 15: Add RED real-client regressions for SDK pre-parse exceptions**
+
+Call `get_my_feed` through a real `ClientSession.call_tool()` with an over-limit integer string for `limit` that makes Python `json.loads()` raise `ValueError`, and with a deeply nested JSON array string for `limit` that makes it raise `RecursionError`. Assert each response is exactly `invalid_request`, each registered call consumes exactly one token from the same app-local delegation bucket, and each emits exactly one fixed seven-field `remote_mcp_call` record without arguments, exception text, interpreter details, or submitted values. For each exception independently, follow the rejected call with nine successful registered calls and a final rate-limit result to prove the pre-parse failure is charged once rather than zero or twice.
+
+Run: `.venv/bin/pytest tests/test_remote_mcp_subscription_http.py -k 'pre_parse' -q`
+
+Expected before the fix: both calls expose SDK/Python exception text and emit no fixed audit record even though the limiter has already consumed a token.
+
+- [x] **Step 16: Map only input-triggered pre-parse and validation failures**
+
+Keep authentication, registered-tool lookup, claim-derived delegation ID, limiter position, `FuncMetadata.pre_parse_json()`, and its generated argument model unchanged. Extend only the existing validation rejection tuple to include `ValueError` and `RecursionError` alongside `ValidationError`, returning the same `ToolError("invalid_request")` and single seven-field audit record. Do not catch `Exception` or `BaseException`; successful pre-parsing must continue through the SDK `FastMCP.call_tool()` path so coercion and schema behavior remain unchanged.
+
+- [x] **Step 17: Verify Task 8, transport, diagnostics, Nginx, and Task 1/4–7 adjacency**
+
+Run the new RED selectors, Task 8 focused/transport/diagnostics/Nginx files, the explicit Task 1 and Task 4–7 adjacency files, `py_compile`, both JSON checks, the full test gate, static checks, and `git diff --check`. Reconfirm exact `invalid_request`, one bucket charge, one seven-field log, zero input/exception leakage, normal SDK success coercion, 14-tool schema/annotations, and zero UI changes.
+
+- [x] **Step 18: Record and commit the R3 fix**
+
+Write `.superpowers/sdd/task-8-fix-r3-report.md`, append the compact `WORKLOG.md` entry, mark Steps 15–18 complete only after fresh verification, and create one independent commit containing only the Task 8 R3 fix and evidence.
+
 ### Task 9: Permission-Aware Assistant Connection UI
 
 **Files:**

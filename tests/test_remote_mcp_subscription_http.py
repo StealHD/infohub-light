@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from contextlib import asynccontextmanager
 
 import httpx
@@ -98,13 +99,94 @@ def _invalid_write_arguments(sensitive_value: str):
     }
 
 
-def _assert_fixed_audit_record(record: str, *, delegation_id: str, outcome: str):
+def _assert_fixed_audit_record(
+    record: str,
+    *,
+    delegation_id: str,
+    outcome: str,
+    tool: str = "prepare_create_subscription",
+):
     assert re.fullmatch(
         rf"remote_mcp_call delegation_id={re.escape(delegation_id)} "
-        r"tool=prepare_create_subscription proposal_id=- action=- "
+        rf"tool={re.escape(tool)} proposal_id=- action=- "
         rf"outcome={outcome} elapsed_ms=\d+ request_id=mcp_[0-9a-f]{{32}}",
         record,
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("failure_kind", "exception_type"),
+    [("integer", ValueError), ("recursion", RecursionError)],
+    ids=("value-error", "recursion-error"),
+)
+async def test_input_triggered_pre_parse_failures_are_stable_audited_and_charged_once(
+    tmp_path, monkeypatch, caplog, failure_kind, exception_type
+):
+    if failure_kind == "integer":
+        integer_limit = sys.get_int_max_str_digits()
+        assert integer_limit > 0
+        sensitive_value = "9" * (integer_limit + 1)
+    else:
+        nesting_depth = 120_000
+        sensitive_value = "[" * nesting_depth + "0" + "]" * nesting_depth
+
+    app = _app(tmp_path, monkeypatch, writes_enabled=True)
+    _user, connection, token = _delegation(app)
+    tool = app.state.remote_mcp._tool_manager.get_tool("get_my_feed")
+    assert tool is not None
+    with pytest.raises(exception_type):
+        tool.fn_metadata.pre_parse_json({"limit": sensitive_value})
+    caplog.set_level(logging.INFO, logger="src.mcp.remote_server")
+
+    async with _mcp_session(app, token) as session:
+        pre_parse_failure = await session.call_tool(
+            "get_my_feed", {"limit": sensitive_value}
+        )
+        fillers = [
+            await session.call_tool("get_source_setup_guide", {})
+            for _ in range(9)
+        ]
+        limited = await session.call_tool("get_my_feed", {})
+
+    assert pre_parse_failure.isError is True
+    assert pre_parse_failure.content[0].text == "invalid_request"
+    assert all(call.isError is False for call in fillers)
+    assert limited.isError is True
+    assert limited.content[0].text == "rate_limited"
+
+    records = _audit_records(caplog)
+    assert len(records) == 11
+    _assert_fixed_audit_record(
+        records[0],
+        delegation_id=connection["id"],
+        outcome="invalid_request",
+        tool="get_my_feed",
+    )
+    for record in records[1:10]:
+        _assert_fixed_audit_record(
+            record,
+            delegation_id=connection["id"],
+            outcome="ok",
+            tool="get_source_setup_guide",
+        )
+    _assert_fixed_audit_record(
+        records[10],
+        delegation_id=connection["id"],
+        outcome="rate_limited",
+        tool="get_my_feed",
+    )
+    serialized_evidence = repr(pre_parse_failure) + "\n" + caplog.text
+    assert sensitive_value not in serialized_evidence
+    for forbidden_detail in (
+        "exceeds the limit",
+        "integer string conversion",
+        "stack overflow",
+        "while decoding a json array",
+        "valueerror",
+        "recursionerror",
+    ):
+        assert forbidden_detail not in serialized_evidence.lower()
 
 
 @pytest.mark.anyio

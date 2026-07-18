@@ -194,7 +194,7 @@ class SafeRemoteMCP(FastMCP):
             try:
                 pre_parsed = tool.fn_metadata.pre_parse_json(arguments)
                 tool.fn_metadata.arg_model.model_validate(pre_parsed)
-            except ValidationError:
+            except (ValidationError, ValueError, RecursionError):
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 _LOGGER.info(
                     "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
