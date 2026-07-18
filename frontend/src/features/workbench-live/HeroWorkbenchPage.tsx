@@ -161,7 +161,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     {loadError && <Card variant="transparent" className="m-5 p-5" role="alert"><Card.Title>信息流加载失败</Card.Title><Card.Description>{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</Card.Description></Card>}
     {!loading && !loadError && cards.length === 0 && <Card variant="transparent" className="m-auto p-6 text-center"><Card.Title>没有匹配的信息</Card.Title><Card.Description>清除筛选或等待下一次更新。</Card.Description></Card>}
     {!loading && !loadError && cards.length > 0 && <VirtualFeed
-      progressRailStyle={kind === 'feed' ? 'codex' : 'compact'}
+      visualVariant={kind === 'feed' ? 'quiet-studio' : 'collection'}
       cards={cards}
       sourceItemIds={sourceItemIds}
       expandedId={selectedId}
