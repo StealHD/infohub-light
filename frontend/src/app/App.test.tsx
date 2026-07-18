@@ -105,6 +105,20 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
+  it('shows the Feed active-filter count for persisted preferences', async () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-live', JSON.stringify({ unreadFirst: true, source: 'detail-source', channel: '', topic: '', minScore: 8 }))
+    const api = liveApi()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByLabelText('已启用 3 项筛选')).toHaveTextContent('3')
+    } finally {
+      window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
+    }
+  })
+
   it('renders production administration routes in the HeroUI shell without an Agent panel', async () => {
     const source = {
       id: 'source-live', type: 'rss', display_name: '覆盖频道来源', scope: 'private' as const,

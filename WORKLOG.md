@@ -1055,3 +1055,10 @@
 - 结果：Feed 使用 Quiet Studio header 标记、受控 split-panel 图标与简化工具行；收藏/历史保持原图标和 collection 工具行
 - 未解决问题：后续任务仍负责移除 Feed rail 与重设卡片；本任务未执行它们的视觉/全量门禁
 - 控制面变更：`UI_CONTRACT.md` 将 `/feed` rail 规则替换为 Quiet Studio 的绑定布局、动效、可访问性与受控尺寸语义
+
+### 2026-07-18 Codex
+- 任务：补齐 Quiet Studio Feed 已启用筛选数量的回归覆盖
+- 修改文件：`App.test.tsx`、Task 1 报告与本工作日志
+- 执行验证：`npm --prefix frontend run test -- src/app/App.test.tsx` RED（缺少 `已启用 3 项筛选`）→GREEN（1 文件/49 项通过）
+- 结果：持久化的未读优先、来源和最低分筛选会显示可访问的三项计数
+- 控制面变更：无
