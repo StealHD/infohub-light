@@ -100,6 +100,14 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const topics = useMemo(() => Array.from(new Set(sourceItems.flatMap((item) => item.presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? []))).sort(), [sourceItems])
   const loading = feedQuery.isLoading || savedQuery.isLoading || historyQuery.isLoading
   const loadError = feedQuery.error || savedQuery.error || historyQuery.error
+  const quietStudio = kind === 'feed'
+  const activeFilterCount = [
+    preference.unreadFirst,
+    preference.source,
+    preference.channel,
+    preference.topic,
+    preference.minScore !== undefined,
+  ].filter(Boolean).length
 
   function updatePreference(patch: Partial<FeedPreference>) {
     const next = { ...preference, ...patch }
@@ -116,13 +124,16 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }
 
   return <section aria-label="信息流工作区" className="flex h-full min-h-0 flex-col">
-    <div className="flex min-h-[48px] flex-wrap items-center gap-2 border-b border-separator px-3 py-2 sm:px-5">
-      <span className="text-xs text-muted">旧内容在上，最新内容在下 · {cards.length} 条</span>
-      <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>
-      {preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
+    <div className={`flex min-h-[48px] flex-wrap items-center gap-2 border-b border-separator px-3 py-2 sm:px-5 ${quietStudio ? 'bg-background/95 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md' : ''}`}>
+      <span className="text-xs text-muted">
+        {quietStudio ? `${cards.length} 条内容 · 最新在下` : `旧内容在上，最新内容在下 · ${cards.length} 条`}
+      </span>
+      {!quietStudio && <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>}
+      {!quietStudio && preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
       <Popover>
-        <Popover.Trigger aria-label="筛选信息流" className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
-          <Icons.SlidersHorizontal size={15} />筛选
+        <Popover.Trigger aria-label="筛选信息流" className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'ml-auto' : ''}`}>
+          <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选
+          {quietStudio && activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="rounded-md bg-accent/15 px-1.5 text-xs text-accent">{activeFilterCount}</span>}
         </Popover.Trigger>
         <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
           <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">

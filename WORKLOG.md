@@ -1047,3 +1047,11 @@
 - 结果：`/feed` 顶栏只保留标题与 Agent 开关，采用系统字体；300px/28 段左轨随可见卡片以 160ms 宽度/颜色/透明度动效反馈并支持 Reduced Motion；收藏和历史继续保留原搜索、更新按钮和紧凑右轨
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：新增 D029 并更新 `UI_CONTRACT.md` 的 Feed 专属视觉边界；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 Codex
+- 任务：实现 Quiet Studio Feed 顶栏、工具行和双栏 Agent 图标，并先更新 UI 契约
+- 修改文件：设计系统图标出口、Hero Shell/Page、两项 focused Vitest、UI 契约与本工作日志
+- 执行验证：`npm --prefix frontend run test -- src/features/workbench-live/HeroWorkbenchShell.test.tsx src/app/App.test.tsx` RED（2 项目标行为失败）→GREEN（2 文件/52 项通过）
+- 结果：Feed 使用 Quiet Studio header 标记、受控 split-panel 图标与简化工具行；收藏/历史保持原图标和 collection 工具行
+- 未解决问题：后续任务仍负责移除 Feed rail 与重设卡片；本任务未执行它们的视觉/全量门禁
+- 控制面变更：`UI_CONTRACT.md` 将 `/feed` rail 规则替换为 Quiet Studio 的绑定布局、动效、可访问性与受控尺寸语义

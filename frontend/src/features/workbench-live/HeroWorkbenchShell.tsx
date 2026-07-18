@@ -271,7 +271,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           </div>
         </aside>
 
-        <header className="col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator bg-surface px-3 min-[768px]:col-start-2 min-[768px]:px-4">
+        <header
+          data-header-visual={feedRoute ? 'quiet-studio' : undefined}
+          className={`col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator px-3 min-[768px]:col-start-2 min-[768px]:px-4 ${feedRoute ? 'bg-surface/95 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg' : 'bg-surface'}`}
+        >
           {contentRoute ? <h1 className="shrink-0 text-base font-semibold">{pageTitle}</h1> : <strong className="shrink-0 text-base font-semibold">{pageTitle}</strong>}
           {collectionHeaderControls ? <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group>
@@ -289,11 +292,20 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             size="sm"
             variant="ghost"
             isIconOnly
+            data-agent-toggle-visual={feedRoute ? 'quiet-studio' : undefined}
+            data-agent-open={agentOpen ? 'true' : 'false'}
+            className={feedRoute
+              ? 'h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] text-muted transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 data-[agent-open=true]:bg-accent/15 data-[agent-open=true]:text-accent motion-reduce:transform-none'
+              : undefined}
             aria-label={agentOpen ? '收起 Agent 面板' : '展开 Agent 面板'}
             aria-expanded={agentOpen}
             aria-controls="live-agent-panel"
             onPress={() => setAgentOpen((value) => !value)}
-          >{agentOpen ? <Icons.PanelRightClose size={17} /> : <Icons.PanelRightOpen size={17} />}</Button>}
+          >{feedRoute
+            ? <Icons.SplitPanel open={agentOpen} size={18} aria-hidden="true" />
+            : agentOpen
+              ? <Icons.PanelRightClose size={17} aria-hidden="true" />
+              : <Icons.PanelRightOpen size={17} aria-hidden="true" />}</Button>}
         </header>
 
         <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
