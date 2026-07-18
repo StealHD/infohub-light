@@ -34,6 +34,47 @@ describe('VirtualFeed', () => {
     expect(screen.getAllByRole('button', { name: /跳转到第 .* 条信息/ })).toHaveLength(12)
   })
 
+  it('renders the Codex Feed rail as a bounded animated left gutter', () => {
+    const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
+    render(<VirtualFeed
+      progressRailStyle="codex"
+      cards={cards}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const rail = screen.getByRole('navigation', { name: '信息流进度' })
+    expect(rail).toHaveAttribute('data-progress-rail', 'codex')
+    expect(within(rail).getAllByRole('button')).toHaveLength(28)
+    expect(rail).toHaveClass('left-2')
+    expect(rail).not.toHaveClass('bg-surface/80')
+    const current = within(rail).getByRole('button', { current: true })
+    expect(current).toHaveAttribute('data-emphasis', 'active')
+    expect(current.className).toContain('transition-[width,background-color,opacity,transform]')
+  })
+
+  it('keeps the Codex visual cadence for a short Feed without adding cards', () => {
+    const cards = Array.from({ length: 4 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
+    render(<VirtualFeed
+      progressRailStyle="codex"
+      cards={cards}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const rail = screen.getByRole('navigation', { name: '信息流进度' })
+    const visualTicks = within(rail).getAllByRole('button')
+    expect(visualTicks).toHaveLength(28)
+    expect(new Set(visualTicks.map((tick) => tick.getAttribute('aria-label'))).size).toBe(28)
+    expect(screen.getAllByTestId('workbench-card').length).toBeLessThanOrEqual(4)
+  })
+
   it('expands in place without implicitly marking the item read', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()

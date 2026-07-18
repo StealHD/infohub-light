@@ -18,6 +18,7 @@ import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 type ItemStateAction = 'is_read' | 'dismissed'
 
 type VirtualFeedProps = {
+  progressRailStyle?: 'compact' | 'codex'
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
   expandedId?: string
@@ -157,6 +158,7 @@ function WorkbenchCard({
 }
 
 export function VirtualFeed(props: VirtualFeedProps) {
+  const codexRail = props.progressRailStyle === 'codex'
   const sourceItemIds = props.sourceItemIds ?? props.cards.map((card) => card.id)
   const sourceSignature = sourceItemIds.join('\u0000')
   const cardsSignature = props.cards.map((card) => card.id).join('\u0000')
@@ -178,7 +180,16 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const didInitialScroll = useRef(false)
   const [activeIndex, setActiveIndex] = useState(Math.max(0, props.cards.length - 1))
   const [newItemCount, setNewItemCount] = useState(0)
-  const ticks = useMemo(() => sampleTickIndexes(props.cards.length), [props.cards.length])
+  const ticks = useMemo(() => {
+    if (!codexRail) return sampleTickIndexes(props.cards.length, 12)
+    if (!props.cards.length) return []
+    return Array.from({ length: 28 }, (_, position) => Math.round(position * (props.cards.length - 1) / 27))
+  }, [codexRail, props.cards.length])
+  const activeTickPosition = codexRail
+    ? ticks.length ? Math.round(activeIndex * (ticks.length - 1) / Math.max(1, props.cards.length - 1)) : -1
+    : ticks.length
+      ? ticks.reduce((nearest, index, position) => Math.abs(index - activeIndex) < Math.abs(ticks[nearest] - activeIndex) ? position : nearest, 0)
+      : -1
   const initialTargetIndex = props.navigationTargetId ? props.cards.findIndex((card) => card.id === props.navigationTargetId) : props.cards.length - 1
   // TanStack Virtual intentionally returns mutable imperative methods; React Compiler skips this component safely.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -428,20 +439,38 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }
 
   return <div className="relative flex min-h-0 flex-1 overflow-hidden">
-    <nav aria-label="信息流进度" className="absolute right-2 top-1/2 z-10 flex h-28 -translate-y-1/2 flex-col justify-around rounded-lg bg-surface/80 px-1.5 py-2 backdrop-blur">
-      {ticks.map((index) => <button
-        key={index}
-        type="button"
-        aria-label={`跳转到第 ${index + 1} 条信息`}
-        aria-current={Math.abs(activeIndex - index) <= Math.max(1, Math.ceil(props.cards.length / Math.max(1, ticks.length)) / 2) ? 'true' : undefined}
-        className="h-0.5 w-3 rounded-lg bg-muted aria-current:w-5 aria-current:bg-accent"
-        onClick={() => jumpTo(index)}
-      />)}
+    <nav
+      aria-label="信息流进度"
+      data-progress-rail={codexRail ? 'codex' : 'compact'}
+      className={codexRail
+        ? 'absolute left-2 top-1/2 z-10 hidden h-[300px] w-10 -translate-y-1/2 flex-col justify-center gap-2 min-[640px]:flex'
+        : 'absolute right-2 top-1/2 z-10 flex h-28 -translate-y-1/2 flex-col justify-around rounded-lg bg-surface/80 px-1.5 py-2 backdrop-blur'}
+    >
+      {ticks.map((index, position) => {
+        const distance = Math.abs(position - activeTickPosition)
+        const emphasis = distance === 0 ? 'active' : distance === 1 ? 'near' : position % 4 === 0 ? 'major' : 'idle'
+        const progressPercent = ticks.length > 1 ? Math.round(position * 100 / (ticks.length - 1)) : 100
+        const current = codexRail
+          ? position === activeTickPosition
+          : Math.abs(activeIndex - index) <= Math.max(1, Math.ceil(props.cards.length / Math.max(1, ticks.length)) / 2)
+        const tickClassName = codexRail
+          ? `h-0.5 origin-left rounded-full transition-[width,background-color,opacity,transform] duration-[var(--inteliscope-motion-standard)] ease-out motion-reduce:transition-none hover:translate-x-0.5 hover:bg-foreground focus-visible:translate-x-0.5 focus-visible:bg-foreground ${emphasis === 'active' ? 'w-8 bg-foreground opacity-100' : emphasis === 'near' ? 'w-5 bg-muted opacity-80' : emphasis === 'major' ? 'w-4 bg-muted opacity-55' : 'w-2.5 bg-muted opacity-40'}`
+          : 'h-0.5 w-3 rounded-lg bg-muted aria-current:w-5 aria-current:bg-accent'
+        return <button
+          key={`${position}-${index}`}
+          type="button"
+          aria-label={codexRail ? `跳转到信息流 ${progressPercent}% 位置` : `跳转到第 ${index + 1} 条信息`}
+          aria-current={current ? 'true' : undefined}
+          data-emphasis={codexRail ? emphasis : undefined}
+          className={tickClassName}
+          onClick={() => jumpTo(index)}
+        />
+      })}
     </nav>
     <div
       ref={scrollRef}
       data-testid="workbench-feed-scroll"
-      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 pr-10 [overflow-anchor:none] sm:px-5 sm:pr-12"
+      className={`min-h-0 flex-1 overflow-y-auto overscroll-contain py-4 [overflow-anchor:none] ${codexRail ? 'px-3 min-[640px]:pl-16 min-[640px]:pr-5' : 'px-3 pr-10 sm:px-5 sm:pr-12'}`}
       onScroll={updateScrollState}
       onWheel={cancelInlineAnchor}
       onTouchStart={cancelInlineAnchor}

@@ -145,6 +145,8 @@ function AgentPanelContent({
 export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
+  const feedRoute = location.pathname === '/feed'
+  const collectionHeaderControls = contentRoute && !feedRoute
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const agentToggleRef = useRef<HTMLButtonElement>(null)
   const [wideDesktop, setWideDesktop] = useState(initialWideDesktop)
@@ -241,7 +243,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   return <WorkbenchAgentContext.Provider value={agentValue}>
       <div
         data-testid="live-workbench-shell"
-        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`}
+        data-feed-typography={feedRoute ? 'mac-system' : undefined}
+        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns} ${feedRoute ? '[font-family:var(--inteliscope-font-feed)]' : ''}`}
       >
         <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
           <div className={`flex h-[52px] items-center gap-2 px-3 font-semibold ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
@@ -270,14 +273,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
         <header className="col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator bg-surface px-3 min-[768px]:col-start-2 min-[768px]:px-4">
           {contentRoute ? <h1 className="shrink-0 text-base font-semibold">{pageTitle}</h1> : <strong className="shrink-0 text-base font-semibold">{pageTitle}</strong>}
-          {contentRoute ? <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
+          {collectionHeaderControls ? <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group>
               <SearchField.SearchIcon><Icons.Search size={16} /></SearchField.SearchIcon>
               <SearchField.Input placeholder="搜索标题、来源或主题" />
               <SearchField.ClearButton aria-label="清除搜索" />
             </SearchField.Group>
           </SearchField> : <span className="flex-1" />}
-          {contentRoute && <Button size="sm" variant="ghost" aria-label="更新信息流" isDisabled={refreshing || !props.onRefresh} onPress={requestRefresh}>
+          {collectionHeaderControls && <Button size="sm" variant="ghost" aria-label="更新信息流" isDisabled={refreshing || !props.onRefresh} onPress={requestRefresh}>
             <Icons.RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             <span className="hidden min-[560px]:inline">{props.refreshState === 'queued' ? '已排队' : refreshing ? '更新中' : '更新信息流'}</span>
           </Button>}

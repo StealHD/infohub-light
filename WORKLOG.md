@@ -1039,3 +1039,11 @@
 - 结果：来源类型变化时按 type 重建 SourceForm 并加载该定义默认值；必填选项保留 HeroUI/React Aria required 语义，同时继续由统一中文字段校验输出错误；整数型 registry 字段拒绝小数并显式使用 step=1，避免后端静默截断
 - 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 14:00 Codex
+- 任务：按用户批注仅收口 `/feed` 的 Codex-inspired 视觉基准，移除搜索/手动更新，改用 macOS 系统字体栈，并重做带动效的左侧短刻度
+- 修改文件：Feed Shell 路由边界、虚拟信息流进度轨、Feed 专用字体变量、RTL/Vitest 回归、UI 契约/决策/实施计划与本工作日志
+- 执行验证：两轮可信 RED→GREEN（Feed 控件隔离、Codex 轨道；4 条真实数据时仍保持 28 个视觉刻度）；focused 18 项、UI contract、lint、TypeScript、Vite build/artifact 通过；真实 API 浏览器核验 `/feed` 动画轨道及 `/saved` 未受影响；最终 `test_gate full` 22/22、`mapping_miss=false`、51.982 秒；`git diff --check` 通过
+- 结果：`/feed` 顶栏只保留标题与 Agent 开关，采用系统字体；300px/28 段左轨随可见卡片以 160ms 宽度/颜色/透明度动效反馈并支持 Reduced Motion；收藏和历史继续保留原搜索、更新按钮和紧凑右轨
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：新增 D029 并更新 `UI_CONTRACT.md` 的 Feed 专属视觉边界；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

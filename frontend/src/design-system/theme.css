@@ -7,6 +7,7 @@
   --inteliscope-motion-fast: 120ms;
   --inteliscope-motion-standard: 160ms;
   --inteliscope-motion-deliberate: 220ms;
+  --inteliscope-font-feed: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang SC", "Noto Sans SC Variable", sans-serif;
 }
 
 .inteliscope-design-system[data-inteliscope-theme="graphite-purple"] {

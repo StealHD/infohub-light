@@ -162,6 +162,25 @@ it('renders the Codex feed rail as a bounded animated left gutter', () => {
   expect(current).toHaveAttribute('data-emphasis', 'active')
   expect(current.className).toContain('transition-[width,background-color,opacity,transform]')
 })
+
+it('keeps the Codex visual cadence for a short Feed without adding cards', () => {
+  const cards = Array.from({ length: 4 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
+  render(<VirtualFeed
+    progressRailStyle="codex"
+    cards={cards}
+    contextIds={[]}
+    onToggleExpanded={vi.fn()}
+    onToggleSaved={vi.fn()}
+    onToggleContext={vi.fn()}
+    onItemAction={vi.fn()}
+  />)
+
+  const rail = screen.getByRole('navigation', { name: '信息流进度' })
+  const visualTicks = within(rail).getAllByRole('button')
+  expect(visualTicks).toHaveLength(28)
+  expect(new Set(visualTicks.map((tick) => tick.getAttribute('aria-label'))).size).toBe(28)
+  expect(screen.getAllByTestId('workbench-card').length).toBeLessThanOrEqual(4)
+})
 ```
 
 Keep the existing default test asserting 12 compact ticks so collection behavior remains covered.
@@ -192,13 +211,16 @@ type VirtualFeedProps = {
 }
 
 const codexRail = props.progressRailStyle === 'codex'
-const ticks = useMemo(
-  () => sampleTickIndexes(props.cards.length, codexRail ? 28 : 12),
-  [codexRail, props.cards.length],
-)
-const activeTickPosition = ticks.reduce((nearest, index, position) =>
-  Math.abs(index - activeIndex) < Math.abs(ticks[nearest] - activeIndex) ? position : nearest,
-0)
+const ticks = useMemo(() => {
+  if (!codexRail) return sampleTickIndexes(props.cards.length, 12)
+  if (!props.cards.length) return []
+  return Array.from({ length: 28 }, (_, position) => Math.round(position * (props.cards.length - 1) / 27))
+}, [codexRail, props.cards.length])
+const activeTickPosition = codexRail
+  ? ticks.length ? Math.round(activeIndex * (ticks.length - 1) / Math.max(1, props.cards.length - 1)) : -1
+  : ticks.length
+    ? ticks.reduce((nearest, index, position) => Math.abs(index - activeIndex) < Math.abs(ticks[nearest] - activeIndex) ? position : nearest, 0)
+    : -1
 
 function codexTickEmphasis(position: number) {
   const distance = Math.abs(position - activeTickPosition)

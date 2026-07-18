@@ -37,10 +37,10 @@ const api = {
   agentDelegations: vi.fn().mockResolvedValue({ enabled: true, connections: [], mcp_url: '/mcp', token_ttl_days: 90, max_active: 5 }),
 } as unknown as ServiceApi
 
-function Shell({ user }: { user: User }) {
+function Shell({ user, path = '/feed' }: { user: User; path?: string }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={queryClient}>
-    <MemoryRouter initialEntries={['/feed']}>
+    <MemoryRouter initialEntries={[path]}>
       <HeroWorkbenchShell api={api} user={user} query="" onQueryChange={vi.fn()} onLogout={vi.fn()} refreshState="idle">
         <div>content</div>
       </HeroWorkbenchShell>
@@ -77,5 +77,30 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     render(<Shell user={{ id: 'sidebar-tablet', username: 'tablet', role: 'member', enabled: true }} />)
 
     expect(screen.queryByRole('button', { name: /侧栏/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('HeroWorkbenchShell Feed visual scope', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() })
+    useViewport(1440)
+  })
+
+  it('removes search and manual refresh only from the Feed header', () => {
+    render(<Shell user={{ id: 'feed-visual', username: 'feed', role: 'member', enabled: true }} />)
+
+    expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-feed-typography', 'mac-system')
+    expect(screen.getByRole('heading', { name: '信息流' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起 Agent 面板' })).toBeInTheDocument()
+  })
+
+  it('keeps collection header controls and the default typography scope', () => {
+    render(<Shell path="/saved" user={{ id: 'saved-visual', username: 'saved', role: 'member', enabled: true }} />)
+
+    expect(screen.getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '更新信息流' })).toBeInTheDocument()
+    expect(screen.getByTestId('live-workbench-shell')).not.toHaveAttribute('data-feed-typography')
   })
 })
