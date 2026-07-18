@@ -1193,3 +1193,11 @@
 - 结果：read connection 精确开放 10 个安全读/指导/诊断工具，write connection 保持 14 个且生产写 flag 默认关闭；canary 覆盖全部安全读、双用户隔离、禁写与吊销 401
 - 未解决问题：release gate 尚无通过结论；真实 OpenClaw、独立 staging、生产 TLS/canary/切换及 24 小时观察尚未执行
 - 控制面变更：Remote MCP 权威合同改为 10 安全读 + 4 写流程，生产只读边界固定保留 additive v6/v7 且不启动 Worker/Agent/模型
+
+### 2026-07-18 Codex
+- 任务：执行 OpenClaw MCP 合并与只读生产发布前的最后一次门禁
+- 修改文件：API-only 发布 Runbook、Runbook 静态测试与 `WORKLOG.md`；恢复 OpenClaw approvals 并清理临时 profile
+- 执行验证：Runbook 专项按预期 RED 后 GREEN；release gate 22/23 commands 通过，唯一失败为 Playwright 4 项，原因是 worktree `node_modules` 软链接位于 Vite allow list 外导致本地字体请求被拒绝
+- 结果：已删除临时 `data/config.json`/`frontend/node_modules` 软链接；按批准的最终门禁硬边界停止，未合并、未构建镜像、未修改 staging/Nginx/生产容器或数据库
+- 未解决问题：release gate 无通过结论；后续合并、staging、双用户 canary、生产切换与 24 小时观察保持阻塞，除非用户另行授权新的验证方案
+- 控制面变更：Runbook 现在要求备份前同时停止 API/Worker、staging 独立日志，并仅增量修改线上 `cfl.conf`
