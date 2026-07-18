@@ -1090,3 +1090,11 @@
 - 执行验证：Task 1–3 focused TDD RED→GREEN（52 项及 49 项补充、58 项、64 项）；Task 4 release build/artifact 与三视口 Playwright 21/21、Axe 零 serious/critical；本次 `test_gate full` 22/22、`mapping_miss=false`、55.339 秒；镜像 `inteliscope-service:feed-quiet-fef5862f1c48` 的 live revision=`fef5862f1c48`、ready database/worker=`ready`、`/feed` HTTP 200，API/Worker 同镜像且 healthy
 - 结果：D030 与唯一视觉真源已收口，主仓库 light Compose 的本地 API/Worker 已换为一次构建的 Quiet Studio 镜像；控制器随后在应用内浏览器完成真实运行态复核：`/feed` 显示 4 条 Quiet Studio 卡片、无进度轨及其留白，split-panel Agent 图标、原位展开与加入上下文均可用，Agent 关闭/重开前后 Feed `scrollTop` 均为 `396.5`；`/saved` 与 `/history` 继续显示 collection rail、搜索和更新入口，分别渲染 1/6 张集合卡片；三条路由 console error 均为 0，测试加入的 Agent 上下文已移除
 - 控制面变更：仅 Feed 视觉合同和交付状态；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器
+
+### 2026-07-18 Codex
+- 任务：关闭 Quiet Studio 复审中的宽屏 coarse-pointer 卡片操作目标缩为 32px，以及 PLAN 误把设计规格称为实施证据的问题
+- 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、`PLAN.md`、忽略的 Task 5 报告与本工作日志
+- 执行验证：定向 Vitest 1 项可信 RED（旧链接缺少 fine-pointer `size-8`）→GREEN（1 通过/11 跳过）；TypeScript、`git diff --check` 通过；未运行 full gate、Docker 或 Playwright
+- 结果：Quiet Studio 四个卡片操作以 32px 为 fine-pointer 基线，并通过 `pointer-coarse:size-11` 在任意视口保持 44px；PLAN 分开标注设计规格与 `WORKLOG.md` 实施证据
+- 未解决问题：旧镜像 revision `fef5862f1c48` 不包含本次 runtime 修复；由根控制器在新 HEAD 另行验证
+- 控制面变更：仅修正 PLAN 的证据归属表述；未改变 UI 合同，也未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器

@@ -141,12 +141,12 @@ function WorkbenchCard({
           target="_blank"
           rel="noreferrer"
           aria-label={`打开 ${card.title} 原文`}
-          className={`inline-flex items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-11 min-[768px]:size-8 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
+          className={`inline-flex items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
         ><Icons.ExternalLink size={15} aria-hidden="true" /></a>}
         <Button
           size="sm"
           variant={card.userState.is_saved ? 'secondary' : 'ghost'}
-          className={quietStudio ? 'size-11 min-[768px]:size-8 active:scale-95 motion-reduce:transform-none' : undefined}
+          className={quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : undefined}
           isDisabled={readonly}
           aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${card.title}`}
           onPress={onToggleSaved}
@@ -156,7 +156,7 @@ function WorkbenchCard({
           size="sm"
           variant={inContext ? 'secondary' : 'ghost'}
           data-context-state={inContext ? 'selected' : 'idle'}
-          className={quietStudio ? 'size-11 min-[768px]:size-8 active:scale-95 motion-reduce:transform-none data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent' : undefined}
+          className={quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent' : undefined}
           isDisabled={contextFull && !inContext}
           aria-label={`将 ${card.title} ${inContext ? '移出' : '加入'} Agent 上下文`}
           onPress={onToggleContext}
@@ -170,7 +170,7 @@ function WorkbenchCard({
           <summary
             role="button"
             aria-label={`更多操作 ${card.title}`}
-            className={`flex cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-11 min-[768px]:size-8 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
+            className={`flex cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
           ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
           <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
             <button disabled={readonly} type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40" onClick={() => onItemAction('is_read', !card.userState.is_read)}>

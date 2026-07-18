@@ -113,6 +113,32 @@ describe('VirtualFeed', () => {
     expect(screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })).toHaveAttribute('data-context-state', 'selected')
   })
 
+  it('keeps Quiet Studio card actions compact for fine pointers and 44px for coarse pointers at every width', () => {
+    render(<VirtualFeed
+      visualVariant="quiet-studio"
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const card = screen.getByRole('article', { name: '信息 1' })
+    const actions = [
+      within(card).getByRole('link', { name: '打开 信息 1 原文' }),
+      within(card).getByRole('button', { name: '收藏 信息 1' }),
+      within(card).getByRole('button', { name: '将 信息 1 加入 Agent 上下文' }),
+      within(card).getByRole('button', { name: '更多操作 信息 1' }),
+    ]
+
+    for (const action of actions) {
+      expect(action).toHaveClass('size-8')
+      expect(action).toHaveClass('pointer-coarse:size-11')
+      expect(action.className).not.toContain('min-[768px]:size-8')
+    }
+  })
+
   it('expands in place without implicitly marking the item read', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()
