@@ -1466,3 +1466,12 @@
 - 结果：全部生产路由统一消费 Quiet Studio 语义页面模式；收藏/历史删除 collection 轨道并复用阅读卡片和 ViewBar；管理页只保留 Shell 中的唯一 H1，登录使用 auth 框架；三种 Agent 容器复用统一交接编辑器。静态契约会拒绝业务页重新定义 820/1180/420px 页面宽度
 - 运行验收：重建前确认主数据库无 queued/running Job；一次构建镜像 `inteliscope-service:quiet-studio-c6e83554a16d` 同时替换本地 8080 API/Worker，live revision=`c6e83554a16d`、database/worker ready、两容器同 image ID 且 healthy，六条生产路由 HTTP 200；应用内浏览器真实数据复核设置/订阅唯一标题与统一分区、收藏统一空态、历史 7 张 Quiet Studio 卡片、0 个进度轨且无横向溢出
 - 控制面变更：Quiet Studio 成为全站生产视觉语言并新增 D033；未修改 backend/API/DB/query key/权限/任务/Remote MCP/history/VPS/数据/调度语义
+
+### 2026-07-19 04:16 Codex
+- 任务：建立 Quiet Studio × OpenClaw 独立统一分支，补齐 HeroUI delegation 权限并发布本地 RC
+- 修改文件：非 squash 合并双方历史与控制文档；HeroUI `AgentsPage`、设计系统 Select、前端 API 类型/服务、专项测试；`test_mcp_adapter` 自包含 fixture；`PLAN.md` 与本工作日志
+- 执行验证：HeroUI/API 聚焦 Vitest 61/61 通过，OpenClaw 后端定向集合通过；`test_gate full` 22/22、0 failed/error、`mapping_miss=false`、99.139 秒；`test_gate release` 24/24、0 failed/error、三视口 Playwright/Axe 与 API-only Docker smoke 通过、128.206 秒；`git diff --check` 通过
+- 结果：`feature/quiet-studio-openclaw-rc` 保留 OpenClaw 后端/API 与 Quiet Studio HeroUI 两侧提交历史；助手连接支持默认只读、Viewer/flag 限制、10/14 工具说明及按已保存 access 复制配置；release gate 不再依赖未跟踪 `data/config.json`
+- 数据库验收：主库在线副本在断网 RC 容器中完成 v7 初始化，`agent_change_proposals_v7` marker、两项索引、三项级联外键、integrity/foreign-key 与核心表计数均通过；副本未产生 proposal 或真实外部调用
+- 运行验收：备份 `data/backups/service-pre-quiet-studio-openclaw-rc-20260718T201416Z.db`（SHA-256 `acf8524d5f8db9da03390cbb1210eebd19f5784c7964cdabf53beaec5189a250`）后，本机 8080 已切换至唯一镜像 `inteliscope-service:quiet-studio-openclaw-rc-14f212c83b33` / image ID `sha256:feb6cabe86b76b2cd6cf325dd937c59f7d553486caa00acb8b443d59e9696d9e`；API/Worker 同镜像且 healthy，live revision 正确、database/worker ready，Feed/收藏/历史/订阅/助手连接/设置/登录均 HTTP 200，队列无 queued/running，两个 Remote MCP 开关保持 false
+- 控制面变更：新增 PLAN 第 52 项并修正旧的 6-tool/禁写表述；未修改 `main`、来源分支、远端、公网或 VPS，未启用 Remote MCP 或订阅写入

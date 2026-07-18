@@ -64,6 +64,7 @@
 49. Quiet Studio Feed 视觉确认批次：`/feed` 实现、三视口生产自动化、revision-locked 本地 API/Worker 运行及 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成；权威规则只见 `UI_CONTRACT.md`，设计规格见 `docs/superpowers/specs/2026-07-18-feed-quiet-studio-design.md`，实施证据见 `WORKLOG.md`。
 50. Codex 式信息工作台细节批次：在 Quiet Studio 上完成分类导航、常用视图、账户菜单、Feed 最新优先/可切换顺序、重复摘要抑制和 OpenClaw 单体交接编辑器；权威规则只见 `UI_CONTRACT.md`，设计规格与实施计划分别见 `docs/superpowers/specs/2026-07-18-codex-navigation-feed-details-design.md` 和 `docs/superpowers/plans/2026-07-18-codex-navigation-feed-details.md`，实施证据见 `WORKLOG.md`。
 51. Quiet Studio 全站统一：阅读、管理和认证页面使用设计系统拥有的共享页面模式；收藏/历史删除 collection 进度轨并复用阅读卡片；管理路由只保留唯一标题；OpenClaw 响应式容器复用统一交接编辑器。权威视觉与交互规则只见 `UI_CONTRACT.md`，实施证据见 `WORKLOG.md`。
+52. Quiet Studio × OpenClaw 本地 RC：从 `4445df1` 创建独立 `feature/quiet-studio-openclaw-rc` worktree，以非 squash merge 保留两条来源分支历史；HeroUI 助手连接页已接入 read/subscriptions_write delegation，测试环境不再隐式依赖忽略的 `data/config.json`。唯一镜像 `inteliscope-service:quiet-studio-openclaw-rc-14f212c83b33` 已通过数据库副本 v7、full/release gate 与本机 8080 切换验证；`main`、远端与 VPS 均未改变。
 
 当前仍需推进：
 
@@ -121,7 +122,7 @@
 9. Presentation v1 通用展示合同、来源解析 fixture、用户级 AI cache 和按 run 的 `analysis_usage` 成本诊断。
 10. HeroUI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与共享导航账户区域；视觉规则只见 `UI_CONTRACT.md`。
 11. `test_gate` 映射观察期：保留全量覆盖，记录连续 10 个不同 CI 提交的 selector、`mapping_miss` 和日志/摘要一致性。
-12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、六个安全只读投影、助手连接 UI 和本地 Skill。
+12. 默认关闭的 OpenClaw Remote MCP、用户自管 read/write delegation、10 个安全只读工具、由独立开关控制的 4 个订阅管理工具、助手连接 UI 和本地 Skill。
 
 本阶段不做：
 
@@ -131,7 +132,7 @@
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
 5. 多 workspace、商业计费、自助注册、全站明暗主题切换或独立移动 App；当前 HeroUI 生产体验仅提供暗色主题，视觉规则只见 `UI_CONTRACT.md`。
 6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
-7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、Remote MCP 写操作、OAuth 或 ClawHub 发布。
+7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、密钥/共享来源/任务/Feed 状态类 MCP 写操作、OAuth 或 ClawHub 发布；订阅管理写入只允许走 D025 的 prepare/confirm/apply 且默认关闭。
 
 <!-- init-pro:section name=priorities -->
 ## 5. API / 模块实现优先级
