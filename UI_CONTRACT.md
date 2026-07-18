@@ -41,6 +41,8 @@ This file is the sole source of truth for production UI technology, visual langu
 
 - Navigation contains 信息流、收藏、历史、订阅、助手连接和设置. 稍后读 is absent.
 - Header height is 52 px. The Web application does not imitate macOS traffic lights, window chrome, drag regions, or desktop-only operating-system controls.
+- `/feed` uses the macOS system UI font stack on Apple platforms, with `PingFang SC` and the self-hosted Noto Sans SC variable font as Chinese and cross-platform fallbacks. This typography scope does not change other routes.
+- During the Feed visual-confirmation phase, `/feed` keeps a quiet header containing only the page title and Agent toggle; search and manual refresh are absent. `/saved` and `/history` retain their current collection header controls.
 - At 1360 px and above, the user-isolated sidebar may toggle between 72 px and 232 px; the preference key is `inteliscope.ui.sidebar.v1:<user_id>`, accepted values are `collapsed` and `expanded`, and absent or invalid values resolve to collapsed. Accounts never share the preference.
 - From 1200–1359 px, navigation remains 72 px and the three-column workbench remains visible. The preference toggle is not presented.
 - From 768–1199 px, navigation remains 72 px and Agent is an on-demand right overlay.
@@ -57,7 +59,7 @@ This file is the sole source of truth for production UI technology, visual langu
 - Filters include search, unread-first, source, channel, topic, and minimum score. Preferences remain user-isolated. Filtering and unread-first reordering preserve rendered-ID anchors.
 - Cards show source, time, title, one summary, channel/topics, optional media, and bounded plain text on expansion. Expansion is inline and does not replace the list or move the viewport anchor.
 - Direct actions are open original, save, and add/remove Agent context. Mark read/unread, copy summary, and dismiss live in the compact overflow menu. There is no read-later action.
-- The short progress rail is bounded, represents relative position, exposes keyboard-reachable jumps, and never becomes a full-height timeline.
+- The `/feed` progress rail sits in the left card gutter without an enclosing surface, is approximately 300 px high, samples at most 28 positions, and is hidden below 640 px. Exactly one nearest tick is current; it lengthens and changes contrast while neighboring ticks partially extend using the standard motion token. Reduced Motion removes the transition. `/saved` and `/history` retain the compact rail. Every rail remains bounded, represents relative position, exposes keyboard-reachable jumps, and never becomes a full-height timeline.
 - Agent context contains at most eight ordered item IDs and a question. Handoff text deterministically instructs OpenClaw to call `get_item`; the site does not run an Agent, chat, streaming session, local Gateway probe, or online-presence inference.
 - Connection state copy is limited to configured, not configured, or check failed semantics. Credentials never imply online presence.
 - Viewers may navigate, open, search, copy, and assemble a handoff, but may not mutate Feed item state. Other role behavior follows the existing API/permission contract.
