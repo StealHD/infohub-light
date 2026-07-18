@@ -1069,3 +1069,10 @@
 - 执行验证：`VirtualFeed.test.tsx` RED（Quiet Studio 仍渲染 compact rail）→GREEN（与 `App.test.tsx` 共 2 文件/58 项通过）；`git diff --check` 通过
 - 结果：`/feed` 显式使用 `quiet-studio`，无进度导航/预留 gutter，列宽约 820px；`/saved` 与 `/history` 保持 12 刻度紧凑右轨和原列宽
 - 控制面变更：无
+
+### 2026-07-18 Codex
+- 任务：实现 Quiet Studio Feed 卡片层级、原位展开动效与 Agent 上下文确认态
+- 修改文件：Feed 圆角 token、`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、本工作日志
+- 执行验证：`VirtualFeed.test.tsx` RED（2 项目标行为失败）→GREEN；聚焦 Vitest 3 文件/64 项、UI contract、TypeScript、`git diff --check` 通过
+- 结果：仅 `/feed` 使用 18px 卡片、细边界悬停反馈、可动画详情与移动端 44px 操作；collection 卡片继续保持既有结构
+- 控制面变更：无

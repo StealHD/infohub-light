@@ -67,6 +67,52 @@ describe('VirtualFeed', () => {
     expect(screen.getAllByRole('button', { name: /跳转到第 .* 条信息/ })).toHaveLength(12)
   })
 
+  it('applies Quiet Studio card hierarchy without leaking it to collection cards', () => {
+    const card = toWorkbenchCardModel(makeItem(1))
+    const view = render(<VirtualFeed
+      visualVariant="quiet-studio"
+      cards={[card]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(screen.getByRole('article', { name: '信息 1' })).toHaveAttribute('data-card-visual', 'quiet-studio')
+    expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('data-state', 'collapsed')
+
+    view.rerender(<VirtualFeed
+      visualVariant="collection"
+      cards={[card]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByRole('article', { name: '信息 1' })).toHaveAttribute('data-card-visual', 'collection')
+    expect(screen.queryByTestId('card-details-item-1')).not.toBeInTheDocument()
+  })
+
+  it('animates Quiet Studio details and exposes a confirmation state for Agent context', () => {
+    render(<VirtualFeed
+      visualVariant="quiet-studio"
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      expandedId="item-1"
+      contextIds={['item-1']}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const details = screen.getByTestId('card-details-item-1')
+    expect(details).toHaveAttribute('data-state', 'expanded')
+    expect(details.className).toContain('grid-rows-[1fr]')
+    expect(screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })).toHaveAttribute('data-context-state', 'selected')
+  })
+
   it('expands in place without implicitly marking the item read', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()

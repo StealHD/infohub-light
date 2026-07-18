@@ -43,6 +43,7 @@
 
   --inteliscope-radius-panel: 16px;
   --inteliscope-radius-card: 14px;
+  --inteliscope-radius-feed-card: 18px;
   --inteliscope-radius-control: 10px;
   --inteliscope-radius-compact: 8px;
   --radius: var(--inteliscope-radius-compact);
