@@ -5,13 +5,18 @@ export type LegacyFeedPreference = {
   unreadFirst: boolean
 }
 
+export type FeedOrder = 'newest' | 'oldest'
+
 export type FeedPreference = {
   unreadFirst: boolean
   source: string
   channel: string
   topic: string
   minScore?: number
+  order: FeedOrder
 }
+
+export const FEED_PREFERENCE_CHANGED_EVENT = 'inteliscope:feed-preference-changed'
 
 const defaultPreference: FeedPreference = {
   unreadFirst: false,
@@ -19,6 +24,7 @@ const defaultPreference: FeedPreference = {
   channel: '',
   topic: '',
   minScore: undefined,
+  order: 'newest',
 }
 const legacyDefaultPreference: LegacyFeedPreference = { mode: 'featured', unreadFirst: false }
 const storageKey = (userId: string) => `inteliscope.ui.feed.v2:${userId}`
@@ -32,6 +38,7 @@ function sanitizePreference(value: Partial<FeedPreference> | null): FeedPreferen
     channel: typeof value?.channel === 'string' ? value.channel : '',
     topic: typeof value?.topic === 'string' ? value.topic : '',
     minScore,
+    order: value?.order === 'oldest' ? 'oldest' : 'newest',
   }
 }
 
@@ -50,7 +57,8 @@ export function readFeedPreference(userId: string): FeedPreference {
 }
 
 export function writeFeedPreference(userId: string, value: FeedPreference): void {
-  window.localStorage.setItem(storageKey(userId), JSON.stringify(value))
+  window.localStorage.setItem(storageKey(userId), JSON.stringify(sanitizePreference(value)))
+  window.dispatchEvent(new CustomEvent(FEED_PREFERENCE_CHANGED_EVENT, { detail: { userId } }))
 }
 
 export function readLegacyFeedPreference(userId: string): LegacyFeedPreference {

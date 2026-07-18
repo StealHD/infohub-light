@@ -1,7 +1,10 @@
+export type AgentModelPreference = 'auto' | 'fast' | 'deep'
+
 export type AgentContextDraftV1 = {
   userId: string
   question: string
   itemIds: string[]
+  modelPreference: AgentModelPreference
 }
 
 const storageKey = (userId: string) => `inteliscope.agent-context.v1:${userId}`
@@ -9,7 +12,11 @@ const maxItems = 8
 const maxQuestionLength = 1200
 
 function emptyDraft(userId: string): AgentContextDraftV1 {
-  return { userId, question: '', itemIds: [] }
+  return { userId, question: '', itemIds: [], modelPreference: 'auto' }
+}
+
+function sanitizeModelPreference(value: unknown): AgentModelPreference {
+  return value === 'fast' || value === 'deep' ? value : 'auto'
 }
 
 function sanitizeDraft(userId: string, value?: Partial<AgentContextDraftV1> | null): AgentContextDraftV1 {
@@ -21,6 +28,7 @@ function sanitizeDraft(userId: string, value?: Partial<AgentContextDraftV1> | nu
     userId,
     question: typeof value?.question === 'string' ? value.question.slice(0, maxQuestionLength) : '',
     itemIds,
+    modelPreference: sanitizeModelPreference(value?.modelPreference),
   }
 }
 
@@ -62,9 +70,13 @@ export function buildAgentHandoffPrompt(draft: AgentContextDraftV1): string {
   const value = sanitizeDraft(draft.userId, draft)
   const question = value.question.trim() || '请基于这些信息提炼关键变化、机会和风险。'
   const calls = value.itemIds.map((itemId, index) => `${index + 1}. 调用 get_item，item_id="${itemId}"`).join('\n')
+  const preference = value.modelPreference === 'fast'
+    ? '速度优先'
+    : value.modelPreference === 'deep' ? '深度分析' : '自动，由 OpenClaw 决定'
   return [
     '请使用 Inteliscope Remote MCP 完成以下任务。',
     `问题：${question}`,
+    `模型偏好：${preference}`,
     '必须按顺序读取上下文，不要把标题或摘要当作完整正文：',
     calls || '（尚未加入上下文条目）',
     '读取完成后，基于工具返回的安全投影回答；无法读取时明确指出对应 item_id。',
