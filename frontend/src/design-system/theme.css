@@ -8,6 +8,9 @@
   --inteliscope-motion-standard: 160ms;
   --inteliscope-motion-deliberate: 220ms;
   --inteliscope-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
+  --inteliscope-width-reading: 820px;
+  --inteliscope-width-admin: 1180px;
+  --inteliscope-width-auth: 420px;
 
   --inteliscope-type-display-size: 24px;
   --inteliscope-type-display-line: 32px;
@@ -222,6 +225,13 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   font-weight: 500;
   line-height: var(--inteliscope-type-micro-line);
   letter-spacing: 0.02em;
+}
+
+.inteliscope-design-system .quiet-compact-select :where(.select__value) {
+  font-size: var(--inteliscope-type-control-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-control-line);
+  letter-spacing: 0;
 }
 
 .inteliscope-design-system :where(.tabs__list-container) {

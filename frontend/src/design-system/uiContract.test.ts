@@ -163,4 +163,13 @@ describe('HeroUI import contract', () => {
     expect(theme).toMatch(/:where\([^)]*\.card__description[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-body-size\)/s)
     expect(theme).toMatch(/:where\([^)]*\.chip__label[^)]*\)\s*\{[^}]*font-size:\s*var\(--inteliscope-type-micro-size\)/s)
   })
+
+  it('owns the adaptive Quiet Studio widths and compact select value typography', () => {
+    const theme = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
+
+    expect(theme).toContain('--inteliscope-width-reading: 820px')
+    expect(theme).toContain('--inteliscope-width-admin: 1180px')
+    expect(theme).toContain('--inteliscope-width-auth: 420px')
+    expect(theme).toMatch(/\.quiet-compact-select[^}]*\.select__value[^}]*\{[^}]*font-size:\s*var\(--inteliscope-type-control-size\)/s)
+  })
 })

@@ -21,4 +21,9 @@ export const designSystemTheme = {
     standard: 'var(--inteliscope-motion-standard)',
     deliberate: 'var(--inteliscope-motion-deliberate)',
   },
+  widths: {
+    reading: 'var(--inteliscope-width-reading)',
+    admin: 'var(--inteliscope-width-admin)',
+    auth: 'var(--inteliscope-width-auth)',
+  },
 } as const
