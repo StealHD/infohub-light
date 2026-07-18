@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ServiceApi } from '../../api/service'
@@ -37,13 +37,19 @@ const api = {
   agentDelegations: vi.fn().mockResolvedValue({ enabled: true, connections: [], mcp_url: '/mcp', token_ttl_days: 90, max_active: 5 }),
 } as unknown as ServiceApi
 
-function Shell({ user, path = '/feed' }: { user: User; path?: string }) {
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location-probe">{location.pathname}</output>
+}
+
+function Shell({ user, path = '/feed', onLogout = vi.fn() }: { user: User; path?: string; onLogout?: () => void }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[path]}>
-      <HeroWorkbenchShell api={api} user={user} query="" onQueryChange={vi.fn()} onLogout={vi.fn()} refreshState="idle">
+      <HeroWorkbenchShell api={api} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
         <div>content</div>
       </HeroWorkbenchShell>
+      <LocationProbe />
     </MemoryRouter>
   </QueryClientProvider>
 }
@@ -62,6 +68,9 @@ describe('HeroWorkbenchShell sidebar preference', () => {
 
     await browser.click(screen.getByRole('button', { name: '展开侧栏' }))
     expect(screen.getByRole('button', { name: '收起侧栏' })).toBeInTheDocument()
+    expect(screen.getByText('浏览')).toBeInTheDocument()
+    expect(screen.getByText('常用视图')).toBeInTheDocument()
+    expect(screen.getByText('管理')).toBeInTheDocument()
     expect(window.localStorage.getItem(sidebarPreferenceKey(first.id))).toBe('expanded')
 
     view.rerender(<Shell user={second} />)
@@ -72,11 +81,51 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(screen.getByRole('button', { name: '收起侧栏' })).toBeInTheDocument()
   })
 
-  it('keeps the rail fixed at 72px below the 1360px wide breakpoint', () => {
+  it('opens a categorized overlay below the 1360px breakpoint and returns focus on Escape', async () => {
     useViewport(1280)
+    const browser = userEvent.setup()
     render(<Shell user={{ id: 'sidebar-tablet', username: 'tablet', role: 'member', enabled: true }} />)
 
-    expect(screen.queryByRole('button', { name: /侧栏/ })).not.toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: '展开导航' })
+    expect(screen.queryByRole('dialog', { name: '分类导航' })).not.toBeInTheDocument()
+
+    await browser.click(trigger)
+    expect(screen.getByRole('dialog', { name: '分类导航' })).toBeInTheDocument()
+    expect(screen.getByText('常用视图')).toBeInTheDocument()
+
+    await browser.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '分类导航' })).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('uses an Inteliscope mark and applies quick views before navigating to Feed', async () => {
+    const browser = userEvent.setup()
+    render(<Shell path="/settings" user={{ id: 'quick-view', username: 'quick', role: 'member', enabled: true }} />)
+
+    const brandTrigger = screen.getByRole('button', { name: '展开侧栏' })
+    expect(brandTrigger).toHaveAttribute('data-inteliscope-mark-trigger')
+    expect(brandTrigger).not.toHaveTextContent(/^I$/)
+    await browser.click(brandTrigger)
+    await browser.click(screen.getByRole('button', { name: 'AI' }))
+
+    expect(screen.getByTestId('location-probe')).toHaveTextContent('/feed')
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:quick-view') || '{}')).toMatchObject({ channel: 'AI', order: 'newest' })
+  })
+
+  it('opens account actions from the avatar and logs out only from the menu action', async () => {
+    const browser = userEvent.setup()
+    const onLogout = vi.fn()
+    render(<Shell user={{ id: 'account-menu', username: 'alpha', display_name: 'Alpha', role: 'admin', enabled: true }} onLogout={onLogout} />)
+
+    expect(screen.queryByRole('button', { name: '退出登录' })).not.toBeInTheDocument()
+    const account = screen.getByRole('button', { name: '打开账户菜单' })
+    await browser.click(account)
+    expect(screen.getByText(/管理员/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
+    expect(onLogout).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: '退出登录' }))
+    expect(onLogout).toHaveBeenCalledTimes(1)
   })
 })
 

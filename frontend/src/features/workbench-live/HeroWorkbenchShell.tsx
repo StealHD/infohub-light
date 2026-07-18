@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 
 import type { ServiceApi } from '../../api/service'
 import type { User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
 import { readSidebarPreference, writeSidebarPreference } from '../../app/sidebarPreference'
+import {
+  FEED_PREFERENCE_CHANGED_EVENT,
+  readFeedPreference,
+  writeFeedPreference,
+} from '../feed/feedPreference'
 import {
   AvatarFallback,
   AvatarRoot,
@@ -14,7 +19,9 @@ import {
   Chip,
   Drawer,
   Icons,
+  Popover,
   SearchField,
+  Separator,
   Skeleton,
   TextArea,
 } from '../../design-system'
@@ -27,6 +34,12 @@ import {
 } from './agentContext'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
+import {
+  applyQuickView,
+  detectActiveQuickView,
+  WORKBENCH_QUICK_VIEWS,
+  type WorkbenchQuickViewId,
+} from './workbenchQuickViews'
 
 type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
 
@@ -44,14 +57,72 @@ type HeroWorkbenchShellProps = {
   children: ReactNode
 }
 
-const navigation = [
+const browseNavigation = [
   { id: 'feed', label: '信息流', href: '/feed', icon: Icons.Radio },
   { id: 'saved', label: '收藏', href: '/saved', icon: Icons.Star },
   { id: 'history', label: '历史', href: '/history', icon: Icons.History },
+] as const
+
+const managementNavigation = [
   { id: 'subscriptions', label: '订阅', href: '/subscriptions', icon: Icons.Bell },
   { id: 'agents', label: '助手连接', href: '/agents', icon: Icons.Bot },
   { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
 ] as const
+
+const navigation = [...browseNavigation, ...managementNavigation] as const
+
+const roleLabel = {
+  owner: '所有者',
+  admin: '管理员',
+  member: '成员',
+  viewer: '只读成员',
+} as const
+
+type CategorizedNavigationProps = {
+  activeQuickView: WorkbenchQuickViewId | null
+  quickViewsOpen: boolean
+  onQuickViewsToggle: () => void
+  onQuickView: (id: WorkbenchQuickViewId) => void
+  onNavigate?: () => void
+}
+
+function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigation[number] & { onNavigate?: () => void }) {
+  return <NavLink
+    to={href}
+    end={href === '/feed'}
+    aria-label={label}
+    onClick={onNavigate}
+    className={({ isActive }) => `mb-0.5 flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm text-muted transition-colors hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
+  ><Icon size={17} aria-hidden="true" /><span>{label}</span></NavLink>
+}
+
+function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate }: CategorizedNavigationProps) {
+  return <nav aria-label="分类导航内容" className="min-h-0 overflow-y-auto px-2 pb-3">
+    <p className="px-3 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted/70">浏览</p>
+    {browseNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
+
+    <Button
+      size="sm"
+      variant="ghost"
+      className="mt-3 w-full justify-between px-3 text-[11px] font-medium tracking-wide text-muted/70"
+      aria-expanded={quickViewsOpen}
+      onPress={onQuickViewsToggle}
+    >常用视图<Icons.ChevronDown size={14} className={`transition-transform ${quickViewsOpen ? '' : '-rotate-90'}`} /></Button>
+    {quickViewsOpen && <div className="grid gap-0.5">
+      {WORKBENCH_QUICK_VIEWS.map((view) => <Button
+        key={view.id}
+        size="sm"
+        variant="ghost"
+        className={`min-h-9 justify-start gap-3 px-3 text-sm ${activeQuickView === view.id ? 'bg-default text-foreground' : 'text-muted'}`}
+        aria-label={view.label}
+        onPress={() => onQuickView(view.id)}
+      ><span className={`size-1.5 rounded-full ${activeQuickView === view.id ? 'bg-accent' : 'bg-muted/35'}`} aria-hidden="true" />{view.label}</Button>)}
+    </div>}
+
+    <p className="mt-3 px-3 pb-1 pt-2 text-[11px] font-medium tracking-wide text-muted/70">管理</p>
+    {managementNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
+  </nav>
+}
 
 function initialWideDesktop() {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -144,16 +215,21 @@ function AgentPanelContent({
 
 export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
   const collectionHeaderControls = contentRoute && !feedRoute
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const agentToggleRef = useRef<HTMLButtonElement>(null)
+  const tabletNavToggleRef = useRef<HTMLDivElement>(null)
   const [wideDesktop, setWideDesktop] = useState(initialWideDesktop)
   const [extraWideDesktop, setExtraWideDesktop] = useState(initialExtraWideDesktop)
   const [mobile, setMobile] = useState(initialMobile)
   const [agentOpen, setAgentOpen] = useState(initialWideDesktop)
+  const [tabletNavOpen, setTabletNavOpen] = useState(false)
+  const [quickViewsOpen, setQuickViewsOpen] = useState(true)
   const [sidebarState, setSidebarState] = useState(() => ({ userId: props.user.id, value: readSidebarPreference(props.user.id) }))
+  const [feedPreferenceState, setFeedPreferenceState] = useState(() => ({ userId: props.user.id, value: readFeedPreference(props.user.id) }))
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
   const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: contentRoute })
@@ -168,6 +244,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const noticeKey = props.refreshEventKey || `${props.refreshState}:${props.refreshMessage ?? ''}`
   const noticeOpen = Boolean(props.refreshMessage) && !refreshing && dismissedNotice !== noticeKey
   const sidebarPreference = sidebarState.userId === props.user.id ? sidebarState.value : readSidebarPreference(props.user.id)
+  const feedPreference = feedPreferenceState.userId === props.user.id ? feedPreferenceState.value : readFeedPreference(props.user.id)
+  const activeQuickView = detectActiveQuickView(feedPreference)
   const sidebarExpanded = extraWideDesktop && sidebarPreference === 'expanded'
   const desktopSidebarColumn = sidebarExpanded ? 'min-[1360px]:grid-cols-[232px_minmax(0,1fr)]' : 'min-[1360px]:grid-cols-[72px_minmax(0,1fr)]'
   const desktopGridColumns = contentRoute && wideDesktop && agentOpen
@@ -178,6 +256,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     const value = sidebarExpanded ? 'collapsed' : 'expanded'
     writeSidebarPreference(props.user.id, value)
     setSidebarState({ userId: props.user.id, value })
+  }
+
+  function selectQuickView(id: WorkbenchQuickViewId) {
+    const next = applyQuickView(feedPreference, id)
+    writeFeedPreference(props.user.id, next)
+    setFeedPreferenceState({ userId: props.user.id, value: next })
+    setTabletNavOpen(false)
+    navigate('/feed')
   }
 
   function requestRefresh() {
@@ -201,6 +287,21 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     window.requestAnimationFrame(() => agentToggleRef.current?.focus())
   }, [])
 
+  const changeTabletNavigation = useCallback((open: boolean) => {
+    setTabletNavOpen(open)
+    if (!open) window.requestAnimationFrame(() => tabletNavToggleRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    const syncPreference = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail
+      if (detail?.userId !== props.user.id) return
+      setFeedPreferenceState({ userId: props.user.id, value: readFeedPreference(props.user.id) })
+    }
+    window.addEventListener(FEED_PREFERENCE_CHANGED_EVENT, syncPreference)
+    return () => window.removeEventListener(FEED_PREFERENCE_CHANGED_EVENT, syncPreference)
+  }, [props.user.id])
+
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
     const desktopMedia = window.matchMedia('(min-width: 1200px)')
@@ -210,7 +311,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       setWideDesktop(event.matches)
       setAgentOpen(contentRoute && event.matches)
     }
-    const changeExtraWide = (event: MediaQueryListEvent) => setExtraWideDesktop(event.matches)
+    const changeExtraWide = (event: MediaQueryListEvent) => {
+      setExtraWideDesktop(event.matches)
+      if (event.matches) setTabletNavOpen(false)
+    }
     const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
     desktopMedia.addEventListener('change', changeDesktop)
     extraWideMedia.addEventListener('change', changeExtraWide)
@@ -247,27 +351,93 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns} ${feedRoute ? '[font-family:var(--inteliscope-font-feed)]' : ''}`}
       >
         <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
-          <div className={`flex h-[52px] items-center gap-2 px-3 font-semibold ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
-            <span>{sidebarExpanded ? 'Inteliscope' : 'I'}</span>
-            {extraWideDesktop && <Button size="sm" variant="ghost" isIconOnly aria-label={sidebarExpanded ? '收起侧栏' : '展开侧栏'} onPress={toggleSidebar}>
-              {sidebarExpanded ? <Icons.PanelLeftClose size={16} /> : <Icons.PanelLeftOpen size={16} />}
-            </Button>}
+          <div className={`flex h-[52px] shrink-0 items-center gap-2 px-3 font-semibold ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
+            {extraWideDesktop ? sidebarExpanded ? <>
+              <Icons.InteliscopeMark size={20} aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">Inteliscope</span>
+              <Button size="sm" variant="ghost" isIconOnly aria-label="收起侧栏" onPress={toggleSidebar}>
+                <Icons.PanelLeftClose size={16} aria-hidden="true" />
+              </Button>
+            </> : <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              data-inteliscope-mark-trigger
+              aria-label="展开侧栏"
+              onPress={toggleSidebar}
+            ><Icons.InteliscopeMark size={21} aria-hidden="true" /></Button> : <Popover isOpen={tabletNavOpen} onOpenChange={changeTabletNavigation}>
+              <Popover.Trigger
+                ref={tabletNavToggleRef}
+                data-inteliscope-mark-trigger
+                aria-label="展开导航"
+                className="inline-flex size-10 items-center justify-center rounded-xl text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+              ><Icons.InteliscopeMark size={21} aria-hidden="true" /></Popover.Trigger>
+              <Popover.Content placement="right top" offset={8} className="z-50 w-[260px] p-0">
+                <Popover.Dialog aria-label="分类导航" className="max-h-[calc(100dvh-24px)] overflow-hidden rounded-2xl border border-separator bg-surface p-0 shadow-xl">
+                  <div className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
+                    <Icons.InteliscopeMark size={20} aria-hidden="true" />
+                    <strong className="min-w-0 flex-1 truncate">Inteliscope</strong>
+                  </div>
+                  <CategorizedNavigation
+                    activeQuickView={activeQuickView}
+                    quickViewsOpen={quickViewsOpen}
+                    onQuickViewsToggle={() => setQuickViewsOpen((value) => !value)}
+                    onQuickView={selectQuickView}
+                    onNavigate={() => changeTabletNavigation(false)}
+                  />
+                </Popover.Dialog>
+              </Popover.Content>
+            </Popover>}
           </div>
-          <nav aria-label="工作台导航" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-            {navigation.map(({ label, href, icon: Icon }) => <NavLink
+          {sidebarExpanded ? <div className="min-h-0 flex-1 overflow-hidden">
+            <CategorizedNavigation
+              activeQuickView={activeQuickView}
+              quickViewsOpen={quickViewsOpen}
+              onQuickViewsToggle={() => setQuickViewsOpen((value) => !value)}
+              onQuickView={selectQuickView}
+            />
+          </div> : <nav aria-label="工作台导航" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+            {browseNavigation.map(({ label, href, icon: Icon }) => <NavLink
               key={href}
               to={href}
               end={href === '/feed'}
               aria-label={label}
-              className={({ isActive }) => `mb-1 flex min-h-11 items-center ${sidebarExpanded ? 'justify-start' : 'justify-center'} gap-3 rounded-xl px-3 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
-            ><Icon size={18} aria-hidden="true" />{sidebarExpanded && <span>{label}</span>}</NavLink>)}
-          </nav>
+              className={({ isActive }) => `mb-1 flex min-h-11 items-center justify-center rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
+            ><Icon size={18} aria-hidden="true" /></NavLink>)}
+            <Separator className="my-2" />
+            {managementNavigation.map(({ label, href, icon: Icon }) => <NavLink
+              key={href}
+              to={href}
+              aria-label={label}
+              className={({ isActive }) => `mb-1 flex min-h-11 items-center justify-center rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
+            ><Icon size={18} aria-hidden="true" /></NavLink>)}
+          </nav>}
           <div className="border-t border-separator p-2">
-            <div className={`flex items-center ${sidebarExpanded ? 'justify-start' : 'justify-center'} gap-2 rounded-xl p-2`}>
-              <AvatarRoot className="size-8"><AvatarFallback>{(props.user.display_name || props.user.username).slice(0, 1).toUpperCase()}</AvatarFallback></AvatarRoot>
-              {sidebarExpanded && <span className="min-w-0 flex-1 truncate text-sm">{props.user.display_name || props.user.username}</span>}
-              <Button size="sm" variant="ghost" isIconOnly aria-label="退出登录" onPress={props.onLogout}><Icons.LogOut size={15} /></Button>
-            </div>
+            <Popover>
+              <Popover.Trigger
+                aria-label="打开账户菜单"
+                title={sidebarExpanded ? undefined : '账户'}
+                className={`flex min-h-11 w-full items-center gap-2 rounded-xl p-1.5 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}
+              >
+                <AvatarRoot className="size-8 shrink-0"><AvatarFallback>{(props.user.display_name || props.user.username).slice(0, 1).toUpperCase()}</AvatarFallback></AvatarRoot>
+                {sidebarExpanded && <>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm">{props.user.display_name || props.user.username}</span><span className="block text-[11px] text-muted">{roleLabel[props.user.role]}</span></span>
+                  <Icons.ChevronUp size={15} className="text-muted" aria-hidden="true" />
+                </>}
+              </Popover.Trigger>
+              <Popover.Content placement="right bottom" offset={8} className="z-50 w-56 p-0">
+                <Popover.Dialog aria-label="账户菜单" className="p-2">
+                  <div className="px-2 py-2">
+                    <strong className="block truncate text-sm">{props.user.display_name || props.user.username}</strong>
+                    <span className="text-xs text-muted">{props.user.username} · {roleLabel[props.user.role]}</span>
+                  </div>
+                  <Separator className="my-1" />
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
+                  <Separator className="my-1" />
+                  <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={props.onLogout}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
+                </Popover.Dialog>
+              </Popover.Content>
+            </Popover>
           </div>
         </aside>
 
