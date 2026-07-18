@@ -1089,6 +1089,26 @@ Create a `FastMCP` subclass in `src/mcp/remote_server.py` that overrides the SDK
 
 Run the Task 8 focused/transport/diagnostics/Nginx set, Task 4–7 adjacency set, full test gate, `py_compile`, JSON validation, and `git diff --check`. Reconfirm 14-tool order, typed schemas, exact annotations, per-app manager/session isolation, normal `run_tool()` single logging, and zero UI changes; record fresh evidence in `.superpowers/sdd/task-8-fix-r1-report.md` and `WORKLOG.md` before the independent fix commit.
 
+- [x] **Step 11: Add RED regressions for the shared pre-validation delegation bucket**
+
+Use real `ClientSession.call_tool()` calls to prove that ten invalid registered write calls consume burst 10 and the eleventh returns exactly `rate_limited`; every call must emit exactly one fixed seven-field audit record without arguments, validation details, exceptions, URLs, or sensitive values. Mix invalid calls, valid calls, and stable `not_found` business errors to prove all three share one bucket and successful/business calls are not charged twice. Reuse the same stored delegation through two independently created FastAPI apps to prove their buckets are app-local. Send an unauthenticated registered call and an authenticated unknown-tool call before the burst to prove neither is audited or charged and unknown tools retain the SDK `Unknown tool: <name>` result.
+
+Run: `.venv/bin/pytest -q tests/test_remote_mcp_http.py::test_delegation_rate_limiter_refills_at_sixty_calls_per_minute tests/test_remote_mcp_subscription_http.py::test_invalid_registered_calls_consume_burst_before_validation_without_leaks tests/test_remote_mcp_subscription_http.py::test_valid_invalid_and_business_errors_share_one_charge_each tests/test_remote_mcp_subscription_http.py::test_same_delegation_has_independent_buckets_in_two_apps tests/test_remote_mcp_subscription_http.py::test_unauthenticated_and_unknown_tools_are_not_charged_or_audited`
+
+Expected before the fix: five failures because invalid argument validation exits before the limiter in `run_tool()`, and `DelegationRateLimiter` has no injected clock seam.
+
+- [x] **Step 12: Move the single charge to the authenticated outer tool boundary**
+
+Add a monotonic `clock: Callable[[], float]` dependency to `DelegationRateLimiter`, inject one fresh limiter into each `SafeRemoteMCP`, and in `SafeRemoteMCP.call_tool()` charge only a registered tool with a claim-derived non-empty delegation ID. Perform this check before `FuncMetadata.pre_parse_json()` and Pydantic validation; a denied call returns only `ToolError("rate_limited")` and emits one fixed seven-field record with `proposal_id=-` and `action=-`. Remove the limiter check from `run_tool()` so validation, successful calls, and business errors consume exactly one token while validation/rate-limit branches and normal/business branches each have one audit owner.
+
+- [x] **Step 13: Verify the focused GREEN and Task 8/adjacent contracts**
+
+Run the five RED selectors, both Task 8 HTTP files, transport/diagnostics/Nginx tests, the explicit Task 1 and Task 4–7 adjacency files, `py_compile`, both JSON checks, full test gate, and `git diff --check`. Reconfirm exact unknown-tool semantics, unauthenticated no-audit behavior, 14-tool order/schema/annotations, per-app server/session/limiter isolation, and zero UI changes.
+
+- [x] **Step 14: Record and commit the R2 fix**
+
+Write `.superpowers/sdd/task-8-fix-r2-report.md`, append the compact `WORKLOG.md` entry, mark Steps 11–14 complete only after fresh verification, and create one independent commit containing only the Task 8 R2 fix and evidence.
+
 ### Task 9: Permission-Aware Assistant Connection UI
 
 **Files:**

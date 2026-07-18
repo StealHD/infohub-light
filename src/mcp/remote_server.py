@@ -103,14 +103,21 @@ class AgentDelegationTokenVerifier(TokenVerifier):
 class DelegationRateLimiter:
     """In-process token bucket: 60 calls/minute with a burst of 10."""
 
-    def __init__(self, *, rate_per_minute: int = 60, burst: int = 10) -> None:
+    def __init__(
+        self,
+        *,
+        rate_per_minute: int = 60,
+        burst: int = 10,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.refill_per_second = float(rate_per_minute) / 60.0
         self.burst = float(burst)
+        self._clock = clock
         self._buckets: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
 
     def allow(self, key: str) -> bool:
-        now = time.monotonic()
+        now = self._clock()
         with self._lock:
             tokens, previous = self._buckets.get(key, (self.burst, now))
             tokens = min(self.burst, tokens + (now - previous) * self.refill_per_second)
@@ -141,7 +148,16 @@ class RemoteMCPApplication:
 
 
 class SafeRemoteMCP(FastMCP):
-    """Map pre-business argument validation failures to the public safe contract."""
+    """Enforce delegation limits and safe validation before business dispatch."""
+
+    def __init__(
+        self,
+        *args: Any,
+        limiter: DelegationRateLimiter,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._delegation_limiter = limiter
 
     async def call_tool(
         self,
@@ -152,17 +168,33 @@ class SafeRemoteMCP(FastMCP):
         started = time.perf_counter()
         tool = self._tool_manager.get_tool(name)
         if tool is not None:
+            access = get_access_token()
+            claims = (
+                access.claims
+                if access is not None and isinstance(access.claims, dict)
+                else {}
+            )
+            delegation_id = claims.get("delegation_id")
+            if not isinstance(delegation_id, str) or not delegation_id:
+                return await super().call_tool(name, arguments)
+            if not self._delegation_limiter.allow(delegation_id):
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                _LOGGER.warning(
+                    "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
+                    "action=%s outcome=%s elapsed_ms=%s request_id=%s",
+                    delegation_id,
+                    name,
+                    "-",
+                    "-",
+                    "rate_limited",
+                    elapsed_ms,
+                    request_id,
+                )
+                raise ToolError("rate_limited") from None
             try:
                 pre_parsed = tool.fn_metadata.pre_parse_json(arguments)
                 tool.fn_metadata.arg_model.model_validate(pre_parsed)
             except ValidationError:
-                access = get_access_token()
-                claims = (
-                    access.claims
-                    if access is not None and isinstance(access.claims, dict)
-                    else {}
-                )
-                delegation_id = str(claims.get("delegation_id") or "-")
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 _LOGGER.info(
                     "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
@@ -212,6 +244,7 @@ def create_remote_mcp(
     limiter = DelegationRateLimiter()
     server = SafeRemoteMCP(
         "Inteliscope",
+        limiter=limiter,
         instructions="User-scoped Inteliscope information and controlled subscription tools.",
         token_verifier=AgentDelegationTokenVerifier(store),
         auth=AuthSettings(
@@ -273,20 +306,6 @@ def create_remote_mcp(
         outcome = "ok"
         logged_proposal_id = audit_value(audit_proposal_id)
         logged_action = audit_value(audit_action)
-        if not delegation_id or not limiter.allow(delegation_id):
-            outcome = "rate_limited"
-            _LOGGER.warning(
-                "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
-                "action=%s outcome=%s elapsed_ms=%s request_id=%s",
-                delegation_id or "-",
-                tool_name,
-                logged_proposal_id,
-                logged_action,
-                outcome,
-                0,
-                request_id,
-            )
-            raise ToolError("rate_limited")
         try:
             actor = actor_from_access(access)
             result = (

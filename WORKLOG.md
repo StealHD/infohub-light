@@ -1129,3 +1129,11 @@
 - 结果：外层/nested extra、错误 discriminator 与范围错误均只返回 `invalid_request`，每次精确一条固定七字段审计且输入/ValidationError 零泄漏；14 工具 schema/annotations/顺序、正常单日志与每 app 隔离保持不变
 - 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
 - 控制面变更：仅补充既有 Task 8 验证失败安全边界与执行证据；未修改对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 8 第二轮复审的 validation 绕过 delegation limiter Important
+- 修改文件：app-local MCP limiter/adapter、真实 Client 与注入时钟回归、Task 8 主计划、R2 修复报告、`WORKLOG.md`
+- 执行验证：5 个专项先 5/5 RED 后 GREEN；Task 8 focused/transport/diagnostics/Nginx 228 项、Task 1/4–7 更宽邻接 854 项、full gate 22/22、Python compile、两个 JSON 与 diff 检查通过
+- 结果：已认证已注册调用在预检前共享每 delegation `60/minute, burst 10`；validation/成功/业务错误各消费一次且每 call 恰好一条七字段日志；unauthenticated/unknown 不计费不审计，每 app 独立且零敏感泄漏
+- 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅补充既有 Task 8 delegation limiter 执行顺序与证据；未修改对外 API/架构/UI 合同

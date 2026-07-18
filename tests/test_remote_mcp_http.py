@@ -6,7 +6,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from src.api.server import create_app
-from src.mcp.remote_server import AgentDelegationTokenVerifier
+from src.mcp.remote_server import AgentDelegationTokenVerifier, DelegationRateLimiter
 from src.services.job_queue import JobQueue
 from src.services.user_feed_store import UserFeedStore
 
@@ -92,6 +92,24 @@ def _initialize_payload():
             "clientInfo": {"name": "pytest", "version": "1"},
         },
     }
+
+
+def test_delegation_rate_limiter_refills_at_sixty_calls_per_minute():
+    now = [100.0]
+    limiter = DelegationRateLimiter(clock=lambda: now[0])
+
+    assert [limiter.allow("delegation-1") for _ in range(10)] == [True] * 10
+    assert limiter.allow("delegation-1") is False
+
+    now[0] += 0.99
+    assert limiter.allow("delegation-1") is False
+    now[0] += 0.01
+    assert limiter.allow("delegation-1") is True
+    assert limiter.allow("delegation-1") is False
+
+    now[0] += 10.0
+    assert [limiter.allow("delegation-1") for _ in range(10)] == [True] * 10
+    assert limiter.allow("delegation-1") is False
 
 
 def test_disabled_remote_mcp_never_falls_through_to_spa(tmp_path, monkeypatch):
