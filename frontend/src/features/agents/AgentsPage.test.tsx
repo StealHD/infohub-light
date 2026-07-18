@@ -6,12 +6,12 @@ import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ServiceApi } from '../../api/service'
-import type { AgentDelegationsResponse, User } from '../../api/types'
+import type { AgentDelegation, AgentDelegationsResponse, User } from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
 import { queryKeys } from '../../api/queryKeys'
 import { AgentsPage } from './AgentsPage'
 
-const user: User = {
+const viewer: User = {
   id: 'viewer-1',
   username: 'viewer',
   display_name: '只读成员',
@@ -19,19 +19,44 @@ const user: User = {
   enabled: true,
 }
 
+const member: User = {
+  id: 'member-1',
+  username: 'member',
+  display_name: '普通成员',
+  role: 'member',
+  enabled: true,
+}
+
+const readTools = [
+  'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
+]
+
+const writeTools = [
+  ...readTools, 'get_source_setup_guide', 'list_available_sources', 'prepare_create_subscription',
+  'prepare_update_subscription', 'prepare_delete_subscription', 'apply_subscription_change',
+  'diagnose_source', 'diagnose_job',
+]
+
+function includedTools(configuration: string): string[] {
+  const command = configuration.split('\n')[0]
+  const prefix = "openclaw mcp set inteliscope '"
+  return JSON.parse(command.slice(prefix.length, -1)).toolFilter.include as string[]
+}
+
 const listing: AgentDelegationsResponse = {
   enabled: true,
+  subscription_writes_enabled: true,
   mcp_url: 'https://rb.jiefs.top/mcp',
   token_ttl_days: 90,
   max_active: 5,
   connections: [{
-    id: 'agent-1', name: 'Office Mac', client_type: 'openclaw', scopes: ['inteliscope:read'],
+    id: 'agent-1', name: 'Office Mac', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'],
     token_prefix: 'ih_mcp_v1_abcd1234', created_at: '2026-07-16T00:00:00Z',
     expires_at: '2026-10-14T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active',
   }],
 }
 
-function renderPage(response: AgentDelegationsResponse = listing) {
+function renderPage(response: AgentDelegationsResponse = listing, currentUser: User = member) {
   const api = {
     agentDelegations: vi.fn().mockResolvedValue(response),
     createAgentDelegation: vi.fn().mockResolvedValue({
@@ -42,8 +67,8 @@ function renderPage(response: AgentDelegationsResponse = listing) {
     revokeAgentDelegation: vi.fn().mockResolvedValue({ revoked: true }),
   } as unknown as ServiceApi
   const context: AppOutletContext = {
-    api, user, query: '', setQuery: vi.fn(), activity: { state: 'idle', retryable: false, terminal: true },
-    refresh: vi.fn(), beginAction: () => ({ userId: user.id, generation: 0 }), isActionCurrent: () => true,
+    api, user: currentUser, query: '', setQuery: vi.fn(), activity: { state: 'idle', retryable: false, terminal: true },
+    refresh: vi.fn(), beginAction: () => ({ userId: currentUser.id, generation: 0 }), isActionCurrent: () => true,
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const Layout = ({ children }: { children?: ReactNode }) => <>{children}<Outlet context={context} /></>
@@ -66,6 +91,11 @@ describe('AgentsPage', () => {
     expect(screen.getByText(/^从未使用/)).toBeInTheDocument()
     expect(screen.queryByText(/^在线$/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '创建连接' })).toBeEnabled()
+    expect(screen.getByText('只读')).toBeInTheDocument()
+    const pageConfiguration = screen.getByTestId('openclaw-config-page').textContent || ''
+    expect(includedTools(pageConfiguration)).toEqual(readTools)
+    expect(pageConfiguration).toContain('${INTELISCOPE_MCP_TOKEN}')
+    expect(pageConfiguration).not.toContain('ih_mcp_v1_abcd1234')
   })
 
   it('keeps the one-time token only in a non-dismissible dialog and clears it explicitly', async () => {
@@ -94,12 +124,89 @@ describe('AgentsPage', () => {
 
     await browser.click(within(tokenDialog).getByRole('button', { name: '我已保存' }))
     expect(screen.queryByText('ih_mcp_v1_one_time_secret')).not.toBeInTheDocument()
-    expect(JSON.stringify(client.getQueryData(queryKeys.agentDelegations(user.id)))).not.toContain('ih_mcp_v1_one_time_secret')
+    expect(JSON.stringify(client.getQueryData(queryKeys.agentDelegations(member.id)))).not.toContain('ih_mcp_v1_one_time_secret')
     expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain('ih_mcp_v1_one_time_secret')
     expect(window.localStorage.getItem('INTELISCOPE_MCP_TOKEN')).toBeNull()
     expect(window.sessionStorage.getItem('INTELISCOPE_MCP_TOKEN')).toBeNull()
     expect(window.location.href).not.toContain('ih_mcp_v1_one_time_secret')
-    expect(api.createAgentDelegation).toHaveBeenCalledWith('Personal Mac')
+    expect(api.createAgentDelegation).toHaveBeenCalledWith('Personal Mac', 'read')
+  })
+
+  it('creates an explicit subscription-management connection and uses fourteen tools', async () => {
+    const browser = userEvent.setup()
+    const { api } = renderPage()
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.type(within(dialog).getByRole('textbox', { name: '连接名称' }), 'Write Mac')
+    await browser.click(within(dialog).getByRole('combobox', { name: '访问权限' }))
+    await browser.click(screen.getByRole('option', { name: '可管理订阅' }))
+    await browser.click(within(dialog).getByRole('button', { name: '生成一次性令牌' }))
+
+    expect(api.createAgentDelegation).toHaveBeenCalledWith('Write Mac', 'subscriptions_write')
+    const config = await screen.findByTestId('openclaw-config')
+    const configuration = config.textContent || ''
+    expect(includedTools(configuration)).toEqual(writeTools)
+    expect(configuration).toContain('${INTELISCOPE_MCP_TOKEN}')
+    expect(configuration).not.toContain('ih_mcp_v1_one_time_secret')
+  })
+
+  it('never offers write access to a viewer', async () => {
+    const browser = userEvent.setup()
+    renderPage(listing, viewer)
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.click(within(dialog).getByRole('combobox', { name: '访问权限' }))
+    expect(screen.queryByRole('option', { name: '可管理订阅' })).not.toBeInTheDocument()
+  })
+
+  it('disables write access with explanatory copy when subscription writes are off', async () => {
+    const browser = userEvent.setup()
+    renderPage({ ...listing, subscription_writes_enabled: false })
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.click(within(dialog).getByRole('combobox', { name: '访问权限' }))
+    expect(screen.getByRole('option', { name: '可管理订阅' })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(dialog).getByText('管理员尚未启用订阅管理连接；你仍可创建只读连接。')).toBeInTheDocument()
+  })
+
+  it('defaults access back to read each time the create dialog opens', async () => {
+    const browser = userEvent.setup()
+    renderPage()
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    let dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.click(within(dialog).getByRole('combobox', { name: '访问权限' }))
+    await browser.click(screen.getByRole('option', { name: '可管理订阅' }))
+    await browser.click(within(dialog).getByRole('button', { name: '取消' }))
+    await waitForElementToBeRemoved(dialog)
+    await browser.click(screen.getByRole('button', { name: '创建连接' }))
+    dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    expect(within(dialog).getByRole('combobox', { name: '访问权限' })).toHaveTextContent('只读')
+  })
+
+  it('copies configuration for an existing connection using its own access', async () => {
+    const browser = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    const writeConnection: AgentDelegation = {
+      ...listing.connections[0],
+      id: 'agent-write',
+      name: 'Write Mac',
+      access: 'subscriptions_write' as const,
+      scopes: ['inteliscope:read', 'inteliscope:subscriptions:write'],
+    }
+    renderPage({ ...listing, connections: [...listing.connections, writeConnection] })
+
+    await screen.findByRole('heading', { name: 'Write Mac' })
+    await browser.click(screen.getByRole('button', { name: '复制 Write Mac 配置' }))
+    const copiedConfiguration = writeText.mock.calls[0][0]
+    expect(includedTools(copiedConfiguration)).toEqual(writeTools)
+    expect(copiedConfiguration).toContain('${INTELISCOPE_MCP_TOKEN}')
+    expect(copiedConfiguration).not.toContain('ih_mcp_v1_one_time_secret')
+    expect(screen.getByText('可管理订阅')).toBeInTheDocument()
+    expect(screen.getByText('可管理订阅不包括密钥、共享来源、任务、Feed 条目状态或刷新操作。')).toBeInTheDocument()
   })
 
   it('supports rename, revoke and manual refresh', async () => {

@@ -1143,7 +1143,7 @@ Write `.superpowers/sdd/task-8-fix-r3-report.md`, append the compact `WORKLOG.md
 - Consumes: Delegation GET `subscription_writes_enabled`, per-connection `access/scopes`, and POST `{name,access}`.
 - Produces: explicit access selector, viewer/flag-disabled state, permission chips, and access-specific OpenClaw tool filter without storing the token.
 
-- [ ] **Step 1: Write failing API and component tests**
+- [x] **Step 1: Write failing API and component tests**
 
 ```tsx
 it('creates an explicit subscription-management connection and uses fourteen tools', async () => {
@@ -1172,13 +1172,13 @@ it('never offers write access to a viewer', async () => {
 
 Update service test expectation to POST `{name:'My Mac',access:'subscriptions_write'}`.
 
-- [ ] **Step 2: Run frontend tests and verify RED**
+- [x] **Step 2: Run frontend tests and verify RED**
 
 Run: `npm --prefix frontend test -- --run src/api/service.test.ts src/features/agents/AgentsPage.test.tsx`
 
 Expected: FAIL because access is not represented.
 
-- [ ] **Step 3: Extend types and API without weakening token state handling**
+- [x] **Step 3: Extend types and API without weakening token state handling**
 
 ```typescript
 export type AgentDelegationAccess = 'read' | 'subscriptions_write'
@@ -1196,7 +1196,7 @@ export type AgentDelegationsResponse = {
 
 Change `createAgentDelegation(name, access = 'read')` to post both fields. Keep the returned token out of React Query by continuing to call it imperatively and storing the result only in local component state.
 
-- [ ] **Step 4: Add the controlled access choice and capability labels**
+- [x] **Step 4: Add the controlled access choice and capability labels**
 
 Use existing MUI `TextField select` and `MenuItem` exports. Default to read access each time the dialog opens. Hide the write option for viewers; disable it with explanatory copy when the write flag is off. Add a connection Chip `只读` or `可管理订阅`, and state explicitly that write access cannot manage secrets, shared sources, jobs, Feed item state, or refreshes. Add a per-connection “复制配置” action that calls `configurationFor(mcpUrl, connection.access)` so an existing write connection never receives the six-tool read-only filter by mistake.
 
@@ -1209,7 +1209,7 @@ const [oneTimeCredential, setOneTimeCredential] = useState<OneTimeCredential | n
 
 Clearing “我已保存” sets the whole object to `null`.
 
-- [ ] **Step 5: Generate exact tool filters by access**
+- [x] **Step 5: Generate exact tool filters by access**
 
 ```typescript
 const READ_TOOLS = ['get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job'] as const
@@ -1228,23 +1228,19 @@ function configurationFor(mcpUrl: string, access: AgentDelegationAccess): string
 
 The page-level example stays read-only; the non-dismissible token Dialog uses the newly created connection's access.
 
-- [ ] **Step 6: Update E2E accessibility and local-probe assertions**
+- [x] **Step 6: Preserve E2E-owned acceptance boundaries for Task 11**
 
-Seed both access types in the mocked delegation response, assert permission chips, keyboard-operable access selection, and unchanged forbidden request list for port 18789, `/mcp`, `ws:`, and `wss:`. Keep mobile bottom navigation at six links and run Axe with no serious/critical violations.
+Task 9 used the explicitly requested light verification mode and did not modify `frontend/e2e/layout.spec.ts`, local-probe behavior, or the six-link mobile bottom navigation. Task 11 retains the seeded read/write E2E fixtures, keyboard/Axe assertions, forbidden request list for port 18789, `/mcp`, `ws:`, and `wss:`, build, and browser acceptance.
 
-- [ ] **Step 7: Run frontend unit, type, and E2E tests**
+- [x] **Step 7: Run light frontend unit and type verification**
 
 Run: `npm --prefix frontend test -- --run src/api/service.test.ts src/features/agents/AgentsPage.test.tsx`
 
 Run: `npm --prefix frontend run typecheck`
 
-Run: `npm --prefix frontend run build`
+Expected: both commands PASS; after Dialog dismissal the token is absent from DOM, Query cache, mutation cache, URL, localStorage, and sessionStorage. Build and E2E remain in Task 11 final acceptance.
 
-Run: `npm --prefix frontend run test:e2e -- --grep "assistant connection"`
-
-Expected: all commands PASS; after Dialog dismissal the token is absent from DOM, Query cache, mutation cache, URL, localStorage, and sessionStorage.
-
-- [ ] **Step 8: Commit the UI access selector**
+- [x] **Step 8: Commit the UI access selector**
 
 ```bash
 git add frontend/src/api/types.ts frontend/src/api/service.ts frontend/src/api/service.test.ts frontend/src/features/agents/AgentsPage.tsx frontend/src/features/agents/AgentsPage.test.tsx frontend/e2e/layout.spec.ts

@@ -1145,3 +1145,11 @@
 - 结果：超长整数与深嵌套 JSON 的 SDK pre-parse 异常统一为精确 `invalid_request`，每次恰好一次 bucket charge 与一条七字段日志，输入/异常零泄漏；成功路径仍委托 SDK
 - 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
 - 控制面变更：仅补充既有 Task 8 输入拒绝边界与执行证据；未修改对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：实现 Task 9 权限感知助手连接 UI
+- 修改文件：Agent delegation 前端 types/service、AgentsPage 与专项单测、Task 9 主计划/报告、`WORKLOG.md`
+- 执行验证：指定单测先出现 7 个预期 RED，最终 service/AgentsPage 11 项通过；AgentsPage 收紧精确 6/14 工具断言后 9 项通过；TypeScript typecheck 通过
+- 结果：创建连接默认只读并显式提交 access；viewer 隐藏写选项、写开关关闭时禁用并说明；连接权限 Chip、一次性 `{token, access}` 清理和按连接权限复制无明文令牌配置完成
+- 未解决问题：Task 10 Skill 与 Task 11 build/E2E/Axe/full gate、控制面合同、生产启用和真实 OpenClaw canary 尚未执行
+- 控制面变更：仅同步既有 Task 9 执行状态与 Task 11 验收边界；本任务未修改 API/UI 权威合同
