@@ -19,11 +19,14 @@ import {
   Chip,
   Drawer,
   Icons,
+  ListBox,
   Popover,
   SearchField,
+  Select,
   Separator,
   Skeleton,
   TextArea,
+  Tooltip,
 } from '../../design-system'
 import {
   buildAgentHandoffPrompt,
@@ -31,6 +34,7 @@ import {
   updateAgentContextDraft,
   writeAgentContextDraft,
   type AgentContextDraftV1,
+  type AgentModelPreference,
 } from './agentContext'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
@@ -157,6 +161,12 @@ function AgentPanelContent({
 }) {
   const [notice, setNotice] = useState('')
 
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(''), 2800)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
   async function copyHandoff() {
     try {
       await navigator.clipboard.writeText(buildAgentHandoffPrompt(value.draft))
@@ -191,22 +201,55 @@ function AgentPanelContent({
           </Card>)}
         </div>
       </div>
-      <div className="border-t border-separator p-4">
-        <TextArea
-          fullWidth
-          variant="secondary"
-          aria-label="交给 OpenClaw 的问题"
-          value={value.draft.question}
-          maxLength={1200}
-          rows={4}
-          placeholder="例如：提炼这些信息中的产品机会"
-          onChange={(event) => value.setQuestion(event.target.value)}
-        />
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <span role="status" className="text-xs text-muted">{notice || '仅生成交接提示词，不在站内运行 Agent'}</span>
-          <Button size="sm" isDisabled={!value.draft.itemIds.length} aria-label="复制并交给 OpenClaw" onPress={() => void copyHandoff()}>
-            <Icons.Copy size={15} aria-hidden="true" />复制交接
-          </Button>
+      <div className="border-t border-separator p-3">
+        <div data-testid="agent-handoff-composer" className="rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
+          <TextArea
+            fullWidth
+            variant="secondary"
+            className="[font-family:var(--inteliscope-font-feed)]"
+            aria-label="交给 OpenClaw 的问题"
+            value={value.draft.question}
+            maxLength={1200}
+            rows={3}
+            placeholder="要求后续处理…"
+            onChange={(event) => value.setQuestion(event.target.value)}
+          />
+          <div className="mt-2 flex min-w-0 items-center gap-1.5 px-1 pb-0.5">
+            <Tooltip delay={300}>
+              <Tooltip.Trigger aria-label="交接模式说明" className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[11px] text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
+                <Icons.Waypoints size={13} aria-hidden="true" />交接模式
+              </Tooltip.Trigger>
+              <Tooltip.Content>只复制交接提示词，由本地 OpenClaw 执行。</Tooltip.Content>
+            </Tooltip>
+            <span className="shrink-0 text-[11px] text-muted">{value.draft.itemIds.length}/8</span>
+            <Select
+              aria-label="模型偏好"
+              selectedKey={value.draft.modelPreference}
+              onSelectionChange={(key) => key !== null && value.setModelPreference(String(key) as AgentModelPreference)}
+              className="min-w-0 flex-1"
+            >
+              <Select.Trigger aria-label="模型偏好" className="min-h-8 border-0 bg-transparent px-1.5 text-[11px] shadow-none">
+                <Select.Value />
+                <Select.Indicator><Icons.ChevronDown size={12} aria-hidden="true" /></Select.Indicator>
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox items={[
+                  { id: 'auto', label: '自动 · OpenClaw 决定' },
+                  { id: 'fast', label: '速度优先' },
+                  { id: 'deep', label: '深度分析' },
+                ]}>{(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}</ListBox>
+              </Select.Popover>
+            </Select>
+            <span role="status" aria-label="交接状态" aria-live="polite" className="min-w-0 truncate text-[11px] text-muted">{notice}</span>
+            <Button
+              size="sm"
+              isIconOnly
+              className="size-9 shrink-0 rounded-full active:scale-95 motion-reduce:transform-none"
+              isDisabled={!value.draft.itemIds.length}
+              aria-label="复制交接提示词"
+              onPress={() => void copyHandoff()}
+            ><Icons.ArrowUp size={16} aria-hidden="true" /></Button>
+          </div>
         </div>
       </div>
     </>}
@@ -280,6 +323,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     toggleItem: (id) => persistDraft(updateAgentContextDraft(draft, id)),
     removeItem: (id) => persistDraft({ ...draft, itemIds: draft.itemIds.filter((value) => value !== id) }),
     setQuestion: (question) => persistDraft({ ...draft, question }),
+    setModelPreference: (modelPreference) => persistDraft({ ...draft, modelPreference }),
   }), [draft, persistDraft])
 
   const closeAgent = useCallback(() => {

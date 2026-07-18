@@ -171,7 +171,8 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(page.getByText('稍后读')).toHaveCount(0)
   expect(await page.locator('[data-testid="workbench-card"]').count()).toBeLessThanOrEqual(40)
   await expect(page.getByRole('navigation', { name: '信息流进度' })).toHaveCount(0)
-  await expect(page.getByText('200 条内容 · 最新在下')).toBeVisible()
+  await expect(page.getByText('200 条内容', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '更新信息流' })).toHaveCount(0)
   const agentToggle = page.getByRole('banner').getByRole('button', { name: /^(收起|展开) Agent 面板$/ })
@@ -201,6 +202,15 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await page.getByRole('button', { name: '展开侧栏' }).click()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
     expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.sidebar.v1:e2e-user'))).toBe('expanded')
+    await expect(desktopNavigation.getByText('浏览', { exact: true })).toBeVisible()
+    await expect(desktopNavigation.getByText('常用视图', { exact: true })).toBeVisible()
+    await expect(desktopNavigation.getByText('管理', { exact: true })).toBeVisible()
+    const accountTrigger = desktopNavigation.getByRole('button', { name: '打开账户菜单' })
+    await accountTrigger.click()
+    const accountMenu = page.getByRole('dialog', { name: '账户菜单' })
+    await expect(accountMenu.getByRole('button', { name: '退出登录' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(accountTrigger).toBeFocused()
 
     const fullyVisibleCards = await page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollSelector) => {
       const viewport = document.querySelector(scrollSelector as string)?.getBoundingClientRect()
@@ -219,21 +229,23 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
 
     const desktopFeed = page.getByTestId('workbench-feed-scroll')
-    const bottomDistance = () => desktopFeed.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
     await desktopFeed.evaluate((element) => {
-      element.scrollTop = element.scrollHeight - element.clientHeight
+      element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
       element.dispatchEvent(new Event('scroll'))
     })
-    expect(await bottomDistance()).toBeLessThanOrEqual(2)
+    const panelAnchor = await alignVisibleCardToTop(page)
     await page.getByRole('button', { name: '收起 Agent 面板' }).click()
     await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveCount(0)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(2)
     await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
     await expect(page.getByRole('button', { name: '关闭 Agent 面板' })).toHaveCount(0)
-    expect(await bottomDistance()).toBeLessThanOrEqual(96)
+    await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(panelAnchor.name)
+    await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - panelAnchor.offset)).toBeLessThanOrEqual(2)
     await page.getByRole('button', { name: '展开 Agent 面板' }).click()
     await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeVisible()
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
+    await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(panelAnchor.name)
+    await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - panelAnchor.offset)).toBeLessThanOrEqual(2)
   } else {
     const toggle = page.getByRole('button', { name: '展开 Agent 面板' })
     const feedScroll = page.getByTestId('workbench-feed-scroll')
@@ -315,7 +327,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   expect(Math.abs(rollingAnchorAfter.offset - rollingAnchorBefore.offset)).toBeLessThanOrEqual(2)
   await page.getByRole('button', { name: '查看 1 条新内容' }).click()
   await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeHidden()
-  await expect.poll(() => feedScroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(96)
+  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
 
   const openAgent = page.getByRole('button', { name: '展开 Agent 面板' })
   if (await openAgent.isVisible()) await openAgent.click()
@@ -324,21 +336,26 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
   await expect(agent.getByText('1 / 8')).toBeVisible()
   await agent.getByRole('textbox', { name: '交给 OpenClaw 的问题' }).fill('提炼机会')
-  await agent.getByRole('button', { name: '复制并交给 OpenClaw' }).click()
+  await agent.getByRole('button', { name: /模型偏好/ }).click()
+  const deepModelOption = page.getByRole('option', { name: '深度分析' })
+  await deepModelOption.click()
+  await expect(deepModelOption).toHaveCount(0)
+  await agent.getByRole('button', { name: '复制交接提示词' }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('调用 get_item')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('模型偏好：深度分析')
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('a proven-stale initial deep link returns the real Feed viewport to the bottom', async ({ page }) => {
+test('a proven-stale initial deep link returns the real Feed viewport to the newest edge', async ({ page }) => {
   await page.goto('/feed?item=missing')
   await expect(page.getByText(/这条信息已不可用/)).toBeVisible()
   await expect(page).toHaveURL('/feed')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
-  const remaining = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
-  expect(remaining).toBeLessThanOrEqual(96)
+  const offset = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollTop)
+  expect(offset).toBeLessThanOrEqual(96)
 })
 
 test('a filtered unread-first Feed restores an unmounted anchor with the rendered card index', async ({ page }) => {
@@ -353,7 +370,7 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
   const feedScroll = page.getByTestId('workbench-feed-scroll')
   await expect(page.getByLabel('已启用 2 项筛选')).toBeVisible()
   await feedScroll.evaluate((element) => {
-    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.1)
     element.dispatchEvent(new Event('scroll'))
   })
   await alignVisibleCardToTop(page)
@@ -424,8 +441,8 @@ test('live unread-first and source filters preserve the surviving rendered-card 
 test('Quiet Studio honors Reduced Motion without losing state', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/feed')
-  const card = page.locator('[data-card-visual="quiet-studio"]').last()
-  await card.getByRole('button', { name: /展开/ }).click()
+  const card = page.getByRole('article', { name: '实时条目 200' })
+  await card.getByRole('button', { name: '展开 实时条目 200' }).click()
   const id = await card.locator('xpath=..').getAttribute('data-item-id')
   expect(id).not.toBeNull()
   const details = page.getByTestId(`card-details-${id}`)

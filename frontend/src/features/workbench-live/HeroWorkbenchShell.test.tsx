@@ -57,6 +57,7 @@ function Shell({ user, path = '/feed', onLogout = vi.fn() }: { user: User; path?
 describe('HeroWorkbenchShell sidebar preference', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() })
+    window.sessionStorage.clear()
     useViewport(1440)
   })
 
@@ -132,6 +133,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
 describe('HeroWorkbenchShell Feed visual scope', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() })
+    window.sessionStorage.clear()
     useViewport(1440)
   })
 
@@ -160,5 +162,57 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     const collectionToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
     expect(collectionToggle).not.toHaveAttribute('data-agent-toggle-visual')
     expect(screen.getByRole('heading', { name: '收藏' }).closest('header')).not.toHaveAttribute('data-header-visual')
+  })
+})
+
+describe('HeroWorkbenchShell OpenClaw composer', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() })
+    window.sessionStorage.clear()
+    useViewport(1440)
+  })
+
+  it('presents a handoff composer and disables copying without context', () => {
+    render(<Shell user={{ id: 'composer-empty', username: 'empty', role: 'member', enabled: true }} />)
+
+    expect(screen.getByText('交接模式')).toBeInTheDocument()
+    expect(screen.queryByText('仅生成交接提示词，不在站内运行 Agent')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复制交接提示词' })).toBeDisabled()
+    expect(screen.getAllByText('自动 · OpenClaw 决定').length).toBeGreaterThan(0)
+  })
+
+  it('persists model guidance and copies without executing a network request', async () => {
+    const browser = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:composer-copy', JSON.stringify({
+      userId: 'composer-copy', question: '分析机会', itemIds: ['item-1'], modelPreference: 'auto',
+    }))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    render(<Shell user={{ id: 'composer-copy', username: 'copy', role: 'member', enabled: true }} />)
+
+    await browser.click(screen.getByRole('button', { name: /模型偏好/ }))
+    await browser.click(screen.getByRole('option', { name: '深度分析' }))
+    await browser.click(screen.getByRole('button', { name: '复制交接提示词' }))
+
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('模型偏好：深度分析'))
+    expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('交接提示词已复制')
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v1:composer-copy') || '{}')).toMatchObject({ modelPreference: 'deep' })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('keeps the draft intact when clipboard access fails', async () => {
+    const browser = userEvent.setup()
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:composer-error', JSON.stringify({
+      userId: 'composer-error', question: '保留问题', itemIds: ['item-1'], modelPreference: 'fast',
+    }))
+    render(<Shell user={{ id: 'composer-error', username: 'error', role: 'member', enabled: true }} />)
+
+    await browser.click(screen.getByRole('button', { name: '复制交接提示词' }))
+    expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('无法写入剪贴板，请手动复制')
+    expect(screen.getByRole('textbox', { name: '交给 OpenClaw 的问题' })).toHaveValue('保留问题')
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v1:composer-error') || '{}')).toMatchObject({ itemIds: ['item-1'], modelPreference: 'fast' })
   })
 })
