@@ -4,7 +4,21 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import { Button, Card, Chip, Icons, ListBox, NumberField, Popover, Select, Skeleton, Switch } from '../../design-system'
+import {
+  Button,
+  EmptyState,
+  Icons,
+  ListBox,
+  LoadingState,
+  NumberField,
+  PageFrame,
+  Popover,
+  SearchField,
+  Select,
+  StatusNotice,
+  Switch,
+  ViewBar,
+} from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
 import { filterFeedItems, sortWorkbenchItems } from '../feed/feedModel'
 import {
@@ -26,12 +40,13 @@ import {
 } from './workbenchModel'
 
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
-  const { api, user, query, beginAction, isActionCurrent } = useAppContext()
+  const { api, user, query, setQuery, activity, refresh, beginAction, isActionCurrent } = useAppContext()
   const agent = useWorkbenchAgentContext()
   const location = useLocation()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
+  const [collectionSearchOpen, setCollectionSearchOpen] = useState(false)
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
   const selectedId = params.get('item') ?? undefined
@@ -118,7 +133,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const topics = useMemo(() => Array.from(new Set(sourceItems.flatMap((item) => item.presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? []))).sort(), [sourceItems])
   const loading = feedQuery.isLoading || savedQuery.isLoading || historyQuery.isLoading
   const loadError = feedQuery.error || savedQuery.error || historyQuery.error
-  const quietStudio = kind === 'feed'
+  const collectionRoute = kind !== 'feed'
+  const refreshing = activity.state === 'queued' || activity.state === 'running'
   const activeFilterCount = [
     preference.unreadFirst,
     preference.source,
@@ -141,30 +157,54 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     setParams(next)
   }
 
+  function refreshCollection() {
+    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
+    refresh()
+  }
+
   return <section aria-label="信息流工作区" className="flex h-full min-h-0 flex-col">
-    <div className={quietStudio
-      ? 'shrink-0 bg-background/95 px-3 py-2 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md sm:px-5'
-      : 'flex min-h-[48px] flex-wrap items-center gap-2 border-b border-separator px-3 py-2 sm:px-5'}>
-      <div
-        data-testid={quietStudio ? 'feed-view-bar' : undefined}
-        className={quietStudio
-          ? 'mx-auto flex min-h-10 w-full max-w-[820px] items-center gap-1 rounded-xl border border-separator/80 bg-surface-secondary/70 px-2.5'
-          : 'flex w-full flex-wrap items-center gap-2'}
-      >
-        <span className="type-control mr-auto text-muted">{quietStudio ? `${cards.length} 条内容` : `旧内容在上，最新内容在下 · ${cards.length} 条`}</span>
-        {!quietStudio && <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>}
-        {!quietStudio && preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
-        {quietStudio && <Button
+    <div className="shrink-0 bg-background/95 px-3 py-2 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md sm:px-5">
+      <PageFrame width="reading">
+        <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'}>
+        <ViewBar>
+        <span className="type-control mr-auto shrink-0 text-muted">{cards.length} 条内容</span>
+        {collectionRoute && <div className={`${collectionSearchOpen ? 'flex' : 'hidden'} min-w-0 flex-1 sm:flex`}>
+          <SearchField aria-label="搜索信息流" value={query} onChange={setQuery} className="min-w-0 flex-1" fullWidth variant="secondary">
+            <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
+              <SearchField.SearchIcon><Icons.Search size={14} /></SearchField.SearchIcon>
+              <SearchField.Input className="type-control" placeholder="搜索标题、来源或主题" />
+              <SearchField.ClearButton aria-label="清除搜索" />
+            </SearchField.Group>
+          </SearchField>
+        </div>}
+        {collectionRoute && <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          className="sm:hidden"
+          aria-label={collectionSearchOpen ? '收起搜索' : '搜索信息流'}
+          aria-expanded={collectionSearchOpen}
+          onPress={() => setCollectionSearchOpen((value) => !value)}
+        ><Icons.Search size={14} aria-hidden="true" /></Button>}
+        {!collectionRoute && <Button
           size="sm"
           variant="ghost"
           className="type-control"
           aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
           onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' })}
         ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>}
+        {collectionRoute && <Button
+          size="sm"
+          variant="ghost"
+          className="type-control"
+          aria-label="更新信息流"
+          isDisabled={refreshing || user.role === 'viewer'}
+          onPress={refreshCollection}
+        ><Icons.RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">{refreshing ? '更新中' : '更新'}</span></Button>}
         <Popover>
           <Popover.Trigger aria-label="筛选信息流" className="type-control inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
           <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选
-          {quietStudio && activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="type-micro rounded-md bg-accent/15 px-1.5 text-accent">{activeFilterCount}</span>}
+          {activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="type-micro rounded-md bg-accent/15 px-1.5 text-accent">{activeFilterCount}</span>}
           </Popover.Trigger>
           <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
             <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
@@ -180,7 +220,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             </Popover.Dialog>
           </Popover.Content>
         </Popover>
-      </div>
+        </ViewBar>
+        </div>
+      </PageFrame>
     </div>
 
     {deepLinkNotice && <div role="status" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
@@ -189,11 +231,10 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭操作错误" onPress={() => stateMutation.reset()}><Icons.X size={15} /></Button>
     </div>}
     {detailQuery.isError && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
-    {loading && <div aria-label="正在读取信息流" className="grid gap-3 p-5">{Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-40 rounded-2xl" />)}</div>}
-    {loadError && <Card variant="transparent" className="m-5 p-5" role="alert"><Card.Title>信息流加载失败</Card.Title><Card.Description>{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</Card.Description></Card>}
-    {!loading && !loadError && cards.length === 0 && <Card variant="transparent" className="m-auto p-6 text-center"><Card.Title>没有匹配的信息</Card.Title><Card.Description>清除筛选或等待下一次更新。</Card.Description></Card>}
+    {loading && <PageFrame width="reading" className="p-5"><LoadingState label="正在读取信息流" rows={5} /></PageFrame>}
+    {loadError && <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>}
+    {!loading && !loadError && cards.length === 0 && <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>}
     {!loading && !loadError && cards.length > 0 && <VirtualFeed
-      visualVariant={kind === 'feed' ? 'quiet-studio' : 'collection'}
       freshEdge={kind === 'feed' && preference.order === 'newest' ? 'start' : 'end'}
       cards={cards}
       sourceItemIds={sourceItemIds}

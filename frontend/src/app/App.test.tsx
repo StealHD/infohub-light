@@ -111,6 +111,23 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
+  it('places collection search and refresh inside the shared Quiet Studio ViewBar', async () => {
+    const api = liveApi({
+      savedFeed: vi.fn().mockResolvedValue({
+        items: [{ id: 'saved-live', title: '收藏条目', url: 'https://example.com/saved-live', published_at: '2026-07-17T02:00:00Z', user_state: { is_saved: true, is_read: false, is_later: false, dismissed: false } }],
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/saved']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('article', { name: '收藏条目' })
+    const viewBar = screen.getByTestId('collection-view-bar')
+    expect(within(viewBar).getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
+    expect(within(viewBar).getByRole('button', { name: '更新信息流' })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '信息流进度' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
+  })
+
   it('shows newest Feed cards first and persists the order toggle', async () => {
     window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
     const api = liveApi({ latestFeed: vi.fn().mockResolvedValue({

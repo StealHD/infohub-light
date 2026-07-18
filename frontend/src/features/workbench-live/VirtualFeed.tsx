@@ -11,16 +11,13 @@ import {
   Icons,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
-import { sampleTickIndexes, type WorkbenchCardModel } from './workbenchModel'
+import type { WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 
 type ItemStateAction = 'is_read' | 'dismissed'
 
-type VirtualFeedVariant = 'collection' | 'quiet-studio'
-
 type VirtualFeedProps = {
-  visualVariant?: VirtualFeedVariant
   freshEdge?: 'start' | 'end'
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
@@ -50,7 +47,6 @@ function readViewportAnchor(scroll: HTMLDivElement): ViewportAnchor | null {
 }
 
 function WorkbenchCard({
-  visualVariant,
   card,
   expanded,
   inContext,
@@ -61,7 +57,6 @@ function WorkbenchCard({
   onToggleContext,
   onItemAction,
 }: {
-  visualVariant: VirtualFeedVariant
   card: WorkbenchCardModel
   expanded: boolean
   inContext: boolean
@@ -72,30 +67,27 @@ function WorkbenchCard({
   onToggleContext: () => void
   onItemAction: (action: ItemStateAction, value: boolean) => void
 }) {
-  const quietStudio = visualVariant === 'quiet-studio'
   const externalUrl = safeExternalUrl(card.url)
   const copySummary = () => void navigator.clipboard?.writeText(card.summary || card.title)
 
   return <Card
     data-testid="workbench-card"
-    data-card-visual={visualVariant}
+    data-card-visual="quiet-studio"
     data-card-expanded={expanded ? 'true' : 'false'}
     role="article"
     aria-label={card.title}
     variant="secondary"
-    className={`group/card w-full gap-0 border p-0 shadow-none ${quietStudio
-      ? 'rounded-[var(--inteliscope-radius-feed-card)] border-separator bg-surface-secondary transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none'
-      : 'rounded-2xl border-separator bg-surface-secondary'}`}
+    className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
   >
     <button
       type="button"
-      className={`w-full cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${quietStudio ? 'px-[19px] pt-[18px]' : 'px-4 pt-4'}`}
+      className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
       aria-label={`${expanded ? '收起' : '展开'} ${card.title}`}
       aria-expanded={expanded}
       onClick={onToggleExpanded}
     >
       <span className="type-meta mb-2 flex items-center gap-2 text-muted">
-        <AvatarRoot className={`${quietStudio ? 'size-[25px]' : 'size-7'} shrink-0`}>
+        <AvatarRoot className="size-[25px] shrink-0">
           {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
           <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
         </AvatarRoot>
@@ -104,10 +96,10 @@ function WorkbenchCard({
         <span>{relativeTime(card.publishedAt)}</span>
       </span>
       <Card.Title className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
-      {card.summary && <Card.Description className={`type-body text-muted ${expanded ? '' : 'line-clamp-2'} ${quietStudio ? 'mt-1.5' : 'mt-1'}`}>{card.summary}</Card.Description>}
+      {card.summary && <Card.Description className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
     </button>
 
-    {quietStudio ? <div
+    <div
       data-testid={`card-details-${card.id}`}
       data-state={expanded ? 'expanded' : 'collapsed'}
       aria-hidden={!expanded}
@@ -120,34 +112,28 @@ function WorkbenchCard({
         {card.bodyTruncated && <p className="type-meta mt-2 text-muted">内容已截断，打开原文查看完整内容。</p>}
         {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.title} 内容图片`} loading="lazy" />}
       </div>
-    </div> : expanded && <Card.Content className="px-4 pt-3">
-      <div className="type-prose border-t border-separator pt-3 text-foreground whitespace-pre-wrap">
-        {card.body || '该条内容未保存正文片段；重新获取来源后可显示。'}
-      </div>
-      {card.bodyTruncated && <p className="type-meta mt-2 text-muted">内容已截断，打开原文查看完整内容。</p>}
-      {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.title} 内容图片`} loading="lazy" />}
-    </Card.Content>}
+    </div>
 
-    <Card.Footer className={`flex flex-wrap items-center justify-between gap-2 ${quietStudio ? 'px-[19px] pb-[15px] pt-[10px]' : 'px-4 pb-4 pt-3'}`}>
+    <Card.Footer className="flex flex-wrap items-center justify-between gap-2 px-[19px] pb-[15px] pt-[10px]">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5" aria-label="频道和主题">
         <Chip size="sm" color="accent" variant="soft" className="type-micro"><Chip.Label>{card.channel}</Chip.Label></Chip>
         {card.topics.slice(0, 3).map((topic) => <Chip key={topic} size="sm" variant="soft" className="type-micro"><Chip.Label>{topic}</Chip.Label></Chip>)}
       </div>
       <div
         data-card-actions
-        className={`ml-auto flex items-center gap-1 transition-opacity duration-[var(--inteliscope-motion-standard)] ${quietStudio ? 'opacity-100 pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100' : ''}`}
+        className="ml-auto flex items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100"
       >
         {externalUrl && <a
           href={externalUrl}
           target="_blank"
           rel="noreferrer"
           aria-label={`打开 ${card.title} 原文`}
-          className={`inline-flex items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
+          className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
         ><Icons.ExternalLink size={15} aria-hidden="true" /></a>}
         <Button
           size="sm"
           variant={card.userState.is_saved ? 'secondary' : 'ghost'}
-          className={quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : undefined}
+          className="size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
           isDisabled={readonly}
           aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${card.title}`}
           onPress={onToggleSaved}
@@ -157,21 +143,17 @@ function WorkbenchCard({
           size="sm"
           variant={inContext ? 'secondary' : 'ghost'}
           data-context-state={inContext ? 'selected' : 'idle'}
-          className={quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent' : undefined}
+          className="size-8 active:scale-95 pointer-coarse:size-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent motion-reduce:transform-none"
           isDisabled={contextFull && !inContext}
           aria-label={`将 ${card.title} ${inContext ? '移出' : '加入'} Agent 上下文`}
           onPress={onToggleContext}
           isIconOnly
-        >{inContext
-          ? quietStudio
-            ? <Icons.Check size={15} aria-hidden="true" />
-            : <Icons.X size={15} aria-hidden="true" />
-          : <Icons.Sparkles size={15} aria-hidden="true" />}</Button>
+        >{inContext ? <Icons.Check size={15} aria-hidden="true" /> : <Icons.Sparkles size={15} aria-hidden="true" />}</Button>
         <details className="relative">
           <summary
             role="button"
             aria-label={`更多操作 ${card.title}`}
-            className={`flex cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'size-8 pointer-coarse:size-11 active:scale-95 motion-reduce:transform-none' : 'size-8'}`}
+            className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
           ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
           <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
             <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('is_read', !card.userState.is_read)}>
@@ -191,8 +173,6 @@ function WorkbenchCard({
 }
 
 export function VirtualFeed(props: VirtualFeedProps) {
-  const visualVariant = props.visualVariant ?? 'collection'
-  const quietStudio = visualVariant === 'quiet-studio'
   const freshEdge = props.freshEdge ?? 'end'
   const sourceItemIds = props.sourceItemIds ?? props.cards.map((card) => card.id)
   const sourceSignature = sourceItemIds.join('\u0000')
@@ -207,19 +187,11 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const restorationAnchor = useRef<ViewportAnchor | null>(null)
   const pendingNavigation = useRef<PendingNavigation | null>(null)
   const pendingNavigationFrame = useRef<number | undefined>(undefined)
-  const navigationBoundary = useRef<'start' | 'end' | null>(null)
-  const navigationBoundaryTimer = useRef<number | undefined>(undefined)
-  const navigationBoundaryFrame = useRef<number | undefined>(undefined)
   const inlineScrollAnchor = useRef<number | null>(null)
   const inlineAnchorTimer = useRef<number | undefined>(undefined)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
-  const [activeIndex, setActiveIndex] = useState(freshEdge === 'start' ? 0 : Math.max(0, props.cards.length - 1))
   const [newItemCount, setNewItemCount] = useState(0)
-  const ticks = useMemo(
-    () => quietStudio ? [] : sampleTickIndexes(props.cards.length, 12),
-    [props.cards.length, quietStudio],
-  )
   const initialTargetIndex = props.navigationTargetId
     ? props.cards.findIndex((card) => card.id === props.navigationTargetId)
     : freshEdge === 'start' ? 0 : props.cards.length - 1
@@ -268,11 +240,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
     pendingNavigation.current = null
     window.cancelAnimationFrame(pendingNavigationFrame.current ?? 0)
     pendingNavigationFrame.current = undefined
-    navigationBoundary.current = null
     window.clearTimeout(inlineAnchorTimer.current)
     window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
-    window.clearTimeout(navigationBoundaryTimer.current)
-    window.cancelAnimationFrame(navigationBoundaryFrame.current ?? 0)
   }, [])
 
   useEffect(() => {
@@ -394,7 +363,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     const align = selectedIndex >= 0 ? 'center' : freshEdge
     releaseNavigationOwnership()
     setNewItemCount(0)
-    setActiveIndex(targetIndex)
     wasNearFreshEdge.current = selectedIndex < 0
     const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(targetIndex, { align }))
     return () => window.cancelAnimationFrame(frame)
@@ -424,7 +392,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     if (wasNearFreshEdge.current) setNewItemCount(0)
     const visible = virtualizer.getVirtualItems().filter((item) => item.end >= element.scrollTop && item.start <= element.scrollTop + element.clientHeight)
     if (visible.length) {
-      setActiveIndex(visible[Math.floor((visible.length - 1) / 2)].index)
       if (pendingNavigation.current && visible.some((item) => item.index === pendingNavigation.current?.index)) {
         pendingNavigation.current = null
       }
@@ -440,35 +407,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
       }
     }
     viewportAnchor.current = readViewportAnchor(element)
-  }
-
-  function jumpTo(index: number) {
-    const refreshInFlight = requestedRefreshAnchor.current !== null
-    const align = index <= 0 ? 'start' : index >= props.cards.length - 1 ? 'end' : 'center'
-    const navigation = { index, align } satisfies PendingNavigation
-    releaseNavigationOwnership()
-    if (refreshInFlight) pendingNavigation.current = navigation
-    setActiveIndex(index)
-    if (index === 0 && scrollRef.current) {
-      scrollRef.current.scrollTop = 0
-      holdNavigationBoundary('start')
-    }
-    else virtualizerRef.current.scrollToIndex(index, { align })
-  }
-
-  function holdNavigationBoundary(boundary: 'start' | 'end') {
-    navigationBoundary.current = boundary
-    const hold = () => {
-      const scroll = scrollRef.current
-      if (!scroll || navigationBoundary.current !== boundary) return
-      scroll.scrollTop = boundary === 'start' ? 0 : scroll.scrollHeight - scroll.clientHeight
-      navigationBoundaryFrame.current = window.requestAnimationFrame(hold)
-    }
-    navigationBoundaryFrame.current = window.requestAnimationFrame(hold)
-    navigationBoundaryTimer.current = window.setTimeout(() => {
-      if (navigationBoundary.current === boundary) navigationBoundary.current = null
-      window.cancelAnimationFrame(navigationBoundaryFrame.current ?? 0)
-    }, 3000)
   }
 
   function toggleExpandedInline(id: string) {
@@ -493,33 +431,19 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }
 
   return <div className="relative flex min-h-0 flex-1 overflow-hidden">
-    {!quietStudio && <nav
-      aria-label="信息流进度"
-      data-progress-rail="compact"
-      className="absolute right-2 top-1/2 z-10 flex h-28 -translate-y-1/2 flex-col justify-around rounded-lg bg-surface/80 px-1.5 py-2 backdrop-blur"
-    >
-      {ticks.map((index) => <button
-          key={index}
-          type="button"
-          aria-label={`跳转到第 ${index + 1} 条信息`}
-          aria-current={Math.abs(activeIndex - index) <= Math.max(1, Math.ceil(props.cards.length / Math.max(1, ticks.length)) / 2) ? 'true' : undefined}
-          className="h-0.5 w-3 rounded-lg bg-muted aria-current:w-5 aria-current:bg-accent"
-          onClick={() => jumpTo(index)}
-        />)}
-    </nav>}
     <div
       ref={scrollRef}
       data-testid="workbench-feed-scroll"
-      data-feed-visual={visualVariant}
+      data-feed-visual="quiet-studio"
       data-fresh-edge={freshEdge}
-      className={`min-h-0 flex-1 overflow-y-auto overscroll-contain py-4 [overflow-anchor:none] ${quietStudio ? 'px-3 sm:px-5' : 'px-3 pr-10 sm:px-5 sm:pr-12'}`}
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 [overflow-anchor:none] sm:px-5"
       onScroll={updateScrollState}
       onWheel={cancelInlineAnchor}
       onTouchStart={cancelInlineAnchor}
       onPointerDown={cancelInlineAnchor}
       onKeyDown={cancelInlineAnchor}
     >
-      <div className={`relative mx-auto w-full ${quietStudio ? 'max-w-[820px]' : 'max-w-3xl'}`} style={{ height: virtualizer.getTotalSize() }}>
+      <div className="relative mx-auto w-full max-w-[var(--inteliscope-width-reading)]" style={{ height: virtualizer.getTotalSize() }}>
         {virtualItems.map((virtualItem) => {
           const card = props.cards[virtualItem.index]
           if (!card) return null
@@ -532,7 +456,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
             style={{ transform: `translateY(${virtualItem.start}px)` }}
           >
             <WorkbenchCard
-              visualVariant={visualVariant}
               card={card}
               expanded={card.id === props.expandedId}
               inContext={props.contextIds.includes(card.id)}

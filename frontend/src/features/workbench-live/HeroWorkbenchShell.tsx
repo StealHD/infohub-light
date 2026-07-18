@@ -19,25 +19,19 @@ import {
   Chip,
   Drawer,
   Icons,
-  ListBox,
+  PageHeader,
   Popover,
-  SearchField,
-  Select,
   Separator,
   Skeleton,
-  TextArea,
-  Tooltip,
 } from '../../design-system'
 import {
-  buildAgentHandoffPrompt,
   readAgentContextDraft,
   updateAgentContextDraft,
   writeAgentContextDraft,
   type AgentContextDraftV1,
-  type AgentModelPreference,
 } from './agentContext'
+import { HandoffComposer } from './HandoffComposer'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
-import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
   applyQuickView,
   detectActiveQuickView,
@@ -159,23 +153,6 @@ function AgentPanelContent({
   status?: AgentStatus
   value: WorkbenchAgentContextValue
 }) {
-  const [notice, setNotice] = useState('')
-
-  useEffect(() => {
-    if (!notice) return
-    const timer = window.setTimeout(() => setNotice(''), 2800)
-    return () => window.clearTimeout(timer)
-  }, [notice])
-
-  async function copyHandoff() {
-    try {
-      await navigator.clipboard.writeText(buildAgentHandoffPrompt(value.draft))
-      setNotice('交接提示词已复制')
-    } catch {
-      setNotice('无法写入剪贴板，请手动复制')
-    }
-  }
-
   return <>
     <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
       <Icons.Sparkles size={17} aria-hidden="true" />
@@ -201,57 +178,7 @@ function AgentPanelContent({
           </Card>)}
         </div>
       </div>
-      <div className="border-t border-separator p-3">
-        <div data-testid="agent-handoff-composer" className="rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
-          <TextArea
-            fullWidth
-            variant="secondary"
-            className="type-body"
-            aria-label="交给 OpenClaw 的问题"
-            value={value.draft.question}
-            maxLength={1200}
-            rows={3}
-            placeholder="要求后续处理…"
-            onChange={(event) => value.setQuestion(event.target.value)}
-          />
-          <div className="mt-2 flex min-w-0 items-center gap-1.5 px-1 pb-0.5">
-            <Tooltip delay={300}>
-              <Tooltip.Trigger aria-label="交接模式说明" className="type-label inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
-                <Icons.Waypoints size={13} aria-hidden="true" />交接模式
-              </Tooltip.Trigger>
-              <Tooltip.Content>只复制交接提示词，由本地 OpenClaw 执行。</Tooltip.Content>
-            </Tooltip>
-            <span className="type-label shrink-0 text-muted">{value.draft.itemIds.length}/8</span>
-            <Select
-              aria-label="模型偏好"
-              selectedKey={value.draft.modelPreference}
-              onSelectionChange={(key) => key !== null && value.setModelPreference(String(key) as AgentModelPreference)}
-              className="min-w-0 flex-1"
-            >
-              <Select.Trigger aria-label="模型偏好" className="type-label min-h-8 border-0 bg-transparent px-1.5 shadow-none">
-                <Select.Value />
-                <Select.Indicator><Icons.ChevronDown size={12} aria-hidden="true" /></Select.Indicator>
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox items={[
-                  { id: 'auto', label: '自动 · OpenClaw 决定' },
-                  { id: 'fast', label: '速度优先' },
-                  { id: 'deep', label: '深度分析' },
-                ]}>{(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}</ListBox>
-              </Select.Popover>
-            </Select>
-            <span role="status" aria-label="交接状态" aria-live="polite" className="type-label min-w-0 truncate text-muted">{notice}</span>
-            <Button
-              size="sm"
-              isIconOnly
-              className="size-9 shrink-0 rounded-full active:scale-95 motion-reduce:transform-none"
-              isDisabled={!value.draft.itemIds.length}
-              aria-label="复制交接提示词"
-              onPress={() => void copyHandoff()}
-            ><Icons.ArrowUp size={16} aria-hidden="true" /></Button>
-          </div>
-        </div>
-      </div>
+      <HandoffComposer value={value} />
     </>}
   </>
 }
@@ -260,8 +187,6 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
-  const feedRoute = location.pathname === '/feed'
-  const collectionHeaderControls = contentRoute && !feedRoute
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const agentToggleRef = useRef<HTMLButtonElement>(null)
   const tabletNavToggleRef = useRef<HTMLDivElement>(null)
@@ -307,11 +232,6 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     setFeedPreferenceState({ userId: props.user.id, value: next })
     setTabletNavOpen(false)
     navigate('/feed')
-  }
-
-  function requestRefresh() {
-    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
-    props.onRefresh?.()
   }
 
   const persistDraft = useCallback((next: AgentContextDraftV1) => {
@@ -485,42 +405,23 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           </div>
         </aside>
 
-        <header
-          data-header-visual={feedRoute ? 'quiet-studio' : undefined}
-          className={`col-start-1 row-start-1 flex h-[52px] items-center gap-2 border-b border-separator px-3 min-[768px]:col-start-2 min-[768px]:px-4 ${feedRoute ? 'bg-surface/95 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg' : 'bg-surface'}`}
-        >
-          {contentRoute ? <h1 className="type-page-title shrink-0">{pageTitle}</h1> : <strong className="type-page-title shrink-0">{pageTitle}</strong>}
-          {collectionHeaderControls ? <SearchField aria-label="搜索信息流" value={props.query} onChange={props.onQueryChange} className="min-w-0 flex-1" fullWidth variant="secondary">
-            <SearchField.Group>
-              <SearchField.SearchIcon><Icons.Search size={16} /></SearchField.SearchIcon>
-              <SearchField.Input placeholder="搜索标题、来源或主题" />
-              <SearchField.ClearButton aria-label="清除搜索" />
-            </SearchField.Group>
-          </SearchField> : <span className="flex-1" />}
-          {collectionHeaderControls && <Button size="sm" variant="ghost" aria-label="更新信息流" isDisabled={refreshing || !props.onRefresh} onPress={requestRefresh}>
-            <Icons.RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-            <span className="hidden min-[560px]:inline">{props.refreshState === 'queued' ? '已排队' : refreshing ? '更新中' : '更新信息流'}</span>
-          </Button>}
-          {contentRoute && <Button
+        <PageHeader
+          title={pageTitle}
+          className="col-start-1 row-start-1 min-[768px]:col-start-2"
+          actions={contentRoute ? <Button
             ref={agentToggleRef}
             size="sm"
             variant="ghost"
             isIconOnly
-            data-agent-toggle-visual={feedRoute ? 'quiet-studio' : undefined}
+            data-agent-toggle-visual="quiet-studio"
             data-agent-open={agentOpen ? 'true' : 'false'}
-            className={feedRoute
-              ? 'h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] text-muted transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 data-[agent-open=true]:bg-accent/15 data-[agent-open=true]:text-accent motion-reduce:transform-none'
-              : undefined}
+            className="h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] text-muted transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 data-[agent-open=true]:bg-accent/15 data-[agent-open=true]:text-accent motion-reduce:transform-none"
             aria-label={agentOpen ? '收起 Agent 面板' : '展开 Agent 面板'}
             aria-expanded={agentOpen}
             aria-controls="live-agent-panel"
             onPress={() => setAgentOpen((value) => !value)}
-          >{feedRoute
-            ? <Icons.SplitPanel open={agentOpen} size={18} aria-hidden="true" />
-            : agentOpen
-              ? <Icons.PanelRightClose size={17} aria-hidden="true" />
-              : <Icons.PanelRightOpen size={17} aria-hidden="true" />}</Button>}
-        </header>
+          ><Icons.SplitPanel open={agentOpen} size={18} aria-hidden="true" /></Button> : undefined}
+        />
 
         <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
           {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">

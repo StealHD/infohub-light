@@ -19,7 +19,7 @@ const makeItem = (index: number): FeedItem => ({
 })
 
 describe('VirtualFeed', () => {
-  it('keeps a 200-item collection bounded and exposes at most twelve progress ticks', async () => {
+  it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
     render(<VirtualFeed
       cards={cards}
@@ -31,13 +31,12 @@ describe('VirtualFeed', () => {
     />)
 
     expect((await screen.findAllByTestId('workbench-card')).length).toBeLessThanOrEqual(40)
-    expect(screen.getAllByRole('button', { name: /跳转到第 .* 条信息/ })).toHaveLength(12)
+    expect(screen.queryByRole('navigation', { name: '信息流进度' })).not.toBeInTheDocument()
   })
 
   it('removes the progress rail and its reserved gutter from the Quiet Studio Feed', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
     render(<VirtualFeed
-      visualVariant="quiet-studio"
       cards={cards}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
@@ -53,9 +52,8 @@ describe('VirtualFeed', () => {
     expect(scroll.className).not.toContain('pl-16')
   })
 
-  it('keeps the compact progress rail for collection routes', () => {
+  it('uses the Quiet Studio surface without a reserved rail gutter for collection routes', () => {
     render(<VirtualFeed
-      visualVariant="collection"
       cards={Array.from({ length: 20 }, (_, index) => toWorkbenchCardModel(makeItem(index)))}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
@@ -64,13 +62,15 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    expect(screen.getAllByRole('button', { name: /跳转到第 .* 条信息/ })).toHaveLength(12)
+    expect(screen.queryByRole('navigation', { name: '信息流进度' })).not.toBeInTheDocument()
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    expect(scroll).toHaveAttribute('data-feed-visual', 'quiet-studio')
+    expect(scroll.className).not.toContain('pr-10')
   })
 
-  it('applies Quiet Studio card hierarchy without leaking it to collection cards', () => {
+  it('applies the same Quiet Studio card hierarchy to collection cards', () => {
     const card = toWorkbenchCardModel(makeItem(1))
     const view = render(<VirtualFeed
-      visualVariant="quiet-studio"
       cards={[card]}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
@@ -83,7 +83,6 @@ describe('VirtualFeed', () => {
     expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('data-state', 'collapsed')
 
     view.rerender(<VirtualFeed
-      visualVariant="collection"
       cards={[card]}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
@@ -91,13 +90,12 @@ describe('VirtualFeed', () => {
       onToggleContext={vi.fn()}
       onItemAction={vi.fn()}
     />)
-    expect(screen.getByRole('article', { name: '信息 1' })).toHaveAttribute('data-card-visual', 'collection')
-    expect(screen.queryByTestId('card-details-item-1')).not.toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '信息 1' })).toHaveAttribute('data-card-visual', 'quiet-studio')
+    expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('data-state', 'collapsed')
   })
 
   it('animates Quiet Studio details and exposes a confirmation state for Agent context', () => {
     render(<VirtualFeed
-      visualVariant="quiet-studio"
       cards={[toWorkbenchCardModel(makeItem(1))]}
       expandedId="item-1"
       contextIds={['item-1']}
@@ -115,7 +113,6 @@ describe('VirtualFeed', () => {
 
   it('keeps Quiet Studio card actions compact for fine pointers and 44px for coarse pointers at every width', () => {
     render(<VirtualFeed
-      visualVariant="quiet-studio"
       cards={[toWorkbenchCardModel(makeItem(1))]}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
@@ -141,7 +138,6 @@ describe('VirtualFeed', () => {
 
   it('only softens Quiet Studio card actions when the primary pointer is fine', () => {
     render(<VirtualFeed
-      visualVariant="quiet-studio"
       cards={[toWorkbenchCardModel(makeItem(1))]}
       contextIds={[]}
       onToggleExpanded={vi.fn()}

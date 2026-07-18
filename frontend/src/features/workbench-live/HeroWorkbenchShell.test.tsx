@@ -137,7 +137,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     useViewport(1440)
   })
 
-  it('removes search and manual refresh only from the Feed header', () => {
+  it('keeps the content header limited to title and Agent toggle', () => {
     render(<Shell user={{ id: 'feed-visual', username: 'feed', role: 'member', enabled: true }} />)
 
     expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
@@ -153,15 +153,16 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.getByRole('heading', { name: '信息流' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
   })
 
-  it('keeps collection header controls inside the same application typography scope', () => {
+  it('uses the same Quiet Studio header for collection routes', () => {
     render(<Shell path="/saved" user={{ id: 'saved-visual', username: 'saved', role: 'member', enabled: true }} />)
 
-    expect(screen.getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '更新信息流' })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
     const collectionToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
-    expect(collectionToggle).not.toHaveAttribute('data-agent-toggle-visual')
-    expect(screen.getByRole('heading', { name: '收藏' }).closest('header')).not.toHaveAttribute('data-header-visual')
+    expect(collectionToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
+    expect(collectionToggle.querySelector('[data-split-panel-icon]')).not.toBeNull()
+    expect(screen.getByRole('heading', { name: '收藏' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
   })
 })
 
@@ -179,6 +180,9 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(screen.queryByText('仅生成交接提示词，不在站内运行 Agent')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '复制交接提示词' })).toBeDisabled()
     expect(screen.getAllByText('自动 · OpenClaw 决定').length).toBeGreaterThan(0)
+    const modelTrigger = screen.getByRole('button', { name: /模型偏好/ })
+    expect(modelTrigger).toHaveClass('type-control')
+    expect(modelTrigger.closest('.quiet-compact-select')).not.toBeNull()
   })
 
   it('persists model guidance and copies without executing a network request', async () => {
