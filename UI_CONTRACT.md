@@ -91,6 +91,9 @@ This file is the sole source of truth for production UI technology, visual langu
 ## 7. Administration and authentication pages
 
 - Subscriptions, assistant connections, and settings use the shared `admin` PageFrame within the navigation shell and do not mount the Feed Agent panel. Their single route title lives in the Shell `PageHeader`; content uses `PageIntro`, `PageSection`, shared status states, and responsive grids instead of a duplicate display heading.
+- The assistant-connection page exposes `read` and `subscriptions_write` as explicit access choices. Creation always opens on read; viewer never sees the write choice; other roles see it disabled with explanatory copy while the server write flag is off. Existing connection cards render their persisted access and copy a configuration derived from that connection rather than from current form state.
+- Read configurations contain the 10 safe read, guidance, discovery, and diagnostic tools. Subscription-management configurations add only the three prepare tools and one apply tool. The UI states that write access excludes secrets, shared-source administration, jobs, Feed-item state, and refresh operations; server authorization remains authoritative.
+- A newly issued credential retains its selected access only inside the non-dismissible one-time-token dialog. Escape and backdrop press do not close it; explicit confirmation clears the token and transient credential state from React memory.
 - Page information architecture, backend fields, role boundaries, write-only secret handling, job behavior, and Remote MCP safety remain unchanged by visual migration.
 - Owner/Admin/member/viewer affordances must match existing authorization. Disabled or hidden controls are not substitutes for server enforcement.
 - Login uses the shared `auth` PageFrame, brand mark, semantic typography, controls, and focus feedback without rendering the authenticated shell.
