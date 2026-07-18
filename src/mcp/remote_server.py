@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import AnyHttpUrl, ConfigDict, Field
+from pydantic import AnyHttpUrl, ConfigDict, Field, ValidationError
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ..services.agent_change_proposal import (
@@ -140,6 +140,46 @@ class RemoteMCPApplication:
     exact_path_app: ExactMCPPathApp
 
 
+class SafeRemoteMCP(FastMCP):
+    """Map pre-business argument validation failures to the public safe contract."""
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> Any:
+        request_id = f"mcp_{uuid.uuid4().hex}"
+        started = time.perf_counter()
+        tool = self._tool_manager.get_tool(name)
+        if tool is not None:
+            try:
+                pre_parsed = tool.fn_metadata.pre_parse_json(arguments)
+                tool.fn_metadata.arg_model.model_validate(pre_parsed)
+            except ValidationError:
+                access = get_access_token()
+                claims = (
+                    access.claims
+                    if access is not None and isinstance(access.claims, dict)
+                    else {}
+                )
+                delegation_id = str(claims.get("delegation_id") or "-")
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                _LOGGER.info(
+                    "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
+                    "action=%s outcome=%s elapsed_ms=%s request_id=%s",
+                    delegation_id,
+                    name,
+                    "-",
+                    "-",
+                    "invalid_request",
+                    elapsed_ms,
+                    request_id,
+                )
+                raise ToolError("invalid_request") from None
+
+        return await super().call_tool(name, arguments)
+
+
 def create_remote_mcp(
     store: ServiceStore,
     settings: RemoteMCPSettings,
@@ -170,7 +210,7 @@ def create_remote_mcp(
         secret_is_set=secret_is_set,
     )
     limiter = DelegationRateLimiter()
-    server = FastMCP(
+    server = SafeRemoteMCP(
         "Inteliscope",
         instructions="User-scoped Inteliscope information and controlled subscription tools.",
         token_verifier=AgentDelegationTokenVerifier(store),

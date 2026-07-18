@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager
 
 import httpx
@@ -351,6 +352,99 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
         "forged-config-user",
     ):
         assert forbidden_value not in serialized_errors
+    assert _table_count(app, "agent_change_proposals") == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("arguments", "sensitive_value"),
+    [
+        (
+            {
+                "source": {
+                    "mode": "private",
+                    "type": "rss",
+                    "display_name": "Outer Extra",
+                    "config": {"url": "https://example.com/outer.xml"},
+                },
+                "user_id": "outer-extra-sensitive-value",
+            },
+            "outer-extra-sensitive-value",
+        ),
+        (
+            {
+                "source": {
+                    "mode": "private",
+                    "type": "rss",
+                    "display_name": "Nested Extra",
+                    "config": {"url": "https://example.com/nested.xml"},
+                },
+                "subscription": {"user_id": "nested-extra-sensitive-value"},
+            },
+            "nested-extra-sensitive-value",
+        ),
+        (
+            {
+                "source": {
+                    "mode": "invalid-discriminator-sensitive-value",
+                    "source_id": "source_unused",
+                }
+            },
+            "invalid-discriminator-sensitive-value",
+        ),
+        (
+            {
+                "source": {
+                    "mode": "private",
+                    "type": "rss",
+                    "display_name": "Range Error",
+                    "config": {"url": "https://example.com/range.xml"},
+                },
+                "subscription": {"priority": 987654321},
+            },
+            "987654321",
+        ),
+    ],
+    ids=("outer-extra", "nested-extra", "discriminator", "range"),
+)
+async def test_authenticated_validation_failures_are_stable_audited_and_redacted(
+    tmp_path, monkeypatch, caplog, arguments, sensitive_value
+):
+    app = _app(tmp_path, monkeypatch, writes_enabled=True)
+    _user, connection, token = _delegation(app)
+    caplog.set_level(logging.INFO, logger="src.mcp.remote_server")
+
+    async with _mcp_session(app, token) as session:
+        result = await session.call_tool(
+            "prepare_create_subscription",
+            arguments,
+        )
+
+    assert result.isError is True
+    assert result.content[0].text == "invalid_request"
+    audit_records = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "src.mcp.remote_server"
+        and record.getMessage().startswith("remote_mcp_call ")
+    ]
+    assert len(audit_records) == 1
+    assert re.fullmatch(
+        rf"remote_mcp_call delegation_id={re.escape(connection['id'])} "
+        r"tool=prepare_create_subscription proposal_id=- action=- "
+        r"outcome=invalid_request elapsed_ms=\d+ request_id=mcp_[0-9a-f]{32}",
+        audit_records[0],
+    )
+    serialized_evidence = result.content[0].text + "\n" + caplog.text
+    assert sensitive_value not in serialized_evidence
+    for forbidden_detail in (
+        "validation error",
+        "extra_forbidden",
+        "union_tag_invalid",
+        "less_than_equal",
+        "input_value",
+    ):
+        assert forbidden_detail not in serialized_evidence.lower()
     assert _table_count(app, "agent_change_proposals") == 0
 
 

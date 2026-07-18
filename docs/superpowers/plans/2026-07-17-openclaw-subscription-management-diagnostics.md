@@ -1073,6 +1073,22 @@ git add src/mcp/remote_models.py src/mcp/remote_server.py src/api/server.py test
 git commit -m "feat: expose controlled subscription MCP tools"
 ```
 
+- [x] **Step 8: Add real-client regressions for pre-business validation failures**
+
+Call `prepare_create_subscription` through `ClientSession.call_tool()` with four invalid payloads: an outer identity extra, a nested model extra, an invalid `source.mode` discriminator, and an out-of-range subscription priority. For each call assert the only stable tool error is `invalid_request`, exactly one audit record uses the fixed seven-field layout with `proposal_id=-`, `action=-`, `outcome=invalid_request`, and `request_id=mcp_...`, and neither the response nor captured logs contain submitted values or Pydantic validation details.
+
+Run: `.venv/bin/pytest tests/test_remote_mcp_subscription_http.py -k validation -q`
+
+Expected before the fix: FAIL because FastMCP `Tool.run()` validates before the registered business function, returns SDK/Pydantic error text, and emits no `remote_mcp_call` record.
+
+- [x] **Step 9: Add an app-local outer tool validation adapter**
+
+Create a `FastMCP` subclass in `src/mcp/remote_server.py` that overrides the SDK's outer `call_tool` adapter, with one fresh server instance per FastAPI app. The adapter must use each tool's existing `FuncMetadata.pre_parse_json()` and generated Pydantic argument model to validate before `ToolManager.call_tool`/`Tool.run`; on `ValidationError`, it returns only `ToolError("invalid_request")` and emits one fixed audit record without inspecting, serializing, or logging arguments or exception text in the rejection handler. Successful validation delegates to the SDK call path unchanged, so current `run_tool()` remains the sole normal/business audit path and cannot double-log.
+
+- [x] **Step 10: Verify the Task 8 validation fix and adjacent contracts**
+
+Run the Task 8 focused/transport/diagnostics/Nginx set, Task 4–7 adjacency set, full test gate, `py_compile`, JSON validation, and `git diff --check`. Reconfirm 14-tool order, typed schemas, exact annotations, per-app manager/session isolation, normal `run_tool()` single logging, and zero UI changes; record fresh evidence in `.superpowers/sdd/task-8-fix-r1-report.md` and `WORKLOG.md` before the independent fix commit.
+
 ### Task 9: Permission-Aware Assistant Connection UI
 
 **Files:**

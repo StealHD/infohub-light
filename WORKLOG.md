@@ -1121,3 +1121,11 @@
 - 结果：14 工具顺序与 annotations 精确；全局 auth 保持 read，写权限由 proposal service 重验；prepare/apply、read-scope/flag-off、跨用户隔离、extra-forbid/Task1 config 安全和固定脱敏日志均由真实 Client 覆盖
 - 未解决问题：Task 9+ UI/Skill、控制面合同、impact map、生产启用与真实 OpenClaw canary 未实现
 - 控制面变更：仅勾选既有 Task 8 执行状态；对外合同由后续统一文档任务更新
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 8 独立审查的一个 Important，统一业务函数前参数验证失败的安全错误与审计
+- 修改文件：app-local MCP call-tool adapter、四类真实 Client 验证回归、Task 8 主计划、R1 修复报告、`WORKLOG.md`
+- 执行验证：四类 validation 4/4 按预期 RED 后 GREEN；Task 8 transport/diagnostics/Nginx 223 项、Task1/4–7 邻接 666 项、full gate 22/22、Python compile、两个 JSON 与 diff 检查通过
+- 结果：外层/nested extra、错误 discriminator 与范围错误均只返回 `invalid_request`，每次精确一条固定七字段审计且输入/ValidationError 零泄漏；14 工具 schema/annotations/顺序、正常单日志与每 app 隔离保持不变
+- 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅补充既有 Task 8 验证失败安全边界与执行证据；未修改对外 API/架构/UI 合同
