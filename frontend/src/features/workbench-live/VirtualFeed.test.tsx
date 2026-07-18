@@ -139,6 +139,29 @@ describe('VirtualFeed', () => {
     }
   })
 
+  it('only softens Quiet Studio card actions when the primary pointer is fine', () => {
+    render(<VirtualFeed
+      visualVariant="quiet-studio"
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const actions = screen.getByRole('article', { name: '信息 1' }).querySelector<HTMLElement>('[data-card-actions]')
+    if (!actions) throw new Error('Quiet Studio card actions were not rendered')
+
+    expect(actions).toHaveClass(
+      'opacity-100',
+      'pointer-fine:opacity-60',
+      'pointer-fine:group-hover/card:opacity-100',
+      'pointer-fine:group-focus-within/card:opacity-100',
+    )
+    expect(actions.className).not.toContain('min-[768px]:opacity-60')
+  })
+
   it('expands in place without implicitly marking the item read', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()

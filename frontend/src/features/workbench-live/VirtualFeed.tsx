@@ -134,7 +134,7 @@ function WorkbenchCard({
       </div>
       <div
         data-card-actions
-        className={`ml-auto flex items-center gap-1 transition-opacity duration-[var(--inteliscope-motion-standard)] ${quietStudio ? 'opacity-100 min-[768px]:opacity-60 min-[768px]:group-hover/card:opacity-100 min-[768px]:group-focus-within/card:opacity-100' : ''}`}
+        className={`ml-auto flex items-center gap-1 transition-opacity duration-[var(--inteliscope-motion-standard)] ${quietStudio ? 'opacity-100 pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100' : ''}`}
       >
         {externalUrl && <a
           href={externalUrl}
