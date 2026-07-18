@@ -6,8 +6,13 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { Button, Card, Chip, Icons, ListBox, NumberField, Popover, Select, Skeleton, Switch } from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
-import { filterFeedItems } from '../feed/feedModel'
-import { readFeedPreference, writeFeedPreference, type FeedPreference } from '../feed/feedPreference'
+import { filterFeedItems, sortWorkbenchItems } from '../feed/feedModel'
+import {
+  FEED_PREFERENCE_CHANGED_EVENT,
+  readFeedPreference,
+  writeFeedPreference,
+  type FeedPreference,
+} from '../feed/feedPreference'
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
@@ -63,6 +68,15 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [location.pathname, location.search, navigate, params])
 
   useEffect(() => {
+    const syncPreference = (event: Event) => {
+      if ((event as CustomEvent<{ userId?: string }>).detail?.userId !== user.id) return
+      setPreferenceState({ userId: user.id, value: readFeedPreference(user.id) })
+    }
+    window.addEventListener(FEED_PREFERENCE_CHANGED_EVENT, syncPreference)
+    return () => window.removeEventListener(FEED_PREFERENCE_CHANGED_EVENT, syncPreference)
+  }, [user.id])
+
+  useEffect(() => {
     if (!detailQuery.isError || !(detailQuery.error instanceof ApiError) || detailQuery.error.status !== 404 || !sourceQuerySettled || selectedInSource) return
     const next = new URLSearchParams(params)
     next.delete('item')
@@ -73,9 +87,13 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }, [detailQuery.error, detailQuery.isError, location.pathname, location.state, navigate, params, selectedInSource, sourceQuerySettled])
 
   const mergedItems = useMemo(() => mergeDeepLinkedItem(sourceItems, detailQuery.data), [detailQuery.data, sourceItems])
+  const orderedItems = useMemo(
+    () => kind === 'feed' ? sortWorkbenchItems(mergedItems, preference.order) : mergedItems,
+    [kind, mergedItems, preference.order],
+  )
   const filteredItems = useMemo(() => {
     const matching = filterFeedItems(
-      mergedItems.filter((item) => !item.user_state?.dismissed),
+      orderedItems.filter((item) => !item.user_state?.dismissed),
       {
         query,
         unreadFirst: preference.unreadFirst,
@@ -87,9 +105,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     )
     if (!selectedId || !detailQuery.data) return matching
     const matchingIds = new Set(matching.map((item) => item.id))
-    const pinned = mergedItems.filter((item) => matchingIds.has(item.id) || item.id === selectedId)
+    const pinned = orderedItems.filter((item) => matchingIds.has(item.id) || item.id === selectedId)
     return filterFeedItems(pinned, { query: '', unreadFirst: preference.unreadFirst })
-  }, [detailQuery.data, mergedItems, preference, query, selectedId])
+  }, [detailQuery.data, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
@@ -124,31 +142,44 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }
 
   return <section aria-label="信息流工作区" className="flex h-full min-h-0 flex-col">
-    <div className={`flex min-h-[48px] flex-wrap items-center gap-2 border-b border-separator px-3 py-2 sm:px-5 ${quietStudio ? 'bg-background/95 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md' : ''}`}>
-      <span className="text-xs text-muted">
-        {quietStudio ? `${cards.length} 条内容 · 最新在下` : `旧内容在上，最新内容在下 · ${cards.length} 条`}
-      </span>
-      {!quietStudio && <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>}
-      {!quietStudio && preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
-      <Popover>
-        <Popover.Trigger aria-label="筛选信息流" className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${quietStudio ? 'ml-auto' : ''}`}>
+    <div className={quietStudio
+      ? 'shrink-0 bg-background/95 px-3 py-2 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md sm:px-5'
+      : 'flex min-h-[48px] flex-wrap items-center gap-2 border-b border-separator px-3 py-2 sm:px-5'}>
+      <div
+        data-testid={quietStudio ? 'feed-view-bar' : undefined}
+        className={quietStudio
+          ? 'mx-auto flex min-h-10 w-full max-w-[820px] items-center gap-1 rounded-xl border border-separator/80 bg-surface-secondary/70 px-2.5'
+          : 'flex w-full flex-wrap items-center gap-2'}
+      >
+        <span className="mr-auto text-xs text-muted">{quietStudio ? `${cards.length} 条内容` : `旧内容在上，最新内容在下 · ${cards.length} 条`}</span>
+        {!quietStudio && <Chip size="sm" color="accent" variant="soft"><Chip.Label>全部</Chip.Label></Chip>}
+        {!quietStudio && preference.unreadFirst && <Chip size="sm" variant="soft"><Chip.Label>未读优先</Chip.Label></Chip>}
+        {quietStudio && <Button
+          size="sm"
+          variant="ghost"
+          aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
+          onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' })}
+        ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>}
+        <Popover>
+          <Popover.Trigger aria-label="筛选信息流" className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
           <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选
           {quietStudio && activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="rounded-md bg-accent/15 px-1.5 text-xs text-accent">{activeFilterCount}</span>}
-        </Popover.Trigger>
-        <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
-          <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
-            <Popover.Heading className="font-semibold">信息流筛选</Popover.Heading>
-            <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
-            <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
-            <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
-            <FilterSelect label="主题" value={preference.topic} onChange={(value) => updatePreference({ topic: value })} options={[{ id: '', label: '全部主题' }, ...topics.map((value) => ({ id: value, label: value }))]} />
-            <NumberField aria-label="最低分" value={preference.minScore} minValue={0} maxValue={10} step={0.5} onChange={(value) => updatePreference({ minScore: value ?? undefined })}>
-              <NumberField.Group><NumberField.Input /></NumberField.Group>
-            </NumberField>
-            <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })}>清除筛选</Button>
-          </Popover.Dialog>
-        </Popover.Content>
-      </Popover>
+          </Popover.Trigger>
+          <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
+            <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
+              <Popover.Heading className="font-semibold">信息流筛选</Popover.Heading>
+              <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
+              <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
+              <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
+              <FilterSelect label="主题" value={preference.topic} onChange={(value) => updatePreference({ topic: value })} options={[{ id: '', label: '全部主题' }, ...topics.map((value) => ({ id: value, label: value }))]} />
+              <NumberField aria-label="最低分" value={preference.minScore} minValue={0} maxValue={10} step={0.5} onChange={(value) => updatePreference({ minScore: value ?? undefined })}>
+                <NumberField.Group><NumberField.Input /></NumberField.Group>
+              </NumberField>
+              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })}>清除筛选</Button>
+            </Popover.Dialog>
+          </Popover.Content>
+        </Popover>
+      </div>
     </div>
 
     {deepLinkNotice && <div role="status" className="flex items-center gap-2 border-b border-separator px-4 py-2 text-sm text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
@@ -162,6 +193,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     {!loading && !loadError && cards.length === 0 && <Card variant="transparent" className="m-auto p-6 text-center"><Card.Title>没有匹配的信息</Card.Title><Card.Description>清除筛选或等待下一次更新。</Card.Description></Card>}
     {!loading && !loadError && cards.length > 0 && <VirtualFeed
       visualVariant={kind === 'feed' ? 'quiet-studio' : 'collection'}
+      freshEdge={kind === 'feed' && preference.order === 'newest' ? 'start' : 'end'}
       cards={cards}
       sourceItemIds={sourceItemIds}
       expandedId={selectedId}

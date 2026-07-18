@@ -338,4 +338,41 @@ describe('VirtualFeed', () => {
     fireEvent.scroll(scroll)
     expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()
   })
+
+  it('treats the top as the fresh edge for newest-first Feed order', async () => {
+    const initial = [1, 0].map((index) => toWorkbenchCardModel(makeItem(index)))
+    const view = render(<VirtualFeed
+      freshEdge="start"
+      cards={initial}
+      sourceItemIds={['item-1', 'item-0']}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 720 },
+      scrollTop: { configurable: true, writable: true, value: 240 },
+    })
+    fireEvent.scroll(scroll)
+
+    view.rerender(<VirtualFeed
+      freshEdge="start"
+      cards={[toWorkbenchCardModel(makeItem(2)), ...initial]}
+      sourceItemIds={['item-2', 'item-1', 'item-0']}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(await screen.findByRole('button', { name: '查看 1 条新内容' })).toHaveClass('top-4')
+    scroll.scrollTop = 0
+    fireEvent.scroll(scroll)
+    expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()
+  })
 })

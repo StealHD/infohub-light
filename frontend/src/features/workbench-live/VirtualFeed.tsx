@@ -21,6 +21,7 @@ type VirtualFeedVariant = 'collection' | 'quiet-studio'
 
 type VirtualFeedProps = {
   visualVariant?: VirtualFeedVariant
+  freshEdge?: 'start' | 'end'
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
   expandedId?: string
@@ -102,8 +103,8 @@ function WorkbenchCard({
         <span aria-hidden="true">·</span>
         <span>{relativeTime(card.publishedAt)}</span>
       </span>
-      <Card.Title className={quietStudio ? 'line-clamp-2 text-base font-semibold leading-[1.38]' : 'line-clamp-2 text-base leading-6'}>{card.title}</Card.Title>
-      <Card.Description className={quietStudio ? 'mt-1.5 line-clamp-2 text-[13px] leading-5 text-muted' : 'mt-1 line-clamp-2 leading-5'}>{card.summary}</Card.Description>
+      <Card.Title className={`${expanded ? '' : 'line-clamp-2 '}${quietStudio ? 'text-base font-semibold leading-[1.38]' : 'text-base leading-6'}`}>{card.title}</Card.Title>
+      {card.summary && <Card.Description className={`${expanded ? '' : 'line-clamp-2 '}${quietStudio ? 'mt-1.5 text-[13px] leading-5 text-muted' : 'mt-1 leading-5'}`}>{card.summary}</Card.Description>}
     </button>
 
     {quietStudio ? <div
@@ -192,11 +193,13 @@ function WorkbenchCard({
 export function VirtualFeed(props: VirtualFeedProps) {
   const visualVariant = props.visualVariant ?? 'collection'
   const quietStudio = visualVariant === 'quiet-studio'
+  const freshEdge = props.freshEdge ?? 'end'
   const sourceItemIds = props.sourceItemIds ?? props.cards.map((card) => card.id)
   const sourceSignature = sourceItemIds.join('\u0000')
   const cardsSignature = props.cards.map((card) => card.id).join('\u0000')
   const scrollRef = useRef<HTMLDivElement>(null)
-  const wasNearBottom = useRef(true)
+  const wasNearFreshEdge = useRef(true)
+  const previousFreshEdge = useRef(freshEdge)
   const previousSourceIds = useRef(new Set(sourceItemIds))
   const previousCardsSignature = useRef(cardsSignature)
   const viewportAnchor = useRef<ViewportAnchor | null>(null)
@@ -211,13 +214,15 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const inlineAnchorTimer = useRef<number | undefined>(undefined)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
-  const [activeIndex, setActiveIndex] = useState(Math.max(0, props.cards.length - 1))
+  const [activeIndex, setActiveIndex] = useState(freshEdge === 'start' ? 0 : Math.max(0, props.cards.length - 1))
   const [newItemCount, setNewItemCount] = useState(0)
   const ticks = useMemo(
     () => quietStudio ? [] : sampleTickIndexes(props.cards.length, 12),
     [props.cards.length, quietStudio],
   )
-  const initialTargetIndex = props.navigationTargetId ? props.cards.findIndex((card) => card.id === props.navigationTargetId) : props.cards.length - 1
+  const initialTargetIndex = props.navigationTargetId
+    ? props.cards.findIndex((card) => card.id === props.navigationTargetId)
+    : freshEdge === 'start' ? 0 : props.cards.length - 1
   // TanStack Virtual intentionally returns mutable imperative methods; React Compiler skips this component safely.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -233,7 +238,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
     },
     getItemKey: (index) => props.cards[index]?.id ?? index,
     initialRect: { width: 760, height: 720 },
-    initialOffset: Math.max(0, (Math.max(0, initialTargetIndex) + 1) * collapsedEstimate - 720),
+    initialOffset: freshEdge === 'start'
+      ? 0
+      : Math.max(0, (Math.max(0, initialTargetIndex) + 1) * collapsedEstimate - 720),
     observeElementRect: (instance, callback) => {
       const element = instance.scrollElement
       if (!(element instanceof HTMLElement)) return undefined
@@ -303,7 +310,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
     const anchor = requestedRefreshAnchor.current ?? restorationAnchor.current ?? viewportAnchor.current
     requestedRefreshAnchor.current = null
     const scroll = scrollRef.current
-    if (!anchor || !scroll || wasNearBottom.current) return
+    if (!anchor || !scroll || wasNearFreshEdge.current) return
     restorationAnchor.current = anchor
 
     let frame = 0
@@ -366,35 +373,55 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
   useEffect(() => {
     if (didInitialScroll.current || props.cards.length === 0) return
-    const targetIndex = props.navigationTargetId ? props.cards.findIndex((card) => card.id === props.navigationTargetId) : props.cards.length - 1
+    const targetIndex = props.navigationTargetId
+      ? props.cards.findIndex((card) => card.id === props.navigationTargetId)
+      : freshEdge === 'start' ? 0 : props.cards.length - 1
     if (props.navigationTargetId && targetIndex < 0) return
     didInitialScroll.current = true
     const frame = window.requestAnimationFrame(() => {
       releaseNavigationOwnership()
-      virtualizer.scrollToIndex(targetIndex, { align: props.navigationTargetId ? 'center' : 'end' })
+      virtualizer.scrollToIndex(targetIndex, { align: props.navigationTargetId ? 'center' : freshEdge })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [props.cards, props.navigationTargetId, releaseNavigationOwnership, virtualizer])
+  }, [freshEdge, props.cards, props.navigationTargetId, releaseNavigationOwnership, virtualizer])
+
+  useEffect(() => {
+    if (previousFreshEdge.current === freshEdge) return
+    previousFreshEdge.current = freshEdge
+    if (props.cards.length === 0) return
+    const selectedIndex = props.expandedId ? props.cards.findIndex((card) => card.id === props.expandedId) : -1
+    const targetIndex = selectedIndex >= 0 ? selectedIndex : freshEdge === 'start' ? 0 : props.cards.length - 1
+    const align = selectedIndex >= 0 ? 'center' : freshEdge
+    releaseNavigationOwnership()
+    setNewItemCount(0)
+    setActiveIndex(targetIndex)
+    wasNearFreshEdge.current = selectedIndex < 0
+    const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(targetIndex, { align }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [cardsSignature, freshEdge, props.cards, props.expandedId, releaseNavigationOwnership, virtualizer])
 
   useEffect(() => {
     const addedCount = sourceItemIds.filter((id) => !previousSourceIds.current.has(id)).length
     previousSourceIds.current = new Set(sourceItemIds)
     requestedRefreshAnchor.current = null
     if (addedCount <= 0) return
-    if (wasNearBottom.current) {
+    if (wasNearFreshEdge.current) {
       releaseNavigationOwnership()
-      virtualizer.scrollToIndex(props.cards.length - 1, { align: 'end' })
+      const targetIndex = freshEdge === 'start' ? 0 : props.cards.length - 1
+      virtualizer.scrollToIndex(targetIndex, { align: freshEdge })
     }
     else setNewItemCount((count) => count + addedCount)
-  }, [props.cards.length, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
+  }, [freshEdge, props.cards.length, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
 
   const virtualItems = virtualizer.getVirtualItems()
 
   function updateScrollState() {
     const element = scrollRef.current
     if (!element) return
-    wasNearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 96
-    if (wasNearBottom.current) setNewItemCount(0)
+    wasNearFreshEdge.current = freshEdge === 'start'
+      ? element.scrollTop <= 96
+      : element.scrollHeight - element.scrollTop - element.clientHeight <= 96
+    if (wasNearFreshEdge.current) setNewItemCount(0)
     const visible = virtualizer.getVirtualItems().filter((item) => item.end >= element.scrollTop && item.start <= element.scrollTop + element.clientHeight)
     if (visible.length) {
       setActiveIndex(visible[Math.floor((visible.length - 1) / 2)].index)
@@ -484,6 +511,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       ref={scrollRef}
       data-testid="workbench-feed-scroll"
       data-feed-visual={visualVariant}
+      data-fresh-edge={freshEdge}
       className={`min-h-0 flex-1 overflow-y-auto overscroll-contain py-4 [overflow-anchor:none] ${quietStudio ? 'px-3 sm:px-5' : 'px-3 pr-10 sm:px-5 sm:pr-12'}`}
       onScroll={updateScrollState}
       onWheel={cancelInlineAnchor}
@@ -521,13 +549,14 @@ export function VirtualFeed(props: VirtualFeedProps) {
     </div>
     {newItemCount > 0 && <Button
       size="sm"
-      className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2"
+      className={`absolute left-1/2 z-10 -translate-x-1/2 ${freshEdge === 'start' ? 'top-4' : 'bottom-4'}`}
       aria-label={`查看 ${newItemCount} 条新内容`}
       onPress={() => {
         releaseNavigationOwnership()
         setNewItemCount(0)
-        wasNearBottom.current = true
-        virtualizer.scrollToIndex(props.cards.length - 1, { align: 'end' })
+        wasNearFreshEdge.current = true
+        const targetIndex = freshEdge === 'start' ? 0 : props.cards.length - 1
+        virtualizer.scrollToIndex(targetIndex, { align: freshEdge })
       }}
     >{newItemCount} 条新内容</Button>}
   </div>

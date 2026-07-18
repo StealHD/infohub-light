@@ -6,7 +6,7 @@ export type WorkbenchKind = 'feed' | 'saved' | 'history'
 export type WorkbenchCardModel = {
   id: string
   title: string
-  summary: string
+  summary?: string
   body: string
   bodyTruncated: boolean
   source: string
@@ -42,10 +42,15 @@ export function selectWorkbenchSourceItems(kind: WorkbenchKind, data: WorkbenchS
 
 export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
   const presentation = item.presentation
+  const title = presentation?.content?.title || item.title || '无标题'
+  const candidateSummary = presentation?.analysis?.summary_zh || item.summary_zh
+  const summary = candidateSummary && normalizeDisplayText(candidateSummary) !== normalizeDisplayText(title)
+    ? candidateSummary.trim()
+    : undefined
   return {
     id: item.id,
-    title: presentation?.content?.title || item.title || '无标题',
-    summary: presentation?.analysis?.summary_zh || item.summary_zh || '暂无概括；请打开原文核对完整内容。',
+    title,
+    summary,
     body: presentation?.content?.body_text || presentation?.content?.excerpt || '',
     bodyTruncated: Boolean(presentation?.content?.body_truncated ?? presentation?.content?.excerpt_truncated),
     source: presentation?.source?.name || item.source || item.source_type || '未知来源',
@@ -59,6 +64,15 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
     userState: { ...emptyUserState, ...item.user_state },
     item,
   }
+}
+
+function normalizeDisplayText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/^[\p{P}\p{S}\s]+|[\p{P}\p{S}\s]+$/gu, '')
 }
 
 function mergeDetailedItem(snapshot: FeedItem, detail: FeedItem): FeedItem {

@@ -96,13 +96,34 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(await screen.findByText('1 条内容 · 最新在下')).toBeInTheDocument()
+    expect(await screen.findByText('1 条内容')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '最新优先' })).toBeInTheDocument()
+    expect(screen.getByTestId('feed-view-bar')).toBeInTheDocument()
     expect(screen.queryByText('旧内容在上，最新内容在下 · 1 条')).not.toBeInTheDocument()
     expect(screen.queryByText('全部', { exact: true })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('article', { name: '真实 API 条目' })).toBeInTheDocument())
     expect(api.latestFeed).toHaveBeenCalled()
     expect(api.agentDelegations).toHaveBeenCalled()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
+  })
+
+  it('shows newest Feed cards first and persists the order toggle', async () => {
+    window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
+    const api = liveApi({ latestFeed: vi.fn().mockResolvedValue({
+      schema_version: 2,
+      items: [
+        { id: 'older', title: '较早内容', url: 'https://example.com/older', published_at: '2026-07-17T01:00:00Z' },
+        { id: 'newer', title: '最新内容', url: 'https://example.com/newer', published_at: '2026-07-17T03:00:00Z' },
+      ],
+    }) })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('article', { name: '最新内容' })
+    expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual(['最新内容', '较早内容'])
+    await userEvent.click(screen.getByRole('button', { name: '最新优先' }))
+    expect(screen.getByRole('button', { name: '最旧优先' })).toBeInTheDocument()
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:user-live') || '{}')).toMatchObject({ order: 'oldest' })
   })
 
   it('shows the Feed active-filter count for persisted preferences', async () => {
@@ -949,7 +970,7 @@ describe('App routes', () => {
     }
   })
 
-  it('keeps a filter-pinned detail between older and newer matching rows', async () => {
+  it('keeps a filter-pinned detail between newer and older matching rows', async () => {
     window.localStorage.setItem('inteliscope.ui.feed.v2:user-live', JSON.stringify({ unreadFirst: false, source: 'matching-source', channel: '', topic: '' }))
     const sourceItem = (id: string, title: string, published_at: string): FeedItem => ({
       id,
@@ -977,9 +998,9 @@ describe('App routes', () => {
 
       await screen.findByRole('article', { name: '详情标题 between' })
       expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual([
-        '较旧条目',
-        '详情标题 between',
         '较新条目',
+        '详情标题 between',
+        '较旧条目',
       ])
     } finally {
       window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
@@ -1018,8 +1039,8 @@ describe('App routes', () => {
       await screen.findByRole('article', { name: '详情标题 between-read' })
       expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual([
         '较新未读条目',
-        '较旧已读条目',
         '详情标题 between-read',
+        '较旧已读条目',
       ])
     } finally {
       window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')

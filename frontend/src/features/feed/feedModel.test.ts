@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FeedItem, SourceHealthItem } from '../../api/types'
-import { filterFeedItems, resolveItemHealth, safeExternalUrl, selectModeItems } from './feedModel'
+import { filterFeedItems, resolveItemHealth, safeExternalUrl, selectModeItems, sortWorkbenchItems } from './feedModel'
 
 const item = (overrides: Partial<FeedItem> = {}): FeedItem => ({
   id: 'article-1',
@@ -40,6 +40,18 @@ describe('feed model', () => {
       schema_version: 2,
       items: [invalidFirst, newer, older, invalidSecond],
     }, 'all').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
+  })
+
+  it('supports a stable newest-first view while keeping invalid timestamps at the trailing edge', () => {
+    const values = [
+      item({ id: 'invalid-first', published_at: 'unknown' }),
+      item({ id: 'newer', published_at: '2026-07-13T10:00:00Z' }),
+      item({ id: 'older', published_at: '2026-07-13T08:00:00Z' }),
+      item({ id: 'invalid-second', published_at: '' }),
+    ]
+
+    expect(sortWorkbenchItems(values, 'newest').map(({ id }) => id)).toEqual(['newer', 'older', 'invalid-first', 'invalid-second'])
+    expect(sortWorkbenchItems(values, 'oldest').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
   })
   it('searches real item fields and keeps unread items before read items', () => {
     const values = [

@@ -9,13 +9,13 @@ import {
   toWorkbenchCardModel,
 } from './workbenchModel'
 
-const item = (id: string, publishedAt?: string): FeedItem => ({
+const item = (id: string, publishedAt?: string, summary = `摘要 ${id}`): FeedItem => ({
   id,
   title: `标题 ${id}`,
   url: `https://example.com/${id}`,
   published_at: publishedAt,
   source: '测试来源',
-  summary_zh: `摘要 ${id}`,
+  summary_zh: summary,
   channel: 'AI',
   topics: ['Codex'],
   user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
@@ -40,6 +40,12 @@ describe('live workbench model', () => {
       channel: 'AI',
       topics: ['Codex'],
     })
+  })
+
+  it('omits summaries that only repeat the title and keeps distinct summaries', () => {
+    expect(toWorkbenchCardModel(item('same', '2026-07-13T08:00:00Z', '  标题 SAME。 ')).summary).toBeUndefined()
+    expect(toWorkbenchCardModel(item('distinct', '2026-07-13T08:00:00Z', '这是独立概括')).summary).toBe('这是独立概括')
+    expect(toWorkbenchCardModel({ ...item('missing'), summary_zh: undefined }).summary).toBeUndefined()
   })
 
   it('inserts a deep-linked item chronologically without duplicating an existing item', () => {
