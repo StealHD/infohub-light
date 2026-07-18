@@ -83,9 +83,13 @@ compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数
 
 ### 3.6F Local Agent / Remote MCP Boundary
 
-OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑上；Service 端不新增 Agent、LLM、Worker、端口或容器。`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter，`src/mcp/remote_service.py` 只组装有界的安全读投影，两者都不经内部 HTTP 回环访问 Service。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
+OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑上；Service 端不新增 Agent、LLM、Worker、端口或容器。`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter，`remote_service.py` 负责六个有界安全读投影，`remote_subscription_service.py` 提供 registry 引导/发现与 prepare facade，`remote_diagnostics.py` 只读生成确定性诊断。它们全部直接调用 Service/Store，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
 
-Remote MCP 的六个只读工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。
+Remote MCP 的 14 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
+
+`SubscriptionMutationService` 是 REST 与 Remote MCP 的唯一 subscription/source/schedule 业务 mutation owner；Remote MCP 不复制 REST 写逻辑。`AgentChangeProposalService` 只拥有短期密封 proposal 的授权、指纹和 lifecycle：prepare 在自己的短事务持久化 preview/确认 hash，apply 在 `BEGIN IMMEDIATE` 内重验实时主体与 mutation 先决条件，并与业务 mutation 原子提交。proposal record 只保存安全 snapshot、preview、指纹和结果摘要；cleanup 是 commit 后 best-effort，绝不把已提交业务变化伪装成失败。
+
+`RemoteMCPDiagnostics` 只读取用户范围内持久化的 Source Health、schedule、safe Job projection、匿名 Worker readiness 和 `secret_configured`；它不执行修复、重试、取消、网络访问或写入。其分类、脱敏和 unknown 退化属于服务端合同，而不是 Skill 推理。Remote MCP adapter 保持无 session、无调用方身份参数、无服务器侧 Agent 状态；`last_used_at` 的有界 touch 和 proposal/audit 行是显式例外，不构成会话状态。
 
 ### 3.7 Secret Boundary
 Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥。真实 AI/Apify 值由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、DOM 和非管理员 source 投影不得返回真实值；引用中的 ref 不可删除，只能原地轮换。

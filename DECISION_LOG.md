@@ -218,3 +218,13 @@
 - 影响范围：新增 schema v6 `agent_delegations`、Cookie Session 管理 API、精确 `/mcp` 路由、`/agents` 页面和本地 Skill 包。所有角色都可创建自己的连接，但管理员令牌仍只能读管理员自己的数据。旧 `src/mcp/server.py` 继续作为本地 stdio/legacy 能力，不对外暴露。
 - 非目标：OAuth、站内聊天、本地 Agent URL、写操作、刷新/抓取、审批流、管理员 delegation 控制台、ClawHub 发布、服务器侧 Agent 或模型。
 - 回退：将 `HORIZON_REMOTE_MCP_ENABLED=false` 并移除 Nginx 精确 `/mcp` 路由；保留 additive v6 表，不做降级迁移。
+
+### D025 Remote MCP 订阅写入采用服务端 proposal 与显式 opt-in delegation
+
+- 决策日期：2026-07-18
+- 当前状态：本地实现与合同完成；写开关默认关闭。真实 OpenClaw canary、API-only staging 和生产启用尚未执行。
+- 决策内容：保留 read delegation 的 `inteliscope:read`，仅 Web 显式创建的新 `subscriptions_write` connection 同时拥有 `inteliscope:subscriptions:write`。`owner/admin/member` 可选择该权限，viewer 永远只读；`HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED` 是独立的 opt-in server flag。14 个 Remote MCP 工具中，prepare 只产生 10 分钟的密封 proposal 和完整 preview；只有带精确确认短语的 apply 能调用共享 `SubscriptionMutationService` 写入。
+- 原因：把 flag、scope、实时角色、所有权、配额和指纹复查放到服务端事务内，避免 Skill 文案或一次 MCP 调用成为业务写入授权；REST 与 MCP 复用同一 mutation owner，不形成内部 HTTP loop。当前 OpenClaw 通用 `mcp.servers` 客户端没有 Elicitation handler，因此确认短语是兼容性流程，不能声称协议层已证明真人确认；未来支持 Elicitation 时可替换交互步骤而不改变 proposal 模型。
+- 安全边界：诊断仅基于脱敏持久化证据并允许 `unknown`；Skill/文章内容不能驱动写参数。密钥继续只在 Web SecretStore 管理，聊天、MCP 输入、proposal、日志和 UI 配置均不得接收或回显密钥。
+- 非目标：不新增 OAuth、refresh token、服务器 Agent/LLM、站内聊天、本地 Gateway 探测、共享来源管理、密钥管理、刷新/重试/取消、Feed item 状态写入或 ClawHub 发布。
+- 回退：只关闭 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false`；保留只读 MCP、scope 与 additive v7 proposal 表，不做 schema 回滚。

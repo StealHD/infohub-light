@@ -41,7 +41,9 @@
         "src/storage/**/*.py",
         "src/storage/*.py",
         "src/services/secret_store.py",
+        "src/services/agent_change_proposal.py",
         "src/services/source_type_registry.py",
+        "src/services/subscription_mutation.py",
         "src/services/user_config_builder.py",
         "src/services/user_content_store.py",
         "src/services/user_item_state.py"
@@ -53,6 +55,10 @@
       "globs": [
         "src/mcp/remote_*.py",
         "integrations/openclaw/inteliscope/**",
+        "tests/test_remote_mcp_subscription_service.py",
+        "tests/test_remote_mcp_subscription_http.py",
+        "tests/test_remote_mcp_diagnostics.py",
+        "tests/test_openclaw_skill.py",
         "deploy/nginx/inteliscope-basic-auth.conf",
         "deploy/nginx/inteliscope-rate-limit.conf"
       ],
@@ -207,7 +213,13 @@
       "tests/test_remote_mcp_config.py",
       "tests/test_remote_mcp_http.py",
       "tests/test_remote_mcp_performance_script.py",
-      "tests/test_remote_mcp_read_service.py"
+      "tests/test_remote_mcp_read_service.py",
+      "tests/test_agent_change_proposals.py",
+      "tests/test_subscription_mutation_service.py",
+      "tests/test_remote_mcp_subscription_service.py",
+      "tests/test_remote_mcp_diagnostics.py",
+      "tests/test_remote_mcp_subscription_http.py",
+      "tests/test_openclaw_skill.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",

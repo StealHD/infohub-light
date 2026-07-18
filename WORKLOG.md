@@ -1169,3 +1169,11 @@
 - 结果：viewer/read-only 配置精确限制为六个核心读工具；仅 Inteliscope Web 创建的 subscription-management 连接配置全部 14 工具；两种配置都只使用 `${INTELISCOPE_MCP_TOKEN}` 环境变量占位符
 - 未解决问题：Task 11 控制面合同、impact map、完整验收与真实 canary 尚未执行
 - 控制面变更：仅修正文档化的本地 OpenClaw toolFilter 与其静态不变量；未修改服务端、前端或生产配置
+
+### 2026-07-18 Codex subagent
+- 任务：完成 Task 11 Remote MCP 订阅管理控制面合同、影响映射与最终验收边界
+- 修改文件：`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md`、`DECISION_LOG.md`、`PLAN.md`、`tests/test_impact_map.json`、`.superpowers/sdd/task-11-report.md` 与 `WORKLOG.md`
+- 执行验证：`python` 在该 worktree 不存在；唯一一次等价 `python3 scripts/test_gate.py plan --json` 因没有 snapshot 或 `--base/--head` 输入而未生成选择计划。`project-defaults.yaml` 与 impact map JSON lint、`git diff --check` 均通过；按本任务限制未运行 pytest、Node、build、performance benchmark、full gate 或真实 OpenClaw canary
+- 结果：合同现在覆盖 read/write delegation access/scopes/flag、精确 14-tool 输入边界/annotation、服务端 prepare→confirm→apply lifecycle、诊断 shape 与稳定错误；架构确认共享 mutation/proposal/diagnostics ownership、stateless MCP 与无内部 HTTP；助手连接 UI 记录 access 选择、viewer 限制、capability Chip 与权限 toolFilter；impact map 将 proposal/mutation、Remote MCP/Skill 与 focused suites 路由到 API/store。
+- 未解决问题：本地 100-call performance acceptance 与真实 OpenClaw synthetic/free-data canary 均未运行；生产仍需 backup、API-only staging（写 flag 关闭）、TLS Authorization forwarding、read/write canary、revoke 401、两用户隔离及明确 flag enablement。
+- 控制面变更：新增 D025；Remote MCP 订阅写入不再是非目标，但密钥/共享来源/任务和 Feed 状态管理仍不通过 MCP 开放；回滚只关闭 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false`。
