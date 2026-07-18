@@ -103,6 +103,8 @@ Remote MCP 必须使用精确的 `/mcp` location。该 location 关闭浏览器 
 ```bash
 HORIZON_REMOTE_MCP_ENABLED=true
 HORIZON_REMOTE_MCP_PUBLIC_URL=https://rb.jiefs.top/mcp
+HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_REQUIRE_WORKER_FOR_READINESS=false
 ```
 
-本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 的 additive 表保留。
+只读生产发布只启动 `horizon-api`，不得启动 Worker 或 scheduler。写开关保持 `false`；本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 delegation 与 schema v7 proposal additive 表均保留。

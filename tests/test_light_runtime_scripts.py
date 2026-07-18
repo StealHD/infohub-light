@@ -74,6 +74,19 @@ def test_compose_uses_delete_journal_only_for_local_bind_mount_runtime():
     assert "HORIZON_SQLITE_JOURNAL_MODE=WAL" in env_example
 
 
+def test_remote_mcp_subscription_writes_are_wired_off_by_default():
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false" in env_example
+    for filename in ("docker-compose.yml", "docker-compose.light.yml"):
+        compose = (ROOT / filename).read_text(encoding="utf-8")
+        api = _compose_service_blocks(compose)["horizon-api"]
+        assert (
+            "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED: "
+            "${HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED:-false}"
+        ) in api
+
+
 def test_production_image_excludes_runtime_data_and_uses_release_identity():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
