@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -18,6 +19,14 @@ TOOLS = {
     "apply_subscription_change",
     "diagnose_source",
     "diagnose_job",
+}
+READ_TOOLS = {
+    "get_my_feed",
+    "get_item",
+    "list_subscriptions",
+    "source_health",
+    "list_jobs",
+    "get_job",
 }
 
 
@@ -122,3 +131,14 @@ def test_openclaw_skill_readme_documents_local_install_and_env_file_permissions(
     assert "openclaw skills check" in readme
     assert "~/.openclaw/.env" in readme
     assert "0600" in readme
+
+
+def test_openclaw_skill_readme_uses_access_specific_tool_filters():
+    configs = [
+        json.loads(value)
+        for value in re.findall(r"openclaw mcp set inteliscope '([^']+)'", _text("README.md"))
+    ]
+    assert [
+        (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
+        for config in configs
+    ] == [(6, READ_TOOLS), (14, TOOLS)]

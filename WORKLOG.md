@@ -1161,3 +1161,11 @@
 - 结果：Skill 覆盖精确 14 工具、八类来源别名/Apify-Web 边界、逐字段收集、existing source list-only、prepare→完整预览→精确确认→apply、显式删除选择、受限诊断与 secret refusal；仅 apply 成功后声明写入
 - 未解决问题：Task 11 控制面合同、impact map、完整验收与真实 canary 尚未执行
 - 控制面变更：将 Task 10 既有计划步骤标记完成；未更改服务端、前端或生产配置
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 10 独立审查的 access-specific OpenClaw toolFilter Important
+- 修改文件：OpenClaw Skill README、focused 静态回归、`.superpowers/sdd/task-10-fix-r1-report.md`、`WORKLOG.md`
+- 执行验证：`.venv/bin/pytest tests/test_openclaw_skill.py -q` 7 项通过，`git diff --check` 通过
+- 结果：viewer/read-only 配置精确限制为六个核心读工具；仅 Inteliscope Web 创建的 subscription-management 连接配置全部 14 工具；两种配置都只使用 `${INTELISCOPE_MCP_TOKEN}` 环境变量占位符
+- 未解决问题：Task 11 控制面合同、impact map、完整验收与真实 canary 尚未执行
+- 控制面变更：仅修正文档化的本地 OpenClaw toolFilter 与其静态不变量；未修改服务端、前端或生产配置

@@ -15,7 +15,19 @@ Save the one-time connection credential locally in `~/.openclaw/.env`, with mode
 INTELISCOPE_MCP_TOKEN=<one-time connection credential>
 ```
 
-Use the Web-generated MCP URL and an environment-variable reference, never a clear-text credential:
+Use the Web-generated MCP URL and an environment-variable reference, never a clear-text credential. Choose the configuration that exactly matches the access of the connection created in Web.
+
+### Viewer/read-only connection
+
+For a viewer/read-only connection, expose exactly the six read tools:
+
+```bash
+openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job"]}}'
+```
+
+### Subscription-management connection
+
+Only for a subscription-management connection created in Inteliscope Web, expose all fourteen tools:
 
 ```bash
 openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","list_available_sources","prepare_create_subscription","prepare_update_subscription","prepare_delete_subscription","apply_subscription_change","diagnose_source","diagnose_job"]}}'
