@@ -1185,3 +1185,11 @@
 - 结果：本地实现、前后端、Skill、合同和影响映射通过统一完成门禁；没有重复运行 full gate
 - 未解决问题：100-call 独立性能基准与真实 OpenClaw canary 未执行，生产 staging/TLS/revoke 401/两用户隔离/显式开关授权仍是发布边界
 - 控制面变更：仅记录最终验证证据；未启用任何生产 feature flag
+
+### 2026-07-18 Codex
+- 任务：收口 OpenClaw Remote MCP 只读生产发布、诊断合同、canary 与 API-only Runbook
+- 修改文件：助手连接 10/14 toolFilter、OpenClaw Skill/合同、env/Compose/Nginx 文档、只读 canary、发布 Runbook、影响映射与控制文件
+- 执行验证：专项 pytest 28 项、AgentsPage 9 项通过；100-call MCP p95 7.451 ms、REST p95 1.094 ms、RSS +0.812 MiB；唯一一次 release gate 因 worktree 缺少忽略的 `data/config.json` 中止，补齐后原失败用例通过，未重跑 release gate
+- 结果：read connection 精确开放 10 个安全读/指导/诊断工具，write connection 保持 14 个且生产写 flag 默认关闭；canary 覆盖全部安全读、双用户隔离、禁写与吊销 401
+- 未解决问题：release gate 尚无通过结论；真实 OpenClaw、独立 staging、生产 TLS/canary/切换及 24 小时观察尚未执行
+- 控制面变更：Remote MCP 权威合同改为 10 安全读 + 4 写流程，生产只读边界固定保留 additive v6/v7 且不启动 Worker/Agent/模型

@@ -212,12 +212,12 @@
 ### D024 每用户本地 OpenClaw 通过远程只读 MCP 访问 Inteliscope
 
 - 决策日期：2026-07-16
-- 当前状态：本地实现完成，默认功能关闭，待 API-only staging、Nginx 和真实 OpenClaw canary 验收后才能在生产打开。
-- 决策内容：模型、对话、推理和 Skill 均运行在用户本地 OpenClaw；Inteliscope 在现有 `horizon-api` 的 `/mcp` 提供六个无状态、用户隔离、有界的只读工具，Web UI 只管理 delegation 凭证和配置指南。
+- 当前状态：10 个安全读工具的本地实现与发布自动化完成，默认功能关闭，待 API-only staging、Nginx 和真实 OpenClaw canary 验收后才能在生产打开；订阅写开关继续关闭。
+- 决策内容：模型、对话、推理和 Skill 均运行在用户本地 OpenClaw；Inteliscope 在现有 `horizon-api` 的 `/mcp` 为 read delegation 提供 10 个无状态、用户隔离、有界的安全读、来源指导和诊断工具，Web UI 只管理 delegation 凭证和配置指南。
 - 原因：多人都可使用自己的本地模型与 OpenClaw 配置，服务器不承担 Agent/LLM 资源和会话状态；工具直接调用 Service/Store 可避免内部 HTTP 回环延迟。
-- 影响范围：新增 schema v6 `agent_delegations`、Cookie Session 管理 API、精确 `/mcp` 路由、`/agents` 页面和本地 Skill 包。所有角色都可创建自己的连接，但管理员令牌仍只能读管理员自己的数据。旧 `src/mcp/server.py` 继续作为本地 stdio/legacy 能力，不对外暴露。
-- 非目标：OAuth、站内聊天、本地 Agent URL、写操作、刷新/抓取、审批流、管理员 delegation 控制台、ClawHub 发布、服务器侧 Agent 或模型。
-- 回退：将 `HORIZON_REMOTE_MCP_ENABLED=false` 并移除 Nginx 精确 `/mcp` 路由；保留 additive v6 表，不做降级迁移。
+- 影响范围：additive v6/v7 数据结构、Cookie Session 管理 API、精确 `/mcp` 路由、`/agents` 页面和本地 Skill 包。所有角色都可创建自己的 read connection，但管理员令牌仍只能读管理员自己的数据。旧 `src/mcp/server.py` 继续作为本地 stdio/legacy 能力，不对外暴露。
+- 非目标：OAuth、站内聊天、本地 Agent URL、刷新/抓取、任务控制、Feed 状态写入、管理员 delegation 控制台、ClawHub 发布、服务器侧 Agent 或模型；订阅写流程由 D025 单独约束且本次生产发布不启用。
+- 回退：将 `HORIZON_REMOTE_MCP_ENABLED=false` 并移除 Nginx 精确 `/mcp` 路由；保留 additive v6/v7 结构，不做降级迁移。
 
 ### D025 Remote MCP 订阅写入采用服务端 proposal 与显式 opt-in delegation
 

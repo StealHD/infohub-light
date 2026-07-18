@@ -83,7 +83,7 @@ compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数
 
 ### 3.6F Local Agent / Remote MCP Boundary
 
-OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑上；Service 端不新增 Agent、LLM、Worker、端口或容器。`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter，`remote_service.py` 负责六个有界安全读投影，`remote_subscription_service.py` 提供 registry 引导/发现与 prepare facade，`remote_diagnostics.py` 只读生成确定性诊断。它们全部直接调用 Service/Store，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
+OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑上；Service 端不新增 Agent、LLM、Worker、端口或容器。`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter；10 个安全读工具分别由 `remote_service.py` 的有界数据投影、`remote_subscription_service.py` 的 registry 引导/发现和 `remote_diagnostics.py` 的确定性只读诊断提供，后者同时承载写连接专用的 prepare facade。它们全部直接调用 Service/Store，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
 
 Remote MCP 的 14 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
 

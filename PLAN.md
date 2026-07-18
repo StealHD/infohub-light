@@ -55,7 +55,7 @@
 43. 低 Token 分层测试门禁 v1：`scripts/test_gate.py` 提供 snapshot/plan/targeted/full/release，`tests/test_impact_map.json` 负责确定性映射，完整日志私有落盘并只输出 2 KiB 成功或 8 KiB 首失败摘要；PR/main 并行跑 full backend/frontend，UI 改动追加 Playwright，正式发布追加隔离的 API-only Docker smoke。
 43. 收藏、站内阅读与社交媒体完整性 v1：additive `user_content_items/media_assets`、Presentation v2 详情、用户隔离收藏/媒体 API、显式已读/未读、按用户持久化 Feed 偏好、RSS/Instagram/X 图片和统一头像缓存、社交 profile 最新一条保留、Xquik adapter 与 v4 显式迁移已实现。Xquik 真实 canary 尚未通过：当前备用 Key 所在 FREE tier 单条价格为 `$0.015`，因此计划固定的 `$0.01` 运行上限被 Apify 拒绝；正式 X Actor 配置仍保持旧值，等待明确授权把 canary cap 提升到至少 `$0.02`。
 44. Feed 事件、历史修复与 DeepSeek v1：Feed terminal 通知只消费当前会话观察到的真实 snapshot 事件；认证动作按 user/action/entity 提供局部状态；v5 显式修复、reconcile 和 `content_repair` 保持零 snapshot/AI，当前内容为 24 captured/2 excerpt-only；DeepSeek Secret/UI、`deepseek-v4-flash`、模型无关 input hash、安全跨模型复用、零 Token 预检与单次 smoke 已实现。真实 DeepSeek 启用仍等待轮换 Key。
-45. OpenClaw Remote MCP subscription management v1：本地实现已完成 14 个工具（六个读、指导/发现、prepare/apply、诊断）、schema v7 proposal、显式 read/write delegation、共享 mutation service、`/agents` capability/tool-filter UI 与本地 Skill；read/write flags 默认关闭。性能基准、真实 OpenClaw canary、API-only staging、TLS `/mcp`、吊销立即 401 与两用户隔离仍是发布前人工边界，尚未执行；生产只能先保持写 flag 关闭并获得明确启用授权。
+45. OpenClaw Remote MCP subscription management v1：本地实现已完成 14 个工具（10 个安全读、3 个 prepare、1 个 apply）、additive v6/v7 结构、显式 read/write delegation、共享 mutation service、`/agents` capability/tool-filter UI、本地 Skill、只读 canary 与 API-only 发布 Runbook；read/write flags 默认关闭。100-call 性能基准已通过；唯一一次 release gate 因隔离 worktree 缺少 Git 忽略的 `data/config.json` 在既有 adapter 测试处中止，补齐同一配置后该失败用例通过，但门禁未重跑。真实 OpenClaw canary、API-only staging、TLS `/mcp`、吊销立即 401 与两用户隔离仍是发布前人工边界；生产只能先保持写 flag 关闭。
 
 当前仍需推进：
 
