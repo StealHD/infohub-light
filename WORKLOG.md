@@ -1094,7 +1094,7 @@
 ### 2026-07-18 Codex
 - 任务：关闭 Quiet Studio 复审中的宽屏 coarse-pointer 卡片操作目标缩为 32px，以及 PLAN 误把设计规格称为实施证据的问题
 - 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、`PLAN.md`、忽略的 Task 5 报告与本工作日志
-- 执行验证：定向 Vitest 1 项可信 RED（旧链接缺少 fine-pointer `size-8`）→GREEN（1 通过/11 跳过）；TypeScript、`git diff --check` 通过；未运行 full gate、Docker 或 Playwright
-- 结果：Quiet Studio 四个卡片操作以 32px 为 fine-pointer 基线，并通过 `pointer-coarse:size-11` 在任意视口保持 44px；PLAN 分开标注设计规格与 `WORKLOG.md` 实施证据
-- 未解决问题：旧镜像 revision `fef5862f1c48` 不包含本次 runtime 修复；由根控制器在新 HEAD 另行验证
+- 执行验证：定向 Vitest 1 项可信 RED（旧链接缺少 fine-pointer `size-8`）→GREEN（1 通过/11 跳过）；TypeScript、`git diff --check` 通过；修复后的最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、51.651 秒
+- 结果：Quiet Studio 四个卡片操作以 32px 为 fine-pointer 基线，并通过 `pointer-coarse:size-11` 在任意视口保持 44px；PLAN 分开标注设计规格与 `WORKLOG.md` 实施证据；Task 5 独立复审无剩余 finding
+- 运行验收：一次构建镜像 `inteliscope-service:feed-quiet-f395cbe2137f`（built at `2026-07-18T09:07:00Z`）已替换本地 8080 的 API/Worker；live revision=`f395cbe2137f`、database/worker ready、`/feed` HTTP 200、两容器同镜像且 healthy；容器生产 CSS 包含 `@media (pointer:coarse)`；应用内浏览器刷新后仍显示 4 条 Quiet Studio 卡片、无 Feed 进度轨、Agent 控件可见且 console error 为 0
 - 控制面变更：仅修正 PLAN 的证据归属表述；未改变 UI 合同，也未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器
