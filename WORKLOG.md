@@ -1089,3 +1089,11 @@
 - 结果：Job 仅按自身归因且 Worker readiness 仅限 active；Source 更新 Schedule terminal failure 胜过旧 Health 并标记历史 evidence；畸形 count 不再归零；完整对外标量严格拒绝 access/private/key-env/api-key-env labels
 - 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
 - 控制面变更：仅同步 Task 7 内部归因与安全投影语义；普通六工具、通用 credential mapping classifier 与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第三轮独立审查的两个 Important，并接管复核前任未提交修复
+- 修改文件：active/same-ID retry 归因、完整标量安全分类与普通值保留、诊断回归、主实施计划、`.superpowers/sdd/task-7-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：接管后新增 same-code retry 1 项与普通 Bearer/Basic 名称 4 项按预期 RED；GREEN 后 diagnostics 191 项、focused 240 项、schedule/job retry/health Worker/API/MCP 邻接 143 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`、`ui_impacted=false`）及 `git diff --check` 通过
+- 结果：active selected Job 的 status 与 historical Health role 一致；同 ID retry 使用真实 ledger+更新时间识别并由当前 terminal Job 决定 status/cause；完整标量拒绝紧凑 Bearer/Basic、terminal key/connection-string/credential labels，普通业务标量保持可见
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部 attempt provenance 与严格标量投影语义；普通六工具、通用 credential mapping classifier 与对外注册面不变

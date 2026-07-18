@@ -164,6 +164,10 @@ _SECRET_SHAPED_CODE_RE = re.compile(
     re.IGNORECASE,
 )
 _SAFE_RESULT_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
+_COMPACT_AUTH_SCHEME_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:bearer|basic)[:._~+/=-]+[A-Za-z0-9._~+/=-]+",
+    re.IGNORECASE,
+)
 _ACTIVE_JOB_STATUSES = {"queued", "running"}
 _HEALTH_STATUSES = {"healthy", "degraded", "failing"}
 _WORKER_STATUSES = {"ready", "stale", "missing"}
@@ -198,16 +202,22 @@ def _contains_label_parts(parts: list[str], expected: tuple[str, ...]) -> bool:
     )
 
 
-def _is_sensitive_public_scalar_label(value: Any) -> bool:
-    """Apply a strict credential-label policy to one complete public scalar."""
+def _public_scalar_contains_credentials(value: Any) -> bool:
+    """Fail closed on credential values or labels in one complete scalar."""
 
     copies = classification_copies(str(value))
     if copies is None:
         return True
     for copy in copies:
+        if _COMPACT_AUTH_SCHEME_RE.search(copy):
+            return True
         if is_sensitive_credential_key(copy):
             return True
         parts = _normalized_scalar_label(copy).split("_")
+        if any(part in {"credential", "credentials"} for part in parts):
+            return True
+        if len(parts) > 1 and parts[-1] == "key":
+            return True
         if any(
             _contains_label_parts(parts, pattern)
             for pattern in (
@@ -218,7 +228,9 @@ def _is_sensitive_public_scalar_label(value: Any) -> bool:
             )
         ):
             return True
-    return False
+        if len(parts) >= 2 and parts[-2:] == ["connection", "string"]:
+            return True
+    return public_data_contains_credentials(value)
 
 
 def _safe_code(value: Any) -> str | None:
@@ -226,8 +238,7 @@ def _safe_code(value: Any) -> str | None:
     if (
         not _SAFE_CODE_RE.fullmatch(code)
         or _SECRET_SHAPED_CODE_RE.search(code)
-        or _is_sensitive_public_scalar_label(code)
-        or public_data_contains_credentials(code)
+        or _public_scalar_contains_credentials(code)
     ):
         return None
     return code
@@ -262,9 +273,7 @@ def _safe_name(value: Any, *, fallback: str) -> str:
         not candidate
         or "://" in complete
         or "?" in complete
-        or re.search(r"\b(?:authorization|bearer|basic)\b", complete, re.I)
-        or _is_sensitive_public_scalar_label(complete)
-        or public_data_contains_credentials(complete)
+        or _public_scalar_contains_credentials(complete)
     ):
         return fallback
     return candidate
@@ -294,8 +303,7 @@ def _strict_result_summary(job: dict[str, Any] | None) -> dict[str, Any]:
         if (
             value
             and _SAFE_RESULT_IDENTIFIER_RE.fullmatch(value)
-            and not _is_sensitive_public_scalar_label(value)
-            and not public_data_contains_credentials(value)
+            and not _public_scalar_contains_credentials(value)
         ):
             safe[field] = value
     return safe
@@ -338,7 +346,7 @@ class RemoteMCPDiagnostics:
             schedule=schedule,
         )
         related_job = related.job if related is not None else None
-        job_overrides_health = self._schedule_job_overrides_health(
+        job_overrides_health = self._selected_job_overrides_health(
             health=health,
             related=related,
         )
@@ -688,18 +696,53 @@ class RemoteMCPDiagnostics:
             return "overdue"
         return "ready"
 
-    @staticmethod
-    def _schedule_job_overrides_health(
+    def _selected_job_overrides_health(
+        self,
         *,
         health: dict[str, Any] | None,
         related: _RelatedSourceJob | None,
     ) -> bool:
-        if related is None or "schedule" not in related.provenance:
+        if related is None or health is None:
             return False
-        return bool(
-            related.job.get("status") == "failed"
-            and related.job.get("id") != (health or {}).get("last_job_id")
-        )
+        job = related.job
+        job_status = self._job_status(job)
+        if job_status in _ACTIVE_JOB_STATUSES:
+            return True
+        if (
+            "schedule" in related.provenance
+            and job.get("id") != health.get("last_job_id")
+        ):
+            return True
+        if job.get("id") != health.get("last_job_id"):
+            return False
+        application = self.store.connect().execute(
+            """
+            SELECT 1
+            FROM user_source_health_applications
+            WHERE subscription_id = ? AND job_id = ?
+            LIMIT 1
+            """,
+            (health.get("subscription_id"), job.get("id")),
+        ).fetchone()
+        if application is None:
+            return False
+
+        job_updated_at = _safe_timestamp(job.get("updated_at"))
+        health_updated_at = _safe_timestamp(health.get("updated_at"))
+        if (
+            job_updated_at is None
+            or health_updated_at is None
+            or datetime.fromisoformat(job_updated_at)
+            <= datetime.fromisoformat(health_updated_at)
+        ):
+            return False
+        if job_status == "succeeded":
+            return bool(
+                health.get("status") != "healthy"
+                or health.get("last_issue_code")
+                or health.get("last_issue_message")
+            )
+        return job_status == "failed"
 
     @staticmethod
     def _classify_records(

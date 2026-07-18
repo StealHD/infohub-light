@@ -5,8 +5,10 @@ import pytest
 
 from src.mcp.remote_diagnostics import RemoteMCPDiagnostics
 from src.mcp.remote_service import RemoteMCPNotFound
+from src.services.feed_run import RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.runtime_status import RuntimeStatusService
+from src.services.source_health import SourceHealthService
 from src.services.subscription_mutation import SubscriptionActor
 from src.storage.service_store import ServiceStore
 
@@ -15,12 +17,25 @@ NOW = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
 ALLOWED_ACTION_MODES = {"prepare_change", "web", "wait", "contact_admin"}
 CREDENTIAL_LABELS = (
     "AWS_ACCESS_KEY_ID",
+    "AWS_ACCESS_KEY",
+    "AZURE_STORAGE_KEY",
     "SSH_PRIVATE_KEY",
     "OPENAI_KEY_ENV",
     "OPENAI_API_KEY_ENV",
     "RSS_PRIVATE_SECRET_ENV",
     "GITHUB_TOKEN_ENV",
     "MY_API_KEY",
+    "DATABASE_CONNECTION_STRING",
+    "CREDENTIAL",
+    "CREDENTIALS",
+    "GOOGLE_APPLICATION_CREDENTIAL",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    "credentials_json",
+    "Bearer:hidden",
+    "Bearer_hidden",
+    "Basic.hidden",
+    "Basic-hidden",
 )
 FORBIDDEN_KEYS = {
     "payload",
@@ -300,6 +315,62 @@ def _insert_schedule(
         ),
     )
     context["store"].connect().commit()
+
+
+def _finalize_failed_source_attempt_with_health(
+    context,
+    *,
+    error_code="TimeoutError",
+    error_message="connection timed out",
+):
+    queue = JobQueue(context["store"])
+    job = queue.create_job(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        source_id=context["source_id"],
+        subscription_id=context["subscription"]["id"],
+        job_type="source_fetch",
+        payload={},
+        max_attempts=1,
+    )
+    claimed = queue.claim_next_job(worker_id="diagnostic-attempt-one")
+    assert claimed is not None and claimed["id"] == job["id"]
+    finalized = queue.fail_or_retry_job(
+        job["id"],
+        error_code=error_code,
+        error_message=error_message,
+        retryable=False,
+        worker_id=claimed["worker_id"],
+        claim_token=claimed["claim_token"],
+        commit=False,
+    )
+    SourceHealthService(context["store"]).apply_outcomes(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        job_id=job["id"],
+        attempted_at=(NOW - timedelta(minutes=5)).isoformat(),
+        outcomes=(
+            SourceOutcome(
+                source_id=context["source_id"],
+                subscription_id=context["subscription"]["id"],
+                source_key="rss:diagnostic-attempt",
+                analysis_mode="full",
+                status="failed",
+                fetched_count=0,
+                issue=RunIssue(
+                    stage="fetch",
+                    code=error_code,
+                    message=error_message,
+                    retryable=False,
+                ),
+            ),
+        ),
+        commit=False,
+    )
+    context["store"].connect().commit()
+    assert finalized["status"] == "failed"
+    _insert_schedule(context, enabled=True, last_job_id=job["id"])
+    return job
 
 
 @pytest.mark.parametrize(
@@ -633,8 +704,194 @@ def test_source_prefers_new_active_schedule_job_over_old_health_job(context):
 
     assert result["cause"]["category"] == "worker_unavailable"
     assert result["related_job_id"] == active_job["id"]
+    assert result["status"] == "queued"
+    assert {
+        "kind": "health_evidence_role",
+        "value": "historical",
+    } in result["evidence"]
     assert {"kind": "job_status", "value": "queued"} in result["evidence"]
     assert old_job["id"] not in repr(result)
+
+
+def test_source_running_schedule_job_with_stale_worker_marks_health_historical(
+    context,
+):
+    old_job = _create_job(
+        context,
+        status="succeeded",
+        result={"fetched_count": 4},
+    )
+    _insert_health(
+        context,
+        job_id=old_job["id"],
+        status="healthy",
+        fetched_count=4,
+    )
+    active_job = _create_job(context, status="running")
+    context["store"].connect().execute(
+        "UPDATE fetch_jobs SET created_at = ? WHERE id = ?",
+        ((NOW + timedelta(minutes=1)).isoformat(), active_job["id"]),
+    )
+    context["store"].connect().commit()
+    _insert_schedule(context, enabled=True, last_job_id=active_job["id"])
+    context["store"].upsert_worker_heartbeat(
+        "worker-must-not-leak",
+        "idle",
+        current_job_id=active_job["id"],
+        now=NOW - timedelta(minutes=2),
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["cause"]["category"] == "worker_unavailable"
+    assert result["status"] == "running"
+    assert {
+        "kind": "health_evidence_role",
+        "value": "historical",
+    } in result["evidence"]
+    assert {"kind": "worker_status", "value": "stale"} in result["evidence"]
+    assert "worker-must-not-leak" not in repr(result)
+
+
+def test_source_same_id_retry_success_overrides_failed_health_attempt(context):
+    job = _finalize_failed_source_attempt_with_health(context)
+    queue = JobQueue(context["store"])
+    retried = queue.retry_job(job["id"], user_id=context["owner"]["id"])
+    assert retried["id"] == job["id"] and retried["status"] == "queued"
+    claimed = queue.claim_next_job(worker_id="diagnostic-attempt-two-success")
+    assert claimed is not None and claimed["id"] == job["id"]
+    SourceHealthService(context["store"]).apply_outcomes(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        job_id=job["id"],
+        attempted_at=(NOW + timedelta(minutes=5)).isoformat(),
+        outcomes=(
+            SourceOutcome(
+                source_id=context["source_id"],
+                subscription_id=context["subscription"]["id"],
+                source_key="rss:diagnostic-attempt",
+                analysis_mode="full",
+                status="succeeded",
+                fetched_count=3,
+            ),
+        ),
+        commit=False,
+    )
+    queue.complete_job(
+        job["id"],
+        status="succeeded",
+        result={"fetched_count": 3},
+        worker_id=claimed["worker_id"],
+        claim_token=claimed["claim_token"],
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == job["id"]
+    assert result["status"] == "succeeded"
+    assert result["cause"]["category"] == "unknown"
+    assert result["cause"]["code"] is None
+    assert {
+        "kind": "health_evidence_role",
+        "value": "historical",
+    } in result["evidence"]
+
+
+def test_source_same_id_retry_new_failure_code_overrides_old_health_attempt(
+    context,
+):
+    job = _finalize_failed_source_attempt_with_health(context)
+    queue = JobQueue(context["store"])
+    retried = queue.retry_job(job["id"], user_id=context["owner"]["id"])
+    assert retried["id"] == job["id"] and retried["status"] == "queued"
+    claimed = queue.claim_next_job(worker_id="diagnostic-attempt-two-failure")
+    assert claimed is not None and claimed["id"] == job["id"]
+    queue.fail_or_retry_job(
+        job["id"],
+        error_code="Unauthorized",
+        error_message="credential missing",
+        retryable=False,
+        worker_id=claimed["worker_id"],
+        claim_token=claimed["claim_token"],
+        commit=False,
+    )
+    SourceHealthService(context["store"]).apply_outcomes(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        job_id=job["id"],
+        attempted_at=(NOW + timedelta(minutes=5)).isoformat(),
+        outcomes=(
+            SourceOutcome(
+                source_id=context["source_id"],
+                subscription_id=context["subscription"]["id"],
+                source_key="rss:diagnostic-attempt",
+                analysis_mode="full",
+                status="failed",
+                fetched_count=0,
+                issue=RunIssue(
+                    stage="fetch",
+                    code="Unauthorized",
+                    message="credential missing",
+                    retryable=False,
+                ),
+            ),
+        ),
+        commit=False,
+    )
+    context["store"].connect().commit()
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == job["id"]
+    assert result["status"] == "failed"
+    assert result["cause"]["category"] == "auth_missing"
+    assert result["cause"]["code"] == "Unauthorized"
+    assert {
+        "kind": "health_evidence_role",
+        "value": "historical",
+    } in result["evidence"]
+
+
+def test_source_same_id_retry_same_failure_code_marks_old_health_historical(
+    context,
+):
+    job = _finalize_failed_source_attempt_with_health(context)
+    queue = JobQueue(context["store"])
+    retried = queue.retry_job(job["id"], user_id=context["owner"]["id"])
+    assert retried["id"] == job["id"] and retried["status"] == "queued"
+    claimed = queue.claim_next_job(worker_id="diagnostic-attempt-two-same-failure")
+    assert claimed is not None and claimed["id"] == job["id"]
+    queue.fail_or_retry_job(
+        job["id"],
+        error_code="TimeoutError",
+        error_message="connection timed out again",
+        retryable=False,
+        worker_id=claimed["worker_id"],
+        claim_token=claimed["claim_token"],
+    )
+
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert result["related_job_id"] == job["id"]
+    assert result["status"] == "failed"
+    assert result["cause"]["category"] == "network_timeout"
+    assert result["cause"]["code"] == "TimeoutError"
+    assert {
+        "kind": "health_evidence_role",
+        "value": "historical",
+    } in result["evidence"]
 
 
 def test_source_accepts_owned_full_refresh_linked_by_health_fk(context):
@@ -1067,19 +1324,99 @@ def test_diagnostic_target_name_rejects_credential_key_labels(
     assert credential_label not in repr(result)
 
 
-def test_source_target_name_classifies_the_complete_scalar_before_truncation(context):
-    credential_label = f"{'public-prefix-' * 12}AWS_ACCESS_KEY_ID"
+@pytest.mark.parametrize(
+    "credential_label",
+    (
+        "AWS_ACCESS_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        "Bearer:hidden",
+    ),
+)
+@pytest.mark.parametrize(
+    "diagnostic_kind,fallback_name",
+    (("source", "来源"), ("job", "来源抓取任务")),
+)
+def test_target_name_classifies_the_complete_scalar_before_truncation(
+    context,
+    diagnostic_kind,
+    fallback_name,
+    credential_label,
+):
+    complete_name = f"{'public-prefix-' * 12}{credential_label}"
     context["store"].update_source(
-        context["source_id"], display_name=credential_label
+        context["source_id"], display_name=complete_name
+    )
+    if diagnostic_kind == "source":
+        result = context["diagnostics"].diagnose_source(
+            actor=context["actor"],
+            subscription_id=context["subscription"]["id"],
+        )
+    else:
+        job = _create_job(context)
+        result = context["diagnostics"].diagnose_job(
+            actor=context["actor"], job_id=job["id"]
+        )
+
+    assert result["target"]["name"] == fallback_name
+    assert credential_label not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "business_name",
+    (
+        "Turkey Keynote",
+        "Monkey Business",
+        "Connection String Theory",
+        "Basic Engineering News",
+        "Bearer Market Report",
+    ),
+)
+@pytest.mark.parametrize("diagnostic_kind", ("source", "job"))
+def test_target_name_preserves_ordinary_business_names(
+    context,
+    diagnostic_kind,
+    business_name,
+):
+    context["store"].update_source(
+        context["source_id"], display_name=business_name
+    )
+    if diagnostic_kind == "source":
+        result = context["diagnostics"].diagnose_source(
+            actor=context["actor"],
+            subscription_id=context["subscription"]["id"],
+        )
+    else:
+        job = _create_job(context)
+        result = context["diagnostics"].diagnose_job(
+            actor=context["actor"], job_id=job["id"]
+        )
+
+    assert result["target"]["name"] == business_name
+
+
+@pytest.mark.parametrize(
+    "business_code",
+    (
+        "StorageKeyRotation",
+        "MonkeyBusiness",
+        "HockeyScore",
+        "ConnectionStringTheory",
+    ),
+)
+def test_job_code_preserves_ordinary_business_identifiers(context, business_code):
+    job = _create_job(
+        context,
+        source=False,
+        error_code=business_code,
+        error_message="unmapped failure",
     )
 
-    result = context["diagnostics"].diagnose_source(
-        actor=context["actor"],
-        subscription_id=context["subscription"]["id"],
+    result = context["diagnostics"].diagnose_job(
+        actor=context["actor"], job_id=job["id"]
     )
 
-    assert result["target"]["name"] == "来源"
-    assert "AWS_ACCESS_KEY_ID" not in repr(result)
+    assert result["cause"]["code"] == business_code
+    assert {"kind": "error_code", "value": business_code} in result["evidence"]
 
 
 @pytest.mark.parametrize("diagnostic_kind", ["source", "job"])
