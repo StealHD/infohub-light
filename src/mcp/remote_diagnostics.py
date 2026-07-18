@@ -713,36 +713,10 @@ class RemoteMCPDiagnostics:
             and job.get("id") != health.get("last_job_id")
         ):
             return True
-        if job.get("id") != health.get("last_job_id"):
-            return False
-        application = self.store.connect().execute(
-            """
-            SELECT 1
-            FROM user_source_health_applications
-            WHERE subscription_id = ? AND job_id = ?
-            LIMIT 1
-            """,
-            (health.get("subscription_id"), job.get("id")),
-        ).fetchone()
-        if application is None:
-            return False
-
-        job_updated_at = _safe_timestamp(job.get("updated_at"))
-        health_updated_at = _safe_timestamp(health.get("updated_at"))
-        if (
-            job_updated_at is None
-            or health_updated_at is None
-            or datetime.fromisoformat(job_updated_at)
-            <= datetime.fromisoformat(health_updated_at)
-        ):
-            return False
-        if job_status == "succeeded":
-            return bool(
-                health.get("status") != "healthy"
-                or health.get("last_issue_code")
-                or health.get("last_issue_message")
-            )
-        return job_status == "failed"
+        return bool(
+            job.get("id") != health.get("last_job_id")
+            and health.get("last_job_id") is None
+        )
 
     @staticmethod
     def _classify_records(

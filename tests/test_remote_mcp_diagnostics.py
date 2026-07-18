@@ -5,11 +5,13 @@ import pytest
 
 from src.mcp.remote_diagnostics import RemoteMCPDiagnostics
 from src.mcp.remote_service import RemoteMCPNotFound
-from src.services.feed_run import RunIssue, SourceOutcome
+from src.models import ContentItem, SourceType
+from src.services.feed_run import FeedRunResult, RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.runtime_status import RuntimeStatusService
 from src.services.source_health import SourceHealthService
 from src.services.subscription_mutation import SubscriptionActor
+from src.services.worker import run_worker_once
 from src.storage.service_store import ServiceStore
 
 
@@ -168,6 +170,7 @@ def context(tmp_path, monkeypatch):
         now=lambda: NOW,
     )
     return {
+        "data_dir": tmp_path,
         "store": store,
         "workspace": workspace,
         "owner": owner,
@@ -180,6 +183,50 @@ def context(tmp_path, monkeypatch):
         "diagnostics": diagnostics,
         "secret_checks": secret_checks,
     }
+
+
+def _catalog_worker_result(
+    context,
+    *,
+    run_id,
+    status,
+    fetched_count,
+    issue=None,
+):
+    timestamp = datetime.now(timezone.utc).isoformat()
+    items = tuple(
+        ContentItem(
+            id=f"rss:{run_id}:{index}",
+            source_type=SourceType.RSS,
+            title=f"Item {index}",
+            url=f"https://example.com/{run_id}/{index}",
+            published_at=datetime.now(timezone.utc),
+            metadata={
+                "source_id": context["source_id"],
+                "subscription_id": context["subscription"]["id"],
+            },
+        )
+        for index in range(fetched_count)
+    )
+    return FeedRunResult(
+        run_id=run_id,
+        status=status,
+        started_at=timestamp,
+        finished_at=timestamp,
+        items=items,
+        source_outcomes=(
+            SourceOutcome(
+                source_id=context["source_id"],
+                subscription_id=context["subscription"]["id"],
+                source_key="rss:diagnostic-retry",
+                analysis_mode="full",
+                status="failed" if issue else "succeeded",
+                fetched_count=fetched_count,
+                issue=issue,
+            ),
+        ),
+        issues=(issue,) if issue else (),
+    )
 
 
 def _create_job(
@@ -756,7 +803,7 @@ def test_source_running_schedule_job_with_stale_worker_marks_health_historical(
     assert "worker-must-not-leak" not in repr(result)
 
 
-def test_source_same_id_retry_success_overrides_failed_health_attempt(context):
+def test_source_same_id_retry_success_reapplies_current_health(context):
     job = _finalize_failed_source_attempt_with_health(context)
     queue = JobQueue(context["store"])
     retried = queue.retry_job(job["id"], user_id=context["owner"]["id"])
@@ -794,16 +841,270 @@ def test_source_same_id_retry_success_overrides_failed_health_attempt(context):
     )
 
     assert result["related_job_id"] == job["id"]
-    assert result["status"] == "succeeded"
+    assert result["status"] == "healthy"
     assert result["cause"]["category"] == "unknown"
     assert result["cause"]["code"] is None
     assert {
         "kind": "health_evidence_role",
-        "value": "historical",
+        "value": "current",
     } in result["evidence"]
+    assert {"kind": "last_fetched_count", "value": 3} in result["evidence"]
+    assert {"kind": "job_status", "value": "succeeded"} in result["evidence"]
 
 
-def test_source_same_id_retry_new_failure_code_overrides_old_health_attempt(
+def test_catalog_partial_retry_success_reapplies_health_and_diagnostics(
+    context, monkeypatch
+):
+    (context["data_dir"] / "config.json").write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "ai": {
+                    "enabled": False,
+                    "provider": "openai",
+                    "model": "gpt-4o-mini",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "sources": {
+                    "rss": [],
+                    "github": [],
+                    "hackernews": {"enabled": False},
+                },
+                "filtering": {"time_window_hours": 24},
+            }
+        ),
+        encoding="utf-8",
+    )
+    attempts = iter(
+        (
+            _catalog_worker_result(
+                context,
+                run_id="run_partial_zero",
+                status="partial",
+                fetched_count=0,
+            ),
+            _catalog_worker_result(
+                context,
+                run_id="run_retry_three",
+                status="succeeded",
+                fetched_count=3,
+            ),
+        )
+    )
+
+    class FakeOrchestrator:
+        def __init__(self, _config, _storage):
+            pass
+
+        async def execute(self, **_kwargs):
+            return next(attempts)
+
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.HorizonOrchestrator", FakeOrchestrator
+    )
+    queue = JobQueue(context["store"])
+    job, created = queue.create_source_fetch_if_absent(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        source_id=context["source_id"],
+        subscription_id=context["subscription"]["id"],
+        payload={},
+    )
+
+    first = run_worker_once(
+        data_dir=str(context["data_dir"]),
+        worker_id="diagnostic-partial-first",
+        enqueue_schedules=False,
+    )
+    first_health = SourceHealthService(context["store"]).get_health(
+        context["subscription"]["id"]
+    )
+    assert created is True
+    assert first["id"] == job["id"]
+    assert first["status"] == "partial", first
+    assert first["result_json"]["fetched_count"] == 0
+    assert first_health["status"] == "healthy"
+    assert first_health["last_fetched_count"] == 0
+    assert context["store"].connect().execute(
+        """
+        SELECT COUNT(*)
+        FROM user_source_health_applications
+        WHERE subscription_id = ? AND job_id = ?
+        """,
+        (context["subscription"]["id"], job["id"]),
+    ).fetchone()[0] == 1
+
+    retried = queue.retry_job(job["id"], user_id=context["owner"]["id"])
+    second = run_worker_once(
+        data_dir=str(context["data_dir"]),
+        worker_id="diagnostic-success-second",
+        enqueue_schedules=False,
+    )
+    health = SourceHealthService(context["store"]).get_health(
+        context["subscription"]["id"]
+    )
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert retried["id"] == job["id"] and retried["status"] == "queued"
+    assert second["id"] == job["id"] and second["status"] == "succeeded"
+    assert second["result_json"]["fetched_count"] == 3
+    assert health["status"] == "healthy"
+    assert health["last_job_id"] == job["id"]
+    assert health["last_fetched_count"] == 3
+    assert result["status"] == "healthy"
+    assert result["cause"]["category"] == "unknown"
+    assert result["related_job_id"] == job["id"]
+    assert {"kind": "health_evidence_role", "value": "current"} in result[
+        "evidence"
+    ]
+    assert {"kind": "last_fetched_count", "value": 3} in result["evidence"]
+    result_summary = next(
+        item["value"]
+        for item in result["evidence"]
+        if item["kind"] == "result_summary"
+    )
+    assert result_summary["fetched_count"] == 3
+    assert result_summary["item_count"] == 3
+    assert result_summary["run_status"] == "succeeded"
+
+
+@pytest.mark.parametrize(
+    ("second_status", "issue", "expected_job_status", "expected_category"),
+    (
+        (
+            "failed",
+            RunIssue("fetch", "TimeoutError", "second attempt timed out", False),
+            "failed",
+            "network_timeout",
+        ),
+        (
+            "partial",
+            RunIssue("fetch", "Unauthorized", "second attempt unauthorized", False),
+            "partial",
+            "auth_missing",
+        ),
+    ),
+)
+def test_catalog_partial_retry_terminal_outcome_reapplies_current_health(
+    context,
+    monkeypatch,
+    second_status,
+    issue,
+    expected_job_status,
+    expected_category,
+):
+    (context["data_dir"] / "config.json").write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "ai": {
+                    "enabled": False,
+                    "provider": "openai",
+                    "model": "gpt-4o-mini",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "sources": {
+                    "rss": [],
+                    "github": [],
+                    "hackernews": {"enabled": False},
+                },
+                "filtering": {"time_window_hours": 24},
+            }
+        ),
+        encoding="utf-8",
+    )
+    attempts = iter(
+        (
+            _catalog_worker_result(
+                context,
+                run_id="run_partial_zero_before_terminal",
+                status="partial",
+                fetched_count=0,
+            ),
+            _catalog_worker_result(
+                context,
+                run_id=f"run_retry_{second_status}",
+                status=second_status,
+                fetched_count=0,
+                issue=issue,
+            ),
+        )
+    )
+
+    class FakeOrchestrator:
+        def __init__(self, _config, _storage):
+            pass
+
+        async def execute(self, **_kwargs):
+            return next(attempts)
+
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.HorizonOrchestrator", FakeOrchestrator
+    )
+    queue = JobQueue(context["store"])
+    job, _created = queue.create_source_fetch_if_absent(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["owner"]["id"],
+        source_id=context["source_id"],
+        subscription_id=context["subscription"]["id"],
+        payload={},
+    )
+    first = run_worker_once(
+        data_dir=str(context["data_dir"]),
+        worker_id=f"diagnostic-{second_status}-first",
+        enqueue_schedules=False,
+    )
+    assert first["status"] == "partial", first
+    assert SourceHealthService(context["store"]).get_health(
+        context["subscription"]["id"]
+    )["status"] == "healthy"
+
+    queue.retry_job(job["id"], user_id=context["owner"]["id"])
+    second = run_worker_once(
+        data_dir=str(context["data_dir"]),
+        worker_id=f"diagnostic-{second_status}-second",
+        enqueue_schedules=False,
+    )
+    health = SourceHealthService(context["store"]).get_health(
+        context["subscription"]["id"]
+    )
+    result = context["diagnostics"].diagnose_source(
+        actor=context["actor"],
+        subscription_id=context["subscription"]["id"],
+    )
+
+    assert second["id"] == job["id"]
+    assert second["status"] == expected_job_status
+    assert health["status"] == "degraded"
+    assert health["last_job_id"] == job["id"]
+    assert health["last_issue_code"] == issue.code
+    assert health["last_fetched_count"] == 0
+    assert context["store"].connect().execute(
+        """
+        SELECT COUNT(*)
+        FROM user_source_health_applications
+        WHERE subscription_id = ? AND job_id = ?
+        """,
+        (context["subscription"]["id"], job["id"]),
+    ).fetchone()[0] == 1
+    assert result["status"] == "degraded"
+    assert result["cause"]["category"] == expected_category
+    assert result["cause"]["code"] == issue.code
+    assert result["related_job_id"] == job["id"]
+    assert {"kind": "health_evidence_role", "value": "current"} in result[
+        "evidence"
+    ]
+    assert {"kind": "health_status", "value": "degraded"} in result["evidence"]
+    assert {"kind": "last_fetched_count", "value": 0} in result["evidence"]
+    assert {"kind": "job_status", "value": expected_job_status} in result[
+        "evidence"
+    ]
+
+
+def test_source_same_id_retry_new_failure_reapplies_current_health(
     context,
 ):
     job = _finalize_failed_source_attempt_with_health(context)
@@ -852,13 +1153,16 @@ def test_source_same_id_retry_new_failure_code_overrides_old_health_attempt(
     )
 
     assert result["related_job_id"] == job["id"]
-    assert result["status"] == "failed"
+    assert result["status"] == "failing"
     assert result["cause"]["category"] == "auth_missing"
     assert result["cause"]["code"] == "Unauthorized"
     assert {
         "kind": "health_evidence_role",
-        "value": "historical",
+        "value": "current",
     } in result["evidence"]
+    assert {"kind": "health_status", "value": "failing"} in result["evidence"]
+    assert {"kind": "consecutive_failures", "value": 2} in result["evidence"]
+    assert {"kind": "job_status", "value": "failed"} in result["evidence"]
 
 
 def test_source_same_id_retry_same_failure_code_marks_old_health_historical(

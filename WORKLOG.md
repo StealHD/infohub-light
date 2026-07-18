@@ -1097,3 +1097,11 @@
 - 结果：active selected Job 的 status 与 historical Health role 一致；同 ID retry 使用真实 ledger+更新时间识别并由当前 terminal Job 决定 status/cause；完整标量拒绝紧凑 Bearer/Basic、terminal key/connection-string/credential labels，普通业务标量保持可见
 - 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
 - 控制面变更：仅同步 Task 7 内部 attempt provenance 与严格标量投影语义；普通六工具、通用 credential mapping classifier 与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第四轮独立审查的一个 Important
+- 修改文件：JobQueue retry 的 Source Health provenance 重开、diagnostics 显式 FK 归因、真实 Worker/事务/并发回归、主实施计划、`.superpowers/sdd/task-7-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：真实 catalog partial→同 ID retry→success/failed/partial 与事务边界先出现 6 个预期 RED；GREEN 后 focused 260 项、API/MCP/schedule/reliability 邻接 228 项、Python compile、两个 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`、`ui_impacted=false`）及 `git diff --check` 通过
+- 结果：retry 成功转 queued 的同一事务清除该 Job application ledger 并断开 Health `last_job_id`，保留旧健康字段；新 attempt 可重新幂等写 Health，多订阅、外事务回滚与并发语义稳定；诊断不再用状态/时间猜代际
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部 retry/Health attempt provenance；普通六工具与对外注册面不变
