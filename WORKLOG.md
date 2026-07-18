@@ -1076,3 +1076,10 @@
 - 执行验证：`VirtualFeed.test.tsx` RED（2 项目标行为失败）→GREEN；聚焦 Vitest 3 文件/64 项、UI contract、TypeScript、`git diff --check` 通过
 - 结果：仅 `/feed` 使用 18px 卡片、细边界悬停反馈、可动画详情与移动端 44px 操作；collection 卡片继续保持既有结构
 - 控制面变更：无
+
+### 2026-07-18 Codex
+- 任务：更新 Quiet Studio Feed 的三视口生产交互与隔离回归
+- 修改文件：生产工作台 Playwright、本工作日志
+- 执行验证：release RED（旧轨道/刷新断言 11 项失败）→GREEN；Vite build/artifact 通过，desktop/tablet/mobile Playwright 21/21 通过，`git diff --check` 通过
+- 结果：生产验收覆盖无 Feed rail、后台任务刷新、18px/820px 卡片、原位展开、Agent 图标、Reduced Motion、键盘/44px 触控与 collection 隔离；移除 Feed rail-only 用例和固定等待
+- 控制面变更：无；未修改生产组件、backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler

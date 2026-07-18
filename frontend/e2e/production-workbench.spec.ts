@@ -76,53 +76,67 @@ async function stableTopVisibleSnapshot(page: Page) {
 
 async function alignVisibleCardToTop(page: Page) {
   const feedScroll = page.getByTestId('workbench-feed-scroll')
-  const targetName = await page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollElement) => {
-    const bounds = (scrollElement as HTMLElement).getBoundingClientRect()
-    return cards
-      .filter((card) => card.getBoundingClientRect().top >= bounds.top)
-      .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
-      ?.getAttribute('aria-label') ?? ''
-  }, await feedScroll.elementHandle())
-  expect(targetName).not.toBe('')
-
   let stableFrames = 0
+  let previous = await topVisibleSnapshot(page)
   for (let frame = 0; frame < 120 && stableFrames < 3; frame += 1) {
-    const delta = await page.getByRole('article', { name: targetName }).evaluate((card, scrollElement) => (
-      card.getBoundingClientRect().top - (scrollElement as HTMLElement).getBoundingClientRect().top
-    ), await feedScroll.elementHandle())
-    if (Math.abs(delta) <= 0.5) stableFrames += 1
-    else {
+    expect(previous.name).not.toBe('')
+    if (Math.abs(previous.offset) > 0.5) {
       stableFrames = 0
       await feedScroll.evaluate((element, correction) => {
         element.scrollTop += correction
         element.dispatchEvent(new Event('scroll'))
-      }, delta)
+      }, previous.offset)
     }
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    const current = await topVisibleSnapshot(page)
+    if (current.name === previous.name && Math.abs(current.offset) <= 0.5 && Math.abs(current.offset - previous.offset) <= 0.5) {
+      stableFrames += 1
+    } else if (Math.abs(previous.offset) <= 0.5) {
+      stableFrames = 0
+    }
+    previous = current
   }
   expect(stableFrames).toBe(3)
-  const anchor = await topVisibleSnapshot(page)
-  expect(anchor.name).toBe(targetName)
-  return anchor
+  expect(Math.abs(previous.offset)).toBeLessThanOrEqual(0.5)
+  return previous
+}
+
+async function requestBackgroundRefresh(page: Page) {
+  await page.evaluate(async () => {
+    window.dispatchEvent(new Event('inteliscope:workbench-refresh-request'))
+    await (window as typeof window & {
+      completeBackgroundRefresh: () => Promise<void>
+    }).completeBackgroundRefresh()
+  })
 }
 
 test.beforeEach(async ({ page }) => {
-  let refreshCreated = false
+  let backgroundRefreshComplete = false
+  const backgroundRefreshCreatedAt = new Date().toISOString()
+  await page.exposeFunction('completeBackgroundRefresh', () => {
+    backgroundRefreshComplete = true
+  })
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } }
     else if (url.pathname === '/api/feed/latest') {
       const batchMode = new URL(page.url()).searchParams.has('batch')
-      data = { schema_version: 2, items: refreshCreated ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem] : items }
+      data = { schema_version: 2, items: backgroundRefreshComplete
+        ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem]
+        : items }
     }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
     else if (url.pathname === '/api/feed/history') data = { items: [historyRouteItem] }
-    else if (url.pathname === '/api/jobs/user-feed-refresh' && route.request().method() === 'POST') {
-      refreshCreated = true
-      data = { id: 'refresh-1', user_id: 'e2e-user', job_type: 'user_feed_refresh', status: 'queued', created_at: '2026-07-17T04:00:00Z' }
-    }
-    else if (url.pathname === '/api/jobs') data = { jobs: refreshCreated ? [{ id: 'refresh-1', user_id: 'e2e-user', job_type: 'user_feed_refresh', status: 'succeeded', created_at: '2026-07-17T04:00:00Z', finished_at: '2026-07-17T04:00:02Z', result: {} }] : [] }
+    else if (url.pathname === '/api/jobs') data = { jobs: [{
+      id: 'refresh-1',
+      user_id: 'e2e-user',
+      job_type: 'user_feed_refresh',
+      status: backgroundRefreshComplete ? 'succeeded' : 'queued',
+      created_at: backgroundRefreshCreatedAt,
+      finished_at: backgroundRefreshComplete ? new Date().toISOString() : null,
+      result: {},
+    }] }
     else if (url.pathname === '/api/me/feed-schedule') data = { enabled: true, interval_minutes: 60, worker_status: 'ready' }
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
@@ -156,9 +170,16 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
   await expect(page.getByText('稍后读')).toHaveCount(0)
   expect(await page.locator('[data-testid="workbench-card"]').count()).toBeLessThanOrEqual(40)
-  await expect(page.getByRole('navigation', { name: '信息流进度' }).getByRole('button')).toHaveCount(12)
+  await expect(page.getByRole('navigation', { name: '信息流进度' })).toHaveCount(0)
+  await expect(page.getByText('200 条内容 · 最新在下')).toBeVisible()
+  await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '更新信息流' })).toHaveCount(0)
+  const agentToggle = page.getByRole('banner').getByRole('button', { name: /^(收起|展开) Agent 面板$/ })
+  await expect(agentToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
+  await expect(agentToggle.locator('[data-split-panel-icon]')).toHaveCount(1)
+  await expect(page.getByRole('banner')).toHaveAttribute('data-header-visual', 'quiet-studio')
+  await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await page.evaluate(() => document.fonts.ready)
-  await page.waitForTimeout(100)
 
   const shell = page.getByTestId('live-workbench-shell')
   expect(await page.locator('body').evaluate((element) => getComputedStyle(element).color)).toBe(
@@ -169,6 +190,9 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   let agent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
 
   if (testInfo.project.name === 'desktop') {
+    const quietCard = page.locator('[data-card-visual="quiet-studio"]').first()
+    expect(await quietCard.evaluate((element) => getComputedStyle(element).borderRadius)).toBe('18px')
+    expect((await quietCard.boundingBox())?.width ?? 0).toBeLessThanOrEqual(820)
     await expect(desktopNavigation).toBeVisible()
     await expect(mobileNavigation).toBeHidden()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
@@ -265,22 +289,26 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
-  const anchorName = (await stableTopVisibleSnapshot(page)).name
+  const expansionAnchorBefore = await stableTopVisibleSnapshot(page)
+  const anchorName = expansionAnchorBefore.name
   await feedScroll.dispatchEvent('scroll')
   const card = page.getByRole('article', { name: anchorName })
-  const anchorScrollTop = await feedScroll.evaluate((element) => element.scrollTop)
   // Invoke the already-visible control directly: Playwright's actionability helper otherwise
   // scrolls a partially visible first card before dispatching the click, unlike a pointer click.
   await card.getByRole('button', { name: `展开 ${anchorName}` }).evaluate((element: HTMLElement) => element.click())
   await expect(page).toHaveURL(/item=live-/)
   await expect(card.getByRole('button', { name: `收起 ${anchorName}` })).toBeVisible()
-  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBe(anchorScrollTop)
-  const topVisibleAfter = (await stableTopVisibleSnapshot(page)).name
-  expect(topVisibleAfter).toBe(anchorName)
+  await expect(card).toHaveAttribute('data-card-expanded', 'true')
+  const expandedId = await card.locator('xpath=..').getAttribute('data-item-id')
+  expect(expandedId).not.toBeNull()
+  await expect(page.getByTestId(`card-details-${expandedId}`)).toHaveAttribute('data-state', 'expanded')
+  const expansionAnchorAfter = await stableTopVisibleSnapshot(page)
+  expect(expansionAnchorAfter.name).toBe(anchorName)
+  expect(Math.abs(expansionAnchorAfter.offset - expansionAnchorBefore.offset)).toBeLessThanOrEqual(2)
   await card.getByRole('button', { name: `将 ${anchorName} 加入 Agent 上下文` }).click()
 
   const rollingAnchorBefore = await alignVisibleCardToTop(page)
-  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
+  await requestBackgroundRefresh(page)
   await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible({ timeout: 7000 })
   const rollingAnchorAfter = await topVisibleSnapshot(page)
   expect(rollingAnchorAfter.name).toBe(rollingAnchorBefore.name)
@@ -323,17 +351,16 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
   await page.goto('/feed?batch=1')
   await page.evaluate(() => document.fonts.ready)
   const feedScroll = page.getByTestId('workbench-feed-scroll')
-  await expect(page.getByText('未读优先')).toBeVisible()
+  await expect(page.getByLabel('已启用 2 项筛选')).toBeVisible()
   await feedScroll.evaluate((element) => {
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
   await alignVisibleCardToTop(page)
 
-  // Sample and click in one browser task so a later Virtualizer measurement cannot make
+  // Sample and complete the background task in one browser task so a later Virtualizer measurement cannot make
   // the expected anchor older than the request-time geometry captured by the application.
-  const anchorBefore = await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement, scrollElement) => {
-    const scroll = scrollElement as HTMLElement
+  const anchorBefore = await feedScroll.evaluate(async (scroll) => {
     const bounds = scroll.getBoundingClientRect()
     const top = Array.from(scroll.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
       .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
@@ -342,20 +369,17 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
       name: top?.getAttribute('aria-label') ?? '',
       offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
     }
-    element.click()
+    window.dispatchEvent(new Event('inteliscope:workbench-refresh-request'))
+    await (window as typeof window & {
+      completeBackgroundRefresh: () => Promise<void>
+    }).completeBackgroundRefresh()
     return anchor
-  }, await feedScroll.elementHandle())
+  })
   expect(anchorBefore.name).not.toBe('')
   await expect(page.getByRole('button', { name: '查看 80 条新内容' })).toBeVisible({ timeout: 7000 })
   await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBefore.name)
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBefore.offset)).toBeLessThanOrEqual(2)
 
-  const beforeJump = await feedScroll.evaluate((element) => element.scrollTop)
-  await page.getByRole('button', { name: '跳转到第 1 条信息' }).click()
-  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(beforeJump / 2)
-  const afterJump = await feedScroll.evaluate((element) => element.scrollTop)
-  await stableTopVisibleSnapshot(page)
-  expect(Math.abs(await feedScroll.evaluate((element) => element.scrollTop) - afterJump)).toBeLessThanOrEqual(2)
 })
 
 test('live unread-first and source filters preserve the surviving rendered-card anchor', async ({ page }) => {
@@ -397,210 +421,53 @@ test('live unread-first and source filters preserve the surviving rendered-card 
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorAtTransition.offset)).toBeLessThanOrEqual(2)
 })
 
-test('a jump during an in-flight refresh releases the captured refresh anchor', async ({ page }) => {
-  let refreshRequested = false
-  let signalSecondRequest!: () => void
-  let releaseSecondRequest!: () => void
-  const secondRequestStarted = new Promise<void>((resolve) => { signalSecondRequest = resolve })
-  const secondRequestReleased = new Promise<void>((resolve) => { releaseSecondRequest = resolve })
-  await page.exposeFunction('releaseRefreshResponse', () => releaseSecondRequest())
-  await page.route('**/api/jobs/user-feed-refresh', async (route) => {
-    refreshRequested = true
-    await route.fallback()
-  })
-  await page.route('**/api/feed/latest', async (route) => {
-    if (refreshRequested) {
-      signalSecondRequest()
-      await secondRequestReleased
-    }
-    await route.fallback()
-  })
-
+test('Quiet Studio honors Reduced Motion without losing state', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/feed')
-  await page.evaluate(() => document.fonts.ready)
-  const feedScroll = page.getByTestId('workbench-feed-scroll')
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.72)
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await alignVisibleCardToTop(page)
-  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
-  await secondRequestStarted
-
-  await page.getByRole('button', { name: '跳转到第 1 条信息' }).evaluate((element: HTMLElement) => {
-    element.click()
-    queueMicrotask(() => {
-      void (window as typeof window & { releaseRefreshResponse: () => Promise<void> }).releaseRefreshResponse()
-    })
-  })
-  await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible({ timeout: 7000 })
-  await stableTopVisibleSnapshot(page)
-  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(400)
+  const card = page.locator('[data-card-visual="quiet-studio"]').last()
+  await card.getByRole('button', { name: /展开/ }).click()
+  const id = await card.locator('xpath=..').getAttribute('data-item-id')
+  expect(id).not.toBeNull()
+  const details = page.getByTestId(`card-details-${id}`)
+  await expect(details).toHaveAttribute('data-state', 'expanded')
+  const durations = await details.evaluate((element) => getComputedStyle(element).transitionDuration
+    .split(',')
+    .map((value) => Number.parseFloat(value)))
+  expect(durations.every((seconds) => seconds <= 0.001)).toBe(true)
 })
 
-test('a clamped rail jump releases ownership before a later external search update', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'The navigation ownership regression uses the desktop progress rail.')
-
-  let refreshRequested = false
-  let signalShrinkingRefresh!: () => void
-  let releaseShrinkingRefresh!: () => void
-  const shrinkingRefreshStarted = new Promise<void>((resolve) => { signalShrinkingRefresh = resolve })
-  const shrinkingRefreshReleased = new Promise<void>((resolve) => { releaseShrinkingRefresh = resolve })
-  await page.exposeFunction('releaseShrinkingRefresh', () => releaseShrinkingRefresh())
-  await page.route('**/api/jobs/user-feed-refresh', async (route) => {
-    refreshRequested = true
-    await route.fallback()
-  })
-  await page.route('**/api/feed/latest', async (route) => {
-    if (!refreshRequested) return route.fallback()
-    signalShrinkingRefresh()
-    await shrinkingRefreshReleased
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { schema_version: 2, items: items.slice(0, 50) } }) })
-  })
-
+test('Quiet Studio keeps keyboard expansion and mobile action targets accessible', async ({ page }, testInfo) => {
   await page.goto('/feed')
-  await page.evaluate(() => document.fonts.ready)
-  const feedScroll = page.getByTestId('workbench-feed-scroll')
-  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.7)
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await alignVisibleCardToTop(page)
+  const card = page.getByRole('article', { name: '实时条目 200' })
+  const expand = card.getByRole('button', { name: '展开 实时条目 200' })
+  await expand.focus()
+  await page.keyboard.press('Enter')
+  await expect(card.getByRole('button', { name: '收起 实时条目 200' })).toHaveAttribute('aria-expanded', 'true')
 
-  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
-  await shrinkingRefreshStarted
-  await page.getByRole('button', { name: '跳转到第 182 条信息' }).evaluate((element: HTMLElement) => {
-    element.click()
-    queueMicrotask(() => {
-      void (window as typeof window & { releaseShrinkingRefresh: () => Promise<void> }).releaseShrinkingRefresh()
-    })
-  })
-
-  await expect(page.getByRole('article', { name: '实时条目 50' })).toBeVisible()
-
-  // The 182nd rail destination is clamped to item 50. Once that target is visible,
-  // its stale pre-shrink index must no longer own later list changes.
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = 0
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await page.getByRole('searchbox', { name: '搜索信息流' }).fill('实时条目 1')
-  await expect(page.getByText('旧内容在上，最新内容在下 · 11 条')).toBeVisible()
-  await stableTopVisibleSnapshot(page)
-  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
-})
-
-test('a wheel release after cards commit cancels the pending navigation RAF', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'The navigation-RAF regression uses the desktop progress rail.')
-
-  let refreshRequested = false
-  let signalShrinkingRefresh!: () => void
-  let releaseShrinkingRefresh!: () => void
-  const shrinkingRefreshStarted = new Promise<void>((resolve) => { signalShrinkingRefresh = resolve })
-  const shrinkingRefreshReleased = new Promise<void>((resolve) => { releaseShrinkingRefresh = resolve })
-  await page.exposeFunction('releaseRafGateRefresh', () => releaseShrinkingRefresh())
-  await page.route('**/api/jobs/user-feed-refresh', async (route) => {
-    refreshRequested = true
-    await route.fallback()
-  })
-  await page.route('**/api/feed/latest', async (route) => {
-    if (!refreshRequested) return route.fallback()
-    signalShrinkingRefresh()
-    await shrinkingRefreshReleased
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { schema_version: 2, items: items.slice(0, 50) } }) })
-  })
-
-  await page.goto('/feed')
-  await page.evaluate(() => document.fonts.ready)
-  const feedScroll = page.getByTestId('workbench-feed-scroll')
-  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.7)
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await alignVisibleCardToTop(page)
-  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
-  await shrinkingRefreshStarted
-  await page.getByRole('button', { name: '跳转到第 182 条信息' }).evaluate((element: HTMLElement) => element.click())
-  await page.evaluate(() => {
-    // Keep synthetic IDs outside the browser's live RAF range so stale native IDs held by
-    // unrelated subsystems cannot cancel a gated callback by numeric collision.
-    let nextFrameId = 1_000_000_000
-    const scheduled = new Map<number, FrameRequestCallback>()
-    const cancelled: FrameRequestCallback[] = []
-    const nativeRequest = window.requestAnimationFrame
-    const nativeCancel = window.cancelAnimationFrame
-    Object.assign(window, {
-      requestAnimationFrame(callback: FrameRequestCallback) {
-        const id = nextFrameId++
-        scheduled.set(id, callback)
-        return id
-      },
-      cancelAnimationFrame(id: number) {
-        const callback = scheduled.get(id)
-        if (callback) cancelled.push(callback)
-        scheduled.delete(id)
-      },
-      __flushCancelledNavigationRafGate() {
-        const callbacks = [...cancelled]
-        cancelled.length = 0
-        scheduled.clear()
-        for (const callback of callbacks) callback(performance.now())
-        window.requestAnimationFrame = nativeRequest
-        window.cancelAnimationFrame = nativeCancel
-      },
-      __navigationRafGateSize() {
-        return scheduled.size
-      },
-      __cancelledNavigationRafGateSize() {
-        return cancelled.length
-      },
-    })
-    void (window as typeof window & { releaseRafGateRefresh: () => Promise<void> }).releaseRafGateRefresh()
-  })
-  await expect(page.getByText(/旧内容在上，最新内容在下 · 50 条/)).toBeVisible()
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __navigationRafGateSize: () => number }).__navigationRafGateSize())).toBeGreaterThan(0)
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = 0
-    element.dispatchEvent(new WheelEvent('wheel', { bubbles: true }))
-  })
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __cancelledNavigationRafGateSize: () => number }).__cancelledNavigationRafGateSize())).toBeGreaterThan(0)
-  // Replay only callbacks the app explicitly cancelled. Flushing every queued RAF would also
-  // execute Virtualizer reconciliation and measure unrelated behavior instead of this ownership gate.
-  await page.evaluate(() => (window as typeof window & { __flushCancelledNavigationRafGate: () => void }).__flushCancelledNavigationRafGate())
-  await expect.poll(() => feedScroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(2)
-})
-
-test('an immediate rail jump after inline expansion is not reclaimed one second later', async ({ page }) => {
-  await page.goto('/feed')
-  await page.evaluate(() => document.fonts.ready)
-  const feedScroll = page.getByTestId('workbench-feed-scroll')
-  await feedScroll.evaluate((element) => {
-    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
-    element.dispatchEvent(new Event('scroll'))
-  })
-  const anchor = await alignVisibleCardToTop(page)
-  const beforeJump = await feedScroll.evaluate((element) => element.scrollTop)
-
-  await page.evaluate(({ expandLabel, jumpLabel }) => {
-    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-    buttons.find((button) => button.getAttribute('aria-label') === expandLabel)?.click()
-    buttons.find((button) => button.getAttribute('aria-label') === jumpLabel)?.click()
-  }, { expandLabel: `展开 ${anchor.name}`, jumpLabel: '跳转到第 1 条信息' })
-  await page.waitForTimeout(1100)
-
-  expect(await feedScroll.evaluate((element) => element.scrollTop)).toBeLessThan(beforeJump / 2)
+  if (testInfo.project.name === 'mobile') {
+    const openOriginal = card.getByRole('link', { name: '打开 实时条目 200 原文' })
+    const box = await openOriginal.boundingBox()
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  }
 })
 
 test('saved, history and legacy later are accepted by the production workbench routes', async ({ page }) => {
   await page.goto('/saved')
   await expect(page.getByRole('heading', { name: '收藏', exact: true })).toBeVisible()
   await expect(page.getByRole('article', { name: savedRouteItem.title })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '信息流进度' })).toBeVisible()
+  await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'collection')
+  await expect(page.locator('[data-card-visual="collection"]')).toHaveCount(1)
+  await expect(page.getByRole('banner')).not.toHaveAttribute('data-header-visual')
+  await expect(page.getByRole('button', { name: '更新信息流' })).toBeVisible()
 
   await page.goto('/history')
   await expect(page.getByRole('heading', { name: '历史', exact: true })).toBeVisible()
   await expect(page.getByRole('article', { name: historyRouteItem.title })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '信息流进度' })).toBeVisible()
+  await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'collection')
+  await expect(page.locator('[data-card-visual="collection"]')).toHaveCount(1)
 
   await page.goto('/later?mode=featured&item=saved-route-item')
   await expect(page).toHaveURL('/saved?item=saved-route-item')
