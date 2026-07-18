@@ -524,7 +524,15 @@ def create_app(
         )
 
     remote_mcp = (
-        create_remote_mcp(store, remote_mcp_settings)
+        create_remote_mcp(
+            store,
+            remote_mcp_settings,
+            mutation_service=subscription_mutations,
+            runtime_status=runtime_status,
+            secret_is_set=lambda env_name: bool(
+                secret_values.status(env_name)["is_set"]
+            ),
+        )
         if remote_mcp_settings.enabled
         else None
     )

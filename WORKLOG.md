@@ -1113,3 +1113,11 @@
 - 结果：same-ID manual retry 在成功条件 UPDATE 中原子清除旧 `result_json/started_at`；queued/running 与第二 attempt pre-result failure 的普通 list/get、Job/Source diagnostics 均不再暴露旧 summary，下一 claim 重写当前开始时间
 - 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
 - 控制面变更：仅同步 Task 7 内部 retry attempt attribution；普通六工具 shape、权限、active/rollback/concurrency 与 R4 Health provenance 不变
+
+### 2026-07-18 Codex subagent
+- 任务：实现 Task 8 的 14-tool Remote MCP 注册、严格输入、claim-derived actor、服务注入与安全错误/日志
+- 修改文件：MCP typed models/server、API injection、真实 MCP HTTP 回归、Task 8 主计划/报告、`WORKLOG.md`
+- 执行验证：初始 7 failed / 15 passed 精确 RED；最终 transport/diagnostics/Nginx 219 项、Task1/4–7 邻接 666 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 diff 检查通过
+- 结果：14 工具顺序与 annotations 精确；全局 auth 保持 read，写权限由 proposal service 重验；prepare/apply、read-scope/flag-off、跨用户隔离、extra-forbid/Task1 config 安全和固定脱敏日志均由真实 Client 覆盖
+- 未解决问题：Task 9+ UI/Skill、控制面合同、impact map、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅勾选既有 Task 8 执行状态；对外合同由后续统一文档任务更新

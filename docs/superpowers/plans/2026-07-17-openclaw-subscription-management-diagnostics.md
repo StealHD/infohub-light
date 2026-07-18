@@ -977,7 +977,7 @@ git commit -m "feat: explain source and job failures"
 - Consumes: Task 4 settings/scopes, Task 5–6 subscription facade, Task 7 diagnostics.
 - Produces: 14-tool Streamable HTTP surface, typed inputs, claim-derived actor, safe MCP errors, and correct annotations.
 
-- [ ] **Step 1: Write failing real-client tool list and prepare/apply tests**
+- [x] **Step 1: Write failing real-client tool list and prepare/apply tests**
 
 ```python
 EXPECTED_TOOLS = [
@@ -1007,13 +1007,13 @@ async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations(mcp_s
 
 Add a real-client write flow that creates a write delegation, prepares a free RSS source, verifies no business row before apply, applies the exact phrase, verifies source/subscription rows after apply, then verifies the second apply returns `proposal_consumed`. Add a read-token call that returns `write_scope_required` and a flag-off call that returns `subscription_writes_disabled`.
 
-- [ ] **Step 2: Run Remote MCP HTTP tests and verify RED**
+- [x] **Step 2: Run Remote MCP HTTP tests and verify RED**
 
 Run: `pytest tests/test_remote_mcp_http.py tests/test_remote_mcp_subscription_http.py -q`
 
 Expected: FAIL because the eight tools and typed inputs are absent.
 
-- [ ] **Step 3: Define discriminated tool inputs**
+- [x] **Step 3: Define discriminated tool inputs**
 
 ```python
 class ExistingSourceInput(BaseModel):
@@ -1036,7 +1036,7 @@ SourceInput = Annotated[ExistingSourceInput | PrivateSourceInput, Field(discrimi
 
 Define extra-forbid subscription/schedule/update/delete/apply models. No model contains user/workspace, URL outside a source config field, SQL, path, secret, or header fields.
 
-- [ ] **Step 4: Pass full authenticated context through the tool runner**
+- [x] **Step 4: Pass full authenticated context through the tool runner**
 
 Build a `DelegatedActor` from `AccessToken` claims plus `access.scopes`. Update `run_tool()` so write operations receive delegation ID, scopes, and role; reads continue receiving workspace/user. Catch `AgentProposalError` and `SubscriptionMutationError` by stable code, catch `RemoteMCPNotFound` as `not_found`, and keep internal errors as `internal_error request_id=mcp_...`.
 
@@ -1048,7 +1048,7 @@ Log format is fixed:
 
 Use `"-"` for absent proposal/action and never log kwargs or exception messages.
 
-- [ ] **Step 5: Register all eight tools and inject services from `create_app()`**
+- [x] **Step 5: Register all eight tools and inject services from `create_app()`**
 
 Create separate annotation objects:
 
@@ -1060,13 +1060,13 @@ APPLY_ANNOTATIONS = ToolAnnotations(readOnlyHint=False, destructiveHint=True, id
 
 Keep global MCP auth requiring only `inteliscope:read`; per-tool write checks belong to the proposal service. Change `create_remote_mcp()` to accept the already-created mutation service, runtime status service, and a secret-status callback, keeping one FastMCP/session manager per FastAPI app.
 
-- [ ] **Step 6: Run MCP transport, isolation, and annotation tests**
+- [x] **Step 6: Run MCP transport, isolation, and annotation tests**
 
 Run: `pytest tests/test_remote_mcp_http.py tests/test_remote_mcp_subscription_http.py tests/test_remote_mcp_diagnostics.py tests/test_nginx_remote_mcp.py -q`
 
 Expected: PASS; `/mcp` remains exact/no-redirect, Host/Origin/body/rate limits remain intact, two apps have independent session managers, and cross-user/admin IDs remain `not_found`.
 
-- [ ] **Step 7: Commit the 14-tool MCP surface**
+- [x] **Step 7: Commit the 14-tool MCP surface**
 
 ```bash
 git add src/mcp/remote_models.py src/mcp/remote_server.py src/api/server.py tests/test_remote_mcp_http.py tests/test_remote_mcp_subscription_http.py

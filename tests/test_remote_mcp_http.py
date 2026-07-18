@@ -173,12 +173,24 @@ async def test_remote_mcp_uses_exact_path_static_bearer_and_transport_security(
 
 
 @pytest.mark.anyio
-async def test_real_mcp_client_lists_exactly_six_read_only_tools_and_calls_them(
+async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations_and_calls_reads(
     tmp_path, monkeypatch
 ):
     app = _app(tmp_path, monkeypatch)
     user, _connection, token = _token(app)
     job = _seed_feed(app, user)
+    source_id = app.state.service_store.create_source(
+        workspace_id=user["workspace_id"],
+        scope="private",
+        owner_user_id=user["id"],
+        source_type="rss",
+        display_name="MCP diagnostics",
+        config={"url": "https://example.com/diagnostics.xml"},
+        source_key="rss:mcp-diagnostics",
+    )
+    subscription = app.state.service_store.create_subscription(
+        user_id=user["id"], source_id=source_id
+    )
     before = _business_dump(app)
     transport = httpx.ASGITransport(app=app)
 
@@ -207,6 +219,15 @@ async def test_real_mcp_client_lists_exactly_six_read_only_tools_and_calls_them(
                         await session.call_tool("source_health", {}),
                         await session.call_tool("list_jobs", {}),
                         await session.call_tool("get_job", {"job_id": job["id"]}),
+                        await session.call_tool("get_source_setup_guide", {}),
+                        await session.call_tool("list_available_sources", {}),
+                        await session.call_tool(
+                            "diagnose_source",
+                            {"subscription_id": subscription["id"]},
+                        ),
+                        await session.call_tool(
+                            "diagnose_job", {"job_id": job["id"]}
+                        ),
                     ]
 
     assert [tool.name for tool in listed.tools] == [
@@ -216,11 +237,49 @@ async def test_real_mcp_client_lists_exactly_six_read_only_tools_and_calls_them(
         "source_health",
         "list_jobs",
         "get_job",
+        "get_source_setup_guide",
+        "list_available_sources",
+        "prepare_create_subscription",
+        "prepare_update_subscription",
+        "prepare_delete_subscription",
+        "apply_subscription_change",
+        "diagnose_source",
+        "diagnose_job",
     ]
-    assert all(tool.annotations.readOnlyHint for tool in listed.tools)
-    assert all(not tool.annotations.destructiveHint for tool in listed.tools)
-    assert all(tool.annotations.idempotentHint for tool in listed.tools)
-    assert all(not tool.annotations.openWorldHint for tool in listed.tools)
+    annotations = {tool.name: tool.annotations for tool in listed.tools}
+    assert all(
+        tool.inputSchema.get("additionalProperties") is False
+        for tool in listed.tools
+    )
+    for name in {
+        "get_my_feed",
+        "get_item",
+        "list_subscriptions",
+        "source_health",
+        "list_jobs",
+        "get_job",
+        "get_source_setup_guide",
+        "list_available_sources",
+        "diagnose_source",
+        "diagnose_job",
+    }:
+        assert annotations[name].readOnlyHint is True
+        assert annotations[name].destructiveHint is False
+        assert annotations[name].idempotentHint is True
+        assert annotations[name].openWorldHint is False
+    for name in {
+        "prepare_create_subscription",
+        "prepare_update_subscription",
+        "prepare_delete_subscription",
+    }:
+        assert annotations[name].readOnlyHint is False
+        assert annotations[name].destructiveHint is False
+        assert annotations[name].idempotentHint is False
+        assert annotations[name].openWorldHint is False
+    assert annotations["apply_subscription_change"].readOnlyHint is False
+    assert annotations["apply_subscription_change"].destructiveHint is True
+    assert annotations["apply_subscription_change"].idempotentHint is False
+    assert annotations["apply_subscription_change"].openWorldHint is False
     assert result.isError is False
     assert result.structuredContent["items"][0]["article_id"] == "article-1"
     assert all(call.isError is False for call in remaining_results)
