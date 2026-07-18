@@ -1062,3 +1062,10 @@
 - 执行验证：`npm --prefix frontend run test -- src/app/App.test.tsx` RED（缺少 `已启用 3 项筛选`）→GREEN（1 文件/49 项通过）
 - 结果：持久化的未读优先、来源和最低分筛选会显示可访问的三项计数
 - 控制面变更：无
+
+### 2026-07-18 Codex
+- 任务：移除 Quiet Studio Feed 进度轨道及其留白，并保持收藏/历史的 collection 轨道
+- 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、`HeroWorkbenchPage.tsx`、本工作日志
+- 执行验证：`VirtualFeed.test.tsx` RED（Quiet Studio 仍渲染 compact rail）→GREEN（与 `App.test.tsx` 共 2 文件/58 项通过）；`git diff --check` 通过
+- 结果：`/feed` 显式使用 `quiet-studio`，无进度导航/预留 gutter，列宽约 820px；`/saved` 与 `/history` 保持 12 刻度紧凑右轨和原列宽
+- 控制面变更：无
