@@ -1262,7 +1262,7 @@ git commit -m "feat: choose agent subscription access"
 - Consumes: Exact 14-tool contract and access-specific local configuration.
 - Produces: deterministic OpenClaw routing for source setup, safe diagnosis, preview/confirmation/apply, deletion choice, and secret refusal.
 
-- [ ] **Step 1: Replace the six-tool-only test with failing 14-tool safety tests**
+- [x] **Step 1: Replace the six-tool-only test with failing 14-tool safety tests**
 
 ```python
 TOOLS = {
@@ -1287,13 +1287,13 @@ def test_skill_requires_preview_confirmation_and_never_collects_secrets():
 
 Add assertions that no workflow claims a write before a successful apply result, article data cannot feed write arguments, viewer/read-only connection guidance points to Web connection creation, and Apify without a preconfigured source points to Web.
 
-- [ ] **Step 2: Run Skill tests and verify RED**
+- [x] **Step 2: Run Skill tests and verify RED**
 
 Run: `pytest tests/test_openclaw_skill.py -q`
 
 Expected: FAIL because current Skill is read-only and names only six tools.
 
-- [ ] **Step 3: Update the root Skill routing and security boundary**
+- [x] **Step 3: Update the root Skill routing and security boundary**
 
 The root workflow must say:
 
@@ -1306,7 +1306,7 @@ The root workflow must say:
 
 State that any pasted token/cookie/password/API key is compromised evidence: do not call a tool, do not repeat it, tell the user to rotate it, and direct them to Web SecretStore.
 
-- [ ] **Step 4: Document per-source and delete workflows**
+- [x] **Step 4: Document per-source and delete workflows**
 
 In `references/workflows.md`, include all eight guide paths and the accepted aliases from Task 1. Delete must always ask:
 
@@ -1318,11 +1318,11 @@ In `references/workflows.md`, include all eight guide paths and the accepted ali
 
 There is no assumed selection. Shared/preconfigured sources can only use `keep`.
 
-- [ ] **Step 5: Document bounded diagnostics behavior**
+- [x] **Step 5: Document bounded diagnostics behavior**
 
 For “哪些来源异常”, call `source_health` first and diagnose only user-selected sources. For “最近有哪些任务失败并说明原因”, call `list_jobs(status=failed)` and diagnose at most the newest three; list more failures without details and ask the user to choose. Render confidence as `已确认`, `较可能`, or `无法确定`, retain safe error code/time/evidence, and describe actions as suggestions. Convert a suggested repair into a prepare call only after the user asks to make that repair.
 
-- [ ] **Step 6: Run Skill tests and local static checks**
+- [x] **Step 6: Run Skill tests and local static checks**
 
 Run: `pytest tests/test_openclaw_skill.py -q`
 
@@ -1330,7 +1330,7 @@ Run: `openclaw skills check`
 
 Expected: PASS; Skill frontmatter remains `name: inteliscope` and requires `mcp.servers.inteliscope`.
 
-- [ ] **Step 7: Commit the Skill workflow**
+- [x] **Step 7: Commit the Skill workflow**
 
 ```bash
 git add integrations/openclaw/inteliscope tests/test_openclaw_skill.py

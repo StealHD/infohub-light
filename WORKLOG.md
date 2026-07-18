@@ -1153,3 +1153,11 @@
 - 结果：创建连接默认只读并显式提交 access；viewer 隐藏写选项、写开关关闭时禁用并说明；连接权限 Chip、一次性 `{token, access}` 清理和按连接权限复制无明文令牌配置完成
 - 未解决问题：Task 10 Skill 与 Task 11 build/E2E/Axe/full gate、控制面合同、生产启用和真实 OpenClaw canary 尚未执行
 - 控制面变更：仅同步既有 Task 9 执行状态与 Task 11 验收边界；本任务未修改 API/UI 权威合同
+
+### 2026-07-18 Codex subagent
+- 任务：实现 Task 10 OpenClaw 订阅管理 Skill、诊断与确认工作流
+- 修改文件：本地 Skill、README、工具合同、工作流、focused 静态测试、Task 10 计划/报告与 `WORKLOG.md`
+- 执行验证：先以 `.venv/bin/pytest tests/test_openclaw_skill.py -q` 得到 3 项预期 RED；文案收紧后同一单测 6/6 通过，frontmatter/diff 静态检查通过，`openclaw skills check` 通过（仅现有 duplicate-plugin 配置警告）
+- 结果：Skill 覆盖精确 14 工具、八类来源别名/Apify-Web 边界、逐字段收集、existing source list-only、prepare→完整预览→精确确认→apply、显式删除选择、受限诊断与 secret refusal；仅 apply 成功后声明写入
+- 未解决问题：Task 11 控制面合同、impact map、完整验收与真实 canary 尚未执行
+- 控制面变更：将 Task 10 既有计划步骤标记完成；未更改服务端、前端或生产配置

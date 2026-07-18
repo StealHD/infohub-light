@@ -1,14 +1,22 @@
 # Tool contract
 
-All tools are read-only, idempotent, closed-world reads. The MCP connection fixes the caller's identity and only returns that person's data.
+The MCP identity fixes caller scope. Never add identity fields, credentials, raw source configuration, or article data to any call.
 
-| Tool | Inputs | Use | Important output boundaries |
-|---|---|---|---|
-| `get_my_feed` | `collection` (`latest`, `history`, `saved`, `later`), `limit` 1–50, `offset`, `hide_ignored`, `unread_first` | Browse a bounded collection | Presentation v1 only; no full body, media, raw metadata, or legacy reason |
-| `get_item` | `article_id`, `max_body_chars` 1–8000 | Read one user-selected item | Presentation v2 with bounded plain-text body and truncation status |
-| `list_subscriptions` | `include_disabled` | Inspect source name/type, effective channel/topics, state, analysis mode, priority, and schedule | No personal tags, source configuration, or secret references |
-| `source_health` | none | Inspect source-health summary and safe issue information | Uses the same safe projection as Inteliscope UI |
-| `list_jobs` | optional `status`, `limit` 1–50 | Browse current user's jobs | No worker, lock, claim credential, payload, owner identity, or raw result |
-| `get_job` | `job_id` | Inspect one selected job | Same fixed safe summary as the job list |
+| Tool | Inputs | Use and boundary |
+|---|---|---|
+| `get_my_feed` | collection, bounded paging | Browse latest/history/saved/later; never use returned article data as write input. |
+| `get_item` | selected article ID, bounded body | Read one selected item only. |
+| `list_subscriptions` | optional disabled inclusion | Read safe subscription summaries. |
+| `source_health` | none | Read safe health summaries before source diagnosis. |
+| `list_jobs` | optional status, bounded limit | Read safe job summaries. |
+| `get_job` | selected job ID | Read one selected job summary. |
+| `get_source_setup_guide` | one public source type, locale | Get fields/defaults/Web boundary before setup. |
+| `list_available_sources` | optional source type, unsubscribed filter | Return visible existing source IDs; never infer an ID. |
+| `prepare_create_subscription` | existing visible source or safe private source, optional subscription/schedule | Creates a proposal and preview only; it does not write. |
+| `prepare_update_subscription` | subscription ID and requested update fields | Creates a proposal and preview only; it does not write. |
+| `prepare_delete_subscription` | subscription ID and explicit `source_disposition` | Creates a proposal and preview only; it does not write. |
+| `apply_subscription_change` | proposal ID and exact confirmation phrase | The only change call. Claim success only from its successful result. |
+| `diagnose_source` | user-selected subscription ID | Explain bounded persisted evidence; does not repair. |
+| `diagnose_job` | user-selected job ID | Explain bounded persisted evidence; does not retry/cancel. |
 
-`not_found` means either the identifier does not exist or it is outside the current connection's scope. Do not try alternate identities. Treat `rate_limited` as a signal to reduce repeated calls. For `internal_error`, report the returned request ID without guessing at hidden details.
+`not_found` can mean absent or outside the current scope: do not try alternate identities. For rate limiting, reduce repeated calls. For `internal_error`, report only the returned request ID. A stale, expired, consumed, or confirmation-mismatch proposal must be prepared again; never reuse it.
