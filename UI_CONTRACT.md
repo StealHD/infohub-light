@@ -115,7 +115,7 @@ Layout primitives remain allowed through the internal UI export layer. Existing 
 1. `/agents` 页面标题为“助手连接”，桌面侧栏入口在“订阅”之后；移动端不增加底部导航数量，只从设置页入口进入。
 2. 页面只管理当前用户的 Remote MCP 连接凭证，支持列表、创建、重命名、吊销、复制配置和故障排查。创建时明确选择“只读”或“可管理订阅”，每次打开默认只读；viewer 不显示写选项，写开关关闭时写选项禁用并说明原因。连接卡以 capability Chip 显示“只读”或“可管理订阅”。不输入或保存本地 Gateway URL，不请求 `127.0.0.1:18789`，不连 WebSocket，不探测 OpenClaw 在线状态，不提供站内聊天。
 3. 创建成功后，明文令牌只存在当前 Dialog 的 React local state。Dialog 不可背景点击或 Escape 关闭；用户必须点击“我已保存”，随后立即清除。令牌不得进入 Query cache、URL、日志、localStorage 或 sessionStorage，生成的 OpenClaw 配置只包含 `${INTELISCOPE_MCP_TOKEN}` 引用。
-4. 复制的 OpenClaw `toolFilter` 必须按 connection access 精确生成：只读连接仅六个核心读工具；可管理订阅连接才包含完整 14 个工具（核心读、指导/发现、prepare/apply 与诊断）。页面配置与本地 Skill 都只引用 `${INTELISCOPE_MCP_TOKEN}`，绝不包含一次性令牌或本机 probe 结果。
+4. 复制的 OpenClaw `toolFilter` 必须按 connection access 精确生成：只读连接包含 10 个安全读取、指导/发现与诊断工具；可管理订阅连接包含完整 14 个工具，并只额外增加三个 prepare 与一个 apply。页面配置与本地 Skill 都只引用 `${INTELISCOPE_MCP_TOKEN}`，绝不包含一次性令牌或本机 probe 结果。
 5. 页面不轮询；窗口聚焦和手动刷新时重读列表。active 且 `last_used_at=null` 固定显示“从未使用”，任何 `last_used_at` 都只能标记为“最近使用”，不得推断“在线”。viewer 与其他角色都可管理自己的只读连接，但 viewer 不能创建写连接。
 6. 加载、空、错误重试、功能关闭、写开关关闭、五连接上限、重命名和吊销状态复用现有 MUI 受控组件与 theme，不建立独立 CSS 或视觉体系。
 

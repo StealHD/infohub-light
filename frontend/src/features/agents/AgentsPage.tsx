@@ -34,10 +34,19 @@ const READ_TOOLS = [
   'source_health',
   'list_jobs',
   'get_job',
+  'get_source_setup_guide',
+  'list_available_sources',
+  'diagnose_source',
+  'diagnose_job',
 ] as const
 
 const WRITE_TOOLS = [
-  ...READ_TOOLS,
+  'get_my_feed',
+  'get_item',
+  'list_subscriptions',
+  'source_health',
+  'list_jobs',
+  'get_job',
   'get_source_setup_guide',
   'list_available_sources',
   'prepare_create_subscription',
@@ -219,7 +228,7 @@ export function AgentsPage() {
       <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderRadius: uiRadii.panel }}><Typography variant="h6" sx={{ fontWeight: 750, mb: 1 }}>故障排查</Typography><Stack component="ol" spacing={0.75} sx={{ pl: 2.5, my: 0 }}><Typography component="li" variant="body2">确认 <Box component="code">~/.openclaw/.env</Box> 权限为 0600，并已重新启动 OpenClaw。</Typography><Typography component="li" variant="body2">运行 doctor 和 status；401 表示令牌无效、过期、已吊销或用户已禁用。</Typography><Typography component="li" variant="body2">“最近使用”只表示服务器最近收到过调用，不能判断本地 Agent 是否在线。</Typography></Stack></Paper>
     </Stack>
 
-    <Dialog open={createOpen} onClose={() => !createPending && setCreateOpen(false)} fullWidth maxWidth="sm" aria-labelledby="create-agent-title"><DialogTitle id="create-agent-title">创建助手连接</DialogTitle><DialogContent><Stack spacing={1}><TextField autoFocus fullWidth margin="dense" label="连接名称" value={createName} onChange={(event) => setCreateName(event.target.value)} slotProps={{ htmlInput: { maxLength: 80 } }} helperText={`令牌有效 ${query.data.token_ttl_days} 天，只会显示一次。`} /><TextField select fullWidth margin="dense" label="访问权限" value={createAccess} onChange={(event) => setCreateAccess(event.target.value as AgentDelegationAccess)}><MenuItem value="read">只读</MenuItem>{user.role !== 'viewer' && <MenuItem value="subscriptions_write" disabled={!query.data.subscription_writes_enabled}>可管理订阅</MenuItem>}</TextField>{user.role !== 'viewer' && !query.data.subscription_writes_enabled && <Typography color="text.secondary" variant="body2">管理员尚未启用订阅管理连接；你仍可创建只读连接。</Typography>}<Typography color="text.secondary" variant="body2">只读连接可读取信息流、订阅、来源健康和任务摘要。可管理订阅连接还可准备并确认私有来源和订阅变更，但不能管理密钥、共享来源、任务、Feed 条目状态或刷新操作。</Typography></Stack></DialogContent><DialogActions><Button onClick={() => setCreateOpen(false)} disabled={createPending}>取消</Button><Button variant="contained" disabled={!createName.trim() || createPending} onClick={() => void createConnection()}>{createPending ? '生成中…' : '生成一次性令牌'}</Button></DialogActions></Dialog>
+    <Dialog open={createOpen} onClose={() => !createPending && setCreateOpen(false)} fullWidth maxWidth="sm" aria-labelledby="create-agent-title"><DialogTitle id="create-agent-title">创建助手连接</DialogTitle><DialogContent><Stack spacing={1}><TextField autoFocus fullWidth margin="dense" label="连接名称" value={createName} onChange={(event) => setCreateName(event.target.value)} slotProps={{ htmlInput: { maxLength: 80 } }} helperText={`令牌有效 ${query.data.token_ttl_days} 天，只会显示一次。`} /><TextField select fullWidth margin="dense" label="访问权限" value={createAccess} onChange={(event) => setCreateAccess(event.target.value as AgentDelegationAccess)}><MenuItem value="read">只读</MenuItem>{user.role !== 'viewer' && <MenuItem value="subscriptions_write" disabled={!query.data.subscription_writes_enabled}>可管理订阅</MenuItem>}</TextField>{user.role !== 'viewer' && !query.data.subscription_writes_enabled && <Typography color="text.secondary" variant="body2">管理员尚未启用订阅管理连接；你仍可创建只读连接。</Typography>}<Typography color="text.secondary" variant="body2">只读连接可读取并诊断信息流、订阅、来源健康和任务，也可查看来源配置指导。可管理订阅连接还可准备并确认私有来源和订阅变更，但不能管理密钥、共享来源、任务、Feed 条目状态或刷新操作。</Typography></Stack></DialogContent><DialogActions><Button onClick={() => setCreateOpen(false)} disabled={createPending}>取消</Button><Button variant="contained" disabled={!createName.trim() || createPending} onClick={() => void createConnection()}>{createPending ? '生成中…' : '生成一次性令牌'}</Button></DialogActions></Dialog>
 
     <Dialog open={Boolean(oneTimeCredential)} onClose={() => undefined} fullWidth maxWidth="md" aria-labelledby="one-time-token-title"><DialogTitle id="one-time-token-title">保存一次性令牌</DialogTitle><DialogContent><Alert severity="warning" sx={{ mb: 2 }}>关闭后无法恢复。请先保存到本机环境文件，再明确确认。</Alert><Stack spacing={2}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}><Box component="code" sx={{ flex: 1, p: 1.5, bgcolor: 'surfaceContainer', borderRadius: 1, overflowWrap: 'anywhere' }}>{oneTimeCredential?.token}</Box><Button startIcon={<ContentCopyRounded />} onClick={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}>复制令牌</Button></Stack><Box><Typography variant="subtitle2" gutterBottom>1. 写入本机环境文件并限制权限</Typography><Box component="pre" aria-label="本地令牌环境命令" tabIndex={0} sx={{ p: 1.5, bgcolor: 'surfaceContainer', borderRadius: 1, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</Box></Box><Box><Typography variant="subtitle2" gutterBottom>2. 配置并检查 OpenClaw</Typography><Box component="pre" data-testid="openclaw-config" aria-label="OpenClaw 配置命令" tabIndex={0} sx={{ p: 1.5, bgcolor: 'surfaceContainer', borderRadius: 1, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{oneTimeConfiguration}</Box></Box></Stack></DialogContent><Divider /><DialogActions><Button variant="contained" onClick={() => { setOneTimeCredential(null); setNotice('一次性令牌已从页面清除。') }}>我已保存</Button></DialogActions></Dialog>
 

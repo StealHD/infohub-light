@@ -19,10 +19,12 @@ Use the Web-generated MCP URL and an environment-variable reference, never a cle
 
 ### Viewer/read-only connection
 
-For a viewer/read-only connection, expose exactly the six read tools:
+For a viewer/read-only connection, expose exactly the ten safe read, setup,
+discovery, and diagnosis tools. These tools can explain state but cannot prepare
+or apply a change:
 
 ```bash
-openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job"]}}'
+openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","list_available_sources","diagnose_source","diagnose_job"]}}'
 ```
 
 ### Subscription-management connection

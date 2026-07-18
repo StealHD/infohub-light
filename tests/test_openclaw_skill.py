@@ -27,6 +27,10 @@ READ_TOOLS = {
     "source_health",
     "list_jobs",
     "get_job",
+    "get_source_setup_guide",
+    "list_available_sources",
+    "diagnose_source",
+    "diagnose_job",
 }
 
 
@@ -141,4 +145,4 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     assert [
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
-    ] == [(6, READ_TOOLS), (14, TOOLS)]
+    ] == [(10, READ_TOOLS), (14, TOOLS)]

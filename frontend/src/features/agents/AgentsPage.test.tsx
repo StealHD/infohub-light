@@ -29,10 +29,12 @@ const member: User = {
 
 const readTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
+  'get_source_setup_guide', 'list_available_sources', 'diagnose_source', 'diagnose_job',
 ]
 
 const writeTools = [
-  ...readTools, 'get_source_setup_guide', 'list_available_sources', 'prepare_create_subscription',
+  'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
+  'get_source_setup_guide', 'list_available_sources', 'prepare_create_subscription',
   'prepare_update_subscription', 'prepare_delete_subscription', 'apply_subscription_change',
   'diagnose_source', 'diagnose_job',
 ]
@@ -84,6 +86,7 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
 
 describe('AgentsPage', () => {
   it('shows connection status without claiming the local agent is online', async () => {
+    const browser = userEvent.setup()
     renderPage()
 
     expect(await screen.findByRole('heading', { name: 'Office Mac' })).toBeInTheDocument()
@@ -96,6 +99,8 @@ describe('AgentsPage', () => {
     expect(includedTools(pageConfiguration)).toEqual(readTools)
     expect(pageConfiguration).toContain('${INTELISCOPE_MCP_TOKEN}')
     expect(pageConfiguration).not.toContain('ih_mcp_v1_abcd1234')
+    await browser.click(screen.getByRole('button', { name: '创建连接' }))
+    expect(within(screen.getByRole('dialog', { name: '创建助手连接' })).getByText(/只读连接可读取并诊断/)).toBeInTheDocument()
   })
 
   it('keeps the one-time token only in a non-dismissible dialog and clears it explicitly', async () => {

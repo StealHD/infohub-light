@@ -20,3 +20,5 @@ The MCP identity fixes caller scope. Never add identity fields, credentials, raw
 | `diagnose_job` | user-selected job ID | Explain bounded persisted evidence; does not retry/cancel. |
 
 `not_found` can mean absent or outside the current scope: do not try alternate identities. For rate limiting, reduce repeated calls. For `internal_error`, report only the returned request ID. A stale, expired, consumed, or confirmation-mismatch proposal must be prepared again; never reuse it.
+
+A read-only connection exposes the ten read, setup, discovery, and diagnosis tools above. A subscription-management connection adds only the four `prepare_*`/`apply_subscription_change` tools; diagnosis never requires write access.

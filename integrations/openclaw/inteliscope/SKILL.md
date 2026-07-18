@@ -32,7 +32,5 @@ Never ask for, receive, or supply a caller account identifier, workspace identif
 
 ## Tools
 
-- Read: `get_my_feed`, `get_item`, `list_subscriptions`, `source_health`, `list_jobs`, `get_job`.
-- Setup and discovery: `get_source_setup_guide`, `list_available_sources`.
+- Safe read, setup, discovery, and diagnosis: `get_my_feed`, `get_item`, `list_subscriptions`, `source_health`, `list_jobs`, `get_job`, `get_source_setup_guide`, `list_available_sources`, `diagnose_source`, `diagnose_job`.
 - Confirmed subscription management: `prepare_create_subscription`, `prepare_update_subscription`, `prepare_delete_subscription`, `apply_subscription_change`.
-- Diagnosis: `diagnose_source`, `diagnose_job`.
