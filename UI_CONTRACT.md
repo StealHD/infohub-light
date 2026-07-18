@@ -1,133 +1,115 @@
-# Inteliscope Service UI Contract
+<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=UI_CONTRACT.md -->
+# Inteliscope UI Contract
 
-## 1. Authority and scope
+## 1. Authority
 
-This file is the single source of truth for the default React Service UI visual system, component ownership, responsive layout, interaction states, and visual verification gates. Product scope and API behavior remain owned by `PLAN.md` and `API_CONTRACT.md`.
+This file is the sole source of truth for production UI technology, visual language, responsive behavior, and browser acceptance. `PLAN.md` records delivery state, `DECISION_LOG.md` records durable choices, and `tests/test_impact_map.json` selects verification; they must reference this contract rather than restate its visual rules. API fields, authorization, query ownership, and error envelopes remain governed by `API_CONTRACT.md` and existing application tests.
 
-The current delivery scope is the global application shell, the shared Feed workspace used by `/feed`, `/later`, and `/history`, and the subscription/source workspace at `/subscriptions`. Settings and login page bodies remain on their current CSS Modules until a later migration, but they must render inside the same shell without regressions.
+## 2. Production UI system
 
-The approved direction is **Material You Intelligence Cabin**: light-only, desktop-first, calm tonal surfaces, rounded containers, balanced Feed density, and a decision-brief reader. The earlier editorial and alternate Material UI mockups remain design references, not implementation variants.
+- Production uses React 19, HeroUI v3, Tailwind CSS v4, Lucide icons, and the self-hosted Noto Sans SC variable font.
+- `frontend/src/design-system/**` owns the semantic theme, approved component exports, icon exports, and React Router bridge. Production application and feature code import UI components through this boundary and do not import `@heroui/*` directly.
+- `AppBootstrap` mounts exactly one `DesignSystemProvider`, inside `BrowserRouter` and outside production routes. It remains inside the existing `QueryClientProvider`; Query Client, authentication, `ServiceApi`, caches, permissions, and query keys retain their existing lifetimes.
+- MUI, MUI Icons, and Emotion are not production dependencies or source technologies. `frontend/src/ui/**`, the MUI prototype, and page-level legacy visual CSS Modules do not exist.
+- The sole direct-HeroUI feature exception is the fixed-data development preview at `frontend/src/features/workbench-heroui/**`.
 
-## 2. Theme authority
+## 3. Visual language
 
-All new shell, Feed, and subscription visual values must come from the Material UI theme. Raw color, shadow, or radius literals are allowed only in the theme definition.
+- Production is dark-only in this phase, using a graphite canvas, elevated neutral surfaces, restrained purple accents, semantic separators, and visible accessible focus rings. Raw palette values belong only in design-system theme assets.
+- The entire production application uses one system UI font stack: `-apple-system`, `BlinkMacSystemFont`, SF Pro where available, `PingFang SC` for Chinese on Apple platforms, then the self-hosted `Noto Sans SC Variable` and system sans-serif fallbacks. Routes and feature components may not define a competing font stack.
+- Typography has exactly ten semantic roles. Their implementation lives in `frontend/src/design-system/theme.css`; business code selects a role and never recreates its size, weight, line height, or letter spacing.
 
-### 2.1 Palette
+| Role | Size / line | Weight | Intended use |
+|---|---:|---:|---|
+| `type-display` | 24 / 32 px | 600 | standalone authentication or dedicated display titles |
+| `type-section-title` | 18 / 26 px | 600 | major page sections |
+| `type-page-title` | 16 / 24 px | 600 | workbench headers, dialogs, card section headers |
+| `type-card-title` | 16 / 23 px | 600 | Feed, saved, and history card titles |
+| `type-body` | 14 / 22 px | 400 | summaries, descriptions, notices, ordinary content |
+| `type-control` | 13 / 20 px | 500 | buttons, toolbar values, navigation and menu actions |
+| `type-meta` | 12 / 18 px | 400 | source, time, counts and technical metadata |
+| `type-label` | 11 / 16 px | 500 | navigation group labels and compact composer labels |
+| `type-micro` | 10 / 14 px | 500 | chips and mobile navigation captions |
+| `type-prose` | 14 / 26 px | 400 | expanded captured body text |
 
-| Role | Value |
+- Elements in one functional group use the same semantic role. In particular, the Feed view bar count, order control and filter control all use `type-control`; source and time share `type-meta`; channel/topic chips share `type-micro`.
+- Production business code may not use Tailwind font-size, font-weight, line-height, or letter-spacing utilities (`text-xs`, `text-[…]`, `font-*`, `leading-*`, `tracking-*`). The executable UI contract rejects them. Alignment and semantic color utilities such as `text-left` and `text-muted` remain allowed.
+- Radius scale: 16 px panels, 14 px cards, 10 px controls, and 8 px small controls. Static surfaces use contrast and a thin separator rather than glow or heavy shadow.
+- Purposeful transitions run for 120–220 ms. Reduced Motion makes nonessential transitions effectively immediate while preserving loading indicators' understandable state.
+- Feature code does not define raw colors, shadows, radii, transition durations, or new page-level CSS visual systems. Native layout values may be used only where the static contract explicitly permits them.
+- Loading, empty, degraded, failure, retry, and read-only states use the shared design-system vocabulary and accessible live regions. Global action feedback is framework-neutral; pages render feedback locally through HeroUI surfaces.
+
+## 4. Routes and page ownership
+
+| Route | Production experience |
 |---|---|
-| primary | `#386A4A` |
-| on-primary | `#FFFFFF` |
-| primary container | `#CCE8D2` |
-| on-primary container | `#173824` |
-| app background | `#F8FAF3` |
-| surface | `#FFFFFF` |
-| surface container | `#F0F4EC` |
-| surface container high | `#E9EEE5` |
-| outline | `#768477` |
-| outline variant | `#DCE2D9` |
-| warning | `#765A00` |
-| warning container | `#FFDF99` |
-| error | `#BA1A1A` |
-| error container | `#FFDAD6` |
+| `/feed` | Hero workbench, all items |
+| `/saved` | Hero workbench, saved collection |
+| `/history` | Hero workbench, history collection |
+| `/subscriptions` | Quiet Studio adaptive administration page; no Agent panel |
+| `/agents` | Quiet Studio adaptive assistant-connection page; no Agent panel |
+| `/settings` | Quiet Studio adaptive settings page; no Agent panel |
+| `/login` | Standalone Quiet Studio login page |
 
-### 2.2 Typography and assets
+- `/later` permanently replaces to `/saved`, preserves only a valid `item` query value, and removes legacy `mode`.
+- Authenticated unknown routes resolve coherently to the production Feed; unauthenticated protected routes resolve through the standalone login flow.
+- `mode` is not part of the production Feed experience. Legacy `mode` query parameters are removed while preserving `item`.
 
-- Use self-hosted `Noto Sans SC Variable` for all UI and reading text, with system sans-serif fallback.
-- Load weights 400–700 through Fontsource. Do not request Google Fonts or another CDN.
-- Use the Material UI typography scale; feature components may select a named variant but must not create arbitrary font sizes.
+## 5. Workbench shell and responsiveness
 
-### 2.3 Shape, spacing, and motion
+- Expanded navigation is organized as 浏览（信息流、收藏、历史）、常用视图（未读、AI、朋友动态、产品机会）and 管理（订阅、助手连接、设置）. 稍后读 is absent. Quick views only transform the existing user-isolated Feed preference and introduce no API or URL state.
+- The collapsed brand uses the Inteliscope scope mark rather than a text initial. The bottom account avatar/row is the only account trigger; its Popover contains identity, Chinese role, settings, and an explicit logout action. A standalone logout icon is not rendered.
+- Header height is 52 px. The Web application does not imitate macOS traffic lights, window chrome, drag regions, or desktop-only operating-system controls.
+- `/feed`, collection routes, administration pages and authentication all inherit the application font stack and semantic typography scale from the design system. A route must not switch typography independently.
+- Every production route uses the shared Quiet Studio page patterns. A route has exactly one page title in `PageHeader`; content-route headers contain only that title and the Agent toggle, while count, search, order, filter, and refresh actions live in the aligned `ViewBar` below.
+- `PageFrame` owns the three approved content widths: reading pages use approximately 820 px, administration pages approximately 1180 px, and authentication approximately 420 px. Business pages select `reading`, `admin`, or `auth` and may not recreate those widths.
+- At 1360 px and above, the user-isolated sidebar may toggle between 72 px and 232 px; the preference key is `inteliscope.ui.sidebar.v1:<user_id>`, accepted values are `collapsed` and `expanded`, and absent or invalid values resolve to collapsed. Accounts never share the preference.
+- From 1200–1359 px, navigation remains 72 px and the three-column workbench remains visible. The scope mark opens the categorized 260 px overlay without changing Feed width or scroll; the persisted width toggle is not presented.
+- From 768–1199 px, navigation remains 72 px, the scope mark opens the same categorized overlay, and Agent is an on-demand right overlay.
+- At 767 px and below, content is single-column, navigation moves to the bottom, and Agent is a bottom sheet ending at the viewport bottom.
+- At 1440×900, the workbench shows the complete navigation, Feed, and 360 px Agent columns and four to five complete collapsed cards. At 1024×768, Agent overlays without resizing or scrolling the Feed. At 390×844, bottom navigation and Agent sheet remain reachable without horizontal page overflow.
+- Navigation, Feed, and Agent have independent scroll regions. Opening or closing a panel preserves route, selected/expanded story, and Feed scroll anchor. Escape closes overlays and restores focus to their trigger.
 
-- Panel radius: 24 px.
-- List/card radius: 16 px.
-- Control/pill radius: 20 px.
-- Small control radius: 10 px.
-- Use theme spacing and transitions. Sidebar width transitions use the theme's shortest standard duration and honor reduced motion.
-- Shadows are reserved for overlays, menus, temporary drawers, and task alerts. Static page panels use tonal separation and outlines.
+## 6. Feed, virtualization, and Agent handoff
 
-## 3. Component boundary
+- Feed has one mode, 全部. It defaults to `最新优先`, with newest content at the top; the explicit `最新优先`/`最旧优先` control persists per user. `/saved` and `/history` retain their collection ordering.
+- `/feed` reads the canonical all-items response; `/saved` and `/history` reuse the same card, virtualization, filter, deep-link, and scroll behaviors.
+- Long lists are virtualized with stable item IDs. A refresh captures the current rendered item ID and relative viewport offset synchronously at the request boundary. Measurement changes and source replacement retain that anchor; user scrolling cancels restoration ownership.
+- New content auto-follows only when the viewport is within 96 px of the active fresh edge: top for newest-first and bottom for oldest-first. Otherwise the position remains stable and an explicit `N 条新内容` action appears at that edge.
+- The centered content view bar aligns to the card column. Feed shows item count, order, filter, and active-filter count without recreating the removed search or manual-refresh controls. Saved and history place count, search, refresh, and filter in the same bar; mobile search expands from an explicit control. Filters include unread-first, source, channel, topic, and minimum score. Preferences remain user-isolated. Filtering, quick views, and unread-first reordering preserve rendered-ID anchors.
+- Cards show source, time, title, an optional distinct summary, channel/topics, optional media, and bounded plain text on expansion. A summary that normalizes to the title is omitted rather than repeated or replaced with filler. Collapsed title and distinct summary are each limited to two lines; expansion is inline and does not replace the list or move the viewport anchor.
+- Direct actions are open original, save, and add/remove Agent context. Mark read/unread, copy summary, and dismiss live in the compact overflow menu. There is no read-later action.
+- `/feed`, `/saved`, and `/history` use the same Quiet Studio presentation: no progress rail or reserved rail gutter, a centered reading-width card column, an 18 px semantic content-card radius, standard graphite surfaces, thin semantic borders, and no persistent glow or heavy shadow.
+- Quiet Studio card hover and press feedback uses the existing 120–220 ms motion tokens; inline expansion preserves the rendered ID-plus-offset anchor. Coarse-pointer actions remain fully visible and at least 44 px, and Reduced Motion makes displacement and expansion effectively immediate without hiding state.
+- Content-card dimensions and reading width are owned by design-system tokens and presets. Feature code may compose layout, but it may not recreate approved page widths, typography, colors, shadows, radii, or motion values.
+- The `/feed` Agent toggle uses a rounded split-panel glyph with neutral hover/press feedback and a restrained accent selected state. Its `aria-expanded`, focus restoration, responsive panel placement, and scroll preservation remain authoritative.
+- Agent context contains at most eight ordered item IDs, a question, and prompt-only model guidance (`auto`, `fast`, or `deep`). Desktop sidebar, tablet Drawer, and mobile Bottom Sheet render the same shared `HandoffComposer`. Its `CompactSelect` owns the trigger value, indicator, popover, list items, keyboard behavior, Escape handling, and semantic `type-control` typography. The composer exposes a compact `交接模式` explanation, context count, model preference, transient live status, and a labelled circular copy action. Legacy drafts sanitize to `auto`; clipboard failure preserves the draft.
+- Handoff text deterministically instructs OpenClaw to call `get_item` and includes the selected model guidance. `复制交接提示词` only writes to the clipboard; the site does not run an Agent, issue an execution request, chat, stream a session, probe a local Gateway, or infer online presence.
+- Connection state copy is limited to configured, not configured, or check failed semantics. Credentials never imply online presence.
+- Viewers may navigate, open, search, copy, and assemble a handoff, but may not mutate Feed item state. Other role behavior follows the existing API/permission contract.
 
-`frontend/src/ui/**` owns the theme, provider, approved Material UI exports, and semantic wrappers. Feature code must import controlled inputs, buttons, icon actions, chips, tabs, surfaces, status presentation, empty states, and filter overlays from that layer.
+## 7. Administration and authentication pages
 
-Feature code may not:
+- Subscriptions, assistant connections, and settings use the shared `admin` PageFrame within the navigation shell and do not mount the Feed Agent panel. Their single route title lives in the Shell `PageHeader`; content uses `PageIntro`, `PageSection`, shared status states, and responsive grids instead of a duplicate display heading.
+- Page information architecture, backend fields, role boundaries, write-only secret handling, job behavior, and Remote MCP safety remain unchanged by visual migration.
+- Owner/Admin/member/viewer affordances must match existing authorization. Disabled or hidden controls are not substitutes for server enforcement.
+- Login uses the shared `auth` PageFrame, brand mark, semantic typography, controls, and focus feedback without rendering the authenticated shell.
+- Action failures are reversible where optimistic state is used, explain recovery in a live region, and never replay across users. Logout or account replacement clears user-scoped transient feedback and cache according to existing session rules.
 
-1. Import Emotion directly.
-2. Import controlled Material UI components directly when an internal wrapper/export exists.
-3. Add raw palette, radius, or shadow literals.
-4. Create a new page-level button, input, status badge, card, popover, or alert visual language.
-5. Add new shell, Feed, or subscription CSS Modules.
+## 8. Development preview isolation
 
-Layout primitives remain allowed through the internal UI export layer. Existing CSS Modules outside the migrated shell, Feed, and subscription workspace are compatibility code and do not define the future visual system.
+- `/__preview/workbench-heroui` is the only visual preview route. It uses sanitized fixed data, requires no authentication, creates no Query Client or `ServiceApi`, and makes no `/api/*` request.
+- The application entry dynamically imports it only behind `import.meta.env.DEV`. Production output excludes its route, fixtures, dedicated stylesheet markers, and preview copy.
+- The deleted `/__preview/workbench` and `/__preview/workbench-live` routes, MUI comparison copy, and UI-experience switch do not return.
 
-## 4. Shell contract
+## 9. Enforcement and acceptance
 
-- App bar height is 64 px and retains brand, global search, and acquisition action.
-- Desktop navigation is a permanent Material UI Drawer, collapsed to 72 px by default and expandable to 240 px.
-- Sidebar state is stored as `collapsed` or `expanded` under `inteliscope.ui.sidebar.v1:<user_id>`. Invalid or absent values fall back to `collapsed`. The preference is browser-local and is not cleared on logout.
-- At widths 1200 px and above, expansion participates in layout. From 900–1199 px, expansion uses a temporary overlay so the reader is not compressed. At 767 px and below, keep the existing mobile bottom navigation and master/detail behavior.
-- The expand/collapse control is the first Drawer item and uses the same alignment and hit target as navigation items. It must not appear as a detached bottom control.
-- Collapsed navigation requires labels, tooltips, visible focus, and an accessible expand control. Toggling must preserve route, selected item, and scroll state.
-- Settings sits above one unified account card at the bottom of the Drawer. Expanded state shows avatar, name, Chinese role, and menu indicator; collapsed state shows the aligned avatar with a tooltip.
-- “更新信息流” means fetching every enabled subscription, deduplicating results, and refreshing the Feed; it does not change subscription settings. Each request first refreshes Worker state and creates a job only when the Worker is `ready`.
-- Queued/running progress is represented by the action button and run history, not by a permanent Snackbar. Success notifications close after 4 seconds; blocked, partial, and failed notifications close after at most 8 seconds. Every notification is manually closeable and a dismissed `job_id + status` event must not reopen during polling.
+Every production UI change must pass, in order:
 
-## 5. Feed workspace contract
-
-- At 1200 px and above, the list is 420–440 px wide and the reader consumes the remaining space. At 1440×900, 6–8 rows must be visible without horizontal overflow.
-- Feed mode uses Tabs and remains represented by the `mode` URL parameter. Item selection remains represented by `item`.
-- Drawer and mobile navigation include a dedicated `/saved` collection. Saved and later items remain readable after they leave the latest snapshot.
-- Unread-first and active filters are visible as controls/chips. Source, channel, topic, and minimum score live in a keyboard-accessible filter overlay and apply immediately. Removing a chip clears that filter.
-- Filter fields use controlled Material UI Select components with separate labels and values. Native Select rendering is not allowed in this overlay.
-- List rows show source, author when available, relative time, canonical title, one-line summary, and signal label. Read state reduces emphasis without lowering text contrast below accessibility requirements.
-- Selecting a row only opens it. Read state changes only through the explicit “标记已读/标记未读” action; optimistic updates patch Feed, history, saved, later, and detail caches together and roll all copies back on failure.
-- Reader order is: source/author/exact published time and health, canonical title, one summary, signal strength/channel/type plus at most four native engagement facts, then the bounded plain-text body excerpt directly beneath the summary block. The React reader never renders `action_suggestion`.
-- Feed lists prefer `presentation.version=1`; the selected reader requests and prefers `presentation.version=2`. Legacy flat fields are fallback-only. It must not display or search `reason`/“为什么值得关注”. Source-specific raw metadata must not leak into feature components.
-- The reader shows captured `body_text` as bounded plain text and a same-origin image gallery. It is captured-source content, not a webpage full-text proxy. `excerpt_only` old data remains explicitly degraded. It has no redundant “来源摘录” heading; a truncated body shows `内容已截断，打开原文查看完整内容。`. When `canonical_url` and `source_url` differ, expose separate “打开原文”和“查看原帖” actions.
-- Feed mode and unread-first are stored per user under `inteliscope.ui.feed.v1:<user_id>` and survive navigation/reload without crossing users.
-- Direct actions are open original, read later, and save. More actions contain explicit mark read/unread, copy summary, and dismiss. Viewers may open and copy but may not mutate item state.
-- Missing data must degrade explicitly: `未评分`, `未分类频道`, `未分类类型`, `暂无概括；请打开原文核对完整内容。`, and `该条内容未保存正文片段；重新获取来源后可显示。`.
-- Loading uses Skeleton; fetch errors use Alert with retry; empty filtered results include a clear-filters action.
-
-## 6. Subscription and source workspace contract
-
-- `/subscriptions` uses three tabs: “我的订阅”, “来源库”, and “运行记录”. It must not expose a continuous legacy form/card page or nested `<details>` editors.
-- Subscriptions and source discovery are grouped by effective channel, following the channel order returned by `/api/config`; missing channels fall back to “其他”. Search expands matching groups automatically. Source type, scope, health, subscription state, next fetch time, and role are rendered as filters or Chinese card labels rather than first-level directories; internal enums are not user-facing text.
-- Source and subscription forms use the backend channel list as a Select. Topic fields use a free-solo multi-select backed by the active topic library; referenced topics missing from that library remain visible as `已停用` until the user replaces them.
-- Every mutable subscription card exposes “立即获取”. It refreshes Worker state first, creates or reuses the existing asynchronous `source_fetch` job only when Worker is ready, and refreshes Feed, health, counts, and run history on a terminal result.
-- The Settings topic library uses add/search/delete chips with explicit Save and Undo. Removing a topic only removes it from future choices and AI preference vocabulary; it never rewrites source/subscription references or historical snapshots.
-- Owner/Admin may edit shared public or team source definitions. Members may subscribe, unsubscribe, and edit only their own subscription parameters. Viewers are read-only. A private source definition is editable only by its creator, including when another user is an administrator.
-- Members may create private sources only. Administrators may choose private, team, or public scope when creating a source.
-- Source settings and subscription settings use responsive Dialogs. Empty groups consume no layout; no-source, no-subscription, and no-filter-results states have distinct actions and explanations.
-- Run records translate task type and status into user-facing Chinese. Each row presents source, creation/completion time, result count, and failure reason when present. Raw job type, status, error code, and ID exist only inside administrator technical details.
-- Terminal run records expose one collapsed “响应结构” control. It compares “上游原始结构” with “系统标准化结构” using field-path/type tables only; raw values never enter the DOM. `empty/cached/unavailable/truncated` must have explicit Chinese degradation copy, old Jobs explain that no structure was recorded, and both tables wrap without horizontal page overflow at 390px.
-- When Worker state is stale, missing, or cannot be checked, “更新信息流” does not create a queued job and explains the block in human language.
-
-### 6.1 Authenticated action feedback
-
-- 认证布局使用单一 `ActionFeedbackProvider`，按 `user + action + entity` 保存 `pending/queued/running/succeeded/partial/failed/blocked`；用户切换或退出必须清空。
-- 用户点击异步按钮后立即显示“提交中…/保存中…/获取中…”，只禁用对应实体。明显的乐观变化不额外弹成功提示；失败必须回滚并通过 live region 提示。
-- Feed terminal job 是一次性事件：首次加载的历史 terminal job 静默标记已见；只有 `snapshot_created=true` 的成功任务显示“信息流已更新”。成功 no-op 静默，partial/failed 可以提示但无 snapshot 时不得声称“已更新”。轮询与跨路由不得重放同一 `job_id + status`。
-- 详情页按顺序展示全部同源缓存图片。`captured` 显示来源正文；当 `excerpt_only` 与上方 AI 概括相同，只显示一次概括并明确说明来源全文尚不可用。
-
-## 7. Assistant connection workspace contract
-
-1. `/agents` 页面标题为“助手连接”，桌面侧栏入口在“订阅”之后；移动端不增加底部导航数量，只从设置页入口进入。
-2. 页面只管理当前用户的 Remote MCP 连接凭证，支持列表、创建、重命名、吊销、复制配置和故障排查。创建时明确选择“只读”或“可管理订阅”，每次打开默认只读；viewer 不显示写选项，写开关关闭时写选项禁用并说明原因。连接卡以 capability Chip 显示“只读”或“可管理订阅”。不输入或保存本地 Gateway URL，不请求 `127.0.0.1:18789`，不连 WebSocket，不探测 OpenClaw 在线状态，不提供站内聊天。
-3. 创建成功后，明文令牌只存在当前 Dialog 的 React local state。Dialog 不可背景点击或 Escape 关闭；用户必须点击“我已保存”，随后立即清除。令牌不得进入 Query cache、URL、日志、localStorage 或 sessionStorage，生成的 OpenClaw 配置只包含 `${INTELISCOPE_MCP_TOKEN}` 引用。
-4. 复制的 OpenClaw `toolFilter` 必须按 connection access 精确生成：只读连接包含 10 个安全读取、指导/发现与诊断工具；可管理订阅连接包含完整 14 个工具，并只额外增加三个 prepare 与一个 apply。页面配置与本地 Skill 都只引用 `${INTELISCOPE_MCP_TOKEN}`，绝不包含一次性令牌或本机 probe 结果。
-5. 页面不轮询；窗口聚焦和手动刷新时重读列表。active 且 `last_used_at=null` 固定显示“从未使用”，任何 `last_used_at` 都只能标记为“最近使用”，不得推断“在线”。viewer 与其他角色都可管理自己的只读连接，但 viewer 不能创建写连接。
-6. 加载、空、错误重试、功能关闭、写开关关闭、五连接上限、重命名和吊销状态复用现有 MUI 受控组件与 theme，不建立独立 CSS 或视觉体系。
-
-## 8. Verification gates
-
-Every shell, Feed, or subscription visual change must pass:
-
-1. UI contract static checks and ESLint import restrictions.
+1. Static UI contract checks and ESLint import restrictions.
 2. TypeScript and Vitest.
-3. Vite production build.
-4. Playwright at 1440×900 collapsed, 1440×900 expanded, 1024×768 overlay, and 390×844 mobile regression.
-5. Axe with no serious or critical violations.
-6. Visual review using fixtures with at least eight mixed-state items, long Chinese text, missing optional fields, and multiple source-health states.
+3. Vite production build and artifact scan proving no MUI/Emotion modules, `Mui` class markers, deleted preview routes, or deleted comparison copy.
+4. Playwright at 1440×900, 1024×768, and 390×844, including Axe with zero serious or critical findings.
+5. Reduced Motion, focus restoration, independent scrolling, stable ID-plus-offset anchors, bounded virtualization, and no horizontal overflow checks.
 
-Snapshot updates require an intentional UI contract or approved design change; they are not an automatic fix for a failing visual test.
+The static contract rejects MUI/Emotion imports, production feature-level direct HeroUI imports, nested `DesignSystemProvider` mounts, raw business-page colors, page-level visual constants, business-owned copies of the approved PageFrame widths, and deleted preview technology. Snapshot or expectation changes require an intentional contract change; they are not an automatic response to a failing visual test.

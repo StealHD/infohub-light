@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FeedItem, SourceHealthItem } from '../../api/types'
-import { filterFeedItems, resolveItemHealth, safeExternalUrl, selectModeItems } from './feedModel'
+import { filterFeedItems, resolveItemHealth, safeExternalUrl, selectModeItems, sortWorkbenchItems } from './feedModel'
 
 const item = (overrides: Partial<FeedItem> = {}): FeedItem => ({
   id: 'article-1',
@@ -28,6 +28,30 @@ describe('feed model', () => {
     expect(selectModeItems(snapshot, 'all')).toEqual(all)
     expect(selectModeItems(snapshot, 'featured')).toEqual(featured)
     expect(selectModeItems(snapshot, 'daily')).toEqual(daily)
+  })
+
+  it('orders all Feed items from older to newer while keeping invalid timestamps stable', () => {
+    const invalidFirst = item({ id: 'invalid-first', published_at: 'unknown' })
+    const newer = item({ id: 'newer', published_at: '2026-07-13T10:00:00Z' })
+    const older = item({ id: 'older', published_at: '2026-07-13T08:00:00Z' })
+    const invalidSecond = item({ id: 'invalid-second', published_at: '' })
+
+    expect(selectModeItems({
+      schema_version: 2,
+      items: [invalidFirst, newer, older, invalidSecond],
+    }, 'all').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
+  })
+
+  it('supports a stable newest-first view while keeping invalid timestamps at the trailing edge', () => {
+    const values = [
+      item({ id: 'invalid-first', published_at: 'unknown' }),
+      item({ id: 'newer', published_at: '2026-07-13T10:00:00Z' }),
+      item({ id: 'older', published_at: '2026-07-13T08:00:00Z' }),
+      item({ id: 'invalid-second', published_at: '' }),
+    ]
+
+    expect(sortWorkbenchItems(values, 'newest').map(({ id }) => id)).toEqual(['newer', 'older', 'invalid-first', 'invalid-second'])
+    expect(sortWorkbenchItems(values, 'oldest').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
   })
   it('searches real item fields and keeps unread items before read items', () => {
     const values = [
@@ -65,6 +89,31 @@ describe('feed model', () => {
     expect(filterFeedItems(values, {
       query: '', unreadFirst: false, sourceId: 'source-a', channel: 'AI', topic: 'Codex', minScore: 8,
     }).map((value) => value.id)).toEqual(['match'])
+  })
+
+  it('filters with canonical presentation fields before legacy fallbacks', () => {
+    const canonical = item({
+      id: 'canonical',
+      source_id: 'legacy-source',
+      channel: '旧频道',
+      topics: ['旧主题'],
+      score: 1,
+      presentation: {
+        version: 2,
+        source: { id: 'canonical-source', catalog_type: 'rss', platform: 'rss', name: 'Canonical Source' },
+        author: { name: 'Author', kind: 'person' },
+        timing: { published_at: '2026-07-13T08:00:00Z', fetched_at: '2026-07-13T08:01:00Z' },
+        links: { canonical_url: 'https://example.com/canonical', source_url: 'https://example.com/canonical' },
+        content: { title: 'Canonical', title_origin: 'native', excerpt: 'canonical body', content_kind: 'feed_summary', excerpt_truncated: false },
+        taxonomy: { channel: '新频道', configured_topics: [], inferred_topics: [], topics: ['新主题'], entities: [] },
+        engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+        analysis: { status: 'ai', score: 8.5, signal_strength: 'strong', signal_type: 'update', summary_zh: '概括' },
+      },
+    })
+
+    expect(filterFeedItems([canonical], {
+      query: '', unreadFirst: false, sourceId: 'canonical-source', channel: '新频道', topic: '新主题', minScore: 8,
+    })).toEqual([canonical])
   })
 
   it('uses the most concerning source health across duplicate provenance', () => {

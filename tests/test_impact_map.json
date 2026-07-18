@@ -159,14 +159,24 @@
     {
       "id": "React global Shell",
       "globs": [
+        "frontend/src/AppBootstrap.tsx",
         "frontend/src/app/App.tsx",
-        "frontend/src/app/AppShell.tsx",
+        "frontend/src/app/ActionFeedback.tsx",
+        "frontend/src/design-system/**",
+        "frontend/src/features/workbench-live/**",
         "frontend/src/main.tsx",
         "frontend/src/styles/**",
-        "frontend/src/test/setup.ts",
-        "frontend/src/ui/UiProvider.tsx",
-        "frontend/src/ui/index.ts",
-        "frontend/src/ui/theme.ts"
+        "frontend/src/test/setup.ts"
+      ],
+      "groups": ["frontend_full"]
+    },
+    {
+      "id": "React UI contract (UI_CONTRACT.md authority)",
+      "globs": [
+        "UI_CONTRACT.md",
+        "frontend/scripts/check-preview-build.mjs",
+        "frontend/scripts/check-ui-contract.mjs",
+        "frontend/src/design-system/**"
       ],
       "groups": ["frontend_full"]
     },

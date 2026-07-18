@@ -865,6 +865,22 @@
 - 未解决问题：尚未创建真实一次性连接或执行 `openclaw mcp doctor inteliscope --probe`，也未执行 staging、生产 Nginx/canary 和功能开关启用；这些步骤需要部署环境与真实用户凭证
 - 控制面变更：新增 D024；API/架构/UI 合同和 PLAN 增加 Remote MCP、delegation、助手连接及本地 OpenClaw 边界；新增测试影响映射，`project-defaults.yaml` 能力词汇无需变更
 
+### 2026-07-17 01:05 Codex
+- 任务：实现 Codex-inspired Next Web 工作台的固定数据视觉原型
+- 修改文件：新增 Next 暗色主题与 `/__preview/workbench`，实现精简导航、卡片展开、收藏切换、短刻度、新内容提示和 OpenClaw 上下文交接；同步 UI/计划/决策合同与测试
+- 执行验证：基线 103 项 Vitest 通过；新增路由、收藏与交互测试完成 RED→GREEN，最终 107 项通过；三视口 Playwright/Axe 3 项通过；UI contract、TypeScript、ESLint 与 Vite build 通过；1280×720 与 658×889 人工浏览器检查无横向溢出，收藏状态可切换，并修正 Agent 面板遮挡卡片操作的问题；最终 `test_gate full` 22/22 命令通过、`mapping_miss=false`
+- 结果：原型可在本地无登录打开，未调用 API、未切换默认 UI、未修改生产；等待人工视觉确认后再接真实 Feed 与连接状态
+- 未解决问题：尚未执行真实数据接入、虚拟列表、legacy/next 切换和完整多视口 Playwright 基线
+- 控制面变更：新增 D025；UI_CONTRACT 明确 Codex 仅为视觉语言参考且视觉原型为真实数据接入门禁
+
+### 2026-07-17 10:17 Codex
+- 任务：实现 HeroUI v3 独立工作台视觉原型，与现有 MUI 原型进行同数据、同布局和同交互对照
+- 修改文件：新增开发专用 `/__preview/workbench-heroui`、HeroUI 复合卡片与响应式三栏样式、共享预览数据模型、入口隔离和生产包排除检查；更新 MUI 版本切换、UI/计划/决策合同与测试
+- 执行验证：UI contract 通过；ESLint 0 error（保留既有 Fast Refresh warning）；TypeScript 通过；Vitest 27 个文件共 111 项通过；Vite 生产构建与 HeroUI 排除检查通过；MUI/HeroUI 三视口 Playwright+Axe 9 项通过；最终 `test_gate full` 22/22 命令通过、`mapping_miss=false`、48.427 秒；1440×900 人工检查显示 5 张完整卡片，无横向溢出
+- 结果：HeroUI 路由在应用根入口提前分流，不进入 MUI、认证、Query Client、API 或生产全局 CSS；实现卡片展开、收藏、搜索、短刻度、新内容、最多 8 条 Agent 上下文和确定性交接复制；平板覆盖面板、手机 Bottom Sheet、Escape/关闭按钮焦点归还和 Reduced Motion 均已验证
+- 未解决问题：当前仍为固定净化数据的视觉原型；等待用户与 MUI 版对比确认后，才决定是否采用 HeroUI 生产迁移或仅提取视觉语言
+- 控制面变更：新增 D026；UI_CONTRACT 明确 HeroUI 原型边界、组件要求、生产排除与视觉验收门禁
+
 ### 2026-07-17 10:56 Codex subagent
 - 任务：实现 Remote MCP 八类来源的双语配置指引与安全输入规范化
 - 读取文件：`AGENTS.md`、任务 brief、source type registry 与相关测试
@@ -873,6 +889,134 @@
 - 结果：新增中英 setup guide、公开 URL/别名规范化和凭据/敏感 RSS 查询拒绝，REST registry 投影保持不变
 - 未解决问题：无
 - 控制面变更：无
+
+### 2026-07-17 11:46 Codex
+- 任务：建立 HeroUI 正式设计系统与应用 bootstrap 边界，不迁移业务页或移除 MUI
+- 修改文件：新增 `frontend/src/design-system/**`、Router bridge 与静态导入契约测试；更新 `AppBootstrap`、UI/Decision 合同和全站迁移计划
+- 执行验证：TDD RED→GREEN；最终 Vitest 29 文件/116 项、UI contract、TypeScript、Vite build 与 preview exclusion 通过；ESLint 0 error、保留既有 1 warning
+- 结果：正式业务只能经 design-system 使用 HeroUI；固定数据原型保留直接导入例外；QueryClient、认证、ServiceApi 与现有 MUI 页面边界不变
+- 未解决问题：既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning 不属于本任务
+- 控制面变更：新增 D027；UI_CONTRACT 固化 HeroUI 生产迁移边界与渐进 bootstrap
+
+### 2026-07-17 12:01 Codex
+- 任务：修复 Task 1 评审发现的 HeroUI 有效圆角和动效时长越界
+- 修改文件：`frontend/src/design-system/theme.css`、`frontend/e2e/design-system-contract.spec.ts`、Task 1 报告
+- 执行验证：真实 Vite+Tailwind 编译 CSS 的浏览器 computed-style 测试完成 RED→GREEN；最终 Vitest 29 文件/116 项、UI contract、TypeScript、build/preview exclusion 与定向 Playwright 2 项通过，ESLint 0 error
+- 结果：Tabs/Table/溢出控件圆角固定为 14/16/8px；正式主题内 transition/animation 固定为 160/220ms，Toast view transition 同步覆盖，Reduced Motion 保持 1ms
+- 未解决问题：保留既有 Fast Refresh warning 与 Vite 500 kB chunk warning
+- 控制面变更：无；仅修正既有 D027 主题实现偏差
+
+### 2026-07-17 12:17 Codex
+- 任务：修复 Task 1 二次评审发现的 HeroUI Portal 主题逃逸与全局动效覆盖
+- 修改文件：`frontend/src/design-system/DesignSystemProvider.tsx`、`theme.css`、设计系统 Playwright 契约与隔离 fixture、Task 1 报告
+- 执行验证：真实 Modal/Tooltip 与连续动画 computed-style 测试完成 RED→GREEN；Vitest 29 文件/116 项、UI contract、TypeScript、build/preview exclusion、Playwright 5 项通过；full gate 22/22 通过、`mapping_miss=false`，ESLint 0 error
+- 结果：正式 provider 以引用计数同步并精确恢复文档根主题；有限动效改为组件级选择器，静态元素不新增动效，Skeleton/Spinner 保留连续节奏，Portal Reduced Motion 生效
+- 未解决问题：保留既有 Fast Refresh warning 与 Vite 500 kB chunk warning
+- 控制面变更：无；仅修正既有 D027 主题实现偏差
+
+### 2026-07-17 13:00 Codex
+- 任务：实现 HeroUI 正式核心工作台、虚拟信息流与本地 OpenClaw Agent 上下文交接
+- 修改文件：新增 `frontend/src/features/workbench-live/**`、真实 API 开发验收路由和三视口 Playwright；提取共享乐观更新、增加 Feed v2 偏好/稳定排序/Agent session 清理，并安装精确版本 `@tanstack/react-virtual@3.14.6`
+- 执行验证：TDD RED→GREEN；UI contract、TypeScript、Vite build/preview exclusion 通过；ESLint 0 error（保留既有 1 warning）；Vitest 33 文件/138 项、三视口 Playwright/Axe 3 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、56.39 秒
+- 结果：开发专用认证路由 `/__preview/workbench-live` 已接真实 ServiceApi，实现 Feed/收藏/历史统一卡片、动态虚拟列表、深链降级、筛选、刷新反馈、权限与回滚、响应式 Agent 面板及确定性交接；MUI 仍为生产默认，固定数据 HeroUI 原型未变，Task 3 页面未迁移
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换等待 Task 4
+- 控制面变更：无；复用现有 API、查询键、权限、Remote MCP 和 ActionGeneration 合同，仅新增开发验收入口
+
+### 2026-07-17 14:23 Codex
+- 任务：修复 Task 2 评审发现的 legacy 路由、详情合并、筛选、虚拟流锚点/新内容、Agent Drawer 与 loading 状态问题
+- 修改文件：`App` 路由/回归测试、Feed/workbench 模型与虚拟列表、HeroUI Shell、design-system portal foreground、三视口 Playwright、Task 2 报告
+- 执行验证：定向 Vitest 4 文件/34 项、全量 Vitest 33 文件/148 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、Portal 契约 1 项、三视口 Playwright/Axe 3 项均通过；最终 `test_gate full` 22/22、`mapping_miss=false`、68.966 秒
+- 结果：保留生产 `/later`；inline `?item=` 不再 remount/跳中；详情始终获取并合并 v2；深链穿透筛选；固定窗口按 ID 识别新内容；窄屏使用受控 HeroUI Drawer，delegation 加载显示中性状态，Portal 统一继承主题前景色
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
+- 控制面变更：无；仅修复既有 D027/Task 2 实现偏差
+
+### 2026-07-17 14:53 Codex
+- 任务：修复 Task 2 二次评审发现的异步 404 误清理、失效初始深链定位、筛选钉选顺序、滚动窗口锚点、Agent loading 文案与桌面关闭空栏问题
+- 修改文件：`HeroWorkbenchPage`、`VirtualFeed`、`HeroWorkbenchShell`、App/三视口 Playwright 回归、Task 2 报告与实施计划
+- 执行验证：focused Vitest 23 项、全量 Vitest 33 文件/150 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、Portal 契约 1 项、三视口 Playwright/Axe 6 项均通过；最终 `test_gate full` 22/22、`mapping_miss=false`、57.375 秒
+- 结果：404 仅在 active source 成功且确证缺失后清理；真实缺失深链回到底部区；筛选钉选保持时序；固定长度窗口严格保持 top-visible ID 与 ≤2px 相对偏移；桌面 Agent 关闭卸载 360px 空栏并保持 Feed，loading 只显示 skeleton busy 状态
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
+- 控制面变更：无；未修改 backend/API/query key/权限/Remote MCP/MUI 与 Task 3 边界
+
+### 2026-07-17 15:22 Codex
+- 任务：修复 Task 2 三次评审发现的 cached-success 404 竞态、pin/unread-first 排序与过滤态虚拟 fallback 索引问题
+- 修改文件：`HeroWorkbenchPage`、`VirtualFeed`、App/三视口 Playwright 回归与 Task 2 报告
+- 执行验证：三项 focused RED→GREEN；全量 Vitest 33 文件/152 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Playwright/Axe 9 项均通过；最终 `test_gate full` 22/22、`mapping_miss=false`、53.140 秒
+- 结果：404 仅在 active source 成功且停止 fetching 后确证缺失；钉选详情绕过排除筛选但保持 unread-first 稳定分组；未挂载锚点按 `props.cards` 的真实虚拟顺序恢复并严格保持 ID/≤2px 偏移
+- 未解决问题：保留既有 `ActionFeedback.tsx` Fast Refresh warning 与 Vite 500 kB chunk warning；正式生产切换仍等待 Task 4
+- 控制面变更：无；未修改 backend/API/query key/权限/Remote MCP/MUI 与 Task 3 边界
+
+### 2026-07-17 16:10 Codex
+- 任务：实现 Task 3 的 HeroUI 订阅、助手连接、设置与登录 DEV 验收页面
+- 修改文件：新增 `frontend/src/features/admin-heroui/**` 与 `live-admin.spec.ts`，扩展 live 路由/Shell、design-system facade/theme、App 回归测试与 Task 3 报告
+- 执行验证：focused RED→GREEN；Vitest 33 文件/158 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`
+- 结果：复用现有 API/query key/权限/模型完成三标签订阅、Worker/任务、一次性 Agent 令牌、角色化设置/SecretStore 与登录；非工作台页面全宽且无 Agent，MUI/生产默认未变
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；一次合并 Playwright 并发运行触发既有移动端锚点波动，原用例隔离重跑通过
+- 控制面变更：无；HeroUI 页面仍为 DEV-only，未修改 backend/API/Remote MCP/生产路由
+
+### 2026-07-17 17:09 Codex
+- 任务：修复 Task 3 评审发现的来源获取生命周期、成员角色编辑、运行时间字段、覆盖缺口与高级来源编辑器问题
+- 修改文件：HeroUI 订阅/设置/来源表单、ActionFeedback、App/权限/响应结构测试、测试环境兼容层、Task 3 报告与本工作日志
+- 执行验证：focused 3 文件/51 项、全量 Vitest 34 文件/173 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Admin Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、57.642 秒
+- 结果：单源获取恢复 queued→running→terminal 与终态失效/安全反馈；Owner/Admin 可编辑非 Owner 角色；运行时间拆分；筛选、权限、结构状态和登录具备行为覆盖；高级编辑器改用设计系统 Fieldset
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
+- 控制面变更：无；未修改 backend/API/query key/权限函数/Remote MCP/生产路由
+
+### 2026-07-17 17:31 Codex
+- 任务：修复 Task 3 复评发现的 Hero 订阅实体级 mutation 反馈与来源获取通知关闭/超时问题
+- 修改文件：新增 `HeroActionNotice` 及 fake-timer 测试，更新 Hero 订阅页、App 行为测试、Task 3 报告与本工作日志
+- 执行验证：focused 4 文件/60 项、全量 Vitest 35 文件/182 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Admin Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、60.132 秒
+- 结果：schedule/subscribe/unsubscribe/retry 复用 ActionFeedback 实现实体级 pending/错误/成功状态与重复请求抑制；Hero 本地 live region 保证错误可见；来源通知支持手动关闭及 4/8 秒自动关闭，同终态轮询不重开也不重置计时
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
+- 控制面变更：无；未修改 backend/API/query key/权限函数/Remote MCP/生产路由
+
+### 2026-07-17 17:45 Codex
+- 任务：修复 Task 3 复评发现的 mutation API 成功后、查询失效完成前提前解锁竞态
+- 修改文件：Hero 订阅页四类 mutation 成功回调、App 全家族 invalidation-pending 回归、Task 3 报告与本工作日志
+- 执行验证：可信 RED→GREEN（API 已完成、19 次 `invalidateQueries` 挂起）；focused 4 文件/61 项、全量 Vitest 35 文件/183 项、UI contract、lint 0 error、TypeScript、build/preview exclusion、三视口 Admin Playwright/Axe 6 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`
+- 结果：schedule/subscribe/unsubscribe/retry 在既有 query invalidation promise 完成前持续保留实体级 pending/禁用状态，并继续抑制重复提交；仅刷新后发布成功和解锁
+- 未解决问题：保留既有 Fast Refresh 与 Vite chunk warning；HeroUI 页面仍为 DEV-only
+- 控制面变更：无；未修改 backend/API/query key/失效范围/权限函数/Remote MCP/生产路由
+
+### 2026-07-17 20:15 Codex
+- 任务：完成 Task 4 HeroUI 全站生产切换、旧 MUI/Emotion 双栈清理与完整门禁
+- 修改文件：生产 bootstrap/路由、Hero Shell/虚拟 Feed、ActionFeedback、固定 Hero preview、静态 UI/构建产物检查、三视口 production E2E；删除 MUI 页面、`frontend/src/ui/**`、MUI 原型/CSS/快照与依赖；更新 UI/计划/决策合同和测试影响映射
+- 执行验证：TDD 覆盖生产路由/provider/依赖/侧栏/静态契约/刷新锚点/显式导航；UI contract、lint 0 warning/error、TypeScript、Vitest 28 文件/154 项、build/artifact、Playwright/Axe 36/36 通过；移动过滤锚点 20x/5-worker 压力 20/20；Python API 69 项；`test_gate full` 22/22、`mapping_miss=false`、49.076 秒
+- 结果：HeroUI 成为唯一生产 UI；`/feed|saved|history` 使用工作台，admin/settings/login 使用 Hero 页面，`/later` 替换至 `/saved`；固定 `/__preview/workbench-heroui` 继续 DEV-only 且生产剔除；MUI/Emotion 与旧页面完全删除
+- 未解决问题：仅保留 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：新增 D028；`UI_CONTRACT.md` 重写为唯一视觉真源，PLAN/影响映射改为引用与当前 Hero 路径；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 21:49 Codex
+- 任务：修复 Task 4 评审发现的 rendered-order 锚点、导航 ownership、UI/产物门禁与 saved/history/later 验收缺口
+- 修改文件：`VirtualFeed`/筛选面板、生产路由单测与三视口 Playwright、UI source/artifact checker、固定 preview marker、Task 4 报告与本工作日志
+- 执行验证：四组 focused RED→GREEN；UI contract、lint 0 error/warning、TypeScript、Vitest 28 文件/160 项、build/artifact、三视口 Playwright/Axe 48/48、移动锚点 20x/5-worker 压力 20/20、Python API 69 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、65.117 秒；`git diff --check` 通过
+- 结果：rendered cards 成为唯一滚动恢复边界，raw source 不再重复恢复；所有显式导航/用户取消统一释放 refresh/restoration/inline timer+RAF ownership；business CSS/CSS Module 与固定 preview 产物绕过被封堵，MUI 检测不再误报无关 `Mui` 子串；`/saved`、`/history`、`/later` 真实集合路由具备生产验收
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 23:08 Codex
+- 任务：关闭 Task 4 二次评审中的刷新/轨道导航同事件循环竞态，并把 UI/产物负向测试升级为真实不可绕过执行门禁
+- 修改文件：`VirtualFeed` 与生产竞态 Playwright；UI source/artifact checker；固定 preview fixture 运行时 marker；可执行 Vitest 负向用例；Task 4 报告与本工作日志
+- 执行验证：真实负向门禁 2 文件/21 项、竞态三视口 3/3、全量 Vitest 28 文件/166 项、UI contract、lint 0 error/warning、TypeScript、build/artifact、三视口 Playwright/Axe 48/48、Python API 69 项通过；最终 `test_gate full` 22/22、`mapping_miss=false`、50.462 秒；`git diff --check` 通过
+- 结果：显式导航统一清除旧 viewport fallback，刷新响应在 rail click 后 microtask 内返回也不能抢回旧锚点；真实 Vite preview-story bundle、`.Mui-disabled` 产物、动态 CSS Module 与现代 CSS 色彩均由实际 checker 失败，负向覆盖不再依赖源码字符串或可独立 tree-shake 标记
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或正式门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 23:44 Codex
+- 任务：修复 Task 4 终审发现的列表缩短后 progress rail 待导航索引没有同步截断，导致后续卡片更新可能重新抢占滚动位置
+- 修改文件：`VirtualFeed`、导航纯函数及其 Vitest、生产工作台 Playwright、Task 4 报告与本工作日志
+- 执行验证：RED→GREEN 导航索引截断测试；关键桌面竞态 4/4；UI contract、lint、TypeScript、Vitest 29 文件/167 项、build/artifact、三视口 Playwright、Python API 69 项、`test_gate full`、三份 Compose config 与 `git diff --check` 均通过
+- 结果：高索引 rail target 在 200→50 收缩时写回真实末项索引；抵达后可释放 ownership，后续 dismissed 卡片更新不会跳回旧目标
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-17 23:58 Codex
+- 任务：关闭 Task 4 第四审中 cards commit 与下一帧之间用户取消无法阻止 pending-navigation RAF 回写的竞态
+- 修改文件：`VirtualFeed`、生产工作台 Playwright、Task 4 报告与本工作日志
+- 执行验证：真实 RAF gate RED（旧实现 wheel 后回跳至 scrollTop 7231）→GREEN；关键桌面竞态 2/2；UI contract、lint、TypeScript、Vitest 29 文件/167 项、build/artifact、三视口 Playwright 54 scheduled（50 pass/4 desktop-only skip）、Python API 69 项、`test_gate full`、三份 Compose config 与 `git diff --check` 均通过
+- 结果：release 路径会取消 cards commit 的 pending RAF，回调亦校验仍持有同一导航对象；缩短列表回归改用 Shell 搜索触发后续 cards update，不再借由卡片 pointer action 隐式释放
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
 
 ### 2026-07-17 Codex subagent
 - 任务：修复 Task 1 Agent setup 公共类型与输入安全审查项
@@ -1074,6 +1218,60 @@
 - 未解决问题：Task 8+ 的 MCP 工具注册/server wiring、UI/Skill、生产启用与 canary 尚未实现
 - 控制面变更：仅勾选既有主实施计划 Task 7；未更新对外 API/架构/UI 合同
 
+### 2026-07-18 00:10 Codex
+- 任务：关闭 Task 4 第五审中 shrink + 外部搜索回归可能在过滤 cards commit 前即通过的测试时序缺口
+- 修改文件：生产工作台 Playwright、Task 4 报告与本工作日志
+- 执行验证：关键桌面竞态 2/2；UI contract、lint、TypeScript、Vitest 29 文件/167 项、build/artifact、三视口 Playwright 54 scheduled（50 pass/4 desktop-only skip）、`test_gate full`、三份 Compose config 与 `git diff --check` 均通过
+- 结果：搜索后先确认过滤结果为 11 条，再完成稳定多帧视口采样，最后断言未回弹；专用 wheel/RAF gate 保持独立覆盖 commit-to-next-frame 取消窗口
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 00:40 Codex
+- 任务：关闭 Task 4 终审中的门禁优先级/导入绕过、移动导航、筛选可访问性、来源选项校验、生产 E2E 与深链重复请求缺口
+- 修改文件：test gate 规划器与可执行 UI/ESLint 门禁；Hero Shell/Feed/预览导航与筛选；来源注册表 Select；release Playwright 配置及 RTL/E2E 回归
+- 执行验证：RED→GREEN：`UI_CONTRACT.md` 映射与 7 个模板导入负例；App RTL 44 项、全量 Vitest 29 文件/175 项、UI contract、lint、TypeScript、build/artifact；DEV preview mobile 2 项、release build+preview 三视口 29 通过/4 既定跳过、`test_gate full` 22/22、`git diff --check` 均通过
+- 结果：控制文件显式规则优先于 docs-only；静态模板动态导入不能绕过 checker/ESLint；390px 可访问全部六个目的地；筛选由 HeroUI overlay 承担 Escape/焦点归还；必填 Apify 下拉项显示帮助与字段错误且阻止无效创建；已有 snapshot 展开不再请求 feedItem；release 只运行构建产物并排除 DEV-only 预览/fixture
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 01:30 Codex
+- 任务：关闭 Task 4 最终复审中的 release Playwright 命令、来源表单原生校验、深链请求时序、字段帮助和筛选外点焦点归还缺口
+- 修改文件：`test_gate.py` 与 Python 门禁回归、Hero 来源表单、工作台深链查询、App RTL、生产 Playwright、Task 4 报告与本工作日志
+- 执行验证：RED→GREEN（exact release argv、深链 source-settle、Apify 选项错误清除、来源 URL/数值/NaN 约束）；UI contract、lint、TypeScript、Vitest 29 文件/178 项、build/artifact、release build+preview 三视口 29 通过/4 既定 skip；导航 RAF 与移动过滤锚点各 30x/5-worker 压力 30/30；`test_gate full` 22/22、`mapping_miss=false`、51.941 秒；三份 Compose config 与 `git diff --check` 均通过
+- 结果：release gate 强制调用 `e2e:release`；来源表单移除 `noValidate` 并在修正输入后清除字段错误；已在 source snapshot 的深链不再提前取 detail；正常字段输出 help；筛选支持外点关闭并归还触发器焦点
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 03:19 Codex
+- 任务：关闭全分支终审中的来源类型切换状态串用、必填下拉无障碍语义及整数静默截断缺口
+- 修改文件：Hero 来源创建对话框/注册表选项、App RTL 回归、Task 4 报告与本工作日志
+- 执行验证：可信 RED→GREEN（类型切换仍显示旧/空选项、required 语义缺失）；focused 3 项、UI contract、lint、TypeScript、全量 Vitest 29 文件/179 项通过
+- 结果：来源类型变化时按 type 重建 SourceForm 并加载该定义默认值；必填选项保留 HeroUI/React Aria required 语义，同时继续由统一中文字段校验输出错误；整数型 registry 字段拒绝小数并显式使用 step=1，避免后端静默截断
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 14:00 Codex
+- 任务：按用户批注仅收口 `/feed` 的 Codex-inspired 视觉基准，移除搜索/手动更新，改用 macOS 系统字体栈，并重做带动效的左侧短刻度
+- 修改文件：Feed Shell 路由边界、虚拟信息流进度轨、Feed 专用字体变量、RTL/Vitest 回归、UI 契约/决策/实施计划与本工作日志
+- 执行验证：两轮可信 RED→GREEN（Feed 控件隔离、Codex 轨道；4 条真实数据时仍保持 28 个视觉刻度）；focused 18 项、UI contract、lint、TypeScript、Vite build/artifact 通过；真实 API 浏览器核验 `/feed` 动画轨道及 `/saved` 未受影响；最终 `test_gate full` 22/22、`mapping_miss=false`、51.982 秒；`git diff --check` 通过
+- 结果：`/feed` 顶栏只保留标题与 Agent 开关，采用系统字体；300px/28 段左轨随可见卡片以 160ms 宽度/颜色/透明度动效反馈并支持 Reduced Motion；收藏和历史继续保留原搜索、更新按钮和紧凑右轨
+- 未解决问题：仅保留既有 Vite >500 kB informational chunk warning；无功能或门禁失败
+- 控制面变更：新增 D029 并更新 `UI_CONTRACT.md` 的 Feed 专属视觉边界；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 18:45 Codex
+- 任务：执行用户确认的 A「Codex 式信息工作台」细化，仅在现有 HeroUI/Quiet Studio 生产树调整导航、Feed 卡片层级与 OpenClaw 交接区
+- 修改文件：Feed v2 偏好与排序、常用视图纯函数、Hero Shell/Page/VirtualFeed/展示模型、Inteliscope 图标、Agent draft/composer、RTL/Playwright，以及 UI 契约、D031、计划与本工作日志
+- 执行验证：四批 focused TDD 均 RED→GREEN；最终聚焦 Vitest 6 文件/44 项、ESLint（0 error/1 既有 warning）、TypeScript、Vite build/artifact 通过；桌面 Playwright 主流程、过滤刷新锚点与 Reduced Motion 共 3 项通过，主流程含 Axe 零 serious/critical；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、56.647 秒
+- 结果：左栏按浏览/常用视图/管理分类，账户通过菜单显式退出；Feed 默认最新在上并可按用户切换顺序，工具条与 820px 卡片列对齐，重复摘要不再展示；OpenClaw 改为带模型提示偏好、实时状态和单一复制动作的紧凑交接编辑器，不产生网络执行
+- 控制面变更：更新唯一视觉真源并新增 D031；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/Worker/scheduler
+
+### 2026-07-18 20:35 Codex
+- 任务：从设计系统根部修复全站字体与字号分叉，消除 Feed 工具栏“内容数 / 排序 / 筛选”及后续页面修改的排版不一致
+- 修改文件：HeroUI 主题与全局字体入口、UI 静态契约和回归、工作台及管理页语义排版迁移、`UI_CONTRACT.md`、D032 与本工作日志
+- 执行验证：契约测试先出现 7 项可信 RED，再完成十级 `type-*` 角色、HeroUI primitive 默认映射与 raw Tailwind 排版拦截；focused Vitest 4 文件/105 项、UI contract、TypeScript、ESLint（0 error/1 既有 warning）、Vite build/artifact 通过；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、55.633 秒，`git diff --check` 通过
+- 结果：全站统一 macOS/system UI 字体栈；业务层不能再自行写字号、字重、行高或字距；真实 486px Feed 中“4 条内容 / 最新优先 / 筛选”计算样式均为 13px、500、20px，页面无横向溢出
+- 运行验收：重建前确认无 queued/running Job；一次构建镜像 `inteliscope-service:ui-typography-20260718202652` 已替换本地 8080 API/Worker，live revision=`398009563055-typography-dirty`、database/worker ready；应用内浏览器刷新后完成计算样式与截图复核
+- 控制面变更：更新唯一视觉真源并新增 D032；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度语义
+
 ### 2026-07-18 Codex subagent
 - 任务：关闭 Task 7 独立审查的三个 Important 与一个 Minor
 - 修改文件：诊断 related-job/no-items/scalar/clock 边界、诊断回归、主实施计划、`.superpowers/sdd/task-7-fix-r1-report.md`、`WORKLOG.md`
@@ -1201,3 +1399,70 @@
 - 结果：已删除临时 `data/config.json`/`frontend/node_modules` 软链接；按批准的最终门禁硬边界停止，未合并、未构建镜像、未修改 staging/Nginx/生产容器或数据库
 - 未解决问题：release gate 无通过结论；后续合并、staging、双用户 canary、生产切换与 24 小时观察保持阻塞，除非用户另行授权新的验证方案
 - 控制面变更：Runbook 现在要求备份前同时停止 API/Worker、staging 独立日志，并仅增量修改线上 `cfl.conf`
+
+### 2026-07-18 Codex
+- 任务：实现 Quiet Studio Feed 顶栏、工具行和双栏 Agent 图标，并先更新 UI 契约
+- 修改文件：设计系统图标出口、Hero Shell/Page、两项 focused Vitest、UI 契约与本工作日志
+- 执行验证：`npm --prefix frontend run test -- src/features/workbench-live/HeroWorkbenchShell.test.tsx src/app/App.test.tsx` RED（2 项目标行为失败）→GREEN（2 文件/52 项通过）
+- 结果：Feed 使用 Quiet Studio header 标记、受控 split-panel 图标与简化工具行；收藏/历史保持原图标和 collection 工具行
+- 未解决问题：后续任务仍负责移除 Feed rail 与重设卡片；本任务未执行它们的视觉/全量门禁
+- 控制面变更：`UI_CONTRACT.md` 将 `/feed` rail 规则替换为 Quiet Studio 的绑定布局、动效、可访问性与受控尺寸语义
+
+### 2026-07-18 Codex
+- 任务：补齐 Quiet Studio Feed 已启用筛选数量的回归覆盖
+- 修改文件：`App.test.tsx`、Task 1 报告与本工作日志
+- 执行验证：`npm --prefix frontend run test -- src/app/App.test.tsx` RED（缺少 `已启用 3 项筛选`）→GREEN（1 文件/49 项通过）
+- 结果：持久化的未读优先、来源和最低分筛选会显示可访问的三项计数
+- 控制面变更：无
+
+### 2026-07-18 Codex
+- 任务：移除 Quiet Studio Feed 进度轨道及其留白，并保持收藏/历史的 collection 轨道
+- 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、`HeroWorkbenchPage.tsx`、本工作日志
+- 执行验证：`VirtualFeed.test.tsx` RED（Quiet Studio 仍渲染 compact rail）→GREEN（与 `App.test.tsx` 共 2 文件/58 项通过）；`git diff --check` 通过
+- 结果：`/feed` 显式使用 `quiet-studio`，无进度导航/预留 gutter，列宽约 820px；`/saved` 与 `/history` 保持 12 刻度紧凑右轨和原列宽
+- 控制面变更：无
+
+### 2026-07-18 Codex
+- 任务：实现 Quiet Studio Feed 卡片层级、原位展开动效与 Agent 上下文确认态
+- 修改文件：Feed 圆角 token、`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、本工作日志
+- 执行验证：`VirtualFeed.test.tsx` RED（2 项目标行为失败）→GREEN；聚焦 Vitest 3 文件/64 项、UI contract、TypeScript、`git diff --check` 通过
+- 结果：仅 `/feed` 使用 18px 卡片、细边界悬停反馈、可动画详情与移动端 44px 操作；collection 卡片继续保持既有结构
+- 控制面变更：无
+
+### 2026-07-18 Codex
+- 任务：更新 Quiet Studio Feed 的三视口生产交互与隔离回归
+- 修改文件：生产工作台 Playwright、本工作日志
+- 执行验证：release RED（旧轨道/刷新断言 11 项失败）→GREEN；Vite build/artifact 通过，desktop/tablet/mobile Playwright 21/21 通过，`git diff --check` 通过
+- 结果：生产验收覆盖无 Feed rail、后台任务刷新、18px/820px 卡片、原位展开、Agent 图标、Reduced Motion、键盘/44px 触控与 collection 隔离；移除 Feed rail-only 用例和固定等待
+- 控制面变更：无；未修改生产组件、backend/API/DB/query key/权限/Remote MCP/history/VPS/Worker/scheduler
+
+### 2026-07-18 Codex
+- 任务：固化 Quiet Studio Feed 合同、完成一次最终门禁并发布 revision-locked 本地 8080 预览
+- 修改文件：`UI_CONTRACT.md`、`DECISION_LOG.md`、`PLAN.md`、本工作日志
+- 执行验证：Task 1–3 focused TDD RED→GREEN（52 项及 49 项补充、58 项、64 项）；Task 4 release build/artifact 与三视口 Playwright 21/21、Axe 零 serious/critical；本次 `test_gate full` 22/22、`mapping_miss=false`、55.339 秒；镜像 `inteliscope-service:feed-quiet-fef5862f1c48` 的 live revision=`fef5862f1c48`、ready database/worker=`ready`、`/feed` HTTP 200，API/Worker 同镜像且 healthy
+- 结果：D030 与唯一视觉真源已收口，主仓库 light Compose 的本地 API/Worker 已换为一次构建的 Quiet Studio 镜像；控制器随后在应用内浏览器完成真实运行态复核：`/feed` 显示 4 条 Quiet Studio 卡片、无进度轨及其留白，split-panel Agent 图标、原位展开与加入上下文均可用，Agent 关闭/重开前后 Feed `scrollTop` 均为 `396.5`；`/saved` 与 `/history` 继续显示 collection rail、搜索和更新入口，分别渲染 1/6 张集合卡片；三条路由 console error 均为 0，测试加入的 Agent 上下文已移除
+- 控制面变更：仅 Feed 视觉合同和交付状态；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器
+
+### 2026-07-18 Codex
+- 任务：关闭 Quiet Studio 复审中的宽屏 coarse-pointer 卡片操作目标缩为 32px，以及 PLAN 误把设计规格称为实施证据的问题
+- 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx`、`PLAN.md`、忽略的 Task 5 报告与本工作日志
+- 执行验证：定向 Vitest 1 项可信 RED（旧链接缺少 fine-pointer `size-8`）→GREEN（1 通过/11 跳过）；TypeScript、`git diff --check` 通过；修复后的最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、51.651 秒
+- 结果：Quiet Studio 四个卡片操作以 32px 为 fine-pointer 基线，并通过 `pointer-coarse:size-11` 在任意视口保持 44px；PLAN 分开标注设计规格与 `WORKLOG.md` 实施证据；Task 5 独立复审无剩余 finding
+- 运行验收：一次构建镜像 `inteliscope-service:feed-quiet-f395cbe2137f`（built at `2026-07-18T09:07:00Z`）已替换本地 8080 的 API/Worker；live revision=`f395cbe2137f`、database/worker ready、`/feed` HTTP 200、两容器同镜像且 healthy；容器生产 CSS 包含 `@media (pointer:coarse)`；应用内浏览器刷新后仍显示 4 条 Quiet Studio 卡片、无 Feed 进度轨、Agent 控件可见且 console error 为 0
+- 控制面变更：仅修正 PLAN 的证据归属表述；未改变 UI 合同，也未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器
+
+### 2026-07-18 Codex
+- 任务：关闭 Quiet Studio 终审中宽屏 coarse-pointer 卡片操作因视口断点降为 60% opacity、又缺少可靠 hover 的问题
+- 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx` 与本工作日志
+- 执行验证：定向 Vitest 1 项可信 RED（旧动作容器缺少 `pointer-fine:` 类）→GREEN（1 通过/12 跳过）；TypeScript、`git diff --check` 通过；新 HEAD 最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、54.881 秒
+- 结果：动作容器默认保持 fully visible，仅 fine pointer 降为 60% opacity，并只在 fine-pointer hover/focus 时恢复 100%；coarse pointer 不再受视口宽度影响；整分支复审无剩余 Critical/Important，确认 ready to merge
+- 运行验收：一次构建镜像 `inteliscope-service:feed-quiet-d4a5f0489390`（built at `2026-07-18T09:48:20Z`）已替换本地 8080 的 API/Worker；live revision=`d4a5f0489390`、database/worker ready、`/feed` HTTP 200、两容器同镜像且 healthy；容器生产 CSS 包含 `@media (pointer:fine)`；应用内浏览器刷新后显示 4 条卡片、无 Feed 进度轨、Agent 控件可见且 console error 为 0；非阻塞 Minor 为后续补一条 collection rail 行为覆盖
+- 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/scheduler
+
+### 2026-07-19 02:23 Codex
+- 任务：执行 Quiet Studio 全站 UI 统一，将已确认的信息流视觉语言扩展至收藏、历史、订阅、助手连接、设置、登录和 OpenClaw 响应式面板
+- 修改文件：设计系统共享 `PageFrame/PageHeader/ViewBar/PageSection/CompactSelect` 与状态模式、三条内容路由、OpenClaw `HandoffComposer`、四条管理/认证路由、UI 静态契约、Vitest/Playwright，以及 `UI_CONTRACT.md`、D033、PLAN 和本工作日志
+- 执行验证：页面宽度契约完成可信 RED→GREEN；内容工作台聚焦 74 项、管理页 58 项、UI 契约 36 项均通过；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、58.253 秒；release build 三视口 Playwright/Axe 27/27 通过，Axe 零 serious/critical；`git diff --check` 通过
+- 结果：全部生产路由统一消费 Quiet Studio 语义页面模式；收藏/历史删除 collection 轨道并复用阅读卡片和 ViewBar；管理页只保留 Shell 中的唯一 H1，登录使用 auth 框架；三种 Agent 容器复用统一交接编辑器。静态契约会拒绝业务页重新定义 820/1180/420px 页面宽度
+- 运行验收：重建前确认主数据库无 queued/running Job；一次构建镜像 `inteliscope-service:quiet-studio-c6e83554a16d` 同时替换本地 8080 API/Worker，live revision=`c6e83554a16d`、database/worker ready、两容器同 image ID 且 healthy，六条生产路由 HTTP 200；应用内浏览器真实数据复核设置/订阅唯一标题与统一分区、收藏统一空态、历史 7 张 Quiet Studio 卡片、0 个进度轨且无横向溢出
+- 控制面变更：Quiet Studio 成为全站生产视觉语言并新增 D033；未修改 backend/API/DB/query key/权限/任务/Remote MCP/history/VPS/数据/调度语义

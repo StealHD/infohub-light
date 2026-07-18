@@ -8,6 +8,8 @@
 ## 2. 当前阶段状态
 结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取与 Feed storage v3 的两个 rollout flag 继续默认关闭。`vps-tokyo` 仍运行既有 API-only 版本，Worker 与 scheduler 没有新的启动或部署授权。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
 
+前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。该切换不改变上述运行、发布或数据授权状态。
+
 已完成：
 
 1. 默认 runtime 固定启动独立 API + Worker，scheduler 仅在显式 profile 中启用。
@@ -47,7 +49,7 @@
 35. 本地 AI/Key/订阅 v1：`SecretStore + secret_refs` 管理 write-only AI/Apify Key；Gemini 单篇输入、输出 token 和 200 字概括均有硬限制及失败回退；本地 Smoke 数据已重建为 Apple、OpenAI、Claude Code 和 X 四个正式订阅。
 36. 订阅级自动抓取 v1：additive `user_source_schedules`、原子到期入队、手动/自动/全量刷新竞争保护、API/ops/UI 和角色降级防护已完成。X `@thsottiaux` 已改用 `apidojo/twitter-scraper-lite` 和备用 Key，上游严格传递 `maxItems=1`，真实直连运行成功且无 100 条最小限制；X 计划为 30 分钟，整份 Feed 仍为 6 小时。
 37. React 三栏 Service UI v1：React 19 + TypeScript strict + Vite + TanStack Query + BrowserRouter 工程已建立；默认路由、三栏 Feed/稍后读/历史、任务轮询、订阅健康与 registry 表单、管理员配置/成员/write-only Key、响应式布局和 legacy UI 回滚开关均已接通现有 API。
-38. Material UI Shell 与 Feed v1：`UI_CONTRACT.md` 成为视觉唯一真源；MUI v9/Emotion/本地 Noto Sans SC、单一 CSS Variables theme、72/240 px 用户隔离 Drawer、Material You Feed/稍后读/历史决策简报、受控 UI 导出层、ESLint/静态契约检查、57+ Vitest、四组视觉基线与 Axe serious/critical 门禁均已完成，不改变 API、Query key、权限或 legacy 回滚。
+38. Material UI Shell 与 Feed v1（历史阶段，已由第 48 项 HeroUI 生产切换取代）：该阶段曾建立视觉契约、受控导出层与自动化门禁；其 MUI/Emotion 实现不再属于当前源码或依赖。
 39. Content Presentation v1：8 种 catalog 类型、11 种内容形态统一投影为来源/作者/时间/双链接/内容类型/正文片段/taxonomy/互动量/分析状态；确定性字段不调用 AI，中文概括继续硬限制，删除“为什么值得关注”，新增用户隔离分析缓存、运行 usage 诊断和无 AI/无 DB 写的真实来源 contract smoke。
 40. 订阅管理与阅读详情收口 v1：订阅和来源按有效频道分组并支持搜索、类型、健康和范围筛选；频道使用后端候选 Select，主题使用可自定义多选与停用标记；来源卡提供 Worker 预检的单源立即获取；设置页改为非破坏主题 Chip 管理；阅读详情直接显示安全正文片段，并停止新生成和展示 `action_suggestion`。
 41. 公共源共享获取与 Feed 正确性 P0–P2：生命周期失效、schedule shutdown、queued job 取消与 Feed reconciliation 已原子化；停用源仍可管理/退订；订阅、任务和上游 attempt 配额并发安全，fetch/AI 每次真实调用前复查当前任务与来源资格；public/workspace 中性内容池、private 隔离、canonical merge、no-op snapshot、compact 双读、精确 AI prompt fingerprint、v3 迁移门禁与 retention 已实现。共享获取和 compact writer 均保持关闭，真实库只读副本 dry-run 显示 49 个 snapshot/hash 待迁移。
@@ -56,6 +58,12 @@
 43. 收藏、站内阅读与社交媒体完整性 v1：additive `user_content_items/media_assets`、Presentation v2 详情、用户隔离收藏/媒体 API、显式已读/未读、按用户持久化 Feed 偏好、RSS/Instagram/X 图片和统一头像缓存、社交 profile 最新一条保留、Xquik adapter 与 v4 显式迁移已实现。Xquik 真实 canary 尚未通过：当前备用 Key 所在 FREE tier 单条价格为 `$0.015`，因此计划固定的 `$0.01` 运行上限被 Apify 拒绝；正式 X Actor 配置仍保持旧值，等待明确授权把 canary cap 提升到至少 `$0.02`。
 44. Feed 事件、历史修复与 DeepSeek v1：Feed terminal 通知只消费当前会话观察到的真实 snapshot 事件；认证动作按 user/action/entity 提供局部状态；v5 显式修复、reconcile 和 `content_repair` 保持零 snapshot/AI，当前内容为 24 captured/2 excerpt-only；DeepSeek Secret/UI、`deepseek-v4-flash`、模型无关 input hash、安全跨模型复用、零 Token 预检与单次 smoke 已实现。真实 DeepSeek 启用仍等待轮换 Key。
 45. OpenClaw Remote MCP subscription management v1：本地实现已完成 14 个工具（10 个安全读、3 个 prepare、1 个 apply）、additive v6/v7 结构、显式 read/write delegation、共享 mutation service、`/agents` capability/tool-filter UI、本地 Skill、只读 canary 与 API-only 发布 Runbook；read/write flags 默认关闭。100-call 性能基准已通过；唯一一次 release gate 因隔离 worktree 缺少 Git 忽略的 `data/config.json` 在既有 adapter 测试处中止，补齐同一配置后该失败用例通过，但门禁未重跑。真实 OpenClaw canary、API-only staging、TLS `/mcp`、吊销立即 401 与两用户隔离仍是发布前人工边界；生产只能先保持写 flag 关闭。
+46. Codex-inspired Next Web 工作台视觉原型（历史阶段，已由第 48 项完成生产化）：开发专用无认证原型曾验证暗色层级、精简导航、旧上新下卡片流、短刻度、新内容提示和最多 8 条 OpenClaw 上下文交接。
+47. HeroUI v3 独立候选原型：开发专用 `/__preview/workbench-heroui` 使用 HeroUI v3/Tailwind v4；三档响应式、Axe、焦点归还及生产构建剔除已建立。候选已被第 48 项选为生产体系，固定数据预览继续作为开发验收面。
+48. HeroUI 全站生产切换：`AppBootstrap` 的单一 HeroUI provider、Feed/saved/history 工作台、subscriptions/agents/settings、独立 login、`/later → /saved` 替换、MUI/Emotion/旧 UI 层删除、静态契约和三视口 Playwright/Axe 已完成。当前视觉与交互规则只见 `UI_CONTRACT.md`；API、权限、Query key、Remote MCP 和运行边界均未改变。
+49. Quiet Studio Feed 视觉确认批次：`/feed` 实现、三视口生产自动化、revision-locked 本地 API/Worker 运行及 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成；权威规则只见 `UI_CONTRACT.md`，设计规格见 `docs/superpowers/specs/2026-07-18-feed-quiet-studio-design.md`，实施证据见 `WORKLOG.md`。
+50. Codex 式信息工作台细节批次：在 Quiet Studio 上完成分类导航、常用视图、账户菜单、Feed 最新优先/可切换顺序、重复摘要抑制和 OpenClaw 单体交接编辑器；权威规则只见 `UI_CONTRACT.md`，设计规格与实施计划分别见 `docs/superpowers/specs/2026-07-18-codex-navigation-feed-details-design.md` 和 `docs/superpowers/plans/2026-07-18-codex-navigation-feed-details.md`，实施证据见 `WORKLOG.md`。
+51. Quiet Studio 全站统一：阅读、管理和认证页面使用设计系统拥有的共享页面模式；收藏/历史删除 collection 进度轨并复用阅读卡片；管理路由只保留唯一标题；OpenClaw 响应式容器复用统一交接编辑器。权威视觉与交互规则只见 `UI_CONTRACT.md`，实施证据见 `WORKLOG.md`。
 
 当前仍需推进：
 
@@ -67,7 +75,8 @@
 6. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 连接仍失败，待网络出口可用时只做 1 条公开频道复验。
 7. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
 8. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
-9. 人工确认 Material UI Feed、订阅与设置页在 1440 折叠/展开、1024 覆盖式侧栏、822 和 390 移动视口的最终截图；自动化通过不替代这一步视觉确认。
+9. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护；视觉变更必须先修改该唯一真源。
+10. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；已删除的 MUI 对照原型、真实数据 preview 和 `VITE_UI_EXPERIENCE` 分叉不得恢复。
 
 兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 仍可保留；兼容接口存在不等于当前产品能力，也不构成后续建设承诺。
 
@@ -110,9 +119,9 @@
 7. 管理员 write-only AI/Apify Key 管理，以及每篇 Feed item 的受控长度概括。
 8. React 三栏 Service UI、用户作用域 Query cache、任务轮询和移动端主从阅读布局。
 9. Presentation v1 通用展示合同、来源解析 fixture、用户级 AI cache 和按 run 的 `analysis_usage` 成本诊断。
-10. Material UI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与统一 Drawer 账户卡片。
+10. HeroUI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与共享导航账户区域；视觉规则只见 `UI_CONTRACT.md`。
 11. `test_gate` 映射观察期：保留全量覆盖，记录连续 10 个不同 CI 提交的 selector、`mapping_miss` 和日志/摘要一致性。
-12. 默认关闭的 OpenClaw Remote MCP、用户自管 read/write delegation、14 个有界工具、服务端 proposal/诊断、助手连接 UI 和本地 Skill。
+12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、六个安全只读投影、助手连接 UI 和本地 Skill。
 
 本阶段不做：
 
@@ -120,9 +129,9 @@
 2. 私密群组、好友流、cookie、session、账号密码采集。
 3. 未确认的生产推送、邮件群发或 scheduler 启动。
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
-5. 多 workspace、商业计费、自助注册、深色主题或独立移动 App。
+5. 多 workspace、商业计费、自助注册、全站明暗主题切换或独立移动 App；当前 HeroUI 生产体验仅提供暗色主题，视觉规则只见 `UI_CONTRACT.md`。
 6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
-7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、OAuth、refresh token、ClawHub 发布，以及通过 Remote MCP 管理密钥、共享来源、刷新/重试/取消或 Feed item 状态；受确认的私有来源/订阅变更不是非目标。
+7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、Remote MCP 写操作、OAuth 或 ClawHub 发布。
 
 <!-- init-pro:section name=priorities -->
 ## 5. API / 模块实现优先级

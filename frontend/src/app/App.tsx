@@ -5,13 +5,13 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import type { ServiceApi } from '../api/service'
 import type { AuthStatus, User } from '../api/types'
 import { queryKeys } from '../api/queryKeys'
-import { FeedPage } from '../features/feed/FeedPage'
-import { LoginPage } from '../features/auth/LoginPage'
-import { SettingsPage } from '../features/settings/SettingsPage'
-import { AgentsPage } from '../features/agents/AgentsPage'
-import { SubscriptionsPage } from '../features/subscriptions/SubscriptionsPage'
+import { HeroAgentsPage } from '../features/admin-heroui/HeroAgentsPage'
+import { HeroLoginPage } from '../features/admin-heroui/HeroLoginPage'
+import { HeroSettingsPage } from '../features/admin-heroui/HeroSettingsPage'
+import { HeroSubscriptionsPage } from '../features/admin-heroui/HeroSubscriptionsPage'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
-import { AppShell } from './AppShell'
+import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
+import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
 import { clearUserCache } from './sessionCache'
 import { legacyViewDestination } from './legacyRoute'
 import { ActionGeneration, type ActionToken } from './actionGeneration'
@@ -45,6 +45,15 @@ function LegacyEntry() {
   return <Navigate to={destination} replace />
 }
 
+function LegacyLaterRedirect() {
+  const location = useLocation()
+  const source = new URLSearchParams(location.search)
+  const target = new URLSearchParams()
+  const item = source.get('item')
+  if (item) target.set('item', item)
+  return <Navigate to={{ pathname: '/saved', search: target.toString() ? `?${target.toString()}` : '' }} replace />
+}
+
 function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
@@ -69,44 +78,51 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, { authenticated: false, user: null })
   }
 
-  return <ActionFeedbackProvider key={user.id} userId={user.id}><AppShell
-    user={user}
-    query={query}
-    onQueryChange={setQuery}
-    onRefresh={canMutate ? feedActivity.refresh : undefined}
-    onRetry={canMutate ? feedActivity.retry : undefined}
-    onLogout={() => void logout()}
-    refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
-    refreshMessage={feedActivity.notice?.message}
-    refreshEventKey={feedActivity.notice?.key}
-  >
-    <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
-  </AppShell></ActionFeedbackProvider>
+  const outlet = <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+
+  return <ActionFeedbackProvider key={user.id} userId={user.id}>
+    <HeroWorkbenchShell
+      api={api}
+      user={user}
+      query={query}
+      onQueryChange={setQuery}
+      onRefresh={canMutate ? feedActivity.refresh : undefined}
+      onRetry={canMutate ? feedActivity.retry : undefined}
+      onLogout={() => void logout()}
+      refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
+      refreshMessage={feedActivity.notice?.message}
+      refreshEventKey={feedActivity.notice?.key}
+    >{outlet}</HeroWorkbenchShell>
+  </ActionFeedbackProvider>
 }
 
-export function AppRoutes({ api }: { api: ServiceApi }) {
+function ServiceRoutes({ api }: { api: ServiceApi }) {
   const queryClient = useQueryClient()
   const location = useLocation()
   const auth = useQuery({ queryKey: queryKeys.auth, queryFn: ({ signal }) => api.authStatus(signal), retry: false })
   if (auth.isLoading) return <main className="app-loading" role="status">正在连接 Inteliscope…</main>
   if (auth.isError) return <main className="app-loading app-error" role="alert">无法连接服务，请确认 API 已启动后重试。</main>
   const user = auth.data?.authenticated ? auth.data.user : null
-  const login = <LoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
+  const login = <HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
 
-  return <AppErrorBoundary key={`${location.pathname}${location.search}`}>
+  return <AppErrorBoundary key={location.pathname}>
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/feed" replace /> : login} />
       <Route element={user ? <AuthenticatedLayout api={api} user={user} /> : <Navigate to="/login" replace />}>
         <Route path="/" element={<LegacyEntry />} />
-        <Route path="/feed" element={<FeedPage kind="feed" />} />
-        <Route path="/later" element={<FeedPage kind="later" />} />
-        <Route path="/saved" element={<FeedPage kind="saved" />} />
-        <Route path="/history" element={<FeedPage kind="history" />} />
-        <Route path="/subscriptions" element={<SubscriptionsPage />} />
-        <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/feed" element={<HeroWorkbenchPage kind="feed" />} />
+        <Route path="/later" element={<LegacyLaterRedirect />} />
+        <Route path="/saved" element={<HeroWorkbenchPage kind="saved" />} />
+        <Route path="/history" element={<HeroWorkbenchPage kind="history" />} />
+        <Route path="/subscriptions" element={<HeroSubscriptionsPage />} />
+        <Route path="/agents" element={<HeroAgentsPage />} />
+        <Route path="/settings" element={<HeroSettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>
   </AppErrorBoundary>
+}
+
+export function AppRoutes({ api }: { api: ServiceApi }) {
+  return <ServiceRoutes api={api} />
 }

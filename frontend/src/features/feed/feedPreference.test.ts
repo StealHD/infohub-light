@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { readFeedPreference, writeFeedPreference } from './feedPreference'
+import {
+  FEED_PREFERENCE_CHANGED_EVENT,
+  readFeedPreference,
+  writeFeedPreference,
+} from './feedPreference'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()
@@ -17,15 +21,61 @@ function memoryStorage(): Storage {
 describe('feed preference', () => {
   beforeEach(() => Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() }))
 
-  it('persists feed mode and unread-first independently per user', () => {
-    writeFeedPreference('user-a', { mode: 'all', unreadFirst: true })
+  it('persists only the v2 workbench filters independently per user', () => {
+    writeFeedPreference('user-a', {
+      unreadFirst: true,
+      source: 'source-a',
+      channel: 'AI',
+      topic: 'Codex',
+      minScore: 8,
+      order: 'oldest',
+    })
 
-    expect(readFeedPreference('user-a')).toEqual({ mode: 'all', unreadFirst: true })
-    expect(readFeedPreference('user-b')).toEqual({ mode: 'featured', unreadFirst: false })
+    expect(readFeedPreference('user-a')).toEqual({
+      unreadFirst: true,
+      source: 'source-a',
+      channel: 'AI',
+      topic: 'Codex',
+      minScore: 8,
+      order: 'oldest',
+    })
+    expect(readFeedPreference('user-b')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'newest' })
+    expect(window.localStorage.getItem('inteliscope.ui.feed.v2:user-a')).not.toBeNull()
   })
 
-  it('falls back safely when stored data is malformed', () => {
-    window.localStorage.setItem('inteliscope.ui.feed.v1:user-a', '{broken')
-    expect(readFeedPreference('user-a')).toEqual({ mode: 'featured', unreadFirst: false })
+  it('migrates only unread-first from v1 and ignores the retired mode', () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v1:user-a', JSON.stringify({ mode: 'daily', unreadFirst: true }))
+
+    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: true, source: '', channel: '', topic: '', minScore: undefined, order: 'newest' })
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:user-a') || '{}')).toEqual({ unreadFirst: true })
+  })
+
+  it('falls back safely when v2 data is malformed', () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-a', '{broken')
+    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'newest' })
+  })
+
+  it('sanitizes an invalid persisted order to newest', () => {
+    window.localStorage.setItem('inteliscope.ui.feed.v2:user-a', JSON.stringify({ order: 'sideways' }))
+
+    expect(readFeedPreference('user-a').order).toBe('newest')
+  })
+
+  it('emits one account-scoped same-tab event after writing', () => {
+    const onChanged = vi.fn()
+    window.addEventListener(FEED_PREFERENCE_CHANGED_EVENT, onChanged)
+
+    writeFeedPreference('user-a', {
+      unreadFirst: false,
+      source: '',
+      channel: '',
+      topic: '',
+      minScore: undefined,
+      order: 'newest',
+    })
+
+    expect(onChanged).toHaveBeenCalledTimes(1)
+    expect((onChanged.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({ userId: 'user-a' })
+    window.removeEventListener(FEED_PREFERENCE_CHANGED_EVENT, onChanged)
   })
 })

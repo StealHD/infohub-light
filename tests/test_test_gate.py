@@ -139,13 +139,14 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         (["src/ui/static/reader.js"], {"control", "legacy_ui"}, True, False),
         (["src/ui/static/reader.css"], {"control", "legacy_ui_contract"}, True, False),
         (
-            ["frontend/src/features/feed/FeedWorkspace.tsx"],
+            ["frontend/src/features/feed/feedModel.ts"],
             {"control", "frontend_checks", "frontend_related"},
             True,
             False,
         ),
         (["frontend/vite.config.ts"], {"control", "frontend_full"}, True, False),
-        (["frontend/src/app/AppShell.tsx"], {"control", "frontend_full"}, True, False),
+        (["frontend/src/AppBootstrap.tsx"], {"control", "frontend_full"}, True, False),
+        (["UI_CONTRACT.md"], {"control", "frontend_full"}, True, False),
         (["tests/test_worker.py"], {"control", "python_test_files"}, False, False),
         (["tests/conftest.py"], {"control", "full"}, False, False),
         (["tests/reading_ui_behavior.test.cjs"], {"control", "legacy_test_files"}, True, False),
@@ -231,7 +232,7 @@ def test_snapshot_and_git_range_produce_same_changed_file_set(tmp_path):
 def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     mapping = load_mapping(MAPPING)
     plan = build_plan(
-        ["src/api/server.py", "frontend/src/features/feed/FeedWorkspace.tsx"],
+        ["src/api/server.py", "frontend/src/features/feed/feedModel.ts"],
         mapping,
     )
 
@@ -243,9 +244,10 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     full_ids = {spec.command_id for spec in full}
     release_by_id = {spec.command_id: spec for spec in release}
     assert any("pytest" in command and "tests/test_api_service.py" in command for command in targeted_commands)
-    assert any("vitest related" in command and "FeedWorkspace.tsx" in command for command in targeted_commands)
+    assert any("vitest related" in command and "feedModel.ts" in command for command in targeted_commands)
     assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
     assert "release_playwright" in release_by_id
+    assert release_by_id["release_playwright"].argv == ("npm", "run", "e2e:release")
     smoke = release_by_id["release_api_docker_smoke"]
     smoke_command = " ".join(smoke.argv)
     assert "--api-only" in smoke_command
