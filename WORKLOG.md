@@ -1088,5 +1088,5 @@
 - 任务：固化 Quiet Studio Feed 合同、完成一次最终门禁并发布 revision-locked 本地 8080 预览
 - 修改文件：`UI_CONTRACT.md`、`DECISION_LOG.md`、`PLAN.md`、本工作日志
 - 执行验证：Task 1–3 focused TDD RED→GREEN（52 项及 49 项补充、58 项、64 项）；Task 4 release build/artifact 与三视口 Playwright 21/21、Axe 零 serious/critical；本次 `test_gate full` 22/22、`mapping_miss=false`、55.339 秒；镜像 `inteliscope-service:feed-quiet-fef5862f1c48` 的 live revision=`fef5862f1c48`、ready database/worker=`ready`、`/feed` HTTP 200，API/Worker 同镜像且 healthy
-- 结果：D030 与唯一视觉真源已收口，主仓库 light Compose 的本地 API/Worker 已换为一次构建的 Quiet Studio 镜像；应用内浏览器不可用（可用浏览器列表为空），因此 `/feed`、`/saved`、`/history` 人工视觉和 console error 数未取得，未以 standalone Playwright 冒充该证据
+- 结果：D030 与唯一视觉真源已收口，主仓库 light Compose 的本地 API/Worker 已换为一次构建的 Quiet Studio 镜像；控制器随后在应用内浏览器完成真实运行态复核：`/feed` 显示 4 条 Quiet Studio 卡片、无进度轨及其留白，split-panel Agent 图标、原位展开与加入上下文均可用，Agent 关闭/重开前后 Feed `scrollTop` 均为 `396.5`；`/saved` 与 `/history` 继续显示 collection rail、搜索和更新入口，分别渲染 1/6 张集合卡片；三条路由 console error 均为 0，测试加入的 Agent 上下文已移除
 - 控制面变更：仅 Feed 视觉合同和交付状态；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/调度器

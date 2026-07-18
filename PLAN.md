@@ -61,7 +61,7 @@
 46. Codex-inspired Next Web 工作台视觉原型（历史阶段，已由第 48 项完成生产化）：开发专用无认证原型曾验证暗色层级、精简导航、旧上新下卡片流、短刻度、新内容提示和最多 8 条 OpenClaw 上下文交接。
 47. HeroUI v3 独立候选原型：开发专用 `/__preview/workbench-heroui` 使用 HeroUI v3/Tailwind v4；三档响应式、Axe、焦点归还及生产构建剔除已建立。候选已被第 48 项选为生产体系，固定数据预览继续作为开发验收面。
 48. HeroUI 全站生产切换：`AppBootstrap` 的单一 HeroUI provider、Feed/saved/history 工作台、全宽 subscriptions/agents/settings、独立 login、`/later → /saved` 替换、MUI/Emotion/旧 UI 层删除、静态契约和三视口 Playwright/Axe 已完成。当前视觉与交互规则只见 `UI_CONTRACT.md`；API、权限、Query key、Remote MCP 和运行边界均未改变。
-49. Quiet Studio Feed 视觉确认批次：`/feed` 实现、三视口生产自动化与 revision-locked 本地 API/Worker 运行已完成；权威规则只见 `UI_CONTRACT.md`，实施证据见 `docs/superpowers/specs/2026-07-18-feed-quiet-studio-design.md`。本次执行环境未提供应用内浏览器，三路由人工运行态复核待补。
+49. Quiet Studio Feed 视觉确认批次：`/feed` 实现、三视口生产自动化、revision-locked 本地 API/Worker 运行及 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成；权威规则只见 `UI_CONTRACT.md`，实施证据见 `docs/superpowers/specs/2026-07-18-feed-quiet-studio-design.md`。
 
 当前仍需推进：
 
@@ -75,7 +75,6 @@
 8. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
 9. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护；视觉变更必须先修改该唯一真源。
 10. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；已删除的 MUI 对照原型、真实数据 preview 和 `VITE_UI_EXPERIENCE` 分叉不得恢复。
-11. 为 Quiet Studio Feed 补做应用内浏览器的 `/feed`、`/saved`、`/history` 人工运行态与控制台复核；这不改变已由 `UI_CONTRACT.md` 固化的视觉规则或后端边界。
 
 兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 仍可保留；兼容接口存在不等于当前产品能力，也不构成后续建设承诺。
 

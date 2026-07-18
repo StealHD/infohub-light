@@ -264,7 +264,7 @@
 ### D030 — Feed adopts the approved Quiet Studio variant
 
 - 决策日期：2026-07-18
-- 当前状态：实现、自动化验收和 revision-locked 本地运行已完成；应用内浏览器在本次执行环境不可用，三路由人工运行态复核待补
+- 当前状态：实现、自动化验收、revision-locked 本地运行与 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成
 - Decision: Remove the Feed progress rail and its gutter; use the split-panel Agent glyph, centered Quiet Studio cards, route-scoped motion, and inline expansion. Keep collection routes unchanged.
 - Rationale: User approved visual direction A and its interaction prototype; the result follows Apple-inspired hierarchy and restraint without copying platform chrome or applying glass to content.
 - Compatibility: No API, query, permission, Worker, Remote MCP, data, or dependency changes.
