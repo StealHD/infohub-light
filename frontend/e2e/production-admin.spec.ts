@@ -56,6 +56,8 @@ async function mockAdminApi(page: Page, authenticated = true) {
 
 async function expectHeroAdminPage(page: Page, heading: string) {
   await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+  await expect(page.locator('h1')).toHaveCount(1)
+  await expect(page.locator('[data-page-frame="admin"]')).toBeVisible()
   await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
   await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
   await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveCount(0)
@@ -65,7 +67,7 @@ async function expectHeroAdminPage(page: Page, heading: string) {
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 }
 
-test('production administration routes are full-width HeroUI pages at every acceptance viewport', async ({ page }) => {
+test('production administration routes use the adaptive Quiet Studio page pattern at every acceptance viewport', async ({ page }) => {
   await mockAdminApi(page)
 
   await page.goto('/subscriptions')
@@ -88,6 +90,8 @@ test('production login is a standalone HeroUI page at every acceptance viewport'
   await mockAdminApi(page, false)
   await page.goto('/login')
   await expect(page.getByRole('heading', { name: '登录私人信息雷达' })).toBeVisible()
+  await expect(page.locator('h1')).toHaveCount(1)
+  await expect(page.locator('[data-page-frame="auth"]')).toBeVisible()
   await expect(page.locator('[data-ui-system="heroui"]')).toBeVisible()
   await expect(page.locator('[class*="Mui"]')).toHaveCount(0)
   await expect(page.getByRole('navigation')).toHaveCount(0)

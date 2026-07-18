@@ -21,10 +21,10 @@ This file is the sole source of truth for production UI technology, visual langu
 
 | Role | Size / line | Weight | Intended use |
 |---|---:|---:|---|
-| `type-display` | 24 / 32 px | 600 | standalone administration and login page titles |
+| `type-display` | 24 / 32 px | 600 | standalone authentication or dedicated display titles |
 | `type-section-title` | 18 / 26 px | 600 | major page sections |
 | `type-page-title` | 16 / 24 px | 600 | workbench headers, dialogs, card section headers |
-| `type-card-title` | 16 / 23 px | 600 | Feed and collection card titles |
+| `type-card-title` | 16 / 23 px | 600 | Feed, saved, and history card titles |
 | `type-body` | 14 / 22 px | 400 | summaries, descriptions, notices, ordinary content |
 | `type-control` | 13 / 20 px | 500 | buttons, toolbar values, navigation and menu actions |
 | `type-meta` | 12 / 18 px | 400 | source, time, counts and technical metadata |
@@ -46,10 +46,10 @@ This file is the sole source of truth for production UI technology, visual langu
 | `/feed` | Hero workbench, all items |
 | `/saved` | Hero workbench, saved collection |
 | `/history` | Hero workbench, history collection |
-| `/subscriptions` | Full-width Hero administration page; no Agent panel |
-| `/agents` | Full-width Hero assistant-connection page; no Agent panel |
-| `/settings` | Full-width Hero settings page; no Agent panel |
-| `/login` | Standalone Hero login page |
+| `/subscriptions` | Quiet Studio adaptive administration page; no Agent panel |
+| `/agents` | Quiet Studio adaptive assistant-connection page; no Agent panel |
+| `/settings` | Quiet Studio adaptive settings page; no Agent panel |
+| `/login` | Standalone Quiet Studio login page |
 
 - `/later` permanently replaces to `/saved`, preserves only a valid `item` query value, and removes legacy `mode`.
 - Authenticated unknown routes resolve coherently to the production Feed; unauthenticated protected routes resolve through the standalone login flow.
@@ -61,7 +61,8 @@ This file is the sole source of truth for production UI technology, visual langu
 - The collapsed brand uses the Inteliscope scope mark rather than a text initial. The bottom account avatar/row is the only account trigger; its Popover contains identity, Chinese role, settings, and an explicit logout action. A standalone logout icon is not rendered.
 - Header height is 52 px. The Web application does not imitate macOS traffic lights, window chrome, drag regions, or desktop-only operating-system controls.
 - `/feed`, collection routes, administration pages and authentication all inherit the application font stack and semantic typography scale from the design system. A route must not switch typography independently.
-- During the Feed visual-confirmation phase, `/feed` keeps a quiet header containing only the page title and Agent toggle; search and manual refresh are absent. `/saved` and `/history` retain their current collection header controls.
+- Every production route uses the shared Quiet Studio page patterns. A route has exactly one page title in `PageHeader`; content-route headers contain only that title and the Agent toggle, while count, search, order, filter, and refresh actions live in the aligned `ViewBar` below.
+- `PageFrame` owns the three approved content widths: reading pages use approximately 820 px, administration pages approximately 1180 px, and authentication approximately 420 px. Business pages select `reading`, `admin`, or `auth` and may not recreate those widths.
 - At 1360 px and above, the user-isolated sidebar may toggle between 72 px and 232 px; the preference key is `inteliscope.ui.sidebar.v1:<user_id>`, accepted values are `collapsed` and `expanded`, and absent or invalid values resolve to collapsed. Accounts never share the preference.
 - From 1200–1359 px, navigation remains 72 px and the three-column workbench remains visible. The scope mark opens the categorized 260 px overlay without changing Feed width or scroll; the persisted width toggle is not presented.
 - From 768–1199 px, navigation remains 72 px, the scope mark opens the same categorized overlay, and Agent is an on-demand right overlay.
@@ -75,24 +76,24 @@ This file is the sole source of truth for production UI technology, visual langu
 - `/feed` reads the canonical all-items response; `/saved` and `/history` reuse the same card, virtualization, filter, deep-link, and scroll behaviors.
 - Long lists are virtualized with stable item IDs. A refresh captures the current rendered item ID and relative viewport offset synchronously at the request boundary. Measurement changes and source replacement retain that anchor; user scrolling cancels restoration ownership.
 - New content auto-follows only when the viewport is within 96 px of the active fresh edge: top for newest-first and bottom for oldest-first. Otherwise the position remains stable and an explicit `N 条新内容` action appears at that edge.
-- The centered Feed view bar aligns to the card column and shows item count, order, filter, and active-filter count without recreating the removed search or manual-refresh controls. Filters include unread-first, source, channel, topic, and minimum score. Preferences remain user-isolated. Filtering, quick views, and unread-first reordering preserve rendered-ID anchors.
+- The centered content view bar aligns to the card column. Feed shows item count, order, filter, and active-filter count without recreating the removed search or manual-refresh controls. Saved and history place count, search, refresh, and filter in the same bar; mobile search expands from an explicit control. Filters include unread-first, source, channel, topic, and minimum score. Preferences remain user-isolated. Filtering, quick views, and unread-first reordering preserve rendered-ID anchors.
 - Cards show source, time, title, an optional distinct summary, channel/topics, optional media, and bounded plain text on expansion. A summary that normalizes to the title is omitted rather than repeated or replaced with filler. Collapsed title and distinct summary are each limited to two lines; expansion is inline and does not replace the list or move the viewport anchor.
 - Direct actions are open original, save, and add/remove Agent context. Mark read/unread, copy summary, and dismiss live in the compact overflow menu. There is no read-later action.
-- `/feed` uses the Quiet Studio variant: no progress rail or reserved rail gutter, an approximately 820 px centered card column, an 18 px semantic Feed-card radius, standard graphite content surfaces, thin semantic borders, and no persistent glow or heavy shadow. `/saved` and `/history` retain the compact right rail and collection cards.
+- `/feed`, `/saved`, and `/history` use the same Quiet Studio presentation: no progress rail or reserved rail gutter, a centered reading-width card column, an 18 px semantic content-card radius, standard graphite surfaces, thin semantic borders, and no persistent glow or heavy shadow.
 - Quiet Studio card hover and press feedback uses the existing 120–220 ms motion tokens; inline expansion preserves the rendered ID-plus-offset anchor. Coarse-pointer actions remain fully visible and at least 44 px, and Reduced Motion makes displacement and expansion effectively immediate without hiding state.
-- The Feed-only layout values permitted to feature code are an approximately 820 px content column, 18 px semantic card radius, 34×32 px Agent toggle, 25 px avatar, and 19 px card horizontal padding. These exceptions authorize semantic tokens or Tailwind layout values, not raw business-page colors.
+- Content-card dimensions and reading width are owned by design-system tokens and presets. Feature code may compose layout, but it may not recreate approved page widths, typography, colors, shadows, radii, or motion values.
 - The `/feed` Agent toggle uses a rounded split-panel glyph with neutral hover/press feedback and a restrained accent selected state. Its `aria-expanded`, focus restoration, responsive panel placement, and scroll preservation remain authoritative.
-- Agent context contains at most eight ordered item IDs, a question, and prompt-only model guidance (`auto`, `fast`, or `deep`). The unified composer exposes a compact `交接模式` explanation, context count, model preference, transient live status, and a labelled circular copy action. Legacy drafts sanitize to `auto`; clipboard failure preserves the draft.
+- Agent context contains at most eight ordered item IDs, a question, and prompt-only model guidance (`auto`, `fast`, or `deep`). Desktop sidebar, tablet Drawer, and mobile Bottom Sheet render the same shared `HandoffComposer`. Its `CompactSelect` owns the trigger value, indicator, popover, list items, keyboard behavior, Escape handling, and semantic `type-control` typography. The composer exposes a compact `交接模式` explanation, context count, model preference, transient live status, and a labelled circular copy action. Legacy drafts sanitize to `auto`; clipboard failure preserves the draft.
 - Handoff text deterministically instructs OpenClaw to call `get_item` and includes the selected model guidance. `复制交接提示词` only writes to the clipboard; the site does not run an Agent, issue an execution request, chat, stream a session, probe a local Gateway, or infer online presence.
 - Connection state copy is limited to configured, not configured, or check failed semantics. Credentials never imply online presence.
 - Viewers may navigate, open, search, copy, and assemble a handoff, but may not mutate Feed item state. Other role behavior follows the existing API/permission contract.
 
 ## 7. Administration and authentication pages
 
-- Subscriptions, assistant connections, and settings use full-width Hero pages within the shared navigation shell and do not mount the Feed Agent panel.
+- Subscriptions, assistant connections, and settings use the shared `admin` PageFrame within the navigation shell and do not mount the Feed Agent panel. Their single route title lives in the Shell `PageHeader`; content uses `PageIntro`, `PageSection`, shared status states, and responsive grids instead of a duplicate display heading.
 - Page information architecture, backend fields, role boundaries, write-only secret handling, job behavior, and Remote MCP safety remain unchanged by visual migration.
 - Owner/Admin/member/viewer affordances must match existing authorization. Disabled or hidden controls are not substitutes for server enforcement.
-- Login is a standalone dark Hero page and does not render the authenticated shell.
+- Login uses the shared `auth` PageFrame, brand mark, semantic typography, controls, and focus feedback without rendering the authenticated shell.
 - Action failures are reversible where optimistic state is used, explain recovery in a live region, and never replay across users. Logout or account replacement clears user-scoped transient feedback and cache according to existing session rules.
 
 ## 8. Development preview isolation
@@ -111,4 +112,4 @@ Every production UI change must pass, in order:
 4. Playwright at 1440×900, 1024×768, and 390×844, including Axe with zero serious or critical findings.
 5. Reduced Motion, focus restoration, independent scrolling, stable ID-plus-offset anchors, bounded virtualization, and no horizontal overflow checks.
 
-The static contract rejects MUI/Emotion imports, production feature-level direct HeroUI imports, nested `DesignSystemProvider` mounts, raw business-page colors, page-level visual constants, and deleted preview technology. Snapshot or expectation changes require an intentional contract change; they are not an automatic response to a failing visual test.
+The static contract rejects MUI/Emotion imports, production feature-level direct HeroUI imports, nested `DesignSystemProvider` mounts, raw business-page colors, page-level visual constants, business-owned copies of the approved PageFrame widths, and deleted preview technology. Snapshot or expectation changes require an intentional contract change; they are not an automatic response to a failing visual test.

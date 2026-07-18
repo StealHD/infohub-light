@@ -255,7 +255,7 @@
 ### D029 Feed 视觉确认先采用单页 Codex 风格微调
 
 - 决策日期：2026-07-18
-- 当前状态：已由 D030 的 Quiet Studio 方案取代；本条保留为被替代轨道方案的历史依据
+- 当前状态：已先由 D030 的 Quiet Studio 方案取代，再由 D033 扩展为全站统一；本条仅保留历史依据
 - 决策内容：本轮只调整生产 `/feed`：隐藏顶部搜索和手动刷新，使用 macOS 系统字体栈，并把信息流进度改为左侧、无容器、带当前与相邻刻度动效的短轨。收藏、历史和其他页面继续保持现状；精确视觉规则只见 `UI_CONTRACT.md`。
 - 原因：用户希望先用真实信息流确认版式和动效，再决定是否把该风格扩散到全局；提前同步修改其他路由会增加视觉判断变量和返工范围。
 - 影响范围：Hero 工作台 Shell 的 `/feed` 路由分支、虚拟 Feed 的显式轨道变体、设计系统字体 token、相关 RTL/浏览器回归；不影响 API、数据库、Query Key、权限、Remote MCP、Worker 或刷新任务语义。
@@ -264,7 +264,7 @@
 ### D030 — Feed adopts the approved Quiet Studio variant
 
 - 决策日期：2026-07-18
-- 当前状态：实现、自动化验收、revision-locked 本地运行与 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成
+- 当前状态：Feed 决策已完成；其中“集合路由保持不变”已由 D033 取代
 - Decision: Remove the Feed progress rail and its gutter; use the split-panel Agent glyph, centered Quiet Studio cards, route-scoped motion, and inline expansion. Keep collection routes unchanged.
 - Rationale: User approved visual direction A and its interaction prototype; the result follows Apple-inspired hierarchy and restraint without copying platform chrome or applying glass to content.
 - Compatibility: No API, query, permission, Worker, Remote MCP, data, or dependency changes.
@@ -284,3 +284,12 @@
 - 决策内容：全站统一使用设计系统拥有的 macOS/system UI 字体栈和十级语义排版；业务页面只能选择 `type-*` 角色，禁止自行使用 Tailwind 字号、字重、行高和字距工具类。精确角色和值只见 `UI_CONTRACT.md`。
 - 原因：此前 Feed 使用路由级字体覆盖，业务组件同时散落 `text-xs`、`text-[13px]`、`font-semibold` 与 `leading-*`，导致同一工具栏和跨页面层级无法保持一致，也无法通过人工逐处标注可靠维护。
 - 兼容/回退：不改变布局、业务行为、API、数据、权限、Query Key、Worker 或 Remote MCP；静态门禁阻止新增排版分叉，故障回退仍使用上一不可变 Docker 镜像。
+
+### D033 Quiet Studio 成为全站自适应视觉与交互语言
+
+- 决策日期：2026-07-19
+- 当前状态：本地实现与聚焦验证完成，完整门禁和 revision-locked 运行验收进行中
+- 决策内容：全部生产路由统一消费设计系统的 Quiet Studio 页面模式、语义排版、表面、控件、动效和状态反馈；阅读、管理与认证页面分别选择共享 `PageFrame` 宽度。收藏与历史取消 collection 进度轨并复用信息流卡片；管理路由只保留 Shell 中的唯一标题；OpenClaw 三种响应式容器复用同一交接编辑器与受控选择器。精确规则只见 `UI_CONTRACT.md`。
+- 原因：仅统一字体或逐页修补无法防止卡片、页面宽度、标题和控件再次分叉。把页面结构、状态模式和宽度所有权上收至设计系统，才能让后续 UI 修改在可执行契约内持续保持一致。
+- 取代范围：取代 D029 的单页扩散检查点，以及 D030 中“收藏/历史保留 collection 轨道”的部分；不改变 D030 已确认的 Quiet Studio 克制层级与内容交互。
+- 兼容/回退：不修改 API、数据库、权限、Query Key、任务、Remote MCP 或历史数据；运行故障仍回退上一不可变 Docker 镜像。

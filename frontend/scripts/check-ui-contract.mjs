@@ -30,6 +30,7 @@ function sourceViolations(file, source) {
       [/(?:#[0-9a-f]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\(|\b(?:oklch|oklab|lab|lch)\s*\(|\bcolor\s*\(\s*display-p3\b)/i, '业务页面不得定义原始颜色值'],
       [/\b(?:borderRadius|boxShadow|transitionDuration|animationDuration)\s*:\s*(?:['"]?\d|['"][^'"]+)|\b(?:border-radius|box-shadow|transition-duration|animation-duration)\s*:/, '视觉常量必须来自设计系统主题'],
       [arbitraryTypographyUtility, '业务文字必须使用设计系统语义排版'],
+      [/\bmax-w-\[(?:820|1180|420)px\]/, '页面宽度必须使用设计系统 PageFrame'],
     ]
     for (const [pattern, message] of checks) if (pattern.test(source)) violations.push(`${file}: ${message}`)
   }

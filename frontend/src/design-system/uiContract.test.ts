@@ -146,6 +146,16 @@ describe('HeroUI import contract', () => {
     expect(result.stderr).toBe('')
   })
 
+  it.each(['820', '1180', '420'])('rejects business-owned Quiet Studio max width %spx', (width) => {
+    const result = checkSource(
+      'src/features/feed/PageSurface.tsx',
+      `export const PageSurface = () => <main className="max-w-[${width}px]">内容</main>\n`,
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('页面宽度必须使用设计系统 PageFrame')
+  })
+
   it('defines one application font stack and the complete semantic typography scale', () => {
     const theme = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
 
