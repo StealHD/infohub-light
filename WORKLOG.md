@@ -964,7 +964,7 @@
 
 ### 2026-07-17 Codex subagent
 - 任务：实现共享订阅变更领域服务并让现有 REST mutation 复用
-- 修改文件：`src/services/subscription_mutation.py`、`src/api/server.py`、`src/storage/service_store.py`、RSS 执行投影、Task 3/API 测试、`.superpowers/sdd/task-3-report.md`、`WORKLOG.md`
+- 修改文件：`src/services/subscription_mutation.py`、`src/api/server.py`、`src/storage/service_store.py`、RSS 执行投影、Task 3/API 测试、`.superpowers/sdd/openclaw-task-3-report.md`、`WORKLOG.md`
 - 执行验证：初始 module、REST context、metadata/config credential 与内部标记投影均先按预期 RED；领域 36 项、指定 focused 165 项、store/config/Worker 43 项、full gate 和 `git diff --check` 通过
 - 结果：typed plan/error/actor、Agent private-only planner、安全 preview/指纹、显式 delete disposition、原子 create/update/delete 与完整回滚已实现；REST admin/member/viewer 和 omission/null/list clear 合同保持；Agent RSS/website 公网执行选择持久且 owner/admin 不可绕过
 - 未解决问题：Task 4+ 仍需在 proposal 转换事务内消费本服务，并继续隐藏内部公网标记；本任务未实现 proposal orchestration、MCP、delegation flag/scope、新 REST endpoint 或 UI
@@ -1012,7 +1012,7 @@
 
 ### 2026-07-17 Codex subagent
 - 任务：实现 delegation 显式订阅写权限与独立默认关闭功能开关
-- 修改文件：delegation store/API、Remote MCP 配置、三组 focused 测试、`.superpowers/sdd/task-4-report.md`、`WORKLOG.md`
+- 修改文件：delegation store/API、Remote MCP 配置、三组 focused 测试、`.superpowers/sdd/openclaw-task-4-report.md`、`WORKLOG.md`
 - 执行验证：required focused 先出现 17 个 RED，修正测试夹具后确认目标 RED；GREEN 32 项、相关 TokenVerifier/store 回归 113 项、full gate 22/22（`mapping_miss=false`）通过，提交前重跑 diff/JSON 检查
 - 结果：新增 read/write canonical scope 与安全 access 投影；旧行不迁移，未知/额外 scope 失败关闭；写开关严格 `true|false` 且依赖 Remote MCP；GET/POST/PATCH 权限、viewer 稳定 403 和 rename 防升级完成
 - 未解决问题：Task 8 写工具仍须在每次调用时检查 live flag；本任务未实现 proposal、MCP 写工具、UI 或生产启用
