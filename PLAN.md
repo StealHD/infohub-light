@@ -62,6 +62,7 @@
 47. HeroUI v3 独立候选原型：开发专用 `/__preview/workbench-heroui` 使用 HeroUI v3/Tailwind v4；三档响应式、Axe、焦点归还及生产构建剔除已建立。候选已被第 48 项选为生产体系，固定数据预览继续作为开发验收面。
 48. HeroUI 全站生产切换：`AppBootstrap` 的单一 HeroUI provider、Feed/saved/history 工作台、全宽 subscriptions/agents/settings、独立 login、`/later → /saved` 替换、MUI/Emotion/旧 UI 层删除、静态契约和三视口 Playwright/Axe 已完成。当前视觉与交互规则只见 `UI_CONTRACT.md`；API、权限、Query key、Remote MCP 和运行边界均未改变。
 49. Quiet Studio Feed 视觉确认批次：`/feed` 实现、三视口生产自动化、revision-locked 本地 API/Worker 运行及 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成；权威规则只见 `UI_CONTRACT.md`，设计规格见 `docs/superpowers/specs/2026-07-18-feed-quiet-studio-design.md`，实施证据见 `WORKLOG.md`。
+50. Codex 式信息工作台细节批次：在 Quiet Studio 上完成分类导航、常用视图、账户菜单、Feed 最新优先/可切换顺序、重复摘要抑制和 OpenClaw 单体交接编辑器；权威规则只见 `UI_CONTRACT.md`，设计规格与实施计划分别见 `docs/superpowers/specs/2026-07-18-codex-navigation-feed-details-design.md` 和 `docs/superpowers/plans/2026-07-18-codex-navigation-feed-details.md`，实施证据见 `WORKLOG.md`。
 
 当前仍需推进：
 

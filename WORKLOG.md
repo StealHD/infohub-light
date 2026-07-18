@@ -1106,3 +1106,10 @@
 - 结果：动作容器默认保持 fully visible，仅 fine pointer 降为 60% opacity，并只在 fine-pointer hover/focus 时恢复 100%；coarse pointer 不再受视口宽度影响；整分支复审无剩余 Critical/Important，确认 ready to merge
 - 运行验收：一次构建镜像 `inteliscope-service:feed-quiet-d4a5f0489390`（built at `2026-07-18T09:48:20Z`）已替换本地 8080 的 API/Worker；live revision=`d4a5f0489390`、database/worker ready、`/feed` HTTP 200、两容器同镜像且 healthy；容器生产 CSS 包含 `@media (pointer:fine)`；应用内浏览器刷新后显示 4 条卡片、无 Feed 进度轨、Agent 控件可见且 console error 为 0；非阻塞 Minor 为后续补一条 collection rail 行为覆盖
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/scheduler
+
+### 2026-07-18 18:45 Codex
+- 任务：执行用户确认的 A「Codex 式信息工作台」细化，仅在现有 HeroUI/Quiet Studio 生产树调整导航、Feed 卡片层级与 OpenClaw 交接区
+- 修改文件：Feed v2 偏好与排序、常用视图纯函数、Hero Shell/Page/VirtualFeed/展示模型、Inteliscope 图标、Agent draft/composer、RTL/Playwright，以及 UI 契约、D031、计划与本工作日志
+- 执行验证：四批 focused TDD 均 RED→GREEN；最终聚焦 Vitest 6 文件/44 项、ESLint（0 error/1 既有 warning）、TypeScript、Vite build/artifact 通过；桌面 Playwright 主流程、过滤刷新锚点与 Reduced Motion 共 3 项通过，主流程含 Axe 零 serious/critical；最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、56.647 秒
+- 结果：左栏按浏览/常用视图/管理分类，账户通过菜单显式退出；Feed 默认最新在上并可按用户切换顺序，工具条与 820px 卡片列对齐，重复摘要不再展示；OpenClaw 改为带模型提示偏好、实时状态和单一复制动作的紧凑交接编辑器，不产生网络执行
+- 控制面变更：更新唯一视觉真源并新增 D031；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/Worker/scheduler

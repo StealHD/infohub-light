@@ -39,31 +39,33 @@ This file is the sole source of truth for production UI technology, visual langu
 
 ## 5. Workbench shell and responsiveness
 
-- Navigation contains 信息流、收藏、历史、订阅、助手连接和设置. 稍后读 is absent.
+- Expanded navigation is organized as 浏览（信息流、收藏、历史）、常用视图（未读、AI、朋友动态、产品机会）and 管理（订阅、助手连接、设置）. 稍后读 is absent. Quick views only transform the existing user-isolated Feed preference and introduce no API or URL state.
+- The collapsed brand uses the Inteliscope scope mark rather than a text initial. The bottom account avatar/row is the only account trigger; its Popover contains identity, Chinese role, settings, and an explicit logout action. A standalone logout icon is not rendered.
 - Header height is 52 px. The Web application does not imitate macOS traffic lights, window chrome, drag regions, or desktop-only operating-system controls.
 - `/feed` uses the macOS system UI font stack on Apple platforms, with `PingFang SC` and the self-hosted Noto Sans SC variable font as Chinese and cross-platform fallbacks. This typography scope does not change other routes.
 - During the Feed visual-confirmation phase, `/feed` keeps a quiet header containing only the page title and Agent toggle; search and manual refresh are absent. `/saved` and `/history` retain their current collection header controls.
 - At 1360 px and above, the user-isolated sidebar may toggle between 72 px and 232 px; the preference key is `inteliscope.ui.sidebar.v1:<user_id>`, accepted values are `collapsed` and `expanded`, and absent or invalid values resolve to collapsed. Accounts never share the preference.
-- From 1200–1359 px, navigation remains 72 px and the three-column workbench remains visible. The preference toggle is not presented.
-- From 768–1199 px, navigation remains 72 px and Agent is an on-demand right overlay.
+- From 1200–1359 px, navigation remains 72 px and the three-column workbench remains visible. The scope mark opens the categorized 260 px overlay without changing Feed width or scroll; the persisted width toggle is not presented.
+- From 768–1199 px, navigation remains 72 px, the scope mark opens the same categorized overlay, and Agent is an on-demand right overlay.
 - At 767 px and below, content is single-column, navigation moves to the bottom, and Agent is a bottom sheet ending at the viewport bottom.
 - At 1440×900, the workbench shows the complete navigation, Feed, and 360 px Agent columns and four to five complete collapsed cards. At 1024×768, Agent overlays without resizing or scrolling the Feed. At 390×844, bottom navigation and Agent sheet remain reachable without horizontal page overflow.
 - Navigation, Feed, and Agent have independent scroll regions. Opening or closing a panel preserves route, selected/expanded story, and Feed scroll anchor. Escape closes overlays and restores focus to their trigger.
 
 ## 6. Feed, virtualization, and Agent handoff
 
-- Feed has one mode, 全部, ordered older content above newer content. Initial entry anchors to the newest content at the bottom.
+- Feed has one mode, 全部. It defaults to `最新优先`, with newest content at the top; the explicit `最新优先`/`最旧优先` control persists per user. `/saved` and `/history` retain their collection ordering.
 - `/feed` reads the canonical all-items response; `/saved` and `/history` reuse the same card, virtualization, filter, deep-link, and scroll behaviors.
 - Long lists are virtualized with stable item IDs. A refresh captures the current rendered item ID and relative viewport offset synchronously at the request boundary. Measurement changes and source replacement retain that anchor; user scrolling cancels restoration ownership.
-- New content auto-follows only when the viewport is within 96 px of the bottom. Otherwise the position remains stable and an explicit `N 条新内容` action appears.
-- Filters include search, unread-first, source, channel, topic, and minimum score. Preferences remain user-isolated. Filtering and unread-first reordering preserve rendered-ID anchors.
-- Cards show source, time, title, one summary, channel/topics, optional media, and bounded plain text on expansion. Expansion is inline and does not replace the list or move the viewport anchor.
+- New content auto-follows only when the viewport is within 96 px of the active fresh edge: top for newest-first and bottom for oldest-first. Otherwise the position remains stable and an explicit `N 条新内容` action appears at that edge.
+- The centered Feed view bar aligns to the card column and shows item count, order, filter, and active-filter count without recreating the removed search or manual-refresh controls. Filters include unread-first, source, channel, topic, and minimum score. Preferences remain user-isolated. Filtering, quick views, and unread-first reordering preserve rendered-ID anchors.
+- Cards show source, time, title, an optional distinct summary, channel/topics, optional media, and bounded plain text on expansion. A summary that normalizes to the title is omitted rather than repeated or replaced with filler. Collapsed title and distinct summary are each limited to two lines; expansion is inline and does not replace the list or move the viewport anchor.
 - Direct actions are open original, save, and add/remove Agent context. Mark read/unread, copy summary, and dismiss live in the compact overflow menu. There is no read-later action.
 - `/feed` uses the Quiet Studio variant: no progress rail or reserved rail gutter, an approximately 820 px centered card column, an 18 px semantic Feed-card radius, standard graphite content surfaces, thin semantic borders, and no persistent glow or heavy shadow. `/saved` and `/history` retain the compact right rail and collection cards.
 - Quiet Studio card hover and press feedback uses the existing 120–220 ms motion tokens; inline expansion preserves the rendered ID-plus-offset anchor. Coarse-pointer actions remain fully visible and at least 44 px, and Reduced Motion makes displacement and expansion effectively immediate without hiding state.
 - The Feed-only layout values permitted to feature code are an approximately 820 px content column, 18 px semantic card radius, 34×32 px Agent toggle, 25 px avatar, and 19 px card horizontal padding. These exceptions authorize semantic tokens or Tailwind layout values, not raw business-page colors.
 - The `/feed` Agent toggle uses a rounded split-panel glyph with neutral hover/press feedback and a restrained accent selected state. Its `aria-expanded`, focus restoration, responsive panel placement, and scroll preservation remain authoritative.
-- Agent context contains at most eight ordered item IDs and a question. Handoff text deterministically instructs OpenClaw to call `get_item`; the site does not run an Agent, chat, streaming session, local Gateway probe, or online-presence inference.
+- Agent context contains at most eight ordered item IDs, a question, and prompt-only model guidance (`auto`, `fast`, or `deep`). The unified composer exposes a compact `交接模式` explanation, context count, model preference, transient live status, and a labelled circular copy action. Legacy drafts sanitize to `auto`; clipboard failure preserves the draft.
+- Handoff text deterministically instructs OpenClaw to call `get_item` and includes the selected model guidance. `复制交接提示词` only writes to the clipboard; the site does not run an Agent, issue an execution request, chat, stream a session, probe a local Gateway, or infer online presence.
 - Connection state copy is limited to configured, not configured, or check failed semantics. Credentials never imply online presence.
 - Viewers may navigate, open, search, copy, and assemble a handoff, but may not mutate Feed item state. Other role behavior follows the existing API/permission contract.
 

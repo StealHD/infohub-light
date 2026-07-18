@@ -268,3 +268,11 @@
 - Decision: Remove the Feed progress rail and its gutter; use the split-panel Agent glyph, centered Quiet Studio cards, route-scoped motion, and inline expansion. Keep collection routes unchanged.
 - Rationale: User approved visual direction A and its interaction prototype; the result follows Apple-inspired hierarchy and restraint without copying platform chrome or applying glass to content.
 - Compatibility: No API, query, permission, Worker, Remote MCP, data, or dependency changes.
+
+### D031 Quiet Studio 采用分类导航、双向排序和确定性交接编辑器
+
+- 决策日期：2026-07-18
+- 当前状态：本地实现、聚焦自动化与完整仓库门禁均已完成
+- 决策内容：在现有 HeroUI/Quiet Studio 生产树内，将展开导航组织为浏览、常用视图和管理；账户动作收进统一账户菜单；Feed 默认最新优先并允许按用户切换顺序；重复标题摘要只在展示层消除；OpenClaw 面板使用单一交接编辑器并保存提示词级模型偏好。精确视觉与响应式规则只见 `UI_CONTRACT.md`。
+- 原因：原扁平图标栏、稀疏工具条、重复卡片文字和分散的 Agent 输入控件功能可用但层级不清。分类与渐进披露提高扫读和操作可理解性，同时保持 Web 信息流和本地 OpenClaw 的真实能力边界。
+- 兼容/回退：不修改 API、数据库、Query Key、角色权限、Worker、Remote MCP 或历史 Feed；旧 Feed 偏好默认补为最新优先，旧 Agent 草稿默认补为自动。故障回退仍使用上一不可变 Docker 镜像。
