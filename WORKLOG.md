@@ -1102,7 +1102,7 @@
 ### 2026-07-18 Codex
 - 任务：关闭 Quiet Studio 终审中宽屏 coarse-pointer 卡片操作因视口断点降为 60% opacity、又缺少可靠 hover 的问题
 - 修改文件：`VirtualFeed.tsx`、`VirtualFeed.test.tsx` 与本工作日志
-- 执行验证：定向 Vitest 1 项可信 RED（旧动作容器缺少 `pointer-fine:` 类）→GREEN（1 通过/12 跳过）；TypeScript、`git diff --check` 通过；未运行 full gate、Docker 或 Playwright
-- 结果：动作容器默认保持 fully visible，仅 fine pointer 降为 60% opacity，并只在 fine-pointer hover/focus 时恢复 100%；coarse pointer 不再受视口宽度影响
-- 未解决问题：最终 full gate 与新 runtime 验收仍需根控制器在本次新 HEAD 重做；Minor collection rail coverage 本轮未处理
+- 执行验证：定向 Vitest 1 项可信 RED（旧动作容器缺少 `pointer-fine:` 类）→GREEN（1 通过/12 跳过）；TypeScript、`git diff --check` 通过；新 HEAD 最终 `test_gate full` 22/22、0 failed/error、`mapping_miss=false`、54.881 秒
+- 结果：动作容器默认保持 fully visible，仅 fine pointer 降为 60% opacity，并只在 fine-pointer hover/focus 时恢复 100%；coarse pointer 不再受视口宽度影响；整分支复审无剩余 Critical/Important，确认 ready to merge
+- 运行验收：一次构建镜像 `inteliscope-service:feed-quiet-d4a5f0489390`（built at `2026-07-18T09:48:20Z`）已替换本地 8080 的 API/Worker；live revision=`d4a5f0489390`、database/worker ready、`/feed` HTTP 200、两容器同镜像且 healthy；容器生产 CSS 包含 `@media (pointer:fine)`；应用内浏览器刷新后显示 4 条卡片、无 Feed 进度轨、Agent 控件可见且 console error 为 0；非阻塞 Minor 为后续补一条 collection rail 行为覆盖
 - 控制面变更：无；未修改 backend/API/DB/query key/权限/Remote MCP/history/VPS/数据/scheduler
