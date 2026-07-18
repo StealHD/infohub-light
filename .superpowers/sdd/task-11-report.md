@@ -15,7 +15,7 @@
 
 ## 验证
 
-`python` 在该 worktree 不存在；唯一一次等价 `python3 scripts/test_gate.py plan --json` 因缺少 snapshot 或 Git `--base/--head` 输入返回配置错误，未生成选择计划。`project-defaults.yaml` 与 `tests/test_impact_map.json` JSON lint、`git diff --check` 均通过。未运行 pytest、npm、build、performance benchmark、full gate 或 real OpenClaw canary。
+`python` 在该 worktree 不存在；唯一一次等价 `python3 scripts/test_gate.py plan --json` 因缺少 snapshot 或 Git `--base/--head` 输入返回配置错误，未生成选择计划。`project-defaults.yaml` 与 `tests/test_impact_map.json` JSON lint、`git diff --check` 均通过。最终由根任务只运行一次 `.venv/bin/python scripts/test_gate.py run --mode full`：22/22 commands 通过，0 failed/error，`first_failure=null`、`mapping_miss=false`、`ui_impacted=false`，耗时 97.402 秒。未运行独立 performance benchmark 或 real OpenClaw canary。
 
 ## 发布边界
 
