@@ -1129,3 +1129,339 @@
 - 结果：全部生产路由统一消费 Quiet Studio 语义页面模式；收藏/历史删除 collection 轨道并复用阅读卡片和 ViewBar；管理页只保留 Shell 中的唯一 H1，登录使用 auth 框架；三种 Agent 容器复用统一交接编辑器。静态契约会拒绝业务页重新定义 820/1180/420px 页面宽度
 - 运行验收：重建前确认主数据库无 queued/running Job；一次构建镜像 `inteliscope-service:quiet-studio-c6e83554a16d` 同时替换本地 8080 API/Worker，live revision=`c6e83554a16d`、database/worker ready、两容器同 image ID 且 healthy，六条生产路由 HTTP 200；应用内浏览器真实数据复核设置/订阅唯一标题与统一分区、收藏统一空态、历史 7 张 Quiet Studio 卡片、0 个进度轨且无横向溢出
 - 控制面变更：Quiet Studio 成为全站生产视觉语言并新增 D033；未修改 backend/API/DB/query key/权限/任务/Remote MCP/history/VPS/数据/调度语义
+### 2026-07-17 10:56 Codex subagent
+- 任务：实现 Remote MCP 八类来源的双语配置指引与安全输入规范化
+- 读取文件：`AGENTS.md`、任务 brief、source type registry 与相关测试
+- 修改文件：`src/services/source_type_registry.py`、来源 registry/setup guidance 测试、`WORKLOG.md`
+- 执行验证：新增测试先因缺少接口失败；focused 8 项通过；`test_gate` full 成功
+- 结果：新增中英 setup guide、公开 URL/别名规范化和凭据/敏感 RSS 查询拒绝，REST registry 投影保持不变
+- 未解决问题：无
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：修复 Task 1 Agent setup 公共类型与输入安全审查项
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`WORKLOG.md`
+- 执行验证：先验证公共八类/敏感 query value 回归为 RED；focused 37 项通过，`./.venv/bin/python scripts/test_gate.py run --mode full` 通过
+- 结果：Agent guide 固定为 `rss/telegram/github/reddit/twitter/website/youtube/apify`，显式映射至 catalog 类型；REST 投影不变；拒绝所有 URL userinfo/敏感 query、嵌套凭据形状、非标量字段、Telegram 私邀和畸形 URL
+- 未解决问题：后续 Task 3 消费 normalization 时应读取其 `catalog_source_type/config` 结构，而非把公共类型直接写入 catalog
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第二轮复审的六项来源规范化安全与执行策略缺口
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：新增回归先出现 66 个预期失败，自审补充 mapping key 回归再确认 1 个预期失败；focused 119 项通过，Python compile 通过，full gate 22/22 通过且 `mapping_miss=false`，`git diff --check` 通过
+- 结果：复合敏感 query/header/assignment 和 source type 错误均安全失败；YouTube/Reddit identity 严格规范化；自助来源显式携带 create policy，Twitter/Apify 仅返回 existing-visible lookup identity
+- 未解决问题：后续 service 消费方须使用新的 policy-bearing normalization shape；本 Task 未实现 proposal/MCP/UI
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第三轮复审的四项 Important 与 guide summary Minor
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：review 回归先按预期覆盖五组 RED，自审的 GitHub 双斜杠 identity 再单独 RED；focused 197 项、Python compile、full gate 22/22（`mapping_miss=false`）和 `git diff --check` 通过
+- 结果：凭据检测按 query name/value/free text 分层并先做 NFKC；RSS/website 输出强制公网 policy 且本地拒绝 localhost/非公网 IP literal；GitHub/YouTube identity 使用离线真实语法；Apify 仅接收 lookup identity；guide summary 补齐 `required_fields`，旧 REST 投影不变
+- 未解决问题：Task 3 必须无视 owner/admin 放宽逻辑，按 `policy.public_network_only=true` 绑定既有逐跳 DNS pinning 公网执行路径；本 Task 未修改 runner/proposal/MCP/UI
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第四轮复审的四项 Important
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：四组回归先出现 33 个预期失败，Telegram 边界自审再确认 4 个预期失败；focused 246 项、Python compile、full gate 22/22（`mapping_miss=false`）和 `git diff --check` 通过
+- 结果：凭据安全副本加入有界 percent decode 与 Unicode ignorable 折叠；RSS/website 拒绝历史 IPv4 本地地址；GitHub clone `.git` 规范化；Telegram query/fragment 与保留路由失败关闭
+- 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第五轮复审的单项 Important（percent-escaped hostname）
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r5-report.md`、`WORKLOG.md`
+- 执行验证：新增 10 个 RSS/website percent-escaped hostname 与 IPv6 zone-id 回归先均为 RED；focused 256 项、Python compile、full gate 和 `git diff --check` 通过
+- 结果：主机名含 `%` 在公网 literal 分类前以固定非回显错误失败关闭；普通数字标签域名和 `policy.public_network_only=true` 回归保持
+- 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 1 第六轮复审的单项 Important（反斜杠 authority）
+- 修改文件：`src/services/source_type_registry.py`、`tests/test_source_setup_guidance.py`、`.superpowers/sdd/task-1-fix-r6-report.md`、`WORKLOG.md`
+- 执行验证：RSS/website 反斜杠 authority 回归先均为 RED；focused 258 项、Python compile、full gate 和 `git diff --check` 通过
+- 结果：公网 literal 分类前拒绝 authority/hostname 中的反斜杠，使用固定非回显错误；普通域名、numeric-label 域名与 `policy.public_network_only=true` 回归保持
+- 未解决问题：Task 3 仍须按 `policy.public_network_only=true` 绑定既有逐跳公网执行路径；本 Task 未修改执行代码
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现 schema v7 Agent 变更提案持久化、保留清理与部署数据库脱敏
+- 修改文件：`src/storage/service_store.py`、`src/services/maintenance.py`、`scripts/prepare_service_deployment.py`、proposal/maintenance/deployment 测试、Task 2 报告、`WORKLOG.md`
+- 执行验证：proposal 测试先出现 17 个预期 RED，自审补充未知 JSON 对象失败关闭再确认 1 个 RED；focused 27 项通过，full gate 22/22 通过且 `mapping_miss=false`，Python compile 与 `git diff --check` 通过
+- 结果：新增 v7 additive proposal 表、级联外键/索引/marker、10 分钟 TTL 与 delegation 原子 pending 上限、安全 JSON 投影/写入、30 天维护清理、旧库兼容部署清空，以及 `create_source(commit=False)` 事务支持
+- 未解决问题：Task 3+ 仍需在外层 `BEGIN IMMEDIATE` 中消费 `commit=False` 接口并完成业务 apply；本任务未实现 mutation service、MCP 或 UI
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 复审的两个 Important（权威 proposal 时钟与 camelCase/NFKC 敏感键）
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`tests/test_maintenance.py`、`.superpowers/sdd/task-2-fix-report.md`、`WORKLOG.md`
+- 执行验证：8 个针对性回归先按预期 RED；focused 36 项通过；full gate 22/22 通过且 `mapping_miss=false`；Python compile 与 `git diff --check` 通过
+- 结果：create/apply 生命周期改用事务内权威 UTC now，调用参数只保留兼容校验；固定持久化 now/now+10m，未来/回填时间不能绕过配额或过期；敏感键先 NFKC/camelCase 拆词，安全业务 ID shape 保持允许
+- 未解决问题：无；未实现 Task 3+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 第二轮复审的 compact 敏感键 Important 与自由文本误拒 Minor
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`.superpowers/sdd/task-2-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：新增回归先出现 25 个预期 RED；proposal 56 项、focused 69 项、full gate 22/22（`mapping_miss=false`）通过；`git diff --check` 通过
+- 结果：JSON/query 共用受控 compact credential key 分类并覆盖 NFKC/percent decode；明确凭据 header/assignment、已知 prefix 与 JWT 仍拒绝，`Basic Engineering News`、`Bearer Market Report` 和 `monkey`/`hockey` 等安全词允许
+- 未解决问题：无；未修改权威时钟、事务、schema、cleanup、sanitizer，未实现 Task 3+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 第三轮复审的 compact credential 后缀 Important 与短 `sk-` 名称 Minor
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`.superpowers/sdd/task-2-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：新增 12 个回归先按预期 RED；proposal 与指定 focused 测试通过，full gate 通过，`git diff --check` 通过
+- 结果：NFKC/camelCase/分隔归一后的 compact key 以受控 credential 后缀失败关闭，JSON 与 percent-decoded query 统一覆盖；`sk-` 仅在长连续 token 且右边界时拒绝，`SK-Engineering Weekly` 保持允许
+- 未解决问题：无；未改动 schema、时钟、事务、retention、sanitizer，未实现 Task 3+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 2 第四轮复审的字符串值编码绕过 Important 与长 `sk-` 业务标题误拒 Minor
+- 修改文件：`src/storage/service_store.py`、`tests/test_agent_change_proposals.py`、`.superpowers/sdd/task-2-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：三轮回归分别出现 9、2、1 个预期 RED；proposal 86 项、指定 focused 99 项、Python compile 与 full gate 22/22（`mapping_miss=false`）通过，提交前重跑 `git diff --check`
+- 结果：所有 proposal 字符串值使用 16 KiB、NFKC、最多两轮 percent-decode 的非持久化分类副本，query name/value 同步覆盖且安全 `%20` 原值不变；真实形态 `sk` 假 token 继续拒绝，两个指定长业务标题允许
+- 未解决问题：无；未改动 key suffix、schema、权威时钟、事务、retention、sanitizer，未实现 Task 3+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现共享订阅变更领域服务并让现有 REST mutation 复用
+- 修改文件：`src/services/subscription_mutation.py`、`src/api/server.py`、`src/storage/service_store.py`、RSS 执行投影、Task 3/API 测试、`.superpowers/sdd/task-3-report.md`、`WORKLOG.md`
+- 执行验证：初始 module、REST context、metadata/config credential 与内部标记投影均先按预期 RED；领域 36 项、指定 focused 165 项、store/config/Worker 43 项、full gate 和 `git diff --check` 通过
+- 结果：typed plan/error/actor、Agent private-only planner、安全 preview/指纹、显式 delete disposition、原子 create/update/delete 与完整回滚已实现；REST admin/member/viewer 和 omission/null/list clear 合同保持；Agent RSS/website 公网执行选择持久且 owner/admin 不可绕过
+- 未解决问题：Task 4+ 仍需在 proposal 转换事务内消费本服务，并继续隐藏内部公网标记；本任务未实现 proposal orchestration、MCP、delegation flag/scope、新 REST endpoint 或 UI
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 独立复审的五项 Important
+- 修改文件：订阅变更领域服务、来源公开投影/runner、quota、media cleanup、相关 focused 测试、`.superpowers/sdd/task-3-fix-report.md`、`WORKLOG.md`
+- 执行验证：计划密封、RSS 公网 marker、quota re-enable、头像 late rollback、安全 preview 与 cleanup collector 回归均先按预期 RED；Python compile 和 focused 452 项通过；full gate 22/22（`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：确认后的 normalized plan 使用 canonical snapshot 且 apply 不再重规范化；Agent RSS 更新/runner fallback 均维持公网执行；来源重启用先做 quota admission；头像仅在 owner commit 后物理清理，`commit=False` 缺 collector 失败关闭；遗留不安全 catalog preview 返回稳定 opaque summary
+- 未解决问题：Task 4+ 外层事务调用 `apply_plan(commit=False)` 时必须显式传入 cleanup collector，并在 commit 后执行、rollback 时丢弃；本任务未实现 Task 4+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 修正后复审的五项 Important
+- 修改文件：订阅变更 plan/restore、quota、media cleanup、来源公开元数据分类器、相关 focused 测试、`.superpowers/sdd/task-3-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：五组回归先按预期 RED；Python compile 与 focused 484 项通过；full gate 22/22（`mapping_miss=false`、`ui_impacted=false`）、默认配置 JSON 校验及 `git diff --check` 通过
+- 结果：planner/restore/apply 共用严格版本化 invariant builder；subscription 幂等与 source re-enable admission 分离；外层事务缺 cleanup collector 在 mutation 前失败关闭；公开投影覆盖嵌入式常见 token 且保留安全 Bearer 标题；schedule preview 展示 existing 合并态或 new 默认态
+- 未解决问题：Task 4+ 外层事务调用 mutation service 时须显式传 collector，commit 后执行、rollback 时丢弃；本任务未实现 Task 4+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 第三轮复审的两个 Important
+- 修改文件：共享安全分类器、来源公开投影/metadata、proposal sanitizer、snapshot consumer 计划、三组合同测试、`.superpowers/sdd/task-3-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：Task 3/Task 2 新回归分别先出现 9/10 个预期 RED，`xox*` 扩展再确认 1 个 RED；focused 591 项、Python compile、full gate 22/22（`mapping_miss=false`、`ui_impacted=false`）、默认配置 JSON 校验及 `git diff --check` 通过
+- 结果：Task 1/2 共用 16 KiB、NFKC、最多两轮 percent decode 的上下文凭据分类器并覆盖 query value/fragment/known prefixes；metadata parser 异常固定失败关闭；Task 5/6 计划固定为完整 versioned snapshot + restore + outer collector 生命周期，真实 proposal row seam 已验证 commit/run 与 rollback/discard
+- 未解决问题：Task 5/6 仍待按已同步合同实现 proposal/MCP 业务；本任务未重开 public constructor 或实现后续业务
+- 控制面变更：同步实施计划中的既有 Task 3/5/6 内部接口示例，无对外 API 变更
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 第四轮复审的两个 Important
+- 修改文件：Agent 来源反向规范化、订阅变更 plan/restore/apply、Task 3/5/6 内部接口计划、三组合同测试、`.superpowers/sdd/task-3-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：反向规范化回归先出现 9 个预期失败，update 共享校验再出现 3 个预期失败；schedule final-state 回归先出现 28 个预期失败；focused 657 项通过，Python compile、默认配置 JSON 校验、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：八个公开 Agent 类型均以 forward normalizer 做确定性反向校验并要求精确相等；update plan 携带 source/subscription/schedule 合并后的完整最终 schedule，禁用级联明确预览，同一计划对 disabled target 显式启用 schedule 在 prepare 阶段稳定拒绝；restore/apply 共用绑定并在 apply 后核对实际最终 schedule；snapshot 升级为 v2，v1 失败关闭且须重新 prepare
+- 未解决问题：Task 5/6 仍待按已同步的 v2 snapshot 合同实现 proposal/MCP 业务；本任务未实现后续业务、迁移或兼容 fallback
+- 控制面变更：同步实施计划中的 Task 3/5/6 内部 snapshot 版本与消费者合同，无对外 API 变更
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 3 第五轮复审的两个 Important 与一个 Minor
+- 修改文件：create/upsert 最终 schedule plan/restore/apply、quota final-active admission、Task 3 brief、mutation/API 回归、`.superpowers/sdd/task-3-fix-r5-report.md`、`WORKLOG.md`
+- 执行验证：21 个 create/quota 回归先出现 13 个预期失败，GREEN 后补充 forged snapshot/live binding 2 项；12 文件 focused 693 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）与 `git diff --check` 通过
+- 结果：create/upsert 与 update 共用最终 schedule 计算，final disabled subject 的显式 schedule enable 在 prepare 拒绝，sealed preview 与 apply 实态不一致会回滚；quota 仅对最终 inactive→active 转换 admission，真实 source re-enable 仍独立检查；brief 同步 v2/v1 fail-closed/reprepare
+- 未解决问题：Task 5/6 仍待按既有 v2 snapshot 合同实现 proposal/MCP 业务；本任务未实现后续业务、迁移或兼容 fallback
+- 控制面变更：仅同步忽略目录中的 Task 3 scratch brief，无对外 API 或主实施计划变更
+
+### 2026-07-17 Codex subagent
+- 任务：实现 delegation 显式订阅写权限与独立默认关闭功能开关
+- 修改文件：delegation store/API、Remote MCP 配置、三组 focused 测试、`.superpowers/sdd/task-4-report.md`、`WORKLOG.md`
+- 执行验证：required focused 先出现 17 个 RED，修正测试夹具后确认目标 RED；GREEN 32 项、相关 TokenVerifier/store 回归 113 项、full gate 22/22（`mapping_miss=false`）通过，提交前重跑 diff/JSON 检查
+- 结果：新增 read/write canonical scope 与安全 access 投影；旧行不迁移，未知/额外 scope 失败关闭；写开关严格 `true|false` 且依赖 Remote MCP；GET/POST/PATCH 权限、viewer 稳定 403 和 rename 防升级完成
+- 未解决问题：Task 8 写工具仍须在每次调用时检查 live flag；本任务未实现 proposal、MCP 写工具、UI 或生产启用
+- 控制面变更：无；总方案后续文档任务统一更新 API/架构/UI 合同
+
+### 2026-07-17 Codex subagent
+- 任务：修复 Task 4 delegation scope 损坏值导致的 GET/TokenVerifier 异常
+- 修改文件：`src/storage/service_store.py`、delegation/API/真实 MCP 回归、`.superpowers/sdd/task-4-fix-report.md`、`WORKLOG.md`
+- 执行验证：四个 Task 4 模块新增回归先出现 9 个预期 RED；GREEN 64 项、full gate 22/22（`mapping_miss=false`、`first_failure=null`）及最终 `git diff --check` 通过
+- 结果：scope 使用专用 512 字符、四层 JSON 容器上限解析器；原始值仅接受 `str`，BLOB（含可解码 JSON）、损坏/超长/过深/非 list/未知/重复值全部投影空 scope，GET 稳定 200，MCP 缺 read scope 返回 403
+- 未解决问题：无；未修改通用 `_json_loads()`，未实现 Task 5+
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现 Task 5 安全来源发现与 prepare-only 订阅变更提案
+- 修改文件：proposal service、Remote MCP subscription facade、source type discovery mapping、live delegation principal、Task 5 回归、`.superpowers/sdd/task-5-report.md`、`WORKLOG.md`
+- 执行验证：新测试先因两个 Task 5 模块不存在按预期 RED；GREEN 15 项、指定 focused 252 项、Python compile、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：动态 flag/scope/live role/actor binding 在 planner 前失败关闭；v2 snapshot、store 权威 UTC 10 分钟、confirmation hash-only 与 proposal limit 完成；发现仅投影当前用户可见来源并限制 secret checker 与 managed Apify
+- 未解决问题：Task 6 仍需实现 atomic apply/stale/single-use；本任务未实现 apply、MCP 工具注册、server wiring 或 UI
+- 控制面变更：无；仅新增内部 Task 5 服务边界，外部 MCP/API 合同由后续统一任务更新
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 5 独立复审的两个 Important 与一个 Minor
+- 修改文件：proposal service/store、source discovery registry/facade、Task 5/maintenance/deployment 回归、`.superpowers/sdd/task-5-fix-report.md`、`WORKLOG.md`
+- 执行验证：facade 6 项与 store 4 项回归先按预期 RED，最终动态 flag guard mutation check 再确认 RED/GREEN；focused 594 项、maintenance/deployment 6 项、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：proposal 最终授权与 insert 由同一 `BEGIN IMMEDIATE` 锁定并增加 store active-principal 纵深条件；discovery 使用八类显式 matcher、YouTube/RSS 边界、Twitter/Apify 分区及稳定去重排序；secret checker 异常固定脱敏为 `source_discovery_unavailable`
+- 未解决问题：Task 6 仍需实现 atomic apply/stale/single-use；本任务未实现 Task 6+、MCP 注册、server wiring 或 UI
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 5 二次复审的一个 Important 与一个 Minor
+- 修改文件：Agent-safe subscription planner/apply revalidation、source discovery public type validator、Task 5/Task 3/registry 回归、`.superpowers/sdd/task-5-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：disabled existing 与空目录 unknown type 回归先出现 6 个预期 RED；GREEN 专项 9 项、focused 433 项、Remote MCP 邻接 308 项及 Python compile 通过；最终 full gate、JSON 与 diff 检查见报告
+- 结果：existing create 在 planner 与 apply 均要求 enabled/visible，facade 后竞态不生成 proposal、plan 后禁用不能应用；8 项 public source type 在目录扫描前稳定校验；REST 专用 mutation 权限保持不变
+- 未解决问题：Task 6+ 未实现；本任务未新增内部 allow-disabled Agent 能力
+- 控制面变更：无
+
+### 2026-07-17 Codex subagent
+- 任务：实现 Task 6 proposal 原子 apply、过期/陈旧处理与单次并发消费
+- 修改文件：proposal service/facade、store 权威 transition、Task 6 回归、主实施计划、`.superpowers/sdd/task-6-report.md`、`WORKLOG.md`
+- 执行验证：新增 apply 17 项与 store clock 专项先按预期 RED；Task6/mutation 280 项、delegation/media 36 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：apply 自有 `BEGIN IMMEDIATE` 并在锁内重验动态 flag/scope/live principal；store UTC 10 分钟边界、time crossing 仅提交 expired、exact HMAC compare、v2 duplicate/stale、safe summary、post-commit cleanup 与 exactly-once 并发完成；所有非 expiry 失败保持 pending 且业务零变化
+- 未解决问题：Task 7+、MCP 工具注册/server wiring、UI/Skill 与生产启用仍未实现
+- 控制面变更：仅勾选既有主实施计划 Task 6 执行状态；未改变对外 API/架构/UI 合同
+
+### 2026-07-17 Codex subagent
+- 任务：关闭 Task 6 复审的一个 Important 与一个 Minor
+- 修改文件：proposal apply cleanup 边界、成功 update/delete apply 回归、主实施计划、`.superpowers/sdd/task-6-fix-r1-report.md`、`WORKLOG.md`
+- 执行验证：cleanup 抛错回归先按预期 RED，update 与 delete 两种 disposition 同轮通过；GREEN 专项 4 项、Task 6 focused 284 项、邻接 36 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：commit 后 cleanup 异常静默 best-effort，不再伪装 mutation 失败或泄露异常内容；update/delete keep/delete disable_private 均验证业务提交、proposal applied、stored/returned 精确 safe summary 与 second-use consumed
+- 未解决问题：Task 7+、MCP 工具注册/server wiring、UI/Skill 与生产启用仍未实现
+- 控制面变更：仅修正既有主实施计划中的 post-commit cleanup 内部错误语义；未改变对外 API/架构/UI 合同
+
+### 2026-07-17 Codex subagent
+- 任务：实现 Task 7 确定性来源/任务诊断与严格安全投影
+- 修改文件：诊断服务、Remote MCP safe job result helper、诊断/read-service 回归、主实施计划、`.superpowers/sdd/task-7-report.md`、`WORKLOG.md`
+- 执行验证：模块缺失与 safe-code retention 专项均先按预期 RED；focused 75 项、runtime/MCP 邻接 70 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：固定 precedence/code/message/unknown 分类、跨用户 not_found、URL/query/Bearer 与内部字段零泄漏、secret bool/anonymous Worker evidence、ordinary list/get job 投影不变均已实现
+- 未解决问题：Task 8+ 的 MCP 工具注册/server wiring、UI/Skill、生产启用与 canary 尚未实现
+- 控制面变更：仅勾选既有主实施计划 Task 7；未更新对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 独立审查的三个 Important 与一个 Minor
+- 修改文件：诊断 related-job/no-items/scalar/clock 边界、诊断回归、主实施计划、`.superpowers/sdd/task-7-fix-r1-report.md`、`WORKLOG.md`
+- 执行验证：新增 18 项反例按预期 RED；GREEN 后 Task 7 focused 94 项、schedule/runtime/MCP 邻接 70 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：Health/Schedule 显式 FK 完整验证并优先 active schedule、owned full-refresh 可关联；Job no-items 仅认自身 succeeded+明确零 fetched count；credential key label 在 code/result/name 零泄漏；每个公开诊断使用单一 checked_at
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步既有 Task 7 内部证据选择、安全过滤与一致时钟语义；普通六工具与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第二轮独立审查的四个 Important
+- 修改文件：Job/Source 独立归因、关联 provenance、严格 count/credential-label 投影、诊断回归、主实施计划、`.superpowers/sdd/task-7-fix-r2-report.md`、`WORKLOG.md`
+- 执行验证：34 项主反例与 1 项完整 name 标量专项按预期 RED；GREEN 后 Task 7 focused 139 项、schedule/runtime/MCP 邻接 70 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 `git diff --check` 通过
+- 结果：Job 仅按自身归因且 Worker readiness 仅限 active；Source 更新 Schedule terminal failure 胜过旧 Health 并标记历史 evidence；畸形 count 不再归零；完整对外标量严格拒绝 access/private/key-env/api-key-env labels
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部归因与安全投影语义；普通六工具、通用 credential mapping classifier 与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第三轮独立审查的两个 Important，并接管复核前任未提交修复
+- 修改文件：active/same-ID retry 归因、完整标量安全分类与普通值保留、诊断回归、主实施计划、`.superpowers/sdd/task-7-fix-r3-report.md`、`WORKLOG.md`
+- 执行验证：接管后新增 same-code retry 1 项与普通 Bearer/Basic 名称 4 项按预期 RED；GREEN 后 diagnostics 191 项、focused 240 项、schedule/job retry/health Worker/API/MCP 邻接 143 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`、`ui_impacted=false`）及 `git diff --check` 通过
+- 结果：active selected Job 的 status 与 historical Health role 一致；同 ID retry 使用真实 ledger+更新时间识别并由当前 terminal Job 决定 status/cause；完整标量拒绝紧凑 Bearer/Basic、terminal key/connection-string/credential labels，普通业务标量保持可见
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部 attempt provenance 与严格标量投影语义；普通六工具、通用 credential mapping classifier 与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第四轮独立审查的一个 Important
+- 修改文件：JobQueue retry 的 Source Health provenance 重开、diagnostics 显式 FK 归因、真实 Worker/事务/并发回归、主实施计划、`.superpowers/sdd/task-7-fix-r4-report.md`、`WORKLOG.md`
+- 执行验证：真实 catalog partial→同 ID retry→success/failed/partial 与事务边界先出现 6 个预期 RED；GREEN 后 focused 260 项、API/MCP/schedule/reliability 邻接 228 项、Python compile、两个 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`、`ui_impacted=false`）及 `git diff --check` 通过
+- 结果：retry 成功转 queued 的同一事务清除该 Job application ledger 并断开 Health `last_job_id`，保留旧健康字段；新 attempt 可重新幂等写 Health，多订阅、外事务回滚与并发语义稳定；诊断不再用状态/时间猜代际
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部 retry/Health attempt provenance；普通六工具与对外注册面不变
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 7 第五轮独立审查的一个 Important
+- 修改文件：JobQueue retry attempt-local 清理、真实 Worker/read/diagnostics 与事务回归、Task 7 主计划、R5 报告、`WORKLOG.md`
+- 执行验证：两项专项先精确 RED，最小修复后 GREEN；focused 288 项、R4 邻接 238 项、full gate 22/22、Python compile、两个 JSON 和 diff 检查通过
+- 结果：same-ID manual retry 在成功条件 UPDATE 中原子清除旧 `result_json/started_at`；queued/running 与第二 attempt pre-result failure 的普通 list/get、Job/Source diagnostics 均不再暴露旧 summary，下一 claim 重写当前开始时间
+- 未解决问题：Task 8+ 的 MCP 注册/server wiring、UI/Skill、生产启用与 canary 仍未实现
+- 控制面变更：仅同步 Task 7 内部 retry attempt attribution；普通六工具 shape、权限、active/rollback/concurrency 与 R4 Health provenance 不变
+
+### 2026-07-18 Codex subagent
+- 任务：实现 Task 8 的 14-tool Remote MCP 注册、严格输入、claim-derived actor、服务注入与安全错误/日志
+- 修改文件：MCP typed models/server、API injection、真实 MCP HTTP 回归、Task 8 主计划/报告、`WORKLOG.md`
+- 执行验证：初始 7 failed / 15 passed 精确 RED；最终 transport/diagnostics/Nginx 219 项、Task1/4–7 邻接 666 项、Python compile、默认配置 JSON、full gate 22/22（`first_failure=null`、`mapping_miss=false`）及 diff 检查通过
+- 结果：14 工具顺序与 annotations 精确；全局 auth 保持 read，写权限由 proposal service 重验；prepare/apply、read-scope/flag-off、跨用户隔离、extra-forbid/Task1 config 安全和固定脱敏日志均由真实 Client 覆盖
+- 未解决问题：Task 9+ UI/Skill、控制面合同、impact map、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅勾选既有 Task 8 执行状态；对外合同由后续统一文档任务更新
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 8 独立审查的一个 Important，统一业务函数前参数验证失败的安全错误与审计
+- 修改文件：app-local MCP call-tool adapter、四类真实 Client 验证回归、Task 8 主计划、R1 修复报告、`WORKLOG.md`
+- 执行验证：四类 validation 4/4 按预期 RED 后 GREEN；Task 8 transport/diagnostics/Nginx 223 项、Task1/4–7 邻接 666 项、full gate 22/22、Python compile、两个 JSON 与 diff 检查通过
+- 结果：外层/nested extra、错误 discriminator 与范围错误均只返回 `invalid_request`，每次精确一条固定七字段审计且输入/ValidationError 零泄漏；14 工具 schema/annotations/顺序、正常单日志与每 app 隔离保持不变
+- 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅补充既有 Task 8 验证失败安全边界与执行证据；未修改对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 8 第二轮复审的 validation 绕过 delegation limiter Important
+- 修改文件：app-local MCP limiter/adapter、真实 Client 与注入时钟回归、Task 8 主计划、R2 修复报告、`WORKLOG.md`
+- 执行验证：5 个专项先 5/5 RED 后 GREEN；Task 8 focused/transport/diagnostics/Nginx 228 项、Task 1/4–7 更宽邻接 854 项、full gate 22/22、Python compile、两个 JSON 与 diff 检查通过
+- 结果：已认证已注册调用在预检前共享每 delegation `60/minute, burst 10`；validation/成功/业务错误各消费一次且每 call 恰好一条七字段日志；unauthenticated/unknown 不计费不审计，每 app 独立且零敏感泄漏
+- 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅补充既有 Task 8 delegation limiter 执行顺序与证据；未修改对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 8 第三轮复审的 pre-parse 异常绕过稳定错误与审计 Important
+- 修改文件：app-local MCP validation adapter、两类真实 Client pre-parse 回归、Task 8 主计划、R3 报告、`WORKLOG.md`
+- 执行验证：ValueError/RecursionError 两项专项先 2/2 RED 后 GREEN；Task 8 focused/transport/diagnostics/Nginx 230 项、Task 1/4–7 邻接 854 项、full gate 22/22、Python compile、两个 JSON 与 diff 检查通过
+- 结果：超长整数与深嵌套 JSON 的 SDK pre-parse 异常统一为精确 `invalid_request`，每次恰好一次 bucket charge 与一条七字段日志，输入/异常零泄漏；成功路径仍委托 SDK
+- 未解决问题：Task 9+ UI/Skill、控制面合同、生产启用与真实 OpenClaw canary 未实现
+- 控制面变更：仅补充既有 Task 8 输入拒绝边界与执行证据；未修改对外 API/架构/UI 合同
+
+### 2026-07-18 Codex subagent
+- 任务：实现 Task 9 权限感知助手连接 UI
+- 修改文件：Agent delegation 前端 types/service、AgentsPage 与专项单测、Task 9 主计划/报告、`WORKLOG.md`
+- 执行验证：指定单测先出现 7 个预期 RED，最终 service/AgentsPage 11 项通过；AgentsPage 收紧精确 6/14 工具断言后 9 项通过；TypeScript typecheck 通过
+- 结果：创建连接默认只读并显式提交 access；viewer 隐藏写选项、写开关关闭时禁用并说明；连接权限 Chip、一次性 `{token, access}` 清理和按连接权限复制无明文令牌配置完成
+- 未解决问题：Task 10 Skill 与 Task 11 build/E2E/Axe/full gate、控制面合同、生产启用和真实 OpenClaw canary 尚未执行
+- 控制面变更：仅同步既有 Task 9 执行状态与 Task 11 验收边界；本任务未修改 API/UI 权威合同
+
+### 2026-07-18 Codex subagent
+- 任务：实现 Task 10 OpenClaw 订阅管理 Skill、诊断与确认工作流
+- 修改文件：本地 Skill、README、工具合同、工作流、focused 静态测试、Task 10 计划/报告与 `WORKLOG.md`
+- 执行验证：先以 `.venv/bin/pytest tests/test_openclaw_skill.py -q` 得到 3 项预期 RED；文案收紧后同一单测 6/6 通过，frontmatter/diff 静态检查通过，`openclaw skills check` 通过（仅现有 duplicate-plugin 配置警告）
+- 结果：Skill 覆盖精确 14 工具、八类来源别名/Apify-Web 边界、逐字段收集、existing source list-only、prepare→完整预览→精确确认→apply、显式删除选择、受限诊断与 secret refusal；仅 apply 成功后声明写入
+- 未解决问题：Task 11 控制面合同、impact map、完整验收与真实 canary 尚未执行
+- 控制面变更：将 Task 10 既有计划步骤标记完成；未更改服务端、前端或生产配置
+
+### 2026-07-18 Codex subagent
+- 任务：关闭 Task 10 独立审查的 access-specific OpenClaw toolFilter Important
+- 修改文件：OpenClaw Skill README、focused 静态回归、`.superpowers/sdd/task-10-fix-r1-report.md`、`WORKLOG.md`
+- 执行验证：`.venv/bin/pytest tests/test_openclaw_skill.py -q` 7 项通过，`git diff --check` 通过
+- 结果：viewer/read-only 配置精确限制为六个核心读工具；仅 Inteliscope Web 创建的 subscription-management 连接配置全部 14 工具；两种配置都只使用 `${INTELISCOPE_MCP_TOKEN}` 环境变量占位符
+- 未解决问题：Task 11 控制面合同、impact map、完整验收与真实 canary 尚未执行
+- 控制面变更：仅修正文档化的本地 OpenClaw toolFilter 与其静态不变量；未修改服务端、前端或生产配置
+
+### 2026-07-18 Codex subagent
+- 任务：完成 Task 11 Remote MCP 订阅管理控制面合同、影响映射与最终验收边界
+- 修改文件：`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md`、`DECISION_LOG.md`、`PLAN.md`、`tests/test_impact_map.json`、`.superpowers/sdd/task-11-report.md` 与 `WORKLOG.md`
+- 执行验证：`python` 在该 worktree 不存在；唯一一次等价 `python3 scripts/test_gate.py plan --json` 因没有 snapshot 或 `--base/--head` 输入而未生成选择计划。`project-defaults.yaml` 与 impact map JSON lint、`git diff --check` 均通过；按本任务限制未运行 pytest、Node、build、performance benchmark、full gate 或真实 OpenClaw canary
+- 结果：合同现在覆盖 read/write delegation access/scopes/flag、精确 14-tool 输入边界/annotation、服务端 prepare→confirm→apply lifecycle、诊断 shape 与稳定错误；架构确认共享 mutation/proposal/diagnostics ownership、stateless MCP 与无内部 HTTP；助手连接 UI 记录 access 选择、viewer 限制、capability Chip 与权限 toolFilter；impact map 将 proposal/mutation、Remote MCP/Skill 与 focused suites 路由到 API/store。
+- 未解决问题：本地 100-call performance acceptance 与真实 OpenClaw synthetic/free-data canary 均未运行；生产仍需 backup、API-only staging（写 flag 关闭）、TLS Authorization forwarding、read/write canary、revoke 401、两用户隔离及明确 flag enablement。
+- 控制面变更：新增 D025；Remote MCP 订阅写入不再是非目标，但密钥/共享来源/任务和 Feed 状态管理仍不通过 MCP 开放；回滚只关闭 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false`。
+
+### 2026-07-18 Codex
+- 任务：执行用户要求的唯一一次最终完整门禁，并记录本地完成证据
+- 修改文件：`.superpowers/sdd/task-11-report.md`、`WORKLOG.md`
+- 执行验证：`.venv/bin/python scripts/test_gate.py run --mode full` 22/22 commands 通过，0 failed/error，`first_failure=null`、`mapping_miss=false`、`ui_impacted=false`，耗时 97.402 秒
+- 结果：本地实现、前后端、Skill、合同和影响映射通过统一完成门禁；没有重复运行 full gate
+- 未解决问题：100-call 独立性能基准与真实 OpenClaw canary 未执行，生产 staging/TLS/revoke 401/两用户隔离/显式开关授权仍是发布边界
+- 控制面变更：仅记录最终验证证据；未启用任何生产 feature flag
+
+### 2026-07-18 Codex
+- 任务：收口 OpenClaw Remote MCP 只读生产发布、诊断合同、canary 与 API-only Runbook
+- 修改文件：助手连接 10/14 toolFilter、OpenClaw Skill/合同、env/Compose/Nginx 文档、只读 canary、发布 Runbook、影响映射与控制文件
+- 执行验证：专项 pytest 28 项、AgentsPage 9 项通过；100-call MCP p95 7.451 ms、REST p95 1.094 ms、RSS +0.812 MiB；唯一一次 release gate 因 worktree 缺少忽略的 `data/config.json` 中止，补齐后原失败用例通过，未重跑 release gate
+- 结果：read connection 精确开放 10 个安全读/指导/诊断工具，write connection 保持 14 个且生产写 flag 默认关闭；canary 覆盖全部安全读、双用户隔离、禁写与吊销 401
+- 未解决问题：release gate 尚无通过结论；真实 OpenClaw、独立 staging、生产 TLS/canary/切换及 24 小时观察尚未执行
+- 控制面变更：Remote MCP 权威合同改为 10 安全读 + 4 写流程，生产只读边界固定保留 additive v6/v7 且不启动 Worker/Agent/模型
+
+### 2026-07-18 Codex
+- 任务：执行 OpenClaw MCP 合并与只读生产发布前的最后一次门禁
+- 修改文件：API-only 发布 Runbook、Runbook 静态测试与 `WORKLOG.md`；恢复 OpenClaw approvals 并清理临时 profile
+- 执行验证：Runbook 专项按预期 RED 后 GREEN；release gate 22/23 commands 通过，唯一失败为 Playwright 4 项，原因是 worktree `node_modules` 软链接位于 Vite allow list 外导致本地字体请求被拒绝
+- 结果：已删除临时 `data/config.json`/`frontend/node_modules` 软链接；按批准的最终门禁硬边界停止，未合并、未构建镜像、未修改 staging/Nginx/生产容器或数据库
+- 未解决问题：release gate 无通过结论；后续合并、staging、双用户 canary、生产切换与 24 小时观察保持阻塞，除非用户另行授权新的验证方案
+- 控制面变更：Runbook 现在要求备份前同时停止 API/Worker、staging 独立日志，并仅增量修改线上 `cfl.conf`

@@ -7,11 +7,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+import src.services.media_cache as media_cache_module
 from src.api.server import create_app
 from src.models import ContentItem, SourceType
 from src.services.feed_archive import FeedArchiveService
 from src.services.job_queue import JobQueue
 from src.services.quota import QuotaService
+from src.services.subscription_mutation import SubscriptionMutationService
 from src.services.user_feed_store import UserFeedStore
 from src.services.user_item_state import UserItemStateStore
 from src.storage.article_store import ArticleStore
@@ -183,6 +185,102 @@ def test_catalog_source_post_is_idempotent_by_workspace_source_key(tmp_path, mon
     sources = client.get("/api/catalog/sources").json()["data"]["sources"]
     matching = [source for source in sources if source["source_key"] == "rss:https://example.com/stable.xml"]
     assert len(matching) == 1
+
+
+def test_rest_subscription_mutations_use_shared_service_without_exposing_network_marker(
+    tmp_path, monkeypatch
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    service = client.app.state.subscription_mutations
+    assert isinstance(service, SubscriptionMutationService)
+
+    source_response = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "rss",
+            "display_name": "Shared boundary",
+            "config": {"url": "https://example.com/shared-boundary.xml"},
+        },
+    )
+    source = source_response.json()["data"]
+    assert "enforce_public_network" not in source
+
+    calls = []
+    original = service.rest_create_subscription
+
+    def tracked_create(actor, *, source_id, values):
+        calls.append((actor.user_id, source_id, dict(values)))
+        return original(actor, source_id=source_id, values=values)
+
+    monkeypatch.setattr(service, "rest_create_subscription", tracked_create)
+    response = client.post(
+        "/api/me/subscriptions",
+        json={"source_id": source["id"], "priority": 33},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["priority"] == 33
+    assert len(calls) == 1
+    assert calls[0][1] == source["id"]
+
+
+def test_rest_source_identity_commit_removes_avatar_file_without_exposing_path(
+    tmp_path, monkeypatch
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Avatar identity source",
+            "config": {"url": "https://example.com/avatar-before.xml"},
+        },
+    ).json()["data"]
+    avatar_path = data_dir / "media" / "identity-avatar.png"
+    avatar_path.parent.mkdir(parents=True, exist_ok=True)
+    avatar_path.write_bytes(b"\x89PNG\r\n\x1a\nidentity-avatar")
+    store = client.app.state.service_store
+    now = "2026-07-17T00:00:00+00:00"
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+            id, workspace_id, source_id, asset_kind, remote_url, local_path,
+            mime_type, byte_size, checksum, visibility_scope, status,
+            created_at, updated_at
+        ) VALUES ('med_identity_avatar', ?, ?, 'source_avatar', '',
+                  'media/identity-avatar.png', 'image/png', 23, 'checksum',
+                  'private', 'ready', ?, ?)
+        """,
+        (source["workspace_id"], source["id"], now, now),
+    )
+    store.connect().commit()
+    cleanup_run_transaction_states = []
+    original_cleanup_run = media_cache_module.PostCommitMediaCleanup.run
+
+    def tracked_cleanup_run(cleanup):
+        cleanup_run_transaction_states.append(store.connect().in_transaction)
+        return original_cleanup_run(cleanup)
+
+    monkeypatch.setattr(
+        media_cache_module.PostCommitMediaCleanup, "run", tracked_cleanup_run
+    )
+
+    response = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={"config": {"url": "https://example.com/avatar-after.xml"}},
+    )
+
+    assert response.status_code == 200
+    assert cleanup_run_transaction_states == [False]
+    assert not avatar_path.exists()
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM media_assets WHERE id = 'med_identity_avatar'"
+    ).fetchone()[0] == 0
+    assert "local_path" not in repr(response.json())
+    assert "identity-avatar.png" not in repr(response.json())
 
 
 def test_catalog_source_patch_key_collision_returns_structured_conflict(tmp_path, monkeypatch):
@@ -834,6 +932,61 @@ def test_subscription_creation_enforces_enabled_source_quota(tmp_path, monkeypat
     assert len(client.get("/api/me/subscriptions").json()["data"]["subscriptions"]) == 1
     runtime = client.get("/api/ops/runtime").json()["data"]
     assert runtime["operational_counts"]["quota_rejects"] == 1
+
+
+def test_disabled_source_subscription_enable_is_quota_neutral_but_source_reenable_is_admitted(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("INFOHUB_MAX_SOURCES_PER_USER", "1")
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+
+    def create_source(name, suffix):
+        return client.post(
+            "/api/catalog/sources",
+            json={
+                "scope": "public",
+                "type": "rss",
+                "display_name": name,
+                "config": {"url": f"https://example.com/{suffix}.xml"},
+            },
+        ).json()["data"]
+
+    disabled_source = create_source("Disabled target", "quota-disabled-target")
+    disabled_subscription = client.post(
+        f"/api/catalog/sources/{disabled_source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    assert client.patch(
+        f"/api/catalog/sources/{disabled_source['id']}",
+        json={"enabled": False},
+    ).status_code == 200
+    assert client.patch(
+        f"/api/me/subscriptions/{disabled_subscription['id']}",
+        json={"enabled": False},
+    ).status_code == 200
+
+    active_source = create_source("Active target", "quota-active-target")
+    assert client.post(
+        f"/api/catalog/sources/{active_source['id']}/subscribe"
+    ).status_code == 200
+
+    quota_neutral_enable = client.patch(
+        f"/api/me/subscriptions/{disabled_subscription['id']}",
+        json={"enabled": True},
+    )
+    rejected_reenable = client.patch(
+        f"/api/catalog/sources/{disabled_source['id']}",
+        json={"enabled": True},
+    )
+
+    assert quota_neutral_enable.status_code == 200
+    assert quota_neutral_enable.json()["data"]["enabled"] is True
+    assert rejected_reenable.status_code == 429
+    assert rejected_reenable.json()["error"]["code"] == "quota_exceeded"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    assert store.get_source(disabled_source["id"])["enabled"] is False
 
 
 def test_concurrent_subscription_creation_enforces_quota_atomically(
@@ -2780,6 +2933,46 @@ def test_source_schedule_get_defaults_patch_round_trip_and_runtime_counts(
     assert runtime.status_code == 200
     assert runtime.json()["data"]["source_schedule_count"] == 1
     assert runtime.json()["data"]["overdue_source_schedule_count"] == 1
+
+
+def test_source_schedule_patch_preserves_omission_and_explicit_null_compatibility(
+    tmp_path,
+    monkeypatch,
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Schedule patch compatibility",
+            "config": {"url": "https://example.com/schedule-patch.xml"},
+        },
+    ).json()["data"]
+    subscription = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    route = f"/api/me/subscriptions/{subscription['id']}/schedule"
+    client.patch(route, json={"enabled": True, "interval_minutes": 30})
+
+    omitted_enabled = client.patch(route, json={"interval_minutes": 180})
+    explicit_null_enabled = client.patch(
+        route,
+        json={"enabled": None, "interval_minutes": 360},
+    )
+    null_only = client.patch(route, json={"enabled": None})
+    omitted_only = client.patch(route, json={})
+
+    assert omitted_enabled.status_code == 200
+    assert omitted_enabled.json()["data"]["enabled"] is True
+    assert omitted_enabled.json()["data"]["interval_minutes"] == 180
+    assert explicit_null_enabled.status_code == 200
+    assert explicit_null_enabled.json()["data"]["enabled"] is True
+    assert explicit_null_enabled.json()["data"]["interval_minutes"] == 360
+    for rejected in (null_only, omitted_only):
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "invalid_source_schedule"
 
 
 def test_source_schedule_is_current_user_only_and_viewer_is_read_only(

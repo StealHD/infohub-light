@@ -111,6 +111,27 @@ def test_catalog_rss_config_disables_global_hackernews(tmp_path, monkeypatch):
     }
 
 
+def test_catalog_runner_fallback_preserves_persisted_public_network_marker(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, source_id, subscription = _store_with_rss_source(
+        tmp_path, monkeypatch
+    )
+    store.update_source(source_id, enforce_public_network=True)
+    store.delete_subscription(subscription["id"], user_id=owner["id"])
+
+    data = build_catalog_source_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        base_config=_base_config(),
+    )
+
+    assert data["sources"]["rss"][0]["enforce_public_network"] is True
+
+
 def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_SHARED_ACQUISITION_ENABLED", "true")
     _write_config(tmp_path)

@@ -70,7 +70,9 @@ def _record_with_network_policy(store: ServiceStore, record: dict[str, Any]) -> 
     prepared = dict(record)
     if prepared.get("type") == "rss":
         owner = store.get_user(str(prepared.get("owner_user_id") or ""))
-        prepared["enforce_public_network"] = not (
+        prepared["enforce_public_network"] = bool(
+            prepared.get("enforce_public_network")
+        ) or not (
             owner and owner.get("role") in {"owner", "admin"}
         )
     if prepared.get("type") == "apify_social":

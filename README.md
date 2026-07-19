@@ -78,13 +78,14 @@ Nginx Basic Auth may be used as an additional outer gate, but it never replaces 
 
 ## Local OpenClaw assistant
 
-Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once and only reads that user's Feed, item details, subscriptions, source health, and jobs.
+Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes ten safe Feed, subscription, source guidance, health, job, and diagnosis tools for that user. Subscription changes require a separately authorized connection and server flag.
 
 For local development:
 
 ```bash
 HORIZON_REMOTE_MCP_ENABLED=true
 HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
+HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
 ```
 
 Install and configure the bundled Skill by following [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md). The legacy stdio MCP remains separate and is never exposed by `/mcp`.

@@ -14,11 +14,16 @@ export type AuthStatus = {
   user: User | null
 }
 
+export type AgentDelegationAccess = 'read' | 'subscriptions_write'
+
+export type AgentDelegationScope = 'inteliscope:read' | 'inteliscope:subscriptions:write'
+
 export type AgentDelegation = {
   id: string
   name: string
   client_type: 'openclaw'
-  scopes: ['inteliscope:read']
+  access: AgentDelegationAccess
+  scopes: AgentDelegationScope[]
   token_prefix: string
   created_at: string
   expires_at: string
@@ -29,6 +34,7 @@ export type AgentDelegation = {
 
 export type AgentDelegationsResponse = {
   enabled: boolean
+  subscription_writes_enabled: boolean
   mcp_url: string
   token_ttl_days: 90
   max_active: 5

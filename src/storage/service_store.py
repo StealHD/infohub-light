@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -16,6 +18,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..security import (
+    classification_copies,
+    is_sensitive_credential_key,
+    text_contains_credential,
+    url_contains_credentials,
+)
 from ..ui.auth import hash_password, verify_password_hash
 
 
@@ -26,11 +34,31 @@ SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
 WORKER_STATES = {"starting", "idle", "running", "stopping"}
 SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
-AGENT_DELEGATION_SCOPE = "inteliscope:read"
+AGENT_DELEGATION_READ_SCOPE = "inteliscope:read"
+AGENT_DELEGATION_WRITE_SCOPE = "inteliscope:subscriptions:write"
+AGENT_DELEGATION_SCOPE = AGENT_DELEGATION_READ_SCOPE
 AGENT_DELEGATION_TTL_DAYS = 90
 AGENT_DELEGATION_MAX_ACTIVE = 5
 AGENT_DELEGATION_USAGE_TOUCH_MINUTES = 15
+AGENT_DELEGATION_SCOPES_JSON_MAX_LENGTH = 512
+AGENT_DELEGATION_SCOPES_JSON_MAX_DEPTH = 4
+AGENT_PROPOSAL_TTL_MINUTES = 10
+AGENT_PROPOSAL_MAX_PENDING = 10
+AGENT_PROPOSAL_PREPARE_EXPIRED_RETENTION_HOURS = 24
+AGENT_PROPOSAL_MAINTENANCE_RETENTION_DAYS = 30
 _UNSET = object()
+
+_PROPOSAL_PROHIBITED_CONTENT_KEYS = {
+    "article_body",
+    "article_content",
+    "body",
+    "error_message",
+    "html",
+    "job_payload",
+    "payload",
+    "raw_error",
+    "raw_result",
+}
 
 
 class SourceKeyConflictError(ValueError):
@@ -49,8 +77,26 @@ class AgentDelegationLimitError(ValueError):
     """A user already owns the maximum number of active agent connections."""
 
 
+class AgentProposalLimitError(ValueError):
+    """A delegation already owns the maximum number of pending proposals."""
+
+
+class AgentProposalAuthorizationError(ValueError):
+    """A proposal write no longer has an active writable principal."""
+
+
+class AgentProposalExpiredTransitionError(ValueError):
+    """An apply transition reached the authoritative expiry boundary."""
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _proposal_utc_now() -> datetime:
+    """Return the authoritative proposal lifecycle clock in UTC."""
+
+    return datetime.now(timezone.utc)
 
 
 def _new_id(prefix: str) -> str:
@@ -68,6 +114,147 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return fallback
+
+
+def _scopes_for_access(access: str) -> list[str]:
+    if access == "read":
+        return [AGENT_DELEGATION_READ_SCOPE]
+    if access == "subscriptions_write":
+        return [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
+    raise ValueError("access must be read or subscriptions_write")
+
+
+def _bounded_agent_delegation_scopes_json(value: Any) -> list[str] | None:
+    """Parse delegation scope storage without accepting SQLite dynamic values."""
+
+    if not isinstance(value, str) or len(value) > AGENT_DELEGATION_SCOPES_JSON_MAX_LENGTH:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in value:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > AGENT_DELEGATION_SCOPES_JSON_MAX_DEPTH:
+                return None
+        elif character in "]}":
+            depth -= 1
+            if depth < 0:
+                return None
+    if depth != 0 or in_string:
+        return None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, RecursionError):
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _safe_agent_delegation_scopes(scopes_json: Any) -> list[str]:
+    raw_scopes = _bounded_agent_delegation_scopes_json(scopes_json)
+    if (
+        not isinstance(raw_scopes, list)
+        or not all(isinstance(scope, str) for scope in raw_scopes)
+        or len(raw_scopes) != len(set(raw_scopes))
+    ):
+        return []
+    scopes = set(raw_scopes)
+    if scopes == {AGENT_DELEGATION_READ_SCOPE}:
+        return [AGENT_DELEGATION_READ_SCOPE]
+    if scopes == {AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE}:
+        return [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
+    return []
+
+
+def _access_for_scopes(scopes: list[str]) -> str:
+    if scopes == [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]:
+        return "subscriptions_write"
+    return "read"
+
+
+def _proposal_classification_copies(value: str) -> tuple[str, ...] | None:
+    """Build bounded, non-persistent copies for credential classification."""
+
+    return classification_copies(value)
+
+
+def _normalized_sensitive_key(value: Any) -> str:
+    candidate = str(value)
+    candidate = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", candidate)
+    candidate = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", candidate)
+    return re.sub(r"[^a-z0-9]+", "_", candidate.casefold()).strip("_")
+
+
+def _is_sensitive_proposal_key(value: Any) -> bool:
+    copies = _proposal_classification_copies(str(value))
+    if copies is None:
+        return True
+    return any(_is_classified_sensitive_proposal_key(copy) for copy in copies)
+
+
+def _is_classified_sensitive_proposal_key(value: str) -> bool:
+    normalized = _normalized_sensitive_key(value)
+    if normalized in _PROPOSAL_PROHIBITED_CONTENT_KEYS:
+        return True
+    return is_sensitive_credential_key(value)
+
+
+def _contains_sensitive_query(value: str) -> bool:
+    return url_contains_credentials(value)
+
+
+def _proposal_data_contains_sensitive_content(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str) or _is_sensitive_proposal_key(key):
+                return True
+            if _proposal_data_contains_sensitive_content(item):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_proposal_data_contains_sensitive_content(item) for item in value)
+    if isinstance(value, str):
+        copies = _proposal_classification_copies(value)
+        if copies is None:
+            return True
+        return text_contains_credential(value) or url_contains_credentials(value)
+    if value is None or isinstance(value, (bool, int)):
+        return False
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    return True
+
+
+def _require_safe_proposal_data(*values: Any) -> None:
+    if any(_proposal_data_contains_sensitive_content(value) for value in values):
+        raise ValueError("proposal data contains prohibited sensitive content")
+
+
+def _parse_proposal_time(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("proposal timestamp must be ISO 8601") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("proposal timestamp must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _authoritative_proposal_time() -> datetime:
+    current = _proposal_utc_now()
+    if not isinstance(current, datetime) or current.tzinfo is None:
+        raise RuntimeError("proposal clock must return a timezone-aware datetime")
+    return current.astimezone(timezone.utc)
 
 
 def _bool(value: Any) -> bool:
@@ -160,6 +347,11 @@ class ServiceStore:
             with self._connections_lock:
                 self._connections.append(connection)
         return connection
+
+    def authoritative_agent_proposal_time(self) -> datetime:
+        """Return the store-owned UTC clock for proposal state transitions."""
+
+        return _authoritative_proposal_time()
 
     @contextmanager
     def request_connection_scope(self) -> Iterator[None]:
@@ -264,6 +456,34 @@ class ServiceStore:
             CREATE INDEX IF NOT EXISTS idx_agent_delegations_workspace_user_status
                 ON agent_delegations(workspace_id, user_id, revoked_at, expires_at);
 
+            CREATE TABLE IF NOT EXISTS agent_change_proposals (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                delegation_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('create', 'update', 'delete')),
+                source_id TEXT,
+                subscription_id TEXT,
+                payload_json TEXT NOT NULL,
+                preview_json TEXT NOT NULL,
+                fingerprints_json TEXT NOT NULL,
+                confirmation_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending', 'applied', 'expired')),
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                applied_at TEXT,
+                result_summary_json TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(delegation_id) REFERENCES agent_delegations(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_change_proposals_delegation_status_expires
+                ON agent_change_proposals(delegation_id, status, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_agent_change_proposals_status_updated
+                ON agent_change_proposals(status, updated_at);
+
             CREATE TABLE IF NOT EXISTS source_catalog (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
@@ -277,6 +497,8 @@ class ServiceStore:
                 config_json TEXT NOT NULL DEFAULT '{}',
                 source_key TEXT,
                 secret_env TEXT,
+                enforce_public_network INTEGER NOT NULL DEFAULT 0
+                    CHECK(enforce_public_network IN (0, 1)),
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -690,6 +912,11 @@ class ServiceStore:
             """
         )
         self._ensure_column("fetch_jobs", "max_attempts", "INTEGER NOT NULL DEFAULT 3")
+        self._ensure_column(
+            "source_catalog",
+            "enforce_public_network",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
         self._ensure_column("fetch_jobs", "claim_token", "TEXT")
         self._ensure_column("fetch_jobs", "next_run_at", "TEXT")
         self._ensure_column("fetch_jobs", "locked_until", "TEXT")
@@ -776,6 +1003,7 @@ class ServiceStore:
         if not has_content_index_v4_artifacts and not content_index_v4_migrated:
             self.mark_content_index_v4_migrated(commit=False)
         self.mark_agent_delegations_v6_migrated(commit=False)
+        self.mark_agent_change_proposals_v7_migrated(commit=False)
         self._bootstrap_default_workspace()
         self._bootstrap_admin_user()
         conn.commit()
@@ -853,6 +1081,19 @@ class ServiceStore:
             """
             INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
             VALUES (6, 'agent_delegations_v6', 'agent-delegations-v6-remote-mcp', ?)
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def mark_agent_change_proposals_v7_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (7, 'agent_change_proposals_v7', 'agent-change-proposals-v7', ?)
             """,
             (_now_iso(),),
         )
@@ -988,11 +1229,13 @@ class ServiceStore:
             status = "expired"
         else:
             status = "active"
+        scopes = _safe_agent_delegation_scopes(row["scopes_json"])
         return {
             "id": row["id"],
             "name": row["name"],
             "client_type": row["client_type"],
-            "scopes": _json_loads(row["scopes_json"], []),
+            "access": _access_for_scopes(scopes),
+            "scopes": scopes,
             "token_prefix": row["token_prefix"],
             "created_at": row["created_at"],
             "expires_at": row["expires_at"],
@@ -1002,11 +1245,31 @@ class ServiceStore:
         }
 
     @staticmethod
+    def _agent_change_proposal(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["payload"] = _json_loads(data.pop("payload_json", None), {})
+        data["preview"] = _json_loads(data.pop("preview_json", None), {})
+        data["fingerprints"] = _json_loads(
+            data.pop("fingerprints_json", None), {}
+        )
+        data["result_summary"] = _json_loads(
+            data.pop("result_summary_json", None), None
+        )
+        return data
+
+    @staticmethod
     def _source(row: sqlite3.Row | None) -> dict[str, Any] | None:
         if row is None:
             return None
         data = dict(row)
         data["enabled"] = _bool(data.get("enabled"))
+        data["enforce_public_network"] = _bool(
+            data.get("enforce_public_network")
+        )
         data["default_topics"] = _json_loads(data.pop("default_topics_json", None), [])
         data["config"] = _json_loads(data.pop("config_json", None), {})
         return data
@@ -1331,7 +1594,9 @@ class ServiceStore:
         workspace_id: str,
         user_id: str,
         name: str,
+        access: str = "read",
     ) -> tuple[dict[str, Any], str]:
+        scopes = _scopes_for_access(access)
         delegation_name = str(name or "").strip()
         if not delegation_name:
             raise ValueError("name is required")
@@ -1386,7 +1651,7 @@ class ServiceStore:
                     delegation_name,
                     token_hash,
                     token[:18],
-                    _json_dumps([AGENT_DELEGATION_SCOPE]),
+                    _json_dumps(scopes),
                     now,
                     expires_at,
                     now,
@@ -1517,8 +1782,349 @@ class ServiceStore:
             "workspace_id": row["workspace_id"],
             "user_id": row["user_id"],
             "role": row["role"],
-            "scopes": _json_loads(row["scopes_json"], []),
+            "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
             "expires_at": row["expires_at"],
+        }
+
+    def get_active_agent_delegation_principal(
+        self,
+        delegation_id: str,
+    ) -> dict[str, Any] | None:
+        """Re-read one delegation's live authorization state without its token.
+
+        Proposal services use this after bearer-token verification so role,
+        user status, revocation, expiry, and persisted scopes cannot be frozen
+        into an earlier request claim or replaced by caller-provided fields.
+        This read intentionally does not touch ``last_used_at``.
+        """
+
+        now = _now_iso()
+        row = self.connect().execute(
+            """
+            SELECT delegation.*, users.role
+            FROM agent_delegations AS delegation
+            JOIN users ON users.id = delegation.user_id
+            WHERE delegation.id = ?
+              AND delegation.revoked_at IS NULL
+              AND delegation.expires_at > ?
+              AND users.enabled = 1
+              AND users.workspace_id = delegation.workspace_id
+            """,
+            (str(delegation_id), now),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "delegation_id": row["id"],
+            "workspace_id": row["workspace_id"],
+            "user_id": row["user_id"],
+            "role": row["role"],
+            "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
+            "expires_at": row["expires_at"],
+        }
+
+    def create_agent_change_proposal(
+        self,
+        *,
+        proposal_id: str,
+        workspace_id: str,
+        user_id: str,
+        delegation_id: str,
+        kind: str,
+        source_id: str | None,
+        subscription_id: str | None,
+        payload: dict[str, Any],
+        preview: dict[str, Any],
+        fingerprints: dict[str, Any],
+        confirmation_hash: str,
+        created_at: str,
+        expires_at: str,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if kind not in {"create", "update", "delete"}:
+            raise ValueError("proposal kind must be create, update, or delete")
+        created = _parse_proposal_time(created_at)
+        expires = _parse_proposal_time(expires_at)
+        if expires - created != timedelta(minutes=AGENT_PROPOSAL_TTL_MINUTES):
+            raise ValueError("proposal expiry must be exactly ten minutes")
+        _require_safe_proposal_data(payload, preview, fingerprints)
+
+        conn = self.connect()
+        started_transaction = not conn.in_transaction
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            authoritative_now = _authoritative_proposal_time()
+            created_iso = authoritative_now.isoformat()
+            expires_iso = (
+                authoritative_now
+                + timedelta(minutes=AGENT_PROPOSAL_TTL_MINUTES)
+            ).isoformat()
+            principal = conn.execute(
+                """
+                SELECT delegation.scopes_json, users.role
+                FROM agent_delegations AS delegation
+                JOIN users ON users.id = delegation.user_id
+                WHERE delegation.id = ?
+                  AND delegation.workspace_id = ?
+                  AND delegation.user_id = ?
+                  AND delegation.revoked_at IS NULL
+                  AND delegation.expires_at > ?
+                  AND users.enabled = 1
+                  AND users.workspace_id = delegation.workspace_id
+                """,
+                (delegation_id, workspace_id, user_id, created_iso),
+            ).fetchone()
+            if (
+                principal is None
+                or principal["role"] not in {"owner", "admin", "member"}
+                or AGENT_DELEGATION_WRITE_SCOPE
+                not in _safe_agent_delegation_scopes(principal["scopes_json"])
+            ):
+                raise AgentProposalAuthorizationError(
+                    "agent proposal delegation is not authorized"
+                )
+            self._cleanup_agent_change_proposals_locked(
+                now=authoritative_now,
+                delegation_id=delegation_id,
+                maintenance=False,
+            )
+            pending_count = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) FROM agent_change_proposals
+                    WHERE delegation_id = ?
+                      AND status = 'pending'
+                      AND expires_at > ?
+                    """,
+                    (delegation_id, created_iso),
+                ).fetchone()[0]
+            )
+            if pending_count >= AGENT_PROPOSAL_MAX_PENDING:
+                raise AgentProposalLimitError(
+                    "agent proposal pending limit reached"
+                )
+            conn.execute(
+                """
+                INSERT INTO agent_change_proposals (
+                    id, workspace_id, user_id, delegation_id, kind, source_id,
+                    subscription_id, payload_json, preview_json,
+                    fingerprints_json, confirmation_hash, status, created_at,
+                    expires_at, applied_at, result_summary_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL, ?)
+                """,
+                (
+                    proposal_id,
+                    workspace_id,
+                    user_id,
+                    delegation_id,
+                    kind,
+                    source_id,
+                    subscription_id,
+                    _json_dumps(payload),
+                    _json_dumps(preview),
+                    _json_dumps(fingerprints),
+                    confirmation_hash,
+                    created_iso,
+                    expires_iso,
+                    created_iso,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM agent_change_proposals WHERE id = ?",
+                (proposal_id,),
+            ).fetchone()
+            if started_transaction and commit:
+                conn.commit()
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        proposal = self._agent_change_proposal(row)
+        if proposal is None:
+            raise LookupError("created proposal not found")
+        return proposal
+
+    def get_agent_change_proposal(
+        self, proposal_id: str
+    ) -> dict[str, Any] | None:
+        row = self.connect().execute(
+            "SELECT * FROM agent_change_proposals WHERE id = ?",
+            (proposal_id,),
+        ).fetchone()
+        return self._agent_change_proposal(row)
+
+    def expire_agent_change_proposal(
+        self,
+        proposal_id: str,
+        *,
+        now: str,
+        commit: bool = True,
+    ) -> dict[str, Any] | None:
+        # Retain the argument for the existing store interface, but never use a
+        # caller-selected timestamp to decide proposal eligibility.
+        _parse_proposal_time(now)
+        conn = self.connect()
+        started_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now_iso = self.authoritative_agent_proposal_time().isoformat()
+            conn.execute(
+                """
+                UPDATE agent_change_proposals
+                SET status = 'expired', updated_at = ?
+                WHERE id = ? AND status = 'pending' AND expires_at <= ?
+                """,
+                (now_iso, proposal_id, now_iso),
+            )
+            row = conn.execute(
+                "SELECT * FROM agent_change_proposals WHERE id = ?",
+                (proposal_id,),
+            ).fetchone()
+            if started_transaction:
+                conn.commit()
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return self._agent_change_proposal(row)
+
+    def apply_agent_change_proposal(
+        self,
+        proposal_id: str,
+        *,
+        applied_at: str,
+        result_summary: dict[str, Any],
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        _require_safe_proposal_data(result_summary)
+        _parse_proposal_time(applied_at)
+        conn = self.connect()
+        started_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            applied_iso = _authoritative_proposal_time().isoformat()
+            cursor = conn.execute(
+                """
+                UPDATE agent_change_proposals
+                SET status = 'applied', applied_at = ?, result_summary_json = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = 'pending' AND expires_at > ?
+                """,
+                (
+                    applied_iso,
+                    _json_dumps(result_summary),
+                    applied_iso,
+                    proposal_id,
+                    applied_iso,
+                ),
+            )
+            if cursor.rowcount != 1:
+                existing = conn.execute(
+                    "SELECT status, expires_at FROM agent_change_proposals WHERE id = ?",
+                    (proposal_id,),
+                ).fetchone()
+                if existing is None:
+                    raise LookupError("proposal not found")
+                if (
+                    existing["status"] == "pending"
+                    and existing["expires_at"] <= applied_iso
+                ):
+                    raise AgentProposalExpiredTransitionError("proposal expired")
+                raise ValueError("proposal is not pending")
+            row = conn.execute(
+                "SELECT * FROM agent_change_proposals WHERE id = ?",
+                (proposal_id,),
+            ).fetchone()
+            if started_transaction:
+                conn.commit()
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        proposal = self._agent_change_proposal(row)
+        if proposal is None:
+            raise LookupError("applied proposal not found")
+        return proposal
+
+    def cleanup_agent_change_proposals(
+        self,
+        *,
+        now: str,
+        delegation_id: str | None = None,
+        maintenance: bool = False,
+        commit: bool = True,
+    ) -> dict[str, int]:
+        current = _parse_proposal_time(now)
+        conn = self.connect()
+        started_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            result = self._cleanup_agent_change_proposals_locked(
+                now=current,
+                delegation_id=delegation_id,
+                maintenance=maintenance,
+            )
+            if started_transaction:
+                conn.commit()
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return result
+
+    def _cleanup_agent_change_proposals_locked(
+        self,
+        *,
+        now: datetime,
+        delegation_id: str | None,
+        maintenance: bool,
+    ) -> dict[str, int]:
+        conn = self.connect()
+        now_iso = now.astimezone(timezone.utc).isoformat()
+        delegation_clause = ""
+        parameters: list[Any] = [now_iso, now_iso]
+        if delegation_id is not None:
+            delegation_clause = " AND delegation_id = ?"
+            parameters.append(delegation_id)
+        expired = conn.execute(
+            """
+            UPDATE agent_change_proposals
+            SET status = 'expired', updated_at = ?
+            WHERE status = 'pending' AND expires_at <= ?
+            """
+            + delegation_clause,
+            parameters,
+        ).rowcount
+
+        if maintenance:
+            cutoff = (
+                now - timedelta(days=AGENT_PROPOSAL_MAINTENANCE_RETENTION_DAYS)
+            ).isoformat()
+            delete_sql = """
+                DELETE FROM agent_change_proposals
+                WHERE status IN ('applied', 'expired') AND updated_at < ?
+            """
+        else:
+            cutoff = (
+                now
+                - timedelta(hours=AGENT_PROPOSAL_PREPARE_EXPIRED_RETENTION_HOURS)
+            ).isoformat()
+            delete_sql = """
+                DELETE FROM agent_change_proposals
+                WHERE status = 'expired' AND expires_at < ?
+            """
+        delete_parameters: list[Any] = [cutoff]
+        if delegation_id is not None:
+            delete_sql += " AND delegation_id = ?"
+            delete_parameters.append(delegation_id)
+        deleted = conn.execute(delete_sql, delete_parameters).rowcount
+        return {
+            "expired": max(int(expired), 0),
+            "deleted": max(int(deleted), 0),
         }
 
     def get_session_user(self, token: str | None) -> dict[str, Any] | None:
@@ -1661,7 +2267,9 @@ class ServiceStore:
         default_topics: list[str] | None = None,
         source_key: str | None = None,
         secret_env: str | None = None,
+        enforce_public_network: bool = False,
         enabled: bool = True,
+        commit: bool = True,
     ) -> str:
         if scope not in SOURCE_SCOPES:
             raise ValueError("scope must be public, workspace, or private")
@@ -1671,33 +2279,52 @@ class ServiceStore:
             raise ValueError("display_name is required")
         now = _now_iso()
         source_id = _new_id("src")
-        self.connect().execute(
-            """
-            INSERT INTO source_catalog (
-                id, workspace_id, scope, owner_user_id, type, display_name,
-                description, default_channel, default_topics_json, config_json,
-                source_key, secret_env, enabled, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                source_id,
-                workspace_id,
-                scope,
-                owner_user_id,
-                source_type,
-                display_name,
-                description,
-                default_channel,
-                _json_dumps(default_topics or []),
-                _json_dumps(config),
-                source_key,
-                secret_env,
-                1 if enabled else 0,
-                now,
-                now,
-            ),
-        )
-        self.connect().commit()
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO source_catalog (
+                    id, workspace_id, scope, owner_user_id, type, display_name,
+                    description, default_channel, default_topics_json, config_json,
+                    source_key, secret_env, enforce_public_network, enabled,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_id,
+                    workspace_id,
+                    scope,
+                    owner_user_id,
+                    source_type,
+                    display_name,
+                    description,
+                    default_channel,
+                    _json_dumps(default_topics or []),
+                    _json_dumps(config),
+                    source_key,
+                    secret_env,
+                    1 if enforce_public_network else 0,
+                    1 if enabled else 0,
+                    now,
+                    now,
+                ),
+            )
+            if owns_transaction:
+                conn.commit()
+        except sqlite3.IntegrityError as exc:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            conflict_columns = "source_catalog.workspace_id, source_catalog.source_key"
+            if source_key and conflict_columns in str(exc):
+                raise SourceKeyConflictError(source_key) from exc
+            raise
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
         return source_id
 
     def upsert_source(
@@ -1714,6 +2341,7 @@ class ServiceStore:
         default_channel: str | None = None,
         default_topics: list[str] | None = None,
         secret_env: str | None = None,
+        enforce_public_network: bool | None = None,
         enabled: bool = True,
     ) -> dict[str, Any]:
         """Atomically create or update one compatible workspace source key."""
@@ -1756,6 +2384,11 @@ class ServiceStore:
                     config=config,
                     source_key=source_key,
                     secret_env=secret_env,
+                    enforce_public_network=(
+                        _UNSET
+                        if enforce_public_network is None
+                        else enforce_public_network
+                    ),
                     enabled=enabled,
                     commit=False,
                 )
@@ -1766,8 +2399,9 @@ class ServiceStore:
                     INSERT INTO source_catalog (
                         id, workspace_id, scope, owner_user_id, type, display_name,
                         description, default_channel, default_topics_json, config_json,
-                        source_key, secret_env, enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        source_key, secret_env, enforce_public_network, enabled,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         source_id,
@@ -1782,6 +2416,7 @@ class ServiceStore:
                         _json_dumps(config),
                         source_key,
                         secret_env,
+                        1 if enforce_public_network else 0,
                         1 if enabled else 0,
                         now,
                         now,
@@ -1829,7 +2464,7 @@ class ServiceStore:
                 scope IN ('public', 'workspace')
                 OR (scope = 'private' AND owner_user_id = ?)
               )
-            ORDER BY scope, display_name
+            ORDER BY scope, display_name, id
             """,
             (user["workspace_id"], 1 if include_disabled else 0, user["id"]),
         ).fetchall()
@@ -1846,6 +2481,7 @@ class ServiceStore:
         config: Any = _UNSET,
         source_key: Any = _UNSET,
         secret_env: Any = _UNSET,
+        enforce_public_network: Any = _UNSET,
         enabled: Any = _UNSET,
         commit: bool = True,
     ) -> dict[str, Any]:
@@ -1886,7 +2522,7 @@ class ServiceStore:
                 UPDATE source_catalog
                 SET display_name = ?, description = ?, default_channel = ?,
                     default_topics_json = ?, config_json = ?, source_key = ?, secret_env = ?,
-                    enabled = ?, updated_at = ?
+                    enforce_public_network = ?, enabled = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -1903,6 +2539,11 @@ class ServiceStore:
                     ),
                     next_source_key,
                     current["secret_env"] if secret_env is _UNSET else secret_env,
+                    (
+                        (1 if current["enforce_public_network"] else 0)
+                        if enforce_public_network is _UNSET
+                        else 1 if enforce_public_network else 0
+                    ),
                     1 if target_enabled else 0,
                     now,
                     source_id,
@@ -2102,6 +2743,7 @@ class ServiceStore:
                 sc.config_json,
                 sc.source_key,
                 sc.secret_env,
+                sc.enforce_public_network,
                 sc.enabled AS source_enabled
             FROM user_subscriptions us
             JOIN source_catalog sc ON sc.id = us.source_id
@@ -2156,6 +2798,7 @@ class ServiceStore:
                 sc.config_json,
                 sc.source_key,
                 sc.secret_env,
+                sc.enforce_public_network,
                 sc.enabled AS source_enabled
             FROM user_subscriptions us
             JOIN source_catalog sc ON sc.id = us.source_id

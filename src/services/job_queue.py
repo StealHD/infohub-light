@@ -783,6 +783,8 @@ class JobQueue:
                     finished_at = NULL,
                     error_code = NULL,
                     error_message = NULL,
+                    result_json = NULL,
+                    started_at = NULL,
                     updated_at = ?
                 WHERE id = ?
                   AND status IN ('failed', 'partial', 'cancelled')
@@ -791,6 +793,18 @@ class JobQueue:
             )
             if updated_row.rowcount != 1:
                 raise ValueError("only failed, partial, or cancelled jobs can be retried")
+            conn.execute(
+                "DELETE FROM user_source_health_applications WHERE job_id = ?",
+                (job_id,),
+            )
+            conn.execute(
+                """
+                UPDATE user_source_health
+                SET last_job_id = NULL
+                WHERE last_job_id = ?
+                """,
+                (job_id,),
+            )
             if owns_transaction:
                 conn.commit()
         except Exception:

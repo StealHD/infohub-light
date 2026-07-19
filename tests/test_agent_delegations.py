@@ -1,5 +1,6 @@
 import hashlib
 import re
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 
@@ -90,6 +91,7 @@ def test_agent_delegation_secret_is_returned_once_and_only_its_hash_is_stored(
         "id": row["id"],
         "name": "My Mac",
         "client_type": "openclaw",
+        "access": "read",
         "scopes": ["inteliscope:read"],
         "token_prefix": token[:18],
         "created_at": "2026-07-16T00:00:00+00:00",
@@ -257,3 +259,138 @@ def test_expired_agent_delegation_no_longer_authenticates_or_counts_toward_limit
         name="Replacement",
     )
     assert replacement["status"] == "active"
+
+
+def test_delegation_access_maps_to_canonical_scopes_without_upgrading_old_rows(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    user = store.get_user_by_username("owner")
+
+    old_connection, old_token = store.create_agent_delegation(
+        workspace_id=user["workspace_id"],
+        user_id=user["id"],
+        name="Existing read connection",
+    )
+    write_connection, write_token = store.create_agent_delegation(
+        workspace_id=user["workspace_id"],
+        user_id=user["id"],
+        name="New write connection",
+        access="subscriptions_write",
+    )
+    store.initialize()
+
+    assert old_connection["access"] == "read"
+    assert old_connection["scopes"] == ["inteliscope:read"]
+    assert store.authenticate_agent_delegation(old_token)["scopes"] == [
+        "inteliscope:read"
+    ]
+    assert write_connection["access"] == "subscriptions_write"
+    assert write_connection["scopes"] == [
+        "inteliscope:read",
+        "inteliscope:subscriptions:write",
+    ]
+    assert store.authenticate_agent_delegation(write_token)["scopes"] == [
+        "inteliscope:read",
+        "inteliscope:subscriptions:write",
+    ]
+
+
+def test_delegation_access_rejects_unknown_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    user = store.get_user_by_username("owner")
+
+    with pytest.raises(ValueError, match="access must be read or subscriptions_write"):
+        store.create_agent_delegation(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+            name="Forged",
+            access="owner",
+        )
+
+    assert store.list_agent_delegations(user["id"]) == []
+
+
+def test_unknown_or_extra_stored_scopes_fail_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    user = store.get_user_by_username("owner")
+    connection, token = store.create_agent_delegation(
+        workspace_id=user["workspace_id"],
+        user_id=user["id"],
+        name="Tampered",
+    )
+    store.connect().execute(
+        "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+        (
+            '["inteliscope:read","inteliscope:subscriptions:write","unexpected"]',
+            connection["id"],
+        ),
+    )
+    store.connect().commit()
+
+    listed = store.list_agent_delegations(user["id"])[0]
+    principal = store.authenticate_agent_delegation(token)
+
+    assert listed["access"] == "read"
+    assert listed["scopes"] == []
+    assert principal["scopes"] == []
+
+
+@pytest.mark.parametrize(
+    "stored_scopes",
+    [
+        "[",
+        sqlite3.Binary(b"\x80"),
+        sqlite3.Binary(b'[\"inteliscope:read\"]'),
+        '["inteliscope:read"]' + (" " * 513),
+        "[" * 65 + '"inteliscope:read"' + "]" * 65,
+        '{"scope":"inteliscope:read"}',
+        '["unexpected"]',
+        '["inteliscope:read","inteliscope:read"]',
+    ],
+    ids=[
+        "invalid-json",
+        "invalid-utf8-blob",
+        "valid-json-blob",
+        "oversized",
+        "deeply-nested",
+        "non-list",
+        "unknown",
+        "duplicate",
+    ],
+)
+def test_corrupt_stored_delegation_scopes_fail_closed_without_raising(
+    tmp_path, monkeypatch, stored_scopes
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    user = store.get_user_by_username("owner")
+    connection, token = store.create_agent_delegation(
+        workspace_id=user["workspace_id"],
+        user_id=user["id"],
+        name="Corrupt scopes",
+    )
+    store.connect().execute(
+        "UPDATE agent_delegations SET scopes_json = ? WHERE id = ?",
+        (stored_scopes, connection["id"]),
+    )
+    store.connect().commit()
+
+    listed = store.list_agent_delegations(user["id"])[0]
+    principal = store.authenticate_agent_delegation(token)
+
+    assert listed["access"] == "read"
+    assert listed["scopes"] == []
+    assert principal is not None
+    assert principal["scopes"] == []

@@ -24,7 +24,8 @@ describe('service api', () => {
     await api.unsubscribe('sub/1')
     await api.sources(true)
     await api.agentDelegations()
-    await api.createAgentDelegation('My Mac')
+    await api.createAgentDelegation('My Mac', 'subscriptions_write')
+    await api.createAgentDelegation('Read Mac')
     await api.renameAgentDelegation('agent/1', 'Desktop')
     await api.revokeAgentDelegation('agent/1')
 
@@ -41,7 +42,14 @@ describe('service api', () => {
     expect(client.delete).toHaveBeenCalledWith('/api/me/subscriptions/sub%2F1')
     expect(client.get).toHaveBeenCalledWith('/api/catalog/sources?include_disabled=true', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/me/agent-delegations', undefined)
-    expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', { name: 'My Mac' })
+    expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {
+      name: 'My Mac',
+      access: 'subscriptions_write',
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {
+      name: 'Read Mac',
+      access: 'read',
+    })
     expect(client.patch).toHaveBeenCalledWith('/api/me/agent-delegations/agent%2F1', { name: 'Desktop' })
     expect(client.delete).toHaveBeenCalledWith('/api/me/agent-delegations/agent%2F1')
   })

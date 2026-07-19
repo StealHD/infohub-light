@@ -15,3 +15,11 @@ def test_nginx_exposes_exact_remote_mcp_route_without_basic_auth():
     assert "limit_conn inteliscope_mcp_connections 8;" in mcp_location
     assert "proxy_set_header Authorization $http_authorization;" in mcp_location
     assert "proxy_pass http://127.0.0.1:8080;" in mcp_location
+
+
+def test_nginx_remote_mcp_runbook_keeps_production_writes_off_and_schema_v7():
+    docs = Path("deploy/nginx/README_zh.md").read_text(encoding="utf-8")
+
+    assert "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false" in docs
+    assert "schema v7" in docs
+    assert "只启动 `horizon-api`" in docs

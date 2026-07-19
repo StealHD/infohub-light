@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import uvicorn
 from dotenv import load_dotenv
@@ -35,6 +35,11 @@ from ..services.source_schedule import (
     SOURCE_ALLOWED_INTERVALS,
     SourceScheduleService,
     SourceScheduleUnavailableError,
+)
+from ..services.subscription_mutation import (
+    SubscriptionActor,
+    SubscriptionMutationError,
+    SubscriptionMutationService,
 )
 from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
@@ -276,6 +281,21 @@ class AgentDelegationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=80)
+    access: Literal["read", "subscriptions_write"] = "read"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("name is required")
+        return name
+
+
+class AgentDelegationRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
 
     @field_validator("name")
     @classmethod
@@ -360,6 +380,13 @@ def create_app(
     item_state = UserItemStateStore(store)
     user_content = UserContentStore(store)
     media_cache = MediaCacheService(store, data_dir=data_path)
+    subscription_mutations = SubscriptionMutationService(
+        store,
+        quota=quota,
+        source_schedules=source_schedules,
+        source_health=source_health,
+        media_cache=media_cache,
+    )
     auth_settings = AuthSettings.from_env()
     remote_mcp_settings = RemoteMCPSettings.from_env()
 
@@ -426,6 +453,7 @@ def create_app(
 
     def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         item = dict(source)
+        item.pop("enforce_public_network", None)
         avatar = media_cache.avatar_for_source(
             workspace_id=str(source["workspace_id"]),
             source_id=str(source["id"]),
@@ -445,32 +473,11 @@ def create_app(
         source_id: str,
         **values: Any,
     ) -> dict[str, Any]:
-        """Serialize enabled-source admission with the subscription upsert."""
-
-        conn = store.connect()
-        owns_transaction = not conn.in_transaction
-        try:
-            if owns_transaction:
-                conn.execute("BEGIN IMMEDIATE")
-            if bool(values.get("enabled", True)):
-                quota.ensure_source_allowed(
-                    workspace_id=user["workspace_id"],
-                    user_id=user["id"],
-                    source_id=source_id,
-                )
-            subscription = store.create_subscription(
-                user_id=user["id"],
-                source_id=source_id,
-                commit=False,
-                **values,
-            )
-            if owns_transaction:
-                conn.commit()
-            return subscription
-        except Exception:
-            if owns_transaction and conn.in_transaction:
-                conn.rollback()
-            raise
+        return subscription_mutations.rest_create_subscription(
+            SubscriptionActor.from_user(user),
+            source_id=source_id,
+            values=values,
+        )
 
     def update_subscription_with_quota(
         *,
@@ -478,34 +485,11 @@ def create_app(
         subscription_id: str,
         updates: dict[str, Any],
     ) -> dict[str, Any]:
-        """Serialize re-enable admission with the lifecycle mutation."""
-
-        conn = store.connect()
-        owns_transaction = not conn.in_transaction
-        try:
-            if owns_transaction:
-                conn.execute("BEGIN IMMEDIATE")
-            current = store.get_subscription(subscription_id)
-            if not current or current["user_id"] != user["id"]:
-                raise ApiError("not_found", "subscription not found", status_code=404)
-            if updates.get("enabled") is True:
-                quota.ensure_source_allowed(
-                    workspace_id=user["workspace_id"],
-                    user_id=user["id"],
-                    source_id=current["source_id"],
-                )
-            updated = store.update_subscription(
-                subscription_id,
-                commit=False,
-                **updates,
-            )
-            if owns_transaction:
-                conn.commit()
-            return updated
-        except Exception:
-            if owns_transaction and conn.in_transaction:
-                conn.rollback()
-            raise
+        return subscription_mutations.rest_update_subscription(
+            SubscriptionActor.from_user(user),
+            subscription_id=subscription_id,
+            updates=updates,
+        )
 
     def visible_sources(
         user: dict[str, Any],
@@ -523,78 +507,32 @@ def create_app(
     def update_catalog_source(
         source: dict[str, Any],
         updates: dict[str, Any],
+        *,
+        user: dict[str, Any],
     ) -> dict[str, Any]:
-        """Update a source and reset stale health in the same transaction."""
-        conn = store.connect()
-        started_transaction = not conn.in_transaction
-        try:
-            if started_transaction:
-                conn.execute("BEGIN IMMEDIATE")
-            current = store.get_source(source["id"])
-            if current is None:
-                raise LookupError("source not found")
-            config_changed = (
-                "config" in updates and updates["config"] != current["config"]
-            )
-            secret_env_changed = (
-                "secret_env" in updates
-                and updates["secret_env"] != current["secret_env"]
-            )
-            identity_changed = (
-                "source_key" in updates
-                and updates["source_key"] != current.get("source_key")
-            )
-            updated = store.update_source(current["id"], commit=False, **updates)
-            if config_changed or secret_env_changed:
-                source_health.reset_source(
-                    workspace_id=current["workspace_id"],
-                    source_id=current["id"],
-                    commit=False,
-                )
-            if identity_changed:
-                media_cache.invalidate_source_avatar(
-                    workspace_id=current["workspace_id"],
-                    source_id=current["id"],
-                )
-            if started_transaction:
-                conn.commit()
-            return updated
-        except Exception:
-            if started_transaction and conn.in_transaction:
-                conn.rollback()
-            raise
+        return subscription_mutations.rest_update_source(
+            SubscriptionActor.from_user(user),
+            source_id=str(source["id"]),
+            updates=updates,
+        )
 
-    def upsert_catalog_source(**values: Any) -> dict[str, Any]:
-        """Upsert a source while invalidating health for identity changes."""
-        conn = store.connect()
-        started_transaction = not conn.in_transaction
-        try:
-            if started_transaction:
-                conn.execute("BEGIN IMMEDIATE")
-            existing = store.get_source_by_key(
-                workspace_id=values["workspace_id"],
-                source_key=values["source_key"],
-            )
-            updated = store.upsert_source(**values)
-            if existing and (
-                values["config"] != existing["config"]
-                or values.get("secret_env") != existing["secret_env"]
-            ):
-                source_health.reset_source(
-                    workspace_id=existing["workspace_id"],
-                    source_id=existing["id"],
-                    commit=False,
-                )
-            if started_transaction:
-                conn.commit()
-            return updated
-        except Exception:
-            if started_transaction and conn.in_transaction:
-                conn.rollback()
-            raise
+    def upsert_catalog_source(
+        *, user: dict[str, Any], **values: Any
+    ) -> dict[str, Any]:
+        return subscription_mutations.rest_upsert_source(
+            SubscriptionActor.from_user(user), values=values
+        )
 
     remote_mcp = (
-        create_remote_mcp(store, remote_mcp_settings)
+        create_remote_mcp(
+            store,
+            remote_mcp_settings,
+            mutation_service=subscription_mutations,
+            runtime_status=runtime_status,
+            secret_is_set=lambda env_name: bool(
+                secret_values.status(env_name)["is_set"]
+            ),
+        )
         if remote_mcp_settings.enabled
         else None
     )
@@ -609,6 +547,7 @@ def create_app(
 
     app = FastAPI(title="InfoHub Light Service API", lifespan=app_lifespan)
     app.state.service_store = store
+    app.state.subscription_mutations = subscription_mutations
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
 
     @app.middleware("http")
@@ -676,6 +615,19 @@ def create_app(
     @app.exception_handler(ApiError)
     async def _api_error_handler(_request: Request, exc: ApiError) -> JSONResponse:
         return error_response(exc)
+
+    @app.exception_handler(SubscriptionMutationError)
+    async def _subscription_mutation_error_handler(
+        _request: Request, exc: SubscriptionMutationError
+    ) -> JSONResponse:
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                action=exc.action,
+            )
+        )
 
     @app.exception_handler(QuotaExceeded)
     async def _quota_error_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:
@@ -1189,6 +1141,7 @@ def create_app(
             )
             try:
                 source = upsert_catalog_source(
+                    user=user,
                     workspace_id=user["workspace_id"],
                     scope="public",
                     owner_user_id=user["id"],
@@ -1276,10 +1229,12 @@ def create_app(
                             "secret_env": secret_env,
                             "enabled": True,
                         },
+                        user=user,
                     )
                     source_id = updated_source["id"]
             else:
                 updated_source = upsert_catalog_source(
+                    user=user,
                     workspace_id=user["workspace_id"],
                     scope=default_source_scope(user),
                     owner_user_id=user["id"],
@@ -1327,16 +1282,28 @@ def create_app(
         if source["scope"] != "private" and not _is_admin(user):
             subscription_id = str(payload.get("subscription_id") or "").strip()
             if subscription_id:
-                store.delete_subscription(subscription_id, user_id=user["id"])
+                subscription = store.get_subscription(subscription_id)
+                if subscription and subscription.get("user_id") == user["id"]:
+                    subscription_mutations.rest_delete_subscription(
+                        SubscriptionActor.from_user(user),
+                        subscription_id=subscription_id,
+                    )
                 return
             for subscription in store.list_user_subscriptions(user["id"]):
                 if subscription["source_id"] == source_id:
-                    store.delete_subscription(subscription["id"], user_id=user["id"])
+                    subscription_mutations.rest_delete_subscription(
+                        SubscriptionActor.from_user(user),
+                        subscription_id=subscription["id"],
+                    )
                     return
             return
         if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
             raise ApiError("forbidden", "cannot delete another user's private source", status_code=403)
-        store.update_source(source_id, enabled=False)
+        subscription_mutations.rest_update_source(
+            SubscriptionActor.from_user(user),
+            source_id=source_id,
+            updates={"enabled": False},
+        )
 
     def compatibility_job_payload(raw_payload: dict[str, Any]) -> JobCreateRequest:
         source_id = str(raw_payload.get("source_id") or "").strip() or None
@@ -1710,6 +1677,7 @@ def create_app(
         normalized_config, key = validate_catalog_source_config(payload.type, payload.config)
         try:
             source = upsert_catalog_source(
+                user=user,
                 workspace_id=user["workspace_id"],
                 scope=scope,
                 owner_user_id=user["id"],
@@ -1771,7 +1739,7 @@ def create_app(
         if "enabled" in provided:
             updates["enabled"] = payload.enabled
         try:
-            updated = update_catalog_source(source, updates)
+            updated = update_catalog_source(source, updates, user=user)
         except SourceKeyConflictError as exc:
             raise ApiError(
                 "source_key_conflict",
@@ -1792,7 +1760,14 @@ def create_app(
             raise ApiError("forbidden", "only admins can delete shared sources", status_code=403)
         if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
             raise ApiError("forbidden", "cannot delete another user's private source", status_code=403)
-        return ok(store.update_source(source_id, enabled=False))
+        updated = subscription_mutations.rest_update_source(
+            SubscriptionActor.from_user(user),
+            source_id=source_id,
+            updates={"enabled": False},
+        )
+        internal_safe = dict(updated)
+        internal_safe.pop("enforce_public_network", None)
+        return ok(internal_safe)
 
     @app.post("/api/catalog/sources/{source_id}/subscribe")
     async def catalog_subscribe(
@@ -1817,7 +1792,14 @@ def create_app(
         subscription = store.get_user_subscription_for_source(user["id"], source_id)
         if not subscription:
             raise ApiError("not_found", "subscription not found", status_code=404)
-        return ok({"deleted": store.delete_subscription(subscription["id"], user_id=user["id"])})
+        return ok(
+            {
+                "deleted": subscription_mutations.rest_delete_subscription(
+                    SubscriptionActor.from_user(user),
+                    subscription_id=subscription["id"],
+                )
+            }
+        )
 
     @app.get("/api/me/subscriptions")
     async def subscriptions_list(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
@@ -1842,6 +1824,9 @@ def create_app(
             {
                 "enabled": remote_mcp_settings.enabled,
                 "mcp_url": remote_mcp_settings.public_url,
+                "subscription_writes_enabled": (
+                    remote_mcp_settings.subscription_writes_enabled
+                ),
                 "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
                 "max_active": AGENT_DELEGATION_MAX_ACTIVE,
                 "connections": store.list_agent_delegations(user["id"]),
@@ -1861,11 +1846,26 @@ def create_app(
                 status_code=409,
                 action="Ask an administrator to enable Remote MCP.",
             )
+        if payload.access == "subscriptions_write":
+            if user.get("role") == "viewer":
+                raise ApiError(
+                    "forbidden",
+                    "viewer users cannot create subscription write connections",
+                    status_code=403,
+                )
+            if not remote_mcp_settings.subscription_writes_enabled:
+                raise ApiError(
+                    "subscription_writes_disabled",
+                    "subscription writes are disabled",
+                    status_code=409,
+                    action="Ask an administrator to enable subscription writes.",
+                )
         try:
             connection, token = store.create_agent_delegation(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
                 name=payload.name,
+                access=payload.access,
             )
         except AgentDelegationLimitError as exc:
             raise ApiError(
@@ -1880,7 +1880,7 @@ def create_app(
     @app.patch("/api/me/agent-delegations/{delegation_id}")
     async def agent_delegations_patch(
         delegation_id: str,
-        payload: AgentDelegationRequest,
+        payload: AgentDelegationRenameRequest,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         connection = store.rename_agent_delegation(
@@ -2037,12 +2037,13 @@ def create_app(
                 status_code=400,
             )
         try:
-            source_schedules.update_subscription_schedule(
-                workspace_id=user["workspace_id"],
-                user_id=user["id"],
+            subscription_mutations.rest_update_schedule(
+                SubscriptionActor.from_user(user),
                 subscription_id=subscription_id,
-                enabled=payload.enabled,
-                interval_minutes=payload.interval_minutes,
+                updates={
+                    "enabled": payload.enabled,
+                    "interval_minutes": payload.interval_minutes,
+                },
             )
         except LookupError as exc:
             raise ApiError(
@@ -2063,9 +2064,10 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
-        deleted = store.delete_subscription(subscription_id, user_id=user["id"])
-        if not deleted:
-            raise ApiError("not_found", "subscription not found", status_code=404)
+        subscription_mutations.rest_delete_subscription(
+            SubscriptionActor.from_user(user),
+            subscription_id=subscription_id,
+        )
         return ok({"deleted": True})
 
     @app.get("/api/me/item-state")

@@ -5,7 +5,9 @@ from threading import Barrier
 
 import pytest
 
+from src.services.feed_run import SourceOutcome
 from src.services.job_queue import JobQueue
+from src.services.source_health import SourceHealthService
 from src.services.user_feed_store import UserFeedSnapshotInput, UserFeedStore
 from src.storage.service_store import ServiceStore
 
@@ -205,6 +207,78 @@ def test_retry_cannot_overwrite_a_job_claimed_after_a_stale_read(tmp_path, monke
         "worker-a",
         claimed["claim_token"],
     )
+
+
+def test_concurrent_manual_retry_reopens_health_once(tmp_path, monkeypatch):
+    first, second, workspace, owner = _stores_with_owner(tmp_path, monkeypatch)
+    source_id = first.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Concurrent Retry Health",
+        config={"url": "https://example.com/concurrent-retry.xml"},
+    )
+    subscription = first.create_subscription(
+        user_id=owner["id"], source_id=source_id
+    )
+    first_queue = JobQueue(first)
+    second_queue = JobQueue(second)
+    job = first_queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        job_type="source_fetch",
+        payload={},
+    )
+    SourceHealthService(first).apply_outcomes(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=job["id"],
+        attempted_at="2026-07-18T03:00:00+00:00",
+        outcomes=(
+            SourceOutcome(
+                source_id=source_id,
+                subscription_id=subscription["id"],
+                source_key="rss:concurrent-retry",
+                analysis_mode="full",
+                status="succeeded",
+                fetched_count=0,
+            ),
+        ),
+    )
+    first.connect().execute(
+        "UPDATE fetch_jobs SET status = 'partial' WHERE id = ?", (job["id"],)
+    )
+    first.connect().commit()
+    barrier = Barrier(2)
+
+    def retry(queue):
+        barrier.wait()
+        try:
+            return queue.retry_job(job["id"], user_id=owner["id"])["status"]
+        except ValueError:
+            return "not_retryable"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = [
+            future.result(timeout=10)
+            for future in (
+                executor.submit(retry, first_queue),
+                executor.submit(retry, second_queue),
+            )
+        ]
+
+    assert sorted(results) == ["not_retryable", "queued"]
+    assert first_queue.get_job(job["id"])["status"] == "queued"
+    assert SourceHealthService(first).get_health(subscription["id"])[
+        "last_job_id"
+    ] is None
+    assert first.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 0
 
 
 def test_stale_claim_token_cannot_complete_reclaimed_job(tmp_path, monkeypatch):

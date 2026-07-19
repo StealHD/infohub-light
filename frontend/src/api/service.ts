@@ -2,6 +2,7 @@ import type { ApiClient } from './client'
 import type {
   AuthStatus,
   AgentDelegation,
+  AgentDelegationAccess,
   AgentDelegationCreated,
   AgentDelegationsResponse,
   CatalogSource,
@@ -77,7 +78,10 @@ export function createServiceApi(client: ApiClient) {
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
 
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
-    createAgentDelegation: (name: string) => client.post<AgentDelegationCreated>('/api/me/agent-delegations', { name }),
+    createAgentDelegation: (name: string, access: AgentDelegationAccess = 'read') => client.post<AgentDelegationCreated>(
+      '/api/me/agent-delegations',
+      { name, access },
+    ),
     renameAgentDelegation: (delegationId: string, name: string) => client.patch<AgentDelegation>(resource('/api/me/agent-delegations', delegationId), { name }),
     revokeAgentDelegation: (delegationId: string) => client.delete<{ revoked: boolean }>(resource('/api/me/agent-delegations', delegationId)),
 

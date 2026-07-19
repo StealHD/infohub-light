@@ -1,9 +1,11 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
+from src.services.feed_run import SourceOutcome
 from src.services.job_eligibility import JobIneligibleError
 from src.services.job_queue import JobQueue
 from src.services.quota import QuotaExceeded, QuotaService
+from src.services.source_health import SourceHealthService
 from src.services.usage_attempt_meter import UsageAttemptMeter
 from src.storage.service_store import ServiceStore
 
@@ -180,6 +182,258 @@ def test_retry_job_can_join_caller_transaction(tmp_path, monkeypatch):
     conn.rollback()
 
     assert queue.get_job(job["id"])["status"] == "cancelled"
+
+
+def _source_health_job(store, workspace, owner, *, source_index=0):
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name=f"Retry Health {source_index}",
+        config={"url": f"https://example.com/retry-health-{source_index}.xml"},
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"], source_id=source_id
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        job_type="source_fetch",
+        payload={},
+    )
+    SourceHealthService(store).apply_outcomes(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=job["id"],
+        attempted_at="2026-07-18T01:00:00+00:00",
+        outcomes=(
+            SourceOutcome(
+                source_id=source_id,
+                subscription_id=subscription["id"],
+                source_key=f"rss:retry-health-{source_index}",
+                analysis_mode="full",
+                status="succeeded",
+                fetched_count=0,
+            ),
+        ),
+    )
+    store.connect().execute(
+        """
+        UPDATE fetch_jobs
+        SET status = 'partial',
+            result_json = '{"fetched_count":0,"run_status":"partial","snapshot_id":"snap-old"}',
+            started_at = '2026-07-18T00:59:00+00:00'
+        WHERE id = ?
+        """,
+        (job["id"],),
+    )
+    store.connect().commit()
+    return source_id, subscription, job
+
+
+def test_retry_job_reopens_health_application_inside_caller_transaction(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    _source_id, subscription, job = _source_health_job(
+        store, workspace, owner
+    )
+    before = SourceHealthService(store).get_health(subscription["id"])
+    conn = store.connect()
+    conn.execute("BEGIN IMMEDIATE")
+
+    retried = queue.retry_job(job["id"], user_id=owner["id"], commit=False)
+    during = SourceHealthService(store).get_health(subscription["id"])
+
+    assert retried["status"] == "queued"
+    assert retried["result_json"] is None
+    assert retried["started_at"] is None
+    assert conn.in_transaction is True
+    assert during["last_job_id"] is None
+    assert during["status"] == before["status"] == "healthy"
+    assert during["last_fetched_count"] == before["last_fetched_count"] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 0
+
+    conn.rollback()
+
+    rolled_back = SourceHealthService(store).get_health(subscription["id"])
+    rolled_back_job = queue.get_job(job["id"])
+    assert rolled_back_job["status"] == "partial"
+    assert rolled_back_job["result_json"] == {
+        "fetched_count": 0,
+        "run_status": "partial",
+        "snapshot_id": "snap-old",
+    }
+    assert rolled_back_job["started_at"] == "2026-07-18T00:59:00+00:00"
+    assert rolled_back["last_job_id"] == job["id"]
+    assert conn.execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 1
+
+
+def test_retry_user_feed_refresh_reopens_all_applied_subscription_health(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    sources = []
+    subscriptions = []
+    for index in range(2):
+        source_id = store.create_source(
+            workspace_id=workspace["id"],
+            scope="public",
+            owner_user_id=owner["id"],
+            source_type="rss",
+            display_name=f"Refresh Retry {index}",
+            config={"url": f"https://example.com/refresh-retry-{index}.xml"},
+        )
+        sources.append(source_id)
+        subscriptions.append(
+            store.create_subscription(user_id=owner["id"], source_id=source_id)
+        )
+    queue = JobQueue(store)
+    job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="user_feed_refresh",
+        payload={},
+    )
+    SourceHealthService(store).apply_outcomes(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=job["id"],
+        attempted_at="2026-07-18T02:00:00+00:00",
+        outcomes=tuple(
+            SourceOutcome(
+                source_id=source_id,
+                subscription_id=subscription["id"],
+                source_key=f"rss:refresh-retry-{index}",
+                analysis_mode="full",
+                status="succeeded",
+                fetched_count=index,
+            )
+            for index, (source_id, subscription) in enumerate(
+                zip(sources, subscriptions, strict=True)
+            )
+        ),
+    )
+    store.connect().execute(
+        "UPDATE fetch_jobs SET status = 'partial' WHERE id = ?", (job["id"],)
+    )
+    store.connect().commit()
+
+    retried = queue.retry_job(job["id"], user_id=owner["id"])
+
+    assert retried["status"] == "queued"
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 0
+    for index, subscription in enumerate(subscriptions):
+        health = SourceHealthService(store).get_health(subscription["id"])
+        assert health["last_job_id"] is None
+        assert health["status"] == "healthy"
+        assert health["last_fetched_count"] == index
+
+
+def test_retry_without_health_or_application_still_queues_job(tmp_path, monkeypatch):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_test",
+        payload={},
+    )
+    queue.cancel_job(job["id"], user_id=owner["id"])
+
+    retried = queue.retry_job(job["id"], user_id=owner["id"])
+
+    assert retried["status"] == "queued"
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 0
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health WHERE last_job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 0
+
+
+def test_rejected_retry_does_not_clear_health_application(tmp_path, monkeypatch):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    other = store.create_user(
+        workspace_id=workspace["id"],
+        username="other-retry-user",
+        password="other-password",
+        role="member",
+    )
+    queue = JobQueue(store)
+    _source_id, subscription, job = _source_health_job(
+        store, workspace, owner
+    )
+
+    with pytest.raises(PermissionError, match="another user's job"):
+        queue.retry_job(job["id"], user_id=other["id"])
+
+    assert SourceHealthService(store).get_health(subscription["id"])[
+        "last_job_id"
+    ] == job["id"]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 1
+
+    store.connect().execute(
+        "UPDATE fetch_jobs SET status = 'queued' WHERE id = ?", (job["id"],)
+    )
+    store.connect().commit()
+    with pytest.raises(ValueError, match="failed, partial, or cancelled"):
+        queue.retry_job(job["id"], user_id=owner["id"])
+
+    assert SourceHealthService(store).get_health(subscription["id"])[
+        "last_job_id"
+    ] == job["id"]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (job["id"],),
+    ).fetchone()[0] == 1
+
+
+def test_retry_returning_existing_active_job_preserves_terminal_health(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    source_id, subscription, terminal = _source_health_job(
+        store, workspace, owner
+    )
+    active, created = queue.create_source_fetch_if_absent(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        payload={},
+    )
+
+    returned = queue.retry_job(terminal["id"], user_id=owner["id"])
+
+    assert created is True
+    assert returned["id"] == active["id"] != terminal["id"]
+    assert SourceHealthService(store).get_health(subscription["id"])[
+        "last_job_id"
+    ] == terminal["id"]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM user_source_health_applications WHERE job_id = ?",
+        (terminal["id"],),
+    ).fetchone()[0] == 1
 
 
 def test_quota_service_rejects_jobs_after_daily_limit(tmp_path, monkeypatch):

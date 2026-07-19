@@ -36,6 +36,38 @@ def _new_id() -> str:
     return f"med_{uuid.uuid4().hex}"
 
 
+class PostCommitMediaCleanup:
+    """Collect private filesystem cleanup until the owning DB commit succeeds."""
+
+    def __init__(self) -> None:
+        self._paths: set[Path] = set()
+        self._closed = False
+
+    def add(self, path: Path) -> None:
+        if self._closed:
+            raise RuntimeError("post-commit media cleanup is already closed")
+        self._paths.add(path)
+
+    def run(self) -> int:
+        if self._closed:
+            return 0
+        paths = tuple(self._paths)
+        self._paths.clear()
+        self._closed = True
+        removed = 0
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                continue
+        return removed
+
+    def discard(self) -> None:
+        self._paths.clear()
+        self._closed = True
+
+
 def _remote_identity(url: str) -> str:
     """Return a stable remote identity without rotating signature parameters."""
 
@@ -391,29 +423,53 @@ class MediaCacheService:
         ).fetchone()
         return dict(row) if row is not None else None
 
-    def invalidate_source_avatar(self, *, workspace_id: str, source_id: str) -> int:
+    def invalidate_source_avatar(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        post_commit_cleanup: PostCommitMediaCleanup | None = None,
+    ) -> int:
         """Remove a cached avatar after the source identity changes."""
 
-        rows = self.store.connect().execute(
-            """
-            SELECT id, local_path FROM media_assets
-            WHERE workspace_id = ? AND source_id = ? AND asset_kind = 'source_avatar'
-            """,
-            (workspace_id, source_id),
-        ).fetchall()
-        self.store.connect().execute(
-            """
-            DELETE FROM media_assets
-            WHERE workspace_id = ? AND source_id = ? AND asset_kind = 'source_avatar'
-            """,
-            (workspace_id, source_id),
-        )
-        for row in rows:
-            path = (self.data_dir / str(row["local_path"])).resolve()
+        conn = self.store.connect()
+        owns_transaction = not conn.in_transaction
+        if not owns_transaction and post_commit_cleanup is None:
+            raise RuntimeError(
+                "post_commit_cleanup is required inside an outer transaction"
+            )
+        cleanup = post_commit_cleanup or PostCommitMediaCleanup()
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                """
+                SELECT id, local_path FROM media_assets
+                WHERE workspace_id = ? AND source_id = ? AND asset_kind = 'source_avatar'
+                """,
+                (workspace_id, source_id),
+            ).fetchall()
+            conn.execute(
+                """
+                DELETE FROM media_assets
+                WHERE workspace_id = ? AND source_id = ? AND asset_kind = 'source_avatar'
+                """,
+                (workspace_id, source_id),
+            )
             media_root = self.media_dir.resolve()
-            if path.is_relative_to(media_root):
-                path.unlink(missing_ok=True)
-        return len(rows)
+            for row in rows:
+                path = (self.data_dir / str(row["local_path"])).resolve()
+                if path.is_relative_to(media_root):
+                    cleanup.add(path)
+            if owns_transaction:
+                conn.commit()
+                cleanup.run()
+            return len(rows)
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+                cleanup.discard()
+            raise
 
     def authorized_asset(
         self,

@@ -1,5 +1,6 @@
 import pytest
 
+import src.services.source_type_registry as source_type_registry
 from src.services.source_type_registry import (
     SourceConfigError,
     build_source_payload,
@@ -8,6 +9,26 @@ from src.services.source_type_registry import (
     validate_secret_env_name,
     validate_source_config,
 )
+
+
+def test_agent_source_type_validator_owns_exact_public_enum():
+    public_types = {
+        "rss",
+        "telegram",
+        "github",
+        "reddit",
+        "twitter",
+        "website",
+        "youtube",
+        "apify",
+    }
+
+    assert {
+        source_type_registry.validate_agent_source_type(item)
+        for item in public_types
+    } == public_types
+    with pytest.raises(SourceConfigError, match="unsupported source type"):
+        source_type_registry.validate_agent_source_type("hackernews")
 
 
 def test_source_type_registry_lists_supported_types_and_templates():
@@ -26,6 +47,15 @@ def test_source_type_registry_lists_supported_types_and_templates():
     }.issubset(by_type)
     assert by_type["github_release"]["required_fields"] == ["owner", "repo"]
     assert by_type["apify_social"]["template"]["platform"] == "x"
+    assert set(by_type["rss"]) == {
+        "type",
+        "label",
+        "description",
+        "required_fields",
+        "template",
+        "fields",
+        "supports_secret_env",
+    }
 
 
 def test_source_type_registry_exposes_safe_canonical_field_metadata():

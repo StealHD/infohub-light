@@ -62,6 +62,19 @@ def prepare_deployment_database(
                     """
                 ).fetchone()
             )
+            has_agent_change_proposals = bool(
+                connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'table' AND name = 'agent_change_proposals'
+                    """
+                ).fetchone()
+            )
+            agent_change_proposals_removed = (
+                connection.execute("DELETE FROM agent_change_proposals").rowcount
+                if has_agent_change_proposals
+                else 0
+            )
             agent_delegations_removed = (
                 connection.execute("DELETE FROM agent_delegations").rowcount
                 if has_agent_delegations
@@ -115,6 +128,7 @@ def prepare_deployment_database(
             "output": str(output_path),
             "size_bytes": output_path.stat().st_size,
             "sessions_removed": sessions_removed,
+            "agent_change_proposals_removed": agent_change_proposals_removed,
             "agent_delegations_removed": agent_delegations_removed,
             "heartbeats_removed": heartbeats_removed,
             "jobs_cancelled": jobs_cancelled,

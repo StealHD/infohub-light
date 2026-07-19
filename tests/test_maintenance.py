@@ -131,6 +131,46 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
         user_id=owner["id"],
         job_type="source_test",
     )
+    delegation, _token = store.create_agent_delegation(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        name="Maintenance",
+        access="subscriptions_write",
+    )
+    proposal_created_at = now - timedelta(days=31, minutes=10)
+    store.create_agent_change_proposal(
+        proposal_id="agp-maintenance-old",
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        delegation_id=delegation["id"],
+        kind="update",
+        source_id=source_id,
+        subscription_id=None,
+        payload={"subscription_updates": {"priority": 25}},
+        preview={"action": "update"},
+        fingerprints={"source_updated_at": None},
+        confirmation_hash="sha256-maintenance",
+        created_at=proposal_created_at.isoformat(),
+        expires_at=(proposal_created_at + timedelta(minutes=10)).isoformat(),
+    )
+    store.apply_agent_change_proposal(
+        "agp-maintenance-old",
+        applied_at=(proposal_created_at + timedelta(minutes=5)).isoformat(),
+        result_summary={"subscription_id": "sub-maintenance"},
+    )
+    conn.execute(
+        """
+        UPDATE agent_change_proposals
+        SET created_at = ?, expires_at = ?, applied_at = ?, updated_at = ?
+        WHERE id = 'agp-maintenance-old'
+        """,
+        (
+            proposal_created_at.isoformat(),
+            (proposal_created_at + timedelta(minutes=10)).isoformat(),
+            (proposal_created_at + timedelta(minutes=5)).isoformat(),
+            (proposal_created_at + timedelta(minutes=5)).isoformat(),
+        ),
+    )
     conn.execute(
         """
         UPDATE fetch_jobs
@@ -170,6 +210,7 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
         "usage_events": 1,
         "jobs": 1,
         "sessions": 1,
+        "agent_change_proposals": 1,
     }
     assert second == {"ran": False, "deleted": {}}
     assert {
