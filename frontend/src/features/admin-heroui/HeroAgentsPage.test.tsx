@@ -33,9 +33,9 @@ const readTools = [
 
 const writeTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
-  'get_source_setup_guide', 'list_available_sources', 'prepare_create_subscription',
-  'prepare_update_subscription', 'prepare_delete_subscription', 'apply_subscription_change',
-  'diagnose_source', 'diagnose_job',
+  'get_source_setup_guide', 'list_available_sources', 'diagnose_source', 'diagnose_job',
+  'prepare_create_subscription', 'prepare_update_subscription', 'prepare_delete_subscription',
+  'apply_subscription_change',
 ]
 
 const listing: AgentDelegationsResponse = {
@@ -110,7 +110,7 @@ describe('HeroAgentsPage delegation access', () => {
     await browser.click(within(dialog).getByRole('button', { name: '生成一次性令牌' }))
 
     expect(api.createAgentDelegation).toHaveBeenCalledWith('Write Mac', 'subscriptions_write')
-    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性令牌' })
+    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
     const configuration = within(tokenDialog).getByLabelText('OpenClaw 配置命令').textContent || ''
     expect(includedTools(configuration)).toEqual(writeTools)
     expect(configuration).toContain('${INTELISCOPE_MCP_TOKEN}')
@@ -192,12 +192,12 @@ describe('HeroAgentsPage delegation access', () => {
     await browser.type(within(createDialog).getByRole('textbox', { name: '连接名称' }), 'Personal Mac')
     await browser.click(within(createDialog).getByRole('button', { name: '生成一次性令牌' }))
 
-    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性令牌' })
+    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
     expect(within(tokenDialog).getByText('ih_mcp_v1_one_time_secret')).toBeInTheDocument()
     await browser.keyboard('{Escape}')
-    expect(screen.getByRole('dialog', { name: '保存一次性令牌' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '保存一次性 MCP token' })).toBeInTheDocument()
     await browser.click(screen.getByTestId('one-time-token-backdrop'))
-    expect(screen.getByRole('dialog', { name: '保存一次性令牌' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '保存一次性 MCP token' })).toBeInTheDocument()
 
     await browser.click(within(tokenDialog).getByRole('button', { name: '我已保存' }))
     expect(screen.queryByText('ih_mcp_v1_one_time_secret')).not.toBeInTheDocument()

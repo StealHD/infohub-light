@@ -37,20 +37,11 @@ export const READ_TOOL_FILTER = [
   'diagnose_job',
 ] as const
 export const SUBSCRIPTION_WRITE_TOOL_FILTER = [
-  'get_my_feed',
-  'get_item',
-  'list_subscriptions',
-  'source_health',
-  'list_jobs',
-  'get_job',
-  'get_source_setup_guide',
-  'list_available_sources',
+  ...READ_TOOL_FILTER,
   'prepare_create_subscription',
   'prepare_update_subscription',
   'prepare_delete_subscription',
   'apply_subscription_change',
-  'diagnose_source',
-  'diagnose_job',
 ] as const
 
 export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess = 'read'): string {
@@ -304,7 +295,7 @@ export function HeroAgentsPage() {
 
     <Modal isOpen={Boolean(oneTimeCredential)} onOpenChange={() => undefined}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开一次性令牌</Modal.Trigger>
-      <DialogFrame title="保存一次性令牌" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); setNotice('一次性令牌已从页面清除。') }}>我已保存</Button>}>
+      <DialogFrame title="保存一次性 MCP token" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); setNotice('一次性令牌已从页面清除。') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
         <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeCredential?.token}</code><Button variant="ghost" onPress={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}><Icons.Copy size={15} />复制令牌</Button></div>
         <pre aria-label="本地令牌环境命令" className="type-meta mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
