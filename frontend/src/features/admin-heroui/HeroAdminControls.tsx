@@ -12,7 +12,7 @@ import {
   StatusNotice,
 } from '../../design-system'
 
-export type SelectOption = { id: string; label: string }
+export type SelectOption = { id: string; label: string; description?: string; isDisabled?: boolean }
 
 export function HeroSelect({ label, value, options, onChange, isDisabled = false, name, isRequired = false, description, errorMessage }: {
   label: string
@@ -36,13 +36,16 @@ export function HeroSelect({ label, value, options, onChange, isDisabled = false
     className="min-w-40"
   >
     <Label>{label}</Label>
-    <Select.Trigger>
+    <Select.Trigger className="type-control">
       <Select.Value />
       <Select.Indicator><Icons.ChevronDown size={15} aria-hidden="true" /></Select.Indicator>
     </Select.Trigger>
     <Select.Popover>
       <ListBox items={options}>
-        {(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}
+        {(item) => <ListBox.Item id={item.id} textValue={item.label} isDisabled={item.isDisabled} className="type-control">
+          <span>{item.label}</span>
+          {item.description && <span className="type-meta block text-muted">{item.description}</span>}
+        </ListBox.Item>}
       </ListBox>
     </Select.Popover>
     {description && <Description>{description}</Description>}

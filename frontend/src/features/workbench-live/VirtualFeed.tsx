@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
@@ -11,7 +11,7 @@ import {
   Icons,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
-import type { WorkbenchCardModel } from './workbenchModel'
+import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 
@@ -68,35 +68,46 @@ function WorkbenchCard({
   onItemAction: (action: ItemStateAction, value: boolean) => void
 }) {
   const externalUrl = safeExternalUrl(card.url)
-  const copySummary = () => void navigator.clipboard?.writeText(card.summary || card.title)
+  const social = card.displayKind === 'social'
+  const socialText = expanded ? card.detailBody || card.primaryText : card.primaryText
+  const cardLabel = social ? `${card.sourceLabel}: ${card.primaryText}` : card.title
+  const sourceParts = workbenchSourceLabels(card)
+  const copySummary = () => void navigator.clipboard?.writeText(social ? socialText : card.summary || card.title)
 
   return <Card
     data-testid="workbench-card"
     data-card-visual="quiet-studio"
     data-card-expanded={expanded ? 'true' : 'false'}
     role="article"
-    aria-label={card.title}
+    aria-label={cardLabel}
     variant="secondary"
     className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
   >
     <button
       type="button"
       className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-      aria-label={`${expanded ? '收起' : '展开'} ${card.title}`}
+      aria-label={`${expanded ? '收起' : '展开'} ${cardLabel}`}
       aria-expanded={expanded}
       onClick={onToggleExpanded}
     >
-      <span className="type-meta mb-2 flex items-center gap-2 text-muted">
+      <span aria-label="来源信息" className="type-meta mb-2 flex items-center gap-2 text-muted">
         <AvatarRoot className="size-[25px] shrink-0">
           {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
           <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
         </AvatarRoot>
-        <span className="truncate">{card.source}</span>
+        {sourceParts.map((part, index) => <Fragment key={part}>
+          {index > 0 && <span aria-hidden="true">·</span>}
+          <span className="truncate">{part}</span>
+        </Fragment>)}
         <span aria-hidden="true">·</span>
         <span>{relativeTime(card.publishedAt)}</span>
       </span>
-      <Card.Title className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
-      {card.summary && <Card.Description className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
+      {social
+        ? <Card.Description className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
+        : <>
+          <Card.Title className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
+          {card.summary && <Card.Description className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
+        </>}
     </button>
 
     <div
@@ -106,11 +117,11 @@ function WorkbenchCard({
       className={`grid px-[19px] transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
     >
       <div className="min-h-0 overflow-hidden">
-        <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
-          {card.body || '该条内容未保存正文片段；重新获取来源后可显示。'}
-        </div>
+        {!social && <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
+          {card.detailBody || '该条内容未保存正文片段；重新获取来源后可显示。'}
+        </div>}
         {card.bodyTruncated && <p className="type-meta mt-2 text-muted">内容已截断，打开原文查看完整内容。</p>}
-        {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.title} 内容图片`} loading="lazy" />}
+        {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.sourceLabel} 内容图片`} loading="lazy" />}
       </div>
     </div>
 
@@ -127,7 +138,7 @@ function WorkbenchCard({
           href={externalUrl}
           target="_blank"
           rel="noreferrer"
-          aria-label={`打开 ${card.title} 原文`}
+          aria-label={`打开 ${cardLabel} 原文`}
           className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
         ><Icons.ExternalLink size={15} aria-hidden="true" /></a>}
         <Button
@@ -135,7 +146,7 @@ function WorkbenchCard({
           variant={card.userState.is_saved ? 'secondary' : 'ghost'}
           className="size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
           isDisabled={readonly}
-          aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${card.title}`}
+          aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
           onPress={onToggleSaved}
           isIconOnly
         >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</Button>
@@ -145,14 +156,14 @@ function WorkbenchCard({
           data-context-state={inContext ? 'selected' : 'idle'}
           className="size-8 active:scale-95 pointer-coarse:size-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent motion-reduce:transform-none"
           isDisabled={contextFull && !inContext}
-          aria-label={inContext ? `从 OpenClaw 上下文移除 ${card.title}` : `用 OpenClaw 分析 ${card.title}`}
+          aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
           onPress={onToggleContext}
           isIconOnly
         >{inContext ? <Icons.Check size={15} aria-hidden="true" /> : <Icons.Sparkles size={15} aria-hidden="true" />}</Button>
         <details className="relative">
           <summary
             role="button"
-            aria-label={`更多操作 ${card.title}`}
+            aria-label={`更多操作 ${cardLabel}`}
             className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
           ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
           <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">

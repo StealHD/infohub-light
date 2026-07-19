@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 
 import type { ServiceApi } from '../../api/service'
@@ -13,8 +13,10 @@ import {
 } from '../feed/feedPreference'
 import {
   AvatarFallback,
+  AvatarImage,
   AvatarRoot,
   Button,
+  Card,
   Chip,
   Drawer,
   Icons,
@@ -31,7 +33,10 @@ import {
 } from './agentContext'
 import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
+import { HandoffComposer } from './HandoffComposer'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
+import { relativeTime } from '../feed/feedModel'
+import { toWorkbenchCardModel, workbenchSourceLabels } from './workbenchModel'
 import {
   applyQuickView,
   detectActiveQuickView,
@@ -84,14 +89,54 @@ type CategorizedNavigationProps = {
   onNavigate?: () => void
 }
 
-function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigation[number] & { onNavigate?: () => void }) {
-  return <NavLink
+const sidebarItemBase = 'type-control mb-0.5 flex w-full items-center rounded-xl text-muted transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
+const sidebarPanelToggleClass = 'inline-flex size-10 shrink-0 items-center justify-center rounded-[var(--inteliscope-radius-card)] bg-accent/15 text-accent transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-accent/20 hover:text-accent focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
+
+function SidebarNavItem({
+  label,
+  leading,
+  href,
+  end,
+  selected = false,
+  compact = false,
+  onActivate,
+}: {
+  label: string
+  leading: ReactNode
+  href?: string
+  end?: boolean
+  selected?: boolean
+  compact?: boolean
+  onActivate?: () => void
+}) {
+  const itemClass = (active: boolean) => `${sidebarItemBase} ${compact ? 'min-h-11 justify-center px-0' : 'min-h-10 gap-3 px-3 text-left'}${active ? ' bg-default text-foreground' : ''}`
+  const content = <>{leading}{!compact && <span>{label}</span>}</>
+  if (href) return <NavLink
     to={href}
-    end={href === '/feed'}
+    end={end}
     aria-label={label}
-    onClick={onNavigate}
-    className={({ isActive }) => `type-control mb-0.5 flex min-h-10 items-center gap-3 rounded-xl px-3 text-muted transition-colors hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
-  ><Icon size={17} aria-hidden="true" /><span>{label}</span></NavLink>
+    data-sidebar-nav-item={compact ? 'collapsed' : 'expanded'}
+    onClick={onActivate}
+    className={({ isActive }) => itemClass(isActive)}
+  >{content}</NavLink>
+  return <button
+    type="button"
+    aria-label={label}
+    aria-pressed={selected}
+    data-sidebar-nav-item={compact ? 'collapsed' : 'expanded'}
+    className={itemClass(selected)}
+    onClick={onActivate}
+  >{content}</button>
+}
+
+function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigation[number] & { onNavigate?: () => void }) {
+  return <SidebarNavItem
+    href={href}
+    end={href === '/feed'}
+    label={label}
+    leading={<Icon size={17} aria-hidden="true" />}
+    onActivate={onNavigate}
+  />
 }
 
 function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate }: CategorizedNavigationProps) {
@@ -107,14 +152,13 @@ function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsTo
       onPress={onQuickViewsToggle}
     >常用视图<Icons.ChevronDown size={14} className={`transition-transform ${quickViewsOpen ? '' : '-rotate-90'}`} /></Button>
     {quickViewsOpen && <div className="grid gap-0.5">
-      {WORKBENCH_QUICK_VIEWS.map((view) => <Button
+      {WORKBENCH_QUICK_VIEWS.map((view) => <SidebarNavItem
         key={view.id}
-        size="sm"
-        variant="ghost"
-        className={`type-control min-h-9 justify-start gap-3 px-3 ${activeQuickView === view.id ? 'bg-default text-foreground' : 'text-muted'}`}
-        aria-label={view.label}
-        onPress={() => onQuickView(view.id)}
-      ><span className={`size-1.5 rounded-full ${activeQuickView === view.id ? 'bg-accent' : 'bg-muted/35'}`} aria-hidden="true" />{view.label}</Button>)}
+        label={view.label}
+        selected={activeQuickView === view.id}
+        leading={<span className={`size-1.5 rounded-full ${activeQuickView === view.id ? 'bg-accent' : 'bg-muted/35'}`} aria-hidden="true" />}
+        onActivate={() => onQuickView(view.id)}
+      />)}
     </div>}
 
     <p className="type-label mt-3 px-3 pb-1 pt-2 text-muted/70">管理</p>
@@ -161,13 +205,25 @@ function AgentPanelContent({
   chat,
   configLoading,
   value,
+  api,
+  userId,
 }: {
   open: boolean
   onClose: () => void
   chat: ReturnType<typeof useOpenClawChat>
   configLoading: boolean
   value: WorkbenchAgentContextValue
+  api: ServiceApi
+  userId: string
 }) {
+  const itemQueries = useQueries({
+    queries: value.draft.items.map((item) => ({
+      queryKey: queryKeys.feedItem(userId, item.articleId),
+      queryFn: ({ signal }: { signal: AbortSignal }) => api.feedItem(item.articleId, signal),
+      enabled: open && chat.status === 'disabled',
+      retry: false,
+    })),
+  })
   return <>
     <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
       <Icons.Sparkles size={17} aria-hidden="true" />
@@ -180,8 +236,57 @@ function AgentPanelContent({
         <Icons.X size={17} aria-hidden="true" />
       </Button>
     </header>
-    {open && !configLoading && <OpenClawConversation chat={chat} value={value} />}
     {open && configLoading && <div className="grid gap-3 p-4"><Skeleton className="h-24 rounded-xl" /><Skeleton className="h-24 rounded-xl" /></div>}
+    {open && !configLoading && chat.status === 'disabled' && <>
+      <div className="min-h-0 overflow-y-auto p-4" data-testid="agent-scroll-region">
+        <div className="type-meta mb-3 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.items.length} / 8</span></div>
+        {!value.draft.items.length && <Card variant="transparent" className="p-3">
+          <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
+        </Card>}
+        <div className="grid gap-2">
+          {value.draft.items.map((item, index) => {
+            const id = item.articleId
+            const query = itemQueries[index]
+            const hasReadableDraft = Boolean(item.title && item.title !== id)
+            if ((!query || query.isPending) && !hasReadableDraft) return <Card key={id} variant="secondary" className="flex-row items-center gap-3 p-3">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <span role="status" className="type-meta min-w-0 flex-1 text-muted">正在读取内容</span>
+              <Button size="sm" variant="ghost" isIconOnly aria-label="移除正在加载的内容" onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+            </Card>
+            if ((!query || query.isError || !query.data) && !hasReadableDraft) return <Card key={id} variant="secondary" className="flex-row items-center gap-3 p-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-default text-muted"><Icons.FileWarning size={15} aria-hidden="true" /></span>
+              <span className="type-control min-w-0 flex-1">内容已失效</span>
+              <Button size="sm" variant="ghost" isIconOnly aria-label="移除失效内容" onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+            </Card>
+            const card = query?.data ? toWorkbenchCardModel(query.data) : undefined
+            const sourceLabels = card ? workbenchSourceLabels(card, true) : item.sourceName ? [item.sourceName] : []
+            const primaryText = card?.primaryText || item.title
+            const publishedAt = card?.publishedAt || item.publishedAt
+            const removeLabel = card?.authorLabel || card?.sourceLabel || item.sourceName || primaryText || '所选内容'
+            const avatarLabel = card?.source || item.sourceName || primaryText
+            return <Card key={id} variant="secondary" className="flex-row items-center gap-3 p-3">
+              <AvatarRoot className="size-8 shrink-0">
+                {card?.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
+                <AvatarFallback>{avatarLabel.slice(0, 1).toUpperCase()}</AvatarFallback>
+              </AvatarRoot>
+              <span className="min-w-0 flex-1">
+                <span className="type-meta flex min-w-0 items-center gap-1.5 text-muted">
+                  {sourceLabels.map((label, labelIndex) => <Fragment key={label}>
+                    {labelIndex > 0 && <span aria-hidden="true">·</span>}
+                    <span className="truncate">{label}</span>
+                  </Fragment>)}
+                  {publishedAt && <><span aria-hidden="true">·</span><span className="shrink-0">{relativeTime(publishedAt)}</span></>}
+                </span>
+                <span className="type-control mt-0.5 block truncate">{primaryText}</span>
+              </span>
+              <Button size="sm" variant="ghost" isIconOnly aria-label={`移除 ${removeLabel}`} onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+            </Card>
+          })}
+        </div>
+      </div>
+      <HandoffComposer value={value} />
+    </>}
+    {open && !configLoading && chat.status !== 'disabled' && <OpenClawConversation chat={chat} value={value} />}
   </>
 }
 
@@ -329,23 +434,31 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             {extraWideDesktop ? sidebarExpanded ? <>
               <Icons.InteliscopeMark size={20} aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">Inteliscope</span>
-              <Button size="sm" variant="ghost" isIconOnly aria-label="收起侧栏" onPress={toggleSidebar}>
-                <Icons.PanelLeftClose size={16} aria-hidden="true" />
-              </Button>
-            </> : <Button
-              size="sm"
-              variant="ghost"
-              isIconOnly
+              <button
+                type="button"
+                data-sidebar-panel-toggle
+                className={sidebarPanelToggleClass}
+                aria-label="收起侧栏"
+                aria-expanded="true"
+                onClick={toggleSidebar}
+              ><Icons.SplitPanel open size={18} aria-hidden="true" /></button>
+            </> : <button
+              type="button"
+              data-sidebar-panel-toggle
               data-inteliscope-mark-trigger
+              className={sidebarPanelToggleClass}
               aria-label="展开侧栏"
-              onPress={toggleSidebar}
-            ><Icons.InteliscopeMark size={21} aria-hidden="true" /></Button> : <Popover isOpen={tabletNavOpen} onOpenChange={changeTabletNavigation}>
+              aria-expanded="false"
+              onClick={toggleSidebar}
+            ><Icons.SplitPanel size={18} aria-hidden="true" /></button> : <Popover isOpen={tabletNavOpen} onOpenChange={changeTabletNavigation}>
               <Popover.Trigger
                 ref={tabletNavToggleRef}
+                data-sidebar-panel-toggle
                 data-inteliscope-mark-trigger
                 aria-label="展开导航"
-                className="inline-flex size-10 items-center justify-center rounded-xl text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
-              ><Icons.InteliscopeMark size={21} aria-hidden="true" /></Popover.Trigger>
+                aria-expanded={tabletNavOpen}
+                className={sidebarPanelToggleClass}
+              ><Icons.SplitPanel open={tabletNavOpen} size={18} aria-hidden="true" /></Popover.Trigger>
               <Popover.Content placement="right top" offset={8} className="z-50 w-[260px] p-0">
                 <Popover.Dialog aria-label="分类导航" className="max-h-[calc(100dvh-24px)] overflow-hidden rounded-2xl border border-separator bg-surface p-0 shadow-xl">
                   <div className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
@@ -371,20 +484,22 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               onQuickView={selectQuickView}
             />
           </div> : <nav aria-label="工作台导航" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-            {browseNavigation.map(({ label, href, icon: Icon }) => <NavLink
+            {browseNavigation.map(({ label, href, icon: Icon }) => <SidebarNavItem
               key={href}
-              to={href}
+              href={href}
               end={href === '/feed'}
-              aria-label={label}
-              className={({ isActive }) => `mb-1 flex min-h-11 items-center justify-center rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
-            ><Icon size={18} aria-hidden="true" /></NavLink>)}
+              compact
+              label={label}
+              leading={<Icon size={18} aria-hidden="true" />}
+            />)}
             <Separator className="my-2" />
-            {managementNavigation.map(({ label, href, icon: Icon }) => <NavLink
+            {managementNavigation.map(({ label, href, icon: Icon }) => <SidebarNavItem
               key={href}
-              to={href}
-              aria-label={label}
-              className={({ isActive }) => `mb-1 flex min-h-11 items-center justify-center rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus${isActive ? ' bg-default text-foreground' : ''}`}
-            ><Icon size={18} aria-hidden="true" /></NavLink>)}
+              href={href}
+              compact
+              label={label}
+              leading={<Icon size={18} aria-hidden="true" />}
+            />)}
           </nav>}
           <div className="border-t border-separator p-2">
             <Popover>
@@ -446,7 +561,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           role="complementary"
           aria-label="OpenClaw 上下文"
           className="col-start-3 row-span-2 hidden min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-l border-separator bg-surface min-[1200px]:grid"
-        ><AgentPanelContent open={agentOpen} onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
+        ><AgentPanelContent open={agentOpen} onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
           <Drawer.Trigger aria-hidden="true" className="hidden">打开 Agent 面板</Drawer.Trigger>
           <Drawer.Backdrop isDismissable variant="blur" data-testid="agent-drawer-backdrop">
             <Drawer.Content placement={mobile ? 'bottom' : 'right'}>
@@ -455,7 +570,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                 aria-label="OpenClaw 上下文"
                 className={`grid min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(78dvh,640px)] max-h-[78dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
-                <AgentPanelContent open onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} />
+                <AgentPanelContent open onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>

@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ServiceApi } from '../../api/service'
-import type { User } from '../../api/types'
+import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
 import { HeroWorkbenchShell } from './HeroWorkbenchShell'
 
@@ -33,8 +33,29 @@ function useViewport(width: number) {
   })
 }
 
+function contextItem(id: string, author = 'Tibo', source = 'X · @thsottiaux'): FeedItem {
+  return {
+    id,
+    title: '@thsottiaux: Oops... I did it again...',
+    url: `https://example.com/${id}`,
+    source_type: 'apify_social',
+    presentation: {
+      version: 2,
+      source: { id: 'source-x', catalog_type: 'apify_social', platform: 'x', name: source },
+      author: { name: author, kind: 'person' },
+      timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
+      links: { canonical_url: `https://example.com/${id}`, source_url: 'https://example.com/source' },
+      content: { title: '@thsottiaux: Oops... I did it again...', title_origin: 'generated', excerpt: 'Oops... I did it again.', content_kind: 'post_body', excerpt_truncated: false },
+      taxonomy: { channel: '其他', configured_topics: [], inferred_topics: [], topics: [], entities: [] },
+      engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+      analysis: { status: 'fallback', score: 0, signal_strength: 'unknown', signal_type: 'unknown', summary_zh: 'Oops... I did it again.' },
+    },
+  }
+}
+
 const api = {
   agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, connections: [], mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5 }),
+  feedItem: vi.fn().mockImplementation((id: string) => Promise.resolve(contextItem(id))),
 } as unknown as ServiceApi
 
 function LocationProbe() {
@@ -42,11 +63,11 @@ function LocationProbe() {
   return <output data-testid="location-probe">{location.pathname}</output>
 }
 
-function Shell({ user, path = '/feed', onLogout = vi.fn() }: { user: User; path?: string; onLogout?: () => void }) {
+function Shell({ user, path = '/feed', onLogout = vi.fn(), serviceApi = api }: { user: User; path?: string; onLogout?: () => void; serviceApi?: ServiceApi }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[path]}>
-      <HeroWorkbenchShell api={api} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
+      <HeroWorkbenchShell api={serviceApi} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
         <div>content</div>
       </HeroWorkbenchShell>
       <LocationProbe />
@@ -111,6 +132,29 @@ describe('HeroWorkbenchShell sidebar preference', () => {
 
     expect(screen.getByTestId('location-probe')).toHaveTextContent('/feed')
     expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:quick-view') || '{}')).toMatchObject({ channel: 'AI', order: 'newest' })
+  })
+
+  it('uses the shared sidebar row interaction and split-panel control across desktop states', async () => {
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'sidebar-visual', username: 'visual', role: 'member', enabled: true }} />)
+
+    const expand = screen.getByRole('button', { name: '展开侧栏' })
+    expect(expand).toHaveAttribute('data-sidebar-panel-toggle')
+    expect(expand.querySelector('[data-split-panel-icon]')).not.toBeNull()
+    expect(expand).toHaveClass('size-10', 'bg-accent/15', 'text-accent')
+
+    await browser.click(expand)
+    const collapse = screen.getByRole('button', { name: '收起侧栏' })
+    const route = screen.getAllByRole('link', { name: '信息流' }).find((candidate) => candidate.dataset.sidebarNavItem === 'expanded')
+    if (!route) throw new Error('expanded Feed route was not rendered')
+    const quickView = screen.getByRole('button', { name: 'AI' })
+    expect(collapse).toHaveAttribute('data-sidebar-panel-toggle')
+    expect(collapse.querySelector('[data-split-panel-icon]')).not.toBeNull()
+    expect(route).toHaveAttribute('data-sidebar-nav-item', 'expanded')
+    expect(quickView).toHaveAttribute('data-sidebar-nav-item', 'expanded')
+    expect(route).toHaveClass('min-h-10', 'rounded-xl', 'transition-colors')
+    expect(quickView).toHaveClass('min-h-10', 'rounded-xl', 'transition-colors')
+    expect(quickView.className).not.toContain('scale-')
   })
 
   it('opens account actions from the avatar and logs out only from the menu action', async () => {
@@ -183,6 +227,42 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     const modelTrigger = screen.getByRole('button', { name: /模型偏好/ })
     expect(modelTrigger).toHaveClass('type-control')
     expect(modelTrigger.closest('.quiet-compact-select')).not.toBeNull()
+  })
+
+  it('resolves selected context into human-readable source previews without exposing raw IDs', async () => {
+    const rawId = 'instagram:post:DX8pBjzk5qp'
+    const feedItem = vi.fn().mockResolvedValue(contextItem(rawId))
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:context-preview', JSON.stringify({
+      userId: 'context-preview', question: '', itemIds: [rawId], modelPreference: 'auto',
+    }))
+    render(<Shell
+      user={{ id: 'context-preview', username: 'preview', role: 'member', enabled: true }}
+      serviceApi={{ ...api, feedItem } as ServiceApi}
+    />)
+
+    expect(await screen.findByText('Tibo')).toBeInTheDocument()
+    expect(screen.getByText('@thsottiaux')).toBeInTheDocument()
+    expect(screen.getByText('Oops... I did it again.')).toBeInTheDocument()
+    expect(screen.queryByText(rawId)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /移除 Tibo/ })).toBeInTheDocument()
+    expect(feedItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an unavailable context independently removable', async () => {
+    const browser = userEvent.setup()
+    const rawId = 'missing:item'
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:context-missing', JSON.stringify({
+      userId: 'context-missing', question: '', itemIds: [rawId], modelPreference: 'auto',
+    }))
+    render(<Shell
+      user={{ id: 'context-missing', username: 'missing', role: 'member', enabled: true }}
+      serviceApi={{ ...api, feedItem: vi.fn().mockRejectedValue(new Error('not found')) } as ServiceApi}
+    />)
+
+    expect(await screen.findByText('内容已失效')).toBeInTheDocument()
+    expect(screen.queryByText(rawId)).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '移除失效内容' }))
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v2:context-missing') || '{}')).toMatchObject({ items: [] })
   })
 
   it('persists model guidance and copies without executing a network request', async () => {

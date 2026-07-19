@@ -312,3 +312,11 @@
 - 取代范围：正式取代 D024/D025/D031/D033/D034 中“站内不聊天、不连接或探测本地 Gateway”的 UI 非目标和旧复制交接边界；这些决策的视觉、Remote MCP、proposal、权限和生产禁写边界继续有效。服务器无 Agent、无模型、无 OpenClaw、无 Gateway 代理的边界不变。
 - 安全/兼容：本地明文 WS 只允许 `127.0.0.1/localhost`，远端必须 WSS，URL 不得携带凭证/query/fragment；返回额外权限时拒绝持久化。`HORIZON_OPENCLAW_CHAT_ENABLED=false` 时 UI 立即回到旧复制模式且不创建 WebSocket；Remote MCP 和数据库无需回滚。
 - 非目标：本次不启用生产订阅写入、不提供服务器侧 Agent/LLM、共享客户 Gateway、OpenClaw 模型密钥托管、HTTP Chat API、站内直接调用 MCP 写工具或重新抓取原网页。
+
+### D036 信息工作台采用来源优先的社交卡片与可读 Agent 上下文
+
+- 决策日期：2026-07-19
+- 当前状态：前端实现、完整门禁、三视口浏览器验收与 revision-locked 本地 RC 验收完成；已纳入 v1.7.0 集成分支
+- 决策内容：桌面侧栏路由与常用视图统一使用同一交互行和分栏控制；社交内容按平台、关注对象/作者与来源表达，并只显示一次正文；Agent 上下文保存安全展示记录，历史 ID-only 草稿通过用户作用域详情查询展示头像、来源、正文首行和时间。精确视觉规则只见 `UI_CONTRACT.md`。
+- 原因：快速视图独有的按压位移、社交标题/摘要/正文重复，以及直接暴露内部 ID，会破坏 Quiet Studio 的一致性和扫读效率，也无法帮助用户确认交接对象。
+- 兼容/回退：仅改变前端展示模型与组件；不修改 OpenClaw `auto | fast | deep` 模型选择、API、数据库、权限、Query Key、Remote MCP、历史快照或 Worker。article ID 仍用于 sessionStorage 与确定性交接提示词，但不作为界面文案。

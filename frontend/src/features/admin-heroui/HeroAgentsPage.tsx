@@ -9,7 +9,6 @@ import {
   Button,
   Card,
   Chip,
-  CompactSelect,
   Form,
   Icons,
   Input,
@@ -22,7 +21,7 @@ import {
 import { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
 import { validateGatewayUrl } from '../openclaw/openclawGateway'
 import { readSavedGatewayUrl, saveGatewayUrl } from '../openclaw/useOpenClawChat'
-import { AdminPageHeader, AdminSection, HeroNotice } from './HeroAdminControls'
+import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 
 const TOKEN_REFERENCE = '${INTELISCOPE_MCP_TOKEN}'
 export const READ_TOOL_FILTER = [
@@ -38,11 +37,20 @@ export const READ_TOOL_FILTER = [
   'diagnose_job',
 ] as const
 export const SUBSCRIPTION_WRITE_TOOL_FILTER = [
-  ...READ_TOOL_FILTER,
+  'get_my_feed',
+  'get_item',
+  'list_subscriptions',
+  'source_health',
+  'list_jobs',
+  'get_job',
+  'get_source_setup_guide',
+  'list_available_sources',
   'prepare_create_subscription',
   'prepare_update_subscription',
   'prepare_delete_subscription',
   'apply_subscription_change',
+  'diagnose_source',
+  'diagnose_job',
 ] as const
 
 export function agentConfiguration(mcpUrl: string, access: AgentDelegationAccess = 'read'): string {
@@ -69,13 +77,8 @@ function statusLabel(connection: AgentDelegation) {
   return { label: '已吊销', color: 'default' as const }
 }
 
-const accessOptions = [
-  { id: 'read', label: '只读 · 10 个工具' },
-  { id: 'subscriptions_write', label: '订阅管理 · 14 个工具' },
-]
-
 function accessLabel(access: AgentDelegationAccess) {
-  return access === 'subscriptions_write' ? '订阅管理' : '只读'
+  return access === 'subscriptions_write' ? '可管理订阅' : '只读'
 }
 
 function DialogFrame({ title, children, footer, dismissable = true, testId }: {
@@ -176,7 +179,7 @@ export function HeroAgentsPage() {
   const [createName, setCreateName] = useState('')
   const [createAccess, setCreateAccess] = useState<AgentDelegationAccess>('read')
   const [createPending, setCreatePending] = useState(false)
-  const [oneTimeToken, setOneTimeToken] = useState<{ token: string; access: AgentDelegationAccess } | null>(null)
+  const [oneTimeCredential, setOneTimeCredential] = useState<{ token: string; access: AgentDelegationAccess } | null>(null)
   const [renameTarget, setRenameTarget] = useState<AgentDelegation | null>(null)
   const [renameName, setRenameName] = useState('')
   const [revokeTarget, setRevokeTarget] = useState<AgentDelegation | null>(null)
@@ -184,8 +187,14 @@ export function HeroAgentsPage() {
   const [error, setError] = useState('')
   const readConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'read'), [query.data?.mcp_url])
   const writeConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'subscriptions_write'), [query.data?.mcp_url])
-  const oneTimeConfiguration = oneTimeToken?.access === 'subscriptions_write' ? writeConfiguration : readConfiguration
+  const oneTimeConfiguration = oneTimeCredential?.access === 'subscriptions_write' ? writeConfiguration : readConfiguration
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.agentDelegations(user.id) })
+
+  function openCreateDialog() {
+    setCreateName('')
+    setCreateAccess('read')
+    setCreateOpen(true)
+  }
 
   async function createConnection() {
     if (!createName.trim()) return
@@ -195,7 +204,7 @@ export function HeroAgentsPage() {
       setCreateOpen(false)
       setCreateName('')
       setCreateAccess('read')
-      setOneTimeToken({ token: result.token, access: result.connection.access ?? createAccess })
+      setOneTimeCredential({ token: result.token, access: result.connection.access ?? createAccess })
       setError('')
       refresh()
     } catch (caught) {
@@ -236,9 +245,9 @@ export function HeroAgentsPage() {
 
   return <div className="h-full overflow-y-auto">
     <PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
-      <AdminPageHeader description="分别管理 Inteliscope 数据工具和浏览器到 OpenClaw 的对话连接。" actions={<>
+      <AdminPageHeader description="管理 OpenClaw 对当前账户的数据权限，以及浏览器到本地 Gateway 的对话连接。" actions={<>
         <Button size="sm" variant="ghost" isIconOnly aria-label="刷新最近使用时间" onPress={() => void query.refetch()}><Icons.RefreshCw size={16} /></Button>
-        <Button size="sm" isDisabled={creationDisabled} onPress={() => setCreateOpen(true)}><Icons.Bot size={16} />创建连接</Button>
+        <Button size="sm" isDisabled={creationDisabled} onPress={openCreateDialog}><Icons.Bot size={16} />创建连接</Button>
       </>} />
       {notice && <HeroNotice title={notice} status="success" role="status" />}
       {error && <HeroNotice title={error} />}
@@ -255,16 +264,17 @@ export function HeroAgentsPage() {
           return <Card key={connection.id} variant="secondary" className="p-4">
             <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center">
               <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><Chip size="sm" color={status.color} variant="soft"><Chip.Label>{status.label}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{accessLabel(connection.access)}</Chip.Label></Chip></div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
-              <div className="flex gap-2"><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button><Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => setRevokeTarget(connection)}>吊销</Button></div>
+              <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`复制 ${connection.name} 配置`} onPress={() => void copy(agentConfiguration(query.data.mcp_url, connection.access), `${connection.name} 配置已复制。`)}><Icons.Copy size={15} />复制配置</Button><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button><Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => setRevokeTarget(connection)}>吊销</Button></div>
             </div>
           </Card>
         })}
         </div>
+        <p className="type-meta mt-3 text-muted">可管理订阅不包括密钥、共享来源、任务、Feed 条目状态或刷新操作。</p>
       </AdminSection>
 
       <AdminSection title="OpenClaw MCP 配置" description="MCP token 保存在本机 ~/.openclaw/.env 并设置 0600 权限；它与 Gateway token 完全不同，也不要配置 OAuth。">
         <div className="grid gap-3 min-[900px]:grid-cols-2">
-          <Card variant="secondary" className="p-4"><div className="flex items-center justify-between gap-2"><Card.Title>只读 · 10 个工具</Card.Title><Button size="sm" variant="ghost" onPress={() => void copy(readConfiguration, '只读配置已复制。')}><Icons.Copy size={15} />复制</Button></div><pre aria-label="只读 OpenClaw 配置命令" tabIndex={0} className="type-meta mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{readConfiguration}</pre></Card>
+          <Card variant="secondary" className="p-4"><div className="flex items-center justify-between gap-2"><Card.Title>只读 · 10 个工具</Card.Title><Button size="sm" variant="ghost" onPress={() => void copy(readConfiguration, '只读配置已复制。')}><Icons.Copy size={15} />复制</Button></div><pre aria-label="OpenClaw 配置命令" tabIndex={0} className="type-meta mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{readConfiguration}</pre></Card>
           <Card variant="secondary" className="p-4"><div className="flex items-center justify-between gap-2"><Card.Title>订阅管理 · 14 个工具</Card.Title><Button size="sm" variant="ghost" isDisabled={!query.data.subscription_writes_enabled} onPress={() => void copy(writeConfiguration, '订阅管理配置已复制。')}><Icons.Copy size={15} />复制</Button></div><Card.Description className="mt-1">{query.data.subscription_writes_enabled ? '变更仍需 prepare、准确确认和 apply。' : '生产订阅写入当前关闭。'}</Card.Description><pre aria-label="订阅管理 OpenClaw 配置命令" tabIndex={0} className="type-meta mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{writeConfiguration}</pre></Card>
         </div>
       </AdminSection>
@@ -275,15 +285,28 @@ export function HeroAgentsPage() {
     <Modal isOpen={createOpen} onOpenChange={(open) => !createPending && setCreateOpen(open)}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开创建连接</Modal.Trigger>
       <DialogFrame title="创建助手连接" footer={<><Button variant="ghost" isDisabled={createPending} onPress={() => setCreateOpen(false)}>取消</Button><Button isDisabled={!createName.trim() || createPending} onPress={() => void createConnection()}>{createPending ? '生成中…' : '生成一次性令牌'}</Button></>}>
-        <Form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void createConnection() }}><TextField autoFocus fullWidth isRequired value={createName} onChange={setCreateName}><Label>连接名称</Label><Input maxLength={80} /></TextField><div><Label>数据权限</Label><CompactSelect ariaLabel="数据权限" value={createAccess} options={accessOptions.filter((option) => option.id === 'read' || (user.role !== 'viewer' && query.data.subscription_writes_enabled))} onChange={(access) => setCreateAccess(access as AgentDelegationAccess)} className="mt-1 w-full" /><p className="type-meta mt-2 text-muted">令牌有效 {query.data.token_ttl_days} 天，只会显示一次。订阅变更还必须经过预览和准确确认。</p></div></Form>
+        <Form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void createConnection() }}>
+          <TextField autoFocus fullWidth isRequired value={createName} onChange={setCreateName}><Label>连接名称</Label><Input maxLength={80} /><p className="type-meta text-muted">令牌有效 {query.data.token_ttl_days} 天，只会显示一次。</p></TextField>
+          <HeroSelect
+            label="访问权限"
+            value={createAccess}
+            onChange={(value) => setCreateAccess(value as AgentDelegationAccess)}
+            options={[
+              { id: 'read', label: '只读' },
+              ...(user.role === 'viewer' ? [] : [{ id: 'subscriptions_write', label: '可管理订阅', isDisabled: !query.data.subscription_writes_enabled }]),
+            ]}
+          />
+          {user.role !== 'viewer' && !query.data.subscription_writes_enabled && <p className="type-body text-muted">管理员尚未启用订阅管理连接；你仍可创建只读连接。</p>}
+          <p className="type-body text-muted">只读连接可读取并诊断信息流、订阅、来源健康和任务，也可查看来源配置指导。可管理订阅连接还可准备并确认私有来源和订阅变更，但不能管理密钥、共享来源、任务、Feed 条目状态或刷新操作。</p>
+        </Form>
       </DialogFrame>
     </Modal>
 
-    <Modal isOpen={Boolean(oneTimeToken)} onOpenChange={() => undefined}>
+    <Modal isOpen={Boolean(oneTimeCredential)} onOpenChange={() => undefined}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开一次性令牌</Modal.Trigger>
-      <DialogFrame title="保存一次性 MCP token" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeToken(null); setNotice('一次性 MCP token 已从页面清除。') }}>我已保存</Button>}>
+      <DialogFrame title="保存一次性令牌" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); setNotice('一次性令牌已从页面清除。') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
-        <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeToken?.token}</code><Button variant="ghost" onPress={() => oneTimeToken && void copy(oneTimeToken.token, 'MCP token 已复制。')}><Icons.Copy size={15} />复制 token</Button></div>
+        <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeCredential?.token}</code><Button variant="ghost" onPress={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}><Icons.Copy size={15} />复制令牌</Button></div>
         <pre aria-label="本地令牌环境命令" className="type-meta mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
         <pre aria-label="OpenClaw 配置命令" className="type-meta mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{oneTimeConfiguration}</pre>
       </DialogFrame>

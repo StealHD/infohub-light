@@ -18,6 +18,38 @@ const makeItem = (index: number): FeedItem => ({
   user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
 })
 
+const socialItem = (): FeedItem => ({
+  id: 'social-x',
+  title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+  url: 'https://x.com/thsottiaux/status/1',
+  source: 'X · @thsottiaux',
+  source_type: 'apify_social',
+  summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+  published_at: '2026-07-18T08:00:00Z',
+  channel: '其他',
+  topics: ['行业动态'],
+  user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+  presentation: {
+    version: 2,
+    source: { id: 'x-source', catalog_type: 'apify_social', platform: 'x', name: 'X · @thsottiaux' },
+    author: { name: 'Tibo', kind: 'person' },
+    timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
+    links: { canonical_url: 'https://x.com/thsottiaux/status/1', source_url: 'https://x.com/thsottiaux' },
+    content: {
+      title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+      title_origin: 'generated',
+      excerpt: 'Oops... I did it again. Enjoy reset usage limits for all paid users.',
+      body_text: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+      content_kind: 'post_body',
+      excerpt_truncated: true,
+      body_truncated: false,
+    },
+    taxonomy: { channel: '其他', configured_topics: [], inferred_topics: ['行业动态'], topics: ['行业动态'], entities: [] },
+    engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+    analysis: { status: 'ai', score: 7, signal_strength: 'medium', signal_type: 'update', summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.' },
+  },
+})
+
 describe('VirtualFeed', () => {
   it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
@@ -94,6 +126,30 @@ describe('VirtualFeed', () => {
     expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('data-state', 'collapsed')
   })
 
+  it('renders a social post as one source-first content block in both collapsed and expanded states', () => {
+    const card = toWorkbenchCardModel(socialItem())
+    const baseProps = {
+      cards: [card],
+      contextIds: [] as string[],
+      onToggleExpanded: vi.fn(),
+      onToggleSaved: vi.fn(),
+      onToggleContext: vi.fn(),
+      onItemAction: vi.fn(),
+    }
+    const view = render(<VirtualFeed {...baseProps} />)
+
+    const metadata = screen.getByLabelText('来源信息')
+    expect(within(metadata).getAllByText('X').length).toBeGreaterThan(0)
+    expect(within(metadata).getByText('Tibo')).toBeInTheDocument()
+    expect(within(metadata).getByText('@thsottiaux')).toBeInTheDocument()
+    expect(screen.queryByText(socialItem().title)).not.toBeInTheDocument()
+    expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users.')).toHaveLength(1)
+
+    view.rerender(<VirtualFeed {...baseProps} expandedId="social-x" />)
+    expect(screen.queryByText('Oops... I did it again. Enjoy reset usage limits for all paid users.')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.')).toHaveLength(1)
+  })
+
   it('animates Quiet Studio details and exposes a confirmation state for Agent context', () => {
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}
@@ -108,7 +164,7 @@ describe('VirtualFeed', () => {
     const details = screen.getByTestId('card-details-item-1')
     expect(details).toHaveAttribute('data-state', 'expanded')
     expect(details.className).toContain('grid-rows-[1fr]')
-    expect(screen.getByRole('button', { name: '从 OpenClaw 上下文移除 信息 1' })).toHaveAttribute('data-context-state', 'selected')
+    expect(screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })).toHaveAttribute('data-context-state', 'selected')
   })
 
   it('keeps Quiet Studio card actions compact for fine pointers and 44px for coarse pointers at every width', () => {
@@ -125,7 +181,7 @@ describe('VirtualFeed', () => {
     const actions = [
       within(card).getByRole('link', { name: '打开 信息 1 原文' }),
       within(card).getByRole('button', { name: '收藏 信息 1' }),
-      within(card).getByRole('button', { name: '用 OpenClaw 分析 信息 1' }),
+      within(card).getByRole('button', { name: '将 信息 1 加入 Agent 上下文' }),
       within(card).getByRole('button', { name: '更多操作 信息 1' }),
     ]
 

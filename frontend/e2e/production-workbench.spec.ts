@@ -43,6 +43,37 @@ const historyRouteItem = {
   url: 'https://example.com/history-route-item',
   user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
 }
+const socialRouteItem = {
+  id: 'social:x:1',
+  title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+  url: 'https://x.com/thsottiaux/status/1',
+  source: 'X · @thsottiaux',
+  source_type: 'apify_social',
+  summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+  published_at: '2026-07-18T08:00:00Z',
+  channel: '其他',
+  topics: ['行业动态'],
+  user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+  presentation: {
+    version: 2,
+    source: { id: 'x-source', catalog_type: 'apify_social', platform: 'x', name: 'X · @thsottiaux' },
+    author: { name: 'Tibo', kind: 'person' },
+    timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
+    links: { canonical_url: 'https://x.com/thsottiaux/status/1', source_url: 'https://x.com/thsottiaux' },
+    content: {
+      title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+      title_origin: 'generated',
+      excerpt: 'Oops... I did it again. Enjoy reset usage limits for all paid users.',
+      body_text: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+      content_kind: 'post_body',
+      excerpt_truncated: true,
+      body_truncated: false,
+    },
+    taxonomy: { channel: '其他', configured_topics: [], inferred_topics: ['行业动态'], topics: ['行业动态'], entities: [] },
+    engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+    analysis: { status: 'ai', score: 7, signal_strength: 'medium', signal_type: 'update', summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.' },
+  },
+}
 
 async function topVisibleSnapshot(page: Page) {
   const feedScroll = page.getByTestId('workbench-feed-scroll')
@@ -122,7 +153,8 @@ test.beforeEach(async ({ page }) => {
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } }
     else if (url.pathname === '/api/feed/latest') {
       const batchMode = new URL(page.url()).searchParams.has('batch')
-      data = { schema_version: 2, items: backgroundRefreshComplete
+      const socialMode = new URL(page.url()).searchParams.has('social')
+      data = { schema_version: 2, items: socialMode ? [socialRouteItem] : backgroundRefreshComplete
         ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem]
         : items }
     }
@@ -148,7 +180,7 @@ test.beforeEach(async ({ page }) => {
       connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
     else if (url.pathname.startsWith('/api/feed/items/')) {
-      const item = [...items, rollingItem, savedRouteItem, historyRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
+      const item = [...items, rollingItem, savedRouteItem, historyRouteItem, socialRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
       if (!item) {
         await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: 'not found' } }) })
         return
@@ -364,6 +396,28 @@ test('a proven-stale initial deep link returns the real Feed viewport to the new
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   const offset = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollTop)
   expect(offset).toBeLessThanOrEqual(96)
+})
+
+test('social cards and Agent context show source information once without exposing item IDs', async ({ page }, testInfo) => {
+  await page.goto('/feed?social=1')
+  const card = page.getByTestId('workbench-card')
+  const source = card.getByLabel('来源信息')
+
+  await expect(card).toBeVisible()
+  await expect(source.getByText('Tibo', { exact: true })).toBeVisible()
+  await expect(source.getByText('@thsottiaux', { exact: true })).toBeVisible()
+  await expect(page.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toHaveCount(1)
+  await expect(page.getByText(socialRouteItem.title, { exact: true })).toHaveCount(0)
+
+  await card.getByRole('button', { name: /加入 Agent 上下文/ }).click()
+  if (testInfo.project.name !== 'desktop') await page.getByRole('button', { name: '展开 Agent 面板' }).click()
+  const agent = testInfo.project.name === 'desktop'
+    ? page.getByRole('complementary', { name: 'OpenClaw 上下文' })
+    : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
+  await expect(agent.getByText('Tibo', { exact: true })).toBeVisible()
+  await expect(agent.getByText('@thsottiaux', { exact: true })).toBeVisible()
+  await expect(agent.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toBeVisible()
+  await expect(page.getByText(socialRouteItem.id, { exact: true })).toHaveCount(0)
 })
 
 test('a filtered unread-first Feed restores an unmounted anchor with the rendered card index', async ({ page }) => {

@@ -36,6 +36,7 @@ import {
   mergeDeepLinkedItem,
   selectWorkbenchSourceItems,
   toWorkbenchCardModel,
+  workbenchSourceLabels,
   type WorkbenchKind,
 } from './workbenchModel'
 
@@ -248,8 +249,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         const alreadySelected = agent.draft.items.some((item) => item.articleId === card.id)
         agent.toggleItem({
           articleId: card.id,
-          title: card.title,
-          sourceName: card.source,
+          title: card.displayKind === 'social' ? card.primaryText : card.title,
+          sourceName: workbenchSourceLabels(card, true).join(' · ') || card.source,
           publishedAt: card.publishedAt,
         })
         if (!alreadySelected) agent.openComposer()

@@ -65,6 +65,8 @@
 50. Codex 式信息工作台细节批次：在 Quiet Studio 上完成分类导航、常用视图、账户菜单、Feed 最新优先/可切换顺序、重复摘要抑制和 OpenClaw 单体交接编辑器；权威规则只见 `UI_CONTRACT.md`，设计规格与实施计划分别见 `docs/superpowers/specs/2026-07-18-codex-navigation-feed-details-design.md` 和 `docs/superpowers/plans/2026-07-18-codex-navigation-feed-details.md`，实施证据见 `WORKLOG.md`。
 51. Quiet Studio 全站统一：阅读、管理和认证页面使用设计系统拥有的共享页面模式；收藏/历史删除 collection 进度轨并复用阅读卡片；管理路由只保留唯一标题；OpenClaw 响应式容器复用统一交接编辑器。权威视觉与交互规则只见 `UI_CONTRACT.md`，实施证据见 `WORKLOG.md`。
 52. 用户自有 OpenClaw 对话接入：浏览器直连 Gateway v4、Ed25519 设备配对、按 Inteliscope 用户/Gateway URL 隔离凭证、流式/停止/重连/工具发现和最多 8 篇文章 ID 上下文已本地实现；`get_item` 支持最多 20,000 字符分段读取。功能默认关闭，生产订阅写开关保持关闭，真实 Chromium/OpenClaw 与 API-only staging 验收仍是发布前边界。
+53. Quiet Studio × OpenClaw 本地 RC：从 `4445df1` 创建独立 `feature/quiet-studio-openclaw-rc` worktree，以非 squash merge 保留两条来源分支历史；HeroUI 助手连接页已接入 read/subscriptions_write delegation，测试环境不再隐式依赖忽略的 `data/config.json`。revision-locked 镜像通过数据库副本 v7、full/release gate 与本机 8080 切换验证；`main` 与 VPS 均未改变。
+54. 来源优先信息流与可读 Agent 上下文：社交卡片按平台、关注对象/作者和来源表达且正文只显示一次；侧栏导航统一交互；Agent 草稿保存安全展示记录并对历史 ID-only 草稿按用户查询详情，界面不显示内部 article ID。
 
 当前仍需推进：
 
