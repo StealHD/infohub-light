@@ -90,7 +90,7 @@ type CategorizedNavigationProps = {
 }
 
 const sidebarItemBase = 'type-control mb-0.5 flex w-full items-center rounded-xl text-muted transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
-const sidebarPanelToggleClass = 'inline-flex size-10 shrink-0 items-center justify-center rounded-[var(--inteliscope-radius-card)] bg-accent/15 text-accent transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-accent/20 hover:text-accent focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
+const sidebarPanelToggleClass = (open: boolean) => `inline-flex size-10 shrink-0 items-center justify-center rounded-[var(--inteliscope-radius-card)] transition-colors duration-[var(--inteliscope-motion-standard)] focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none ${open ? 'bg-accent/15 text-accent hover:bg-accent/20 hover:text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`
 
 function SidebarNavItem({
   label,
@@ -238,25 +238,25 @@ function AgentPanelContent({
     </header>
     {open && configLoading && <div className="grid gap-3 p-4"><Skeleton className="h-24 rounded-xl" /><Skeleton className="h-24 rounded-xl" /></div>}
     {open && !configLoading && chat.status === 'disabled' && <>
-      <div className="min-h-0 overflow-y-auto p-4" data-testid="agent-scroll-region">
-        <div className="type-meta mb-3 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.items.length} / 8</span></div>
+      <div className="min-h-0 overflow-hidden p-3" data-testid="agent-scroll-region">
+        <div className="type-meta mb-2 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.items.length} / 8</span></div>
         {!value.draft.items.length && <Card variant="transparent" className="p-3">
           <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
         </Card>}
-        <div className="grid gap-2">
+        <div className="grid gap-1">
           {value.draft.items.map((item, index) => {
             const id = item.articleId
             const query = itemQueries[index]
             const hasReadableDraft = Boolean(item.title && item.title !== id)
-            if ((!query || query.isPending) && !hasReadableDraft) return <Card key={id} variant="secondary" className="flex-row items-center gap-3 p-3">
-              <Skeleton className="size-8 shrink-0 rounded-full" />
+            if ((!query || query.isPending) && !hasReadableDraft) return <Card key={id} data-agent-context-item variant="secondary" className="h-9 min-w-0 flex-row items-center gap-2 px-2 py-1">
+              <Skeleton className="size-6 shrink-0 rounded-full" />
               <span role="status" className="type-meta min-w-0 flex-1 text-muted">正在读取内容</span>
-              <Button size="sm" variant="ghost" isIconOnly aria-label="移除正在加载的内容" onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+              <Button size="sm" variant="ghost" isIconOnly className="size-7 shrink-0" aria-label="移除正在加载的内容" onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
             </Card>
-            if ((!query || query.isError || !query.data) && !hasReadableDraft) return <Card key={id} variant="secondary" className="flex-row items-center gap-3 p-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-default text-muted"><Icons.FileWarning size={15} aria-hidden="true" /></span>
-              <span className="type-control min-w-0 flex-1">内容已失效</span>
-              <Button size="sm" variant="ghost" isIconOnly aria-label="移除失效内容" onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+            if ((!query || query.isError || !query.data) && !hasReadableDraft) return <Card key={id} data-agent-context-item variant="secondary" className="h-9 min-w-0 flex-row items-center gap-2 px-2 py-1">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-default text-muted"><Icons.FileWarning size={14} aria-hidden="true" /></span>
+              <span className="type-control min-w-0 flex-1 truncate">内容已失效</span>
+              <Button size="sm" variant="ghost" isIconOnly className="size-7 shrink-0" aria-label="移除失效内容" onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
             </Card>
             const card = query?.data ? toWorkbenchCardModel(query.data) : undefined
             const sourceLabels = card ? workbenchSourceLabels(card, true) : item.sourceName ? [item.sourceName] : []
@@ -264,22 +264,23 @@ function AgentPanelContent({
             const publishedAt = card?.publishedAt || item.publishedAt
             const removeLabel = card?.authorLabel || card?.sourceLabel || item.sourceName || primaryText || '所选内容'
             const avatarLabel = card?.source || item.sourceName || primaryText
-            return <Card key={id} variant="secondary" className="flex-row items-center gap-3 p-3">
-              <AvatarRoot className="size-8 shrink-0">
+            return <Card key={id} data-agent-context-item variant="secondary" className="h-9 min-w-0 flex-row items-center gap-2 px-2 py-1">
+              <AvatarRoot className="size-6 shrink-0">
                 {card?.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
                 <AvatarFallback>{avatarLabel.slice(0, 1).toUpperCase()}</AvatarFallback>
               </AvatarRoot>
-              <span className="min-w-0 flex-1">
-                <span className="type-meta flex min-w-0 items-center gap-1.5 text-muted">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                <span className="type-meta flex min-w-0 shrink-0 items-center gap-1.5 text-muted">
                   {sourceLabels.map((label, labelIndex) => <Fragment key={label}>
                     {labelIndex > 0 && <span aria-hidden="true">·</span>}
-                    <span className="truncate">{label}</span>
+                    <span className="max-w-20 truncate">{label}</span>
                   </Fragment>)}
                   {publishedAt && <><span aria-hidden="true">·</span><span className="shrink-0">{relativeTime(publishedAt)}</span></>}
                 </span>
-                <span className="type-control mt-0.5 block truncate">{primaryText}</span>
+                <span className="text-muted/60" aria-hidden="true">—</span>
+                <span className="type-control min-w-0 flex-1 truncate">{primaryText}</span>
               </span>
-              <Button size="sm" variant="ghost" isIconOnly aria-label={`移除 ${removeLabel}`} onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
+              <Button size="sm" variant="ghost" isIconOnly className="size-7 shrink-0" aria-label={`移除 ${removeLabel}`} onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
             </Card>
           })}
         </div>
@@ -437,7 +438,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               <button
                 type="button"
                 data-sidebar-panel-toggle
-                className={sidebarPanelToggleClass}
+                className={sidebarPanelToggleClass(true)}
                 aria-label="收起侧栏"
                 aria-expanded="true"
                 onClick={toggleSidebar}
@@ -446,7 +447,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               type="button"
               data-sidebar-panel-toggle
               data-inteliscope-mark-trigger
-              className={sidebarPanelToggleClass}
+              className={sidebarPanelToggleClass(false)}
               aria-label="展开侧栏"
               aria-expanded="false"
               onClick={toggleSidebar}
@@ -457,7 +458,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                 data-inteliscope-mark-trigger
                 aria-label="展开导航"
                 aria-expanded={tabletNavOpen}
-                className={sidebarPanelToggleClass}
+                className={sidebarPanelToggleClass(tabletNavOpen)}
               ><Icons.SplitPanel open={tabletNavOpen} size={18} aria-hidden="true" /></Popover.Trigger>
               <Popover.Content placement="right top" offset={8} className="z-50 w-[260px] p-0">
                 <Popover.Dialog aria-label="分类导航" className="max-h-[calc(100dvh-24px)] overflow-hidden rounded-2xl border border-separator bg-surface p-0 shadow-xl">
@@ -568,7 +569,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               <Drawer.Dialog
                 id="live-agent-panel"
                 aria-label="OpenClaw 上下文"
-                className={`grid min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(78dvh,640px)] max-h-[78dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
+                className={`grid min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
                 <AgentPanelContent open onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
               </Drawer.Dialog>

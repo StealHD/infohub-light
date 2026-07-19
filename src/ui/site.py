@@ -197,18 +197,7 @@ def serialize_item(
     if explicit_retention in {"latest_per_source", "time_window"}:
         retention_policy = explicit_retention
     else:
-        retention_policy = (
-            "latest_per_source"
-            if (
-                str(item.metadata.get("catalog_source_type") or "")
-                == "apify_social"
-                and str(item.metadata.get("apify_platform") or "").lower()
-                in {"x", "twitter", "instagram"}
-                and str(item.metadata.get("apify_kind") or "").lower()
-                == "profile"
-            )
-            else "time_window"
-        )
+        retention_policy = "time_window"
 
     return {
         "id": item.id,
@@ -252,6 +241,7 @@ def serialize_item(
         "source_keys": source_keys,
         "analysis_mode": str(item.metadata.get("analysis_mode") or "full"),
         "retention_policy": retention_policy,
+        "retention_policy_explicit": bool(explicit_retention),
         "presentation": presentation,
     }
 

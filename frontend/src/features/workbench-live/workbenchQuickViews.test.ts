@@ -13,6 +13,20 @@ const base: FeedPreference = {
 }
 
 describe('workbench quick views', () => {
+  it('resets every filter with the all view while preserving order', () => {
+    const preference = applyQuickView(base, 'all')
+
+    expect(preference).toEqual({
+      unreadFirst: false,
+      source: '',
+      channel: '',
+      topic: '',
+      minScore: undefined,
+      order: 'oldest',
+    })
+    expect(detectActiveQuickView(preference)).toBe('all')
+  })
+
   it('applies unread without changing the selected order', () => {
     expect(applyQuickView(base, 'unread')).toEqual({
       unreadFirst: true,

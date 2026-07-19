@@ -94,6 +94,30 @@ def _is_latest_per_source(item: dict[str, Any]) -> bool:
     return str(item.get("retention_policy") or "") == "latest_per_source"
 
 
+def _normalize_legacy_social_retention(item: dict[str, Any]) -> dict[str, Any]:
+    """Treat derived legacy social-profile retention as the rolling window."""
+
+    normalized = dict(item)
+    if (
+        _is_latest_per_source(normalized)
+        and not bool(normalized.get("retention_policy_explicit"))
+        and str(normalized.get("source_type") or "").lower()
+        in {"twitter", "instagram"}
+    ):
+        normalized["retention_policy"] = "time_window"
+    return normalized
+
+
+def _current_item_allowed(item: dict[str, Any], cutoff: datetime) -> bool:
+    """Apply the rolling cutoff to social posts without hiding fetched articles."""
+
+    if _is_latest_per_source(item):
+        return True
+    if str(item.get("source_type") or "").lower() in {"twitter", "instagram"}:
+        return _within_window(item, cutoff)
+    return True
+
+
 def _item_provenance_keys(item: dict[str, Any]) -> set[str]:
     subscription_ids = {
         str(value)
@@ -241,14 +265,41 @@ class FeedProductionService:
         cutoff = datetime.now(timezone.utc) - timedelta(
             hours=max(int(self.config.filtering.time_window_hours), 1)
         )
-        previous_items = [
-            {**item, "source_priority": int(item.get("source_priority") or 0)}
-            for item in previous_items
-            if isinstance(item, dict)
-            and item.get("id")
-            and (_within_window(item, cutoff) or _is_latest_per_source(item))
+        if job_type == "user_feed_refresh":
+            indexed_items = UserContentStore(self.store).recent_feed_items(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                seen_after=cutoff.isoformat(),
+                active_source_ids=active_source_ids,
+            )
+            previous_items = merge_feed_items(
+                previous_items=indexed_items,
+                current_items=previous_items,
+                include_previous=True,
+                identity_items=previous_items,
+            )
+        normalized_previous_items = []
+        for item in previous_items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            normalized = _normalize_legacy_social_retention(item)
+            if not (
+                _within_window(normalized, cutoff)
+                or _is_latest_per_source(normalized)
+            ):
+                continue
+            normalized_previous_items.append(
+                {
+                    **normalized,
+                    "source_priority": int(normalized.get("source_priority") or 0),
+                }
+            )
+        previous_items = normalized_previous_items
+        current_items = [
+            item
+            for item in current.get("items", [])
+            if item.get("id") and _current_item_allowed(item, cutoff)
         ]
-        current_items = [item for item in current.get("items", []) if item.get("id")]
 
         if job_type == "source_fetch":
             for item in current_items:
@@ -280,15 +331,14 @@ class FeedProductionService:
             }
             for item in previous_items:
                 provenance = _item_source_ids(item)
-                keep_latest = (
+                if active is not None and not provenance & active:
+                    continue
+                if (
                     _is_latest_per_source(item)
-                    and (active is None or bool(provenance & active))
-                    and not bool(_item_provenance_keys(item) & current_latest_keys)
-                )
-                if keep_latest or (provenance & failed and (
-                    active is None or provenance & active
-                )):
-                    retained_items.append(item)
+                    and _item_provenance_keys(item) & current_latest_keys
+                ):
+                    continue
+                retained_items.append(item)
             accepted_current = []
             for item in current_items:
                 provenance = _item_source_ids(item)

@@ -109,9 +109,11 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     render(<Shell user={{ id: 'sidebar-tablet', username: 'tablet', role: 'member', enabled: true }} />)
 
     const trigger = screen.getByRole('button', { name: '展开导航' })
+    expect(trigger).not.toHaveClass('bg-accent/15', 'text-accent')
     expect(screen.queryByRole('dialog', { name: '分类导航' })).not.toBeInTheDocument()
 
     await browser.click(trigger)
+    expect(trigger).toHaveClass('bg-accent/15', 'text-accent')
     expect(screen.getByRole('dialog', { name: '分类导航' })).toBeInTheDocument()
     expect(screen.getByText('常用视图')).toBeInTheDocument()
 
@@ -141,7 +143,8 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     const expand = screen.getByRole('button', { name: '展开侧栏' })
     expect(expand).toHaveAttribute('data-sidebar-panel-toggle')
     expect(expand.querySelector('[data-split-panel-icon]')).not.toBeNull()
-    expect(expand).toHaveClass('size-10', 'bg-accent/15', 'text-accent')
+    expect(expand).toHaveClass('size-10')
+    expect(expand).not.toHaveClass('bg-accent/15', 'text-accent')
 
     await browser.click(expand)
     const collapse = screen.getByRole('button', { name: '收起侧栏' })
@@ -149,6 +152,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     if (!route) throw new Error('expanded Feed route was not rendered')
     const quickView = screen.getByRole('button', { name: 'AI' })
     expect(collapse).toHaveAttribute('data-sidebar-panel-toggle')
+    expect(collapse).toHaveClass('bg-accent/15', 'text-accent')
     expect(collapse.querySelector('[data-split-panel-icon]')).not.toBeNull()
     expect(route).toHaveAttribute('data-sidebar-nav-item', 'expanded')
     expect(quickView).toHaveAttribute('data-sidebar-nav-item', 'expanded')
@@ -246,6 +250,36 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(screen.queryByText(rawId)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /移除 Tibo/ })).toBeInTheDocument()
     expect(feedItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps all eight context removal actions visible in compact non-wrapping rows', async () => {
+    useViewport(390)
+    const browser = userEvent.setup()
+    const ids = Array.from({ length: 8 }, (_, index) => `twitter:tweet:compact-${index + 1}`)
+    const feedItem = vi.fn().mockImplementation((id: string) => Promise.resolve(contextItem(
+      id,
+      'Tibo with a deliberately long display name that must not expand the row',
+      'X · An intentionally long source label that must be truncated',
+    )))
+    window.sessionStorage.setItem('inteliscope.agent-context.v1:compact-context', JSON.stringify({
+      userId: 'compact-context', question: '', itemIds: ids, modelPreference: 'auto',
+    }))
+    render(<Shell
+      user={{ id: 'compact-context', username: 'compact', role: 'member', enabled: true }}
+      serviceApi={{ ...api, feedItem } as ServiceApi}
+    />)
+
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+
+    const removeButtons = await screen.findAllByRole('button', { name: /^移除 / })
+    expect(removeButtons).toHaveLength(8)
+    expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文' })).toHaveClass('max-h-[88dvh]')
+    expect(screen.getByTestId('agent-scroll-region')).toHaveClass('overflow-hidden')
+    for (const button of removeButtons) {
+      const row = button.closest('[data-agent-context-item]')
+      expect(row).not.toBeNull()
+      expect(row).toHaveClass('h-9', 'min-w-0')
+    }
   })
 
   it('keeps an unavailable context independently removable', async () => {

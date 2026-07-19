@@ -257,6 +257,45 @@ class UserContentStore:
         ).fetchone()
         return self._stored(row)
 
+    def recent_feed_items(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        seen_after: str,
+        active_source_ids: set[str] | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Return bounded recent indexed items for rebuilding a rolling Feed."""
+
+        rows = self.store.connect().execute(
+            """
+            SELECT * FROM user_content_items
+            WHERE workspace_id = ? AND user_id = ? AND last_seen_at >= ?
+            ORDER BY last_seen_at DESC, id DESC
+            LIMIT ?
+            """,
+            (workspace_id, user_id, seen_after, max(1, min(int(limit), 1000))),
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            stored = self._stored(row)
+            if stored is None:
+                continue
+            item = stored["item"]
+            source_ids = {
+                str(value)
+                for value in [
+                    *(item.get("source_ids") or []),
+                    item.get("source_id"),
+                ]
+                if value
+            }
+            if active_source_ids is not None and not source_ids & active_source_ids:
+                continue
+            items.append(item)
+        return items
+
     def upsert_captured_items(
         self,
         *,

@@ -313,8 +313,9 @@ Feed retention / legacy archive compatibility 规则：
 6. history 只读取目标用户的 snapshot payload，不读取 `data/site/history-data.json`、`data/horizon.db` 或 `ArticleStore`。它先排除仍存在于最新 snapshot 的全部 ID，再从第二新 snapshot 起按新到旧、snapshot 内原顺序稳定去重；同一 ID 保留最靠新的历史版本，`items` 最多 200 条。
 7. `featured_items` 沿用对应历史 snapshot 已保存的 `featured_items` / `featured_item_ids` 成员关系，不按当前分数重新计算；顺序跟随最终 `items`。每个历史 item 补充请求目标用户当前的 `user_state`，`item_count == len(items)`；sources/channels/categories/tags/topics/personal_tags 等筛选集合从最终历史 items 稳定重建。
 8. 跨 source URL 去重后的 item 必须保存完整 `source_ids/subscription_ids/source_keys` provenance；partial refresh 只要该 provenance 与失败的 active source 有交集，就保留窗口内旧 item。URL query 是内容身份的一部分，不得把不同 query identifier 的文章误合并。
-9. 全量刷新用成功来源的本次结果替换对应来源、删除已取消订阅来源；失败来源保留仍在时间窗口内的旧内容。全部来源失败不生成 snapshot；全部成功且为空生成正常空 snapshot。
-10. `source_fetch` 按 `article_id` 合并目标来源结果到最新 Feed，不替换其他来源。`personal_only` 内容进入 Feed，但跳过 AI、精选和推送。
+9. 全量刷新把本次结果与当前用户稳定内容索引及最新 snapshot 中“仍属 active source 且仍在全局时间窗口内”的内容合并；同一 canonical identity 由本次结果覆盖展示字段，但窗口内的不同文章不得因该来源本次抓到新内容或成功返回空集合而消失。已取消订阅来源立即排除；失败来源同样保留窗口内旧内容。全部来源失败不生成 snapshot；只有 active source 没有任何本次或索引中的窗口内内容时，全部成功且为空才生成空 snapshot。
+9A. `latest_per_source` 只对显式声明该 retention 的来源生效：序列化 item 以 additive `retention_policy_explicit=true` 标记该事实，同一 provenance 的新 latest 替换旧 latest。X/Instagram profile 未显式声明时统一采用 `time_window`；读取缺少该标记的遗留 `latest_per_source` 社交快照时按 `time_window` 规范化，并可从用户稳定内容索引恢复仍在窗口内但已被旧 snapshot 替换的帖子。该兼容不迁移或重写历史 snapshot。
+10. `source_fetch` 按 canonical identity 合并目标来源结果到最新 Feed，不替换其他来源；目标来源的普通窗口内容继续累计，只有显式 `latest_per_source` 会替换其旧 latest。`personal_only` 内容进入 Feed，但跳过 AI、精选和推送。
 11. `GET /api/archive/graph` 固定返回 `{"nodes": [], "edges": [], "scope": "user", "capability": "disabled", "degraded": true, "reason": "user_scoped_graph_not_available"}`，不得读取全局图文件；默认 Service UI 无 Graph 入口。
 12. compatibility-only `GET /api/archive/items` 返回 `{items, page, filters, scope}`，支持 `channel/topic/source/date_from/date_to/min_score/limit/offset/sort/order`。
 13. compatibility-only `GET /api/archive/trends` 支持 `group_by=channel|topic|entity|source` 和 `bucket=none|day|week`。

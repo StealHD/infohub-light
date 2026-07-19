@@ -13,6 +13,7 @@ from src.services.job_queue import JobQueue
 from src.services.user_feed_store import UserFeedStore
 from src.storage.manager import StorageManager
 from src.storage.service_store import ServiceStore
+from src.ui.site import build_site_payload
 
 
 def _config() -> Config:
@@ -127,7 +128,9 @@ def _service(tmp_path, monkeypatch):
     return store, workspace, owner, FeedProductionService(store, _config())
 
 
-def test_partial_refresh_replaces_successful_source_and_preserves_failed_source(tmp_path, monkeypatch):
+def test_partial_refresh_retains_recent_items_from_successful_and_failed_sources(
+    tmp_path, monkeypatch
+):
     store, workspace, owner, service = _service(tmp_path, monkeypatch)
     first = _result(
         "run_first",
@@ -160,7 +163,11 @@ def test_partial_refresh_replaces_successful_source_and_preserves_failed_source(
     )
 
     payload = snapshot["payload"]
-    assert {item["id"] for item in payload["items"]} == {"a-new", "b-old"}
+    assert {item["id"] for item in payload["items"]} == {
+        "a-old",
+        "a-new",
+        "b-old",
+    }
     assert payload["today_items"] == payload["items"]
     assert payload["schema_version"] == 2
     assert payload["run_id"] == "run_partial"
@@ -170,12 +177,13 @@ def test_partial_refresh_replaces_successful_source_and_preserves_failed_source(
         (snapshot["id"],),
     ).fetchall()
     assert {(row["article_id"], row["source_id"], row["subscription_id"]) for row in rows} == {
+        ("a-old", "src_a", "sub_a"),
         ("a-new", "src_a", "sub_a"),
         ("b-old", "src_b", "sub_b"),
     }
 
 
-def test_profile_source_fetch_keeps_latest_item_beyond_global_window_when_empty(
+def test_profile_source_fetch_expires_item_beyond_global_window_when_empty(
     tmp_path, monkeypatch
 ):
     _store, workspace, owner, service = _service(tmp_path, monkeypatch)
@@ -222,12 +230,10 @@ def test_profile_source_fetch_keeps_latest_item_beyond_global_window_when_empty(
         ),
     )
 
-    assert [item["id"] for item in latest["payload"]["items"]] == [
-        "instagram:post:old"
-    ]
+    assert latest["payload"]["items"] == []
 
 
-def test_profile_source_fetch_atomically_replaces_previous_latest_item(
+def test_profile_source_fetch_keeps_multiple_items_inside_global_window(
     tmp_path, monkeypatch
 ):
     _store, workspace, owner, service = _service(tmp_path, monkeypatch)
@@ -258,12 +264,16 @@ def test_profile_source_fetch_atomically_replaces_previous_latest_item(
         ),
     )
 
-    assert [item["id"] for item in replacement["payload"]["items"]] == [
-        "twitter:tweet:new"
-    ]
+    assert {item["id"] for item in replacement["payload"]["items"]} == {
+        "twitter:tweet:old",
+        "twitter:tweet:new",
+    }
+    assert {
+        item["retention_policy"] for item in replacement["payload"]["items"]
+    } == {"time_window"}
 
 
-def test_full_refresh_keeps_profile_latest_but_expires_normal_source(
+def test_full_refresh_expires_profile_and_normal_source_outside_window(
     tmp_path, monkeypatch
 ):
     _store, workspace, owner, service = _service(tmp_path, monkeypatch)
@@ -324,9 +334,90 @@ def test_full_refresh_keeps_profile_latest_but_expires_normal_source(
         active_source_ids={"src_instagram", "src_rss"},
     )
 
+    assert latest["payload"]["items"] == []
+
+
+def test_explicit_latest_per_source_still_replaces_previous_item(
+    tmp_path, monkeypatch
+):
+    _store, workspace, owner, service = _service(tmp_path, monkeypatch)
+    old = _item("rss:latest:old", "src_rss", "sub_rss")
+    old.metadata["retention_policy"] = "latest_per_source"
+    new = _item("rss:latest:new", "src_rss", "sub_rss")
+    new.metadata["retention_policy"] = "latest_per_source"
+
+    service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_explicit_latest_old",
+        job_type="source_fetch",
+        source_id="src_rss",
+        result=_result(
+            "run_explicit_latest_old",
+            "succeeded",
+            (old,),
+            (_outcome("src_rss", "sub_rss"),),
+        ),
+    )
+    latest = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_explicit_latest_new",
+        job_type="source_fetch",
+        source_id="src_rss",
+        result=_result(
+            "run_explicit_latest_new",
+            "succeeded",
+            (new,),
+            (_outcome("src_rss", "sub_rss"),),
+        ),
+    )
+
     assert [item["id"] for item in latest["payload"]["items"]] == [
-        "instagram:post:latest"
+        "rss:latest:new"
     ]
+
+
+def test_explicit_social_latest_per_source_is_not_normalized_to_time_window(
+    tmp_path, monkeypatch
+):
+    _store, workspace, owner, service = _service(tmp_path, monkeypatch)
+    old = _profile_item("twitter:explicit:old", "src_x", "sub_x")
+    old.metadata["retention_policy"] = "latest_per_source"
+    new = _profile_item("twitter:explicit:new", "src_x", "sub_x")
+    new.metadata["retention_policy"] = "latest_per_source"
+
+    service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_explicit_social_old",
+        job_type="source_fetch",
+        source_id="src_x",
+        result=_result(
+            "run_explicit_social_old",
+            "succeeded",
+            (old,),
+            (_outcome("src_x", "sub_x"),),
+        ),
+    )
+    latest = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_explicit_social_new",
+        job_type="source_fetch",
+        source_id="src_x",
+        result=_result(
+            "run_explicit_social_new",
+            "succeeded",
+            (new,),
+            (_outcome("src_x", "sub_x"),),
+        ),
+    )
+
+    assert [item["id"] for item in latest["payload"]["items"]] == [
+        "twitter:explicit:new"
+    ]
+    assert latest["payload"]["items"][0]["retention_policy_explicit"] is True
 
 
 def test_full_refresh_with_explicitly_empty_active_sources_discards_current_items(
@@ -992,7 +1083,7 @@ def test_source_fetch_resorts_full_latest_feed_without_rewriting_old_snapshot(
     assert first_after["payload"]["items"] == [first_payload_before["items"][0]]
 
 
-def test_successful_empty_refresh_creates_fresh_empty_snapshot(tmp_path, monkeypatch):
+def test_successful_empty_refresh_retains_recent_active_source_items(tmp_path, monkeypatch):
     _store, workspace, owner, service = _service(tmp_path, monkeypatch)
     service.save_run_result(
         workspace_id=workspace["id"],
@@ -1031,11 +1122,89 @@ def test_successful_empty_refresh_creates_fresh_empty_snapshot(tmp_path, monkeyp
         active_source_ids={"src_a"},
     )
 
-    assert snapshot["payload"]["items"] == []
-    assert snapshot["item_count"] == 0
+    assert [item["id"] for item in snapshot["payload"]["items"]] == ["old"]
+    assert snapshot["item_count"] == 1
     assert UserFeedStore(_store).latest_snapshot(
         workspace_id=workspace["id"], user_id=owner["id"]
     )["id"] == snapshot["id"]
+
+
+def test_full_refresh_recovers_recent_social_items_missing_from_latest_snapshot(
+    tmp_path, monkeypatch
+):
+    _store, workspace, owner, service = _service(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    old = _profile_item(
+        "twitter:tweet:recent-old",
+        "src_x",
+        "sub_x",
+        source_type=SourceType.TWITTER,
+        published_at=now - timedelta(hours=6),
+    )
+    service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_recent_social_old",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_recent_social_old",
+            "succeeded",
+            (old,),
+            (_outcome("src_x", "sub_x"),),
+        ),
+        active_source_ids={"src_x"},
+    )
+
+    new = _profile_item(
+        "twitter:tweet:recent-new",
+        "src_x",
+        "sub_x",
+        source_type=SourceType.TWITTER,
+        published_at=now - timedelta(hours=1),
+    )
+    legacy_payload = build_site_payload(
+        all_items=[new],
+        date=now.date().isoformat(),
+        total_fetched=1,
+        ai_enabled=False,
+    )
+    legacy_payload.update(
+        {
+            "schema_version": 2,
+            "generated_at": now.isoformat(),
+            "run_id": "run_legacy_latest_only",
+            "run_status": "succeeded",
+        }
+    )
+    legacy_payload["items"][0]["retention_policy"] = "latest_per_source"
+    service.feed_store.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_legacy_latest_only",
+        payload=legacy_payload,
+    )
+
+    recovered = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_recent_social_recovered",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_recent_social_recovered",
+            "succeeded",
+            (new,),
+            (_outcome("src_x", "sub_x"),),
+        ),
+        active_source_ids={"src_x"},
+    )
+
+    assert {item["id"] for item in recovered["payload"]["items"]} == {
+        "twitter:tweet:recent-old",
+        "twitter:tweet:recent-new",
+    }
+    assert {
+        item["retention_policy"] for item in recovered["payload"]["items"]
+    } == {"time_window"}
 
 
 def test_snapshot_diagnostics_use_safe_public_source_outcome_shape(tmp_path, monkeypatch):
@@ -1211,7 +1380,10 @@ def test_full_refresh_removes_sources_that_are_no_longer_active(tmp_path, monkey
         active_source_ids={"src_a"},
     )
 
-    assert {item["id"] for item in snapshot["payload"]["items"]} == {"a-new"}
+    assert {item["id"] for item in snapshot["payload"]["items"]} == {
+        "a-old",
+        "a-new",
+    }
 
 
 def test_partial_job_retry_atomically_replaces_its_existing_snapshot(tmp_path, monkeypatch):
@@ -1278,6 +1450,7 @@ def test_partial_job_retry_atomically_replaces_its_existing_snapshot(tmp_path, m
     assert {item["id"] for item in succeeded_snapshot["payload"]["items"]} == {
         "final-a",
         "final-b",
+        "partial-item",
     }
     assert store.connect().execute(
         "SELECT COUNT(*) FROM user_feed_snapshots WHERE job_id = ?",
@@ -1289,7 +1462,7 @@ def test_partial_job_retry_atomically_replaces_its_existing_snapshot(tmp_path, m
             "SELECT article_id FROM user_feed_items WHERE snapshot_id = ?",
             (succeeded_snapshot["id"],),
         )
-    } == {"final-a", "final-b"}
+    } == {"final-a", "final-b", "partial-item"}
 
 
 def test_concurrent_source_fetches_for_one_user_do_not_lose_each_other(tmp_path, monkeypatch):

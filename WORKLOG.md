@@ -2099,3 +2099,10 @@
 - 执行验证：归档双端 SHA-256 `ae783c9f…ed49`；脱敏 staging 完成 v6/v7、integrity/foreign-key、8 项非变更 API smoke、8 条 UI 路由及高风险开关全关；生产 live=`1.7.0/59399130846d`、ready database/worker=`ready`，API/Worker 同 image ID `sha256:7ab1c764…7413`、healthy、0 restart；本机与公网 HTTPS 8 条路由均 200、未登录 API 401、TLS 校验通过，完整 Worker 轮询后 queued/running=0、proposal=0、严重日志匹配=0
 - 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.0-59399130846d`；切换前数据库、配置和 `.env` 备份位于 `/opt/inteliscope/backups/pre-v1.7.0-59399130846d-20260719T100150Z`，旧 v1.6.0 release/image 保留；staging 容器与脱敏副本已清理
 - 控制面变更：无；Remote MCP、订阅写入、Browser Chat、共享抓取与 compact writer 均保持关闭，未触发来源抓取、AI、付费调用或公网 Nginx 变更
+
+### 2026-07-20 00:28 Codex
+- 任务：修复 Agent 长上下文可达性、导航/快速视图状态，并根治社交来源近期内容被全量 Feed 覆盖后只在历史可见的问题；按要求跳过 OpenClaw 模型同步
+- 修改文件：工作台 Shell/常用视图及聚焦测试、Feed finalizer/稳定内容索引/序列化及生产回归、`UI_CONTRACT.md`、`API_CONTRACT.md`、D037 与本工作日志
+- 执行验证：前端与 Feed 均完成可信 RED→GREEN；影响映射 `mapping_miss=false`，定向门禁 9/9、79.198 秒；最终 `test_gate full` 22/22、0 failed/error、88.891 秒；`git diff --check` 通过
+- 结果：最多 8 条上下文采用单行截断且删除入口固定可达；分栏入口仅在打开时使用紫色选中态；“全部”快速视图清除筛选并保留排序；active source 的窗口内内容由本次结果、最新 snapshot 与用户稳定内容索引滚动合并，遗留 X/Instagram 派生 latest 帖子可恢复，显式 `latest_per_source` 仍保持替换语义
+- 控制面变更：新增 D037 并更新 UI/API retention 真源；无数据库迁移或历史重写，未修改 OpenClaw 模型、权限、Query Key、MCP 协议，也未触发来源抓取、AI 或付费调用
