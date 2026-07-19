@@ -1475,3 +1475,12 @@
 - 数据库验收：主库在线副本在断网 RC 容器中完成 v7 初始化，`agent_change_proposals_v7` marker、两项索引、三项级联外键、integrity/foreign-key 与核心表计数均通过；副本未产生 proposal 或真实外部调用
 - 运行验收：备份 `data/backups/service-pre-quiet-studio-openclaw-rc-20260718T201416Z.db`（SHA-256 `acf8524d5f8db9da03390cbb1210eebd19f5784c7964cdabf53beaec5189a250`）后，本机 8080 已切换至唯一镜像 `inteliscope-service:quiet-studio-openclaw-rc-14f212c83b33` / image ID `sha256:feb6cabe86b76b2cd6cf325dd937c59f7d553486caa00acb8b443d59e9696d9e`；API/Worker 同镜像且 healthy，live revision 正确、database/worker ready，Feed/收藏/历史/订阅/助手连接/设置/登录均 HTTP 200，队列无 queued/running，两个 Remote MCP 开关保持 false
 - 控制面变更：新增 PLAN 第 52 项并修正旧的 6-tool/禁写表述；未修改 `main`、来源分支、远端、公网或 VPS，未启用 Remote MCP 或订阅写入
+
+### 2026-07-19 15:02 Codex
+- 任务：修复 Quiet Studio 信息流的侧栏交互分叉、社交卡片重复与 Agent 上下文内部 ID 展示；按要求跳过 OpenClaw 模型同步
+- 修改文件：共享工作台展示模型、Virtual Feed、Hero Workbench Shell、生产 Playwright、聚焦 RTL、`UI_CONTRACT.md`、D034 与本工作日志
+- 执行验证：展示模型、卡片与 Shell 均完成可信 RED→GREEN；完整 `test_gate full` 22/22、0 failed/error、89.108 秒；1440/1024/390 生产工作台 Playwright/Axe 24/24 通过；`git diff --check` 通过
+- 结果：桌面路由与常用视图复用同一无位移导航行和 40px 分栏按钮；X/Instagram 及旧 `apify_social` 快照使用来源优先的单正文卡片；最多 8 条 Agent 上下文通过用户作用域详情查询显示头像、平台、关注对象、正文首行与时间，原始 item ID 仅保留在 sessionStorage 和交接提示词
+- 运行验收：切换前 queued/running Job 为 0，并在线备份 `data/backups/service-pre-social-20260719T065407Z.db`（SHA-256 `674b61bba862cbf7c8d4a5c0ad624a8ae4897aa24ef86ee28eca152f0f13fd87`）；固定提交 `b207250ff7da` 构建镜像 `inteliscope-service:quiet-studio-social-b207250ff7da` / image ID `sha256:9a10d79fa7a380496cddf0cf0adcb42d9dc0b6b271a330f8572fd8e2da9ba131`，API/Worker 同镜像、同主数据挂载且 healthy，live revision 正确、database/worker ready，七条生产路由 HTTP 200，Remote MCP 两个开关保持 false
+- 人工复核：应用内浏览器真实 `/feed` 显示 5 条内容；X/Instagram 来源、作者与正文无重复；加入 Instagram 内容后 Agent 显示可读预览且原始 ID 计数为 0；1440px 侧栏的路由与快速视图共享相同类和交互，split-panel 控件正确；测试上下文已移除、面板已关闭、console error 为 0
+- 控制面变更：新增 D034 与对应 UI 契约；未修改 `auto | fast | deep` 模型偏好、API、数据库、权限、Query Key、MCP 协议、历史数据、main、远端或 VPS
