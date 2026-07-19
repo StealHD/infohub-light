@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FeedItem, FeedSnapshot } from '../../api/types'
+import type { FeedItem, FeedPresentation, FeedSnapshot } from '../../api/types'
 import {
   cleanLegacyModeSearch,
   mergeDeepLinkedItem,
@@ -48,6 +48,95 @@ describe('live workbench model', () => {
     expect(toWorkbenchCardModel({ ...item('missing'), summary_zh: undefined }).summary).toBeUndefined()
   })
 
+  it('maps X posts to a source-first social card without repeating the generated title', () => {
+    const social: FeedItem = {
+      ...item('x-post'),
+      title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+      summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+      source_type: 'apify_social',
+      presentation: {
+        version: 2,
+        source: { id: 'x-source', catalog_type: 'apify_social', platform: 'x', name: 'X · @thsottiaux' },
+        author: { name: 'Tibo', kind: 'person' },
+        timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
+        links: { canonical_url: 'https://x.com/thsottiaux/status/1', source_url: 'https://x.com/thsottiaux' },
+        content: {
+          title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+          title_origin: 'generated',
+          excerpt: 'Oops... I did it again. Enjoy reset usage limits for all paid users.',
+          body_text: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+          content_kind: 'post_body',
+          excerpt_truncated: true,
+          body_truncated: false,
+        },
+        taxonomy: { channel: '其他', configured_topics: [], inferred_topics: ['行业动态'], topics: ['行业动态'], entities: [] },
+        engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+        analysis: { status: 'ai', score: 7, signal_strength: 'medium', signal_type: 'update', summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.' },
+      },
+    }
+
+    expect(toWorkbenchCardModel(social)).toMatchObject({
+      displayKind: 'social',
+      platformLabel: 'X',
+      sourceLabel: '@thsottiaux',
+      authorLabel: 'Tibo',
+      primaryText: 'Oops... I did it again. Enjoy reset usage limits for all paid users.',
+      detailBody: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+      summary: undefined,
+    })
+  })
+
+  it('recognizes a legacy Instagram snapshot by platform and removes duplicate author metadata', () => {
+    const legacyPresentation = {
+      version: 1,
+      source: { id: 'instagram-source', catalog_type: 'apify_social', platform: 'instagram', name: 'tsucha_ri' },
+      author: { name: 'tsucha_ri', kind: 'account' },
+      timing: { published_at: '2026-05-05T08:00:00Z', fetched_at: '2026-05-05T08:05:00Z' },
+      links: { canonical_url: 'https://instagram.com/p/example', source_url: 'https://instagram.com/tsucha_ri' },
+      content: { title: '8thオフショ #シャニマス', title_origin: 'generated', excerpt: '8thオフショ #シャニマス', excerpt_truncated: false },
+      taxonomy: { channel: '其他', configured_topics: [], inferred_topics: [], topics: [], entities: [] },
+      engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+      analysis: { status: 'fallback', score: 0, signal_strength: 'unknown', signal_type: 'unknown', summary_zh: '8thオフショ #シャニマス' },
+    } as unknown as FeedPresentation
+    const legacy: FeedItem = { ...item('instagram-post'), source_type: 'apify_social', presentation: legacyPresentation }
+
+    expect(toWorkbenchCardModel(legacy)).toMatchObject({
+      displayKind: 'social',
+      platformLabel: 'Instagram',
+      sourceLabel: 'tsucha_ri',
+      authorLabel: undefined,
+      primaryText: '8thオフショ #シャニマス',
+      summary: undefined,
+    })
+  })
+
+  it('infers the readable platform from a legacy social source name', () => {
+    const legacy = {
+      ...item('legacy-x'),
+      source: 'X · @legacy_account',
+      source_type: 'apify_social',
+      title: '@legacy_account: legacy post body',
+      summary_zh: 'legacy post body',
+    }
+
+    expect(toWorkbenchCardModel(legacy)).toMatchObject({
+      displayKind: 'social',
+      platformLabel: 'X',
+      sourceLabel: '@legacy_account',
+      primaryText: 'legacy post body',
+    })
+  })
+
+  it('suppresses a substantially repeated truncated article summary without fuzzy matching', () => {
+    const repeated = item(
+      'prefix-repeat',
+      '2026-07-13T08:00:00Z',
+      'AI 原生产品的交互范式演进：从功能堆叠转向结果交付与可信任的完整闭环。',
+    )
+    repeated.title = 'AI 原生产品的交互范式演进：从功能堆叠转向结果交付与可信任…'
+    expect(toWorkbenchCardModel(repeated).summary).toBeUndefined()
+  })
+
   it('inserts a deep-linked item chronologically without duplicating an existing item', () => {
     const older = item('older', '2026-07-13T08:00:00Z')
     const newest = item('newest', '2026-07-13T12:00:00Z')
@@ -70,7 +159,7 @@ describe('live workbench model', () => {
         author: { name: '作者', kind: 'person' },
         timing: { published_at: '2026-07-13T10:00:00Z', fetched_at: '2026-07-13T10:01:00Z' },
         links: { canonical_url: 'https://example.com/selected', source_url: 'https://example.com/selected' },
-        content: { title: '详情标题', title_origin: 'native', excerpt: '详情摘录', body_text: '完整详情正文', content_kind: 'post_body', excerpt_truncated: false, body_truncated: false },
+        content: { title: '详情标题', title_origin: 'native', excerpt: '详情摘录', body_text: '完整详情正文', content_kind: 'feed_summary', excerpt_truncated: false, body_truncated: false },
         taxonomy: { channel: '详情频道', configured_topics: [], inferred_topics: [], topics: ['详情主题'], entities: [] },
         engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
         analysis: { status: 'ai', score: 9, signal_strength: 'strong', signal_type: 'update', summary_zh: '详情概括' },

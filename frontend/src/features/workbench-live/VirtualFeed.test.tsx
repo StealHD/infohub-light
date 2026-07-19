@@ -18,6 +18,38 @@ const makeItem = (index: number): FeedItem => ({
   user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
 })
 
+const socialItem = (): FeedItem => ({
+  id: 'social-x',
+  title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+  url: 'https://x.com/thsottiaux/status/1',
+  source: 'X · @thsottiaux',
+  source_type: 'apify_social',
+  summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+  published_at: '2026-07-18T08:00:00Z',
+  channel: '其他',
+  topics: ['行业动态'],
+  user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+  presentation: {
+    version: 2,
+    source: { id: 'x-source', catalog_type: 'apify_social', platform: 'x', name: 'X · @thsottiaux' },
+    author: { name: 'Tibo', kind: 'person' },
+    timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
+    links: { canonical_url: 'https://x.com/thsottiaux/status/1', source_url: 'https://x.com/thsottiaux' },
+    content: {
+      title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
+      title_origin: 'generated',
+      excerpt: 'Oops... I did it again. Enjoy reset usage limits for all paid users.',
+      body_text: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
+      content_kind: 'post_body',
+      excerpt_truncated: true,
+      body_truncated: false,
+    },
+    taxonomy: { channel: '其他', configured_topics: [], inferred_topics: ['行业动态'], topics: ['行业动态'], entities: [] },
+    engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+    analysis: { status: 'ai', score: 7, signal_strength: 'medium', signal_type: 'update', summary_zh: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.' },
+  },
+})
+
 describe('VirtualFeed', () => {
   it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
@@ -92,6 +124,30 @@ describe('VirtualFeed', () => {
     />)
     expect(screen.getByRole('article', { name: '信息 1' })).toHaveAttribute('data-card-visual', 'quiet-studio')
     expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('data-state', 'collapsed')
+  })
+
+  it('renders a social post as one source-first content block in both collapsed and expanded states', () => {
+    const card = toWorkbenchCardModel(socialItem())
+    const baseProps = {
+      cards: [card],
+      contextIds: [] as string[],
+      onToggleExpanded: vi.fn(),
+      onToggleSaved: vi.fn(),
+      onToggleContext: vi.fn(),
+      onItemAction: vi.fn(),
+    }
+    const view = render(<VirtualFeed {...baseProps} />)
+
+    const metadata = screen.getByLabelText('来源信息')
+    expect(within(metadata).getAllByText('X').length).toBeGreaterThan(0)
+    expect(within(metadata).getByText('Tibo')).toBeInTheDocument()
+    expect(within(metadata).getByText('@thsottiaux')).toBeInTheDocument()
+    expect(screen.queryByText(socialItem().title)).not.toBeInTheDocument()
+    expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users.')).toHaveLength(1)
+
+    view.rerender(<VirtualFeed {...baseProps} expandedId="social-x" />)
+    expect(screen.queryByText('Oops... I did it again. Enjoy reset usage limits for all paid users.')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.')).toHaveLength(1)
   })
 
   it('animates Quiet Studio details and exposes a confirmation state for Agent context', () => {

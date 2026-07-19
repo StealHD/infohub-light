@@ -45,7 +45,7 @@ function detailedItem(id: string, overrides: Partial<FeedItem> = {}): FeedItem {
       author: { name: '详情作者', kind: 'person' },
       timing: { published_at: '2026-07-17T02:00:00Z', fetched_at: '2026-07-17T02:01:00Z' },
       links: { canonical_url: `https://example.com/${id}`, source_url: `https://example.com/${id}` },
-      content: { title: `详情标题 ${id}`, title_origin: 'native', excerpt: '详情摘录', body_text: '完整详情正文', content_kind: 'post_body', excerpt_truncated: false, body_truncated: false },
+      content: { title: `详情标题 ${id}`, title_origin: 'native', excerpt: '详情摘录', body_text: '完整详情正文', content_kind: 'feed_summary', excerpt_truncated: false, body_truncated: false },
       taxonomy: { channel: '详情频道', configured_topics: [], inferred_topics: [], topics: ['详情主题'], entities: [] },
       engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
       analysis: { status: 'ai', score: 9, signal_strength: 'strong', signal_type: 'update', summary_zh: '详情概括' },
