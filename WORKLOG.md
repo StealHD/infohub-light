@@ -2092,3 +2092,10 @@
 - 执行验证：合并后 UI contract、ESLint、TypeScript、Vitest、Vite build、Python/full/Compose/JSON 等发布门禁前 22 项通过；修正过期的 Agent 按钮与自动开面板验收后，三视口定向 6/6、完整 Playwright/Axe 30/30 通过；受控配置下隔离 Docker build、ready、API smoke 与 cleanup 全部通过；`git diff --check` 通过
 - 结果：`release/v1.7.0` 同时包含 Quiet Studio 全站 HeroUI、社交来源/Agent 可读上下文、10/14 工具 delegation access 与 Browser Gateway Chat；版本号统一为 `1.7.0`，原多用户工作区的未提交控制文件未被纳入发布
 - 控制面变更：仅记录版本整合与发布证据；未修改 API、数据库、权限、Query Key、Remote MCP 协议、主数据、VPS 或公网运行态
+
+### 2026-07-19 18:20 Codex
+- 任务：将精确标签 `v1.7.0` 安全发布到 `vps-tokyo`，保留可验证的生产回滚点
+- 修改文件：仅本工作日志；VPS 新增 revision-locked release、不可变镜像与权限受限备份，未修改 Nginx 配置
+- 执行验证：归档双端 SHA-256 `ae783c9f…ed49`；脱敏 staging 完成 v6/v7、integrity/foreign-key、8 项非变更 API smoke、8 条 UI 路由及高风险开关全关；生产 live=`1.7.0/59399130846d`、ready database/worker=`ready`，API/Worker 同 image ID `sha256:7ab1c764…7413`、healthy、0 restart；本机与公网 HTTPS 8 条路由均 200、未登录 API 401、TLS 校验通过，完整 Worker 轮询后 queued/running=0、proposal=0、严重日志匹配=0
+- 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.0-59399130846d`；切换前数据库、配置和 `.env` 备份位于 `/opt/inteliscope/backups/pre-v1.7.0-59399130846d-20260719T100150Z`，旧 v1.6.0 release/image 保留；staging 容器与脱敏副本已清理
+- 控制面变更：无；Remote MCP、订阅写入、Browser Chat、共享抓取与 compact writer 均保持关闭，未触发来源抓取、AI、付费调用或公网 Nginx 变更
