@@ -2106,3 +2106,10 @@
 - 执行验证：前端与 Feed 均完成可信 RED→GREEN；影响映射 `mapping_miss=false`，定向门禁 9/9、79.198 秒；最终 `test_gate full` 22/22、0 failed/error、88.891 秒；`git diff --check` 通过
 - 结果：最多 8 条上下文采用单行截断且删除入口固定可达；分栏入口仅在打开时使用紫色选中态；“全部”快速视图清除筛选并保留排序；active source 的窗口内内容由本次结果、最新 snapshot 与用户稳定内容索引滚动合并，遗留 X/Instagram 派生 latest 帖子可恢复，显式 `latest_per_source` 仍保持替换语义
 - 控制面变更：新增 D037 并更新 UI/API retention 真源；无数据库迁移或历史重写，未修改 OpenClaw 模型、权限、Query Key、MCP 协议，也未触发来源抓取、AI 或付费调用
+
+### 2026-07-20 01:14 Codex
+- 任务：准备 Inteliscope v1.7.1 revision-locked 本地 RC，为精确标签与安全 VPS 发布建立回滚点
+- 修改文件：六处版本入口、D037 状态与本工作日志；运行态使用主数据挂载但未创建业务任务
+- 执行验证：正式 `test_gate release` 24/24、0 failed/error、131.427 秒，含三视口 Playwright/Axe 与隔离 Docker smoke；切换前 queued/running=0，数据库 integrity/foreign-key 正常；切换后 7 条路由 200、API/Worker healthy、worker ready、0 restart，队列与 proposal 均为 0
+- 结果：本地 8080 已使用唯一镜像 `inteliscope-service:v1.7.1-318c0f120ae5` / image ID `sha256:781fa8f88ccfa2b96818b4561f976a169ba4fe558eb67a5f3f96acf145da8502`；live identity=`1.7.1/318c0f120ae5`；切换前备份为 `data/backups/service-pre-v1.7.1-20260719T171209Z.db`（SHA-256 `0a34eacd12a7b1928e351cd236680b4499e14b44231cfbd6241613b651a661cb`）
+- 控制面变更：D037 标记本地 RC 完成；Remote MCP、订阅写入和 Browser Chat 保持关闭，未触发真实来源、AI、付费调用或 OpenClaw 模型同步
