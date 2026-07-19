@@ -80,12 +80,16 @@ Nginx Basic Auth may be used as an additional outer gate, but it never replaces 
 
 Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes ten safe Feed, subscription, source guidance, health, job, and diagnosis tools for that user. Subscription changes require a separately authorized connection and server flag.
 
+Browser chat is a separate opt-in connection. The browser connects directly to the user's OpenClaw Gateway v4; Inteliscope never proxies the Gateway or stores its bootstrap token. Local development accepts only `ws://127.0.0.1` or `ws://localhost`, while a remote per-user Gateway must use `wss://`. Paired browser credentials are isolated by Inteliscope user and Gateway URL. Turning the chat flag off restores the copy-only handoff without affecting Remote MCP.
+
 For local development:
 
 ```bash
 HORIZON_REMOTE_MCP_ENABLED=true
 HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
 HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_OPENCLAW_CHAT_ENABLED=false
+HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 ```
 
 Install and configure the bundled Skill by following [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md). The legacy stdio MCP remains separate and is never exposed by `/mcp`.

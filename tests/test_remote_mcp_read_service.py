@@ -258,6 +258,13 @@ def test_remote_mcp_detail_is_self_scoped_and_body_is_bounded(tmp_path, monkeypa
     assert detail["presentation"]["version"] == 2
     assert detail["presentation"]["content"]["body_text"] == "X" * 20
     assert detail["presentation"]["content"]["body_truncated"] is True
+    assert detail["presentation"]["content"] | {
+        "body_offset": 0,
+        "body_end": 20,
+        "body_total_chars": 100,
+        "body_has_more": True,
+        "next_body_offset": 20,
+    } == detail["presentation"]["content"]
     assert "media" not in detail["presentation"]
     with pytest.raises(RemoteMCPNotFound):
         service.get_item(
@@ -270,6 +277,102 @@ def test_remote_mcp_detail_is_self_scoped_and_body_is_bounded(tmp_path, monkeypa
             workspace_id=workspace["id"],
             user_id=owner["id"],
             article_id="missing",
+        )
+
+
+def test_remote_mcp_detail_pages_the_full_stored_body(tmp_path, monkeypatch):
+    store, workspace, owner, *_ = _context(tmp_path, monkeypatch)
+    service = RemoteMCPReadService(store)
+    scope = {"workspace_id": workspace["id"], "user_id": owner["id"]}
+    long_item = _item("article-long", "Long body", body="Y" * 20_000)
+    long_item["presentation"]["content"]["body_truncated"] = True
+    long_item["presentation"]["content"]["body_completeness"] = "captured"
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-07-17T00:00:00+00:00",
+            "items": [long_item],
+        },
+    )
+
+    first = service.get_item(
+        **scope, article_id="article-long", body_offset=0, max_body_chars=8000
+    )
+    second = service.get_item(
+        **scope, article_id="article-long", body_offset=8000, max_body_chars=8000
+    )
+    last = service.get_item(
+        **scope, article_id="article-long", body_offset=16000, max_body_chars=8000
+    )
+
+    chunks = [
+        page["presentation"]["content"]["body_text"]
+        for page in (first, second, last)
+    ]
+    assert "".join(chunks) == "Y" * 20_000
+    assert first["presentation"]["content"]["next_body_offset"] == 8000
+    assert second["presentation"]["content"]["next_body_offset"] == 16000
+    assert last["presentation"]["content"] | {
+        "body_offset": 16000,
+        "body_end": 20_000,
+        "body_total_chars": 20_000,
+        "body_has_more": False,
+        "next_body_offset": None,
+    } == last["presentation"]["content"]
+    assert last["presentation"]["content"]["body_truncated"] is True
+
+
+def test_remote_mcp_final_chunk_distinguishes_complete_storage_from_capture_truncation(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, *_ = _context(tmp_path, monkeypatch)
+    service = RemoteMCPReadService(store)
+    scope = {"workspace_id": workspace["id"], "user_id": owner["id"]}
+    complete = _item("article-complete", "Complete", body="Z" * 12_000)
+    complete["presentation"]["content"]["body_truncated"] = False
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-07-17T00:00:00+00:00",
+            "items": [complete],
+        },
+    )
+
+    first = service.get_item(
+        **scope, article_id="article-complete", body_offset=0, max_body_chars=8000
+    )
+    final = service.get_item(
+        **scope,
+        article_id="article-complete",
+        body_offset=8000,
+        max_body_chars=8000,
+    )
+
+    assert first["presentation"]["content"]["body_truncated"] is True
+    assert first["presentation"]["content"]["body_has_more"] is True
+    assert final["presentation"]["content"]["body_has_more"] is False
+    assert final["presentation"]["content"]["body_truncated"] is False
+
+
+@pytest.mark.parametrize("body_offset", [-1, 20_001, True])
+def test_remote_mcp_detail_rejects_invalid_body_offsets(
+    tmp_path, monkeypatch, body_offset
+):
+    store, workspace, owner, *_ = _context(tmp_path, monkeypatch)
+    service = RemoteMCPReadService(store)
+
+    with pytest.raises(ValueError, match="body_offset"):
+        service.get_item(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            article_id="article-a",
+            body_offset=body_offset,
         )
 
 

@@ -1465,3 +1465,11 @@
 - 结果：已删除临时 `data/config.json`/`frontend/node_modules` 软链接；按批准的最终门禁硬边界停止，未合并、未构建镜像、未修改 staging/Nginx/生产容器或数据库
 - 未解决问题：release gate 无通过结论；后续合并、staging、双用户 canary、生产切换与 24 小时观察保持阻塞，除非用户另行授权新的验证方案
 - 控制面变更：Runbook 现在要求备份前同时停止 API/Worker、staging 独立日志，并仅增量修改线上 `cfl.conf`
+
+### 2026-07-19 Codex
+- 任务：实现浏览器直连用户自有 OpenClaw Gateway 的对话面板，并扩展 Remote MCP 文章正文分段读取
+- 修改文件：OpenClaw Gateway v4 客户端、IndexedDB 设备凭证库、对话 hook/UI、文章上下文、助手连接页、Shell/Feed 集成、MCP 配置与 `get_item`、Skill、CSP/Compose/env、权威合同、影响映射和专项/E2E 测试
+- 执行验证：后端相关 94 项、前端 36 files / 238 项、TypeScript typecheck、ESLint（0 error，5 个既有 Fast Refresh warning）、UI contract、生产 build 均通过；release gate 22/23 commands 通过，唯一失败为旧 E2E 文案/抽屉交互断言；修正测试后精确三视口 Playwright 3/3 通过，按约束未重跑 release gate
+- 结果：功能默认关闭；启用后 Chromium 可直连 loopback `ws://` 或远端 `wss://` Gateway，完成 v3 设备签名、严格 `operator.read + operator.write` 权限校验、本地隔离存储、历史/流式/停止/重连/工具发现；文章上下文只发送 ID，`get_item` 最多三段恢复 20,000 字符已存正文；功能关闭继续保留复制模式
+- 未解决问题：release gate wrapper 本身仍为失败结论；真实 OpenClaw 独立 profile 配对、本地/staging 双用户验收、生产开关与 24 小时观察尚未执行，订阅写入生产 flag 仍关闭
+- 控制面变更：新增 D035，正式以浏览器 Gateway 对话替代“站内不连接 OpenClaw”边界；服务器继续无 Agent、无模型、无 Gateway 代理，生产默认不开启对话或订阅写入

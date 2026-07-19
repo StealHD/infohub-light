@@ -9,7 +9,7 @@ from ..services.content_presentation import complete_content_presentation
 from ..services.feed_archive import FeedArchiveService
 from ..services.job_queue import JobQueue
 from ..services.source_health import SourceHealthService
-from ..services.user_content_store import UserContentStore
+from ..services.user_content_store import MAX_CAPTURED_BODY_CHARS, UserContentStore
 from ..storage.service_store import JOB_STATUSES, ServiceStore
 
 
@@ -209,8 +209,16 @@ class RemoteMCPReadService:
         workspace_id: str,
         user_id: str,
         article_id: str,
+        body_offset: int = 0,
         max_body_chars: int = 4000,
     ) -> dict[str, Any]:
+        if (
+            isinstance(body_offset, bool)
+            or not 0 <= int(body_offset) <= MAX_CAPTURED_BODY_CHARS
+        ):
+            raise ValueError(
+                f"body_offset must be between 0 and {MAX_CAPTURED_BODY_CHARS}"
+            )
         if isinstance(max_body_chars, bool) or not 1 <= int(max_body_chars) <= 8000:
             raise ValueError("max_body_chars must be between 1 and 8000")
         item = self.user_content.detail_item(
@@ -223,16 +231,25 @@ class RemoteMCPReadService:
         presentation = _safe_presentation(item, version=2)
         original_content = (item.get("presentation") or {}).get("content") or {}
         body = str(original_content.get("body_text") or "")
+        offset = min(int(body_offset), len(body))
         limit = int(max_body_chars)
+        body_text = body[offset : offset + limit]
+        body_end = offset + len(body_text)
+        body_has_more = body_end < len(body)
+        upstream_truncated = bool(original_content.get("body_truncated"))
         content = presentation["content"]
         content.update(
             {
-                "body_text": body[:limit],
-                "body_truncated": bool(original_content.get("body_truncated"))
-                or len(body) > limit,
+                "body_text": body_text,
+                "body_truncated": upstream_truncated or body_has_more,
                 "body_completeness": str(
                     original_content.get("body_completeness") or "excerpt_only"
                 ),
+                "body_offset": offset,
+                "body_end": body_end,
+                "body_total_chars": len(body),
+                "body_has_more": body_has_more,
+                "next_body_offset": body_end if body_has_more else None,
             }
         )
         return {

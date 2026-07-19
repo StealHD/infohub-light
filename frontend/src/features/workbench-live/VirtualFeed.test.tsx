@@ -108,7 +108,7 @@ describe('VirtualFeed', () => {
     const details = screen.getByTestId('card-details-item-1')
     expect(details).toHaveAttribute('data-state', 'expanded')
     expect(details.className).toContain('grid-rows-[1fr]')
-    expect(screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })).toHaveAttribute('data-context-state', 'selected')
+    expect(screen.getByRole('button', { name: '从 OpenClaw 上下文移除 信息 1' })).toHaveAttribute('data-context-state', 'selected')
   })
 
   it('keeps Quiet Studio card actions compact for fine pointers and 44px for coarse pointers at every width', () => {
@@ -125,7 +125,7 @@ describe('VirtualFeed', () => {
     const actions = [
       within(card).getByRole('link', { name: '打开 信息 1 原文' }),
       within(card).getByRole('button', { name: '收藏 信息 1' }),
-      within(card).getByRole('button', { name: '将 信息 1 加入 Agent 上下文' }),
+      within(card).getByRole('button', { name: '用 OpenClaw 分析 信息 1' }),
       within(card).getByRole('button', { name: '更多操作 信息 1' }),
     ]
 

@@ -34,7 +34,7 @@ function useViewport(width: number) {
 }
 
 const api = {
-  agentDelegations: vi.fn().mockResolvedValue({ enabled: true, connections: [], mcp_url: '/mcp', token_ttl_days: 90, max_active: 5 }),
+  agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, connections: [], mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5 }),
 } as unknown as ServiceApi
 
 function LocationProbe() {
@@ -121,7 +121,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(screen.queryByRole('button', { name: '退出登录' })).not.toBeInTheDocument()
     const account = screen.getByRole('button', { name: '打开账户菜单' })
     await browser.click(account)
-    expect(screen.getByText(/管理员/)).toBeInTheDocument()
+    expect(screen.getByText('alpha · 管理员')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
     expect(onLogout).not.toHaveBeenCalled()
 
@@ -173,10 +173,10 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     useViewport(1440)
   })
 
-  it('presents a handoff composer and disables copying without context', () => {
+  it('presents a handoff composer and disables copying without context', async () => {
     render(<Shell user={{ id: 'composer-empty', username: 'empty', role: 'member', enabled: true }} />)
 
-    expect(screen.getByText('交接模式')).toBeInTheDocument()
+    expect(await screen.findByText('交接模式')).toBeInTheDocument()
     expect(screen.queryByText('仅生成交接提示词，不在站内运行 Agent')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '复制交接提示词' })).toBeDisabled()
     expect(screen.getAllByText('自动 · OpenClaw 决定').length).toBeGreaterThan(0)
@@ -195,13 +195,13 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     render(<Shell user={{ id: 'composer-copy', username: 'copy', role: 'member', enabled: true }} />)
 
-    await browser.click(screen.getByRole('button', { name: /模型偏好/ }))
+    await browser.click(await screen.findByRole('button', { name: /模型偏好/ }))
     await browser.click(screen.getByRole('option', { name: '深度分析' }))
-    await browser.click(screen.getByRole('button', { name: '复制交接提示词' }))
+    await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
 
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('模型偏好：深度分析'))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('交接提示词已复制')
-    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v1:composer-copy') || '{}')).toMatchObject({ modelPreference: 'deep' })
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v2:composer-copy') || '{}')).toMatchObject({ modelPreference: 'deep' })
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
   })
@@ -214,7 +214,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     }))
     render(<Shell user={{ id: 'composer-error', username: 'error', role: 'member', enabled: true }} />)
 
-    await browser.click(screen.getByRole('button', { name: '复制交接提示词' }))
+    await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('无法写入剪贴板，请手动复制')
     expect(screen.getByRole('textbox', { name: '交给 OpenClaw 的问题' })).toHaveValue('保留问题')
     expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v1:composer-error') || '{}')).toMatchObject({ itemIds: ['item-1'], modelPreference: 'fast' })

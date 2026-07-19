@@ -31,9 +31,11 @@ async function mockAdminApi(page: Page, authenticated = true) {
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
       mcp_url: 'https://example.test/mcp',
+      subscription_writes_enabled: false,
+      openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' },
       token_ttl_days: 90,
       max_active: 5,
-      connections: [{ id: 'agent-1', name: '本机 OpenClaw', client_type: 'openclaw', scopes: ['inteliscope:read'], token_prefix: 'ih_mcp_v1_demo', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
+      connections: [{ id: 'agent-1', name: '本机 OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'ih_mcp_v1_demo', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
     else if (url.pathname === '/api/config') data = {
       config: {

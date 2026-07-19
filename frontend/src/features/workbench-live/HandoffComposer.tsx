@@ -48,7 +48,7 @@ export function HandoffComposer({ value }: { value: WorkbenchAgentContextValue }
           </Tooltip.Trigger>
           <Tooltip.Content>只复制交接提示词，由本地 OpenClaw 执行。</Tooltip.Content>
         </Tooltip>
-        <span className="type-label shrink-0 text-muted">{value.draft.itemIds.length}/8</span>
+        <span className="type-label shrink-0 text-muted">{value.draft.items.length}/8</span>
         <CompactSelect
           ariaLabel="模型偏好"
           value={value.draft.modelPreference}
@@ -61,7 +61,7 @@ export function HandoffComposer({ value }: { value: WorkbenchAgentContextValue }
           size="sm"
           isIconOnly
           className="size-9 shrink-0 rounded-full active:scale-95 motion-reduce:transform-none"
-          isDisabled={!value.draft.itemIds.length}
+          isDisabled={!value.draft.items.length}
           aria-label="复制交接提示词"
           onPress={() => void copyHandoff()}
         ><Icons.ArrowUp size={16} aria-hidden="true" /></Button>

@@ -87,6 +87,24 @@ def test_remote_mcp_subscription_writes_are_wired_off_by_default():
         ) in api
 
 
+def test_openclaw_browser_chat_is_wired_off_with_a_loopback_default():
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "HORIZON_OPENCLAW_CHAT_ENABLED=false" in env_example
+    assert "HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789" in env_example
+    for filename in ("docker-compose.yml", "docker-compose.light.yml"):
+        compose = (ROOT / filename).read_text(encoding="utf-8")
+        api = _compose_service_blocks(compose)["horizon-api"]
+        assert (
+            "HORIZON_OPENCLAW_CHAT_ENABLED: "
+            "${HORIZON_OPENCLAW_CHAT_ENABLED:-false}"
+        ) in api
+        assert (
+            "HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL: "
+            "${HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL:-ws://127.0.0.1:18789}"
+        ) in api
+
+
 def test_production_image_excludes_runtime_data_and_uses_release_identity():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
@@ -192,6 +210,9 @@ def test_nginx_rc1_template_keeps_app_auth_and_rate_limits_login():
     assert "X-Content-Type-Options" in site
     assert "X-Frame-Options" in site
     assert "Referrer-Policy" in site
+    assert "Content-Security-Policy" in site
+    assert "connect-src 'self' ws://127.0.0.1:18789 ws://localhost:18789 wss:" in site
+    assert "frame-ancestors 'none'" in site
     assert "不能替代应用登录" in docs
     assert "只想省事可以关闭应用内鉴权" not in docs
 

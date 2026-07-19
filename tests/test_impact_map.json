@@ -54,6 +54,8 @@
       "id": "Remote MCP/OpenClaw",
       "globs": [
         "src/mcp/remote_*.py",
+        "frontend/src/features/openclaw/**",
+        "frontend/src/features/admin-heroui/HeroAgentsPage*",
         "scripts/remote_mcp_read_canary.py",
         "integrations/openclaw/inteliscope/**",
         "tests/test_remote_mcp_read_canary.py",
@@ -234,7 +236,8 @@
       "tests/test_remote_mcp_subscription_service.py",
       "tests/test_remote_mcp_diagnostics.py",
       "tests/test_remote_mcp_subscription_http.py",
-      "tests/test_openclaw_skill.py"
+      "tests/test_openclaw_skill.py",
+      "tests/test_light_runtime_scripts.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",

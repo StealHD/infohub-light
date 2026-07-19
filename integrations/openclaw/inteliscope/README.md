@@ -38,3 +38,9 @@ openclaw mcp status --verbose
 ```
 
 Do not set OAuth; 不要运行 `openclaw mcp login`。Do not put a credential in chat. If one is pasted, do not use or repeat it: rotate it in Web SecretStore, create a new Web connection if needed, update the local environment file, then revoke the old connection.
+
+When Inteliscope enables browser chat, the Web page connects directly to the
+user's OpenClaw Gateway. The Gateway token and the Inteliscope MCP token are
+different credentials: the Gateway token is entered only in the browser pairing
+dialog, while `INTELISCOPE_MCP_TOKEN` remains only in the local OpenClaw env
+file. Neither credential belongs in an Agent conversation.

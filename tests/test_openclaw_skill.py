@@ -146,3 +146,24 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
     ] == [(10, READ_TOOLS), (14, TOOLS)]
+
+
+def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch():
+    contract = _text("references/tool-contract.md")
+    workflows = _text("references/workflows.md")
+    combined = f"{contract}\n{workflows}"
+
+    for field in (
+        "body_offset",
+        "max_body_chars",
+        "body_end",
+        "body_total_chars",
+        "body_has_more",
+        "next_body_offset",
+    ):
+        assert field in combined
+    assert "8,000" in combined or "8000" in combined
+    assert "20,000" in combined or "20000" in combined
+    assert "最多三段" in combined
+    assert "完整原文未保存在 Inteliscope" in combined
+    assert "不可信" in combined

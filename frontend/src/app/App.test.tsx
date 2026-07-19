@@ -24,7 +24,7 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       schema_version: 2,
       items: [{ id: 'live-1', title: '真实 API 条目', url: 'https://example.com/live-1', published_at: '2026-07-17T02:00:00Z', user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false } }],
     }),
-    agentDelegations: vi.fn().mockResolvedValue({ enabled: true, connections: [], mcp_url: '/mcp', token_ttl_days: 90, max_active: 5 }),
+    agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, connections: [], mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5 }),
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
     updateItemState: vi.fn(),
@@ -268,9 +268,9 @@ describe('App routes', () => {
   it('protects and explicitly clears a live one-time Agent token', async () => {
     const browser = userEvent.setup()
     const api = liveApi({
-      agentDelegations: vi.fn().mockResolvedValue({ enabled: true, mcp_url: '/mcp', token_ttl_days: 90, max_active: 5, connections: [] }),
+      agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5, connections: [] }),
       createAgentDelegation: vi.fn().mockResolvedValue({
-        connection: { id: 'agent-new', name: 'Desk Mac', client_type: 'openclaw', scopes: ['inteliscope:read'], token_prefix: 'ih_new', created_at: '2026-07-17T00:00:00Z', expires_at: '2026-10-17T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' },
+        connection: { id: 'agent-new', name: 'Desk Mac', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'ih_new', created_at: '2026-07-17T00:00:00Z', expires_at: '2026-10-17T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' },
         token: 'ih_mcp_one_time_live',
       }),
     } as Partial<ServiceApi>)
@@ -284,12 +284,12 @@ describe('App routes', () => {
     const createDialog = screen.getByRole('dialog', { name: '创建助手连接' })
     await browser.type(within(createDialog).getByRole('textbox', { name: '连接名称' }), 'Desk Mac')
     await browser.click(within(createDialog).getByRole('button', { name: '生成一次性令牌' }))
-    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性令牌' })
+    const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
     expect(within(tokenDialog).getByText('ih_mcp_one_time_live')).toBeInTheDocument()
     await browser.keyboard('{Escape}')
-    expect(screen.getByRole('dialog', { name: '保存一次性令牌' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '保存一次性 MCP token' })).toBeInTheDocument()
     await browser.click(screen.getByTestId('one-time-token-backdrop'))
-    expect(screen.getByRole('dialog', { name: '保存一次性令牌' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '保存一次性 MCP token' })).toBeInTheDocument()
     await browser.click(within(tokenDialog).getByRole('button', { name: '我已保存' }))
     expect(screen.queryByText('ih_mcp_one_time_live')).not.toBeInTheDocument()
     expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain('ih_mcp_one_time_live')
@@ -933,7 +933,7 @@ describe('App routes', () => {
     const toggle = await screen.findByRole('button', { name: '展开 Agent 面板' })
     await user.click(toggle)
     expect(await screen.findByRole('dialog', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
-    expect(screen.getAllByText('未配置')).toHaveLength(1)
+    expect(screen.getAllByText('对话未启用')).toHaveLength(1)
   })
 
   it('temporarily inserts a deep-linked item returned by feedItem', async () => {

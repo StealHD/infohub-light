@@ -64,6 +64,7 @@
 49. Quiet Studio Feed 视觉确认批次：`/feed` 实现、三视口生产自动化、revision-locked 本地 API/Worker 运行及 `/feed`、`/saved`、`/history` 应用内浏览器复核均已完成；权威规则只见 `UI_CONTRACT.md`，设计规格见 `docs/superpowers/specs/2026-07-18-feed-quiet-studio-design.md`，实施证据见 `WORKLOG.md`。
 50. Codex 式信息工作台细节批次：在 Quiet Studio 上完成分类导航、常用视图、账户菜单、Feed 最新优先/可切换顺序、重复摘要抑制和 OpenClaw 单体交接编辑器；权威规则只见 `UI_CONTRACT.md`，设计规格与实施计划分别见 `docs/superpowers/specs/2026-07-18-codex-navigation-feed-details-design.md` 和 `docs/superpowers/plans/2026-07-18-codex-navigation-feed-details.md`，实施证据见 `WORKLOG.md`。
 51. Quiet Studio 全站统一：阅读、管理和认证页面使用设计系统拥有的共享页面模式；收藏/历史删除 collection 进度轨并复用阅读卡片；管理路由只保留唯一标题；OpenClaw 响应式容器复用统一交接编辑器。权威视觉与交互规则只见 `UI_CONTRACT.md`，实施证据见 `WORKLOG.md`。
+52. 用户自有 OpenClaw 对话接入：浏览器直连 Gateway v4、Ed25519 设备配对、按 Inteliscope 用户/Gateway URL 隔离凭证、流式/停止/重连/工具发现和最多 8 篇文章 ID 上下文已本地实现；`get_item` 支持最多 20,000 字符分段读取。功能默认关闭，生产订阅写开关保持关闭，真实 Chromium/OpenClaw 与 API-only staging 验收仍是发布前边界。
 
 当前仍需推进：
 
@@ -121,7 +122,7 @@
 9. Presentation v1 通用展示合同、来源解析 fixture、用户级 AI cache 和按 run 的 `analysis_usage` 成本诊断。
 10. HeroUI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与共享导航账户区域；视觉规则只见 `UI_CONTRACT.md`。
 11. `test_gate` 映射观察期：保留全量覆盖，记录连续 10 个不同 CI 提交的 selector、`mapping_miss` 和日志/摘要一致性。
-12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、六个安全只读投影、助手连接 UI 和本地 Skill。
+12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、10 个安全读/诊断工具与 4 个受控订阅流程工具、浏览器直连用户 Gateway 的对话 UI 和本地 Skill；生产订阅写开关保持关闭。
 
 本阶段不做：
 
@@ -131,7 +132,7 @@
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
 5. 多 workspace、商业计费、自助注册、全站明暗主题切换或独立移动 App；当前 HeroUI 生产体验仅提供暗色主题，视觉规则只见 `UI_CONTRACT.md`。
 6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
-7. 服务器侧 Agent/LLM、站内聊天、OpenClaw 本地 Gateway 探测、Remote MCP 写操作、OAuth 或 ClawHub 发布。
+7. 服务器侧 Agent/LLM/Gateway 代理、客户间共享 OpenClaw、生产 Remote MCP 写入、OAuth、ClawHub 或模型密钥托管；浏览器直连用户自有 Gateway 只在独立开关下实现。
 
 <!-- init-pro:section name=priorities -->
 ## 5. API / 模块实现优先级

@@ -108,3 +108,26 @@ HORIZON_REQUIRE_WORKER_FOR_READINESS=false
 ```
 
 只读生产发布只启动 `horizon-api`，不得启动 Worker 或 scheduler。写开关保持 `false`；本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 delegation 与 schema v7 proposal additive 表均保留。
+
+## 浏览器直连 OpenClaw
+
+站内对话由用户浏览器直接连接自己的 OpenClaw Gateway，Inteliscope 和 Nginx
+不代理 Gateway WebSocket。默认保持关闭：
+
+```bash
+HORIZON_OPENCLAW_CHAT_ENABLED=false
+HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
+```
+
+本机只允许 `ws://127.0.0.1` 或 `ws://localhost`；远程 Gateway 必须使用
+`wss://`。站点 CSP 的 `connect-src` 只开放本站、上述 loopback Gateway 和
+`wss:`，并通过 `frame-ancestors 'none'` 禁止页面嵌入。生产开启前必须把
+Inteliscope 的完整 Origin 追加到 OpenClaw 的
+`gateway.controlUi.allowedOrigins`，保留原有条目，禁止使用 `*`。
+
+```bash
+HORIZON_OPENCLAW_CHAT_ENABLED=true
+```
+
+该开关只改变浏览器对话面板；服务器仍不运行 Agent、模型或 OpenClaw，
+订阅写开关继续保持 `false`。

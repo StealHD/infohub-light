@@ -384,13 +384,15 @@ def create_remote_mcp(
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def get_item(
         article_id: str,
+        body_offset: Annotated[int, Field(ge=0, le=20_000)] = 0,
         max_body_chars: Annotated[int, Field(ge=1, le=8000)] = 4000,
     ) -> dict[str, Any]:
-        """Get one caller-visible item with a bounded plain-text body."""
+        """Get one caller-visible item with a bounded plain-text body chunk."""
         return run_tool(
             "get_item",
             read_service.get_item,
             article_id=article_id,
+            body_offset=body_offset,
             max_body_chars=max_body_chars,
         )
 

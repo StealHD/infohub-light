@@ -141,9 +141,11 @@ test.beforeEach(async ({ page }) => {
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
       mcp_url: '/mcp',
+      subscription_writes_enabled: false,
+      openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' },
       token_ttl_days: 90,
       max_active: 5,
-      connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
+      connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
     else if (url.pathname.startsWith('/api/feed/items/')) {
       const item = [...items, rollingItem, savedRouteItem, historyRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
@@ -198,7 +200,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await expect(mobileNavigation).toBeHidden()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
-    await expect(agent.getByText('已配置')).toBeVisible()
+    await expect(agent.getByText('对话未启用')).toBeVisible()
     await page.getByRole('button', { name: '展开侧栏' }).click()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
     expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.sidebar.v1:e2e-user'))).toBe('expanded')
@@ -265,7 +267,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     agent = page.getByRole('dialog', { name: 'OpenClaw 上下文' })
     await expect(agent).toBeVisible()
     await expect(page.getByTestId('agent-drawer-backdrop')).toBeVisible()
-    await expect(agent.getByText('已配置')).toBeVisible()
+    await expect(agent.getByText('对话未启用')).toBeVisible()
     await agent.evaluate(async (element) => Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined))))
     expect(await feedScroll.boundingBox()).toEqual(feedBounds)
     expect(await feedScroll.evaluate((element) => element.scrollTop)).toBe(feedScrollTop)
@@ -317,7 +319,13 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   const expansionAnchorAfter = await stableTopVisibleSnapshot(page)
   expect(expansionAnchorAfter.name).toBe(anchorName)
   expect(Math.abs(expansionAnchorAfter.offset - expansionAnchorBefore.offset)).toBeLessThanOrEqual(2)
-  await card.getByRole('button', { name: `将 ${anchorName} 加入 Agent 上下文` }).click()
+  await card.getByRole('button', { name: `用 OpenClaw 分析 ${anchorName}` }).click()
+  if (testInfo.project.name !== 'desktop') {
+    agent = page.getByRole('dialog', { name: 'OpenClaw 上下文' })
+    await expect(agent).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(agent).toBeHidden()
+  }
 
   const rollingAnchorBefore = await alignVisibleCardToTop(page)
   await requestBackgroundRefresh(page)
@@ -334,7 +342,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   agent = testInfo.project.name === 'desktop'
     ? page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
-  await expect(agent.getByText('1 / 8')).toBeVisible()
+  await expect(agent.getByText(/1\s*\/\s*8/)).toBeVisible()
   await agent.getByRole('textbox', { name: '交给 OpenClaw 的问题' }).fill('提炼机会')
   await agent.getByRole('button', { name: /模型偏好/ }).click()
   const deepModelOption = page.getByRole('option', { name: '深度分析' })

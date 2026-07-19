@@ -36,6 +36,12 @@ export type AgentDelegationsResponse = {
   enabled: boolean
   subscription_writes_enabled: boolean
   mcp_url: string
+  openclaw_chat: {
+    enabled: boolean
+    default_gateway_url: string
+    protocol_version: 4
+    target_version: string
+  }
   token_ttl_days: 90
   max_active: 5
   connections: AgentDelegation[]

@@ -240,11 +240,20 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       sourceItemIds={sourceItemIds}
       expandedId={selectedId}
       navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
-      contextIds={agent.draft.itemIds}
+      contextIds={agent.draft.items.map((item) => item.articleId)}
       readonly={user.role === 'viewer'}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => stateMutation.mutateItem(id, { is_saved: saved })}
-      onToggleContext={agent.toggleItem}
+      onToggleContext={(card) => {
+        const alreadySelected = agent.draft.items.some((item) => item.articleId === card.id)
+        agent.toggleItem({
+          articleId: card.id,
+          title: card.title,
+          sourceName: card.source,
+          publishedAt: card.publishedAt,
+        })
+        if (!alreadySelected) agent.openComposer()
+      }}
       onItemAction={(id, action, value) => stateMutation.mutateItem(id, { [action]: value })}
     />}
   </section>

@@ -45,7 +45,7 @@ from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
 from ..services.user_content_store import UserContentStore
 from ..services.media_cache import MediaCacheService
-from ..mcp.remote_config import RemoteMCPSettings
+from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
     SourceConfigError,
@@ -389,6 +389,7 @@ def create_app(
     )
     auth_settings = AuthSettings.from_env()
     remote_mcp_settings = RemoteMCPSettings.from_env()
+    openclaw_chat_settings = OpenClawChatSettings.from_env()
 
     def secret_usage(secret: dict[str, Any]) -> list[dict[str, str]]:
         usages = [
@@ -1827,6 +1828,7 @@ def create_app(
                 "subscription_writes_enabled": (
                     remote_mcp_settings.subscription_writes_enabled
                 ),
+                "openclaw_chat": openclaw_chat_settings.public_config(),
                 "token_ttl_days": AGENT_DELEGATION_TTL_DAYS,
                 "max_active": AGENT_DELEGATION_MAX_ACTIVE,
                 "connections": store.list_agent_delegations(user["id"]),

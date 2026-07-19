@@ -27,7 +27,7 @@ type VirtualFeedProps = {
   readonly?: boolean
   onToggleExpanded: (id: string) => void
   onToggleSaved: (id: string, saved: boolean) => void
-  onToggleContext: (id: string) => void
+  onToggleContext: (card: WorkbenchCardModel) => void
   onItemAction: (id: string, action: ItemStateAction, value: boolean) => void
 }
 
@@ -145,7 +145,7 @@ function WorkbenchCard({
           data-context-state={inContext ? 'selected' : 'idle'}
           className="size-8 active:scale-95 pointer-coarse:size-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent motion-reduce:transform-none"
           isDisabled={contextFull && !inContext}
-          aria-label={`将 ${card.title} ${inContext ? '移出' : '加入'} Agent 上下文`}
+          aria-label={inContext ? `从 OpenClaw 上下文移除 ${card.title}` : `用 OpenClaw 分析 ${card.title}`}
           onPress={onToggleContext}
           isIconOnly
         >{inContext ? <Icons.Check size={15} aria-hidden="true" /> : <Icons.Sparkles size={15} aria-hidden="true" />}</Button>
@@ -463,7 +463,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
               readonly={props.readonly}
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
-              onToggleContext={() => props.onToggleContext(card.id)}
+              onToggleContext={() => props.onToggleContext(card)}
               onItemAction={(action, value) => props.onItemAction(card.id, action, value)}
             />
           </div>

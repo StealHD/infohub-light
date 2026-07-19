@@ -1,6 +1,6 @@
 import pytest
 
-from src.mcp.remote_config import RemoteMCPSettings
+from src.mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 
 
 def test_remote_mcp_is_disabled_by_default_without_a_public_url(monkeypatch):
@@ -102,3 +102,53 @@ def test_subscription_writes_are_exposed_when_both_flags_are_enabled(monkeypatch
     settings = RemoteMCPSettings.from_env()
 
     assert settings.subscription_writes_enabled is True
+
+
+def test_openclaw_chat_is_disabled_with_a_safe_local_default(monkeypatch):
+    monkeypatch.delenv("HORIZON_OPENCLAW_CHAT_ENABLED", raising=False)
+    monkeypatch.delenv("HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL", raising=False)
+
+    assert OpenClawChatSettings.from_env() == OpenClawChatSettings(
+        enabled=False,
+        default_gateway_url="ws://127.0.0.1:18789",
+        protocol_version=4,
+        target_version="2026.7.1",
+    )
+
+
+@pytest.mark.parametrize(
+    "gateway_url",
+    [
+        "http://127.0.0.1:18789",
+        "ws://192.168.1.20:18789",
+        "ws://[::1]:18789",
+        "ws://gateway.example.com",
+        "wss://user:password@gateway.example.com",
+        "wss://gateway.example.com/path?token=bad",
+        "wss://gateway.example.com/path#token=bad",
+    ],
+)
+def test_openclaw_chat_rejects_unsafe_gateway_defaults(monkeypatch, gateway_url):
+    monkeypatch.setenv("HORIZON_OPENCLAW_CHAT_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL", gateway_url)
+
+    with pytest.raises(ValueError):
+        OpenClawChatSettings.from_env()
+
+
+@pytest.mark.parametrize(
+    "gateway_url",
+    [
+        "ws://localhost:18789",
+        "wss://gateway.example.com",
+        "wss://gateway.example.com/openclaw/ws",
+    ],
+)
+def test_openclaw_chat_accepts_loopback_ws_and_remote_wss(monkeypatch, gateway_url):
+    monkeypatch.setenv("HORIZON_OPENCLAW_CHAT_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL", gateway_url)
+
+    settings = OpenClawChatSettings.from_env()
+
+    assert settings.enabled is True
+    assert settings.default_gateway_url == gateway_url

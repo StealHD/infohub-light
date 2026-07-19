@@ -58,6 +58,12 @@ def test_agent_delegation_api_lists_when_disabled_but_rejects_creation(
             "enabled": False,
             "mcp_url": "",
             "subscription_writes_enabled": False,
+            "openclaw_chat": {
+                "enabled": False,
+                "default_gateway_url": "ws://127.0.0.1:18789",
+                "protocol_version": 4,
+                "target_version": "2026.7.1",
+            },
             "token_ttl_days": 90,
             "max_active": 5,
             "connections": [],
@@ -90,6 +96,12 @@ def test_agent_delegation_api_returns_secret_once_and_supports_rename_and_revoke
     assert listing["enabled"] is True
     assert listing["mcp_url"] == "http://127.0.0.1:8080/mcp"
     assert listing["subscription_writes_enabled"] is False
+    assert listing["openclaw_chat"] == {
+        "enabled": False,
+        "default_gateway_url": "ws://127.0.0.1:18789",
+        "protocol_version": 4,
+        "target_version": "2026.7.1",
+    }
     assert listing["connections"] == [payload["connection"]]
     assert "token" not in listing
     assert all("token" not in connection for connection in listing["connections"])

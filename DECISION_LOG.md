@@ -302,3 +302,13 @@
 - 安全边界：诊断仅基于脱敏持久化证据并允许 `unknown`；Skill/文章内容不能驱动写参数。密钥继续只在 Web SecretStore 管理，聊天、MCP 输入、proposal、日志和 UI 配置均不得接收或回显密钥。
 - 非目标：不新增 OAuth、refresh token、服务器 Agent/LLM、站内聊天、本地 Gateway 探测、共享来源管理、密钥管理、刷新/重试/取消、Feed item 状态写入或 ClawHub 发布。
 - 回退：只关闭 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false`；保留只读 MCP、scope 与 additive v7 proposal 表，不做 schema 回滚。
+
+### D035 Inteliscope 浏览器直接连接用户自有 OpenClaw Gateway
+
+- 决策日期：2026-07-19
+- 当前状态：本地实现完成、功能默认关闭；待真实 Chromium/OpenClaw、本地与 API-only staging 验收后才可单独打开，生产订阅写开关继续关闭。
+- 决策内容：Inteliscope 对话面板由浏览器直接使用 OpenClaw Gateway WebSocket v4，创建专属 `Inteliscope` session，支持历史、流式回复、停止、重连和独立 `tools.effective` 状态。文章上下文只发送问题与最多 8 个 article ID；OpenClaw 通过 Remote MCP 最多分三段读取 20,000 字符已存正文。首次 token 只在表单内存，配对后仅按 Inteliscope 用户和 Gateway URL 隔离保存 non-exportable Ed25519 设备私钥、exact `operator.read + operator.write` device token 与 session key。
+- 原因：用户自有 OpenClaw 才是模型、费用、对话和 Skill 执行域；Remote MCP 是 Inteliscope 数据/订阅能力入口。浏览器直连让当前本地 Gateway 和未来用户专属云端 `wss://` 只差 URL 与 Origin 配置，同时无需 Inteliscope 服务器代管模型密钥、Gateway token 或对话代理。
+- 取代范围：正式取代 D024/D025/D031/D033/D034 中“站内不聊天、不连接或探测本地 Gateway”的 UI 非目标和旧复制交接边界；这些决策的视觉、Remote MCP、proposal、权限和生产禁写边界继续有效。服务器无 Agent、无模型、无 OpenClaw、无 Gateway 代理的边界不变。
+- 安全/兼容：本地明文 WS 只允许 `127.0.0.1/localhost`，远端必须 WSS，URL 不得携带凭证/query/fragment；返回额外权限时拒绝持久化。`HORIZON_OPENCLAW_CHAT_ENABLED=false` 时 UI 立即回到旧复制模式且不创建 WebSocket；Remote MCP 和数据库无需回滚。
+- 非目标：本次不启用生产订阅写入、不提供服务器侧 Agent/LLM、共享客户 Gateway、OpenClaw 模型密钥托管、HTTP Chat API、站内直接调用 MCP 写工具或重新抓取原网页。

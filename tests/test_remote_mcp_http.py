@@ -264,6 +264,17 @@ async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations_and_c
         "diagnose_source",
         "diagnose_job",
     ]
+    get_item_schema = next(
+        tool.inputSchema for tool in listed.tools if tool.name == "get_item"
+    )
+    assert get_item_schema["properties"]["body_offset"] | {
+        "minimum": 0,
+        "maximum": 20_000,
+    } == get_item_schema["properties"]["body_offset"]
+    assert get_item_schema["properties"]["max_body_chars"] | {
+        "minimum": 1,
+        "maximum": 8000,
+    } == get_item_schema["properties"]["max_body_chars"]
     annotations = {tool.name: tool.annotations for tool in listed.tools}
     assert all(
         tool.inputSchema.get("additionalProperties") is False

@@ -15,7 +15,6 @@ import {
   AvatarFallback,
   AvatarRoot,
   Button,
-  Card,
   Chip,
   Drawer,
   Icons,
@@ -28,9 +27,10 @@ import {
   readAgentContextDraft,
   updateAgentContextDraft,
   writeAgentContextDraft,
-  type AgentContextDraftV1,
+  type AgentContextDraftV2,
 } from './agentContext'
-import { HandoffComposer } from './HandoffComposer'
+import { OpenClawConversation } from '../openclaw/OpenClawConversation'
+import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import {
   applyQuickView,
@@ -140,46 +140,48 @@ function initialExtraWideDesktop() {
     : false
 }
 
-type AgentStatus = '已配置' | '未配置' | '检查失败'
+const gatewayStatusLabel: Record<OpenClawConnectionStatus, string> = {
+  disabled: '对话未启用',
+  idle: '未连接',
+  connecting: '连接中',
+  connected: '已连接',
+  reconnecting: '重连中',
+  error: '连接失败',
+}
+
+const toolsStatusLabel: Record<OpenClawToolsStatus, string> = {
+  unknown: '工具检查中',
+  available: '工具可用',
+  missing: '工具未发现',
+}
 
 function AgentPanelContent({
   open,
   onClose,
-  status,
+  chat,
+  configLoading,
   value,
 }: {
   open: boolean
   onClose: () => void
-  status?: AgentStatus
+  chat: ReturnType<typeof useOpenClawChat>
+  configLoading: boolean
   value: WorkbenchAgentContextValue
 }) {
   return <>
     <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
       <Icons.Sparkles size={17} aria-hidden="true" />
-      <strong className="min-w-0 flex-1 truncate">OpenClaw 上下文</strong>
-      {status
-        ? <Chip size="sm" color={status === '已配置' ? 'accent' : 'default'} variant="primary"><Chip.Label>{status}</Chip.Label></Chip>
-        : <span role="status" aria-busy="true" aria-label="正在检查 Agent 连接"><Skeleton className="h-4 w-8 rounded-lg" /></span>}
+      <strong className="min-w-0 flex-1 truncate">OpenClaw 对话</strong>
+      {configLoading
+        ? <span role="status" aria-busy="true" aria-label="正在检查 Agent 连接"><Skeleton className="h-5 w-16 rounded-lg" /></span>
+        : <Chip size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip>}
+      {(chat.status === 'connected' || chat.status === 'reconnecting') && <Chip size="sm" color={chat.toolsStatus === 'available' ? 'success' : 'default'} variant="soft"><Chip.Label>{toolsStatusLabel[chat.toolsStatus]}</Chip.Label></Chip>}
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>
     </header>
-    {open && <>
-      <div className="min-h-0 overflow-y-auto p-4" data-testid="agent-scroll-region">
-        <div className="type-meta mb-3 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.itemIds.length} / 8</span></div>
-        {!value.draft.itemIds.length && <Card variant="transparent" className="p-3">
-          <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
-        </Card>}
-        <div className="grid gap-2">
-          {value.draft.itemIds.map((id, index) => <Card key={id} variant="secondary" className="flex-row items-center gap-2 p-3">
-            <span className="type-meta text-muted">{String(index + 1).padStart(2, '0')}</span>
-            <code className="type-meta min-w-0 flex-1 truncate">{id}</code>
-            <Button size="sm" variant="ghost" isIconOnly aria-label={`移除 ${id}`} onPress={() => value.removeItem(id)}><Icons.X size={14} /></Button>
-          </Card>)}
-        </div>
-      </div>
-      <HandoffComposer value={value} />
-    </>}
+    {open && !configLoading && <OpenClawConversation chat={chat} value={value} />}
+    {open && configLoading && <div className="grid gap-3 p-4"><Skeleton className="h-24 rounded-xl" /><Skeleton className="h-24 rounded-xl" /></div>}
   </>
 }
 
@@ -201,13 +203,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
   const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: contentRoute })
-  const agentStatus: AgentStatus | undefined = delegations.isLoading
-    ? undefined
-    : delegations.isError
-    ? '检查失败'
-    : delegations.data?.enabled && delegations.data.connections.some((connection) => connection.status === 'active')
-      ? '已配置'
-      : '未配置'
+  const openclawChat = useOpenClawChat({
+    enabled: contentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),
+    userId: props.user.id,
+    defaultGatewayUrl: delegations.data?.openclaw_chat?.default_gateway_url ?? 'ws://127.0.0.1:18789',
+  })
   const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running'
   const noticeKey = props.refreshEventKey || `${props.refreshState}:${props.refreshMessage ?? ''}`
   const noticeOpen = Boolean(props.refreshMessage) && !refreshing && dismissedNotice !== noticeKey
@@ -234,17 +234,27 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     navigate('/feed')
   }
 
-  const persistDraft = useCallback((next: AgentContextDraftV1) => {
+  const persistDraft = useCallback((next: AgentContextDraftV2) => {
     setDraft(writeAgentContextDraft(props.user.id, next))
   }, [props.user.id])
 
+  const openComposer = useCallback(() => {
+    setAgentOpen(true)
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(
+        '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
+      )?.focus()
+    })
+  }, [])
+
   const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
     draft,
-    toggleItem: (id) => persistDraft(updateAgentContextDraft(draft, id)),
-    removeItem: (id) => persistDraft({ ...draft, itemIds: draft.itemIds.filter((value) => value !== id) }),
+    toggleItem: (item) => persistDraft(updateAgentContextDraft(draft, item)),
+    removeItem: (id) => persistDraft({ ...draft, items: draft.items.filter((value) => value.articleId !== id) }),
+    openComposer,
     setQuestion: (question) => persistDraft({ ...draft, question }),
     setModelPreference: (modelPreference) => persistDraft({ ...draft, modelPreference }),
-  }), [draft, persistDraft])
+  }), [draft, openComposer, persistDraft])
 
   const closeAgent = useCallback(() => {
     setAgentOpen(false)
@@ -398,7 +408,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
                   <Separator className="my-1" />
-                  <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={props.onLogout}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
+                  <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={() => { openclawChat.disconnect(); props.onLogout() }}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
                 </Popover.Dialog>
               </Popover.Content>
             </Popover>
@@ -436,7 +446,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           role="complementary"
           aria-label="OpenClaw 上下文"
           className="col-start-3 row-span-2 hidden min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-l border-separator bg-surface min-[1200px]:grid"
-        ><AgentPanelContent open={agentOpen} onClose={closeAgent} status={agentStatus} value={agentValue} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
+        ><AgentPanelContent open={agentOpen} onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
           <Drawer.Trigger aria-hidden="true" className="hidden">打开 Agent 面板</Drawer.Trigger>
           <Drawer.Backdrop isDismissable variant="blur" data-testid="agent-drawer-backdrop">
             <Drawer.Content placement={mobile ? 'bottom' : 'right'}>
@@ -445,7 +455,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                 aria-label="OpenClaw 上下文"
                 className={`grid min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(78dvh,640px)] max-h-[78dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
-                <AgentPanelContent open onClose={closeAgent} status={agentStatus} value={agentValue} />
+                <AgentPanelContent open onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} />
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>

@@ -23,3 +23,12 @@ def test_nginx_remote_mcp_runbook_keeps_production_writes_off_and_schema_v7():
     assert "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false" in docs
     assert "schema v7" in docs
     assert "只启动 `horizon-api`" in docs
+
+
+def test_nginx_csp_allows_only_the_intended_gateway_transports():
+    site = Path("deploy/nginx/inteliscope-basic-auth.conf").read_text(encoding="utf-8")
+
+    assert "script-src 'self'" in site
+    assert "connect-src 'self' ws://127.0.0.1:18789 ws://localhost:18789 wss:" in site
+    assert "frame-ancestors 'none'" in site
+    assert "allowedOrigins:[\"*\"]" not in site
