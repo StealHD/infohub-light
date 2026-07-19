@@ -324,7 +324,7 @@
 ### D037 Feed 采用活跃来源的滚动时间窗口并收口侧栏/上下文可达性
 
 - 决策日期：2026-07-19
-- 当前状态：实现、定向/完整/release 门禁与 revision-locked 本地 RC 验收完成，待精确标签与 VPS 发布
+- 当前状态：实现、定向/完整/release 门禁与 revision-locked 本地 RC 验收完成；精确标签 `v1.7.1` 已发布并安全部署至 `vps-tokyo`
 - 决策内容：全量 Feed 不再以“成功抓取即覆盖该来源”重建，而是合并本次结果、最新 snapshot 与当前用户稳定内容索引中的 active-source 窗口内内容；取消订阅立即移除，显式 `latest_per_source` 继续替换。X/Instagram profile 的历史派生 latest 策略按 `time_window` 兼容读取，以恢复仍在窗口内的近期帖子。前端同时增加可清空筛选的“全部”常用视图、只在导航面板打开时着色的分栏按钮，以及无需独立滚动即可移除全部八条的单行 Agent 上下文。
 - 原因：旧全量刷新会在 Tibo 等社交来源每次仅返回一条时，把仍在时间窗口内的上一条帖子从最新 Feed 移入历史；同时长上下文、常驻紫色入口与缺少基线视图降低了操作可达性和状态可理解性。
 - 取代范围：取代 D019 中 X/Instagram profile 的派生 `latest_per_source` 默认，以及 API retention 中“成功来源本次结果替换对应来源”的旧规则；显式 retention、历史 snapshot、公开 API 形状、OpenClaw 模型选择与所有权限边界不变。

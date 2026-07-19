@@ -2113,3 +2113,10 @@
 - 执行验证：正式 `test_gate release` 24/24、0 failed/error、131.427 秒，含三视口 Playwright/Axe 与隔离 Docker smoke；切换前 queued/running=0，数据库 integrity/foreign-key 正常；切换后 7 条路由 200、API/Worker healthy、worker ready、0 restart，队列与 proposal 均为 0
 - 结果：本地 8080 已使用唯一镜像 `inteliscope-service:v1.7.1-318c0f120ae5` / image ID `sha256:781fa8f88ccfa2b96818b4561f976a169ba4fe558eb67a5f3f96acf145da8502`；live identity=`1.7.1/318c0f120ae5`；切换前备份为 `data/backups/service-pre-v1.7.1-20260719T171209Z.db`（SHA-256 `0a34eacd12a7b1928e351cd236680b4499e14b44231cfbd6241613b651a661cb`）
 - 控制面变更：D037 标记本地 RC 完成；Remote MCP、订阅写入和 Browser Chat 保持关闭，未触发真实来源、AI、付费调用或 OpenClaw 模型同步
+
+### 2026-07-20 02:14 Codex
+- 任务：发布精确标签 `v1.7.1`，并将通过隔离预演的 revision-locked 版本安全切换至 `vps-tokyo`
+- 修改文件：D037 状态与本工作日志；VPS 新增不可变 release/image、权限受限备份并更新 `current` 指针，未修改 Nginx 或业务数据
+- 执行验证：`release/v1.7.1` 与 annotated tag 已推送并通过远端引用校验；脱敏数据库 staging 完成 v2/v4/v5/v6/v7、integrity/foreign-key、七条 UI 路由、未登录 API 与高风险开关验证；生产 API/Worker 同 image ID `sha256:b1405ac097fce29b94a27e66c4e50a25bf62923c9e59f7c138177bedced929d6`、healthy、0 restart，live=`1.7.1/0436fdcfa3a0`、database/worker ready；本机与公网七条路由均 200、受保护 API 401、TLS 校验通过，Worker 完整轮询后 queued/running=0、proposal=0、integrity=ok、foreign-key=0、严重日志匹配=0
+- 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.1-0436fdcfa3a0`；切换前数据库、配置和 `.env` 备份位于 `/opt/inteliscope/backups/pre-v1.7.1-0436fdcfa3a0-20260719T174745Z`，数据库 SHA-256 为 `84b83dbf59f1e93aa104e17cb410ec47795875fc6b6778637bb0c127ce461d4b`；旧 release/image 保留，staging 容器、脱敏副本和传输归档已清理
+- 控制面变更：D037 标记为 v1.7.1 已发布；Remote MCP、订阅写入、Browser Chat、共享抓取与 compact writer 均保持关闭，未手动触发来源抓取、AI、付费调用或 OpenClaw 模型同步
