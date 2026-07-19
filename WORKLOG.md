@@ -2085,3 +2085,10 @@
 - 运行验收：切换前 queued/running Job 为 0，并在线备份 `data/backups/service-pre-social-20260719T065407Z.db`（SHA-256 `674b61bba862cbf7c8d4a5c0ad624a8ae4897aa24ef86ee28eca152f0f13fd87`）；固定提交 `b207250ff7da` 构建镜像 `inteliscope-service:quiet-studio-social-b207250ff7da` / image ID `sha256:9a10d79fa7a380496cddf0cf0adcb42d9dc0b6b271a330f8572fd8e2da9ba131`，API/Worker 同镜像、同主数据挂载且 healthy，live revision 正确、database/worker ready，七条生产路由 HTTP 200，Remote MCP 两个开关保持 false
 - 人工复核：应用内浏览器真实 `/feed` 显示 5 条内容；X/Instagram 来源、作者与正文无重复；加入 Instagram 内容后 Agent 显示可读预览且原始 ID 计数为 0；1440px 侧栏的路由与快速视图共享相同类和交互，split-panel 控件正确；测试上下文已移除、面板已关闭、console error 为 0
 - 控制面变更：新增 D034 与对应 UI 契约；未修改 `auto | fast | deep` 模型偏好、API、数据库、权限、Query Key、MCP 协议、历史数据、main、远端或 VPS
+
+### 2026-07-19 16:54 Codex
+- 任务：非 squash 整合 Quiet Studio RC 与 OpenClaw Browser Gateway，准备并发布 Inteliscope v1.7.0
+- 修改文件：双方完整提交历史、版本入口、HeroUI 助手连接工具契约、生产工作台 Playwright 与本工作日志
+- 执行验证：合并后 UI contract、ESLint、TypeScript、Vitest、Vite build、Python/full/Compose/JSON 等发布门禁前 22 项通过；修正过期的 Agent 按钮与自动开面板验收后，三视口定向 6/6、完整 Playwright/Axe 30/30 通过；受控配置下隔离 Docker build、ready、API smoke 与 cleanup 全部通过；`git diff --check` 通过
+- 结果：`release/v1.7.0` 同时包含 Quiet Studio 全站 HeroUI、社交来源/Agent 可读上下文、10/14 工具 delegation access 与 Browser Gateway Chat；版本号统一为 `1.7.0`，原多用户工作区的未提交控制文件未被纳入发布
+- 控制面变更：仅记录版本整合与发布证据；未修改 API、数据库、权限、Query Key、Remote MCP 协议、主数据、VPS 或公网运行态
