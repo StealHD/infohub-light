@@ -351,7 +351,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   const expansionAnchorAfter = await stableTopVisibleSnapshot(page)
   expect(expansionAnchorAfter.name).toBe(anchorName)
   expect(Math.abs(expansionAnchorAfter.offset - expansionAnchorBefore.offset)).toBeLessThanOrEqual(2)
-  await card.getByRole('button', { name: `用 OpenClaw 分析 ${anchorName}` }).click()
+  await card.getByRole('button', { name: `将 ${anchorName} 加入 Agent 上下文` }).click()
   if (testInfo.project.name !== 'desktop') {
     agent = page.getByRole('dialog', { name: 'OpenClaw 上下文' })
     await expect(agent).toBeVisible()
@@ -374,7 +374,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   agent = testInfo.project.name === 'desktop'
     ? page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
-  await expect(agent.getByText(/1\s*\/\s*8/)).toBeVisible()
+  await expect(agent.getByText('1 / 8', { exact: true })).toBeVisible()
   await agent.getByRole('textbox', { name: '交给 OpenClaw 的问题' }).fill('提炼机会')
   await agent.getByRole('button', { name: /模型偏好/ }).click()
   const deepModelOption = page.getByRole('option', { name: '深度分析' })
@@ -410,10 +410,10 @@ test('social cards and Agent context show source information once without exposi
   await expect(page.getByText(socialRouteItem.title, { exact: true })).toHaveCount(0)
 
   await card.getByRole('button', { name: /加入 Agent 上下文/ }).click()
-  if (testInfo.project.name !== 'desktop') await page.getByRole('button', { name: '展开 Agent 面板' }).click()
   const agent = testInfo.project.name === 'desktop'
     ? page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
+  await expect(agent).toBeVisible()
   await expect(agent.getByText('Tibo', { exact: true })).toBeVisible()
   await expect(agent.getByText('@thsottiaux', { exact: true })).toBeVisible()
   await expect(agent.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toBeVisible()
