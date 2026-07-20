@@ -2120,3 +2120,10 @@
 - 执行验证：`release/v1.7.1` 与 annotated tag 已推送并通过远端引用校验；脱敏数据库 staging 完成 v2/v4/v5/v6/v7、integrity/foreign-key、七条 UI 路由、未登录 API 与高风险开关验证；生产 API/Worker 同 image ID `sha256:b1405ac097fce29b94a27e66c4e50a25bf62923c9e59f7c138177bedced929d6`、healthy、0 restart，live=`1.7.1/0436fdcfa3a0`、database/worker ready；本机与公网七条路由均 200、受保护 API 401、TLS 校验通过，Worker 完整轮询后 queued/running=0、proposal=0、integrity=ok、foreign-key=0、严重日志匹配=0
 - 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.1-0436fdcfa3a0`；切换前数据库、配置和 `.env` 备份位于 `/opt/inteliscope/backups/pre-v1.7.1-0436fdcfa3a0-20260719T174745Z`，数据库 SHA-256 为 `84b83dbf59f1e93aa104e17cb410ec47795875fc6b6778637bb0c127ce461d4b`；旧 release/image 保留，staging 容器、脱敏副本和传输归档已清理
 - 控制面变更：D037 标记为 v1.7.1 已发布；Remote MCP、订阅写入、Browser Chat、共享抓取与 compact writer 均保持关闭，未手动触发来源抓取、AI、付费调用或 OpenClaw 模型同步
+
+### 2026-07-20 15:00 Codex
+- 任务：以 `main@2d9d097` 的 v1.7.1 文件树重新承载工作台生命周期、订阅异常/移动端、删除确认、复制反馈与内容工具栏优化，修复此前从旧 feature dirty 树构建导致的 UI 回退
+- 修改文件：应用/页面错误边界、订阅展示模型与响应式页面、密钥确认框、信息卡复制反馈、Feed/收藏/历史 ViewBar、对应 Vitest/Playwright，以及 `project-defaults.yaml`、`UI_CONTRACT.md`、D038/D039 与本工作日志
+- 执行验证：聚焦 Vitest 92/92、UI contract、ESLint、TypeScript、Vite/Docker production build、三视口 Playwright/Axe 12/12 与 `git diff --check` 通过；沿用已通过的 v1.7.1 release gate 24/24，未重复完整门禁
+- 结果：本地 8080 的 API/Worker 已切换至 `inteliscope-service:local-2d9d097-dirty-uxfix`，live=`1.7.1/2d9d097-dirty-uxfix`、database/worker ready；应用内浏览器确认新版 SplitPanel/侧栏代码仍在，Feed 有排序和“更新信息流”，收藏/历史有排序且无更新按钮，console error 为 0；主 dirty 工作区未被触碰
+- 控制面变更：删除三个无消费者的 `material_ui_*_enabled` 历史字段，新增 D038/D039 并更新内容工具栏 UI 契约；未修改 API、数据库、权限、OpenClaw 协议、远端、VPS 或功能开关

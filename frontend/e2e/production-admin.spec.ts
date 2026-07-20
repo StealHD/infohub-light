@@ -88,6 +88,64 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByRole('heading', { name: '成员' })).toBeVisible()
 })
 
+test('subscription controls preserve the first source card on the mobile first screen', async ({ page }, testInfo) => {
+  await mockAdminApi(page)
+  await page.goto('/subscriptions')
+
+  const viewportWidth = page.viewportSize()?.width ?? 0
+  const tabWidths: number[] = []
+  for (const tab of await page.getByRole('tab').all()) {
+    const bounds = await tab.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewportWidth)
+    tabWidths.push(bounds!.width)
+  }
+
+  if (testInfo.project.name === 'mobile') {
+    expect(Math.max(...tabWidths) - Math.min(...tabWidths)).toBeLessThanOrEqual(1)
+    const mobileSchedule = page.locator('[data-mobile-schedule]')
+    await expect(mobileSchedule.getByRole('button', { name: '管理自动更新' })).toBeVisible()
+    await expect(mobileSchedule.getByText('更新周期', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'OpenAI Blog', exact: true })).toBeInViewport()
+    await mobileSchedule.getByRole('button', { name: '管理自动更新' }).click()
+    await expect(mobileSchedule.getByText('更新周期', { exact: true })).toBeVisible()
+    await expect(mobileSchedule.getByRole('button', { name: '关闭自动更新' })).toBeVisible()
+
+    await expect(page.getByRole('searchbox', { name: '搜索来源' })).toBeVisible()
+    await page.getByRole('button', { name: '筛选来源，已启用 0 项' }).click()
+    const filterDialog = page.getByRole('dialog', { name: '筛选来源' })
+    await expect(filterDialog).toBeVisible()
+    await expect(filterDialog.getByText('来源类型', { exact: true })).toBeVisible()
+    await expect(filterDialog.getByText('健康状态', { exact: true })).toBeVisible()
+    await expect(filterDialog.getByText('可见范围', { exact: true })).toBeVisible()
+    const clearFilters = filterDialog.getByRole('button', { name: '清除筛选' })
+    await expect(clearFilters).toBeDisabled()
+    await filterDialog.getByRole('button', { name: '来源类型' }).click()
+    await page.getByRole('option', { name: 'RSS/Atom' }).click()
+    await expect(clearFilters).toBeEnabled()
+    await filterDialog.getByRole('button', { name: '关闭筛选' }).click()
+    await expect(filterDialog).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '筛选来源，已启用 1 项' })).toBeVisible()
+    await page.getByRole('button', { name: '筛选来源，已启用 1 项' }).click()
+    await page.getByRole('dialog', { name: '筛选来源' }).getByRole('button', { name: '清除筛选' }).click()
+    await expect(page.getByRole('button', { name: '筛选来源，已启用 0 项' })).toBeVisible()
+    await page.getByRole('dialog', { name: '筛选来源' }).getByRole('button', { name: '关闭筛选' }).click()
+    await expect(page.getByRole('dialog', { name: '筛选来源' })).toHaveCount(0)
+  } else {
+    const desktopSchedule = page.locator('[data-desktop-schedule]')
+    const desktopFilters = page.locator('[data-desktop-source-filters]').first()
+    await expect(page.getByRole('button', { name: '管理自动更新' })).toBeHidden()
+    await expect(desktopSchedule.getByText('更新周期', { exact: true })).toBeVisible()
+    await expect(desktopFilters.getByText('来源类型', { exact: true })).toBeVisible()
+    await expect(desktopFilters.getByText('健康状态', { exact: true })).toBeVisible()
+    await expect(desktopFilters.getByText('可见范围', { exact: true })).toBeVisible()
+  }
+
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
 test('production login is a standalone HeroUI page at every acceptance viewport', async ({ page }) => {
   await mockAdminApi(page, false)
   await page.goto('/login')

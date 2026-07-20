@@ -98,9 +98,11 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
     const itemCount = await screen.findByText('1 条内容')
     const orderControl = screen.getByRole('button', { name: '最新优先' })
+    const refreshControl = screen.getByRole('button', { name: '更新信息流' })
     const filterControl = screen.getByRole('button', { name: '筛选信息流' })
     expect(itemCount).toHaveClass('type-control')
     expect(orderControl).toHaveClass('type-control')
+    expect(refreshControl).toHaveClass('type-control')
     expect(filterControl).toHaveClass('type-control')
     expect(screen.getByTestId('feed-view-bar')).toBeInTheDocument()
     expect(screen.queryByText('旧内容在上，最新内容在下 · 1 条')).not.toBeInTheDocument()
@@ -111,7 +113,7 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
-  it('places collection search and refresh inside the shared Quiet Studio ViewBar', async () => {
+  it('places collection search and sorting inside the shared Quiet Studio ViewBar', async () => {
     const api = liveApi({
       savedFeed: vi.fn().mockResolvedValue({
         items: [{ id: 'saved-live', title: '收藏条目', url: 'https://example.com/saved-live', published_at: '2026-07-17T02:00:00Z', user_state: { is_saved: true, is_read: false, is_later: false, dismissed: false } }],
@@ -123,9 +125,11 @@ describe('App routes', () => {
     await screen.findByRole('article', { name: '收藏条目' })
     const viewBar = screen.getByTestId('collection-view-bar')
     expect(within(viewBar).getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
-    expect(within(viewBar).getByRole('button', { name: '更新信息流' })).toBeInTheDocument()
+    expect(within(viewBar).getByRole('button', { name: '最新优先' })).toBeInTheDocument()
+    expect(within(viewBar).queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '信息流进度' })).not.toBeInTheDocument()
     expect(screen.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
+    expect(screen.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-fresh-edge', 'start')
   })
 
   it('shows newest Feed cards first and persists the order toggle', async () => {
@@ -198,7 +202,8 @@ describe('App routes', () => {
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '收起 AI' }))
     expect(screen.queryByRole('button', { name: '立即获取 覆盖频道来源' })).not.toBeInTheDocument()
-    await userEvent.type(screen.getByRole('searchbox', { name: '搜索来源' }), '覆盖频道')
+    const desktopFilters = document.querySelector('[data-desktop-source-filters]') as HTMLElement
+    await userEvent.type(within(desktopFilters).getByRole('searchbox', { name: '搜索来源' }), '覆盖频道')
     expect(screen.getByRole('button', { name: '立即获取 覆盖频道来源' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '立即获取 覆盖频道来源' }))
     expect(api.feedSchedule).toHaveBeenCalled()
@@ -242,6 +247,36 @@ describe('App routes', () => {
     await browser.click(screen.getByRole('button', { name: /健康状态/ }))
     await browser.click(await screen.findByRole('option', { name: '正常' }))
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
+  })
+
+  it('keeps raw source diagnostics folded behind a user-facing cause, impact and action', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'health-source', type: 'rss', display_name: '异常来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'health-subscription', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
+    const rawMessage = '503 Server Error while fetching https://upstream.example/private-feed'
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 1, unknown: 0, total: 1 }, items: [{ subscription_id: subscription.id, source_id: source.id, status: 'failing', consecutive_failures: 3, last_issue: { stage: 'fetch', code: 'HTTPError', message: rawMessage, retryable: true } }] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    const card = (await screen.findByText('异常来源')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(card).getByText('原因：上游服务暂时不可用或响应超时。')).toBeInTheDocument()
+    expect(within(card).getByText('影响：已连续 3 次更新失败，该来源的新内容暂时不会进入信息流；历史内容不受影响。')).toBeInTheDocument()
+    expect(within(card).getByText('建议操作：点击“立即获取”重试；若仍失败，请稍后再试或检查上游状态。')).toBeInTheDocument()
+
+    const details = within(card).getByText('技术详情').closest('details')
+    const rawDiagnostics = within(card).getByText(rawMessage)
+    expect(details).not.toHaveAttribute('open')
+    expect(rawDiagnostics.closest('details')).toBe(details)
+    expect(rawDiagnostics).not.toBeVisible()
+    await browser.click(within(card).getByText('技术详情'))
+    expect(details).toHaveAttribute('open')
+    expect(rawDiagnostics).toBeVisible()
   })
 
   it('shows source edit controls only for a member-owned private source', async () => {
@@ -628,6 +663,70 @@ describe('App routes', () => {
     expect(screen.getByRole('textbox', { name: '环境变量名' })).toHaveValue('DEEPSEEK_API_KEY')
     expect(screen.getByLabelText('Key 值')).toHaveValue('')
   }, 10_000)
+
+  it('requires explicit confirmation before deleting an unused secret', async () => {
+    const browser = userEvent.setup()
+    const deletion = deferred<void>()
+    const deleteSecret = vi.fn().mockReturnValue(deletion.promise)
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-delete', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'unused-key', name: 'Unused Key', kind: 'ai', provider: 'openai', env_name: 'UNUSED_KEY', is_set: true, used_by: [] }] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      deleteSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    const card = (await screen.findByText('Unused Key')).closest('[data-slot="card"]') as HTMLElement
+    const trigger = within(card).getByRole('button', { name: '删除' })
+    await browser.click(trigger)
+    expect(screen.getByRole('dialog', { name: '删除 Unused Key？' })).toBeInTheDocument()
+    expect(deleteSecret).not.toHaveBeenCalled()
+
+    await browser.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除 Unused Key？' })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+    expect(deleteSecret).not.toHaveBeenCalled()
+
+    await browser.click(trigger)
+    await browser.click(screen.getByRole('button', { name: '取消删除' }))
+    expect(deleteSecret).not.toHaveBeenCalled()
+
+    await browser.click(trigger)
+    await browser.click(screen.getByRole('button', { name: '确认删除' }))
+    expect(deleteSecret).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '删除中…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '取消删除' })).toBeDisabled()
+    await browser.click(screen.getByRole('button', { name: '删除中…' }))
+    expect(deleteSecret).toHaveBeenCalledTimes(1)
+
+    deletion.resolve()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除 Unused Key？' })).not.toBeInTheDocument())
+  })
+
+  it('keeps the secret confirmation open when deletion fails', async () => {
+    const browser = userEvent.setup()
+    const deleteSecret = vi.fn().mockRejectedValue(new ApiError(503, { code: 'secret_delete_failed', message: '密钥删除失败，请稍后重试。' }))
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-delete-failure', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'failed-key', name: 'Failed Key', kind: 'ai', provider: 'openai', env_name: 'FAILED_KEY', is_set: true, used_by: [] }] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      deleteSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    const card = (await screen.findByText('Failed Key')).closest('[data-slot="card"]') as HTMLElement
+    await browser.click(within(card).getByRole('button', { name: '删除' }))
+    await browser.click(screen.getByRole('button', { name: '确认删除' }))
+
+    const dialog = screen.getByRole('dialog', { name: '删除 Failed Key？' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('密钥删除失败，请稍后重试。')
+    expect(dialog).toBeInTheDocument()
+    expect(deleteSecret).toHaveBeenCalledTimes(1)
+  })
 
   it('uses the production HeroUI login without changing login errors', async () => {
     const browser = userEvent.setup()
@@ -1295,7 +1394,7 @@ describe('App routes', () => {
 
   it('shows a recovery surface when a routed child crashes', async () => {
     const appModule = await import('./App')
-    const Boundary = Reflect.get(appModule, 'AppErrorBoundary') as ComponentType<{ children: ReactNode }> | undefined
+    const Boundary = Reflect.get(appModule, 'AppErrorBoundary') as ComponentType<{ children: ReactNode; surface?: 'app' | 'page' }> | undefined
     expect(Boundary).toBeDefined()
     if (!Boundary) return
 
@@ -1304,9 +1403,14 @@ describe('App routes', () => {
       throw new Error('render failed')
     }
     try {
-      render(<Boundary><CrashingChild /></Boundary>)
+      const globalBoundary = render(<Boundary><CrashingChild /></Boundary>)
       expect(screen.getByRole('alert')).toHaveTextContent('页面加载失败')
       expect(screen.getByRole('link', { name: '返回信息流' })).toHaveAttribute('href', '/feed')
+      expect(screen.getByRole('alert').tagName).toBe('MAIN')
+      globalBoundary.unmount()
+
+      render(<main><Boundary surface="page"><CrashingChild /></Boundary></main>)
+      expect(screen.getByRole('alert').tagName).toBe('SECTION')
     } finally {
       consoleError.mockRestore()
     }

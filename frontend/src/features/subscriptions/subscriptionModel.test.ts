@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, User } from '../../api/types'
 import * as subscriptionModel from './subscriptionModel'
-import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isSourceSubscribed, presentJob, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
+import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isSourceSubscribed, presentJob, presentSourceHealthIssue, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
 
 const user = (role: User['role'], id = 'user-1'): User => ({ id, username: role, role, enabled: true })
 const source: CatalogSource = { id: 'src-1', type: 'rss', display_name: 'RSS', scope: 'workspace', enabled: true }
@@ -51,6 +51,43 @@ describe('subscription model', () => {
     const failing: SourceHealthItem = { subscription_id: 'sub-1', source_id: 'src-1', status: 'failing', consecutive_failures: 2 }
     expect(healthMatches(failing, 'problem')).toBe(true)
     expect(healthMatches({ ...failing, status: 'healthy' }, 'problem')).toBe(false)
+  })
+
+  it.each([
+    ['fetch', 'Unauthorized', false, '来源授权已失效或当前账户没有访问权限。'],
+    ['fetch', 'RateLimitError', true, '上游服务限制了当前访问频率。'],
+    ['fetch', 'TimeoutError', true, '上游服务暂时不可用或响应超时。'],
+    ['fetch', 'InvalidPayload', false, '来源返回的内容格式无法识别。'],
+    ['parse', 'UnexpectedFailure', false, '来源返回的内容格式无法识别。'],
+    ['fetch', 'UnexpectedFailure', false, '来源最近一次更新未完成。'],
+  ])('maps %s/%s to a stable user-facing reason without exposing the raw message', (stage, code, retryable, reason) => {
+    const health: SourceHealthItem = {
+      subscription_id: 'sub-issue',
+      source_id: 'src-issue',
+      status: 'degraded',
+      consecutive_failures: 1,
+      last_issue: { stage, code, retryable, message: 'GET https://upstream.example/feed returned raw diagnostics' },
+    }
+
+    expect(presentSourceHealthIssue(health, { canRetry: true, canEdit: true })).toMatchObject({ reason })
+    expect(presentSourceHealthIssue(health, { canRetry: true, canEdit: true }).reason).not.toContain('upstream.example')
+  })
+
+  it('explains impact and selects a permission-aware recovery action', () => {
+    const health: SourceHealthItem = {
+      subscription_id: 'sub-failing',
+      source_id: 'src-failing',
+      status: 'failing',
+      consecutive_failures: 3,
+      last_issue: { stage: 'fetch', code: 'HTTPError', retryable: true, message: '503' },
+    }
+
+    expect(presentSourceHealthIssue(health, { canRetry: true, canEdit: false })).toMatchObject({
+      impact: '已连续 3 次更新失败，该来源的新内容暂时不会进入信息流；历史内容不受影响。',
+      action: '点击“立即获取”重试；若仍失败，请稍后再试或检查上游状态。',
+    })
+    expect(presentSourceHealthIssue({ ...health, last_issue: { ...health.last_issue!, retryable: false } }, { canRetry: true, canEdit: true }).action).toBe('打开“编辑来源”检查地址、权限或内容格式后再试。')
+    expect(presentSourceHealthIssue(health, { canRetry: false, canEdit: false }).action).toBe('联系管理员检查来源配置或上游状态。')
   })
 
   it('keeps create-only and admin-only fields out of a member source PATCH', () => {

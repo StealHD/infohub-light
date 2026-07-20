@@ -104,8 +104,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
   const mergedItems = useMemo(() => mergeDeepLinkedItem(sourceItems, detailQuery.data), [detailQuery.data, sourceItems])
   const orderedItems = useMemo(
-    () => kind === 'feed' ? sortWorkbenchItems(mergedItems, preference.order) : mergedItems,
-    [kind, mergedItems, preference.order],
+    () => sortWorkbenchItems(mergedItems, preference.order),
+    [mergedItems, preference.order],
   )
   const filteredItems = useMemo(() => {
     const matching = filterFeedItems(
@@ -158,7 +158,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     setParams(next)
   }
 
-  function refreshCollection() {
+  function refreshFeed() {
     window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     refresh()
   }
@@ -187,20 +187,20 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           aria-expanded={collectionSearchOpen}
           onPress={() => setCollectionSearchOpen((value) => !value)}
         ><Icons.Search size={14} aria-hidden="true" /></Button>}
-        {!collectionRoute && <Button
+        <Button
           size="sm"
           variant="ghost"
           className="type-control"
           aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
           onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' })}
-        ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>}
-        {collectionRoute && <Button
+        ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>
+        {!collectionRoute && <Button
           size="sm"
           variant="ghost"
           className="type-control"
           aria-label="更新信息流"
           isDisabled={refreshing || user.role === 'viewer'}
-          onPress={refreshCollection}
+          onPress={refreshFeed}
         ><Icons.RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">{refreshing ? '更新中' : '更新'}</span></Button>}
         <Popover>
           <Popover.Trigger aria-label="筛选信息流" className="type-control inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
@@ -236,7 +236,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     {loadError && <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>}
     {!loading && !loadError && cards.length === 0 && <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>}
     {!loading && !loadError && cards.length > 0 && <VirtualFeed
-      freshEdge={kind === 'feed' && preference.order === 'newest' ? 'start' : 'end'}
+      freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       cards={cards}
       sourceItemIds={sourceItemIds}
       expandedId={selectedId}
