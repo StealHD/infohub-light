@@ -11,8 +11,8 @@ The MCP identity fixes caller scope. Never add identity fields, credentials, raw
 | `list_jobs` | optional status, bounded limit | Read safe job summaries. |
 | `get_job` | selected job ID | Read one selected job summary. |
 | `get_source_setup_guide` | one public source type, locale | Get fields/defaults/Web boundary before setup. |
-| `list_available_sources` | optional source type, unsubscribed filter | Return visible existing source IDs; never infer an ID. |
-| `prepare_create_subscription` | existing visible source or safe private source, optional subscription/schedule | Creates a proposal and preview only; it does not write. |
+| `list_available_sources` | optional source type, unsubscribed filter | Return visible existing source IDs and safe `public_target` projections; unsafe/private targets become `web_setup_required`. Never infer an ID. |
+| `prepare_create_subscription` | `source={mode: existing, source_id}` or `source={mode: private, type, display_name, config}`, optional subscription/schedule | Creates one proposal and preview only; it does not write. Never use `mode: create`, `source_type`, or `fields`. |
 | `prepare_update_subscription` | subscription ID and requested update fields | Creates a proposal and preview only; it does not write. |
 | `prepare_delete_subscription` | subscription ID and explicit `source_disposition` | Creates a proposal and preview only; it does not write. |
 | `apply_subscription_change` | proposal ID and exact confirmation phrase | The only change call. Claim success only from its successful result. |
@@ -22,6 +22,38 @@ The MCP identity fixes caller scope. Never add identity fields, credentials, raw
 `not_found` can mean absent or outside the current scope: do not try alternate identities. For rate limiting, reduce repeated calls. For `internal_error`, report only the returned request ID. A stale, expired, consumed, or confirmation-mismatch proposal must be prepared again; never reuse it.
 
 A read-only connection exposes the ten read, setup, discovery, and diagnosis tools above. A subscription-management connection adds only the four `prepare_*`/`apply_subscription_change` tools; diagnosis never requires write access.
+
+Exact private-source example for public `r/codex`:
+
+```json
+{
+  "source": {
+    "mode": "private",
+    "type": "reddit",
+    "display_name": "r/codex",
+    "config": {
+      "subreddit": "codex",
+      "sort": "hot",
+      "time_filter": "day",
+      "fetch_limit": 25,
+      "min_score": 10
+    }
+  }
+}
+```
+
+For a Bilibili UP 主, use the same private envelope with `type="rss"` only
+after the user supplies the full public feed URL from their self-hosted RSSHub.
+Use the UP 主 name as `display_name` and put `url`, optional `name`, and optional
+`keep_latest_item` inside `config`. Never call Apify for Bilibili. If the RSSHub
+URL is local/private/authenticated, direct the user to create it in Web and then
+use the returned visible existing source ID.
+
+When the user explicitly names an existing Bilibili RSS source as a route
+template, list RSS sources with `unsubscribed_only=false`, match its returned
+name, and reuse only its public HTTPS `public_target`. Replace only a separately
+supplied numeric Bilibili UID; never copy the template UID or infer one from an
+account name. `web_setup_required` is not a reusable target.
 
 `get_item.presentation.content` keeps the compatibility fields and adds
 `body_offset`, `body_end`, `body_total_chars`, `body_has_more`, and

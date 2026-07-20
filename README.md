@@ -92,6 +92,20 @@ HORIZON_OPENCLAW_CHAT_ENABLED=false
 HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 ```
 
+For first-time local integration, use the idempotent bootstrap. It discovers the
+actual Gateway URL, merges the current browser Origin, updates `.env`, installs
+the bundled Skill, starts the services, and verifies readiness. It never reads
+or stores Gateway/MCP tokens and never approves a device:
+
+```bash
+./scripts/setup_openclaw_local.sh --dry-run
+./scripts/setup_openclaw_local.sh
+```
+
+The default reuses the current Docker image; pass `--rebuild` to rebuild the
+working tree. Afterward, create a read-only connection on `/agents`, run its
+generated MCP commands, then pair the Feed panel with `openclaw dashboard`.
+
 Install and configure the bundled Skill by following [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md). The legacy stdio MCP remains separate and is never exposed by `/mcp`.
 
 The local acceptance benchmark uses an isolated temporary database and 100 real MCP client calls:

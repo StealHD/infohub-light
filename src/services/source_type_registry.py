@@ -571,19 +571,22 @@ _GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "rss": _guide_source(
         "RSS/Atom",
         "RSS/Atom 订阅",
-        "Add a public RSS or Atom feed URL.",
-        "添加公开的 RSS 或 Atom 订阅地址。",
+        "Add a public RSS or Atom feed URL, including a Bilibili feed from a self-hosted RSSHub.",
+        "添加公开的 RSS 或 Atom 订阅地址，包括自建 RSSHub 生成的 Bilibili 订阅。",
         self_service=True,
         requires_web_setup=False,
-        en_web_setup_note="Authenticated feeds must be configured in Web.",
-        zh_web_setup_note="需要登录或授权的订阅请在 Web 中配置。",
+        en_web_setup_note=(
+            "Authenticated or private-network RSSHub feeds must be configured in Web first."
+        ),
+        zh_web_setup_note="需要登录或位于私网的 RSSHub 订阅必须先在 Web 中配置。",
         fields={
             "url": _guide_field(
                 "Feed URL", "订阅地址",
-                "Use a public HTTP or HTTPS RSS/Atom URL.", "请输入公开的 HTTP 或 HTTPS RSS/Atom 地址。",
+                "Use a public HTTP or HTTPS RSS/Atom URL. For Bilibili, use the full feed URL from the self-hosted RSSHub, not a Bilibili page URL.",
+                "请输入公开的 HTTP 或 HTTPS RSS/Atom 地址。Bilibili 必须填写自建 RSSHub 的完整订阅地址，不能填写 B 站页面地址。",
                 ("https://host/path.xml",), ("https://域名/路径.xml",),
                 ("https://example.com/feed.xml",), ("https://example.com/feed.xml",),
-                "Copy the feed link from the publisher's RSS page.", "从发布者的 RSS 页面复制订阅链接。",
+                "Copy the feed URL from the publisher or self-hosted RSSHub.", "从发布者或自建 RSSHub 复制完整订阅地址。",
             ),
             "name": _guide_field(
                 "Feed name", "订阅名称",

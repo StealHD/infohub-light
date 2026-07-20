@@ -492,6 +492,19 @@ HORIZON_OPENCLAW_CHAT_ENABLED=false
 HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 ```
 
+本地首次联调推荐使用一键初始化。它会探测实际 Gateway 地址、保留并追加当前
+浏览器 Origin、幂等更新 `.env`、安装内置 Skill、重启 Gateway、启动 API/Worker
+并验证 readiness；不会读取、接收或保存 Gateway/MCP token，也不会替用户批准设备：
+
+```bash
+./scripts/setup_openclaw_local.sh --dry-run  # 只查看计划
+./scripts/setup_openclaw_local.sh            # 应用并打开“助手连接”
+```
+
+默认复用现有 Docker 镜像；需要把当前工作区重新构建进镜像时增加 `--rebuild`。
+脚本完成后只需在“助手连接”创建只读连接并执行页面生成的 MCP 命令，再运行
+`openclaw dashboard`，把完整 dashboard 地址粘贴到 Feed 的 OpenClaw 面板完成首次配对。
+
 OpenClaw 的本地 Skill 安装、令牌保存和 MCP 配置见 [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md)。
 
 可使用隔离的临时数据库、真实 MCP Client 和 100 次顺序调用验证延迟/RSS 门槛：

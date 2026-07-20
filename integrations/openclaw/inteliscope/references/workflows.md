@@ -18,6 +18,21 @@ or call tools.
 
 First call `get_source_setup_guide` for the chosen type. Ask one required field at a time (每次只询问一个); leave optional values at guide defaults unless the user asks to customize.
 
+Bilibili/B站/UP 主 is an RSS workflow, not an Apify platform and not a native
+source type. First call `list_available_sources` with `source_type="rss"` and
+`unsubscribed_only=true`. If a matching user-configured feed exists, use only
+its returned ID. Otherwise ask for exactly one missing field: the full public
+RSS/Atom feed URL produced by the user's self-hosted RSSHub. Do not accept a
+Bilibili profile/video URL as the feed URL. Localhost, private-network,
+authenticated, or Cookie-backed RSSHub feeds must be added in Web first.
+
+If the user explicitly names an already configured Bilibili source as a route
+template, repeat discovery with `unsubscribed_only=false`, match the returned
+name, and use only its public HTTPS `public_target` as the pattern. Preserve the
+RSSHub host/route, replace only a numeric UID separately supplied by the user,
+and show the resulting feed URL in the preview. Never copy the template UID,
+guess a UID from an account name, or reuse `web_setup_required`.
+
 | Type | Accepted aliases / public input | Boundary |
 |---|---|---|
 | `rss` | public `https://host/path.xml` feed URL | Authenticated feed → Web. |
@@ -28,6 +43,35 @@ First call `get_source_setup_guide` for the chosen type. Ask one required field 
 | `website` | public HTTP/HTTPS RSS or Atom feed URL | Authenticated feed → Web. |
 | `youtube` | canonical `https://www.youtube.com/feeds/videos.xml?channel_id=…` or `playlist_id=…` URL | Private/authenticated channel → Web. |
 | `apify` | public `platform`, `kind`, and `target` identity | Existing managed source only. If Apify is 未预配置, direct the user to Web; do not create a private Apify source. |
+
+### Exact create envelopes
+
+Use only one of these source shapes:
+
+```json
+{"source":{"mode":"existing","source_id":"<ID_FROM_LIST>"}}
+```
+
+```json
+{
+  "source": {
+    "mode": "private",
+    "type": "reddit",
+    "display_name": "r/codex",
+    "config": {
+      "subreddit": "codex",
+      "sort": "hot",
+      "time_filter": "day",
+      "fetch_limit": 25,
+      "min_score": 10
+    }
+  }
+}
+```
+
+For a Bilibili feed, replace `type` with `rss`, use the UP 主 name as
+`display_name`, and place the user-supplied self-hosted RSS URL under
+`config.url`. Never use `mode="create"`, `source_type`, or `fields`.
 
 For any existing source, call `list_available_sources` with the selected type first, show the returned choices, and use only the user-selected returned ID. Do not infer an ID.
 
