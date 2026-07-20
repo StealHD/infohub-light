@@ -124,14 +124,20 @@ class MediaCacheService:
     def _cache_item(self, *, workspace_id: str, user_id: str, item: ContentItem) -> None:
         metadata = item.metadata
         source_id = str(metadata.get("source_id") or "") or None
-        remote_urls = self._unique_urls(
+        all_remote_urls = self._unique_urls(
             [
                 *(metadata.get("remote_media_urls") or []),
                 *(metadata.get("media_urls") or []),
                 metadata.get("remote_image_url"),
                 metadata.get("image_url"),
             ]
-        )[:MAX_IMAGES_PER_ITEM]
+        )
+        try:
+            declared_image_count = max(0, int(metadata.get("media_image_count") or 0))
+        except (TypeError, ValueError):
+            declared_image_count = 0
+        metadata["media_image_count"] = max(declared_image_count, len(all_remote_urls))
+        remote_urls = all_remote_urls[:MAX_IMAGES_PER_ITEM]
         metadata["remote_media_urls"] = remote_urls
         local_urls: list[str] = []
         for index, remote_url in enumerate(remote_urls):

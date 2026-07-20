@@ -355,7 +355,8 @@ class ApifySocialScraper(BaseScraper):
             or user.get("profile_image_url_https")
             or ""
         ).strip()
-        media_urls = self._x_media_urls(row)
+        media = self._x_media_inventory(row)
+        media_urls = media["image_urls"]
 
         url = row.get("url")
         if not url:
@@ -387,6 +388,7 @@ class ApifySocialScraper(BaseScraper):
                     "reply_count": row.get("reply_count", row.get("replyCount", 0)),
                     **({"author_avatar_url": avatar_url} if avatar_url else {}),
                     **({"image_url": media_urls[0], "media_urls": media_urls} if media_urls else {}),
+                    **self._media_metadata(media),
                 },
             ),
         )
@@ -436,7 +438,8 @@ class ApifySocialScraper(BaseScraper):
             or "instagram"
         )
 
-        media_urls = self._instagram_media_urls(row)
+        media = self._instagram_media_inventory(row)
+        media_urls = media["image_urls"]
         metadata = {
             "shortcode": shortcode,
             "likes": row.get("likesCount") or row.get("likeCount"),
@@ -445,6 +448,7 @@ class ApifySocialScraper(BaseScraper):
         if media_urls:
             metadata["image_url"] = media_urls[0]
             metadata["media_urls"] = media_urls
+        metadata.update(self._media_metadata(media))
         owner = row.get("owner") if isinstance(row.get("owner"), dict) else {}
         avatar_url = str(
             row.get("profilePicUrl")
@@ -687,60 +691,129 @@ class ApifySocialScraper(BaseScraper):
         parsed = urlparse(value)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
+    @staticmethod
+    def _media_metadata(media: dict[str, Any]) -> dict[str, Any]:
+        metadata = {
+            "media_image_count": int(media.get("image_count") or 0),
+            "media_video_count": int(media.get("video_count") or 0),
+            "media_audio_count": int(media.get("audio_count") or 0),
+        }
+        content_format = str(media.get("format") or "")
+        if content_format:
+            metadata["upstream_content_format"] = content_format
+        return metadata
+
+    @staticmethod
+    def _declared_media_kind(value: dict[str, Any]) -> str:
+        raw = str(
+            value.get("type")
+            or value.get("mediaType")
+            or value.get("media_type")
+            or value.get("productType")
+            or value.get("__typename")
+            or ""
+        ).strip().lower()
+        if value.get("isVideo") or value.get("is_video") or value.get("videoUrl") or value.get("video_url"):
+            return "video"
+        if "video" in raw or raw in {"animated_gif", "reel", "clip"}:
+            return "video"
+        if "audio" in raw or raw in {"podcast", "voice"}:
+            return "audio"
+        if raw in {"photo", "image", "graphimage"}:
+            return "image"
+        return ""
+
+    @staticmethod
+    def _inventory_format(*, images: int, videos: int, audio: int) -> str:
+        if images + videos + audio > 1:
+            return "gallery"
+        if videos:
+            return "video"
+        if audio:
+            return "audio"
+        if images > 1:
+            return "gallery"
+        if images == 1:
+            return "image"
+        return ""
+
     @classmethod
     def _instagram_media_urls(cls, row: dict[str, Any]) -> list[str]:
+        return cls._instagram_media_inventory(row)["image_urls"]
+
+    @classmethod
+    def _instagram_media_inventory(cls, row: dict[str, Any]) -> dict[str, Any]:
         urls: list[str] = []
+        videos = 0
+        audio = 0
 
-        def add(value: Any) -> None:
-            if not isinstance(value, str):
-                return
-            url = value.strip()
-            if url and cls._is_http_url(url) and url not in urls:
+        def image_url(value: dict[str, Any]) -> str:
+            for key in (
+                "displayUrl", "displayURL", "display_url", "imageUrl",
+                "image_url", "thumbnailUrl", "thumbnail_url", "thumbnail", "image",
+            ):
+                candidate = str(value.get(key) or "").strip()
+                if cls._is_http_url(candidate):
+                    return candidate
+            return ""
+
+        children: list[dict[str, Any]] = []
+        for key in ("childPosts", "children", "carouselMedia", "sidecarChildren"):
+            value = row.get(key)
+            if isinstance(value, list):
+                children.extend(child for child in value if isinstance(child, dict))
+        candidates = [row, *children]
+        for candidate in candidates:
+            kind = cls._declared_media_kind(candidate)
+            if kind == "video":
+                videos += 1
+                continue
+            if kind == "audio":
+                audio += 1
+                continue
+            url = image_url(candidate)
+            if url and url not in urls:
                 urls.append(url)
-
-        def visit(value: Any) -> None:
-            if isinstance(value, dict):
-                for key in (
-                    "displayUrl",
-                    "displayURL",
-                    "display_url",
-                    "imageUrl",
-                    "image_url",
-                    "thumbnailUrl",
-                    "thumbnail_url",
-                    "thumbnail",
-                    "image",
-                ):
-                    add(value.get(key))
-                for key in (
-                    "images",
-                    "media",
-                    "childPosts",
-                    "children",
-                    "carouselMedia",
-                    "latestPosts",
-                    "sidecarChildren",
-                ):
-                    visit(value.get(key))
-            elif isinstance(value, list):
-                for item in value:
-                    visit(item)
-
-        visit(row)
-        return urls
+        return {
+            "image_urls": urls,
+            "image_count": len(urls),
+            "video_count": videos,
+            "audio_count": audio,
+            "format": cls._inventory_format(images=len(urls), videos=videos, audio=audio),
+        }
 
     @classmethod
     def _x_media_urls(cls, row: dict[str, Any]) -> list[str]:
+        return cls._x_media_inventory(row)["image_urls"]
+
+    @classmethod
+    def _x_media_inventory(cls, row: dict[str, Any]) -> dict[str, Any]:
         urls: list[str] = []
+        videos: set[str] = set()
+        audio: set[str] = set()
 
         def visit(value: Any) -> None:
             if isinstance(value, dict):
+                kind = cls._declared_media_kind(value)
+                identity = str(
+                    value.get("id_str")
+                    or value.get("id")
+                    or value.get("media_key")
+                    or value.get("videoUrl")
+                    or value.get("video_url")
+                    or ""
+                ).strip()
+                if kind == "video":
+                    videos.add(identity or f"video:{len(videos)}")
+                    return
+                if kind == "audio":
+                    audio.add(identity or f"audio:{len(audio)}")
+                    return
                 for key in (
                     "media_url_https",
                     "media_url",
                     "displayUrl",
                     "imageUrl",
-                    "preview_image_url",
                 ):
                     url = str(value.get(key) or "").strip()
                     if cls._is_http_url(url) and url not in urls:
@@ -760,7 +833,13 @@ class ApifySocialScraper(BaseScraper):
                     visit(item)
 
         visit(row)
-        return urls[:6]
+        return {
+            "image_urls": urls,
+            "image_count": len(urls),
+            "video_count": len(videos),
+            "audio_count": len(audio),
+            "format": cls._inventory_format(images=len(urls), videos=len(videos), audio=len(audio)),
+        }
 
     @classmethod
     def _instagram_profile_avatar(cls, rows: list[dict[str, Any]]) -> str:

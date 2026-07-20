@@ -10,7 +10,7 @@ from typing import Any
 from ..models import ContentItem
 
 
-ANALYSIS_PROMPT_VERSION = "content-analysis-v7-presentation-no-reason-no-action"
+ANALYSIS_PROMPT_VERSION = "content-analysis-v8-content-format"
 
 
 def analysis_prompt_version(topic_library: list[str] | tuple[str, ...] | None = None) -> str:
@@ -37,6 +37,14 @@ def apply_analysis_result(item: ContentItem, result: dict[str, Any]) -> None:
     entities = result.get("entities") or []
     item.ai_entities = [str(entity) for entity in entities] if isinstance(entities, list) else []
     item.metadata["analysis_status"] = "ai"
+    content_format = str(result.get("content_format") or "").strip().lower()
+    if content_format in {
+        "article", "video", "image", "gallery", "audio",
+        "social_post", "discussion", "release", "other",
+    }:
+        item.metadata["ai_content_format"] = content_format
+    else:
+        item.metadata.pop("ai_content_format", None)
     inferred_topics = result.get("inferred_topics") or []
     item.metadata["inferred_topics"] = (
         [str(tag) for tag in inferred_topics]
@@ -60,6 +68,7 @@ def safe_analysis_result(item: ContentItem) -> dict[str, Any]:
         "is_featured": bool(item.ai_is_featured),
         "summary": item.ai_summary or "",
         "summary_zh": item.ai_summary_zh or "",
+        "content_format": str(item.metadata.get("ai_content_format") or ""),
     }
 
 

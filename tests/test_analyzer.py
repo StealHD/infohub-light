@@ -5,7 +5,7 @@ from types import MethodType, SimpleNamespace
 from tenacity import wait_none
 
 import src.ai.analyzer as analyzer_module
-from src.ai.analysis_cache import AnalysisCache
+from src.ai.analysis_cache import AnalysisCache, apply_analysis_result
 from src.ai.analyzer import ContentAnalyzer
 from src.ai.prompts import content_analysis_system
 from src.models import ContentItem, SourceType
@@ -39,6 +39,15 @@ def test_analyze_batch_does_not_sleep_by_default(monkeypatch):
 
     assert len(result) == 2
     assert sleep_calls == []
+
+
+def test_legacy_cache_without_content_format_clears_stale_ai_format() -> None:
+    item = _make_item("rss:test:legacy-format")
+    item.metadata["ai_content_format"] = "video"
+
+    apply_analysis_result(item, {"summary_zh": "旧缓存摘要"})
+
+    assert "ai_content_format" not in item.metadata
 
 
 def test_analyze_batch_sleeps_between_items_when_throttle_configured(monkeypatch):
@@ -118,7 +127,7 @@ def test_analyze_item_uses_configured_prompt_limits_and_ignores_personal_tags():
                 '"topics": ["AI 编程", "Codex"], '
                 '"signal_strength": "strong", "signal_type": "release", '
                 '"entities": ["OpenAI", "Codex"], '
-                '"is_featured": true, "summary_zh": "摘要", '
+                '"is_featured": true, "content_format": "video", "summary_zh": "摘要", '
                 '"action_suggestion": "阅读"}'
             )
 
@@ -142,6 +151,7 @@ def test_analyze_item_uses_configured_prompt_limits_and_ignores_personal_tags():
     assert item.ai_signal_strength == "strong"
     assert item.ai_signal_type == "release"
     assert item.ai_entities == ["OpenAI", "Codex"]
+    assert item.metadata["ai_content_format"] == "video"
 
 
 def test_analyze_batch_reuses_analysis_cache(tmp_path):
@@ -161,7 +171,7 @@ def test_analyze_batch_reuses_analysis_cache(tmp_path):
                 '{"score": 8.2, "reason": "cached", "channel": "AI", '
                 '"topics": ["Agent", "Codex"], "signal_strength": "strong", '
                 '"signal_type": "release", "entities": ["OpenAI"], '
-                '"is_featured": true, "summary_zh": "缓存摘要", '
+                '"is_featured": true, "content_format": "article", "summary_zh": "缓存摘要", '
                 '"action_suggestion": "收藏"}'
             )
 
@@ -184,6 +194,7 @@ def test_analyze_batch_reuses_analysis_cache(tmp_path):
     assert second.ai_signal_strength == "strong"
     assert second.ai_signal_type == "release"
     assert second.ai_entities == ["OpenAI"]
+    assert second.metadata["ai_content_format"] == "article"
     assert first_analyzer.usage == {
         "item_count": 1,
         "cache_hits": 0,

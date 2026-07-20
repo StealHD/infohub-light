@@ -77,13 +77,48 @@ describe('live workbench model', () => {
 
     expect(toWorkbenchCardModel(social)).toMatchObject({
       displayKind: 'social',
+      format: 'social_post',
+      formatLabel: '社交动态',
       platformLabel: 'X',
       sourceLabel: '@thsottiaux',
       authorLabel: 'Tibo',
       primaryText: 'Oops... I did it again. Enjoy reset usage limits for all paid users.',
       detailBody: 'Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.',
       summary: undefined,
+      hasDistinctDetail: true,
     })
+  })
+
+  it('maps explicit gallery metadata and keeps only local cached images', () => {
+    const gallery = socialItemWithMedia()
+    const card = toWorkbenchCardModel(gallery)
+
+    expect(card).toMatchObject({
+      format: 'gallery',
+      formatOrigin: 'upstream',
+      formatLabel: '图集',
+      displayImageCount: 2,
+      totalImageCount: 8,
+      mediaTruncated: true,
+    })
+    expect(card.mediaImages.map((image) => image.url)).toEqual(['/api/media/one', '/api/media/two'])
+  })
+
+  it.each([
+    ['article', '文章'],
+    ['video', '视频'],
+    ['image', '图片'],
+    ['gallery', '图集'],
+    ['audio', '音频'],
+    ['social_post', '社交动态'],
+    ['discussion', '讨论'],
+    ['release', '版本发布'],
+    ['other', '其他'],
+  ] as const)('maps the %s format to its shared Chinese label', (format, label) => {
+    const formatted = socialItemWithMedia()
+    if (formatted.presentation) formatted.presentation.content.format = format
+
+    expect(toWorkbenchCardModel(formatted)).toMatchObject({ format, formatLabel: label })
   })
 
   it('recognizes a legacy Instagram snapshot by platform and removes duplicate author metadata', () => {
@@ -188,3 +223,35 @@ describe('live workbench model', () => {
     expect(new Set(indexes).size).toBe(indexes.length)
   })
 })
+
+function socialItemWithMedia(): FeedItem {
+  const base = item('gallery', '2026-07-18T08:00:00Z')
+  return {
+    ...base,
+    source_type: 'apify_social',
+    presentation: {
+      version: 2,
+      source: { id: 'instagram-source', catalog_type: 'apify_social', platform: 'instagram', name: 'Instagram · example' },
+      author: { name: 'example', kind: 'account' },
+      timing: { published_at: '2026-07-18T08:00:00Z', fetched_at: '2026-07-18T08:05:00Z' },
+      links: { canonical_url: 'https://instagram.com/p/example', source_url: 'https://instagram.com/example' },
+      content: {
+        title: 'Gallery', title_origin: 'generated', excerpt: 'Gallery body', content_kind: 'caption',
+        excerpt_truncated: false, format: 'gallery', format_origin: 'upstream',
+      },
+      media: {
+        images: [
+          { asset_id: 'one', url: '/api/media/one', alt: '图片一' },
+          { asset_id: 'two', url: '/api/media/two', alt: '图片二' },
+          { asset_id: 'remote', url: 'https://remote.example/three.jpg', alt: '远程图片' },
+        ],
+        count: 2,
+        total_image_count: 8,
+        truncated: true,
+      },
+      taxonomy: { channel: '其他', configured_topics: [], inferred_topics: [], topics: [], entities: [] },
+      engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+      analysis: { status: 'fallback', score: 0, signal_strength: 'thin', signal_type: 'other', summary_zh: 'Gallery body' },
+    },
+  }
+}

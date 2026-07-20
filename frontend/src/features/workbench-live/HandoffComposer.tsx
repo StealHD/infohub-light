@@ -1,14 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import { Button, CompactSelect, Icons, TextArea, Tooltip } from '../../design-system'
-import { buildAgentHandoffPrompt, type AgentModelPreference } from './agentContext'
+import { Button, Icons, TextArea, Tooltip } from '../../design-system'
+import { buildAgentHandoffPrompt } from './agentContext'
 import type { WorkbenchAgentContextValue } from './workbenchAgentContext'
-
-const modelOptions = [
-  { id: 'auto', label: '自动 · OpenClaw 决定' },
-  { id: 'fast', label: '速度优先' },
-  { id: 'deep', label: '深度分析' },
-]
 
 export function HandoffComposer({ value }: { value: WorkbenchAgentContextValue }) {
   const [notice, setNotice] = useState('')
@@ -49,13 +43,7 @@ export function HandoffComposer({ value }: { value: WorkbenchAgentContextValue }
           <Tooltip.Content>只复制交接提示词，由本地 OpenClaw 执行。</Tooltip.Content>
         </Tooltip>
         <span className="type-label shrink-0 text-muted">{value.draft.items.length}/8</span>
-        <CompactSelect
-          ariaLabel="模型偏好"
-          value={value.draft.modelPreference}
-          options={modelOptions}
-          onChange={(modelPreference) => value.setModelPreference(modelPreference as AgentModelPreference)}
-          className="flex-1"
-        />
+        <span className="type-label min-w-0 flex-1 whitespace-normal break-words leading-tight text-muted [overflow-wrap:anywhere]">使用 OpenClaw 当前设置</span>
         <span role="status" aria-label="交接状态" aria-live="polite" className="type-label min-w-0 truncate text-muted">{notice}</span>
         <Button
           size="sm"

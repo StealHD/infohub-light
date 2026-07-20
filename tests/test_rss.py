@@ -202,6 +202,27 @@ def test_rss_prefers_captured_full_content_and_projects_feed_media_and_icon() ->
     assert item.metadata["feed_icon_url"] == "https://cdn.example.com/feed-icon.png"
     assert item.metadata["media_urls"] == ["https://cdn.example.com/photo.jpg"]
     assert item.metadata["image_url"] == "https://cdn.example.com/photo.jpg"
+    assert item.metadata["media_image_count"] == 1
+    assert item.metadata["upstream_content_format"] == "image"
+
+
+def test_rss_video_enclosure_does_not_count_thumbnail_as_an_image() -> None:
+    inventory = RSSScraper._extract_media_inventory(
+        {
+            "enclosures": [{"url": "https://cdn.example.com/movie.mp4", "type": "video/mp4"}],
+            "media_thumbnail": [{"url": "https://cdn.example.com/poster.jpg"}],
+        },
+        '<img src="https://cdn.example.com/poster.jpg">',
+        "https://www.youtube.com/watch?v=example",
+    )
+
+    assert inventory == {
+        "image_urls": [],
+        "image_count": 0,
+        "video_count": 1,
+        "audio_count": 0,
+        "format": "video",
+    }
 
 
 def test_service_source_priority_defaults_to_zero_and_rejects_out_of_range_values() -> None:

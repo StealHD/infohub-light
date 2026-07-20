@@ -6,8 +6,9 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Callable, List
+from typing import Any, Callable, List
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlparse
 import httpx
 import feedparser
 
@@ -115,7 +116,9 @@ class RSSScraper(BaseScraper):
 
                 # Extract content
                 content = self._extract_content(entry)
-                media_urls = self._extract_media_urls(entry, content)
+                entry_url = entry.get("link", str(source.url))
+                media = self._extract_media_inventory(entry, content, entry_url)
+                media_urls = media["image_urls"]
 
                 entry_tags = [tag.term for tag in entry.get("tags", [])]
                 source_tags = list(source.tags)
@@ -131,7 +134,7 @@ class RSSScraper(BaseScraper):
                     id=self._generate_id("rss", feed_id, entry_hash),
                     source_type=SourceType.RSS,
                     title=entry.get("title", "Untitled"),
-                    url=entry.get("link", str(source.url)),
+                    url=entry_url,
                     content=content,
                     author=entry.get("author", source.name),
                     published_at=published_at,
@@ -140,6 +143,10 @@ class RSSScraper(BaseScraper):
                         "category": source.category,
                         **({"feed_icon_url": feed_icon_url} if feed_icon_url else {}),
                         **({"image_url": media_urls[0], "media_urls": media_urls} if media_urls else {}),
+                        "media_image_count": media["image_count"],
+                        "media_video_count": media["video_count"],
+                        "media_audio_count": media["audio_count"],
+                        **({"upstream_content_format": media["format"]} if media["format"] else {}),
                         **self._tag_metadata(source),
                         "tags": list(dict.fromkeys(source_tags + entry_tags)),
                         "retention_policy": retention_policy,
@@ -235,25 +242,74 @@ class RSSScraper(BaseScraper):
 
     @staticmethod
     def _extract_media_urls(entry: dict, content: str) -> list[str]:
-        urls: list[str] = []
+        return RSSScraper._extract_media_inventory(entry, content, "")["image_urls"]
 
-        def add(value) -> None:
+    @staticmethod
+    def _extract_media_inventory(entry: dict, content: str, item_url: Any) -> dict[str, Any]:
+        urls: list[str] = []
+        attachment_images: list[str] = []
+        video_count = 0
+        audio_count = 0
+
+        def add(value, *, attachment: bool = False) -> None:
             url = str(value or "").strip()
             if url.startswith(("https://", "http://")) and url not in urls:
                 urls.append(url)
+            if attachment and url in urls and url not in attachment_images:
+                attachment_images.append(url)
 
-        for key in ("media_content", "media_thumbnail", "enclosures"):
+        for key in ("media_content", "enclosures"):
             for media in entry.get(key, []) or []:
                 if not isinstance(media, dict):
                     continue
                 mime = str(media.get("type") or "").lower()
-                if key == "enclosures" and mime and not mime.startswith("image/"):
+                medium = str(media.get("medium") or media.get("media_type") or "").lower()
+                is_video = bool(media.get("isVideo") or media.get("is_video")) or mime.startswith("video/") or medium == "video"
+                is_audio = mime.startswith("audio/") or medium == "audio"
+                if is_video:
+                    video_count += 1
                     continue
-                add(media.get("url") or media.get("href"))
+                if is_audio:
+                    audio_count += 1
+                    continue
+                if mime.startswith("image/") or medium in {"image", "photo"} or not mime:
+                    add(media.get("url") or media.get("href"), attachment=True)
+        if video_count == 0:
+            for media in entry.get("media_thumbnail", []) or []:
+                if isinstance(media, dict):
+                    add(media.get("url") or media.get("href"))
         for match in re.finditer(
             r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"']",
             str(content or ""),
             flags=re.IGNORECASE,
         ):
             add(match.group(1))
-        return urls[:6]
+
+        host = (urlparse(str(item_url or "")).hostname or "").lower()
+        if host in {
+            "b23.tv", "bilibili.com", "m.bilibili.com", "www.bilibili.com",
+            "youtu.be", "youtube.com", "www.youtube.com",
+        }:
+            # Preview thumbnails are not source photos and must not inflate the image label.
+            urls = []
+            attachment_images = []
+
+        content_format = ""
+        attachment_total = len(attachment_images) + video_count + audio_count
+        if attachment_total > 1:
+            content_format = "gallery"
+        elif video_count:
+            content_format = "video"
+        elif audio_count:
+            content_format = "audio"
+        elif len(attachment_images) > 1:
+            content_format = "gallery"
+        elif len(attachment_images) == 1:
+            content_format = "image"
+        return {
+            "image_urls": urls,
+            "image_count": len(urls),
+            "video_count": video_count,
+            "audio_count": audio_count,
+            "format": content_format,
+        }

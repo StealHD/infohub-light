@@ -92,6 +92,9 @@ export type FeedItem = {
   presentation?: FeedPresentation
 }
 
+export type ContentFormat = 'article' | 'video' | 'image' | 'gallery' | 'audio' | 'social_post' | 'discussion' | 'release' | 'other'
+export type ContentFormatOrigin = 'upstream' | 'deterministic' | 'ai' | 'fallback'
+
 export type FeedPresentation = {
   version: 1 | 2
   source: { id: string; catalog_type: string; platform: string; name: string; avatar_url?: string }
@@ -104,6 +107,8 @@ export type FeedPresentation = {
     excerpt: string
     content_kind: 'feed_summary' | 'release_notes' | 'event_description' | 'post_body' | 'message' | 'caption' | 'discussion' | 'metadata_only'
     excerpt_truncated: boolean
+    format?: ContentFormat
+    format_origin?: ContentFormatOrigin
     body_text?: string
     body_truncated?: boolean
     body_completeness?: 'captured' | 'excerpt_only'
@@ -111,13 +116,15 @@ export type FeedPresentation = {
   }
   media?: {
     images: Array<{
-      asset_id: string
+      asset_id?: string
       url: string
       width?: number
       height?: number
       alt: string
     }>
     count: number
+    total_image_count?: number
+    truncated?: boolean
   }
   taxonomy: {
     channel: string

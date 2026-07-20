@@ -75,6 +75,7 @@ def service_public_item(value: dict[str, Any]) -> dict[str, Any]:
                 source.pop("avatar_url", None)
         media = presentation.get("media")
         if isinstance(media, dict):
+            original_count = media.get("count")
             images = media.get("images")
             public_images: list[dict[str, Any]] = []
             for image in images if isinstance(images, list) else []:
@@ -92,6 +93,15 @@ def service_public_item(value: dict[str, Any]) -> dict[str, Any]:
                 )
             media["images"] = public_images
             media["count"] = len(public_images)
+            try:
+                total_image_count = max(
+                    0,
+                    int(media.get("total_image_count", original_count) or 0),
+                )
+            except (TypeError, ValueError):
+                total_image_count = 0
+            media["total_image_count"] = max(total_image_count, len(public_images))
+            media["truncated"] = media["total_image_count"] > len(public_images)
     return item
 
 
@@ -464,12 +474,24 @@ class UserContentStore:
             }
             for row in media_rows
         ]
+        existing_media = presentation.get("media")
+        if not isinstance(existing_media, dict):
+            existing_media = {}
+        try:
+            total_image_count = max(0, int(existing_media.get("total_image_count") or 0))
+        except (TypeError, ValueError):
+            total_image_count = 0
         presentation.update(
             {
                 "version": 2,
                 "source": source,
                 "content": content,
-                "media": {"images": images, "count": len(images)},
+                "media": {
+                    "images": images,
+                    "count": len(images),
+                    "total_image_count": max(total_image_count, len(images)),
+                    "truncated": max(total_image_count, len(images)) > len(images),
+                },
             }
         )
         item["presentation"] = presentation

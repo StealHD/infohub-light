@@ -20,7 +20,7 @@ from .tokens import token_stage
 from .utils import parse_json_response
 from .summary_policy import normalize_item_summary, preserve_source_summary
 from ..models import ContentItem
-from ..services.content_presentation import build_content_presentation
+from ..services.content_presentation import build_content_presentation, normalize_content_format
 from ..tag_policy import (
     normalize_channel,
     normalize_entities,
@@ -404,6 +404,11 @@ class ContentAnalyzer:
             result.get("is_featured", score >= DEFAULT_FEATURED_THRESHOLD)
         )
         item.ai_action_suggestion = None
+        content_format = normalize_content_format(result.get("content_format"))
+        if content_format:
+            item.metadata["ai_content_format"] = content_format
+        else:
+            item.metadata.pop("ai_content_format", None)
         normalize_item_summary(item, self._summary_max_chars())
         item.metadata["analysis_status"] = "ai"
         return True

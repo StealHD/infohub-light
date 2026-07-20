@@ -2134,3 +2134,17 @@
 - 执行验证：tracked diff 与原 stash SHA-256 一致，新增生命周期测试文件 SHA-256 一致；合并无冲突，`git diff --check` 与提交关系检查通过；未重复已通过的功能门禁
 - 结果：`fix/workbench-lifecycle-interactions` 保留可审查提交，本地 `main` 已整合该提交；原 feature worktree 恢复干净，主 dirty 工作区、`origin/main`、VPS 与本地运行容器均未被改写
 - 控制面变更：无新增控制面变化；未推送远端、未部署或开启功能开关
+
+### 2026-07-20 17:18 Codex
+- 任务：为 Feed、收藏和历史增加来源优先的内容格式、原始图片总数、本地图库及真实展开/采集不完整反馈
+- 修改文件：内容展示投影、RSS/Apify 抓取与媒体缓存、既有 AI 分析缓存、共享 Quiet Studio 卡片与详情查询、API/UI 契约、D040 及对应 Python/Vitest/Playwright 测试
+- 执行验证：后端定向分类/媒体测试、前端模型与卡片 32/32、App 页面级 54/54 通过；最终 `test_gate full` 22/22、0 failed/error、93.301 秒；1440/1024/390 生产工作台 Playwright/Axe 27/27 通过，Axe 零 serious/critical；`git diff --check` 通过
+- 结果：九种内容格式按上游、确定性规则、同次 AI、兜底顺序解析；图片保留原始总数且只展示最多 6 张本地缓存；短完整内容不再伪造展开，裁切/正文/媒体卡片提供可访问的展开、局部详情 Skeleton、列表内 404 降级和明确片段提示
+- 控制面变更：API additive 增加 `content.format/format_origin` 与 `media.total_image_count/truncated`，Quiet Studio 增加格式/媒体/展开语义；无数据库迁移、历史回填、额外 AI 请求、VPS 部署或功能开关变更
+
+### 2026-07-20 23:04 Codex
+- 任务：将 OpenClaw 面板改为问答式发送、紧凑上下文摘要、原位停止操作，并用 Gateway 真实模型与推理档位替换浏览器模拟偏好
+- 修改文件：OpenClaw 对话控制器与界面、Agent 草稿/交接投影、工作台响应式容器、生产工作台回归、`UI_CONTRACT.md`、D041 与本工作日志
+- 执行验证：OpenClaw/Agent 聚焦 Vitest 34/34 通过；UI contract、ESLint（0 error、5 个既有 Fast Refresh warning）、TypeScript、Vite production build 与产物检查通过；1440/1024/390 受影响 Playwright/Axe 3/3 通过，并逐节点确认 Agent 面板无横向溢出
+- 结果：发送后可见气泡仅保留用户问题及附件计数，V3 Gateway Prompt 与旧 handoff 历史均隐藏内部指令/ID；失败可重试或重新编辑，终止保留部分回复；上下文默认只展示两条并通过弹层管理八条；模型、上下文窗口、推理档位、默认值及会话覆盖全部来自 `models.list/agents.list/sessions.describe`，切换只调用当前会话的 `sessions.patch`
+- 控制面变更：Agent 草稿升级到用户隔离的 v3 并忽略旧模拟模型偏好；未修改后端 API、数据库、权限、Query Key、MCP 协议或 OpenClaw 全局配置，未连接真实 Gateway、未调用外部模型且未部署 VPS

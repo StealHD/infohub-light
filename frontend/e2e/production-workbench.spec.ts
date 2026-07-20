@@ -6,7 +6,9 @@ const items = Array.from({ length: 200 }, (_, index) => ({
   title: `实时条目 ${index + 1}`,
   url: `https://example.com/live-${index + 1}`,
   source: index % 2 ? 'OpenAI Blog' : 'GitHub',
+  source_type: index % 2 ? 'rss' : 'github',
   summary_zh: `第 ${index + 1} 条真实 API 摘要`,
+  media_urls: [`/api/media/live-${index + 1}`],
   published_at: new Date(Date.UTC(2026, 6, 1, 0, index)).toISOString(),
   channel: index % 2 ? 'AI' : '开发',
   topics: ['Codex'],
@@ -68,6 +70,17 @@ const socialRouteItem = {
       content_kind: 'post_body',
       excerpt_truncated: true,
       body_truncated: false,
+      format: 'gallery',
+      format_origin: 'upstream',
+    },
+    media: {
+      images: [
+        { asset_id: 'social-one', url: '/api/media/social-one', alt: '社交图片一' },
+        { asset_id: 'social-two', url: '/api/media/social-two', alt: '社交图片二' },
+      ],
+      count: 2,
+      total_image_count: 4,
+      truncated: true,
     },
     taxonomy: { channel: '其他', configured_topics: [], inferred_topics: ['行业动态'], topics: ['行业动态'], entities: [] },
     engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
@@ -150,6 +163,14 @@ test.beforeEach(async ({ page }) => {
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
+    if (url.pathname.startsWith('/api/media/')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#29272f"/></svg>',
+      })
+      return
+    }
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } }
     else if (url.pathname === '/api/feed/latest') {
       const batchMode = new URL(page.url()).searchParams.has('batch')
@@ -376,13 +397,25 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })
   await expect(agent.getByText('1 / 8', { exact: true })).toBeVisible()
   await agent.getByRole('textbox', { name: '交给 OpenClaw 的问题' }).fill('提炼机会')
-  await agent.getByRole('button', { name: /模型偏好/ }).click()
-  const deepModelOption = page.getByRole('option', { name: '深度分析' })
-  await deepModelOption.click()
-  await expect(deepModelOption).toHaveCount(0)
+  await expect(agent.getByText('使用 OpenClaw 当前设置', { exact: true })).toBeVisible()
+  await expect(agent.getByRole('button', { name: /模型偏好/ })).toHaveCount(0)
   await agent.getByRole('button', { name: '复制交接提示词' }).click()
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('调用 get_item')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('模型偏好：深度分析')
+  const handoff = await page.evaluate(() => navigator.clipboard.readText())
+  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V3]')
+  expect(handoff).toContain('调用 get_item')
+  expect(handoff).not.toContain('模型偏好：')
+
+  const horizontalOverflow = await agent.evaluate((element) => {
+    const regions = [element, ...element.querySelectorAll<HTMLElement>('*')]
+    return regions.flatMap((region) => region.scrollWidth > region.clientWidth ? [{
+      testId: region.getAttribute('data-testid') || 'agent-panel',
+      tag: region.tagName.toLowerCase(),
+      className: region.className,
+      clientWidth: region.clientWidth,
+      scrollWidth: region.scrollWidth,
+    }] : []).slice(0, 20)
+  })
+  expect(horizontalOverflow).toEqual([])
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
@@ -408,6 +441,11 @@ test('social cards and Agent context show source information once without exposi
   await expect(source.getByText('@thsottiaux', { exact: true })).toBeVisible()
   await expect(page.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toHaveCount(1)
   await expect(page.getByText(socialRouteItem.title, { exact: true })).toHaveCount(0)
+  await expect(card.getByText('图集', { exact: true })).toBeVisible()
+  await expect(card.getByText('4 张图片 · 可查看 2 张', { exact: true })).toBeVisible()
+  await card.getByRole('button', { name: /展开 / }).click()
+  await expect(card.getByLabel('2 张可查看图片').getByRole('img')).toHaveCount(2)
+  await expect(card.getByText('仅获取到内容片段，打开原文查看完整内容。', { exact: true })).toBeVisible()
 
   await card.getByRole('button', { name: /加入 Agent 上下文/ }).click()
   const agent = testInfo.project.name === 'desktop'
@@ -541,6 +579,9 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByRole('banner')).toHaveAttribute('data-header-visual', 'quiet-studio')
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
+  await expect(page.getByRole('article', { name: savedRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  expect((await new AxeBuilder({ page }).analyze()).violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 
   await page.goto('/history')
   await expect(page.getByRole('heading', { name: '历史', exact: true })).toBeVisible()
@@ -550,6 +591,9 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
+  await expect(page.getByRole('article', { name: historyRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  expect((await new AxeBuilder({ page }).analyze()).violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 
   await page.goto('/later?mode=featured&item=saved-route-item')
   await expect(page).toHaveURL('/saved?item=saved-route-item')

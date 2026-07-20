@@ -73,7 +73,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const detailQuery = useQuery({
     queryKey: queryKeys.feedItem(user.id, selectedId || ''),
     queryFn: ({ signal }) => api.feedItem(selectedId!, signal),
-    enabled: Boolean(selectedId && sourceQuerySettled && !selectedInSource),
+    enabled: Boolean(selectedId && sourceQuerySettled),
     retry: false,
   })
   const stateMutation = useOptimisticItemState({ api, user, beginAction, isActionCurrent, publishFeedback: false })
@@ -231,7 +231,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <span className="flex-1">{stateMutation.error instanceof ApiError ? `${stateMutation.error.message}，状态已恢复。` : '阅读状态保存失败，状态已恢复。'}</span>
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭操作错误" onPress={() => stateMutation.reset()}><Icons.X size={15} /></Button>
     </div>}
-    {detailQuery.isError && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
+    {detailQuery.isError && !selectedInSource && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
     {loading && <PageFrame width="reading" className="p-5"><LoadingState label="正在读取信息流" rows={5} /></PageFrame>}
     {loadError && <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>}
     {!loading && !loadError && cards.length === 0 && <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>}
@@ -242,6 +242,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       expandedId={selectedId}
       navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
       contextIds={agent.draft.items.map((item) => item.articleId)}
+      detailLoading={detailQuery.isFetching}
+      detailError={detailQuery.isError && selectedInSource}
       readonly={user.role === 'viewer'}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => stateMutation.mutateItem(id, { is_saved: saved })}

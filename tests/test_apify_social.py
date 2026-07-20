@@ -404,6 +404,8 @@ def test_xquik_maps_author_avatar_and_rejects_demo_only_dataset(monkeypatch):
     assert real[0].id == "twitter:tweet:2099999999999999999"
     assert real[0].metadata["author_avatar_url"] == "https://cdn.example.com/tibo.jpg"
     assert real[0].metadata["media_urls"] == ["https://cdn.example.com/tweet.jpg"]
+    assert real[0].metadata["media_image_count"] == 1
+    assert real[0].metadata["upstream_content_format"] == "image"
     assert getattr(exc_info.value, "code", None) == "apify_demo_mode"
 
 
@@ -448,7 +450,29 @@ def test_apify_social_scraper_reads_token_envs_and_maps_instagram_media(monkeypa
         "https://cdn.example.com/main.jpg",
         "https://cdn.example.com/child.jpg",
     ]
+    assert items[0].metadata["media_image_count"] == 2
+    assert items[0].metadata["upstream_content_format"] == "gallery"
     assert set(seen_auth) == {"Bearer backup-token"}
+
+
+def test_social_video_preview_is_not_counted_as_an_image() -> None:
+    inventory = ApifySocialScraper._x_media_inventory({
+        "extended_entities": {
+            "media": [{
+                "id": "video-1",
+                "type": "video",
+                "preview_image_url": "https://cdn.example.com/video-preview.jpg",
+            }],
+        },
+    })
+
+    assert inventory == {
+        "image_urls": [],
+        "image_count": 0,
+        "video_count": 1,
+        "audio_count": 0,
+        "format": "video",
+    }
 
 
 def test_apify_social_scraper_uses_subscription_token_env(monkeypatch):

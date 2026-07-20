@@ -227,10 +227,8 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(await screen.findByText('交接模式')).toBeInTheDocument()
     expect(screen.queryByText('仅生成交接提示词，不在站内运行 Agent')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '复制交接提示词' })).toBeDisabled()
-    expect(screen.getAllByText('自动 · OpenClaw 决定').length).toBeGreaterThan(0)
-    const modelTrigger = screen.getByRole('button', { name: /模型偏好/ })
-    expect(modelTrigger).toHaveClass('type-control')
-    expect(modelTrigger.closest('.quiet-compact-select')).not.toBeNull()
+    expect(screen.getByText('使用 OpenClaw 当前设置')).toHaveClass('type-label')
+    expect(screen.queryByRole('button', { name: /模型偏好/ })).not.toBeInTheDocument()
   })
 
   it('resolves selected context into human-readable source previews without exposing raw IDs', async () => {
@@ -296,26 +294,25 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(await screen.findByText('内容已失效')).toBeInTheDocument()
     expect(screen.queryByText(rawId)).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '移除失效内容' }))
-    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v2:context-missing') || '{}')).toMatchObject({ items: [] })
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:context-missing') || '{}')).toMatchObject({ items: [] })
   })
 
-  it('persists model guidance and copies without executing a network request', async () => {
+  it('copies a v3 handoff without simulated model guidance or a network request', async () => {
     const browser = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-    window.sessionStorage.setItem('inteliscope.agent-context.v1:composer-copy', JSON.stringify({
-      userId: 'composer-copy', question: '分析机会', itemIds: ['item-1'], modelPreference: 'auto',
+    window.sessionStorage.setItem('inteliscope.agent-context.v3:composer-copy', JSON.stringify({
+      userId: 'composer-copy', question: '分析机会', items: [{ articleId: 'item-1', title: '条目一' }],
     }))
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     render(<Shell user={{ id: 'composer-copy', username: 'copy', role: 'member', enabled: true }} />)
 
-    await browser.click(await screen.findByRole('button', { name: /模型偏好/ }))
-    await browser.click(screen.getByRole('option', { name: '深度分析' }))
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('模型偏好：深度分析'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V3]'))
+    expect(writeText).toHaveBeenCalledWith(expect.not.stringContaining('模型偏好'))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('交接提示词已复制')
-    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v2:composer-copy') || '{}')).toMatchObject({ modelPreference: 'deep' })
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:composer-copy') || '{}')).toMatchObject({ question: '分析机会' })
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
   })

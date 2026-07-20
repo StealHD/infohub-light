@@ -92,6 +92,7 @@ CONTENT_ANALYSIS_USER = """Analyze the following content and provide a JSON resp
 - topics: 1-6 reading topics.
 - signal_strength: strong, developing, or thin.
 - signal_type: release, funding, market_move, opinion, personal_update, risk, tutorial, opportunity, or other.
+- content_format: article, video, image, gallery, audio, social_post, discussion, release, or other. Use only the supplied content and source metadata; do not guess from the title alone.
 - entities: 0-8 concrete companies, people, projects, tickers, or places.
 - is_featured: boolean, true when score >= 7.5.
 - summary_zh: 简体中文简要概括，不超过 {summary_limit} 个中文字符；只说明发生了什么和关键事实。
@@ -117,6 +118,7 @@ Respond with valid JSON only:
   "topics": ["<topic1>", "<topic2>", ...],
   "signal_strength": "<strong|developing|thin>",
   "signal_type": "<release|funding|market_move|opinion|personal_update|risk|tutorial|opportunity|other>",
+  "content_format": "<article|video|image|gallery|audio|social_post|discussion|release|other>",
   "entities": ["<entity1>", "<entity2>", ...],
   "is_featured": <true-or-false>,
   "summary_zh": "<不超过{summary_limit}个中文字符的简要概括>"

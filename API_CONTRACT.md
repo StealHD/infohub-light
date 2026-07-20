@@ -329,14 +329,14 @@ Feed retention / legacy archive compatibility 规则：
    - `source{id,catalog_type,platform,name}`；
    - `author{name,kind}`，其中 `kind=person|account|channel|organization|unknown`；
    - `timing{published_at,fetched_at}` 和 `links{canonical_url,source_url}`；
-   - `content{title,title_origin,excerpt,content_kind,excerpt_truncated}`；
+   - `content{title,title_origin,excerpt,content_kind,excerpt_truncated,format,format_origin}`；
    - `taxonomy{channel,configured_topics,inferred_topics,topics,entities}`；
    - `engagement{native_score,likes,comments,reposts,shares,upvote_ratio}`；
    - `analysis{status,score,signal_strength,signal_type,summary_zh}`；旧 snapshot 可能附带可选 `action_suggestion`，仅供兼容读取。
-21. `presentation` 由 `src/services/content_presentation.py` 以确定性代码生成，不允许各 adapter 或前端自行拼不同结构。`content.excerpt` 必须清洗 HTML/脚本、排除评论附录并硬限制 600 字；`analysis.summary_zh` 遵守全局 100..500 字配置且默认不超过 200 字。新分析不得生成 `action_suggestion`，React 不得读取它；`presentation.analysis` 禁止出现 `reason`。
-21A. `GET /api/feed/items/{article_id}` 把规范详情升级为 `presentation.version=2`，在 v1 基础上增加 `source.avatar_url`、`content.body_text/body_truncated/body_completeness` 与 `media.images/count`。`body_text` 只来自抓取器已经捕获的正文，清洗为纯文本并硬限制 20,000 字；旧 snapshot 只能回填已有摘要并标记 `excerpt_only`，不得请求网页代理或由 AI 编造正文。每篇最多返回 6 张已缓存图片。
+21. `presentation` 由 `src/services/content_presentation.py` 统一生成，不允许各 adapter 或前端自行拼不同结构。`content.excerpt` 必须清洗 HTML/脚本、排除评论附录并硬限制 600 字；`analysis.summary_zh` 遵守全局 100..500 字配置且默认不超过 200 字。新分析不得生成 `action_suggestion`，React 不得读取它；`presentation.analysis` 禁止出现 `reason`。内容格式按“上游明确类型 → 强确定性 URL/来源规则 → 同一次可选 AI 分析 → 安全来源兜底”解析，不得为了格式分类新增独立 AI 请求。
+21A. `GET /api/feed/items/{article_id}` 把规范详情升级为 `presentation.version=2`，在 v1 基础上增加 `source.avatar_url`、`content.body_text/body_truncated/body_completeness` 与 `media.images/count/total_image_count/truncated`。`body_text` 只来自抓取器已经捕获的正文，清洗为纯文本并硬限制 20,000 字；旧 snapshot 只能回填已有摘要并标记 `excerpt_only`，不得请求网页代理或由 AI 编造正文。每篇最多返回 6 张已缓存图片；`count` 是可展示图片数，`total_image_count` 优先使用上游原始图片总数并至少为 `count`，`truncated=true` 仅表示仍有未缓存图片。
 21B. 收藏和稍后读状态使对应 `user_content_items` 跨普通 snapshot retention 保留；取消两者后恢复普通内容保留策略。文章被选中或打开详情不得自动修改已读；只能由显式 PATCH 切换已读/未读。
-22. `content_kind` 只允许 `feed_summary|release_notes|event_description|post_body|message|caption|discussion|metadata_only`；`title_origin` 只允许 `native|generated`；`analysis.status` 只允许 `ai|fallback|personal_only|disabled`。缺失的原生互动量以 `null` 表达，不得伪造为零；Service API item 不返回原始 `content`。
+22. `content_kind` 只允许 `feed_summary|release_notes|event_description|post_body|message|caption|discussion|metadata_only`；它描述来源片段语义，不等同于展示格式。`content.format` 只允许 `article|video|image|gallery|audio|social_post|discussion|release|other`，`content.format_origin` 只允许 `upstream|deterministic|ai|fallback`；`title_origin` 只允许 `native|generated`；`analysis.status` 只允许 `ai|fallback|personal_only|disabled`。缺失的原生互动量以 `null` 表达，不得伪造为零；Service API item 不返回原始 `content`。
 23. 全量与增量合并必须共用 canonical URL merger；host 规范化不删除 query。合并保留全部 `source_ids/subscription_ids/source_keys`，优先复用最新 Feed 的 article id，再按 priority/source/native id 稳定选择内容。
 24. 每次 finalization 对有序公开 Feed 内容和 featured/daily/personal 成员集合计算 `content_hash`，排除生成时间、job/run 诊断和实时 user state。hash 未变化时复用最新 snapshot id 并返回 `snapshot_created=false`；内容变化才创建新版本。最后一个订阅失效只创建一个空版本，后续重复 reconciliation 为 no-op。
 25. 只有 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数据库已记录 Feed storage v3 migration 时，新 snapshot 才使用 `storage_version=2`：完整 item 只写 `user_feed_items.item_json`，snapshot payload 只留 metadata、item id 顺序及 featured/daily/personal id 集合。现存数据但未迁移的数据库继续写 legacy storage v1；Reader 必须双读 legacy 完整 payload 与 compact payload，旧 snapshot 不原地重写。真正无 v3 遗留数据的新空库可在 additive 初始化时自动记录 marker。

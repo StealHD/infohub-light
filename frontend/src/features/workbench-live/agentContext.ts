@@ -1,5 +1,3 @@
-export type AgentModelPreference = 'auto' | 'fast' | 'deep'
-
 export type AgentContextItem = {
   articleId: string
   title: string
@@ -7,24 +5,27 @@ export type AgentContextItem = {
   publishedAt?: string
 }
 
-export type AgentContextDraftV2 = {
+export type AgentContextDraftV3 = {
   userId: string
   question: string
   items: AgentContextItem[]
-  modelPreference: AgentModelPreference
 }
 
-const storageKey = (userId: string) => `inteliscope.agent-context.v2:${userId}`
+export type AgentHandoffDisplay = {
+  displayText: string
+  contextCount: number
+}
+
+export const INTELISCOPE_HANDOFF_MARKER = '[INTELISCOPE_HANDOFF_V3]'
+
+const storageKey = (userId: string) => `inteliscope.agent-context.v3:${userId}`
+const v2StorageKey = (userId: string) => `inteliscope.agent-context.v2:${userId}`
 const legacyStorageKey = (userId: string) => `inteliscope.agent-context.v1:${userId}`
 const maxItems = 8
 const maxQuestionLength = 1200
 
-function emptyDraft(userId: string): AgentContextDraftV2 {
-  return { userId, question: '', items: [], modelPreference: 'auto' }
-}
-
-function sanitizeModelPreference(value: unknown): AgentModelPreference {
-  return value === 'fast' || value === 'deep' ? value : 'auto'
+function emptyDraft(userId: string): AgentContextDraftV3 {
+  return { userId, question: '', items: [] }
 }
 
 function safeText(value: unknown, maxLength: number): string {
@@ -44,9 +45,9 @@ function sanitizeItem(value: unknown): AgentContextItem | null {
   }
 }
 
-type DraftInput = Partial<AgentContextDraftV2> & { itemIds?: unknown }
+type DraftInput = Partial<AgentContextDraftV3> & { itemIds?: unknown; modelPreference?: unknown }
 
-function sanitizeDraft(userId: string, value?: DraftInput | null): AgentContextDraftV2 {
+function sanitizeDraft(userId: string, value?: DraftInput | null): AgentContextDraftV3 {
   const seen = new Set<string>()
   const sourceItems: unknown[] = Array.isArray(value?.items)
     ? value.items
@@ -63,13 +64,13 @@ function sanitizeDraft(userId: string, value?: DraftInput | null): AgentContextD
     userId,
     question: typeof value?.question === 'string' ? value.question.slice(0, maxQuestionLength) : '',
     items,
-    modelPreference: sanitizeModelPreference(value?.modelPreference),
   }
 }
 
-export function readAgentContextDraft(userId: string): AgentContextDraftV2 {
+export function readAgentContextDraft(userId: string): AgentContextDraftV3 {
   try {
     const stored = window.sessionStorage.getItem(storageKey(userId))
+      ?? window.sessionStorage.getItem(v2StorageKey(userId))
       ?? window.sessionStorage.getItem(legacyStorageKey(userId))
     return sanitizeDraft(userId, JSON.parse(stored || 'null') as DraftInput | null)
   } catch {
@@ -77,10 +78,11 @@ export function readAgentContextDraft(userId: string): AgentContextDraftV2 {
   }
 }
 
-export function writeAgentContextDraft(userId: string, draft: AgentContextDraftV2): AgentContextDraftV2 {
+export function writeAgentContextDraft(userId: string, draft: AgentContextDraftV3): AgentContextDraftV3 {
   const next = sanitizeDraft(userId, draft)
   try {
     window.sessionStorage.setItem(storageKey(userId), JSON.stringify(next))
+    window.sessionStorage.removeItem(v2StorageKey(userId))
     window.sessionStorage.removeItem(legacyStorageKey(userId))
   } catch {
     // A private or restricted browser session may reject storage; keep the in-memory caller state usable.
@@ -88,7 +90,7 @@ export function writeAgentContextDraft(userId: string, draft: AgentContextDraftV
   return next
 }
 
-export function updateAgentContextDraft(draft: AgentContextDraftV2, item: AgentContextItem): AgentContextDraftV2 {
+export function updateAgentContextDraft(draft: AgentContextDraftV3, item: AgentContextItem): AgentContextDraftV3 {
   const current = sanitizeDraft(draft.userId, draft)
   const normalized = sanitizeItem(item)
   if (!normalized) return current
@@ -102,25 +104,51 @@ export function updateAgentContextDraft(draft: AgentContextDraftV2, item: AgentC
 export function clearAgentContextDraft(userId: string): void {
   try {
     window.sessionStorage.removeItem(storageKey(userId))
+    window.sessionStorage.removeItem(v2StorageKey(userId))
     window.sessionStorage.removeItem(legacyStorageKey(userId))
   } catch {
     // Storage cleanup is best-effort when the browser blocks access.
   }
 }
 
-export function buildAgentHandoffPrompt(draft: AgentContextDraftV2): string {
+export function buildAgentHandoffPrompt(draft: AgentContextDraftV3): string {
   const value = sanitizeDraft(draft.userId, draft)
   const question = value.question.trim() || '请基于这些信息提炼关键变化、机会和风险。'
   const calls = value.items.map((item, index) => `${index + 1}. 调用 get_item，article_id="${item.articleId}"`).join('\n')
-  const preference = value.modelPreference === 'fast'
-    ? '速度优先'
-    : value.modelPreference === 'deep' ? '深度分析' : '自动，由 OpenClaw 决定'
   return [
+    INTELISCOPE_HANDOFF_MARKER,
+    JSON.stringify({ displayText: question, contextCount: value.items.length }),
     '请使用 Inteliscope Remote MCP 完成以下任务。',
     `问题：${question}`,
-    `模型偏好：${preference}`,
     '必须按顺序读取上下文，不要把标题或摘要当作完整正文：',
     calls || '（尚未加入上下文条目）',
     '读取完成后，基于工具返回的安全投影回答；无法读取时明确指出对应 article_id。',
   ].join('\n')
+}
+
+function safeContextCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(maxItems, Math.floor(value)))
+    : 0
+}
+
+export function projectAgentHandoffDisplay(text: string): AgentHandoffDisplay | null {
+  const normalized = text.trim()
+  if (normalized.startsWith(INTELISCOPE_HANDOFF_MARKER)) {
+    const metadata = normalized.slice(INTELISCOPE_HANDOFF_MARKER.length).trimStart().split('\n', 1)[0]
+    try {
+      const parsed = JSON.parse(metadata) as { displayText?: unknown; contextCount?: unknown }
+      const displayText = safeText(parsed.displayText, maxQuestionLength)
+      if (displayText) return { displayText, contextCount: safeContextCount(parsed.contextCount) }
+    } catch {
+      return null
+    }
+  }
+
+  if (!normalized.startsWith('请使用 Inteliscope Remote MCP 完成以下任务。')) return null
+  const questionMatch = normalized.match(/(?:^|\n)问题：([\s\S]*?)(?:\n模型偏好：|\n必须按顺序读取上下文)/u)
+  const displayText = safeText(questionMatch?.[1], maxQuestionLength)
+  if (!displayText) return null
+  const contextCount = Math.min(maxItems, normalized.match(/调用 get_item，article_id=/gu)?.length ?? 0)
+  return { displayText, contextCount }
 }

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { AgentModelPreference } from '../workbench-live/agentContext'
+import {
+  projectAgentHandoffDisplay,
+  type AgentContextItem,
+} from '../workbench-live/agentContext'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
 import {
   GatewayRequestError,
@@ -19,6 +22,40 @@ export type OpenClawChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  status?: 'pending' | 'sent' | 'failed' | 'aborted'
+  contextCount?: number
+  sendSnapshot?: OpenClawSendSnapshot
+}
+
+export type OpenClawSendRequest = {
+  displayText: string
+  gatewayPrompt: string
+  contextItems: AgentContextItem[]
+}
+
+export type OpenClawSendSnapshot = OpenClawSendRequest & {
+  idempotencyKey: string
+}
+
+export type OpenClawModelOption = {
+  id: string
+  name: string
+  provider: string
+  alias?: string
+  contextWindow?: number
+  reasoning?: boolean
+}
+
+export type OpenClawThinkingOption = {
+  id: string
+  label: string
+}
+
+export type OpenClawRuntimeSelection = {
+  modelId: string | null
+  thinkingLevel: string | null
+  defaultModelId: string | null
+  defaultThinkingLevel: string | null
 }
 
 export type OpenClawSetupIssue = {
@@ -94,11 +131,125 @@ export function projectChatHistory(value: unknown): OpenClawChatMessage[] {
     if (!record || typeof record !== 'object') return []
     const role = (record as { role?: unknown }).role
     if (role !== 'user' && role !== 'assistant') return []
-    const text = messageText(record).trim()
-    if (!text) return []
+    const rawText = messageText(record).trim()
+    if (!rawText) return []
+    const handoff = role === 'user' ? projectAgentHandoffDisplay(rawText) : null
+    const text = handoff?.displayText ?? rawText
     const id = (record as { id?: unknown }).id
-    return [{ id: typeof id === 'string' ? id : `history-${index}`, role, text } satisfies OpenClawChatMessage]
+    return [{
+      id: typeof id === 'string' ? id : `history-${index}`,
+      role,
+      text,
+      status: 'sent',
+      ...(handoff ? { contextCount: handoff.contextCount } : {}),
+    } satisfies OpenClawChatMessage]
   }))
+}
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function stringOf(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function normalizeModels(value: unknown): OpenClawModelOption[] {
+  const root = recordOf(value)
+  const entries = Array.isArray(root?.models) ? root.models : []
+  const seen = new Set<string>()
+  return entries.flatMap((entry) => {
+    const model = recordOf(entry)
+    if (!model) return []
+    const id = stringOf(model.id)
+    const name = stringOf(model.name)
+    const provider = stringOf(model.provider)
+    if (!id || !name || !provider || model.available === false || seen.has(id)) return []
+    seen.add(id)
+    const contextWindow = typeof model.contextWindow === 'number' && Number.isFinite(model.contextWindow)
+      ? Math.max(1, Math.floor(model.contextWindow))
+      : undefined
+    return [{
+      id,
+      name,
+      provider,
+      ...(stringOf(model.alias) ? { alias: stringOf(model.alias)! } : {}),
+      ...(contextWindow ? { contextWindow } : {}),
+      ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
+    }]
+  })
+}
+
+function matchingModelId(models: OpenClawModelOption[], provider: unknown, model: unknown): string | null {
+  const modelName = stringOf(model)
+  const providerName = stringOf(provider)
+  if (!modelName) return null
+  const full = providerName ? `${providerName}/${modelName}` : modelName
+  return models.find((candidate) => candidate.id === full)?.id
+    ?? models.find((candidate) => candidate.id === modelName)?.id
+    ?? null
+}
+
+function normalizeThinkingOptions(value: unknown): OpenClawThinkingOption[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  return value.flatMap((entry) => {
+    const option = recordOf(entry)
+    const id = stringOf(option?.id)
+    const label = stringOf(option?.label)
+    if (!id || !label || seen.has(id)) return []
+    seen.add(id)
+    return [{ id, label }]
+  })
+}
+
+type RuntimeProjection = {
+  models: OpenClawModelOption[]
+  thinkingOptions: OpenClawThinkingOption[]
+  selection: OpenClawRuntimeSelection
+  invalidSessionModel: boolean
+}
+
+function projectRuntime(modelsValue: unknown, agentsValue: unknown, sessionValue: unknown, requestedAgentId: string): RuntimeProjection {
+  const models = normalizeModels(modelsValue)
+  const agentsRoot = recordOf(agentsValue)
+  const agents = Array.isArray(agentsRoot?.agents) ? agentsRoot.agents : []
+  const defaultAgentId = stringOf(agentsRoot?.defaultId)
+  const agent = agents.map(recordOf).find((candidate) => (
+    stringOf(candidate?.id) === requestedAgentId
+    || (!agents.some((entry) => stringOf(recordOf(entry)?.id) === requestedAgentId) && stringOf(candidate?.id) === defaultAgentId)
+  )) ?? null
+  const agentModel = recordOf(agent?.model)
+  const defaultModelId = stringOf(agentModel?.primary)
+  const sessionRoot = recordOf(sessionValue)
+  const session = recordOf(sessionRoot?.session) ?? sessionRoot
+  const sessionThinkingOptions = normalizeThinkingOptions(session?.thinkingLevels)
+  const thinkingOptions = sessionThinkingOptions.length
+    ? sessionThinkingOptions
+    : normalizeThinkingOptions(agent?.thinkingLevels)
+  const rawDefaultThinkingLevel = stringOf(session?.thinkingDefault) ?? stringOf(agent?.thinkingDefault)
+  const defaultThinkingLevel = rawDefaultThinkingLevel && thinkingOptions.some((option) => option.id === rawDefaultThinkingLevel)
+    ? rawDefaultThinkingLevel
+    : null
+  const matchedSessionModelId = matchingModelId(models, session?.modelProvider, session?.model)
+  const modelId = matchedSessionModelId
+    ?? (defaultModelId && models.some((candidate) => candidate.id === defaultModelId) ? defaultModelId : null)
+  const sessionThinking = stringOf(session?.thinkingLevel)
+  return {
+    models,
+    thinkingOptions,
+    selection: {
+      modelId,
+      thinkingLevel: sessionThinking && thinkingOptions.some((option) => option.id === sessionThinking)
+        ? sessionThinking
+        : null,
+      defaultModelId: defaultModelId && models.some((candidate) => candidate.id === defaultModelId) ? defaultModelId : null,
+      defaultThinkingLevel,
+    },
+    invalidSessionModel: Boolean(stringOf(session?.model) && !matchedSessionModelId && modelId),
+  }
 }
 
 function setupIssue(error: unknown): OpenClawSetupIssue {
@@ -154,8 +305,20 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [streamText, setStreamText] = useState('')
   const [runId, setRunId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [issue, setIssue] = useState<OpenClawSetupIssue | null>(null)
   const [sessionKey, setSessionKey] = useState<string | null>(null)
+  const [models, setModels] = useState<OpenClawModelOption[]>([])
+  const [thinkingOptions, setThinkingOptions] = useState<OpenClawThinkingOption[]>([])
+  const [runtimeSelection, setRuntimeSelection] = useState<OpenClawRuntimeSelection>({
+    modelId: null,
+    thinkingLevel: null,
+    defaultModelId: null,
+    defaultThinkingLevel: null,
+  })
+  const [runtimeLoading, setRuntimeLoading] = useState(false)
+  const [runtimeUpdating, setRuntimeUpdating] = useState(false)
+  const [runtimeIssue, setRuntimeIssue] = useState<string | null>(null)
   const clientRef = useRef<OpenClawGatewayClient | null>(null)
   const agentIdRef = useRef<string | null>(null)
   const sessionKeyRef = useRef<string | null>(null)
@@ -166,6 +329,9 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const manualCloseRef = useRef(false)
   const automaticConnectKeyRef = useRef<string | null>(null)
   const reconnectRef = useRef<(reconnecting?: boolean) => void>(() => undefined)
+  const streamTextRef = useRef('')
+  const messagesRef = useRef<OpenClawChatMessage[]>([])
+  const terminalRunIdsRef = useRef(new Set<string>())
 
   const setGatewayUrl = useCallback((value: string) => {
     const normalized = validateGatewayUrl(value)
@@ -179,26 +345,74 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setMessages(projectChatHistory(history))
   }, [])
 
+  const loadRuntime = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
+    setRuntimeLoading(true)
+    setRuntimeIssue(null)
+    try {
+      const [modelsValue, agentsValue, sessionValue] = await Promise.all([
+        client.request('models.list', { view: 'configured' }),
+        client.request('agents.list', {}),
+        client.request('sessions.describe', { key }),
+      ])
+      let projection = projectRuntime(modelsValue, agentsValue, sessionValue, agentId)
+      if (projection.invalidSessionModel) {
+        await client.request('sessions.patch', { key, agentId, model: null })
+        const refreshedSession = await client.request('sessions.describe', { key })
+        projection = projectRuntime(modelsValue, agentsValue, refreshedSession, agentId)
+      }
+      setModels(projection.models)
+      setThinkingOptions(projection.thinkingOptions)
+      setRuntimeSelection(projection.selection)
+    } catch (error) {
+      setRuntimeIssue(error instanceof Error ? error.message : '无法读取 OpenClaw 模型设置。')
+    } finally {
+      setRuntimeLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { messagesRef.current = messages }, [messages])
+  useEffect(() => { streamTextRef.current = streamText }, [streamText])
+
   const handleGatewayEvent = useCallback((event: GatewayEvent) => {
     if (event.event !== 'chat' || !event.payload || typeof event.payload !== 'object') return
     const payload = event.payload as ChatEventPayload
     if (!payload.sessionKey || payload.sessionKey !== sessionKeyRef.current) return
+    if (payload.runId && terminalRunIdsRef.current.has(payload.runId)) return
     if (runIdRef.current && payload.runId && payload.runId !== runIdRef.current) return
     if (!runIdRef.current && payload.runId) {
       runIdRef.current = payload.runId
       setRunId(payload.runId)
     }
     if (payload.state === 'delta' && typeof payload.deltaText === 'string') {
-      setStreamText((current) => (
-        payload.replace ? payload.deltaText! : `${current}${payload.deltaText}`
-      ).slice(0, MAX_HISTORY_CHARS))
+      setStreamText((current) => {
+        const next = (payload.replace ? payload.deltaText! : `${current}${payload.deltaText}`).slice(0, MAX_HISTORY_CHARS)
+        streamTextRef.current = next
+        return next
+      })
       return
     }
     if (payload.state === 'error') setIssue({ kind: 'unknown', message: payload.errorMessage || 'OpenClaw 对话失败。' })
     if (payload.state === 'final' || payload.state === 'aborted' || payload.state === 'error') {
+      const partialText = streamTextRef.current.trim()
+      const completedRunId = payload.runId || runIdRef.current || crypto.randomUUID()
+      terminalRunIdsRef.current.add(completedRunId)
+      if (terminalRunIdsRef.current.size > 20) terminalRunIdsRef.current.delete(terminalRunIdsRef.current.values().next().value!)
       runIdRef.current = null
       setRunId(null)
+      setSending(false)
+      setStopping(false)
+      streamTextRef.current = ''
       setStreamText('')
+      if ((payload.state === 'aborted' || payload.state === 'error') && partialText) {
+        setMessages((current) => boundChatMessages([...current, {
+          id: `${payload.state}-${completedRunId}`,
+          role: 'assistant',
+          text: partialText,
+          status: payload.state === 'aborted' ? 'aborted' : 'failed',
+        }]))
+        return
+      }
+      if (payload.state === 'aborted') return
       const client = clientRef.current
       const key = sessionKeyRef.current
       const agentId = agentIdRef.current
@@ -216,11 +430,19 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     agentIdRef.current = null
     sessionKeyRef.current = null
     runIdRef.current = null
+    terminalRunIdsRef.current.clear()
     setRunId(null)
     setSending(false)
+    setStopping(false)
     setSessionKey(null)
     setStreamText('')
     setMessages([])
+    setModels([])
+    setThinkingOptions([])
+    setRuntimeSelection({ modelId: null, thinkingLevel: null, defaultModelId: null, defaultThinkingLevel: null })
+    setRuntimeLoading(false)
+    setRuntimeUpdating(false)
+    setRuntimeIssue(null)
     setToolsStatus('unknown')
     setStatus(options.enabled ? 'idle' : 'disabled')
   }, [options.enabled])
@@ -285,6 +507,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       const [tools] = await Promise.all([
         client.request('tools.effective', { sessionKey: key, agentId }),
         loadHistory(client, key, agentId),
+        loadRuntime(client, key, agentId),
       ])
       setToolsStatus(hasInteliscopeTools(tools) ? 'available' : 'missing')
       reconnectDelayRef.current = 1000
@@ -299,20 +522,17 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       }
       return false
     }
-  }, [handleGatewayEvent, loadHistory, options.clientFactory, options.enabled, options.userId, setGatewayUrl, vault])
+  }, [handleGatewayEvent, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.userId, setGatewayUrl, vault])
 
   useEffect(() => {
     reconnectRef.current = (reconnecting = true) => { void connectInternal(undefined, reconnecting) }
   }, [connectInternal])
 
-  const send = useCallback(async (message: string, preference: AgentModelPreference): Promise<void> => {
+  const submitSend = useCallback(async (snapshot: OpenClawSendSnapshot, messageId: string): Promise<boolean> => {
     const client = clientRef.current
     const key = sessionKeyRef.current
     const agentId = agentIdRef.current
-    const text = message.trim()
-    if (!client || !key || !agentId || !text || runIdRef.current) return
-    const idempotencyKey = crypto.randomUUID()
-    setMessages((current) => boundChatMessages([...current, { id: idempotencyKey, role: 'user' as const, text }]))
+    if (!client || !key || !agentId || !snapshot.gatewayPrompt.trim() || runIdRef.current) return false
     setStreamText('')
     setIssue(null)
     setSending(true)
@@ -320,27 +540,129 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       const result = await client.request<{ runId?: string }>('chat.send', {
         sessionKey: key,
         agentId,
-        message: text,
-        ...(preference === 'auto' ? {} : { thinking: preference === 'fast' ? 'low' : 'high' }),
+        message: snapshot.gatewayPrompt,
         deliver: false,
-        idempotencyKey,
+        idempotencyKey: snapshot.idempotencyKey,
       })
-      runIdRef.current = result.runId || idempotencyKey
+      setMessages((current) => current.map((message) => (
+        message.id === messageId ? { ...message, status: 'sent' } : message
+      )))
+      runIdRef.current = result.runId || snapshot.idempotencyKey
       setRunId(runIdRef.current)
+      return true
     } catch (error) {
       setIssue(setupIssue(error))
-      await loadHistory(client, key, agentId).catch(() => undefined)
+      setMessages((current) => current.map((message) => (
+        message.id === messageId ? { ...message, status: 'failed' } : message
+      )))
+      return false
     } finally {
       setSending(false)
     }
-  }, [loadHistory])
+  }, [])
+
+  const send = useCallback(async (request: OpenClawSendRequest): Promise<boolean> => {
+    if (runIdRef.current || sending) return false
+    const displayText = request.displayText.trim()
+    const gatewayPrompt = request.gatewayPrompt.trim()
+    if (!displayText || !gatewayPrompt) return false
+    const idempotencyKey = crypto.randomUUID()
+    const snapshot: OpenClawSendSnapshot = {
+      displayText,
+      gatewayPrompt,
+      contextItems: request.contextItems.map((item) => ({ ...item })),
+      idempotencyKey,
+    }
+    const message: OpenClawChatMessage = {
+      id: idempotencyKey,
+      role: 'user',
+      text: displayText,
+      status: 'pending',
+      contextCount: snapshot.contextItems.length,
+      sendSnapshot: snapshot,
+    }
+    setMessages((current) => boundChatMessages([...current, message]))
+    return submitSend(snapshot, message.id)
+  }, [sending, submitSend])
+
+  const retry = useCallback(async (messageId: string): Promise<boolean> => {
+    const message = messagesRef.current.find((candidate) => candidate.id === messageId)
+    if (message?.status !== 'failed' || !message.sendSnapshot || runIdRef.current || sending) return false
+    setMessages((current) => current.map((candidate) => (
+      candidate.id === messageId ? { ...candidate, status: 'pending' } : candidate
+    )))
+    return submitSend(message.sendSnapshot, messageId)
+  }, [sending, submitSend])
+
+  const takeFailedMessage = useCallback((messageId: string): OpenClawSendRequest | null => {
+    const message = messagesRef.current.find((candidate) => candidate.id === messageId)
+    if (message?.status !== 'failed' || !message.sendSnapshot) return null
+    const request = {
+      displayText: message.sendSnapshot.displayText,
+      gatewayPrompt: message.sendSnapshot.gatewayPrompt,
+      contextItems: message.sendSnapshot.contextItems.map((item) => ({ ...item })),
+    }
+    setMessages((current) => current.filter((candidate) => candidate.id !== messageId))
+    return request
+  }, [])
 
   const stop = useCallback(async () => {
     const client = clientRef.current
     const key = sessionKeyRef.current
-    if (!client || !key) return
-    await client.request('chat.abort', { sessionKey: key, agentId: agentIdRef.current || undefined, runId: runIdRef.current || undefined })
-  }, [])
+    if (!client || !key || stopping) return
+    setStopping(true)
+    setIssue(null)
+    try {
+      await client.request('chat.abort', { sessionKey: key, agentId: agentIdRef.current || undefined, runId: runIdRef.current || undefined })
+    } catch (error) {
+      setStopping(false)
+      setIssue(setupIssue(error))
+    }
+  }, [stopping])
+
+  const setModel = useCallback(async (modelId: string | null): Promise<boolean> => {
+    const client = clientRef.current
+    const key = sessionKeyRef.current
+    const agentId = agentIdRef.current
+    if (!client || !key || !agentId || runIdRef.current || sending || runtimeUpdating) return false
+    setRuntimeUpdating(true)
+    setRuntimeIssue(null)
+    try {
+      const selected = modelId ? models.find((model) => model.id === modelId) : null
+      await client.request('sessions.patch', {
+        key,
+        agentId,
+        model: modelId,
+        ...(selected?.reasoning === false ? { thinkingLevel: null } : {}),
+      })
+      await loadRuntime(client, key, agentId)
+      return true
+    } catch (error) {
+      setRuntimeIssue(error instanceof Error ? error.message : '无法切换当前对话模型。')
+      return false
+    } finally {
+      setRuntimeUpdating(false)
+    }
+  }, [loadRuntime, models, runtimeUpdating, sending])
+
+  const setThinking = useCallback(async (thinkingLevel: string | null): Promise<boolean> => {
+    const client = clientRef.current
+    const key = sessionKeyRef.current
+    const agentId = agentIdRef.current
+    if (!client || !key || !agentId || runIdRef.current || sending || runtimeUpdating) return false
+    setRuntimeUpdating(true)
+    setRuntimeIssue(null)
+    try {
+      await client.request('sessions.patch', { key, agentId, thinkingLevel })
+      await loadRuntime(client, key, agentId)
+      return true
+    } catch (error) {
+      setRuntimeIssue(error instanceof Error ? error.message : '无法切换当前对话推理档位。')
+      return false
+    } finally {
+      setRuntimeUpdating(false)
+    }
+  }, [loadRuntime, runtimeUpdating, sending])
 
   const newConversation = useCallback(async () => {
     const client = clientRef.current
@@ -351,11 +673,13 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     sessionKeyRef.current = created.key
     setSessionKey(created.key)
     runIdRef.current = null
+    terminalRunIdsRef.current.clear()
     setRunId(null)
     setMessages([])
     setStreamText('')
     await vault.updateSession(options.userId, gatewayUrl, created.key)
-  }, [gatewayUrl, options.userId, vault])
+    await loadRuntime(client, created.key, agentId)
+  }, [gatewayUrl, loadRuntime, options.userId, vault])
 
   const forget = useCallback(async () => {
     disconnect()
@@ -395,13 +719,24 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     messages,
     streamText,
     issue,
+    runtimeIssue,
     sessionKey,
     isRunning: sending || Boolean(runId),
+    isStopping: stopping,
+    runtimeLoading,
+    runtimeUpdating,
+    models,
+    thinkingOptions,
+    runtimeSelection,
     connect: (authInput?: string, requestedUrl?: string) => connectInternal(authInput, false, requestedUrl),
     disconnect,
     forget,
     send,
+    retry,
+    takeFailedMessage,
     stop,
+    setModel,
+    setThinking,
     newConversation,
   }
 }
