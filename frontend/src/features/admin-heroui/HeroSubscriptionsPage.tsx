@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, Subscription, TaxonomyOptions } from '../../api/types'
+import type { CatalogSource, FeedSchedule, Job, SourceHealthItem, SourceTypeDefinition, Subscription, TaxonomyOptions } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
@@ -12,6 +12,7 @@ import {
   Chip,
   Icons,
   LoadingState,
+  Modal,
   PageFrame,
   SearchField,
   Tabs,
@@ -24,6 +25,7 @@ import {
   groupSourcesByChannel,
   healthMatches,
   isSourceSubscribed,
+  presentSourceHealthIssue,
   presentJob,
   sourceForSubscription,
   sourceScopesForUser,
@@ -46,17 +48,123 @@ const formatTime = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? '时间未知' : parsed.toLocaleString('zh-CN')
 }
 
+const healthOptions = [{ id: 'all', label: '全部健康状态' }, { id: 'healthy', label: '正常' }, { id: 'degraded', label: '需关注' }, { id: 'failing', label: '连续失败' }, { id: 'unknown', label: '尚未抓取' }]
+const scopeOptions = [{ id: 'all', label: '全部范围' }, { id: 'public', label: '公共来源' }, { id: 'workspace', label: '团队来源' }, { id: 'private', label: '我的私有来源' }]
+
+function SourceFilters({ search, onSearchChange, definitions, typeFilter, onTypeChange, scopeFilter, onScopeChange, healthFilter, onHealthChange, includeHealth }: {
+  search: string
+  onSearchChange: (value: string) => void
+  definitions: SourceTypeDefinition[]
+  typeFilter: string
+  onTypeChange: (value: string) => void
+  scopeFilter: string
+  onScopeChange: (value: string) => void
+  healthFilter: HealthFilter
+  onHealthChange: (value: HealthFilter) => void
+  includeHealth: boolean
+}) {
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const activeCount = Number(typeFilter !== 'all') + Number(scopeFilter !== 'all') + Number(includeHealth && healthFilter !== 'all')
+  const typeOptions = [{ id: 'all', label: '全部类型' }, ...definitions.map((definition) => ({ id: definition.type, label: definition.label || sourceTypeLabel(definition.type) }))]
+  const clear = () => {
+    onTypeChange('all')
+    onScopeChange('all')
+    if (includeHealth) onHealthChange('all')
+  }
+  const searchField = <SearchField aria-label="搜索来源" value={search} onChange={onSearchChange} fullWidth><SearchField.Group><SearchField.SearchIcon><Icons.Search size={15} /></SearchField.SearchIcon><SearchField.Input placeholder="搜索来源" /><SearchField.ClearButton /></SearchField.Group></SearchField>
+
+  return <>
+    <div data-mobile-source-filters className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 min-[768px]:hidden">
+      {searchField}
+      <Modal isOpen={mobileOpen} onOpenChange={setMobileOpen}>
+        <Button type="button" variant="secondary" aria-label={`筛选来源，已启用 ${activeCount} 项`}><Icons.SlidersHorizontal size={15} />筛选{activeCount > 0 ? ` ${activeCount}` : ''}</Button>
+        <Modal.Backdrop>
+          <Modal.Container placement="bottom" size="lg">
+            <Modal.Dialog>
+              <Modal.Header><Modal.Heading>筛选来源</Modal.Heading></Modal.Header>
+              <Modal.Body className="grid gap-4">
+                <HeroSelect label="来源类型" value={typeFilter} onChange={onTypeChange} options={typeOptions} />
+                {includeHealth && <HeroSelect label="健康状态" value={healthFilter} onChange={(value) => onHealthChange(value as HealthFilter)} options={healthOptions} />}
+                <HeroSelect label="可见范围" value={scopeFilter} onChange={onScopeChange} options={scopeOptions} />
+              </Modal.Body>
+              <Modal.Footer>
+                <Button type="button" variant="ghost" isDisabled={activeCount === 0} onPress={clear}>清除筛选</Button>
+                <Button type="button" onPress={() => setMobileOpen(false)}>关闭筛选</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </div>
+    <div data-desktop-source-filters className={`hidden gap-3 min-[768px]:grid ${includeHealth ? 'min-[768px]:grid-cols-4' : 'min-[768px]:grid-cols-3'}`}>
+      {searchField}
+      <HeroSelect label="来源类型" value={typeFilter} onChange={onTypeChange} options={typeOptions} />
+      {includeHealth && <HeroSelect label="健康状态" value={healthFilter} onChange={(value) => onHealthChange(value as HealthFilter)} options={healthOptions} />}
+      <HeroSelect label="可见范围" value={scopeFilter} onChange={onScopeChange} options={scopeOptions} />
+    </div>
+  </>
+}
+
+function FeedScheduleControls({ schedule, editable, pending, onUpdate }: {
+  schedule?: FeedSchedule
+  editable: boolean
+  pending: boolean
+  onUpdate: (patch: { enabled: boolean; interval_minutes: number }) => void
+}) {
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const interval = schedule?.interval_minutes ?? 360
+  const intervalOptions = (schedule?.allowed_intervals ?? [60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value < 60 ? `每 ${value} 分钟` : `每 ${value / 60} 小时` }))
+  const status = `${schedule?.enabled ? `已开启 · ${interval < 60 ? `每 ${interval} 分钟` : `每 ${interval / 60} 小时`}` : '已关闭'} · ${schedule?.worker_status === 'ready' ? '后台服务正常' : '后台服务不可用'}`
+  const controls = <div className="flex flex-col gap-3 min-[720px]:flex-row min-[720px]:items-end">
+    <div className="type-body flex-1 text-muted">{schedule?.enabled ? `下次计划：${formatTime(schedule.next_run_at)}` : '自动更新当前已关闭。'} · {schedule?.worker_status === 'ready' ? '后台服务正常' : '后台服务不可用'}</div>
+    <HeroSelect label="更新周期" value={String(interval)} onChange={(value) => onUpdate({ enabled: schedule?.enabled ?? false, interval_minutes: Number(value) })} isDisabled={!editable || pending} options={intervalOptions} />
+    <Button aria-label={pending ? '更新中 自动更新' : undefined} isDisabled={!editable || pending} onPress={() => onUpdate({ enabled: !(schedule?.enabled ?? false), interval_minutes: interval })}>{pending ? '更新中' : schedule?.enabled ? '关闭自动更新' : '开启自动更新'}</Button>
+  </div>
+
+  return <>
+    <Card data-mobile-schedule variant="transparent" className="p-3 min-[768px]:hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0"><Card.Title>自动更新信息流</Card.Title><Card.Description className="mt-1 truncate">{status}</Card.Description></div>
+        <Button size="sm" variant="ghost" aria-expanded={mobileOpen} onPress={() => setMobileOpen((open) => !open)}>{mobileOpen ? '收起自动更新' : '管理自动更新'}</Button>
+      </div>
+      {mobileOpen && <div className="mt-4 border-t border-separator pt-4">{controls}</div>}
+    </Card>
+    <div data-desktop-schedule className="hidden min-[768px]:block"><AdminSection title="自动更新信息流" description="按设定周期从全部已启用订阅抓取、去重并更新信息流，不会修改订阅设置。">{controls}</AdminSection></div>
+  </>
+}
+
 function Group({ id, title, description, children, forceOpen = false }: { id: string; title: string; description: string; children: React.ReactNode; forceOpen?: boolean }) {
   const [collapsed, setCollapsed] = useState(false)
   const open = forceOpen || !collapsed
   return <section aria-labelledby={id} className="grid gap-3"><div className="flex items-center justify-between gap-3"><div><h2 id={id} className="type-section-title">{title}</h2><p className="type-body mt-1 text-muted">{description}</p></div><Button size="sm" variant="ghost" aria-label={`${open ? '收起' : '展开'} ${title}`} aria-expanded={open} onPress={() => setCollapsed((value) => !value)}>{open ? '收起' : '展开'}</Button></div>{open && children}</section>
 }
 
+function SourceIssueNotice({ health, canRetry, canEdit }: { health: SourceHealthItem; canRetry: boolean; canEdit: boolean }) {
+  const issue = health.last_issue
+  if (!issue) return null
+  const presentation = presentSourceHealthIssue(health, { canRetry, canEdit })
+  return <HeroNotice title={`原因：${presentation.reason}`} status="warning" role="status">
+    <div className="type-body mt-2 grid gap-2 text-muted">
+      <p>{`影响：${presentation.impact}`}</p>
+      <p>{`建议操作：${presentation.action}`}</p>
+      <details>
+        <summary className="type-meta cursor-pointer text-muted">技术详情</summary>
+        <dl className="type-meta mt-2 grid gap-1 overflow-wrap-anywhere">
+          <div><dt className="inline text-muted">阶段：</dt><dd className="inline">{issue.stage || '未知'}</dd></div>
+          <div><dt className="inline text-muted">代码：</dt><dd className="inline">{issue.code || '未知'}</dd></div>
+          <div><dt className="inline text-muted">可重试：</dt><dd className="inline">{issue.retryable ? '是' : '否'}</dd></div>
+          <div><dt className="inline text-muted">原始信息：</dt><dd className="inline">{issue.message || '未提供'}</dd></div>
+        </dl>
+      </details>
+    </div>
+  </HeroNotice>
+}
+
 function SourceCard({ source, subscription, health, editable, canEdit, fetchLabel, onFetch, onEditSubscription, onEditSource }: {
   source: CatalogSource; subscription: Subscription; health?: SourceHealthItem; editable: boolean; canEdit: boolean; fetchLabel: '提交中' | '已排队' | '获取中' | '立即获取'
   onFetch: () => void; onEditSubscription: () => void; onEditSource: () => void
 }) {
-  return <Card variant="secondary" className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><Card.Title>{source.display_name}</Card.Title><div className="mt-2 flex flex-wrap gap-2"><Chip size="sm" variant="soft"><Chip.Label>{sourceTypeLabel(source.type)}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip><Chip size="sm" color={health?.status === 'healthy' ? 'success' : health?.status === 'failing' ? 'danger' : 'default'} variant="soft"><Chip.Label>{healthLabel[health?.status ?? 'unknown']}</Chip.Label></Chip></div></div></div><Card.Description className="mt-3">优先级 {subscription.priority ?? 0} · {health?.last_fetched_count ?? 0} 条最近结果 · {subscription.schedule?.enabled ? `下次 ${formatTime(subscription.schedule.next_run_at)}` : '单源自动获取已关闭'}</Card.Description>{health?.last_issue && <div className="mt-3"><HeroNotice title={health.last_issue.message || '最近一次抓取出现问题。'} status="warning" role="status" /></div>}<div className="mt-4 flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`配置 ${source.display_name} 订阅`} onPress={onEditSubscription}>{editable ? '订阅设置' : '查看订阅'}</Button>{editable && <Button size="sm" aria-label={`${fetchLabel} ${source.display_name}`} isDisabled={fetchLabel !== '立即获取'} onPress={onFetch}><Icons.RefreshCw size={14} />{fetchLabel}</Button>}{canEdit && <Button size="sm" variant="ghost" aria-label={`编辑 ${source.display_name} 来源`} onPress={onEditSource}>编辑来源</Button>}</div></Card>
+  return <Card variant="secondary" className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><Card.Title>{source.display_name}</Card.Title><div className="mt-2 flex flex-wrap gap-2"><Chip size="sm" variant="soft"><Chip.Label>{sourceTypeLabel(source.type)}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip><Chip size="sm" color={health?.status === 'healthy' ? 'success' : health?.status === 'failing' ? 'danger' : 'default'} variant="soft"><Chip.Label>{healthLabel[health?.status ?? 'unknown']}</Chip.Label></Chip></div></div></div><Card.Description className="mt-3">优先级 {subscription.priority ?? 0} · {health?.last_fetched_count ?? 0} 条最近结果 · {subscription.schedule?.enabled ? `下次 ${formatTime(subscription.schedule.next_run_at)}` : '单源自动获取已关闭'}</Card.Description>{health?.last_issue && <div className="mt-3"><SourceIssueNotice health={health} canRetry={editable} canEdit={canEdit} /></div>}<div className="mt-4 flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`配置 ${source.display_name} 订阅`} onPress={onEditSubscription}>{editable ? '订阅设置' : '查看订阅'}</Button>{editable && <Button size="sm" aria-label={`${fetchLabel} ${source.display_name}`} isDisabled={fetchLabel !== '立即获取'} onPress={onFetch}><Icons.RefreshCw size={14} />{fetchLabel}</Button>}{canEdit && <Button size="sm" variant="ghost" aria-label={`编辑 ${source.display_name} 来源`} onPress={onEditSource}>编辑来源</Button>}</div></Card>
 }
 
 export function HeroSubscriptionsPage() {
@@ -182,14 +290,14 @@ export function HeroSubscriptionsPage() {
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
     {localFeedbackKeys.map(({ action, entity }) => { const phase = feedback.phase(action, entity); const message = feedback.message(action, entity); if (!message || !phase || phase === 'pending' || phase === 'queued' || phase === 'running') return null; return <HeroActionNotice key={`${action}:${entity}`} phase={phase} message={message} onClose={() => feedback.clear(action, entity)} /> })}
     <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key))}>
-      <Tabs.List aria-label="订阅与来源页面"><Tabs.Tab id="subscriptions">我的订阅<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="library">来源库<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="jobs">运行记录<Tabs.Indicator /></Tabs.Tab></Tabs.List>
+      <Tabs.List aria-label="订阅与来源页面" className="grid w-full grid-cols-3 min-[768px]:flex min-[768px]:w-fit"><Tabs.Tab id="subscriptions" className="min-w-0 justify-center px-2 min-[768px]:px-3">我的订阅<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="library" className="min-w-0 justify-center px-2 min-[768px]:px-3">来源库<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="jobs" className="min-w-0 justify-center px-2 min-[768px]:px-3">运行记录<Tabs.Indicator /></Tabs.Tab></Tabs.List>
       <Tabs.Panel id="subscriptions" className="grid gap-5 pt-5">
-        <AdminSection title="自动更新信息流" description="按设定周期从全部已启用订阅抓取、去重并更新信息流，不会修改订阅设置。"><div className="flex flex-col gap-3 min-[720px]:flex-row min-[720px]:items-end"><div className="type-body flex-1 text-muted">{scheduleQuery.data?.enabled ? `下次计划：${formatTime(scheduleQuery.data.next_run_at)}` : '自动更新当前已关闭。'} · {scheduleQuery.data?.worker_status === 'ready' ? '后台服务正常' : '后台服务不可用'}</div><HeroSelect label="更新周期" value={String(scheduleQuery.data?.interval_minutes ?? 360)} onChange={(value) => scheduleMutation.mutate({ enabled: scheduleQuery.data?.enabled ?? false, interval_minutes: Number(value) })} isDisabled={!editable || schedulePending} options={(scheduleQuery.data?.allowed_intervals ?? [60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value < 60 ? `每 ${value} 分钟` : `每 ${value / 60} 小时` }))} /><Button aria-label={schedulePending ? '更新中 自动更新' : undefined} isDisabled={!editable || schedulePending} onPress={() => scheduleMutation.mutate({ enabled: !(scheduleQuery.data?.enabled ?? false), interval_minutes: scheduleQuery.data?.interval_minutes ?? 360 })}>{schedulePending ? '更新中' : scheduleQuery.data?.enabled ? '关闭自动更新' : '开启自动更新'}</Button></div></AdminSection>
-        <div className="grid gap-3 min-[760px]:grid-cols-4"><SearchField aria-label="搜索来源" value={search} onChange={setSearch} fullWidth><SearchField.Group><SearchField.SearchIcon><Icons.Search size={15} /></SearchField.SearchIcon><SearchField.Input placeholder="搜索来源" /><SearchField.ClearButton /></SearchField.Group></SearchField><HeroSelect label="来源类型" value={typeFilter} onChange={setTypeFilter} options={[{ id: 'all', label: '全部类型' }, ...definitions.map((definition) => ({ id: definition.type, label: definition.label || sourceTypeLabel(definition.type) }))]} /><HeroSelect label="健康状态" value={healthFilter} onChange={(value) => setHealthFilter(value as HealthFilter)} options={[{ id: 'all', label: '全部健康状态' }, { id: 'healthy', label: '正常' }, { id: 'degraded', label: '需关注' }, { id: 'failing', label: '连续失败' }, { id: 'unknown', label: '尚未抓取' }]} /><HeroSelect label="可见范围" value={scopeFilter} onChange={setScopeFilter} options={[{ id: 'all', label: '全部范围' }, { id: 'public', label: '公共来源' }, { id: 'workspace', label: '团队来源' }, { id: 'private', label: '我的私有来源' }]} /></div>
+        <FeedScheduleControls schedule={scheduleQuery.data} editable={editable} pending={schedulePending} onUpdate={(patch) => scheduleMutation.mutate(patch)} />
+        <SourceFilters search={search} onSearchChange={setSearch} definitions={definitions} typeFilter={typeFilter} onTypeChange={setTypeFilter} scopeFilter={scopeFilter} onScopeChange={setScopeFilter} healthFilter={healthFilter} onHealthChange={setHealthFilter} includeHealth />
         {loading && <LoadingState label="正在读取订阅" rows={1} />}{!loading && subscriptionGroups.map((group) => <Group key={group.channel} id={`subscription-${group.channel}`} title={group.channel} description="按个人频道覆盖和来源默认频道归类。" forceOpen={Boolean(normalized)}><div className="grid gap-3 min-[680px]:grid-cols-2 min-[1180px]:grid-cols-3">{group.items.map(({ source, subscription, health }) => { const activeJob = (jobsQuery.data?.jobs ?? []).find((job) => job.job_type === 'source_fetch' && job.subscription_id === subscription.id && ['queued', 'running'].includes(job.status)); const phase = feedback.phase('source-fetch', source.id); const fetchLabel = phase === 'pending' ? '提交中' : activeJob?.status === 'running' || phase === 'running' ? '获取中' : activeJob?.status === 'queued' || phase === 'queued' ? '已排队' : '立即获取'; return <SourceCard key={subscription.id} source={source} subscription={subscription} health={health} editable={editable} canEdit={Boolean(definitions.find((definition) => definition.type === source.type)) && canEditSource(user, source)} fetchLabel={fetchLabel} onFetch={() => fetchMutation.mutate({ source, subscription })} onEditSubscription={() => setEditingSubscription({ source, subscription })} onEditSource={() => setEditingSource(source)} /> })}</div></Group>)}{!loading && !entries.length && <Card variant="transparent" className="p-6 text-center"><Card.Title>没有匹配的订阅</Card.Title><Card.Description className="mt-1">调整筛选，或前往来源库选择要关注的来源。</Card.Description></Card>}
       </Tabs.Panel>
       <Tabs.Panel id="library" className="grid gap-5 pt-5">
-        <div className="grid gap-3 min-[760px]:grid-cols-3"><SearchField aria-label="搜索来源" value={search} onChange={setSearch} fullWidth><SearchField.Group><SearchField.SearchIcon><Icons.Search size={15} /></SearchField.SearchIcon><SearchField.Input placeholder="搜索来源" /><SearchField.ClearButton /></SearchField.Group></SearchField><HeroSelect label="来源类型" value={typeFilter} onChange={setTypeFilter} options={[{ id: 'all', label: '全部类型' }, ...definitions.map((definition) => ({ id: definition.type, label: definition.label || sourceTypeLabel(definition.type) }))]} /><HeroSelect label="可见范围" value={scopeFilter} onChange={setScopeFilter} options={[{ id: 'all', label: '全部范围' }, { id: 'public', label: '公共来源' }, { id: 'workspace', label: '团队来源' }, { id: 'private', label: '我的私有来源' }]} /></div>
+        <SourceFilters search={search} onSearchChange={setSearch} definitions={definitions} typeFilter={typeFilter} onTypeChange={setTypeFilter} scopeFilter={scopeFilter} onScopeChange={setScopeFilter} healthFilter={healthFilter} onHealthChange={setHealthFilter} includeHealth={false} />
         {sourceGroups.map((group) => <Group key={group.channel} id={`library-${group.channel}`} title={group.channel} description="按来源默认频道归类；范围与类型作为标签。" forceOpen={Boolean(normalized)}><div className="grid gap-3 min-[680px]:grid-cols-2 min-[1180px]:grid-cols-3">{group.items.map((source) => { const subscribed = isSourceSubscribed(source.id, subscriptions); const subscription = subscriptions.find((item) => item.source_id === source.id); const subscribePending = feedback.isPending('subscribe', source.id); const unsubscribePending = feedback.isPending('unsubscribe', source.id); return <Card key={source.id} variant="secondary" className="p-4"><Card.Title>{source.display_name}</Card.Title><Card.Description className="mt-2">{source.description || '该来源尚未填写说明。'}</Card.Description><div className="mt-2 flex gap-2"><Chip size="sm" variant="soft"><Chip.Label>{sourceTypeLabel(source.type)}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip></div><div className="mt-4 flex gap-2">{subscribed ? <Button size="sm" variant="ghost" aria-label={`${unsubscribePending ? '取消中' : '取消订阅'} ${source.display_name}`} isDisabled={!editable || !subscription || unsubscribePending} onPress={() => subscription && unsubscribeMutation.mutate({ source, subscription })}>{unsubscribePending ? '取消中' : '取消订阅'}</Button> : <Button size="sm" aria-label={`${subscribePending ? '订阅中' : '订阅'} ${source.display_name}`} isDisabled={!editable || subscribePending} onPress={() => subscribeMutation.mutate(source)}>{subscribePending ? '订阅中' : '订阅'}</Button>}{canEditSource(user, source) && <Button size="sm" variant="ghost" onPress={() => setEditingSource(source)}>编辑来源</Button>}</div></Card> })}</div></Group>)}{!loading && !filteredSources.length && <Card variant="transparent" className="p-6 text-center"><Card.Title>{sources.length ? '没有匹配的来源' : '来源库还是空的'}</Card.Title></Card>}
       </Tabs.Panel>
       <Tabs.Panel id="jobs" className="grid gap-3 pt-5">

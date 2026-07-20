@@ -139,6 +139,40 @@ export function healthMatches(item: SourceHealthItem | undefined, filter: Health
   return status === filter
 }
 
+export type SourceHealthIssuePresentation = {
+  reason: string
+  impact: string
+  action: string
+}
+
+export function presentSourceHealthIssue(
+  health: SourceHealthItem,
+  permissions: { canRetry: boolean; canEdit: boolean },
+): SourceHealthIssuePresentation {
+  const issueKind = `${health.last_issue?.stage ?? ''} ${health.last_issue?.code ?? ''}`.toLocaleLowerCase()
+  const retryable = health.last_issue?.retryable === true
+  const reason = /unauthorized|forbidden|auth|permission|401|403/.test(issueKind)
+    ? '来源授权已失效或当前账户没有访问权限。'
+    : /rate|too.?many|429/.test(issueKind)
+      ? '上游服务限制了当前访问频率。'
+      : /timeout|http|network|connection|unavailable|502|503|504/.test(issueKind) || retryable
+        ? '上游服务暂时不可用或响应超时。'
+        : /parse|decode|invalid|payload|schema|xml|json/.test(issueKind)
+          ? '来源返回的内容格式无法识别。'
+          : '来源最近一次更新未完成。'
+  const impact = health.status === 'failing'
+    ? health.consecutive_failures > 1
+      ? `已连续 ${health.consecutive_failures} 次更新失败，该来源的新内容暂时不会进入信息流；历史内容不受影响。`
+      : '该来源已连续更新失败，新内容暂时不会进入信息流；历史内容不受影响。'
+    : '最近一次更新失败，新内容可能延迟；历史内容不受影响。'
+  const action = retryable && permissions.canRetry
+    ? '点击“立即获取”重试；若仍失败，请稍后再试或检查上游状态。'
+    : permissions.canEdit
+      ? '打开“编辑来源”检查地址、权限或内容格式后再试。'
+      : '联系管理员检查来源配置或上游状态。'
+  return { reason, impact, action }
+}
+
 export function sourceMutationPayload({ source, allowSecret, metadata, config }: {
   source?: CatalogSource
   allowSecret: boolean

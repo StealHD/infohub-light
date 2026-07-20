@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
@@ -16,6 +16,7 @@ import {
   Input,
   Label,
   LoadingState,
+  Modal,
   PageFrame,
   TextField,
 } from '../../design-system'
@@ -43,9 +44,18 @@ function HeroSecretCard({ secret, onChanged }: { secret: SecretRef; onChanged: (
   const feedback = useActionFeedback()
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null)
   const presentation = secretPresentation(secret)
   const rotating = feedback.isPending('secret-rotate', secret.id)
   const removing = feedback.isPending('secret-delete', secret.id)
+
+  function closeDeleteDialog() {
+    setDeleteOpen(false)
+    setDeleteError('')
+    queueMicrotask(() => deleteTriggerRef.current?.focus())
+  }
 
   async function rotate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -58,15 +68,51 @@ function HeroSecretCard({ secret, onChanged }: { secret: SecretRef; onChanged: (
   }
 
   async function remove() {
-    setError('')
+    setDeleteError('')
     feedback.begin('secret-delete', secret.id)
-    try { await api.deleteSecret(secret.id); feedback.succeed('secret-delete', secret.id, `${secret.name} 已删除。`); onChanged() }
-    catch (caught) { const message = errorMessage(caught, '删除失败。'); setError(message); feedback.fail('secret-delete', secret.id, message) }
+    try {
+      await api.deleteSecret(secret.id)
+      feedback.succeed('secret-delete', secret.id, `${secret.name} 已删除。`)
+      closeDeleteDialog()
+      onChanged()
+    } catch (caught) {
+      const message = errorMessage(caught, '删除失败。')
+      setDeleteError(message)
+      feedback.fail('secret-delete', secret.id, message)
+    }
   }
 
   return <Card variant="transparent" className="p-4">
     <div className="flex flex-wrap items-center gap-2"><Icons.KeyRound size={17} /><Card.Title>{presentation.name}</Card.Title><span className="type-meta text-muted">{presentation.provider} · {presentation.status} · {presentation.usage}</span></div>
-    <form className="mt-3 flex flex-col gap-2 min-[640px]:flex-row" onSubmit={rotate}><TextField fullWidth value={value} onChange={setValue} isRequired><Label>{`轮换 ${secret.name}`}</Label><Input type="password" autoComplete="new-password" placeholder="粘贴新 Key（不会回显）" /></TextField><Button className="self-end" type="submit" isDisabled={rotating}>{rotating ? '轮换中…' : '轮换'}</Button><Button className="self-end" type="button" variant="danger" isDisabled={secret.used_by.length > 0 || removing} onPress={() => void remove()}>{removing ? '删除中…' : '删除'}</Button></form>
+    <form className="mt-3 flex flex-col gap-2 min-[640px]:flex-row" onSubmit={rotate}>
+      <TextField fullWidth value={value} onChange={setValue} isRequired><Label>{`轮换 ${secret.name}`}</Label><Input type="password" autoComplete="new-password" placeholder="粘贴新 Key（不会回显）" /></TextField>
+      <Button className="self-end" type="submit" isDisabled={rotating}>{rotating ? '轮换中…' : '轮换'}</Button>
+      <Modal isOpen={deleteOpen} onOpenChange={(open) => {
+        if (removing) return
+        setDeleteOpen(open)
+        if (!open) {
+          setDeleteError('')
+          queueMicrotask(() => deleteTriggerRef.current?.focus())
+        }
+      }}>
+        <Button ref={deleteTriggerRef} className="self-end" type="button" variant="danger" isDisabled={secret.used_by.length > 0 || removing}>删除</Button>
+        <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header><Modal.Heading>{`删除 ${secret.name}？`}</Modal.Heading></Modal.Header>
+              <Modal.Body>
+                <p>删除后无法恢复；如需再次使用，必须重新添加 Key。</p>
+                {deleteError && <div className="mt-3"><HeroNotice title={deleteError} /></div>}
+              </Modal.Body>
+              <Modal.Footer>
+                <Button type="button" variant="ghost" isDisabled={removing} onPress={closeDeleteDialog}>取消删除</Button>
+                <Button type="button" variant="danger" isDisabled={removing} onPress={() => void remove()}>{removing ? '删除中…' : '确认删除'}</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </form>
     {error && <div className="mt-3"><HeroNotice title={error} /></div>}
   </Card>
 }

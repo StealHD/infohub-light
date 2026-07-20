@@ -234,7 +234,7 @@ describe('VirtualFeed', () => {
 
   it('keeps viewer mutations disabled while open and copy remain available', async () => {
     const user = userEvent.setup()
-    const copy = vi.fn()
+    const copy = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } })
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}
@@ -255,6 +255,30 @@ describe('VirtualFeed', () => {
     expect(within(card).getByRole('button', { name: '忽略' })).toBeDisabled()
     await user.click(within(card).getByRole('button', { name: '复制摘要' }))
     expect(copy).toHaveBeenCalledWith('这是第 1 条摘要')
+    expect(await within(card).findByRole('status')).toHaveTextContent('摘要已复制')
+  })
+
+  it.each([
+    ['clipboard permission is rejected', { writeText: vi.fn().mockRejectedValue(new Error('denied')) }],
+    ['Clipboard API is unavailable', undefined],
+  ])('shows a recoverable copy failure when %s', async (_name, clipboard) => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: clipboard })
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      expandedId="item-1"
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const card = await screen.findByRole('article', { name: '信息 1' })
+    await user.click(within(card).getByRole('button', { name: '更多操作 信息 1' }))
+    await user.click(within(card).getByRole('button', { name: '复制摘要' }))
+
+    expect(await within(card).findByRole('status')).toHaveTextContent('复制失败，请手动复制')
   })
 
   it('preserves an away-from-bottom anchor and offers an explicit new-item jump', async () => {

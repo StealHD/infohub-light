@@ -72,7 +72,22 @@ function WorkbenchCard({
   const socialText = expanded ? card.detailBody || card.primaryText : card.primaryText
   const cardLabel = social ? `${card.sourceLabel}: ${card.primaryText}` : card.title
   const sourceParts = workbenchSourceLabels(card)
-  const copySummary = () => void navigator.clipboard?.writeText(social ? socialText : card.summary || card.title)
+  const [copyNotice, setCopyNotice] = useState('')
+  const copyNoticeTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
+
+  async function copySummary() {
+    window.clearTimeout(copyNoticeTimer.current)
+    try {
+      if (typeof navigator.clipboard?.writeText !== 'function') throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(social ? socialText : card.summary || card.title)
+      setCopyNotice('摘要已复制')
+    } catch {
+      setCopyNotice('复制失败，请手动复制')
+    }
+    copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(''), 2800)
+  }
 
   return <Card
     data-testid="workbench-card"
@@ -170,9 +185,10 @@ function WorkbenchCard({
             <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('is_read', !card.userState.is_read)}>
               <Icons.Check size={14} aria-hidden="true" />{card.userState.is_read ? '标记未读' : '标记已读'}
             </button>
-            <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={copySummary}>
+            <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
               <Icons.Copy size={14} aria-hidden="true" />复制摘要
             </button>
+            {copyNotice && <span role="status" aria-live="polite" className="type-meta px-3 py-1 text-muted">{copyNotice}</span>}
             <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('dismissed', !card.userState.dismissed)}>
               <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
             </button>

@@ -208,7 +208,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(page.getByText('200 条内容', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '更新信息流' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '更新信息流' })).toBeVisible()
   const agentToggle = page.getByRole('banner').getByRole('button', { name: /^(收起|展开) Agent 面板$/ })
   await expect(agentToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
   await expect(agentToggle.locator('[data-split-panel-icon]')).toHaveCount(1)
@@ -539,7 +539,8 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByRole('banner')).toHaveAttribute('data-header-visual', 'quiet-studio')
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
 
   await page.goto('/history')
   await expect(page.getByRole('heading', { name: '历史', exact: true })).toBeVisible()
@@ -547,10 +548,35 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByRole('navigation', { name: '信息流进度' })).toHaveCount(0)
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
 
   await page.goto('/later?mode=featured&item=saved-route-item')
   await expect(page).toHaveURL('/saved?item=saved-route-item')
   await expect(page.getByRole('heading', { name: '收藏', exact: true })).toBeVisible()
   await expect(page.getByRole('article', { name: savedRouteItem.title })).toBeVisible()
+})
+
+test('content-route navigation keeps the same shell and a closed Agent panel', async ({ page }) => {
+  await page.goto('/feed')
+  const shell = page.getByTestId('live-workbench-shell')
+  await shell.evaluate((element) => {
+    ;(window as typeof window & { workbenchShellProbe?: Element }).workbenchShellProbe = element
+    element.setAttribute('data-lifecycle-probe', 'persistent-shell')
+  })
+
+  const closeAgent = page.getByRole('button', { name: '收起 Agent 面板' })
+  if (await closeAgent.isVisible()) await closeAgent.click()
+  await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
+
+  await page.getByRole('link', { name: '收藏', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '收藏', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
+  expect(await page.evaluate(() => (window as typeof window & { workbenchShellProbe?: Element }).workbenchShellProbe === document.querySelector('[data-testid="live-workbench-shell"]'))).toBe(true)
+
+  await page.getByRole('link', { name: '历史', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '历史', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
+  await expect(shell).toHaveAttribute('data-lifecycle-probe', 'persistent-shell')
+  expect(await page.evaluate(() => (window as typeof window & { workbenchShellProbe?: Element }).workbenchShellProbe === document.querySelector('[data-testid="live-workbench-shell"]'))).toBe(true)
 })
