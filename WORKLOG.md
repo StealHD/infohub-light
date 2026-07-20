@@ -2148,3 +2148,11 @@
 - 执行验证：OpenClaw/Agent 聚焦 Vitest 34/34 通过；UI contract、ESLint（0 error、5 个既有 Fast Refresh warning）、TypeScript、Vite production build 与产物检查通过；1440/1024/390 受影响 Playwright/Axe 3/3 通过，并逐节点确认 Agent 面板无横向溢出
 - 结果：发送后可见气泡仅保留用户问题及附件计数，V3 Gateway Prompt 与旧 handoff 历史均隐藏内部指令/ID；失败可重试或重新编辑，终止保留部分回复；上下文默认只展示两条并通过弹层管理八条；模型、上下文窗口、推理档位、默认值及会话覆盖全部来自 `models.list/agents.list/sessions.describe`，切换只调用当前会话的 `sessions.patch`
 - 控制面变更：Agent 草稿升级到用户隔离的 v3 并忽略旧模拟模型偏好；未修改后端 API、数据库、权限、Query Key、MCP 协议或 OpenClaw 全局配置，未连接真实 Gateway、未调用外部模型且未部署 VPS
+
+### 2026-07-20 23:47 Codex
+- 任务：将内容/媒体与 OpenClaw 对话任务、Remote MCP/RSS 修复合并到独立本地集成分支
+- 修改文件：两个功能提交的 55 个相关文件；`HandoffComposer.tsx`、`WORKLOG.md`
+- 执行验证：两边分别收敛为 `686d64b`/`9d5d4a0`，在 `integration/content-openclaw-20260720` 无冲突合入；Python 538 项、前端定向 129 项通过；UI 合同修复后合同与 64 项受影响测试通过
+- 结果：集成分支已保留两边历史和原始脏工作区；未切换共享 Docker；主目录原有文档归档等无关改动仍保持原状
+- 未解决问题：两次 full gate 额度已用完；第二次仅剩 `App.lifecycle.test.tsx` 的旧 `useOpenClawChat` mock 缺少 `models/runtimeSelection` 字段，导致完整 Vitest 290/291，需用户确认后做定向修补与复验
+- 控制面变更：无新增；仅合并两个任务已各自记录的 API/UI 合同和决策
