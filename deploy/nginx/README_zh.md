@@ -1,6 +1,6 @@
 # Inteliscope Nginx Basic Auth 发布配置
 
-适合已有 Nginx 的服务器：Nginx 对公网提供 80/443，反代到本机 `127.0.0.1:8080`，整站用 Basic Auth 保护。
+适用于 `vps-tokyo`：Nginx 为 `rb.jiefs.top` 提供 80/443，反代到本机 `127.0.0.1:8080`，整站先经过 Basic Auth，再进入应用登录。
 
 ## 1. 确认 Docker 只监听本机
 
@@ -54,7 +54,11 @@ sudo ln -sf /etc/nginx/sites-available/inteliscope /etc/nginx/sites-enabled/inte
 sudo nano /etc/nginx/sites-available/inteliscope
 ```
 
-把 `radar.example.com` 改成你的域名。如果已有 HTTPS 证书，启用模板里的 443 server block，并改证书路径。
+模板已使用 `rb.jiefs.top` 和 VPS 当前证书路径。另将登录限流配置安装到 Nginx `http` 上下文：
+
+```bash
+sudo cp deploy/nginx/inteliscope-rate-limit.conf /etc/nginx/conf.d/inteliscope-rate-limit.conf
+```
 
 检查并重载：
 
@@ -88,4 +92,42 @@ curl -I -u friend:你的密码 http://你的域名
 - Basic Auth 会保护整站，包括信息流和配置页。
 - 账号密码会被浏览器缓存；朋友退出通常需要关闭浏览器或访问无效账号覆盖缓存。
 - 强烈建议配合 HTTPS 使用，否则 Basic Auth 密码会以可被中间人解码的形式传输。
-- 如果你同时开启应用内鉴权，访问站点会先过 Nginx Basic Auth，再过应用后台登录；只想省事可以关闭应用内鉴权，只保留 Nginx。
+- Basic Auth 不能替代应用登录和 owner/admin/member/viewer 权限。访问站点会先过 Nginx Basic Auth，再使用个人应用账号登录。
+
+## Remote MCP
+
+Remote MCP 必须使用精确的 `/mcp` location。该 location 关闭浏览器 Basic Auth，改由应用验证每位用户的一次性 Bearer 令牌；同时限制 256 KiB 请求体、每 IP 120 请求/分钟和 8 个并发连接，并显式透传 `Authorization`。
+
+生产启用前设置：
+
+```bash
+HORIZON_REMOTE_MCP_ENABLED=true
+HORIZON_REMOTE_MCP_PUBLIC_URL=https://rb.jiefs.top/mcp
+HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_REQUIRE_WORKER_FOR_READINESS=false
+```
+
+只读生产发布只启动 `horizon-api`，不得启动 Worker 或 scheduler。写开关保持 `false`；本地只允许使用类似 `http://127.0.0.1:8080/mcp` 的 loopback URL。回滚时先关闭功能开关，再移除 Nginx 的精确 location；schema v6 delegation 与 schema v7 proposal additive 表均保留。
+
+## 浏览器直连 OpenClaw
+
+站内对话由用户浏览器直接连接自己的 OpenClaw Gateway，Inteliscope 和 Nginx
+不代理 Gateway WebSocket。默认保持关闭：
+
+```bash
+HORIZON_OPENCLAW_CHAT_ENABLED=false
+HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
+```
+
+本机只允许 `ws://127.0.0.1` 或 `ws://localhost`；远程 Gateway 必须使用
+`wss://`。站点 CSP 的 `connect-src` 只开放本站、上述 loopback Gateway 和
+`wss:`，并通过 `frame-ancestors 'none'` 禁止页面嵌入。生产开启前必须把
+Inteliscope 的完整 Origin 追加到 OpenClaw 的
+`gateway.controlUi.allowedOrigins`，保留原有条目，禁止使用 `*`。
+
+```bash
+HORIZON_OPENCLAW_CHAT_ENABLED=true
+```
+
+该开关只改变浏览器对话面板；服务器仍不运行 Agent、模型或 OpenClaw，
+订阅写开关继续保持 `false`。

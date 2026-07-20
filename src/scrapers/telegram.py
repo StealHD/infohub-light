@@ -42,6 +42,8 @@ class TelegramScraper(BaseScraper):
         for result in results:
             if isinstance(result, Exception):
                 logger.warning("Error fetching Telegram channel: %s", result)
+                if self.strict_errors:
+                    raise result
             elif isinstance(result, list):
                 items.extend(result)
         return items
@@ -59,6 +61,8 @@ class TelegramScraper(BaseScraper):
             response.raise_for_status()
         except Exception as e:
             logger.warning("Telegram request failed for %s: [%s] %r", cfg.channel, type(e).__name__, e)
+            if self.strict_errors:
+                raise
             return []
 
         return self._parse_channel_html(response.text, cfg, since)
@@ -68,6 +72,25 @@ class TelegramScraper(BaseScraper):
     ) -> List[ContentItem]:
         soup = BeautifulSoup(html, "html.parser")
         messages = soup.select("div.tgme_widget_message[data-post]")
+        self.observe_upstream_response(
+            [
+                {
+                    "data_post": msg.get("data-post"),
+                    "datetime": (
+                        msg.select_one("time[datetime]").get("datetime")
+                        if msg.select_one("time[datetime]")
+                        else None
+                    ),
+                    "text": (
+                        msg.select_one("div.tgme_widget_message_text").get_text()
+                        if msg.select_one("div.tgme_widget_message_text")
+                        else None
+                    ),
+                    "links": [link.get("href") for link in msg.select("a[href]")],
+                }
+                for msg in messages
+            ]
+        )
 
         items = []
         for msg in messages[-cfg.fetch_limit:]:

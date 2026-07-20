@@ -1,0 +1,384 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@fontsource-variable/noto-sans-sc/wght.css";
+
+:root {
+  --inteliscope-motion-fast: 120ms;
+  --inteliscope-motion-standard: 160ms;
+  --inteliscope-motion-deliberate: 220ms;
+  --inteliscope-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
+  --inteliscope-width-reading: 820px;
+  --inteliscope-width-admin: 1180px;
+  --inteliscope-width-auth: 420px;
+
+  --inteliscope-type-display-size: 24px;
+  --inteliscope-type-display-line: 32px;
+  --inteliscope-type-section-title-size: 18px;
+  --inteliscope-type-section-title-line: 26px;
+  --inteliscope-type-page-title-size: 16px;
+  --inteliscope-type-page-title-line: 24px;
+  --inteliscope-type-card-title-size: 16px;
+  --inteliscope-type-card-title-line: 23px;
+  --inteliscope-type-body-size: 14px;
+  --inteliscope-type-body-line: 22px;
+  --inteliscope-type-control-size: 13px;
+  --inteliscope-type-control-line: 20px;
+  --inteliscope-type-meta-size: 12px;
+  --inteliscope-type-meta-line: 18px;
+  --inteliscope-type-label-size: 11px;
+  --inteliscope-type-label-line: 16px;
+  --inteliscope-type-micro-size: 10px;
+  --inteliscope-type-micro-line: 14px;
+  --inteliscope-type-prose-size: 14px;
+  --inteliscope-type-prose-line: 26px;
+}
+
+.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] {
+  color-scheme: dark;
+  --background: oklch(0.14 0.008 286);
+  --foreground: oklch(0.94 0.005 286);
+  --surface: oklch(0.18 0.008 286);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.215 0.009 286);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.25 0.01 286);
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: var(--surface-tertiary);
+  --overlay-foreground: var(--foreground);
+  --accent: oklch(0.72 0.12 292);
+  --accent-foreground: oklch(0.16 0.018 292);
+  --muted: oklch(0.68 0.012 286);
+  --default: oklch(0.265 0.009 286);
+  --default-foreground: var(--foreground);
+  --field-background: var(--surface);
+  --field-foreground: var(--foreground);
+  --field-border: oklch(0.33 0.012 286);
+  --field-border-width: 1px;
+  --border: oklch(0.31 0.011 286);
+  --separator: oklch(0.27 0.009 286);
+  --focus: var(--accent);
+  --link: oklch(0.79 0.09 292);
+  --danger: oklch(0.56 0.19 25);
+  --danger-foreground: oklch(0.98 0.003 286);
+  --surface-shadow: 0 1px 2px oklch(0.05 0.005 286 / 0.32);
+  --overlay-shadow: 0 16px 40px oklch(0.05 0.005 286 / 0.48);
+  --field-shadow: none;
+
+  --inteliscope-radius-panel: 16px;
+  --inteliscope-radius-card: 14px;
+  --inteliscope-radius-feed-card: 18px;
+  --inteliscope-radius-control: 10px;
+  --inteliscope-radius-compact: 8px;
+  --radius: var(--inteliscope-radius-compact);
+  --radius-xs: var(--inteliscope-radius-compact);
+  --radius-sm: var(--inteliscope-radius-compact);
+  --radius-md: var(--inteliscope-radius-compact);
+  --radius-lg: var(--inteliscope-radius-compact);
+  --radius-xl: var(--inteliscope-radius-control);
+  --radius-2xl: var(--inteliscope-radius-card);
+  --radius-3xl: var(--inteliscope-radius-panel);
+  --radius-4xl: var(--inteliscope-radius-panel);
+  --field-radius: var(--inteliscope-radius-control);
+
+  --default-transition-duration: var(--inteliscope-motion-standard);
+  --drawer-enter-duration: var(--inteliscope-motion-deliberate);
+  --drawer-exit-duration: var(--inteliscope-motion-standard);
+
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--inteliscope-font-ui);
+}
+
+html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
+  color: var(--foreground);
+}
+
+.inteliscope-design-system .type-display {
+  font-size: var(--inteliscope-type-display-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-display-line);
+  letter-spacing: -0.02em;
+}
+
+.inteliscope-design-system .type-section-title {
+  font-size: var(--inteliscope-type-section-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-section-title-line);
+  letter-spacing: -0.015em;
+}
+
+.inteliscope-design-system .type-page-title {
+  font-size: var(--inteliscope-type-page-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-page-title-line);
+  letter-spacing: -0.01em;
+}
+
+.inteliscope-design-system .type-card-title {
+  font-size: var(--inteliscope-type-card-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-card-title-line);
+  letter-spacing: -0.012em;
+}
+
+.inteliscope-design-system .type-body {
+  font-size: var(--inteliscope-type-body-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-body-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system .type-control {
+  font-size: var(--inteliscope-type-control-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-control-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system .type-meta {
+  font-size: var(--inteliscope-type-meta-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-meta-line);
+  letter-spacing: 0.005em;
+  font-variant-numeric: tabular-nums;
+}
+
+.inteliscope-design-system .type-label {
+  font-size: var(--inteliscope-type-label-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-label-line);
+  letter-spacing: 0.04em;
+}
+
+.inteliscope-design-system .type-micro {
+  font-size: var(--inteliscope-type-micro-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-micro-line);
+  letter-spacing: 0.02em;
+}
+
+.inteliscope-design-system .type-prose {
+  font-size: var(--inteliscope-type-prose-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-prose-line);
+  letter-spacing: 0.003em;
+}
+
+/*
+ * HeroUI primitives inherit the same semantic type roles as feature markup.
+ * Feature code may override a primitive with an explicit `.type-*` role, but it
+ * must never need a raw Tailwind font-size or font-weight utility.
+ */
+.inteliscope-design-system :where(
+  .button,
+  .select__trigger,
+  .combo-box__trigger,
+  .tabs__tab,
+  .list-box-item,
+  .menu-item,
+  .popover__trigger,
+  .search-field__input,
+  .number-field__input,
+  .input,
+  .textarea,
+  .label
+) {
+  font-size: var(--inteliscope-type-control-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-control-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system :where(
+  .card__title,
+  .modal__heading,
+  .popover__heading,
+  .drawer__heading,
+  .alert-dialog__heading,
+  .alert__title
+) {
+  font-size: var(--inteliscope-type-page-title-size);
+  font-weight: 600;
+  line-height: var(--inteliscope-type-page-title-line);
+  letter-spacing: -0.01em;
+}
+
+.inteliscope-design-system :where(
+  .card__description,
+  .alert__description,
+  .toast__description,
+  .fieldset__description
+) {
+  font-size: var(--inteliscope-type-body-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-body-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system :where(
+  .chip__label,
+  .badge__label
+) {
+  font-size: var(--inteliscope-type-micro-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-micro-line);
+  letter-spacing: 0.02em;
+}
+
+.inteliscope-design-system .quiet-compact-select :where(.select__value) {
+  font-size: var(--inteliscope-type-control-size);
+  font-weight: 500;
+  line-height: var(--inteliscope-type-control-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system :where(.tabs__list-container) {
+  border-radius: var(--inteliscope-radius-card);
+}
+
+.inteliscope-design-system :where(.table-root--primary) {
+  border-radius: var(--inteliscope-radius-panel);
+}
+
+.inteliscope-design-system :where(
+  .tabs__list-container__scroll-prev,
+  .tabs__list-container__scroll-next
+) {
+  border-radius: var(--inteliscope-radius-compact);
+}
+
+.inteliscope-design-system :where(
+  .button,
+  .input,
+  .textarea,
+  .tabs__list-container__scroll-prev,
+  .tabs__list-container__scroll-next,
+  .tabs__tab,
+  .tabs__separator,
+  .tabs__indicator,
+  .modal__trigger,
+  .drawer__trigger,
+  .drawer__backdrop,
+  .drawer__dialog,
+  .select__trigger,
+  .select__indicator,
+  .combo-box__trigger,
+  [data-slot="combo-box-trigger-default-icon"],
+  .popover__trigger,
+  .table__sortable-column-indicator,
+  .tooltip__trigger,
+  .toast__close-button,
+  .checkbox__control,
+  .checkbox__control::before,
+  [data-slot="checkbox-default-indicator--checkmark"],
+  .radio__control,
+  .radio__indicator::before,
+  .switch__control,
+  .switch__thumb,
+  .close-button,
+  .list-box-item,
+  .list-box-item__indicator,
+  [data-slot="list-box-item-indicator--checkmark"]
+) {
+  transition-duration: var(--inteliscope-motion-standard) !important;
+}
+
+.inteliscope-design-system :where(
+  .modal__backdrop[data-entering="true"],
+  .modal__backdrop[data-exiting="true"],
+  .modal__container[data-entering="true"],
+  .modal__container[data-exiting="true"],
+  .select__popover[data-entering="true"],
+  .select__popover[data-exiting="true"],
+  .combo-box__popover[data-entering="true"],
+  .combo-box__popover[data-exiting="true"],
+  .popover[data-entering="true"],
+  .popover[data-exiting="true"],
+  .tooltip[data-entering="true"],
+  .tooltip[data-exiting="true"]
+) {
+  animation-duration: var(--inteliscope-motion-deliberate) !important;
+}
+
+::view-transition-new(.toast-bottom):only-child,
+::view-transition-old(.toast-bottom):only-child,
+::view-transition-new(.toast-top):only-child,
+::view-transition-old(.toast-top):only-child {
+  animation-duration: var(--inteliscope-motion-deliberate) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inteliscope-design-system {
+    --inteliscope-motion-standard: 1ms;
+    --inteliscope-motion-deliberate: 1ms;
+    scroll-behavior: auto !important;
+  }
+
+  .inteliscope-design-system :where(
+    .button,
+    .input,
+    .textarea,
+    .tabs__list-container__scroll-prev,
+    .tabs__list-container__scroll-next,
+    .tabs__tab,
+    .tabs__separator,
+    .tabs__indicator,
+    .modal__trigger,
+    .drawer__trigger,
+    .drawer__backdrop,
+    .drawer__dialog,
+    .select__trigger,
+    .select__indicator,
+    .combo-box__trigger,
+    [data-slot="combo-box-trigger-default-icon"],
+    .popover__trigger,
+    .table__sortable-column-indicator,
+    .tooltip__trigger,
+    .toast__close-button,
+    .checkbox__control,
+    .checkbox__control::before,
+    [data-slot="checkbox-default-indicator--checkmark"],
+    .radio__control,
+    .radio__indicator::before,
+    .switch__control,
+    .switch__thumb,
+    .close-button,
+    .list-box-item,
+    .list-box-item__indicator,
+    [data-slot="list-box-item-indicator--checkmark"]
+  ) {
+    transition-property: none !important;
+  }
+
+  .inteliscope-design-system :where(
+    .modal__backdrop[data-entering="true"],
+    .modal__backdrop[data-exiting="true"],
+    .modal__container[data-entering="true"],
+    .modal__container[data-exiting="true"],
+    .select__popover[data-entering="true"],
+    .select__popover[data-exiting="true"],
+    .combo-box__popover[data-entering="true"],
+    .combo-box__popover[data-exiting="true"],
+    .popover[data-entering="true"],
+    .popover[data-exiting="true"],
+    .tooltip[data-entering="true"],
+    .tooltip[data-exiting="true"],
+    .skeleton,
+    .skeleton::before,
+    .skeleton::after,
+    .spinner
+  ) {
+    animation-name: none !important;
+    transition-property: none !important;
+  }
+
+  ::view-transition-new(.toast-bottom):only-child,
+  ::view-transition-old(.toast-bottom):only-child,
+  ::view-transition-new(.toast-top):only-child,
+  ::view-transition-old(.toast-top):only-child {
+    animation-duration: 1ms !important;
+    animation-name: none !important;
+  }
+}

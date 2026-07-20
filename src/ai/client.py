@@ -477,7 +477,11 @@ class GeminiClient(AIClient):
                 system_instruction=system,
                 temperature=temperature,
                 max_output_tokens=max_tokens,
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                # Gemini Flash thinking tokens share the output budget. Content
+                # analysis needs the bounded budget for a complete JSON object,
+                # not hidden reasoning that can truncate the response.
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             )
         )
         usage = getattr(response, "usage_metadata", None)

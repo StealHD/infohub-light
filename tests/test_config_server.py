@@ -1,9 +1,16 @@
 import json
+import socket
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from pathlib import Path
 
+import httpx
 import pytest
 
+from src.services import network_policy
+
 from src.ui.server import (
+    _APIFY_SOCIAL_DEFAULT_ACTORS,
     RadarWebHandler,
     apply_config_action,
     build_env_status,
@@ -63,6 +70,10 @@ def test_validate_config_data_accepts_valid_config():
     assert validated.sources.rss[0].name == "Example Feed"
     assert validated.premium_analysis.enabled is False
     assert validated.article_graph.enabled is False
+
+
+def test_apify_social_ui_default_uses_single_item_capable_x_actor():
+    assert _APIFY_SOCIAL_DEFAULT_ACTORS["x"] == "xquik/x-tweet-scraper"
 
 
 def test_validate_config_data_accepts_article_graph_config():
@@ -408,6 +419,48 @@ def test_apply_config_action_saves_ai_enabled_toggle():
     assert updated["ai"]["api_key_env"] == "XIAOMI_API_KEY"
 
 
+def test_apply_config_action_saves_ai_summary_and_output_limits():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "set_ai",
+        {
+            "enabled": True,
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "api_key_env": "GOOGLE_API_KEY",
+            "languages": "zh",
+            "summary_max_chars": 200,
+            "analysis_max_output_tokens": 800,
+        },
+    )
+
+    assert updated["ai"]["summary_max_chars"] == 200
+    assert updated["ai"]["analysis_max_output_tokens"] == 800
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("summary_max_chars", 99), ("summary_max_chars", 501), ("analysis_max_output_tokens", 255), ("analysis_max_output_tokens", 2049)],
+)
+def test_apply_config_action_rejects_out_of_range_ai_limits(field, value):
+    config = _minimal_config()
+
+    with pytest.raises(ValueError, match=field):
+        apply_config_action(
+            config,
+            "set_ai",
+            {
+                "enabled": True,
+                "provider": "gemini",
+                "model": "gemini-2.5-flash",
+                "api_key_env": "GOOGLE_API_KEY",
+                field: value,
+            },
+        )
+
+
 def test_apply_config_action_sets_tag_library():
     config = _minimal_config()
 
@@ -418,6 +471,33 @@ def test_apply_config_action_sets_tag_library():
     )
 
     assert updated["tags"] == ["AI Agent", "RAG/MCP"]
+
+
+def test_apply_config_action_sets_topic_library_from_array_and_allows_empty():
+    config = _minimal_config()
+    config["tags"] = ["Old Topic"]
+
+    updated = apply_config_action(
+        config,
+        "set_tags",
+        {"topics": [" AI Agent ", "ai agent", "RAG/MCP"]},
+    )
+
+    assert updated["tags"] == ["AI Agent", "RAG/MCP"]
+    assert apply_config_action(updated, "set_tags", {"topics": []})["tags"] == []
+
+
+def test_apply_config_action_limits_topic_library_size_and_topic_length():
+    config = _minimal_config()
+
+    accepted = apply_config_action(config, "set_tags", {"topics": ["x" * 40]})
+    assert accepted["tags"] == ["x" * 40]
+
+    with pytest.raises(ValueError, match="主题数量不能超过 100"):
+        apply_config_action(config, "set_tags", {"topics": [f"Topic {index}" for index in range(101)]})
+
+    with pytest.raises(ValueError, match="主题长度不能超过 40"):
+        apply_config_action(config, "set_tags", {"topics": ["x" * 41]})
 
 
 def test_apply_config_action_sets_tag_library_from_literal_backslash_n():
@@ -726,6 +806,125 @@ def test_source_payload_parses_rss_feed(monkeypatch):
     assert result["ok"] is True
     assert result["count"] == 1
     assert result["sample_title"] == "First item"
+    response_schema = result["response_schemas"][0]
+    assert response_schema["source_id"] == "rss"
+    assert response_schema["catalog_type"] == "rss"
+    assert response_schema["capture_status"] == "captured"
+    assert {field["path"] for field in response_schema["upstream"]["fields"]} >= {
+        "entries",
+        "entries.title",
+        "entries.link",
+    }
+    assert "sample_title" in {
+        field["path"] for field in response_schema["normalized"]["fields"]
+    }
+
+
+def test_source_test_propagates_member_public_network_policy(monkeypatch):
+    seen = []
+
+    def fake_fetch(url, *, headers=None, enforce_public_network=False):
+        seen.append((url, enforce_public_network))
+        return """<?xml version="1.0"?>
+<rss version="2.0"><channel><item><title>Safe</title></item></channel></rss>"""
+
+    monkeypatch.setattr("src.ui.server._fetch_text", fake_fetch)
+
+    run_source_test({
+        "source_type": "rss",
+        "url": "https://example.com/feed.xml",
+        "enforce_public_network": True,
+    })
+
+    assert seen == [("https://example.com/feed.xml", True)]
+
+
+def test_source_test_connects_to_validated_ip_with_original_host_and_sni(monkeypatch):
+    feed = b"""<?xml version="1.0"?>
+<rss version="2.0"><channel><item><title>Safe</title></item></channel></rss>"""
+    calls = []
+
+    def resolve(_host, port, *, type):
+        return [
+            (socket.AF_INET, type, socket.IPPROTO_TCP, "", ("93.184.216.34", port))
+        ]
+
+    class FakeAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        @asynccontextmanager
+        async def stream(self, method, url, **kwargs):
+            calls.append((url, kwargs))
+            request = httpx.Request(
+                method,
+                url,
+                headers=kwargs.get("headers"),
+                extensions=kwargs.get("extensions"),
+            )
+            yield httpx.Response(200, content=feed, request=request)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(
+        network_policy,
+        "httpx",
+        SimpleNamespace(
+            AsyncClient=FakeAsyncClient,
+            Response=httpx.Response,
+            TransportError=httpx.TransportError,
+        ),
+        raising=False,
+    )
+
+    result = run_source_test(
+        {
+            "source_type": "rss",
+            "url": "https://feeds.example.test/feed.xml",
+            "enforce_public_network": True,
+        }
+    )
+
+    assert result["sample_title"] == "Safe"
+    assert calls[0][0] == "https://93.184.216.34/feed.xml"
+    assert calls[0][1]["headers"]["Host"] == "feeds.example.test"
+    assert calls[0][1]["extensions"]["sni_hostname"] == "feeds.example.test"
+
+
+def test_source_test_supports_reddit_user(monkeypatch):
+    seen = []
+
+    def fake_fetch_json(url, headers=None):
+        seen.append(url)
+        return {
+            "data": {
+                "children": [
+                    {
+                        "kind": "t3",
+                        "data": {
+                            "title": "User post",
+                            "permalink": "/r/test/comments/abc/user_post/",
+                        },
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr("src.ui.server._fetch_json", fake_fetch_json)
+
+    result = run_source_test(
+        {"source_type": "reddit_user", "username": "spez", "sort": "new"}
+    )
+
+    assert seen == ["https://www.reddit.com/user/spez/submitted.json?limit=5&sort=new&raw_json=1"]
+    assert result["ok"] is True
+    assert result["source_type"] == "reddit_user"
+    assert result["sample_title"] == "User post"
 
 
 def test_source_update_payload_validates_hours_and_index():

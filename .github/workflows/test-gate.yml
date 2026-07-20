@@ -1,0 +1,199 @@
+name: Test Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Run the API-only release smoke
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    outputs:
+      ui_impacted: ${{ steps.plan.outputs.ui_impacted }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: plan
+        name: Generate impact plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+            BASE_SHA="$(git rev-parse "$HEAD_SHA^")"
+          fi
+          python scripts/test_gate.py plan \
+            --base "$BASE_SHA" --head "$HEAD_SHA" --json \
+            --output /tmp/impact-plan.json | tee /tmp/impact-summary.json
+          echo "ui_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["ui_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
+          cat /tmp/impact-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: impact-plan
+          path: /tmp/impact-plan.json
+          retention-days: 7
+
+  backend-full:
+    needs: impact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: impact-plan
+          path: /tmp/impact
+      - id: gate
+        name: Full backend gate
+        run: |
+          set -o pipefail
+          uv run python scripts/test_gate.py run --mode full --scope backend \
+            --impact-plan /tmp/impact/impact-plan.json | tee /tmp/backend-summary.json
+      - if: always()
+        run: cat /tmp/backend-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-gate-failure
+          path: |
+            .test-results/**/*.log
+            .test-results/**/result.json
+          retention-days: 7
+
+  frontend-full:
+    needs: impact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - uses: actions/download-artifact@v4
+        with:
+          name: impact-plan
+          path: /tmp/impact
+      - id: gate
+        name: Full frontend gate
+        run: |
+          set -o pipefail
+          python scripts/test_gate.py run --mode full --scope frontend \
+            --impact-plan /tmp/impact/impact-plan.json | tee /tmp/frontend-summary.json
+      - if: always()
+        run: cat /tmp/frontend-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-gate-failure
+          path: |
+            .test-results/**/*.log
+            .test-results/**/result.json
+          retention-days: 7
+
+  ui-e2e:
+    needs: [impact, frontend-full]
+    if: needs.impact.outputs.ui_impacted == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chrome
+        working-directory: frontend
+      - uses: actions/download-artifact@v4
+        with:
+          name: impact-plan
+          path: /tmp/impact
+      - id: gate
+        name: UI release gate
+        run: |
+          set -o pipefail
+          python scripts/test_gate.py run --mode release --scope e2e \
+            --impact-plan /tmp/impact/impact-plan.json | tee /tmp/e2e-summary.json
+      - if: always()
+        run: cat /tmp/e2e-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-gate-failure
+          path: |
+            .test-results/**/*.log
+            .test-results/**/result.json
+          retention-days: 7
+
+  release-smoke:
+    needs: [impact, backend-full, frontend-full, ui-e2e]
+    if: always() && needs.backend-full.result == 'success' && needs.frontend-full.result == 'success' && needs.ui-e2e.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: impact-plan
+          path: /tmp/impact
+      - id: gate
+        name: Isolated API-only Docker smoke
+        run: |
+          set -o pipefail
+          uv run python scripts/test_gate.py run --mode release --scope smoke \
+            --impact-plan /tmp/impact/impact-plan.json | tee /tmp/smoke-summary.json
+      - if: always()
+        run: cat /tmp/smoke-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-test-gate-failure
+          path: |
+            .test-results/**/*.log
+            .test-results/**/result.json
+            .test-results/**/service-api-smoke-latest.json
+            .test-results/**/service-stack-smoke.json
+          retention-days: 7

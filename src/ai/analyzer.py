@@ -1,16 +1,26 @@
 """Content analysis using AI."""
 
 import asyncio
+import hashlib
+import json
 from typing import List, Optional
-from tenacity import retry, stop_after_attempt, wait_exponential
+import httpx
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 
 from .client import AIClient
 from .analysis_cache import ANALYSIS_PROMPT_VERSION, AnalysisCache
-from .prompts import CONTENT_ANALYSIS_SYSTEM, CONTENT_ANALYSIS_USER
+from .prompts import CONTENT_ANALYSIS_USER, content_analysis_system
 from .tokens import token_stage
 from .utils import parse_json_response
+from .summary_policy import normalize_item_summary, preserve_source_summary
 from ..models import ContentItem
+from ..services.content_presentation import build_content_presentation
 from ..tag_policy import (
     normalize_channel,
     normalize_entities,
@@ -23,12 +33,32 @@ DEFAULT_THROTTLE_SEC = 0.0
 DEFAULT_FEATURED_THRESHOLD = 7.5
 
 
+def _retryable_ai_exception(exc: BaseException) -> bool:
+    explicit = getattr(exc, "retryable", None)
+    if explicit is not None:
+        return bool(explicit)
+    if isinstance(exc, (ConnectionError, TimeoutError, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return False
+
+
 class ContentAnalyzer:
     """Analyzes content items using AI to determine importance."""
 
-    def __init__(self, ai_client: AIClient, cache: AnalysisCache | None = None):
+    def __init__(self, ai_client: AIClient, cache: AnalysisCache | None = None, *, topic_library: list[str] | None = None):
         self.client = ai_client
         self.cache = cache
+        self.topic_library = None if topic_library is None else list(topic_library)
+        self.usage = {
+            "item_count": 0,
+            "cache_hits": 0,
+            "ai_calls": 0,
+            "provider_attempts": 0,
+            "fallbacks": 0,
+            "skipped": 0,
+        }
 
     @staticmethod
     def _parse_json_response(response: str) -> Optional[dict]:
@@ -54,6 +84,21 @@ class ContentAnalyzer:
         config = getattr(self.client, "config", None)
         return str(getattr(config, "model", "unknown-model") or "unknown-model")
 
+    def _analysis_provider(self) -> str:
+        config = getattr(self.client, "config", None)
+        provider = getattr(config, "provider", "unknown-provider")
+        return str(getattr(provider, "value", provider) or "unknown-provider")
+
+    @staticmethod
+    def _analysis_source_id(item: ContentItem) -> str | None:
+        source_id = item.metadata.get("source_id")
+        if source_id:
+            return str(source_id)
+        source_ids = item.metadata.get("source_ids")
+        if isinstance(source_ids, list):
+            return next((str(value) for value in source_ids if value), None)
+        return None
+
     def _analysis_content_chars(self) -> int:
         config = getattr(self.client, "config", None)
         return max(100, int(getattr(config, "analysis_content_chars", 1000)))
@@ -62,7 +107,48 @@ class ContentAnalyzer:
         config = getattr(self.client, "config", None)
         return max(0, int(getattr(config, "analysis_comments_chars", 1500)))
 
+    def _summary_max_chars(self) -> int:
+        config = getattr(self.client, "config", None)
+        return max(100, min(500, int(getattr(config, "summary_max_chars", 200))))
+
+    def _analysis_max_output_tokens(self) -> int:
+        config = getattr(self.client, "config", None)
+        return max(256, min(2048, int(getattr(config, "analysis_max_output_tokens", 800))))
+
+    def _prompt_version(self, item: ContentItem) -> str:
+        system_prompt, user_prompt, _source_tags, _source_channel = (
+            self._render_analysis_prompt(item)
+        )
+        payload = {
+            "cache_version": f"{ANALYSIS_PROMPT_VERSION}:rendered-v1",
+            "system": system_prompt,
+            "user": user_prompt,
+            "model": self._analysis_model(),
+            "analysis_mode": str(item.metadata.get("analysis_mode") or "full"),
+            "analysis_content_chars": self._analysis_content_chars(),
+            "analysis_comments_chars": self._analysis_comments_chars(),
+            "summary_max_chars": self._summary_max_chars(),
+            "analysis_max_output_tokens": self._analysis_max_output_tokens(),
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return f"{ANALYSIS_PROMPT_VERSION}:rendered:{digest}"
+
     async def analyze_batch(self, items: List[ContentItem]) -> List[ContentItem]:
+        self.usage = {
+            "item_count": len(items),
+            "cache_hits": 0,
+            "ai_calls": 0,
+            "provider_attempts": 0,
+            "fallbacks": 0,
+            "skipped": 0,
+        }
         throttle_sec = self._get_throttle_sec()
         concurrency = self._get_concurrency()
         semaphore = asyncio.Semaphore(concurrency)
@@ -70,26 +156,53 @@ class ContentAnalyzer:
         async def _process(item: ContentItem, index: int, progress_task) -> ContentItem:
             async with semaphore:
                 try:
-                    if not (
+                    prompt_version = self._prompt_version(item)
+                    cache_hit = bool(
                         self.cache
                         and self.cache.apply(
                             item,
                             model=self._analysis_model(),
-                            prompt_version=ANALYSIS_PROMPT_VERSION,
+                            prompt_version=prompt_version,
                         )
-                    ):
-                        await self._analyze_item(item)
-                        if self.cache:
+                    )
+                    if cache_hit:
+                        self.usage["cache_hits"] += 1
+                        item.metadata["analysis_cache_hit"] = True
+                    else:
+                        before_ai_item_for_source = getattr(
+                            self.cache,
+                            "before_ai_item_for_source",
+                            None,
+                        )
+                        before_ai_item = getattr(
+                            self.cache,
+                            "before_ai_item",
+                            None,
+                        )
+                        if callable(before_ai_item_for_source):
+                            before_ai_item_for_source(
+                                provider=self._analysis_provider(),
+                                source_id=self._analysis_source_id(item),
+                            )
+                        elif callable(before_ai_item):
+                            before_ai_item(provider=self._analysis_provider())
+                        self.usage["ai_calls"] += 1
+                        analysis_succeeded = await self._analyze_item(item)
+                        if analysis_succeeded is False:
+                            self.usage["fallbacks"] += 1
+                        if self.cache and analysis_succeeded is not False:
                             self.cache.store(
                                 item,
                                 model=self._analysis_model(),
-                                prompt_version=ANALYSIS_PROMPT_VERSION,
+                                prompt_version=prompt_version,
                             )
                 except Exception as e:
                     print(f"Error analyzing item {item.id}: {e}")
                     item.ai_score = 0.0
-                    item.ai_reason = "Analysis failed"
+                    item.ai_reason = None
                     item.ai_summary = item.title
+                    item.metadata["analysis_status"] = "fallback"
+                    self.usage["fallbacks"] += 1
                 if throttle_sec > 0 and index < len(items) - 1:
                     await asyncio.sleep(throttle_sec)
             progress.advance(progress_task)
@@ -110,17 +223,13 @@ class ContentAnalyzer:
 
         return analyzed_items
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(min=2, max=10)
-    )
-    async def _analyze_item(self, item: ContentItem) -> None:
-        """Analyze a single content item.
+    def _render_analysis_prompt(
+        self,
+        item: ContentItem,
+    ) -> tuple[str, str, list[str], str]:
+        """Render the exact bounded prompt used for cache fingerprinting."""
 
-        Args:
-            item: Content item to analyze (modified in-place)
-        """
-        # Prepare content section
+        preserve_source_summary(item)
         content_section = ""
         content_limit = self._analysis_content_chars()
         comments_limit = self._analysis_comments_chars()
@@ -133,7 +242,6 @@ class ContentAnalyzer:
             else:
                 content_section = f"Content: {content_text[:content_limit]}"
 
-        # Prepare discussion section (comments, engagement)
         discussion_parts = []
         if item.content and "--- Top Comments ---" in item.content:
             comments_part = item.content.split("--- Top Comments ---", 1)[1]
@@ -141,6 +249,10 @@ class ContentAnalyzer:
                 discussion_parts.append(f"Community Comments:\n{comments_part[:comments_limit]}")
 
         meta = item.metadata
+        presentation = build_content_presentation(
+            item,
+            summary_max_chars=self._summary_max_chars(),
+        )
         engagement_items = []
         if meta.get("score"):
             engagement_items.append(f"score: {meta['score']}")
@@ -174,23 +286,61 @@ class ContentAnalyzer:
             fallback=item.source_type.value,
         )
 
-        # Generate user prompt
         user_prompt = CONTENT_ANALYSIS_USER.format(
             title=item.title,
-            source=f"{item.source_type.value}",
+            source_name=presentation["source"]["name"],
+            catalog_source_type=presentation["source"]["catalog_type"],
+            platform=presentation["source"]["platform"],
+            content_kind=presentation["content"]["content_kind"],
             author=item.author or "Unknown",
+            published_at=presentation["timing"]["published_at"],
             url=str(item.url),
             source_channel=source_channel,
             source_tags=", ".join(str(tag) for tag in source_tags) or "None",
             content_section=content_section,
-            discussion_section=discussion_section
+            discussion_section=discussion_section,
+            summary_limit=self._summary_max_chars(),
         )
+        return (
+            content_analysis_system(self.topic_library),
+            user_prompt,
+            source_tags,
+            source_channel,
+        )
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=2, max=10),
+        retry=retry_if_exception(_retryable_ai_exception),
+        reraise=True,
+    )
+    async def _analyze_item(self, item: ContentItem) -> bool:
+        """Analyze a single content item and meter every provider attempt."""
+
+        system_prompt, user_prompt, source_tags, source_channel = (
+            self._render_analysis_prompt(item)
+        )
+        before_ai_network_attempt = getattr(
+            self.cache,
+            "before_ai_network_attempt",
+            None,
+        )
+        before_ai_attempt = getattr(self.cache, "before_ai_attempt", None)
+        if callable(before_ai_network_attempt):
+            before_ai_network_attempt(
+                provider=self._analysis_provider(),
+                source_id=self._analysis_source_id(item),
+            )
+        elif callable(before_ai_attempt):
+            before_ai_attempt(provider=self._analysis_provider())
+        self.usage["provider_attempts"] += 1
 
         # Get AI completion
         with token_stage("analysis", item_id=item.id):
             response = await self.client.complete(
-                system=CONTENT_ANALYSIS_SYSTEM,
+                system=system_prompt,
                 user=user_prompt,
+                max_tokens=self._analysis_max_output_tokens(),
             )
 
         # Parse JSON response with robust fallback
@@ -198,10 +348,11 @@ class ContentAnalyzer:
         if result is None:
             print(f"Warning: could not parse analysis response for {item.id}, using defaults")
             item.ai_score = 0.0
-            item.ai_reason = "Analysis response parse failed"
+            item.ai_reason = None
             item.ai_summary = item.title
             item.ai_tags = []
-            return
+            item.metadata["analysis_status"] = "fallback"
+            return False
 
         # Update item with analysis results. Keep backward compatibility with
         # older prompts that returned "summary" instead of "summary_zh".
@@ -220,12 +371,22 @@ class ContentAnalyzer:
             result.get("channel") or result.get("category"),
             fallback=source_channel,
         )
-        item.ai_reason = result.get("reason", "")
+        item.ai_reason = None
         item.ai_summary_zh = result.get("summary_zh") or result.get("summary")
         item.ai_summary = result.get("summary") or item.ai_summary_zh or item.title
         normalized_topics = normalize_tags(
             [*topics, *source_tags],
             fallback=channel,
+            max_tags=6,
+            allow_custom=True,
+        )
+        item.metadata["inferred_topics"] = normalize_tags(
+            topics,
+            max_tags=6,
+            allow_custom=True,
+        )
+        item.metadata["configured_topics"] = normalize_tags(
+            source_tags,
             max_tags=6,
             allow_custom=True,
         )
@@ -242,4 +403,7 @@ class ContentAnalyzer:
         item.ai_is_featured = bool(
             result.get("is_featured", score >= DEFAULT_FEATURED_THRESHOLD)
         )
-        item.ai_action_suggestion = result.get("action_suggestion", "")
+        item.ai_action_suggestion = None
+        normalize_item_summary(item, self._summary_max_chars())
+        item.metadata["analysis_status"] = "ai"
+        return True

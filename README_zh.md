@@ -26,7 +26,7 @@
 
 > **二开说明**
 >
-> Inteliscope 是基于 [Thysrael/Horizon](https://github.com/Thysrael/Horizon) 的个人二次开发版本。当前版本保留上游的信息源抓取、AI 评分、摘要生成和分发链路，并加入私人配置、内容阅读器式 Web UI，以及面向个人信息追踪的本地工作流调整。
+> Inteliscope 是基于 [Thysrael/Horizon](https://github.com/Thysrael/Horizon) 的个人二次开发版本。当前多人 Service 主线是来源订阅、抓取、Feed 展示与用户历史留存；上游 AI 评分、摘要、分发及全局静态发布由旧 CLI/scheduler 作为可选兼容链路保留。
 
 ## 截图
 
@@ -70,7 +70,7 @@
 
 这个二开版本更偏个人日常阅读，而不是公开演示站。AI 很擅长降低噪声，但信息追踪仍然需要人的品味：你信任哪些信息源，哪些评论改变了你对事件的理解，哪些信号值得继续跟进。Inteliscope 保留 Horizon 的处理链路，并加入更克制的阅读器式 Web UI 和私人默认配置。
 
-## 功能特性
+## 功能特性（Service 与旧 CLI）
 
 - **📡 关注你的信息源** — 将 Hacker News、RSS、Reddit、Telegram、Twitter/X、GitHub Release / 用户动态，以及 OpenBB 金融新闻观察列表纳入同一条 pipeline
 - **🤖 把噪声变成阅读清单** — 使用 Claude、GPT、Gemini、DeepSeek、豆包、MiniMax 或任意 OpenAI 兼容 API，为每条内容评分 0-10
@@ -84,7 +84,9 @@
 - **🧙 从兴趣开始配置** — 通过交互式向导根据你的兴趣生成个性化信息源配置
 - **⚙️ 调校你的新闻雷达** — 在单个 JSON 配置中定制信息源、阈值、模型、语言和分发方式
 
-## 工作原理
+## 旧 CLI 可选处理与分发链路
+
+下图描述上游兼容的完整 CLI pipeline，不代表默认多人 Service 会启动摘要、推送、全局 archive 或 Graph。
 
 ```mermaid
 %%{init: {
@@ -217,8 +219,12 @@ cd Inteliscope
 cp .env.example .env
 # 当前仓库已提供 Inteliscope 二开版 data/config.json。
 # 编辑 .env 和 data/config.json，填入 API 密钥、信源、阈值和 Webhook。
+# 首次启动多人 Service API 前，必须在 .env 设置 HORIZON_AUTH_PASSWORD，
+# 或设置 HORIZON_AUTH_PASSWORD_HASH；否则不会创建 owner，页面无法登录。
+# 此时 /api/health/live 仍返回存活，但 /api/health/ready 会以 503
+# auth_not_configured 明确阻止流量进入不可登录的实例。
 
-# 按当前代码重新构建镜像，替换旧容器，并清理旧 build 缓存
+# 按当前代码重建 API + Worker，验证 build revision 与 readiness 后再清理旧缓存
 ./scripts/up-latest.sh
 
 # 手动运行一次抓取 / 打分 / 摘要 / 推送任务
@@ -228,10 +234,9 @@ docker compose run --rm horizon --hours 24
 docker compose run --rm horizon --hours 48
 ```
 
-`./scripts/up-latest.sh` 是推荐启动方式：默认执行
+`./scripts/up-latest.sh` 是本地推荐启动方式：默认执行
 `docker compose build --pull --no-cache`，再用
-`docker compose up -d --no-build --force-recreate --remove-orphans` 替换旧容器，并清理本项目旧
-dangling 镜像和旧 Docker build cache。不要再用裸 `docker compose up -d` 启动，否则可能继续跑旧镜像。
+`docker compose up -d --no-build --force-recreate --remove-orphans` 替换旧容器；只有 liveness 返回目标 revision 且 readiness 通过后，才清理本项目旧 dangling 镜像和 build cache。公网 RC 使用下文的分阶段发布脚本，不直接运行该本地脚本。
 如果要加快构建，可设 `HORIZON_BUILD_NO_CACHE=false`；如果要更激进清理 build cache，
 可设 `HORIZON_PRUNE_BUILD_CACHE_UNTIL=0h`。
 
@@ -285,7 +290,7 @@ cp data/config.example.json data/config.json  # 自定义信息源
 }
 ```
 
-`data/config.json` 里的任意字符串值都可以通过 `${VAR_NAME}` 引用环境变量。这适合用于 `ai.base_url`、私有 RSS 链接、Webhook 地址或自定义请求头模板等字段。
+旧 CLI 的 `data/config.json` 字符串仍可通过 `${VAR_NAME}` 引用环境变量。多人 catalog RSS URL 明确禁止环境变量占位，密钥只能保存为环境变量名引用，避免把 Worker 密钥拼入外发 URL。
 
 完整配置参考请查看[配置指南](docs/configuration.md)。
 
@@ -301,13 +306,18 @@ uv run horizon --hours 48   # 抓取最近 48 小时的内容
 #### 使用 Docker
 
 ```bash
-./scripts/up-latest.sh                         # 启动 scheduler + web UI
+./scripts/up-latest.sh                         # 默认启动 Service API + Worker
 docker compose run --rm horizon              # 使用默认 24 小时窗口
 docker compose run --rm horizon --hours 48   # 抓取最近 48 小时的内容
-docker compose logs -f horizon-scheduler     # 查看定时任务日志
+docker compose --profile scheduler up -d horizon-scheduler  # 显式启用 scheduler
+docker compose logs -f horizon-api horizon-worker           # 查看多人服务日志
 ```
 
-生成的日报将保存在 `data/summaries/` 目录中。私人 Web UI 默认通过 [http://localhost:8080](http://localhost:8080) 访问，数据来自 `data/site/`。
+旧 CLI 生成的日报保存在 `data/summaries/`。多人 Web UI 默认通过 [http://localhost:8080](http://localhost:8080) 访问，当前产品范围是来源订阅、抓取、Feed 展示和用户历史留存；Feed 与历史来自用户作用域的 `service.db` snapshot，不读取全局 `data/site/*.json`。
+
+默认 Service UI 已迁移为 React 三栏信息雷达。本地前端开发使用 `cd frontend && npm ci && npm run dev`，Vite 会把 `/api` 代理到 `127.0.0.1:8080`；`npm test`、`npm run typecheck`、`npm run e2e` 和 `npm run build` 分别执行单测、严格类型检查、三视口浏览器测试和生产构建。一个发布周期内可通过 `HORIZON_SERVICE_UI_VARIANT=legacy` 回退旧 Service UI，legacy CLI 静态发布链路不受影响。
+
+既有 Service 数据库升级到 Feed v2 时不会自动清空或迁移数据。当前部署已于 2026-07-11 完成显式迁移、Docker API + Worker 和浏览器验收；其他旧数据库仍必须在停服和备份后显式迁移，未完成时 readiness 会返回 `migration_required`。
 
 ## Inteliscope Docker 部署
 
@@ -317,11 +327,15 @@ docker compose logs -f horizon-scheduler     # 查看定时任务日志
 - AI 打分输出 `score`、`reason`、`tags`、`category`、`is_featured`、`summary_zh`、`action_suggestion`
 - `>= 7.5` 进入精选，`>= 8.5` 进入每日推送，推送最多 10 条
 - 支持 RSS/Atom、GitHub Releases、GitHub 用户/组织动态、Hacker News、Reddit、Telegram 公共频道、OSS Insight；并支持通过 Apify 订阅公开 X、Instagram、Facebook、Telegram 目标
-- 静态 Web UI 支持精选信息流、最近 20 条全部动态、历史归档、每日摘要、标签/来源/关键词/分数筛选和 localStorage 收藏
-- 右下角「关联分析」可读取预生成的 `article-graph.json`，展示高分文章之间的主题、实体、时间线和同事件关系；按钮点击不实时调用 AI
-- Web UI 内置配置后台，通过结构化表单维护信源、固定标签大类、个人标签、阈值、模型和 webhook，保存前会校验配置并备份旧文件；发布给朋友使用时可开启后台鉴权
+- 多人 React Service UI 使用侧边导航、信息列表和阅读详情三栏布局，支持精选/全部/稍后读/历史/日报、来源/关键词/未读筛选，以及打开原文、标记已读、复制摘要、收藏、稍后读和忽略；这些行为状态按用户保存在 Service DB
+- 阅读页右上角“获取新内容”和订阅页“立即刷新”都会创建同一个用户 Feed 刷新任务；重复点击或多标签页提交会复用已有 queued/running job。选中或打开条目不会自动标记已读，只有点击“标记已读”才写入 Service API
+- 订阅页提供每用户独立的“自动更新信息流”计划，默认关闭，可选 1/3/6/12/24 小时（默认 6 小时）；卡片显示上次/下次刷新、状态、产出、partial 问题和 Worker missing/stale 提示
+- 每条订阅还可独立开启自动单源抓取，周期可选 30 分钟/1/3/6/12/24 小时；它复用同一 Worker、任务去重、Source Health 和用户 Feed 单源合并，不启动 legacy scheduler
+- Service 历史由最近用户 snapshot 留存生成，不等同于旧 CLI 的全局 `data/site/history-data.json`；默认 UI 不提供站内原文预览、偏好反馈、Archive 分析、source-quality 或 Graph 入口
+- 旧 CLI 可选生成全局 `history-data.json`、`data/horizon.db` 和 `article-graph.json` 作为 legacy compatibility 输出，Service UI/API 不依赖这些文件
+- Web UI 内置登录、角色和配置后台，通过结构化表单维护信源、固定标签大类、个人标签、阈值、模型和 webhook；多人 Service API 始终要求登录
 - 标签强约束为几大类：AI Agent、AI 编程、模型发布、RAG/MCP、AI Infra、开源模型、推理框架、产品创业、研究论文、安全治理、行业动态
-- Docker Compose 默认每 30 分钟增量轮询，`08:30 Asia/Shanghai` 执行每日推送，挂载 `data/`、`logs/`、`.env`，并为 Web UI 配置健康检查
+- Docker Compose 默认只运行 API + Worker；scheduler、全局摘要和推送必须通过 `scheduler` profile 显式启用
 
 部署步骤：
 
@@ -331,10 +345,13 @@ cd Inteliscope
 cp .env.example .env
 
 # 在 .env 中配置 OPENAI_API_KEY 或其他模型密钥。
-# 发布给朋友时建议启用 HORIZON_AUTH_ENABLED，并设置后台密码。
+# 多人 Service API 始终要求登录；首次启动前必须在 .env 二选一设置：
+# HORIZON_AUTH_PASSWORD=<强密码>
+# HORIZON_AUTH_PASSWORD_HASH=<下文命令生成的 hash>
+# HORIZON_AUTH_ENABLED=false 只影响 legacy horizon-web，不会让 Service API 免登录。
 # 可在 Web UI 的「配置」页调整信源、标签、阈值和 webhook.enabled。
 ./scripts/up-latest.sh
-docker compose logs -f horizon-scheduler
+docker compose logs -f horizon-api horizon-worker
 ```
 
 手动执行与检查：
@@ -350,43 +367,71 @@ docker compose run --rm --entrypoint uv horizon run horizon-webhook --lang zh --
 open http://localhost:8080
 ```
 
-如果页面看不到信息，先点右上角「清除筛选」。当前页面读取的是 `data/site/radar-data.json`，真实内容需要先配置 `.env` 的模型 API Key 并手动运行一次：
+如果页面看不到信息，先确认已登录并在「订阅」页创建订阅、刷新当前用户信息流。多人 Service 页面读取 `service.db` 的用户 snapshot；下面的旧 CLI 命令只负责全局静态发布，不会替代用户 Feed：
 
 ```bash
 docker compose run --rm horizon --hours 24
 ```
 
-配置后台：
+多人 Service 控制台：
 
-- 打开 [http://localhost:8080](http://localhost:8080)，切到「配置」
+- 打开 [http://localhost:8080](http://localhost:8080)，切到「订阅」可立即刷新或设置默认关闭的每用户自动更新计划；启用前至少要有一个有效订阅
+- 自动更新只复用现有 Worker 和用户 Feed，固定周期为 1/3/6/12/24 小时；它不会启动 legacy scheduler、摘要、通知或全局静态发布
+- 在“我的订阅”编辑面板可为单个来源设置 30 分钟/1/3/6/12/24 小时自动抓取；手动和自动抓取会复用同一 active job
+- 切到「配置」可维护高级来源和全局设置
 - 用表单新增/修改 RSS、GitHub、Reddit、Telegram、Hacker News、标签库、AI 模型、阈值和 webhook
 - 点击对应表单的「保存」
 - 页面只显示环境变量是否已设置，不显示 `.env` 中的真实密钥
-- 如果发布给朋友，建议只让普通朋友访问信息流；需要改配置的人使用后台账号登录。
+- 所有成员都需要账号登录；`viewer` 只读，修改全局配置需要 `owner/admin`。
+- 默认订阅控制台只管理 dashboard、来源市场、我的订阅、任务和成员，不读取 Archive/source-quality。
 
-后台鉴权：
+账号初始化与 legacy Web 鉴权：
 
 ```bash
 # 生成密码 hash，替换命令中的 change-me。
 docker compose run --rm --entrypoint sh horizon -lc "python -m src.ui.auth hash-password 'change-me'"
 ```
 
-然后在 `.env` 中设置：
+多人 Service 至少需要设置 owner 用户名和密码 hash：
 
 ```bash
-HORIZON_AUTH_ENABLED=true
 HORIZON_AUTH_USER=admin
 HORIZON_AUTH_PASSWORD_HASH=<上一步生成的 hash>
-HORIZON_AUTH_SESSION_SECRET=<随机长字符串>
+HORIZON_AUTH_SESSION_TTL_SECONDS=604800
+HORIZON_AUTH_SECURE_COOKIE=true  # 仅 HTTPS 部署设为 true
 ```
 
-内测时也可以临时使用 `HORIZON_AUTH_PASSWORD=` 明文密码，但发布到公网或半公网时优先使用 `HORIZON_AUTH_PASSWORD_HASH`。启用后，信息流仍可读；`/api/config`、配置保存、信源测试等后台接口需要登录。
+内测时也可以临时使用非空的 `HORIZON_AUTH_PASSWORD=` 明文密码，但发布到公网或半公网时优先使用 `HORIZON_AUTH_PASSWORD_HASH`。`HORIZON_AUTH_ENABLED` 只保留给 `legacy-web` profile；它不会关闭多人 Service 的登录门禁。
 
-如果服务器已经有 Nginx，也可以不改应用鉴权，直接使用 Nginx Basic Auth 保护整站。配置模板和步骤见 [deploy/nginx/README_zh.md](deploy/nginx/README_zh.md)。这种方式最省事，但所有朋友会先输入同一套站点访问账号，权限不细分。
+Service readiness 以数据库中是否存在至少一个启用用户为准。fresh DB 未配置 bootstrap 密码时，`/api/health/ready` 返回统一的 `503 auth_not_configured`，而 `/api/health/live` 仍返回 200；owner 首次创建后，即使后续从环境中移除 bootstrap 明文密码，只要仍有 enabled user，readiness 就不会受影响。
+
+服务器可以额外使用 Nginx Basic Auth 保护整站。配置模板和步骤见 [deploy/nginx/README_zh.md](deploy/nginx/README_zh.md)。Basic Auth 只是外层门禁，不能替代应用登录和角色权限。
+
+### `rb.jiefs.top` RC1 发布
+
+> 当前公网发布已暂停，先完成本地 AI 概括、密钥管理和正式订阅闭环。以下命令仅保留为后续经再次授权后的发布路径。
+
+公网目标固定为 `vps-tokyo:/opt/inteliscope` 和 `https://rb.jiefs.top/`。先生成不会修改本机正式库的脱敏副本：
+
+```bash
+./.venv/bin/python scripts/prepare_service_deployment.py \
+  --source data/service.db \
+  --output /tmp/inteliscope-service-rc1.db
+```
+
+发布脚本要求工作区已经形成经授权的干净 release commit；它会先跑完整本地门槛，再用 `git archive` 上传候选：
+
+```bash
+./scripts/release_rc1.sh prepare /tmp/inteliscope-service-rc1.db
+./scripts/release_rc1.sh promote <release-id>
+./scripts/release_rc1.sh status
+```
+
+`prepare` 只在 VPS 的 `127.0.0.1:18080` 启动 API；确认 staging 后，`promote` 才停止旧 Web、保持旧 scheduler 关闭，并在 8080 启动 API + Worker。失败时使用 `./scripts/release_rc1.sh rollback <release-id>`，回滚不会恢复 scheduler。
 
 注意：
 
-- 所有密钥只放 `.env`，`data/config.json` 只写环境变量名，例如 `OPENAI_API_KEY`、`GITHUB_TOKEN`、`APIFY_TOKEN`、`HORIZON_WEBHOOK_URL`。
+- Service 配置页写入的 AI/Apify 密钥只放 Git/Docker 忽略的 `data/secrets.env`，权限为 `0600` 且永不回显；`data/config.json` 和 SQLite 只写环境变量引用。legacy/其他集成密钥仍可放 `.env`。
 - 未配置 `APIFY_TOKEN` 时保持 `sources.apify_social.enabled=false` 和 `sources.twitter.enabled=false`。
 - 未配置 `HORIZON_WEBHOOK_URL` 前保持 `webhook.enabled=false`。
 - 日志写入 `./logs`，也可以通过 `docker compose logs` 查看。
@@ -427,9 +472,33 @@ Horizon 支持通过多种方式发布和分发生成的日报：
 | **GitHub Pages 日报站点** | 将生成的 Markdown 复制到 `docs/`，通过 GitHub Pages 发布为每日更新的静态日报站点 |
 | **邮件订阅** | 通过 SMTP/IMAP 向订阅者发送日报，并自动处理订阅/退订请求 |
 | **Webhook 通知** | 在成功或失败时将结果推送到飞书、钉钉、Slack、Discord 或任意 Webhook 端点 |
-| **MCP Server** | 将抓取、打分、过滤、富化、摘要和完整 pipeline 暴露为工具，供 AI 助手调用 |
+| **Legacy 本地 MCP Server** | 将抓取、打分、过滤、富化、摘要和完整 pipeline 暴露为本地工具，不通过 Service `/mcp` 对外公开 |
 
 具体配置见[配置指南](docs/configuration.md)。MCP 工具说明和客户端接入见 [`src/mcp/README.md`](src/mcp/README.md) 与 [`src/mcp/integration.md`](src/mcp/integration.md)。
+
+## OpenClaw 本地助手
+
+Remote MCP 默认关闭，服务器不运行 Agent 或新模型。启用后，每个 `owner/admin/member/viewer` 都可在“助手连接”页创建自己的 90 天只读凭证，使用 10 个安全工具读取凭证所属用户的信息流、详情、订阅、来源指导、来源健康、任务和原因诊断。订阅变更需要独立授权的连接与服务器写开关。
+
+站内对话是另一条独立、默认关闭的连接：浏览器直接连接用户自己的 OpenClaw Gateway v4，Inteliscope 不代理 Gateway，也不接收首次 Gateway token。配对后的浏览器凭证按 Inteliscope 用户和 Gateway URL 隔离；本地只允许 `ws://127.0.0.1` 或 `ws://localhost`，远程用户专属 Gateway 必须使用 `wss://`。关闭对话开关会立即恢复复制交接模式，不影响 Remote MCP。
+
+本地开发可设置：
+
+```bash
+HORIZON_REMOTE_MCP_ENABLED=true
+HORIZON_REMOTE_MCP_PUBLIC_URL=http://127.0.0.1:8080/mcp
+HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=false
+HORIZON_OPENCLAW_CHAT_ENABLED=false
+HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
+```
+
+OpenClaw 的本地 Skill 安装、令牌保存和 MCP 配置见 [`integrations/openclaw/inteliscope/README.md`](integrations/openclaw/inteliscope/README.md)。
+
+可使用隔离的临时数据库、真实 MCP Client 和 100 次顺序调用验证延迟/RSS 门槛：
+
+```bash
+./.venv/bin/python scripts/benchmark_remote_mcp.py
+```
 
 ## 文档
 

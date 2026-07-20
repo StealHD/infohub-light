@@ -980,12 +980,13 @@ wheels = [
 
 [[package]]
 name = "horizon"
-version = "1.0.0"
+version = "1.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "beautifulsoup4" },
     { name = "ddgs" },
+    { name = "fastapi" },
     { name = "feedparser" },
     { name = "google-genai" },
     { name = "httpx" },
@@ -997,6 +998,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "tenacity" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -1014,11 +1016,12 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.39.0" },
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "ddgs", specifier = ">=7.0.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "feedparser", specifier = ">=6.0.11" },
     { name = "google-genai", specifier = ">=0.3.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "markdown", specifier = ">=3.10.2" },
-    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "mcp", specifier = ">=1.26,<2" },
     { name = "openai", specifier = ">=1.54.0" },
     { name = "openbb", marker = "extra == 'openbb'", specifier = ">=4.4.0" },
     { name = "openbb-benzinga", marker = "extra == 'openbb'", specifier = ">=1.6.0" },
@@ -1029,6 +1032,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=13.9.0" },
     { name = "tenacity", specifier = ">=9.0.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
 ]
 provides-extras = ["dev", "openbb"]
 

@@ -1,3 +1,4 @@
+<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=CONTEXT_READ_RULES.md -->
 # Inteliscope InfoHub Light 上下文读取规则
 
 ## 1. 文档目的
@@ -10,16 +11,31 @@
 3. 让每轮只读与当前任务相关的最小集合。
 4. 避免误读私密数据、历史大文件和运行日志。
 
-## 2. 默认必读文件
-对于绝大多数编码任务，默认只需要先读这 3 个文件：
+## 2. 开发 token 预算策略
+本文件是开发上下文 token 预算的唯一真源。后续 agent 应先根据任务类型选择最小读取集，再逐步扩展，不应把控制面文件当作每轮都要完整读取的背景材料。
+
+默认原则：
+
+1. 先用精准 `rg` 定位入口，再读文件片段。
+2. 默认读取控制文件不超过 3 个。
+3. 默认初始 Markdown 读取不超过 2 个。
+4. 默认搜索结果控制在 120 行以内；需要更多时改窄路径或关键词。
+5. 先跑目标测试，最后再跑全量测试。
+6. 只有控制面变化才更新控制文件；普通功能开发只追加短 `WORKLOG.md`。
+
+<!-- init-pro:section name=required-context -->
+## 3. 默认必读文件
+对于绝大多数普通编码任务，默认只需要先读这些内容：
 
 1. `PLAN.md`
-2. `API_CONTRACT.md`
-3. `project-defaults.yaml`
+2. `project-defaults.yaml`
+3. `CONTEXT_READ_RULES.md` 中匹配任务类型的条目
 
 随后只读当前任务相关代码和测试。
 
-## 3. 第二层按需读取文件
+`API_CONTRACT.md` 不再作为普通编码任务的默认必读文件。只有任务涉及 `/api/*`、CLI/public payload、错误 envelope、权限、job 状态、兼容合同或外部接口时才读取。
+
+## 4. 第二层按需读取文件
 只有在任务确实涉及对应边界时，再读以下文件：
 
 1. `AGENTS.md`
@@ -27,10 +43,11 @@
 3. `DECISION_LOG.md`
 4. `docs/dev/project-map.md`
 5. `docs/dev/hub-taxonomy-real-run.md`
-6. 当前任务相关代码
-7. 当前任务相关测试
+6. `API_CONTRACT.md`
+7. 当前任务相关代码
+8. 当前任务相关测试
 
-## 4. 默认不需要读取的文件
+## 5. 默认不需要读取的文件
 以下内容默认不应读入上下文：
 
 1. 虚拟环境目录
@@ -40,32 +57,54 @@
 5. `.env` / `.env.*`
 6. 本地 agent 设置文件
 7. `archive/**`
-8. `data/site/history-data.json`
-9. `data/site/history/**`
-10. `data/horizon.db`
+8. `archive/worklog/**`
+9. `data/site/**`
+10. `data/*.db`
 11. `logs/**`
-12. cached media
-13. generated summaries
-14. 不相关 Markdown
-15. 多数空壳包声明文件
+12. `uv.lock`
+13. `INIT_PRO_VALIDATION.md`
+14. cached media
+15. generated summaries
+16. 历史 smoke report
+17. 不相关 Markdown
+18. 多数空壳包声明文件
 
-## 5. 推荐读取策略
-### 5.1 普通编码任务
+如确实需要追溯历史，先用 `rg -n "关键词" archive/worklog` 搜索标题或小片段，不整文件读取归档。
+
+## 6. 任务类型最小读取集
+
+| 任务类型 | 默认最小读取集 |
+|---|---|
+| 普通代码小改 | `PLAN.md` 当前阶段摘要、`project-defaults.yaml` 相关段落、目标代码、目标测试 |
+| API / CLI / payload | `PLAN.md`、`API_CONTRACT.md` 相关章节、API/CLI 入口、对应 service、接口测试 |
+| Worker / job queue | `PLAN.md`、`project-defaults.yaml` cost/job 段、`src/services/worker.py` 或 `src/services/job_queue.py`、对应测试 |
+| Storage / migration | `PLAN.md`、`ARCHITECTURE_CONTRACT.md` archive/storage 边界、目标 storage 文件、对应测试 |
+| React UI | `UI_CONTRACT.md`、目标 `frontend/src/*` 文件、匹配的 Vitest/Playwright 测试 |
+| Legacy 静态 UI | `PLAN.md`、`project-defaults.yaml` output 段、目标 `src/ui/static/*` 文件、`tests/test_static_reading_ui.py` |
+| Scraper / adapter | `PLAN.md`、`ARCHITECTURE_CONTRACT.md` adapter 边界、`src/models.py` 相关模型、目标 scraper、匹配测试 |
+| Docker / 部署 | `PLAN.md`、`project-defaults.yaml` runtime/verification 段、目标 compose/script、light runtime 测试 |
+| 测试修复 | 失败测试、被测代码、最小相关 fixture；不要先读全仓合同 |
+| 控制面变更 | `AGENTS.md`、`PLAN.md`、`CONTEXT_READ_RULES.md`、目标控制文件、`project-defaults.yaml` |
+
+## 7. 推荐读取策略
+### 7.1 普通编码任务
 默认读取：
 
 1. `PLAN.md`
-2. `API_CONTRACT.md`
-3. `project-defaults.yaml`
-4. 当前要改的代码文件
-5. 当前要改的测试文件
+2. `project-defaults.yaml`
+3. 当前要改的代码文件
+4. 当前要改的测试文件
 
-### 5.2 架构或接口任务
+只有当普通编码任务碰到接口合同、权限、错误语义或公共 payload 时，再读取 `API_CONTRACT.md`。
+
+### 7.2 架构或接口任务
 再追加读取：
 
 1. `ARCHITECTURE_CONTRACT.md`
 2. `DECISION_LOG.md`
+3. `API_CONTRACT.md`
 
-### 5.3 API / 接口任务
+### 7.3 API / 接口任务
 默认读取：
 
 1. `PLAN.md`
@@ -77,7 +116,7 @@
 
 如涉及 breaking change、幂等、后台任务或错误格式，再追加 `DECISION_LOG.md` 和 `ARCHITECTURE_CONTRACT.md`。
 
-### 5.4 Adapter / 外部集成任务
+### 7.4 Adapter / 外部集成任务
 默认读取：
 
 1. `PLAN.md`
@@ -89,7 +128,7 @@
 
 如确认或推翻外部能力，必须追加 `DECISION_LOG.md`。
 
-### 5.5 规则 / 阈值 / 状态口径任务
+### 7.5 规则 / 阈值 / 状态口径任务
 默认读取：
 
 1. `PLAN.md`
@@ -99,7 +138,7 @@
 
 如规则语义、阈值含义或风险等级变化，必须追加 `DECISION_LOG.md`，并更新唯一真源中的规则说明。
 
-### 5.6 输出 / 报告 / 返回结构任务
+### 7.6 输出 / 报告 / 返回结构任务
 默认读取：
 
 1. `API_CONTRACT.md`
@@ -109,7 +148,7 @@
 
 如输出结构变化影响调用方，必须追加 `DECISION_LOG.md`。
 
-### 5.7 存储 / 后台任务任务
+### 7.7 存储 / 后台任务任务
 默认读取：
 
 1. `PLAN.md`
@@ -121,18 +160,18 @@
 
 如新增持久化边界、任务状态、重试、超时或并发策略，必须追加 `DECISION_LOG.md`。
 
-### 5.8 前端 / 页面任务
+### 7.8 前端 / 页面任务
 默认读取：
 
-1. `PLAN.md`
-2. `API_CONTRACT.md`
-3. `project-defaults.yaml`
-4. 当前页面或组件文件 under `src/ui/static/`
-5. 当前页面或组件测试
+1. React 任务读取 `UI_CONTRACT.md`、当前 `frontend/src/` 页面或组件及其 Vitest/Playwright 测试。
+2. Legacy UI 任务读取 `PLAN.md`、`project-defaults.yaml`、当前 `src/ui/static/` 文件及匹配测试。
+3. 不得把 legacy CSS/JS 当作 React 视觉系统真源。
 
-如当前阶段从“light reading UI”变为“正式复杂前端”，必须追加 `AGENTS.md`、`ARCHITECTURE_CONTRACT.md` 和 `DECISION_LOG.md`。
+只有当前端任务涉及接口字段、错误处理或权限边界时，再读取 `API_CONTRACT.md`。
 
-### 5.9 Scraper 任务
+如 React 视觉组件边界、主题、布局或验收门禁发生变化，必须更新 `UI_CONTRACT.md` 并追加 `DECISION_LOG.md`。
+
+### 7.9 Scraper 任务
 默认读取：
 
 1. `PLAN.md`
@@ -144,7 +183,23 @@
 
 不要默认读取其他 adapter。
 
-## 6. 每轮不应做的事
+## 8. 搜索和命令策略
+
+推荐：
+
+1. `rg -n "source_fetch" src/services src/api tests`
+2. `rg -n "class JobQueue|create_job" src/services tests/test_job_queue.py`
+3. `sed -n '1,220p' 目标文件`
+4. `pytest tests/test_x.py::test_name -q`
+
+避免：
+
+1. `rg -n "api|config|token" .`
+2. `find . -type f` 后整仓打开。
+3. 默认读取 `README*`、`docs/**`、`archive/**`。
+4. 失败时粘贴完整长日志；应只保留失败测试名、异常类型和关键 traceback。
+
+## 9. 每轮不应做的事
 除非当前任务明确要求，否则不要：
 
 1. 每轮重新读取全部 Markdown 控制文件。
@@ -153,3 +208,5 @@
 4. 重复总结整个项目背景。
 5. 新增额外 Markdown 设计文档。
 6. 读取 `.env` 或包含真实 token 的文件。
+7. 默认读取完整 `WORKLOG.md` 归档。
+8. 默认读取 `INIT_PRO_VALIDATION.md`；只在控制面校验失败时查看相关片段。

@@ -21,6 +21,7 @@ class HackerNewsScraper(BaseScraper):
 
     def __init__(self, config: HackerNewsConfig, http_client: httpx.AsyncClient):
         super().__init__(config.model_dump(), http_client)
+        self.hackernews_config = config
         self.base_url = "https://hacker-news.firebaseio.com/v0"
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
@@ -31,6 +32,7 @@ class HackerNewsScraper(BaseScraper):
             response = await self.client.get(f"{self.base_url}/topstories.json")
             response.raise_for_status()
             story_ids = response.json()
+            self.observe_upstream_response({"topstories": story_ids})
 
             fetch_count = self.config.get("fetch_top_stories", 30)
             story_ids = story_ids[:fetch_count]
@@ -47,7 +49,11 @@ class HackerNewsScraper(BaseScraper):
             valid_stories = []
 
             for story in stories:
-                if isinstance(story, Exception) or story is None:
+                if isinstance(story, Exception):
+                    if self.strict_errors:
+                        raise story
+                    continue
+                if story is None:
                     continue
                 if story.get("score", 0) < min_score:
                     continue
@@ -64,6 +70,8 @@ class HackerNewsScraper(BaseScraper):
 
             for story, comments in zip(valid_stories, all_comments):
                 if isinstance(comments, Exception):
+                    if self.strict_errors:
+                        raise comments
                     comments = []
                 item = self._parse_story(story, comments)
                 if item:
@@ -73,14 +81,20 @@ class HackerNewsScraper(BaseScraper):
 
         except httpx.HTTPError as e:
             logger.warning("Error fetching Hacker News stories: %s", e)
+            if self.strict_errors:
+                raise
             return []
 
     async def _fetch_story(self, story_id: int) -> Optional[dict]:
         try:
             response = await self.client.get(f"{self.base_url}/item/{story_id}.json")
             response.raise_for_status()
-            return response.json()
+            payload = response.json()
+            self.observe_upstream_response({"item": payload})
+            return payload
         except httpx.HTTPError:
+            if self.strict_errors:
+                raise
             return None
 
     async def _fetch_comments(self, comment_ids: List[int]) -> List[dict]:
@@ -93,6 +107,10 @@ class HackerNewsScraper(BaseScraper):
 
         comments = []
         for r in results:
+            if isinstance(r, Exception):
+                if self.strict_errors:
+                    raise r
+                continue
             if isinstance(r, dict) and r.get("text") and not r.get("deleted") and not r.get("dead"):
                 comments.append(r)
         return comments
@@ -138,5 +156,6 @@ class HackerNewsScraper(BaseScraper):
                 "type": story.get("type", "story"),
                 "discussion_url": hn_discussion_url,
                 "comment_count": len(comments),
+                **self._tag_metadata(self.hackernews_config),
             }
         )

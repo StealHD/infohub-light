@@ -125,6 +125,93 @@ def test_article_store_initializes_and_upserts_light_items_idempotently(tmp_path
     assert rows[0]["tags"] == ["Codex", "AI 编程"]
 
 
+def test_article_store_query_archive_items_filters_sorts_and_pages(tmp_path: Path):
+    store = ArticleStore(tmp_path)
+    first = _item(
+        "rss:item:1",
+        "Codex release",
+        score=9.2,
+        tags=["Codex", "AI 编程"],
+        category="AI",
+        published="2026-07-08T10:00:00+00:00",
+    )
+    first.ai_channel = "AI"
+    first.ai_topics = ["Codex", "AI 编程"]
+    first.ai_signal_strength = "strong"
+    first.ai_entities = ["OpenAI"]
+    second = _item(
+        "rss:item:2",
+        "Market note",
+        score=7.4,
+        tags=["Macro"],
+        category="投资",
+        published="2026-07-07T10:00:00+00:00",
+    )
+    second.ai_channel = "投资"
+    second.ai_topics = ["Macro"]
+    second.ai_signal_strength = "thin"
+    second.ai_entities = ["Fed"]
+    third = _item(
+        "rss:item:3",
+        "Hidden item",
+        score=9.9,
+        tags=["Codex"],
+        category="AI",
+        published="2026-07-09T10:00:00+00:00",
+    )
+    third.ai_channel = "AI"
+    third.ai_topics = ["Codex"]
+    store.initialize()
+    store.upsert_articles_light([first, second, third])
+
+    result = store.query_archive_items(
+        article_ids=["rss:item:1", "rss:item:2"],
+        channel="AI",
+        topic="Codex",
+        date_from="2026-07-01T00:00:00+00:00",
+        date_to="2026-07-31T23:59:59+00:00",
+        min_score=8.0,
+        limit=10,
+        offset=0,
+        sort="published_at",
+        order="desc",
+    )
+
+    assert result["total"] == 1
+    assert [item["id"] for item in result["items"]] == ["rss:item:1"]
+    assert result["items"][0]["entities"] == ["OpenAI"]
+
+
+def test_article_store_query_archive_items_returns_total_before_paging(tmp_path: Path):
+    store = ArticleStore(tmp_path)
+    items = []
+    for index in range(3):
+        item = _item(
+            f"rss:item:{index}",
+            f"Codex item {index}",
+            score=9.0 - index,
+            tags=["Codex"],
+            category="AI",
+            published=f"2026-07-0{index + 1}T10:00:00+00:00",
+        )
+        item.ai_channel = "AI"
+        item.ai_topics = ["Codex"]
+        items.append(item)
+    store.initialize()
+    store.upsert_articles_light(items)
+
+    result = store.query_archive_items(
+        article_ids=[item.id for item in items],
+        limit=1,
+        offset=1,
+        sort="score",
+        order="desc",
+    )
+
+    assert result["total"] == 3
+    assert [item["id"] for item in result["items"]] == ["rss:item:1"]
+
+
 def test_article_store_migrates_existing_light_table_taxonomy_columns(tmp_path: Path):
     db_path = tmp_path / "horizon.db"
     conn = sqlite3.connect(db_path)

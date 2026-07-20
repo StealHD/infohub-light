@@ -1,15 +1,30 @@
 // Inteliscope static UI: admin auth module.
+function normalizeAuthPayload(rawPayload) {
+  var payload = unwrapApiPayload(rawPayload);
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'authenticated')) {
+    return {
+      auth_enabled: true,
+      auth_configured: true,
+      authenticated: !!payload.authenticated,
+      username: payload.user && payload.user.username ? payload.user.username : '',
+      user: payload.user || null,
+    };
+  }
+  return {
+    auth_enabled: !!(payload && payload.auth_enabled),
+    auth_configured: !payload || payload.auth_configured !== false,
+    authenticated: payload && payload.auth_enabled ? !!payload.authenticated : true,
+    username: (payload && payload.username) || '',
+    user: payload && payload.user ? payload.user : null,
+  };
+}
+
 async function loadAuthStatus(options) {
   try {
-    var response = await fetch('./api/auth/status?ts=' + Date.now());
+    var response = await fetch('/api/auth/status?ts=' + Date.now());
     var payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || ('HTTP ' + response.status));
-    state.auth = {
-      auth_enabled: !!payload.auth_enabled,
-      auth_configured: payload.auth_configured !== false,
-      authenticated: payload.auth_enabled ? !!payload.authenticated : true,
-      username: payload.username || '',
-    };
+    if (!response.ok) throw new Error(apiErrorMessage(payload, 'HTTP ' + response.status));
+    state.auth = normalizeAuthPayload(payload);
   } catch (err) {
     if (!options || !options.silent) {
       setConfigMessage('读取登录状态失败：' + err.message, 'error');
@@ -19,6 +34,7 @@ async function loadAuthStatus(options) {
       auth_configured: true,
       authenticated: true,
       username: '',
+      user: null,
     };
   }
   applyAuthUi();
@@ -63,7 +79,7 @@ function renderAuthGate(message) {
   document.getElementById('configForms').innerHTML = [
     '<section class="config-card auth-card">',
     '<h3>登录后台</h3>',
-    '<p>未登录可以阅读信息流，但不能查看、测试或修改配置。</p>',
+    '<p>请先登录后查看信息流、测试信源或修改配置。</p>',
     '<form id="authLoginForm" class="config-grid">',
     fieldInput('username', '用户名', state.auth.username || 'admin', 'text'),
     fieldInput('password', '密码', '', 'password'),
@@ -74,13 +90,33 @@ function renderAuthGate(message) {
   setConfigMessage(message || '请输入后台账号密码。', '');
 }
 
+function showLoginGate(message) {
+  state.view = 'config';
+  state.data = null;
+  state.historyData = null;
+  document.getElementById('readingQueue').classList.add('hidden');
+  document.getElementById('readerPanel').classList.add('hidden');
+  document.getElementById('contextPanel').classList.add('hidden');
+  var subscriptionPanel = document.getElementById('subscriptionPanel');
+  if (subscriptionPanel) subscriptionPanel.classList.add('hidden');
+  var activityBanner = document.getElementById('feedActivityBanner');
+  if (activityBanner) {
+    activityBanner.innerHTML = '';
+    activityBanner.classList.add('hidden');
+  }
+  document.getElementById('configPanel').classList.remove('hidden');
+  document.getElementById('readerShell').classList.add('config-mode');
+  if (typeof updateActiveTab === 'function') updateActiveTab();
+  renderAuthGate(message || '请先登录后查看信息流。');
+}
+
 async function handleAuthLoginSubmit(event) {
   event.preventDefault();
   var form = event.target.closest('form');
   var payload = formPayload(form);
   setConfigMessage('正在登录...', '');
   try {
-    var response = await fetch('./api/auth/login', {
+    var response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -89,11 +125,22 @@ async function handleAuthLoginSubmit(event) {
       }),
     });
     var result = await response.json();
-    if (!response.ok) throw new Error(result.error || ('HTTP ' + response.status));
-    if (result.auth) state.auth = result.auth;
+    if (!response.ok) throw new Error(apiErrorMessage(result, 'HTTP ' + response.status));
+    state.auth = normalizeAuthPayload(result.auth || result);
+    if (typeof invalidateSubscriptionActions === 'function') invalidateSubscriptionActions();
+    if (typeof invalidateFeedDataLoads === 'function') invalidateFeedDataLoads();
+    if (typeof invalidateSourceHealthLoads === 'function') invalidateSourceHealthLoads(true);
+    if (typeof invalidateFeedActivityLoads === 'function') invalidateFeedActivityLoads(true);
+    if (typeof invalidateSubscriptionConsoleLoads === 'function') invalidateSubscriptionConsoleLoads(true);
+    state.data = null;
+    state.historyData = null;
+    state.itemState = {};
     state.configLoaded = false;
+    state.subscriptionConsole = null;
+    state.subscriptionConsoleLoaded = false;
     applyAuthUi();
-    await loadConfig();
+    state.view = 'all';
+    await loadData();
   } catch (err) {
     setConfigMessage('登录失败：' + err.message, 'error');
   }
@@ -102,15 +149,26 @@ async function handleAuthLoginSubmit(event) {
 async function handleAuthLogout() {
   setConfigMessage('正在退出后台...', '');
   try {
-    var response = await fetch('./api/auth/logout', { method: 'POST' });
+    var response = await fetch('/api/auth/logout', { method: 'POST' });
     var result = await response.json();
-    if (!response.ok) throw new Error(result.error || ('HTTP ' + response.status));
-    if (result.auth) state.auth = result.auth;
+    if (!response.ok) throw new Error(apiErrorMessage(result, 'HTTP ' + response.status));
+    state.auth = normalizeAuthPayload(result.auth || result);
+    if (typeof invalidateSubscriptionActions === 'function') invalidateSubscriptionActions();
+    if (typeof invalidateFeedDataLoads === 'function') invalidateFeedDataLoads();
+    if (typeof invalidateSourceHealthLoads === 'function') invalidateSourceHealthLoads(true);
+    if (typeof invalidateFeedActivityLoads === 'function') invalidateFeedActivityLoads(true);
+    if (typeof invalidateSubscriptionConsoleLoads === 'function') invalidateSubscriptionConsoleLoads(true);
     state.config = null;
     state.envStatus = [];
     state.configLoaded = false;
+    state.subscriptionConsole = null;
+    state.subscriptionConsoleLoaded = false;
+    state.data = null;
+    state.historyData = null;
+    state.itemState = {};
+    if (typeof stopFeedScheduleWatcher === 'function') stopFeedScheduleWatcher();
     applyAuthUi();
-    renderAuthGate('已退出后台。');
+    showLoginGate('已退出后台。');
   } catch (err) {
     setConfigMessage('退出失败：' + err.message, 'error');
   }
@@ -119,6 +177,17 @@ async function handleAuthLogout() {
 async function handleConfigUnauthorized(message) {
   await loadAuthStatus({ silent: true });
   if (state.auth.auth_enabled && !state.auth.authenticated) {
+    if (typeof invalidateSubscriptionActions === 'function') invalidateSubscriptionActions();
+    if (typeof invalidateFeedDataLoads === 'function') invalidateFeedDataLoads();
+    if (typeof invalidateSourceHealthLoads === 'function') invalidateSourceHealthLoads(true);
+    if (typeof invalidateFeedActivityLoads === 'function') invalidateFeedActivityLoads(true);
+    if (typeof invalidateSubscriptionConsoleLoads === 'function') invalidateSubscriptionConsoleLoads(true);
+    state.subscriptionConsole = null;
+    state.subscriptionConsoleLoaded = false;
+    state.data = null;
+    state.historyData = null;
+    state.itemState = {};
+    if (typeof stopFeedScheduleWatcher === 'function') stopFeedScheduleWatcher();
     renderAuthGate(message || '登录已失效，请重新登录后台。');
     return true;
   }

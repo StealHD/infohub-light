@@ -2,62 +2,75 @@
 
 这份说明面向日常使用和小范围分享。当前部署入口为：
 
-- 公网入口：`https://www.stealhd.xyz/`
+- 公网入口：`https://rb.jiefs.top/`
 - 服务器目录：`/opt/inteliscope`
 - Docker Web 端口：`127.0.0.1:8080`
 
 ## 1. 登录访问
 
-如果 Nginx 已开启 Basic Auth，首次访问会弹出浏览器原生登录框。
+多人 Service API 始终要求应用账号登录。如果 Nginx 另行开启 Basic Auth，首次访问还会先弹出浏览器原生登录框。
 
-- 用户名和密码由管理员单独提供。
-- 这个密码是站点访问密码，不是 AI API Key。
+- 应用账号由管理员创建，角色分为 `owner/admin/member/viewer`。
+- Nginx Basic Auth 是可选的站点外层密码，与应用账号和 AI API Key 都不同。
 - 浏览器会缓存 Basic Auth 登录状态；要退出通常需要关闭浏览器，或清理站点登录缓存。
 
-注意：如果只启用 Nginx Basic Auth，拿到站点密码的人可以访问整个 Inteliscope，包括「配置」页。需要区分只读用户和管理员时，再启用应用内后台鉴权。
+注意：Nginx Basic Auth 不能替代应用登录和角色权限；`viewer` 只读，成员管理与全局配置需要 `owner/admin`。
 
 ## 2. 信息流页面
 
 顶部标签用于切换阅读视图：
 
 - `精选`：今天达到精选阈值的内容，适合默认扫读。
-- `个人关注`：带个人标签的内容，不一定参与 AI 行业评分。
 - `全部`：今天进入信息流的所有内容。
-- `稍后读`：本机浏览器保存的待读列表，只存在当前浏览器 localStorage。
-- `历史`：昨天及更早的归档内容，今天内容不会立刻进入历史。
+- `稍后读`：当前账号标记为稍后读的条目，状态保存在 Service DB。
+- `历史`：从当前用户最近 snapshot 留存中回看已经离开最新 Feed 的条目。
 - `日报`：达到每日推送阈值的内容。
+- `订阅`：管理公共源市场、我的订阅、私有源、刷新任务和成员（按角色显示）。
 - `配置`：维护信源、标签、AI 模型、阈值和推送设置。
 
 左侧筛选支持：
 
 - 关键词搜索：匹配标题、摘要、理由、标签。
 - 最低分：按 AI 分数过滤。
-- 标签：包含 AI 固定大类和个人标签。
+- 频道/主题：按 Hub taxonomy 筛选。
 - 来源：按具体信源过滤。
-- 只看收藏：只显示本机收藏内容。
+- 只看收藏：只显示当前账号收藏的内容。
+- 隐藏已忽略、未读优先：使用当前账号的 item state。
 
 条目按钮：
 
 - `打开原文`：跳到原始链接。
-- `站内预览`：在当前页面预览原文。
-- `加入收藏`：保存到当前浏览器 localStorage。
-- `稍后读`：保存到当前浏览器 localStorage。
-- `复制摘要`：复制当前条目的中文摘要和判断。
-- 右下角 `关联分析`：读取预生成的 `article-graph.json`，展示高分文章之间的主题、实体、时间线或同事件关系；点击按钮不会实时调用 AI。
+- `标记已读`：记录当前账号已阅读该条目。
+- `复制摘要`：复制条目的摘要内容。
+- `收藏`：保存或取消当前账号的收藏状态。
+- `稍后读`：保存或取消当前账号的稍后读状态。
+- `忽略`：把条目标为已忽略，可配合“隐藏已忽略”筛选。
+
+选中首篇、切换条目或重新加载页面都不会自动标记已读；只有用户点击一次 `标记已读` 才 PATCH Service API。已读后按钮显示 `已读` 并禁用，不会再次点击取消。
+
+右上角 `获取新内容` 会创建 `user_feed_refresh`，不是只重新读取旧 snapshot。任务 queued/running 时按钮会禁用并轮询；完成后页面自动加载新 Feed，同一账号重复提交会复用已有任务。
+
+### 2.1 自动更新信息流
+
+在 `订阅` 页顶部使用“自动更新信息流”卡片：
+
+- 每个用户独立设置，默认关闭；viewer 只能查看。
+- 周期固定为 1、3、6、12 或 24 小时，默认 6 小时。周期只决定何时刷新，不缩短配置中的内容抓取时间窗口。
+- 首次开启会在下一个 Worker 调度 tick 创建任务；关闭后不再创建新任务，已经 running 的任务会继续完成。
+- 卡片显示上次自动刷新、任务状态、产出条数、`partial` 的问题摘要、下次刷新和 Worker 状态。Worker missing/stale、配额耗尽、无有效订阅或 source fetch 冲突会显示明确状态。
+- `立即刷新` 始终保留，并与自动任务共用去重、轮询、配额和 Feed 更新逻辑。
+
+默认 UI 不提供站内原文预览、偏好反馈、Archive 分析或 Graph 入口；订阅控制台也不请求 archive/source-quality。
 
 ## 3. 今日与历史规则
 
-Inteliscope 使用两个数据层：
+多人 Service 使用 `data/service.db` 中当前用户的 Feed snapshots：
 
-- `data/site/today-data.json`：今天累计抓到的内容。
-- `data/site/history-data.json`：历史归档内容。
+- `最新` 读取当前用户最新 snapshot。
+- `历史` 从当前账号自己的近期 snapshots 构造，避免把仍在最新 Feed 的内容重复显示。
+- 历史条目会补充当前账号最新的收藏、稍后读、已读和忽略状态；精确响应与留存算法以 `API_CONTRACT.md` 为准。
 
-规则：
-
-- 今天抓到的内容保留在今日文件里。
-- 到第二天再把前一天今日内容归档到历史。
-- 首页显示“今日 N 条 / 历史 M 条”。
-- 历史页只用于回看过去日期，不混入当天内容。
+旧 CLI 的 `data/site/history-data.json` 是全局静态发布兼容文件，与多人 Service 历史不是同一数据层；默认 Service UI 不读取它，也不按“第二天搬运文件”的规则生成历史。
 
 ## 4. 配置页面
 
@@ -65,7 +78,8 @@ Inteliscope 使用两个数据层：
 
 常用区域：
 
-- AI 模型：配置 provider、model、base URL、API Key 环境变量名。
+- 密钥管理：owner/admin 可新增或轮换 AI/Apify Key；真实值提交后永不回显。
+- AI 模型：配置 provider、model、Key 引用、单篇概括字数和输出 token 上限。
 - AI 固定大类：用于评分 Prompt 和精选逻辑，建议保持稳定。
 - 个人标签：自由添加个人偏好标签，只用于关注和筛选。
 - 评分阈值：控制精选、每日推送和首页最低分。
@@ -74,8 +88,9 @@ Inteliscope 使用两个数据层：
 
 保存规则：
 
-- 页面只保存配置结构，不保存真实密钥。
-- 真实密钥放在 `.env`。
+- SQLite 与配置 JSON 只保存密钥引用，不保存真实值。
+- 网页写入的真实值只进入本地 `data/secrets.env`，文件权限固定为 `0600`，页面以后只显示名称和“已设置”。
+- `data/secrets.env` 已被 Git 和 Docker 构建忽略；API 与 Worker 会在任务前热加载，轮换后无需重启。
 - 后台会校验 URL、标签、环境变量名和订阅类型。
 - 保存失败时页面会返回原因。
 
@@ -106,48 +121,27 @@ AI Key 主要用于：
 
 - 给内容打 0-10 分。
 - 生成中文摘要。
-- 生成推荐理由。
-- 生成“我该关注什么”。
+- 生成内容判断理由。
 - 归类到固定大类。
 - 判断是否进入精选和每日推送。
 
+默认单篇只发送最多 1000 字正文和 1500 字评论，模型输出最多 800 token；最终概括硬限制为 200 字。模型失败、空响应或“仅收集”模式会回退到来源摘要、正文片段或标题，Feed 不会出现空概括。
+
 个人标签不会进入行业评分 Prompt；它只表达个人偏好和筛选需求。
 
-## 7. 文章关联分析
+## 7. Service 与旧 CLI 数据边界
 
-关联分析默认关闭，适合管理员确认成本后再开启。
+当前多人 Service 的产品边界是信息获取和 Feed 留存：
 
-开启后系统会：
+- Service UI/API 只以用户 `service.db` snapshot 作为 latest/history 数据源。
+- Archive analytics、source-quality、偏好 feedback 和 Graph 仅保留兼容接口，不驱动默认 UI、Feed 排序或个性化推荐。
+- `/api/archive/graph` 固定返回 disabled 安全空响应，Service 页面没有 Graph 入口。
 
-- 把分析后的轻量文章索引写入 `data/horizon.db`。
-- 默认只处理高分精品文章。
-- 可选抓取少量原文全文，失败只记日志，不影响信息流。
-- 基于标题、摘要、标签、实体和发布时间生成关系边。
-- 输出 `data/site/article-graph.json` 给右下角按钮读取。
-
-最小配置：
-
-```json
-{
-  "premium_analysis": {
-    "enabled": true,
-    "full_fetch_score_threshold": 8.5,
-    "max_full_fetch_per_run": 10
-  },
-  "article_graph": {
-    "enabled": true,
-    "premium_score_threshold": 8.5,
-    "relation_top_k": 3,
-    "min_relation_score": 0.55
-  }
-}
-```
-
-第一版不做 embedding、不做实时模型分析、不做大图谱，只服务右下角的决策面板。
+旧 CLI/scheduler 可选继续生成全局 `data/site/history-data.json`、`data/horizon.db` 和 `data/site/article-graph.json`。这些是 legacy compatibility 输出，只由旧 publisher 使用，不会被多人 Service UI/API 当作兜底数据源。
 
 ## 8. 每日推送
 
-默认规则：
+以下是旧 CLI/scheduler 的可选分发规则，不属于默认 Service 信息获取与 Feed 留存链路：
 
 - 时区：`Asia/Shanghai`
 - 每天 `08:30` 生成每日推送。
@@ -174,7 +168,7 @@ docker compose logs -f horizon-scheduler
 
 ```bash
 ssh vps-tokyo
-cd /opt/inteliscope
+cd /opt/inteliscope/current
 ```
 
 查看服务：
@@ -186,13 +180,13 @@ docker compose ps
 查看日志：
 
 ```bash
-docker compose logs -f horizon-web horizon-scheduler
+docker compose logs -f horizon-api horizon-worker
 ```
 
-重新部署最新版：
+查看当前 release：
 
 ```bash
-./scripts/up-latest.sh
+./scripts/release_rc1.sh status
 ```
 
 检查本机反代目标：
@@ -200,6 +194,8 @@ docker compose logs -f horizon-web horizon-scheduler
 ```bash
 curl -I http://127.0.0.1:8080/
 ```
+
+公网发布采用根目录中的 `scripts/release_rc1.sh prepare/promote/rollback/status` 分阶段流程；不得在 VPS 从脏工作区直接执行 `up-latest.sh`。
 
 ## 10. Nginx 项目密码
 
@@ -235,8 +231,8 @@ sudo systemctl reload nginx
 验证：
 
 ```bash
-curl -I https://www.stealhd.xyz/
-curl -I -u friend:你的密码 https://www.stealhd.xyz/
+curl -I https://rb.jiefs.top/
+curl -I -u friend:你的密码 https://rb.jiefs.top/
 ```
 
 预期：
@@ -251,7 +247,13 @@ curl -I -u friend:你的密码 https://www.stealhd.xyz/
 - 点右上角清除筛选按钮。
 - 检查最低分是否过高。
 - 切到 `全部` 或 `历史` 视图。
-- 查看 `docker compose logs -f horizon-scheduler`。
+- 确认订阅已启用，并在「订阅」页刷新当前用户 Feed。
+- 查看 `docker compose logs -f horizon-api horizon-worker`。
+
+readiness 返回 `migration_required`：
+
+- 这表示当前访问的数据库尚未完成 Feed v2 迁移；迁移不会随应用启动自动执行，应以 migration marker/readiness 为准。
+- 在停服和备份后显式运行 `scripts/migrate_user_feed_v2.py --apply`，再检查外键与首次刷新。当前部署已于 2026-07-11 完成该流程，但其他数据库仍需分别执行。
 
 配置保存失败：
 
@@ -267,6 +269,6 @@ curl -I -u friend:你的密码 https://www.stealhd.xyz/
 
 AI 摘要没有生成：
 
-- 确认模型 API Key 已设置。
+- 在配置页确认所选 AI Key 显示“已设置”。
 - 检查 `ai.provider`、`ai.model`、`ai.base_url` 是否匹配。
-- 查看 scheduler 日志中的模型请求错误。
+- 查看 Worker 日志中的模型请求错误；Gemini 限流时会保留受长度限制的来源概括，并在后续刷新重试 AI。

@@ -7,6 +7,50 @@ title: Configuration Guide
 
 Horizon is configured through two files: a `.env` file for API keys and a `data/config.json` file for sources, AI provider, and filtering options.
 
+## Service acquisition, quotas, and retention
+
+Service jobs remain user-scoped, but production acquisition can reuse neutral content for a public/workspace source within one freshness window. Private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared. Both rollout flags default to `false`:
+
+```bash
+HORIZON_SHARED_ACQUISITION_ENABLED=false
+HORIZON_SHARED_ACQUISITION_MIN_TTL_MINUTES=5
+HORIZON_SHARED_ACQUISITION_MAX_TTL_MINUTES=60
+HORIZON_SHARED_ACQUISITION_FALLBACK_TTL_MINUTES=30
+HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=false
+```
+
+The shared TTL uses the shortest enabled source/Feed schedule and clamps it to the configured minimum/maximum. `source_test` always bypasses successful production content and does not publish into the shared pool, while still serializing same-source tests and charging a real upstream attempt.
+
+Default daily limits are 100 fetch jobs per user, 100 enabled subscriptions per user, 1,000 logical AI cache-miss items per user, 1,000 AI provider attempts per workspace, 100 fetch attempts per workspace, and 100 fetch attempts per provider/workspace. Network retries consume another attempt; cache hits do not.
+
+```bash
+INFOHUB_MAX_FETCH_JOBS_PER_DAY=100
+INFOHUB_MAX_SOURCES_PER_USER=100
+INFOHUB_MAX_AI_ITEMS_PER_DAY=1000
+INFOHUB_MAX_WORKSPACE_AI_ATTEMPTS_PER_DAY=1000
+INFOHUB_MAX_WORKSPACE_FETCH_ATTEMPTS_PER_DAY=100
+INFOHUB_MAX_PROVIDER_FETCH_ATTEMPTS_PER_DAY=100
+```
+
+The Worker runs retention at most hourly. Defaults are 90 days and at most 100 Feed snapshots per user, 7 days of source content, 30 days of AI cache, 90 days of usage events, and 14 days of terminal jobs; expired sessions are removed. The latest Feed snapshot per user and source snapshot per acquisition key are always preserved.
+
+```bash
+HORIZON_MAINTENANCE_INTERVAL_SECONDS=3600
+HORIZON_FEED_SNAPSHOT_RETENTION_DAYS=90
+HORIZON_MAX_FEED_SNAPSHOTS_PER_USER=100
+HORIZON_SOURCE_CONTENT_RETENTION_DAYS=7
+HORIZON_ANALYSIS_CACHE_RETENTION_DAYS=30
+HORIZON_USAGE_RETENTION_DAYS=90
+HORIZON_JOB_RETENTION_DAYS=14
+```
+
+Before enabling compact writes on an existing database, stop the Worker and inspect/apply Feed storage v3. The flag alone is not sufficient: while an existing database still requires v3, writers keep producing legacy storage-v1 snapshots and Worker retention stays deferred. A genuinely empty new database records the v3 marker during initialization. Apply creates a UTC-named `0600` SQLite backup, backfills hashes without rewriting legacy payload bodies, applies retention, and verifies integrity and foreign keys:
+
+```bash
+uv run python scripts/migrate_feed_storage_v3.py --dry-run --data-dir data
+uv run python scripts/migrate_feed_storage_v3.py --apply --data-dir data --backup-dir data/backups
+```
+
 ## AI Providers
 
 Configure which AI model scores and summarizes your content.
@@ -71,7 +115,7 @@ Common API key variable names:
 {
   "ai": {
     "provider": "gemini",
-    "model": "gemini-2.5-flash",
+    "model": "gemini-3.5-flash",
     "api_key_env": "GOOGLE_API_KEY",
     "throttle_sec": 0
   }
@@ -349,9 +393,11 @@ Telegram scraping uses the public web preview at `https://t.me/s/<channel>`, so 
 - `channel` — Telegram channel username only, without `@` or the full `https://t.me/` URL
 - `fetch_limit` — maximum number of recent messages to inspect per channel per run (default: `20`)
 
-### Twitter
+### Twitter (legacy compatibility)
 
 Requires an [Apify](https://apify.com) account. Set `APIFY_TOKEN` in your `.env` file. The free tier includes $5/month of credit, enough for roughly 20,000 tweets.
+
+This `sources.twitter` adapter belongs to the legacy CLI path and is disabled while building a user-scoped Service run. New Service/catalog X subscriptions must use `sources.apify_social` below.
 
 ```json
 {
@@ -370,7 +416,7 @@ Requires an [Apify](https://apify.com) account. Set `APIFY_TOKEN` in your `.env`
 ```
 
 - `users` — Twitter screen names to monitor, without the `@` prefix
-- `fetch_limit` — maximum tweets to fetch per run (across all users combined; minimum 100 due to actor constraint)
+- `fetch_limit` — maximum tweets retained by Inteliscope per subscription. Scweet requires an upstream request of at least 100 tweets, so smaller values are enforced locally after the Actor returns; Apify cost can still reflect the upstream run.
 - `fetch_reply_text` — when `true`, fetch actual reply bodies for important tweets and append them under `--- Top Comments ---` so the AI can factor in community discussion. Disabled by default.
 - `max_replies_per_tweet` — maximum reply lines to append per tweet (default: 3)
 - `max_tweets_to_expand` — cap on how many tweets get reply expansion per run, to control Apify credit usage (default: 10)
@@ -390,7 +436,7 @@ Use `sources.apify_social` when you want one UI-managed source list for public X
       "token_env": "APIFY_TOKEN",
       "timeout_seconds": 180,
       "actors": {
-        "x": { "actor_id": "altimis~scweet" },
+        "x": { "actor_id": "xquik/x-tweet-scraper" },
         "instagram": { "actor_id": "apify/instagram-api-scraper" },
         "facebook": { "actor_id": "whoareyouanas/facebook-group-scraper" },
         "telegram": { "actor_id": "thescrapelab/apify-telegram-scraper" }
@@ -433,6 +479,8 @@ Use `sources.apify_social` when you want one UI-managed source list for public X
   }
 }
 ```
+
+For Service-managed X subscriptions, `fetch_limit` is sent to the default Actor as the exact upstream `maxItems` value and is also enforced while parsing the dataset. A subscription with `fetch_limit: 1` therefore requests and retains at most one item. Per-source `secret_env` takes precedence over the global token list, so a catalog source can be pinned to a named backup Key without exposing its value.
 
 - `platform` — one of `x`, `instagram`, `facebook`, or `telegram`
 - `kind` — `x`: `profile` or `keyword`; `instagram`: `profile` or `hashtag`; `facebook`: `page`, `group`, or `post`; `telegram`: `channel`

@@ -28,6 +28,11 @@ docs/
 
 # Data (will be mounted as volume)
 .env
+data/
+data/service.db
+data/service.db-*
+data/config.json
+data/backups/
 data/summaries/
 data/subscribers.json
 data/site/
@@ -37,9 +42,10 @@ logs/
 *.egg-info/
 dist/
 build/
+frontend/node_modules/
+frontend/dist/
+src/ui/service_static/
 
 # Misc
 todo.txt
-*.svg
-*.tsx
 .claude/

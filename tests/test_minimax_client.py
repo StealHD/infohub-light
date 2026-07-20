@@ -278,6 +278,7 @@ class TestFactoryFunction:
         client = create_ai_client(config)
         assert isinstance(client, OpenAIClient)
         assert client.provider == "deepseek"
+        assert str(client.client.base_url).rstrip("/") == "https://api.deepseek.com"
 
     def test_minimax_provider_enum(self):
         assert AIProvider.MINIMAX.value == "minimax"

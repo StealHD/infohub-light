@@ -27,7 +27,7 @@ Respond with valid JSON only:
 
 If there are no duplicates at all, return: {{"duplicates": []}}"""
 
-CONTENT_ANALYSIS_SYSTEM = """You are the ranking editor for a private AI information radar.
+_CONTENT_ANALYSIS_SYSTEM_TEMPLATE = """You are the ranking editor for a private AI information radar.
 
 The reader cares about AI agents, Claude Code, Codex, Cursor, Devin, OpenAI,
 Anthropic, Google DeepMind, Meta AI, RAG, MCP, tool use, long context, AI
@@ -57,7 +57,7 @@ Chinese writing style:
 - Be concise and concrete.
 - Do not use marketing language or exaggerated claims.
 - Do not mechanically translate English.
-- Prioritize: what happened, why it matters, what the reader can do.
+- Prioritize what happened and the key facts.
 
 Private hub taxonomy:
 - channel MUST be selected exactly from this fixed list:
@@ -68,29 +68,42 @@ Private hub taxonomy:
 - signal_strength MUST be one of: {allowed_signal_strengths}
 - signal_type MUST be one of: {allowed_signal_types}
 - entities should contain concrete companies, people, projects, tickers, or places mentioned in the item.
-""".format(
-    allowed_channels=ALLOWED_CHANNELS_TEXT,
-    allowed_tags=ALLOWED_TAGS_TEXT,
-    allowed_signal_strengths=ALLOWED_SIGNAL_STRENGTHS_TEXT,
-    allowed_signal_types=ALLOWED_SIGNAL_TYPES_TEXT,
-)
+"""
+
+
+def content_analysis_system(topic_library: list[str] | tuple[str, ...] | None = None) -> str:
+    if topic_library is None:
+        allowed_tags = ALLOWED_TAGS_TEXT
+    else:
+        allowed_tags = "、".join(str(topic).strip() for topic in topic_library if str(topic).strip()) or "No configured preferred topics"
+    return _CONTENT_ANALYSIS_SYSTEM_TEMPLATE.format(
+        allowed_channels=ALLOWED_CHANNELS_TEXT,
+        allowed_tags=allowed_tags,
+        allowed_signal_strengths=ALLOWED_SIGNAL_STRENGTHS_TEXT,
+        allowed_signal_types=ALLOWED_SIGNAL_TYPES_TEXT,
+    )
+
+
+CONTENT_ANALYSIS_SYSTEM = content_analysis_system()
 
 CONTENT_ANALYSIS_USER = """Analyze the following content and provide a JSON response with:
 - score: number from 0 to 10.
-- reason: concise Chinese reason for the score; mention source credibility and discussion value when relevant.
 - channel: one top-level hub channel.
 - topics: 1-6 reading topics.
 - signal_strength: strong, developing, or thin.
 - signal_type: release, funding, market_move, opinion, personal_update, risk, tutorial, opportunity, or other.
 - entities: 0-8 concrete companies, people, projects, tickers, or places.
 - is_featured: boolean, true when score >= 7.5.
-- summary_zh: 150-250 Chinese characters, explaining what happened, why it matters, and what the reader can do.
-- action_suggestion: one short Chinese sentence about whether to read, test, save, compare, or share.
+- summary_zh: 简体中文简要概括，不超过 {summary_limit} 个中文字符；只说明发生了什么和关键事实。
 
 Content:
 Title: {title}
-Source: {source}
+Source name: {source_name}
+Catalog source type: {catalog_source_type}
+Platform: {platform}
+Content kind: {content_kind}
 Author: {author}
+Published at: {published_at}
 URL: {url}
 Configured source channel: {source_channel}
 Configured source topics: {source_tags}
@@ -100,15 +113,13 @@ Configured source topics: {source_tags}
 Respond with valid JSON only:
 {{
   "score": <number>,
-  "reason": "<explanation>",
   "channel": "<channel>",
   "topics": ["<topic1>", "<topic2>", ...],
   "signal_strength": "<strong|developing|thin>",
   "signal_type": "<release|funding|market_move|opinion|personal_update|risk|tutorial|opportunity|other>",
   "entities": ["<entity1>", "<entity2>", ...],
   "is_featured": <true-or-false>,
-  "summary_zh": "<150-250字中文摘要>",
-  "action_suggestion": "<what-to-do-next>"
+  "summary_zh": "<不超过{summary_limit}个中文字符的简要概括>"
 }}"""
 
 CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.

@@ -319,8 +319,8 @@ def clean_custom_tag(value: object) -> str:
     tag = re.sub(r"\s+", " ", str(value or "").strip().lstrip("#").strip())
     if not tag:
         raise ValueError("标签不能为空")
-    if len(tag) > 32:
-        raise ValueError("标签长度不能超过 32 个字符")
+    if len(tag) > 40:
+        raise ValueError("标签长度不能超过 40 个字符")
     if re.search(r"[,，\n\r\t<>$`{}]", tag):
         raise ValueError("标签不能包含逗号、换行或特殊符号")
     return tag

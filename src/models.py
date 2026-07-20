@@ -84,6 +84,8 @@ class AIConfig(BaseModel):
     enrichment_concurrency: int = 1
     analysis_content_chars: int = Field(default=1000, ge=100, le=10000)
     analysis_comments_chars: int = Field(default=1500, ge=0, le=20000)
+    summary_max_chars: int = Field(default=200, ge=100, le=500)
+    analysis_max_output_tokens: int = Field(default=800, ge=256, le=2048)
     enrichment_content_chars: int = Field(default=4000, ge=500, le=30000)
     languages: List[str] = Field(default_factory=lambda: ["en"])
     # Azure OpenAI specific; required when provider == AZURE
@@ -91,7 +93,26 @@ class AIConfig(BaseModel):
     api_version: Optional[str] = None
 
 
-class GitHubSourceConfig(BaseModel):
+class AnalysisMode(str, Enum):
+    """How a source item should participate in AI analysis."""
+
+    FULL = "full"
+    PERSONAL_ONLY = "personal_only"
+
+
+class ServiceSourceConfig(BaseModel):
+    """Service catalog identity carried through source adapters."""
+
+    source_id: Optional[str] = None
+    subscription_id: Optional[str] = None
+    source_key: Optional[str] = None
+    source_display_name: Optional[str] = None
+    catalog_source_type: Optional[str] = None
+    analysis_mode: AnalysisMode = AnalysisMode.FULL
+    source_priority: int = Field(default=0, ge=0, le=100)
+
+
+class GitHubSourceConfig(ServiceSourceConfig):
     """GitHub source configuration."""
 
     type: str  # "user_events", "repo_releases", etc.
@@ -105,7 +126,7 @@ class GitHubSourceConfig(BaseModel):
     personal_tags: List[str] = Field(default_factory=list)
 
 
-class HackerNewsConfig(BaseModel):
+class HackerNewsConfig(ServiceSourceConfig):
     """Hacker News configuration."""
 
     enabled: bool = True
@@ -113,7 +134,7 @@ class HackerNewsConfig(BaseModel):
     min_score: int = 100
 
 
-class RSSSourceConfig(BaseModel):
+class RSSSourceConfig(ServiceSourceConfig):
     """RSS feed source configuration."""
 
     name: str
@@ -124,9 +145,11 @@ class RSSSourceConfig(BaseModel):
     topics: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
+    enforce_public_network: bool = False
+    keep_latest_item: bool = False
 
 
-class RedditSubredditConfig(BaseModel):
+class RedditSubredditConfig(ServiceSourceConfig):
     """Configuration for monitoring a specific subreddit."""
 
     subreddit: str
@@ -143,7 +166,7 @@ class RedditSubredditConfig(BaseModel):
     personal_tags: List[str] = Field(default_factory=list)
 
 
-class RedditUserConfig(BaseModel):
+class RedditUserConfig(ServiceSourceConfig):
     """Configuration for monitoring a specific Reddit user."""
 
     username: str  # without u/ prefix
@@ -165,7 +188,7 @@ class RedditConfig(BaseModel):
     fetch_comments: int = 5  # top comments per post, 0 to disable
 
 
-class TelegramChannelConfig(BaseModel):
+class TelegramChannelConfig(ServiceSourceConfig):
     """Configuration for monitoring a specific Telegram channel."""
 
     channel: str  # channel username, e.g. "zaihuapd"
@@ -184,7 +207,7 @@ class TelegramConfig(BaseModel):
     channels: List[TelegramChannelConfig] = Field(default_factory=list)
 
 
-class TwitterConfig(BaseModel):
+class TwitterConfig(ServiceSourceConfig):
     """Twitter source configuration via Apify."""
 
     enabled: bool = True
@@ -207,13 +230,6 @@ class ApifySocialPlatform(str, Enum):
     TELEGRAM = "telegram"
 
 
-class AnalysisMode(str, Enum):
-    """How a source item should participate in AI analysis."""
-
-    FULL = "full"
-    PERSONAL_ONLY = "personal_only"
-
-
 class ApifyActorConfig(BaseModel):
     """Apify actor selection for one social platform."""
 
@@ -224,7 +240,7 @@ class ApifySocialActorsConfig(BaseModel):
     """Default Apify actors used by the social source adapter."""
 
     x: ApifyActorConfig = Field(
-        default_factory=lambda: ApifyActorConfig(actor_id="altimis~scweet")
+        default_factory=lambda: ApifyActorConfig(actor_id="xquik/x-tweet-scraper")
     )
     instagram: ApifyActorConfig = Field(
         default_factory=lambda: ApifyActorConfig(actor_id="apify/instagram-api-scraper")
@@ -237,7 +253,7 @@ class ApifySocialActorsConfig(BaseModel):
     )
 
 
-class ApifySocialSubscriptionConfig(BaseModel):
+class ApifySocialSubscriptionConfig(ServiceSourceConfig):
     """One public social subscription fetched through Apify."""
 
     platform: ApifySocialPlatform
@@ -251,6 +267,7 @@ class ApifySocialSubscriptionConfig(BaseModel):
     topics: List[str] = Field(default_factory=list)
     personal_tags: List[str] = Field(default_factory=list)
     analysis_mode: AnalysisMode = AnalysisMode.FULL
+    fetch_profile_details: bool = False
 
     @field_validator("token_env")
     @classmethod
@@ -327,7 +344,7 @@ class OpenBBWatchlist(BaseModel):
     topics: List[str] = Field(default_factory=list)
 
 
-class OpenBBConfig(BaseModel):
+class OpenBBConfig(ServiceSourceConfig):
     """OpenBB Platform source configuration.
 
     Uses the installed `openbb` SDK to fetch news and filings for a set of
@@ -345,7 +362,7 @@ class OpenBBConfig(BaseModel):
     filings_provider: str = "sec"
 
 
-class OSSInsightConfig(BaseModel):
+class OSSInsightConfig(ServiceSourceConfig):
     """OSS Insight trending repos source configuration.
 
     Pulls top star-gain repositories from the OSS Insight public API and

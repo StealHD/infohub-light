@@ -1,0 +1,19 @@
+:root {
+  font-family: var(--inteliscope-font-ui);
+  color: var(--foreground);
+  background: var(--background);
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+* { box-sizing: border-box; }
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
+body { min-height: 100dvh; overflow: hidden; }
+button, input, select, textarea { font: inherit; }
+button, a, summary, input, select, textarea { outline-color: var(--accent); }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.app-loading { min-height: 100dvh; display: grid; place-items: center; color: var(--muted); }.app-error { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+@keyframes spin { to { transform: rotate(360deg); } }

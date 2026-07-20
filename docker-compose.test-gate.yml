@@ -1,0 +1,37 @@
+services:
+  horizon-api:
+    image: inteliscope-service:test-gate
+    build:
+      context: .
+      args:
+        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-test-gate}
+        INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-test-gate}
+        INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-test-gate}
+    pull_policy: build
+    restart: "no"
+    ports:
+      - "127.0.0.1:${HORIZON_TEST_WEB_PORT:-18081}:8080"
+    volumes:
+      - "${HORIZON_TEST_DATA_DIR:-./.test-results/docker-smoke/data}:/app/data"
+      - "${HORIZON_TEST_LOG_DIR:-./.test-results/docker-smoke/logs}:/app/logs"
+    environment:
+      TZ: Asia/Shanghai
+      HORIZON_WEB_PORT: 8080
+      HORIZON_SERVICE_UI_VARIANT: react
+      HORIZON_REQUIRE_WORKER_FOR_READINESS: "false"
+      HORIZON_SQLITE_JOURNAL_MODE: DELETE
+      HORIZON_REMOTE_MCP_ENABLED: "false"
+      HORIZON_AUTH_USER: ${HORIZON_AUTH_USER:-admin}
+      HORIZON_AUTH_PASSWORD: ${HORIZON_AUTH_PASSWORD:?test-gate password is required}
+    entrypoint: ["uv", "run", "--no-sync", "horizon-api"]
+    command: ["--host", "0.0.0.0", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health/ready', timeout=3).read(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 5s
+    networks: [test-gate]
+
+networks:
+  test-gate: {}

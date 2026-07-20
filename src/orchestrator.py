@@ -2,10 +2,11 @@
 
 import asyncio
 from collections import defaultdict
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Dict
-from urllib.parse import urlparse
+from typing import Any, List, Dict
+from uuid import uuid4
 import httpx
 from rich.console import Console
 
@@ -16,6 +17,16 @@ from .services.webhook import WebhookNotifier
 from .services.daily_push import select_daily_push_items
 from .services.article_graph import build_article_graph_snapshot, write_article_graph_snapshot
 from .services.fulltext import FullTextFetcher
+from .services.feed_run import (
+    AcquisitionUsage,
+    AnalysisUsage,
+    FeedRunResult,
+    RunIssue,
+    SourceOutcome,
+)
+from .services.response_schema import extract_response_schema
+from .services.legacy_publisher import LegacyPublisher
+from .services.canonical_content import canonical_url_key
 from .storage.article_store import ArticleStore
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
@@ -32,6 +43,7 @@ from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot, token_stage
+from .ai.summary_policy import normalize_item_summary, preserve_source_summary
 from .tag_policy import (
     normalize_channel,
     normalize_signal_strength,
@@ -42,10 +54,30 @@ from .source_selection import SourceRef
 from .ui.site import build_site_payload, load_history_item_ids, write_static_site
 
 
+_SERVICE_EXECUTION: ContextVar[bool] = ContextVar("horizon_service_execution", default=False)
+
+
+def _is_retryable_source_exception(exc: BaseException) -> bool:
+    explicit = getattr(exc, "retryable", None)
+    if explicit is not None:
+        return bool(explicit)
+    if isinstance(exc, (ConnectionError, TimeoutError, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return False
+
+
 class HorizonOrchestrator:
     """Orchestrates the complete workflow for content aggregation and analysis."""
 
-    def __init__(self, config: Config, storage: StorageManager):
+    def __init__(
+        self,
+        config: Config,
+        storage: StorageManager,
+        *,
+        analysis_cache: Any | None = None,
+    ):
         """Initialize orchestrator.
 
         Args:
@@ -54,6 +86,10 @@ class HorizonOrchestrator:
         """
         self.config = config
         self.storage = storage
+        self._service_analysis_cache = analysis_cache
+        self._service_attempt_meter: Any | None = None
+        self._service_acquisition_coordinator: Any | None = None
+        self._last_analysis_usage = AnalysisUsage()
         self.console = Console()
         self.email_manager = EmailManager(config.email, console=self.console) if config.email else None
         self.webhook_notifier = (
@@ -61,6 +97,352 @@ class HorizonOrchestrator:
             if config.webhook and config.webhook.enabled
             else None
         )
+
+    def set_service_analysis_cache(self, cache: Any | None) -> None:
+        """Attach a user-scoped cache without changing legacy constructor callers."""
+        self._service_analysis_cache = cache
+
+    def set_service_attempt_meter(self, meter: Any | None) -> None:
+        """Attach a service-owned upstream attempt admission hook."""
+        self._service_attempt_meter = meter
+
+    def set_service_acquisition_coordinator(self, coordinator: Any | None) -> None:
+        """Attach the optional shared source-content coordinator."""
+        self._service_acquisition_coordinator = coordinator
+
+    def _service_acquisition_usage(self) -> AcquisitionUsage:
+        metrics = getattr(self._service_acquisition_coordinator, "metrics", None)
+        values = metrics.as_dict() if hasattr(metrics, "as_dict") else {}
+        return AcquisitionUsage(
+            cache_hits=int(values.get("cache_hits", 0)),
+            cache_misses=int(values.get("cache_misses", 0)),
+            upstream_attempts=int(values.get("upstream_attempts", 0)),
+            waits=int(values.get("waits", 0)),
+        )
+
+    async def execute(
+        self,
+        force_hours: int | None = None,
+        *,
+        enrich: bool = False,
+        legacy_sources: bool = False,
+        exclude_item_ids: set[str] | None = None,
+    ) -> FeedRunResult:
+        """Run the side-effect-free service pipeline without the global disk cache."""
+        token = _SERVICE_EXECUTION.set(not legacy_sources)
+        try:
+            return await self._execute_structured(
+                force_hours=force_hours,
+                enrich=enrich,
+                legacy_sources=legacy_sources,
+                exclude_item_ids=exclude_item_ids,
+            )
+        finally:
+            _SERVICE_EXECUTION.reset(token)
+
+    async def _execute_structured(
+        self,
+        force_hours: int | None = None,
+        *,
+        enrich: bool = False,
+        legacy_sources: bool = False,
+        exclude_item_ids: set[str] | None = None,
+    ) -> FeedRunResult:
+        """Fetch content and return a fresh structured result for services."""
+        started_at = datetime.now(timezone.utc)
+        run_id = f"run_{uuid4().hex}"
+        source_outcomes: tuple[SourceOutcome, ...] = ()
+        fetch_issues: tuple[RunIssue, ...] = ()
+        has_failed_sources = False
+        analysis_usage = AnalysisUsage()
+        try:
+            since = self._determine_time_window(force_hours)
+            if legacy_sources:
+                raw_items = await self.fetch_all_sources(since)
+                source_outcomes = (
+                    SourceOutcome(
+                        source_id="",
+                        subscription_id=None,
+                        source_key="legacy:all",
+                        analysis_mode="full",
+                        status="succeeded",
+                        fetched_count=len(raw_items),
+                    ),
+                )
+            else:
+                raw_items, source_outcomes = await self.fetch_service_sources(since)
+            fetch_issues = tuple(
+                outcome.issue
+                for outcome in source_outcomes
+                if outcome.issue is not None
+            )
+            has_failed_sources = any(
+                outcome.status == "failed" for outcome in source_outcomes
+            )
+            if source_outcomes and all(
+                outcome.status == "failed" for outcome in source_outcomes
+            ):
+                return FeedRunResult(
+                    run_id=run_id,
+                    status="failed",
+                    started_at=started_at.isoformat(),
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    source_outcomes=source_outcomes,
+                    issues=fetch_issues,
+                    acquisition_usage=self._service_acquisition_usage(),
+                )
+            merged_items = self.merge_cross_source_duplicates(raw_items)
+            for item in merged_items:
+                preserve_source_summary(item)
+            if exclude_item_ids:
+                merged_items = [
+                    item for item in merged_items if item.id not in exclude_item_ids
+                ]
+            if not merged_items:
+                return FeedRunResult(
+                    run_id=run_id,
+                    status=("partial" if has_failed_sources else "succeeded"),
+                    started_at=started_at.isoformat(),
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    source_outcomes=source_outcomes,
+                    issues=fetch_issues,
+                    acquisition_usage=self._service_acquisition_usage(),
+                )
+
+            if self._ai_enabled():
+                analysis_items, passthrough_items = self.partition_analysis_items(
+                    merged_items
+                )
+                analyzed_items = await self._analyze_content(analysis_items)
+                usage = self._last_analysis_usage
+                analysis_usage = AnalysisUsage(
+                    item_count=len(merged_items),
+                    cache_hits=usage.cache_hits,
+                    ai_calls=usage.ai_calls,
+                    provider_attempts=usage.provider_attempts,
+                    fallbacks=usage.fallbacks,
+                    skipped=len(passthrough_items),
+                )
+                result_items = analyzed_items + passthrough_items
+
+                threshold = self.config.filtering.featured_score_threshold
+                featured_items = [
+                    item
+                    for item in result_items
+                    if item.ai_score and item.ai_score >= threshold
+                ]
+                featured_items.sort(
+                    key=lambda item: item.ai_score or 0,
+                    reverse=True,
+                )
+                featured_items = await self.merge_topic_duplicates(featured_items)
+                await self._expand_twitter_discussion(featured_items)
+                if enrich:
+                    await self._enrich_important_items(featured_items)
+                daily_push_items = select_daily_push_items(
+                    featured_items,
+                    threshold=self.config.filtering.daily_push_score_threshold,
+                    limit=self.config.filtering.daily_push_limit,
+                )
+            else:
+                result_items = self.publish_without_ai(merged_items)
+                analysis_usage = AnalysisUsage(
+                    item_count=len(merged_items),
+                    skipped=len(merged_items),
+                )
+                featured_items = []
+                daily_push_items = []
+            for item in result_items:
+                normalize_item_summary(item, self.config.ai.summary_max_chars)
+        except Exception as exc:
+            issue = RunIssue(
+                stage="pipeline",
+                code=type(exc).__name__,
+                message=str(exc),
+                retryable=_is_retryable_source_exception(exc),
+            )
+            return FeedRunResult(
+                run_id=run_id,
+                status="failed",
+                started_at=started_at.isoformat(),
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                source_outcomes=source_outcomes,
+                issues=fetch_issues + (issue,),
+                analysis_usage=analysis_usage,
+                acquisition_usage=self._service_acquisition_usage(),
+            )
+        return FeedRunResult(
+            run_id=run_id,
+            status=("partial" if has_failed_sources else "succeeded"),
+            started_at=started_at.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            items=tuple(result_items),
+            featured_item_ids=tuple(item.id for item in featured_items),
+            daily_push_item_ids=tuple(item.id for item in daily_push_items),
+            source_outcomes=source_outcomes,
+            issues=fetch_issues,
+            analysis_usage=analysis_usage,
+            acquisition_usage=self._service_acquisition_usage(),
+        )
+
+    def _service_source_specs(self, client: httpx.AsyncClient) -> list[tuple[str, Any, Any]]:
+        """Build one strict scraper task per configured service source."""
+        specs: list[tuple[str, Any, Any]] = []
+
+        for source in self.config.sources.github:
+            if source.enabled:
+                specs.append((f"GitHub:{source.source_id or source.source_key or source.type}", GitHubScraper([source], client), source))
+        if self.config.sources.hackernews.enabled:
+            source = self.config.sources.hackernews
+            specs.append((f"HackerNews:{source.source_id or source.source_key or 'default'}", HackerNewsScraper(source, client), source))
+        for source in self.config.sources.rss:
+            if source.enabled:
+                specs.append((f"RSS:{source.source_id or source.source_key or source.name}", RSSScraper([source], client), source))
+
+        reddit = self.config.sources.reddit
+        if reddit.enabled:
+            for source in reddit.subreddits:
+                if source.enabled:
+                    config = reddit.model_copy(update={"enabled": True, "subreddits": [source], "users": []})
+                    specs.append((f"Reddit:{source.source_id or source.source_key or source.subreddit}", RedditScraper(config, client), source))
+            for source in reddit.users:
+                if source.enabled:
+                    config = reddit.model_copy(update={"enabled": True, "subreddits": [], "users": [source]})
+                    specs.append((f"Reddit:{source.source_id or source.source_key or source.username}", RedditScraper(config, client), source))
+
+        telegram = self.config.sources.telegram
+        if telegram.enabled:
+            for source in telegram.channels:
+                if source.enabled:
+                    config = telegram.model_copy(update={"enabled": True, "channels": [source]})
+                    specs.append((f"Telegram:{source.source_id or source.source_key or source.channel}", TelegramScraper(config, client), source))
+
+        apify = self.config.sources.apify_social
+        if apify and apify.enabled:
+            for source in apify.subscriptions:
+                if source.enabled:
+                    config = apify.model_copy(update={"enabled": True, "subscriptions": [source]})
+                    specs.append((f"Apify:{source.source_id or source.source_key or source.target}", ApifySocialScraper(config, client), source))
+
+        for _label, scraper, _source in specs:
+            scraper.strict_errors = True
+        return specs
+
+    async def fetch_service_sources(
+        self,
+        since: datetime,
+    ) -> tuple[list[ContentItem], tuple[SourceOutcome, ...]]:
+        """Fetch service sources independently and retain their outcomes."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            specs = self._service_source_specs(client)
+            results = await asyncio.gather(
+                *(
+                    self._fetch_service_source(label, scraper, source, since)
+                    for label, scraper, source in specs
+                ),
+                return_exceptions=True,
+            )
+
+        items: list[ContentItem] = []
+        outcomes: list[SourceOutcome] = []
+        for (label, scraper, source), result in zip(specs, results):
+            analysis_mode = getattr(source, "analysis_mode", "full")
+            if hasattr(analysis_mode, "value"):
+                analysis_mode = analysis_mode.value
+            source_id = str(getattr(source, "source_id", None) or "")
+            catalog_type = str(
+                getattr(source, "catalog_source_type", None)
+                or label.split(":", 1)[0].strip().lower()
+            )
+            upstream_schema = getattr(scraper, "upstream_response_schema", None)
+            origin_for = getattr(self._service_acquisition_coordinator, "origin_for", None)
+            acquisition_origin = origin_for(source_id) if callable(origin_for) else None
+            if isinstance(result, Exception):
+                issue = RunIssue(
+                    stage="fetch",
+                    code=str(getattr(result, "code", None) or type(result).__name__),
+                    message=str(result),
+                    retryable=_is_retryable_source_exception(result),
+                )
+                outcomes.append(
+                    SourceOutcome(
+                        source_id=source_id,
+                        subscription_id=getattr(source, "subscription_id", None),
+                        source_key=str(getattr(source, "source_key", None) or label),
+                        analysis_mode=str(analysis_mode or "full"),
+                        status="failed",
+                        fetched_count=0,
+                        issue=issue,
+                        catalog_type=catalog_type,
+                        capture_status="captured" if upstream_schema else "unavailable",
+                        upstream_schema=upstream_schema,
+                        normalized_schema=extract_response_schema([]),
+                    )
+                )
+                continue
+            fetched = result if isinstance(result, list) else []
+            source_priority = int(getattr(source, "source_priority", 0) or 0)
+            for item in fetched:
+                item.metadata["source_priority"] = source_priority
+            items.extend(fetched)
+            outcomes.append(
+                SourceOutcome(
+                    source_id=source_id,
+                    subscription_id=getattr(source, "subscription_id", None),
+                    source_key=str(getattr(source, "source_key", None) or label),
+                    analysis_mode=str(analysis_mode or "full"),
+                    status="succeeded",
+                    fetched_count=len(fetched),
+                    catalog_type=catalog_type,
+                    capture_status=(
+                        "cached"
+                        if acquisition_origin == "cache"
+                        else "captured"
+                        if upstream_schema and (upstream_schema.get("fields") or fetched)
+                        else "empty"
+                        if upstream_schema is not None
+                        else "unavailable"
+                    ),
+                    upstream_schema=upstream_schema,
+                    normalized_schema=extract_response_schema(
+                        [item.model_dump(mode="json") for item in fetched]
+                    ),
+                )
+            )
+        return items, tuple(outcomes)
+
+    async def _fetch_service_source(
+        self,
+        label: str,
+        scraper: Any,
+        source: Any,
+        since: datetime,
+    ) -> list[ContentItem]:
+        provider = label.split(":", 1)[0].strip().lower().replace(" ", "_")
+
+        async def fetch_upstream() -> list[ContentItem]:
+            meter = self._service_attempt_meter
+            before_fetch_attempt = getattr(meter, "before_fetch_attempt", None)
+            if callable(before_fetch_attempt):
+                before_fetch_attempt(
+                    provider=provider,
+                    source_id=str(getattr(source, "source_id", None) or ""),
+                )
+            return await self._fetch_with_progress(label, scraper, since)
+
+        coordinator = self._service_acquisition_coordinator
+        acquire = getattr(coordinator, "acquire", None)
+        if callable(acquire):
+            elapsed_hours = (
+                datetime.now(timezone.utc) - since.astimezone(timezone.utc)
+            ).total_seconds() / 3600
+            return await acquire(
+                source=source,
+                provider=provider,
+                window_hours=max(int(round(elapsed_hours)), 1),
+                fetch=fetch_upstream,
+            )
+        return await fetch_upstream()
 
     async def run(
         self,
@@ -71,245 +453,38 @@ class HorizonOrchestrator:
         incremental: bool = False,
         enrich: bool = True,
     ) -> None:
-        """Execute the complete workflow.
-
-        Args:
-            force_hours: Optional override for time window in hours
-            send_notifications: Whether to send email/webhook notifications
-            write_summaries: Whether to write Markdown daily summaries
-            incremental: If True, skip items already present in UI history
-            enrich: Whether to run second-stage background enrichment
-        """
+        """Run the legacy CLI/scheduler path through structured execution and publishing."""
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
-
-        # Check email subscriptions if configured
-        if (
-            self.email_manager
-            and self.config.email
-            and self.config.email.enabled
-            and self.config.email.imap_enabled
-        ):
-            self.console.print("📧 Checking for new email subscriptions...")
-            self.email_manager.check_subscriptions(self.storage)
-
+        publisher = LegacyPublisher(self)
         try:
-            # 1. Determine time window
-            since = self._determine_time_window(force_hours)
-            self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-            # 2. Fetch content from all sources
-            all_items = await self.fetch_all_sources(since)
-            self.console.print(f"📥 Fetched {len(all_items)} items from all sources\n")
-
-            if not all_items:
-                self.console.print("[yellow]No new content found. Exiting.[/yellow]")
-                return
-
-            # 3. Merge cross-source duplicates (same URL from different sources)
-            merged_items = self.merge_cross_source_duplicates(all_items)
-            if len(merged_items) < len(all_items):
-                self.console.print(
-                    f"🔗 Merged {len(all_items) - len(merged_items)} cross-source duplicates "
-                    f"→ {len(merged_items)} unique items\n"
-                )
-
-            if incremental:
-                known_ids = load_history_item_ids(self.storage.data_dir / "site")
-                if known_ids:
-                    new_items = [item for item in merged_items if item.id not in known_ids]
-                    skipped = len(merged_items) - len(new_items)
-                    if skipped:
-                        self.console.print(f"⏭️  Skipped {skipped} already-published items\n")
-                    merged_items = new_items
-                if not merged_items:
-                    self.console.print("[yellow]No unpublished content found. Exiting.[/yellow]")
-                    return
-
-            if not self._ai_enabled():
-                published_items = self.publish_without_ai(merged_items)
-                await self._write_web_ui(
-                    all_items=published_items,
-                    today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                    total_fetched=len(all_items),
-                )
-                self.console.print(
-                    "[dim]AI scoring disabled; skipped scoring, enrichment, summaries, notifications, and article graph.[/dim]\n"
-                )
-                self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
-                return
-
-            # 4. Analyze with AI
-            analysis_items, passthrough_items = self.partition_analysis_items(merged_items)
-            analyzed_items = await self._analyze_content(analysis_items)
-            analyzed_items = analyzed_items + passthrough_items
-            self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
-
-            # 5. Filter by featured score threshold
-            threshold = self.config.filtering.featured_score_threshold
-            important_items = [
-                item for item in analyzed_items
-                if item.ai_score and item.ai_score >= threshold
-            ]
-            important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)
-
-            self.console.print(
-                f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
+            publisher.prepare()
+            known_ids = (
+                load_history_item_ids(self.storage.data_dir / "site")
+                if incremental
+                else set()
             )
-
-            # 5.5 Semantic deduplication: drop items covering the same topic
-            deduped_items = await self.merge_topic_duplicates(important_items)
-            if len(deduped_items) < len(important_items):
-                self.console.print(
-                    f"🧹 Removed {len(important_items) - len(deduped_items)} topic duplicates "
-                    f"→ {len(deduped_items)} unique items\n"
-                )
-            important_items = deduped_items
-
-            # 5.6 Optional second-stage Twitter reply expansion + targeted re-analysis
-            await self._expand_twitter_discussion(important_items)
-
-            # Show per-sub-source selection breakdown
-            selected_counts: Dict[str, int] = defaultdict(int)
-            for item in important_items:
-                key = f"{item.source_type.value}/{self._sub_source_label(item)}"
-                selected_counts[key] += 1
-            for source_key, count in sorted(selected_counts.items()):
-                self.console.print(f"      • {source_key}: {count}")
-            self.console.print("")
-
-            # 6. Search related stories + enrich with background knowledge (2nd AI pass)
-            if enrich:
-                await self._enrich_important_items(important_items)
-            elif important_items:
-                self.console.print("[dim]Skipping background enrichment for incremental poll.[/dim]\n")
-
-            # 6.5 Build static web UI data from all analyzed items.
-            daily_push_items = select_daily_push_items(
-                important_items,
-                threshold=self.config.filtering.daily_push_score_threshold,
-                limit=self.config.filtering.daily_push_limit,
+            result = await self.execute(
+                force_hours=force_hours,
+                enrich=enrich,
+                legacy_sources=True,
+                exclude_item_ids=known_ids,
             )
-            await self._write_web_ui(
-                all_items=analyzed_items,
-                today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                total_fetched=len(all_items),
+            await publisher.publish(
+                result,
+                send_notifications=send_notifications,
+                write_summaries=write_summaries,
             )
-            await self._run_article_graph_pipeline(analyzed_items)
-
-            if not write_summaries and not send_notifications:
-                self.console.print("[dim]Skipping daily summary and notifications for incremental poll.[/dim]\n")
-                self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
-                return
-
-            # 7. Generate and save daily summaries for each configured language
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            for lang in self.config.ai.languages:
-                summarizer = DailySummarizer()
-                with token_stage("summary"):
-                    summary = await summarizer.generate_summary(
-                        important_items,
-                        today,
-                        len(all_items),
-                        language=lang,
-                    )
-                    push_summary = await summarizer.generate_summary(
-                        daily_push_items,
-                        today,
-                        len(all_items),
-                        language=lang,
-                    )
-
-                if write_summaries:
-                    # Save to data/summaries/
-                    summary_path = self.storage.save_daily_summary(today, summary, language=lang)
-                    self.console.print(f"💾 Saved {lang.upper()} summary to: {summary_path}\n")
-
-                    # Copy to docs/ for GitHub Pages
-                    try:
-                        post_filename = f"{today}-summary-{lang}.md"
-                        posts_dir = Path("docs/_posts")
-                        posts_dir.mkdir(parents=True, exist_ok=True)
-
-                        dest_path = posts_dir / post_filename
-
-                        # Add Jekyll front matter
-                        front_matter = (
-                            "---\n"
-                            "layout: default\n"
-                            f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
-                            f"date: {today}\n"
-                            f"lang: {lang}\n"
-                            "---\n\n"
-                        )
-
-                        # Strip leading H1 header to avoid duplication with Jekyll title
-                        summary_content = summary
-                        first_line = summary_content.strip().split("\n")[0]
-                        if first_line.startswith("# "):
-                            parts = summary_content.split("\n", 1)
-                            if len(parts) > 1:
-                                summary_content = parts[1].strip()
-
-                        with open(dest_path, "w", encoding="utf-8") as f:
-                            f.write(front_matter + summary_content)
-
-                        self.console.print(f"📄 Copied {lang.upper()} summary to GitHub Pages: {dest_path}\n")
-                    except Exception as e:
-                        self.console.print(f"[yellow]⚠️  Failed to copy {lang.upper()} summary to docs/: {e}[/yellow]\n")
-
-                # Send email if configured
-                if send_notifications and self.email_manager and self.config.email and self.config.email.enabled:
-                    self.console.print(f"📧 Sending {lang.upper()} email summary...")
-                    subscribers = self.storage.load_subscribers()
-                    subject = f"Horizon Summary ({lang.upper()}) - {today}"
-                    self.email_manager.send_daily_summary(summary, subject, subscribers)
-
-                # Send webhook notification if configured
-                if send_notifications and self.webhook_notifier:
-                    await self.webhook_notifier.send_daily_summary(
-                        summary=push_summary,
-                        important_items=daily_push_items,
-                        all_items_count=len(all_items),
-                        date=today,
-                        lang=lang,
-                        summarizer=summarizer,
-                    )
-
-            self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
-            usage = get_usage_snapshot()
-            if usage.total_tokens > 0:
+        except Exception as exc:
+            self.console.print(f"[bold red]❌ Error: {exc}[/bold red]")
+            try:
+                await publisher.notify_failure(
+                    exc,
+                    send_notifications=send_notifications,
+                )
+            except Exception as notify_exc:
                 self.console.print(
-                    f"\n🧮 Token usage this run: "
-                    f"{usage.total_tokens} tokens "
-                    f"(input: {usage.total_input_tokens}, output: {usage.total_output_tokens})"
+                    f"[yellow]⚠️  Failed to send failure notification: {notify_exc}[/yellow]"
                 )
-                for provider, u in sorted(usage.per_provider.items()):
-                    if u.total <= 0:
-                        continue
-                    self.console.print(
-                        f"   • {provider}: {u.total} tokens "
-                        f"(in: {u.input_tokens}, out: {u.output_tokens})"
-                    )
-                if usage.per_stage:
-                    self.console.print("   By stage:")
-                    for stage, u in sorted(usage.per_stage.items()):
-                        if u.total <= 0:
-                            continue
-                        self.console.print(
-                            f"   • {stage}: {u.total} tokens "
-                            f"(in: {u.input_tokens}, out: {u.output_tokens})"
-                        )
-
-        except Exception as e:
-            self.console.print(f"[bold red]❌ Error: {e}[/bold red]")
-
-            # Send webhook failure notification if configured
-            if send_notifications and self.webhook_notifier:
-                await self.webhook_notifier.send_failure(
-                    date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                    error_message=str(e),
-                )
-
             raise
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
@@ -371,8 +546,8 @@ class HorizonOrchestrator:
             passthrough_items = self.publish_without_ai(merged_items)
             published_items = passthrough_items
             self.console.print("[dim]AI scoring disabled; publishing fetched items without model analysis.[/dim]\n")
-        web_ui_updated = await self._write_web_ui(
-            all_items=published_items,
+        web_ui_updated = await LegacyPublisher(self).write_web_ui(
+            items=published_items,
             today=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             total_fetched=len(raw_items),
         )
@@ -526,29 +701,58 @@ class HorizonOrchestrator:
         Returns:
             List[ContentItem]: Deduplicated items
         """
-        def normalize_url(url: str) -> str:
-            parsed = urlparse(str(url))
-            # Strip www prefix, trailing slashes, and fragments
-            host = parsed.hostname or ""
-            if host.startswith("www."):
-                host = host[4:]
-            path = parsed.path.rstrip("/")
-            return f"{host}{path}"
-
         # Group by normalized URL
         url_groups: Dict[str, List[ContentItem]] = {}
         for item in items:
-            key = normalize_url(str(item.url))
+            key = canonical_url_key(item.url)
             url_groups.setdefault(key, []).append(item)
 
         merged = []
         for key, group in url_groups.items():
+            source_priority = max(
+                (
+                    int(item.metadata.get("source_priority") or 0)
+                    for item in group
+                ),
+                default=0,
+            )
+            source_ids = list(dict.fromkeys(
+                str(value)
+                for item in group
+                for value in [
+                    *(item.metadata.get("source_ids") or []),
+                    item.metadata.get("source_id"),
+                ]
+                if value
+            ))
+            subscription_ids = list(dict.fromkeys(
+                str(value)
+                for item in group
+                for value in [
+                    *(item.metadata.get("subscription_ids") or []),
+                    item.metadata.get("subscription_id"),
+                ]
+                if value
+            ))
+            source_keys = list(dict.fromkeys(
+                str(value)
+                for item in group
+                for value in [
+                    *(item.metadata.get("source_keys") or []),
+                    item.metadata.get("source_key"),
+                ]
+                if value
+            ))
             if len(group) == 1:
+                group[0].metadata["source_priority"] = source_priority
+                group[0].metadata["source_ids"] = source_ids
+                group[0].metadata["subscription_ids"] = subscription_ids
+                group[0].metadata["source_keys"] = source_keys
                 merged.append(group[0])
                 continue
 
-            # Pick the item with the richest content as primary
-            primary = max(group, key=lambda x: len(x.content or ""))
+            # Preserve the richest source payload; Feed finalization stabilizes identity.
+            primary = max(group, key=lambda item: len(item.content or ""))
 
             # Merge metadata and source info from other items
             all_sources = set()
@@ -565,6 +769,16 @@ class HorizonOrchestrator:
                         primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
 
             primary.metadata["merged_sources"] = list(all_sources)
+            primary.metadata["source_priority"] = source_priority
+            primary.metadata["source_ids"] = source_ids
+            primary.metadata["subscription_ids"] = subscription_ids
+            primary.metadata["source_keys"] = source_keys
+            if any(
+                item.metadata.get("analysis_mode") == "personal_only"
+                for item in group
+            ):
+                primary.metadata["analysis_mode"] = "personal_only"
+                primary.metadata["show_in_personal_feed"] = True
             merged.append(primary)
 
         return merged
@@ -690,7 +904,7 @@ class HorizonOrchestrator:
             f"   Re-analyzing {len(expanded)} Twitter items with reply context...\n"
         )
         ai_client = create_ai_client(self.config.ai)
-        analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache())
+        analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache(), topic_library=self.config.tags)
         await analyzer.analyze_batch(expanded)
 
     async def _enrich_important_items(self, items: List[ContentItem]) -> None:
@@ -739,7 +953,7 @@ class HorizonOrchestrator:
                     allow_custom=True,
                 )
                 item.ai_score = 0.0
-                item.ai_reason = "Personal-only item skipped AI analysis"
+                item.ai_reason = None
                 item.ai_summary = item.ai_summary or item.content or item.title
                 item.ai_summary_zh = item.ai_summary_zh or item.ai_summary
                 item.ai_channel = item.ai_channel or channel
@@ -749,7 +963,9 @@ class HorizonOrchestrator:
                 item.ai_signal_strength = item.ai_signal_strength or "thin"
                 item.ai_signal_type = item.ai_signal_type or "personal_update"
                 item.ai_is_featured = False
+                item.ai_action_suggestion = None
                 item.metadata["show_in_personal_feed"] = True
+                item.metadata["analysis_status"] = "personal_only"
                 passthrough_items.append(item)
             else:
                 analysis_items.append(item)
@@ -776,7 +992,7 @@ class HorizonOrchestrator:
                 allow_custom=True,
             )
             item.ai_score = 0.0
-            item.ai_reason = item.ai_reason or "AI scoring is disabled for this run."
+            item.ai_reason = None
             item.ai_summary = item.ai_summary or summary
             item.ai_summary_zh = item.ai_summary_zh or summary
             item.ai_channel = item.ai_channel or channel
@@ -791,16 +1007,26 @@ class HorizonOrchestrator:
                 item.metadata.get("signal_type"),
             )
             item.ai_is_featured = False
-            item.ai_action_suggestion = (
-                item.ai_action_suggestion or "打开原文后自行判断是否需要跟进。"
-            )
+            # New analysis and no-AI fallback runs no longer manufacture a
+            # suggested action.  The field remains serializable only so old
+            # snapshots can still be read during the compatibility window.
+            item.ai_action_suggestion = None
             item.metadata["scoring_disabled"] = True
+            item.metadata["analysis_status"] = (
+                "personal_only"
+                if item.metadata.get("analysis_mode") == "personal_only"
+                else "disabled"
+            )
             if item.metadata.get("analysis_mode") == "personal_only":
                 item.metadata["show_in_personal_feed"] = True
             published.append(item)
         return published
 
-    def _analysis_cache(self) -> AnalysisCache:
+    def _analysis_cache(self) -> AnalysisCache | None:
+        if self._service_analysis_cache is not None:
+            return self._service_analysis_cache
+        if _SERVICE_EXECUTION.get():
+            return None
         return AnalysisCache(self.storage.data_dir / "cache" / "analysis-cache.jsonl")
 
     async def _write_web_ui(
@@ -893,9 +1119,10 @@ class HorizonOrchestrator:
         self.console.print("🤖 Analyzing content with AI...")
 
         ai_client = create_ai_client(self.config.ai)
-        analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache())
-
-        return await analyzer.analyze_batch(items)
+        analyzer = ContentAnalyzer(ai_client, cache=self._analysis_cache(), topic_library=self.config.tags)
+        analyzed = await analyzer.analyze_batch(items)
+        self._last_analysis_usage = AnalysisUsage(**analyzer.usage)
+        return analyzed
 
     async def _generate_summary(
         self,

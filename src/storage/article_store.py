@@ -359,6 +359,67 @@ class ArticleStore:
         rows = self.connect().execute(sql, params).fetchall()
         return [self._article_row_to_dict(row) for row in rows]
 
+    def query_archive_items(
+        self,
+        *,
+        article_ids: list[str],
+        channel: str | None = None,
+        topic: str | None = None,
+        source: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        min_score: float = 0.0,
+        limit: int = 100,
+        offset: int = 0,
+        sort: str = "published_at",
+        order: str = "desc",
+    ) -> dict[str, Any]:
+        allowed_sort = {"published_at", "score", "source", "channel", "id"}
+        if sort not in allowed_sort:
+            raise ValueError("invalid_sort")
+        if order not in {"asc", "desc"}:
+            raise ValueError("invalid_order")
+        ids = sorted({str(article_id) for article_id in article_ids if article_id})
+        if not ids:
+            return {"items": [], "total": 0}
+
+        placeholders = ", ".join("?" for _ in ids)
+        clauses = [f"id IN ({placeholders})", "score >= ?"]
+        params: list[Any] = [*ids, float(min_score)]
+        if channel:
+            clauses.append("(channel = ? OR category = ?)")
+            params.extend([channel, channel])
+        if source:
+            clauses.append("(source = ? OR source_type = ?)")
+            params.extend([source, source])
+        if date_from:
+            clauses.append("published_at >= ?")
+            params.append(date_from)
+        if date_to:
+            clauses.append("published_at <= ?")
+            params.append(date_to)
+
+        rows = self.connect().execute(
+            f"SELECT * FROM articles_light WHERE {' AND '.join(clauses)}",
+            params,
+        ).fetchall()
+        items = [self._article_row_to_dict(row) for row in rows]
+        if topic:
+            items = [item for item in items if topic in (item.get("topics") or [])]
+
+        def sort_key(item: dict[str, Any]) -> tuple[Any, str]:
+            if sort == "score":
+                value: Any = float(item.get("score") or 0)
+            else:
+                value = item.get(sort) or ""
+            return value, str(item.get("id") or "")
+
+        items.sort(key=sort_key, reverse=order == "desc")
+        total = len(items)
+        start = max(int(offset), 0)
+        end = start + max(int(limit), 1)
+        return {"items": items[start:end], "total": total}
+
     def load_premium_candidates(
         self,
         *,

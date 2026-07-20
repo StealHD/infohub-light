@@ -1,15 +1,17 @@
+<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=AGENTS.md -->
 # Inteliscope InfoHub Light Agent Guide
 
+<!-- init-pro:section name=purpose -->
 ## 1. Project Context
-Inteliscope InfoHub Light is a private multi-source information hub. Its current product job is to help the user quickly read and filter personal information by Hub taxonomy, then preserve enough structured fields for later archive analysis.
+Inteliscope InfoHub Light is a private multi-user, multi-source information hub. Its current product job is source subscription, acquisition, Feed display, and per-user Feed history retention; archive analytics, recommendation, Graph, and in-site article proxying are not the current product line.
 
 Current domain objects:
 
 1. `ContentItem`: normalized item from RSS, GitHub, Reddit, Telegram, Hacker News, Apify social, OpenBB, or OSS Insight.
-2. Source config: user-managed runtime source definitions under `data/config.json`.
+2. Source catalog and subscriptions: user-managed source definitions and per-user subscription state in the Service database; `data/config.json` remains a legacy/global compatibility input.
 3. Hub taxonomy: `channel`, `topics`, `signal_strength`, `signal_type`, `entities`, with legacy `category/tags` compatibility.
-4. Static site payloads: `data/site/radar-data.json`, history JSON, and static UI assets.
-5. Optional archive: `data/horizon.db` and article graph JSON.
+4. User Feed snapshots: latest and historical per-user payloads stored in `data/service.db`, plus static UI assets that consume `/api/*`.
+5. Legacy optional outputs: `data/site/*.json`, `data/horizon.db`, and article graph JSON; the old CLI publisher may maintain them, but the default Service UI/API does not depend on them.
 
 ## 2. Hard Constraints
 - Do not put API keys, webhook URLs, Apify tokens, or model keys in JSON config or code. Store environment variable names only.
@@ -18,13 +20,16 @@ Current domain objects:
 - Prefer targeted tests and static checks before running full fetch, enrichment, full-text, scheduler, or push workflows.
 - Do not read `data/site/history-data.json`, `data/site/history/**`, cached media, full logs, generated summaries, or `data/horizon.db` unless the task specifically concerns those files.
 - Do not run the full scheduler while developing a narrow change.
+- Keys pasted into a task are compromised evidence: never persist or call them. DeepSeek activation requires a replacement value written through SecretStore and a one-call smoke.
+- `content_repair` may refetch only free sources in bulk, updates existing stable content only, and must never create a Feed snapshot or call AI. Paid social repair requires separate per-item authorization.
 
+<!-- init-pro:section name=precedence -->
 ## 3. Control Files
 Current control plane files:
 
 1. `AGENTS.md`: highest-level project constraints, output format, worklog rule, and unique source-of-truth map.
 2. `PLAN.md`: current phase, implementation order, non-goals, and verification order.
-3. `API_CONTRACT.md`: CLI, Web config API, static JSON, and archive interface contract.
+3. `API_CONTRACT.md`: Service Feed/retention API plus legacy CLI, static payload, archive, feedback, and Graph compatibility contracts.
 4. `ARCHITECTURE_CONTRACT.md`: module ownership and layering boundaries.
 5. `DECISION_LOG.md`: reasons for durable control-plane decisions.
 6. `CONTEXT_READ_RULES.md`: minimal context strategy and task-specific read expansion.
@@ -38,8 +43,9 @@ Use one authoritative file for each topic:
 |---|---|
 | Overall goal, hard constraints, output format | `AGENTS.md` |
 | Current phase, priorities, non-goals | `PLAN.md` |
-| CLI, Web API, static payload, archive contract | `API_CONTRACT.md` |
+| Service API and legacy compatibility interfaces | `API_CONTRACT.md` |
 | Layering and module boundaries | `ARCHITECTURE_CONTRACT.md` |
+| React visual system, UI components, layout, interaction and visual gates | `UI_CONTRACT.md` |
 | Decision reasons and compatibility rationale | `DECISION_LOG.md` |
 | Context reading strategy | `CONTEXT_READ_RULES.md` |
 | Execution history | `WORKLOG.md` |
@@ -64,18 +70,21 @@ For broad orientation or taxonomy/backend changes, also read:
 4. `src/ui/site.py`
 5. Task-relevant tests
 
-For frontend work, read only the relevant file under `src/ui/static/`: `state.js`, `utils.js`, `media.js`, `reader.js`, `config.js`, `article_graph.js`, or `app.js`.
+For React frontend work, read `UI_CONTRACT.md`, the relevant file under `frontend/src/`, and its matching Vitest or Playwright test. For legacy UI work, read only the relevant file under `src/ui/static/`: `state.js`, `utils.js`, `media.js`, `reader.js`, `config.js`, `subscriptions.js`, `auth.js`, or `app.js`.
 
 For scraper work, read the target adapter under `src/scrapers/` and its matching tests.
 
 ## 6. Verification
-- Python syntax smoke: `python3 -m py_compile <changed python files>`.
-- Static UI syntax: `node --check src/ui/static/*.js`.
-- Targeted tests in Docker when local `uv` is unavailable: `docker compose run --rm --entrypoint sh horizon -lc "uv run --extra dev pytest <tests> -q"`.
-- Light-compose targeted tests: `docker compose -f docker-compose.light.yml run --rm --no-deps --entrypoint sh horizon -lc "uv run --extra dev pytest <tests> -q"`.
+- Observation phase default: `python scripts/test_gate.py run --mode full`. Do not paste or automatically read its complete logs; use the compact stdout summary first.
+- A task may create a hash baseline with `python scripts/test_gate.py snapshot --output /tmp/impact.json`, inspect it with `python scripts/test_gate.py plan --snapshot /tmp/impact.json --json`, and explicitly run `targeted` for local iteration. Until 10 distinct CI commits satisfy the observation criteria in `PLAN.md`, `targeted` is not the default completion gate.
+- PR/main and merge verification permanently use `python scripts/test_gate.py run --mode full`; formal release verification uses `python scripts/test_gate.py run --mode release`.
+- `release` may run Playwright and the isolated `docker-compose.test-gate.yml` API-only smoke. It must not run real-source smoke, paid providers, AI, Worker, or scheduler.
+- Selector ownership is `tests/test_impact_map.json`. Unmapped executable code, dependency manifests, and build configuration fail closed to full.
+- Gate logs stay under ignored `.test-results/<run-id>/` with private permissions. Read only the named failing log section when the bounded first-failure summary is insufficient.
 - Rebuild latest local web service: `./scripts/up-latest.sh`.
-- Control-plane validation: `python3 "${CODEX_HOME:-$HOME/.codex}/skills/init-pro/scripts/validate_project_controls.py" --project-root . --primary-config project-defaults.yaml --output INIT_PRO_VALIDATION.md`.
+- Control-plane validation: this repository remains init-pro schema 2, while the installed validator requires a schema-v3 `project-controls.json`. Until an explicit control-plane migration, run `python3 -m json.tool project-defaults.yaml >/dev/null` and `git diff --check`; do not synthesize a manifest. After migration, use the validator's supported `--project-root . --format markdown` interface (stdout only unless a persistent report is explicitly requested).
 
+<!-- init-pro:section name=ownership -->
 ## 7. 控制文件维护规则
 Do not modify Markdown control files by default during ordinary coding tasks.
 
@@ -90,11 +99,13 @@ Modify control files only when the 控制面发生变化, including:
 
 For ordinary fixes or tests with no control-plane change, update only `WORKLOG.md`.
 
+<!-- init-pro:section name=worklog-policy -->
 ## 8. Worklog Rule
 Every agent task must append one concise entry to `WORKLOG.md` before final response.
 
 Use the template already present in `WORKLOG.md`. Keep entries short and do not paste large command output.
 
+<!-- init-pro:section name=output-policy -->
 ## 9. 默认回复格式
 Unless the user explicitly asks for expanded analysis, final responses should be compact:
 
