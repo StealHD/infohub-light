@@ -23,6 +23,7 @@ def _app(tmp_path, monkeypatch, *, enabled: bool = True):
     monkeypatch.setenv(
         "HORIZON_REMOTE_MCP_ENABLED", "true" if enabled else "false"
     )
+    monkeypatch.setenv("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false")
     if enabled:
         monkeypatch.setenv(
             "HORIZON_REMOTE_MCP_PUBLIC_URL", "http://127.0.0.1:8080/mcp"
@@ -110,6 +111,24 @@ def test_delegation_rate_limiter_refills_at_sixty_calls_per_minute():
     now[0] += 10.0
     assert [limiter.allow("delegation-1") for _ in range(10)] == [True] * 10
     assert limiter.allow("delegation-1") is False
+
+
+@pytest.mark.anyio
+async def test_delegation_token_verifier_uses_the_mcp_126_access_token_contract(
+    tmp_path, monkeypatch
+):
+    app = _app(tmp_path, monkeypatch)
+    _user, connection, token = _token(app)
+
+    verified = await AgentDelegationTokenVerifier(
+        app.state.service_store
+    ).verify_token(token)
+
+    assert verified is not None
+    assert verified.token == connection["id"]
+    assert verified.client_id == f"openclaw:{connection['id']}"
+    assert getattr(verified, "subject", None) is None
+    assert getattr(verified, "claims", None) is None
 
 
 def test_disabled_remote_mcp_never_falls_through_to_spa(tmp_path, monkeypatch):

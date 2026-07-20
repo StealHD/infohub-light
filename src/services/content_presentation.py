@@ -7,6 +7,7 @@ import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 from ..models import ContentItem, SourceType
 
@@ -28,6 +29,35 @@ _CONTENT_KINDS = {
 _GENERATED_TITLE_SOURCES = {"facebook", "github", "instagram", "telegram", "twitter"}
 _AUTHOR_KINDS = {"person", "account", "channel", "organization", "unknown"}
 _ANALYSIS_STATUSES = {"ai", "fallback", "personal_only", "disabled"}
+CONTENT_FORMATS = {
+    "article",
+    "video",
+    "image",
+    "gallery",
+    "audio",
+    "social_post",
+    "discussion",
+    "release",
+    "other",
+}
+FORMAT_ORIGINS = {"upstream", "deterministic", "ai", "fallback"}
+_SOCIAL_SOURCE_TYPES = {
+    "apify_social",
+    "facebook",
+    "instagram",
+    "telegram",
+    "twitter",
+    "x",
+}
+_VIDEO_HOSTS = {
+    "b23.tv",
+    "bilibili.com",
+    "m.bilibili.com",
+    "youtu.be",
+    "youtube.com",
+    "www.bilibili.com",
+    "www.youtube.com",
+}
 
 _SCRIPT_STYLE_RE = re.compile(
     r"<(script|style)\b[^>]*>.*?</\1>",
@@ -101,6 +131,97 @@ def _string_list(value: Any) -> list[str]:
     return _unique(value if isinstance(value, list) else [], limit=8)
 
 
+def normalize_content_format(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in CONTENT_FORMATS else None
+
+
+def _nonnegative_int(value: Any) -> int:
+    parsed = _number(value)
+    if parsed is None:
+        return 0
+    return max(0, int(parsed))
+
+
+def _url_host(value: Any) -> str:
+    try:
+        return (urlparse(str(value or "")).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def resolve_content_format(
+    *,
+    source_type: Any,
+    catalog_type: Any = "",
+    platform: Any = "",
+    url: Any = "",
+    content_kind: Any = "",
+    metadata: dict[str, Any] | None = None,
+) -> tuple[str, str]:
+    """Resolve display format without creating a second inference path."""
+
+    meta = metadata or {}
+    upstream = normalize_content_format(meta.get("upstream_content_format"))
+    if upstream:
+        return upstream, "upstream"
+
+    source = str(source_type or "").strip().lower()
+    catalog = str(catalog_type or "").strip().lower()
+    platform_name = str(platform or "").strip().lower()
+    kind = str(content_kind or "").strip().lower()
+    image_count = _nonnegative_int(
+        meta.get("media_image_count", meta.get("total_image_count"))
+    )
+    video_count = _nonnegative_int(meta.get("media_video_count"))
+    audio_count = _nonnegative_int(meta.get("media_audio_count"))
+
+    if video_count:
+        return "video", "deterministic"
+    if audio_count:
+        return "audio", "deterministic"
+    if image_count > 1 and ({source, catalog, platform_name} & _SOCIAL_SOURCE_TYPES):
+        return "gallery", "deterministic"
+    if image_count == 1 and ({source, catalog, platform_name} & _SOCIAL_SOURCE_TYPES):
+        return "image", "deterministic"
+    if _url_host(url) in _VIDEO_HOSTS:
+        return "video", "deterministic"
+    if catalog == "github_release" or (source == "github" and kind == "release_notes"):
+        return "release", "deterministic"
+    if source in {"reddit", "hackernews"} or kind == "discussion":
+        return "discussion", "deterministic"
+
+    inferred = normalize_content_format(meta.get("ai_content_format"))
+    if inferred:
+        return inferred, "ai"
+
+    if source == "rss" or catalog == "rss":
+        return "article", "fallback"
+    if {source, catalog, platform_name} & _SOCIAL_SOURCE_TYPES:
+        return "social_post", "fallback"
+    if source == "github" or catalog == "github_user":
+        return "article", "fallback"
+    return "other", "fallback"
+
+
+def _presentation_media(
+    *,
+    title: str,
+    media_urls: Any,
+    total_image_count: Any,
+) -> dict[str, Any] | None:
+    urls = _unique(media_urls if isinstance(media_urls, list) else [], limit=6)
+    total = max(_nonnegative_int(total_image_count), len(urls))
+    if not urls and total == 0:
+        return None
+    return {
+        "images": [{"url": url, "alt": title or "内容图片"} for url in urls],
+        "count": len(urls),
+        "total_image_count": total,
+        "truncated": total > len(urls),
+    }
+
+
 def complete_content_presentation(item: dict[str, Any]) -> dict[str, Any]:
     """Return a complete v1 projection for legacy or partially projected items."""
 
@@ -139,6 +260,27 @@ def complete_content_presentation(item: dict[str, Any]) -> dict[str, Any]:
     )
     content.setdefault("content_kind", _CONTENT_KINDS.get(source_type, "metadata_only"))
     content.setdefault("excerpt_truncated", False)
+    if normalize_content_format(content.get("format")) is None:
+        raw_media = presentation.get("media") if isinstance(presentation.get("media"), dict) else {}
+        raw_media_urls = item.get("media_urls") if isinstance(item.get("media_urls"), list) else []
+        format_value, format_origin = resolve_content_format(
+            source_type=source_type,
+            catalog_type=source.get("catalog_type"),
+            platform=source.get("platform"),
+            url=links.get("canonical_url"),
+            content_kind=content.get("content_kind"),
+            metadata={
+                "media_image_count": raw_media.get(
+                    "total_image_count",
+                    item.get("total_image_count", len(raw_media_urls)),
+                ),
+                "ai_content_format": item.get("ai_content_format"),
+            },
+        )
+        content["format"] = format_value
+        content["format_origin"] = format_origin
+    elif content.get("format_origin") not in FORMAT_ORIGINS:
+        content["format_origin"] = "fallback"
 
     configured_topics = _string_list(item.get("topics") or item.get("tags"))
     taxonomy = _section(presentation.get("taxonomy"))
@@ -175,6 +317,30 @@ def complete_content_presentation(item: dict[str, Any]) -> dict[str, Any]:
     )
     analysis.pop("reason", None)
 
+    media = _section(presentation.get("media"))
+    existing_images = media.get("images") if isinstance(media.get("images"), list) else []
+    legacy_urls = [
+        str(image.get("url") or "")
+        for image in existing_images
+        if isinstance(image, dict) and image.get("url")
+    ]
+    if not legacy_urls:
+        legacy_urls = item.get("media_urls") if isinstance(item.get("media_urls"), list) else []
+    projected_media = _presentation_media(
+        title=str(content.get("title") or ""),
+        media_urls=legacy_urls,
+        total_image_count=media.get("total_image_count", item.get("total_image_count")),
+    )
+    if projected_media:
+        projected_media["images"] = existing_images or projected_media["images"]
+        projected_media["count"] = len(projected_media["images"])
+        projected_media["total_image_count"] = max(
+            projected_media["total_image_count"], projected_media["count"]
+        )
+        projected_media["truncated"] = (
+            projected_media["total_image_count"] > projected_media["count"]
+        )
+
     presentation.update(
         {
             "version": 1,
@@ -188,6 +354,8 @@ def complete_content_presentation(item: dict[str, Any]) -> dict[str, Any]:
             "analysis": analysis,
         }
     )
+    if projected_media:
+        presentation["media"] = projected_media
     return presentation
 
 
@@ -305,6 +473,20 @@ def build_content_presentation(
         or canonical_url
     )
     catalog_type = str(metadata.get("catalog_source_type") or "").strip()
+    content_kind = _content_kind(item)
+    content_format, format_origin = resolve_content_format(
+        source_type=item.source_type.value,
+        catalog_type=catalog_type,
+        platform=_platform(item),
+        url=canonical_url,
+        content_kind=content_kind,
+        metadata=metadata,
+    )
+    media = _presentation_media(
+        title=str(metadata.get("title_zh") or item.title),
+        media_urls=metadata.get("media_urls"),
+        total_image_count=metadata.get("media_image_count"),
+    )
 
     source = {
         "id": str(metadata.get("source_id") or ""),
@@ -331,8 +513,10 @@ def build_content_presentation(
             "title": str(metadata.get("title_zh") or item.title),
             "title_origin": _title_origin(item),
             "excerpt": excerpt,
-            "content_kind": _content_kind(item),
+            "content_kind": content_kind,
             "excerpt_truncated": excerpt_truncated,
+            "format": content_format,
+            "format_origin": format_origin,
         },
         "taxonomy": {
             "channel": str(item.ai_channel or metadata.get("channel") or metadata.get("category") or item.source_type.value),
@@ -357,4 +541,5 @@ def build_content_presentation(
             "summary_zh": summary,
             "action_suggestion": action,
         },
+        **({"media": media} if media else {}),
     }

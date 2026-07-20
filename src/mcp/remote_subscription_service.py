@@ -12,6 +12,7 @@ from ..services.agent_change_proposal import (
 from ..services.source_type_registry import (
     catalog_source_matches_agent_type,
     get_source_setup_guide,
+    project_catalog_source_public_summary,
     validate_agent_source_type,
 )
 from ..services.subscription_mutation import (
@@ -114,6 +115,7 @@ class RemoteMCPSubscriptionService:
             # nor common exception serializers can retain the environment name.
             if secret_error is not None:
                 raise secret_error
+            public_summary = project_catalog_source_public_summary(source)
             items.append(
                 {
                     "id": source_id,
@@ -123,6 +125,7 @@ class RemoteMCPSubscriptionService:
                     "enabled": bool(source["enabled"]),
                     "default_channel": source.get("default_channel"),
                     "default_topics": list(source.get("default_topics") or []),
+                    "public_target": public_summary["public_target"],
                     "secret_configured": secret_configured,
                     "subscribed": subscribed,
                 }

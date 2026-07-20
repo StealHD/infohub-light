@@ -96,6 +96,20 @@ def test_setup_guide_summaries_include_safe_minimum_required_fields():
     }
 
 
+def test_rss_setup_guide_routes_bilibili_through_self_hosted_rsshub():
+    zh = get_source_setup_guide("rss", "zh-CN")["source_type"]
+    en = get_source_setup_guide("rss", "en")["source_type"]
+    zh_url = next(field for field in zh["fields"] if field["name"] == "url")
+    en_url = next(field for field in en["fields"] if field["name"] == "url")
+
+    assert "Bilibili" in zh["description"]
+    assert "自建 RSSHub" in zh_url["help"]
+    assert "B 站页面地址" in zh_url["help"]
+    assert "Bilibili" in en["description"]
+    assert "self-hosted RSSHub" in en_url["help"]
+    assert "Bilibili page URL" in en_url["help"]
+
+
 def test_agent_setup_contract_is_distinct_from_the_rest_catalog_projection():
     guide_types = {
         item["type"] for item in get_source_setup_guide(None, "en")["source_types"]

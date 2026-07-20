@@ -29,7 +29,7 @@ import {
   readAgentContextDraft,
   updateAgentContextDraft,
   writeAgentContextDraft,
-  type AgentContextDraftV2,
+  type AgentContextDraftV3,
 } from './agentContext'
 import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
@@ -225,8 +225,8 @@ function AgentPanelContent({
     })),
   })
   return <>
-    <header className="flex h-[52px] items-center gap-2 border-b border-separator px-4">
-      <Icons.Sparkles size={17} aria-hidden="true" />
+    <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
+      <Icons.Sparkles className="shrink-0" size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 对话</strong>
       {configLoading
         ? <span role="status" aria-busy="true" aria-label="正在检查 Agent 连接"><Skeleton className="h-5 w-16 rounded-lg" /></span>
@@ -340,7 +340,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     navigate('/feed')
   }
 
-  const persistDraft = useCallback((next: AgentContextDraftV2) => {
+  const persistDraft = useCallback((next: AgentContextDraftV3) => {
     setDraft(writeAgentContextDraft(props.user.id, next))
   }, [props.user.id])
 
@@ -359,7 +359,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     removeItem: (id) => persistDraft({ ...draft, items: draft.items.filter((value) => value.articleId !== id) }),
     openComposer,
     setQuestion: (question) => persistDraft({ ...draft, question }),
-    setModelPreference: (modelPreference) => persistDraft({ ...draft, modelPreference }),
+    clearComposer: () => persistDraft({ ...draft, question: '', items: [] }),
+    restoreComposer: (question, items) => persistDraft({ ...draft, question, items }),
   }), [draft, openComposer, persistDraft])
 
   const closeAgent = useCallback(() => {
@@ -561,7 +562,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           id="live-agent-panel"
           role="complementary"
           aria-label="OpenClaw 上下文"
-          className="col-start-3 row-span-2 hidden min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-l border-separator bg-surface min-[1200px]:grid"
+          className="col-start-3 row-span-2 hidden min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface min-[1200px]:grid"
         ><AgentPanelContent open={agentOpen} onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
           <Drawer.Trigger aria-hidden="true" className="hidden">打开 Agent 面板</Drawer.Trigger>
           <Drawer.Backdrop isDismissable variant="blur" data-testid="agent-drawer-backdrop">
@@ -569,7 +570,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               <Drawer.Dialog
                 id="live-agent-panel"
                 aria-label="OpenClaw 上下文"
-                className={`grid min-h-0 grid-rows-[52px_minmax(0,1fr)_auto] border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
+                className={`grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
                 <AgentPanelContent open onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
               </Drawer.Dialog>

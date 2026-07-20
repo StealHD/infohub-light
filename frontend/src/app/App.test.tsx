@@ -1046,7 +1046,7 @@ describe('App routes', () => {
     expect(feedItem).toHaveBeenCalledWith('deep', expect.any(AbortSignal))
   })
 
-  it('waits for the source snapshot before deciding whether an initial deep link needs feedItem', async () => {
+  it('waits for the source snapshot before fetching detail for an initial deep link', async () => {
     const snapshot = deferred<{ schema_version: number; items: FeedItem[] }>()
     const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
     const api = liveApi({ latestFeed: vi.fn().mockReturnValue(snapshot.promise), feedItem } as Partial<ServiceApi>)
@@ -1056,32 +1056,43 @@ describe('App routes', () => {
     await waitFor(() => expect(api.latestFeed).toHaveBeenCalled())
     expect(feedItem).not.toHaveBeenCalled()
     await act(async () => snapshot.resolve({ schema_version: 2, items: [{ id: 'live-1', title: '真实 API 条目', url: 'https://example.com/live-1', published_at: '2026-07-17T02:00:00Z' }] }))
-    expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
-    expect(feedItem).not.toHaveBeenCalled()
+    expect(await screen.findByRole('article', { name: '详情标题 live-1' })).toBeInTheDocument()
+    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
-  it('expands an item already in the snapshot without fetching its detail again', async () => {
+  it('fetches and merges detail when an item already in the snapshot is expanded', async () => {
     const user = userEvent.setup()
+    const snapshotItem = detailedItem('live-1')
+    if (snapshotItem.presentation) {
+      snapshotItem.presentation.content.title = '真实 API 条目'
+      snapshotItem.presentation.content.excerpt = '列表内容片段'
+      snapshotItem.presentation.content.excerpt_truncated = true
+      delete snapshotItem.presentation.content.body_text
+    }
     const feedItem = vi.fn().mockResolvedValue(detailedItem('live-1'))
-    const api = liveApi({ feedItem } as Partial<ServiceApi>)
+    const api = liveApi({
+      latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [snapshotItem] }),
+      feedItem,
+    } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await user.click(await screen.findByRole('button', { name: '展开 真实 API 条目' }))
-    expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
-    expect(screen.queryByText('完整详情正文')).not.toBeInTheDocument()
-    expect(feedItem).not.toHaveBeenCalled()
+    expect(await screen.findByRole('article', { name: '详情标题 live-1' })).toBeInTheDocument()
+    expect(await screen.findByText('完整详情正文')).toBeInTheDocument()
+    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
-  it('keeps the snapshot card usable without a detail request when it is selected by an initial deep link', async () => {
+  it('keeps the snapshot card and item parameter when its detail request fails', async () => {
     const feedItem = vi.fn().mockRejectedValue(new ApiError(503, { code: 'detail_failed', message: '详情失败' }))
     const api = liveApi({ feedItem } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed?item=live-1']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('article', { name: '真实 API 条目' })).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(feedItem).not.toHaveBeenCalled()
+    expect(await screen.findByText('暂时无法读取更多内容；当前卡片仍可继续使用。')).toBeInTheDocument()
+    expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
+    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
   it('pins a successfully fetched deep link despite persisted filters and dismissed state', async () => {
@@ -1176,7 +1187,7 @@ describe('App routes', () => {
     }
   })
 
-  it('waits for the source query before resolving an initial deep link that is present in its snapshot', async () => {
+  it('keeps an in-list deep link when its detail endpoint returns 404', async () => {
     const latest = deferred<{ schema_version: number; items: FeedItem[] }>()
     const api = liveApi({
       latestFeed: vi.fn().mockReturnValue(latest.promise),
@@ -1195,15 +1206,16 @@ describe('App routes', () => {
     }))
     expect(await screen.findByRole('article', { name: '快照回退条目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起 快照回退条目' })).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByText('暂时无法读取更多内容；当前卡片仍可继续使用。')).toBeInTheDocument()
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
-    expect(api.feedItem).not.toHaveBeenCalled()
+    expect(api.feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
   it('does not fetch a cached-missing selection before its active source refetch settles', async () => {
     const latest = deferred<{ schema_version: number; items: FeedItem[] }>()
     const api = liveApi({
       latestFeed: vi.fn().mockReturnValue(latest.promise),
-      feedItem: vi.fn(),
+      feedItem: vi.fn().mockResolvedValue(detailedItem('live-1')),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     queryClient.setQueryData(queryKeys.feed('user-live', { hideDismissed: false, unreadFirst: false }), {
@@ -1223,10 +1235,10 @@ describe('App routes', () => {
       schema_version: 2,
       items: [{ id: 'live-1', title: '后台刷新目标', url: 'https://example.com/live-1', published_at: '2026-07-17T02:00:00Z' }],
     }))
-    expect(await screen.findByRole('article', { name: '后台刷新目标' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '收起 后台刷新目标' })).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByRole('article', { name: '详情标题 live-1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起 详情标题 live-1' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByLabelText('当前位置')).toHaveTextContent('?item=live-1')
-    expect(api.feedItem).not.toHaveBeenCalled()
+    expect(api.feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
   it('removes a proven-stale 404 deep link and falls back to bottom-first Feed positioning', async () => {
@@ -1319,7 +1331,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('article', { name: '稍后读迁移条目' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/saved?item=live-1'))
     expect(savedFeed).toHaveBeenCalledWith(200, 0, expect.any(AbortSignal))
-    expect(feedItem).not.toHaveBeenCalled()
+    expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
   it('does not remount the authenticated workbench when inline expansion changes search params', async () => {
@@ -1329,6 +1341,7 @@ describe('App routes', () => {
       title: `锚点条目 ${index}`,
       url: `https://example.com/anchor-${index}`,
       published_at: new Date(Date.UTC(2026, 6, 17, 0, index)).toISOString(),
+      media_urls: [`/api/media/anchor-${index}`],
       user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
     }))
     const api = liveApi({
@@ -1366,7 +1379,7 @@ describe('App routes', () => {
 
       await user.click(within(topCard).getByRole('button', { name: /展开 锚点条目/ }))
       await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('item=anchor-'))
-      await waitFor(() => expect(within(topCard).getByText('该条内容未保存正文片段；重新获取来源后可显示。')).toBeInTheDocument())
+      await waitFor(() => expect(within(topCard).getByText('完整详情正文')).toBeInTheDocument())
       expect(screen.getByTestId('live-workbench-shell')).toBe(shell)
       expect(feedScroll.scrollTop).toBe(4200)
       expect(topVisibleCard()?.dataset.index).toBe(topIndex)

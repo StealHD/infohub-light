@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
 from src.models import ContentItem, SourceType
-from src.services.content_presentation import build_content_presentation
+from src.services.content_presentation import (
+    build_content_presentation,
+    complete_content_presentation,
+)
 from src.ui.site import serialize_item
 
 
@@ -65,6 +68,8 @@ def test_builds_stable_rss_presentation_without_reason() -> None:
             "excerpt": "First paragraph. Second paragraph.",
             "content_kind": "feed_summary",
             "excerpt_truncated": False,
+            "format": "article",
+            "format_origin": "fallback",
         },
         "taxonomy": {
             "channel": "AI",
@@ -169,6 +174,96 @@ def test_generated_social_title_and_excerpt_are_bounded() -> None:
     assert presentation["engagement"]["reposts"] == 3
     assert presentation["engagement"]["comments"] == 2
     assert presentation["analysis"]["status"] == "fallback"
+
+
+def test_direct_media_and_source_rules_override_ai_format() -> None:
+    social = build_content_presentation(
+        _item(
+            source_type=SourceType.INSTAGRAM,
+            url="https://www.instagram.com/p/example/",
+            metadata={
+                "catalog_source_type": "apify_social",
+                "apify_platform": "instagram",
+                "upstream_content_format": "gallery",
+                "media_image_count": 8,
+                "media_urls": [f"/api/media/image-{index}" for index in range(6)],
+                "ai_content_format": "article",
+            },
+        )
+    )
+
+    assert social["content"]["format"] == "gallery"
+    assert social["content"]["format_origin"] == "upstream"
+    assert social["media"]["count"] == 6
+    assert social["media"]["total_image_count"] == 8
+    assert social["media"]["truncated"] is True
+
+    for url in (
+        "https://www.youtube.com/watch?v=example",
+        "https://www.bilibili.com/video/BV1example",
+    ):
+        video = build_content_presentation(
+            _item(
+                url=url,
+                metadata={"catalog_source_type": "rss", "ai_content_format": "article"},
+            )
+        )
+        assert video["content"]["format"] == "video"
+        assert video["content"]["format_origin"] == "deterministic"
+
+
+def test_ai_format_is_reused_only_when_stronger_evidence_is_absent() -> None:
+    presentation = build_content_presentation(
+        _item(metadata={"catalog_source_type": "rss", "ai_content_format": "audio"})
+    )
+
+    assert presentation["content"]["format"] == "audio"
+    assert presentation["content"]["format_origin"] == "ai"
+
+
+def test_missing_failed_or_legacy_ai_format_uses_safe_source_fallbacks() -> None:
+    rss = build_content_presentation(
+        _item(metadata={"catalog_source_type": "rss", "analysis_status": "fallback"})
+    )
+    social = build_content_presentation(
+        _item(
+            source_type=SourceType.TWITTER,
+            metadata={"catalog_source_type": "apify_social", "apify_platform": "x"},
+        )
+    )
+    unknown = build_content_presentation(_item(source_type=SourceType.OPENBB, metadata={}))
+
+    assert (rss["content"]["format"], rss["content"]["format_origin"]) == ("article", "fallback")
+    assert (social["content"]["format"], social["content"]["format_origin"]) == ("social_post", "fallback")
+    assert (unknown["content"]["format"], unknown["content"]["format_origin"]) == ("other", "fallback")
+
+
+def test_release_discussion_and_legacy_snapshot_formats_are_compatible() -> None:
+    release = build_content_presentation(
+        _item(
+            source_type=SourceType.GITHUB,
+            metadata={"catalog_source_type": "github_release", "tag": "v1.0.0"},
+        )
+    )
+    discussion = build_content_presentation(
+        _item(source_type=SourceType.HACKERNEWS, metadata={})
+    )
+    legacy = complete_content_presentation(
+        {
+            "id": "twitter:tweet:legacy",
+            "source_type": "twitter",
+            "source": "X · @legacy",
+            "url": "https://x.com/legacy/status/1",
+            "title": "Legacy post",
+            "media_urls": ["/api/media/one"],
+        }
+    )
+
+    assert release["content"]["format"] == "release"
+    assert discussion["content"]["format"] == "discussion"
+    assert legacy["content"]["format"] == "image"
+    assert legacy["content"]["format_origin"] == "deterministic"
+    assert legacy["media"]["total_image_count"] == 1
 
 
 def test_feed_serializer_includes_presentation_and_keeps_raw_content_out() -> None:

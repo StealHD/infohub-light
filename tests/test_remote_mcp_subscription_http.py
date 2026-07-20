@@ -662,7 +662,7 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("arguments", "sensitive_value"),
+    ("arguments", "sensitive_value", "expected_message"),
     [
         (
             {
@@ -675,6 +675,7 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
                 "user_id": "outer-extra-sensitive-value",
             },
             "outer-extra-sensitive-value",
+            "invalid_request",
         ),
         (
             {
@@ -687,6 +688,21 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
                 "subscription": {"user_id": "nested-extra-sensitive-value"},
             },
             "nested-extra-sensitive-value",
+            "invalid_request",
+        ),
+        (
+            {
+                "source": {
+                    "type": "reddit",
+                    "subreddit": "missing-mode-sensitive-value",
+                }
+            },
+            "missing-mode-sensitive-value",
+            (
+                "invalid_request: source must use either "
+                "{mode: existing, source_id} or "
+                "{mode: private, type, display_name, config}"
+            ),
         ),
         (
             {
@@ -696,6 +712,11 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
                 }
             },
             "invalid-discriminator-sensitive-value",
+            (
+                "invalid_request: source must use either "
+                "{mode: existing, source_id} or "
+                "{mode: private, type, display_name, config}"
+            ),
         ),
         (
             {
@@ -708,12 +729,13 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
                 "subscription": {"priority": 987654321},
             },
             "987654321",
+            "invalid_request",
         ),
     ],
-    ids=("outer-extra", "nested-extra", "discriminator", "range"),
+    ids=("outer-extra", "nested-extra", "missing-discriminator", "discriminator", "range"),
 )
 async def test_authenticated_validation_failures_are_stable_audited_and_redacted(
-    tmp_path, monkeypatch, caplog, arguments, sensitive_value
+    tmp_path, monkeypatch, caplog, arguments, sensitive_value, expected_message
 ):
     app = _app(tmp_path, monkeypatch, writes_enabled=True)
     _user, connection, token = _delegation(app)
@@ -726,7 +748,7 @@ async def test_authenticated_validation_failures_are_stable_audited_and_redacted
         )
 
     assert result.isError is True
-    assert result.content[0].text == "invalid_request"
+    assert result.content[0].text == expected_message
     audit_records = [
         record.getMessage()
         for record in caplog.records

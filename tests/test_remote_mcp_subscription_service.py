@@ -302,6 +302,7 @@ def test_available_sources_are_current_user_scoped_and_secret_safe(context):
             "enabled",
             "default_channel",
             "default_topics",
+            "public_target",
             "secret_configured",
             "subscribed",
         }
@@ -310,12 +311,33 @@ def test_available_sources_are_current_user_scoped_and_secret_safe(context):
     assert next(item for item in result["items"] if item["id"] == public["id"])[
         "secret_configured"
     ] is True
+    assert next(item for item in result["items"] if item["id"] == mine["id"])[
+        "public_target"
+    ] == "https://example.com/Mine.xml"
     assert context["secret_calls"] == ["VISIBLE_TOKEN"]
     serialized = repr(result)
     assert "secret_env" not in serialized
     assert "owner_user_id" not in serialized
     assert "'config':" not in serialized
     assert "OTHER_TOKEN" not in serialized
+
+
+def test_available_source_public_target_hides_unsafe_rss_urls(context):
+    unsafe = _source(
+        context,
+        name="Unsafe private feed",
+        scope="private",
+        owner="member",
+        config={"url": "http://127.0.0.1:1200/bilibili/user/video/123"},
+    )
+
+    result = context["service"].list_available_sources(
+        actor=_read_actor(context), source_type="rss", unsubscribed_only=False
+    )
+
+    item = next(item for item in result["items"] if item["id"] == unsafe["id"])
+    assert item["public_target"] == "web_setup_required"
+    assert "127.0.0.1" not in repr(item)
 
 
 def test_available_source_filter_uses_explicit_public_type_matrix(context):

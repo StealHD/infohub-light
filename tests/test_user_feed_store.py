@@ -392,6 +392,7 @@ def test_media_cache_downloads_at_most_six_images_and_rewrites_item_urls(
     assert len(content_rows) == 6
     assert len(avatar_rows) == 1
     assert item.metadata["remote_media_urls"] == urls[:6]
+    assert item.metadata["media_image_count"] == 7
     assert len(item.metadata["media_urls"]) == 6
     assert all(url.startswith("/api/media/med_") for url in item.metadata["media_urls"])
     assert item.metadata["avatar_url"].startswith("/api/media/med_")
@@ -400,6 +401,15 @@ def test_media_cache_downloads_at_most_six_images_and_rewrites_item_urls(
     from src.ui.site import serialize_item
 
     serialized = serialize_item(item, featured_threshold=8.0)
+    assert serialized["presentation"]["media"] == {
+        "images": [
+            {"url": url, "alt": "Gallery"}
+            for url in item.metadata["media_urls"]
+        ],
+        "count": 6,
+        "total_image_count": 7,
+        "truncated": True,
+    }
     UserContentStore(store).upsert_items(
         workspace_id=workspace["id"],
         user_id=owner["id"],
@@ -1174,6 +1184,8 @@ def test_history_feed_strips_remote_media_from_legacy_snapshots_without_rewritin
     assert item["presentation"]["media"] == {
         "images": [{"url": "/api/media/med_local", "alt": "cached"}],
         "count": 1,
+        "total_image_count": 2,
+        "truncated": True,
     }
     stored_payload = store.connect().execute(
         "SELECT payload_json FROM user_feed_snapshots WHERE id = ?",

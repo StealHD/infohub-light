@@ -1,14 +1,15 @@
 import { createContext, useContext } from 'react'
 
-import type { AgentContextDraftV2, AgentContextItem, AgentModelPreference } from './agentContext'
+import type { AgentContextDraftV3, AgentContextItem } from './agentContext'
 
 export type WorkbenchAgentContextValue = {
-  draft: AgentContextDraftV2
+  draft: AgentContextDraftV3
   toggleItem: (item: AgentContextItem) => void
   removeItem: (id: string) => void
   openComposer: () => void
   setQuestion: (question: string) => void
-  setModelPreference: (preference: AgentModelPreference) => void
+  clearComposer: () => void
+  restoreComposer: (question: string, items: AgentContextItem[]) => void
 }
 
 export const WorkbenchAgentContext = createContext<WorkbenchAgentContextValue | null>(null)

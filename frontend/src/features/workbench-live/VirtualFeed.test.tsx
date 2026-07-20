@@ -219,7 +219,7 @@ describe('VirtualFeed', () => {
     const onToggleExpanded = vi.fn()
     const onItemAction = vi.fn()
     render(<VirtualFeed
-      cards={[toWorkbenchCardModel(makeItem(1))]}
+      cards={[toWorkbenchCardModel(socialItem())]}
       contextIds={[]}
       onToggleExpanded={onToggleExpanded}
       onToggleSaved={vi.fn()}
@@ -227,9 +227,100 @@ describe('VirtualFeed', () => {
       onItemAction={onItemAction}
     />)
 
-    await user.click(await screen.findByRole('button', { name: '展开 信息 1' }))
-    expect(onToggleExpanded).toHaveBeenCalledWith('item-1')
+    await user.click(await screen.findByRole('button', { name: /^展开 / }))
+    expect(onToggleExpanded).toHaveBeenCalledWith('social-x')
     expect(onItemAction).not.toHaveBeenCalled()
+  })
+
+  it('does not render a fake expand control for fully visible short content', () => {
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(screen.queryByRole('button', { name: /^展开 / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^打开详情 / })).not.toBeInTheDocument()
+  })
+
+  it('reveals an expand control when the rendered text is actually line-clamped', async () => {
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const title = screen.getByText('信息 1')
+    Object.defineProperties(title, {
+      scrollHeight: { configurable: true, value: 80 },
+      clientHeight: { configurable: true, value: 40 },
+    })
+    fireEvent(window, new Event('resize'))
+
+    expect(await screen.findByRole('button', { name: '展开 信息 1' })).toBeInTheDocument()
+  })
+
+  it('shows type, original image total, cached gallery and source-fragment notice', () => {
+    const item = socialItem()
+    if (!item.presentation) throw new Error('presentation fixture missing')
+    item.presentation.content.format = 'gallery'
+    item.presentation.content.format_origin = 'upstream'
+    item.presentation.content.body_completeness = 'excerpt_only'
+    item.presentation.media = {
+      images: [
+        { asset_id: 'one', url: '/api/media/one', alt: '图片一' },
+        { asset_id: 'two', url: '/api/media/two', alt: '图片二' },
+      ],
+      count: 2,
+      total_image_count: 8,
+      truncated: true,
+    }
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(item)]}
+      expandedId="social-x"
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(screen.getByText('图集')).toBeInTheDocument()
+    expect(screen.getByText('8 张图片 · 可查看 2 张')).toBeInTheDocument()
+    expect(screen.getByLabelText('2 张可查看图片').querySelectorAll('img')).toHaveLength(2)
+    expect(screen.getByText('仅获取到内容片段，打开原文查看完整内容。')).toBeInTheDocument()
+  })
+
+  it('keeps detail loading and failure local to the expanded card', () => {
+    const card = toWorkbenchCardModel(socialItem())
+    const view = render(<VirtualFeed
+      cards={[card]}
+      expandedId="social-x"
+      detailLoading
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByRole('status', { name: '正在读取详情' })).toBeInTheDocument()
+
+    view.rerender(<VirtualFeed
+      cards={[card]}
+      expandedId="social-x"
+      detailError
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByText('暂时无法读取更多内容；当前卡片仍可继续使用。')).toBeInTheDocument()
   })
 
   it('keeps viewer mutations disabled while open and copy remain available', async () => {

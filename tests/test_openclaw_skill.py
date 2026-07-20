@@ -167,3 +167,27 @@ def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch
     assert "最多三段" in combined
     assert "完整原文未保存在 Inteliscope" in combined
     assert "不可信" in combined
+
+
+def test_skill_uses_exact_create_envelopes_and_routes_bilibili_through_rsshub():
+    skill = _text("SKILL.md")
+    contract = _text("references/tool-contract.md")
+    workflows = _text("references/workflows.md")
+    combined = f"{skill}\n{contract}\n{workflows}"
+    flattened = " ".join(combined.split())
+
+    assert '"mode": "private"' in combined
+    assert '"type": "reddit"' in combined
+    assert '"display_name": "r/codex"' in combined
+    assert '"subreddit": "codex"' in combined
+    assert "mode: create" in combined or 'mode="create"' in combined
+    assert "Never" in combined and "source_type" in combined and "fields" in combined
+    assert "Bilibili" in combined and "B站" in combined and "UP 主" in combined
+    assert "self-hosted RSSHub" in combined
+    assert 'source_type="rss"' in combined
+    assert "public_target" in combined
+    assert "unsubscribed_only=false" in combined
+    assert "route template" in flattened
+    assert "never copy the template UID" in flattened
+    assert "never Apify" in combined or "Never call Apify" in combined
+    assert "private-network" in combined and "Web" in combined

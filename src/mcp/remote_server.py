@@ -54,6 +54,11 @@ from .remote_subscription_service import RemoteMCPSubscriptionService
 _LOGGER = logging.getLogger(__name__)
 _Result = TypeVar("_Result")
 _AUDIT_VALUE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
+_CREATE_SOURCE_SHAPE_HINT = (
+    "invalid_request: source must use either "
+    "{mode: existing, source_id} or "
+    "{mode: private, type, display_name, config}"
+)
 
 READ_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True,
@@ -90,13 +95,6 @@ class AgentDelegationTokenVerifier(TokenVerifier):
             client_id=f"openclaw:{principal['delegation_id']}",
             scopes=principal["scopes"],
             expires_at=int(datetime.fromisoformat(principal["expires_at"]).timestamp()),
-            subject=principal["user_id"],
-            claims={
-                "delegation_id": principal["delegation_id"],
-                "workspace_id": principal["workspace_id"],
-                "user_id": principal["user_id"],
-                "role": principal["role"],
-            },
         )
 
 
@@ -169,12 +167,7 @@ class SafeRemoteMCP(FastMCP):
         tool = self._tool_manager.get_tool(name)
         if tool is not None:
             access = get_access_token()
-            claims = (
-                access.claims
-                if access is not None and isinstance(access.claims, dict)
-                else {}
-            )
-            delegation_id = claims.get("delegation_id")
+            delegation_id = access.token if access is not None else None
             if not isinstance(delegation_id, str) or not delegation_id:
                 return await super().call_tool(name, arguments)
             if not self._delegation_limiter.allow(delegation_id):
@@ -194,7 +187,7 @@ class SafeRemoteMCP(FastMCP):
             try:
                 pre_parsed = tool.fn_metadata.pre_parse_json(arguments)
                 tool.fn_metadata.arg_model.model_validate(pre_parsed)
-            except (ValidationError, ValueError, RecursionError):
+            except (ValidationError, ValueError, RecursionError) as exc:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 _LOGGER.info(
                     "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
@@ -207,7 +200,23 @@ class SafeRemoteMCP(FastMCP):
                     elapsed_ms,
                     request_id,
                 )
-                raise ToolError("invalid_request") from None
+                message = "invalid_request"
+                if name == "prepare_create_subscription" and isinstance(
+                    exc, ValidationError
+                ):
+                    errors = exc.errors(
+                        include_url=False,
+                        include_context=False,
+                        include_input=False,
+                    )
+                    if any(
+                        detail.get("loc") == ("source",)
+                        and detail.get("type")
+                        in {"union_tag_invalid", "union_tag_not_found"}
+                        for detail in errors
+                    ):
+                        message = _CREATE_SOURCE_SHAPE_HINT
+                raise ToolError(message) from None
 
         return await super().call_tool(name, arguments)
 
@@ -262,26 +271,39 @@ def create_remote_mcp(
         ),
     )
 
+    def principal_from_access(access: AccessToken | None) -> dict[str, Any]:
+        delegation_id = access.token if access is not None else ""
+        principal = (
+            store.get_active_agent_delegation_principal(delegation_id)
+            if isinstance(delegation_id, str) and delegation_id
+            else None
+        )
+        if principal is None:
+            raise AgentProposalError(
+                "unauthorized", "delegation is not authorized", status_code=401
+            )
+        return principal
+
     def actor_from_access(access: AccessToken | None) -> DelegatedActor:
-        claims = access.claims if access and isinstance(access.claims, dict) else {}
-        scopes = access.scopes if access is not None else []
+        principal = principal_from_access(access)
+        scopes = principal.get("scopes")
         if not all(
             isinstance(value, str) and value
             for value in (
-                claims.get("workspace_id"),
-                claims.get("user_id"),
-                claims.get("role"),
-                claims.get("delegation_id"),
+                principal.get("workspace_id"),
+                principal.get("user_id"),
+                principal.get("role"),
+                principal.get("delegation_id"),
             )
         ) or not isinstance(scopes, list):
             raise AgentProposalError(
                 "unauthorized", "delegation is not authorized", status_code=401
             )
         return DelegatedActor(
-            workspace_id=str(claims["workspace_id"]),
-            user_id=str(claims["user_id"]),
-            role=str(claims["role"]),
-            delegation_id=str(claims["delegation_id"]),
+            workspace_id=str(principal["workspace_id"]),
+            user_id=str(principal["user_id"]),
+            role=str(principal["role"]),
+            delegation_id=str(principal["delegation_id"]),
             scopes=tuple(str(scope) for scope in scopes),
         )
 
@@ -299,8 +321,7 @@ def create_remote_mcp(
         **kwargs: Any,
     ) -> _Result:
         access = get_access_token()
-        claims = access.claims if access and isinstance(access.claims, dict) else {}
-        delegation_id = str(claims.get("delegation_id") or "")
+        delegation_id = str(access.token if access is not None else "")
         request_id = f"mcp_{uuid.uuid4().hex}"
         started = time.perf_counter()
         outcome = "ok"
@@ -482,7 +503,13 @@ def create_remote_mcp(
         subscription: SubscriptionInput | None = None,
         schedule: ScheduleInput | None = None,
     ) -> dict[str, Any]:
-        """Prepare, but do not apply, a subscription creation proposal."""
+        """Prepare, but do not apply, one subscription creation proposal.
+
+        Source must be either ``{mode: existing, source_id}`` using an ID from
+        ``list_available_sources``, or
+        ``{mode: private, type, display_name, config}``. Never use
+        ``mode: create``, ``source_type``, or ``fields``.
+        """
         request = PrepareCreateSubscriptionInput(
             source=source,
             subscription=subscription,

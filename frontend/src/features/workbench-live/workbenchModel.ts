@@ -1,4 +1,4 @@
-import type { FeedHistory, FeedItem, FeedSnapshot, SavedFeed, UserItemState } from '../../api/types'
+import type { ContentFormat, ContentFormatOrigin, FeedHistory, FeedItem, FeedSnapshot, SavedFeed, UserItemState } from '../../api/types'
 import { sortWorkbenchItems } from '../feed/feedModel'
 
 export type WorkbenchKind = 'feed' | 'saved' | 'history'
@@ -13,6 +13,16 @@ export type WorkbenchCardModel = {
   primaryText: string
   detailBody: string
   bodyTruncated: boolean
+  excerptTruncated: boolean
+  bodyCompleteness?: 'captured' | 'excerpt_only'
+  hasDistinctDetail: boolean
+  format: ContentFormat
+  formatOrigin: ContentFormatOrigin
+  formatLabel: string
+  mediaImages: Array<{ url: string; alt: string; width?: number; height?: number }>
+  displayImageCount: number
+  totalImageCount: number
+  mediaTruncated: boolean
   source: string
   platformLabel: string
   sourceLabel: string
@@ -74,6 +84,20 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
   const summary = displayKind === 'article' && candidateSummary && !substantiallyRepeats(candidateSummary, title)
     ? candidateSummary.trim()
     : undefined
+  const mediaImages = uniqueLocalMedia(item)
+  const [format, inferredFormatOrigin] = resolveContentFormat(item, displayKind, mediaImages.length)
+  const declaredImageCount = Number(presentation?.media?.total_image_count)
+  const totalImageCount = Math.max(
+    mediaImages.length,
+    Number.isFinite(declaredImageCount) ? Math.max(0, declaredImageCount) : 0,
+  )
+  const hasDistinctDetail = displayKind === 'social'
+    ? Boolean(detailBody && normalizeDisplayText(detailBody) !== normalizeDisplayText(primaryText))
+    : Boolean(
+      detailBody
+      && normalizeDisplayText(detailBody) !== normalizeDisplayText(title)
+      && (!summary || normalizeDisplayText(detailBody) !== normalizeDisplayText(summary)),
+    )
   return {
     id: item.id,
     displayKind,
@@ -83,6 +107,16 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
     primaryText,
     detailBody,
     bodyTruncated: Boolean(presentation?.content?.body_truncated ?? presentation?.content?.excerpt_truncated),
+    excerptTruncated: Boolean(presentation?.content?.excerpt_truncated),
+    bodyCompleteness: presentation?.content?.body_completeness,
+    hasDistinctDetail,
+    format,
+    formatOrigin: presentation?.content?.format_origin || inferredFormatOrigin,
+    formatLabel: CONTENT_FORMAT_LABELS[format],
+    mediaImages,
+    displayImageCount: mediaImages.length,
+    totalImageCount,
+    mediaTruncated: Boolean(presentation?.media?.truncated || totalImageCount > mediaImages.length),
     source,
     platformLabel,
     sourceLabel,
@@ -92,11 +126,61 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
     url: presentation?.links?.canonical_url || item.url,
     channel: presentation?.taxonomy?.channel || item.channel || item.category || '未分类频道',
     topics: presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? [],
-    imageUrl: item.image_url || presentation?.media?.images?.[0]?.url,
+    imageUrl: mediaImages[0]?.url,
     score: item.scoring_disabled ? undefined : item.score,
     userState: { ...emptyUserState, ...item.user_state },
     item,
   }
+}
+
+const CONTENT_FORMAT_LABELS: Record<ContentFormat, string> = {
+  article: '文章',
+  video: '视频',
+  image: '图片',
+  gallery: '图集',
+  audio: '音频',
+  social_post: '社交动态',
+  discussion: '讨论',
+  release: '版本发布',
+  other: '其他',
+}
+
+function uniqueLocalMedia(item: FeedItem): WorkbenchCardModel['mediaImages'] {
+  const presentationImages = item.presentation?.media?.images ?? []
+  const candidates = [
+    ...presentationImages.map((image) => ({ url: image.url, alt: image.alt, width: image.width, height: image.height })),
+    ...(item.media_urls ?? []).map((url) => ({ url, alt: item.title })),
+    ...(item.image_url ? [{ url: item.image_url, alt: item.title }] : []),
+  ]
+  const seen = new Set<string>()
+  return candidates.flatMap((image) => {
+    const url = image.url?.trim()
+    if (!url?.startsWith('/api/media/') || seen.has(url) || seen.size >= 6) return []
+    seen.add(url)
+    return [{ ...image, url, alt: image.alt || item.title || '内容图片' }]
+  })
+}
+
+function resolveContentFormat(item: FeedItem, displayKind: WorkbenchDisplayKind, imageCount: number): [ContentFormat, ContentFormatOrigin] {
+  const explicit = item.presentation?.content?.format
+  if (explicit && explicit in CONTENT_FORMAT_LABELS) return [explicit, item.presentation?.content?.format_origin || 'fallback']
+  const url = item.presentation?.links?.canonical_url || item.url
+  try {
+    const host = new URL(url).hostname.toLocaleLowerCase()
+    if (['youtu.be', 'youtube.com', 'www.youtube.com', 'b23.tv', 'bilibili.com', 'www.bilibili.com', 'm.bilibili.com'].includes(host)) return ['video', 'deterministic']
+  } catch {
+    // Legacy invalid URLs safely continue through source fallbacks.
+  }
+  const kind = item.presentation?.content?.content_kind
+  const catalog = item.presentation?.source?.catalog_type?.toLocaleLowerCase()
+  if (kind === 'release_notes' || catalog === 'github_release') return ['release', 'deterministic']
+  if (kind === 'discussion' || ['reddit', 'hackernews'].includes(catalog || '')) return ['discussion', 'deterministic']
+  if (imageCount > 1) return ['gallery', 'deterministic']
+  if (imageCount === 1 && displayKind === 'social') return ['image', 'deterministic']
+  if (displayKind === 'social') return ['social_post', 'fallback']
+  if (catalog === 'rss' || item.source_type === 'rss') return ['article', 'fallback']
+  if (catalog === 'github_user' || item.source_type === 'github') return ['article', 'fallback']
+  return ['other', 'fallback']
 }
 
 export function workbenchSourceLabels(card: WorkbenchCardModel, includeArticleDetails = false): string[] {

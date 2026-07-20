@@ -2199,7 +2199,12 @@ def test_saved_feed_and_item_detail_survive_later_snapshots_and_are_user_isolate
     assert presentation["content"]["body_text"] == "Old snapshot excerpt"
     assert presentation["content"]["body_truncated"] is True
     assert presentation["content"]["body_completeness"] == "excerpt_only"
-    assert presentation["media"] == {"images": [], "count": 0}
+    assert presentation["media"] == {
+        "images": [],
+        "count": 0,
+        "total_image_count": 0,
+        "truncated": False,
+    }
 
     _login_as(client, "saved-member", "member-password")
     assert client.get("/api/feed/saved").json()["data"]["items"] == []

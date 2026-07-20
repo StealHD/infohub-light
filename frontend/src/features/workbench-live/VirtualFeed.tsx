@@ -9,6 +9,7 @@ import {
   Card,
   Chip,
   Icons,
+  Skeleton,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
@@ -24,6 +25,8 @@ type VirtualFeedProps = {
   expandedId?: string
   navigationTargetId?: string
   contextIds: string[]
+  detailLoading?: boolean
+  detailError?: boolean
   readonly?: boolean
   onToggleExpanded: (id: string) => void
   onToggleSaved: (id: string, saved: boolean) => void
@@ -46,11 +49,46 @@ function readViewportAnchor(scroll: HTMLDivElement): ViewportAnchor | null {
   return { id: topRow.dataset.itemId, offset: topCard.getBoundingClientRect().top - bounds.top }
 }
 
+function useMeasuredClampOverflow(
+  cardId: string,
+  expanded: boolean,
+): {
+  overflow: boolean
+  primaryRef: (node: HTMLElement | null) => void
+  secondaryRef: (node: HTMLElement | null) => void
+} {
+  const primary = useRef<HTMLElement | null>(null)
+  const secondary = useRef<HTMLElement | null>(null)
+  const [overflow, setOverflow] = useState(false)
+
+  useLayoutEffect(() => {
+    if (expanded) return
+    const elements = [primary.current, secondary.current].filter((value): value is HTMLElement => Boolean(value))
+    const measure = () => setOverflow(elements.some((element) => element.scrollHeight > element.clientHeight + 1))
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    elements.forEach((element) => observer.observe(element))
+    return () => observer.disconnect()
+  }, [cardId, expanded])
+
+  return {
+    overflow,
+    primaryRef: (node) => { primary.current = node },
+    secondaryRef: (node) => { secondary.current = node },
+  }
+}
+
 function WorkbenchCard({
   card,
   expanded,
   inContext,
   contextFull,
+  detailLoading,
+  detailError,
   readonly,
   onToggleExpanded,
   onToggleSaved,
@@ -61,6 +99,8 @@ function WorkbenchCard({
   expanded: boolean
   inContext: boolean
   contextFull: boolean
+  detailLoading?: boolean
+  detailError?: boolean
   readonly?: boolean
   onToggleExpanded: () => void
   onToggleSaved: () => void
@@ -74,6 +114,21 @@ function WorkbenchCard({
   const sourceParts = workbenchSourceLabels(card)
   const [copyNotice, setCopyNotice] = useState('')
   const copyNoticeTimer = useRef<number | undefined>(undefined)
+  const {
+    overflow: measuredOverflow,
+    primaryRef: measurePrimary,
+    secondaryRef: measureSecondary,
+  } = useMeasuredClampOverflow(card.id, expanded)
+  const canExpand = measuredOverflow || card.hasDistinctDetail || card.mediaImages.length > 0
+  const canToggleExpansion = canExpand || expanded
+  const imageCountLabel = card.totalImageCount > 0
+    ? card.mediaTruncated
+      ? `${card.totalImageCount} 张图片 · 可查看 ${card.displayImageCount} 张`
+      : `${card.totalImageCount} 张图片`
+    : ''
+  const incompleteMessage = card.bodyCompleteness === 'excerpt_only' || card.bodyTruncated || card.excerptTruncated
+    ? '仅获取到内容片段，打开原文查看完整内容。'
+    : ''
 
   useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
 
@@ -98,10 +153,10 @@ function WorkbenchCard({
     variant="secondary"
     className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
   >
-    <button
+    {canToggleExpansion ? <button
       type="button"
       className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-      aria-label={`${expanded ? '收起' : '展开'} ${cardLabel}`}
+      aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
       aria-expanded={expanded}
       onClick={onToggleExpanded}
     >
@@ -118,12 +173,31 @@ function WorkbenchCard({
         <span>{relativeTime(card.publishedAt)}</span>
       </span>
       {social
-        ? <Card.Description className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
+        ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
         : <>
-          <Card.Title className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
-          {card.summary && <Card.Description className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
+          <Card.Title ref={measurePrimary} className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
+          {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
         </>}
-    </button>
+    </button> : <div className="w-full px-[19px] pt-[18px] text-left">
+      <span aria-label="来源信息" className="type-meta mb-2 flex items-center gap-2 text-muted">
+        <AvatarRoot className="size-[25px] shrink-0">
+          {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
+          <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
+        </AvatarRoot>
+        {sourceParts.map((part, index) => <Fragment key={part}>
+          {index > 0 && <span aria-hidden="true">·</span>}
+          <span className="truncate">{part}</span>
+        </Fragment>)}
+        <span aria-hidden="true">·</span>
+        <span>{relativeTime(card.publishedAt)}</span>
+      </span>
+      {social
+        ? <Card.Description ref={measurePrimary} className="type-body whitespace-pre-wrap text-foreground line-clamp-3">{socialText}</Card.Description>
+        : <>
+          <Card.Title ref={measurePrimary} className="type-card-title line-clamp-2">{card.title}</Card.Title>
+          {card.summary && <Card.Description ref={measureSecondary} className="type-body mt-1.5 text-muted line-clamp-2">{card.summary}</Card.Description>}
+        </>}
+    </div>}
 
     <div
       data-testid={`card-details-${card.id}`}
@@ -132,22 +206,44 @@ function WorkbenchCard({
       className={`grid px-[19px] transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
     >
       <div className="min-h-0 overflow-hidden">
-        {!social && <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
-          {card.detailBody || '该条内容未保存正文片段；重新获取来源后可显示。'}
+        {detailLoading && <div role="status" aria-label="正在读取详情" className="grid gap-2 border-t border-separator py-3"><Skeleton className="h-4 w-4/5 rounded-md" /><Skeleton className="h-4 w-3/5 rounded-md" /></div>}
+        {detailError && <p role="status" className="type-meta border-t border-separator py-3 text-muted">暂时无法读取更多内容；当前卡片仍可继续使用。</p>}
+        {!detailLoading && !social && card.detailBody && <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
+          {card.detailBody}
         </div>}
-        {card.bodyTruncated && <p className="type-meta mt-2 text-muted">内容已截断，打开原文查看完整内容。</p>}
-        {card.imageUrl && <img className="mt-3 max-h-80 w-full rounded-xl object-contain" src={card.imageUrl} alt={`${card.sourceLabel} 内容图片`} loading="lazy" />}
+        {!detailLoading && card.mediaImages.length > 0 && <div className={`mt-3 grid gap-2 ${card.mediaImages.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`} aria-label={`${card.displayImageCount} 张可查看图片`}>
+          {card.mediaImages.map((image, index) => <img
+            key={image.url}
+            className={`w-full rounded-xl bg-default object-cover ${card.mediaImages.length > 1 ? 'aspect-[4/3]' : 'max-h-96 object-contain'}`}
+            src={image.url}
+            alt={image.alt || `${card.sourceLabel} 内容图片 ${index + 1}`}
+            width={image.width}
+            height={image.height}
+            loading="lazy"
+          />)}
+        </div>}
+        {!detailLoading && incompleteMessage && <p className="type-meta mt-2 text-muted">{incompleteMessage}</p>}
       </div>
     </div>
 
     <Card.Footer className="flex flex-wrap items-center justify-between gap-2 px-[19px] pb-[15px] pt-[10px]">
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5" aria-label="频道和主题">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5" aria-label="内容分类、频道和主题">
+        <Chip size="sm" variant="soft" className="type-micro"><Chip.Label>{card.formatLabel}</Chip.Label></Chip>
+        {imageCountLabel && <Chip size="sm" variant="soft" className="type-micro"><Chip.Label>{imageCountLabel}</Chip.Label></Chip>}
         <Chip size="sm" color="accent" variant="soft" className="type-micro"><Chip.Label>{card.channel}</Chip.Label></Chip>
         {card.topics.slice(0, 3).map((topic) => <Chip key={topic} size="sm" variant="soft" className="type-micro"><Chip.Label>{topic}</Chip.Label></Chip>)}
       </div>
+      {canToggleExpansion && <Button
+        size="sm"
+        variant="ghost"
+        className="type-meta ml-auto min-h-8 gap-1 text-muted"
+        aria-label={`${expanded ? '收起' : '展开'} ${cardLabel}`}
+        aria-expanded={expanded}
+        onPress={onToggleExpanded}
+      >{expanded ? '收起' : '展开'}{expanded ? <Icons.ChevronUp size={14} aria-hidden="true" /> : <Icons.ChevronDown size={14} aria-hidden="true" />}</Button>}
       <div
         data-card-actions
-        className="ml-auto flex items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100"
+        className={`${canToggleExpansion ? '' : 'ml-auto'} flex items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100`}
       >
         {externalUrl && <a
           href={externalUrl}
@@ -487,6 +583,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
               expanded={card.id === props.expandedId}
               inContext={props.contextIds.includes(card.id)}
               contextFull={props.contextIds.length >= 8}
+              detailLoading={card.id === props.expandedId && props.detailLoading}
+              detailError={card.id === props.expandedId && props.detailError}
               readonly={props.readonly}
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}

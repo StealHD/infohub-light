@@ -49,10 +49,13 @@ class UserAnalysisCache:
         presentation = stored.get("presentation")
         analysis = presentation.get("analysis") if isinstance(presentation, dict) else {}
         taxonomy = presentation.get("taxonomy") if isinstance(presentation, dict) else {}
+        content = presentation.get("content") if isinstance(presentation, dict) else {}
         if not isinstance(analysis, dict):
             analysis = {}
         if not isinstance(taxonomy, dict):
             taxonomy = {}
+        if not isinstance(content, dict):
+            content = {}
         # Stable content may contain source excerpts and fallback projections;
         # only a positively identified prior AI projection is reusable.
         if analysis.get("status") != "ai":
@@ -63,7 +66,7 @@ class UserAnalysisCache:
             return None
         topics = taxonomy.get("topics") or stored.get("topics") or stored.get("tags") or []
         entities = taxonomy.get("entities") or stored.get("entities") or []
-        return {
+        result = {
             "score": score,
             "summary": summary,
             "summary_zh": summary,
@@ -75,6 +78,9 @@ class UserAnalysisCache:
             "signal_type": analysis.get("signal_type") or stored.get("signal_type") or "",
             "is_featured": bool(stored.get("is_featured")),
         }
+        if content.get("format_origin") == "ai":
+            result["content_format"] = content.get("format")
+        return result
 
     def apply(
         self,
