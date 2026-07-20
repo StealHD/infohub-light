@@ -1,0 +1,191 @@
+/* ===== Horizon Custom Styles ===== */
+
+/* --- CSS Variables & Dark Mode (Horizon Dawn) --- */
+/* Palette derived from horizon-header.svg sunrise:
+   #312e81 deep indigo · #be185d rose · #f97316 orange · #fbbf24 gold
+   #4c1d95 mountain purple · #701a75 distant purple                  */
+:root {
+  --hz-bg: #faf8f5;          /* warm parchment white */
+  --hz-surface: #f3f0eb;     /* slightly warm gray */
+  --hz-border: #e0dbd3;      /* warm border */
+  --hz-text: #2d2a3e;        /* deep indigo-ink */
+  --hz-text-muted: #7c7891;  /* muted lavender gray */
+  --hz-link: #6d4aaa;        /* mountain purple, lighter */
+  --hz-code-bg: #f0ede7;     /* warm code bg */
+  --hz-accent: #e0652e;      /* sunrise orange, toned down */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hz-bg: #1a1726;        /* pre-dawn deep purple-black */
+    --hz-surface: #231f33;   /* night sky surface */
+    --hz-border: #342f4a;    /* indigo border */
+    --hz-text: #e8e4f0;      /* moonlight white-lavender */
+    --hz-text-muted: #8c86a0; /* muted twilight */
+    --hz-link: #f0a848;      /* dawn gold */
+    --hz-code-bg: #211d30;   /* deep code bg */
+    --hz-accent: #e87040;    /* sunrise orange-coral */
+  }
+}
+
+/* Apply variables to base elements */
+body {
+  background-color: var(--hz-bg) !important;
+  color: var(--hz-text) !important;
+}
+
+a {
+  color: var(--hz-link) !important;
+}
+
+code {
+  background-color: var(--hz-code-bg) !important;
+  color: var(--hz-text) !important;
+}
+
+pre {
+  background-color: var(--hz-code-bg) !important;
+  color: var(--hz-text) !important;
+  border: 1px solid var(--hz-border) !important;
+}
+
+hr {
+  border-color: var(--hz-border) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--hz-text) !important;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif !important;
+  font-weight: 800 !important;
+}
+
+/* Override Cayman header gradient — Horizon sunrise from SVG */
+.page-header {
+  background: linear-gradient(120deg, #312e81, #be185d, #f97316) !important;
+}
+
+.page-header h1,
+.page-header h2,
+.page-header .project-tagline,
+.page-header a {
+  color: #fff !important;
+}
+
+/* --- Score Badge --- */
+.score-badge {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.75em;
+  font-weight: 700;
+  color: #fff;
+  margin-left: 0.4em;
+  vertical-align: middle;
+}
+
+.score-badge[data-tier="high"] { background: #be185d; } /* rose — from SVG */
+.score-badge[data-tier="good"] { background: #e0652e; } /* sunrise orange */
+.score-badge[data-tier="mid"]  { background: #d4a017; } /* warm gold */
+.score-badge[data-tier="low"]  { background: #7c7891; } /* muted lavender */
+
+/* --- Tag Pills --- */
+.tag-line code {
+  border-radius: 3px;
+  padding: 0.1em 0.5em;
+  font-size: 0.8em;
+  background: var(--hz-accent) !important;
+  color: #fff !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tag-line code {
+    background: #342f4a !important;   /* indigo border */
+    color: #f0a848 !important;        /* dawn gold */
+  }
+}
+
+/* --- Source Line --- */
+.source-line {
+  font-size: 0.85em;
+  color: var(--hz-text-muted);
+  border-left: 2px solid var(--hz-accent);
+  padding-left: 0.6em;
+}
+
+/* --- Collapsible References --- */
+.main-content details {
+  border: 1px solid var(--hz-border);
+  border-radius: 4px;
+  margin: 0.8em 0;
+}
+
+.main-content details summary {
+  cursor: pointer;
+  padding: 0.4em 0.8em;
+  font-weight: 600;
+  color: var(--hz-text-muted);
+}
+
+.main-content details > ul {
+  padding: 0.4em 0.8em 0.4em 2em;
+  margin: 0;
+}
+
+/* --- TOC Ordered List --- */
+.main-content > ol {
+  border: 1px solid var(--hz-border);
+  border-radius: 4px;
+  padding: 0.8em 0.8em 0.8em 2em;
+  background: var(--hz-surface);
+}
+
+.main-content > ol > li {
+  padding: 0.3em 0;
+}
+
+/* --- Summary Blockquote --- */
+.main-content > blockquote:first-of-type {
+  border-left-color: var(--hz-accent);
+  color: var(--hz-text-muted);
+  font-style: normal;
+}
+
+/* --- Language Toggle (fixed top-right) --- */
+.lang-toggle {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  gap: 0;
+}
+
+.lang-toggle button {
+  padding: 0.3em 1em;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: rgba(0,0,0,0.15);
+  color: #fff;
+  font-size: 0.8em;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.lang-toggle button:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.lang-toggle button:last-child {
+  border-radius: 0 3px 3px 0;
+  border-left: none;
+}
+
+.lang-toggle button.active {
+  background: var(--hz-accent);
+  color: #fff;
+  border-color: var(--hz-accent);
+}
+
+.lang-section.hidden {
+  display: none;
+}
