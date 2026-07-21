@@ -140,6 +140,7 @@ class MediaCacheService:
         remote_urls = all_remote_urls[:MAX_IMAGES_PER_ITEM]
         metadata["remote_media_urls"] = remote_urls
         local_urls: list[str] = []
+        local_asset_ids: set[str] = set()
         for index, remote_url in enumerate(remote_urls):
             asset = self._existing_asset(
                 workspace_id=workspace_id,
@@ -161,7 +162,11 @@ class MediaCacheService:
                     visibility_scope="private",
                 )
             if asset is not None:
-                local_urls.append(f"/api/media/{asset['id']}")
+                asset_id = str(asset["id"])
+                if asset_id in local_asset_ids:
+                    continue
+                local_asset_ids.add(asset_id)
+                local_urls.append(f"/api/media/{asset_id}")
         metadata["media_urls"] = local_urls
         metadata["image_url"] = local_urls[0] if local_urls else ""
 
@@ -273,6 +278,26 @@ class MediaCacheService:
         if prepared is None:
             return None
         data, mime_type, suffix, checksum = prepared
+        if asset_kind == "content_image" and article_id:
+            existing = self._existing_checksum_asset(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                article_id=article_id,
+                asset_kind=asset_kind,
+                checksum=checksum,
+            )
+            if existing is not None:
+                now = _now_iso()
+                self.store.connect().execute(
+                    """
+                    UPDATE media_assets
+                    SET remote_url = ?, source_id = COALESCE(?, source_id),
+                        alt = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (remote_url, source_id, alt[:240], now, existing["id"]),
+                )
+                return self.asset(str(existing["id"]))
         return self._store_prepared_asset(
             workspace_id=workspace_id,
             user_id=user_id,
@@ -518,6 +543,28 @@ class MediaCacheService:
             ORDER BY created_at DESC LIMIT 1
             """,
             (workspace_id, user_id, source_id, article_id, asset_kind, remote_url),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def _existing_checksum_asset(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str | None,
+        article_id: str,
+        asset_kind: str,
+        checksum: str,
+    ) -> dict[str, Any] | None:
+        """Reuse an article image when rotating CDN URLs resolve to the same bytes."""
+
+        row = self.store.connect().execute(
+            """
+            SELECT * FROM media_assets
+            WHERE workspace_id = ? AND user_id IS ? AND article_id = ?
+              AND asset_kind = ? AND checksum = ? AND status = 'ready'
+            ORDER BY updated_at DESC, created_at DESC, id DESC LIMIT 1
+            """,
+            (workspace_id, user_id, article_id, asset_kind, checksum),
         ).fetchone()
         return dict(row) if row is not None else None
 

@@ -32,6 +32,7 @@ vi.mock('../features/openclaw/useOpenClawChat', () => ({
       streamText: '仍在生成的回复',
       issue: null,
       runtimeIssue: null,
+      modelSwitchFallback: null,
       sessionKey: 'session-live',
       isRunning: true,
       isStopping: false,
@@ -54,6 +55,7 @@ vi.mock('../features/openclaw/useOpenClawChat', () => ({
       stop: vi.fn(),
       setModel: vi.fn(),
       setThinking: vi.fn(),
+      switchToBlankConversation: vi.fn(),
       newConversation: vi.fn(),
     }
   },
@@ -102,18 +104,20 @@ describe('authenticated route lifecycle', () => {
     expect(await screen.findByText('仍在生成的回复')).toBeInTheDocument()
     const shell = screen.getByTestId('live-workbench-shell')
     shell.dataset.lifecycleProbe = 'preserved'
-    await browser.click(screen.getByRole('button', { name: '收起 Agent 面板' }))
+    const pinnedAgentToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
+    expect(pinnedAgentToggle).toBeDisabled()
+    await browser.click(pinnedAgentToggle)
 
     const desktopNavigation = screen.getByRole('navigation', { name: '工作台导航' })
     await browser.click(within(desktopNavigation).getByRole('link', { name: '收藏' }))
     expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-lifecycle-probe', 'preserved')
-    expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起 Agent 面板' })).toBeDisabled()
 
     await browser.click(within(desktopNavigation).getByRole('link', { name: '历史' }))
     expect(await screen.findByRole('heading', { name: '历史' })).toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-lifecycle-probe', 'preserved')
-    expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起 Agent 面板' })).toBeDisabled()
 
     await waitFor(() => expect(chatLifecycle.mounts).toBe(1))
     expect(chatLifecycle.unmounts).toBe(0)

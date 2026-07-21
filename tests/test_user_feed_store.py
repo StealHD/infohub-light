@@ -375,8 +375,8 @@ def test_media_cache_downloads_at_most_six_images_and_rewrites_item_urls(
         },
     )
 
-    def fetch_image(_url):
-        return b"\x89PNG\r\n\x1a\n" + b"image-bytes", "image/png"
+    def fetch_image(url):
+        return b"\x89PNG\r\n\x1a\n" + url.encode("utf-8"), "image/png"
 
     MediaCacheService(store, data_dir=tmp_path, fetch_image=fetch_image).cache_items(
         workspace_id=workspace["id"],
@@ -439,6 +439,90 @@ def test_media_cache_downloads_at_most_six_images_and_rewrites_item_urls(
     assert "remote_media_urls" not in public_item
     assert public_item["image_url"].startswith("/api/media/med_")
     assert all(url.startswith("/api/media/med_") for url in public_item["media_urls"])
+
+
+def test_media_cache_reuses_checksum_across_rotating_instagram_urls(
+    tmp_path, monkeypatch
+):
+    from src.services.media_cache import MediaCacheService
+    from src.ui.site import serialize_item
+
+    store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
+    shared_bytes = b"\x89PNG\r\n\x1a\n" + b"same-instagram-image"
+    cache = MediaCacheService(
+        store,
+        data_dir=tmp_path,
+        fetch_image=lambda _url: (shared_bytes, "image/png"),
+    )
+    first = ContentItem(
+        id="instagram:post:rotating-cdn",
+        source_type=SourceType.INSTAGRAM,
+        title="Rotating CDN",
+        url="https://instagram.com/p/rotating-cdn",
+        published_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+        metadata={"media_urls": ["https://scontent-a.cdninstagram.com/image.jpg?sig=old"]},
+    )
+    second = ContentItem(
+        id=first.id,
+        source_type=first.source_type,
+        title=first.title,
+        url=first.url,
+        published_at=first.published_at,
+        metadata={
+            "media_urls": [
+                "https://scontent-b.cdninstagram.com/image.jpg?sig=new",
+                "https://scontent-c.cdninstagram.com/image.jpg?sig=newer",
+            ]
+        },
+    )
+
+    cache.cache_items(workspace_id=workspace["id"], user_id=owner["id"], items=[first])
+    first_local_url = first.metadata["media_urls"][0]
+    cache.cache_items(workspace_id=workspace["id"], user_id=owner["id"], items=[second])
+
+    rows = store.connect().execute(
+        """
+        SELECT id, remote_url, checksum FROM media_assets
+        WHERE article_id = ? AND asset_kind = 'content_image'
+        """,
+        (first.id,),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["remote_url"].endswith("sig=newer")
+    assert second.metadata["media_urls"] == [first_local_url]
+
+    serialized = serialize_item(second, featured_threshold=8.0)
+    UserContentStore(store).upsert_items(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        items=[serialized],
+        seen_at="2026-07-14T00:00:00+00:00",
+    )
+    original = dict(rows[0])
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+            id, workspace_id, user_id, article_id, asset_kind, remote_url,
+            local_path, mime_type, byte_size, checksum, alt, visibility_scope,
+            status, created_at, updated_at
+        )
+        SELECT 'med_legacy_duplicate', workspace_id, user_id, article_id,
+               asset_kind, 'https://legacy.example/image.jpg', local_path,
+               mime_type, byte_size, checksum, alt, visibility_scope, status,
+               '2026-07-13T00:00:00+00:00', '2026-07-13T00:00:00+00:00'
+        FROM media_assets WHERE id = ?
+        """,
+        (original["id"],),
+    )
+    store.connect().commit()
+
+    detail = UserContentStore(store).detail_item(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        article_id=first.id,
+    )
+    assert detail["presentation"]["media"]["count"] == 1
+    assert len(detail["presentation"]["media"]["images"]) == 1
 
 
 def test_media_cache_download_allows_synthetic_dns_only_for_instagram_cdn(

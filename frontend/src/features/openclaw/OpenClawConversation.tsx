@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   ComboBox,
-  CompactSelect,
   Form,
   Icons,
   Input,
@@ -158,47 +157,74 @@ function formatContextWindow(value?: number): string {
 }
 
 function RuntimeControls({ chat }: { chat: ChatController }) {
+  const [open, setOpen] = useState(false)
   const currentModel = chat.models.find((model) => model.id === chat.runtimeSelection.modelId)
   const controlsDisabled = chat.isRunning || chat.runtimeUpdating || chat.runtimeLoading
-  const thinkingDisabled = controlsDisabled || currentModel?.reasoning === false
-  const thinkingValue = chat.runtimeSelection.thinkingLevel || '__default__'
-  const thinkingOptions = [
-    { id: '__default__', label: '自动 · OpenClaw 默认' },
-    ...chat.thinkingOptions,
-  ]
+  const currentThinking = chat.thinkingOptions.find((option) => option.id === chat.runtimeSelection.thinkingLevel)
+  const runtimeLabel = currentModel
+    ? `${currentModel.name} · ${currentThinking?.label ?? '自动'}`
+    : chat.runtimeLoading ? '正在读取模型…' : 'OpenClaw 当前设置'
 
-  if (!chat.models.length) return <span className="type-label min-w-0 flex-1 truncate text-muted">
-    {chat.runtimeLoading ? '正在读取 OpenClaw 模型…' : '使用 OpenClaw 当前设置'}
-  </span>
-
-  return <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(112px,0.72fr)] items-end gap-1">
-    <ComboBox
-      selectedKey={chat.runtimeSelection.modelId ?? undefined}
-      onSelectionChange={(key: Key | null) => { if (key !== null) void chat.setModel(String(key)) }}
-      isDisabled={controlsDisabled}
-      className="min-w-0"
+  return <Popover isOpen={controlsDisabled ? false : open} onOpenChange={(next) => { if (!controlsDisabled && chat.models.length) setOpen(next) }}>
+    <Popover.Trigger
+      aria-label={`OpenClaw 运行设置：${runtimeLabel}`}
+      aria-disabled={controlsDisabled || !chat.models.length}
+      className={`type-control flex min-w-0 max-w-full flex-1 items-center gap-1 rounded-lg px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-focus ${controlsDisabled || !chat.models.length ? 'cursor-default text-muted' : 'text-foreground hover:bg-default'}`}
     >
-      <ComboBox.InputGroup className="min-w-0 border-0 bg-transparent shadow-none">
-        <Input aria-label="OpenClaw 模型" className="type-control min-w-0 truncate border-0 bg-transparent px-1.5 shadow-none" />
-        <ComboBox.Trigger aria-label="选择 OpenClaw 模型" className="shrink-0"><Icons.ChevronDown size={12} aria-hidden="true" /></ComboBox.Trigger>
-      </ComboBox.InputGroup>
-      <ComboBox.Popover className="w-[min(360px,calc(100vw-24px))]">
-        <ListBox items={chat.models}>
-          {(model) => <ListBox.Item id={model.id} textValue={`${model.name} ${model.provider}`} className="min-w-0">
-            <span className="type-control block min-w-0 truncate">{model.name}</span>
-            <span className="type-meta block min-w-0 truncate text-muted">{model.provider}{formatContextWindow(model.contextWindow) ? ` · ${formatContextWindow(model.contextWindow)}` : ''}</span>
-          </ListBox.Item>}
-        </ListBox>
-      </ComboBox.Popover>
-    </ComboBox>
-    <CompactSelect
-      ariaLabel="OpenClaw 推理档位"
-      value={thinkingValue}
-      options={thinkingOptions}
-      onChange={(next) => void chat.setThinking(next === '__default__' ? null : next)}
-      isDisabled={thinkingDisabled}
-    />
-  </div>
+      <span className="min-w-0 truncate">{runtimeLabel}</span>
+      <Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" />
+    </Popover.Trigger>
+    <Popover.Content placement="top start" offset={8} className="z-50 w-[min(360px,calc(100vw-24px))] p-0">
+      <Popover.Dialog aria-label="OpenClaw 运行设置" className="min-w-0 overflow-x-hidden p-3">
+        <Popover.Heading className="type-page-title">当前对话运行设置</Popover.Heading>
+        <p className="type-meta mt-1 text-muted">模型以 OpenClaw 返回的实际会话为准；切换时会保留当前上下文。</p>
+        <ComboBox
+          selectedKey={chat.runtimeSelection.modelId ?? undefined}
+          onSelectionChange={(key: Key | null) => {
+            if (key === null || String(key) === chat.runtimeSelection.modelId) return
+            void chat.setModel(String(key)).then((success) => { if (success) setOpen(false) })
+          }}
+          isDisabled={controlsDisabled}
+          className="mt-3 min-w-0"
+        >
+          <Label>模型</Label>
+          <ComboBox.InputGroup className="min-w-0">
+            <Input aria-label="搜索 OpenClaw 模型" className="type-control min-w-0" />
+            <ComboBox.Trigger aria-label="显示 OpenClaw 模型"><Icons.ChevronDown size={14} aria-hidden="true" /></ComboBox.Trigger>
+          </ComboBox.InputGroup>
+          <ComboBox.Popover className="w-[min(336px,calc(100vw-40px))]">
+            <ListBox items={chat.models}>
+              {(model) => <ListBox.Item id={model.id} textValue={`${model.name} ${model.provider}`} className="min-w-0">
+                <span className="type-control block min-w-0 truncate">{model.name}</span>
+                <span className="type-meta block min-w-0 truncate text-muted">{model.provider}{formatContextWindow(model.contextWindow) ? ` · ${formatContextWindow(model.contextWindow)}` : ''}</span>
+              </ListBox.Item>}
+            </ListBox>
+          </ComboBox.Popover>
+        </ComboBox>
+        <div className="mt-3 min-w-0">
+          <span className="type-label text-muted">推理程度</span>
+          <div className="mt-1.5 flex min-w-0 flex-wrap gap-1" role="group" aria-label="OpenClaw 推理档位">
+            <Button
+              size="sm"
+              variant={chat.runtimeSelection.thinkingLevel === null ? 'primary' : 'ghost'}
+              isDisabled={controlsDisabled}
+              aria-pressed={chat.runtimeSelection.thinkingLevel === null}
+              onPress={() => void chat.setThinking(null)}
+            >自动</Button>
+            {currentModel?.reasoning !== false && chat.thinkingOptions.map((option) => <Button
+              key={option.id}
+              size="sm"
+              variant={chat.runtimeSelection.thinkingLevel === option.id ? 'primary' : 'ghost'}
+              isDisabled={controlsDisabled}
+              aria-pressed={chat.runtimeSelection.thinkingLevel === option.id}
+              onPress={() => void chat.setThinking(option.id)}
+            >{option.label}</Button>)}
+          </div>
+          {currentModel?.reasoning === false && <p className="type-meta mt-1.5 text-muted">此模型未提供推理档位。</p>}
+        </div>
+      </Popover.Dialog>
+    </Popover.Content>
+  </Popover>
 }
 
 function ConnectedConversation({ chat, value }: { chat: ChatController; value: WorkbenchAgentContextValue }) {
@@ -307,6 +333,13 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
           </Tooltip> : <Button size="sm" isIconOnly className="size-9 shrink-0 rounded-full" aria-label="发送给 OpenClaw" isDisabled={!canSend || chat.status !== 'connected'} onPress={() => void send()}><Icons.ArrowUp size={16} /></Button>}
         </div>
         {chat.runtimeIssue && <p role="status" className="type-label mt-1 max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">{chat.runtimeIssue}</p>}
+        {chat.modelSwitchFallback && <Button
+          size="sm"
+          variant="ghost"
+          className="mt-1 max-w-full"
+          isDisabled={chat.isRunning || chat.runtimeUpdating}
+          onPress={() => void chat.switchToBlankConversation()}
+        >新建空白对话并切换到 {chat.modelSwitchFallback.modelName}</Button>}
       </div>
     </div>
   </>

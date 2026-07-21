@@ -6,6 +6,7 @@ export type LegacyFeedPreference = {
 }
 
 export type FeedOrder = 'newest' | 'oldest'
+export type FeedDateScope = 'all' | 'today'
 
 export type FeedPreference = {
   unreadFirst: boolean
@@ -14,6 +15,7 @@ export type FeedPreference = {
   topic: string
   minScore?: number
   order: FeedOrder
+  dateScope: FeedDateScope
 }
 
 export const FEED_PREFERENCE_CHANGED_EVENT = 'inteliscope:feed-preference-changed'
@@ -25,6 +27,7 @@ const defaultPreference: FeedPreference = {
   topic: '',
   minScore: undefined,
   order: 'newest',
+  dateScope: 'all',
 }
 const legacyDefaultPreference: LegacyFeedPreference = { mode: 'featured', unreadFirst: false }
 const storageKey = (userId: string) => `inteliscope.ui.feed.v2:${userId}`
@@ -39,6 +42,7 @@ function sanitizePreference(value: Partial<FeedPreference> | null): FeedPreferen
     topic: typeof value?.topic === 'string' ? value.topic : '',
     minScore,
     order: value?.order === 'oldest' ? 'oldest' : 'newest',
+    dateScope: value?.dateScope === 'today' ? 'today' : 'all',
   }
 }
 

@@ -32,6 +32,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     streamText: '',
     issue: null,
     runtimeIssue: null,
+    modelSwitchFallback: null,
     sessionKey: null,
     isRunning: false,
     isStopping: false,
@@ -49,6 +50,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     stop: vi.fn(),
     setModel: vi.fn().mockResolvedValue(true),
     setThinking: vi.fn().mockResolvedValue(true),
+    switchToBlankConversation: vi.fn().mockResolvedValue(true),
     newConversation: vi.fn(),
     ...overrides,
   }
@@ -136,7 +138,7 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByRole('button', { name: '新对话' })).toBeDisabled()
   })
 
-  it('renders configured Gateway models and patches the selected model for this conversation', async () => {
+  it('uses one compact runtime control and requests a verified model branch', async () => {
     const browser = userEvent.setup()
     const chat = chatController({
       status: 'connected',
@@ -150,13 +152,16 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByLabelText('OpenClaw 模型')).toHaveValue('GPT-5.4 openai')
-    await browser.click(screen.getByRole('button', { name: '选择 OpenClaw 模型' }))
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 运行设置：GPT-5.4 · 高' }))
+    expect(screen.getByText('当前对话运行设置')).toBeInTheDocument()
+    expect(screen.getByLabelText('搜索 OpenClaw 模型')).toHaveValue('GPT-5.4 openai')
+    await browser.click(screen.getByRole('button', { name: /显示 OpenClaw 模型/ }))
     await browser.click(screen.getByRole('option', { name: /Quick/ }))
     expect(chat.setModel).toHaveBeenCalledWith('local/quick')
   })
 
-  it('shows only the OpenClaw default thinking choice when the selected model does not reason', () => {
+  it('shows only the OpenClaw default thinking choice when the selected model does not reason', async () => {
+    const browser = userEvent.setup()
     const chat = chatController({
       status: 'connected',
       sessionKey: 'session-1',
@@ -166,11 +171,27 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    const thinking = screen.getByRole('button', { name: /OpenClaw 推理档位$/ })
-    expect(thinking).toBeDisabled()
-    expect(thinking).toHaveTextContent('自动 · OpenClaw 默认')
+    expect(screen.getByRole('button', { name: 'OpenClaw 运行设置：Quick · 自动' })).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 运行设置：Quick · 自动' }))
+    expect(screen.getByText('此模型未提供推理档位。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '自动' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('速度优先')).not.toBeInTheDocument()
     expect(screen.queryByText('深度分析')).not.toBeInTheDocument()
+  })
+
+  it('offers an explicit blank-conversation fallback without exposing Gateway scope errors', async () => {
+    const browser = userEvent.setup()
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      runtimeIssue: '当前对话过长，无法在保留上下文的同时切换模型。',
+      modelSwitchFallback: { modelId: 'openai/gpt-5.4', modelName: 'GPT-5.4' },
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    expect(document.body.textContent).not.toContain('operator.admin')
+    await browser.click(screen.getByRole('button', { name: '新建空白对话并切换到 GPT-5.4' }))
+    expect(chat.switchToBlankConversation).toHaveBeenCalledTimes(1)
   })
 
   it('offers retry and restore actions for a failed visible message', async () => {

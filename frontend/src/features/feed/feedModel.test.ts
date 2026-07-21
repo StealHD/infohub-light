@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FeedItem, SourceHealthItem } from '../../api/types'
-import { filterFeedItems, resolveItemHealth, safeExternalUrl, selectModeItems, sortWorkbenchItems } from './feedModel'
+import { filterFeedItems, isFeedItemToday, resolveItemHealth, safeExternalUrl, selectModeItems, sortWorkbenchItems } from './feedModel'
 
 const item = (overrides: Partial<FeedItem> = {}): FeedItem => ({
   id: 'article-1',
@@ -89,6 +89,23 @@ describe('feed model', () => {
     expect(filterFeedItems(values, {
       query: '', unreadFirst: false, sourceId: 'source-a', channel: 'AI', topic: 'Codex', minScore: 8,
     }).map((value) => value.id)).toEqual(['match'])
+  })
+
+  it('uses the browser-local day and falls back from missing publication to fetch time', () => {
+    const localNow = new Date(2026, 6, 21, 12, 0, 0)
+    const today = item({ id: 'today', published_at: new Date(2026, 6, 21, 0, 5, 0).toISOString() })
+    const fetchedToday = item({
+      id: 'fetched-today',
+      published_at: '',
+      fetched_at: new Date(2026, 6, 21, 8, 0, 0).toISOString(),
+    })
+    const yesterday = item({ id: 'yesterday', published_at: new Date(2026, 6, 20, 23, 59, 0).toISOString() })
+    const unknown = item({ id: 'unknown', published_at: '', fetched_at: '' })
+
+    expect(isFeedItemToday(today, localNow)).toBe(true)
+    expect(filterFeedItems([today, fetchedToday, yesterday, unknown], {
+      query: '', unreadFirst: false, dateScope: 'today', now: localNow,
+    }).map((value) => value.id)).toEqual(['today', 'fetched-today'])
   })
 
   it('filters with canonical presentation fields before legacy fallbacks', () => {

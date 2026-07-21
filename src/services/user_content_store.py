@@ -457,13 +457,21 @@ class UserContentStore:
         )
         media_rows = self.store.connect().execute(
             """
-            SELECT id, width, height, alt FROM media_assets
+            SELECT id, width, height, alt, checksum FROM media_assets
             WHERE workspace_id = ? AND user_id = ? AND article_id = ?
               AND asset_kind = 'content_image' AND status = 'ready'
-            ORDER BY created_at, id LIMIT 6
+            ORDER BY updated_at DESC, created_at DESC, id DESC
             """,
             (workspace_id, user_id, article_id),
         ).fetchall()
+        unique_media_rows = []
+        seen_media_identities: set[str] = set()
+        for row in media_rows:
+            identity = str(row["checksum"] or row["id"])
+            if identity in seen_media_identities:
+                continue
+            seen_media_identities.add(identity)
+            unique_media_rows.append(row)
         images = [
             {
                 "asset_id": str(row["id"]),
@@ -472,7 +480,7 @@ class UserContentStore:
                 **({"height": int(row["height"])} if row["height"] else {}),
                 "alt": str(row["alt"] or item.get("title") or "内容图片"),
             }
-            for row in media_rows
+            for row in unique_media_rows[:6]
         ]
         existing_media = presentation.get("media")
         if not isinstance(existing_media, dict):
@@ -481,6 +489,7 @@ class UserContentStore:
             total_image_count = max(0, int(existing_media.get("total_image_count") or 0))
         except (TypeError, ValueError):
             total_image_count = 0
+        unique_image_count = len(unique_media_rows)
         presentation.update(
             {
                 "version": 2,
@@ -489,8 +498,8 @@ class UserContentStore:
                 "media": {
                     "images": images,
                     "count": len(images),
-                    "total_image_count": max(total_image_count, len(images)),
-                    "truncated": max(total_image_count, len(images)) > len(images),
+                    "total_image_count": max(total_image_count, unique_image_count),
+                    "truncated": max(total_image_count, unique_image_count) > len(images),
                 },
             }
         )
