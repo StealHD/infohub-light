@@ -187,6 +187,199 @@ def test_catalog_source_post_is_idempotent_by_workspace_source_key(tmp_path, mon
     assert len(matching) == 1
 
 
+def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    _login(client)
+    owner = client.get("/api/auth/status").json()["data"]["user"]
+    member = client.post(
+        "/api/users",
+        json={"username": "share-member", "password": "member-password", "role": "member"},
+    ).json()["data"]
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Owner private feed",
+            "config": {"url": "https://example.com/private-share.xml"},
+        },
+    ).json()["data"]
+    owner_subscription = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    UserFeedStore(client.app.state.service_store).save_snapshot(
+        workspace_id=owner["workspace_id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "items": [{
+                "id": "rss:shared-existing",
+                "title": "Already fetched once",
+                "source_id": source["id"],
+                "source_ids": [source["id"]],
+                "subscription_id": owner_subscription["id"],
+                "subscription_ids": [owner_subscription["id"]],
+            }],
+        },
+    )
+
+    shared = client.post(
+        f"/api/catalog/sources/{source['id']}/share",
+        json={"scope": "workspace"},
+    )
+    assert shared.status_code == 200
+    assert shared.json()["data"]["source"]["scope"] == "workspace"
+    assert shared.json()["data"]["source"]["owner_user_id"] is None
+    assert shared.json()["data"]["management_transferred"] is True
+    assert client.get(f"/api/catalog/sources/{source['id']}/usage").json()["data"] == {
+        "source_id": source["id"],
+        "subscriber_count": 1,
+        "enabled_subscriber_count": 1,
+    }
+
+    _login_as(client, "share-member", "member-password")
+    subscribed = client.post(f"/api/catalog/sources/{source['id']}/subscribe")
+    assert subscribed.status_code == 200
+    assert subscribed.json()["data"]["subscription"]["reused_item_count"] == 1
+    member_feed = client.get("/api/feed/latest").json()["data"]
+    assert [item["id"] for item in member_feed["items"]] == ["rss:shared-existing"]
+    assert member_feed["items"][0]["subscription_id"] == subscribed.json()["data"]["subscription"]["id"]
+
+    usage = client.get(f"/api/catalog/sources/{source['id']}/usage").json()["data"]
+    assert usage["subscriber_count"] == 2
+    assert client.delete(f"/api/catalog/sources/{source['id']}/subscription").status_code == 200
+    assert client.app.state.service_store.get_source(source["id"])["enabled"] is True
+
+    _login(client)
+    assert client.get(f"/api/catalog/sources/{source['id']}/usage").json()["data"]["subscriber_count"] == 1
+    assert client.get("/api/feed/latest").json()["data"]["items"][0]["id"] == "rss:shared-existing"
+    assert member["id"] != owner["id"]
+
+
+def test_subscription_disable_can_save_or_dismiss_existing_source_content(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    _login(client)
+    owner = client.get("/api/auth/status").json()["data"]["user"]
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "workspace",
+            "type": "rss",
+            "display_name": "Lifecycle source",
+            "config": {"url": "https://example.com/lifecycle-choice.xml"},
+        },
+    ).json()["data"]
+    subscription = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    UserFeedStore(client.app.state.service_store).save_snapshot(
+        workspace_id=owner["workspace_id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "items": [{
+                "id": "rss:lifecycle-item",
+                "title": "Lifecycle item",
+                "source_id": source["id"],
+                "subscription_id": subscription["id"],
+            }],
+        },
+    )
+
+    saved = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": False, "on_disable": "save"},
+    )
+    assert saved.status_code == 200
+    assert client.get("/api/feed/latest").json()["data"]["items"] == []
+    assert [item["id"] for item in client.get("/api/feed/saved").json()["data"]["items"]] == [
+        "rss:lifecycle-item"
+    ]
+
+    enabled = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": True},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["data"]["reused_item_count"] == 1
+    dismissed = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": False, "on_disable": "dismiss"},
+    )
+    assert dismissed.status_code == 200
+    state = client.get("/api/me/item-state?article_ids=rss:lifecycle-item").json()["data"]["states"]
+    assert state["rss:lifecycle-item"]["dismissed"] is True
+
+
+def test_unsubscribing_last_private_source_disables_orphan(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    _login(client)
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "private",
+            "type": "rss",
+            "display_name": "Temporary private source",
+            "config": {"url": "https://example.com/private-orphan.xml"},
+        },
+    ).json()["data"]
+    assert client.post(f"/api/catalog/sources/{source['id']}/subscribe").status_code == 200
+    assert client.delete(f"/api/catalog/sources/{source['id']}/subscription").status_code == 200
+    assert client.app.state.service_store.get_source(source["id"])["enabled"] is False
+
+
+def test_ignored_collection_restores_items_and_user_can_change_own_password(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path, monkeypatch)
+    _login(client)
+    owner = client.get("/api/auth/status").json()["data"]["user"]
+    UserFeedStore(client.app.state.service_store).save_snapshot(
+        workspace_id=owner["workspace_id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "items": [{"id": "rss:ignored-settings", "title": "Restore me"}],
+        },
+    )
+    ignored = client.patch(
+        "/api/me/items/rss:ignored-settings/state",
+        json={"dismissed": True},
+    )
+    assert ignored.status_code == 200
+    collection = client.get("/api/feed/ignored").json()["data"]
+    assert collection["item_count"] == 1
+    assert collection["items"][0]["id"] == "rss:ignored-settings"
+
+    restored = client.patch(
+        "/api/me/items/rss:ignored-settings/state",
+        json={"dismissed": False},
+    )
+    assert restored.status_code == 200
+    assert client.get("/api/feed/ignored").json()["data"]["items"] == []
+
+    wrong = client.post(
+        "/api/me/password",
+        json={"current_password": "wrong-password", "new_password": "new-secret-password"},
+    )
+    assert wrong.status_code == 400
+    assert wrong.json()["error"]["code"] == "invalid_current_password"
+    changed = client.post(
+        "/api/me/password",
+        json={"current_password": "secret-password", "new_password": "new-secret-password"},
+    )
+    assert changed.status_code == 200
+    client.post("/api/auth/logout")
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "owner", "password": "new-secret-password"},
+    ).status_code == 200
+
+
 def test_rest_subscription_mutations_use_shared_service_without_exposing_network_marker(
     tmp_path, monkeypatch
 ):

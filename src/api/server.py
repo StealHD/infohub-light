@@ -180,6 +180,13 @@ class UserPatchRequest(BaseModel):
     password: str | None = None
 
 
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=200)
+
+
 class SourceCreateRequest(BaseModel):
     scope: str | None = None
     type: str
@@ -202,6 +209,12 @@ class SourcePatchRequest(BaseModel):
     config: dict[str, Any] | None = None
     secret_env: str | None = None
     enabled: bool | None = None
+
+
+class SourceShareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["public", "workspace"]
 
 
 class SecretCreateRequest(BaseModel):
@@ -237,6 +250,7 @@ class SubscriptionPatchRequest(BaseModel):
     personal_tags: list[str] | None = None
     analysis_mode: str | None = None
     priority: StrictInt | None = Field(default=None, ge=0, le=100)
+    on_disable: Literal["keep", "save", "dismiss"] | None = None
 
     @field_validator("priority")
     @classmethod
@@ -1473,6 +1487,21 @@ def create_app(
         )
         return ok({"authenticated": False, "user": None})
 
+    @app.post("/api/me/password")
+    async def me_password_change(
+        payload: PasswordChangeRequest,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        authenticated = store.authenticate_user(user["username"], payload.current_password)
+        if authenticated is None or authenticated["id"] != user["id"]:
+            raise ApiError(
+                "invalid_current_password",
+                "current password is incorrect",
+                status_code=400,
+            )
+        store.update_user(user["id"], password=payload.new_password)
+        return ok({"changed": True})
+
     @app.get("/api/config")
     async def config_get(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         return ok(config_response(user))
@@ -1750,6 +1779,34 @@ def create_app(
             ) from exc
         return ok(public_source(updated, user))
 
+    @app.get("/api/catalog/sources/{source_id}/usage")
+    async def catalog_source_usage(
+        source_id: str,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        visible_source_or_404(source_id, user)
+        return ok({"source_id": source_id, **store.source_subscription_usage(source_id)})
+
+    @app.post("/api/catalog/sources/{source_id}/share")
+    async def catalog_source_share(
+        source_id: str,
+        payload: SourceShareRequest,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        require_mutating_member(user)
+        shared = subscription_mutations.rest_share_source(
+            SubscriptionActor.from_user(user),
+            source_id=source_id,
+            target_scope=payload.scope,
+        )
+        return ok(
+            {
+                "source": public_source(shared, user),
+                "management_transferred": True,
+                "notice": "来源地址和管理权已转交工作区管理员；你的取消订阅不会影响其他成员。",
+            }
+        )
+
     @app.delete("/api/catalog/sources/{source_id}")
     async def catalog_delete(
         source_id: str,
@@ -2001,6 +2058,14 @@ def create_app(
             )
             if field in provided
         }
+        if "on_disable" in provided:
+            if payload.enabled is not False:
+                raise ApiError(
+                    "invalid_disable_disposition",
+                    "on_disable is only valid when disabling a subscription",
+                    status_code=400,
+                )
+            updates["disable_disposition"] = payload.on_disable or "remove"
         updated = update_subscription_with_quota(
             user=user,
             subscription_id=subscription_id,
@@ -2407,6 +2472,21 @@ def create_app(
     ) -> dict[str, Any]:
         return ok(
             user_content.saved_items(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                limit=max(1, min(int(limit), 200)),
+                offset=max(0, int(offset)),
+            )
+        )
+
+    @app.get("/api/feed/ignored")
+    async def feed_ignored(
+        limit: int = 200,
+        offset: int = 0,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return ok(
+            user_content.dismissed_items(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
                 limit=max(1, min(int(limit), 200)),

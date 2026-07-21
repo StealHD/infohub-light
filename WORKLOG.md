@@ -2185,3 +2185,17 @@
 - 执行验证：功能分支 `34ab766` 与合并提交 `14c23a5` 相对共同基线的稳定 patch-id 均为 `10cfde3489401572c100d13de0313f8518280c60`；OpenClaw 定向测试连续 3 次均为 10/10 通过
 - 结果：合并未丢失或改写来源分支补丁；对话归并现在只匹配相同角色，并在 Gateway 返回内部交接 Prompt 时保留本地用户问题与本地来源标识
 - 控制面变更：无；尚未重建本地 RC，后续目标完成后统一切换 8080
+
+### 2026-07-22 04:21 Codex
+- 任务：重新审计合并前文件树、当前分支、未提交开发状态与 localhost:8080 运行镜像，确认用户看不到修改的直接原因
+- 修改文件：仅本工作日志；未修改产品代码
+- 执行验证：`34ab766^{tree}` 与 `14c23a5^{tree}` 同为 `7ba4214`；OpenClaw 10/10、当前新增 API 4/4、UI contract、ESLint（0 error）、TypeScript、Vite build、Python compileall 与 `git diff --check` 通过
+- 结果：合并本身零文件差异；当前 HEAD=`7317da8`，另有 6 文件 +642/-7 的未提交后端改动，而 8080 仍运行 revision=`be54ee7` 的健康 RC，因此容器未包含最新 OpenClaw 修复和当前开发改动
+- 控制面变更：无；本轮仅审计，不构建、不切换容器、不提交功能代码
+
+### 2026-07-22 04:45 Codex
+- 任务：固定来源分享、稳定内容复用、订阅停用处置、忽略集合与当前用户改密的后端基线
+- 修改文件：Service API、订阅 mutation、Feed/内容存储、ServiceStore、API 合同、D045、定向 API 回归与本工作日志
+- 执行验证：四条新增 API 回归 4/4、Python compileall 与 `git diff --check` 通过；同时复核 `34ab766` 与合并提交 `14c23a5` tree 完全一致
+- 结果：私人来源可提升为 workspace/public 并按需查看引用；新订阅复用既有内容且不抓取；停用可收藏或忽略现有卡片；最后一个私人订阅取消后软停用僵尸来源；用户可恢复忽略内容并修改自己的密码
+- 控制面变更：API additive 增加 share/usage、ignored、me/password 与 `on_disable/reused_item_count`，由 API 合同和 D045 固定；无数据库迁移、外网抓取或 VPS 变更

@@ -415,6 +415,65 @@ class UserContentStore:
             "offset": offset,
         }
 
+    def dismissed_items(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        conn = self.store.connect()
+        total_row = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM user_item_state AS state
+            JOIN user_content_items AS content
+              ON content.workspace_id = state.workspace_id
+             AND content.user_id = state.user_id
+             AND content.article_id = state.article_id
+            WHERE state.workspace_id = ? AND state.user_id = ?
+              AND state.dismissed_at IS NOT NULL
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+        rows = conn.execute(
+            """
+            SELECT content.*, state.dismissed_at
+            FROM user_item_state AS state
+            JOIN user_content_items AS content
+              ON content.workspace_id = state.workspace_id
+             AND content.user_id = state.user_id
+             AND content.article_id = state.article_id
+            WHERE state.workspace_id = ? AND state.user_id = ?
+              AND state.dismissed_at IS NOT NULL
+            ORDER BY state.dismissed_at DESC, content.article_id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (workspace_id, user_id, limit, offset),
+        ).fetchall()
+        states = UserItemStateStore(self.store).get_states(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            article_ids=[str(row["article_id"]) for row in rows],
+        )
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            item = _json_loads(row["item_json"], {})
+            if not isinstance(item, dict):
+                continue
+            article_id = str(row["article_id"])
+            item["user_state"] = states[article_id]
+            items.append(item)
+        return {
+            "schema_version": 1,
+            "scope": "user",
+            "items": items,
+            "item_count": int(total_row["total"] or 0),
+            "limit": limit,
+            "offset": offset,
+        }
+
     def detail_item(
         self,
         *,
@@ -458,7 +517,7 @@ class UserContentStore:
         media_rows = self.store.connect().execute(
             """
             SELECT id, width, height, alt, checksum FROM media_assets
-            WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+            WHERE workspace_id = ? AND (user_id = ? OR user_id IS NULL) AND article_id = ?
               AND asset_kind = 'content_image' AND status = 'ready'
             ORDER BY updated_at DESC, created_at DESC, id DESC
             """,

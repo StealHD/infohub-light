@@ -102,19 +102,20 @@ capability / degrade：
 稳定接口：
 
 1. `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`：基于数据库 cookie session 的用户登录状态。Service session 有效期读取 `HORIZON_AUTH_SESSION_TTL_SECONDS`；`HORIZON_AUTH_SECURE_COOKIE=true` 时登录与退出 Cookie 均带 `Secure`，始终带 `HttpOnly` 和 `SameSite=Lax`。
-2. `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`：管理员管理小团体成员。`PATCH` 可更新 `role/enabled/display_name`，可选非空 `password` 表示重置成员密码；空字符串或未传表示不改密码。响应不得包含 `password_hash`。
+2. `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`：管理员管理小团体成员。`PATCH` 可更新 `role/enabled/display_name`，可选非空 `password` 表示重置成员密码；空字符串或未传表示不改密码。响应不得包含 `password_hash`。`POST /api/me/password` 允许任意已登录用户在验证当前密码后修改自己的密码；新密码长度为 8..200，当前密码错误返回 `400 invalid_current_password`。
 3. `GET /api/dashboard/summary`：登录后订阅控制台汇总，返回当前用户、可见 source 数、订阅数、queued/running/failed job 数、最新 feed 时间和当前用户 `item_state_counts`。
 4. `GET /api/catalog/source-types`：返回 source type registry 元数据、必填字段、config template 和 additive `fields`。每个 field 精确包含 `name/label/input_type/required/default/options/min/max/help` 九个键；`input_type` 只允许 `text/url/number/select/boolean`，默认值、选项和范围必须与 registry validator 一致。`fields` 不包含 token、API key 或 `secret_env`；`secret_env` 仍是 catalog source 的独立属性。
 5. `GET /api/catalog/sources`, `POST /api/catalog/sources`, `PATCH /api/catalog/sources/{id}`, `DELETE /api/catalog/sources/{id}`：公共、workspace、private source catalog；创建/更新必须通过 registry 校验 config 并写入 `source_key`；同一操作者重复或并发 POST 同一 key 必须幂等返回同一 source，跨用户 private key 碰撞和 PATCH key 碰撞返回统一 `409 source_key_conflict`；删除为软删除。
 6. `POST /api/catalog/import-config-sources`：管理员把 `data/config.json` 中旧 source 列表幂等导入 `source_catalog`，可 `dry_run`，默认为当前管理员创建 subscriptions。
-7. `POST /api/catalog/sources/{id}/subscribe`, `DELETE /api/catalog/sources/{id}/subscription`：当前用户订阅或取消订阅一个可见 catalog source。
-8. `GET /api/me/subscriptions`, `POST /api/me/subscriptions`, `PATCH /api/me/subscriptions/{id}`, `DELETE /api/me/subscriptions/{id}`：当前用户订阅配置。
+7. `POST /api/catalog/sources/{id}/subscribe`, `DELETE /api/catalog/sources/{id}/subscription`：当前用户订阅或取消订阅一个可见 catalog source。新增或重新启用订阅时必须先复用 workspace 内该来源已经索引的稳定内容并返回 additive `reused_item_count`，不得因此创建抓取任务；取消 shared source 只删除当前用户订阅，最后一个 private owner 取消订阅时软停用无人引用来源。
+7A. `GET /api/catalog/sources/{id}/usage` 仅在客户端显式请求时计算并返回 `subscriber_count/enabled_subscriber_count`；`POST /api/catalog/sources/{id}/share` 只允许 private owner 把自己的来源提升为 `workspace|public`。提升后 `owner_user_id=null`，来源地址和管理权转交管理员，原订阅者随后取消订阅不得影响其他成员。
+8. `GET /api/me/subscriptions`, `POST /api/me/subscriptions`, `PATCH /api/me/subscriptions/{id}`, `DELETE /api/me/subscriptions/{id}`：当前用户订阅配置。`PATCH` 在 `enabled=false` 时可携带 `on_disable=keep|save|dismiss`；`save` 在从 Feed 移除前收藏该来源现有内容，`dismiss` 把它们归入忽略集合，`keep` 仅为兼容调用方保留且不作为默认 UI 选项。其他情形携带 `on_disable` 返回 `400 invalid_disable_disposition`。
 9. `GET /api/me/source-health`：读取当前登录用户每条订阅的生产抓取健康状态；精确 schema、权限、状态与聚合语义见下文。
 10. `GET /api/me/feed-schedule`, `PATCH /api/me/feed-schedule`：读取或修改当前用户自己的 Feed 自动刷新计划；精确字段、权限和错误语义见下文。
 10A. `GET /api/me/subscriptions/{id}/schedule`, `PATCH /api/me/subscriptions/{id}/schedule`：读取或修改当前用户指定订阅的自动单源抓取计划；只创建现有 `source_fetch`，不新增同步抓取入口。
 11. `POST /api/jobs/source-test`, `POST /api/jobs/source-fetch`, `POST /api/jobs/user-feed-refresh`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/retry`, `GET /api/jobs/{id}`, `GET /api/jobs`：创建、取消、重试和查询异步任务。`source_fetch` 带 `source_id` 时表示按 catalog source 精准抓取当前用户作用域。
 12. `GET /api/feed/latest`, `GET /api/feed/history`：登录后访问目标用户的 Feed snapshot。`latest` 支持 `hide_dismissed=true`、`unread_first=true`、`saved_first=true`；`history` 返回 schema-v2 用户历史留存 payload，精确语义见下文。
-12A. `GET /api/feed/saved?limit=200&offset=0` 按 `saved_at DESC` 返回当前用户稳定收藏；`GET /api/feed/items/{article_id}` 按需返回 Presentation v2 详情。二者只读 `user_content_items + user_item_state`，不得用另一用户或最近 snapshot 兜底。
+12A. `GET /api/feed/saved?limit=200&offset=0` 按 `saved_at DESC` 返回当前用户稳定收藏；`GET /api/feed/ignored?limit=200&offset=0` 按 `dismissed_at DESC` 返回当前用户忽略集合；`GET /api/feed/items/{article_id}` 按需返回 Presentation v2 详情。三者只读 `user_content_items + user_item_state`，不得用另一用户或最近 snapshot 兜底。
 12B. `GET /api/media/{asset_id}` 登录后读取 Worker 已缓存的同源图片或头像。内容图片只允许所属用户读取；workspace/public 来源头像允许同 workspace 用户读取；private 来源头像只允许 owner 读取；越权和不存在统一返回 404。Feed、收藏和详情响应不得暴露上游临时媒体 URL，所有可展示图片 URL 必须是 `/api/media/*`。内容图片的稳定身份为 `workspace + user + article + asset_kind + checksum`；同内容的 CDN 域名或查询签名变化只更新远端线索并复用既有 ready asset，不得写重复本地文件。
 13. `GET /api/me/item-state`, `PATCH /api/me/items/{article_id}/state`：当前产品使用的已读、收藏、稍后读和忽略状态接口。`POST /api/me/items/{article_id}/feedback` 与 feedback 表只为既有调用方兼容保留，默认 UI 不调用。
 14. `GET /api/archive/items`, `GET /api/archive/trends`, `GET /api/archive/facets`, `GET /api/archive/source-quality` 是 compatibility-only archive analytics；默认阅读 UI 和订阅 UI 均不调用，接口存在不等于当前产品能力或路线承诺。`GET /api/archive/graph` 同为兼容路由，但固定返回 disabled 安全空响应。
@@ -154,7 +155,7 @@ capability / degrade：
 1. 未登录返回 `unauthorized`，权限不足返回 `forbidden`，不可见或不存在资源返回 `not_found`。
 2. Pydantic/body/query 校验失败返回 `invalid_request`，HTTP status 使用 400。
 3. 不存在的 `/api/*` 路径返回 `not_found` envelope；不得返回 FastAPI 默认 `{"detail": ...}`。
-4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。
+4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。
 
 ## 5B. Remote MCP 合同
 
@@ -270,6 +271,8 @@ Source catalog 规则：
 8. API 使用 Pydantic field-set 信息，storage 使用私有 sentinel，确保 omission/null/空列表语义不会在入口到 SQLite 的传递中丢失；读取既有 subscription 时继续返回整数 priority。
 9. `GET /api/catalog/sources?include_disabled=true` 只允许 `owner/admin`；`member/viewer` 返回 `403 forbidden`。管理权限检查不得依赖来源是否 enabled，普通成员取消订阅必须使用自己的 subscription id，即使 catalog source 已停用也可完成。
 10. 启用订阅时，100 条默认上限的检查与 subscription upsert 必须处于同一个 `BEGIN IMMEDIATE`；并发请求最多一个越过最后名额。任务 retry 的重新排队、配额检查和 usage 写入也必须同事务提交或回滚。
+11. private source 提升为 workspace/public 时只改变 catalog 管理边界并把该来源的共享媒体投影为 workspace/public；不重新抓取、不批量重写历史 snapshot。新订阅者从 `user_content_items` 复用最多 200 条去重稳定内容，重写为自己的 subscription provenance 并创建自己的 Feed snapshot。
+12. 来源引用人数不得成为 catalog 列表的常驻聚合查询；客户端只在用户展开引用信息时调用 usage 接口。shared source 的最后一个普通订阅者取消订阅不软停用 catalog，只有最后一个 private owner 取消订阅时防御性软停用僵尸来源。
 
 任务规则：
 
@@ -348,6 +351,7 @@ Feed retention / legacy archive compatibility 规则：
 2. `PATCH /api/me/items/{article_id}/state` 只允许当前用户写自己 feed 中可见的 item；不可见 item 返回 `not_found`。
 3. compatibility-only `POST /api/me/items/{article_id}/feedback` 只允许当前用户对自己可见 item 提交 `more_like_this/less_like_this/not_relevant/wrong_topic/quality_issue`；默认 UI 不提供这些操作。
 4. feedback 只做兼容入库，不驱动 Feed 过滤、排序、推荐、archive trends 或 source-quality；当前产品行为只使用已读、收藏、稍后读和忽略状态。
+5. 忽略是当前用户作用域的可逆隐藏：设置 `dismissed=true` 后条目从默认 Feed 隐藏并进入 `/api/feed/ignored`；设置 `dismissed=false` 后从忽略集合移除。恢复只修改当前用户状态，不重抓来源、不重写其他用户数据。
 
 ## 6. 静态 JSON 输出合同
 入口：`src/ui/site.py`；本节只描述 legacy CLI/static publisher 的兼容输出，不是默认 Service UI 数据源。

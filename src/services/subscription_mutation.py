@@ -1872,9 +1872,61 @@ class SubscriptionMutationService:
                 commit=False,
                 **values,
             )
+            reused_count = 0
+            if bool(result.get("enabled")):
+                from .user_feed_store import UserFeedStore
+
+                reused = UserFeedStore(self.store).reuse_source_content(
+                    workspace_id=actor.workspace_id,
+                    user_id=actor.user_id,
+                    source_id=source_id,
+                    subscription_id=str(result["id"]),
+                    commit=False,
+                )
+                reused_count = int(reused.get("reused_count") or 0)
             if owns_transaction:
                 conn.commit()
-            return result
+            return {**result, "reused_item_count": reused_count}
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+
+    def rest_share_source(
+        self,
+        actor: SubscriptionActor,
+        *,
+        source_id: str,
+        target_scope: Literal["public", "workspace"],
+    ) -> dict[str, Any]:
+        self._live_actor(actor)
+        source = self._rest_source(actor, source_id)
+        if source.get("scope") != "private" or source.get("owner_user_id") != actor.user_id:
+            raise self._error(
+                "forbidden",
+                "only the private source owner can share this source",
+                status_code=403,
+            )
+        if target_scope not in {"public", "workspace"}:
+            raise self._error(
+                "invalid_scope",
+                "target scope must be public or workspace",
+                status_code=400,
+            )
+        conn = self.store.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            updated = self.store.update_source(
+                source_id,
+                scope=target_scope,
+                owner_user_id=None,
+                commit=False,
+            )
+            if owns_transaction:
+                conn.commit()
+            return updated
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
@@ -1893,7 +1945,7 @@ class SubscriptionMutationService:
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
-            subscription, _source, _schedule = self._subscription_context(
+            subscription, source, _schedule = self._subscription_context(
                 actor, subscription_id
             )
             if updates.get("enabled") is True:
@@ -1905,9 +1957,21 @@ class SubscriptionMutationService:
             result = self.store.update_subscription(
                 subscription_id, commit=False, **updates
             )
+            reused_count = 0
+            if updates.get("enabled") is True:
+                from .user_feed_store import UserFeedStore
+
+                reused = UserFeedStore(self.store).reuse_source_content(
+                    workspace_id=actor.workspace_id,
+                    user_id=actor.user_id,
+                    source_id=str(source["id"]),
+                    subscription_id=subscription_id,
+                    commit=False,
+                )
+                reused_count = int(reused.get("reused_count") or 0)
             if owns_transaction:
                 conn.commit()
-            return result
+            return {**result, "reused_item_count": reused_count}
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()

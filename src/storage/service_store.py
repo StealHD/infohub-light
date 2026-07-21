@@ -2474,6 +2474,8 @@ class ServiceStore:
         self,
         source_id: str,
         *,
+        scope: Any = _UNSET,
+        owner_user_id: Any = _UNSET,
         display_name: str | None = None,
         description: str | None = None,
         default_channel: Any = _UNSET,
@@ -2507,6 +2509,14 @@ class ServiceStore:
                 if enabled is _UNSET or enabled is None
                 else enabled
             )
+            target_scope = current["scope"] if scope is _UNSET else str(scope)
+            if target_scope not in SOURCE_SCOPES:
+                raise ValueError("scope must be public, workspace, or private")
+            target_owner_user_id = (
+                current["owner_user_id"] if owner_user_id is _UNSET else owner_user_id
+            )
+            if target_scope != "private":
+                target_owner_user_id = None
             now = _now_iso()
             affected_user_ids = []
             if not target_enabled:
@@ -2520,12 +2530,15 @@ class ServiceStore:
             conn.execute(
                 """
                 UPDATE source_catalog
-                SET display_name = ?, description = ?, default_channel = ?,
+                SET scope = ?, owner_user_id = ?,
+                    display_name = ?, description = ?, default_channel = ?,
                     default_topics_json = ?, config_json = ?, source_key = ?, secret_env = ?,
                     enforce_public_network = ?, enabled = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
+                    target_scope,
+                    target_owner_user_id,
                     display_name if display_name is not None else current["display_name"],
                     description if description is not None else current["description"],
                     current["default_channel"] if default_channel is _UNSET else default_channel,
@@ -2549,6 +2562,17 @@ class ServiceStore:
                     source_id,
                 ),
             )
+            if current["scope"] == "private" and target_scope in {"public", "workspace"}:
+                conn.execute(
+                    """
+                    UPDATE media_assets
+                    SET user_id = NULL,
+                        visibility_scope = ?,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND source_id = ?
+                    """,
+                    (target_scope, now, current["workspace_id"], source_id),
+                )
             if not target_enabled:
                 conn.execute(
                     """
@@ -2609,6 +2633,23 @@ class ServiceStore:
         if updated is None:
             raise LookupError("updated source not found")
         return updated
+
+    def source_subscription_usage(self, source_id: str) -> dict[str, int]:
+        row = self.connect().execute(
+            """
+            SELECT
+                COUNT(*) AS subscriber_count,
+                COALESCE(SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END), 0)
+                    AS enabled_subscriber_count
+            FROM user_subscriptions
+            WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+        return {
+            "subscriber_count": int(row["subscriber_count"] or 0),
+            "enabled_subscriber_count": int(row["enabled_subscriber_count"] or 0),
+        }
 
     def create_subscription(
         self,
@@ -2861,8 +2902,11 @@ class ServiceStore:
         personal_tags: Any = _UNSET,
         analysis_mode: Any = _UNSET,
         priority: Any = _UNSET,
+        disable_disposition: str = "remove",
         commit: bool = True,
     ) -> dict[str, Any]:
+        if disable_disposition not in {"remove", "keep", "save", "dismiss"}:
+            raise ValueError("disable_disposition must be remove, keep, save, or dismiss")
         conn = self.connect()
         owns_transaction = bool(commit and not conn.in_transaction)
         try:
@@ -2962,7 +3006,15 @@ class ServiceStore:
                         subscription_id,
                     ),
                 )
-                self._reconcile_user_feed_locked(str(current["user_id"]))
+                if disable_disposition in {"save", "dismiss"}:
+                    self._apply_source_content_disposition_locked(
+                        user_id=str(current["user_id"]),
+                        source_id=str(current["source_id"]),
+                        disposition=disable_disposition,
+                        now=now,
+                    )
+                if disable_disposition != "keep":
+                    self._reconcile_user_feed_locked(str(current["user_id"]))
             updated = self._subscription(
                 conn.execute(
                     "SELECT * FROM user_subscriptions WHERE id = ?",
@@ -2987,7 +3039,12 @@ class ServiceStore:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
-                "SELECT 1 FROM user_subscriptions WHERE id = ? AND user_id = ?",
+                """
+                SELECT us.source_id, sc.scope, sc.owner_user_id
+                FROM user_subscriptions AS us
+                JOIN source_catalog AS sc ON sc.id = us.source_id
+                WHERE us.id = ? AND us.user_id = ?
+                """,
                 (subscription_id, user_id),
             ).fetchone()
             if existing is None:
@@ -3023,6 +3080,22 @@ class ServiceStore:
                 (subscription_id, user_id),
             )
             self._reconcile_user_feed_locked(user_id)
+            if (
+                existing["scope"] == "private"
+                and existing["owner_user_id"] == user_id
+                and conn.execute(
+                    "SELECT 1 FROM user_subscriptions WHERE source_id = ? LIMIT 1",
+                    (existing["source_id"],),
+                ).fetchone() is None
+            ):
+                conn.execute(
+                    """
+                    UPDATE source_catalog
+                    SET enabled = 0, updated_at = ?
+                    WHERE id = ? AND scope = 'private' AND owner_user_id = ?
+                    """,
+                    (now, existing["source_id"], user_id),
+                )
             if owns_transaction:
                 conn.commit()
             return cur.rowcount > 0
@@ -3030,6 +3103,61 @@ class ServiceStore:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
             raise
+
+    def _apply_source_content_disposition_locked(
+        self,
+        *,
+        user_id: str,
+        source_id: str,
+        disposition: str,
+        now: str,
+    ) -> int:
+        user = self.get_user(user_id)
+        if user is None:
+            return 0
+        rows = self.connect().execute(
+            """
+            SELECT article_id
+            FROM user_content_items
+            WHERE workspace_id = ? AND user_id = ? AND source_id = ?
+            """,
+            (user["workspace_id"], user_id, source_id),
+        ).fetchall()
+        for row in rows:
+            article_id = str(row["article_id"])
+            state_id = _new_id("uis")
+            if disposition == "save":
+                self.connect().execute(
+                    """
+                    INSERT INTO user_item_state (
+                        id, workspace_id, user_id, article_id,
+                        is_read, is_saved, is_later,
+                        read_at, saved_at, later_at, dismissed_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 0, 1, 0, NULL, ?, NULL, NULL, ?, ?)
+                    ON CONFLICT(workspace_id, user_id, article_id) DO UPDATE SET
+                        is_saved = 1,
+                        saved_at = excluded.saved_at,
+                        updated_at = excluded.updated_at
+                    """,
+                    (state_id, user["workspace_id"], user_id, article_id, now, now, now),
+                )
+            else:
+                self.connect().execute(
+                    """
+                    INSERT INTO user_item_state (
+                        id, workspace_id, user_id, article_id,
+                        is_read, is_saved, is_later,
+                        read_at, saved_at, later_at, dismissed_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 0, 0, 0, NULL, NULL, NULL, ?, ?, ?)
+                    ON CONFLICT(workspace_id, user_id, article_id) DO UPDATE SET
+                        dismissed_at = excluded.dismissed_at,
+                        updated_at = excluded.updated_at
+                    """,
+                    (state_id, user["workspace_id"], user_id, article_id, now, now, now),
+                )
+        return len(rows)
 
     def _reconcile_user_feed_locked(self, user_id: str) -> dict[str, Any] | None:
         user = self.get_user(user_id)
