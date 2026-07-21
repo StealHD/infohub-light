@@ -117,6 +117,50 @@ describe('useOpenClawChat', () => {
     expect(stored).not.toContain('INTELISCOPE_INTERNAL_PROMPT')
   })
 
+  it('keeps the local display question when Gateway returns the same user turn with an internal prompt', () => {
+    const snapshot = {
+      displayText: '比较这两条信息的差异',
+      gatewayPrompt: 'INTELISCOPE_HANDOFF_V3\nINTERNAL MCP get_item instructions',
+      contextItems: [],
+      idempotencyKey: 'turn-shared',
+      modelId: null,
+      thinkingLevel: null,
+    }
+    const local = [{
+      id: 'local-question',
+      role: 'user' as const,
+      text: snapshot.displayText,
+      status: 'pending' as const,
+      origin: 'local' as const,
+      createdAt: 10,
+      clientTurnId: 'turn-shared',
+      sendSnapshot: snapshot,
+    }]
+    const gateway = [{
+      id: 'gateway-user-record',
+      role: 'user' as const,
+      text: snapshot.gatewayPrompt,
+      status: 'sent' as const,
+      origin: 'gateway' as const,
+      createdAt: 11,
+      clientTurnId: 'turn-shared',
+    }]
+
+    const merged = mergeOpenClawTranscript(local, gateway)
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        id: 'local-question',
+        role: 'user',
+        text: snapshot.displayText,
+        status: 'sent',
+        origin: 'local',
+        clientTurnId: 'turn-shared',
+        sendSnapshot: undefined,
+      }),
+    ])
+  })
+
   it('preserves repeated identical questions as separate conversation turns', () => {
     const local = [
       { id: 'local-1', role: 'user' as const, text: '继续分析', status: 'sent' as const, createdAt: 1_000, origin: 'local' as const },
@@ -206,11 +250,11 @@ describe('useOpenClawChat', () => {
       payload: { state: 'final', sessionKey: 'session-atomic', runId: 'run-atomic' },
     }))
 
-    await waitFor(() => expect(historyCalls).toBeGreaterThan(1))
-    expect(result.current.messages.map(({ role, text }) => ({ role, text }))).toEqual([
+    await waitFor(() => expect(result.current.messages.map(({ role, text }) => ({ role, text }))).toEqual([
       { role: 'user', text: '必须保留的问题' },
       { role: 'assistant', text: '远端回答' },
-    ])
+    ]))
+    expect(historyCalls).toBeGreaterThan(1)
     const storedAfterHistory = window.sessionStorage.getItem(openClawTranscriptStorageKey(
       'user-atomic', 'ws://127.0.0.1:18789', 'session-atomic',
     ))

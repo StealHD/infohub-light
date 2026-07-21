@@ -2178,3 +2178,10 @@
 - 执行验证：首先确认本机 8080 的 API/Worker 均运行 `40e10da` 同一健康镜像，而后续 4 文件补丁尚未进入容器；补齐回归后 UI contract、ESLint（0 error、6 个既有 Fast Refresh warning）、TypeScript、定向 Vitest 30/30、Vite production build/产物检查、1440/1024/390 生产工作台 Playwright/Axe 27/27 与 `git diff --check` 通过
 - 结果：用户气泡在 Gateway 请求开始前同步写入状态、内存引用和用户/Gateway/会话隔离记录，远端只返回助手消息也不会删除问题；Agent 在实测空间同时容纳 640px Feed、320px 右栏和分隔器时停靠，否则自动改为 Drawer；信息概览按有效内容自然增长，空分组隐藏，频道/类型默认前三项并可显式展开
 - 控制面变更：新增 D044、PLAN 第 57 项并细化全站 UI 真源；不修改后端 API、数据库、权限、Query Key 或 Gateway/MCP 协议，不部署 VPS
+
+### 2026-07-22 03:49 Codex
+- 任务：复核合并前后代码完整性并修复 Gateway 同 ID 用户记录覆盖本地可见问题的回归
+- 修改文件：`useOpenClawChat.ts`、对应 Vitest 与本工作日志
+- 执行验证：功能分支 `34ab766` 与合并提交 `14c23a5` 相对共同基线的稳定 patch-id 均为 `10cfde3489401572c100d13de0313f8518280c60`；OpenClaw 定向测试连续 3 次均为 10/10 通过
+- 结果：合并未丢失或改写来源分支补丁；对话归并现在只匹配相同角色，并在 Gateway 返回内部交接 Prompt 时保留本地用户问题与本地来源标识
+- 控制面变更：无；尚未重建本地 RC，后续目标完成后统一切换 8080

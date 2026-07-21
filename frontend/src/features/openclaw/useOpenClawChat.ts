@@ -175,18 +175,24 @@ export function mergeOpenClawTranscript(
   for (const remote of boundChatMessages(gateway)) {
     const remoteMergeId = messageMergeId(remote)
     let existingIndex = merged.findIndex((candidate, index) => (
-      !matchedLocalIndexes.has(index) && candidate.id === remote.id
+      !matchedLocalIndexes.has(index)
+      && candidate.role === remote.role
+      && candidate.id === remote.id
     ))
     if (existingIndex < 0) {
       existingIndex = remote.clientTurnId
         ? merged.findIndex((candidate, index) => (
-            !matchedLocalIndexes.has(index) && candidate.clientTurnId === remote.clientTurnId
+            !matchedLocalIndexes.has(index)
+            && candidate.role === remote.role
+            && candidate.clientTurnId === remote.clientTurnId
           ))
         : -1
     }
     if (existingIndex < 0) {
       existingIndex = merged.findIndex((candidate, index) => (
-        !matchedLocalIndexes.has(index) && messageMergeId(candidate) === remoteMergeId
+        !matchedLocalIndexes.has(index)
+        && candidate.role === remote.role
+        && messageMergeId(candidate) === remoteMergeId
       ))
     }
     if (existingIndex < 0) {
@@ -213,10 +219,15 @@ export function mergeOpenClawTranscript(
     matchedLocalIndexes.add(existingIndex)
     const existing = merged[existingIndex]
     const remoteConfirmsDelivery = remote.status === 'sent'
+    const preserveLocalQuestion = existing.role === 'user'
+      && existing.origin === 'local'
+      && remote.role === 'user'
     merged[existingIndex] = {
       ...existing,
       ...remote,
       id: existing.id,
+      role: existing.role,
+      text: preserveLocalQuestion ? existing.text : remote.text,
       createdAt: existing.createdAt ?? remote.createdAt,
       contextCount: existing.contextCount ?? remote.contextCount,
       origin: existing.origin ?? remote.origin,
