@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 
@@ -44,8 +44,17 @@ import {
   WORKBENCH_QUICK_VIEWS,
   type WorkbenchQuickViewId,
 } from './workbenchQuickViews'
+import {
+  RIGHT_RAIL_DEFAULT_WIDTH,
+  RIGHT_RAIL_MIN_WIDTH,
+  clampRightRailWidth,
+  maximumRightRailWidth,
+  readRightRailWidth,
+  writeRightRailWidth,
+} from './rightRailPreference'
 
-export type RightRailMode = 'closed' | 'insights' | 'agent'
+export type RightRailMode = 'closed' | 'agent'
+export type InsightsSurfaceState = 'closed' | 'auto' | 'manual'
 
 type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
 
@@ -143,7 +152,7 @@ function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigatio
 }
 
 function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate }: CategorizedNavigationProps) {
-  return <nav aria-label="分类导航内容" className="min-h-0 overflow-y-auto px-2 pb-3">
+  return <nav aria-label="分类导航内容" className="quiet-scroll-region min-h-0 overflow-x-hidden overflow-y-auto px-2 pb-3">
     <p className="type-label px-3 pb-1 pt-2 text-muted">浏览</p>
     {browseNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
 
@@ -187,8 +196,13 @@ function initialRailDesktop() {
     : false
 }
 
-function initialRightRailMode(pathname: string): RightRailMode {
-  return pathname === '/feed' && initialRailDesktop() ? 'insights' : 'closed'
+const insightsDismissedKey = (userId: string) => `inteliscope.ui.insights-dismissed.v1:${userId}`
+export const FLOATING_INSIGHTS_REQUIRED_GUTTER = 376
+
+export function canFloatFeedInsights(mainRight: number, readingRight: number): boolean {
+  return Number.isFinite(mainRight)
+    && Number.isFinite(readingRight)
+    && mainRight - readingRight >= FLOATING_INSIGHTS_REQUIRED_GUTTER
 }
 
 const gatewayStatusLabel: Record<OpenClawConnectionStatus, string> = {
@@ -304,21 +318,32 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
+  const shellRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
   const agentToggleRef = useRef<HTMLButtonElement>(null)
   const insightsToggleRef = useRef<HTMLButtonElement>(null)
-  const [railManuallySelected, setRailManuallySelected] = useState(false)
   const tabletNavToggleRef = useRef<HTMLDivElement>(null)
   const [extraWideDesktop, setExtraWideDesktop] = useState(initialExtraWideDesktop)
   const [railDesktop, setRailDesktop] = useState(initialRailDesktop)
   const [mobile, setMobile] = useState(initialMobile)
-  const [rightRailMode, setRightRailMode] = useState<RightRailMode>(() => initialRightRailMode(location.pathname))
+  const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 1440 : window.innerWidth)
+  const [rightRailMode, setRightRailMode] = useState<RightRailMode>('closed')
+  const [insightsSurface, setInsightsSurface] = useState<InsightsSurfaceState>('closed')
+  const [insightsCanFloat, setInsightsCanFloat] = useState(false)
+  const [resizingRail, setResizingRail] = useState(false)
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [quickViewsOpen, setQuickViewsOpen] = useState(true)
   const [sidebarState, setSidebarState] = useState(() => ({ userId: props.user.id, value: readSidebarPreference(props.user.id) }))
+  const [rightRailWidthState, setRightRailWidthState] = useState(() => ({ userId: props.user.id, value: readRightRailWidth(props.user.id) }))
   const [feedPreferenceState, setFeedPreferenceState] = useState(() => ({ userId: props.user.id, value: readFeedPreference(props.user.id) }))
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
   const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: contentRoute })
+  const insightsFeed = useQuery({
+    queryKey: queryKeys.feed(props.user.id, { hideDismissed: false, unreadFirst: false }),
+    queryFn: ({ signal }) => props.api.latestFeed(signal),
+    enabled: feedRoute,
+  })
   const openclawChat = useOpenClawChat({
     enabled: contentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),
     userId: props.user.id,
@@ -331,20 +356,20 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const feedPreference = feedPreferenceState.userId === props.user.id ? feedPreferenceState.value : readFeedPreference(props.user.id)
   const activeQuickView = detectActiveQuickView(feedPreference)
   const sidebarExpanded = extraWideDesktop && sidebarPreference === 'expanded'
+  const sidebarWidth = sidebarExpanded ? 232 : 72
   const desktopSidebarColumn = sidebarExpanded ? 'min-[1360px]:grid-cols-[232px_minmax(0,1fr)]' : 'min-[1360px]:grid-cols-[72px_minmax(0,1fr)]'
   const visibleRightRailMode: RightRailMode = !contentRoute
     ? 'closed'
     : openclawChat.isRunning
       ? 'agent'
-      : !feedRoute && rightRailMode === 'insights'
-        ? 'closed'
-        : feedRoute && railDesktop && !railManuallySelected && rightRailMode === 'closed'
-          ? 'insights'
-          : rightRailMode
-  const fixedRightRail = contentRoute && railDesktop && visibleRightRailMode !== 'closed'
-  const desktopGridColumns = fixedRightRail
-    ? `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn} ${sidebarExpanded ? 'min-[1440px]:grid-cols-[232px_minmax(640px,1fr)_360px]' : 'min-[1440px]:grid-cols-[72px_minmax(640px,1fr)_360px]'}`
-    : `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn}`
+      : rightRailMode
+  const fixedRightRail = contentRoute && railDesktop && visibleRightRailMode === 'agent'
+  const insightsOpen = feedRoute && visibleRightRailMode !== 'agent' && insightsSurface !== 'closed'
+  const hasInsightsData = Boolean(insightsFeed.data?.items.length)
+  const storedRightRailWidth = rightRailWidthState.userId === props.user.id ? rightRailWidthState.value : readRightRailWidth(props.user.id)
+  const rightRailWidth = clampRightRailWidth(storedRightRailWidth, viewportWidth, sidebarWidth)
+  const rightRailWidthRef = useRef(rightRailWidth)
+  const desktopGridColumns = `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn}`
 
   function toggleSidebar() {
     const value = sidebarExpanded ? 'collapsed' : 'expanded'
@@ -364,14 +389,20 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     setDraft(writeAgentContextDraft(props.user.id, next))
   }, [props.user.id])
 
+  const suppressAutomaticInsights = useCallback(() => {
+    try { window.sessionStorage.setItem(insightsDismissedKey(props.user.id), '1') } catch { /* Session preference is best-effort. */ }
+  }, [props.user.id])
+
   const openComposer = useCallback(() => {
+    suppressAutomaticInsights()
+    setInsightsSurface('closed')
     setRightRailMode('agent')
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(
         '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
       )?.focus()
     })
-  }, [])
+  }, [suppressAutomaticInsights])
 
   const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
     draft,
@@ -385,20 +416,32 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
   const closeRightRail = useCallback(() => {
     if (openclawChat.isRunning) return
-    const previousMode = visibleRightRailMode
-    setRailManuallySelected(true)
     setRightRailMode('closed')
-    window.requestAnimationFrame(() => {
-      if (previousMode === 'insights') insightsToggleRef.current?.focus()
-      else agentToggleRef.current?.focus()
-    })
-  }, [openclawChat.isRunning, visibleRightRailMode])
+    window.requestAnimationFrame(() => agentToggleRef.current?.focus())
+  }, [openclawChat.isRunning])
 
-  const toggleRightRail = useCallback((mode: Exclude<RightRailMode, 'closed'>) => {
+  const toggleAgentRail = useCallback(() => {
     if (openclawChat.isRunning) return
-    setRailManuallySelected(true)
-    setRightRailMode(visibleRightRailMode === mode ? 'closed' : mode)
-  }, [openclawChat.isRunning, visibleRightRailMode])
+    suppressAutomaticInsights()
+    setInsightsSurface('closed')
+    setRightRailMode(visibleRightRailMode === 'agent' ? 'closed' : 'agent')
+  }, [openclawChat.isRunning, suppressAutomaticInsights, visibleRightRailMode])
+
+  const closeInsights = useCallback((restoreFocus = true) => {
+    suppressAutomaticInsights()
+    setInsightsSurface('closed')
+    if (restoreFocus) window.requestAnimationFrame(() => insightsToggleRef.current?.focus())
+  }, [suppressAutomaticInsights])
+
+  const toggleInsights = useCallback(() => {
+    if (openclawChat.isRunning) return
+    if (insightsOpen) {
+      closeInsights(false)
+      return
+    }
+    setRightRailMode('closed')
+    setInsightsSurface('manual')
+  }, [closeInsights, insightsOpen, openclawChat.isRunning])
 
   const changeTabletNavigation = useCallback((open: boolean) => {
     setTabletNavOpen(open)
@@ -426,26 +469,84 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     }
     const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
     const changeRail = (event: MediaQueryListEvent) => setRailDesktop(event.matches)
+    const changeViewport = () => setViewportWidth(window.innerWidth)
     extraWideMedia.addEventListener('change', changeExtraWide)
     mobileMedia.addEventListener('change', changeMobile)
     railMedia.addEventListener('change', changeRail)
+    window.addEventListener('resize', changeViewport)
     return () => {
       extraWideMedia.removeEventListener('change', changeExtraWide)
       mobileMedia.removeEventListener('change', changeMobile)
       railMedia.removeEventListener('change', changeRail)
+      window.removeEventListener('resize', changeViewport)
     }
   }, [])
 
+  useEffect(() => { rightRailWidthRef.current = rightRailWidth }, [rightRailWidth])
+
   useEffect(() => {
-    if (visibleRightRailMode === 'closed' || !railDesktop || openclawChat.isRunning) return
+    const main = mainRef.current
+    if (!feedRoute || !main) {
+      setInsightsCanFloat(false)
+      return
+    }
+    const measure = () => {
+      const reading = main.querySelector<HTMLElement>('[data-page-frame="reading"]')
+      if (!reading) {
+        setInsightsCanFloat(false)
+        return
+      }
+      setInsightsCanFloat(canFloatFeedInsights(
+        main.getBoundingClientRect().right,
+        reading.getBoundingClientRect().right,
+      ))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(main)
+    const reading = main.querySelector<HTMLElement>('[data-page-frame="reading"]')
+    if (reading) observer.observe(reading)
+    return () => observer.disconnect()
+  }, [feedRoute, fixedRightRail, sidebarExpanded, viewportWidth])
+
+  useEffect(() => {
+    let closeFrame: number | undefined
+    if (!feedRoute) {
+      if (insightsSurface !== 'closed') closeFrame = window.requestAnimationFrame(() => setInsightsSurface('closed'))
+      return () => { if (closeFrame !== undefined) window.cancelAnimationFrame(closeFrame) }
+    }
+    if (visibleRightRailMode === 'agent') {
+      if (insightsSurface !== 'closed') closeFrame = window.requestAnimationFrame(() => setInsightsSurface('closed'))
+      return () => { if (closeFrame !== undefined) window.cancelAnimationFrame(closeFrame) }
+    }
+    if (insightsSurface === 'auto' && !insightsCanFloat) {
+      const autoCloseFrame = window.requestAnimationFrame(() => setInsightsSurface('closed'))
+      return () => window.cancelAnimationFrame(autoCloseFrame)
+    }
+    if (!insightsCanFloat || !hasInsightsData || insightsSurface !== 'closed') return
+    const autoFrame = window.requestAnimationFrame(() => {
+      try {
+        const key = insightsDismissedKey(props.user.id)
+        if (window.sessionStorage.getItem(key)) return
+        window.sessionStorage.setItem(key, 'shown')
+      } catch { /* Automatic display remains best-effort when storage is unavailable. */ }
+      setInsightsSurface('auto')
+    })
+    return () => window.cancelAnimationFrame(autoFrame)
+  }, [feedRoute, hasInsightsData, insightsCanFloat, insightsSurface, props.user.id, visibleRightRailMode])
+
+  useEffect(() => {
+    if ((visibleRightRailMode === 'closed' && !insightsOpen) || mobile || openclawChat.isRunning) return
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.preventDefault()
-      closeRightRail()
+      if (insightsOpen) closeInsights()
+      else closeRightRail()
     }
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
-  }, [closeRightRail, openclawChat.isRunning, railDesktop, visibleRightRailMode])
+  }, [closeInsights, closeRightRail, insightsOpen, mobile, openclawChat.isRunning, visibleRightRailMode])
 
   useEffect(() => {
     if (!noticeOpen) return
@@ -454,11 +555,64 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     return () => window.clearTimeout(timer)
   }, [noticeKey, noticeOpen, props.refreshState])
 
+  const updateRailWidthFromPointer = useCallback((clientX: number) => {
+    const shellRight = shellRef.current?.getBoundingClientRect().right ?? viewportWidth
+    const width = clampRightRailWidth(shellRight - clientX, viewportWidth, sidebarWidth)
+    rightRailWidthRef.current = width
+    setRightRailWidthState({ userId: props.user.id, value: width })
+  }, [props.user.id, sidebarWidth, viewportWidth])
+
+  const finishRailResize = useCallback(() => {
+    setResizingRail(false)
+    const preference = writeRightRailWidth(props.user.id, rightRailWidthRef.current)
+    setRightRailWidthState({ userId: props.user.id, value: preference.width })
+  }, [props.user.id])
+
+  const handleRailPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    setResizingRail(true)
+    updateRailWidthFromPointer(event.clientX)
+  }, [updateRailWidthFromPointer])
+
+  const handleRailPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!resizingRail) return
+    if (event.currentTarget.hasPointerCapture && !event.currentTarget.hasPointerCapture(event.pointerId)) return
+    updateRailWidthFromPointer(event.clientX)
+  }, [resizingRail, updateRailWidthFromPointer])
+
+  const handleRailKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const maximum = maximumRightRailWidth(viewportWidth, sidebarWidth)
+    const step = event.shiftKey ? 64 : 24
+    let width = rightRailWidthRef.current
+    if (event.key === 'ArrowLeft') width += step
+    else if (event.key === 'ArrowRight') width -= step
+    else if (event.key === 'Home') width = RIGHT_RAIL_MIN_WIDTH
+    else if (event.key === 'End') width = maximum
+    else return
+    event.preventDefault()
+    const next = clampRightRailWidth(width, viewportWidth, sidebarWidth)
+    rightRailWidthRef.current = next
+    const preference = writeRightRailWidth(props.user.id, next)
+    setRightRailWidthState({ userId: props.user.id, value: preference.width })
+  }, [props.user.id, sidebarWidth, viewportWidth])
+
+  const resetRailWidth = useCallback(() => {
+    const next = clampRightRailWidth(RIGHT_RAIL_DEFAULT_WIDTH, viewportWidth, sidebarWidth)
+    rightRailWidthRef.current = next
+    const preference = writeRightRailWidth(props.user.id, next)
+    setRightRailWidthState({ userId: props.user.id, value: preference.width })
+  }, [props.user.id, sidebarWidth, viewportWidth])
+
   return <WorkbenchAgentContext.Provider value={agentValue}>
       <div
+        ref={shellRef}
         data-testid="live-workbench-shell"
-      data-ui-typography="system"
-      className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`}
+        data-ui-typography="system"
+        data-fixed-agent-rail={fixedRightRail ? 'true' : 'false'}
+        data-rail-resizing={resizingRail ? 'true' : 'false'}
+        style={fixedRightRail ? { gridTemplateColumns: `${sidebarWidth}px minmax(640px, 1fr) ${rightRailWidth}px` } as CSSProperties : undefined}
+        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`}
       >
         <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
           <div className={`type-page-title flex h-[52px] shrink-0 items-center gap-2 px-3 ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
@@ -514,7 +668,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               onQuickViewsToggle={() => setQuickViewsOpen((value) => !value)}
               onQuickView={selectQuickView}
             />
-          </div> : <nav aria-label="工作台导航" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          </div> : <nav aria-label="工作台导航" className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-2">
             {browseNavigation.map(({ label, href, icon: Icon }) => <SidebarNavItem
               key={href}
               href={href}
@@ -554,7 +708,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
                   <Separator className="my-1" />
-                  <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={() => { openclawChat.disconnect(); props.onLogout() }}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
+                  <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={() => { openclawChat.clearTranscript(); openclawChat.disconnect(); props.onLogout() }}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
                 </Popover.Dialog>
               </Popover.Content>
             </Popover>
@@ -571,12 +725,12 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               variant="ghost"
               isIconOnly
               data-right-rail-toggle="insights"
-              className={`h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none ${visibleRightRailMode === 'insights' ? 'bg-accent/15 text-accent' : 'text-muted'}`}
-              aria-label={visibleRightRailMode === 'insights' ? '收起信息概览' : '展开信息概览'}
-              aria-expanded={visibleRightRailMode === 'insights'}
-              aria-controls="feed-insights-rail"
+              className={`h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none ${insightsOpen ? 'bg-accent/15 text-accent' : 'text-muted'}`}
+              aria-label={insightsOpen ? '收起信息概览' : '展开信息概览'}
+              aria-expanded={insightsOpen}
+              aria-controls="feed-insights-surface"
               isDisabled={openclawChat.isRunning}
-              onPress={() => toggleRightRail('insights')}
+              onPress={toggleInsights}
             ><Icons.ChartNoAxesCombined size={18} aria-hidden="true" /></Button>}
             <Button
               ref={agentToggleRef}
@@ -590,12 +744,12 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               aria-expanded={visibleRightRailMode === 'agent'}
               aria-controls="live-agent-panel"
               isDisabled={openclawChat.isRunning}
-              onPress={() => toggleRightRail('agent')}
+              onPress={toggleAgentRail}
             ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>
           </div> : undefined}
         />
 
-        <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
+        <main ref={mainRef} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
           {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
             <span className="flex-1">{props.refreshMessage}</span>{props.onRetry && <Button size="sm" variant="ghost" onPress={props.onRetry}>重试</Button>}
             <Button size="sm" variant="ghost" isIconOnly aria-label="关闭更新提示" onPress={() => setDismissedNotice(noticeKey)}><Icons.X size={15} /></Button>
@@ -603,30 +757,63 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           {props.children}
         </main>
 
-        {contentRoute && (railDesktop ? visibleRightRailMode !== 'closed' && <aside
-          id={visibleRightRailMode === 'agent' ? 'live-agent-panel' : 'feed-insights-rail'}
+        {fixedRightRail && <aside
+          id="live-agent-panel"
           role="complementary"
-          aria-label={visibleRightRailMode === 'agent' ? 'OpenClaw 上下文' : '信息概览'}
-          className="col-start-3 row-span-2 hidden min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface min-[1440px]:grid"
-        >{visibleRightRailMode === 'agent'
-            ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
-            : <FeedInsightsPanel open onClose={closeRightRail} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} />}
-        </aside> : <Drawer isOpen={visibleRightRailMode !== 'closed'} onOpenChange={(open) => { if (!open) closeRightRail() }}>
+          aria-label="OpenClaw 上下文"
+          className="relative col-start-3 row-span-2 hidden min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface min-[1440px]:grid"
+        >
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-label="调整信息流和 Agent 面板宽度"
+            aria-orientation="vertical"
+            aria-valuemin={RIGHT_RAIL_MIN_WIDTH}
+            aria-valuemax={maximumRightRailWidth(viewportWidth, sidebarWidth)}
+            aria-valuenow={rightRailWidth}
+            data-testid="right-rail-resizer"
+            className="group absolute inset-y-0 -left-[5px] z-20 w-[10px] cursor-col-resize touch-none focus-visible:outline-none"
+            onPointerDown={handleRailPointerDown}
+            onPointerMove={handleRailPointerMove}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
+              finishRailResize()
+            }}
+            onPointerCancel={finishRailResize}
+            onKeyDown={handleRailKeyDown}
+            onDoubleClick={resetRailWidth}
+          ><span className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors motion-reduce:transition-none ${resizingRail ? 'bg-accent' : 'bg-separator group-hover:bg-muted group-focus-visible:bg-accent'}`} /></div>
+          <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+        </aside>}
+
+        {feedRoute && insightsOpen && !mobile && <aside
+          id="feed-insights-surface"
+          role="complementary"
+          aria-label="信息概览"
+          data-insights-surface={insightsSurface}
+          className="fixed right-3 top-[60px] z-30 grid max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] grid-rows-[52px_minmax(0,1fr)] overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]"
+        ><FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} /></aside>}
+
+        {contentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsOpen)) && <Drawer isOpen onOpenChange={(open) => {
+          if (open) return
+          if (insightsOpen) closeInsights()
+          else closeRightRail()
+        }}>
           <Drawer.Trigger aria-hidden="true" className="hidden">打开右侧面板</Drawer.Trigger>
           <Drawer.Backdrop isDismissable={!openclawChat.isRunning} variant="blur" data-testid="right-rail-drawer-backdrop">
             <Drawer.Content placement={mobile ? 'bottom' : 'right'}>
               <Drawer.Dialog
-                id={visibleRightRailMode === 'agent' ? 'live-agent-panel' : 'feed-insights-rail'}
+                id={visibleRightRailMode === 'agent' ? 'live-agent-panel' : 'feed-insights-surface'}
                 aria-label={visibleRightRailMode === 'agent' ? 'OpenClaw 上下文' : '信息概览'}
                 className={`grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
                 {visibleRightRailMode === 'agent'
                   ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
-                  : <FeedInsightsPanel open onClose={closeRightRail} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} />}
+                  : <FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} />}
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>
-        </Drawer>)}
+        </Drawer>}
 
         <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
           {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">

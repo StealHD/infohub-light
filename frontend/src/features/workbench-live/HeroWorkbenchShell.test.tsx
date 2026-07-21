@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServiceApi } from '../../api/service'
 import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
-import { HeroWorkbenchShell } from './HeroWorkbenchShell'
+import { canFloatFeedInsights, HeroWorkbenchShell } from './HeroWorkbenchShell'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()
@@ -22,6 +22,7 @@ function memoryStorage(): Storage {
 }
 
 function useViewport(width: number) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn((query: string): MediaQueryList => {
@@ -187,6 +188,11 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     useViewport(1440)
   })
 
+  it('only allows automatic insights when the measured reading gutter is large enough', () => {
+    expect(canFloatFeedInsights(1440, 1064)).toBe(true)
+    expect(canFloatFeedInsights(1440, 1065)).toBe(false)
+  })
+
   it('keeps the content header limited to title and the two right-rail modes', async () => {
     const browser = userEvent.setup()
     render(<Shell user={{ id: 'feed-visual', username: 'feed', role: 'member', enabled: true }} />)
@@ -195,6 +201,8 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
     expect(screen.getByRole('heading', { name: '信息流' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开信息概览' })).toHaveAttribute('aria-expanded', 'false')
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
     expect(screen.getByRole('button', { name: '收起信息概览' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('complementary', { name: '信息概览' })).toBeInTheDocument()
     const toggle = screen.getByRole('button', { name: '展开 Agent 面板' })
@@ -205,7 +213,26 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(activeToggle.querySelector('[data-panel-fill]')).toHaveAttribute('opacity', '0.16')
     expect(activeToggle.querySelector('.lucide-panel-right-close')).toBeNull()
     expect(activeToggle.querySelector('.lucide-panel-right-open')).toBeNull()
+    expect(screen.queryByRole('complementary', { name: '信息概览' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '信息流' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
+  })
+
+  it('resizes the fixed desktop Agent rail with the keyboard and persists the account width', async () => {
+    const browser = userEvent.setup()
+    const user = { id: 'rail-width', username: 'rail', role: 'member' as const, enabled: true }
+    render(<Shell user={user} />)
+
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    const separator = screen.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })
+    expect(separator).toHaveAttribute('aria-valuenow', '360')
+
+    separator.focus()
+    await browser.keyboard('{ArrowLeft}')
+    expect(separator).toHaveAttribute('aria-valuenow', '384')
+    expect(window.localStorage.getItem(`inteliscope.ui.right-rail.v1:${user.id}`)).toBe(JSON.stringify({ width: 384 }))
+
+    await browser.dblClick(separator)
+    expect(separator).toHaveAttribute('aria-valuenow', '360')
   })
 
   it('uses the same Quiet Studio header for collection routes', async () => {

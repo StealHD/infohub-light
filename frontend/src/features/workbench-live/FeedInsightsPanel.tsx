@@ -3,25 +3,23 @@ import { useQuery } from '@tanstack/react-query'
 
 import type { ServiceApi } from '../../api/service'
 import { queryKeys } from '../../api/queryKeys'
-import { Button, Card, Icons, Skeleton } from '../../design-system'
+import { Button, Icons, Separator, Skeleton } from '../../design-system'
 import type { FeedPreference } from '../feed/feedPreference'
 import { relativeTime } from '../feed/feedModel'
 import { useLocalDayReference } from '../feed/useLocalDayReference'
 import { buildFeedInsightsModel, type FeedInsightsDistribution } from './feedInsights'
 
 function DistributionList({ title, values }: { title: string; values: FeedInsightsDistribution[] }) {
-  return <section aria-label={title} className="grid gap-2">
-    <h3 className="type-label text-muted">{title}</h3>
+  const visible = values.slice(0, 5)
+  return <section aria-label={title} className="grid gap-1.5">
+    <h3 className="type-label mb-1 text-muted">{title}</h3>
     {values.length === 0 && <p className="type-body text-muted">暂无数据</p>}
-    {values.slice(0, 6).map((value) => <div key={value.id} className="grid min-w-0 gap-1">
-      <div className="type-meta flex min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate">{value.label}</span>
-        <span className="shrink-0 text-muted">{value.count}</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-default" aria-hidden="true">
-        <span className="block h-full rounded-full bg-accent" style={{ inlineSize: `${Math.max(4, value.ratio * 100)}%` }} />
-      </div>
+    {visible.map((value) => <div key={value.id} className="type-meta flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-default/60">
+      <span className="size-1.5 shrink-0 rounded-full bg-accent/65" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">{value.label}</span>
+      <span className="shrink-0 text-muted">{value.count}</span>
     </div>)}
+    {values.length > visible.length && <p className="type-meta px-1.5 text-muted">再显示 {values.length - visible.length} 项</p>}
   </section>
 }
 
@@ -73,26 +71,33 @@ export function FeedInsightsPanel({
         <Icons.X size={17} aria-hidden="true" />
       </Button>
     </header>
-    <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4" data-testid="feed-insights-panel">
-      {(feed.isLoading || health.isLoading) && <div className="grid grid-cols-2 gap-2" aria-label="正在读取信息概览">
-        {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-20 rounded-xl" />)}
+    <div className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 pb-4" data-testid="feed-insights-panel">
+      {(feed.isLoading || health.isLoading) && <div className="grid gap-2 pt-4" aria-label="正在读取信息概览">
+        {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-9 rounded-xl" />)}
       </div>}
       {!feed.isLoading && <>
-        <div className="grid grid-cols-2 gap-2">
-          {metrics.map((metric) => <Card key={metric.label} variant="secondary" className="gap-1 p-3">
-            <span className="type-label text-muted">{metric.label}</span>
-            <strong className="type-section-title">{metric.value}</strong>
-          </Card>)}
-        </div>
-        <Card variant="secondary" className="mt-3 gap-1 p-3">
-          <span className="type-label text-muted">当前视图</span>
-          <strong className="type-section-title">{model.visibleCount} / {model.totalCount}</strong>
+        <section aria-label="概况" className="pt-4">
+          <h3 className="type-label mb-2 text-muted">概况</h3>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-2">
+            {metrics.map((metric) => <div key={metric.label} className="flex min-w-0 items-baseline justify-between gap-2">
+              <span className="type-meta min-w-0 truncate text-muted">{metric.label}</span>
+              <strong className="type-control shrink-0">{metric.value}</strong>
+            </div>)}
+          </div>
+        </section>
+        <Separator className="my-4" />
+        <section aria-label="当前视图" className="grid gap-1">
+          <h3 className="type-label text-muted">当前视图</h3>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="type-body">可见内容</span>
+            <strong className="type-control">{model.visibleCount} / {model.totalCount}</strong>
+          </div>
           <span className="type-meta text-muted">{model.updatedAt ? `最近更新于 ${relativeTime(model.updatedAt)}` : '尚无更新时间'}</span>
-        </Card>
-        <div className="mt-5 grid gap-5">
-          <DistributionList title="频道分布" values={model.channels} />
-          <DistributionList title="内容类型" values={model.formats} />
-        </div>
+        </section>
+        <Separator className="my-4" />
+        <DistributionList title="频道" values={model.channels} />
+        <Separator className="my-4" />
+        <DistributionList title="内容类型" values={model.formats} />
       </>}
     </div>
   </>

@@ -2164,3 +2164,10 @@
 - 结果：模型切换改为 `sessions.create` 保留上下文分叉并由 `sessions.describe` 验证，推理档位仅随 `chat.send` 发送；Feed 宽屏默认展示 360px 信息概览，侧栏新增浏览器本地自然日“当天”；内容图片按 workspace/user/article/kind/checksum 复用资产，详情继续防御性去重历史重复行
 - 本地 RC：固定提交 `cb67308f9a7` 构建镜像 `inteliscope-service:local-cb67308-feed-insights-rc` / image ID `sha256:e14af4ccb57fbecdf5e9dc55f9932582e0775af3bd27e5ab554741bf5c01b754`；API/Worker 使用同一镜像并 healthy，live=`1.7.2-rc.1/cb67308f9a7`、database/worker ready；切换前 queued/running=0，数据库备份为 `data/backups/service.pre-cb67308-20260721T042444Z.db`
 - 控制面变更：新增 D042 并更新 UI/API 真源；未新增数据库表、未删除历史媒体行、未修改权限、Query Key、MCP 协议或 OpenClaw 全局配置；本机 Gateway 未连接，因此未调用真实模型，也未部署或修改 VPS
+
+### 2026-07-21 18:03 Codex
+- 任务：先将 `feature/feed-insights-runtime-media-fix` 非 squash 合入最新本地基线，再实现 Quiet Studio 来源失败披露、低干扰滚动条、可调 Agent 右栏、浮动信息概览和 OpenClaw 对话保存
+- 修改文件：订阅来源状态与页面测试、设计系统滚动条、工作台 Shell/信息概览/右栏偏好及测试、OpenClaw 对话归并与持久化及测试、生产工作台 Playwright、`UI_CONTRACT.md`、`PLAN.md`、D043 与本工作日志
+- 执行验证：受影响 Vitest 78/78 通过，重复相同问题归并边界补测后 OpenClaw/Shell 23/23 通过；UI contract、ESLint（0 error、6 个既有 Fast Refresh warning）、TypeScript 通过；1440/1024/390 生产工作台 Playwright 27/27 通过；最终 `test_gate full` 22/22、0 failed/error、97.64 秒，`mapping_miss=false`。首次 full 调用因工作树未链接项目现有 `.venv` 而选中无 pytest 的系统 Python 3.14，在接入既有虚拟环境后完整重跑通过
+- 结果：来源卡只保留可聚焦的失败状态，Tooltip 展示安全摘要、Dialog 按权限披露详情；所有独立滚动区使用透明轨道与悬停增亮滑块；桌面 Agent 栏可在 320–720px 内拖动或键盘调整、按账号保存且 Feed 至少 640px；概览仅在实测空白足够时会话内自动出现一次，Agent 打开后不抢占；用户问题与部分/完整回答按用户、Gateway 和会话隔离保存并与 Gateway 历史增量归并，重复相同问题仍保留为独立轮次
+- 控制面变更：新增 D043、PLAN 第 56 项并更新全站 UI 真源；当前实现位于 `feature/quiet-studio-interactions`，未修改后端 API、数据库、权限、Query Key 或 Gateway/MCP 协议，未构建 RC、未部署 VPS、未推送远端

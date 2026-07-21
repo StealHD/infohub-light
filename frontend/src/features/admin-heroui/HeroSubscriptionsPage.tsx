@@ -16,6 +16,7 @@ import {
   PageFrame,
   SearchField,
   Tabs,
+  Tooltip,
 } from '../../design-system'
 import { describeFeedJob } from '../jobs/jobModel'
 import {
@@ -139,32 +140,73 @@ function Group({ id, title, description, children, forceOpen = false }: { id: st
   return <section aria-labelledby={id} className="grid gap-3"><div className="flex items-center justify-between gap-3"><div><h2 id={id} className="type-section-title">{title}</h2><p className="type-body mt-1 text-muted">{description}</p></div><Button size="sm" variant="ghost" aria-label={`${open ? '收起' : '展开'} ${title}`} aria-expanded={open} onPress={() => setCollapsed((value) => !value)}>{open ? '收起' : '展开'}</Button></div>{open && children}</section>
 }
 
-function SourceIssueNotice({ health, canRetry, canEdit }: { health: SourceHealthItem; canRetry: boolean; canEdit: boolean }) {
+function SourceIssueDetails({ health, canRetry, canEdit }: { health: SourceHealthItem; canRetry: boolean; canEdit: boolean }) {
   const issue = health.last_issue
   if (!issue) return null
   const presentation = presentSourceHealthIssue(health, { canRetry, canEdit })
-  return <HeroNotice title={`原因：${presentation.reason}`} status="warning" role="status">
-    <div className="type-body mt-2 grid gap-2 text-muted">
-      <p>{`影响：${presentation.impact}`}</p>
-      <p>{`建议操作：${presentation.action}`}</p>
-      <details>
-        <summary className="type-meta cursor-pointer text-muted">技术详情</summary>
-        <dl className="type-meta mt-2 grid gap-1 overflow-wrap-anywhere">
-          <div><dt className="inline text-muted">阶段：</dt><dd className="inline">{issue.stage || '未知'}</dd></div>
-          <div><dt className="inline text-muted">代码：</dt><dd className="inline">{issue.code || '未知'}</dd></div>
-          <div><dt className="inline text-muted">可重试：</dt><dd className="inline">{issue.retryable ? '是' : '否'}</dd></div>
-          <div><dt className="inline text-muted">原始信息：</dt><dd className="inline">{issue.message || '未提供'}</dd></div>
-        </dl>
-      </details>
-    </div>
-  </HeroNotice>
+  return <div className="type-body grid gap-3">
+    <div><span className="type-label text-muted">原因</span><p className="mt-1">{presentation.reason}</p></div>
+    <div><span className="type-label text-muted">影响</span><p className="mt-1 text-muted">{presentation.impact}</p></div>
+    <div><span className="type-label text-muted">建议操作</span><p className="mt-1 text-muted">{presentation.action}</p></div>
+    {canEdit && <details>
+      <summary className="type-meta cursor-pointer text-muted">技术详情</summary>
+      <dl className="type-meta mt-2 grid gap-1 [overflow-wrap:anywhere]">
+        <div><dt className="inline text-muted">阶段：</dt><dd className="inline">{issue.stage || '未知'}</dd></div>
+        <div><dt className="inline text-muted">代码：</dt><dd className="inline">{issue.code || '未知'}</dd></div>
+        <div><dt className="inline text-muted">可重试：</dt><dd className="inline">{issue.retryable ? '是' : '否'}</dd></div>
+        <div><dt className="inline text-muted">原始信息：</dt><dd className="inline">{issue.message || '未提供'}</dd></div>
+      </dl>
+    </details>}
+  </div>
+}
+
+function SourceHealthStatus({ health, canRetry, canEdit }: { health?: SourceHealthItem; canRetry: boolean; canEdit: boolean }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const status = health?.status ?? 'unknown'
+  const issue = health?.last_issue
+  const presentation = health && issue ? presentSourceHealthIssue(health, { canRetry, canEdit }) : null
+  const chip = <Chip size="sm" color={status === 'healthy' ? 'success' : status === 'failing' ? 'danger' : 'default'} variant="soft"><Chip.Label>{healthLabel[status]}</Chip.Label></Chip>
+
+  if (!health || !issue || !presentation) return chip
+  const failureCount = Math.max(health.consecutive_failures || 0, 1)
+  return <>
+    <Tooltip delay={250}>
+      <Tooltip.Trigger className="contents">
+        <Button
+          ref={triggerRef}
+          size="sm"
+          variant="ghost"
+          className="h-auto min-h-0 rounded-full p-0"
+          aria-label={`查看 ${healthLabel[status]} 详情`}
+          onPress={() => setDetailsOpen(true)}
+        >{chip}</Button>
+      </Tooltip.Trigger>
+      <Tooltip.Content>{`已连续 ${failureCount} 次失败：${presentation.reason}`}</Tooltip.Content>
+    </Tooltip>
+    <Modal isOpen={detailsOpen} onOpenChange={(open) => {
+      setDetailsOpen(open)
+      if (!open) window.requestAnimationFrame(() => triggerRef.current?.focus())
+    }}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开来源失败详情</Modal.Trigger>
+      <Modal.Backdrop>
+        <Modal.Container size="md">
+          <Modal.Dialog>
+            <Modal.Header><Modal.Heading>来源获取失败</Modal.Heading></Modal.Header>
+            <Modal.Body><SourceIssueDetails health={health} canRetry={canRetry} canEdit={canEdit} /></Modal.Body>
+            <Modal.Footer><Button onPress={() => setDetailsOpen(false)}>关闭</Button></Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  </>
 }
 
 function SourceCard({ source, subscription, health, editable, canEdit, fetchLabel, onFetch, onEditSubscription, onEditSource }: {
   source: CatalogSource; subscription: Subscription; health?: SourceHealthItem; editable: boolean; canEdit: boolean; fetchLabel: '提交中' | '已排队' | '获取中' | '立即获取'
   onFetch: () => void; onEditSubscription: () => void; onEditSource: () => void
 }) {
-  return <Card variant="secondary" className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><Card.Title>{source.display_name}</Card.Title><div className="mt-2 flex flex-wrap gap-2"><Chip size="sm" variant="soft"><Chip.Label>{sourceTypeLabel(source.type)}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip><Chip size="sm" color={health?.status === 'healthy' ? 'success' : health?.status === 'failing' ? 'danger' : 'default'} variant="soft"><Chip.Label>{healthLabel[health?.status ?? 'unknown']}</Chip.Label></Chip></div></div></div><Card.Description className="mt-3">优先级 {subscription.priority ?? 0} · {health?.last_fetched_count ?? 0} 条最近结果 · {subscription.schedule?.enabled ? `下次 ${formatTime(subscription.schedule.next_run_at)}` : '单源自动获取已关闭'}</Card.Description>{health?.last_issue && <div className="mt-3"><SourceIssueNotice health={health} canRetry={editable} canEdit={canEdit} /></div>}<div className="mt-4 flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`配置 ${source.display_name} 订阅`} onPress={onEditSubscription}>{editable ? '订阅设置' : '查看订阅'}</Button>{editable && <Button size="sm" aria-label={`${fetchLabel} ${source.display_name}`} isDisabled={fetchLabel !== '立即获取'} onPress={onFetch}><Icons.RefreshCw size={14} />{fetchLabel}</Button>}{canEdit && <Button size="sm" variant="ghost" aria-label={`编辑 ${source.display_name} 来源`} onPress={onEditSource}>编辑来源</Button>}</div></Card>
+  return <Card variant="secondary" className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><Card.Title>{source.display_name}</Card.Title><div className="mt-2 flex flex-wrap gap-2"><Chip size="sm" variant="soft"><Chip.Label>{sourceTypeLabel(source.type)}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip><SourceHealthStatus health={health} canRetry={editable} canEdit={canEdit} /></div></div></div><Card.Description className="mt-3">优先级 {subscription.priority ?? 0} · {health?.last_fetched_count ?? 0} 条最近结果 · {subscription.schedule?.enabled ? `下次 ${formatTime(subscription.schedule.next_run_at)}` : '单源自动获取已关闭'}</Card.Description><div className="mt-4 flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`配置 ${source.display_name} 订阅`} onPress={onEditSubscription}>{editable ? '订阅设置' : '查看订阅'}</Button>{editable && <Button size="sm" aria-label={`${fetchLabel} ${source.display_name}`} isDisabled={fetchLabel !== '立即获取'} onPress={onFetch}><Icons.RefreshCw size={14} />{fetchLabel}</Button>}{canEdit && <Button size="sm" variant="ghost" aria-label={`编辑 ${source.display_name} 来源`} onPress={onEditSource}>编辑来源</Button>}</div></Card>
 }
 
 export function HeroSubscriptionsPage() {
@@ -285,7 +327,7 @@ export function HeroSubscriptionsPage() {
     await invalidate()
   }
 
-  return <div className="h-full overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+  return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description="选择要持续关注的来源，并查看每次更新发生了什么。" actions={editable && <Button size="sm" onPress={() => setCreateOpen(true)}><Icons.Plus size={15} />新增来源</Button>} />
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
     {localFeedbackKeys.map(({ action, entity }) => { const phase = feedback.phase(action, entity); const message = feedback.message(action, entity); if (!message || !phase || phase === 'pending' || phase === 'queued' || phase === 'running') return null; return <HeroActionNotice key={`${action}:${entity}`} phase={phase} message={message} onClose={() => feedback.clear(action, entity)} /> })}

@@ -166,6 +166,44 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   letter-spacing: 0.003em;
 }
 
+/* Quiet Studio scroll regions keep the track visually continuous with the
+ * surface and reveal a brighter thumb only while the region is active. */
+.inteliscope-design-system .quiet-scroll-region {
+  scrollbar-color: color-mix(in oklab, var(--muted) 42%, transparent) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.inteliscope-design-system .quiet-scroll-region:hover {
+  scrollbar-color: color-mix(in oklab, var(--foreground) 64%, transparent) transparent;
+}
+
+.inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-track,
+.inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-corner {
+  border: 0;
+  background: transparent;
+}
+
+.inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 42%, transparent);
+  background-clip: padding-box;
+}
+
+.inteliscope-design-system .quiet-scroll-region:hover::-webkit-scrollbar-thumb,
+.inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-thumb:hover,
+.inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-thumb:active {
+  background: color-mix(in oklab, var(--foreground) 64%, transparent);
+  background-clip: padding-box;
+}
+
 /*
  * HeroUI primitives inherit the same semantic type roles as feature markup.
  * Feature code may override a primitive with an explicit `.type-*` role, but it

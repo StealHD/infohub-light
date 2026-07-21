@@ -25,6 +25,9 @@ export type OpenClawChatMessage = {
   status?: 'pending' | 'sent' | 'failed' | 'aborted'
   contextCount?: number
   sendSnapshot?: OpenClawSendSnapshot
+  createdAt?: number
+  origin?: 'local' | 'gateway'
+  mergeId?: string
 }
 
 export type OpenClawSendRequest = {
@@ -91,8 +94,14 @@ type OpenClawChatOptions = {
 }
 
 export const OPENCLAW_GATEWAY_URL_KEY_PREFIX = 'inteliscope.openclaw.gateway.v1:'
+export const OPENCLAW_TRANSCRIPT_KEY_PREFIX = 'inteliscope.openclaw.transcript.v1:'
 const MAX_MESSAGES = 100
 const MAX_HISTORY_CHARS = 100_000
+
+type StoredOpenClawTranscriptV1 = {
+  version: 1
+  messages: OpenClawChatMessage[]
+}
 
 export function boundChatMessages(messages: OpenClawChatMessage[]): OpenClawChatMessage[] {
   const newest = messages.slice(-MAX_MESSAGES)
@@ -106,6 +115,163 @@ export function boundChatMessages(messages: OpenClawChatMessage[]): OpenClawChat
     remaining -= text.length
   }
   return bounded
+}
+
+function transcriptHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+export function openClawTranscriptStorageKey(userId: string, gatewayUrl: string, sessionKey: string): string {
+  return `${OPENCLAW_TRANSCRIPT_KEY_PREFIX}${encodeURIComponent(userId)}:${transcriptHash(gatewayUrl)}:${transcriptHash(sessionKey)}`
+}
+
+function normalizedMessageText(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/g, ' ').trim()
+}
+
+function messageSignature(message: OpenClawChatMessage): string {
+  return [
+    message.role,
+    normalizedMessageText(message.text),
+    message.contextCount ?? 0,
+  ].join('\n')
+}
+
+function messageMergeId(message: OpenClawChatMessage): string {
+  return message.mergeId || [
+    messageSignature(message),
+    message.createdAt ?? message.id,
+  ].join('\n')
+}
+
+function persistedMessage(message: OpenClawChatMessage): OpenClawChatMessage {
+  const keepRetrySnapshot = (message.status === 'pending' || message.status === 'failed') && Boolean(message.sendSnapshot)
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.text,
+    status: message.status,
+    contextCount: message.contextCount,
+    createdAt: message.createdAt,
+    origin: message.origin,
+    mergeId: message.mergeId || messageMergeId(message),
+    ...(keepRetrySnapshot ? { sendSnapshot: message.sendSnapshot } : {}),
+  }
+}
+
+export function mergeOpenClawTranscript(
+  local: OpenClawChatMessage[],
+  gateway: OpenClawChatMessage[],
+): OpenClawChatMessage[] {
+  const merged = boundChatMessages(local).map((message) => ({ ...message }))
+  const matchedLocalIndexes = new Set<number>()
+  for (const remote of boundChatMessages(gateway)) {
+    const remoteMergeId = messageMergeId(remote)
+    let existingIndex = merged.findIndex((candidate, index) => (
+      !matchedLocalIndexes.has(index) && candidate.id === remote.id
+    ))
+    if (existingIndex < 0) {
+      existingIndex = merged.findIndex((candidate, index) => (
+        !matchedLocalIndexes.has(index) && messageMergeId(candidate) === remoteMergeId
+      ))
+    }
+    if (existingIndex < 0) {
+      const signature = messageSignature(remote)
+      const candidates = merged
+        .map((candidate, index) => ({ candidate, index }))
+        .filter(({ candidate, index }) => !matchedLocalIndexes.has(index) && messageSignature(candidate) === signature)
+      const remoteCreatedAt = remote.createdAt
+      if (remoteCreatedAt !== undefined) {
+        candidates.sort((left, right) => {
+          const leftDistance = left.candidate.createdAt === undefined ? Number.POSITIVE_INFINITY : Math.abs(left.candidate.createdAt - remoteCreatedAt)
+          const rightDistance = right.candidate.createdAt === undefined ? Number.POSITIVE_INFINITY : Math.abs(right.candidate.createdAt - remoteCreatedAt)
+          return leftDistance - rightDistance
+        })
+      }
+      existingIndex = candidates[0]?.index ?? -1
+    }
+    if (existingIndex < 0) {
+      const appendedIndex = merged.length
+      merged.push({ ...remote, mergeId: remote.mergeId || remoteMergeId })
+      matchedLocalIndexes.add(appendedIndex)
+      continue
+    }
+    matchedLocalIndexes.add(existingIndex)
+    const existing = merged[existingIndex]
+    const remoteConfirmsDelivery = remote.status === 'sent'
+    merged[existingIndex] = {
+      ...existing,
+      ...remote,
+      id: existing.id,
+      createdAt: existing.createdAt ?? remote.createdAt,
+      contextCount: existing.contextCount ?? remote.contextCount,
+      origin: existing.origin ?? remote.origin,
+      mergeId: existing.mergeId || remote.mergeId || remoteMergeId,
+      ...(remoteConfirmsDelivery ? { sendSnapshot: undefined } : { sendSnapshot: existing.sendSnapshot ?? remote.sendSnapshot }),
+    }
+  }
+  return boundChatMessages(merged)
+}
+
+export function readOpenClawTranscript(userId: string, gatewayUrl: string, sessionKey: string): OpenClawChatMessage[] {
+  try {
+    const raw = window.sessionStorage.getItem(openClawTranscriptStorageKey(userId, gatewayUrl, sessionKey))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as Partial<StoredOpenClawTranscriptV1>
+    if (parsed.version !== 1 || !Array.isArray(parsed.messages)) return []
+    return boundChatMessages(parsed.messages.flatMap((message) => (
+      message
+      && typeof message === 'object'
+      && (message.role === 'user' || message.role === 'assistant')
+      && typeof message.id === 'string'
+      && typeof message.text === 'string'
+        ? [persistedMessage(message)]
+        : []
+    )))
+  } catch {
+    return []
+  }
+}
+
+export function writeOpenClawTranscript(
+  userId: string,
+  gatewayUrl: string,
+  sessionKey: string,
+  messages: OpenClawChatMessage[],
+): void {
+  try {
+    const transcript: StoredOpenClawTranscriptV1 = {
+      version: 1,
+      messages: boundChatMessages(messages).map(persistedMessage),
+    }
+    window.sessionStorage.setItem(
+      openClawTranscriptStorageKey(userId, gatewayUrl, sessionKey),
+      JSON.stringify(transcript),
+    )
+  } catch {
+    // Conversation persistence is best-effort and must never block chat.
+  }
+}
+
+export function clearOpenClawTranscript(userId: string, gatewayUrl: string, sessionKey?: string | null): void {
+  try {
+    if (sessionKey) {
+      window.sessionStorage.removeItem(openClawTranscriptStorageKey(userId, gatewayUrl, sessionKey))
+      return
+    }
+    const prefix = `${OPENCLAW_TRANSCRIPT_KEY_PREFIX}${encodeURIComponent(userId)}:${transcriptHash(gatewayUrl)}:`
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.sessionStorage.key(index)
+      if (key?.startsWith(prefix)) window.sessionStorage.removeItem(key)
+    }
+  } catch {
+    // Conversation cleanup is best-effort.
+  }
 }
 
 export function readSavedGatewayUrl(userId: string, fallback: string): string {
@@ -132,26 +298,38 @@ function messageText(value: unknown): string {
   }).join('\n')
 }
 
+function messageCreatedAt(value: Record<string, unknown>): number | undefined {
+  const candidate = value.createdAt ?? value.created_at ?? value.timestamp
+  if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate
+  if (typeof candidate !== 'string') return undefined
+  const parsed = Date.parse(candidate)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 export function projectChatHistory(value: unknown): OpenClawChatMessage[] {
   const records = value && typeof value === 'object' && Array.isArray((value as { messages?: unknown }).messages)
     ? (value as { messages: unknown[] }).messages
     : []
   return boundChatMessages(records.flatMap((record, index) => {
     if (!record || typeof record !== 'object') return []
-    const role = (record as { role?: unknown }).role
+    const source = record as Record<string, unknown>
+    const role = source.role
     if (role !== 'user' && role !== 'assistant') return []
     const rawText = messageText(record).trim()
     if (!rawText) return []
     const handoff = role === 'user' ? projectAgentHandoffDisplay(rawText) : null
     const text = handoff?.displayText ?? rawText
-    const id = (record as { id?: unknown }).id
-    return [{
+    const id = source.id
+    const message: OpenClawChatMessage = {
       id: typeof id === 'string' ? id : `history-${index}`,
       role,
       text,
       status: 'sent',
+      origin: 'gateway',
+      createdAt: messageCreatedAt(source),
       ...(handoff ? { contextCount: handoff.contextCount } : {}),
-    } satisfies OpenClawChatMessage]
+    }
+    return [{ ...message, mergeId: messageMergeId(message) }]
   }))
 }
 
@@ -368,6 +546,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const reconnectRef = useRef<(reconnecting?: boolean) => void>(() => undefined)
   const streamTextRef = useRef('')
   const messagesRef = useRef<OpenClawChatMessage[]>([])
+  const transcriptReadyKeyRef = useRef<string | null>(null)
   const terminalRunIdsRef = useRef(new Set<string>())
   const thinkingLevelRef = useRef<string | null>(null)
   const setModelRef = useRef<(modelId: string | null) => Promise<boolean>>(async () => false)
@@ -381,8 +560,15 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
 
   const loadHistory = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
     const history = await client.request('chat.history', { sessionKey: key, agentId, limit: MAX_MESSAGES, maxChars: MAX_HISTORY_CHARS })
-    setMessages(projectChatHistory(history))
-  }, [])
+    if (sessionKeyRef.current !== key) return
+    const stored = readOpenClawTranscript(options.userId, gatewayUrlRef.current, key)
+    const gatewayMessages = projectChatHistory(history)
+    transcriptReadyKeyRef.current = key
+    setMessages((current) => mergeOpenClawTranscript(
+      mergeOpenClawTranscript(stored, current),
+      gatewayMessages,
+    ))
+  }, [options.userId])
 
   const readRuntime = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
     const [modelsValue, agentsValue, sessionValue] = await Promise.all([
@@ -437,6 +623,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
 
   useEffect(() => { messagesRef.current = messages }, [messages])
   useEffect(() => { streamTextRef.current = streamText }, [streamText])
+  useEffect(() => {
+    if (!sessionKey || transcriptReadyKeyRef.current !== sessionKey) return
+    writeOpenClawTranscript(options.userId, gatewayUrlRef.current, sessionKey, messages)
+  }, [messages, options.userId, sessionKey])
 
   const handleGatewayEvent = useCallback((event: GatewayEvent) => {
     if (event.event !== 'chat' || !event.payload || typeof event.payload !== 'object') return
@@ -472,14 +662,17 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       const key = sessionKeyRef.current
       const agentId = agentIdRef.current
       if (client && key && agentId) void loadRuntime(client, key, agentId, true)
-      if ((payload.state === 'aborted' || payload.state === 'error') && partialText) {
-        setMessages((current) => boundChatMessages([...current, {
+      if (partialText) {
+        const assistantMessage: OpenClawChatMessage = {
           id: `${payload.state}-${completedRunId}`,
           role: 'assistant',
           text: partialText,
-          status: payload.state === 'aborted' ? 'aborted' : 'failed',
-        }]))
-        return
+          status: payload.state === 'aborted' ? 'aborted' : payload.state === 'error' ? 'failed' : 'sent',
+          createdAt: Date.now(),
+          origin: 'local',
+        }
+        assistantMessage.mergeId = messageMergeId(assistantMessage)
+        setMessages((current) => mergeOpenClawTranscript(current, [assistantMessage]))
       }
       if (payload.state === 'aborted') return
       if (client && key && agentId) void loadHistory(client, key, agentId).catch(() => undefined)
@@ -495,6 +688,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     clientRef.current = null
     agentIdRef.current = null
     sessionKeyRef.current = null
+    transcriptReadyKeyRef.current = null
     runIdRef.current = null
     terminalRunIdsRef.current.clear()
     setRunId(null)
@@ -564,6 +758,11 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       if (!key) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
       sessionKeyRef.current = key
       setSessionKey(key)
+      transcriptReadyKeyRef.current = key
+      setMessages((current) => mergeOpenClawTranscript(
+        readOpenClawTranscript(options.userId, parsed.gatewayUrl, key),
+        current,
+      ))
       const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
       if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
       await vault.save(options.userId, parsed.gatewayUrl, {
@@ -614,7 +813,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         ...(snapshot.thinkingLevel ? { thinking: snapshot.thinkingLevel } : {}),
       })
       setMessages((current) => current.map((message) => (
-        message.id === messageId ? { ...message, status: 'sent' } : message
+        message.id === messageId ? { ...message, status: 'sent', sendSnapshot: undefined } : message
       )))
       runIdRef.current = result.runId || snapshot.idempotencyKey
       setRunId(runIdRef.current)
@@ -651,7 +850,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       status: 'pending',
       contextCount: snapshot.contextItems.length,
       sendSnapshot: snapshot,
+      createdAt: Date.now(),
+      origin: 'local',
     }
+    message.mergeId = messageMergeId(message)
     setMessages((current) => boundChatMessages([...current, message]))
     return submitSend(snapshot, message.id)
   }, [runtimeSelection.modelId, runtimeSelection.thinkingLevel, sending, submitSend])
@@ -707,8 +909,17 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     projection: RuntimeProjection,
     clearMessages: boolean,
   ) => {
+    const previousKey = sessionKeyRef.current
+    const visibleMessages = messagesRef.current
     await vault.updateSession(options.userId, gatewayUrl, key)
+    if (clearMessages) {
+      if (previousKey) clearOpenClawTranscript(options.userId, gatewayUrl, previousKey)
+      clearOpenClawTranscript(options.userId, gatewayUrl, key)
+    } else {
+      writeOpenClawTranscript(options.userId, gatewayUrl, key, visibleMessages)
+    }
     sessionKeyRef.current = key
+    transcriptReadyKeyRef.current = key
     setSessionKey(key)
     runIdRef.current = null
     terminalRunIdsRef.current.clear()
@@ -722,6 +933,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       setMessages([])
       return
     }
+    setMessages((current) => mergeOpenClawTranscript(
+      readOpenClawTranscript(options.userId, gatewayUrl, key),
+      current,
+    ))
     try {
       await loadHistory(client, key, agentId)
     } catch {
@@ -842,10 +1057,18 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     }
   }, [activateSession, readRuntime, runtimeUpdating, sending])
 
+  const clearTranscript = useCallback(() => {
+    clearOpenClawTranscript(options.userId, gatewayUrl)
+    transcriptReadyKeyRef.current = null
+    messagesRef.current = []
+    setMessages([])
+  }, [gatewayUrl, options.userId])
+
   const forget = useCallback(async () => {
+    clearTranscript()
     disconnect()
     await vault.forget(options.userId, gatewayUrl)
-  }, [disconnect, gatewayUrl, options.userId, vault])
+  }, [clearTranscript, disconnect, gatewayUrl, options.userId, vault])
 
   const effectiveStatus: OpenClawConnectionStatus = !options.enabled
     ? 'disabled'
@@ -892,6 +1115,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     runtimeSelection,
     connect: (authInput?: string, requestedUrl?: string) => connectInternal(authInput, false, requestedUrl),
     disconnect,
+    clearTranscript,
     forget,
     send,
     retry,

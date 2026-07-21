@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildAgentHandoffPrompt } from '../workbench-live/agentContext'
 import {
@@ -8,7 +8,14 @@ import {
   type StoredOpenClawCredential,
 } from './openclawCredentialVault'
 import type { GatewayEvent, GatewayHello } from './openclawGateway'
-import { boundChatMessages, projectChatHistory, useOpenClawChat } from './useOpenClawChat'
+import {
+  boundChatMessages,
+  mergeOpenClawTranscript,
+  openClawTranscriptStorageKey,
+  projectChatHistory,
+  useOpenClawChat,
+  writeOpenClawTranscript,
+} from './useOpenClawChat'
 
 class MemoryAdapter implements OpenClawCredentialAdapter {
   values = new Map<string, StoredOpenClawCredential>()
@@ -37,6 +44,10 @@ const session = {
 }
 
 describe('useOpenClawChat', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+  })
+
   it('does not create a Gateway client while browser chat is disabled', async () => {
     const clientFactory = vi.fn()
     const { result } = renderHook(() => useOpenClawChat({
@@ -67,9 +78,59 @@ describe('useOpenClawChat', () => {
       question: '只显示这个问题',
       items: [{ articleId: 'internal-id', title: '标题' }],
     })
-    expect(projectChatHistory({ messages: [{ id: 'user-1', role: 'user', text: gatewayPrompt }] })).toEqual([{
-      id: 'user-1', role: 'user', text: '只显示这个问题', status: 'sent', contextCount: 1,
-    }])
+    expect(projectChatHistory({ messages: [{ id: 'user-1', role: 'user', text: gatewayPrompt }] })).toEqual([
+      expect.objectContaining({
+        id: 'user-1', role: 'user', text: '只显示这个问题', status: 'sent', contextCount: 1, origin: 'gateway',
+      }),
+    ])
+  })
+
+  it('merges Gateway history without dropping a local question and omits completed internal prompts from storage', () => {
+    const snapshot = {
+      displayText: '我的问题',
+      gatewayPrompt: 'INTELISCOPE_INTERNAL_PROMPT',
+      contextItems: [],
+      idempotencyKey: 'local-user',
+      modelId: null,
+      thinkingLevel: null,
+    }
+    const local = [{
+      id: 'local-user', role: 'user' as const, text: '我的问题', status: 'sent' as const,
+      origin: 'local' as const, createdAt: 10, sendSnapshot: snapshot,
+    }]
+    const gateway = [{
+      id: 'gateway-answer', role: 'assistant' as const, text: '回答', status: 'sent' as const,
+      origin: 'gateway' as const, createdAt: 20,
+    }]
+
+    const merged = mergeOpenClawTranscript(local, gateway)
+    expect(merged.map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: 'user', text: '我的问题' },
+      { role: 'assistant', text: '回答' },
+    ])
+
+    writeOpenClawTranscript('user-merge', 'ws://127.0.0.1:18789', 'session-merge', merged)
+    const stored = window.sessionStorage.getItem(openClawTranscriptStorageKey(
+      'user-merge', 'ws://127.0.0.1:18789', 'session-merge',
+    ))
+    expect(stored).toContain('我的问题')
+    expect(stored).not.toContain('INTELISCOPE_INTERNAL_PROMPT')
+  })
+
+  it('preserves repeated identical questions as separate conversation turns', () => {
+    const local = [
+      { id: 'local-1', role: 'user' as const, text: '继续分析', status: 'sent' as const, createdAt: 1_000, origin: 'local' as const },
+      { id: 'local-2', role: 'user' as const, text: '继续分析', status: 'sent' as const, createdAt: 9_000, origin: 'local' as const },
+    ]
+    const gateway = [
+      { id: 'gateway-1', role: 'user' as const, text: '继续分析', status: 'sent' as const, createdAt: 1_100, origin: 'gateway' as const },
+      { id: 'gateway-2', role: 'user' as const, text: '继续分析', status: 'sent' as const, createdAt: 9_100, origin: 'gateway' as const },
+    ]
+
+    const merged = mergeOpenClawTranscript(local, gateway)
+
+    expect(merged).toHaveLength(2)
+    expect(merged.map((message) => message.id)).toEqual(['local-1', 'local-2'])
   })
 
   it('restores a session, uses real model metadata, sends separate display text and retains a partial aborted reply', async () => {
@@ -82,6 +143,7 @@ describe('useOpenClawChat', () => {
     })
 
     let gatewayEvent: ((event: GatewayEvent) => void) | undefined
+    let sendCount = 0
     const request = vi.fn(async (method: string) => {
       if (method === 'tools.effective') return { groups: [{ tools: [{ id: 'mcp__inteliscope__get_item', source: 'mcp' }] }] }
       if (method === 'chat.history') return { messages: [{ id: 'history-1', role: 'assistant', text: '已有消息' }] }
@@ -89,7 +151,10 @@ describe('useOpenClawChat', () => {
       if (method === 'agents.list') return agents
       if (method === 'sessions.describe') return session
       if (method === 'sessions.patch') return { ok: true }
-      if (method === 'chat.send') return { runId: 'run-1' }
+      if (method === 'chat.send') {
+        sendCount += 1
+        return { runId: `run-${sendCount}` }
+      }
       if (method === 'chat.abort') return { ok: true }
       throw new Error(`unexpected method ${method}`)
     })
@@ -149,6 +214,15 @@ describe('useOpenClawChat', () => {
     act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'aborted', sessionKey: 'session-1', runId: 'run-1' } }))
     expect(result.current.streamText).toBe('')
     expect(result.current.messages.at(-1)).toMatchObject({ role: 'assistant', text: '流式回复', status: 'aborted' })
+
+    await act(async () => {
+      await result.current.send({ displayText: '第二个问题', gatewayPrompt: 'second gateway prompt', contextItems: [] })
+    })
+    act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'delta', sessionKey: 'session-1', runId: 'run-2', seq: 1, deltaText: '第二个回答' } }))
+    act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'final', sessionKey: 'session-1', runId: 'run-2' } }))
+
+    await waitFor(() => expect(result.current.messages.some((message) => message.text === '第二个回答')).toBe(true))
+    expect(result.current.messages.some((message) => message.role === 'user' && message.text === '第二个问题')).toBe(true)
   })
 
   it('retries with the model and thinking snapshot captured by the failed send', async () => {

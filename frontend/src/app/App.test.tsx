@@ -249,7 +249,7 @@ describe('App routes', () => {
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
   })
 
-  it('keeps raw source diagnostics folded behind a user-facing cause, impact and action', async () => {
+  it('keeps source failure details behind a status tooltip and dialog', async () => {
     const browser = userEvent.setup()
     const source = { id: 'health-source', type: 'rss', display_name: '异常来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const subscription = { id: 'health-subscription', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
@@ -265,18 +265,29 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const card = (await screen.findByText('异常来源')).closest('[data-slot="card"]') as HTMLElement
-    expect(within(card).getByText('原因：上游服务暂时不可用或响应超时。')).toBeInTheDocument()
-    expect(within(card).getByText('影响：已连续 3 次更新失败，该来源的新内容暂时不会进入信息流；历史内容不受影响。')).toBeInTheDocument()
-    expect(within(card).getByText('建议操作：点击“立即获取”重试；若仍失败，请稍后再试或检查上游状态。')).toBeInTheDocument()
+    expect(within(card).queryByText(/原因：/)).not.toBeInTheDocument()
+    expect(within(card).queryByText(rawMessage)).not.toBeInTheDocument()
 
-    const details = within(card).getByText('技术详情').closest('details')
-    const rawDiagnostics = within(card).getByText(rawMessage)
+    const trigger = within(card).getByRole('button', { name: '查看 连续失败 详情' })
+    await browser.hover(trigger)
+    expect(await screen.findByText('已连续 3 次失败：上游服务暂时不可用或响应超时。')).toBeInTheDocument()
+    await browser.click(trigger)
+
+    const dialog = await screen.findByRole('dialog', { name: '来源获取失败' })
+    expect(within(dialog).getByText('上游服务暂时不可用或响应超时。')).toBeInTheDocument()
+    expect(within(dialog).getByText('已连续 3 次更新失败，该来源的新内容暂时不会进入信息流；历史内容不受影响。')).toBeInTheDocument()
+    expect(within(dialog).getByText('点击“立即获取”重试；若仍失败，请稍后再试或检查上游状态。')).toBeInTheDocument()
+
+    const details = within(dialog).getByText('技术详情').closest('details')
+    const rawDiagnostics = within(dialog).getByText(rawMessage)
     expect(details).not.toHaveAttribute('open')
     expect(rawDiagnostics.closest('details')).toBe(details)
     expect(rawDiagnostics).not.toBeVisible()
-    await browser.click(within(card).getByText('技术详情'))
+    await browser.click(within(dialog).getByText('技术详情'))
     expect(details).toHaveAttribute('open')
     expect(rawDiagnostics).toBeVisible()
+    await browser.click(within(dialog).getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(trigger).toHaveFocus())
   })
 
   it('shows source edit controls only for a member-owned private source', async () => {

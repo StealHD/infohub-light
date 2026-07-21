@@ -209,7 +209,7 @@ export function HeroSettingsPage() {
   const ready = settingsDataReady({ admin, configLoaded: config.isSuccess, secretsLoaded: secrets.isSuccess })
   if (!ready) return <PageFrame width="admin" className="p-5">{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <LoadingState label="正在读取设置" rows={1} />}</PageFrame>
 
-  return <div className="h-full overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+  return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {message && <HeroNotice title={message} status="success" role="status" />}{error && <HeroNotice title={error} />}
 

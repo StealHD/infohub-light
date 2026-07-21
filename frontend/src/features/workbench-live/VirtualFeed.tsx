@@ -559,7 +559,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       data-testid="workbench-feed-scroll"
       data-feed-visual="quiet-studio"
       data-fresh-edge={freshEdge}
-      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 [overflow-anchor:none] sm:px-5"
+      className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 [overflow-anchor:none] sm:px-5"
       onScroll={updateScrollState}
       onWheel={cancelInlineAnchor}
       onTouchStart={cancelInlineAnchor}

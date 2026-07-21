@@ -253,6 +253,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   let agent: Locator
 
   if (testInfo.project.name === 'desktop') {
+    await page.getByRole('button', { name: '展开信息概览' }).click()
     const insights = page.getByRole('complementary', { name: '信息概览' })
     await expect(insights).toBeVisible()
     await expect(insights.getByText('今日内容', { exact: true })).toBeVisible()
@@ -261,6 +262,12 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await page.getByRole('button', { name: '展开 Agent 面板' }).click()
     agent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     await expect(agent).toBeVisible()
+    const railSeparator = page.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })
+    await expect(railSeparator).toHaveAttribute('aria-valuenow', '360')
+    await railSeparator.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect(railSeparator).toHaveAttribute('aria-valuenow', '384')
+    expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.right-rail.v1:e2e-user'))).toBe(JSON.stringify({ width: 384 }))
     const quietCard = page.locator('[data-card-visual="quiet-studio"]').first()
     expect(await quietCard.evaluate((element) => getComputedStyle(element).borderRadius)).toBe('18px')
     expect((await quietCard.boundingBox())?.width ?? 0).toBeLessThanOrEqual(820)

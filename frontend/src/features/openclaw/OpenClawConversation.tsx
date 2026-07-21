@@ -62,7 +62,7 @@ function SetupPanel({ chat }: { chat: ChatController }) {
   }
 
   return <>
-    <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4" data-testid="agent-scroll-region">
+    <div className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4" data-testid="agent-scroll-region">
       <Card variant="secondary" className="p-4">
         <Card.Title>连接你的 OpenClaw</Card.Title>
         <Card.Description className="mt-1">本地地址已经填好。首次连接粘贴 Gateway token，或直接粘贴 dashboard 完整地址。</Card.Description>
@@ -136,7 +136,7 @@ function ContextSummary({ value }: { value: WorkbenchAgentContextValue }) {
         <Popover.Content placement="top end" offset={8} className="z-50 w-[min(340px,calc(100vw-24px))] p-0">
           <Popover.Dialog aria-label="管理全部上下文" className="max-h-[min(520px,70dvh)] min-w-0 overflow-x-hidden p-3">
             <Popover.Heading className="type-page-title mb-2">已附带 {count} 条信息</Popover.Heading>
-            <div className="grid min-w-0 gap-1.5 overflow-x-hidden overflow-y-auto">
+            <div className="quiet-scroll-region grid min-w-0 gap-1.5 overflow-x-hidden overflow-y-auto">
               {value.draft.items.map((item) => <ContextRow key={item.articleId} item={item} onRemove={() => value.removeItem(item.articleId)} />)}
             </div>
           </Popover.Dialog>
@@ -265,7 +265,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   return <>
     <div
       ref={scrollRef}
-      className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4"
+      className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4"
       data-testid="agent-scroll-region"
       aria-live="polite"
       onScroll={(event) => {
@@ -347,7 +347,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
 
 export function OpenClawConversation({ chat, value }: { chat: ChatController; value: WorkbenchAgentContextValue }) {
   if (chat.status === 'disabled') return <>
-    <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4" data-testid="agent-scroll-region">
+    <div className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4" data-testid="agent-scroll-region">
       <Card variant="transparent" className="p-3"><Card.Description>站内 OpenClaw 对话尚未启用；仍可复制交接提示词到自己的 OpenClaw。</Card.Description></Card>
     </div>
     <HandoffComposer value={value} />

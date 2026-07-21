@@ -370,3 +370,12 @@
 - 原因：乐观选择器曾显示与实际会话不同的模型并暴露 `missing scope: operator.admin`；同图 CDN URL 轮换会生成重复缓存；当天与概览若各自计算会产生数量漂移。统一状态机、真实会话校验和内容身份可以消除这些系统性不一致。
 - 取代范围：取代 D041 中模型/推理通过 `sessions.patch` 写入当前会话的部分；不改变 OpenClaw Gateway、Remote MCP、Inteliscope API、数据库 schema、权限、Query Key 或全局模型配置。
 - 兼容/回退：旧媒体行与历史快照不删除；旧 Feed 偏好缺少 `dateScope` 时读为 `all`；模型分叉失败保留原 session key，并可显式创建空白目标模型会话。
+
+### D043 Insights 脱离固定栏，Agent 宽度可调且 OpenClaw 历史只增量对账
+
+- 决策日期：2026-07-21
+- 当前状态：本地实现
+- 决策内容：Agent 保持唯一固定右栏并允许桌面按账号保存 320–720 px 宽度，Feed 至少保留 640 px；Insights 改为只在实测阅读列右侧空白充足时自动出现一次的分组浮层。Gateway 历史采用本地可见对话与远端记录的增量归并，普通断线/刷新保留，模型分叉迁移，新对话、退出和忘记设备清除。来源失败详情改为安全 Tooltip 与可访问 Dialog，独立滚动区统一使用透明轨道的 Quiet Studio 滚动条。
+- 原因：把 Insights 和 Agent 都建模成固定第三栏会无谓挤压阅读宽度；固定 360 px 不能满足长回答阅读；Gateway 不完整历史整体覆盖会让刚发送的用户问题消失；来源错误常驻卡片和浏览器默认灰色轨道都会破坏信息密度与视觉一致性。
+- 取代范围：取代 D042 中 `closed | insights | agent` 共用固定右栏及宽屏默认固定 Insights 的部分，不改变 D042 的本地日期、模型分叉、推理快照或媒体 checksum 决策。
+- 兼容/回退：新增偏好与 transcript 均为浏览器本地、按用户隔离的 v1 数据；无 API、数据库、权限、Query Key、Gateway/MCP 协议或公网部署变化。旧客户端忽略这些本地键即可回退。
