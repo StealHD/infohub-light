@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const items = Array.from({ length: 200 }, (_, index) => ({
   id: `live-${index + 1}`,
@@ -250,7 +250,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   )
   const desktopNavigation = page.getByRole('complementary', { name: '桌面导航' })
   const mobileNavigation = page.getByRole('navigation', { name: '移动端主导航' })
-  let agent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
+  let agent: Locator
 
   if (testInfo.project.name === 'desktop') {
     const insights = page.getByRole('complementary', { name: '信息概览' })

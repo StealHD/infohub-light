@@ -365,7 +365,7 @@
 ### D042 Feed 右栏、当天口径、OpenClaw 运行时与媒体身份统一收口
 
 - 决策日期：2026-07-21
-- 当前状态：实现完成，等待本地 RC 与浏览器验收
+- 当前状态：已完成（本地 RC 与真实浏览器验收通过）
 - 决策内容：Feed 右栏统一为 `closed | insights | agent`，宽屏首次进入默认显示复用现有查询的信息概览；当天视图与统计共用浏览器本地自然日纯函数。OpenClaw 模型切换使用保留上下文的 `sessions.create` 分支并经 `sessions.describe` 验证后切换，推理档位作为 `chat.send.thinking` 的发送快照，不再调用需要 `operator.admin` 的模型/推理 `sessions.patch`。内容图片使用用户文章作用域 checksum 作为稳定身份，详情继续防御性去重历史行。
 - 原因：乐观选择器曾显示与实际会话不同的模型并暴露 `missing scope: operator.admin`；同图 CDN URL 轮换会生成重复缓存；当天与概览若各自计算会产生数量漂移。统一状态机、真实会话校验和内容身份可以消除这些系统性不一致。
 - 取代范围：取代 D041 中模型/推理通过 `sessions.patch` 写入当前会话的部分；不改变 OpenClaw Gateway、Remote MCP、Inteliscope API、数据库 schema、权限、Query Key 或全局模型配置。
