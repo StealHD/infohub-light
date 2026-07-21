@@ -34,6 +34,7 @@ import {
 import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
 import { HandoffComposer } from './HandoffComposer'
+import { FeedInsightsPanel } from './FeedInsightsPanel'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import { relativeTime } from '../feed/feedModel'
 import { toWorkbenchCardModel, workbenchSourceLabels } from './workbenchModel'
@@ -43,6 +44,8 @@ import {
   WORKBENCH_QUICK_VIEWS,
   type WorkbenchQuickViewId,
 } from './workbenchQuickViews'
+
+export type RightRailMode = 'closed' | 'insights' | 'agent'
 
 type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
 
@@ -141,13 +144,13 @@ function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigatio
 
 function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate }: CategorizedNavigationProps) {
   return <nav aria-label="分类导航内容" className="min-h-0 overflow-y-auto px-2 pb-3">
-    <p className="type-label px-3 pb-1 pt-2 text-muted/70">浏览</p>
+    <p className="type-label px-3 pb-1 pt-2 text-muted">浏览</p>
     {browseNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
 
     <Button
       size="sm"
       variant="ghost"
-      className="type-label mt-3 w-full justify-between px-3 text-muted/70"
+      className="type-label mt-3 w-full justify-between px-3 text-muted"
       aria-expanded={quickViewsOpen}
       onPress={onQuickViewsToggle}
     >常用视图<Icons.ChevronDown size={14} className={`transition-transform ${quickViewsOpen ? '' : '-rotate-90'}`} /></Button>
@@ -161,15 +164,9 @@ function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsTo
       />)}
     </div>}
 
-    <p className="type-label mt-3 px-3 pb-1 pt-2 text-muted/70">管理</p>
+    <p className="type-label mt-3 px-3 pb-1 pt-2 text-muted">管理</p>
     {managementNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
   </nav>
-}
-
-function initialWideDesktop() {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia('(min-width: 1200px)').matches
-    : false
 }
 
 function initialMobile() {
@@ -182,6 +179,16 @@ function initialExtraWideDesktop() {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia('(min-width: 1360px)').matches
     : false
+}
+
+function initialRailDesktop() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(min-width: 1440px)').matches
+    : false
+}
+
+function initialRightRailMode(pathname: string): RightRailMode {
+  return pathname === '/feed' && initialRailDesktop() ? 'insights' : 'closed'
 }
 
 const gatewayStatusLabel: Record<OpenClawConnectionStatus, string> = {
@@ -232,7 +239,7 @@ function AgentPanelContent({
         ? <span role="status" aria-busy="true" aria-label="正在检查 Agent 连接"><Skeleton className="h-5 w-16 rounded-lg" /></span>
         : <Chip size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip>}
       {(chat.status === 'connected' || chat.status === 'reconnecting') && <Chip size="sm" color={chat.toolsStatus === 'available' ? 'success' : 'default'} variant="soft"><Chip.Label>{toolsStatusLabel[chat.toolsStatus]}</Chip.Label></Chip>}
-      <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" onPress={onClose}>
+      <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" isDisabled={chat.isRunning} onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>
     </header>
@@ -295,13 +302,16 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
+  const feedRoute = location.pathname === '/feed'
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const agentToggleRef = useRef<HTMLButtonElement>(null)
+  const insightsToggleRef = useRef<HTMLButtonElement>(null)
+  const [railManuallySelected, setRailManuallySelected] = useState(false)
   const tabletNavToggleRef = useRef<HTMLDivElement>(null)
-  const [wideDesktop, setWideDesktop] = useState(initialWideDesktop)
   const [extraWideDesktop, setExtraWideDesktop] = useState(initialExtraWideDesktop)
+  const [railDesktop, setRailDesktop] = useState(initialRailDesktop)
   const [mobile, setMobile] = useState(initialMobile)
-  const [agentOpen, setAgentOpen] = useState(initialWideDesktop)
+  const [rightRailMode, setRightRailMode] = useState<RightRailMode>(() => initialRightRailMode(location.pathname))
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [quickViewsOpen, setQuickViewsOpen] = useState(true)
   const [sidebarState, setSidebarState] = useState(() => ({ userId: props.user.id, value: readSidebarPreference(props.user.id) }))
@@ -322,8 +332,18 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const activeQuickView = detectActiveQuickView(feedPreference)
   const sidebarExpanded = extraWideDesktop && sidebarPreference === 'expanded'
   const desktopSidebarColumn = sidebarExpanded ? 'min-[1360px]:grid-cols-[232px_minmax(0,1fr)]' : 'min-[1360px]:grid-cols-[72px_minmax(0,1fr)]'
-  const desktopGridColumns = contentRoute && wideDesktop && agentOpen
-    ? `min-[1200px]:grid-cols-[72px_minmax(640px,1fr)_360px] ${sidebarExpanded ? 'min-[1360px]:grid-cols-[232px_minmax(640px,1fr)_360px]' : 'min-[1360px]:grid-cols-[72px_minmax(640px,1fr)_360px]'}`
+  const visibleRightRailMode: RightRailMode = !contentRoute
+    ? 'closed'
+    : openclawChat.isRunning
+      ? 'agent'
+      : !feedRoute && rightRailMode === 'insights'
+        ? 'closed'
+        : feedRoute && railDesktop && !railManuallySelected && rightRailMode === 'closed'
+          ? 'insights'
+          : rightRailMode
+  const fixedRightRail = contentRoute && railDesktop && visibleRightRailMode !== 'closed'
+  const desktopGridColumns = fixedRightRail
+    ? `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn} ${sidebarExpanded ? 'min-[1440px]:grid-cols-[232px_minmax(640px,1fr)_360px]' : 'min-[1440px]:grid-cols-[72px_minmax(640px,1fr)_360px]'}`
     : `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn}`
 
   function toggleSidebar() {
@@ -345,7 +365,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   }, [props.user.id])
 
   const openComposer = useCallback(() => {
-    setAgentOpen(true)
+    setRightRailMode('agent')
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(
         '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
@@ -363,10 +383,22 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     restoreComposer: (question, items) => persistDraft({ ...draft, question, items }),
   }), [draft, openComposer, persistDraft])
 
-  const closeAgent = useCallback(() => {
-    setAgentOpen(false)
-    window.requestAnimationFrame(() => agentToggleRef.current?.focus())
-  }, [])
+  const closeRightRail = useCallback(() => {
+    if (openclawChat.isRunning) return
+    const previousMode = visibleRightRailMode
+    setRailManuallySelected(true)
+    setRightRailMode('closed')
+    window.requestAnimationFrame(() => {
+      if (previousMode === 'insights') insightsToggleRef.current?.focus()
+      else agentToggleRef.current?.focus()
+    })
+  }, [openclawChat.isRunning, visibleRightRailMode])
+
+  const toggleRightRail = useCallback((mode: Exclude<RightRailMode, 'closed'>) => {
+    if (openclawChat.isRunning) return
+    setRailManuallySelected(true)
+    setRightRailMode(visibleRightRailMode === mode ? 'closed' : mode)
+  }, [openclawChat.isRunning, visibleRightRailMode])
 
   const changeTabletNavigation = useCallback((open: boolean) => {
     setTabletNavOpen(open)
@@ -385,38 +417,35 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
-    const desktopMedia = window.matchMedia('(min-width: 1200px)')
     const extraWideMedia = window.matchMedia('(min-width: 1360px)')
+    const railMedia = window.matchMedia('(min-width: 1440px)')
     const mobileMedia = window.matchMedia('(max-width: 767px)')
-    const changeDesktop = (event: MediaQueryListEvent) => {
-      setWideDesktop(event.matches)
-      setAgentOpen(contentRoute && event.matches)
-    }
     const changeExtraWide = (event: MediaQueryListEvent) => {
       setExtraWideDesktop(event.matches)
       if (event.matches) setTabletNavOpen(false)
     }
     const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
-    desktopMedia.addEventListener('change', changeDesktop)
+    const changeRail = (event: MediaQueryListEvent) => setRailDesktop(event.matches)
     extraWideMedia.addEventListener('change', changeExtraWide)
     mobileMedia.addEventListener('change', changeMobile)
+    railMedia.addEventListener('change', changeRail)
     return () => {
-      desktopMedia.removeEventListener('change', changeDesktop)
       extraWideMedia.removeEventListener('change', changeExtraWide)
       mobileMedia.removeEventListener('change', changeMobile)
+      railMedia.removeEventListener('change', changeRail)
     }
-  }, [contentRoute])
+  }, [])
 
   useEffect(() => {
-    if (!agentOpen || !wideDesktop) return
+    if (visibleRightRailMode === 'closed' || !railDesktop || openclawChat.isRunning) return
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.preventDefault()
-      closeAgent()
+      closeRightRail()
     }
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
-  }, [agentOpen, closeAgent, wideDesktop])
+  }, [closeRightRail, openclawChat.isRunning, railDesktop, visibleRightRailMode])
 
   useEffect(() => {
     if (!noticeOpen) return
@@ -535,19 +564,35 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         <PageHeader
           title={pageTitle}
           className="col-start-1 row-start-1 min-[768px]:col-start-2"
-          actions={contentRoute ? <Button
-            ref={agentToggleRef}
-            size="sm"
-            variant="ghost"
-            isIconOnly
-            data-agent-toggle-visual="quiet-studio"
-            data-agent-open={agentOpen ? 'true' : 'false'}
-            className="h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] text-muted transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 data-[agent-open=true]:bg-accent/15 data-[agent-open=true]:text-accent motion-reduce:transform-none"
-            aria-label={agentOpen ? '收起 Agent 面板' : '展开 Agent 面板'}
-            aria-expanded={agentOpen}
-            aria-controls="live-agent-panel"
-            onPress={() => setAgentOpen((value) => !value)}
-          ><Icons.SplitPanel open={agentOpen} size={18} aria-hidden="true" /></Button> : undefined}
+          actions={contentRoute ? <div className="flex items-center gap-1">
+            {feedRoute && <Button
+              ref={insightsToggleRef}
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              data-right-rail-toggle="insights"
+              className={`h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none ${visibleRightRailMode === 'insights' ? 'bg-accent/15 text-accent' : 'text-muted'}`}
+              aria-label={visibleRightRailMode === 'insights' ? '收起信息概览' : '展开信息概览'}
+              aria-expanded={visibleRightRailMode === 'insights'}
+              aria-controls="feed-insights-rail"
+              isDisabled={openclawChat.isRunning}
+              onPress={() => toggleRightRail('insights')}
+            ><Icons.ChartNoAxesCombined size={18} aria-hidden="true" /></Button>}
+            <Button
+              ref={agentToggleRef}
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              data-agent-toggle-visual="quiet-studio"
+              data-agent-open={visibleRightRailMode === 'agent' ? 'true' : 'false'}
+              className="h-8 w-[34px] rounded-[var(--inteliscope-radius-control)] text-muted transition-[color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground active:scale-95 data-[agent-open=true]:bg-accent/15 data-[agent-open=true]:text-accent motion-reduce:transform-none"
+              aria-label={visibleRightRailMode === 'agent' ? '收起 Agent 面板' : '展开 Agent 面板'}
+              aria-expanded={visibleRightRailMode === 'agent'}
+              aria-controls="live-agent-panel"
+              isDisabled={openclawChat.isRunning}
+              onPress={() => toggleRightRail('agent')}
+            ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>
+          </div> : undefined}
         />
 
         <main className="col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
@@ -558,21 +603,26 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           {props.children}
         </main>
 
-        {contentRoute && (wideDesktop ? agentOpen && <aside
-          id="live-agent-panel"
+        {contentRoute && (railDesktop ? visibleRightRailMode !== 'closed' && <aside
+          id={visibleRightRailMode === 'agent' ? 'live-agent-panel' : 'feed-insights-rail'}
           role="complementary"
-          aria-label="OpenClaw 上下文"
-          className="col-start-3 row-span-2 hidden min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface min-[1200px]:grid"
-        ><AgentPanelContent open={agentOpen} onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} /></aside> : <Drawer isOpen={agentOpen} onOpenChange={(open) => open ? setAgentOpen(true) : closeAgent()}>
-          <Drawer.Trigger aria-hidden="true" className="hidden">打开 Agent 面板</Drawer.Trigger>
-          <Drawer.Backdrop isDismissable variant="blur" data-testid="agent-drawer-backdrop">
+          aria-label={visibleRightRailMode === 'agent' ? 'OpenClaw 上下文' : '信息概览'}
+          className="col-start-3 row-span-2 hidden min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface min-[1440px]:grid"
+        >{visibleRightRailMode === 'agent'
+            ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+            : <FeedInsightsPanel open onClose={closeRightRail} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} />}
+        </aside> : <Drawer isOpen={visibleRightRailMode !== 'closed'} onOpenChange={(open) => { if (!open) closeRightRail() }}>
+          <Drawer.Trigger aria-hidden="true" className="hidden">打开右侧面板</Drawer.Trigger>
+          <Drawer.Backdrop isDismissable={!openclawChat.isRunning} variant="blur" data-testid="right-rail-drawer-backdrop">
             <Drawer.Content placement={mobile ? 'bottom' : 'right'}>
               <Drawer.Dialog
-                id="live-agent-panel"
-                aria-label="OpenClaw 上下文"
+                id={visibleRightRailMode === 'agent' ? 'live-agent-panel' : 'feed-insights-rail'}
+                aria-label={visibleRightRailMode === 'agent' ? 'OpenClaw 上下文' : '信息概览'}
                 className={`grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
-                <AgentPanelContent open onClose={closeAgent} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+                {visibleRightRailMode === 'agent'
+                  ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+                  : <FeedInsightsPanel open onClose={closeRightRail} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} />}
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>

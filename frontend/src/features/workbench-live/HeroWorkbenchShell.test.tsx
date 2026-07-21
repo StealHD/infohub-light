@@ -56,6 +56,8 @@ function contextItem(id: string, author = 'Tibo', source = 'X · @thsottiaux'): 
 const api = {
   agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, connections: [], mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5 }),
   feedItem: vi.fn().mockImplementation((id: string) => Promise.resolve(contextItem(id))),
+  latestFeed: vi.fn().mockResolvedValue({ generated_at: '2026-07-18T08:05:00Z', updated_at: '2026-07-18T08:05:00Z', items: [] }),
+  sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
 } as unknown as ServiceApi
 
 function LocationProbe() {
@@ -185,31 +187,39 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     useViewport(1440)
   })
 
-  it('keeps the content header limited to title and Agent toggle', () => {
+  it('keeps the content header limited to title and the two right-rail modes', async () => {
+    const browser = userEvent.setup()
     render(<Shell user={{ id: 'feed-visual', username: 'feed', role: 'member', enabled: true }} />)
 
     expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
     expect(screen.getByRole('heading', { name: '信息流' })).toBeInTheDocument()
-    const toggle = screen.getByRole('button', { name: '收起 Agent 面板' })
-    expect(toggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
-    expect(toggle.querySelector('[data-split-panel-icon]')).not.toBeNull()
-    expect(toggle.querySelector('[data-panel-fill]')).toHaveAttribute('opacity', '0.16')
-    expect(toggle.querySelector('.lucide-panel-right-close')).toBeNull()
-    expect(toggle.querySelector('.lucide-panel-right-open')).toBeNull()
+    expect(screen.getByRole('button', { name: '收起信息概览' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('complementary', { name: '信息概览' })).toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: '展开 Agent 面板' })
+    await browser.click(toggle)
+    const activeToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
+    expect(activeToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
+    expect(activeToggle.querySelector('[data-split-panel-icon]')).not.toBeNull()
+    expect(activeToggle.querySelector('[data-panel-fill]')).toHaveAttribute('opacity', '0.16')
+    expect(activeToggle.querySelector('.lucide-panel-right-close')).toBeNull()
+    expect(activeToggle.querySelector('.lucide-panel-right-open')).toBeNull()
     expect(screen.getByRole('heading', { name: '信息流' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
   })
 
-  it('uses the same Quiet Studio header for collection routes', () => {
+  it('uses the same Quiet Studio header for collection routes', async () => {
+    const browser = userEvent.setup()
     render(<Shell path="/saved" user={{ id: 'saved-visual', username: 'saved', role: 'member', enabled: true }} />)
 
     expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
-    const collectionToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
-    expect(collectionToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
-    expect(collectionToggle.querySelector('[data-split-panel-icon]')).not.toBeNull()
+    const collectionToggle = screen.getByRole('button', { name: '展开 Agent 面板' })
+    await browser.click(collectionToggle)
+    const activeToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
+    expect(activeToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
+    expect(activeToggle.querySelector('[data-split-panel-icon]')).not.toBeNull()
     expect(screen.getByRole('heading', { name: '收藏' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
   })
 })
@@ -222,8 +232,10 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
   })
 
   it('presents a handoff composer and disables copying without context', async () => {
+    const browser = userEvent.setup()
     render(<Shell user={{ id: 'composer-empty', username: 'empty', role: 'member', enabled: true }} />)
 
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(await screen.findByText('交接模式')).toBeInTheDocument()
     expect(screen.queryByText('仅生成交接提示词，不在站内运行 Agent')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '复制交接提示词' })).toBeDisabled()
@@ -232,6 +244,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
   })
 
   it('resolves selected context into human-readable source previews without exposing raw IDs', async () => {
+    const browser = userEvent.setup()
     const rawId = 'instagram:post:DX8pBjzk5qp'
     const feedItem = vi.fn().mockResolvedValue(contextItem(rawId))
     window.sessionStorage.setItem('inteliscope.agent-context.v1:context-preview', JSON.stringify({
@@ -242,6 +255,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
       serviceApi={{ ...api, feedItem } as ServiceApi}
     />)
 
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(await screen.findByText('Tibo')).toBeInTheDocument()
     expect(screen.getByText('@thsottiaux')).toBeInTheDocument()
     expect(screen.getByText('Oops... I did it again.')).toBeInTheDocument()
@@ -291,6 +305,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
       serviceApi={{ ...api, feedItem: vi.fn().mockRejectedValue(new Error('not found')) } as ServiceApi}
     />)
 
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(await screen.findByText('内容已失效')).toBeInTheDocument()
     expect(screen.queryByText(rawId)).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '移除失效内容' }))
@@ -307,6 +322,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     render(<Shell user={{ id: 'composer-copy', username: 'copy', role: 'member', enabled: true }} />)
 
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
 
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V3]'))
@@ -325,6 +341,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     }))
     render(<Shell user={{ id: 'composer-error', username: 'error', role: 'member', enabled: true }} />)
 
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('无法写入剪贴板，请手动复制')
     expect(screen.getByRole('textbox', { name: '交给 OpenClaw 的问题' })).toHaveValue('保留问题')

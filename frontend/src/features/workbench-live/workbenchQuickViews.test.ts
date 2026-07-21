@@ -10,6 +10,7 @@ const base: FeedPreference = {
   topic: 'Codex',
   minScore: 8,
   order: 'oldest',
+  dateScope: 'all',
 }
 
 describe('workbench quick views', () => {
@@ -23,6 +24,7 @@ describe('workbench quick views', () => {
       topic: '',
       minScore: undefined,
       order: 'oldest',
+      dateScope: 'all',
     })
     expect(detectActiveQuickView(preference)).toBe('all')
   })
@@ -35,8 +37,24 @@ describe('workbench quick views', () => {
       topic: '',
       minScore: undefined,
       order: 'oldest',
+      dateScope: 'all',
     })
     expect(base.channel).toBe('投资')
+  })
+
+  it('applies the browser-local today scope and clears conflicting filters', () => {
+    const preference = applyQuickView(base, 'today')
+
+    expect(preference).toMatchObject({
+      unreadFirst: false,
+      source: '',
+      channel: '',
+      topic: '',
+      minScore: undefined,
+      order: 'oldest',
+      dateScope: 'today',
+    })
+    expect(detectActiveQuickView(preference)).toBe('today')
   })
 
   it.each([

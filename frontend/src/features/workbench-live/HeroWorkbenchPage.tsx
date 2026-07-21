@@ -21,6 +21,7 @@ import {
 } from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
 import { filterFeedItems, sortWorkbenchItems } from '../feed/feedModel'
+import { useLocalDayReference } from '../feed/useLocalDayReference'
 import {
   FEED_PREFERENCE_CHANGED_EVENT,
   readFeedPreference,
@@ -48,6 +49,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const [params, setParams] = useSearchParams()
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
   const [collectionSearchOpen, setCollectionSearchOpen] = useState(false)
+  const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
   const selectedId = params.get('item') ?? undefined
@@ -117,13 +119,15 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         channel: preference.channel || undefined,
         topic: preference.topic || undefined,
         minScore: preference.minScore,
+        dateScope: kind === 'feed' ? preference.dateScope : 'all',
+        now: localDayReference,
       },
     )
     if (!selectedId || !detailQuery.data) return matching
     const matchingIds = new Set(matching.map((item) => item.id))
     const pinned = orderedItems.filter((item) => matchingIds.has(item.id) || item.id === selectedId)
     return filterFeedItems(pinned, { query: '', unreadFirst: preference.unreadFirst })
-  }, [detailQuery.data, orderedItems, preference, query, selectedId])
+  }, [detailQuery.data, kind, localDayReference, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
@@ -142,6 +146,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     preference.channel,
     preference.topic,
     preference.minScore !== undefined,
+    kind === 'feed' && preference.dateScope === 'today',
   ].filter(Boolean).length
 
   function updatePreference(patch: Partial<FeedPreference>) {
@@ -217,7 +222,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               <NumberField aria-label="最低分" value={preference.minScore} minValue={0} maxValue={10} step={0.5} onChange={(value) => updatePreference({ minScore: value ?? undefined })}>
                 <NumberField.Group><NumberField.Input /></NumberField.Group>
               </NumberField>
-              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined })}>清除筛选</Button>
+              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, dateScope: 'all' })}>清除筛选</Button>
             </Popover.Dialog>
           </Popover.Content>
         </Popover>

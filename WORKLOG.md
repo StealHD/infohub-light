@@ -2156,3 +2156,11 @@
 - 结果：集成分支已保留两边历史和原始脏工作区；未切换共享 Docker；主目录原有文档归档等无关改动仍保持原状
 - 未解决问题：两次 full gate 额度已用完；第二次仅剩 `App.lifecycle.test.tsx` 的旧 `useOpenClawChat` mock 缺少 `models/runtimeSelection` 字段，导致完整 Vitest 290/291，需用户确认后做定向修补与复验
 - 控制面变更：无新增；仅合并两个任务已各自记录的 API/UI 合同和决策
+
+### 2026-07-21 12:45 Codex
+- 任务：修复 OpenClaw 模型选择与实际运行时不一致，增加 Feed 信息概览与“当天”视图，并以内容校验和消除 Instagram 图片重复缓存和展示
+- 修改文件：OpenClaw 对话控制器与运行时选择、Feed 右栏状态机/概览/本地日期视图、媒体缓存与详情投影、生产工作台回归、`UI_CONTRACT.md`、`API_CONTRACT.md`、D042 与本工作日志
+- 执行验证：UI contract、ESLint（0 error、5 个既有 Fast Refresh warning）、TypeScript、完整前端 Vitest、Vite production build、`tests/test_user_feed_store.py`、1440/1024/390 生产工作台 Playwright/Axe 27/27、测试影响映射与 `git diff --check` 通过；应用内浏览器真实 8080 验证宽屏概览、“当天”21/44 条切换与恢复、Agent 面板 `scrollWidth=clientWidth=359` 且无溢出子节点
+- 结果：模型切换改为 `sessions.create` 保留上下文分叉并由 `sessions.describe` 验证，推理档位仅随 `chat.send` 发送；Feed 宽屏默认展示 360px 信息概览，侧栏新增浏览器本地自然日“当天”；内容图片按 workspace/user/article/kind/checksum 复用资产，详情继续防御性去重历史重复行
+- 本地 RC：固定提交 `cb67308f9a7` 构建镜像 `inteliscope-service:local-cb67308-feed-insights-rc` / image ID `sha256:e14af4ccb57fbecdf5e9dc55f9932582e0775af3bd27e5ab554741bf5c01b754`；API/Worker 使用同一镜像并 healthy，live=`1.7.2-rc.1/cb67308f9a7`、database/worker ready；切换前 queued/running=0，数据库备份为 `data/backups/service.pre-cb67308-20260721T042444Z.db`
+- 控制面变更：新增 D042 并更新 UI/API 真源；未新增数据库表、未删除历史媒体行、未修改权限、Query Key、MCP 协议或 OpenClaw 全局配置；本机 Gateway 未连接，因此未调用真实模型，也未部署或修改 VPS

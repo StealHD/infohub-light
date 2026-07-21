@@ -1,4 +1,5 @@
 import type { FeedItem, FeedSnapshot, SourceHealthItem, SourceHealthStatus } from '../../api/types'
+import type { FeedDateScope } from './feedPreference'
 
 export type FeedMode = 'featured' | 'all' | 'daily'
 
@@ -33,6 +34,32 @@ export type FeedFilterOptions = {
   channel?: string
   topic?: string
   minScore?: number
+  dateScope?: FeedDateScope
+  now?: Date
+}
+
+export function feedItemTimestamp(item: FeedItem): number | null {
+  const candidates = [
+    item.presentation?.timing?.published_at,
+    item.published_at,
+    item.presentation?.timing?.fetched_at,
+    item.fetched_at,
+  ]
+  for (const value of candidates) {
+    if (!value) continue
+    const timestamp = new Date(value).getTime()
+    if (Number.isFinite(timestamp)) return timestamp
+  }
+  return null
+}
+
+export function isFeedItemToday(item: FeedItem, now = new Date()): boolean {
+  const timestamp = feedItemTimestamp(item)
+  if (timestamp === null) return false
+  const value = new Date(timestamp)
+  return value.getFullYear() === now.getFullYear()
+    && value.getMonth() === now.getMonth()
+    && value.getDate() === now.getDate()
 }
 
 function searchableText(item: FeedItem): string {
@@ -60,6 +87,7 @@ export function filterFeedItems(items: FeedItem[], filters: FeedFilterOptions): 
     const channel = item.presentation?.taxonomy.channel || item.channel || item.category
     const topics = item.presentation?.taxonomy.topics ?? item.topics ?? item.tags ?? []
     const score = item.presentation?.analysis.score ?? item.score ?? 0
+    if (filters.dateScope === 'today' && !isFeedItemToday(item, filters.now)) return false
     if (query && !searchableText(item).includes(query)) return false
     if (filters.sourceId && sourceId !== filters.sourceId) return false
     if (filters.channel && channel !== filters.channel) return false
