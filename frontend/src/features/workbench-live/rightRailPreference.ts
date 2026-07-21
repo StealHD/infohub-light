@@ -20,6 +20,12 @@ export function maximumRightRailWidth(viewportWidth: number, sidebarWidth: numbe
   )
 }
 
+export function canDockRightRail(viewportWidth: number, sidebarWidth: number): boolean {
+  return Number.isFinite(viewportWidth)
+    && Number.isFinite(sidebarWidth)
+    && viewportWidth - sidebarWidth - WORKBENCH_FEED_MIN_WIDTH - RIGHT_RAIL_SEPARATOR_WIDTH >= RIGHT_RAIL_MIN_WIDTH
+}
+
 export function clampRightRailWidth(width: number, viewportWidth: number, sidebarWidth: number): number {
   const safeWidth = Number.isFinite(width) ? width : RIGHT_RAIL_DEFAULT_WIDTH
   return Math.round(Math.min(maximumRightRailWidth(viewportWidth, sidebarWidth), Math.max(RIGHT_RAIL_MIN_WIDTH, safeWidth)))

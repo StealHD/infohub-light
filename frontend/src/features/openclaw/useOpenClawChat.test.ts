@@ -133,6 +133,91 @@ describe('useOpenClawChat', () => {
     expect(merged.map((message) => message.id)).toEqual(['local-1', 'local-2'])
   })
 
+  it('persists the user turn before Gateway send resolves and keeps it when history omits users', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-atomic', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-1', publicKey: 'public-1', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'], sessionKey: 'session-atomic',
+    })
+    let gatewayEvent: ((event: GatewayEvent) => void) | undefined
+    let historyCalls = 0
+    let resolveSend: ((value: { runId: string }) => void) | undefined
+    const sendResult = new Promise<{ runId: string }>((resolve) => { resolveSend = resolve })
+    const request = vi.fn(async (method: string) => {
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') {
+        historyCalls += 1
+        return historyCalls === 1
+          ? { messages: [] }
+          : { messages: [{ id: 'remote-answer', role: 'assistant', text: '远端回答', createdAt: Date.now() }] }
+      }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      if (method === 'chat.send') return sendResult
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn((options: { onEvent?: (event: GatewayEvent) => void }) => {
+      gatewayEvent = options.onEvent
+      return {
+        connect: vi.fn(async (): Promise<GatewayHello> => ({
+          auth: { deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'] },
+          snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+        })),
+        request,
+        close: vi.fn(),
+      }
+    })
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true,
+      userId: 'user-atomic',
+      defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clientFactory: clientFactory as never,
+    }))
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+
+    let pendingSend: Promise<boolean> | undefined
+    act(() => {
+      pendingSend = result.current.send({
+        displayText: '必须保留的问题',
+        gatewayPrompt: 'INTELISCOPE_PRIVATE_GATEWAY_PROMPT',
+        contextItems: [],
+      })
+    })
+
+    const storedBeforeGateway = window.sessionStorage.getItem(openClawTranscriptStorageKey(
+      'user-atomic', 'ws://127.0.0.1:18789', 'session-atomic',
+    ))
+    expect(storedBeforeGateway).toContain('必须保留的问题')
+    expect(JSON.parse(storedBeforeGateway || '{}').messages[0]).toMatchObject({
+      role: 'user',
+      status: 'pending',
+      clientTurnId: expect.any(String),
+    })
+
+    await act(async () => {
+      resolveSend?.({ runId: 'run-atomic' })
+      await pendingSend
+    })
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'chat',
+      payload: { state: 'final', sessionKey: 'session-atomic', runId: 'run-atomic' },
+    }))
+
+    await waitFor(() => expect(historyCalls).toBeGreaterThan(1))
+    expect(result.current.messages.map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: 'user', text: '必须保留的问题' },
+      { role: 'assistant', text: '远端回答' },
+    ])
+    const storedAfterHistory = window.sessionStorage.getItem(openClawTranscriptStorageKey(
+      'user-atomic', 'ws://127.0.0.1:18789', 'session-atomic',
+    ))
+    expect(storedAfterHistory).toContain('必须保留的问题')
+    expect(storedAfterHistory).not.toContain('INTELISCOPE_PRIVATE_GATEWAY_PROMPT')
+  })
+
   it('restores a session, uses real model metadata, sends separate display text and retains a partial aborted reply', async () => {
     const vault = new OpenClawCredentialVault(new MemoryAdapter())
     await vault.save('user-a', 'ws://127.0.0.1:18789', {

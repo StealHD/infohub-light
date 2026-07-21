@@ -2171,3 +2171,10 @@
 - 执行验证：受影响 Vitest 78/78 通过，重复相同问题归并边界补测后 OpenClaw/Shell 23/23 通过；UI contract、ESLint（0 error、6 个既有 Fast Refresh warning）、TypeScript 通过；1440/1024/390 生产工作台 Playwright 27/27 通过；最终 `test_gate full` 22/22、0 failed/error、97.64 秒，`mapping_miss=false`。首次 full 调用因工作树未链接项目现有 `.venv` 而选中无 pytest 的系统 Python 3.14，在接入既有虚拟环境后完整重跑通过
 - 结果：来源卡只保留可聚焦的失败状态，Tooltip 展示安全摘要、Dialog 按权限披露详情；所有独立滚动区使用透明轨道与悬停增亮滑块；桌面 Agent 栏可在 320–720px 内拖动或键盘调整、按账号保存且 Feed 至少 640px；概览仅在实测空白足够时会话内自动出现一次，Agent 打开后不抢占；用户问题与部分/完整回答按用户、Gateway 和会话隔离保存并与 Gateway 历史增量归并，重复相同问题仍保留为独立轮次
 - 控制面变更：新增 D043、PLAN 第 56 项并更新全站 UI 真源；当前实现位于 `feature/quiet-studio-interactions`，未修改后端 API、数据库、权限、Query Key 或 Gateway/MCP 协议，未构建 RC、未部署 VPS、未推送远端
+
+### 2026-07-22 00:49 Codex
+- 任务：审计合并提交与运行容器差异，并完成 OpenClaw 用户轮次原子保存、动态 Agent 停靠和自然高度信息概览的交付加固
+- 修改文件：OpenClaw 对话控制器及定向测试、工作台 Shell/右栏偏好/信息概览及测试、生产工作台 Playwright、`UI_CONTRACT.md`、`PLAN.md`、D044 与本工作日志
+- 执行验证：首先确认本机 8080 的 API/Worker 均运行 `40e10da` 同一健康镜像，而后续 4 文件补丁尚未进入容器；补齐回归后 UI contract、ESLint（0 error、6 个既有 Fast Refresh warning）、TypeScript、定向 Vitest 30/30、Vite production build/产物检查、1440/1024/390 生产工作台 Playwright/Axe 27/27 与 `git diff --check` 通过
+- 结果：用户气泡在 Gateway 请求开始前同步写入状态、内存引用和用户/Gateway/会话隔离记录，远端只返回助手消息也不会删除问题；Agent 在实测空间同时容纳 640px Feed、320px 右栏和分隔器时停靠，否则自动改为 Drawer；信息概览按有效内容自然增长，空分组隐藏，频道/类型默认前三项并可显式展开
+- 控制面变更：新增 D044、PLAN 第 57 项并细化全站 UI 真源；不修改后端 API、数据库、权限、Query Key 或 Gateway/MCP 协议，不部署 VPS

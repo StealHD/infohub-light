@@ -47,6 +47,7 @@ import {
 import {
   RIGHT_RAIL_DEFAULT_WIDTH,
   RIGHT_RAIL_MIN_WIDTH,
+  canDockRightRail,
   clampRightRailWidth,
   maximumRightRailWidth,
   readRightRailWidth,
@@ -190,12 +191,6 @@ function initialExtraWideDesktop() {
     : false
 }
 
-function initialRailDesktop() {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia('(min-width: 1440px)').matches
-    : false
-}
-
 const insightsDismissedKey = (userId: string) => `inteliscope.ui.insights-dismissed.v1:${userId}`
 export const FLOATING_INSIGHTS_REQUIRED_GUTTER = 376
 
@@ -324,7 +319,6 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const insightsToggleRef = useRef<HTMLButtonElement>(null)
   const tabletNavToggleRef = useRef<HTMLDivElement>(null)
   const [extraWideDesktop, setExtraWideDesktop] = useState(initialExtraWideDesktop)
-  const [railDesktop, setRailDesktop] = useState(initialRailDesktop)
   const [mobile, setMobile] = useState(initialMobile)
   const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 1440 : window.innerWidth)
   const [rightRailMode, setRightRailMode] = useState<RightRailMode>('closed')
@@ -363,7 +357,9 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     : openclawChat.isRunning
       ? 'agent'
       : rightRailMode
-  const fixedRightRail = contentRoute && railDesktop && visibleRightRailMode === 'agent'
+  const fixedRightRail = contentRoute
+    && canDockRightRail(viewportWidth, sidebarWidth)
+    && visibleRightRailMode === 'agent'
   const insightsOpen = feedRoute && visibleRightRailMode !== 'agent' && insightsSurface !== 'closed'
   const hasInsightsData = Boolean(insightsFeed.data?.items.length)
   const storedRightRailWidth = rightRailWidthState.userId === props.user.id ? rightRailWidthState.value : readRightRailWidth(props.user.id)
@@ -461,23 +457,19 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
     const extraWideMedia = window.matchMedia('(min-width: 1360px)')
-    const railMedia = window.matchMedia('(min-width: 1440px)')
     const mobileMedia = window.matchMedia('(max-width: 767px)')
     const changeExtraWide = (event: MediaQueryListEvent) => {
       setExtraWideDesktop(event.matches)
       if (event.matches) setTabletNavOpen(false)
     }
     const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
-    const changeRail = (event: MediaQueryListEvent) => setRailDesktop(event.matches)
     const changeViewport = () => setViewportWidth(window.innerWidth)
     extraWideMedia.addEventListener('change', changeExtraWide)
     mobileMedia.addEventListener('change', changeMobile)
-    railMedia.addEventListener('change', changeRail)
     window.addEventListener('resize', changeViewport)
     return () => {
       extraWideMedia.removeEventListener('change', changeExtraWide)
       mobileMedia.removeEventListener('change', changeMobile)
-      railMedia.removeEventListener('change', changeRail)
       window.removeEventListener('resize', changeViewport)
     }
   }, [])
@@ -761,7 +753,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           id="live-agent-panel"
           role="complementary"
           aria-label="OpenClaw 上下文"
-          className="relative col-start-3 row-span-2 hidden min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface min-[1440px]:grid"
+          className="relative col-start-3 row-span-2 grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface"
         >
           <div
             role="separator"
@@ -772,6 +764,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             aria-valuemax={maximumRightRailWidth(viewportWidth, sidebarWidth)}
             aria-valuenow={rightRailWidth}
             data-testid="right-rail-resizer"
+            title="拖动调整宽度；双击恢复默认"
             className="group absolute inset-y-0 -left-[5px] z-20 w-[10px] cursor-col-resize touch-none focus-visible:outline-none"
             onPointerDown={handleRailPointerDown}
             onPointerMove={handleRailPointerMove}
@@ -791,7 +784,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           role="complementary"
           aria-label="信息概览"
           data-insights-surface={insightsSurface}
-          className="fixed right-3 top-[60px] z-30 grid max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] grid-rows-[52px_minmax(0,1fr)] overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]"
+          className="fixed right-3 top-[60px] z-30 flex max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] flex-col overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]"
         ><FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} /></aside>}
 
         {contentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsOpen)) && <Drawer isOpen onOpenChange={(open) => {

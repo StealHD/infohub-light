@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import type { ServiceApi } from '../../api/service'
@@ -10,16 +10,24 @@ import { useLocalDayReference } from '../feed/useLocalDayReference'
 import { buildFeedInsightsModel, type FeedInsightsDistribution } from './feedInsights'
 
 function DistributionList({ title, values }: { title: string; values: FeedInsightsDistribution[] }) {
-  const visible = values.slice(0, 5)
+  const [expanded, setExpanded] = useState(false)
+  if (values.length === 0) return null
+  const visible = expanded ? values : values.slice(0, 3)
+  const remaining = values.length - visible.length
   return <section aria-label={title} className="grid gap-1.5">
     <h3 className="type-label mb-1 text-muted">{title}</h3>
-    {values.length === 0 && <p className="type-body text-muted">暂无数据</p>}
     {visible.map((value) => <div key={value.id} className="type-meta flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-default/60">
       <span className="size-1.5 shrink-0 rounded-full bg-accent/65" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">{value.label}</span>
       <span className="shrink-0 text-muted">{value.count}</span>
     </div>)}
-    {values.length > visible.length && <p className="type-meta px-1.5 text-muted">再显示 {values.length - visible.length} 项</p>}
+    {values.length > 3 && <Button
+      size="sm"
+      variant="ghost"
+      className="type-meta mt-0.5 h-7 justify-start px-1.5 text-muted"
+      aria-expanded={expanded}
+      onPress={() => setExpanded((value) => !value)}
+    >{expanded ? '收起' : `查看更多 ${remaining} 项`}<Icons.ChevronDown size={13} className={`transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" /></Button>}
   </section>
 }
 
@@ -71,7 +79,7 @@ export function FeedInsightsPanel({
         <Icons.X size={17} aria-hidden="true" />
       </Button>
     </header>
-    <div className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-4 pb-4" data-testid="feed-insights-panel">
+    <div className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-5 pb-5" data-testid="feed-insights-panel">
       {(feed.isLoading || health.isLoading) && <div className="grid gap-2 pt-4" aria-label="正在读取信息概览">
         {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-9 rounded-xl" />)}
       </div>}
@@ -94,10 +102,8 @@ export function FeedInsightsPanel({
           </div>
           <span className="type-meta text-muted">{model.updatedAt ? `最近更新于 ${relativeTime(model.updatedAt)}` : '尚无更新时间'}</span>
         </section>
-        <Separator className="my-4" />
-        <DistributionList title="频道" values={model.channels} />
-        <Separator className="my-4" />
-        <DistributionList title="内容类型" values={model.formats} />
+        {model.channels.length > 0 && <><Separator className="my-4" /><DistributionList title="主要频道" values={model.channels} /></>}
+        {model.formats.length > 0 && <><Separator className="my-4" /><DistributionList title="内容类型" values={model.formats} /></>}
       </>}
     </div>
   </>

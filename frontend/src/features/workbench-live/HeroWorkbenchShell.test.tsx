@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -233,6 +233,62 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
 
     await browser.dblClick(separator)
     expect(separator).toHaveAttribute('aria-valuenow', '360')
+  })
+
+  it('docks whenever layout space is sufficient and falls back to a Drawer otherwise', async () => {
+    const browser = userEvent.setup()
+    const view = render(<Shell user={{ id: 'dynamic-dock', username: 'dock', role: 'member', enabled: true }} />)
+
+    useViewport(1280)
+    window.dispatchEvent(new Event('resize'))
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-fixed-agent-rail', 'true')
+    expect(screen.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
+
+    view.unmount()
+    useViewport(1024)
+    render(<Shell user={{ id: 'dynamic-overlay', username: 'overlay', role: 'member', enabled: true }} />)
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-fixed-agent-rail', 'false')
+    expect(screen.queryByRole('separator', { name: '调整信息流和 Agent 面板宽度' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+  })
+
+  it('keeps the insights card content-sized and expands distributions after three items', async () => {
+    const browser = userEvent.setup()
+    const channels = ['AI', '产品', '投资', '生活', '政策']
+    const serviceApi = {
+      ...api,
+      latestFeed: vi.fn().mockResolvedValue({
+        schema_version: 2,
+        generated_at: '2026-07-21T08:05:00Z',
+        updated_at: '2026-07-21T08:05:00Z',
+        items: channels.map((channel, index) => {
+          const value = contextItem(`insight-${index}`)
+          return {
+            ...value,
+            presentation: value.presentation ? {
+              ...value.presentation,
+              taxonomy: { ...value.presentation.taxonomy, channel },
+            } : undefined,
+          }
+        }),
+      }),
+      sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as ServiceApi
+    render(<Shell user={{ id: 'insights-natural', username: 'insights', role: 'member', enabled: true }} serviceApi={serviceApi} />)
+
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    const surface = screen.getByRole('complementary', { name: '信息概览' })
+    expect(surface).toHaveClass('flex', 'flex-col')
+    expect(surface.className).not.toContain('grid-rows-')
+    const channelSection = await screen.findByRole('region', { name: '主要频道' })
+    const reveal = within(channelSection).getByRole('button', { name: '查看更多 2 项' })
+    expect(within(channelSection).getAllByText(/AI|产品|投资|生活|政策/)).toHaveLength(3)
+    await browser.click(reveal)
+    expect(within(channelSection).getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(channelSection).getAllByText(/AI|产品|投资|生活|政策/)).toHaveLength(5)
   })
 
   it('uses the same Quiet Studio header for collection routes', async () => {
