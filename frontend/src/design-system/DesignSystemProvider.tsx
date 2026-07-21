@@ -1,4 +1,5 @@
 import { useLayoutEffect, type ReactNode } from 'react'
+import { ToastProvider } from '@heroui/react'
 
 import { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
 import './theme.css'
@@ -55,6 +56,7 @@ export function DesignSystemProvider({ children }: { children: ReactNode }) {
       data-ui-system="heroui"
     >
       {children}
+      <ToastProvider placement="top" maxVisibleToasts={3} width="min(420px, calc(100vw - 24px))" />
     </div>
   </DesignSystemRouterProvider>
 }

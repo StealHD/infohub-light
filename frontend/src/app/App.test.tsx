@@ -9,6 +9,7 @@ import { ApiError } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import type { ServiceApi } from '../api/service'
 import type { FeedItem, Job } from '../api/types'
+import { DesignSystemProvider } from '../design-system'
 import { validateRegistryFields } from '../features/admin-heroui/sourceFormValidation'
 import { AppRoutes } from './App'
 
@@ -28,6 +29,8 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
     updateItemState: vi.fn(),
+    ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
+    subscribe: vi.fn().mockResolvedValue({ subscription: { reused_item_count: 0 } }),
     ...overrides,
   } as unknown as ServiceApi
 }
@@ -189,7 +192,7 @@ describe('App routes', () => {
       createSourceFetch: vi.fn().mockResolvedValue({ id: 'source-fetch-live', user_id: 'user-live', job_type: 'source_fetch', status: 'queued' }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '订阅与来源' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
@@ -624,16 +627,16 @@ describe('App routes', () => {
       retryJob: vi.fn().mockRejectedValue(new Error('重试请求失败')),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '关闭自动更新' }))
     expect((await screen.findByText('计划保存失败')).closest('[role="alert"]')).not.toBeNull()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
     await browser.click(await screen.findByRole('button', { name: '取消订阅 错误已订阅来源' }))
-    expect((await screen.findByText('取消订阅失败')).closest('[role="alert"]')).not.toBeNull()
+    expect((await screen.findAllByText(/取消订阅失败/)).length).toBeGreaterThan(0)
     await browser.click(screen.getByRole('button', { name: '订阅 错误未订阅来源' }))
-    expect((await screen.findByText('订阅请求失败')).closest('[role="alert"]')).not.toBeNull()
+    expect(await screen.findByText('订阅请求失败')).toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '运行记录' }))
     await browser.click(await screen.findByRole('button', { name: '重试' }))
@@ -658,7 +661,8 @@ describe('App routes', () => {
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '密钥' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '成员' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '账户与成员' })).toHaveAttribute('href', '/users')
     expect(screen.queryByText('精选阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报条数')).not.toBeInTheDocument()
@@ -668,7 +672,7 @@ describe('App routes', () => {
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
     await browser.type(screen.getByLabelText('Key 值'), 'secret-value')
     await browser.click(screen.getByRole('button', { name: '新增 Key' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Key 保存失败')
+    expect(await screen.findByText('Key 保存失败')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Key 名称' })).toHaveValue('DeepSeek')
     expect(screen.getByRole('textbox', { name: 'Key provider' })).toHaveValue('deepseek')
     expect(screen.getByRole('textbox', { name: '环境变量名' })).toHaveValue('DEEPSEEK_API_KEY')
@@ -826,7 +830,7 @@ describe('App routes', () => {
     expect(platformControl.parentElement?.querySelector('select')).toBeRequired()
     expect(kindControl.parentElement?.querySelector('select')).toBeRequired()
     expect(screen.getByText('选择要抓取的平台。')).toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(createSource).not.toHaveBeenCalled()
     expect(await screen.findByText('平台不能为空。')).toBeInTheDocument()
     expect(screen.getByText('来源类别不能为空。')).toBeInTheDocument()
@@ -839,9 +843,9 @@ describe('App routes', () => {
     expect(screen.getByLabelText('来源类别')).toHaveTextContent('账号')
     expect(screen.queryByText('平台不能为空。')).not.toBeInTheDocument()
     expect(screen.queryByText('来源类别不能为空。')).not.toBeInTheDocument()
-    const sourceForm = screen.getByRole('button', { name: '创建来源' }).closest('form') as HTMLFormElement
+    const sourceForm = screen.getByRole('button', { name: '创建并订阅' }).closest('form') as HTMLFormElement
     expect(Array.from(sourceForm.elements).filter((element): element is HTMLInputElement => element instanceof HTMLInputElement && !element.validity.valid).map((element) => ({ name: element.name, value: element.value, required: element.required, validity: element.validity.valid }))).toEqual([])
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
       config: expect.objectContaining({ platform: 'x', kind: 'account' }),
     })))
@@ -874,13 +878,13 @@ describe('App routes', () => {
     expect(screen.getByText('范围为 1 到 10。')).toBeInTheDocument()
     expect(screen.getByText('仅在需要历史内容时开启。')).toBeInTheDocument()
 
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('来源名称不能为空。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.type(screen.getByRole('textbox', { name: '来源名称' }), '受限订阅')
     await browser.type(screen.getByRole('textbox', { name: 'RSS 地址' }), 'not-a-url')
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('RSS 地址必须是有效 URL。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
@@ -890,31 +894,31 @@ describe('App routes', () => {
     await browser.type(url, 'https://example.com/feed.xml')
     await browser.clear(limit)
     await browser.type(limit, '11')
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('获取数量不能大于 10。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     await browser.type(limit, '0')
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('获取数量不能小于 1。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     await browser.type(limit, '1.5')
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText('获取数量必须是整数。')).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     fireEvent.input(limit, { target: { value: 'NaN' } })
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(await screen.findByText(/获取数量(不能为空|必须是有效数字)。/)).toBeInTheDocument()
     expect(createSource).not.toHaveBeenCalled()
 
     await browser.clear(limit)
     await browser.type(limit, '4')
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ url: 'https://example.com/feed.xml', limit: 4 }) })))
   })
 
@@ -952,7 +956,7 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('option', { name: '第二种来源' }))
     expect(screen.getByLabelText('抓取模式')).toHaveTextContent('第二默认值')
     await browser.type(screen.getByRole('textbox', { name: '来源名称' }), '切换后的来源')
-    await browser.click(screen.getByRole('button', { name: '创建来源' }))
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
 
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
       type: 'second_registry',
@@ -996,13 +1000,14 @@ describe('App routes', () => {
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }), secrets: vi.fn().mockResolvedValue({ secrets: [] }), users, updateUser,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/users']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '成员' })
+    await screen.findByRole('heading', { name: '成员管理' })
+    await screen.findByText('Workspace Owner')
     expect(screen.queryByRole('button', { name: /角色 workspace-owner/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '切换 workspace-owner 状态' })).toBeDisabled()
     await browser.click(screen.getByRole('button', { name: /角色 editable/ }))
-    await browser.click(await screen.findByRole('option', { name: 'viewer' }))
+    await browser.click(await screen.findByRole('option', { name: '只读成员' }))
     expect(updateUser).toHaveBeenCalledWith('editable-member', { role: 'viewer' })
     expect(screen.getByRole('button', { name: '切换 editable 状态' })).toBeEnabled()
   })
@@ -1014,10 +1019,10 @@ describe('App routes', () => {
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }), users,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/users']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByText('工作区设置只读')
-    expect(screen.queryByRole('heading', { name: '成员' })).not.toBeInTheDocument()
+    await screen.findByRole('heading', { name: '账户安全' })
+    expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^角色 / })).not.toBeInTheDocument()
     expect(users).not.toHaveBeenCalled()
   })

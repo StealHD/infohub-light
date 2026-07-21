@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type Key } from 'react'
 
 import { ApiError } from '../../api/client'
-import type { CatalogField, CatalogSource, SecretRef, SourceTypeDefinition, Subscription, TaxonomyOptions } from '../../api/types'
+import type { CatalogField, CatalogSource, SecretRef, SourceTypeDefinition, Subscription, SubscriptionDisableDisposition, TaxonomyOptions } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
@@ -19,6 +19,7 @@ import {
   Modal,
   TextArea,
   TextField,
+  toast,
 } from '../../design-system'
 import { formValuesForSource, sourceMutationPayload, sourceScopeLabel } from '../subscriptions/subscriptionModel'
 import { HeroNotice, HeroSelect } from './HeroAdminControls'
@@ -185,6 +186,8 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
   const [topics, setTopics] = useState(subscription.override_topics ?? [])
   const [analysisMode, setAnalysisMode] = useState(subscription.analysis_mode ?? 'full')
   const [interval, setInterval] = useState(String(subscription.schedule?.interval_minutes ?? 360))
+  const [enabled, setEnabled] = useState(subscription.enabled)
+  const [disableDisposition, setDisableDisposition] = useState<SubscriptionDisableDisposition>('dismiss')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -194,10 +197,30 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
     const token = beginAction()
     setPending(true); setError('')
     try {
-      if (intent === 'unsubscribe') { await api.unsubscribe(subscription.id); if (isActionCurrent(token)) onDone(); return }
-      await api.updateSubscription(subscription.id, { enabled: form.has('enabled'), override_channel: channel || null, override_topics: topics, personal_tags: String(form.get('personal_tags') ?? '').split(',').map((value) => value.trim()).filter(Boolean), analysis_mode: analysisMode as Subscription['analysis_mode'], priority: Number(form.get('priority') ?? 0) })
+      if (intent === 'unsubscribe') {
+        try {
+          await api.unsubscribe(subscription.id)
+          toast.success(`${source.display_name} 已取消订阅。`, { timeout: 4000 })
+          if (isActionCurrent(token)) onDone()
+        } catch (caught) {
+          toast.danger('取消订阅失败', {
+            description: caught instanceof ApiError || caught instanceof Error ? caught.message : '请稍后重试。',
+            timeout: 8000,
+          })
+        }
+        return
+      }
+      await api.updateSubscription(subscription.id, {
+        enabled,
+        override_channel: channel || null,
+        override_topics: topics,
+        personal_tags: String(form.get('personal_tags') ?? '').split(',').map((value) => value.trim()).filter(Boolean),
+        analysis_mode: analysisMode as Subscription['analysis_mode'],
+        priority: Number(form.get('priority') ?? 0),
+        ...(subscription.enabled && !enabled ? { on_disable: disableDisposition } : {}),
+      })
       if (!isActionCurrent(token)) return
-      await api.updateSourceSchedule(subscription.id, { enabled: form.has('enabled') && form.has('source_schedule_enabled'), interval_minutes: Number(interval) })
+      await api.updateSourceSchedule(subscription.id, { enabled: enabled && form.has('source_schedule_enabled'), interval_minutes: Number(interval) })
       if (!isActionCurrent(token)) return
       if (intent === 'test' || intent === 'fetch') await onJob(intent, source.id, subscription.id)
       if (isActionCurrent(token)) onDone()
@@ -213,7 +236,18 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       <TextField fullWidth name="personal_tags" defaultValue={(subscription.personal_tags ?? []).join(', ')}><Label>个人标签</Label><Input /></TextField>
       <HeroSelect name="analysis_mode" label="分析模式" value={analysisMode} onChange={(value) => setAnalysisMode(value as NonNullable<Subscription['analysis_mode']>)} options={[{ id: 'full', label: '完整分析' }, { id: 'personal_only', label: '仅收集' }]} />
       <TextField fullWidth name="priority" defaultValue={String(subscription.priority ?? 0)}><Label>信源优先级</Label><Input type="number" min={0} max={100} /></TextField>
-      <Checkbox name="enabled" defaultSelected={subscription.enabled}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用订阅</Checkbox.Content></Checkbox>
+      <Checkbox name="enabled" isSelected={enabled} onChange={setEnabled}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用订阅</Checkbox.Content></Checkbox>
+      {subscription.enabled && !enabled && <div className="rounded-control border border-separator bg-surface-secondary p-3">
+        <HeroSelect
+          label="关闭后如何处理已有内容"
+          value={disableDisposition}
+          onChange={(value) => setDisableDisposition(value as SubscriptionDisableDisposition)}
+          options={[
+            { id: 'dismiss', label: '归入忽略集合，可在设置中恢复' },
+            { id: 'save', label: '加入收藏后从信息流移除' },
+          ]}
+        />
+      </div>}
       <HeroSelect name="source_schedule_interval" label="单源自动获取" value={interval} onChange={setInterval} options={(subscription.schedule?.allowed_intervals ?? [30, 60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value === 30 ? '每 30 分钟' : `每 ${value / 60} 小时` }))} />
       <Checkbox name="source_schedule_enabled" defaultSelected={subscription.schedule?.enabled ?? false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用单源周期</Checkbox.Content></Checkbox>
     </Fieldset>

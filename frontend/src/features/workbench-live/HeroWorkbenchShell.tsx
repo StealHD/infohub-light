@@ -82,10 +82,12 @@ const browseNavigation = [
 const managementNavigation = [
   { id: 'subscriptions', label: '订阅', href: '/subscriptions', icon: Icons.Bell },
   { id: 'agents', label: '助手连接', href: '/agents', icon: Icons.Bot },
+  { id: 'users', label: '账户与成员', href: '/users', icon: Icons.Users },
   { id: 'settings', label: '设置', href: '/settings', icon: Icons.Settings },
 ] as const
 
 const navigation = [...browseNavigation, ...managementNavigation] as const
+const mobileNavigation = navigation.filter((item) => item.id !== 'users')
 
 const roleLabel = {
   owner: '所有者',
@@ -312,7 +314,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
-  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
+  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const shellRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   const agentToggleRef = useRef<HTMLButtonElement>(null)
@@ -698,6 +700,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                     <span className="type-meta text-muted">{props.user.username} · {roleLabel[props.user.role]}</span>
                   </div>
                   <Separator className="my-1" />
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/users')}><Icons.Users size={16} aria-hidden="true" />账户与成员</Button>
                   <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={() => { openclawChat.clearTranscript(); openclawChat.disconnect(); props.onLogout() }}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
@@ -809,7 +812,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         </Drawer>}
 
         <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
-          {navigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">
+          {mobileNavigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">
             <Icon size={17} aria-hidden="true" /><span>{label}</span>
           </NavLink>)}
         </nav>

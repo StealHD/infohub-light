@@ -11,7 +11,6 @@ import {
   Button,
   Card,
   Checkbox,
-  Chip,
   Icons,
   Input,
   Label,
@@ -19,6 +18,7 @@ import {
   Modal,
   PageFrame,
   TextField,
+  toast,
 } from '../../design-system'
 import {
   aiDefaultsForProvider,
@@ -124,13 +124,12 @@ export function HeroSettingsPage() {
   const navigate = useNavigate()
   const admin = canAdministerWorkspace(user)
   const config = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal) })
-  const users = useQuery({ queryKey: queryKeys.users(user.id), queryFn: ({ signal }) => api.users(signal), enabled: admin })
+  const ignored = useQuery({ queryKey: queryKeys.ignored(user.id), queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal) })
   const secrets = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: admin })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
   const [secretDraft, setSecretDraft] = useState({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
-  const [newUserRole, setNewUserRole] = useState('member')
   const ai = recordOf(config.data?.config.ai)
   const configuredAiProvider = String(ai.provider ?? 'gemini')
   const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
@@ -149,11 +148,17 @@ export function HeroSettingsPage() {
     onSuccess: (_result, { action }) => { feedback.succeed('config-save', action); setMessage('设置已保存。'); setError(''); void queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }) },
     onError: (caught, { action }) => { const message = errorMessage(caught, '设置保存失败。'); setError(message); feedback.fail('config-save', action, message) },
   })
-  const memberMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => api.updateUser(id, patch),
-    onMutate: ({ id }) => feedback.begin('member-update', id),
-    onSuccess: (_result, { id }) => { feedback.succeed('member-update', id); void queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) }) },
-    onError: (caught, { id }) => { const message = errorMessage(caught, '成员更新失败。'); setError(message); feedback.fail('member-update', id, message) },
+  const restoreMutation = useMutation({
+    mutationFn: (articleId: string) => api.updateItemState(articleId, { dismissed: false }),
+    onSuccess: async (_result, articleId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.ignored(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }) }),
+      ])
+      const restored = ignored.data?.items.find((item) => item.id === articleId)
+      toast.success('已恢复到信息流', { description: restored?.presentation?.content?.title || restored?.title, timeout: 4000 })
+    },
+    onError: (caught) => toast.danger('恢复失败', { description: errorMessage(caught, '请稍后重试。'), timeout: 8000 }),
   })
 
   async function createSecret(event: FormEvent<HTMLFormElement>) {
@@ -175,16 +180,6 @@ export function HeroSettingsPage() {
     }
   }
 
-  async function createUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = event.currentTarget
-    const data = new FormData(form)
-    feedback.begin('member-create', 'new')
-    try {
-      await api.createUser({ username: inputValue(data, 'username'), password: String(data.get('password') ?? ''), display_name: inputValue(data, 'display_name') || null, role: newUserRole, enabled: true })
-      form.reset(); feedback.succeed('member-create', 'new', '成员已创建。'); setMessage('成员已创建。'); void queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) })
-    } catch (caught) { const message = errorMessage(caught, '成员创建失败。'); setError(message); feedback.fail('member-create', 'new', message) }
-  }
 
   function saveAi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -237,6 +232,16 @@ export function HeroSettingsPage() {
       </form>}
     </AdminSection>
 
+    <AdminSection title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
+      {ignored.isLoading && <LoadingState label="正在读取已忽略内容" rows={2} />}
+      {ignored.isError && <HeroNotice title="已忽略内容读取失败" />}
+      {!ignored.isLoading && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
+      <div className="grid gap-2">{(ignored.data?.items ?? []).map((item) => <Card key={item.id} variant="transparent" className="flex-row items-center gap-3 p-3">
+        <div className="min-w-0 flex-1"><Card.Title className="truncate">{item.presentation?.content?.title || item.title || '无标题内容'}</Card.Title><Card.Description className="truncate">{item.presentation?.source?.name || item.source || '未知来源'}</Card.Description></div>
+        <Button size="sm" variant="ghost" isDisabled={restoreMutation.isPending && restoreMutation.variables === item.id} onPress={() => restoreMutation.mutate(item.id)}>{restoreMutation.isPending && restoreMutation.variables === item.id ? '恢复中…' : '恢复'}</Button>
+      </Card>)}</div>
+    </AdminSection>
+
     {admin && <>
       <AdminSection title="获取与主题" description="控制兼容评分、抓取窗口和未来可选主题；精选与日报字段不在当前产品中显示。">
         <form className="grid gap-4" onSubmit={saveFiltering}><div className="grid gap-4 min-[720px]:grid-cols-4"><FormField name="ai_score_threshold" label="兼容阈值" type="number" min={0} max={10} defaultValue={Number(filtering.ai_score_threshold ?? 7.5)} /><FormField name="homepage_min_score" label="首页最低分" type="number" min={0} max={10} defaultValue={Number(filtering.homepage_min_score ?? 6)} /><FormField name="time_window_hours" label="抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} /><FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} /></div><Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button></form>
@@ -255,10 +260,6 @@ export function HeroSettingsPage() {
         <div className="mt-5 grid gap-3">{(secrets.data?.secrets ?? []).map((secret) => <HeroSecretCard key={secret.id} secret={secret} onChanged={refreshSecrets} />)}</div>
       </AdminSection>
 
-      <AdminSection title="成员" description="管理工作区成员角色和可用状态。">
-        <form className="grid gap-3 min-[760px]:grid-cols-5" onSubmit={createUser}><FormField name="username" label="用户名" required /><FormField name="display_name" label="显示名" /><FormField name="password" label="初始密码" type="password" required /><HeroSelect label="角色" value={newUserRole} onChange={setNewUserRole} options={[{ id: 'admin', label: 'admin' }, { id: 'member', label: 'member' }, { id: 'viewer', label: 'viewer' }]} /><Button className="self-end" type="submit" isDisabled={feedback.isPending('member-create', 'new')}><Icons.UserPlus size={15} />{feedback.isPending('member-create', 'new') ? '创建中…' : '新增成员'}</Button></form>
-        <div className="mt-5 grid gap-2">{(users.data?.users ?? []).map((member) => { const pending = feedback.isPending('member-update', member.id); return <Card key={member.id} variant="transparent" className="flex-row flex-wrap items-center gap-3 p-3"><div className="min-w-0 flex-1"><Card.Title>{member.display_name || member.username}</Card.Title><Card.Description>{member.username} · {member.role}</Card.Description></div>{member.role === 'owner' ? <Chip size="sm" variant="soft"><Chip.Label>owner · 受保护</Chip.Label></Chip> : <HeroSelect label={`角色 ${member.username}`} value={member.role} onChange={(role) => memberMutation.mutate({ id: member.id, patch: { role } })} isDisabled={pending} options={[{ id: 'admin', label: 'admin' }, { id: 'member', label: 'member' }, { id: 'viewer', label: 'viewer' }]} />}<Button size="sm" variant="ghost" aria-label={`切换 ${member.username} 状态`} isDisabled={member.role === 'owner' || pending} onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}>{pending ? '保存中…' : member.enabled ? '停用' : '启用'}</Button></Card> })}</div>
-      </AdminSection>
     </>}
   </PageFrame></div>
 }

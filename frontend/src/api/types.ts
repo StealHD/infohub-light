@@ -85,6 +85,7 @@ export type FeedItem = {
   tags?: string[]
   published_at?: string
   fetched_at?: string
+  ingested_at?: string
   images?: string[]
   media_urls?: string[]
   image_url?: string
@@ -205,6 +206,8 @@ export type SavedFeed = {
   offset: number
 }
 
+export type IgnoredFeed = SavedFeed
+
 export type SourceHealthStatus = 'unknown' | 'healthy' | 'degraded' | 'failing'
 
 export type SourceHealthItem = {
@@ -293,7 +296,7 @@ export type CatalogSource = {
   display_name: string
   description?: string
   scope: 'public' | 'workspace' | 'private'
-  owner_user_id?: string
+  owner_user_id?: string | null
   default_channel?: string | null
   default_topics?: string[]
   config?: Record<string, unknown>
@@ -331,6 +334,27 @@ export type Subscription = {
   analysis_mode?: 'full' | 'personal_only'
   priority?: number
   schedule?: SourceSchedule
+  reused_item_count?: number
+}
+
+export type SubscriptionDisableDisposition = 'keep' | 'save' | 'dismiss'
+
+export type SubscriptionPatch = Partial<Pick<Subscription,
+  'enabled' | 'override_channel' | 'override_topics' | 'personal_tags' | 'analysis_mode' | 'priority'
+>> & {
+  on_disable?: SubscriptionDisableDisposition
+}
+
+export type SourceUsage = {
+  source_id: string
+  subscriber_count: number
+  enabled_subscriber_count: number
+}
+
+export type SourceShareResult = {
+  source: CatalogSource
+  management_transferred: true
+  notice: string
 }
 
 export type FeedSchedule = SourceSchedule & {
