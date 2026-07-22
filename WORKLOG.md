@@ -2279,3 +2279,11 @@
 - 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.1-614793f045a8`；生产库仍为 16,568,320 bytes、1 用户、3 会话、integrity=`ok`、foreign-key=0、queued/running=0；切换前备份位于 `/opt/inteliscope/backups/pre-v1.7.1-614793f045a8-20260722T095658Z`，数据库 SHA-256 `09904e14…5b81`，旧 release/image 保留
 - 发布纠偏：首次沿用旧 `release_rc1.sh` 在 VPS 构建，虽构建成功但切换断言失败并自动恢复旧版；随后按用户要求改为本机跨架构构建、传包、`docker load` 后成功发布；当前 `AGENTS.md` 尚未明确“禁止 VPS 构建”，旧脚本仍执行远端 build，建议单独固化该发布规则并同步脚本
 - 控制面变更：无；Remote MCP、订阅写入、Browser Chat 保持关闭，未启动 scheduler，未手动触发来源抓取、AI、付费调用或数据库恢复
+
+### 2026-07-22 21:38 Codex
+- 任务：为测试/生产共用 OpenClaw Gateway 的会话标签冲突建立隔离修复分支与设计规格
+- 修改文件：新增会话隔离设计规格并更新本工作日志；创建 `codex/fix-openclaw-session-isolation` 独立 worktree，尚未修改业务代码或运行环境
+- 执行验证：新 worktree 安装前端依赖与隔离 Python 开发环境；未修改代码的 `test_gate full` 22/22 通过、0 failed/error、179.436 秒
+- 结果：固化已批准的站点来源化唯一标签、单次冲突重试、分阶段设备/session 凭据保存、真实错误提示、无旧会话接管/删除以及测试与双环境发布边界
+- 未解决问题：按设计流程等待用户复核书面规格，批准后编写实施计划并开始 RED→GREEN 修复
+- 控制面变更：仅新增设计规格；UI 合同和决策记录将在实际行为实现时同步更新
