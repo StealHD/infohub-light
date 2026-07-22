@@ -2301,3 +2301,10 @@
 - 执行验证：无缓存 Docker build 与 production UI artifact 通过；API/Worker 同 image ID `sha256:5989d2fd9286…7621`、healthy、restart_count=0；live revision=`de8b146bee2d-openclaw-runtime-dirty`、ready database/worker 正常、root=200；bundle 包含 `openclaw-timeline/type-chat`，数据库 quick_check=`ok`、foreign keys=0
 - 结果：localhost:8080 已加载本分支 OpenClaw 运行时与 C2 时间线，继续挂载主工作区 `.env/data/logs`；Worker 初次 `uv run` 构建期间四次 healthcheck 超时，完成后自动恢复 healthy，无容器重启
 - 控制面变更：无；未启动 scheduler、未触发来源抓取、AI、模型调用、付费调用、数据库迁移或远端部署
+
+### 2026-07-22 22:31 Codex
+- 任务：纠正 OpenClaw 时间线分支的旧基线，把本次改动迁移到本地最新会话隔离代码并更新 localhost:8080
+- 修改文件：恢复分支合并 OpenClaw hook/对话组件、设计系统与合同回归；追加本工作日志；主工作区及其他 worktree 未覆盖
+- 执行验证：恢复基线 29/29、合并定向 67/67、完整前端 331/331、TypeScript、UI contract、production build 通过；ESLint 0 error/6 个既有 warning；`test_gate full` 22/22、97.992 秒、`mapping_miss=false`
+- 结果：`codex/openclaw-runtime-timeline-latest@653b1e4` 基于 `codex/fix-openclaw-session-isolation@d1ef5f0`；本地 API/Worker 已切至镜像 `sha256:b0590d710a4b…28d2a`，healthy、0 restart，live revision 正确，bundle 含时间线/type-chat，数据库 quick check=`ok`
+- 控制面变更：沿用合并后的 Gateway/UI 合同与 D048；未启动 scheduler、未触发来源抓取、AI、真实模型调用、付费调用、数据库迁移或远端部署
