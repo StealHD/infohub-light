@@ -2271,3 +2271,11 @@
 - 执行验证：production Docker build 通过；API/Worker 使用同一 image ID `sha256:25ae1e833561` 且 healthy，live=`1.5.0/c762fea20268-main`、database/worker ready，`/feed` 返回 200；宿主机 `data/` 继续 bind mount，`service.db` 9.0 MB、SQLite quick check=`ok`，3 个用户、9 个订阅、89 个 Feed 快照和 662 条 Feed 记录仍在
 - 结果：本地 8080 已运行 `inteliscope-service:local-c762fea20268-main`，稳定刷新与固定 OpenClaw composer 可直接刷新验收；未执行 `down -v`、未删除 volume 或数据库
 - 控制面变更：无；未推送远端、未部署 VPS、未触发抓取、AI、付费调用或调度
+
+### 2026-07-22 18:11 Codex
+- 任务：提交稳定刷新/OpenClaw UI 修复至 `main`，并以保留生产数据库的方式发布到 `vps-tokyo`
+- 修改文件：Tooltip 触发器与相关 Vitest、生产 Playwright/发布配置、本工作日志；VPS 新增 revision-locked release、镜像和权限受限备份
+- 执行验证：正式 `test_gate release` 24/24、192.451 秒；`origin/main=614793f045a8`；本机 Buildx 产出 `linux/amd64` 镜像包并以 SHA-256 `7f0f8bd7…e54f` 双端校验，脱敏 staging 的 live/ready、7 路由、401、integrity/foreign-key/active-job 与高风险开关均通过；生产 API/Worker 同 image ID `sha256:41764b04502d…8f945`、healthy、0 restart，公网 7 路由 200、受保护 API 401、严重日志匹配 0
+- 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.1-614793f045a8`；生产库仍为 16,568,320 bytes、1 用户、3 会话、integrity=`ok`、foreign-key=0、queued/running=0；切换前备份位于 `/opt/inteliscope/backups/pre-v1.7.1-614793f045a8-20260722T095658Z`，数据库 SHA-256 `09904e14…5b81`，旧 release/image 保留
+- 发布纠偏：首次沿用旧 `release_rc1.sh` 在 VPS 构建，虽构建成功但切换断言失败并自动恢复旧版；随后按用户要求改为本机跨架构构建、传包、`docker load` 后成功发布；当前 `AGENTS.md` 尚未明确“禁止 VPS 构建”，旧脚本仍执行远端 build，建议单独固化该发布规则并同步脚本
+- 控制面变更：无；Remote MCP、订阅写入、Browser Chat 保持关闭，未启动 scheduler，未手动触发来源抓取、AI、付费调用或数据库恢复
