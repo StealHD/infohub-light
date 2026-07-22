@@ -2331,3 +2331,11 @@
 - 执行验证：API/Worker 均运行 image ID `sha256:52f550434d35…d2f9`、healthy、0 restart；live revision=`042e813d3fc3-openclaw-session`、ready，`/feed`=200
 - 结果：最终修复容器已在 `localhost:8080` 运行，可进入信息流测试 OpenClaw 连接
 - 控制面变更：无；VPS、scheduler、来源抓取、模型和付费调用均未触碰
+
+### 2026-07-23 01:15 Codex
+- 任务：修复旧 read/write 浏览器配对在“忘记此浏览器”时被前端提前拦截、无法生成 OpenClaw scope-upgrade 请求的问题，并启动修复容器
+- 修改文件：OpenClaw 设备移除服务与回归测试、助手连接提示测试、UI 合同、D048、设计/实施文档及本工作日志；本机 API/Worker 切换到提交 `5874e92`
+- 执行验证：回归测试先 3 项 RED 后转 GREEN；前端 42 files/339 tests、TypeScript、lint 0 error、production build/产物检查、`test_gate full` 与 `git diff --check` 通过；API/Worker 同 image ID `sha256:f58c837d249…c762ef`、healthy、0 restart，live=`1.7.1/5874e9201e19-openclaw-pairing-upgrade`、ready，运行 bundle 含 scope-upgrade 提示与批准命令，SQLite integrity=`ok`
+- 结果：显式删除旧配对会用保存的 identity/device token 请求三项当前 scope；Gateway 返回的 `PAIRING_REQUIRED/scope-upgrade` 会显示经过校验的 request ID 和 `openclaw devices approve` 命令且不清本地数据，批准后重试才调用 `device.pair.remove` 并完成本地删除
+- 回退与备份：旧镜像 `inteliscope-service:local-042e813d3fc3-openclaw-session` 保留；切换前备份 `data/backups/pre-openclaw-pairing-upgrade-20260723T011403.db`，SHA-256 `6b96adc3…2566`、0600、integrity=`ok`
+- 控制面变更：UI 合同与 D048 补充用户确认后由 Gateway 审批保护的旧凭据升级流程；普通重连仍使用旧两 scope，Remote MCP、订阅写入和 Browser Chat 均保持启用，未修改/部署 VPS，未启动 scheduler、来源抓取、模型或付费调用
