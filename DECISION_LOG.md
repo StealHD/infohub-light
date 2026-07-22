@@ -414,3 +414,11 @@
 - 决策内容：已有 session key 继续作为按 Inteliscope 用户和规范化 Gateway URL 隔离的唯一重连权威；首次、空白、模型分支和用户新建会话统一使用 `Inteliscope · <site host> · <16 hex>`。只有 OpenClaw 明确返回 `INVALID_REQUEST: label already in use` 时生成新标签重试一次。新授权精确协商 `operator.read + operator.write + operator.pairing`，旧 read/write 凭据继续用于普通重连；浏览器先保存 identity/device token，再创建会话并立即保存 session key。“忘记此浏览器”确认后，旧凭据也使用保存的 identity/device token 显式请求当前三项 scope，让 Gateway 创建可审计的 `scope-upgrade`；页面显示 request ID 与批准命令，批准前保留本地材料，批准后重试 `device.pair.remove`。仅服务端删除成功或设备已不存在时清除本地 transcript 与凭据。
 - 原因：OpenClaw 2026.7.1 全局要求标签唯一，固定 `Inteliscope` 会让测试与生产以及后续新对话互相阻断；只在建会话成功后保存配对还会让每次失败遗留不可复用设备；只删除浏览器 IndexedDB 则让服务端旧授权继续存在。来源化随机标签消除共享状态，分阶段保存隔离配对与会话故障，服务端优先移除确保界面不会在实际吊销失败时误报完成。旧凭据若在联网前被前端拦截，Gateway 永远无法生成必须由用户批准的 scope-upgrade，因此显式删除动作必须发起受服务端审批保护的升级请求。
 - 安全/兼容：不调用 `sessions.list` 猜测旧会话，不跨来源复用、删除、归档、重命名或接管旧会话，不申请 `operator.admin`。普通重连仍按旧两 scope 工作；只有用户确认删除后才请求 `operator.pairing`，且 OpenClaw 要求单独批准并限制非管理员只能删除当前设备。旧 session key、两 scope 凭据与 transcript 保持兼容，升级待批准或服务端删除失败都不清除本地恢复材料。本决策细化 D035、D042–D044，不改变 Remote MCP、Service API、数据库、模型选择或消息投影合同。
+
+### D049 已吊销 Remote MCP 连接通过独立动作删除单条记录
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现与完整门禁完成；容器验证进行中
+- 决策内容：保留 `DELETE /api/me/agent-delegations/{id}` 的幂等吊销语义，新增显式 `/record` DELETE，只允许当前用户删除选中的一条 `revoked_at IS NOT NULL` delegation。`/agents` 的有效连接继续显示“吊销”，已吊销连接只显示经确认的“删除”；有效、仅到期、非本人和不存在记录均不得被该动作删除。
+- 原因：把“第二次吊销”解释为删除会让响应丢失后的网络重试误删记录，也混淆令牌失效与列表清理。独立端点和独立确认状态让目标、前置条件和失败语义可验证，同时满足用户只删除一个已吊销连接的需求。
+- 安全/兼容：删除查询同时限定 delegation ID、当前用户 ID 与已吊销状态；既有 proposal 按外键级联删除，其他连接、订阅、Feed、来源和用户数据不变。不新增 schema 或依赖，不改变 Remote MCP 认证、权限、令牌期限、有效连接上限，也不触碰 OpenClaw Gateway 浏览器配对。

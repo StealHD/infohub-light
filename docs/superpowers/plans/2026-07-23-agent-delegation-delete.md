@@ -31,7 +31,7 @@
 - Produces: `ServiceStore.delete_revoked_agent_delegation(user_id: str, delegation_id: str) -> bool | None` where `True` means deleted, `False` means owned but not revoked, and `None` means no user-owned record.
 - Produces: `DELETE /api/me/agent-delegations/{delegation_id}/record` returning `{deleted: true}`, `agent_delegation_not_revoked`, or `not_found`.
 
-- [ ] **Step 1: Write failing storage tests**
+- [x] **Step 1: Write failing storage tests**
 
 Add a test that creates two delegations, proves an active target returns `False`, revokes only the target, deletes it with `True`, receives `None` on repeat, and still lists the untouched connection. Also prove another user receives `None` for the target.
 
@@ -44,7 +44,7 @@ assert store.delete_revoked_agent_delegation(user["id"], target["id"]) is None
 assert [row["id"] for row in store.list_agent_delegations(user["id"])] == [kept["id"]]
 ```
 
-- [ ] **Step 2: Write failing API tests**
+- [x] **Step 2: Write failing API tests**
 
 Extend the existing revoke test and isolation test:
 
@@ -61,7 +61,7 @@ assert client.get("/api/me/agent-delegations").json()["data"]["connections"] == 
 
 For a delegation owned by another user, assert both revoke and record-delete endpoints return 404.
 
-- [ ] **Step 3: Run the tests and confirm RED**
+- [x] **Step 3: Run the tests and confirm RED**
 
 Run:
 
@@ -71,7 +71,7 @@ uv run pytest tests/test_agent_delegations.py tests/test_agent_delegation_api.py
 
 Expected: failures because the storage method and `/record` route do not exist.
 
-- [ ] **Step 4: Implement the storage method**
+- [x] **Step 4: Implement the storage method**
 
 Add beside `revoke_agent_delegation`:
 
@@ -97,7 +97,7 @@ def delete_revoked_agent_delegation(
     return False if owned is not None else None
 ```
 
-- [ ] **Step 5: Implement the explicit API route**
+- [x] **Step 5: Implement the explicit API route**
 
 Register the more specific route alongside the existing delegation routes:
 
@@ -119,7 +119,7 @@ async def agent_delegations_record_delete(
     return ok({"deleted": True})
 ```
 
-- [ ] **Step 6: Run targeted backend tests and commit**
+- [x] **Step 6: Run targeted backend tests and commit**
 
 Run the command from Step 3 and expect all tests to pass. Commit the four backend/test files with `feat: delete one revoked agent delegation`.
 
@@ -137,7 +137,7 @@ Run the command from Step 3 and expect all tests to pass. Commit the four backen
 - Produces: `ServiceApi.deleteAgentDelegationRecord(delegationId: string) -> Promise<{deleted: boolean}>`.
 - Produces: a revoked-card `删除 <name>` action and a `删除已吊销连接` confirmation dialog.
 
-- [ ] **Step 1: Write a failing UI test**
+- [x] **Step 1: Write a failing UI test**
 
 Add `deleteAgentDelegationRecord` to the test API mock, render one active and one revoked connection, and assert:
 
@@ -153,7 +153,7 @@ expect(api.revokeAgentDelegation).not.toHaveBeenCalledWith('agent-revoked')
 
 Assert cancel performs no request and the confirmation copy states that only this record is deleted.
 
-- [ ] **Step 2: Run the UI test and confirm RED**
+- [x] **Step 2: Run the UI test and confirm RED**
 
 Run:
 
@@ -164,7 +164,7 @@ npm test -- --run src/features/admin-heroui/HeroAgentsPage.test.tsx
 
 Expected: failure because the API method and delete action do not exist.
 
-- [ ] **Step 3: Add the API client method**
+- [x] **Step 3: Add the API client method**
 
 ```ts
 deleteAgentDelegationRecord: (delegationId: string) => client.delete<{ deleted: boolean }>(
@@ -172,7 +172,7 @@ deleteAgentDelegationRecord: (delegationId: string) => client.delete<{ deleted: 
 ),
 ```
 
-- [ ] **Step 4: Add isolated delete state and mutation**
+- [x] **Step 4: Add isolated delete state and mutation**
 
 Add `deleteTarget` state and a mutation separate from `revoke`:
 
@@ -192,7 +192,7 @@ const deleteRecord = useMutation({
 
 Render `删除` only for `status === 'revoked'`; retain the existing revoke control otherwise. Add a locked confirmation modal with copy `只会删除这一条已吊销连接记录，不会影响其他连接。删除后无法恢复。`.
 
-- [ ] **Step 5: Run targeted frontend checks and commit**
+- [x] **Step 5: Run targeted frontend checks and commit**
 
 Run:
 
@@ -218,11 +218,11 @@ Expected: tests pass, TypeScript passes, and lint has zero errors. Commit the th
 **Interfaces:**
 - Records the additive `/record` endpoint, revoked-only invariant, self-scope, confirmation behavior, cascade consequence, verification, image, backup, and rollback point.
 
-- [ ] **Step 1: Update authoritative contracts and decision**
+- [x] **Step 1: Update authoritative contracts and decision**
 
 Update API contract item 21 to distinguish revoke from record deletion. Add the revoked-only UI action to the assistant-page contract. Append D049 explaining why a separate endpoint preserves revoke idempotency and prevents retry-driven deletion.
 
-- [ ] **Step 2: Run complete verification**
+- [x] **Step 2: Run complete verification**
 
 Run:
 
