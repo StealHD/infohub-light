@@ -207,6 +207,7 @@ function initialRightRailMode(userId: string): RightRailMode {
 
 const insightsDismissedKey = (userId: string) => `inteliscope.ui.insights-dismissed.v1:${userId}`
 export const FLOATING_INSIGHTS_REQUIRED_GUTTER = 376
+const deliberateLayoutMotionMs = 220
 
 export function canFloatFeedInsights(mainRight: number, readingRight: number): boolean {
   return Number.isFinite(mainRight)
@@ -350,7 +351,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
-  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
+  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/changelog') ? '更新日志' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const shellRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   const agentToggleRef = useRef<HTMLButtonElement>(null)
@@ -361,6 +362,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 1440 : window.innerWidth)
   const [rightRailMode, setRightRailMode] = useState<RightRailMode>(() => initialRightRailMode(props.user.id))
   const [rightRailAnimated, setRightRailAnimated] = useState(false)
+  const [closingFixedRail, setClosingFixedRail] = useState(false)
+  const closingFixedRailTimer = useRef<number | undefined>(undefined)
   const [insightsSurface, setInsightsSurface] = useState<InsightsSurfaceState>('closed')
   const [insightsCanFloat, setInsightsCanFloat] = useState(false)
   const [resizingRail, setResizingRail] = useState(false)
@@ -398,15 +401,26 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       : rightRailMode
   const dockCapable = contentRoute && canDockRightRail(viewportWidth, sidebarWidth)
   const fixedRightRail = dockCapable && visibleRightRailMode === 'agent'
+  const fixedRailPresent = dockCapable && (fixedRightRail || closingFixedRail)
   const insightsOpen = feedRoute && insightsSurface !== 'closed'
   const hasInsightsData = Boolean(insightsFeed.data?.items.length)
   const storedRightRailWidth = rightRailWidthState.userId === props.user.id ? rightRailWidthState.value : readRightRailWidth(props.user.id)
   const rightRailWidth = clampRightRailWidth(storedRightRailWidth, viewportWidth, sidebarWidth)
   const rightRailWidthRef = useRef(rightRailWidth)
   const desktopGridColumns = `min-[1200px]:grid-cols-[72px_minmax(0,1fr)] ${desktopSidebarColumn}`
+  const desktopGridStyle = viewportWidth >= 768
+    ? {
+        gridTemplateColumns: fixedRailPresent
+          ? `${sidebarWidth}px minmax(640px, 1fr) ${fixedRightRail ? rightRailWidth : 0}px`
+          : dockCapable
+            ? `${sidebarWidth}px minmax(640px, 1fr) 0px`
+          : `${sidebarWidth}px minmax(0, 1fr)`,
+      } as CSSProperties
+    : undefined
 
   function toggleSidebar() {
     const value = sidebarExpanded ? 'collapsed' : 'expanded'
+    setRightRailAnimated(true)
     writeSidebarPreference(props.user.id, value)
     setSidebarState({ userId: props.user.id, value })
   }
@@ -427,11 +441,31 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     try { window.sessionStorage.setItem(insightsDismissedKey(props.user.id), '1') } catch { /* Session preference is best-effort. */ }
   }, [props.user.id])
 
+  const cancelFixedRailClose = useCallback(() => {
+    window.clearTimeout(closingFixedRailTimer.current)
+    closingFixedRailTimer.current = undefined
+    setClosingFixedRail(false)
+  }, [])
+
+  const finishFixedRailClose = useCallback(() => {
+    window.clearTimeout(closingFixedRailTimer.current)
+    if (!dockCapable) {
+      setClosingFixedRail(false)
+      return
+    }
+    setClosingFixedRail(true)
+    closingFixedRailTimer.current = window.setTimeout(() => {
+      closingFixedRailTimer.current = undefined
+      setClosingFixedRail(false)
+    }, deliberateLayoutMotionMs)
+  }, [dockCapable])
+
   const openComposer = useCallback(() => {
     if (!dockCapable) {
       suppressAutomaticInsights()
       setInsightsSurface('closed')
     }
+    cancelFixedRailClose()
     setRightRailAnimated(true)
     setRightRailMode('agent')
     writeBootstrapShellRightRail(props.user.id, 'agent', rightRailWidth)
@@ -440,7 +474,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
       )?.focus()
     })
-  }, [dockCapable, props.user.id, rightRailWidth, suppressAutomaticInsights])
+  }, [cancelFixedRailClose, dockCapable, props.user.id, rightRailWidth, suppressAutomaticInsights])
 
   const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
     draft,
@@ -455,10 +489,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const closeRightRail = useCallback(() => {
     if (openclawChat.isRunning) return
     setRightRailAnimated(true)
+    finishFixedRailClose()
     setRightRailMode('closed')
     writeBootstrapShellRightRail(props.user.id, 'closed', rightRailWidth)
     window.requestAnimationFrame(() => agentToggleRef.current?.focus())
-  }, [openclawChat.isRunning, props.user.id, rightRailWidth])
+  }, [finishFixedRailClose, openclawChat.isRunning, props.user.id, rightRailWidth])
 
   const toggleAgentRail = useCallback(() => {
     if (openclawChat.isRunning) return
@@ -468,9 +503,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     }
     const nextMode = visibleRightRailMode === 'agent' ? 'closed' : 'agent'
     setRightRailAnimated(true)
+    if (nextMode === 'agent') cancelFixedRailClose()
+    else finishFixedRailClose()
     setRightRailMode(nextMode)
     writeBootstrapShellRightRail(props.user.id, nextMode, rightRailWidth)
-  }, [dockCapable, openclawChat.isRunning, props.user.id, rightRailWidth, suppressAutomaticInsights, visibleRightRailMode])
+  }, [cancelFixedRailClose, dockCapable, finishFixedRailClose, openclawChat.isRunning, props.user.id, rightRailWidth, suppressAutomaticInsights, visibleRightRailMode])
 
   const closeInsights = useCallback((restoreFocus = true) => {
     suppressAutomaticInsights()
@@ -508,11 +545,18 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     const extraWideMedia = window.matchMedia('(min-width: 1360px)')
     const mobileMedia = window.matchMedia('(max-width: 767px)')
     const changeExtraWide = (event: MediaQueryListEvent) => {
+      setRightRailAnimated(false)
       setExtraWideDesktop(event.matches)
       if (event.matches) setTabletNavOpen(false)
     }
-    const changeMobile = (event: MediaQueryListEvent) => setMobile(event.matches)
-    const changeViewport = () => setViewportWidth(window.innerWidth)
+    const changeMobile = (event: MediaQueryListEvent) => {
+      setRightRailAnimated(false)
+      setMobile(event.matches)
+    }
+    const changeViewport = () => {
+      setRightRailAnimated(false)
+      setViewportWidth(window.innerWidth)
+    }
     extraWideMedia.addEventListener('change', changeExtraWide)
     mobileMedia.addEventListener('change', changeMobile)
     window.addEventListener('resize', changeViewport)
@@ -524,6 +568,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   }, [])
 
   useEffect(() => { rightRailWidthRef.current = rightRailWidth }, [rightRailWidth])
+  useEffect(() => () => window.clearTimeout(closingFixedRailTimer.current), [])
 
   useEffect(() => {
     const main = mainRef.current
@@ -647,11 +692,13 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         data-testid="live-workbench-shell"
         data-ui-typography="system"
         data-fixed-agent-rail={fixedRightRail ? 'true' : 'false'}
+        data-fixed-agent-rail-phase={fixedRightRail ? 'open' : fixedRailPresent ? 'closing' : 'absent'}
         data-rail-resizing={resizingRail ? 'true' : 'false'}
-        style={fixedRightRail ? { gridTemplateColumns: `${sidebarWidth}px minmax(640px, 1fr) ${rightRailWidth}px` } as CSSProperties : undefined}
-        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns}`}
+        data-layout-motion={rightRailAnimated && !resizingRail ? 'deliberate' : 'immediate'}
+        style={desktopGridStyle}
+        className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns} ${rightRailAnimated && !resizingRail ? 'transition-[grid-template-columns] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none' : 'transition-none'}`}
       >
-        <aside className="hidden min-h-0 flex-col border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
+        <aside className="hidden min-h-0 flex-col overflow-x-hidden border-r border-separator bg-surface min-[768px]:col-start-1 min-[768px]:row-span-2 min-[768px]:flex" aria-label="桌面导航">
           <div className={`type-page-title flex h-[52px] shrink-0 items-center gap-2 px-3 ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}>
             {extraWideDesktop ? sidebarExpanded ? <>
               <Icons.InteliscopeMark size={20} aria-hidden="true" />
@@ -698,7 +745,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               </Popover.Content>
             </Popover>}
           </div>
-          {sidebarExpanded ? <div className="min-h-0 flex-1 overflow-hidden">
+          {sidebarExpanded ? <div className={`${rightRailAnimated ? 'quiet-surface-enter ' : ''}min-h-0 flex-1 overflow-hidden`}>
             <CategorizedNavigation
               activeQuickView={activeQuickView}
               quickViewsOpen={quickViewsOpen}
@@ -723,17 +770,16 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               leading={<Icon size={18} aria-hidden="true" />}
             />)}
           </nav>}
-          <div className="border-t border-separator p-2">
+          <div className="flex items-center gap-1 border-t border-separator p-2">
             <Popover>
               <Popover.Trigger
                 aria-label="打开账户菜单"
                 title={sidebarExpanded ? undefined : '账户'}
-                className={`flex min-h-11 w-full items-center gap-2 rounded-xl p-1.5 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus ${sidebarExpanded ? 'justify-start' : 'justify-center'}`}
+                className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl p-1.5 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus ${sidebarExpanded ? 'flex-1 justify-start' : 'w-full justify-center'}`}
               >
                 <AvatarRoot className="size-8 shrink-0"><AvatarFallback>{(props.user.display_name || props.user.username).slice(0, 1).toUpperCase()}</AvatarFallback></AvatarRoot>
                 {sidebarExpanded && <>
                   <span className="min-w-0 flex-1"><span className="type-control block truncate">{props.user.display_name || props.user.username}</span><span className="type-label block text-muted">{roleLabel[props.user.role]}</span></span>
-                  <Icons.ChevronUp size={15} className="text-muted" aria-hidden="true" />
                 </>}
               </Popover.Trigger>
               <Popover.Content placement="right bottom" offset={8} className="z-50 w-56 p-0">
@@ -745,11 +791,20 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/users')}><Icons.Users size={16} aria-hidden="true" />账户与成员</Button>
                   <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />更新日志</Button>
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={() => { openclawChat.clearTranscript(); openclawChat.disconnect(); props.onLogout() }}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
                 </Popover.Dialog>
               </Popover.Content>
             </Popover>
+            {sidebarExpanded && <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              className="size-9 shrink-0 text-muted hover:bg-default hover:text-foreground"
+              aria-label="查看更新日志"
+              onPress={() => navigate('/changelog')}
+            ><Icons.ScrollText size={16} aria-hidden="true" /></Button>}
           </div>
         </aside>
 
@@ -795,11 +850,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           {props.children}
         </main>
 
-        {fixedRightRail && <aside
+        {fixedRailPresent && <aside
           id="live-agent-panel"
           role="complementary"
           aria-label="OpenClaw 上下文"
-          className={`${rightRailAnimated ? 'quiet-surface-enter ' : ''}relative col-start-3 row-span-2 grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface`}
+          aria-hidden={!fixedRightRail}
+          inert={!fixedRightRail}
+          data-rail-surface-state={fixedRightRail ? 'open' : 'closing'}
+          className={`relative col-start-3 row-span-2 grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface transition-[opacity,transform] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${fixedRightRail ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-2 opacity-0'}`}
         >
           <div
             role="separator"
@@ -822,7 +880,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             onKeyDown={handleRailKeyDown}
             onDoubleClick={resetRailWidth}
           ><span className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors motion-reduce:transition-none ${resizingRail ? 'bg-accent' : 'bg-separator group-hover:bg-muted group-focus-visible:bg-accent'}`} /></div>
-          <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
+          <AgentPanelContent open={fixedRailPresent} onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
         </aside>}
 
         {feedRoute && insightsOpen && !mobile && <aside

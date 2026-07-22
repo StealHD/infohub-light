@@ -8,6 +8,7 @@ import type { CatalogSource, FeedSchedule, Job, SourceHealthItem, SourceTypeDefi
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
+  anchoredTooltipProps,
   Button,
   Card,
   Chip,
@@ -18,6 +19,7 @@ import {
   SearchField,
   Tabs,
   Tooltip,
+  TooltipTriggerButton,
   toast,
 } from '../../design-system'
 import { describeFeedJob } from '../jobs/jobModel'
@@ -175,20 +177,13 @@ function SourceHealthStatus({ health, canRetry, canEdit }: { health?: SourceHeal
   const failureCount = Math.max(health.consecutive_failures || 0, 1)
   return <>
     <Tooltip delay={250}>
-      <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
-          {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
-          ref={(element) => {
-            triggerRef.current = element
-            if (typeof triggerProps.ref === 'function') triggerProps.ref(element)
-            else if (triggerProps.ref) triggerProps.ref.current = element
-          }}
-          size="sm"
-          variant="ghost"
-          className={`${triggerProps.className ?? ''} h-auto min-h-0 rounded-full p-0`}
+      <TooltipTriggerButton
+          ref={triggerRef}
+          className="h-auto min-h-0 rounded-full p-0"
           aria-label={`查看 ${healthLabel[status]} 详情`}
-          onPress={() => setDetailsOpen(true)}
-        >{chip}</Button>} />
-      <Tooltip.Content>{`已连续 ${failureCount} 次失败：${presentation.reason}`}</Tooltip.Content>
+          onClick={() => setDetailsOpen(true)}
+        >{chip}</TooltipTriggerButton>
+      <Tooltip.Content {...anchoredTooltipProps}>{`已连续 ${failureCount} 次失败：${presentation.reason}`}</Tooltip.Content>
     </Tooltip>
     <Modal isOpen={detailsOpen} onOpenChange={(open) => {
       setDetailsOpen(open)
@@ -405,17 +400,14 @@ export function HeroSubscriptionsPage() {
               <Card.Title className="min-w-0 flex-1">{presented.title}</Card.Title>
               <Chip size="sm" variant="soft"><Chip.Label>{presented.statusLabel}</Chip.Label></Chip>
               <Tooltip delay={600}>
-                <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
-                  {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
-                  size="sm"
-                  variant="ghost"
-                  isIconOnly
+                <TooltipTriggerButton
                   data-context-state={inContext ? 'selected' : 'idle'}
-                  className={`${triggerProps.className ?? ''} size-8 shrink-0 bg-accent/15 text-accent hover:bg-accent/25 data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45`}
+                  className="size-8 shrink-0 rounded-lg bg-transparent text-muted hover:bg-default hover:text-foreground data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 data-[context-state=selected]:hover:bg-accent/25 data-[context-state=selected]:hover:text-accent"
+                  aria-pressed={inContext}
                   aria-label={`${inContext ? '移出' : '加入'} OpenClaw 上下文：${presented.title}`}
-                  onPress={() => toggleJobContext(job, presented.title, presented.sourceName, presented.statusLabel, resultDetail)}
-                ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></Button>} />
-                <Tooltip.Content>{inContext ? '从 OpenClaw 上下文移除' : '加入 OpenClaw 分析'}</Tooltip.Content>
+                  onClick={() => toggleJobContext(job, presented.title, presented.sourceName, presented.statusLabel, resultDetail)}
+                ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></TooltipTriggerButton>
+                <Tooltip.Content {...anchoredTooltipProps}>{inContext ? '从 OpenClaw 上下文移除' : '加入 OpenClaw 分析'}</Tooltip.Content>
               </Tooltip>
             </div>
             <Card.Description className="type-body mt-2 grid gap-1">

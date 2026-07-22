@@ -1,7 +1,8 @@
-import { useLayoutEffect, type ReactNode } from 'react'
+import { useLayoutEffect, useState, type ReactNode } from 'react'
 import { ToastProvider } from '@heroui/react'
 
 import { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
+import { readSystemTheme, systemDarkModeQuery, type SystemTheme } from './systemTheme'
 import './theme.css'
 
 type ThemeRootLease = {
@@ -29,7 +30,6 @@ function acquireThemeRoot(root: HTMLElement) {
       theme: root.getAttribute('data-theme'),
     })
     root.classList.add('inteliscope-design-system')
-    root.setAttribute('data-theme', 'dark')
     root.setAttribute('data-inteliscope-theme', 'graphite-purple')
   }
 
@@ -45,13 +45,31 @@ function acquireThemeRoot(root: HTMLElement) {
   }
 }
 
+function applyThemeRoot(root: HTMLElement, theme: SystemTheme) {
+  root.setAttribute('data-theme', theme)
+  root.setAttribute('data-inteliscope-theme', 'graphite-purple')
+}
+
 export function DesignSystemProvider({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useState<SystemTheme>(readSystemTheme)
+
   useLayoutEffect(() => acquireThemeRoot(document.documentElement), [])
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    applyThemeRoot(root, theme)
+  }, [theme])
+  useLayoutEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia(systemDarkModeQuery)
+    const update = (event: MediaQueryListEvent) => setTheme(event.matches ? 'dark' : 'light')
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
 
   return <DesignSystemRouterProvider>
     <div
       className="inteliscope-design-system"
-      data-theme="dark"
+      data-theme={theme}
       data-inteliscope-theme="graphite-purple"
       data-ui-system="heroui"
     >

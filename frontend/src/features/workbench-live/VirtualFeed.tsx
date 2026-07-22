@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
+  anchoredTooltipProps,
   AvatarFallback,
   AvatarImage,
   AvatarRoot,
@@ -11,6 +12,7 @@ import {
   Icons,
   Skeleton,
   Tooltip,
+  TooltipTriggerButton,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
@@ -20,6 +22,7 @@ import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workben
 
 type VirtualFeedProps = {
   freshEdge?: 'start' | 'end'
+  resetToFreshEdgeKey?: string
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
   expandedId?: string
@@ -255,34 +258,27 @@ function WorkbenchCard({
             aria-label={`打开 ${cardLabel} 原文`}
             className={`${triggerProps.className ?? ''} inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
           ><Icons.ExternalLink size={15} aria-hidden="true" /></a>} />
-          <Tooltip.Content>在新窗口打开原文</Tooltip.Content>
+          <Tooltip.Content {...anchoredTooltipProps}>在新窗口打开原文</Tooltip.Content>
         </Tooltip>}
         <Tooltip delay={600}>
-          <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
-            {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
-            size="sm"
-            variant={card.userState.is_saved ? 'secondary' : 'ghost'}
-            className={`${triggerProps.className ?? ''} size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
-            isDisabled={readonly}
+          <TooltipTriggerButton
+            className={`size-8 rounded-lg active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none ${card.userState.is_saved ? 'bg-default text-accent' : 'text-muted hover:bg-default hover:text-foreground'}`}
+            disabled={readonly}
             aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
-            onPress={onToggleSaved}
-            isIconOnly
-          >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</Button>} />
-          <Tooltip.Content>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
+            onClick={onToggleSaved}
+          >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</TooltipTriggerButton>
+          <Tooltip.Content {...anchoredTooltipProps}>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
         </Tooltip>
         <Tooltip delay={600}>
-          <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
-            {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
-            size="sm"
-            variant="ghost"
+          <TooltipTriggerButton
             data-context-state={inContext ? 'selected' : 'idle'}
-            className={`${triggerProps.className ?? ''} size-8 bg-accent/15 text-accent active:scale-95 hover:bg-accent/25 pointer-coarse:size-11 data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 motion-reduce:transform-none`}
-            isDisabled={contextFull && !inContext}
+            className="size-8 rounded-lg bg-transparent text-muted active:scale-95 hover:bg-default hover:text-foreground pointer-coarse:size-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 data-[context-state=selected]:hover:bg-accent/25 data-[context-state=selected]:hover:text-accent motion-reduce:transform-none"
+            disabled={contextFull && !inContext}
+            aria-pressed={inContext}
             aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
-            onPress={onToggleContext}
-            isIconOnly
-          ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></Button>} />
-          <Tooltip.Content>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
+            onClick={onToggleContext}
+          ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></TooltipTriggerButton>
+          <Tooltip.Content {...anchoredTooltipProps}>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
         </Tooltip>
         <details className="relative">
           <Tooltip delay={600}>
@@ -292,7 +288,7 @@ function WorkbenchCard({
               aria-label={`更多操作 ${cardLabel}`}
               className={`${triggerProps.className ?? ''} flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
             ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>} />
-            <Tooltip.Content>复制摘要或忽略这条内容</Tooltip.Content>
+            <Tooltip.Content {...anchoredTooltipProps}>复制摘要或忽略这条内容</Tooltip.Content>
           </Tooltip>
           <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
             <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
@@ -317,6 +313,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const wasNearFreshEdge = useRef(true)
   const previousFreshEdge = useRef(freshEdge)
+  const previousResetToFreshEdgeKey = useRef(props.resetToFreshEdgeKey)
   const previousSourceIds = useRef(new Set(sourceItemIds))
   const previousCardsSignature = useRef(cardsSignature)
   const viewportAnchor = useRef<ViewportAnchor | null>(null)
@@ -491,6 +488,23 @@ export function VirtualFeed(props: VirtualFeedProps) {
     })
     return () => window.cancelAnimationFrame(frame)
   }, [freshEdge, props.cards, props.navigationTargetId, releaseNavigationOwnership, virtualizer])
+
+  useLayoutEffect(() => {
+    if (props.resetToFreshEdgeKey === undefined || previousResetToFreshEdgeKey.current === props.resetToFreshEdgeKey) return
+    previousResetToFreshEdgeKey.current = props.resetToFreshEdgeKey
+    releaseNavigationOwnership()
+    setNewItemCount(0)
+    wasNearFreshEdge.current = true
+    const frame = window.requestAnimationFrame(() => {
+      const scroll = scrollRef.current
+      if (!scroll || props.cards.length === 0) return
+      if (freshEdge === 'start') scroll.scrollTop = 0
+      else scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight)
+      virtualizerRef.current.scrollToIndex(freshEdge === 'start' ? 0 : props.cards.length - 1, { align: freshEdge })
+      viewportAnchor.current = readViewportAnchor(scroll)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [freshEdge, props.cards.length, props.resetToFreshEdgeKey, releaseNavigationOwnership])
 
   useEffect(() => {
     if (previousFreshEdge.current === freshEdge) return

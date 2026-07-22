@@ -10,6 +10,7 @@ import { HeroLoginPage } from '../features/admin-heroui/HeroLoginPage'
 import { HeroSettingsPage } from '../features/admin-heroui/HeroSettingsPage'
 import { HeroSubscriptionsPage } from '../features/admin-heroui/HeroSubscriptionsPage'
 import { HeroUsersPage } from '../features/admin-heroui/HeroUsersPage'
+import { HeroChangelogPage } from '../features/changelog/HeroChangelogPage'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
@@ -138,6 +139,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/agents" element={<HeroAgentsPage />} />
         <Route path="/settings" element={<HeroSettingsPage />} />
         <Route path="/users" element={<HeroUsersPage />} />
+        <Route path="/changelog" element={<HeroChangelogPage />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>

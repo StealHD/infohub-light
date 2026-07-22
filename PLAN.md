@@ -70,6 +70,7 @@
 55. Feed Insights 与 OpenClaw 运行时一致性：Feed 增加浏览器本地自然日“当天”视图和复用既有查询的宽屏信息概览；右栏统一为 closed/insights/agent；OpenClaw 模型通过可验证分支会话切换、推理随请求发送；媒体缓存与详情按 checksum 去重。权威交互与数据规则见 `UI_CONTRACT.md`、`API_CONTRACT.md` 和 D042。
 56. Quiet Studio 交互收口：来源失败改为安全 Tooltip 与按权限披露的详情 Dialog；独立滚动区统一使用低干扰滚动条；桌面 Agent 右栏支持按账号保存的 320–720px 可访问调宽并保证 Feed 不低于 640px；信息概览改为按实测空白自动出现一次的浮动分组卡；OpenClaw 对话采用本地可见记录与 Gateway 历史增量归并，模型分叉迁移记录，新建对话、退出或忘记设备时清理。权威规则见 `UI_CONTRACT.md` 和 D043。
 57. Quiet Studio 交付加固：OpenClaw 用户轮次在 Gateway 请求前同步写入状态、引用与会话记录，并用稳定 client turn ID 对账；Agent 是否停靠改为按当前侧栏与最小 Feed/Agent 宽度动态判断；信息概览使用自然高度、隐藏空分组并以前三项加显式展开控制密度。权威规则见 `UI_CONTRACT.md` 和 D044。
+58. Quiet Studio 状态与导航反馈收口：生产主题跟随系统并在首帧前生效；Tooltip 锚定真实触发器并碰撞翻转；左右栏使用统一柔和布局动效；Feed 排序回到对应新鲜边缘；Agent 上下文与 OpenClaw 发送/停止动作提供稳定选中和位置反馈；本地更新日志通过独立路由与响应式时间线呈现。精确交互只见 `UI_CONTRACT.md`，主题与日志边界见 D048。
 
 当前仍需推进：
 
@@ -135,7 +136,7 @@
 2. 私密群组、好友流、cookie、session、账号密码采集。
 3. 未确认的生产推送、邮件群发或 scheduler 启动。
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
-5. 多 workspace、商业计费、自助注册、全站明暗主题切换或独立移动 App；当前 HeroUI 生产体验仅提供暗色主题，视觉规则只见 `UI_CONTRACT.md`。
+5. 多 workspace、商业计费、自助注册、应用内手动主题切换/强制主题选择或独立移动 App；HeroUI 生产体验只跟随操作系统明暗偏好，视觉规则只见 `UI_CONTRACT.md`。
 6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
 7. 服务器侧 Agent/LLM/Gateway 代理、客户间共享 OpenClaw、生产 Remote MCP 写入、OAuth、ClawHub 或模型密钥托管；浏览器直连用户自有 Gateway 只在独立开关下实现。
 

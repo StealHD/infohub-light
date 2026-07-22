@@ -36,13 +36,15 @@ export {
   TextField,
   Toast,
   ToastProvider,
-  Tooltip,
   toast,
 } from '@heroui/react'
 export type { LucideIcon } from 'lucide-react'
 
 export { DesignSystemProvider } from './DesignSystemProvider'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
+export { Tooltip } from './AnchoredTooltip'
+export { anchoredTooltipProps } from './tooltip'
+export { TooltipTriggerButton } from './TooltipTriggerButton'
 export {
   CalmSkeleton,
   CompactSelect,

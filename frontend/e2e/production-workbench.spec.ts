@@ -374,6 +374,20 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await page.evaluate(() => document.fonts.ready)
 
+  const contextTrigger = page.getByRole('article', { name: '实时条目 200' }).getByRole('button', { name: '将 实时条目 200 加入 Agent 上下文' })
+  await contextTrigger.hover()
+  const contextTooltip = page.getByText('加入 Agent 上下文', { exact: true })
+  await expect(contextTooltip).toBeVisible()
+  const triggerBounds = await contextTrigger.boundingBox()
+  const tooltipBounds = await contextTooltip.boundingBox()
+  expect(triggerBounds).not.toBeNull()
+  expect(tooltipBounds).not.toBeNull()
+  expect(tooltipBounds!.x).toBeGreaterThanOrEqual(8)
+  expect(tooltipBounds!.x + tooltipBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width - 8)
+  expect(Math.abs((tooltipBounds!.y + tooltipBounds!.height / 2) - (triggerBounds!.y + triggerBounds!.height / 2))).toBeLessThanOrEqual(24)
+  if (testInfo.project.name === 'desktop') expect(tooltipBounds!.x - (triggerBounds!.x + triggerBounds!.width)).toBeGreaterThanOrEqual(6)
+  await page.mouse.move(4, 4)
+
   const shell = page.getByTestId('live-workbench-shell')
   expect(await page.locator('body').evaluate((element) => getComputedStyle(element).color)).toBe(
     await shell.evaluate((element) => getComputedStyle(element).color),
@@ -407,7 +421,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
     await expect(agent.getByText('对话未启用')).toBeVisible()
     await page.getByRole('button', { name: '展开侧栏' }).click()
-    expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
+    await expect.poll(async () => Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
     expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.sidebar.v1:e2e-user'))).toBe('expanded')
     await expect(desktopNavigation.getByText('浏览', { exact: true })).toBeVisible()
     await expect(desktopNavigation.getByText('常用视图', { exact: true })).toBeVisible()
@@ -446,7 +460,8 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     const panelAnchor = await alignVisibleCardToTop(page)
     await agent.getByRole('button', { name: '关闭 Agent 面板' }).click()
     await expect(page.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeHidden()
-    expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(2)
+    expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
+    await expect.poll(() => shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').at(-1))).toBe('0px')
     await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
     await expect(page.getByRole('button', { name: '关闭 Agent 面板' })).toHaveCount(0)
     await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(panelAnchor.name)
@@ -601,6 +616,74 @@ test('a proven-stale initial deep link returns the real Feed viewport to the new
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   const offset = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollTop)
   expect(offset).toBeLessThanOrEqual(96)
+})
+
+test('Feed sort changes reset to the selected fresh edge', async ({ page }) => {
+  await page.goto('/feed')
+  const scroll = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await scroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+    element.dispatchEvent(new Event('scroll'))
+  })
+
+  await page.getByRole('button', { name: '最新优先' }).click()
+  await expect(page.getByRole('button', { name: '最旧优先' })).toBeVisible()
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(96)
+
+  await scroll.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await page.getByRole('button', { name: /按(发布时间|入库时间)排序/ }).click()
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(96)
+
+  await page.getByRole('button', { name: '最旧优先' }).click()
+  await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
+})
+
+test('Changelog entry points expose the responsive month navigation', async ({ page }, testInfo) => {
+  if (testInfo.project.name === 'desktop') {
+    await page.goto('/feed')
+    await page.getByRole('button', { name: '展开侧栏' }).click()
+    await page.getByRole('button', { name: '查看更新日志' }).click()
+  } else if (testInfo.project.name === 'tablet') {
+    await page.goto('/feed')
+    await page.getByRole('button', { name: '打开账户菜单' }).click()
+    await page.getByRole('dialog', { name: '账户菜单' }).getByRole('button', { name: '更新日志' }).click()
+  } else {
+    await page.goto('/changelog#month-2026-07')
+  }
+
+  await expect(page).toHaveURL(/\/changelog(?:#month-2026-07)?$/)
+  await expect(page.getByRole('heading', { name: '更新日志', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2026 年 7 月', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '更清晰的交互反馈' })).toBeVisible()
+  if (testInfo.project.name === 'desktop') {
+    await expect(page.getByRole('navigation', { name: '更新月份时间线', exact: true })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '更新月份', exact: true })).toBeHidden()
+  } else {
+    await expect(page.getByRole('navigation', { name: '更新月份', exact: true })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: '更新月份时间线', exact: true })).toBeHidden()
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('the production theme follows the live system color scheme', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'A single desktop browser covers the shared theme root.')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/changelog')
+  const root = page.locator('html')
+  const app = page.locator('[data-ui-system="heroui"]')
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  await expect(app).toHaveAttribute('data-theme', 'light')
+  const lightBackground = await app.evaluate((element) => getComputedStyle(element).backgroundColor)
+
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(root).toHaveAttribute('data-theme', 'dark')
+  await expect(app).toHaveAttribute('data-theme', 'dark')
+  expect(await app.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(lightBackground)
 })
 
 test('social cards and Agent context show source information once without exposing item IDs', async ({ page }, testInfo) => {

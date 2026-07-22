@@ -9,6 +9,14 @@
   --inteliscope-bootstrap-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
 }
 
+:root[data-theme="light"] {
+  --inteliscope-bootstrap-background: oklch(0.975 0.004 286);
+  --inteliscope-bootstrap-surface: oklch(0.995 0.002 286);
+  --inteliscope-bootstrap-surface-secondary: oklch(0.94 0.007 286);
+  --inteliscope-bootstrap-separator: oklch(0.86 0.009 286);
+  --inteliscope-bootstrap-muted: oklch(0.5 0.012 286);
+}
+
 html,
 body {
   min-width: 320px;
@@ -16,6 +24,11 @@ body {
   margin: 0;
   background: var(--inteliscope-bootstrap-background);
   color-scheme: dark;
+}
+
+html[data-theme="light"],
+html[data-theme="light"] body {
+  color-scheme: light;
 }
 
 #inteliscope-bootstrap-shell {

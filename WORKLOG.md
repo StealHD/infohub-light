@@ -2279,3 +2279,17 @@
 - 结果：`/opt/inteliscope/current` 已指向 `/opt/inteliscope/releases/v1.7.1-614793f045a8`；生产库仍为 16,568,320 bytes、1 用户、3 会话、integrity=`ok`、foreign-key=0、queued/running=0；切换前备份位于 `/opt/inteliscope/backups/pre-v1.7.1-614793f045a8-20260722T095658Z`，数据库 SHA-256 `09904e14…5b81`，旧 release/image 保留
 - 发布纠偏：首次沿用旧 `release_rc1.sh` 在 VPS 构建，虽构建成功但切换断言失败并自动恢复旧版；随后按用户要求改为本机跨架构构建、传包、`docker load` 后成功发布；当前 `AGENTS.md` 尚未明确“禁止 VPS 构建”，旧脚本仍执行远端 build，建议单独固化该发布规则并同步脚本
 - 控制面变更：无；Remote MCP、订阅写入、Browser Chat 保持关闭，未启动 scheduler，未手动触发来源抓取、AI、付费调用或数据库恢复
+
+### 2026-07-22 22:57 Codex
+- 任务：从干净 `dc6719b` 新分支收口 Tooltip 近邻定位、Agent 选中态、左右栏动效、Feed 新鲜边缘、系统主题、Changelog 与 OpenClaw 发送按钮稳定性
+- 修改文件：设计系统主题/Tooltip、工作台 Shell/Feed、OpenClaw 会话、Changelog 路由与入口、生产 Playwright、`UI_CONTRACT.md`、`PLAN.md`、D048 及本工作日志
+- 执行验证：Tooltip/Feed/OpenClaw 定向 39/39、主题/Tooltip/Changelog/OpenClaw 23/23、三视口生产交互 10 passed/2 expected skipped、构建与类型检查通过；最终 `test_gate full` 22/22、0 failed/error、91.057 秒，另有 ESLint 0 error、6 个既有 Fast Refresh warning
+- 结果：保留 `dc6719b` 的真实可聚焦 Tooltip 触发器；提示和安全异常摘要贴近控件并碰撞翻转，Agent 仅选中为紫色，左右栏与 OpenClaw 动作不再跳动，排序回到对应新鲜边缘，主题实时跟随系统，账户区新增响应式更新日志入口
+- 控制面变更：新增 D048、PLAN 第 58 项并更新 UI 真源；无 API、数据库、权限、Query Key、Gateway/MCP 或部署变化，未提交、未推送、未切换 localhost:8080
+
+### 2026-07-22 23:24 Codex
+- 任务：从 `codex/ui-interaction-changelog` 当前工作树构建镜像并切换 localhost:8080 的 API/Worker 供验收
+- 修改文件：仅本工作日志；运行态重建本机 API/Worker，继续挂载主工作区现有 `.env`、`data` 与 `logs`
+- 执行验证：无缓存 Docker build、前端 production build/产物扫描通过；API/Worker 同 image ID `sha256:2149f1560f6c` 且 healthy，live=`1.5.0/dc6719b102b-ui-interaction-changelog-dirty`、database/worker ready；`/feed`=200，bundle=`index-36Nz43Dq.js`，SQLite quick check=`ok` 且 queued/running=0
+- 结果：8080 已运行 `inteliscope-service:local-dc6719b-ui-interaction-changelog`；旧镜像保留用于回退，现有数据库和用户数据未替换
+- 控制面变更：无；未提交、未推送、未部署 VPS、未触发来源抓取、AI、付费调用或 scheduler
