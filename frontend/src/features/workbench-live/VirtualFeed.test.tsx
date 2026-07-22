@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FeedItem } from '../../api/types'
 import { toWorkbenchCardModel } from './workbenchModel'
 import { VirtualFeed } from './VirtualFeed'
-import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 
 const makeItem = (index: number): FeedItem => ({
   id: `item-${index}`,
@@ -151,11 +150,11 @@ describe('VirtualFeed', () => {
     expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.')).toHaveLength(1)
   })
 
-  it('keeps the Agent context action purple and uses the same sparkle icon when selected', () => {
-    render(<VirtualFeed
+  it('keeps the Agent context action neutral until selected and uses the same sparkle icon', () => {
+    const view = render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}
       expandedId="item-1"
-      contextIds={['item-1']}
+      contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
       onToggleContext={vi.fn()}
@@ -165,9 +164,25 @@ describe('VirtualFeed', () => {
     const details = screen.getByTestId('card-details-item-1')
     expect(details).toHaveAttribute('data-state', 'expanded')
     expect(details.className).toContain('grid-rows-[1fr]')
+    const idleButton = screen.getByRole('button', { name: '将 信息 1 加入 Agent 上下文' })
+    expect(idleButton).toHaveAttribute('data-context-state', 'idle')
+    expect(idleButton).toHaveAttribute('aria-pressed', 'false')
+    expect(idleButton).toHaveClass('bg-transparent', 'text-muted')
+    expect(idleButton).not.toHaveClass('bg-accent/15', 'text-accent')
+
+    view.rerender(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      expandedId="item-1"
+      contextIds={['item-1']}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
     const contextButton = screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })
     expect(contextButton).toHaveAttribute('data-context-state', 'selected')
-    expect(contextButton).toHaveClass('bg-accent/15', 'text-accent')
+    expect(contextButton).toHaveAttribute('aria-pressed', 'true')
+    expect(contextButton).toHaveClass('data-[context-state=selected]:bg-accent/15', 'data-[context-state=selected]:text-accent')
     expect(contextButton.querySelector('.lucide-sparkles')).not.toBeNull()
     expect(contextButton.querySelector('.lucide-check')).toBeNull()
   })
@@ -564,10 +579,11 @@ describe('VirtualFeed', () => {
     expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()
   })
 
-  it('preserves the visible position when newest and oldest ordering is toggled', async () => {
+  it('resets to the fresh edge when the sort definition changes', async () => {
     const ascending = Array.from({ length: 12 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
     const view = render(<VirtualFeed
       freshEdge="start"
+      resetToFreshEdgeKey="published:newest"
       cards={[...ascending].reverse()}
       sourceItemIds={ascending.map((card) => card.id)}
       contextIds={[]}
@@ -583,10 +599,9 @@ describe('VirtualFeed', () => {
       scrollTop: { configurable: true, writable: true, value: 360 },
     })
     fireEvent.scroll(scroll)
-    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
-
     view.rerender(<VirtualFeed
       freshEdge="end"
+      resetToFreshEdgeKey="published:oldest"
       cards={ascending}
       sourceItemIds={ascending.map((card) => card.id)}
       contextIds={[]}
@@ -596,6 +611,6 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    await waitFor(() => expect(scroll.scrollTop).toBe(360))
+    await waitFor(() => expect(scroll.scrollTop).toBe(1680))
   })
 })

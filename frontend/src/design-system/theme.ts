@@ -1,6 +1,6 @@
 export const designSystemTheme = {
   root: {
-    colorScheme: 'dark',
+    colorScheme: 'system',
     name: 'graphite-purple',
   },
   colors: {

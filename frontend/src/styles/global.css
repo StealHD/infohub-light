@@ -2,7 +2,7 @@
   font-family: var(--inteliscope-font-ui);
   color: var(--foreground);
   background: var(--background);
-  color-scheme: dark;
+  color-scheme: light dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }

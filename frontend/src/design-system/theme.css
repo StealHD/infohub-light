@@ -92,6 +92,36 @@
   font-family: var(--inteliscope-font-ui);
 }
 
+.inteliscope-design-system[data-inteliscope-theme="graphite-purple"][data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(0.975 0.004 286);
+  --foreground: oklch(0.23 0.01 286);
+  --surface: oklch(0.995 0.002 286);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.95 0.006 286);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.92 0.009 286);
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: var(--surface);
+  --overlay-foreground: var(--foreground);
+  --accent: oklch(0.54 0.16 292);
+  --accent-foreground: oklch(0.99 0.002 286);
+  --muted: oklch(0.5 0.012 286);
+  --default: oklch(0.91 0.009 286);
+  --default-foreground: var(--foreground);
+  --field-background: var(--surface);
+  --field-foreground: var(--foreground);
+  --field-border: oklch(0.81 0.012 286);
+  --border: oklch(0.82 0.011 286);
+  --separator: oklch(0.87 0.009 286);
+  --focus: var(--accent);
+  --link: oklch(0.47 0.16 292);
+  --danger: oklch(0.54 0.2 25);
+  --danger-foreground: oklch(0.99 0.002 286);
+  --surface-shadow: 0 1px 2px oklch(0.2 0.01 286 / 0.12);
+  --overlay-shadow: 0 16px 40px oklch(0.2 0.01 286 / 0.18);
+}
+
 html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   color: var(--foreground);
 }

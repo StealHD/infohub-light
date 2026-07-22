@@ -150,6 +150,10 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(expand).not.toHaveClass('bg-accent/15', 'text-accent')
 
     await browser.click(expand)
+    const shell = screen.getByTestId('live-workbench-shell')
+    expect(shell).toHaveAttribute('data-layout-motion', 'deliberate')
+    expect(shell).toHaveClass('transition-[grid-template-columns]', 'duration-[var(--inteliscope-motion-deliberate)]')
+    expect(shell.style.gridTemplateColumns).toContain('232px')
     const collapse = screen.getByRole('button', { name: '收起侧栏' })
     const route = screen.getAllByRole('link', { name: '信息流' }).find((candidate) => candidate.dataset.sidebarNavItem === 'expanded')
     if (!route) throw new Error('expanded Feed route was not rendered')
@@ -162,6 +166,12 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(route).toHaveClass('min-h-10', 'rounded-xl', 'transition-colors')
     expect(quickView).toHaveClass('min-h-10', 'rounded-xl', 'transition-colors')
     expect(quickView.className).not.toContain('scale-')
+    const changelog = screen.getByRole('button', { name: '查看更新日志' })
+    expect(changelog.querySelector('.lucide-scroll-text')).not.toBeNull()
+    expect(changelog.parentElement?.querySelector('.lucide-chevron-up')).toBeNull()
+    await browser.click(changelog)
+    expect(screen.getByTestId('location-probe')).toHaveTextContent('/changelog')
+    expect(screen.getByRole('heading', { name: '更新日志' })).toBeInTheDocument()
   })
 
   it('opens account actions from the avatar and logs out only from the menu action', async () => {
@@ -173,6 +183,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     const account = screen.getByRole('button', { name: '打开账户菜单' })
     await browser.click(account)
     expect(screen.getByText('alpha · 管理员')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '更新日志' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
     expect(onLogout).not.toHaveBeenCalled()
 
@@ -214,8 +225,16 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(activeToggle.querySelector('.lucide-panel-right-close')).toBeNull()
     expect(activeToggle.querySelector('.lucide-panel-right-open')).toBeNull()
     expect(screen.getByRole('complementary', { name: '信息概览' })).toHaveClass('quiet-surface-enter')
-    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveClass('quiet-surface-enter')
+    const agentRail = screen.getByRole('complementary', { name: 'OpenClaw 上下文' })
+    expect(agentRail).toHaveClass('transition-[opacity,transform]', 'duration-[var(--inteliscope-motion-deliberate)]', 'opacity-100')
+    expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-fixed-agent-rail-phase', 'open')
     expect(screen.getByRole('heading', { name: '信息流' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
+
+    await browser.click(activeToggle)
+    expect(agentRail).toHaveAttribute('aria-hidden', 'true')
+    expect(agentRail).toHaveAttribute('inert')
+    expect(agentRail).toHaveAttribute('data-rail-surface-state', 'closing')
+    await waitFor(() => expect(agentRail).not.toBeInTheDocument(), { timeout: 600 })
   })
 
   it('resizes the fixed desktop Agent rail with the keyboard and persists the account width', async () => {

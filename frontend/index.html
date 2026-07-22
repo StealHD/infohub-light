@@ -9,6 +9,8 @@
       (() => {
         const path = window.location.pathname
         const contentRoutes = ['/feed', '/saved', '/history', '/later', '/']
+        const systemDark = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
+        document.documentElement.dataset.theme = systemDark ? 'dark' : 'light'
         document.documentElement.dataset.bootstrapLayout = path === '/login'
           ? 'auth'
           : contentRoutes.includes(path) ? 'content' : 'admin'

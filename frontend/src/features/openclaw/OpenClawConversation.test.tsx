@@ -138,6 +138,26 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByRole('button', { name: '新对话' })).toBeDisabled()
   })
 
+  it('keeps the send and stop actions in one stable tooltip trigger slot', () => {
+    const idleChat = chatController({ status: 'connected', sessionKey: 'session-1' })
+    const view = render(<OpenClawConversation chat={idleChat as never} value={contextValue({ question: '继续' })} />)
+    const toolbar = screen.getByTestId('openclaw-composer-toolbar')
+    const sendButton = screen.getByRole('button', { name: '发送给 OpenClaw' })
+
+    expect(toolbar.lastElementChild).toBe(sendButton)
+    expect(sendButton).toHaveAttribute('data-slot', 'tooltip-trigger')
+    expect(sendButton).toHaveClass('size-9', 'shrink-0', 'rounded-full')
+
+    const runningChat = chatController({ status: 'connected', sessionKey: 'session-1', isRunning: true })
+    view.rerender(<OpenClawConversation chat={runningChat as never} value={contextValue()} />)
+    const stopButton = screen.getByRole('button', { name: '停止生成' })
+
+    expect(stopButton).toBe(sendButton)
+    expect(toolbar.lastElementChild).toBe(stopButton)
+    expect(stopButton).toHaveAttribute('data-slot', 'tooltip-trigger')
+    expect(stopButton).toHaveClass('size-9', 'shrink-0', 'rounded-full')
+  })
+
   it('uses one compact runtime control and requests a verified model branch', async () => {
     const browser = userEvent.setup()
     const chat = chatController({

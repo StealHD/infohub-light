@@ -207,6 +207,10 @@ export function HeroSettingsPage() {
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {message && <HeroNotice title={message} status="success" role="status" />}{error && <HeroNotice title={error} />}
 
+    <AdminSection title="关于 Inteliscope" description="查看近期的重要功能、交互和可用性变化。">
+      <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>
+    </AdminSection>
+
     <AdminSection title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
       <Button size="sm" variant="secondary" onPress={() => navigate('/agents')}><Icons.Bot size={16} />管理助手连接</Button>
       {!admin && <Card variant="transparent" className="mt-4 p-4"><Card.Title>工作区设置只读</Card.Title><Card.Description className="mt-1">全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。</Card.Description></Card>}
