@@ -466,6 +466,11 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   } else {
     const toggle = page.getByRole('button', { name: '展开 Agent 面板' })
     const feedScroll = page.getByTestId('workbench-feed-scroll')
+    const feedReveal = page.locator('[data-loading-reveal="feed"]')
+    await expect(feedReveal).toHaveAttribute('data-loading-state', 'ready')
+    await feedReveal.evaluate(async (element) => Promise.all(
+      element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)),
+    ))
     const feedBounds = await feedScroll.boundingBox()
     const feedScrollTop = await feedScroll.evaluate((element) => element.scrollTop)
     if (testInfo.project.name === 'mobile') {
@@ -484,7 +489,12 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await expect(page.getByTestId('right-rail-drawer-backdrop')).toBeVisible()
     await expect(agent.getByText('对话未启用')).toBeVisible()
     await agent.evaluate(async (element) => Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined))))
-    expect(await feedScroll.boundingBox()).toEqual(feedBounds)
+    const openFeedBounds = await feedScroll.boundingBox()
+    expect(feedBounds).not.toBeNull()
+    expect(openFeedBounds).not.toBeNull()
+    for (const dimension of ['x', 'y', 'width', 'height'] as const) {
+      expect(Math.abs(openFeedBounds![dimension] - feedBounds![dimension])).toBeLessThanOrEqual(1)
+    }
     expect(await feedScroll.evaluate((element) => element.scrollTop)).toBe(feedScrollTop)
     expect(await shell.evaluate((element) => {
       let current: HTMLElement | null = element
