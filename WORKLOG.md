@@ -2212,3 +2212,10 @@
 - 执行验证：新增来源生命周期 API 4/4、受影响前端 129/129、生命周期回归 1/1 通过；最终 `test_gate full` 22/22、0 failed/error、96.729 秒，涵盖 Python full、UI contract、ESLint、TypeScript、完整 Vitest、Vite build、Compose、Playwright/Axe 与 `git diff --check`
 - 结果：分享来源复用内容并阻止私人僵尸来源；订阅可独立停用并选择保留或忽略卡片；忽略内容仅在设置恢复；Feed 可按发布时间/入库时间排序且反转顺序保持阅读锚点；评分与标记已读 UI 隐藏；任务可加入 OpenClaw 上下文；卡片动作使用延迟说明和固定紫色上下文图标；宽屏信息概览与 Agent 栏可同时显示
 - 控制面变更：更新 Quiet Studio 全站 UI 真源；API、数据库结构、权限、Query Key 与 Gateway/MCP 协议保持不变，尚未推送远端或部署 VPS
+
+### 2026-07-22 13:32 Codex
+- 任务：修复干净 Linux ARM Docker 构建遗漏 `lightningcss` 原生可选依赖的问题
+- 修改文件：`Dockerfile` 与本工作日志
+- 执行验证：在 `node:22-slim` ARM 容器中以现有 lockfile 执行 `npm ci --include=optional`，365 个包安装成功且 `lightningcss-linux-arm64-gnu` 存在
+- 结果：前端构建阶段显式安装 lockfile 中的平台可选包，避免无缓存构建因缺少原生模块失败；未修改运行时依赖版本
+- 控制面变更：无；仅收紧 Docker 构建可复现性

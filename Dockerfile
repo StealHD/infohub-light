@@ -2,7 +2,7 @@ FROM node:22-slim AS frontend-build
 
 WORKDIR /workspace/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --include=optional
 COPY frontend ./
 RUN npm run build
 
