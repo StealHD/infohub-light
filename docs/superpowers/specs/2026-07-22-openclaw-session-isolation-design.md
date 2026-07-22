@@ -21,14 +21,15 @@ OpenClaw 2026.7.1 对所有会话标签执行全局唯一校验。因此测试�
 3. 首次配对一旦成功就立即保存设备凭据，后续会话初始化失败不再触发重复设备配对。
 4. 标签冲突进行一次有界自动恢复；仍失败时显示真实的会话错误，不再误报权限。
 5. 保留既有 `Inteliscope` 会话和所有历史，不执行自动删除、归档、重命名或跨环境恢复。
+6. 用户在助手连接页明确确认“忘记此浏览器”时，先由 Gateway 移除当前浏览器配对并使其 device token 失效，服务端确认后再删除本地凭据和对话；失败时保留本地恢复手段。
 
 非目标：
 
 - 不调用 `sessions.list` 猜测或接管旧会话。
 - 不把测试和生产绑定到同一个固定会话。
-- 不申请 `operator.admin`，不扩大现有浏览器权限。
+- 不申请 `operator.admin`；新授权固定为 `operator.read + operator.write + operator.pairing`，旧 read/write 配对只为兼容重连而保留，新增的 pairing scope 只用于 OpenClaw 自身限制为当前设备的显式配对删除。
 - 不改变 Gateway token、MCP token、Remote MCP、订阅写入、Service API 或数据库合同。
-- 不自动清理此前重试产生的 OpenClaw 设备；清理必须由用户单独授权。
+- 不自动清理此前重试产生的 OpenClaw 设备；只有用户在确认框中明确授权的当前浏览器设备可以删除。
 
 ## 3. 已选方案
 
@@ -43,11 +44,16 @@ Inteliscope · localhost:8080 · 32e741ac084f6d19
 
 OpenClaw 仍是唯一性的最终权威。如果第一次创建返回明确的 `INVALID_REQUEST + label already in use`，客户端生成一个新标签并重试一次；其他错误不重试。第二次仍冲突时停止，避免无界创建。
 
+“忘记此浏览器”采用 OpenClaw 的 `device.pair.remove({deviceId})`，而不是先调用 `device.token.revoke` 再发送第二个删除请求。OpenClaw 在 token 吊销成功后会立即使连接失效并异步断开，同一连接不能可靠地继续第二个 RPC；`device.pair.remove` 则原子移除配对记录、使设备凭据失效并断开该设备，正好对应“忘记设备”语义。调用只针对本地凭据中的当前 `deviceId`，角色仍是 `operator`。
+
 没有选择以下方案：
 
 1. 固定为 `Inteliscope-test` / `Inteliscope-prod`：只能解决两个环境的第一次创建，仍会阻断“新对话”和模型分支，也无法覆盖更多站点。
 2. `sessions.list` 后按标签恢复：浏览器本地凭据被清除可能代表用户主动断开，按标签猜测会接入陈旧或其他用户的历史。
 3. 删除或复用现有 `Inteliscope`：会破坏测试环境历史或造成测试/生产串会话。
+4. 保持两项 scope、仅删除 IndexedDB：无法吊销 Gateway 中仍有效的 device token，会留下服务端授权。
+5. 忘记时再次要求粘贴 Gateway token：可以避免持久化 pairing scope，但增加第二套配对/审批流程，并使附带清理反过来干扰主连接修复。
+6. 让 Inteliscope 服务端代理吊销：生产服务无法访问用户浏览器所连接的本机 Gateway，还会错误地把 Gateway 凭据引入 Service 边界。
 
 ## 4. 组件边界
 
@@ -79,14 +85,32 @@ OpenClaw 仍是唯一性的最终权威。如果第一次创建返回明确的 `
 
 步骤 3 失败时不创建会话。步骤 4 或后续加载失败时，浏览器仍保留已配对设备，下一次连接无需再次粘贴 bootstrap token；成功创建的 session key 在步骤 5 后可供普通重连复用。
 
+Gateway 客户端把 requested scopes 作为显式构造参数并对返回值做精确匹配。新配对或用户再次粘贴 Gateway token 时请求三项当前 scope；已有只含 read/write 的旧凭据仍按其原两项 scope 普通重连，保留 identity 与 session key，不在后台静默提升权限。用户主动用 Gateway token 重新授权后，沿用同一 identity/session key 保存三项 scope，才获得自助删除能力。
+
+### 4.4 显式吊销并忘记当前浏览器
+
+助手连接页保留一个破坏性“忘记此浏览器”入口，但点击后必须先显示确认框。确认后：
+
+1. 从凭据库读取当前 Inteliscope 用户和规范化 Gateway URL 对应的 identity、device token、scope 与 session key；
+2. 凭据缺少 `operator.pairing` 时不连接、不删除，提示用户在对话面板用 Gateway token 对同一浏览器重新授权；
+3. 使用已保存 identity/device token 和其精确三项 scope 建立一个临时 Gateway 客户端，不创建会话、不加载历史、不调用模型；
+4. 调用 `device.pair.remove({deviceId: identity.deviceId})`；
+5. 成功响应后立即关闭临时客户端，清除该用户/Gateway 的全部 sessionStorage transcript，再删除 IndexedDB 凭据；
+6. OpenClaw 明确返回 `INVALID_REQUEST: unknown deviceId` 时按幂等成功处理，因为服务端已经不存在该设备；
+7. 其他网络、认证、权限或 Gateway 错误均停止流程，保留本地凭据和 transcript，页面维持“已配对”并显示真实错误供重试。
+
+删除过程中按钮禁用且只允许一个请求。成功文案明确“服务端设备授权与本地配对均已删除”；不再要求用户手工运行 `openclaw devices revoke`。
+
 ## 5. 状态、错误与安全
 
 - `OpenClawSetupIssue.kind` 增加会话初始化类别，标签冲突提示为“OpenClaw 会话名称冲突，请重新连接”，不显示权限文案。
 - 标签冲突判断必须位于通用权限/未知错误映射之前；原有 origin、protocol、scope、auth 和 network 处理不变。
 - 自动重试只限一次明确标签冲突，不重试认证、权限、超时、网络、会话参数或 IndexedDB 写入失败。
 - 新标签不作为恢复键；真正的恢复权威仍是按 Inteliscope 用户和 Gateway URL 保存的 session key。
-- 不记录或回显 Gateway token，不把用户 ID写入 OpenClaw 标签，不扩大浏览器 scope。
+- 不记录或回显 Gateway token，不把用户 ID写入 OpenClaw 标签。新授权只接受精确的 `operator.read + operator.write + operator.pairing`；旧记录只允许精确 read/write 兼容配置。两种配置都拒绝 `operator.admin`、缺失项和任何其他额外 scope。
+- `operator.pairing` 是 OpenClaw 2026.7.1 调用 `device.pair.remove` 的最低协议权限；OpenClaw 对非管理员调用者执行 device ownership 校验，Inteliscope 仍只提交自身 identity 的 device ID，不列举或管理其他设备。
 - 旧版已保存的 `Inteliscope` session key 完全兼容；只有后续新建会话使用新标签。
+- 旧版只有 read/write 的 device token 不静默提升权限，仍可恢复原 session。使用服务端忘记功能前需要用 Gateway token 完成一次 scope 升级/配对批准；主页面必须把 `pairing_required` 保持为可执行指引，不能误报成会话或普通权限错误。
 
 ## 6. 测试设计
 
@@ -98,13 +122,16 @@ OpenClaw 仍是唯一性的最终权威。如果第一次创建返回明确的 `
 4. Hook 冲突测试验证第一次冲突后使用不同标签重试并成功，连续两次冲突则停止且呈现会话错误。
 5. 首次连接、模型 fork、空白回退和新对话测试都断言使用统一的来源化唯一标签，并保留各自原有参数。
 6. 旧 session key 重连测试验证不调用 `sessions.create`，历史和工具加载行为不变。
-7. 运行 OpenClaw 定向 Vitest、完整前端 Vitest、TypeScript、production build 和项目 `test_gate full`。
+7. Gateway 客户端与凭据库测试验证新授权只接受精确三项 scope，旧 read/write 记录按原 scope 重连并保留 session；两者都拒绝 admin、缺项或其他额外 scope。
+8. 设备忘记测试验证旧两项 scope 在联网前停止并给出重新授权指引；三项 scope 确认后只对存储的 device ID 调用一次 `device.pair.remove`，成功/unknown-device 才清 transcript 与 IndexedDB，超时、权限和其他失败均不清本地数据。
+9. 助手连接页测试验证破坏性确认、pending 防重复、成功与失败文案，以及失败后“已配对”状态保持不变。
+10. 运行 OpenClaw 定向 Vitest、完整前端 Vitest、TypeScript、production build 和项目 `test_gate full`。
 
-真实验收使用同一台本机 Gateway：localhost 测试站点与 `rb.jiefs.top` 各创建独立会话并保持同时在线，Gateway 日志不得再出现固定标签冲突。验收不发送模型消息、不调用付费来源，也不删除旧会话。
+真实验收使用同一台本机 Gateway：localhost 测试站点与 `rb.jiefs.top` 各创建独立会话并保持同时在线，Gateway 日志不得再出现固定标签冲突。验收不发送模型消息、不调用付费来源，也不删除旧会话。吊销流程只使用单独创建且由用户确认可销毁的验收浏览器配对，不触碰既有生产/测试设备。
 
 ## 7. 发布与回滚
 
-从 `codex/fix-openclaw-session-isolation` 构建同一 revision 的本地与 `linux/amd64` 镜像。先切换 localhost 测试环境并验证连接，再通过隔离 staging 检查 production build、live/ready、受保护 API、数据库完整性和功能开关，最后仅重建生产 API/Worker 到同一镜像；保留数据库、scheduler 状态、上一 release 和回滚镜像。
+修复分支以 VPS 已知正常的 `c762fea20268` 为代码基线，不能继承后续 `dc6719b` 的 Tooltip/DOM UI 回归；只移植本规格的 OpenClaw 代码、测试和控制面记录。从 `codex/fix-openclaw-session-isolation` 构建同一 revision 的本地与 `linux/amd64` 镜像。先切换 localhost 测试环境并验证连接，再通过隔离 staging 检查 production build、live/ready、受保护 API、数据库完整性和功能开关，最后仅重建生产 API/Worker 到同一镜像；保留数据库、scheduler 状态、上一 release 和回滚镜像。
 
 生产浏览器此前没有保存失败配对返回的 device token，因此发布后可能需要最后一次粘贴 Gateway token。新版本完成步骤 3 后，后续会话初始化失败也能使用“已配对设备重连”。
 
@@ -114,8 +141,8 @@ OpenClaw 仍是唯一性的最终权威。如果第一次创建返回明确的 `
 
 实施时更新：
 
-- `UI_CONTRACT.md`：把“一标签页一个固定 `Inteliscope` 会话”改为“按用户/Gateway 保存 session key、所有新会话使用站点来源化唯一标签”，并明确分阶段凭据保存和不自动接管旧标签。
-- `DECISION_LOG.md`：记录不用 `sessions.list` 恢复、不删除旧会话以及不扩大 scope 的理由。
+- `UI_CONTRACT.md`：把“一标签页一个固定 `Inteliscope` 会话”改为“按用户/Gateway 保存 session key、所有新会话使用站点来源化唯一标签”，并明确分阶段凭据保存、不自动接管旧标签，以及显式忘记时先服务端删除后本地清理。
+- `DECISION_LOG.md`：记录不用 `sessions.list` 恢复、不删除旧会话，以及为当前设备自助删除增加最小 `operator.pairing`、拒绝 admin 的理由。
 - `WORKLOG.md`：记录 RED→GREEN、完整门禁、本地/生产发布和真实 Gateway 验收。
 
 不修改 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、Service schema、MCP 工具合同或部署拓扑。
