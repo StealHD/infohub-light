@@ -2257,3 +2257,10 @@
 - 结果：已连接长对话现在由 transcript 独占剩余高度并内部滚动，composer dock 禁止收缩、完整固定在面板底部；未修改右栏宽度、消息语义或 Gateway 行为
 - 未解决问题：当前环境没有可接管的 Chrome 浏览器连接，需用户在现有已配对 Chrome 标签页强制刷新后进行最终视觉确认
 - 控制面变更：仅更新本地 UI 与 Docker 运行态；未修改 API、数据库、权限、Query Key、Gateway/MCP 协议、远端或 VPS，未触发模型调用、来源抓取或付费操作
+
+### 2026-07-22 17:05 Codex
+- 任务：将用户确认的 `feature/stable-refresh-loading` 快进合入本地 `main`，并清理废弃开发分支与 worktree
+- 修改文件：仅本工作日志；目标功能树由 `ddbdb39` 原样进入 `main`
+- 执行验证：合并后 `test_gate full` 22/22、0 failed/error、104.142 秒，覆盖 Python、前端 Vitest/TypeScript/build、UI contract、Compose、Playwright/Axe 与差异检查
+- 结果：稳定刷新与固定 OpenClaw composer 已进入 `main`；`feature/multi-user-mvp-core` 的未提交内容未混入，保留为本地恢复 stash 后按用户指示清理其他本地分支/worktree
+- 控制面变更：无新增；未推送远端、未删除远端分支、未修改当前 localhost:8080 运行镜像
