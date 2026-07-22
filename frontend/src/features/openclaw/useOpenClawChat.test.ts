@@ -7,6 +7,7 @@ import {
   type OpenClawCredentialAdapter,
   type StoredOpenClawCredential,
 } from './openclawCredentialVault'
+import { forgetOpenClawBrowser } from './openclawDevice'
 import {
   OPENCLAW_CURRENT_SCOPES,
   OPENCLAW_LEGACY_SCOPES,
@@ -33,6 +34,11 @@ vi.mock('./openclawGateway', async (importOriginal) => {
       privateKey: {} as CryptoKey,
     })),
   }
+})
+
+vi.mock('./openclawDevice', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./openclawDevice')>()
+  return { ...actual, forgetOpenClawBrowser: vi.fn() }
 })
 
 class MemoryAdapter implements OpenClawCredentialAdapter {
@@ -68,6 +74,8 @@ const session = {
 describe('useOpenClawChat', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
+    vi.mocked(forgetOpenClawBrowser).mockReset()
+    vi.mocked(forgetOpenClawBrowser).mockResolvedValue('removed')
   })
 
   it('does not create a Gateway client while browser chat is disabled', async () => {
@@ -83,6 +91,53 @@ describe('useOpenClawChat', () => {
     await act(async () => { await Promise.resolve() })
     expect(result.current.status).toBe('disabled')
     expect(clientFactory).not.toHaveBeenCalled()
+  })
+
+  it('uses server-first device removal before clearing the active chat state', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-forget', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-forget', publicKey: 'public-forget', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token',
+      scopes: [...OPENCLAW_CURRENT_SCOPES],
+      sessionKey: 'session-forget',
+    })
+    const request = vi.fn(async (method: string) => {
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      throw new Error(`unexpected method ${method}`)
+    })
+    const close = vi.fn()
+    const clientFactory = vi.fn(() => ({
+      connect: vi.fn(async (): Promise<GatewayHello> => ({
+        auth: { deviceToken: 'device-token', scopes: [...OPENCLAW_CURRENT_SCOPES] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      })),
+      request,
+      close,
+    }))
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true,
+      userId: 'user-forget',
+      defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clientFactory: clientFactory as never,
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+    await act(async () => { await result.current.forget() })
+
+    expect(forgetOpenClawBrowser).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-forget',
+      gatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clearTranscripts: expect.any(Function),
+      clientFactory,
+    }))
+    expect(close).toHaveBeenCalled()
+    expect(result.current.status).toBe('idle')
   })
 
   it('retries one label collision with a fresh label and keeps all other session parameters', async () => {

@@ -578,23 +578,23 @@ Expected: new pairings get pairing capability, legacy reconnects remain connecte
 - Produces: a testable forget service, a typed reauthorization-required error for legacy credentials, and a destructive-action confirmation UI with a pending lock.
 - Server method: `device.pair.remove({ deviceId: credential.identity.deviceId })` over a connection authenticated by the stored current-scope device token.
 
-- [ ] **Step 1: Write failing forget-service tests**
+- [x] **Step 1: Write failing forget-service tests**
 
 Cover success, `INVALID_REQUEST: unknown deviceId`, ordinary Gateway failure, and legacy two-scope credential. Assert server success/unknown clears all user/Gateway transcripts before deleting IndexedDB; ordinary failure and legacy scope leave both untouched. Assert the client always closes and no call uses `device.token.revoke`.
 
-- [ ] **Step 2: Implement the transactional forget service**
+- [x] **Step 2: Implement the transactional forget service**
 
 Load and validate the credential. If it lacks `operator.pairing`, stop locally with an actionable reauthorization error and make no network call. Otherwise connect with its stored identity, token, and exact current scopes; call `device.pair.remove`. Treat only the exact unknown-device response as idempotent success. Close the socket in `finally`; after success, clear all matching transcripts and then call `vault.forget`.
 
-- [ ] **Step 3: Add confirmation and failure-safe UI tests**
+- [x] **Step 3: Add confirmation and failure-safe UI tests**
 
 Test that the first click opens a confirmation modal, cancel changes nothing, confirm locks the action while pending, success changes the card to unpaired, legacy credentials instruct the user to reconnect with a Gateway/dashboard token, and other failures keep the paired state with a retryable error.
 
-- [ ] **Step 4: Implement the settings UI**
+- [x] **Step 4: Implement the settings UI**
 
 Replace immediate local deletion and the manual CLI revocation note with the confirmed transactional service. Keep the button disabled while pending, do not close the modal until success, and never claim deletion if the server failed.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 ```bash
 cd frontend

@@ -19,8 +19,13 @@ import {
   TextField,
 } from '../../design-system'
 import { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
+import { forgetOpenClawBrowser } from '../openclaw/openclawDevice'
 import { validateGatewayUrl } from '../openclaw/openclawGateway'
-import { readSavedGatewayUrl, saveGatewayUrl } from '../openclaw/useOpenClawChat'
+import {
+  clearOpenClawTranscript,
+  readSavedGatewayUrl,
+  saveGatewayUrl,
+} from '../openclaw/useOpenClawChat'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 
 const TOKEN_REFERENCE = '${INTELISCOPE_MCP_TOKEN}'
@@ -90,16 +95,28 @@ function DialogFrame({ title, children, footer, dismissable = true, testId }: {
   </Modal.Backdrop>
 }
 
-function OpenClawBrowserSettings({ userId, enabled, defaultUrl, targetVersion }: {
+export function OpenClawBrowserSettings({
+  userId,
+  enabled,
+  defaultUrl,
+  targetVersion,
+  vault: providedVault,
+  forgetBrowser = forgetOpenClawBrowser,
+}: {
   userId: string
   enabled: boolean
   defaultUrl: string
   targetVersion: string
+  vault?: OpenClawCredentialVault
+  forgetBrowser?: typeof forgetOpenClawBrowser
 }) {
   const [url, setUrl] = useState(() => readSavedGatewayUrl(userId, defaultUrl))
   const [paired, setPaired] = useState<boolean | null>(null)
   const [notice, setNotice] = useState('')
-  const vault = useMemo(() => new OpenClawCredentialVault(), [])
+  const [forgetOpen, setForgetOpen] = useState(false)
+  const [forgetPending, setForgetPending] = useState(false)
+  const defaultVault = useMemo(() => new OpenClawCredentialVault(), [])
+  const vault = providedVault ?? defaultVault
 
   useEffect(() => {
     let cancelled = false
@@ -122,39 +139,74 @@ function OpenClawBrowserSettings({ userId, enabled, defaultUrl, targetVersion }:
     }
   }
 
-  async function forget() {
+  async function confirmForget() {
+    setForgetPending(true)
+    setNotice('')
     try {
-      await vault.forget(userId, validateGatewayUrl(url))
+      const gatewayUrl = validateGatewayUrl(url)
+      const result = await forgetBrowser({
+        userId,
+        gatewayUrl,
+        vault,
+        clearTranscripts: clearOpenClawTranscript,
+      })
       setPaired(false)
-      setNotice('已删除此用户在当前浏览器中的 OpenClaw 配对。请按 OpenClaw 设备列表指引吊销服务端设备。')
+      setForgetOpen(false)
+      setNotice(result === 'not-paired'
+        ? '当前浏览器已无可删除的 OpenClaw 配对。'
+        : 'OpenClaw 服务端设备和当前浏览器配对已删除。')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法删除当前浏览器配对。')
+      setNotice(error instanceof Error ? error.message : '无法移除 OpenClaw 浏览器配对；本地凭据已保留。')
+    } finally {
+      setForgetPending(false)
     }
   }
 
-  return <AdminSection
-    title="OpenClaw 对话连接"
-    description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inteliscope 服务器。`}
-  >
-    {!enabled && <HeroNotice title="管理员尚未启用站内 OpenClaw 对话；信息流仍提供复制交接模式。" status="warning" role="status" />}
-    <div className="mt-3 grid gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
-      <TextField fullWidth value={url} onChange={setUrl}>
-        <Label>OpenClaw Gateway URL</Label>
-        <Input aria-label="OpenClaw Gateway URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-      </TextField>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
-        <Button size="sm" variant="danger" isDisabled={!paired} onPress={() => void forget()}>忘记此浏览器</Button>
+  return <>
+    <AdminSection
+      title="OpenClaw 对话连接"
+      description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inteliscope 服务器。`}
+    >
+      {!enabled && <HeroNotice title="管理员尚未启用站内 OpenClaw 对话；信息流仍提供复制交接模式。" status="warning" role="status" />}
+      <div className="mt-3 grid gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
+        <TextField fullWidth value={url} onChange={setUrl}>
+          <Label>OpenClaw Gateway URL</Label>
+          <Input aria-label="OpenClaw Gateway URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        </TextField>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
+          <Button
+            size="sm"
+            variant="danger"
+            isDisabled={!paired || forgetPending}
+            onPress={() => setForgetOpen(true)}
+          >忘记此浏览器</Button>
+        </div>
       </div>
-    </div>
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <Chip size="sm" color={paired ? 'success' : 'default'} variant="soft"><Chip.Label>{paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}</Chip.Label></Chip>
-      {enabled && <a className="type-control text-accent" href="/feed">打开信息流对话面板</a>}
-    </div>
-    {notice && <p className="type-body mt-3 text-muted" role="status">{notice}</p>}
-    <p className="type-meta mt-2 text-muted">忘记后可运行 <code>openclaw devices list</code>，找到 Inteliscope 浏览器设备并在 OpenClaw 中吊销，避免服务端仍保留旧设备授权。</p>
-    <p className="type-meta mt-3 text-muted">本地只允许 ws://127.0.0.1 或 ws://localhost；远程 Gateway 必须使用 wss://。首次 token 只在对话面板输入。</p>
-  </AdminSection>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Chip size="sm" color={paired ? 'success' : 'default'} variant="soft"><Chip.Label>{paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}</Chip.Label></Chip>
+        {enabled && <a className="type-control text-accent" href="/feed">打开信息流对话面板</a>}
+      </div>
+      {notice && <p className="type-body mt-3 text-muted" role="status">{notice}</p>}
+      <p className="type-meta mt-2 text-muted">确认忘记后会先从 OpenClaw Gateway 移除当前设备；只有服务端成功或设备已不存在时，才会清除本地对话和配对凭据。</p>
+      <p className="type-meta mt-3 text-muted">本地只允许 ws://127.0.0.1 或 ws://localhost；远程 Gateway 必须使用 wss://。首次 token 只在对话面板输入。</p>
+    </AdminSection>
+    <Modal isOpen={forgetOpen} onOpenChange={(open) => !forgetPending && setForgetOpen(open)}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开移除浏览器配对</Modal.Trigger>
+      <DialogFrame
+        title="移除 OpenClaw 浏览器配对"
+        dismissable={!forgetPending}
+        footer={<>
+          <Button variant="ghost" isDisabled={forgetPending} onPress={() => setForgetOpen(false)}>取消</Button>
+          <Button variant="danger" isDisabled={forgetPending} onPress={() => void confirmForget()}>
+            {forgetPending ? '正在移除…' : '确认移除并忘记'}
+          </Button>
+        </>}
+      >
+        <p className="type-body text-muted">这会让当前浏览器设备失去 OpenClaw 访问权限，并删除此用户在该 Gateway 下的本地对话与配对凭据。服务端拒绝时，本地恢复材料会保留。</p>
+      </DialogFrame>
+    </Modal>
+  </>
 }
 
 export function HeroAgentsPage() {
