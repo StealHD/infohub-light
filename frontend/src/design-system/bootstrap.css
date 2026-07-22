@@ -4,6 +4,8 @@
   --inteliscope-bootstrap-surface-secondary: oklch(0.215 0.009 286);
   --inteliscope-bootstrap-separator: oklch(0.27 0.009 286);
   --inteliscope-bootstrap-muted: oklch(0.68 0.012 286);
+  --inteliscope-bootstrap-right-rail-width: 360px;
+  --inteliscope-bootstrap-loading-duration: 1400ms;
   --inteliscope-bootstrap-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
 }
 
@@ -127,6 +129,20 @@ body {
 
 .bootstrap-shell-mobile-item { width: 22px; height: 22px; margin: auto; border-radius: 8px; }
 
+@keyframes bootstrap-shell-breathe {
+  0%, 100% { opacity: 0.58; }
+  50% { opacity: 0.82; }
+}
+
+.bootstrap-shell-title,
+.bootstrap-shell-control,
+.bootstrap-shell-nav-item,
+.bootstrap-shell-card,
+.bootstrap-shell-agent-block,
+.bootstrap-shell-mobile-item {
+  animation: bootstrap-shell-breathe var(--inteliscope-bootstrap-loading-duration) ease-in-out infinite;
+}
+
 html[data-bootstrap-layout="auth"] .bootstrap-shell-header,
 html[data-bootstrap-layout="auth"] .bootstrap-shell-mobile-navigation,
 html[data-bootstrap-layout="auth"] .bootstrap-shell-toolbar {
@@ -163,12 +179,12 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
   .bootstrap-shell-mobile-navigation { display: none; }
 }
 
-@media (min-width: 1200px) {
-  html[data-bootstrap-layout="content"] .bootstrap-shell-grid {
-    grid-template-columns: 72px minmax(640px, 1fr) 360px;
+@media (min-width: 1042px) {
+  html[data-bootstrap-layout="content"][data-bootstrap-rail="agent"] .bootstrap-shell-grid {
+    grid-template-columns: 72px minmax(640px, 1fr) var(--inteliscope-bootstrap-right-rail-width);
   }
 
-  html[data-bootstrap-layout="content"] .bootstrap-shell-agent {
+  html[data-bootstrap-layout="content"][data-bootstrap-rail="agent"] .bootstrap-shell-agent {
     display: block;
     grid-column: 3;
     grid-row: 1 / span 2;
@@ -180,7 +196,11 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
     grid-template-columns: 232px minmax(0, 1fr);
   }
 
-  html[data-bootstrap-layout="content"][data-bootstrap-sidebar="expanded"] .bootstrap-shell-grid {
-    grid-template-columns: 232px minmax(640px, 1fr) 360px;
+  html[data-bootstrap-layout="content"][data-bootstrap-sidebar="expanded"][data-bootstrap-rail="agent"] .bootstrap-shell-grid {
+    grid-template-columns: 232px minmax(640px, 1fr) var(--inteliscope-bootstrap-right-rail-width);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #inteliscope-bootstrap-shell * { animation: none !important; }
 }

@@ -1,4 +1,4 @@
-import type { Key, ReactNode } from 'react'
+import { useEffect, useState, type AnimationEvent, type Key, type ReactNode } from 'react'
 
 import {
   Alert,
@@ -23,6 +23,15 @@ export type CompactSelectOption = {
   id: string
   label: string
   description?: string
+}
+
+export type LoadingRevealProps = {
+  loading: boolean
+  label: string
+  name: string
+  skeleton: ReactNode
+  children: ReactNode
+  className?: string
 }
 
 const pageWidths: Record<PageFrameWidth, string> = {
@@ -129,5 +138,46 @@ export function StatusNotice({ title, children, status = 'danger', role = 'alert
 export function LoadingState({ label = '正在加载', rows = 3 }: { label?: string; rows?: number }) {
   return <div data-loading-state role="status" aria-label={label} className="grid gap-3">
     {Array.from({ length: rows }, (_, index) => <Skeleton key={index} className="h-32 rounded-[var(--inteliscope-radius-card)]" />)}
+  </div>
+}
+
+export function CalmSkeleton({ className = '' }: { className?: string }) {
+  return <Skeleton animationType="pulse" className={`inteliscope-skeleton-calm ${className}`} />
+}
+
+export function LoadingReveal({ loading, label, name, skeleton, children, className = '' }: LoadingRevealProps) {
+  const [showSkeleton, setShowSkeleton] = useState(loading)
+  const revealing = !loading && showSkeleton
+
+  useEffect(() => {
+    if (loading || !showSkeleton) return
+    const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const timeout = window.setTimeout(() => setShowSkeleton(false), reducedMotion ? 0 : 180)
+    return () => window.clearTimeout(timeout)
+  }, [loading, showSkeleton])
+
+  function finishSkeletonExit(event: AnimationEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return
+    setShowSkeleton(false)
+  }
+
+  return <div
+    data-loading-reveal={name}
+    data-loading-state={loading ? 'loading' : revealing ? 'revealing' : 'ready'}
+    className={`relative grid min-h-0 ${className}`}
+  >
+    {showSkeleton && <div
+      data-loading-layer
+      role={loading ? 'status' : undefined}
+      aria-label={loading ? label : undefined}
+      aria-busy={loading ? 'true' : undefined}
+      aria-hidden={loading ? undefined : 'true'}
+      className={`min-h-0 [grid-area:1/1] ${revealing ? 'inteliscope-skeleton-exit' : ''}`}
+      onAnimationEnd={finishSkeletonExit}
+    >{skeleton}</div>}
+    {!loading && <div
+      data-content-layer
+      className={`flex min-h-0 flex-col [grid-area:1/1] ${revealing ? 'inteliscope-content-reveal' : ''}`}
+    >{children}</div>}
   </div>
 }

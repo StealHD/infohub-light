@@ -44,9 +44,11 @@ export type { LucideIcon } from 'lucide-react'
 export { DesignSystemProvider } from './DesignSystemProvider'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
 export {
+  CalmSkeleton,
   CompactSelect,
   EmptyState,
   LoadingState,
+  LoadingReveal,
   PageFrame,
   PageHeader,
   PageIntro,
@@ -54,6 +56,6 @@ export {
   StatusNotice,
   ViewBar,
 } from './patterns'
-export type { CompactSelectOption, PageFrameWidth, ViewBarAction } from './patterns'
+export type { CompactSelectOption, LoadingRevealProps, PageFrameWidth, ViewBarAction } from './patterns'
 export * as Icons from './icons'
 export { designSystemTheme } from './theme'

@@ -7,6 +7,7 @@
   --inteliscope-motion-fast: 120ms;
   --inteliscope-motion-standard: 160ms;
   --inteliscope-motion-deliberate: 220ms;
+  --inteliscope-motion-loading: 1400ms;
   --inteliscope-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
   --inteliscope-width-reading: 820px;
   --inteliscope-width-admin: 1180px;
@@ -363,6 +364,46 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   animation: quiet-surface-enter var(--inteliscope-motion-deliberate) ease-out both;
 }
 
+@keyframes inteliscope-skeleton-breathe {
+  0%, 100% { opacity: 0.62; }
+  50% { opacity: 0.82; }
+}
+
+.inteliscope-design-system .inteliscope-skeleton-calm {
+  animation: inteliscope-skeleton-breathe var(--inteliscope-motion-loading) ease-in-out infinite !important;
+}
+
+.inteliscope-design-system .inteliscope-skeleton-calm::before,
+.inteliscope-design-system .inteliscope-skeleton-calm::after {
+  content: none !important;
+  animation: none !important;
+}
+
+@keyframes inteliscope-skeleton-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.inteliscope-design-system .inteliscope-skeleton-exit {
+  pointer-events: none;
+  animation: inteliscope-skeleton-exit var(--inteliscope-motion-fast) ease-out both;
+}
+
+@keyframes inteliscope-content-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inteliscope-design-system .inteliscope-content-reveal {
+  animation: inteliscope-content-reveal 200ms ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .inteliscope-design-system {
     --inteliscope-motion-standard: 1ms;
@@ -420,6 +461,9 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
     .tooltip[data-entering="true"],
     .tooltip[data-exiting="true"],
     .quiet-surface-enter,
+    .inteliscope-skeleton-calm,
+    .inteliscope-skeleton-exit,
+    .inteliscope-content-reveal,
     .skeleton,
     .skeleton::before,
     .skeleton::after,

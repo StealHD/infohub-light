@@ -6,10 +6,11 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import {
   Button,
+  CalmSkeleton,
   EmptyState,
   Icons,
   ListBox,
-  LoadingState,
+  LoadingReveal,
   PageFrame,
   Popover,
   SearchField,
@@ -30,6 +31,7 @@ import {
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
+import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
   cleanLegacyModeSearch,
@@ -170,7 +172,13 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <PageFrame width="reading">
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'}>
         <ViewBar>
-        <span className="type-control mr-auto shrink-0 text-muted">{cards.length} 条内容</span>
+        <LoadingReveal
+          loading={loading}
+          label="正在读取内容数量"
+          name="feed-count"
+          className="mr-auto min-h-4 w-16 shrink-0"
+          skeleton={<span data-feed-count-skeleton><CalmSkeleton className="h-4 w-16 rounded-md" /></span>}
+        ><span className="type-control shrink-0 text-muted">{cards.length} 条内容</span></LoadingReveal>
         {collectionRoute && <div className={`${collectionSearchOpen ? 'flex' : 'hidden'} min-w-0 flex-1 sm:flex`}>
           <SearchField aria-label="搜索信息流" value={query} onChange={setQuery} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
@@ -240,10 +248,16 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭操作错误" onPress={() => stateMutation.reset()}><Icons.X size={15} /></Button>
     </div>}
     {detailQuery.isError && !selectedInSource && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
-    {loading && <PageFrame width="reading" className="p-5"><LoadingState label="正在读取信息流" rows={5} /></PageFrame>}
-    {loadError && <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>}
-    {!loading && !loadError && cards.length === 0 && <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>}
-    {!loading && !loadError && cards.length > 0 && <VirtualFeed
+    <LoadingReveal
+      loading={loading}
+      label="正在读取信息流"
+      name="feed"
+      className="min-h-0 flex-1"
+      skeleton={<WorkbenchFeedSkeleton />}
+    >
+    {loadError ? <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>
+      : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>
+      : <VirtualFeed
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       cards={cards}
       sourceItemIds={sourceItemIds}
@@ -267,6 +281,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       }}
       onItemAction={(id, value) => stateMutation.mutateItem(id, { dismissed: value })}
     />}
+    </LoadingReveal>
   </section>
 }
 

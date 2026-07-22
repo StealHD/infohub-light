@@ -226,14 +226,36 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     const separator = screen.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })
     expect(separator).toHaveAttribute('aria-valuenow', '360')
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toMatchObject({
+      userId: user.id,
+      rightRail: 'agent',
+      rightRailWidth: 360,
+    })
 
     separator.focus()
     await browser.keyboard('{ArrowLeft}')
     expect(separator).toHaveAttribute('aria-valuenow', '384')
     expect(window.localStorage.getItem(`inteliscope.ui.right-rail.v1:${user.id}`)).toBe(JSON.stringify({ width: 384 }))
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toMatchObject({ rightRailWidth: 384 })
 
     await browser.dblClick(separator)
     expect(separator).toHaveAttribute('aria-valuenow', '360')
+  })
+
+  it('restores a docked Agent rail without replaying its entrance animation', () => {
+    const user = { id: 'restored-rail', username: 'restored', role: 'member' as const, enabled: true }
+    window.localStorage.setItem('inteliscope.ui.bootstrap-shell.v1', JSON.stringify({
+      userId: user.id,
+      sidebar: 'collapsed',
+      rightRail: 'agent',
+      rightRailWidth: 420,
+    }))
+
+    render(<Shell user={user} />)
+
+    expect(screen.getByRole('button', { name: '收起 Agent 面板' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).not.toHaveClass('quiet-surface-enter')
+    expect(screen.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })).toHaveAttribute('aria-valuenow', '420')
   })
 
   it('docks whenever layout space is sufficient and falls back to a Drawer otherwise', async () => {

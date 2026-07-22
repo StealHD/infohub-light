@@ -132,11 +132,45 @@ describe('App routes', () => {
       expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toEqual({
         userId: 'user-live',
         sidebar: 'collapsed',
+        rightRail: 'closed',
+        rightRailWidth: 360,
       })
     } finally {
       bootShell.remove()
       window.localStorage.removeItem('inteliscope.ui.bootstrap-shell.v1')
     }
+  })
+
+  it('keeps Feed geometry fixed while initial data reveals locally', async () => {
+    const feed = deferred<{ schema_version: number; items: Array<{ id: string; title: string; url: string; published_at: string }> }>()
+    const api = liveApi({ latestFeed: vi.fn(() => feed.promise) } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '信息流' })
+    const loading = screen.getByRole('status', { name: '正在读取信息流' })
+    expect(loading.closest('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'loading')
+    expect(document.querySelectorAll('[data-workbench-feed-skeleton-row]')).toHaveLength(5)
+    for (const row of document.querySelectorAll<HTMLElement>('[data-workbench-feed-skeleton-row]')) {
+      expect(row.style.height).toBe('156px')
+      expect(row.querySelector('.inteliscope-skeleton-calm')).not.toBeNull()
+    }
+    expect(screen.queryByText('0 条内容')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-feed-count-skeleton]')).toBeInTheDocument()
+
+    feed.resolve({
+      schema_version: 2,
+      items: [{ id: 'revealed', title: '浮现内容', url: 'https://example.com/revealed', published_at: '2026-07-22T00:00:00Z' }],
+    })
+
+    expect(await screen.findByRole('article', { name: '浮现内容' })).toBeInTheDocument()
+    const reveal = document.querySelector('[data-loading-reveal="feed"]')
+    expect(reveal).toHaveAttribute('data-loading-state', 'revealing')
+    expect(reveal?.querySelector('[data-loading-layer]')).toHaveClass('inteliscope-skeleton-exit')
+    expect(reveal?.querySelector('[data-content-layer]')).toHaveClass('inteliscope-content-reveal')
+    fireEvent.animationEnd(reveal!.querySelector('[data-loading-layer]')!, { animationName: 'inteliscope-skeleton-exit' })
+    await waitFor(() => expect(reveal?.querySelector('[data-loading-layer]')).not.toBeInTheDocument())
+    expect(screen.getByText('1 条内容')).toBeInTheDocument()
   })
 
   it('places collection search and sorting inside the shared Quiet Studio ViewBar', async () => {
@@ -1184,6 +1218,9 @@ describe('App routes', () => {
 
     await user.click(await screen.findByRole('button', { name: '展开 Agent 面板' }))
     expect(await screen.findByRole('status', { name: '正在检查 Agent 连接' })).toHaveAttribute('aria-busy', 'true')
+    expect(document.querySelector('[data-agent-panel-skeleton]')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-agent-skeleton-block]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-agent-panel-skeleton] .inteliscope-skeleton-calm')).not.toHaveLength(0)
     expect(screen.queryByText('检查中')).not.toBeInTheDocument()
     expect(screen.queryByText('未配置')).not.toBeInTheDocument()
   })

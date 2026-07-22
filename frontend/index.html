@@ -15,8 +15,12 @@
         try {
           const snapshot = JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')
           document.documentElement.dataset.bootstrapSidebar = snapshot?.sidebar === 'expanded' ? 'expanded' : 'collapsed'
+          document.documentElement.dataset.bootstrapRail = snapshot?.rightRail === 'agent' ? 'agent' : 'closed'
+          const railWidth = Number(snapshot?.rightRailWidth)
+          document.documentElement.style.setProperty('--inteliscope-bootstrap-right-rail-width', `${Number.isFinite(railWidth) ? Math.min(720, Math.max(320, railWidth)) : 360}px`)
         } catch {
           document.documentElement.dataset.bootstrapSidebar = 'collapsed'
+          document.documentElement.dataset.bootstrapRail = 'closed'
         }
       })()
     </script>

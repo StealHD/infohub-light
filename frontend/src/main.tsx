@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components -- Vite entry point intentionally owns the development preview boundary. */
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 

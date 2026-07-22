@@ -16,6 +16,7 @@ import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
+import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
 
 type VirtualFeedProps = {
   freshEdge?: 'start' | 'end'
@@ -33,8 +34,8 @@ type VirtualFeedProps = {
   onItemAction: (id: string, dismissed: boolean) => void
 }
 
-const collapsedEstimate = 156
-const expandedEstimate = 390
+const collapsedEstimate = WORKBENCH_COLLAPSED_ROW_PX
+const expandedEstimate = WORKBENCH_EXPANDED_ROW_PX
 
 type ViewportAnchor = { id: string; offset: number }
 

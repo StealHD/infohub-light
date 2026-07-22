@@ -1,3 +1,5 @@
+import { readBootstrapShellSnapshot, writeBootstrapShellRightRailWidth } from '../../app/bootstrapShell'
+
 export type RightRailWidthPreferenceV1 = { width: number }
 
 export const RIGHT_RAIL_DEFAULT_WIDTH = 360
@@ -34,8 +36,10 @@ export function clampRightRailWidth(width: number, viewportWidth: number, sideba
 export function readRightRailWidth(userId: string): number {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(rightRailWidthPreferenceKey(userId)) || 'null') as Partial<RightRailWidthPreferenceV1> | null
-    return typeof parsed?.width === 'number' && Number.isFinite(parsed.width)
-      ? Math.round(parsed.width)
+    if (typeof parsed?.width === 'number' && Number.isFinite(parsed.width)) return Math.round(parsed.width)
+    const bootstrapSnapshot = readBootstrapShellSnapshot()
+    return bootstrapSnapshot?.userId === userId
+      ? bootstrapSnapshot.rightRailWidth
       : RIGHT_RAIL_DEFAULT_WIDTH
   } catch {
     return RIGHT_RAIL_DEFAULT_WIDTH
@@ -44,6 +48,9 @@ export function readRightRailWidth(userId: string): number {
 
 export function writeRightRailWidth(userId: string, width: number): RightRailWidthPreferenceV1 {
   const preference = { width: Math.round(width) }
-  try { window.localStorage.setItem(rightRailWidthPreferenceKey(userId), JSON.stringify(preference)) } catch { /* Layout persistence is best-effort. */ }
+  try {
+    window.localStorage.setItem(rightRailWidthPreferenceKey(userId), JSON.stringify(preference))
+    writeBootstrapShellRightRailWidth(userId, preference.width)
+  } catch { /* Layout persistence is best-effort. */ }
   return preference
 }

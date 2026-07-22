@@ -5,6 +5,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import type { ServiceApi } from '../../api/service'
 import type { User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
+import { readBootstrapShellRightRail, writeBootstrapShellRightRail } from '../../app/bootstrapShell'
 import { readSidebarPreference, writeSidebarPreference } from '../../app/sidebarPreference'
 import {
   FEED_PREFERENCE_CHANGED_EVENT,
@@ -16,10 +17,12 @@ import {
   AvatarImage,
   AvatarRoot,
   Button,
+  CalmSkeleton,
   Card,
   Chip,
   Drawer,
   Icons,
+  LoadingReveal,
   PageHeader,
   Popover,
   Separator,
@@ -35,6 +38,7 @@ import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
 import { HandoffComposer } from './HandoffComposer'
 import { FeedInsightsPanel } from './FeedInsightsPanel'
+import { AgentPanelSkeleton } from './WorkbenchLoadingState'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import { relativeTime } from '../feed/feedModel'
 import { toWorkbenchCardModel, workbenchSourceLabels } from './workbenchModel'
@@ -193,6 +197,14 @@ function initialExtraWideDesktop() {
     : false
 }
 
+function initialRightRailMode(userId: string): RightRailMode {
+  if (typeof window === 'undefined') return 'closed'
+  const sidebarWidth = initialExtraWideDesktop() && readSidebarPreference(userId) === 'expanded' ? 232 : 72
+  return canDockRightRail(window.innerWidth, sidebarWidth)
+    ? readBootstrapShellRightRail(userId)
+    : 'closed'
+}
+
 const insightsDismissedKey = (userId: string) => `inteliscope.ui.insights-dismissed.v1:${userId}`
 export const FLOATING_INSIGHTS_REQUIRED_GUTTER = 376
 
@@ -248,17 +260,27 @@ function AgentPanelContent({
     <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
       <Icons.Sparkles className="shrink-0" size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 对话</strong>
-      {configLoading
-        ? <span role="status" aria-busy="true" aria-label="正在检查 Agent 连接"><Skeleton className="h-5 w-16 rounded-lg" /></span>
-        : <Chip size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip>}
+      <LoadingReveal
+        loading={configLoading}
+        label="正在检查 Agent 连接"
+        name="agent-status"
+        className="h-5 w-16 shrink-0"
+        skeleton={<CalmSkeleton className="h-5 w-16 rounded-lg" />}
+      ><Chip size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip></LoadingReveal>
       {(chat.status === 'connected' || chat.status === 'reconnecting') && <Chip size="sm" color={chat.toolsStatus === 'available' ? 'success' : 'default'} variant="soft"><Chip.Label>{toolsStatusLabel[chat.toolsStatus]}</Chip.Label></Chip>}
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" isDisabled={chat.isRunning} onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>
     </header>
-    {open && configLoading && <div className="grid gap-3 p-4"><Skeleton className="h-24 rounded-xl" /><Skeleton className="h-24 rounded-xl" /></div>}
-    {open && !configLoading && chat.status === 'disabled' && <>
-      <div className="min-h-0 overflow-hidden p-3" data-testid="agent-scroll-region">
+    {open && <LoadingReveal
+      loading={configLoading}
+      label="正在读取 Agent 面板"
+      name="agent-panel"
+      className="row-span-2 min-h-0"
+      skeleton={<AgentPanelSkeleton />}
+    >
+    {chat.status === 'disabled' ? <>
+      <div className="min-h-0 flex-1 overflow-hidden p-3" data-testid="agent-scroll-region">
         <div className="type-meta mb-2 flex justify-between text-muted"><span>已选上下文</span><span>{value.draft.items.length} / 8</span></div>
         {!value.draft.items.length && <Card variant="transparent" className="p-3">
           <Card.Description>从信息卡片加入内容，再生成交给本地 OpenClaw 的确定性提示词。</Card.Description>
@@ -318,8 +340,8 @@ function AgentPanelContent({
         </div>
       </div>
       <HandoffComposer value={value} />
-    </>}
-    {open && !configLoading && chat.status !== 'disabled' && <OpenClawConversation chat={chat} value={value} />}
+    </> : <OpenClawConversation chat={chat} value={value} />}
+    </LoadingReveal>}
   </>
 }
 
@@ -337,7 +359,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [extraWideDesktop, setExtraWideDesktop] = useState(initialExtraWideDesktop)
   const [mobile, setMobile] = useState(initialMobile)
   const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 1440 : window.innerWidth)
-  const [rightRailMode, setRightRailMode] = useState<RightRailMode>('closed')
+  const [rightRailMode, setRightRailMode] = useState<RightRailMode>(() => initialRightRailMode(props.user.id))
+  const [rightRailAnimated, setRightRailAnimated] = useState(false)
   const [insightsSurface, setInsightsSurface] = useState<InsightsSurfaceState>('closed')
   const [insightsCanFloat, setInsightsCanFloat] = useState(false)
   const [resizingRail, setResizingRail] = useState(false)
@@ -409,13 +432,15 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       suppressAutomaticInsights()
       setInsightsSurface('closed')
     }
+    setRightRailAnimated(true)
     setRightRailMode('agent')
+    writeBootstrapShellRightRail(props.user.id, 'agent', rightRailWidth)
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLElement>(
         '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
       )?.focus()
     })
-  }, [dockCapable, suppressAutomaticInsights])
+  }, [dockCapable, props.user.id, rightRailWidth, suppressAutomaticInsights])
 
   const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
     draft,
@@ -429,9 +454,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
 
   const closeRightRail = useCallback(() => {
     if (openclawChat.isRunning) return
+    setRightRailAnimated(true)
     setRightRailMode('closed')
+    writeBootstrapShellRightRail(props.user.id, 'closed', rightRailWidth)
     window.requestAnimationFrame(() => agentToggleRef.current?.focus())
-  }, [openclawChat.isRunning])
+  }, [openclawChat.isRunning, props.user.id, rightRailWidth])
 
   const toggleAgentRail = useCallback(() => {
     if (openclawChat.isRunning) return
@@ -439,8 +466,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       suppressAutomaticInsights()
       setInsightsSurface('closed')
     }
-    setRightRailMode(visibleRightRailMode === 'agent' ? 'closed' : 'agent')
-  }, [dockCapable, openclawChat.isRunning, suppressAutomaticInsights, visibleRightRailMode])
+    const nextMode = visibleRightRailMode === 'agent' ? 'closed' : 'agent'
+    setRightRailAnimated(true)
+    setRightRailMode(nextMode)
+    writeBootstrapShellRightRail(props.user.id, nextMode, rightRailWidth)
+  }, [dockCapable, openclawChat.isRunning, props.user.id, rightRailWidth, suppressAutomaticInsights, visibleRightRailMode])
 
   const closeInsights = useCallback((restoreFocus = true) => {
     suppressAutomaticInsights()
@@ -769,7 +799,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           id="live-agent-panel"
           role="complementary"
           aria-label="OpenClaw 上下文"
-          className="quiet-surface-enter relative col-start-3 row-span-2 grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface"
+          className={`${rightRailAnimated ? 'quiet-surface-enter ' : ''}relative col-start-3 row-span-2 grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-l border-separator bg-surface`}
         >
           <div
             role="separator"
@@ -815,7 +845,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               <Drawer.Dialog
                 id={visibleRightRailMode === 'agent' ? 'live-agent-panel' : 'feed-insights-surface'}
                 aria-label={visibleRightRailMode === 'agent' ? 'OpenClaw 上下文' : '信息概览'}
-                className={`quiet-surface-enter grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
+                className={`${rightRailAnimated ? 'quiet-surface-enter ' : ''}grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] overflow-x-hidden border-separator bg-surface p-0 outline-none ${mobile ? 'h-[min(88dvh,720px)] max-h-[88dvh] w-full rounded-t-2xl border-t' : 'h-dvh w-[360px] max-w-[360px] rounded-l-2xl border-l'}`}
               >
                 {visibleRightRailMode === 'agent'
                   ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
