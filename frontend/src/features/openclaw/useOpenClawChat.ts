@@ -14,6 +14,10 @@ import {
   type GatewayEvent,
   type GatewayHello,
 } from './openclawGateway'
+import {
+  createOpenClawSessionLabel,
+  isOpenClawSessionLabelConflict,
+} from './openclawSession'
 
 export type OpenClawConnectionStatus = 'disabled' | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 export type OpenClawToolsStatus = 'unknown' | 'available' | 'missing'
@@ -525,6 +529,29 @@ function hasInteliscopeTools(value: unknown): boolean {
   })
 }
 
+type OpenClawSessionCreateParams = {
+  agentId: string
+  parentSessionKey?: string
+  fork?: true
+  model?: string
+}
+
+async function createOpenClawSession(
+  client: OpenClawGatewayClient,
+  params: OpenClawSessionCreateParams,
+): Promise<{ key?: string }> {
+  const create = () => client.request<{ key?: string }>('sessions.create', {
+    ...params,
+    label: createOpenClawSessionLabel(window.location.host),
+  })
+  try {
+    return await create()
+  } catch (error) {
+    if (!isOpenClawSessionLabelConflict(error)) throw error
+    return create()
+  }
+}
+
 export function useOpenClawChat(options: OpenClawChatOptions) {
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const configurationKey = `${options.userId}\n${options.defaultGatewayUrl}`
@@ -790,7 +817,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       agentIdRef.current = agentId
       let key = stored?.sessionKey
       if (!key) {
-        const created = await client.request<{ key?: string }>('sessions.create', { agentId, label: 'Inteliscope' })
+        const created = await createOpenClawSession(client, { agentId })
         key = created.key
       }
       if (!key) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
@@ -1004,9 +1031,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setModelSwitchFallback(null)
     let createdKey: string | null = null
     try {
-      const created = await client.request<{ key?: string }>('sessions.create', {
+      const created = await createOpenClawSession(client, {
         agentId,
-        label: 'Inteliscope',
         parentSessionKey,
         fork: true,
         model: selected.id,
@@ -1053,9 +1079,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setRuntimeIssue(null)
     let createdKey: string | null = null
     try {
-      const created = await client.request<{ key?: string }>('sessions.create', {
+      const created = await createOpenClawSession(client, {
         agentId,
-        label: 'Inteliscope',
         model: fallback.modelId,
       })
       createdKey = stringOf(created.key)
@@ -1082,7 +1107,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setRuntimeUpdating(true)
     setRuntimeIssue(null)
     try {
-      const created = await client.request<{ key?: string }>('sessions.create', { agentId, label: 'Inteliscope' })
+      const created = await createOpenClawSession(client, { agentId })
       const createdKey = stringOf(created.key)
       if (!createdKey) throw new Error('OpenClaw 没有返回新对话标识。')
       const projection = await readRuntime(client, createdKey, agentId)
