@@ -1,6 +1,6 @@
 import {
   validateGatewayUrl,
-  validateNegotiatedScopes,
+  validateStoredOpenClawScopes,
   type OpenClawDeviceIdentity,
 } from './openclawGateway'
 
@@ -103,7 +103,7 @@ export class OpenClawCredentialVault {
     const value = await this.adapter.get(id)
     if (!value || value.userId !== userId || value.gatewayHash !== id.slice(userId.length + 1)) return null
     try {
-      validateNegotiatedScopes(value.scopes)
+      validateStoredOpenClawScopes(value.scopes)
     } catch {
       return null
     }
@@ -120,7 +120,7 @@ export class OpenClawCredentialVault {
       sessionKey?: string
     },
   ): Promise<StoredOpenClawCredential> {
-    const scopes = validateNegotiatedScopes(value.scopes)
+    const scopes = validateStoredOpenClawScopes(value.scopes)
     if (!value.deviceToken.trim()) throw new Error('OpenClaw 没有返回可保存的设备凭证。')
     const id = await credentialStorageKey(userId, gatewayUrl)
     const stored: StoredOpenClawCredential = {

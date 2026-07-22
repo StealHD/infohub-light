@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -8,7 +8,10 @@ import type { ServiceApi } from '../../api/service'
 import type { AgentDelegation, AgentDelegationsResponse, User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
 import type { AppOutletContext } from '../../app/AppContext'
-import { HeroAgentsPage } from './HeroAgentsPage'
+import type { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
+import { OpenClawPairingUpgradeRequiredError } from '../openclaw/openclawDevice'
+import { OPENCLAW_CURRENT_SCOPES } from '../openclaw/openclawGateway'
+import { HeroAgentsPage, OpenClawBrowserSettings } from './HeroAgentsPage'
 
 const member: User = {
   id: 'member-1',
@@ -74,6 +77,7 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
     }),
     renameAgentDelegation: vi.fn().mockResolvedValue({ ...response.connections[0], name: 'Renamed Mac' }),
     revokeAgentDelegation: vi.fn().mockResolvedValue({ revoked: true }),
+    deleteAgentDelegationRecord: vi.fn().mockResolvedValue({ deleted: true }),
   } as unknown as ServiceApi
   const context: AppOutletContext = {
     api,
@@ -96,6 +100,88 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
   )
   return { api, client, ...rendered }
 }
+
+function pairedBrowserVault() {
+  return {
+    load: vi.fn().mockResolvedValue({
+      identity: {
+        deviceId: 'browser-device',
+        publicKey: 'browser-public',
+        privateKey: {} as CryptoKey,
+      },
+      deviceToken: 'browser-token',
+      scopes: [...OPENCLAW_CURRENT_SCOPES],
+      sessionKey: 'browser-session',
+    }),
+  } as unknown as OpenClawCredentialVault
+}
+
+describe('OpenClaw browser pairing settings', () => {
+  it('requires confirmation and locks server removal before showing local deletion', async () => {
+    const browser = userEvent.setup()
+    const vault = pairedBrowserVault()
+    let resolveForget: ((value: 'removed') => void) | undefined
+    const pendingForget = new Promise<'removed'>((resolve) => { resolveForget = resolve })
+    const forgetBrowser = vi.fn(() => pendingForget)
+    render(<OpenClawBrowserSettings
+      userId="member-1"
+      enabled
+      defaultUrl="ws://127.0.0.1:18789"
+      targetVersion="2026.7.1"
+      vault={vault}
+      forgetBrowser={forgetBrowser}
+    />)
+
+    await screen.findByText('此浏览器已配对')
+    await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
+    let dialog = screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })
+    expect(forgetBrowser).not.toHaveBeenCalled()
+    await browser.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).not.toBeInTheDocument()
+    expect(forgetBrowser).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
+    dialog = screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })
+    await browser.click(within(dialog).getByRole('button', { name: '确认移除并忘记' }))
+    expect(forgetBrowser).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'member-1',
+      gatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clearTranscripts: expect.any(Function),
+    }))
+    expect(within(dialog).getByRole('button', { name: '正在移除…' })).toBeDisabled()
+
+    await act(async () => { resolveForget?.('removed') })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).not.toBeInTheDocument())
+    expect(screen.getByText('此浏览器未配对')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('服务端设备和当前浏览器配对已删除')
+  })
+
+  it('keeps the pairing and shows the exact approval command for a legacy scope upgrade', async () => {
+    const browser = userEvent.setup()
+    const vault = pairedBrowserVault()
+    const forgetBrowser = vi.fn().mockRejectedValue(new OpenClawPairingUpgradeRequiredError('request-upgrade-1'))
+    render(<OpenClawBrowserSettings
+      userId="member-1"
+      enabled
+      defaultUrl="ws://127.0.0.1:18789"
+      targetVersion="2026.7.1"
+      vault={vault}
+      forgetBrowser={forgetBrowser}
+    />)
+
+    await screen.findByText('此浏览器已配对')
+    await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
+    const dialog = screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })
+    await browser.click(within(dialog).getByRole('button', { name: '确认移除并忘记' }))
+
+    expect(await screen.findByText(/已创建设备权限升级请求/)).toHaveTextContent(
+      'openclaw devices approve request-upgrade-1',
+    )
+    expect(screen.getByText('此浏览器已配对')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).toBeInTheDocument()
+  })
+})
 
 describe('HeroAgentsPage delegation access', () => {
   it('creates a subscription-management connection with the fourteen-tool configuration', async () => {
@@ -239,5 +325,48 @@ describe('HeroAgentsPage delegation access', () => {
       connections: Array.from({ length: 5 }, (_, index) => ({ ...listing.connections[0], id: `agent-${index}`, name: `Device ${index}` })),
     })
     expect(await screen.findByText('已达到 5 个有效连接上限。')).toBeInTheDocument()
+  })
+
+  it('deletes only the selected revoked connection after confirmation', async () => {
+    const browser = userEvent.setup()
+    const activeConnection = { ...listing.connections[0], name: 'Active Mac' }
+    const revokedConnection: AgentDelegation = {
+      ...listing.connections[0],
+      id: 'agent-revoked',
+      name: 'Revoked Mac',
+      status: 'revoked',
+      revoked_at: '2026-07-22T12:00:00Z',
+    }
+    const { api } = renderPage({
+      ...listing,
+      connections: [revokedConnection, activeConnection],
+    })
+    let resolveDelete: ((result: { deleted: boolean }) => void) | undefined
+    vi.mocked(api.deleteAgentDelegationRecord).mockReturnValueOnce(
+      new Promise((resolve) => { resolveDelete = resolve }),
+    )
+
+    await screen.findByRole('heading', { name: 'Revoked Mac' })
+    expect(screen.getByRole('button', { name: '吊销 Active Mac' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '删除 Active Mac' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '吊销 Revoked Mac' })).not.toBeInTheDocument()
+
+    await browser.click(screen.getByRole('button', { name: '删除 Revoked Mac' }))
+    let dialog = screen.getByRole('dialog', { name: '删除已吊销连接' })
+    expect(within(dialog).getByText(/只会删除这一条已吊销连接记录/)).toBeInTheDocument()
+    await browser.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(api.deleteAgentDelegationRecord).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: '删除 Revoked Mac' }))
+    dialog = screen.getByRole('dialog', { name: '删除已吊销连接' })
+    await browser.click(within(dialog).getByRole('button', { name: '确认删除' }))
+    expect(api.deleteAgentDelegationRecord).toHaveBeenCalledOnce()
+    expect(api.deleteAgentDelegationRecord).toHaveBeenCalledWith('agent-revoked')
+    expect(api.revokeAgentDelegation).not.toHaveBeenCalledWith('agent-revoked')
+    expect(within(dialog).getByRole('button', { name: '正在删除…' })).toBeDisabled()
+
+    await act(async () => { resolveDelete?.({ deleted: true }) })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除已吊销连接' })).not.toBeInTheDocument())
+    expect(screen.getByText('已删除连接记录。')).toBeInTheDocument()
   })
 })

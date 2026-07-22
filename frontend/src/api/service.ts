@@ -94,6 +94,9 @@ export function createServiceApi(client: ApiClient) {
     ),
     renameAgentDelegation: (delegationId: string, name: string) => client.patch<AgentDelegation>(resource('/api/me/agent-delegations', delegationId), { name }),
     revokeAgentDelegation: (delegationId: string) => client.delete<{ revoked: boolean }>(resource('/api/me/agent-delegations', delegationId)),
+    deleteAgentDelegationRecord: (delegationId: string) => client.delete<{ deleted: boolean }>(
+      `${resource('/api/me/agent-delegations', delegationId)}/record`,
+    ),
 
     config: (signal?: AbortSignal) => client.get<ConfigResponse>('/api/config', signal),
     configAction: (action: string, payload: Record<string, unknown>) => client.post<ConfigResponse>('/api/config/action', { action, payload }),

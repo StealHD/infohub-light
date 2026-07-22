@@ -2280,6 +2280,21 @@
 - 发布纠偏：首次沿用旧 `release_rc1.sh` 在 VPS 构建，虽构建成功但切换断言失败并自动恢复旧版；随后按用户要求改为本机跨架构构建、传包、`docker load` 后成功发布；当前 `AGENTS.md` 尚未明确“禁止 VPS 构建”，旧脚本仍执行远端 build，建议单独固化该发布规则并同步脚本
 - 控制面变更：无；Remote MCP、订阅写入、Browser Chat 保持关闭，未启动 scheduler，未手动触发来源抓取、AI、付费调用或数据库恢复
 
+### 2026-07-22 21:38 Codex
+- 任务：为测试/生产共用 OpenClaw Gateway 的会话标签冲突建立隔离修复分支与设计规格
+- 修改文件：新增会话隔离设计规格并更新本工作日志；创建 `codex/fix-openclaw-session-isolation` 独立 worktree，尚未修改业务代码或运行环境
+- 执行验证：新 worktree 安装前端依赖与隔离 Python 开发环境；未修改代码的 `test_gate full` 22/22 通过、0 failed/error、179.436 秒
+- 结果：固化已批准的站点来源化唯一标签、单次冲突重试、分阶段设备/session 凭据保存、真实错误提示、无旧会话接管/删除以及测试与双环境发布边界
+- 未解决问题：按设计流程等待用户复核书面规格，批准后编写实施计划并开始 RED→GREEN 修复
+- 控制面变更：仅新增设计规格；UI 合同和决策记录将在实际行为实现时同步更新
+
+### 2026-07-22 22:21 Codex
+- 任务：核对 VPS 已知正常版本与当前 OpenClaw 修复分支基线之间的 UI 差异
+- 修改文件：仅本工作日志；未修改产品代码或运行环境
+- 执行验证：VPS current/live/容器均确认运行 `c762fea20268`；VPS 保留的 `c762fea` 与 `614793f` 镜像标签、release 源码哈希一致；Git 逐提交比对确认两者之间只有 `dc6719b` 修改业务 UI，其余提交仅修改测试或文档
+- 结果：当前分支以 `de8b146` 为基线，继承了 `dc6719b` 对 Feed 卡片、订阅页和 OpenClaw Tooltip trigger/DOM 的 UI 回归；VPS 使用回退后的 `c762fea` 因而显示正常，当前分支暂停部署
+- 控制面变更：无；未切换 VPS 镜像、未修改数据库、未运行调度或模型调用
+
 ### 2026-07-22 22:57 Codex
 - 任务：从干净 `dc6719b` 新分支收口 Tooltip 近邻定位、Agent 选中态、左右栏动效、Feed 新鲜边缘、系统主题、Changelog 与 OpenClaw 发送按钮稳定性
 - 修改文件：设计系统主题/Tooltip、工作台 Shell/Feed、OpenClaw 会话、Changelog 路由与入口、生产 Playwright、`UI_CONTRACT.md`、`PLAN.md`、D048 及本工作日志
@@ -2293,3 +2308,64 @@
 - 执行验证：无缓存 Docker build、前端 production build/产物扫描通过；API/Worker 同 image ID `sha256:2149f1560f6c` 且 healthy，live=`1.5.0/dc6719b102b-ui-interaction-changelog-dirty`、database/worker ready；`/feed`=200，bundle=`index-36Nz43Dq.js`，SQLite quick check=`ok` 且 queued/running=0
 - 结果：8080 已运行 `inteliscope-service:local-dc6719b-ui-interaction-changelog`；旧镜像保留用于回退，现有数据库和用户数据未替换
 - 控制面变更：无；未提交、未推送、未部署 VPS、未触发来源抓取、AI、付费调用或 scheduler
+
+### 2026-07-23 00:13 Codex
+- 任务：为新增“令牌吊销后删除”要求核对现有凭据流程与 OpenClaw 2026.7.1 本机协议实现
+- 修改文件：仅本工作日志；尚未修改产品代码、权限合同或运行环境
+- 执行验证：确认当前“忘记此浏览器”只清理 transcript/IndexedDB；OpenClaw 提供 `device.token.revoke` 与 `device.pair.remove`，两者均要求当前未申请的 `operator.pairing`，且非管理员只能管理自身 operator 设备
+- 结果：因助手连接页同时存在 OpenClaw device token 与 Inteliscope Remote MCP token，需先确认目标令牌再确定最小权限与失败语义
+- 控制面变更：无；未扩大 scope、未吊销或删除任何真实凭据
+
+### 2026-07-23 00:27 Codex
+- 任务：无缓存构建并启动当前 OpenClaw 会话隔离分支的本地 Docker 预览
+- 修改文件：仅本工作日志；本机 API/Worker 从 `653b1e4d3fc6-openclaw-latest` 切换到当前分支镜像，原数据、`.env`、日志与旧镜像保留
+- 执行验证：production build/产物检查通过；API/Worker 同 image ID `sha256:9a415fba3d36…05ec`、healthy、0 restart，live=`1.7.1/32a4d7fd881b-openclaw-session`、ready；7 个页面 200、受保护 API 401、SQLite integrity=`ok`、foreign-key=0、queued/running=0、数据计数 `3/9/89`、scheduler 未运行、严重启动日志 0；bundle `index-BZVDMzrl.js` 含唯一标签与会话冲突映射，Gateway 2026.7.1 probe=ok
+- 结果：`localhost:8080` 已运行本分支，可立即验证测试/生产共享 Gateway 的连接修复；附带的服务端吊销后本地删除仍处于已批准规格阶段，尚未进入该镜像
+- 回退与备份：旧镜像 `inteliscope-service:local-653b1e4d3fc6-openclaw-latest` 保留；切换前数据库备份为 `data/backups/pre-openclaw-session-20260722T162525Z.db`，SHA-256 `45bf812a…b87`
+- 控制面变更：无；未修改 VPS、数据库内容或功能开关，未启动 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 00:52 Codex
+- 任务：续完 OpenClaw 测试/生产共用 Gateway 的连接修复，并新增服务端设备移除成功后再删除本地凭据
+- 修改文件：OpenClaw Gateway scope 协商、凭据仓、聊天 Hook、设备移除服务、助手连接确认 UI 与测试；同步 UI 合同、D050 和实施计划
+- 执行验证：修复分支已从 `de8b146` 安全迁移到 VPS 已知正常基线 `c762fea20268`，确认不含 UI 回归 `dc6719b`；scope RED 5 项、device service RED 1 suite、Hook/UI RED 各 1 组后转 GREEN；定向 29/29、前端 42 files/338 tests、lint 0 error、TypeScript、production build 通过；`test_gate full` 22/22、0 failed/error、99.485 秒
+- 结果：所有新会话使用来源化唯一标签并只对明确冲突重试一次；新授权精确请求 read/write/pairing，旧 read/write 凭据继续普通重连；“忘记此浏览器”确认后只调用当前 identity 的 `device.pair.remove`，成功或 unknown-device 才清 transcript/IndexedDB，其他失败完整保留本地恢复状态
+- 控制面变更：`UI_CONTRACT.md` 与 D050 固化最小 pairing scope、旧凭据兼容和服务端优先删除语义；Remote MCP、订阅写入、Service API、数据库、scheduler、模型与 VPS 均未修改
+
+### 2026-07-23 00:59 Codex
+- 任务：无缓存构建并启动已完成的 OpenClaw 修复分支本地容器
+- 修改文件：本工作日志、D050 状态和实施计划；本机 API/Worker 从 `8e9f05f2275f-main` 切换到 `inteliscope-service:local-042e813d3fc3-openclaw-session`，原 `.env`、`data`、`logs` 和回滚镜像保留
+- 执行验证：image ID `sha256:52f550434d35…d2f9`；API/Worker 同 image、healthy、0 restart，live=`1.7.1/042e813d3fc3-openclaw-session`、ready；7 路由 200、受保护 API 401、SQLite integrity=`ok`、foreign-key=0、active jobs=0、数据计数 `3/9/89`、scheduler=0、严重启动日志=0；Remote MCP/订阅写入/Browser Chat 均保持启用，Gateway 2026.7.1 running/probe=ok；运行 bundle 含唯一标签、`operator.pairing` 与 `device.pair.remove`
+- 门禁说明：clean-branch release gate 的 22 个前置命令通过，`release_playwright` 因已知 `c762fea` Tooltip nested-interactive 和旧设置页验收项失败；按用户“不排查 UI、继续 OpenClaw”的要求未引入造成视觉回归的 `dc6719b`，OpenClaw 范围以独立通过的 full gate 22/22 为完成证据
+- 回退与备份：切换前数据库备份 `data/backups/pre-openclaw-final-20260722T165652Z.db`，SHA-256 `dbeffbba…cdee`、0600、integrity=`ok`；旧 `8e9f05f2275f-main` 镜像仍保留
+- 控制面变更：仅更新 D050 的本地验证状态；未修改或部署 VPS，未触发 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 01:03 Codex
+- 任务：按用户要求再次启动并确认已完成的 OpenClaw 修复容器
+- 修改文件：仅本工作日志；对本机 API/Worker 执行幂等 `up -d --no-build`，未重建镜像、未修改数据库或环境配置
+- 执行验证：API/Worker 均运行 image ID `sha256:52f550434d35…d2f9`、healthy、0 restart；live revision=`042e813d3fc3-openclaw-session`、ready，`/feed`=200
+- 结果：最终修复容器已在 `localhost:8080` 运行，可进入信息流测试 OpenClaw 连接
+- 控制面变更：无；VPS、scheduler、来源抓取、模型和付费调用均未触碰
+
+### 2026-07-23 01:15 Codex
+- 任务：修复旧 read/write 浏览器配对在“忘记此浏览器”时被前端提前拦截、无法生成 OpenClaw scope-upgrade 请求的问题，并启动修复容器
+- 修改文件：OpenClaw 设备移除服务与回归测试、助手连接提示测试、UI 合同、D050、设计/实施文档及本工作日志；本机 API/Worker 切换到提交 `5874e92`
+- 执行验证：回归测试先 3 项 RED 后转 GREEN；前端 42 files/339 tests、TypeScript、lint 0 error、production build/产物检查、`test_gate full` 与 `git diff --check` 通过；API/Worker 同 image ID `sha256:f58c837d249…c762ef`、healthy、0 restart，live=`1.7.1/5874e9201e19-openclaw-pairing-upgrade`、ready，运行 bundle 含 scope-upgrade 提示与批准命令，SQLite integrity=`ok`
+- 结果：显式删除旧配对会用保存的 identity/device token 请求三项当前 scope；Gateway 返回的 `PAIRING_REQUIRED/scope-upgrade` 会显示经过校验的 request ID 和 `openclaw devices approve` 命令且不清本地数据，批准后重试才调用 `device.pair.remove` 并完成本地删除
+- 回退与备份：旧镜像 `inteliscope-service:local-042e813d3fc3-openclaw-session` 保留；切换前备份 `data/backups/pre-openclaw-pairing-upgrade-20260723T011403.db`，SHA-256 `6b96adc3…2566`、0600、integrity=`ok`
+- 控制面变更：UI 合同与 D050 补充用户确认后由 Gateway 审批保护的旧凭据升级流程；普通重连仍使用旧两 scope，Remote MCP、订阅写入和 Browser Chat 均保持启用，未修改/部署 VPS，未启动 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 01:35 Codex
+- 任务：按用户纠正的真实目标，为 `/agents` 中一条已吊销 Remote MCP 助手连接新增永久删除能力；不再把它误当成 OpenClaw Gateway 浏览器配对
+- 修改文件：delegation 存储与 API、Service API 客户端、助手连接行级删除确认 UI、后端/前端测试、API/UI 合同、D051、设计/实施文档及本工作日志
+- 执行验证：存储/API 先 RED 后 35 条定向测试通过；HeroAgentsPage 先 RED 后 11/11，通过完整前端 42 files/340 tests、TypeScript、lint 0 error、production build/产物检查、`test_gate full` 与 `git diff --check`；运行 OpenAPI 含 `/record`，未认证删除为 401
+- 结果：原 DELETE 继续幂等吊销；新增 `/record` 只删除当前用户选中的已吊销记录，有效记录 409、非本人/不存在 404；有效卡片仍显示“吊销”，已吊销卡片改为“删除”并确认只影响这一条
+- 容器与回退：API/Worker 已切换到 `inteliscope-service:local-296fac5e85f3-delegation-delete`，同 image ID `sha256:306a3137cbd…4b7939`、healthy、0 restart，live=`1.7.1/296fac5e85f3-delegation-delete`、ready，bundle 含“删除已吊销连接”；旧镜像保留
+- 数据安全：切换前 active jobs/due schedules 均为 0；备份 `data/backups/pre-agent-delegation-delete-20260723T013400.db`，SHA-256 `017df928…ce90e`、0600、integrity=`ok`；切换后 active jobs=0、数据库 integrity=`ok`
+- 控制面变更：API/UI 合同与 D051 固化独立删除端点、已吊销前置条件和当前用户单条作用域；Remote MCP、订阅写入与 Browser Chat 保持启用，未部署 VPS，未启动 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 01:55 Codex
+- 任务：把 `codex/fix-openclaw-session-isolation` 本地合并到并行演进后的 `main`
+- 修改文件：合并 OpenClaw 会话/配对、单条已吊销 delegation 删除及测试；人工整合 API/UI 合同、实施文档、D048–D051 与双方工作日志
+- 执行验证：功能分支 `test_gate full` 22/22；合并结果 OpenClaw/助手连接前端定向 57/57、delegation 后端定向 35/35、`git diff --check` 通过
+- 结果：保留 `main` 的运行时模型规范化、思考档位、扁平时间线和 UI/Changelog 改进，同时加入服务端优先配对移除、scope-upgrade 与仅删除选中已吊销连接；原 `main` 未提交文档以独立 stash 保护，待合并门禁后原样恢复
+- 控制面变更：解决双方 D048/D049 编号碰撞，保留主线 D048/D049，并将配对移除与 delegation 删除分别落为 D050/D051；未修改本地容器、VPS、数据库、scheduler、来源抓取、模型或付费调用

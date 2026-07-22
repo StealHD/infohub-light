@@ -73,7 +73,7 @@ def test_agent_delegation_api_lists_when_disabled_but_rejects_creation(
     assert created.json()["error"]["code"] == "remote_mcp_disabled"
 
 
-def test_agent_delegation_api_returns_secret_once_and_supports_rename_and_revoke(
+def test_agent_delegation_api_supports_rename_revoke_and_explicit_record_delete(
     tmp_path, monkeypatch
 ):
     client = _client(tmp_path, monkeypatch, enabled=True)
@@ -113,6 +113,14 @@ def test_agent_delegation_api_returns_secret_once_and_supports_rename_and_revoke
     assert renamed.status_code == 200
     assert renamed.json()["data"]["name"] == "Desktop"
 
+    before_revoke = client.delete(
+        f"/api/me/agent-delegations/{connection_id}/record"
+    )
+    assert before_revoke.status_code == 409
+    assert before_revoke.json()["error"]["code"] == (
+        "agent_delegation_not_revoked"
+    )
+
     revoked = client.delete(f"/api/me/agent-delegations/{connection_id}")
     repeated = client.delete(f"/api/me/agent-delegations/{connection_id}")
     assert revoked.json() == {"ok": True, "data": {"revoked": True}}
@@ -120,6 +128,13 @@ def test_agent_delegation_api_returns_secret_once_and_supports_rename_and_revoke
     assert client.get("/api/me/agent-delegations").json()["data"]["connections"][
         0
     ]["status"] == "revoked"
+
+    deleted = client.delete(f"/api/me/agent-delegations/{connection_id}/record")
+    assert deleted.json() == {"ok": True, "data": {"deleted": True}}
+    assert client.get("/api/me/agent-delegations").json()["data"]["connections"] == []
+    assert client.delete(
+        f"/api/me/agent-delegations/{connection_id}/record"
+    ).status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -188,6 +203,9 @@ def test_agent_delegation_api_allows_viewer_and_isolates_connections_by_user(
     ).status_code == 404
     assert client.delete(
         f"/api/me/agent-delegations/{owner_connection['id']}"
+    ).status_code == 404
+    assert client.delete(
+        f"/api/me/agent-delegations/{owner_connection['id']}/record"
     ).status_code == 404
 
 

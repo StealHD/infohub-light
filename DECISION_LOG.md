@@ -424,3 +424,19 @@
 - 原因：OpenClaw 2026.7.1 对 session label 强制唯一，固定 `Inteliscope` 会让测试与生产共用 Gateway 时无法建会话，并在保存 device token 前失败而遗留重复设备；真实 `models.list` 返回裸 ID 会让模型与思考选择失配。360 px 右栏中的消息卡片又会浪费正文宽度并降低信息密度。
 - 影响范围：浏览器 OpenClaw session 创建/恢复、凭据保存顺序、运行时模型投影、per-send thinking、流式消息时间、Agent transcript 视觉与安全链接渲染，以及对应前端回归和 Gateway/UI 合同。
 - 兼容/回退：既有按用户/Gateway 保存的 session key 继续直接恢复，旧 transcript 无时间时不补造时间；无后端 API、数据库、权限、Query Key、Remote MCP、OpenClaw 全局默认或部署变化。关闭 Browser Chat 或回退前端即可恢复旧展示，但固定标签行为不得重新引入。
+
+### D050 OpenClaw 浏览器配对采用服务端优先设备移除
+
+- 决策日期：2026-07-22
+- 当前状态：实现、完整门禁与本地容器验证完成；生产发布验证待执行
+- 决策内容：新授权精确协商 `operator.read + operator.write + operator.pairing`，旧 read/write 凭据继续用于普通重连；浏览器先保存 identity/device token，再创建会话并立即保存 session key。“忘记此浏览器”确认后，旧凭据使用保存的 identity/device token 显式请求当前三项 scope，让 Gateway 创建可审计的 `scope-upgrade`；页面显示 request ID 与批准命令，批准前保留本地材料，批准后重试 `device.pair.remove`。仅服务端删除成功或设备已不存在时清除本地 transcript 与凭据。
+- 原因：只在建会话成功后保存配对会让每次失败遗留不可复用设备；只删除浏览器 IndexedDB 则让服务端旧授权继续存在。旧凭据若在联网前被前端拦截，Gateway 也无法生成必须由用户批准的 scope-upgrade。
+- 安全/兼容：不申请 `operator.admin`。普通重连仍按旧两 scope 工作；只有用户确认删除后才请求 `operator.pairing`，且 OpenClaw 限制非管理员只能删除当前设备。升级待批准或服务端删除失败都不清除本地恢复材料。本决策细化 D049，不改变 Remote MCP、Service API、数据库、模型选择或消息投影合同。
+
+### D051 已吊销 Remote MCP 连接通过独立动作删除单条记录
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现、完整门禁与本地容器验证完成；生产发布待执行
+- 决策内容：保留 `DELETE /api/me/agent-delegations/{id}` 的幂等吊销语义，新增显式 `/record` DELETE，只允许当前用户删除选中的一条 `revoked_at IS NOT NULL` delegation。`/agents` 的有效连接继续显示“吊销”，已吊销连接只显示经确认的“删除”；有效、仅到期、非本人和不存在记录均不得被该动作删除。
+- 原因：把“第二次吊销”解释为删除会让响应丢失后的网络重试误删记录，也混淆令牌失效与列表清理。独立端点和独立确认状态让目标、前置条件和失败语义可验证，同时满足用户只删除一个已吊销连接的需求。
+- 安全/兼容：删除查询同时限定 delegation ID、当前用户 ID 与已吊销状态；既有 proposal 按外键级联删除，其他连接、订阅、Feed、来源和用户数据不变。不新增 schema 或依赖，不改变 Remote MCP 认证、权限、令牌期限、有效连接上限，也不触碰 OpenClaw Gateway 浏览器配对。

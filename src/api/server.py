@@ -1958,6 +1958,22 @@ def create_app(
             raise ApiError("not_found", "connection not found", status_code=404)
         return ok({"revoked": True})
 
+    @app.delete("/api/me/agent-delegations/{delegation_id}/record")
+    async def agent_delegations_record_delete(
+        delegation_id: str,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        deleted = store.delete_revoked_agent_delegation(user["id"], delegation_id)
+        if deleted is None:
+            raise ApiError("not_found", "connection not found", status_code=404)
+        if deleted is False:
+            raise ApiError(
+                "agent_delegation_not_revoked",
+                "connection must be revoked before deletion",
+                status_code=409,
+            )
+        return ok({"deleted": True})
+
     @app.get("/api/me/source-health")
     async def source_health_get(
         user: dict[str, Any] = Depends(current_user),

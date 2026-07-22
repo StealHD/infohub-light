@@ -1738,6 +1738,34 @@ class ServiceStore:
         self.connect().commit()
         return True
 
+    def delete_revoked_agent_delegation(
+        self,
+        user_id: str,
+        delegation_id: str,
+    ) -> bool | None:
+        conn = self.connect()
+        owned = conn.execute(
+            """
+            SELECT revoked_at
+            FROM agent_delegations
+            WHERE id = ? AND user_id = ?
+            """,
+            (delegation_id, user_id),
+        ).fetchone()
+        if owned is None:
+            return None
+        if owned["revoked_at"] is None:
+            return False
+        cursor = conn.execute(
+            """
+            DELETE FROM agent_delegations
+            WHERE id = ? AND user_id = ? AND revoked_at IS NOT NULL
+            """,
+            (delegation_id, user_id),
+        )
+        conn.commit()
+        return True if cursor.rowcount else None
+
     def authenticate_agent_delegation(
         self,
         token: str,

@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  OPENCLAW_CURRENT_SCOPES,
+  OPENCLAW_LEGACY_SCOPES,
   OpenClawGatewayClient,
   buildDeviceAuthPayloadV3,
   parseOpenClawConnectionInput,
   validateGatewayUrl,
   validateNegotiatedScopes,
+  validateStoredOpenClawScopes,
   type GatewaySocket,
 } from './openclawGateway'
 
@@ -65,9 +68,20 @@ describe('OpenClaw Gateway v4 client', () => {
   })
 
   it('rejects broader or incomplete negotiated scopes', () => {
-    expect(validateNegotiatedScopes(['operator.write', 'operator.read'])).toEqual(['operator.read', 'operator.write'])
+    expect(validateNegotiatedScopes(['operator.write', 'operator.pairing', 'operator.read']))
+      .toEqual(OPENCLAW_CURRENT_SCOPES)
+    expect(validateNegotiatedScopes(
+      ['operator.write', 'operator.read'],
+      OPENCLAW_LEGACY_SCOPES,
+    )).toEqual(OPENCLAW_LEGACY_SCOPES)
+    expect(validateStoredOpenClawScopes(['operator.write', 'operator.read']))
+      .toEqual(OPENCLAW_LEGACY_SCOPES)
+    expect(validateStoredOpenClawScopes(['operator.pairing', 'operator.write', 'operator.read']))
+      .toEqual(OPENCLAW_CURRENT_SCOPES)
+    expect(() => validateNegotiatedScopes(['operator.read', 'operator.write'])).toThrow('权限')
     expect(() => validateNegotiatedScopes(['operator.admin', 'operator.read', 'operator.write'])).toThrow('权限')
     expect(() => validateNegotiatedScopes(['operator.read'])).toThrow('权限')
+    expect(() => validateStoredOpenClawScopes(['operator.read', 'operator.write', 'operator.approvals'])).toThrow('权限')
   })
 
   it('answers a challenge, connects with a signed device and supports requests and events', async () => {
@@ -105,7 +119,7 @@ describe('OpenClaw Gateway v4 client', () => {
         maxProtocol: 4,
         client: { id: 'webchat-ui', mode: 'webchat', platform: 'MacIntel', deviceFamily: 'Browser' },
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.pairing'],
         auth: { token: 'bootstrap-secret' },
         device: { id: 'device-1', publicKey: 'public-key', signature: 'signed-value', signedAt: 123, nonce: 'nonce-1' },
       },
@@ -116,7 +130,11 @@ describe('OpenClaw Gateway v4 client', () => {
       type: 'res', id: connectFrame.id, ok: true,
       payload: {
         protocol: 4,
-        auth: { deviceToken: 'device-token', role: 'operator', scopes: ['operator.read', 'operator.write'] },
+        auth: {
+          deviceToken: 'device-token',
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write', 'operator.pairing'],
+        },
         snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
       },
     }) })
@@ -129,5 +147,51 @@ describe('OpenClaw Gateway v4 client', () => {
 
     socket.emit('message', { data: JSON.stringify({ type: 'event', event: 'chat', payload: { sessionKey: 'session-1', state: 'delta' } }) })
     expect(events).toHaveLength(1)
+  })
+
+  it('reconnects an existing legacy device with its exact stored scopes', async () => {
+    const socket = new FakeSocket()
+    const client = new OpenClawGatewayClient({
+      url: 'ws://127.0.0.1:18789',
+      deviceToken: 'legacy-device-token',
+      deviceIdentity: {
+        deviceId: 'legacy-device',
+        publicKey: 'legacy-public-key',
+        privateKey: {} as CryptoKey,
+      },
+      requestedScopes: OPENCLAW_LEGACY_SCOPES,
+      socketFactory: () => socket,
+      signer: vi.fn().mockResolvedValue('legacy-signature'),
+      now: () => 456,
+      randomId: () => 'legacy-request',
+    })
+
+    const connecting = client.connect()
+    socket.emit('open')
+    socket.emit('message', { data: JSON.stringify({
+      type: 'event', event: 'connect.challenge', payload: { nonce: 'legacy-nonce' },
+    }) })
+    await vi.waitFor(() => expect(socket.sent).toHaveLength(1))
+
+    const connectFrame = JSON.parse(socket.sent[0])
+    expect(connectFrame.params).toMatchObject({
+      scopes: ['operator.read', 'operator.write'],
+      auth: { deviceToken: 'legacy-device-token' },
+    })
+    socket.emit('message', { data: JSON.stringify({
+      type: 'res', id: connectFrame.id, ok: true,
+      payload: {
+        protocol: 4,
+        auth: {
+          deviceToken: 'legacy-device-token',
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write'],
+        },
+      },
+    }) })
+
+    await expect(connecting).resolves.toMatchObject({
+      auth: { scopes: ['operator.read', 'operator.write'] },
+    })
   })
 })

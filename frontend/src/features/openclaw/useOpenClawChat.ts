@@ -5,7 +5,9 @@ import {
   type AgentContextItem,
 } from '../workbench-live/agentContext'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
+import { forgetOpenClawBrowser } from './openclawDevice'
 import {
+  OPENCLAW_CURRENT_SCOPES,
   GatewayRequestError,
   OpenClawGatewayClient,
   generateDeviceIdentity,
@@ -813,6 +815,9 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         bootstrapToken: parsed.bootstrapToken || undefined,
         deviceToken: parsed.bootstrapToken ? undefined : stored?.deviceToken,
         deviceIdentity: identity,
+        requestedScopes: parsed.bootstrapToken
+          ? OPENCLAW_CURRENT_SCOPES
+          : stored?.scopes ?? OPENCLAW_CURRENT_SCOPES,
         platform: navigator.platform || 'web',
         deviceFamily: 'browser',
         onEvent: handleGatewayEvent,
@@ -1162,10 +1167,16 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   }, [gatewayUrl, options.userId])
 
   const forget = useCallback(async () => {
+    await forgetOpenClawBrowser({
+      userId: options.userId,
+      gatewayUrl,
+      vault,
+      clearTranscripts: clearOpenClawTranscript,
+      clientFactory: options.clientFactory,
+    })
     clearTranscript()
     disconnect()
-    await vault.forget(options.userId, gatewayUrl)
-  }, [clearTranscript, disconnect, gatewayUrl, options.userId, vault])
+  }, [clearTranscript, disconnect, gatewayUrl, options.clientFactory, options.userId, vault])
 
   const effectiveStatus: OpenClawConnectionStatus = !options.enabled
     ? 'disabled'

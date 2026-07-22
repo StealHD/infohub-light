@@ -62,4 +62,34 @@ describe('OpenClaw credential vault', () => {
       scopes: ['operator.read', 'operator.write', 'operator.admin'],
     })).rejects.toThrow('权限')
   })
+
+  it('persists the current pairing profile while retaining exact legacy credentials', async () => {
+    const adapter = new MemoryAdapter()
+    const vault = new OpenClawCredentialVault(adapter)
+    const identity = { deviceId: 'device-current', publicKey: 'public-current', privateKey: {} as CryptoKey }
+
+    await expect(vault.save('user-current', 'ws://127.0.0.1:18789', {
+      identity,
+      deviceToken: 'current-token',
+      scopes: ['operator.read', 'operator.write', 'operator.pairing'],
+      sessionKey: 'session-current',
+    })).resolves.toMatchObject({
+      scopes: ['operator.read', 'operator.write', 'operator.pairing'],
+    })
+
+    await expect(vault.load('user-current', 'ws://127.0.0.1:18789')).resolves.toMatchObject({
+      deviceToken: 'current-token',
+      scopes: ['operator.read', 'operator.write', 'operator.pairing'],
+    })
+
+    const legacy = new OpenClawCredentialVault(new MemoryAdapter())
+    await legacy.save('user-legacy', 'ws://127.0.0.1:18789', {
+      identity: { ...identity, deviceId: 'device-legacy' },
+      deviceToken: 'legacy-token',
+      scopes: ['operator.read', 'operator.write'],
+    })
+    await expect(legacy.load('user-legacy', 'ws://127.0.0.1:18789')).resolves.toMatchObject({
+      scopes: ['operator.read', 'operator.write'],
+    })
+  })
 })

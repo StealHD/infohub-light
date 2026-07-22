@@ -19,8 +19,13 @@ import {
   TextField,
 } from '../../design-system'
 import { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
+import { forgetOpenClawBrowser } from '../openclaw/openclawDevice'
 import { validateGatewayUrl } from '../openclaw/openclawGateway'
-import { readSavedGatewayUrl, saveGatewayUrl } from '../openclaw/useOpenClawChat'
+import {
+  clearOpenClawTranscript,
+  readSavedGatewayUrl,
+  saveGatewayUrl,
+} from '../openclaw/useOpenClawChat'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 
 const TOKEN_REFERENCE = '${INTELISCOPE_MCP_TOKEN}'
@@ -90,16 +95,28 @@ function DialogFrame({ title, children, footer, dismissable = true, testId }: {
   </Modal.Backdrop>
 }
 
-function OpenClawBrowserSettings({ userId, enabled, defaultUrl, targetVersion }: {
+export function OpenClawBrowserSettings({
+  userId,
+  enabled,
+  defaultUrl,
+  targetVersion,
+  vault: providedVault,
+  forgetBrowser = forgetOpenClawBrowser,
+}: {
   userId: string
   enabled: boolean
   defaultUrl: string
   targetVersion: string
+  vault?: OpenClawCredentialVault
+  forgetBrowser?: typeof forgetOpenClawBrowser
 }) {
   const [url, setUrl] = useState(() => readSavedGatewayUrl(userId, defaultUrl))
   const [paired, setPaired] = useState<boolean | null>(null)
   const [notice, setNotice] = useState('')
-  const vault = useMemo(() => new OpenClawCredentialVault(), [])
+  const [forgetOpen, setForgetOpen] = useState(false)
+  const [forgetPending, setForgetPending] = useState(false)
+  const defaultVault = useMemo(() => new OpenClawCredentialVault(), [])
+  const vault = providedVault ?? defaultVault
 
   useEffect(() => {
     let cancelled = false
@@ -122,39 +139,74 @@ function OpenClawBrowserSettings({ userId, enabled, defaultUrl, targetVersion }:
     }
   }
 
-  async function forget() {
+  async function confirmForget() {
+    setForgetPending(true)
+    setNotice('')
     try {
-      await vault.forget(userId, validateGatewayUrl(url))
+      const gatewayUrl = validateGatewayUrl(url)
+      const result = await forgetBrowser({
+        userId,
+        gatewayUrl,
+        vault,
+        clearTranscripts: clearOpenClawTranscript,
+      })
       setPaired(false)
-      setNotice('已删除此用户在当前浏览器中的 OpenClaw 配对。请按 OpenClaw 设备列表指引吊销服务端设备。')
+      setForgetOpen(false)
+      setNotice(result === 'not-paired'
+        ? '当前浏览器已无可删除的 OpenClaw 配对。'
+        : 'OpenClaw 服务端设备和当前浏览器配对已删除。')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法删除当前浏览器配对。')
+      setNotice(error instanceof Error ? error.message : '无法移除 OpenClaw 浏览器配对；本地凭据已保留。')
+    } finally {
+      setForgetPending(false)
     }
   }
 
-  return <AdminSection
-    title="OpenClaw 对话连接"
-    description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inteliscope 服务器。`}
-  >
-    {!enabled && <HeroNotice title="管理员尚未启用站内 OpenClaw 对话；信息流仍提供复制交接模式。" status="warning" role="status" />}
-    <div className="mt-3 grid gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
-      <TextField fullWidth value={url} onChange={setUrl}>
-        <Label>OpenClaw Gateway URL</Label>
-        <Input aria-label="OpenClaw Gateway URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-      </TextField>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
-        <Button size="sm" variant="danger" isDisabled={!paired} onPress={() => void forget()}>忘记此浏览器</Button>
+  return <>
+    <AdminSection
+      title="OpenClaw 对话连接"
+      description={`浏览器直连你的 OpenClaw Gateway；目标版本 ${targetVersion}。Gateway token 不会发送到 Inteliscope 服务器。`}
+    >
+      {!enabled && <HeroNotice title="管理员尚未启用站内 OpenClaw 对话；信息流仍提供复制交接模式。" status="warning" role="status" />}
+      <div className="mt-3 grid gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
+        <TextField fullWidth value={url} onChange={setUrl}>
+          <Label>OpenClaw Gateway URL</Label>
+          <Input aria-label="OpenClaw Gateway URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        </TextField>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
+          <Button
+            size="sm"
+            variant="danger"
+            isDisabled={!paired || forgetPending}
+            onPress={() => setForgetOpen(true)}
+          >忘记此浏览器</Button>
+        </div>
       </div>
-    </div>
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <Chip size="sm" color={paired ? 'success' : 'default'} variant="soft"><Chip.Label>{paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}</Chip.Label></Chip>
-      {enabled && <a className="type-control text-accent" href="/feed">打开信息流对话面板</a>}
-    </div>
-    {notice && <p className="type-body mt-3 text-muted" role="status">{notice}</p>}
-    <p className="type-meta mt-2 text-muted">忘记后可运行 <code>openclaw devices list</code>，找到 Inteliscope 浏览器设备并在 OpenClaw 中吊销，避免服务端仍保留旧设备授权。</p>
-    <p className="type-meta mt-3 text-muted">本地只允许 ws://127.0.0.1 或 ws://localhost；远程 Gateway 必须使用 wss://。首次 token 只在对话面板输入。</p>
-  </AdminSection>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Chip size="sm" color={paired ? 'success' : 'default'} variant="soft"><Chip.Label>{paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}</Chip.Label></Chip>
+        {enabled && <a className="type-control text-accent" href="/feed">打开信息流对话面板</a>}
+      </div>
+      {notice && <p className="type-body mt-3 text-muted" role="status">{notice}</p>}
+      <p className="type-meta mt-2 text-muted">确认忘记后会先从 OpenClaw Gateway 移除当前设备；只有服务端成功或设备已不存在时，才会清除本地对话和配对凭据。</p>
+      <p className="type-meta mt-3 text-muted">本地只允许 ws://127.0.0.1 或 ws://localhost；远程 Gateway 必须使用 wss://。首次 token 只在对话面板输入。</p>
+    </AdminSection>
+    <Modal isOpen={forgetOpen} onOpenChange={(open) => !forgetPending && setForgetOpen(open)}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开移除浏览器配对</Modal.Trigger>
+      <DialogFrame
+        title="移除 OpenClaw 浏览器配对"
+        dismissable={!forgetPending}
+        footer={<>
+          <Button variant="ghost" isDisabled={forgetPending} onPress={() => setForgetOpen(false)}>取消</Button>
+          <Button variant="danger" isDisabled={forgetPending} onPress={() => void confirmForget()}>
+            {forgetPending ? '正在移除…' : '确认移除并忘记'}
+          </Button>
+        </>}
+      >
+        <p className="type-body text-muted">这会让当前浏览器设备失去 OpenClaw 访问权限，并删除此用户在该 Gateway 下的本地对话与配对凭据。服务端拒绝时，本地恢复材料会保留。</p>
+      </DialogFrame>
+    </Modal>
+  </>
 }
 
 export function HeroAgentsPage() {
@@ -174,6 +226,7 @@ export function HeroAgentsPage() {
   const [renameTarget, setRenameTarget] = useState<AgentDelegation | null>(null)
   const [renameName, setRenameName] = useState('')
   const [revokeTarget, setRevokeTarget] = useState<AgentDelegation | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AgentDelegation | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const readConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'read'), [query.data?.mcp_url])
@@ -215,6 +268,11 @@ export function HeroAgentsPage() {
     onSuccess: () => { setRevokeTarget(null); setNotice('连接已永久吊销。'); setError(''); refresh() },
     onError: (caught) => setError(caught instanceof ApiError ? caught.message : '吊销失败。'),
   })
+  const deleteRecord = useMutation({
+    mutationFn: () => api.deleteAgentDelegationRecord(deleteTarget!.id),
+    onSuccess: () => { setDeleteTarget(null); setNotice('已删除连接记录。'); setError(''); refresh() },
+    onError: (caught) => setError(caught instanceof ApiError ? caught.message : '删除失败。'),
+  })
 
   async function copy(value: string, message: string) {
     try { await navigator.clipboard.writeText(value); setNotice(message); setError('') }
@@ -255,7 +313,7 @@ export function HeroAgentsPage() {
           return <Card key={connection.id} variant="secondary" className="p-4">
             <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center">
               <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><Chip size="sm" color={status.color} variant="soft"><Chip.Label>{status.label}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{accessLabel(connection.access)}</Chip.Label></Chip></div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
-              <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`复制 ${connection.name} 配置`} onPress={() => void copy(agentConfiguration(query.data.mcp_url, connection.access), `${connection.name} 配置已复制。`)}><Icons.Copy size={15} />复制配置</Button><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button><Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => setRevokeTarget(connection)}>吊销</Button></div>
+              <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`复制 ${connection.name} 配置`} onPress={() => void copy(agentConfiguration(query.data.mcp_url, connection.access), `${connection.name} 配置已复制。`)}><Icons.Copy size={15} />复制配置</Button><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button>{connection.status === 'revoked' ? <Button size="sm" variant="danger" aria-label={`删除 ${connection.name}`} onPress={() => setDeleteTarget(connection)}>删除</Button> : <Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => setRevokeTarget(connection)}>吊销</Button>}</div>
             </div>
           </Card>
         })}
@@ -314,6 +372,17 @@ export function HeroAgentsPage() {
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开吊销连接</Modal.Trigger>
       <DialogFrame title="吊销助手连接" footer={<><Button variant="ghost" onPress={() => setRevokeTarget(null)}>取消</Button><Button variant="danger" isDisabled={revoke.isPending} onPress={() => revoke.mutate()}>确认吊销</Button></>}>
         <p className="type-body text-muted">吊销后无法恢复，OpenClaw 的下一次请求会立即失败。需要恢复时请创建新连接。</p>
+      </DialogFrame>
+    </Modal>
+
+    <Modal isOpen={Boolean(deleteTarget)} onOpenChange={(open) => !open && !deleteRecord.isPending && setDeleteTarget(null)}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开删除连接</Modal.Trigger>
+      <DialogFrame
+        title="删除已吊销连接"
+        dismissable={!deleteRecord.isPending}
+        footer={<><Button variant="ghost" isDisabled={deleteRecord.isPending} onPress={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" isDisabled={deleteRecord.isPending} onPress={() => deleteRecord.mutate()}>{deleteRecord.isPending ? '正在删除…' : '确认删除'}</Button></>}
+      >
+        <p className="type-body text-muted">只会删除这一条已吊销连接记录，不会影响其他连接。删除后无法恢复。</p>
       </DialogFrame>
     </Modal>
   </div>
