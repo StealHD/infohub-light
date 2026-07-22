@@ -2219,3 +2219,11 @@
 - 执行验证：在 `node:22-slim` ARM 容器中以现有 lockfile 执行 `npm ci --include=optional`，365 个包安装成功且 `lightningcss-linux-arm64-gnu` 存在
 - 结果：前端构建阶段显式安装 lockfile 中的平台可选包，避免无缓存构建因缺少原生模块失败；未修改运行时依赖版本
 - 控制面变更：无；仅收紧 Docker 构建可复现性
+
+### 2026-07-22 16:14 Codex
+- 任务：在独立分支实现硬刷新稳定首帧、固定几何 Feed/Agent Skeleton 与局部内容浮现
+- 修改文件：HTML/bootstrap 壳、应用认证接管、设计系统加载模式、工作台 Feed/Agent、布局偏好、Vitest/Playwright、`UI_CONTRACT.md`、D046、影响映射与本工作日志
+- 执行验证：聚焦 Vitest 105/105、刷新专项 Chromium 1/1、UI contract、ESLint（0 error、6 个既有 Fast Refresh warning）、TypeScript 与差异审查通过；最终 `test_gate full` 22/22、0 failed/error、108.835 秒，`mapping_miss=false`
+- 结果：首帧直接绘制原背景和上次导航/可停靠右栏布局；数据区以 1.4 秒低干扰呼吸占位，120 ms 淡出并由内容以 200 ms/4 px 局部浮现；Feed 和 Agent 宽度在静态壳、Skeleton 与真实内容间保持稳定，窄屏不自动弹出 Drawer
+- 未解决问题：单独运行既有生产工作台全链路用例仍会命中基线 HeroUI Tooltip 包装层的重复 button 角色及 Axe `nested-interactive`；刷新专项不依赖该路径，本分支未扩大范围修复
+- 控制面变更：新增 D046 并更新 Quiet Studio 加载真源；无 API、数据库、权限、Query Key、Gateway/MCP、部署或运行容器变化
