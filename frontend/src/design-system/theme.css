@@ -23,6 +23,8 @@
   --inteliscope-type-card-title-line: 23px;
   --inteliscope-type-body-size: 14px;
   --inteliscope-type-body-line: 22px;
+  --inteliscope-type-chat-size: 13px;
+  --inteliscope-type-chat-line: 20px;
   --inteliscope-type-control-size: 13px;
   --inteliscope-type-control-line: 20px;
   --inteliscope-type-meta-size: 12px;
@@ -158,6 +160,13 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   font-size: var(--inteliscope-type-body-size);
   font-weight: 400;
   line-height: var(--inteliscope-type-body-line);
+  letter-spacing: 0;
+}
+
+.inteliscope-design-system .type-chat {
+  font-size: var(--inteliscope-type-chat-size);
+  font-weight: 400;
+  line-height: var(--inteliscope-type-chat-line);
   letter-spacing: 0;
 }
 

@@ -14,6 +14,10 @@ import {
   type GatewayEvent,
   type GatewayHello,
 } from './openclawGateway'
+import {
+  createOpenClawSessionLabel,
+  isOpenClawSessionLabelConflict,
+} from './openclawSession'
 
 export type OpenClawConnectionStatus = 'disabled' | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 export type OpenClawToolsStatus = 'unknown' | 'available' | 'missing'
@@ -72,7 +76,7 @@ export type OpenClawModelSwitchFallback = {
 }
 
 export type OpenClawSetupIssue = {
-  kind: 'origin' | 'pairing' | 'auth' | 'protocol' | 'permission' | 'network' | 'unknown'
+  kind: 'origin' | 'pairing' | 'auth' | 'protocol' | 'permission' | 'network' | 'session' | 'unknown'
   message: string
   requestId?: string
 }
@@ -373,10 +377,12 @@ function normalizeModels(value: unknown): OpenClawModelOption[] {
   return entries.flatMap((entry) => {
     const model = recordOf(entry)
     if (!model) return []
-    const id = stringOf(model.id)
-    const name = stringOf(model.name)
+    const rawId = stringOf(model.id)
     const provider = stringOf(model.provider)
-    if (!id || !name || !provider || model.available === false || seen.has(id)) return []
+    if (!rawId || !provider || model.available === false) return []
+    const id = rawId.includes('/') ? rawId : `${provider}/${rawId}`
+    const name = stringOf(model.name) ?? rawId
+    if (seen.has(id)) return []
     seen.add(id)
     const contextWindow = typeof model.contextWindow === 'number' && Number.isFinite(model.contextWindow)
       ? Math.max(1, Math.floor(model.contextWindow))
@@ -400,10 +406,13 @@ function matchingModelId(models: OpenClawModelOption[], provider: unknown, model
   const modelName = stringOf(model)
   const providerName = stringOf(provider)
   if (!modelName) return null
-  const full = providerName ? `${providerName}/${modelName}` : modelName
-  return models.find((candidate) => candidate.id === full)?.id
+  const full = providerName && !modelName.includes('/') ? `${providerName}/${modelName}` : modelName
+  const exact = models.find((candidate) => candidate.id === full)?.id
     ?? models.find((candidate) => candidate.id === modelName)?.id
-    ?? null
+  if (exact) return exact
+  if (providerName || modelName.includes('/')) return null
+  const suffixMatches = models.filter((candidate) => candidate.id.endsWith(`/${modelName}`))
+  return suffixMatches.length === 1 ? suffixMatches[0].id : null
 }
 
 function normalizeThinkingOptions(value: unknown): OpenClawThinkingOption[] {
@@ -436,13 +445,13 @@ function projectRuntime(modelsValue: unknown, agentsValue: unknown, sessionValue
     || (!agents.some((entry) => stringOf(recordOf(entry)?.id) === requestedAgentId) && stringOf(candidate?.id) === defaultAgentId)
   )) ?? null
   const agentModel = recordOf(agent?.model)
-  const defaultModelId = stringOf(agentModel?.primary)
+  const defaultModelId = matchingModelId(models, null, agentModel?.primary)
   const sessionRoot = recordOf(sessionValue)
   const session = recordOf(sessionRoot?.session) ?? sessionRoot
   const sessionThinkingOptions = normalizeThinkingOptions(session?.thinkingLevels)
   const matchedSessionModelId = matchingModelId(models, session?.modelProvider, session?.model)
   const hasExplicitSessionModel = Boolean(stringOf(session?.model))
-  const defaultModelIsAvailable = Boolean(defaultModelId && models.some((candidate) => candidate.id === defaultModelId))
+  const defaultModelIsAvailable = Boolean(defaultModelId)
   const modelId = matchedSessionModelId ?? (!hasExplicitSessionModel && defaultModelIsAvailable ? defaultModelId : null)
   const selectedModel = models.find((candidate) => candidate.id === modelId)
   const modelThinkingOptions = selectedModel?.thinkingLevels ?? []
@@ -497,6 +506,7 @@ function setupIssue(error: unknown): OpenClawSetupIssue {
     : {}
   const requestId = typeof details.requestId === 'string' ? details.requestId : undefined
   const fingerprint = `${code} ${message}`.toLowerCase()
+  if (isOpenClawSessionLabelConflict(error)) return { kind: 'session', message: 'OpenClaw 会话名称冲突，请重新连接。', requestId }
   if (fingerprint.includes('pairing_required') || fingerprint.includes('pairing required')) return { kind: 'pairing', message: '这个浏览器需要在 OpenClaw 中批准设备配对。', requestId }
   if (fingerprint.includes('origin')) return { kind: 'origin', message: 'OpenClaw 尚未允许当前 Inteliscope 页面来源。' }
   if (fingerprint.includes('protocol')) return { kind: 'protocol', message: 'OpenClaw Gateway 协议版本不兼容，请升级到 2026.7.1 或更高兼容版本。' }
@@ -525,6 +535,29 @@ function hasInteliscopeTools(value: unknown): boolean {
   })
 }
 
+type OpenClawSessionCreateParams = {
+  agentId: string
+  parentSessionKey?: string
+  fork?: true
+  model?: string
+}
+
+async function createOpenClawSession(
+  client: OpenClawGatewayClient,
+  params: OpenClawSessionCreateParams,
+): Promise<{ key?: string }> {
+  const create = () => client.request<{ key?: string }>('sessions.create', {
+    ...params,
+    label: createOpenClawSessionLabel(window.location.host),
+  })
+  try {
+    return await create()
+  } catch (error) {
+    if (!isOpenClawSessionLabelConflict(error)) throw error
+    return create()
+  }
+}
+
 export function useOpenClawChat(options: OpenClawChatOptions) {
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const configurationKey = `${options.userId}\n${options.defaultGatewayUrl}`
@@ -540,6 +573,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [toolsStatus, setToolsStatus] = useState<OpenClawToolsStatus>('unknown')
   const [messages, setMessages] = useState<OpenClawChatMessage[]>([])
   const [streamText, setStreamText] = useState('')
+  const [streamCreatedAt, setStreamCreatedAt] = useState<number | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -568,6 +602,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const automaticConnectKeyRef = useRef<string | null>(null)
   const reconnectRef = useRef<(reconnecting?: boolean) => void>(() => undefined)
   const streamTextRef = useRef('')
+  const streamCreatedAtRef = useRef<number | null>(null)
   const messagesRef = useRef<OpenClawChatMessage[]>([])
   const transcriptReadyKeyRef = useRef<string | null>(null)
   const terminalRunIdsRef = useRef(new Set<string>())
@@ -677,6 +712,11 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       setRunId(payload.runId)
     }
     if (payload.state === 'delta' && typeof payload.deltaText === 'string') {
+      if (streamCreatedAtRef.current === null && payload.deltaText) {
+        const createdAt = Date.now()
+        streamCreatedAtRef.current = createdAt
+        setStreamCreatedAt(createdAt)
+      }
       setStreamText((current) => {
         const next = (payload.replace ? payload.deltaText! : `${current}${payload.deltaText}`).slice(0, MAX_HISTORY_CHARS)
         streamTextRef.current = next
@@ -687,6 +727,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     if (payload.state === 'error') setIssue({ kind: 'unknown', message: payload.errorMessage || 'OpenClaw 对话失败。' })
     if (payload.state === 'final' || payload.state === 'aborted' || payload.state === 'error') {
       const partialText = streamTextRef.current.trim()
+      const partialCreatedAt = streamCreatedAtRef.current ?? Date.now()
       const completedRunId = payload.runId || runIdRef.current || crypto.randomUUID()
       terminalRunIdsRef.current.add(completedRunId)
       if (terminalRunIdsRef.current.size > 20) terminalRunIdsRef.current.delete(terminalRunIdsRef.current.values().next().value!)
@@ -695,7 +736,9 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       setSending(false)
       setStopping(false)
       streamTextRef.current = ''
+      streamCreatedAtRef.current = null
       setStreamText('')
+      setStreamCreatedAt(null)
       const client = clientRef.current
       const key = sessionKeyRef.current
       const agentId = agentIdRef.current
@@ -706,7 +749,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
           role: 'assistant',
           text: partialText,
           status: payload.state === 'aborted' ? 'aborted' : payload.state === 'error' ? 'failed' : 'sent',
-          createdAt: Date.now(),
+          createdAt: partialCreatedAt,
           origin: 'local',
         }
         assistantMessage.mergeId = messageMergeId(assistantMessage)
@@ -733,7 +776,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setSending(false)
     setStopping(false)
     setSessionKey(null)
+    streamTextRef.current = ''
     setStreamText('')
+    setStreamCreatedAt(null)
+    streamCreatedAtRef.current = null
     replaceVisibleTranscript([])
     setModels([])
     setThinkingOptions([])
@@ -785,13 +831,27 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       clientRef.current = client
       const hello: GatewayHello = await client.connect()
       if (generation !== generationRef.current) { client.close(); return false }
+      const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
+      if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
+      const credential = {
+        identity,
+        deviceToken,
+        scopes: hello.auth?.scopes ?? stored?.scopes ?? [],
+      }
+      await vault.save(options.userId, parsed.gatewayUrl, {
+        ...credential,
+        sessionKey: stored?.sessionKey,
+      })
       const agentId = hello.snapshot?.sessionDefaults?.defaultAgentId
       if (!agentId) throw new Error('OpenClaw Gateway 没有返回默认 Agent。')
       agentIdRef.current = agentId
       let key = stored?.sessionKey
       if (!key) {
-        const created = await client.request<{ key?: string }>('sessions.create', { agentId, label: 'Inteliscope' })
-        key = created.key
+        const created = await createOpenClawSession(client, { agentId })
+        const createdKey = stringOf(created.key)
+        if (!createdKey) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
+        key = createdKey
+        await vault.save(options.userId, parsed.gatewayUrl, { ...credential, sessionKey: key })
       }
       if (!key) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
       sessionKeyRef.current = key
@@ -801,14 +861,6 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         readOpenClawTranscript(options.userId, parsed.gatewayUrl, key),
         current,
       ), key)
-      const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
-      if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
-      await vault.save(options.userId, parsed.gatewayUrl, {
-        identity,
-        deviceToken,
-        scopes: hello.auth?.scopes ?? stored?.scopes ?? [],
-        sessionKey: key,
-      })
       const [tools] = await Promise.all([
         client.request('tools.effective', { sessionKey: key, agentId }),
         loadHistory(client, key, agentId),
@@ -838,7 +890,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     const key = sessionKeyRef.current
     const agentId = agentIdRef.current
     if (!client || !key || !agentId || !snapshot.gatewayPrompt.trim() || runIdRef.current) return false
+    streamTextRef.current = ''
+    streamCreatedAtRef.current = null
     setStreamText('')
+    setStreamCreatedAt(null)
     setIssue(null)
     setSending(true)
     try {
@@ -947,6 +1002,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     agentId: string,
     projection: RuntimeProjection,
     clearMessages: boolean,
+    preserveThinking = false,
   ) => {
     const previousKey = sessionKeyRef.current
     const visibleMessages = messagesRef.current
@@ -964,8 +1020,12 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     terminalRunIdsRef.current.clear()
     setRunId(null)
     streamTextRef.current = ''
+    streamCreatedAtRef.current = null
     setStreamText('')
-    applyRuntime(projection)
+    setStreamCreatedAt(null)
+    applyRuntime(clearMessages
+      ? { ...projection, selection: { ...projection.selection, thinkingLevel: null } }
+      : projection, preserveThinking)
     setModelSwitchFallback(null)
     setRuntimeIssue(null)
     if (clearMessages) {
@@ -1004,9 +1064,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setModelSwitchFallback(null)
     let createdKey: string | null = null
     try {
-      const created = await client.request<{ key?: string }>('sessions.create', {
+      const created = await createOpenClawSession(client, {
         agentId,
-        label: 'Inteliscope',
         parentSessionKey,
         fork: true,
         model: selected.id,
@@ -1017,7 +1076,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       if (projection.invalidSessionModel || projection.selection.modelId !== selected.id) {
         throw new Error('OpenClaw 返回的实际模型与选择不一致。')
       }
-      await activateSession(client, createdKey, agentId, projection, false)
+      await activateSession(client, createdKey, agentId, projection, false, true)
       return true
     } catch (error) {
       if (createdKey) await archiveFailedSession(client, createdKey, agentId)
@@ -1053,9 +1112,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setRuntimeIssue(null)
     let createdKey: string | null = null
     try {
-      const created = await client.request<{ key?: string }>('sessions.create', {
+      const created = await createOpenClawSession(client, {
         agentId,
-        label: 'Inteliscope',
         model: fallback.modelId,
       })
       createdKey = stringOf(created.key)
@@ -1082,7 +1140,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setRuntimeUpdating(true)
     setRuntimeIssue(null)
     try {
-      const created = await client.request<{ key?: string }>('sessions.create', { agentId, label: 'Inteliscope' })
+      const created = await createOpenClawSession(client, { agentId })
       const createdKey = stringOf(created.key)
       if (!createdKey) throw new Error('OpenClaw 没有返回新对话标识。')
       const projection = await readRuntime(client, createdKey, agentId)
@@ -1141,6 +1199,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     toolsStatus,
     messages,
     streamText,
+    streamCreatedAt,
     issue,
     runtimeIssue,
     modelSwitchFallback,

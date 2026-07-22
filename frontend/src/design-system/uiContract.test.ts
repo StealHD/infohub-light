@@ -160,7 +160,7 @@ describe('HeroUI import contract', () => {
     const theme = readFileSync(resolve(process.cwd(), 'src/design-system/theme.css'), 'utf8')
 
     expect(theme).toContain('--inteliscope-font-ui:')
-    for (const role of ['display', 'section-title', 'page-title', 'card-title', 'body', 'control', 'meta', 'label', 'micro', 'prose']) {
+    for (const role of ['display', 'section-title', 'page-title', 'card-title', 'body', 'chat', 'control', 'meta', 'label', 'micro', 'prose']) {
       expect(theme).toContain(`.type-${role}`)
     }
   })

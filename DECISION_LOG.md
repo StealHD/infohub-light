@@ -415,3 +415,12 @@
 - 原因：首帧主题若等待 React 会闪烁，浏览器本地覆盖又会与“跟随系统”语义冲突；把产品更新与运行数据混合会泄露内部状态并产生不可复现内容。确定性的前端主题和版本化日志可同时保证首帧一致、可审查与离线可用。
 - 影响范围：前端 HTML bootstrap、设计系统主题、Changelog 路由与账户入口、响应式浏览器回归；不影响 API、数据库、权限、Query Key、Feed snapshot、Gateway/MCP、Worker 或部署开关。
 - 兼容/回退：新路由为 additive；无 `matchMedia` 时使用明亮主题安全兜底，旧浏览器本地数据无需迁移。删除路由与日志入口即可回退，不产生服务端数据残留。
+
+### D049 OpenClaw 会话按站点唯一命名并采用扁平时间线
+
+- 决策日期：2026-07-22
+- 当前状态：本地实现
+- 决策内容：浏览器在有效设备握手后先保存最小权限配对，再以 `Inteliscope · <site> · <random suffix>` 创建会话并对标签冲突重试一次；模型目录统一为 canonical `provider/model`，模型分叉经 `sessions.describe` 验证，兼容分叉保留本轮思考档位。Agent transcript 使用 12 px 装饰时间线、同行称呼/本地时间和 13/20 px 无背景正文，仅安全链接化 http/https。
+- 原因：OpenClaw 2026.7.1 对 session label 强制唯一，固定 `Inteliscope` 会让测试与生产共用 Gateway 时无法建会话，并在保存 device token 前失败而遗留重复设备；真实 `models.list` 返回裸 ID 会让模型与思考选择失配。360 px 右栏中的消息卡片又会浪费正文宽度并降低信息密度。
+- 影响范围：浏览器 OpenClaw session 创建/恢复、凭据保存顺序、运行时模型投影、per-send thinking、流式消息时间、Agent transcript 视觉与安全链接渲染，以及对应前端回归和 Gateway/UI 合同。
+- 兼容/回退：既有按用户/Gateway 保存的 session key 继续直接恢复，旧 transcript 无时间时不补造时间；无后端 API、数据库、权限、Query Key、Remote MCP、OpenClaw 全局默认或部署变化。关闭 Browser Chat 或回退前端即可恢复旧展示，但固定标签行为不得重新引入。
