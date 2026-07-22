@@ -2245,7 +2245,7 @@
 ### 2026-07-22 16:45 Codex
 - 任务：执行已确认的 A 方案，重构 Web OpenClaw composer 并更新本地 Docker 预览
 - 修改文件：OpenClaw 对话组件与聚焦测试、设计规格、执行计划及本工作日志；本机 API/Worker 切换至新镜像
-- 执行验证：OpenClaw 基线 11/11；新增布局合同依次完成两轮 RED→GREEN，最终 OpenClaw/Shell 30/30、TypeScript、production build/产物检查与 `git diff --check` 通过；Docker image=`sha256:8eefec3932fa`，API/Worker healthy，live=`1.7.1/56f62ea5e311-openclaw-composer`、database/worker ready；8080 bundle 含 composer grid 标记，548px Agent Drawer `scrollWidth=clientWidth=548` 且溢出节点 0
+- 执行验证：OpenClaw 基线 11/11；新增布局合同依次完成两轮 RED→GREEN，OpenClaw/Shell 30/30、完整前端 Vitest 321/321、TypeScript、production build/产物检查与 `git diff --check` 通过；Docker image=`sha256:8eefec3932fa`，API/Worker healthy，live=`1.7.1/56f62ea5e311-openclaw-composer`、database/worker ready；8080 bundle 含 composer grid 标记，548px Agent Drawer `scrollWidth=clientWidth=548` 且溢出节点 0
 - 结果：输入区获得 96px 稳定最小高度；运行设置与 36px 发送/停止动作使用显式 `minmax(0,1fr) + 36px` 工具栏轨道，长模型名只在自身区域截断，不再参与挤压按钮或输入区；Feed 与 Agent 右栏宽度保持不变
 - 未解决问题：当前应用内浏览器没有已配对 Gateway，连接页可见但未代替用户连接；连接成功后即可直接查看已部署的 connected composer
 - 控制面变更：仅更新本地 UI 与 Docker 运行态；未修改 API、数据库、权限、Query Key、Gateway/MCP 协议、远端或 VPS，未触发模型调用、来源抓取或付费操作
