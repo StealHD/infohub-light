@@ -2339,3 +2339,12 @@
 - 结果：显式删除旧配对会用保存的 identity/device token 请求三项当前 scope；Gateway 返回的 `PAIRING_REQUIRED/scope-upgrade` 会显示经过校验的 request ID 和 `openclaw devices approve` 命令且不清本地数据，批准后重试才调用 `device.pair.remove` 并完成本地删除
 - 回退与备份：旧镜像 `inteliscope-service:local-042e813d3fc3-openclaw-session` 保留；切换前备份 `data/backups/pre-openclaw-pairing-upgrade-20260723T011403.db`，SHA-256 `6b96adc3…2566`、0600、integrity=`ok`
 - 控制面变更：UI 合同与 D048 补充用户确认后由 Gateway 审批保护的旧凭据升级流程；普通重连仍使用旧两 scope，Remote MCP、订阅写入和 Browser Chat 均保持启用，未修改/部署 VPS，未启动 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 01:35 Codex
+- 任务：按用户纠正的真实目标，为 `/agents` 中一条已吊销 Remote MCP 助手连接新增永久删除能力；不再把它误当成 OpenClaw Gateway 浏览器配对
+- 修改文件：delegation 存储与 API、Service API 客户端、助手连接行级删除确认 UI、后端/前端测试、API/UI 合同、D049、设计/实施文档及本工作日志
+- 执行验证：存储/API 先 RED 后 35 条定向测试通过；HeroAgentsPage 先 RED 后 11/11，通过完整前端 42 files/340 tests、TypeScript、lint 0 error、production build/产物检查、`test_gate full` 与 `git diff --check`；运行 OpenAPI 含 `/record`，未认证删除为 401
+- 结果：原 DELETE 继续幂等吊销；新增 `/record` 只删除当前用户选中的已吊销记录，有效记录 409、非本人/不存在 404；有效卡片仍显示“吊销”，已吊销卡片改为“删除”并确认只影响这一条
+- 容器与回退：API/Worker 已切换到 `inteliscope-service:local-296fac5e85f3-delegation-delete`，同 image ID `sha256:306a3137cbd…4b7939`、healthy、0 restart，live=`1.7.1/296fac5e85f3-delegation-delete`、ready，bundle 含“删除已吊销连接”；旧镜像保留
+- 数据安全：切换前 active jobs/due schedules 均为 0；备份 `data/backups/pre-agent-delegation-delete-20260723T013400.db`，SHA-256 `017df928…ce90e`、0600、integrity=`ok`；切换后 active jobs=0、数据库 integrity=`ok`
+- 控制面变更：API/UI 合同与 D049 固化独立删除端点、已吊销前置条件和当前用户单条作用域；Remote MCP、订阅写入与 Browser Chat 保持启用，未部署 VPS，未启动 scheduler、来源抓取、模型或付费调用

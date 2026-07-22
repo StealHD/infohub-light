@@ -234,18 +234,18 @@ git diff --check
 
 Expected: all tests and checks pass; existing lint warnings may remain but lint has zero errors.
 
-- [ ] **Step 3: Commit contracts and implementation plan status**
+- [x] **Step 3: Commit contracts and implementation plan status**
 
 Commit authoritative docs after tests pass with `docs: define revoked connection deletion`.
 
-- [ ] **Step 4: Inspect runtime safety and back up SQLite**
+- [x] **Step 4: Inspect runtime safety and back up SQLite**
 
 Confirm no active jobs or automatic scheduler can trigger paid work, verify `PRAGMA integrity_check`, and create a 0600 SQLite backup under `data/backups/` before recreating containers.
 
-- [ ] **Step 5: Build and switch local API/Worker**
+- [x] **Step 5: Build and switch local API/Worker**
 
 Build one immutable image tagged with the implementation commit and explicit version/revision/built-at values. From the primary project root, run Compose with `--no-build --force-recreate horizon-api horizon-worker`, preserving the existing `.env`, `data`, and `logs` bind mounts.
 
-- [ ] **Step 6: Verify the running result and record worklog**
+- [x] **Step 6: Verify the running result and record worklog**
 
 Require API and Worker `healthy`, restart count 0, live revision equal to the image revision, ready status true, SQLite integrity `ok`, unchanged feature flags, and a running JavaScript bundle containing `删除已吊销连接`. Append the concise `WORKLOG.md` entry and commit it.
