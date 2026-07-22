@@ -2287,3 +2287,17 @@
 - 结果：固化已批准的站点来源化唯一标签、单次冲突重试、分阶段设备/session 凭据保存、真实错误提示、无旧会话接管/删除以及测试与双环境发布边界
 - 未解决问题：按设计流程等待用户复核书面规格，批准后编写实施计划并开始 RED→GREEN 修复
 - 控制面变更：仅新增设计规格；UI 合同和决策记录将在实际行为实现时同步更新
+
+### 2026-07-22 21:45 Codex
+- 任务：在独立 `codex/openclaw-runtime-timeline` 分支修复 OpenClaw 会话/模型/思考切换，并落地用户确认的 C2 扁平时间线
+- 修改文件：OpenClaw chat hook/对话组件与回归、设计系统 `type-chat`、Gateway/UI 合同、D048、阶段计划及本工作日志
+- 执行验证：相关 Vitest 63/63、完整前端 Vitest 327/327、TypeScript、UI contract、production build 通过；ESLint 0 error、6 个既有 Fast Refresh warning；最终文件再次执行 `test_gate full` 22/22、0 failed/error、94.367 秒，`mapping_miss=false`
+- 结果：裸模型 ID 统一为 `provider/model`；唯一来源标签、冲突重试和配对先保存消除固定 `Inteliscope` 冲突；可验证模型分叉保留兼容 thinking 且发送/重试使用正确快照；对话使用 12px 时间线、称呼后本地时间、13/20px 无背景正文和安全 http/https 链接
+- 控制面变更：更新 Browser OpenClaw Gateway 与 Quiet Studio UI 真源并新增 D048；无后端 API、数据库、权限、Query Key、Remote MCP、全局模型、真实 Gateway/模型调用、部署、抓取或调度变化
+
+### 2026-07-22 22:03 Codex
+- 任务：从 `codex/openclaw-runtime-timeline` 重建镜像并更新 localhost:8080 的本地 API/Worker
+- 修改文件：仅本工作日志；运行态构建 `inteliscope-service:local-de8b146bee2d-openclaw-runtime` 并从主工作区 Compose 重建两个容器
+- 执行验证：无缓存 Docker build 与 production UI artifact 通过；API/Worker 同 image ID `sha256:5989d2fd9286…7621`、healthy、restart_count=0；live revision=`de8b146bee2d-openclaw-runtime-dirty`、ready database/worker 正常、root=200；bundle 包含 `openclaw-timeline/type-chat`，数据库 quick_check=`ok`、foreign keys=0
+- 结果：localhost:8080 已加载本分支 OpenClaw 运行时与 C2 时间线，继续挂载主工作区 `.env/data/logs`；Worker 初次 `uv run` 构建期间四次 healthcheck 超时，完成后自动恢复 healthy，无容器重启
+- 控制面变更：无；未启动 scheduler、未触发来源抓取、AI、模型调用、付费调用、数据库迁移或远端部署

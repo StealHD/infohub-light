@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Key } from 'react'
+import { useEffect, useMemo, useRef, useState, type Key, type ReactNode } from 'react'
 
 import {
   Button,
@@ -20,6 +20,140 @@ import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgen
 import type { useOpenClawChat } from './useOpenClawChat'
 
 type ChatController = ReturnType<typeof useOpenClawChat>
+
+type FormattedMessageTime = {
+  label: string
+  title: string
+  dateTime: string
+}
+
+function padTimePart(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+function formatOpenClawMessageTime(
+  value: number | undefined | null,
+  now = Date.now(),
+): FormattedMessageTime | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const date = new Date(value)
+  const current = new Date(now)
+  if (!Number.isFinite(date.getTime()) || !Number.isFinite(current.getTime())) return null
+  const clock = `${padTimePart(date.getHours())}:${padTimePart(date.getMinutes())}`
+  const today = date.getFullYear() === current.getFullYear()
+    && date.getMonth() === current.getMonth()
+    && date.getDate() === current.getDate()
+  const fullDate = `${date.getFullYear()}-${padTimePart(date.getMonth() + 1)}-${padTimePart(date.getDate())}`
+  return {
+    label: today ? clock : `${padTimePart(date.getMonth() + 1)}-${padTimePart(date.getDate())} ${clock}`,
+    title: `${fullDate} ${clock}:${padTimePart(date.getSeconds())}`,
+    dateTime: date.toISOString(),
+  }
+}
+
+const OPENCLAW_LINK_PATTERN = /\[([^\]\r\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/giu
+const BARE_LINK_TRAILING_PUNCTUATION = /[.,!?;:，。！？；：、)\]}"']$/u
+
+function safeHttpUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function trimBareLink(value: string): { href: string; trailing: string } {
+  let href = value
+  let trailing = ''
+  while (href && BARE_LINK_TRAILING_PUNCTUATION.test(href.at(-1) ?? '')) {
+    trailing = `${href.at(-1)}${trailing}`
+    href = href.slice(0, -1)
+  }
+  return { href, trailing }
+}
+
+function OpenClawMessageText({ text }: { text: string }) {
+  const nodes: ReactNode[] = []
+  let cursor = 0
+  for (const match of text.matchAll(OPENCLAW_LINK_PATTERN)) {
+    const index = match.index ?? 0
+    if (index > cursor) nodes.push(text.slice(cursor, index))
+    const markdownLabel = match[1]
+    const markdownUrl = match[2]
+    const bareCandidate = match[3]
+    const bare = bareCandidate ? trimBareLink(bareCandidate) : null
+    const href = safeHttpUrl(markdownUrl ?? bare?.href ?? '')
+    if (!href) {
+      nodes.push(match[0])
+    } else {
+      nodes.push(<a
+        key={`${index}-${href}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-accent underline decoration-accent/50 underline-offset-[3px]"
+      >{markdownLabel ?? bare?.href}</a>)
+      if (bare?.trailing) nodes.push(bare.trailing)
+    }
+    cursor = index + match[0].length
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return <>{nodes}</>
+}
+
+function MessageTimestamp({ value }: { value?: number | null }) {
+  const formatted = formatOpenClawMessageTime(value)
+  if (!formatted) return null
+  return <time
+    className="type-label text-muted"
+    dateTime={formatted.dateTime}
+    title={formatted.title}
+    aria-label={formatted.title}
+  >{formatted.label}</time>
+}
+
+function ConversationTurn({
+  role,
+  text,
+  createdAt,
+  status,
+  hasNext,
+  children,
+}: {
+  role: 'user' | 'assistant'
+  text: string
+  createdAt?: number | null
+  status?: string
+  hasNext: boolean
+  children?: ReactNode
+}) {
+  return <>
+    <div data-chat-marker className="flex min-h-full flex-col items-center self-stretch" aria-hidden="true">
+      <span className={`mt-1.5 size-[5px] shrink-0 rounded-full ${role === 'assistant' ? 'bg-accent' : 'bg-muted'}`} />
+      {hasNext && <span className="mt-[5px] min-h-8 w-px flex-1 bg-separator" />}
+    </div>
+    <article
+      className={`min-w-0 max-w-full ${hasNext ? 'pb-4' : ''}`}
+      data-chat-role={role}
+      data-chat-status={status}
+    >
+      <div className="mb-[5px] flex min-w-0 items-baseline gap-1.5">
+        <span className={`type-label ${role === 'assistant' ? 'text-accent' : 'text-muted'}`}>
+          {role === 'assistant' ? 'OpenClaw' : '你'}
+        </span>
+        <MessageTimestamp value={createdAt} />
+      </div>
+      <div
+        data-chat-message-body
+        className="type-chat min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+      >
+        <OpenClawMessageText text={text} />
+      </div>
+      {children}
+    </article>
+  </>
+}
 
 export function gatewayOriginSetupCommands(origin: string) {
   const shellOrigin = origin.replaceAll("'", "'\\''")
@@ -265,7 +399,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   return <>
     <div
       ref={scrollRef}
-      className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4"
+      className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-[15px] pb-4 pt-[13px]"
       data-testid="agent-scroll-region"
       aria-live="polite"
       onScroll={(event) => {
@@ -273,28 +407,37 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
         followRef.current = region.scrollHeight - region.scrollTop - region.clientHeight <= 96
       }}
     >
-      <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
+      <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
         <span className="type-meta min-w-0 truncate text-muted">{chat.sessionKey ? 'Inteliscope 对话' : '正在准备对话'}</span>
         <div className="flex shrink-0 gap-1"><Button size="sm" variant="ghost" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={() => void chat.newConversation()}><Icons.Plus size={14} />新对话</Button><Button size="sm" variant="ghost" onPress={chat.disconnect}>断开</Button></div>
       </div>
       {chat.toolsStatus === 'missing' && <Card variant="secondary" className="mb-3 min-w-0 border-warning/40 p-3" role="status"><Card.Title>未发现 Inteliscope 工具</Card.Title><Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description><a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a></Card>}
       {!chat.messages.length && !chat.streamText && <Card variant="transparent" className="min-w-0 p-4 text-center"><Card.Description>可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</Card.Description></Card>}
-      <div className="grid min-w-0 gap-3 overflow-x-hidden">
-        {chat.messages.map((message) => <div
+      <div
+        data-testid="openclaw-timeline"
+        className="grid min-w-0 grid-cols-[12px_minmax(0,1fr)] gap-x-[9px] overflow-x-hidden"
+      >
+        {chat.messages.map((message, index) => <ConversationTurn
           key={message.id}
-          className={`type-body min-w-0 max-w-full whitespace-pre-wrap break-words rounded-2xl p-3 [overflow-wrap:anywhere] ${message.role === 'user' ? 'ml-6 bg-accent/12' : 'mr-2 bg-surface-secondary'}`}
-          data-chat-role={message.role}
-          data-chat-status={message.status}
+          role={message.role}
+          text={message.text}
+          createdAt={message.createdAt}
+          status={message.status}
+          hasNext={index < chat.messages.length - 1 || Boolean(chat.streamText)}
         >
-          <div className="min-w-0 max-w-full [overflow-wrap:anywhere]">{message.text}</div>
-          {Boolean(message.contextCount) && <div className="type-label mt-2 text-muted">附带 {message.contextCount} 条信息</div>}
-          {message.status === 'aborted' && <div className="type-label mt-2 text-muted">已停止</div>}
-          {message.status === 'failed' && message.role === 'user' && <div className="mt-2 flex flex-wrap gap-1">
+          {Boolean(message.contextCount) && <div className="type-label mt-1.5 text-muted">附带 {message.contextCount} 条信息</div>}
+          {message.status === 'aborted' && <div className="type-label mt-1.5 text-muted">已停止</div>}
+          {message.status === 'failed' && message.role === 'user' && <div className="mt-1.5 flex flex-wrap gap-1">
             <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => void chat.retry(message.id)}>重试</Button>
             <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => editFailed(message.id)}>重新编辑</Button>
           </div>}
-        </div>)}
-        {chat.streamText && <div className="type-body mr-2 min-w-0 max-w-full whitespace-pre-wrap break-words rounded-2xl bg-surface-secondary p-3 [overflow-wrap:anywhere]" data-chat-role="assistant">{chat.streamText}</div>}
+        </ConversationTurn>)}
+        {chat.streamText && <ConversationTurn
+          role="assistant"
+          text={chat.streamText}
+          createdAt={chat.streamCreatedAt}
+          hasNext={false}
+        />}
       </div>
       {chat.issue && <p role="alert" className="type-body mt-3 max-w-full break-words text-danger [overflow-wrap:anywhere]">{chat.issue.message}</p>}
     </div>

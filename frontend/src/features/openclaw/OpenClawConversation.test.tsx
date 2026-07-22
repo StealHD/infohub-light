@@ -30,6 +30,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     toolsStatus: 'unknown',
     messages: [],
     streamText: '',
+    streamCreatedAt: null,
     issue: null,
     runtimeIssue: null,
     modelSwitchFallback: null,
@@ -194,6 +195,62 @@ describe('OpenClaw conversation surface', () => {
 
     expect(screen.getByTestId('agent-scroll-region')).toHaveClass('flex-1')
     expect(screen.getByTestId('openclaw-composer-dock')).toHaveClass('shrink-0')
+  })
+
+  it('uses the approved flat C2 timeline with inline local times and safe http links', () => {
+    const now = new Date(2026, 6, 22, 15, 0, 0).getTime()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          text: '打开 https://example.com/docs。',
+          status: 'sent',
+          createdAt: new Date(2026, 6, 22, 14, 32, 0).getTime(),
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          text: '参考 [研究资料](https://example.com/research)，但保留 [执行](javascript:alert(1)) <b>plain</b>。',
+          status: 'sent',
+          createdAt: new Date(2026, 6, 21, 9, 5, 0).getTime(),
+        },
+        { id: 'assistant-2', role: 'assistant', text: '没有有效时间', status: 'sent', createdAt: Number.NaN },
+      ],
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    const timeline = screen.getByTestId('openclaw-timeline')
+    expect(timeline).toHaveClass('grid-cols-[12px_minmax(0,1fr)]')
+    expect(timeline.querySelectorAll('[data-chat-marker]')).toHaveLength(3)
+    expect(timeline.querySelector('.rounded-2xl')).toBeNull()
+    expect(timeline.querySelector('[class*="bg-accent/12"]')).toBeNull()
+    expect(timeline.querySelector('[class*="bg-surface-secondary"]')).toBeNull()
+    for (const body of timeline.querySelectorAll('[data-chat-message-body]')) {
+      expect(body).toHaveClass('type-chat')
+    }
+
+    const userRole = screen.getByText('你')
+    expect(userRole.nextElementSibling?.tagName).toBe('TIME')
+    expect(userRole.nextElementSibling).toHaveTextContent('14:32')
+    expect(userRole.nextElementSibling).toHaveAttribute('title', '2026-07-22 14:32:00')
+    expect(screen.getByText('07-21 09:05')).toBeInTheDocument()
+    expect(timeline.querySelectorAll('time')).toHaveLength(2)
+    expect(screen.getAllByText('OpenClaw')).toHaveLength(2)
+
+    const bareLink = screen.getByRole('link', { name: 'https://example.com/docs' })
+    const labelledLink = screen.getByRole('link', { name: '研究资料' })
+    for (const link of [bareLink, labelledLink]) {
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(link).toHaveClass('text-accent')
+    }
+    expect(screen.getAllByRole('link')).toHaveLength(2)
+    expect(timeline).toHaveTextContent('[执行](javascript:alert(1)) <b>plain</b>')
+    expect(timeline.querySelector('b')).toBeNull()
   })
 
   it('shows only the OpenClaw default thinking choice when the selected model does not reason', async () => {

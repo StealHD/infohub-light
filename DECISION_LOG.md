@@ -406,3 +406,12 @@
 - 原因：把首帧交给异步 JavaScript 或对整个应用做淡入会在硬刷新时产生白屏、布局宽度跳变和“系统重新打开”的错觉；静态壳与真实布局共享快照，局部揭示则把动效限制在用户正在等待的数据上。
 - 影响范围：前端 HTML bootstrap、设计系统加载模式、Feed/Agent 初始数据状态、侧栏与右栏本地布局快照及对应回归测试；精确视觉值只见 `UI_CONTRACT.md`。
 - 兼容/回退：快照为浏览器本地 best-effort 数据，缺失或无效时使用折叠导航和关闭右栏；窄屏不自动恢复 Drawer。无 API、数据库、权限、Query Key、Gateway/MCP 或部署变化，删除静态壳和共享加载模式即可回退。
+
+### D048 OpenClaw 会话按站点唯一命名并采用扁平时间线
+
+- 决策日期：2026-07-22
+- 当前状态：本地实现
+- 决策内容：浏览器在有效设备握手后先保存最小权限配对，再以 `Inteliscope · <site> · <random suffix>` 创建会话并对标签冲突重试一次；模型目录统一为 canonical `provider/model`，模型分叉经 `sessions.describe` 验证，兼容分叉保留本轮思考档位。Agent transcript 使用 12 px 装饰时间线、同行称呼/本地时间和 13/20 px 无背景正文，仅安全链接化 http/https。
+- 原因：OpenClaw 2026.7.1 对 session label 强制唯一，固定 `Inteliscope` 会让测试与生产共用 Gateway 时无法建会话，并在保存 device token 前失败而遗留重复设备；真实 `models.list` 返回裸 ID 会让模型与思考选择失配。360 px 右栏中的消息卡片又会浪费正文宽度并降低信息密度。
+- 影响范围：浏览器 OpenClaw session 创建/恢复、凭据保存顺序、运行时模型投影、per-send thinking、流式消息时间、Agent transcript 视觉与安全链接渲染，以及对应前端回归和 Gateway/UI 合同。
+- 兼容/回退：既有按用户/Gateway 保存的 session key 继续直接恢复，旧 transcript 无时间时不补造时间；无后端 API、数据库、权限、Query Key、Remote MCP、OpenClaw 全局默认或部署变化。关闭 Browser Chat 或回退前端即可恢复旧展示，但固定标签行为不得重新引入。

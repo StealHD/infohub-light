@@ -70,6 +70,7 @@
 55. Feed Insights 与 OpenClaw 运行时一致性：Feed 增加浏览器本地自然日“当天”视图和复用既有查询的宽屏信息概览；右栏统一为 closed/insights/agent；OpenClaw 模型通过可验证分支会话切换、推理随请求发送；媒体缓存与详情按 checksum 去重。权威交互与数据规则见 `UI_CONTRACT.md`、`API_CONTRACT.md` 和 D042。
 56. Quiet Studio 交互收口：来源失败改为安全 Tooltip 与按权限披露的详情 Dialog；独立滚动区统一使用低干扰滚动条；桌面 Agent 右栏支持按账号保存的 320–720px 可访问调宽并保证 Feed 不低于 640px；信息概览改为按实测空白自动出现一次的浮动分组卡；OpenClaw 对话采用本地可见记录与 Gateway 历史增量归并，模型分叉迁移记录，新建对话、退出或忘记设备时清理。权威规则见 `UI_CONTRACT.md` 和 D043。
 57. Quiet Studio 交付加固：OpenClaw 用户轮次在 Gateway 请求前同步写入状态、引用与会话记录，并用稳定 client turn ID 对账；Agent 是否停靠改为按当前侧栏与最小 Feed/Agent 宽度动态判断；信息概览使用自然高度、隐藏空分组并以前三项加显式展开控制密度。权威规则见 `UI_CONTRACT.md` 和 D044。
+58. OpenClaw 真实 Gateway 修复与 C2 对话密度：浏览器配对先于唯一 session 创建持久化，裸模型 ID 规范化后通过可验证分叉切换并按兼容性保留 per-send thinking；Agent transcript 改为 360px 右栏基准的扁平时间线、同行本地时间与安全 http/https 链接。权威规则见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D048。
 
 当前仍需推进：
 

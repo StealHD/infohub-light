@@ -42,8 +42,9 @@ class MemoryAdapter implements OpenClawCredentialAdapter {
 
 const models = {
   models: [
-    { id: 'openai/gpt-5.4', name: 'GPT-5.4', provider: 'openai', available: true, contextWindow: 200_000, reasoning: true },
-    { id: 'local/quick', name: 'Quick', provider: 'local', available: true, contextWindow: 32_000, reasoning: false },
+    { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'openai', available: true, contextWindow: 200_000, reasoning: true },
+    { id: 'deep', name: 'Deep', provider: 'openai', available: true, contextWindow: 160_000, reasoning: true },
+    { id: 'quick', name: 'Quick', provider: 'local', available: true, contextWindow: 32_000, reasoning: false },
   ],
 }
 const agents = {
@@ -473,7 +474,7 @@ describe('useOpenClawChat', () => {
     await waitFor(() => expect(result.current.status).toBe('connected'))
     expect(result.current.toolsStatus).toBe('available')
     expect(result.current.models).toEqual(models.models.map((model) => ({
-      id: model.id,
+      id: `${model.provider}/${model.id}`,
       name: model.name,
       provider: model.provider,
       contextWindow: model.contextWindow,
@@ -481,6 +482,9 @@ describe('useOpenClawChat', () => {
     })))
     expect(result.current.thinkingOptions).toEqual(agents.agents[0].thinkingLevels)
     expect(result.current.runtimeSelection).toMatchObject({ modelId: 'openai/gpt-5.4', thinkingLevel: 'high' })
+
+    await act(async () => { await result.current.setThinking('low') })
+    expect(result.current.runtimeSelection.thinkingLevel).toBe('low')
 
     const gatewayPrompt = buildAgentHandoffPrompt({ userId: 'user-a', question: '分析 article-1', items: [{ articleId: 'article-1', title: 'A' }] })
     await act(async () => {
@@ -496,17 +500,23 @@ describe('useOpenClawChat', () => {
       message: gatewayPrompt,
       deliver: false,
       idempotencyKey: expect.any(String),
-      thinking: 'high',
+      thinking: 'low',
     }))
     expect(result.current.messages.at(-1)).toMatchObject({ role: 'user', text: '分析 article-1', contextCount: 1, status: 'sent' })
 
     act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'delta', sessionKey: 'session-1', runId: 'run-1', seq: 1, deltaText: '流式回复' } }))
     expect(result.current.streamText).toBe('流式回复')
+    const firstStreamCreatedAt = result.current.streamCreatedAt
+    expect(firstStreamCreatedAt).toEqual(expect.any(Number))
+    const now = vi.spyOn(Date, 'now').mockReturnValue((firstStreamCreatedAt ?? 0) + 60_000)
+    act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'delta', sessionKey: 'session-1', runId: 'run-1', seq: 2, deltaText: '继续' } }))
+    expect(result.current.streamCreatedAt).toBe(firstStreamCreatedAt)
+    now.mockRestore()
     await act(async () => { await result.current.stop() })
     expect(request).toHaveBeenCalledWith('chat.abort', expect.objectContaining({ sessionKey: 'session-1', runId: 'run-1' }))
     act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'aborted', sessionKey: 'session-1', runId: 'run-1' } }))
     expect(result.current.streamText).toBe('')
-    expect(result.current.messages.at(-1)).toMatchObject({ role: 'assistant', text: '流式回复', status: 'aborted' })
+    expect(result.current.messages.at(-1)).toMatchObject({ role: 'assistant', text: '流式回复继续', status: 'aborted' })
 
     await act(async () => {
       await result.current.send({ displayText: '第二个问题', gatewayPrompt: 'second gateway prompt', contextItems: [] })
@@ -616,6 +626,61 @@ describe('useOpenClawChat', () => {
     expect(request.mock.calls.some(([method]) => method === 'sessions.patch')).toBe(false)
   })
 
+  it('keeps a supported thinking override when a verified model fork stays compatible', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-thinking-fork', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-1', publicKey: 'public-1', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'], sessionKey: 'session-1',
+    })
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return params?.key === 'session-deep'
+        ? {
+            session: {
+              modelProvider: 'openai',
+              model: 'deep',
+              thinkingLevels: agents.agents[0].thinkingLevels,
+              thinkingDefault: 'low',
+            },
+          }
+        : session
+      if (method === 'sessions.create') return { key: 'session-deep' }
+      if (method === 'chat.send') return { runId: 'run-deep' }
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn(() => ({
+      connect: vi.fn(async (): Promise<GatewayHello> => ({
+        auth: { deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      })),
+      request,
+      close: vi.fn(),
+    }))
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true,
+      userId: 'user-thinking-fork',
+      defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clientFactory: clientFactory as never,
+    }))
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+
+    await act(async () => { await result.current.setThinking('low') })
+    await act(async () => { await result.current.setModel('openai/deep') })
+
+    expect(result.current.runtimeSelection).toMatchObject({ modelId: 'openai/deep', thinkingLevel: 'low' })
+    await act(async () => {
+      await result.current.send({ displayText: '继续', gatewayPrompt: 'private prompt', contextItems: [] })
+    })
+    expect(request).toHaveBeenCalledWith('chat.send', expect.objectContaining({
+      sessionKey: 'session-deep',
+      thinking: 'low',
+    }))
+  })
+
   it('offers a verified blank-session fallback for an unavailable session model', async () => {
     const vault = new OpenClawCredentialVault(new MemoryAdapter())
     await vault.save('user-fallback', 'ws://127.0.0.1:18789', {
@@ -669,7 +734,7 @@ describe('useOpenClawChat', () => {
     expect(result.current.sessionKey).toBe('session-fallback')
     expect(result.current.runtimeSelection).toMatchObject({
       modelId: 'openai/gpt-5.4',
-      thinkingLevel: 'medium',
+      thinkingLevel: null,
       defaultThinkingLevel: 'medium',
     })
     expect(result.current.thinkingOptions).toEqual([{ id: 'medium', label: '中等' }])
