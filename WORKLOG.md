@@ -2234,3 +2234,10 @@
 - 执行验证：无缓存 Docker build、前端 production build/产物检查通过；API/Worker 同 image ID `sha256:4408576a9b2c` 且 healthy，live=`1.7.1/a3711b0d1beb-stable-refresh`、database/worker ready、integrity=ok、queued/running=0；`/feed` 初始 HTML 包含导航、标题、Feed、Agent bootstrap 区域
 - 结果：本地 8080 已切换至 `inteliscope-service:local-a3711b0d1beb-stable-refresh`，旧镜像 `inteliscope-service:local-4d668868a283` 保留用于回退
 - 控制面变更：无；未部署 VPS、未推送分支、未触发来源抓取、AI、付费调用或任务调度
+
+### 2026-07-22 16:34 Codex
+- 任务：复现并定位 Web 工作台挤压 OpenClaw 输入区的问题，准备快速重构方案
+- 修改文件：仅本工作日志；尚未修改产品代码
+- 执行验证：在 localhost:8080 的应用内浏览器复现窄屏 Agent Drawer，并核对已连接态 composer、运行设置控件、320–720px 可调右栏及 360px Drawer 实现
+- 结果：输入框本体已独占整行，主要拥挤源是 composer 底部把动态模型/推理标签与固定发送按钮绑定在同一横向 flex；单纯加宽右栏会继续挤压 Feed，待确认后改为稳定的分层输入布局
+- 控制面变更：无；未连接 Gateway、未调用模型、未重建容器或修改远端
