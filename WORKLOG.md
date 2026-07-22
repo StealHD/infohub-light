@@ -2264,3 +2264,10 @@
 - 执行验证：合并后 `test_gate full` 22/22、0 failed/error、104.142 秒，覆盖 Python、前端 Vitest/TypeScript/build、UI contract、Compose、Playwright/Axe 与差异检查
 - 结果：稳定刷新与固定 OpenClaw composer 已进入 `main`；`feature/multi-user-mvp-core` 的未提交内容未混入，保留为本地恢复 stash 后按用户指示清理其他本地分支/worktree
 - 控制面变更：无新增；未推送远端、未删除远端分支、未修改当前 localhost:8080 运行镜像
+
+### 2026-07-22 17:12 Codex
+- 任务：从本地 `main` 无缓存构建 Docker 镜像并切换 localhost:8080，同时确认原数据库数据保留
+- 修改文件：仅本工作日志；本机 API/Worker 切换至 main 镜像，未修改数据库内容
+- 执行验证：production Docker build 通过；API/Worker 使用同一 image ID `sha256:25ae1e833561` 且 healthy，live=`1.5.0/c762fea20268-main`、database/worker ready，`/feed` 返回 200；宿主机 `data/` 继续 bind mount，`service.db` 9.0 MB、SQLite quick check=`ok`，3 个用户、9 个订阅、89 个 Feed 快照和 662 条 Feed 记录仍在
+- 结果：本地 8080 已运行 `inteliscope-service:local-c762fea20268-main`，稳定刷新与固定 OpenClaw composer 可直接刷新验收；未执行 `down -v`、未删除 volume 或数据库
+- 控制面变更：无；未推送远端、未部署 VPS、未触发抓取、AI、付费调用或调度
