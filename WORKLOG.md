@@ -2287,3 +2287,32 @@
 - 结果：固化已批准的站点来源化唯一标签、单次冲突重试、分阶段设备/session 凭据保存、真实错误提示、无旧会话接管/删除以及测试与双环境发布边界
 - 未解决问题：按设计流程等待用户复核书面规格，批准后编写实施计划并开始 RED→GREEN 修复
 - 控制面变更：仅新增设计规格；UI 合同和决策记录将在实际行为实现时同步更新
+
+### 2026-07-22 22:21 Codex
+- 任务：核对 VPS 已知正常版本与当前 OpenClaw 修复分支基线之间的 UI 差异
+- 修改文件：仅本工作日志；未修改产品代码或运行环境
+- 执行验证：VPS current/live/容器均确认运行 `c762fea20268`；VPS 保留的 `c762fea` 与 `614793f` 镜像标签、release 源码哈希一致；Git 逐提交比对确认两者之间只有 `dc6719b` 修改业务 UI，其余提交仅修改测试或文档
+- 结果：当前分支以 `de8b146` 为基线，继承了 `dc6719b` 对 Feed 卡片、订阅页和 OpenClaw Tooltip trigger/DOM 的 UI 回归；VPS 使用回退后的 `c762fea` 因而显示正常，当前分支暂停部署
+- 控制面变更：无；未切换 VPS 镜像、未修改数据库、未运行调度或模型调用
+
+### 2026-07-23 00:13 Codex
+- 任务：为新增“令牌吊销后删除”要求核对现有凭据流程与 OpenClaw 2026.7.1 本机协议实现
+- 修改文件：仅本工作日志；尚未修改产品代码、权限合同或运行环境
+- 执行验证：确认当前“忘记此浏览器”只清理 transcript/IndexedDB；OpenClaw 提供 `device.token.revoke` 与 `device.pair.remove`，两者均要求当前未申请的 `operator.pairing`，且非管理员只能管理自身 operator 设备
+- 结果：因助手连接页同时存在 OpenClaw device token 与 Inteliscope Remote MCP token，需先确认目标令牌再确定最小权限与失败语义
+- 控制面变更：无；未扩大 scope、未吊销或删除任何真实凭据
+
+### 2026-07-23 00:27 Codex
+- 任务：无缓存构建并启动当前 OpenClaw 会话隔离分支的本地 Docker 预览
+- 修改文件：仅本工作日志；本机 API/Worker 从 `653b1e4d3fc6-openclaw-latest` 切换到当前分支镜像，原数据、`.env`、日志与旧镜像保留
+- 执行验证：production build/产物检查通过；API/Worker 同 image ID `sha256:9a415fba3d36…05ec`、healthy、0 restart，live=`1.7.1/32a4d7fd881b-openclaw-session`、ready；7 个页面 200、受保护 API 401、SQLite integrity=`ok`、foreign-key=0、queued/running=0、数据计数 `3/9/89`、scheduler 未运行、严重启动日志 0；bundle `index-BZVDMzrl.js` 含唯一标签与会话冲突映射，Gateway 2026.7.1 probe=ok
+- 结果：`localhost:8080` 已运行本分支，可立即验证测试/生产共享 Gateway 的连接修复；附带的服务端吊销后本地删除仍处于已批准规格阶段，尚未进入该镜像
+- 回退与备份：旧镜像 `inteliscope-service:local-653b1e4d3fc6-openclaw-latest` 保留；切换前数据库备份为 `data/backups/pre-openclaw-session-20260722T162525Z.db`，SHA-256 `45bf812a…b87`
+- 控制面变更：无；未修改 VPS、数据库内容或功能开关，未启动 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 00:52 Codex
+- 任务：续完 OpenClaw 测试/生产共用 Gateway 的连接修复，并新增服务端设备移除成功后再删除本地凭据
+- 修改文件：OpenClaw Gateway scope 协商、凭据仓、聊天 Hook、设备移除服务、助手连接确认 UI 与测试；同步 UI 合同、D048 和实施计划
+- 执行验证：修复分支已从 `de8b146` 安全迁移到 VPS 已知正常基线 `c762fea20268`，确认不含 UI 回归 `dc6719b`；scope RED 5 项、device service RED 1 suite、Hook/UI RED 各 1 组后转 GREEN；定向 29/29、前端 42 files/338 tests、lint 0 error、TypeScript、production build 通过；`test_gate full` 22/22、0 failed/error、99.485 秒
+- 结果：所有新会话使用来源化唯一标签并只对明确冲突重试一次；新授权精确请求 read/write/pairing，旧 read/write 凭据继续普通重连；“忘记此浏览器”确认后只调用当前 identity 的 `device.pair.remove`，成功或 unknown-device 才清 transcript/IndexedDB，其他失败完整保留本地恢复状态
+- 控制面变更：`UI_CONTRACT.md` 与 D048 固化最小 pairing scope、旧凭据兼容和服务端优先删除语义；Remote MCP、订阅写入、Service API、数据库、scheduler、模型与 VPS 均未修改

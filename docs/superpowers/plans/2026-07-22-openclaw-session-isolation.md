@@ -648,7 +648,7 @@ Append this decision:
 
 Use D048 because D047 is already reserved by the authorized production Remote MCP/subscription-write activation in the primary worktree.
 
-- [ ] **Step 3: Run complete frontend and project verification**
+- [x] **Step 3: Run complete frontend and project verification**
 
 Run:
 
@@ -666,11 +666,11 @@ git diff --check
 
 Expected: Vitest, ESLint, TypeScript, production build, all 22 full-gate commands, JSON validation, and whitespace validation pass.
 
-- [ ] **Step 4: Append final implementation evidence and check the plan**
+- [x] **Step 4: Append final implementation evidence and check the plan**
 
 Append one concise `WORKLOG.md` entry with RED→GREEN evidence, focused/full counts, scope/non-goals, and the fact that no session/device was deleted. Change every completed checkbox in this plan from `[ ]` to `[x]`.
 
-- [ ] **Step 5: Commit code authority and evidence**
+- [x] **Step 5: Commit code authority and evidence**
 
 ```bash
 git add UI_CONTRACT.md DECISION_LOG.md WORKLOG.md docs/superpowers/plans/2026-07-22-openclaw-session-isolation.md

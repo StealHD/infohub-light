@@ -406,3 +406,11 @@
 - 原因：把首帧交给异步 JavaScript 或对整个应用做淡入会在硬刷新时产生白屏、布局宽度跳变和“系统重新打开”的错觉；静态壳与真实布局共享快照，局部揭示则把动效限制在用户正在等待的数据上。
 - 影响范围：前端 HTML bootstrap、设计系统加载模式、Feed/Agent 初始数据状态、侧栏与右栏本地布局快照及对应回归测试；精确视觉值只见 `UI_CONTRACT.md`。
 - 兼容/回退：快照为浏览器本地 best-effort 数据，缺失或无效时使用折叠导航和关闭右栏；窄屏不自动恢复 Drawer。无 API、数据库、权限、Query Key、Gateway/MCP 或部署变化，删除静态壳和共享加载模式即可回退。
+
+### D048 OpenClaw 浏览器会话采用来源化唯一标签、分阶段配对持久化与服务端优先设备移除
+
+- 决策日期：2026-07-22
+- 当前状态：实现与完整门禁完成；本地容器与双环境发布验证待执行
+- 决策内容：已有 session key 继续作为按 Inteliscope 用户和规范化 Gateway URL 隔离的唯一重连权威；首次、空白、模型分支和用户新建会话统一使用 `Inteliscope · <site host> · <16 hex>`。只有 OpenClaw 明确返回 `INVALID_REQUEST: label already in use` 时生成新标签重试一次。新授权精确协商 `operator.read + operator.write + operator.pairing`，旧 read/write 凭据继续用于普通重连；浏览器先保存 identity/device token，再创建会话并立即保存 session key。“忘记此浏览器”确认后先调用 `device.pair.remove`，仅服务端成功或设备已不存在时清除本地 transcript 与凭据。
+- 原因：OpenClaw 2026.7.1 全局要求标签唯一，固定 `Inteliscope` 会让测试与生产以及后续新对话互相阻断；只在建会话成功后保存配对还会让每次失败遗留不可复用设备；只删除浏览器 IndexedDB 则让服务端旧授权继续存在。来源化随机标签消除共享状态，分阶段保存隔离配对与会话故障，服务端优先移除确保界面不会在实际吊销失败时误报完成。
+- 安全/兼容：不调用 `sessions.list` 猜测旧会话，不跨来源复用、删除、归档、重命名或接管旧会话，不申请 `operator.admin`。`operator.pairing` 只用于 OpenClaw 限制为当前设备的显式配对删除；旧 session key、两 scope 凭据与 transcript 保持兼容，服务端删除失败不清除本地恢复材料。本决策细化 D035、D042–D044，不改变 Remote MCP、Service API、数据库、模型选择或消息投影合同。
