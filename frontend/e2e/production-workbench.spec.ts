@@ -223,6 +223,136 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('a hard refresh preserves shell geometry and reveals only loaded content', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The persisted docked rail is a desktop refresh contract.')
+
+  let releaseAuth = () => undefined
+  let releaseFeed = () => undefined
+  let releaseAgent = () => undefined
+  const authGate = new Promise<void>((resolve) => { releaseAuth = resolve })
+  const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve })
+  const agentGate = new Promise<void>((resolve) => { releaseAgent = resolve })
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem('inteliscope.ui.bootstrap-shell.v1', JSON.stringify({
+      userId: 'e2e-user',
+      sidebar: 'collapsed',
+      rightRail: 'agent',
+      rightRailWidth: 420,
+    }))
+  })
+  await page.route('**/api/auth/status', async (route) => {
+    await authGate
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } } }),
+    })
+  })
+  await page.route('**/api/feed/latest', async (route) => {
+    await feedGate
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { schema_version: 2, items: [items[0]] } }) })
+  })
+  await page.route('**/api/me/agent-delegations', async (route) => {
+    await agentGate
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: {
+        enabled: true,
+        mcp_url: '/mcp',
+        subscription_writes_enabled: false,
+        openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' },
+        token_ttl_days: 90,
+        max_active: 5,
+        connections: [],
+      } }),
+    })
+  })
+
+  await page.goto('/feed', { waitUntil: 'domcontentloaded' })
+
+  const bootShell = page.locator('#inteliscope-bootstrap-shell')
+  const bootFeed = page.locator('[data-bootstrap-region="feed"]')
+  const bootAgent = page.locator('[data-bootstrap-region="agent"]')
+  await expect(bootShell).toBeVisible()
+  await expect(page.locator('[data-bootstrap-region="navigation"]')).toBeVisible()
+  await expect(page.locator('[data-bootstrap-region="header"]')).toBeVisible()
+  await expect(bootFeed).toBeVisible()
+  await expect(bootAgent).toBeVisible()
+  await expect(page.locator('.app-loading')).toHaveCount(0)
+  expect(await bootShell.evaluate((element) => getComputedStyle(element).opacity)).toBe('1')
+  expect(await bootShell.evaluate((element) => element.getAnimations({ subtree: false }).length)).toBe(0)
+  expect(await page.locator('body').evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+  const bootFeedBounds = await bootFeed.boundingBox()
+  const bootAgentBounds = await bootAgent.boundingBox()
+  expect(bootFeedBounds).not.toBeNull()
+  expect(Math.round(bootAgentBounds?.width ?? 0)).toBe(420)
+
+  releaseAuth()
+  await expect(page.getByRole('heading', { name: '信息流' })).toBeVisible()
+  await expect(bootShell).toHaveCount(0)
+  await expect(page.getByRole('status', { name: '正在读取信息流' })).toBeVisible()
+  await expect(page.getByRole('status', { name: '正在读取 Agent 面板' })).toBeVisible()
+  await expect(page.locator('[data-workbench-feed-skeleton-row]')).toHaveCount(5)
+  await expect(page.locator('[data-agent-skeleton-block]')).toHaveCount(3)
+
+  const feedReveal = page.locator('[data-loading-reveal="feed"]')
+  const feedSkeletonRow = page.locator('[data-workbench-feed-skeleton-row]').first()
+  const liveAgent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
+  const feedSkeletonBounds = await feedSkeletonRow.boundingBox()
+  const liveAgentBounds = await liveAgent.boundingBox()
+  expect(Math.abs((feedSkeletonBounds?.width ?? 0) - (bootFeedBounds?.width ?? 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((liveAgentBounds?.width ?? 0) - (bootAgentBounds?.width ?? 0))).toBeLessThanOrEqual(1)
+  const calmMotion = await page.locator('.inteliscope-skeleton-calm').first().evaluate((element) => {
+    const style = getComputedStyle(element)
+    const before = getComputedStyle(element, '::before')
+    return { duration: style.animationDuration, name: style.animationName, beforeContent: before.content, beforeAnimation: before.animationName }
+  })
+  expect(calmMotion).toEqual({ duration: '1.4s', name: 'inteliscope-skeleton-breathe', beforeContent: 'none', beforeAnimation: 'none' })
+  expect(await page.getByTestId('live-workbench-shell').evaluate((element) => element.getAnimations({ subtree: false }).length)).toBe(0)
+
+  await feedReveal.evaluate((element) => {
+    const browserWindow = window as typeof window & { refreshTransition?: Promise<Record<string, string>> }
+    browserWindow.refreshTransition = new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        if ((element as HTMLElement).dataset.loadingState !== 'revealing') return
+        const skeleton = element.querySelector<HTMLElement>('[data-loading-layer]')
+        const content = element.querySelector<HTMLElement>('[data-content-layer]')
+        if (!skeleton || !content) return
+        observer.disconnect()
+        const skeletonStyle = getComputedStyle(skeleton)
+        const contentStyle = getComputedStyle(content)
+        resolve({
+          skeletonDuration: skeletonStyle.animationDuration,
+          skeletonName: skeletonStyle.animationName,
+          contentDuration: contentStyle.animationDuration,
+          contentName: contentStyle.animationName,
+        })
+      })
+      observer.observe(element, { attributes: true, childList: true, subtree: true })
+    })
+  })
+  releaseFeed()
+  releaseAgent()
+  const transition = await page.evaluate(() => (window as typeof window & { refreshTransition?: Promise<Record<string, string>> }).refreshTransition)
+  expect(transition).toEqual({
+    skeletonDuration: '0.12s',
+    skeletonName: 'inteliscope-skeleton-exit',
+    contentDuration: '0.2s',
+    contentName: 'inteliscope-content-reveal',
+  })
+
+  const card = page.getByRole('article', { name: '实时条目 1' })
+  await expect(card).toBeVisible()
+  await expect(feedReveal).toHaveAttribute('data-loading-state', 'ready')
+  await expect(feedReveal.locator('[data-loading-layer]')).toHaveCount(0)
+  const cardBounds = await card.boundingBox()
+  expect(Math.abs((cardBounds?.width ?? 0) - (feedSkeletonBounds?.width ?? 0))).toBeLessThanOrEqual(1)
+  expect(cardBounds?.height ?? 0).toBeGreaterThanOrEqual(120)
+  expect(cardBounds?.height ?? 0).toBeLessThanOrEqual(190)
+  expect(Math.abs(((await liveAgent.boundingBox())?.width ?? 0) - (liveAgentBounds?.width ?? 0))).toBeLessThanOrEqual(1)
+  await expect(page.locator('.app-loading')).toHaveCount(0)
+})
+
 test('production HeroUI workbench preserves responsive shell, virtualization and Agent handoff', async ({ context, page }, testInfo) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/feed')
