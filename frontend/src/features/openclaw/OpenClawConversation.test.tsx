@@ -178,6 +178,24 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByRole('button', { name: 'OpenClaw 运行设置：A deliberately long model name · 深度分析' })).toHaveClass('w-full')
   })
 
+  it('keeps a long connected transcript scrolling above an unshrunk composer', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      messages: Array.from({ length: 24 }, (_, index) => ({
+        id: `message-${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        text: `long transcript message ${index}`,
+        status: 'completed',
+        contextCount: 0,
+      })),
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    expect(screen.getByTestId('agent-scroll-region')).toHaveClass('flex-1')
+    expect(screen.getByTestId('openclaw-composer-dock')).toHaveClass('shrink-0')
+  })
+
   it('shows only the OpenClaw default thinking choice when the selected model does not reason', async () => {
     const browser = userEvent.setup()
     const chat = chatController({

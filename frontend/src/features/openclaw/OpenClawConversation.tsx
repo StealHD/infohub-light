@@ -265,7 +265,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   return <>
     <div
       ref={scrollRef}
-      className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4"
+      className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4"
       data-testid="agent-scroll-region"
       aria-live="polite"
       onScroll={(event) => {
@@ -298,7 +298,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       </div>
       {chat.issue && <p role="alert" className="type-body mt-3 max-w-full break-words text-danger [overflow-wrap:anywhere]">{chat.issue.message}</p>}
     </div>
-    <div className="min-w-0 overflow-x-hidden border-t border-separator p-3">
+    <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-x-hidden border-t border-separator p-3">
       <ContextSummary value={value} />
       <div data-testid="openclaw-composer" className="grid min-w-0 grid-rows-[minmax(96px,auto)_36px] gap-2 rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
         <TextArea
