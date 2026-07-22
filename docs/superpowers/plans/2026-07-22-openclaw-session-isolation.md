@@ -16,7 +16,7 @@
 - Do not call `sessions.list`, reuse/rename/archive/delete an existing label, or clean previously paired devices.
 - New authorizations request exactly `operator.read + operator.write + operator.pairing`; never request `operator.admin` or any other scope. Existing exact `operator.read + operator.write` credentials remain valid for ordinary reconnects.
 - Preserve all existing transcript, model-fork, blank-fallback, new-conversation, tool-status, and logout semantics. Change forget-device semantics only as explicitly specified below.
-- “忘记此浏览器” requires a current three-scope credential, asks for explicit confirmation, and calls `device.pair.remove({deviceId})`. Server success or `INVALID_REQUEST: unknown deviceId` clears every local transcript for the user/Gateway and then IndexedDB; every other failure retains all local state for retry.
+- “忘记此浏览器” asks for explicit confirmation and uses the stored identity/device token to request the current three-scope profile. A legacy credential creates a Gateway-approved scope-upgrade request and retains local state until approval; after approval the retry calls `device.pair.remove({deviceId})`. Server success or `INVALID_REQUEST: unknown deviceId` clears every local transcript for the user/Gateway and then IndexedDB; every other failure retains all local state for retry.
 - Do not call `device.token.revoke` before removal: OpenClaw disconnects the current device after revoke, so the follow-up pair removal is not reliable.
 - Do not change Service API, Remote MCP, subscription writes, database schema, scheduler, dependencies, or deployment topology.
 - Automated and real smoke tests must not send model messages, call paid providers, fetch sources, or start the scheduler.
@@ -575,20 +575,20 @@ Expected: new pairings get pairing capability, legacy reconnects remain connecte
 - Reuse: `clearOpenClawTranscript` from `frontend/src/features/openclaw/useOpenClawChat.ts`
 
 **Interfaces:**
-- Produces: a testable forget service, a typed reauthorization-required error for legacy credentials, and a destructive-action confirmation UI with a pending lock.
+- Produces: a testable forget service, a typed scope-upgrade approval error containing the validated request ID, and a destructive-action confirmation UI with a pending lock.
 - Server method: `device.pair.remove({ deviceId: credential.identity.deviceId })` over a connection authenticated by the stored current-scope device token.
 
 - [x] **Step 1: Write failing forget-service tests**
 
-Cover success, `INVALID_REQUEST: unknown deviceId`, ordinary Gateway failure, and legacy two-scope credential. Assert server success/unknown clears all user/Gateway transcripts before deleting IndexedDB; ordinary failure and legacy scope leave both untouched. Assert the client always closes and no call uses `device.token.revoke`.
+Cover success, `INVALID_REQUEST: unknown deviceId`, ordinary Gateway failure, and legacy two-scope scope-upgrade/retry. Assert server success/unknown clears all user/Gateway transcripts before deleting IndexedDB; ordinary failure and pending upgrade leave both untouched. Assert the client always closes and no call uses `device.token.revoke`.
 
 - [x] **Step 2: Implement the transactional forget service**
 
-Load and validate the credential. If it lacks `operator.pairing`, stop locally with an actionable reauthorization error and make no network call. Otherwise connect with its stored identity, token, and exact current scopes; call `device.pair.remove`. Treat only the exact unknown-device response as idempotent success. Close the socket in `finally`; after success, clear all matching transcripts and then call `vault.forget`.
+Load and validate the credential, then connect with its stored identity/token while requesting exact current scopes. Convert only a structured `PAIRING_REQUIRED/scope-upgrade` response into an actionable error containing the validated approval request ID; this first attempt intentionally creates the server-side upgrade request and preserves all local state. After approval, retry and call `device.pair.remove`. Treat only the exact unknown-device response as idempotent success. Close the socket in `finally`; after success, clear all matching transcripts and then call `vault.forget`.
 
 - [x] **Step 3: Add confirmation and failure-safe UI tests**
 
-Test that the first click opens a confirmation modal, cancel changes nothing, confirm locks the action while pending, success changes the card to unpaired, legacy credentials instruct the user to reconnect with a Gateway/dashboard token, and other failures keep the paired state with a retryable error.
+Test that the first click opens a confirmation modal, cancel changes nothing, confirm locks the action while pending, success changes the card to unpaired, a legacy scope upgrade shows its exact `openclaw devices approve <requestId>` command, and other failures keep the paired state with a retryable error.
 
 - [x] **Step 4: Implement the settings UI**
 

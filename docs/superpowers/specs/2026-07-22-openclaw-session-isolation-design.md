@@ -85,16 +85,16 @@ OpenClaw 仍是唯一性的最终权威。如果第一次创建返回明确的 `
 
 步骤 3 失败时不创建会话。步骤 4 或后续加载失败时，浏览器仍保留已配对设备，下一次连接无需再次粘贴 bootstrap token；成功创建的 session key 在步骤 5 后可供普通重连复用。
 
-Gateway 客户端把 requested scopes 作为显式构造参数并对返回值做精确匹配。新配对或用户再次粘贴 Gateway token 时请求三项当前 scope；已有只含 read/write 的旧凭据仍按其原两项 scope 普通重连，保留 identity 与 session key，不在后台静默提升权限。用户主动用 Gateway token 重新授权后，沿用同一 identity/session key 保存三项 scope，才获得自助删除能力。
+Gateway 客户端把 requested scopes 作为显式构造参数并对返回值做精确匹配。新配对或用户再次粘贴 Gateway token 时请求三项当前 scope；已有只含 read/write 的旧凭据仍按其原两项 scope 普通重连，保留 identity 与 session key，不在后台静默提升权限。只有用户明确确认“忘记此浏览器”时，删除专用临时连接才用保存的 identity/device token 请求三项当前 scope，并由 Gateway 的 scope-upgrade 审批保护该次提升。
 
 ### 4.4 显式吊销并忘记当前浏览器
 
 助手连接页保留一个破坏性“忘记此浏览器”入口，但点击后必须先显示确认框。确认后：
 
 1. 从凭据库读取当前 Inteliscope 用户和规范化 Gateway URL 对应的 identity、device token、scope 与 session key；
-2. 凭据缺少 `operator.pairing` 时不连接、不删除，提示用户在对话面板用 Gateway token 对同一浏览器重新授权；
-3. 使用已保存 identity/device token 和其精确三项 scope 建立一个临时 Gateway 客户端，不创建会话、不加载历史、不调用模型；
-4. 调用 `device.pair.remove({deviceId: identity.deviceId})`；
+2. 使用已保存 identity/device token 请求精确三项当前 scope 建立一个临时 Gateway 客户端，不创建会话、不加载历史、不调用模型；
+3. 旧凭据收到结构化 `PAIRING_REQUIRED/scope-upgrade` 时，关闭连接并显示经过格式校验的 request ID 与 `openclaw devices approve <requestId>`；批准前保留全部本地材料，用户批准后再次确认删除；
+4. 握手成功后调用 `device.pair.remove({deviceId: identity.deviceId})`；
 5. 成功响应后立即关闭临时客户端，清除该用户/Gateway 的全部 sessionStorage transcript，再删除 IndexedDB 凭据；
 6. OpenClaw 明确返回 `INVALID_REQUEST: unknown deviceId` 时按幂等成功处理，因为服务端已经不存在该设备；
 7. 其他网络、认证、权限或 Gateway 错误均停止流程，保留本地凭据和 transcript，页面维持“已配对”并显示真实错误供重试。
@@ -110,7 +110,7 @@ Gateway 客户端把 requested scopes 作为显式构造参数并对返回值做
 - 不记录或回显 Gateway token，不把用户 ID写入 OpenClaw 标签。新授权只接受精确的 `operator.read + operator.write + operator.pairing`；旧记录只允许精确 read/write 兼容配置。两种配置都拒绝 `operator.admin`、缺失项和任何其他额外 scope。
 - `operator.pairing` 是 OpenClaw 2026.7.1 调用 `device.pair.remove` 的最低协议权限；OpenClaw 对非管理员调用者执行 device ownership 校验，Inteliscope 仍只提交自身 identity 的 device ID，不列举或管理其他设备。
 - 旧版已保存的 `Inteliscope` session key 完全兼容；只有后续新建会话使用新标签。
-- 旧版只有 read/write 的 device token 不静默提升权限，仍可恢复原 session。使用服务端忘记功能前需要用 Gateway token 完成一次 scope 升级/配对批准；主页面必须把 `pairing_required` 保持为可执行指引，不能误报成会话或普通权限错误。
+- 旧版只有 read/write 的 device token 不在普通重连时静默提升权限，仍可恢复原 session。用户明确确认服务端忘记操作后，临时连接请求 scope upgrade；Gateway 必须生成待批准请求而不是直接授权，页面把 `pairing_required` 的 request ID 转成可执行批准指引，不能误报成会话或普通权限错误。
 
 ## 6. 测试设计
 
@@ -123,7 +123,7 @@ Gateway 客户端把 requested scopes 作为显式构造参数并对返回值做
 5. 首次连接、模型 fork、空白回退和新对话测试都断言使用统一的来源化唯一标签，并保留各自原有参数。
 6. 旧 session key 重连测试验证不调用 `sessions.create`，历史和工具加载行为不变。
 7. Gateway 客户端与凭据库测试验证新授权只接受精确三项 scope，旧 read/write 记录按原 scope 重连并保留 session；两者都拒绝 admin、缺项或其他额外 scope。
-8. 设备忘记测试验证旧两项 scope 在联网前停止并给出重新授权指引；三项 scope 确认后只对存储的 device ID 调用一次 `device.pair.remove`，成功/unknown-device 才清 transcript 与 IndexedDB，超时、权限和其他失败均不清本地数据。
+8. 设备忘记测试验证旧两项 scope 会用保存的 token 请求三项 scope、把结构化 scope-upgrade 转为包含 request ID 的批准指引且不清本地数据；批准后重试只对存储的 device ID 调用一次 `device.pair.remove`，成功/unknown-device 才清 transcript 与 IndexedDB，超时、权限和其他失败均不清本地数据。
 9. 助手连接页测试验证破坏性确认、pending 防重复、成功与失败文案，以及失败后“已配对”状态保持不变。
 10. 运行 OpenClaw 定向 Vitest、完整前端 Vitest、TypeScript、production build 和项目 `test_gate full`。
 

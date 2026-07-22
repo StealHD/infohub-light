@@ -156,10 +156,10 @@ describe('OpenClaw browser pairing settings', () => {
     expect(screen.getByRole('status')).toHaveTextContent('服务端设备和当前浏览器配对已删除')
   })
 
-  it('keeps the pairing and explains reauthorization when a legacy token cannot remove itself', async () => {
+  it('keeps the pairing and shows the exact approval command for a legacy scope upgrade', async () => {
     const browser = userEvent.setup()
     const vault = pairedBrowserVault()
-    const forgetBrowser = vi.fn().mockRejectedValue(new OpenClawPairingUpgradeRequiredError())
+    const forgetBrowser = vi.fn().mockRejectedValue(new OpenClawPairingUpgradeRequiredError('request-upgrade-1'))
     render(<OpenClawBrowserSettings
       userId="member-1"
       enabled
@@ -174,7 +174,9 @@ describe('OpenClaw browser pairing settings', () => {
     const dialog = screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })
     await browser.click(within(dialog).getByRole('button', { name: '确认移除并忘记' }))
 
-    expect(await screen.findByText(/旧配对没有设备管理权限/)).toBeInTheDocument()
+    expect(await screen.findByText(/已创建设备权限升级请求/)).toHaveTextContent(
+      'openclaw devices approve request-upgrade-1',
+    )
     expect(screen.getByText('此浏览器已配对')).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).toBeInTheDocument()
   })
