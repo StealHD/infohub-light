@@ -742,6 +742,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: savedRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'ready')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   expect((await new AxeBuilder({ page }).analyze()).violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 
@@ -754,6 +755,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: historyRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'ready')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   expect((await new AxeBuilder({ page }).analyze()).violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 

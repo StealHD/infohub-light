@@ -197,6 +197,22 @@ describe('VirtualFeed', () => {
     }
   })
 
+  it('does not nest interactive card actions inside tooltip trigger controls', () => {
+    const view = render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const nestedTriggers = Array.from(view.container.querySelectorAll('[data-slot="tooltip-trigger"]'))
+      .filter((trigger) => trigger.querySelector('a[href], button, summary'))
+
+    expect(nestedTriggers).toHaveLength(0)
+  })
+
   it('only softens Quiet Studio card actions when the primary pointer is fine', () => {
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}

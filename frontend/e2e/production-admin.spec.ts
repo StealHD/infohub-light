@@ -85,7 +85,11 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '成员' })).toBeVisible()
+
+  await page.goto('/users')
+  await expectHeroAdminPage(page, '账户与成员')
+  await expect(page.getByRole('heading', { name: '账户安全' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '成员管理' })).toBeVisible()
 })
 
 test('subscription controls preserve the first source card on the mobile first screen', async ({ page }, testInfo) => {

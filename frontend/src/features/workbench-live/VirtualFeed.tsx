@@ -246,59 +246,64 @@ function WorkbenchCard({
         className={`${canToggleExpansion ? '' : 'ml-auto'} flex items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100`}
       >
         {externalUrl && <Tooltip delay={600}>
-          <Tooltip.Trigger className="contents"><a
+          <Tooltip.Trigger<'a'> render={(triggerProps) => <a
+            {...triggerProps}
             href={externalUrl}
             target="_blank"
             rel="noreferrer"
+            role={undefined}
             aria-label={`打开 ${cardLabel} 原文`}
-            className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-          ><Icons.ExternalLink size={15} aria-hidden="true" /></a></Tooltip.Trigger>
+            className={`${triggerProps.className ?? ''} inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
+          ><Icons.ExternalLink size={15} aria-hidden="true" /></a>} />
           <Tooltip.Content>在新窗口打开原文</Tooltip.Content>
         </Tooltip>}
         <Tooltip delay={600}>
-          <Tooltip.Trigger className="contents"><Button
+          <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
+            {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
             size="sm"
             variant={card.userState.is_saved ? 'secondary' : 'ghost'}
-            className="size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+            className={`${triggerProps.className ?? ''} size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
             isDisabled={readonly}
             aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
             onPress={onToggleSaved}
             isIconOnly
-          >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</Button></Tooltip.Trigger>
+          >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</Button>} />
           <Tooltip.Content>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
         </Tooltip>
         <Tooltip delay={600}>
-          <Tooltip.Trigger className="contents"><Button
+          <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
+            {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
             size="sm"
             variant="ghost"
             data-context-state={inContext ? 'selected' : 'idle'}
-            className="size-8 bg-accent/15 text-accent active:scale-95 hover:bg-accent/25 pointer-coarse:size-11 data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 motion-reduce:transform-none"
+            className={`${triggerProps.className ?? ''} size-8 bg-accent/15 text-accent active:scale-95 hover:bg-accent/25 pointer-coarse:size-11 data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 motion-reduce:transform-none`}
             isDisabled={contextFull && !inContext}
             aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
             onPress={onToggleContext}
             isIconOnly
-          ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></Button></Tooltip.Trigger>
+          ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></Button>} />
           <Tooltip.Content>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
         </Tooltip>
-        <Tooltip delay={600}>
-          <Tooltip.Trigger className="contents"><details className="relative">
-            <summary
+        <details className="relative">
+          <Tooltip delay={600}>
+            <Tooltip.Trigger<'summary'> render={(triggerProps) => <summary
+              {...triggerProps}
               role="button"
               aria-label={`更多操作 ${cardLabel}`}
-              className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-            ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
-            <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
-              <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
-                <Icons.Copy size={14} aria-hidden="true" />复制摘要
-              </button>
-              {copyNotice && <span role="status" aria-live="polite" className="type-meta px-3 py-1 text-muted">{copyNotice}</span>}
-              <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction(!card.userState.dismissed)}>
-                <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
-              </button>
-            </div>
-          </details></Tooltip.Trigger>
-          <Tooltip.Content>复制摘要或忽略这条内容</Tooltip.Content>
-        </Tooltip>
+              className={`${triggerProps.className ?? ''} flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
+            ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>} />
+            <Tooltip.Content>复制摘要或忽略这条内容</Tooltip.Content>
+          </Tooltip>
+          <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
+            <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
+              <Icons.Copy size={14} aria-hidden="true" />复制摘要
+            </button>
+            {copyNotice && <span role="status" aria-live="polite" className="type-meta px-3 py-1 text-muted">{copyNotice}</span>}
+            <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction(!card.userState.dismissed)}>
+              <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
+            </button>
+          </div>
+        </details>
       </div>
     </Card.Footer>
   </Card>

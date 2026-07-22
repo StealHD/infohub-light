@@ -321,14 +321,15 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
         <div data-testid="openclaw-composer-toolbar" className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-1.5 px-1 pb-0.5">
           <RuntimeControls chat={chat} />
           {chat.isRunning ? <Tooltip delay={250}>
-            <Tooltip.Trigger className="contents"><Button
+            <Tooltip.Trigger<'button'> render={(triggerProps) => <Button
+              {...(triggerProps as unknown as React.ComponentProps<typeof Button>)}
               size="sm"
               isIconOnly
               aria-label="停止生成"
               isDisabled={chat.isStopping}
               onPress={() => void chat.stop()}
-              className="size-9 shrink-0 rounded-full"
-            ><Icons.Square size={14} fill="currentColor" aria-hidden="true" /></Button></Tooltip.Trigger>
+              className={`${triggerProps.className ?? ''} size-9 shrink-0 rounded-full`}
+            ><Icons.Square size={14} fill="currentColor" aria-hidden="true" /></Button>} />
             <Tooltip.Content>{chat.isStopping ? '正在停止…' : '停止生成'}</Tooltip.Content>
           </Tooltip> : <Button size="sm" isIconOnly className="size-9 shrink-0 rounded-full" aria-label="发送给 OpenClaw" isDisabled={!canSend || chat.status !== 'connected'} onPress={() => void send()}><Icons.ArrowUp size={16} /></Button>}
         </div>
