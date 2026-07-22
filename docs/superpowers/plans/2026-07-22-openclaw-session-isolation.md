@@ -698,7 +698,9 @@ git status --short
 
 Expected: all 24 release commands pass and `git status --short` prints nothing.
 
-- [ ] **Step 2: Build and activate the branch image on localhost without replacing data**
+2026-07-23 observation: the clean-branch release run passed 22 commands and failed `release_playwright` on the known `c762fea20268` Tooltip nested-interactive behavior plus the pre-existing settings-route expectation. Per the user's instruction not to reintroduce or investigate the unrelated `dc6719b` UI change, this step remains open; the independently passing full gate is the completion gate for the scoped OpenClaw fix.
+
+- [x] **Step 2: Build and activate the branch image on localhost without replacing data**
 
 Set `revision` from `git rev-parse --short=12 HEAD`, `built_at` from UTC, and image `inteliscope-service:local-${revision}-openclaw-session`. Build from this worktree with `docker build --pull --no-cache` and the three immutable build arguments. Before cutover, query the primary checkout database for `PRAGMA integrity_check`, foreign-key violations, and queued/running jobs; create a timestamped database backup under the primary checkout `data/backups/`. From the primary checkout, recreate only `horizon-api` and `horizon-worker` with explicit `INTELISCOPE_IMAGE`, version, revision, and built-at overrides so its existing `.env`, `data`, and `logs` mounts remain authoritative.
 

@@ -2316,3 +2316,11 @@
 - 执行验证：修复分支已从 `de8b146` 安全迁移到 VPS 已知正常基线 `c762fea20268`，确认不含 UI 回归 `dc6719b`；scope RED 5 项、device service RED 1 suite、Hook/UI RED 各 1 组后转 GREEN；定向 29/29、前端 42 files/338 tests、lint 0 error、TypeScript、production build 通过；`test_gate full` 22/22、0 failed/error、99.485 秒
 - 结果：所有新会话使用来源化唯一标签并只对明确冲突重试一次；新授权精确请求 read/write/pairing，旧 read/write 凭据继续普通重连；“忘记此浏览器”确认后只调用当前 identity 的 `device.pair.remove`，成功或 unknown-device 才清 transcript/IndexedDB，其他失败完整保留本地恢复状态
 - 控制面变更：`UI_CONTRACT.md` 与 D048 固化最小 pairing scope、旧凭据兼容和服务端优先删除语义；Remote MCP、订阅写入、Service API、数据库、scheduler、模型与 VPS 均未修改
+
+### 2026-07-23 00:59 Codex
+- 任务：无缓存构建并启动已完成的 OpenClaw 修复分支本地容器
+- 修改文件：本工作日志、D048 状态和实施计划；本机 API/Worker 从 `8e9f05f2275f-main` 切换到 `inteliscope-service:local-042e813d3fc3-openclaw-session`，原 `.env`、`data`、`logs` 和回滚镜像保留
+- 执行验证：image ID `sha256:52f550434d35…d2f9`；API/Worker 同 image、healthy、0 restart，live=`1.7.1/042e813d3fc3-openclaw-session`、ready；7 路由 200、受保护 API 401、SQLite integrity=`ok`、foreign-key=0、active jobs=0、数据计数 `3/9/89`、scheduler=0、严重启动日志=0；Remote MCP/订阅写入/Browser Chat 均保持启用，Gateway 2026.7.1 running/probe=ok；运行 bundle 含唯一标签、`operator.pairing` 与 `device.pair.remove`
+- 门禁说明：clean-branch release gate 的 22 个前置命令通过，`release_playwright` 因已知 `c762fea` Tooltip nested-interactive 和旧设置页验收项失败；按用户“不排查 UI、继续 OpenClaw”的要求未引入造成视觉回归的 `dc6719b`，OpenClaw 范围以独立通过的 full gate 22/22 为完成证据
+- 回退与备份：切换前数据库备份 `data/backups/pre-openclaw-final-20260722T165652Z.db`，SHA-256 `dbeffbba…cdee`、0600、integrity=`ok`；旧 `8e9f05f2275f-main` 镜像仍保留
+- 控制面变更：仅更新 D048 的本地验证状态；未修改或部署 VPS，未触发 scheduler、来源抓取、模型或付费调用
