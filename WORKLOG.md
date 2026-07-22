@@ -2249,3 +2249,11 @@
 - 结果：输入区获得 96px 稳定最小高度；运行设置与 36px 发送/停止动作使用显式 `minmax(0,1fr) + 36px` 工具栏轨道，长模型名只在自身区域截断，不再参与挤压按钮或输入区；Feed 与 Agent 右栏宽度保持不变
 - 未解决问题：当前应用内浏览器没有已配对 Gateway，连接页可见但未代替用户连接；连接成功后即可直接查看已部署的 connected composer
 - 控制面变更：仅更新本地 UI 与 Docker 运行态；未修改 API、数据库、权限、Query Key、Gateway/MCP 协议、远端或 VPS，未触发模型调用、来源抓取或付费操作
+
+### 2026-07-22 16:58 Codex
+- 任务：根据 Chrome 已连接长对话截图，修复 transcript 争抢高度导致 OpenClaw composer 被压缩裁切的问题并重新部署
+- 修改文件：OpenClaw 对话组件与长历史回归测试、UI 契约、执行计划及本工作日志；本机 API/Worker 切换至新镜像
+- 执行验证：24 条长历史回归先因缺少 `flex-1` 精确 RED，修复后 OpenClaw 13/13、完整前端 Vitest 322/322、TypeScript、production build/产物检查与 `git diff --check` 通过；Docker image=`sha256:d1dd43f2913f`，API/Worker healthy，live=`1.7.1/93fc44e180a7-openclaw-dock`、database/worker ready；8080 bundle 为 `index-CaGmP4KC.js` 并包含 `openclaw-composer-dock`
+- 结果：已连接长对话现在由 transcript 独占剩余高度并内部滚动，composer dock 禁止收缩、完整固定在面板底部；未修改右栏宽度、消息语义或 Gateway 行为
+- 未解决问题：当前环境没有可接管的 Chrome 浏览器连接，需用户在现有已配对 Chrome 标签页强制刷新后进行最终视觉确认
+- 控制面变更：仅更新本地 UI 与 Docker 运行态；未修改 API、数据库、权限、Query Key、Gateway/MCP 协议、远端或 VPS，未触发模型调用、来源抓取或付费操作

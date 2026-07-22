@@ -106,3 +106,14 @@ Append focused test/build/container/browser evidence to `WORKLOG.md`, run `git d
 ```bash
 git commit -m "fix(ui): stabilize OpenClaw composer layout"
 ```
+
+### Corrective Task 2: Long transcript docking
+
+**Files:**
+- Modify: `frontend/src/features/openclaw/OpenClawConversation.test.tsx`
+- Modify: `frontend/src/features/openclaw/OpenClawConversation.tsx`
+
+- [x] Reproduce the connected long-history failure with 24 transcript messages and verify RED because the transcript lacks `flex-1`.
+- [x] Give the transcript `flex-1 min-h-0` and the composer dock `shrink-0`, without changing Gateway or message behavior.
+- [x] Verify OpenClaw 13/13, complete frontend Vitest 322/322, TypeScript, and production build.
+- [x] Build and activate `inteliscope-service:local-93fc44e180a7-openclaw-dock` on localhost:8080.
