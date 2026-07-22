@@ -155,6 +155,9 @@
     {
       "id": "React related",
       "globs": [
+        "frontend/src/*.css",
+        "frontend/src/*.ts",
+        "frontend/src/*.tsx",
         "frontend/src/**/*.css",
         "frontend/src/**/*.ts",
         "frontend/src/**/*.tsx"
@@ -164,6 +167,7 @@
     {
       "id": "React global Shell",
       "globs": [
+        "frontend/src/AppBootstrap.test.tsx",
         "frontend/src/AppBootstrap.tsx",
         "frontend/src/app/App.tsx",
         "frontend/src/app/ActionFeedback.tsx",

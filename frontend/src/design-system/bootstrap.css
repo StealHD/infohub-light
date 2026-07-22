@@ -181,7 +181,7 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
 
 @media (min-width: 1042px) {
   html[data-bootstrap-layout="content"][data-bootstrap-rail="agent"] .bootstrap-shell-grid {
-    grid-template-columns: 72px minmax(640px, 1fr) var(--inteliscope-bootstrap-right-rail-width);
+    grid-template-columns: 72px minmax(640px, 1fr) min(var(--inteliscope-bootstrap-right-rail-width), calc(100vw - 72px - 650px));
   }
 
   html[data-bootstrap-layout="content"][data-bootstrap-rail="agent"] .bootstrap-shell-agent {
@@ -197,7 +197,7 @@ html[data-bootstrap-layout="auth"] .bootstrap-shell-card:not(:first-child) { dis
   }
 
   html[data-bootstrap-layout="content"][data-bootstrap-sidebar="expanded"][data-bootstrap-rail="agent"] .bootstrap-shell-grid {
-    grid-template-columns: 232px minmax(640px, 1fr) var(--inteliscope-bootstrap-right-rail-width);
+    grid-template-columns: 232px minmax(640px, 1fr) min(var(--inteliscope-bootstrap-right-rail-width), calc(100vw - 232px - 650px));
   }
 }
 
