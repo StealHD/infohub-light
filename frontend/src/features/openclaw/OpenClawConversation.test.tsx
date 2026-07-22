@@ -160,6 +160,24 @@ describe('OpenClaw conversation surface', () => {
     expect(chat.setModel).toHaveBeenCalledWith('local/quick')
   })
 
+  it('keeps the connected composer input and actions in stable grid tracks', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      models: [{ id: 'provider/long-model', name: 'A deliberately long model name', provider: 'provider', reasoning: true }],
+      thinkingOptions: [{ id: 'high', label: '深度分析' }],
+      runtimeSelection: { modelId: 'provider/long-model', thinkingLevel: 'high', defaultModelId: null, defaultThinkingLevel: null },
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(96px,auto)_36px]', 'gap-2')
+    expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-24')
+    expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
+    expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
+    expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
+    expect(screen.getByRole('button', { name: 'OpenClaw 运行设置：A deliberately long model name · 深度分析' })).toHaveClass('w-full')
+  })
+
   it('shows only the OpenClaw default thinking choice when the selected model does not reason', async () => {
     const browser = userEvent.setup()
     const chat = chatController({

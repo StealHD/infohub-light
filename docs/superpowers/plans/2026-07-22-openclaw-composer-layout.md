@@ -29,7 +29,7 @@
 - Consumes: the existing `OpenClawConversation({ chat, value })` component and `ChatController`/`WorkbenchAgentContextValue` contracts.
 - Produces: stable `data-testid="openclaw-composer"` and `data-testid="openclaw-composer-toolbar"` layout markers; no new exported TypeScript API.
 
-- [ ] **Step 1: Write the failing layout contract test**
+- [x] **Step 1: Write the failing layout contract test**
 
 Add a connected-state test with a deliberately long runtime label and assert the desired geometry:
 
@@ -44,15 +44,16 @@ it('keeps the connected composer input and actions in stable grid tracks', () =>
   })
   render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-  expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(96px,auto)_36px]')
+  expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(96px,auto)_36px]', 'gap-2')
   expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-24')
   expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
+  expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
   expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
   expect(screen.getByRole('button', { name: 'OpenClaw 运行设置：A deliberately long model name · 深度分析' })).toHaveClass('w-full')
 })
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run:
 
@@ -62,7 +63,7 @@ cd frontend && npm run test -- --run src/features/openclaw/OpenClawConversation.
 
 Expected: the new test fails because `openclaw-composer` and `openclaw-composer-toolbar` do not exist and the current footer still uses `flex`.
 
-- [ ] **Step 3: Implement the minimal two-row composer**
+- [x] **Step 3: Implement the minimal two-row composer**
 
 Apply these exact class and test-marker changes; all component bodies and event handlers remain unchanged:
 
@@ -71,18 +72,18 @@ Apply these exact class and test-marker changes; all component bodies and event 
 + className={`type-control flex w-full min-w-0 max-w-full items-center gap-1 overflow-hidden rounded-lg px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-focus ${controlsDisabled || !chat.models.length ? 'cursor-default text-muted' : 'text-foreground hover:bg-default'}`}
 
 - <div className="min-w-0 rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
-+ <div data-testid="openclaw-composer" className="grid min-w-0 grid-rows-[minmax(96px,auto)_36px] rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
++ <div data-testid="openclaw-composer" className="grid min-w-0 grid-rows-[minmax(96px,auto)_36px] gap-2 rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
 
 - className="type-body min-w-0 max-w-full [overflow-wrap:anywhere]"
 + className="type-body min-h-24 min-w-0 max-w-full [overflow-wrap:anywhere]"
 
 - <div className="mt-2 flex min-w-0 items-end gap-1.5 px-1 pb-0.5">
-+ <div data-testid="openclaw-composer-toolbar" className="mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-1.5 px-1 pb-0.5">
++ <div data-testid="openclaw-composer-toolbar" className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-1.5 px-1 pb-0.5">
 ```
 
 Keep runtime messages immediately after the toolbar inside the composer surface and let them span naturally below the fixed tracks.
 
-- [ ] **Step 4: Run focused verification and verify GREEN**
+- [x] **Step 4: Run focused verification and verify GREEN**
 
 Run:
 

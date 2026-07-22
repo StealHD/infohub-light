@@ -169,7 +169,7 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
     <Popover.Trigger
       aria-label={`OpenClaw 运行设置：${runtimeLabel}`}
       aria-disabled={controlsDisabled || !chat.models.length}
-      className={`type-control flex min-w-0 max-w-full flex-1 items-center gap-1 rounded-lg px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-focus ${controlsDisabled || !chat.models.length ? 'cursor-default text-muted' : 'text-foreground hover:bg-default'}`}
+      className={`type-control flex w-full min-w-0 max-w-full items-center gap-1 overflow-hidden rounded-lg px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-focus ${controlsDisabled || !chat.models.length ? 'cursor-default text-muted' : 'text-foreground hover:bg-default'}`}
     >
       <span className="min-w-0 truncate">{runtimeLabel}</span>
       <Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" />
@@ -300,11 +300,11 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
     </div>
     <div className="min-w-0 overflow-x-hidden border-t border-separator p-3">
       <ContextSummary value={value} />
-      <div className="min-w-0 rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
+      <div data-testid="openclaw-composer" className="grid min-w-0 grid-rows-[minmax(96px,auto)_36px] gap-2 rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
         <TextArea
           fullWidth
           variant="secondary"
-          className="type-body min-w-0 max-w-full [overflow-wrap:anywhere]"
+          className="type-body min-h-24 min-w-0 max-w-full [overflow-wrap:anywhere]"
           aria-label="发送给 OpenClaw 的问题"
           value={value.draft.question}
           maxLength={1200}
@@ -318,7 +318,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             }
           }}
         />
-        <div className="mt-2 flex min-w-0 items-end gap-1.5 px-1 pb-0.5">
+        <div data-testid="openclaw-composer-toolbar" className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-1.5 px-1 pb-0.5">
           <RuntimeControls chat={chat} />
           {chat.isRunning ? <Tooltip delay={250}>
             <Tooltip.Trigger className="contents"><Button
