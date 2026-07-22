@@ -7,7 +7,7 @@ import {
   type OpenClawCredentialAdapter,
   type StoredOpenClawCredential,
 } from './openclawCredentialVault'
-import type { GatewayEvent, GatewayHello } from './openclawGateway'
+import { GatewayRequestError, type GatewayEvent, type GatewayHello } from './openclawGateway'
 import {
   boundChatMessages,
   mergeOpenClawTranscript,
@@ -61,6 +61,95 @@ describe('useOpenClawChat', () => {
     await act(async () => { await Promise.resolve() })
     expect(result.current.status).toBe('disabled')
     expect(clientFactory).not.toHaveBeenCalled()
+  })
+
+  it('retries one label collision with a fresh label and keeps all other session parameters', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-collision', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-1', publicKey: 'public-1', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'],
+    })
+    let creates = 0
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      void params
+      if (method === 'sessions.create') {
+        creates += 1
+        if (creates === 1) throw new GatewayRequestError({
+          code: 'INVALID_REQUEST', message: 'label already in use: Inteliscope',
+        })
+        return { key: 'session-created' }
+      }
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn(() => ({
+      connect: vi.fn(async (): Promise<GatewayHello> => ({
+        auth: { deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      })),
+      request,
+      close: vi.fn(),
+    }))
+
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true, userId: 'user-collision', defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault, clientFactory: clientFactory as never,
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+    const calls = request.mock.calls.filter(([method]) => method === 'sessions.create')
+    expect(calls).toHaveLength(2)
+    expect(calls[0][1]).toEqual({
+      agentId: 'main',
+      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+    })
+    expect(calls[1][1]).toEqual({
+      agentId: 'main',
+      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+    })
+    expect(calls[0][1]?.label).not.toBe(calls[1][1]?.label)
+  })
+
+  it('creates a uniquely labelled new conversation without changing runtime semantics', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-new', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-1', publicKey: 'public-1', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'], sessionKey: 'session-1',
+    })
+    const request = vi.fn(async (method: string) => {
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      if (method === 'sessions.create') return { key: 'session-2' }
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn(() => ({
+      connect: vi.fn(async (): Promise<GatewayHello> => ({
+        auth: { deviceToken: 'device-token', scopes: ['operator.read', 'operator.write'] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      })),
+      request,
+      close: vi.fn(),
+    }))
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true, userId: 'user-new', defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault, clientFactory: clientFactory as never,
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+    await act(async () => { await result.current.newConversation() })
+
+    expect(request).toHaveBeenCalledWith('sessions.create', {
+      agentId: 'main',
+      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
+    })
+    expect(result.current.sessionKey).toBe('session-2')
   })
 
   it('bounds browser-visible history and projects versioned handoffs without exposing MCP instructions', () => {
@@ -442,7 +531,7 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.setModel('local/quick') })
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: 'Inteliscope',
+      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
       parentSessionKey: 'session-1',
       fork: true,
       model: 'local/quick',
@@ -499,7 +588,7 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.switchToBlankConversation() })
     expect(request).toHaveBeenCalledWith('sessions.create', {
       agentId: 'main',
-      label: 'Inteliscope',
+      label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
       model: 'openai/gpt-5.4',
     })
     expect(result.current.sessionKey).toBe('session-fallback')
