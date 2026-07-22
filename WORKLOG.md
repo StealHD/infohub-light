@@ -2227,3 +2227,10 @@
 - 结果：首帧直接绘制原背景和上次导航/可停靠右栏布局；数据区以 1.4 秒低干扰呼吸占位，120 ms 淡出并由内容以 200 ms/4 px 局部浮现；Feed 和 Agent 宽度在静态壳、Skeleton 与真实内容间保持稳定，窄屏不自动弹出 Drawer
 - 未解决问题：单独运行既有生产工作台全链路用例仍会命中 HeroUI Tooltip 包装层的重复 button 角色；已在不含本次修改的 `4d66886` 临时 worktree 同样复现并清理。继续执行后还会被同根因的 Axe `nested-interactive` 阻断；刷新专项不依赖该路径，本分支未扩大范围修复
 - 控制面变更：新增 D046 并更新 Quiet Studio 加载真源；无 API、数据库、权限、Query Key、Gateway/MCP、部署或运行容器变化
+
+### 2026-07-22 16:26 Codex
+- 任务：构建稳定刷新分支的本地 Docker 镜像并切换 localhost:8080 供人工验收
+- 修改文件：仅本工作日志；运行态重建本地 API/Worker，未修改业务数据或远端
+- 执行验证：无缓存 Docker build、前端 production build/产物检查通过；API/Worker 同 image ID `sha256:4408576a9b2c` 且 healthy，live=`1.7.1/a3711b0d1beb-stable-refresh`、database/worker ready、integrity=ok、queued/running=0；`/feed` 初始 HTML 包含导航、标题、Feed、Agent bootstrap 区域
+- 结果：本地 8080 已切换至 `inteliscope-service:local-a3711b0d1beb-stable-refresh`，旧镜像 `inteliscope-service:local-4d668868a283` 保留用于回退
+- 控制面变更：无；未部署 VPS、未推送分支、未触发来源抓取、AI、付费调用或任务调度
