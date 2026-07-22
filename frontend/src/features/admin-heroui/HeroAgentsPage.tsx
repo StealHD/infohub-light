@@ -226,6 +226,7 @@ export function HeroAgentsPage() {
   const [renameTarget, setRenameTarget] = useState<AgentDelegation | null>(null)
   const [renameName, setRenameName] = useState('')
   const [revokeTarget, setRevokeTarget] = useState<AgentDelegation | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AgentDelegation | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const readConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'read'), [query.data?.mcp_url])
@@ -267,6 +268,11 @@ export function HeroAgentsPage() {
     onSuccess: () => { setRevokeTarget(null); setNotice('连接已永久吊销。'); setError(''); refresh() },
     onError: (caught) => setError(caught instanceof ApiError ? caught.message : '吊销失败。'),
   })
+  const deleteRecord = useMutation({
+    mutationFn: () => api.deleteAgentDelegationRecord(deleteTarget!.id),
+    onSuccess: () => { setDeleteTarget(null); setNotice('已删除连接记录。'); setError(''); refresh() },
+    onError: (caught) => setError(caught instanceof ApiError ? caught.message : '删除失败。'),
+  })
 
   async function copy(value: string, message: string) {
     try { await navigator.clipboard.writeText(value); setNotice(message); setError('') }
@@ -307,7 +313,7 @@ export function HeroAgentsPage() {
           return <Card key={connection.id} variant="secondary" className="p-4">
             <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center">
               <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><Chip size="sm" color={status.color} variant="soft"><Chip.Label>{status.label}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{accessLabel(connection.access)}</Chip.Label></Chip></div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
-              <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`复制 ${connection.name} 配置`} onPress={() => void copy(agentConfiguration(query.data.mcp_url, connection.access), `${connection.name} 配置已复制。`)}><Icons.Copy size={15} />复制配置</Button><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button><Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => setRevokeTarget(connection)}>吊销</Button></div>
+              <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`复制 ${connection.name} 配置`} onPress={() => void copy(agentConfiguration(query.data.mcp_url, connection.access), `${connection.name} 配置已复制。`)}><Icons.Copy size={15} />复制配置</Button><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button>{connection.status === 'revoked' ? <Button size="sm" variant="danger" aria-label={`删除 ${connection.name}`} onPress={() => setDeleteTarget(connection)}>删除</Button> : <Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => setRevokeTarget(connection)}>吊销</Button>}</div>
             </div>
           </Card>
         })}
@@ -366,6 +372,17 @@ export function HeroAgentsPage() {
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开吊销连接</Modal.Trigger>
       <DialogFrame title="吊销助手连接" footer={<><Button variant="ghost" onPress={() => setRevokeTarget(null)}>取消</Button><Button variant="danger" isDisabled={revoke.isPending} onPress={() => revoke.mutate()}>确认吊销</Button></>}>
         <p className="type-body text-muted">吊销后无法恢复，OpenClaw 的下一次请求会立即失败。需要恢复时请创建新连接。</p>
+      </DialogFrame>
+    </Modal>
+
+    <Modal isOpen={Boolean(deleteTarget)} onOpenChange={(open) => !open && !deleteRecord.isPending && setDeleteTarget(null)}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开删除连接</Modal.Trigger>
+      <DialogFrame
+        title="删除已吊销连接"
+        dismissable={!deleteRecord.isPending}
+        footer={<><Button variant="ghost" isDisabled={deleteRecord.isPending} onPress={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" isDisabled={deleteRecord.isPending} onPress={() => deleteRecord.mutate()}>{deleteRecord.isPending ? '正在删除…' : '确认删除'}</Button></>}
+      >
+        <p className="type-body text-muted">只会删除这一条已吊销连接记录，不会影响其他连接。删除后无法恢复。</p>
       </DialogFrame>
     </Modal>
   </div>
