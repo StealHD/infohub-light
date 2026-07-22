@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -17,6 +17,8 @@ import { clearUserCache } from './sessionCache'
 import { legacyViewDestination } from './legacyRoute'
 import { ActionGeneration, type ActionToken } from './actionGeneration'
 import { ActionFeedbackProvider } from './ActionFeedback'
+import { clearBootstrapShellSnapshot, releaseBootstrapShell, writeBootstrapShellSnapshot } from './bootstrapShell'
+import { readSidebarPreference } from './sidebarPreference'
 
 type AppErrorBoundaryProps = { children: ReactNode; surface?: 'app' | 'page' }
 type AppErrorBoundaryState = { failed: boolean }
@@ -101,15 +103,29 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   </ActionFeedbackProvider>
 }
 
+function BootstrapShellRelease({ user, clearSnapshot = false, children }: {
+  user?: User | null
+  clearSnapshot?: boolean
+  children: ReactNode
+}) {
+  useLayoutEffect(() => {
+    if (user) writeBootstrapShellSnapshot(user.id, readSidebarPreference(user.id))
+    else if (clearSnapshot) clearBootstrapShellSnapshot()
+    releaseBootstrapShell()
+  }, [clearSnapshot, user])
+
+  return children
+}
+
 function ServiceRoutes({ api }: { api: ServiceApi }) {
   const queryClient = useQueryClient()
   const auth = useQuery({ queryKey: queryKeys.auth, queryFn: ({ signal }) => api.authStatus(signal), retry: false })
-  if (auth.isLoading) return <main className="app-loading" role="status">正在连接 Inteliscope…</main>
-  if (auth.isError) return <main className="app-loading app-error" role="alert">无法连接服务，请确认 API 已启动后重试。</main>
+  if (auth.isLoading) return <span className="sr-only" role="status">正在连接 Inteliscope…</span>
+  if (auth.isError) return <BootstrapShellRelease><main className="app-loading app-error" role="alert">无法连接服务，请确认 API 已启动后重试。</main></BootstrapShellRelease>
   const user = auth.data?.authenticated ? auth.data.user : null
   const login = <HeroLoginPage api={api} onAuthenticated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.auth })} />
 
-  return <AppErrorBoundary>
+  return <BootstrapShellRelease user={user} clearSnapshot={!user}><AppErrorBoundary>
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/feed" replace /> : login} />
       <Route element={user ? <AuthenticatedLayout api={api} user={user} /> : <Navigate to="/login" replace />}>
@@ -125,7 +141,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
       </Route>
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />
     </Routes>
-  </AppErrorBoundary>
+  </AppErrorBoundary></BootstrapShellRelease>
 }
 
 export function AppRoutes({ api }: { api: ServiceApi }) {

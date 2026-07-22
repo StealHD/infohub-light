@@ -6,6 +6,7 @@ import { queryKeys } from './api/queryKeys'
 import { createServiceApi } from './api/service'
 import type { AuthStatus } from './api/types'
 import { AppRoutes } from './app/App'
+import { clearBootstrapShellSnapshot } from './app/bootstrapShell'
 import { clearUserCache } from './app/sessionCache'
 import { DesignSystemProvider } from './design-system'
 import './styles/global.css'
@@ -21,6 +22,7 @@ const client = createApiClient({
   onUnauthorized: () => {
     const previous = queryClient.getQueryData<AuthStatus>(queryKeys.auth)?.user
     if (previous) void clearUserCache(queryClient, previous.id)
+    clearBootstrapShellSnapshot()
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, { authenticated: false, user: null })
   },
 })

@@ -5,8 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Inteliscope 私人 AI 信息雷达" />
     <title>Inteliscope</title>
+    <script>
+      (() => {
+        const path = window.location.pathname
+        const contentRoutes = ['/feed', '/saved', '/history', '/later', '/']
+        document.documentElement.dataset.bootstrapLayout = path === '/login'
+          ? 'auth'
+          : contentRoutes.includes(path) ? 'content' : 'admin'
+        try {
+          const snapshot = JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')
+          document.documentElement.dataset.bootstrapSidebar = snapshot?.sidebar === 'expanded' ? 'expanded' : 'collapsed'
+        } catch {
+          document.documentElement.dataset.bootstrapSidebar = 'collapsed'
+        }
+      })()
+    </script>
+    <link rel="stylesheet" href="/src/design-system/bootstrap.css" />
   </head>
   <body>
+    <div id="inteliscope-bootstrap-shell" aria-hidden="true">
+      <div class="bootstrap-shell-grid">
+        <aside class="bootstrap-shell-navigation" data-bootstrap-region="navigation">
+          <span class="bootstrap-shell-mark"></span>
+          <span class="bootstrap-shell-nav-item"></span><span class="bootstrap-shell-nav-item"></span><span class="bootstrap-shell-nav-item"></span>
+          <span class="bootstrap-shell-nav-item"></span><span class="bootstrap-shell-nav-item"></span><span class="bootstrap-shell-nav-item"></span>
+        </aside>
+        <header class="bootstrap-shell-header" data-bootstrap-region="header">
+          <span class="bootstrap-shell-title"></span><span class="bootstrap-shell-control"></span>
+        </header>
+        <main class="bootstrap-shell-main">
+          <div class="bootstrap-shell-toolbar"></div>
+          <div class="bootstrap-shell-feed" data-bootstrap-region="feed">
+            <span class="bootstrap-shell-card"></span><span class="bootstrap-shell-card"></span><span class="bootstrap-shell-card"></span>
+            <span class="bootstrap-shell-card"></span><span class="bootstrap-shell-card"></span>
+          </div>
+        </main>
+        <aside class="bootstrap-shell-agent" data-bootstrap-region="agent">
+          <div class="bootstrap-shell-agent-header"></div>
+          <div class="bootstrap-shell-agent-content"><span class="bootstrap-shell-agent-block"></span><span class="bootstrap-shell-agent-block"></span></div>
+        </aside>
+        <nav class="bootstrap-shell-mobile-navigation">
+          <span class="bootstrap-shell-mobile-item"></span><span class="bootstrap-shell-mobile-item"></span><span class="bootstrap-shell-mobile-item"></span>
+          <span class="bootstrap-shell-mobile-item"></span><span class="bootstrap-shell-mobile-item"></span><span class="bootstrap-shell-mobile-item"></span>
+        </nav>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

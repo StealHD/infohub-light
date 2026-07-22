@@ -116,6 +116,29 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
+  it('releases the static boot shell only after the authenticated shell commits', async () => {
+    const bootShell = document.createElement('div')
+    bootShell.id = 'inteliscope-bootstrap-shell'
+    document.body.append(bootShell)
+    window.localStorage.removeItem('inteliscope.ui.bootstrap-shell.v1')
+    const api = liveApi()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('heading', { name: '信息流' })).toBeInTheDocument()
+      expect(document.getElementById('inteliscope-bootstrap-shell')).not.toBeInTheDocument()
+      expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toEqual({
+        userId: 'user-live',
+        sidebar: 'collapsed',
+      })
+    } finally {
+      bootShell.remove()
+      window.localStorage.removeItem('inteliscope.ui.bootstrap-shell.v1')
+    }
+  })
+
   it('places collection search and sorting inside the shared Quiet Studio ViewBar', async () => {
     const api = liveApi({
       savedFeed: vi.fn().mockResolvedValue({

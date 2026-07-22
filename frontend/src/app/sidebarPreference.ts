@@ -1,3 +1,5 @@
+import { writeBootstrapShellSnapshot } from './bootstrapShell'
+
 export type SidebarPreference = 'collapsed' | 'expanded'
 
 export function sidebarPreferenceKey(userId: string): string {
@@ -16,6 +18,7 @@ export function readSidebarPreference(userId: string): SidebarPreference {
 export function writeSidebarPreference(userId: string, value: SidebarPreference): void {
   try {
     window.localStorage.setItem(sidebarPreferenceKey(userId), value)
+    writeBootstrapShellSnapshot(userId, value)
   } catch {
     // Storage may be unavailable in private or restricted browser contexts.
   }
