@@ -2324,3 +2324,10 @@
 - 门禁说明：clean-branch release gate 的 22 个前置命令通过，`release_playwright` 因已知 `c762fea` Tooltip nested-interactive 和旧设置页验收项失败；按用户“不排查 UI、继续 OpenClaw”的要求未引入造成视觉回归的 `dc6719b`，OpenClaw 范围以独立通过的 full gate 22/22 为完成证据
 - 回退与备份：切换前数据库备份 `data/backups/pre-openclaw-final-20260722T165652Z.db`，SHA-256 `dbeffbba…cdee`、0600、integrity=`ok`；旧 `8e9f05f2275f-main` 镜像仍保留
 - 控制面变更：仅更新 D048 的本地验证状态；未修改或部署 VPS，未触发 scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 01:03 Codex
+- 任务：按用户要求再次启动并确认已完成的 OpenClaw 修复容器
+- 修改文件：仅本工作日志；对本机 API/Worker 执行幂等 `up -d --no-build`，未重建镜像、未修改数据库或环境配置
+- 执行验证：API/Worker 均运行 image ID `sha256:52f550434d35…d2f9`、healthy、0 restart；live revision=`042e813d3fc3-openclaw-session`、ready，`/feed`=200
+- 结果：最终修复容器已在 `localhost:8080` 运行，可进入信息流测试 OpenClaw 连接
+- 控制面变更：无；VPS、scheduler、来源抓取、模型和付费调用均未触碰
