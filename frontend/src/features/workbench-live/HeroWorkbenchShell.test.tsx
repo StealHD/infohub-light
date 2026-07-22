@@ -213,7 +213,8 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(activeToggle.querySelector('[data-panel-fill]')).toHaveAttribute('opacity', '0.16')
     expect(activeToggle.querySelector('.lucide-panel-right-close')).toBeNull()
     expect(activeToggle.querySelector('.lucide-panel-right-open')).toBeNull()
-    expect(screen.queryByRole('complementary', { name: '信息概览' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '信息概览' })).toHaveClass('quiet-surface-enter')
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveClass('quiet-surface-enter')
     expect(screen.getByRole('heading', { name: '信息流' }).closest('header')).toHaveAttribute('data-header-visual', 'quiet-studio')
   })
 

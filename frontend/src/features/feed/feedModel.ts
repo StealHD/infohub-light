@@ -1,13 +1,27 @@
 import type { FeedItem, FeedSnapshot, SourceHealthItem, SourceHealthStatus } from '../../api/types'
-import type { FeedDateScope } from './feedPreference'
+import type { FeedDateScope, FeedSortBasis } from './feedPreference'
 
 export type FeedMode = 'featured' | 'all' | 'daily'
 
-export function sortWorkbenchItems(items: FeedItem[], order: 'oldest' | 'newest' = 'oldest'): FeedItem[] {
+function workbenchSortTimestamp(item: FeedItem, basis: FeedSortBasis): number {
+  const values = basis === 'ingested'
+    ? [item.ingested_at, item.presentation?.timing?.fetched_at, item.fetched_at]
+    : [item.presentation?.timing?.published_at, item.published_at]
+  for (const value of values) {
+    if (!value) continue
+    const timestamp = new Date(value).getTime()
+    if (Number.isFinite(timestamp)) return timestamp
+  }
+  return Number.NaN
+}
+
+export function sortWorkbenchItems(
+  items: FeedItem[],
+  order: 'oldest' | 'newest' = 'oldest',
+  basis: FeedSortBasis = 'published',
+): FeedItem[] {
   return items.map((item, index) => {
-    const value = item.presentation?.timing?.published_at || item.published_at
-    const timestamp = value ? new Date(value).getTime() : Number.NaN
-    return { item, index, timestamp }
+    return { item, index, timestamp: workbenchSortTimestamp(item, basis) }
   }).sort((left, right) => {
     const leftValid = Number.isFinite(left.timestamp)
     const rightValid = Number.isFinite(right.timestamp)

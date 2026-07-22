@@ -3,6 +3,10 @@ export type AgentContextItem = {
   title: string
   sourceName?: string
   publishedAt?: string
+  resourceType?: 'feed_item' | 'job'
+  jobId?: string
+  statusLabel?: string
+  detail?: string
 }
 
 export type AgentContextDraftV3 = {
@@ -35,13 +39,22 @@ function safeText(value: unknown, maxLength: number): string {
 function sanitizeItem(value: unknown): AgentContextItem | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<AgentContextItem>
-  const articleId = safeText(candidate.articleId, 256)
+  const resourceType = candidate.resourceType === 'job' ? 'job' : 'feed_item'
+  const jobId = resourceType === 'job'
+    ? safeText(candidate.jobId, 256) || safeText(candidate.articleId, 256).replace(/^job:/u, '')
+    : ''
+  const articleId = resourceType === 'job'
+    ? jobId ? `job:${jobId}` : ''
+    : safeText(candidate.articleId, 256)
   if (!articleId) return null
   return {
     articleId,
     title: safeText(candidate.title, 300) || articleId,
     ...(safeText(candidate.sourceName, 160) ? { sourceName: safeText(candidate.sourceName, 160) } : {}),
     ...(safeText(candidate.publishedAt, 80) ? { publishedAt: safeText(candidate.publishedAt, 80) } : {}),
+    ...(resourceType === 'job' ? { resourceType, jobId } : {}),
+    ...(safeText(candidate.statusLabel, 80) ? { statusLabel: safeText(candidate.statusLabel, 80) } : {}),
+    ...(safeText(candidate.detail, 600) ? { detail: safeText(candidate.detail, 600) } : {}),
   }
 }
 
@@ -114,7 +127,9 @@ export function clearAgentContextDraft(userId: string): void {
 export function buildAgentHandoffPrompt(draft: AgentContextDraftV3): string {
   const value = sanitizeDraft(draft.userId, draft)
   const question = value.question.trim() || '请基于这些信息提炼关键变化、机会和风险。'
-  const calls = value.items.map((item, index) => `${index + 1}. 调用 get_item，article_id="${item.articleId}"`).join('\n')
+  const calls = value.items.map((item, index) => item.resourceType === 'job'
+    ? `${index + 1}. 调用 get_job，job_id="${item.jobId}"`
+    : `${index + 1}. 调用 get_item，article_id="${item.articleId}"`).join('\n')
   return [
     INTELISCOPE_HANDOFF_MARKER,
     JSON.stringify({ displayText: question, contextCount: value.items.length }),
@@ -122,7 +137,7 @@ export function buildAgentHandoffPrompt(draft: AgentContextDraftV3): string {
     `问题：${question}`,
     '必须按顺序读取上下文，不要把标题或摘要当作完整正文：',
     calls || '（尚未加入上下文条目）',
-    '读取完成后，基于工具返回的安全投影回答；无法读取时明确指出对应 article_id。',
+    '读取完成后，基于工具返回的安全投影回答；无法读取时明确指出对应条目。',
   ].join('\n')
 }
 
@@ -149,6 +164,6 @@ export function projectAgentHandoffDisplay(text: string): AgentHandoffDisplay | 
   const questionMatch = normalized.match(/(?:^|\n)问题：([\s\S]*?)(?:\n模型偏好：|\n必须按顺序读取上下文)/u)
   const displayText = safeText(questionMatch?.[1], maxQuestionLength)
   if (!displayText) return null
-  const contextCount = Math.min(maxItems, normalized.match(/调用 get_item，article_id=/gu)?.length ?? 0)
+  const contextCount = Math.min(maxItems, normalized.match(/调用 (?:get_item，article_id|get_job，job_id)=/gu)?.length ?? 0)
   return { displayText, contextCount }
 }

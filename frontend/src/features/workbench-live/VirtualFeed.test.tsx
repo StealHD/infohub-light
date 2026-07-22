@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { FeedItem } from '../../api/types'
 import { toWorkbenchCardModel } from './workbenchModel'
 import { VirtualFeed } from './VirtualFeed'
+import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 
 const makeItem = (index: number): FeedItem => ({
   id: `item-${index}`,
@@ -150,7 +151,7 @@ describe('VirtualFeed', () => {
     expect(screen.getAllByText('Oops... I did it again. Enjoy reset usage limits for all paid users for Codex and ChatGPT Work.')).toHaveLength(1)
   })
 
-  it('animates Quiet Studio details and exposes a confirmation state for Agent context', () => {
+  it('keeps the Agent context action purple and uses the same sparkle icon when selected', () => {
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}
       expandedId="item-1"
@@ -164,7 +165,11 @@ describe('VirtualFeed', () => {
     const details = screen.getByTestId('card-details-item-1')
     expect(details).toHaveAttribute('data-state', 'expanded')
     expect(details.className).toContain('grid-rows-[1fr]')
-    expect(screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })).toHaveAttribute('data-context-state', 'selected')
+    const contextButton = screen.getByRole('button', { name: '将 信息 1 移出 Agent 上下文' })
+    expect(contextButton).toHaveAttribute('data-context-state', 'selected')
+    expect(contextButton).toHaveClass('bg-accent/15', 'text-accent')
+    expect(contextButton.querySelector('.lucide-sparkles')).not.toBeNull()
+    expect(contextButton.querySelector('.lucide-check')).toBeNull()
   })
 
   it('keeps Quiet Studio card actions compact for fine pointers and 44px for coarse pointers at every width', () => {
@@ -342,7 +347,7 @@ describe('VirtualFeed', () => {
     expect(within(card).getByRole('link', { name: '打开 信息 1 原文' })).toHaveAttribute('href', 'https://example.com/1')
     expect(within(card).getByRole('button', { name: '收藏 信息 1' })).toBeDisabled()
     await user.click(within(card).getByRole('button', { name: '更多操作 信息 1' }))
-    expect(within(card).getByRole('button', { name: '标记已读' })).toBeDisabled()
+    expect(within(card).queryByRole('button', { name: /标记.*读/ })).not.toBeInTheDocument()
     expect(within(card).getByRole('button', { name: '忽略' })).toBeDisabled()
     await user.click(within(card).getByRole('button', { name: '复制摘要' }))
     expect(copy).toHaveBeenCalledWith('这是第 1 条摘要')
@@ -541,5 +546,40 @@ describe('VirtualFeed', () => {
     scroll.scrollTop = 0
     fireEvent.scroll(scroll)
     expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()
+  })
+
+  it('preserves the visible position when newest and oldest ordering is toggled', async () => {
+    const ascending = Array.from({ length: 12 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
+    const view = render(<VirtualFeed
+      freshEdge="start"
+      cards={[...ascending].reverse()}
+      sourceItemIds={ascending.map((card) => card.id)}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 2400 },
+      clientHeight: { configurable: true, value: 720 },
+      scrollTop: { configurable: true, writable: true, value: 360 },
+    })
+    fireEvent.scroll(scroll)
+    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
+
+    view.rerender(<VirtualFeed
+      freshEdge="end"
+      cards={ascending}
+      sourceItemIds={ascending.map((card) => card.id)}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    await waitFor(() => expect(scroll.scrollTop).toBe(360))
   })
 })

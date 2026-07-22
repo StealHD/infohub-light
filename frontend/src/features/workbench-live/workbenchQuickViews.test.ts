@@ -10,6 +10,7 @@ const base: FeedPreference = {
   topic: 'Codex',
   minScore: 8,
   order: 'oldest',
+  sortBasis: 'published',
   dateScope: 'all',
 }
 
@@ -24,6 +25,7 @@ describe('workbench quick views', () => {
       topic: '',
       minScore: undefined,
       order: 'oldest',
+      sortBasis: 'published',
       dateScope: 'all',
     })
     expect(detectActiveQuickView(preference)).toBe('all')
@@ -37,6 +39,7 @@ describe('workbench quick views', () => {
       topic: '',
       minScore: undefined,
       order: 'oldest',
+      sortBasis: 'published',
       dateScope: 'all',
     })
     expect(base.channel).toBe('投资')

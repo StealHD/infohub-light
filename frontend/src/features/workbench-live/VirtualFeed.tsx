@@ -10,13 +10,12 @@ import {
   Chip,
   Icons,
   Skeleton,
+  Tooltip,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
-
-type ItemStateAction = 'is_read' | 'dismissed'
 
 type VirtualFeedProps = {
   freshEdge?: 'start' | 'end'
@@ -31,7 +30,7 @@ type VirtualFeedProps = {
   onToggleExpanded: (id: string) => void
   onToggleSaved: (id: string, saved: boolean) => void
   onToggleContext: (card: WorkbenchCardModel) => void
-  onItemAction: (id: string, action: ItemStateAction, value: boolean) => void
+  onItemAction: (id: string, dismissed: boolean) => void
 }
 
 const collapsedEstimate = 156
@@ -66,13 +65,13 @@ function useMeasuredClampOverflow(
     const elements = [primary.current, secondary.current].filter((value): value is HTMLElement => Boolean(value))
     const measure = () => setOverflow(elements.some((element) => element.scrollHeight > element.clientHeight + 1))
     measure()
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', measure)
-      return () => window.removeEventListener('resize', measure)
+    window.addEventListener('resize', measure)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    elements.forEach((element) => observer?.observe(element))
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer?.disconnect()
     }
-    const observer = new ResizeObserver(measure)
-    elements.forEach((element) => observer.observe(element))
-    return () => observer.disconnect()
   }, [cardId, expanded])
 
   return {
@@ -105,7 +104,7 @@ function WorkbenchCard({
   onToggleExpanded: () => void
   onToggleSaved: () => void
   onToggleContext: () => void
-  onItemAction: (action: ItemStateAction, value: boolean) => void
+  onItemAction: (dismissed: boolean) => void
 }) {
   const externalUrl = safeExternalUrl(card.url)
   const social = card.displayKind === 'social'
@@ -245,51 +244,60 @@ function WorkbenchCard({
         data-card-actions
         className={`${canToggleExpansion ? '' : 'ml-auto'} flex items-center gap-1 opacity-100 transition-opacity duration-[var(--inteliscope-motion-standard)] pointer-fine:opacity-60 pointer-fine:group-hover/card:opacity-100 pointer-fine:group-focus-within/card:opacity-100`}
       >
-        {externalUrl && <a
-          href={externalUrl}
-          target="_blank"
-          rel="noreferrer"
-          aria-label={`打开 ${cardLabel} 原文`}
-          className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-        ><Icons.ExternalLink size={15} aria-hidden="true" /></a>}
-        <Button
-          size="sm"
-          variant={card.userState.is_saved ? 'secondary' : 'ghost'}
-          className="size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-          isDisabled={readonly}
-          aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
-          onPress={onToggleSaved}
-          isIconOnly
-        >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</Button>
-        <Button
-          size="sm"
-          variant={inContext ? 'secondary' : 'ghost'}
-          data-context-state={inContext ? 'selected' : 'idle'}
-          className="size-8 active:scale-95 pointer-coarse:size-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent motion-reduce:transform-none"
-          isDisabled={contextFull && !inContext}
-          aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
-          onPress={onToggleContext}
-          isIconOnly
-        >{inContext ? <Icons.Check size={15} aria-hidden="true" /> : <Icons.Sparkles size={15} aria-hidden="true" />}</Button>
-        <details className="relative">
-          <summary
-            role="button"
-            aria-label={`更多操作 ${cardLabel}`}
-            className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
-          ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
-          <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
-            <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('is_read', !card.userState.is_read)}>
-              <Icons.Check size={14} aria-hidden="true" />{card.userState.is_read ? '标记未读' : '标记已读'}
-            </button>
-            <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
-              <Icons.Copy size={14} aria-hidden="true" />复制摘要
-            </button>
-            {copyNotice && <span role="status" aria-live="polite" className="type-meta px-3 py-1 text-muted">{copyNotice}</span>}
-            <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction('dismissed', !card.userState.dismissed)}>
-              <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
-            </button>
-          </div>
-        </details>
+        {externalUrl && <Tooltip delay={600}>
+          <Tooltip.Trigger className="contents"><a
+            href={externalUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`打开 ${cardLabel} 原文`}
+            className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+          ><Icons.ExternalLink size={15} aria-hidden="true" /></a></Tooltip.Trigger>
+          <Tooltip.Content>在新窗口打开原文</Tooltip.Content>
+        </Tooltip>}
+        <Tooltip delay={600}>
+          <Tooltip.Trigger className="contents"><Button
+            size="sm"
+            variant={card.userState.is_saved ? 'secondary' : 'ghost'}
+            className="size-8 active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+            isDisabled={readonly}
+            aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
+            onPress={onToggleSaved}
+            isIconOnly
+          >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</Button></Tooltip.Trigger>
+          <Tooltip.Content>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
+        </Tooltip>
+        <Tooltip delay={600}>
+          <Tooltip.Trigger className="contents"><Button
+            size="sm"
+            variant="ghost"
+            data-context-state={inContext ? 'selected' : 'idle'}
+            className="size-8 bg-accent/15 text-accent active:scale-95 hover:bg-accent/25 pointer-coarse:size-11 data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 motion-reduce:transform-none"
+            isDisabled={contextFull && !inContext}
+            aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
+            onPress={onToggleContext}
+            isIconOnly
+          ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></Button></Tooltip.Trigger>
+          <Tooltip.Content>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
+        </Tooltip>
+        <Tooltip delay={600}>
+          <Tooltip.Trigger className="contents"><details className="relative">
+            <summary
+              role="button"
+              aria-label={`更多操作 ${cardLabel}`}
+              className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+            ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>
+            <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
+              <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
+                <Icons.Copy size={14} aria-hidden="true" />复制摘要
+              </button>
+              {copyNotice && <span role="status" aria-live="polite" className="type-meta px-3 py-1 text-muted">{copyNotice}</span>}
+              <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction(!card.userState.dismissed)}>
+                <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
+              </button>
+            </div>
+          </details></Tooltip.Trigger>
+          <Tooltip.Content>复制摘要或忽略这条内容</Tooltip.Content>
+        </Tooltip>
       </div>
     </Card.Footer>
   </Card>
@@ -399,10 +407,11 @@ export function VirtualFeed(props: VirtualFeedProps) {
         if (pendingNavigationFrame.current === frame) pendingNavigationFrame.current = undefined
       }
     }
-    const anchor = requestedRefreshAnchor.current ?? restorationAnchor.current ?? viewportAnchor.current
+    const explicitAnchor = requestedRefreshAnchor.current
+    const anchor = explicitAnchor ?? restorationAnchor.current ?? viewportAnchor.current
     requestedRefreshAnchor.current = null
     const scroll = scrollRef.current
-    if (!anchor || !scroll || wasNearFreshEdge.current) return
+    if (!anchor || !scroll || (!explicitAnchor && wasNearFreshEdge.current)) return
     restorationAnchor.current = anchor
 
     let frame = 0
@@ -480,16 +489,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
   useEffect(() => {
     if (previousFreshEdge.current === freshEdge) return
     previousFreshEdge.current = freshEdge
-    if (props.cards.length === 0) return
-    const selectedIndex = props.expandedId ? props.cards.findIndex((card) => card.id === props.expandedId) : -1
-    const targetIndex = selectedIndex >= 0 ? selectedIndex : freshEdge === 'start' ? 0 : props.cards.length - 1
-    const align = selectedIndex >= 0 ? 'center' : freshEdge
-    releaseNavigationOwnership()
     setNewItemCount(0)
-    wasNearFreshEdge.current = selectedIndex < 0
-    const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(targetIndex, { align }))
-    return () => window.cancelAnimationFrame(frame)
-  }, [cardsSignature, freshEdge, props.cards, props.expandedId, releaseNavigationOwnership, virtualizer])
+  }, [freshEdge])
 
   useEffect(() => {
     const addedCount = sourceItemIds.filter((id) => !previousSourceIds.current.has(id)).length
@@ -589,7 +590,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
               onToggleContext={() => props.onToggleContext(card)}
-              onItemAction={(action, value) => props.onItemAction(card.id, action, value)}
+              onItemAction={(dismissed) => props.onItemAction(card.id, dismissed)}
             />
           </div>
         })}

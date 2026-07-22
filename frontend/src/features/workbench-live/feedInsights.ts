@@ -54,7 +54,6 @@ export function buildFeedInsightsModel({
     sourceId: preference.source || undefined,
     channel: preference.channel || undefined,
     topic: preference.topic || undefined,
-    minScore: preference.minScore,
     dateScope: preference.dateScope,
     now,
   })

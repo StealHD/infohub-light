@@ -162,7 +162,7 @@ describe('App routes', () => {
     try {
       render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-      expect(await screen.findByLabelText('已启用 3 项筛选')).toHaveTextContent('3')
+      expect(await screen.findByLabelText('已启用 2 项筛选')).toHaveTextContent('2')
     } finally {
       window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
     }
@@ -475,6 +475,32 @@ describe('App routes', () => {
     expect(screen.getByText('完成：尚未完成')).toBeInTheDocument()
     expect(screen.getAllByText(/完成：.*2026/)).toHaveLength(2)
     expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
+  })
+
+  it('adds a readable run record to OpenClaw context without exposing the job id', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'context-source', type: 'rss', display_name: '上下文来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const job = { id: 'internal-job-id', user_id: 'user-live', job_type: 'source_test' as const, source_id: source.id, status: 'succeeded' as const, created_at: '2026-07-17T02:00:00Z', finished_at: '2026-07-17T02:00:04Z', result: { item_count: 2 } }
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      jobs: vi.fn().mockResolvedValue({ jobs: [job] }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
+    await browser.click(await screen.findByRole('button', { name: '加入 OpenClaw 上下文：测试来源连接' }))
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/feed'))
+    await waitFor(() => {
+      const contextItem = document.querySelector('[data-context-resource="job"]')
+      expect(contextItem).toBeInTheDocument()
+      expect(contextItem).toHaveTextContent('测试来源连接')
+    })
+    expect(screen.queryByText('internal-job-id')).not.toBeInTheDocument()
   })
 
   it('scopes live schedule, subscribe, unsubscribe and retry pending controls to their own entity', async () => {
@@ -849,6 +875,106 @@ describe('App routes', () => {
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
       config: expect.objectContaining({ platform: 'x', kind: 'account' }),
     })))
+    expect(api.subscribe).toHaveBeenCalledWith('apify-new')
+  })
+
+  it('shows private-source usage on demand and confirms management transfer before sharing', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'private-share-source', type: 'rss', display_name: '私人研究源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'private-share-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
+    const sourceUsage = vi.fn().mockResolvedValue({ source_id: source.id, subscriber_count: 3, enabled_subscriber_count: 2 })
+    const shareSource = vi.fn().mockResolvedValue({
+      source: { ...source, scope: 'workspace', owner_user_id: null },
+      notice: '管理权已交给工作区管理员。',
+    })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      sourceUsage,
+      shareSource,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '查看 私人研究源 引用人数' }))
+    const usageDialog = await screen.findByRole('dialog', { name: '私人研究源 · 引用情况' })
+    expect(within(usageDialog).getByText('3')).toBeInTheDocument()
+    expect(within(usageDialog).getByText('2')).toBeInTheDocument()
+    expect(sourceUsage).toHaveBeenCalledWith(source.id)
+    await browser.click(within(usageDialog).getByRole('button', { name: '关闭' }))
+
+    await browser.click(await screen.findByRole('button', { name: '分享 私人研究源' }))
+    const shareDialog = await screen.findByRole('dialog', { name: '分享 私人研究源' })
+    expect(within(shareDialog).getByText('分享后管理权将发生变化')).toBeInTheDocument()
+    expect(within(shareDialog).getByText(/取消订阅只影响自己/)).toBeInTheDocument()
+    await browser.click(within(shareDialog).getByRole('button', { name: '确认分享并转交管理权' }))
+    await waitFor(() => expect(shareSource).toHaveBeenCalledWith(source.id, 'workspace'))
+  })
+
+  it('requires an explicit disposition when disabling a personal subscription', async () => {
+    const browser = userEvent.setup()
+    const source = { id: 'disable-source', type: 'rss', display_name: '可停用来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
+    const subscription = { id: 'disable-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, schedule: { enabled: false, interval_minutes: 360 } }
+    const updateSubscription = vi.fn().mockResolvedValue({ ...subscription, enabled: false })
+    const updateSourceSchedule = vi.fn().mockResolvedValue({ enabled: false, interval_minutes: 360, worker_status: 'ready' })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      updateSubscription,
+      updateSourceSchedule,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '配置 可停用来源 订阅' }))
+    const dialog = await screen.findByRole('dialog', { name: '可停用来源 · 订阅设置' })
+    await browser.click(within(dialog).getByRole('checkbox', { name: '启用订阅' }))
+    await browser.click(within(dialog).getByRole('button', { name: /关闭后如何处理已有内容/ }))
+    await browser.click(await screen.findByRole('option', { name: '加入收藏后从信息流移除' }))
+    await browser.click(within(dialog).getByRole('button', { name: '保存订阅' }))
+
+    await waitFor(() => expect(updateSubscription).toHaveBeenCalledWith(subscription.id, expect.objectContaining({ enabled: false, on_disable: 'save' })))
+    expect(updateSourceSchedule).toHaveBeenCalledWith(subscription.id, expect.objectContaining({ enabled: false }))
+  })
+
+  it('restores ignored content only from settings', async () => {
+    const browser = userEvent.setup()
+    const updateItemState = vi.fn().mockResolvedValue({ dismissed: false })
+    const api = liveApi({
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      ignoredFeed: vi.fn().mockResolvedValue({ items: [{ id: 'ignored-item', title: '被忽略的条目', source: '测试来源' }], pagination: { limit: 200, offset: 0, count: 1, total: 1 } }),
+      updateItemState,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByText('被忽略的条目')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '恢复' }))
+    await waitFor(() => expect(updateItemState).toHaveBeenCalledWith('ignored-item', { dismissed: false }))
+  })
+
+  it('lets every signed-in user change their own password without exposing member administration', async () => {
+    const browser = userEvent.setup()
+    const changePassword = vi.fn().mockResolvedValue({ changed: true })
+    const api = liveApi({ changePassword } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/users']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '账户安全' })
+    expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
+    await browser.type(screen.getByLabelText('当前密码'), 'current-secret')
+    await browser.type(screen.getByLabelText('新密码'), 'new-secret-value')
+    await browser.type(screen.getByLabelText('确认新密码'), 'new-secret-value')
+    await browser.click(screen.getByRole('button', { name: '更新密码' }))
+    await waitFor(() => expect(changePassword).toHaveBeenCalledWith('current-secret', 'new-secret-value'))
+    expect(screen.getByLabelText('当前密码')).toHaveValue('')
+    expect(screen.getByLabelText('新密码')).toHaveValue('')
   })
 
   it('keeps invalid registry source fields out of submission and explains their constraints', async () => {

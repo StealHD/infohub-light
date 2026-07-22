@@ -7,6 +7,7 @@ export type LegacyFeedPreference = {
 
 export type FeedOrder = 'newest' | 'oldest'
 export type FeedDateScope = 'all' | 'today'
+export type FeedSortBasis = 'published' | 'ingested'
 
 export type FeedPreference = {
   unreadFirst: boolean
@@ -15,6 +16,7 @@ export type FeedPreference = {
   topic: string
   minScore?: number
   order: FeedOrder
+  sortBasis: FeedSortBasis
   dateScope: FeedDateScope
 }
 
@@ -27,6 +29,7 @@ const defaultPreference: FeedPreference = {
   topic: '',
   minScore: undefined,
   order: 'newest',
+  sortBasis: 'published',
   dateScope: 'all',
 }
 const legacyDefaultPreference: LegacyFeedPreference = { mode: 'featured', unreadFirst: false }
@@ -34,14 +37,16 @@ const storageKey = (userId: string) => `inteliscope.ui.feed.v2:${userId}`
 const legacyStorageKey = (userId: string) => `inteliscope.ui.feed.v1:${userId}`
 
 function sanitizePreference(value: Partial<FeedPreference> | null): FeedPreference {
-  const minScore = typeof value?.minScore === 'number' && Number.isFinite(value.minScore) ? value.minScore : undefined
   return {
     unreadFirst: value?.unreadFirst === true,
     source: typeof value?.source === 'string' ? value.source : '',
     channel: typeof value?.channel === 'string' ? value.channel : '',
     topic: typeof value?.topic === 'string' ? value.topic : '',
-    minScore,
+    // AI score filtering is intentionally dormant. Do not preserve an invisible filter
+    // that users can no longer inspect or clear from the production UI.
+    minScore: undefined,
     order: value?.order === 'oldest' ? 'oldest' : 'newest',
+    sortBasis: value?.sortBasis === 'ingested' ? 'ingested' : 'published',
     dateScope: value?.dateScope === 'today' ? 'today' : 'all',
   }
 }

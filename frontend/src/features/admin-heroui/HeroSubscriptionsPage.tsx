@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -20,6 +21,7 @@ import {
   toast,
 } from '../../design-system'
 import { describeFeedJob } from '../jobs/jobModel'
+import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContext'
 import {
   canEditSource,
   canMutateSubscriptions,
@@ -214,6 +216,8 @@ export function HeroSubscriptionsPage() {
   const { api, user } = useAppContext()
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const agent = useWorkbenchAgentContext()
   const editable = canMutateSubscriptions(user)
   const isAdmin = adminRole(user.role)
   const [tab, setTab] = useState('subscriptions')
@@ -350,6 +354,25 @@ export function HeroSubscriptionsPage() {
     setShareSource(source)
   }
 
+  function toggleJobContext(job: Job, title: string, sourceName: string | undefined, statusLabel: string, detail: string) {
+    const articleId = `job:${job.id}`
+    const alreadySelected = agent.draft.items.some((item) => item.articleId === articleId)
+    agent.toggleItem({
+      articleId,
+      resourceType: 'job',
+      jobId: job.id,
+      title,
+      ...(sourceName ? { sourceName } : {}),
+      ...(job.finished_at || job.created_at ? { publishedAt: job.finished_at || job.created_at || undefined } : {}),
+      statusLabel,
+      detail,
+    })
+    if (!alreadySelected) {
+      agent.openComposer()
+      navigate('/feed')
+    }
+  }
+
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description="选择要持续关注的来源，并查看每次更新发生了什么。" actions={editable && <Button size="sm" onPress={() => setCreateOpen(true)}><Icons.Plus size={15} />新增来源</Button>} />
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
@@ -366,7 +389,43 @@ export function HeroSubscriptionsPage() {
         {sourceGroups.map((group) => <Group key={group.channel} id={`library-${group.channel}`} title={group.channel} description="按来源默认频道归类；范围与类型作为标签。" forceOpen={Boolean(normalized)}><div className="grid gap-3 min-[680px]:grid-cols-2 min-[1180px]:grid-cols-3">{group.items.map((source) => { const subscribed = isSourceSubscribed(source.id, subscriptions); const subscription = subscriptions.find((item) => item.source_id === source.id); const subscribePending = feedback.isPending('subscribe', source.id); const unsubscribePending = feedback.isPending('unsubscribe', source.id); return <Card key={source.id} variant="secondary" className="p-4"><Card.Title>{source.display_name}</Card.Title><Card.Description className="mt-2">{source.description || '该来源尚未填写说明。'}</Card.Description><div className="mt-2 flex flex-wrap gap-2"><Chip size="sm" variant="soft"><Chip.Label>{sourceTypeLabel(source.type)}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip></div><div className="mt-4 flex flex-wrap gap-2">{subscribed ? <Button size="sm" variant="ghost" aria-label={`${unsubscribePending ? '取消中' : '取消订阅'} ${source.display_name}`} isDisabled={!editable || !subscription || unsubscribePending} onPress={() => subscription && unsubscribeMutation.mutate({ source, subscription })}>{unsubscribePending ? '取消中' : '取消订阅'}</Button> : <Button size="sm" aria-label={`${subscribePending ? '订阅中' : '订阅'} ${source.display_name}`} isDisabled={!editable || subscribePending} onPress={() => subscribeMutation.mutate(source)}>{subscribePending ? '订阅中' : '订阅'}</Button>}<Button size="sm" variant="ghost" aria-label={`查看 ${source.display_name} 引用人数`} onPress={() => inspectUsage(source)}><Icons.Users size={14} />查看引用</Button>{editable && source.scope === 'private' && source.owner_user_id === user.id && <Button size="sm" variant="ghost" aria-label={`分享 ${source.display_name}`} onPress={() => beginShare(source)}><Icons.Share2 size={14} />分享来源</Button>}{canEditSource(user, source) && <Button size="sm" variant="ghost" onPress={() => setEditingSource(source)}>编辑来源</Button>}</div></Card> })}</div></Group>)}{!loading && !filteredSources.length && <Card variant="transparent" className="p-6 text-center"><Card.Title>{sources.length ? '没有匹配的来源' : '来源库还是空的'}</Card.Title></Card>}
       </Tabs.Panel>
       <Tabs.Panel id="jobs" className="grid gap-3 pt-5">
-        <p className="type-body text-muted">任务类型和状态使用中文展示；仅管理员可展开技术详情。</p>{(jobsQuery.data?.jobs ?? []).filter((job) => job.user_id === user.id).slice(0, 20).map((job) => { const presented = presentJob(job, sourceMap); const feedActivity = job.job_type === 'user_feed_refresh' ? describeFeedJob(job, scheduleQuery.data?.worker_status) : undefined; const retryPending = feedback.isPending('retry-job', job.id); return <Card key={job.id} variant="secondary" className="p-4"><div className="flex flex-wrap items-center gap-2"><Card.Title>{presented.title}</Card.Title><Chip size="sm" variant="soft"><Chip.Label>{presented.statusLabel}</Chip.Label></Chip></div><Card.Description className="type-body mt-2 grid gap-1"><span>{presented.sourceName ? `${presented.sourceName} · ` : ''}{feedActivity?.message || presented.resultLabel}</span><span>{`创建：${formatTime(job.created_at)}`}</span><span>{`完成：${job.finished_at ? formatTime(job.finished_at) : '尚未完成'}`}</span></Card.Description>{presented.detail && <p className="type-body mt-2 text-muted">{presented.detail}</p>}{isAdmin && <details className="mt-3"><summary className="type-meta cursor-pointer text-muted">技术详情</summary><pre className="type-meta mt-2 overflow-wrap-anywhere whitespace-pre-wrap">{JSON.stringify({ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }, null, 2)}</pre></details>}{!['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} />}{editable && job.retryable && <Button size="sm" variant="ghost" className="mt-3" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}</Card> })}{!jobsQuery.isLoading && !(jobsQuery.data?.jobs ?? []).some((job) => job.user_id === user.id) && <Card variant="transparent" className="p-6 text-center"><Card.Title>还没有运行记录</Card.Title></Card>}
+        <p className="type-body text-muted">任务类型和状态使用中文展示；可加入 OpenClaw 分析，仅管理员可展开技术详情。</p>
+        {(jobsQuery.data?.jobs ?? []).filter((job) => job.user_id === user.id).slice(0, 20).map((job) => {
+          const presented = presentJob(job, sourceMap)
+          const feedActivity = job.job_type === 'user_feed_refresh' ? describeFeedJob(job, scheduleQuery.data?.worker_status) : undefined
+          const retryPending = feedback.isPending('retry-job', job.id)
+          const contextId = `job:${job.id}`
+          const inContext = agent.draft.items.some((item) => item.articleId === contextId)
+          const resultDetail = feedActivity?.message || presented.detail || presented.resultLabel
+          return <Card key={job.id} variant="secondary" className="p-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Card.Title className="min-w-0 flex-1">{presented.title}</Card.Title>
+              <Chip size="sm" variant="soft"><Chip.Label>{presented.statusLabel}</Chip.Label></Chip>
+              <Tooltip delay={600}>
+                <Tooltip.Trigger className="contents"><Button
+                  size="sm"
+                  variant="ghost"
+                  isIconOnly
+                  data-context-state={inContext ? 'selected' : 'idle'}
+                  className="size-8 shrink-0 bg-accent/15 text-accent hover:bg-accent/25 data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45"
+                  aria-label={`${inContext ? '移出' : '加入'} OpenClaw 上下文：${presented.title}`}
+                  onPress={() => toggleJobContext(job, presented.title, presented.sourceName, presented.statusLabel, resultDetail)}
+                ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></Button></Tooltip.Trigger>
+                <Tooltip.Content>{inContext ? '从 OpenClaw 上下文移除' : '加入 OpenClaw 分析'}</Tooltip.Content>
+              </Tooltip>
+            </div>
+            <Card.Description className="type-body mt-2 grid gap-1">
+              <span>{presented.sourceName ? `${presented.sourceName} · ` : ''}{feedActivity?.message || presented.resultLabel}</span>
+              <span>{`创建：${formatTime(job.created_at)}`}</span>
+              <span>{`完成：${job.finished_at ? formatTime(job.finished_at) : '尚未完成'}`}</span>
+            </Card.Description>
+            {presented.detail && <p className="type-body mt-2 text-muted">{presented.detail}</p>}
+            {isAdmin && <details className="mt-3"><summary className="type-meta cursor-pointer text-muted">技术详情</summary><pre className="type-meta mt-2 overflow-wrap-anywhere whitespace-pre-wrap">{JSON.stringify({ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }, null, 2)}</pre></details>}
+            {!['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} />}
+            {editable && job.retryable && <Button size="sm" variant="ghost" className="mt-3" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
+          </Card>
+        })}
+        {!jobsQuery.isLoading && !(jobsQuery.data?.jobs ?? []).some((job) => job.user_id === user.id) && <Card variant="transparent" className="p-6 text-center"><Card.Title>还没有运行记录</Card.Title></Card>}
       </Tabs.Panel>
     </Tabs>
   </PageFrame>

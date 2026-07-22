@@ -53,6 +53,17 @@ describe('feed model', () => {
     expect(sortWorkbenchItems(values, 'newest').map(({ id }) => id)).toEqual(['newer', 'older', 'invalid-first', 'invalid-second'])
     expect(sortWorkbenchItems(values, 'oldest').map(({ id }) => id)).toEqual(['older', 'newer', 'invalid-first', 'invalid-second'])
   })
+
+  it('can sort by the user feed ingestion timestamp independently from publication time', () => {
+    const values = [
+      item({ id: 'published-newer', published_at: '2026-07-13T10:00:00Z', ingested_at: '2026-07-13T11:00:00Z' }),
+      item({ id: 'ingested-newer', published_at: '2026-07-13T08:00:00Z', ingested_at: '2026-07-13T12:00:00Z' }),
+      item({ id: 'legacy-fetched', published_at: '2026-07-13T09:00:00Z', ingested_at: '', fetched_at: '2026-07-13T11:30:00Z' }),
+    ]
+
+    expect(sortWorkbenchItems(values, 'newest', 'published').map(({ id }) => id)).toEqual(['published-newer', 'legacy-fetched', 'ingested-newer'])
+    expect(sortWorkbenchItems(values, 'newest', 'ingested').map(({ id }) => id)).toEqual(['ingested-newer', 'legacy-fetched', 'published-newer'])
+  })
   it('searches real item fields and keeps unread items before read items', () => {
     const values = [
       item({ id: 'read', title: 'Other', user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false } }),

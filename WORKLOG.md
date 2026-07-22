@@ -2199,3 +2199,16 @@
 - 执行验证：四条新增 API 回归 4/4、Python compileall 与 `git diff --check` 通过；同时复核 `34ab766` 与合并提交 `14c23a5` tree 完全一致
 - 结果：私人来源可提升为 workspace/public 并按需查看引用；新订阅复用既有内容且不抓取；停用可收藏或忽略现有卡片；最后一个私人订阅取消后软停用僵尸来源；用户可恢复忽略内容并修改自己的密码
 - 控制面变更：API additive 增加 share/usage、ignored、me/password 与 `on_disable/reused_item_count`，由 API 合同和 D045 固定；无数据库迁移、外网抓取或 VPS 变更
+
+### 2026-07-22 07:14 Codex
+- 任务：只读核对功能分支合并前后、当前提交与 localhost:8080 容器的真实差异
+- 修改文件：仅本工作日志；未修改产品代码
+- 执行验证：`34ab766` 与合并提交 `14c23a5` 的 tree 均为 `7ba4214`且 diff 为空；OpenClaw/Shell/右栏/App 定向 Vitest 84/84、新增 API 4/4、UI contract、TypeScript 与 `git diff --check` 通过
+- 结果：合并未丢失代码；当前分支 HEAD=`3138295`，8080 仍运行 `7317da8-dirty` 旧镜像，因此容器没有包含后续 `aa6da79`/`3138295` 改动；当前整批需求尚未全部完成
+
+### 2026-07-22 12:19 Codex
+- 任务：收口来源分享/订阅生命周期、忽略集合、用户管理、Feed 排序与动作语义、任务上下文以及宽屏概览与 Agent 共存，并修复完整门禁中的兼容回归
+- 修改文件：Quiet Studio UI 契约、设置/订阅页、Feed 展示模型与偏好、虚拟列表、工作台 Shell、Agent 上下文、信息概览、订阅 mutation 及对应前后端测试
+- 执行验证：新增来源生命周期 API 4/4、受影响前端 129/129、生命周期回归 1/1 通过；最终 `test_gate full` 22/22、0 failed/error、96.729 秒，涵盖 Python full、UI contract、ESLint、TypeScript、完整 Vitest、Vite build、Compose、Playwright/Axe 与 `git diff --check`
+- 结果：分享来源复用内容并阻止私人僵尸来源；订阅可独立停用并选择保留或忽略卡片；忽略内容仅在设置恢复；Feed 可按发布时间/入库时间排序且反转顺序保持阅读锚点；评分与标记已读 UI 隐藏；任务可加入 OpenClaw 上下文；卡片动作使用延迟说明和固定紫色上下文图标；宽屏信息概览与 Agent 栏可同时显示
+- 控制面变更：更新 Quiet Studio 全站 UI 真源；API、数据库结构、权限、Query Key 与 Gateway/MCP 协议保持不变，尚未推送远端或部署 VPS

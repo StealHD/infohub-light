@@ -194,8 +194,7 @@ export function HeroSettingsPage() {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     configMutation.mutate({ action: 'set_filtering', payload: {
-      ai_score_threshold: Number(data.get('ai_score_threshold')),
-      homepage_min_score: Number(data.get('homepage_min_score')),
+      ...filtering,
       time_window_hours: Number(data.get('time_window_hours')),
       recent_item_limit: Number(data.get('recent_item_limit')),
     } })
@@ -243,8 +242,8 @@ export function HeroSettingsPage() {
     </AdminSection>
 
     {admin && <>
-      <AdminSection title="获取与主题" description="控制兼容评分、抓取窗口和未来可选主题；精选与日报字段不在当前产品中显示。">
-        <form className="grid gap-4" onSubmit={saveFiltering}><div className="grid gap-4 min-[720px]:grid-cols-4"><FormField name="ai_score_threshold" label="兼容阈值" type="number" min={0} max={10} defaultValue={Number(filtering.ai_score_threshold ?? 7.5)} /><FormField name="homepage_min_score" label="首页最低分" type="number" min={0} max={10} defaultValue={Number(filtering.homepage_min_score ?? 6)} /><FormField name="time_window_hours" label="抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} /><FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} /></div><Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button></form>
+      <AdminSection title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">
+        <form className="grid gap-4" onSubmit={saveFiltering}><div className="grid gap-4 min-[720px]:grid-cols-2"><FormField name="time_window_hours" label="抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} /><FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} /></div><Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button></form>
         <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
       </AdminSection>
 

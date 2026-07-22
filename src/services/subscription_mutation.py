@@ -1739,7 +1739,13 @@ class SubscriptionMutationService:
             raise self._error(
                 "not_found", "subscription not found", status_code=404
             )
-        source_disabled = False
+        # Removing the final subscription to an owner-held private source
+        # automatically soft-disables the orphan in ServiceStore.  Report the
+        # actual persisted state even when the proposal chose `keep` (keep the
+        # source definition), otherwise MCP would claim the source remained
+        # active while no subscriber can own its polling lifecycle.
+        persisted_source = self.store.get_source(source_id)
+        source_disabled = bool(persisted_source is not None and not persisted_source.get("enabled"))
         if plan.payload["source_disposition"] == "disable_private":
             remaining = self.store.connect().execute(
                 "SELECT 1 FROM user_subscriptions WHERE source_id = ? LIMIT 1",

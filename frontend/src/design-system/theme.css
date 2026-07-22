@@ -347,6 +347,22 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   animation-duration: var(--inteliscope-motion-deliberate) !important;
 }
 
+@keyframes quiet-surface-enter {
+  from {
+    opacity: 0;
+    transform: translateX(8px) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.inteliscope-design-system .quiet-surface-enter {
+  animation: quiet-surface-enter var(--inteliscope-motion-deliberate) ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .inteliscope-design-system {
     --inteliscope-motion-standard: 1ms;
@@ -403,6 +419,7 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
     .popover[data-exiting="true"],
     .tooltip[data-entering="true"],
     .tooltip[data-exiting="true"],
+    .quiet-surface-enter,
     .skeleton,
     .skeleton::before,
     .skeleton::after,

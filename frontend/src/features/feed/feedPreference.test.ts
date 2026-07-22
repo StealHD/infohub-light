@@ -29,6 +29,7 @@ describe('feed preference', () => {
       topic: 'Codex',
       minScore: 8,
       order: 'oldest',
+      sortBasis: 'published',
       dateScope: 'today',
     })
 
@@ -37,24 +38,25 @@ describe('feed preference', () => {
       source: 'source-a',
       channel: 'AI',
       topic: 'Codex',
-      minScore: 8,
+      minScore: undefined,
       order: 'oldest',
+      sortBasis: 'published',
       dateScope: 'today',
     })
-    expect(readFeedPreference('user-b')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'newest', dateScope: 'all' })
+    expect(readFeedPreference('user-b')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'newest', sortBasis: 'published', dateScope: 'all' })
     expect(window.localStorage.getItem('inteliscope.ui.feed.v2:user-a')).not.toBeNull()
   })
 
   it('migrates only unread-first from v1 and ignores the retired mode', () => {
     window.localStorage.setItem('inteliscope.ui.feed.v1:user-a', JSON.stringify({ mode: 'daily', unreadFirst: true }))
 
-    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: true, source: '', channel: '', topic: '', minScore: undefined, order: 'newest', dateScope: 'all' })
+    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: true, source: '', channel: '', topic: '', minScore: undefined, order: 'newest', sortBasis: 'published', dateScope: 'all' })
     expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:user-a') || '{}')).toEqual({ unreadFirst: true })
   })
 
   it('falls back safely when v2 data is malformed', () => {
     window.localStorage.setItem('inteliscope.ui.feed.v2:user-a', '{broken')
-    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'newest', dateScope: 'all' })
+    expect(readFeedPreference('user-a')).toEqual({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'newest', sortBasis: 'published', dateScope: 'all' })
   })
 
   it('sanitizes an invalid persisted order to newest', () => {
@@ -74,6 +76,7 @@ describe('feed preference', () => {
       topic: '',
       minScore: undefined,
       order: 'newest',
+      sortBasis: 'ingested',
       dateScope: 'all',
     })
 

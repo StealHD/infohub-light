@@ -10,7 +10,6 @@ import {
   Icons,
   ListBox,
   LoadingState,
-  NumberField,
   PageFrame,
   Popover,
   SearchField,
@@ -106,8 +105,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
   const mergedItems = useMemo(() => mergeDeepLinkedItem(sourceItems, detailQuery.data), [detailQuery.data, sourceItems])
   const orderedItems = useMemo(
-    () => sortWorkbenchItems(mergedItems, preference.order),
-    [mergedItems, preference.order],
+    () => sortWorkbenchItems(mergedItems, preference.order, preference.sortBasis),
+    [mergedItems, preference.order, preference.sortBasis],
   )
   const filteredItems = useMemo(() => {
     const matching = filterFeedItems(
@@ -118,7 +117,6 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         sourceId: preference.source || undefined,
         channel: preference.channel || undefined,
         topic: preference.topic || undefined,
-        minScore: preference.minScore,
         dateScope: kind === 'feed' ? preference.dateScope : 'all',
         now: localDayReference,
       },
@@ -145,7 +143,6 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     preference.source,
     preference.channel,
     preference.topic,
-    preference.minScore !== undefined,
     kind === 'feed' && preference.dateScope === 'today',
   ].filter(Boolean).length
 
@@ -196,6 +193,15 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           size="sm"
           variant="ghost"
           className="type-control"
+          aria-label={preference.sortBasis === 'ingested' ? '按入库时间排序' : '按发布时间排序'}
+          onPress={() => updatePreference({ sortBasis: preference.sortBasis === 'ingested' ? 'published' : 'ingested' })}
+        >{preference.sortBasis === 'ingested' ? <Icons.Database size={14} aria-hidden="true" /> : <Icons.Clock3 size={14} aria-hidden="true" />}
+          <span className="hidden min-[640px]:inline">{preference.sortBasis === 'ingested' ? '入库时间' : '发布时间'}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="type-control"
           aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
           onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' })}
         ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>
@@ -219,10 +225,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
               <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
               <FilterSelect label="主题" value={preference.topic} onChange={(value) => updatePreference({ topic: value })} options={[{ id: '', label: '全部主题' }, ...topics.map((value) => ({ id: value, label: value }))]} />
-              <NumberField aria-label="最低分" value={preference.minScore} minValue={0} maxValue={10} step={0.5} onChange={(value) => updatePreference({ minScore: value ?? undefined })}>
-                <NumberField.Group><NumberField.Input /></NumberField.Group>
-              </NumberField>
-              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, dateScope: 'all' })}>清除筛选</Button>
+              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all' })}>清除筛选</Button>
             </Popover.Dialog>
           </Popover.Content>
         </Popover>
@@ -262,7 +265,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         })
         if (!alreadySelected) agent.openComposer()
       }}
-      onItemAction={(id, action, value) => stateMutation.mutateItem(id, { [action]: value })}
+      onItemAction={(id, value) => stateMutation.mutateItem(id, { dismissed: value })}
     />}
   </section>
 }

@@ -62,6 +62,11 @@ vi.mock('../features/openclaw/useOpenClawChat', () => ({
 }))
 
 function useViewport(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width,
+  })
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn((query: string): MediaQueryList => {

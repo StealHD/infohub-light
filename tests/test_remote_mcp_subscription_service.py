@@ -1234,7 +1234,10 @@ def test_apply_update_commits_business_result_and_exact_safe_summary(context):
 @pytest.mark.parametrize(
     ("source_disposition", "expected_source_enabled", "expected_source_disabled"),
     [
-        pytest.param("keep", True, False, id="keep"),
+        # `keep` preserves the private source definition, but the final
+        # subscription removal still soft-disables the orphan so it cannot
+        # continue polling without an owner.
+        pytest.param("keep", False, True, id="keep"),
         pytest.param("disable_private", False, True, id="disable-private"),
     ],
 )

@@ -37,16 +37,43 @@ describe('Agent context draft', () => {
   })
 
   it('builds a versioned deterministic handoff and projects only the visible question', () => {
-    const draft = { userId: 'user-a', question: '提炼机会', items: [{ articleId: 'a', title: 'A' }, { articleId: 'b', title: 'B' }] }
+    const draft = {
+      userId: 'user-a',
+      question: '提炼机会',
+      items: [
+        { articleId: 'a', title: 'A' },
+        { articleId: 'job:job-1', resourceType: 'job' as const, jobId: 'job-1', title: '抓取单个来源' },
+      ],
+    }
     const prompt = buildAgentHandoffPrompt(draft)
 
     expect(prompt).toContain(INTELISCOPE_HANDOFF_MARKER)
     expect(prompt).toContain('问题：提炼机会')
     expect(prompt).toContain('1. 调用 get_item，article_id="a"')
-    expect(prompt).toContain('2. 调用 get_item，article_id="b"')
+    expect(prompt).toContain('2. 调用 get_job，job_id="job-1"')
     expect(prompt).not.toContain('模型偏好')
     expect(projectAgentHandoffDisplay(prompt)).toEqual({ displayText: '提炼机会', contextCount: 2 })
     expect(buildAgentHandoffPrompt(draft)).toBe(prompt)
+  })
+
+  it('normalizes job context identifiers without exposing duplicate variants', () => {
+    const draft = writeAgentContextDraft('user-a', {
+      userId: 'user-a',
+      question: '',
+      items: [
+        { articleId: 'job-1', resourceType: 'job', jobId: 'job-1', title: '更新整个信息流', statusLabel: '已完成', detail: '获得 3 条结果' },
+        { articleId: 'job:job-1', resourceType: 'job', jobId: 'job-1', title: '重复记录' },
+      ],
+    })
+
+    expect(draft.items).toEqual([{
+      articleId: 'job:job-1',
+      resourceType: 'job',
+      jobId: 'job-1',
+      title: '更新整个信息流',
+      statusLabel: '已完成',
+      detail: '获得 3 条结果',
+    }])
   })
 
   it('migrates v1 and v2 drafts while ignoring their simulated model preference', () => {

@@ -2360,7 +2360,10 @@ def test_health_and_avatar_reset_only_when_fetch_identity_changes(mutation_conte
 
 
 @pytest.mark.parametrize(
-    ("disposition", "source_enabled"), (("keep", True), ("disable_private", False))
+    # Both choices preserve the source definition.  The final private
+    # subscription removal soft-disables it in either case so there is no
+    # ownerless polling lifecycle.
+    ("disposition", "source_enabled"), (("keep", False), ("disable_private", False))
 )
 def test_delete_requires_explicit_source_disposition(
     disposition, source_enabled, mutation_context

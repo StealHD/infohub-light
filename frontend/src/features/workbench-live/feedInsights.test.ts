@@ -11,6 +11,7 @@ const preference: FeedPreference = {
   topic: '',
   minScore: undefined,
   order: 'newest',
+  sortBasis: 'ingested',
   dateScope: 'all',
 }
 
