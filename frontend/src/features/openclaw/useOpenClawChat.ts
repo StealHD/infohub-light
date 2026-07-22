@@ -76,7 +76,7 @@ export type OpenClawModelSwitchFallback = {
 }
 
 export type OpenClawSetupIssue = {
-  kind: 'origin' | 'pairing' | 'auth' | 'protocol' | 'permission' | 'network' | 'unknown'
+  kind: 'origin' | 'pairing' | 'auth' | 'protocol' | 'permission' | 'network' | 'session' | 'unknown'
   message: string
   requestId?: string
 }
@@ -501,6 +501,7 @@ function setupIssue(error: unknown): OpenClawSetupIssue {
     : {}
   const requestId = typeof details.requestId === 'string' ? details.requestId : undefined
   const fingerprint = `${code} ${message}`.toLowerCase()
+  if (isOpenClawSessionLabelConflict(error)) return { kind: 'session', message: 'OpenClaw 会话名称冲突，请重新连接。', requestId }
   if (fingerprint.includes('pairing_required') || fingerprint.includes('pairing required')) return { kind: 'pairing', message: '这个浏览器需要在 OpenClaw 中批准设备配对。', requestId }
   if (fingerprint.includes('origin')) return { kind: 'origin', message: 'OpenClaw 尚未允许当前 Inteliscope 页面来源。' }
   if (fingerprint.includes('protocol')) return { kind: 'protocol', message: 'OpenClaw Gateway 协议版本不兼容，请升级到 2026.7.1 或更高兼容版本。' }
@@ -812,6 +813,17 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       clientRef.current = client
       const hello: GatewayHello = await client.connect()
       if (generation !== generationRef.current) { client.close(); return false }
+      const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
+      if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
+      const credential = {
+        identity,
+        deviceToken,
+        scopes: hello.auth?.scopes ?? stored?.scopes ?? [],
+      }
+      await vault.save(options.userId, parsed.gatewayUrl, {
+        ...credential,
+        sessionKey: stored?.sessionKey,
+      })
       const agentId = hello.snapshot?.sessionDefaults?.defaultAgentId
       if (!agentId) throw new Error('OpenClaw Gateway 没有返回默认 Agent。')
       agentIdRef.current = agentId
@@ -819,6 +831,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       if (!key) {
         const created = await createOpenClawSession(client, { agentId })
         key = created.key
+        if (!key) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
+        await vault.save(options.userId, parsed.gatewayUrl, { ...credential, sessionKey: key })
       }
       if (!key) throw new Error('OpenClaw 无法创建 Inteliscope 对话。')
       sessionKeyRef.current = key
@@ -828,14 +842,6 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         readOpenClawTranscript(options.userId, parsed.gatewayUrl, key),
         current,
       ), key)
-      const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
-      if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
-      await vault.save(options.userId, parsed.gatewayUrl, {
-        identity,
-        deviceToken,
-        scopes: hello.auth?.scopes ?? stored?.scopes ?? [],
-        sessionKey: key,
-      })
       const [tools] = await Promise.all([
         client.request('tools.effective', { sessionKey: key, agentId }),
         loadHistory(client, key, agentId),

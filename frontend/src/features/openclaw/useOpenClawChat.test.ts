@@ -17,10 +17,26 @@ import {
   writeOpenClawTranscript,
 } from './useOpenClawChat'
 
+vi.mock('./openclawGateway', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./openclawGateway')>()
+  return {
+    ...actual,
+    generateDeviceIdentity: vi.fn(async () => ({
+      deviceId: 'generated-device',
+      publicKey: 'generated-public-key',
+      privateKey: {} as CryptoKey,
+    })),
+  }
+})
+
 class MemoryAdapter implements OpenClawCredentialAdapter {
   values = new Map<string, StoredOpenClawCredential>()
+  puts: StoredOpenClawCredential[] = []
   get = async (key: string) => this.values.get(key) ?? null
-  put = async (value: StoredOpenClawCredential) => { this.values.set(value.id, value) }
+  put = async (value: StoredOpenClawCredential) => {
+    this.puts.push(value)
+    this.values.set(value.id, value)
+  }
   delete = async (key: string) => { this.values.delete(key) }
 }
 
@@ -112,6 +128,65 @@ describe('useOpenClawChat', () => {
       label: expect.stringMatching(/^Inteliscope · .+ · [0-9a-f]{16}$/u),
     })
     expect(calls[0][1]?.label).not.toBe(calls[1][1]?.label)
+  })
+
+  it('retains an exact-scope pairing when session setup fails and reuses it on retry', async () => {
+    const adapter = new MemoryAdapter()
+    const vault = new OpenClawCredentialVault(adapter)
+    let creates = 0
+    const request = vi.fn(async (method: string) => {
+      if (method === 'sessions.create') {
+        creates += 1
+        if (creates <= 2) throw new GatewayRequestError({
+          code: 'INVALID_REQUEST', message: 'label already in use: Inteliscope',
+        })
+        return { key: 'session-recovered' }
+      }
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn((options: { bootstrapToken?: string; deviceToken?: string }) => ({
+      connect: vi.fn(async (): Promise<GatewayHello> => ({
+        auth: { deviceToken: 'paired-device-token', scopes: ['operator.read', 'operator.write'] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      })),
+      request,
+      close: vi.fn(),
+      options,
+    }))
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true, userId: 'user-pairing', defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault, clientFactory: clientFactory as never,
+    }))
+
+    let firstSuccess = true
+    await act(async () => { firstSuccess = await result.current.connect('bootstrap-token') })
+    expect(firstSuccess).toBe(false)
+    expect(clientFactory).toHaveBeenCalledTimes(1)
+    expect(creates).toBe(2)
+    expect(result.current.issue).toEqual(expect.objectContaining({
+      kind: 'session',
+      message: 'OpenClaw 会话名称冲突，请重新连接。',
+    }))
+    expect(adapter.puts[0]).toMatchObject({
+      deviceToken: 'paired-device-token',
+      scopes: ['operator.read', 'operator.write'],
+    })
+    expect(adapter.puts[0].sessionKey).toBeUndefined()
+
+    let secondSuccess = false
+    await act(async () => { secondSuccess = await result.current.connect() })
+    expect(clientFactory.mock.calls[0][0]).toMatchObject({ bootstrapToken: 'bootstrap-token' })
+    expect(clientFactory.mock.calls[1][0]).toMatchObject({
+      bootstrapToken: undefined,
+      deviceToken: 'paired-device-token',
+    })
+    expect(secondSuccess).toBe(true)
+    expect(adapter.puts.at(-1)).toMatchObject({ sessionKey: 'session-recovered' })
   })
 
   it('creates a uniquely labelled new conversation without changing runtime semantics', async () => {
