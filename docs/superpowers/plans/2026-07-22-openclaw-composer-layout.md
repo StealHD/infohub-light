@@ -95,11 +95,11 @@ npm run build
 
 Expected: all OpenClaw conversation tests pass; TypeScript and the production build exit 0.
 
-- [ ] **Step 5: Build and verify localhost**
+- [x] **Step 5: Build and verify localhost**
 
 Build a revision-tagged Docker image from the worktree, switch only the local Compose API/Worker to it, wait for both services to become healthy, reload `http://127.0.0.1:8080/feed`, and verify the Agent panel has `scrollWidth === clientWidth` at the visible viewport.
 
-- [ ] **Step 6: Record evidence and commit**
+- [x] **Step 6: Record evidence and commit**
 
 Append focused test/build/container/browser evidence to `WORKLOG.md`, run `git diff --check`, and commit the product/test/docs changes with:
 
