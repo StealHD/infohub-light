@@ -7,6 +7,9 @@ export default defineConfig({
     '**/design-system-contract.spec.ts',
   ],
   fullyParallel: true,
+  // Release coverage exercises several virtualization-heavy pages. Keep it
+  // deterministic instead of letting local CPU count create browser contention.
+  workers: 1,
   retries: 0,
   reporter: 'line',
   use: {
