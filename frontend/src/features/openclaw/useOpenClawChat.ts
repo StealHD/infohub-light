@@ -6,6 +6,7 @@ import {
 } from '../workbench-live/agentContext'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
 import {
+  OPENCLAW_CURRENT_SCOPES,
   GatewayRequestError,
   OpenClawGatewayClient,
   generateDeviceIdentity,
@@ -795,6 +796,9 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         bootstrapToken: parsed.bootstrapToken || undefined,
         deviceToken: parsed.bootstrapToken ? undefined : stored?.deviceToken,
         deviceIdentity: identity,
+        requestedScopes: parsed.bootstrapToken
+          ? OPENCLAW_CURRENT_SCOPES
+          : stored?.scopes ?? OPENCLAW_CURRENT_SCOPES,
         platform: navigator.platform || 'web',
         deviceFamily: 'browser',
         onEvent: handleGatewayEvent,

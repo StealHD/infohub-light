@@ -2,7 +2,12 @@ const CLIENT_ID = 'webchat-ui'
 const CLIENT_MODE = 'webchat'
 const CLIENT_VERSION = '1.0.0'
 const ROLE = 'operator'
-const REQUESTED_SCOPES = ['operator.read', 'operator.write'] as const
+export const OPENCLAW_LEGACY_SCOPES = ['operator.read', 'operator.write'] as const
+export const OPENCLAW_CURRENT_SCOPES = [
+  'operator.read',
+  'operator.write',
+  'operator.pairing',
+] as const
 const OPEN = 1
 
 export type GatewaySocket = {
@@ -133,15 +138,26 @@ export function buildDeviceAuthPayloadV3(params: {
   ].join('|')
 }
 
-export function validateNegotiatedScopes(scopes: string[]): string[] {
-  const unique = Array.from(new Set(scopes)).sort()
-  if (
-    unique.length !== REQUESTED_SCOPES.length
-    || unique.some((scope, index) => scope !== REQUESTED_SCOPES[index])
-  ) {
+function hasExactScopes(scopes: readonly string[], expectedScopes: readonly string[]): boolean {
+  if (scopes.length !== expectedScopes.length || new Set(scopes).size !== scopes.length) return false
+  const expected = new Set(expectedScopes)
+  return scopes.every((scope) => expected.has(scope))
+}
+
+export function validateNegotiatedScopes(
+  scopes: readonly string[],
+  expectedScopes: readonly string[] = OPENCLAW_CURRENT_SCOPES,
+): string[] {
+  if (!hasExactScopes(scopes, expectedScopes)) {
     throw new Error('OpenClaw 返回了超出或缺少预期的浏览器权限。')
   }
-  return [...REQUESTED_SCOPES]
+  return [...expectedScopes]
+}
+
+export function validateStoredOpenClawScopes(scopes: readonly string[]): string[] {
+  if (hasExactScopes(scopes, OPENCLAW_CURRENT_SCOPES)) return [...OPENCLAW_CURRENT_SCOPES]
+  if (hasExactScopes(scopes, OPENCLAW_LEGACY_SCOPES)) return [...OPENCLAW_LEGACY_SCOPES]
+  throw new Error('OpenClaw 返回了超出或缺少预期的浏览器权限。')
 }
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -183,11 +199,12 @@ export async function signDevicePayload(privateKey: CryptoKey, payload: string):
   return toBase64Url(new Uint8Array(signature))
 }
 
-type ClientOptions = {
+export type OpenClawGatewayClientOptions = {
   url: string
   bootstrapToken?: string
   deviceToken?: string
   deviceIdentity: OpenClawDeviceIdentity
+  requestedScopes?: readonly string[]
   platform?: string
   deviceFamily?: string
   socketFactory?: (url: string) => GatewaySocket
@@ -206,7 +223,7 @@ type PendingRequest = {
 }
 
 export class OpenClawGatewayClient {
-  private options: ClientOptions
+  private options: OpenClawGatewayClientOptions
   private socket: GatewaySocket | null = null
   private pending = new Map<string, PendingRequest>()
   private connectSent = false
@@ -214,8 +231,14 @@ export class OpenClawGatewayClient {
   private closed = false
   private hello: GatewayHello | null = null
 
-  constructor(options: ClientOptions) {
-    this.options = { ...options, url: validateGatewayUrl(options.url) }
+  constructor(options: OpenClawGatewayClientOptions) {
+    this.options = {
+      ...options,
+      url: validateGatewayUrl(options.url),
+      requestedScopes: validateStoredOpenClawScopes(
+        options.requestedScopes ?? OPENCLAW_CURRENT_SCOPES,
+      ),
+    }
   }
 
   connect(): Promise<GatewayHello> {
@@ -276,7 +299,7 @@ export class OpenClawGatewayClient {
     this.clearConnectTimer()
     try {
       const signedAtMs = (this.options.now ?? Date.now)()
-      const scopes = [...REQUESTED_SCOPES]
+      const scopes = [...(this.options.requestedScopes ?? OPENCLAW_CURRENT_SCOPES)]
       const signatureToken = this.options.bootstrapToken || this.options.deviceToken || ''
       const payload = buildDeviceAuthPayloadV3({
         deviceId: this.options.deviceIdentity.deviceId,
@@ -327,7 +350,7 @@ export class OpenClawGatewayClient {
         throw new Error('OpenClaw Gateway 协议版本不兼容。')
       }
       if (hello.auth?.role !== ROLE) throw new Error('OpenClaw 返回了非 operator 的浏览器角色。')
-      validateNegotiatedScopes(hello.auth.scopes ?? [])
+      validateNegotiatedScopes(hello.auth.scopes ?? [], scopes)
       if (hello.auth.deviceToken) {
         this.options = { ...this.options, bootstrapToken: undefined, deviceToken: hello.auth.deviceToken }
       }

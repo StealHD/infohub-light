@@ -32,11 +32,11 @@
 - Consumes: branch `codex/fix-openclaw-session-isolation`, old base `de8b146`, known-good VPS base `c762fea20268`.
 - Produces: the same OpenClaw commits replayed directly on `c762fea20268`, excluding `dc6719b`, `4096c3a`, `614793f`, and `de8b146`.
 
-- [ ] **Step 1: Create a recoverable safety reference and stash the current documentation delta**
+- [x] **Step 1: Create a recoverable safety reference and stash the current documentation delta**
 
 Create a uniquely named backup branch at the current HEAD, then stash only the four modified documentation/control files. Record the stash name and backup branch before rewriting branch history.
 
-- [ ] **Step 2: Rebase the OpenClaw commit range**
+- [x] **Step 2: Rebase the OpenClaw commit range**
 
 Run:
 
@@ -46,7 +46,7 @@ git rebase --onto c762fea20268 de8b146 codex/fix-openclaw-session-isolation
 
 Resolve only semantic conflicts in the six OpenClaw commits. Preserve the known-good UI from `c762fea20268`; do not reintroduce `dc6719b`.
 
-- [ ] **Step 3: Restore the documentation delta and verify ancestry**
+- [x] **Step 3: Restore the documentation delta and verify ancestry**
 
 Restore the stash, resolve documentation-only conflicts, and verify:
 
@@ -536,7 +536,7 @@ git commit -m "fix(openclaw): retain pairing before session setup"
 - Produces: exported exact legacy/current scope profiles, expected-scope handshake validation, stored-scope validation accepting only those profiles, and a client option that determines the requested scopes.
 - New/bootstrap authorization uses the current three-scope profile. Device-token reconnect uses the exact profile already stored with that credential so legacy two-scope users can keep chatting without forced reauthorization.
 
-- [ ] **Step 1: Write failing gateway/vault tests**
+- [x] **Step 1: Write failing gateway/vault tests**
 
 Cover all of these boundaries:
 
@@ -545,15 +545,15 @@ Cover all of these boundaries:
 3. Current validation rejects missing pairing and both profiles reject extra/admin scopes.
 4. The vault loads exact legacy two-scope and exact current three-scope credentials, but deletes/rejects every other profile.
 
-- [ ] **Step 2: Parameterize scope negotiation and storage**
+- [x] **Step 2: Parameterize scope negotiation and storage**
 
 Export immutable `OPENCLAW_LEGACY_SCOPES` and `OPENCLAW_CURRENT_SCOPES`. Add `requestedScopes` to `OpenClawGatewayClient` options, defaulting to the current profile, and validate the returned hello against that exact requested profile. Keep a separate stored-scope guard that accepts only the two approved exact profiles.
 
-- [ ] **Step 3: Select scopes by credential path in the hook**
+- [x] **Step 3: Select scopes by credential path in the hook**
 
 When connecting with a user-supplied Gateway/dashboard token, preserve the existing identity/session key if present but request the current three-scope profile and replace the stored device token with the newly negotiated token. When reconnecting only with a stored device token, request its stored exact profile. Keep staged credential persistence and every session behavior from Tasks 1–3.
 
-- [ ] **Step 4: Run focused tests and commit**
+- [x] **Step 4: Run focused tests and commit**
 
 ```bash
 cd frontend
@@ -570,8 +570,8 @@ Expected: new pairings get pairing capability, legacy reconnects remain connecte
 **Files:**
 - Create: `frontend/src/features/openclaw/openclawDevice.ts`
 - Create: `frontend/src/features/openclaw/openclawDevice.test.ts`
-- Modify: `frontend/src/features/feed/HeroAgentsPage.tsx`
-- Modify: `frontend/src/features/feed/HeroAgentsPage.test.tsx`
+- Modify: `frontend/src/features/admin-heroui/HeroAgentsPage.tsx`
+- Modify: `frontend/src/features/admin-heroui/HeroAgentsPage.test.tsx`
 - Reuse: `clearOpenClawTranscript` from `frontend/src/features/openclaw/useOpenClawChat.ts`
 
 **Interfaces:**
@@ -598,7 +598,7 @@ Replace immediate local deletion and the manual CLI revocation note with the con
 
 ```bash
 cd frontend
-npm test -- src/features/openclaw/openclawDevice.test.ts src/features/feed/HeroAgentsPage.test.tsx
+npm test -- src/features/openclaw/openclawDevice.test.ts src/features/admin-heroui/HeroAgentsPage.test.tsx
 npm run typecheck
 ```
 
