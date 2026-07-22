@@ -176,6 +176,39 @@ def test_agent_delegations_are_self_scoped_renamable_and_permanently_revoked(
     assert store.list_agent_delegations(viewer["id"])[0]["status"] == "revoked"
 
 
+def test_only_owner_can_delete_one_revoked_agent_delegation(tmp_path, monkeypatch):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    other = store.create_user(
+        workspace_id=workspace["id"],
+        username="other",
+        password="other-password",
+        role="member",
+    )
+    target, _target_token = store.create_agent_delegation(
+        workspace_id=workspace["id"], user_id=owner["id"], name="Delete me"
+    )
+    kept, _kept_token = store.create_agent_delegation(
+        workspace_id=workspace["id"], user_id=owner["id"], name="Keep me"
+    )
+
+    assert store.delete_revoked_agent_delegation(owner["id"], target["id"]) is False
+    assert store.connect().in_transaction is False
+    assert store.delete_revoked_agent_delegation(other["id"], target["id"]) is None
+    assert store.connect().in_transaction is False
+    assert store.revoke_agent_delegation(owner["id"], target["id"]) is True
+    assert store.delete_revoked_agent_delegation(owner["id"], target["id"]) is True
+    assert store.delete_revoked_agent_delegation(owner["id"], target["id"]) is None
+    assert [
+        connection["id"]
+        for connection in store.list_agent_delegations(owner["id"])
+    ] == [kept["id"]]
+
+
 def test_disabling_user_revokes_all_delegations_and_reenable_does_not_restore_them(
     tmp_path, monkeypatch
 ):
