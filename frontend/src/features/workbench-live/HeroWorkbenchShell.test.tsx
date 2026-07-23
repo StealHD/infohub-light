@@ -69,12 +69,40 @@ function LocationProbe() {
   return <output data-testid="location-probe">{location.pathname}</output>
 }
 
-function Shell({ user, path = '/feed', onLogout = vi.fn(), serviceApi = api }: { user: User; path?: string; onLogout?: () => void; serviceApi?: ServiceApi }) {
+function Shell({
+  user,
+  path = '/feed',
+  onLogout = vi.fn(),
+  serviceApi = api,
+  refreshState = 'idle',
+  refreshMessage,
+  refreshEventKey,
+  onRetry,
+}: {
+  user: User
+  path?: string
+  onLogout?: () => void
+  serviceApi?: ServiceApi
+  refreshState?: 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
+  refreshMessage?: string
+  refreshEventKey?: string
+  onRetry?: () => void
+}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[path]}>
       <DesignSystemProvider>
-        <HeroWorkbenchShell api={serviceApi} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
+        <HeroWorkbenchShell
+          api={serviceApi}
+          user={user}
+          query=""
+          onQueryChange={vi.fn()}
+          onLogout={onLogout}
+          onRetry={onRetry}
+          refreshState={refreshState}
+          refreshMessage={refreshMessage}
+          refreshEventKey={refreshEventKey}
+        >
           <div data-page-frame="reading" data-feed-blank-region>content</div>
         </HeroWorkbenchShell>
         <LocationProbe />
@@ -219,6 +247,36 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
       { left: 100, right: 1000, top: 60, bottom: 850 },
       { left: 1012, right: 1364, top: 60, bottom: 700 },
     )).toBe(false)
+  })
+
+  it('shows a terminal refresh event once in an overlay toast with one retry action', async () => {
+    const browser = userEvent.setup()
+    const retry = vi.fn()
+    const user = { id: 'refresh-toast', username: 'refresh', role: 'member' as const, enabled: true }
+    const view = render(<Shell
+      user={user}
+      refreshState="failed"
+      refreshMessage="上游连接超时"
+      refreshEventKey="job-1:failed"
+      onRetry={retry}
+    />)
+
+    const message = await screen.findByText('上游连接超时')
+    const toastRegion = message.closest('[data-slot="toast-region"]')
+    expect(toastRegion).not.toBeNull()
+    expect(toastRegion?.closest('[data-page-frame]')).toBeNull()
+    await browser.click(screen.getByRole('button', { name: '重试' }))
+    expect(retry).toHaveBeenCalledTimes(1)
+
+    view.rerender(<Shell
+      user={user}
+      refreshState="failed"
+      refreshMessage="上游连接超时"
+      refreshEventKey="job-1:failed"
+      onRetry={retry}
+    />)
+    await waitFor(() => expect(screen.queryByText('上游连接超时')).not.toBeInTheDocument())
+    expect(retry).toHaveBeenCalledTimes(1)
   })
 
   it('exposes Agent on subscriptions without exposing Insights', async () => {

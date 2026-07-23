@@ -11,6 +11,7 @@ import { HeroSettingsPage } from '../features/admin-heroui/HeroSettingsPage'
 import { HeroSubscriptionsPage } from '../features/admin-heroui/HeroSubscriptionsPage'
 import { HeroUsersPage } from '../features/admin-heroui/HeroUsersPage'
 import { HeroChangelogPage } from '../features/changelog/HeroChangelogPage'
+import { actionToast } from '../design-system'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
@@ -68,8 +69,11 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const feedActivity = useFeedActivity(api, user, actionGuard)
   const canMutate = user.role !== 'viewer'
 
-  useEffect(() => {
-    if (previousUserId.current !== user.id) void clearUserCache(queryClient, previousUserId.current)
+  useLayoutEffect(() => {
+    if (previousUserId.current !== user.id) {
+      actionToast.clear()
+      void clearUserCache(queryClient, previousUserId.current)
+    }
     previousUserId.current = user.id
   }, [queryClient, user.id])
 
@@ -79,6 +83,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
 
   async function logout() {
     actionGuard.invalidate()
+    actionToast.clear()
     await api.logout()
     await clearUserCache(queryClient, user.id)
     queryClient.setQueryData<AuthStatus>(queryKeys.auth, { authenticated: false, user: null })

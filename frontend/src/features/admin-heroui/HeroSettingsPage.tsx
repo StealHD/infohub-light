@@ -8,6 +8,7 @@ import type { ApifyKeyPoolMember, SecretRef } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
+  actionToast,
   Button,
   Card,
   Checkbox,
@@ -21,7 +22,6 @@ import {
   PageFrame,
   Table,
   TextField,
-  toast,
 } from '../../design-system'
 import {
   aiDefaultsForProvider,
@@ -289,7 +289,7 @@ function SecretRowActions({ secret, onChanged, lifecycleLocked = false, lockMess
       await api.rotateSecret(secret.id, submitted)
       feedback.succeed('secret-rotate', secret.id, `${secret.name} 已轮换。`)
       closeRotateDialog()
-      toast.success('Key 已轮换', { description: secret.name, timeout: 4000 })
+      actionToast.success('Key 已轮换', { description: secret.name })
       onChanged(secret.id, 'rotate')
     } catch (caught) {
       const message = errorMessage(caught, '轮换失败，请稍后重试。')
@@ -305,7 +305,7 @@ function SecretRowActions({ secret, onChanged, lifecycleLocked = false, lockMess
       await api.deleteSecret(secret.id)
       feedback.succeed('secret-delete', secret.id, `${secret.name} 已删除。`)
       closeDeleteDialog()
-      toast.success('Key 已删除', { description: secret.name, timeout: 4000 })
+      actionToast.success('Key 已删除', { description: secret.name })
       onChanged(secret.id, 'delete')
     } catch (caught) {
       const message = errorMessage(caught, '删除失败。')
@@ -394,7 +394,6 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
 }) {
   const { api } = useAppContext()
   const queryClient = useQueryClient()
-  const [actionError, setActionError] = useState('')
   const poolQuery = useQuery({
     queryKey: queryKeys.apifyKeyPool(userId),
     queryFn: ({ signal }) => api.apifyKeyPool(signal),
@@ -407,30 +406,41 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
       api.reorderApifyKeyPool(secretIds, expectedGeneration)
     ),
     onSuccess: (pool) => {
-      setActionError('')
       queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
-      toast.success('Apify Key 顺序已更新', { timeout: 4000 })
+      actionToast.success('Apify Key 顺序已更新')
     },
-    onError: (caught) => {
+    onError: (caught, variables) => {
       const message = apifyPoolActionError(caught, 'Key 顺序更新失败，请稍后重试。')
-      setActionError(message)
       if (caught instanceof ApiError && (
         caught.code === 'apify_key_pool_generation_conflict'
         || caught.code === 'apify_key_pool_conflict'
       )) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(userId) })
       }
+      actionToast.danger('Key 顺序更新失败', {
+        description: message,
+        onRetry: () => {
+          if (!orderMutation.isPending) orderMutation.mutate(variables)
+        },
+      })
     },
   })
   const drainMutation = useMutation({
     mutationFn: (secretId: string) => api.drainApifyKey(secretId),
     onSuccess: (pool, secretId) => {
-      setActionError('')
       queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
       const secret = secrets.find((item) => item.id === secretId)
-      toast.success('已提交安全排空', { description: secret?.name, timeout: 4000 })
+      actionToast.success('已提交安全排空', { description: secret?.name })
     },
-    onError: (caught) => setActionError(apifyPoolActionError(caught, '安全排空失败，请稍后重试。')),
+    onError: (caught, secretId) => {
+      const message = apifyPoolActionError(caught, '安全排空失败，请稍后重试。')
+      actionToast.danger('安全排空失败', {
+        description: message,
+        onRetry: () => {
+          if (!drainMutation.isPending) drainMutation.mutate(secretId)
+        },
+      })
+    },
   })
 
   const apifySecrets = secrets.filter(isApifySecret)
@@ -505,7 +515,6 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
     {unresolvedMembers > 0 && <div className="mt-4"><HeroNotice title="部分 Key 元数据尚未加载" status="warning" role="status">
       已隐藏无法安全识别的池成员，请刷新页面后再操作。
     </HeroNotice></div>}
-    {actionError && <div className="mt-4"><HeroNotice title={actionError} /></div>}
     <div className="mt-4 min-w-0 max-w-full">
       <Table variant="secondary" className="max-w-full">
         <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="apify-key-pool-scroll">
@@ -608,8 +617,6 @@ export function HeroSettingsPage() {
   const config = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal) })
   const ignored = useQuery({ queryKey: queryKeys.ignored(user.id), queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal) })
   const secrets = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: admin })
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
   const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
   const [secretDraft, setSecretDraft] = useState<SecretDraft>({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
@@ -659,8 +666,16 @@ export function HeroSettingsPage() {
   const configMutation = useMutation({
     mutationFn: ({ action, payload }: { action: string; payload: Record<string, unknown> }) => api.configAction(action, payload),
     onMutate: ({ action }) => feedback.begin('config-save', action),
-    onSuccess: (_result, { action }) => { feedback.succeed('config-save', action); setMessage('设置已保存。'); setError(''); void queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }) },
-    onError: (caught, { action }) => { const message = errorMessage(caught, '设置保存失败。'); setError(message); feedback.fail('config-save', action, message) },
+    onSuccess: (_result, { action }) => {
+      feedback.clear('config-save', action)
+      actionToast.success('设置已保存')
+      void queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) })
+    },
+    onError: (caught, { action }) => {
+      const message = errorMessage(caught, '设置保存失败。')
+      feedback.clear('config-save', action)
+      actionToast.danger('设置保存失败', { description: message })
+    },
   })
   const restoreMutation = useMutation({
     mutationFn: (articleId: string) => api.updateItemState(articleId, { dismissed: false }),
@@ -670,9 +685,9 @@ export function HeroSettingsPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }) }),
       ])
       const restored = ignored.data?.items.find((item) => item.id === articleId)
-      toast.success('已恢复到信息流', { description: restored?.presentation?.content?.title || restored?.title, timeout: 4000 })
+      actionToast.success('已恢复到信息流', { description: restored?.presentation?.content?.title || restored?.title })
     },
-    onError: (caught) => toast.danger('恢复失败', { description: errorMessage(caught, '请稍后重试。'), timeout: 8000 }),
+    onError: (caught) => actionToast.danger('恢复失败', { description: errorMessage(caught, '请稍后重试。') }),
   })
 
   async function createSecret(event: FormEvent<HTMLFormElement>) {
@@ -687,7 +702,7 @@ export function HeroSettingsPage() {
       setSecretFieldErrors(fieldErrors)
       setSecretFormError('请修正标出的字段后重试。')
       feedback.fail('secret-create', 'new', message)
-      toast.danger('新增 Key 失败', { description: message, timeout: 8000 })
+      actionToast.danger('新增 Key 失败', { description: message })
       return
     }
     feedback.begin('secret-create', 'new')
@@ -696,9 +711,8 @@ export function HeroSettingsPage() {
       setSecretDraft({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
       setSecretFieldErrors({})
       setSecretFormError('')
-      feedback.succeed('secret-create', 'new', 'Key 已安全保存。')
-      setMessage('Key 已保存，页面不会回显真实值。')
-      toast.success('Key 已安全保存', { timeout: 4000 })
+      feedback.clear('secret-create', 'new')
+      actionToast.success('Key 已安全保存')
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
         ...(submitted.kind === 'apify'
@@ -709,7 +723,7 @@ export function HeroSettingsPage() {
       const message = secretCreateErrorMessage(caught)
       setSecretFormError(message)
       feedback.fail('secret-create', 'new', message)
-      toast.danger('新增 Key 失败', { description: message, timeout: 8000 })
+      actionToast.danger('新增 Key 失败', { description: message })
     }
   }
 
@@ -738,7 +752,6 @@ export function HeroSettingsPage() {
 
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
-    {message && <HeroNotice title={message} status="success" role="status" />}{error && <HeroNotice title={error} />}
 
     <AdminSection title="关于 Inteliscope" description="查看近期的重要功能、交互和可用性变化。">
       <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>

@@ -2,6 +2,8 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
+import { toast } from '../design-system'
+
 if (!Element.prototype.getAnimations) {
   Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] })
 }
@@ -32,4 +34,7 @@ if (typeof globalThis.ResizeObserver !== 'function') {
   Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: TestResizeObserver })
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  toast.clear()
+  cleanup()
+})

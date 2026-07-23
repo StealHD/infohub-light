@@ -156,12 +156,16 @@ async function requestBackgroundRefresh(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   let backgroundRefreshComplete = false
+  let feedbackRefreshRequested = false
+  let feedbackRetryRequests = 0
   const backgroundRefreshCreatedAt = new Date().toISOString()
   await page.exposeFunction('completeBackgroundRefresh', () => {
     backgroundRefreshComplete = true
   })
+  await page.exposeFunction('feedbackRetryCount', () => feedbackRetryRequests)
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const url = new URL(route.request().url())
+    const feedbackMode = new URL(page.url()).searchParams.has('toast-feedback')
     let data: unknown
     if (url.pathname.startsWith('/api/media/')) {
       await route.fulfill({
@@ -181,15 +185,41 @@ test.beforeEach(async ({ page }) => {
     }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
     else if (url.pathname === '/api/feed/history') data = { items: [historyRouteItem] }
-    else if (url.pathname === '/api/jobs') data = { jobs: [{
-      id: 'refresh-1',
-      user_id: 'e2e-user',
-      job_type: 'user_feed_refresh',
-      status: backgroundRefreshComplete ? 'succeeded' : 'queued',
-      created_at: backgroundRefreshCreatedAt,
-      finished_at: backgroundRefreshComplete ? new Date().toISOString() : null,
-      result: {},
-    }] }
+    else if (url.pathname === '/api/jobs/user-feed-refresh' && route.request().method() === 'POST') {
+      feedbackRefreshRequested = true
+      data = {
+        id: 'refresh-1',
+        user_id: 'e2e-user',
+        job_type: 'user_feed_refresh',
+        status: 'queued',
+        created_at: backgroundRefreshCreatedAt,
+      }
+    }
+    else if (url.pathname === '/api/jobs/refresh-1/retry' && route.request().method() === 'POST') {
+      feedbackRetryRequests += 1
+      data = {
+        id: 'refresh-1',
+        user_id: 'e2e-user',
+        job_type: 'user_feed_refresh',
+        status: 'queued',
+        created_at: backgroundRefreshCreatedAt,
+      }
+    }
+    else if (url.pathname === '/api/jobs') data = {
+      jobs: feedbackMode && !feedbackRefreshRequested
+        ? []
+        : [{
+            id: 'refresh-1',
+            user_id: 'e2e-user',
+            job_type: 'user_feed_refresh',
+            status: backgroundRefreshComplete ? (feedbackMode ? 'failed' : 'succeeded') : 'queued',
+            created_at: backgroundRefreshCreatedAt,
+            finished_at: backgroundRefreshComplete ? new Date().toISOString() : null,
+            retryable: feedbackMode && backgroundRefreshComplete,
+            error_message: feedbackMode && backgroundRefreshComplete ? '模拟信息流更新失败' : undefined,
+            result: {},
+          }],
+    }
     else if (url.pathname === '/api/me/feed-schedule') data = { enabled: true, interval_minutes: 60, worker_status: 'ready' }
     else if (url.pathname === '/api/me/source-health') data = {
       summary: { total: 2, healthy: 1, attention: 1, failing: 0, untested: 0 },
@@ -221,6 +251,49 @@ test.beforeEach(async ({ page }) => {
     }
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
   })
+})
+
+test('a retryable refresh failure uses a top Toast without moving the Feed viewport', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/feed?toast-feedback=1')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await page.evaluate(async () => {
+    await document.fonts.ready
+  })
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  const before = await feedScroll.boundingBox()
+
+  await page.getByRole('button', { name: '更新信息流' }).click()
+  await page.evaluate(() => (window as typeof window & {
+    completeBackgroundRefresh: () => Promise<void>
+  }).completeBackgroundRefresh())
+
+  const failure = page.getByText('模拟信息流更新失败', { exact: true })
+  await expect(failure).toBeVisible({ timeout: 10_000 })
+  const after = await feedScroll.boundingBox()
+  expect(before).not.toBeNull()
+  expect(after).not.toBeNull()
+  expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(after!.width - before!.width)).toBeLessThanOrEqual(1)
+  expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1)
+  await expect(page.locator('main').getByText('模拟信息流更新失败', { exact: true })).toHaveCount(0)
+
+  const toastBounds = await failure.boundingBox()
+  const viewport = page.viewportSize()!
+  expect(toastBounds).not.toBeNull()
+  expect(toastBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(toastBounds!.x + toastBounds!.width).toBeLessThanOrEqual(viewport.width)
+  const retryRequest = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/api/jobs/refresh-1/retry'))
+  await page.getByRole('button', { name: '重试' }).click()
+  await retryRequest
+  await expect.poll(() => page.evaluate(() => (window as typeof window & {
+    feedbackRetryCount: () => Promise<number>
+  }).feedbackRetryCount())).toBe(1)
+  await expect(failure).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('a hard refresh preserves shell geometry and reveals only loaded content', async ({ page }, testInfo) => {

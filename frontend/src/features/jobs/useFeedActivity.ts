@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { ServiceApi } from '../../api/service'
@@ -7,6 +7,11 @@ import { queryKeys } from '../../api/queryKeys'
 import { describeFeedJob, feedJobNotice, latestFeedJob, pollingTimedOut, type FeedNotice } from './jobModel'
 import type { ActionGeneration, ActionToken } from '../../app/actionGeneration'
 
+type ScopedNotice = {
+  userId: string
+  notice?: FeedNotice
+}
+
 export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGeneration) {
   const queryClient = useQueryClient()
   const terminalHandled = useRef('')
@@ -14,8 +19,12 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   const observedActiveJobs = useRef(new Set<string>())
   const seenTerminalJobs = useRef(new Set<string>())
   const blockedSequence = useRef(0)
-  const [requestNotice, setRequestNotice] = useState<FeedNotice>()
-  const [jobNotice, setJobNotice] = useState<FeedNotice>()
+  const [requestNoticeState, setRequestNoticeState] = useState<ScopedNotice>(() => ({ userId: user.id }))
+  const [jobNoticeState, setJobNoticeState] = useState<ScopedNotice>(() => ({ userId: user.id }))
+  const requestNotice = requestNoticeState.userId === user.id ? requestNoticeState.notice : undefined
+  const jobNotice = jobNoticeState.userId === user.id ? jobNoticeState.notice : undefined
+  const setRequestNotice = useCallback((notice?: FeedNotice) => setRequestNoticeState({ userId: user.id, notice }), [user.id])
+  const setJobNotice = useCallback((notice?: FeedNotice) => setJobNoticeState({ userId: user.id, notice }), [user.id])
   const jobsQuery = useQuery({
     queryKey: queryKeys.jobs(user.id),
     queryFn: ({ signal }) => api.jobs(signal),
@@ -30,6 +39,14 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
     queryFn: ({ signal }) => api.feedSchedule(signal),
   })
   const activity = describeFeedJob(currentJob, scheduleQuery.data?.worker_status ?? 'unknown')
+
+  useEffect(() => {
+    terminalHandled.current = ''
+    jobsInitialized.current = false
+    observedActiveJobs.current.clear()
+    seenTerminalJobs.current.clear()
+    blockedSequence.current = 0
+  }, [user.id])
 
   useEffect(() => {
     if (!jobsQuery.isSuccess) return
@@ -53,7 +70,7 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
     seenTerminalJobs.current.add(terminalKey)
     if (!observedActiveJobs.current.has(currentJob.id)) return
     setJobNotice(feedJobNotice(currentJob))
-  }, [currentJob, jobsQuery.data, jobsQuery.isSuccess, user.id])
+  }, [currentJob, jobsQuery.data, jobsQuery.isSuccess, setJobNotice, user.id])
 
   useEffect(() => {
     if (!currentJob || !activity.terminal || terminalHandled.current === `${currentJob.id}:${currentJob.status}`) return
@@ -99,8 +116,28 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   })
   const retryMutation = useMutation({
     mutationFn: (token: ActionToken) => { void token; return currentJob ? api.retryJob(currentJob.id) : Promise.reject(new Error('没有可重试任务')) },
-    onSuccess: (_job, token) => guard.isCurrent(token) ? queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) }) : undefined,
+    onMutate: () => setRequestNotice(undefined),
+    onSuccess: (_job, token) => {
+      if (!guard.isCurrent(token)) return
+      setRequestNotice(undefined)
+      return queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) })
+    },
+    onError: (error, token) => {
+      if (!guard.isCurrent(token)) return
+      blockedSequence.current += 1
+      setRequestNotice({
+        key: `retry-blocked:${blockedSequence.current}`,
+        state: 'blocked',
+        message: error instanceof Error ? error.message : '任务重试提交失败，请稍后再试。',
+      })
+    },
   })
+  const retryRequest = () => retryMutation.mutate(guard.capture())
+  const retry = requestNotice?.key.startsWith('refresh-blocked:')
+    ? () => refreshMutation.mutate(guard.capture())
+    : requestNotice?.key.startsWith('retry-blocked:') || activity.retryable
+      ? retryRequest
+      : undefined
 
   return {
     currentJob,
@@ -111,7 +148,7 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
         : jobNotice
     ),
     refresh: () => refreshMutation.mutate(guard.capture()),
-    retry: activity.retryable ? () => retryMutation.mutate(guard.capture()) : undefined,
+    retry,
     pending: refreshMutation.isPending || retryMutation.isPending,
   }
 }

@@ -44,6 +44,7 @@ export type { SortDescriptor } from '@heroui/react'
 
 export { DesignSystemProvider } from './DesignSystemProvider'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
+export { actionToast } from './actionToast'
 export { ThemeModeToggle } from './ThemeModeToggle'
 export { useThemePreference } from './themePreferenceContext'
 export { Tooltip } from './AnchoredTooltip'

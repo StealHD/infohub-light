@@ -7,6 +7,7 @@ import type { User } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
+  actionToast,
   AvatarFallback,
   AvatarRoot,
   Button,
@@ -19,7 +20,6 @@ import {
   PageFrame,
   Table,
   TextField,
-  toast,
   type SortDescriptor,
 } from '../../design-system'
 import { canAdministerWorkspace } from '../settings/settingsModel'
@@ -99,11 +99,11 @@ function AccountPasswordSection() {
     try {
       await mutation.mutateAsync({ currentPassword, newPassword })
       form.reset()
-      toast.success('密码已更新', { description: '下次登录请使用新密码。', timeout: 4000 })
+      actionToast.success('密码已更新', { description: '下次登录请使用新密码。' })
     } catch (caught) {
       const message = messageOf(caught, '密码修改失败。')
       setError(message)
-      toast.danger('密码修改失败', { description: message, timeout: 8000 })
+      actionToast.danger('密码修改失败', { description: message })
     }
   }
 
@@ -125,7 +125,7 @@ export function HeroUsersPage() {
   const admin = canAdministerWorkspace(user)
   const users = useQuery({ queryKey: queryKeys.users(user.id), queryFn: ({ signal }) => api.users(signal), enabled: admin })
   const [newUserRole, setNewUserRole] = useState('member')
-  const [error, setError] = useState('')
+  const [createError, setCreateError] = useState('')
   const [resetTarget, setResetTarget] = useState<User | null>(null)
   const [resetError, setResetError] = useState('')
   const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
@@ -147,15 +147,14 @@ export function HeroUsersPage() {
     mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => api.updateUser(id, patch),
     onMutate: ({ id }) => feedback.begin('member-update', id),
     onSuccess: async (_result, { id }) => {
-      feedback.succeed('member-update', id)
+      feedback.clear('member-update', id)
       await queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) })
-      toast.success('成员设置已保存', { timeout: 4000 })
+      actionToast.success('成员设置已保存')
     },
     onError: (caught, { id }) => {
       const message = messageOf(caught, '成员更新失败。')
-      setError(message)
-      feedback.fail('member-update', id, message)
-      toast.danger('成员更新失败', { description: message, timeout: 8000 })
+      feedback.clear('member-update', id)
+      actionToast.danger('成员更新失败', { description: message })
     },
   })
 
@@ -167,13 +166,13 @@ export function HeroUsersPage() {
       setResetTarget(null)
       setResetError('')
       await queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) })
-      toast.success('成员密码已重置', { description: '新密码已生效。', timeout: 4000 })
+      actionToast.success('成员密码已重置', { description: '新密码已生效。' })
     },
     onError: (caught, { id }) => {
       const message = messageOf(caught, '密码重置失败。')
       setResetError(message)
       feedback.fail('member-password-reset', id, message)
-      toast.danger('密码重置失败', { description: message, timeout: 8000 })
+      actionToast.danger('密码重置失败', { description: message })
     },
   })
 
@@ -213,14 +212,15 @@ export function HeroUsersPage() {
         enabled: true,
       })
       form.reset()
-      feedback.succeed('member-create', 'new')
+      setCreateError('')
+      feedback.clear('member-create', 'new')
       await queryClient.invalidateQueries({ queryKey: queryKeys.users(user.id) })
-      toast.success('成员已创建', { timeout: 4000 })
+      actionToast.success('成员已创建')
     } catch (caught) {
       const message = messageOf(caught, '成员创建失败。')
-      setError(message)
-      feedback.fail('member-create', 'new', message)
-      toast.danger('成员创建失败', { description: message, timeout: 8000 })
+      setCreateError(message)
+      feedback.clear('member-create', 'new')
+      actionToast.danger('成员创建失败', { description: message })
     }
   }
 
@@ -305,7 +305,6 @@ export function HeroUsersPage() {
 
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username}`} />
-    {error && <HeroNotice title={error} />}
     <AccountPasswordSection />
     {admin && <AdminSection title="成员管理" description="创建成员，并管理角色与账户可用状态。">
       <form className="grid gap-3 min-[760px]:grid-cols-5" onSubmit={createUser}>
@@ -314,6 +313,7 @@ export function HeroUsersPage() {
         <TextField fullWidth name="password" isRequired><Label>初始密码</Label><Input type="password" autoComplete="new-password" /></TextField>
         <HeroSelect label="角色" value={newUserRole} onChange={setNewUserRole} options={[{ id: 'admin', label: '管理员' }, { id: 'member', label: '成员' }, { id: 'viewer', label: '只读成员' }]} />
         <Button className="self-end" type="submit" isDisabled={feedback.isPending('member-create', 'new')}><Icons.UserPlus size={15} />{feedback.isPending('member-create', 'new') ? '创建中…' : '新增成员'}</Button>
+        {createError && <div className="min-[760px]:col-span-5"><HeroNotice title={createError} /></div>}
       </form>
       {users.isLoading && <LoadingState label="正在读取成员" rows={2} />}
       {users.isError && <div className="mt-4"><HeroNotice title="成员列表读取失败" /></div>}

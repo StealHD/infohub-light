@@ -7,6 +7,7 @@ import type { CatalogSource, FeedSchedule, Job, SourceHealthItem, SourceTypeDefi
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
+  actionToast,
   anchoredTooltipProps,
   Button,
   Card,
@@ -19,7 +20,6 @@ import {
   Tabs,
   Tooltip,
   TooltipTriggerButton,
-  toast,
 } from '../../design-system'
 import { describeFeedJob } from '../jobs/jobModel'
 import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContext'
@@ -41,7 +41,6 @@ import {
   type HealthFilter,
 } from '../subscriptions/subscriptionModel'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
-import { HeroActionNotice } from './HeroActionNotice'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 import { HeroDialog, SourceForm, SubscriptionForm } from './HeroSubscriptionDialogs'
 
@@ -244,20 +243,45 @@ export function HeroSubscriptionsPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.sources(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) }), queryClient.invalidateQueries({ queryKey: ['user', user.id, 'feed'] }), queryClient.invalidateQueries({ queryKey: queryKeys.history(user.id) }),
   ])
   const mutationError = (caught: unknown) => caught instanceof ApiError || caught instanceof Error ? caught.message : '操作失败，请稍后重试。'
-  const scheduleMutation = useMutation({ mutationFn: (patch: { enabled: boolean; interval_minutes: number }) => api.updateFeedSchedule(patch), onMutate: () => feedback.begin('feed-schedule', 'global'), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.feedSchedule(user.id) }); feedback.succeed('feed-schedule', 'global', '自动更新设置已保存。') }, onError: (caught) => feedback.fail('feed-schedule', 'global', mutationError(caught)) })
-  const subscribeMutation = useMutation({ mutationFn: (source: CatalogSource) => api.subscribe(source.id), onMutate: (source) => feedback.begin('subscribe', source.id), onSuccess: async (result, source) => { await invalidate(); feedback.clear('subscribe', source.id); const reused = result.subscription.reused_item_count ?? 0; toast.success(`${source.display_name} 订阅成功`, { description: reused > 0 ? `已复用 ${reused} 条已有内容，无需重复获取。` : undefined, timeout: 4000 }) }, onError: (caught, source) => { feedback.clear('subscribe', source.id); toast.danger(`${source.display_name} 订阅失败`, { description: mutationError(caught), timeout: 8000 }) } })
-  const unsubscribeMutation = useMutation({ mutationFn: ({ subscription }: { source: CatalogSource; subscription: Subscription }) => api.unsubscribe(subscription.id), onMutate: ({ source }) => feedback.begin('unsubscribe', source.id), onSuccess: async (_result, { source }) => { await invalidate(); feedback.clear('unsubscribe', source.id); toast.success(`${source.display_name} 已取消订阅`, { description: '其他成员的订阅和来源不会受到影响。', timeout: 4000 }) }, onError: (caught, { source }) => { feedback.clear('unsubscribe', source.id); toast.danger(`${source.display_name} 取消订阅失败`, { description: mutationError(caught), timeout: 8000 }) } })
+  const scheduleMutation = useMutation({
+    mutationFn: (patch: { enabled: boolean; interval_minutes: number }) => api.updateFeedSchedule(patch),
+    onMutate: () => feedback.begin('feed-schedule', 'global'),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.feedSchedule(user.id) })
+      feedback.clear('feed-schedule', 'global')
+      actionToast.success('自动更新设置已保存')
+    },
+    onError: (caught) => {
+      feedback.clear('feed-schedule', 'global')
+      actionToast.danger('自动更新设置保存失败', { description: mutationError(caught) })
+    },
+  })
+  const subscribeMutation = useMutation({ mutationFn: (source: CatalogSource) => api.subscribe(source.id), onMutate: (source) => feedback.begin('subscribe', source.id), onSuccess: async (result, source) => { await invalidate(); feedback.clear('subscribe', source.id); const reused = result.subscription.reused_item_count ?? 0; actionToast.success(`${source.display_name} 订阅成功`, { description: reused > 0 ? `已复用 ${reused} 条已有内容，无需重复获取。` : undefined }) }, onError: (caught, source) => { feedback.clear('subscribe', source.id); actionToast.danger(`${source.display_name} 订阅失败`, { description: mutationError(caught) }) } })
+  const unsubscribeMutation = useMutation({ mutationFn: ({ subscription }: { source: CatalogSource; subscription: Subscription }) => api.unsubscribe(subscription.id), onMutate: ({ source }) => feedback.begin('unsubscribe', source.id), onSuccess: async (_result, { source }) => { await invalidate(); feedback.clear('unsubscribe', source.id); actionToast.success(`${source.display_name} 已取消订阅`, { description: '其他成员的订阅和来源不会受到影响。' }) }, onError: (caught, { source }) => { feedback.clear('unsubscribe', source.id); actionToast.danger(`${source.display_name} 取消订阅失败`, { description: mutationError(caught) }) } })
   const usageMutation = useMutation<SourceUsage, Error, CatalogSource>({ mutationFn: (source) => api.sourceUsage(source.id) })
   const shareMutation = useMutation({
     mutationFn: ({ source, scope }: { source: CatalogSource; scope: 'workspace' | 'public' }) => api.shareSource(source.id, scope),
     onSuccess: async (result) => {
       await invalidate()
       setShareSource(null)
-      toast.success('来源已分享', { description: result.notice, timeout: 8000 })
+      actionToast.success('来源已分享', { description: result.notice })
     },
-    onError: (caught) => toast.danger('来源分享失败', { description: mutationError(caught), timeout: 8000 }),
+    onError: (caught) => actionToast.danger('来源分享失败', { description: mutationError(caught) }),
   })
-  const retryMutation = useMutation({ mutationFn: (job: Job) => api.retryJob(job.id), onMutate: (job) => feedback.begin('retry-job', job.id), onSuccess: async (_result, job) => { await invalidate(); feedback.succeed('retry-job', job.id, '重试任务已提交。') }, onError: (caught, job) => feedback.fail('retry-job', job.id, mutationError(caught)) })
+  const retryMutation = useMutation({
+    mutationFn: (job: Job) => api.retryJob(job.id),
+    onMutate: (job) => feedback.begin('retry-job', job.id),
+    onSuccess: async (_result, job) => {
+      await invalidate()
+      feedback.clear('retry-job', job.id)
+      actionToast.success('重试任务已提交')
+    },
+    onError: (caught, job) => {
+      feedback.clear('retry-job', job.id)
+      actionToast.danger('重试任务提交失败', { description: mutationError(caught) })
+    },
+  })
+  const retryJob = retryMutation.mutate
   const fetchMutation = useMutation({
     mutationFn: async ({ source, subscription }: { source: CatalogSource; subscription: Subscription }) => {
       const schedule = await scheduleQuery.refetch()
@@ -266,7 +290,10 @@ export function HeroSubscriptionsPage() {
     },
     onMutate: ({ source }) => feedback.begin('source-fetch', source.id),
     onSuccess: (job, { source, subscription }) => { initiatedJobs.current.set(job.id, { action: 'source-fetch', entity: source.id, label: source.display_name, subscriptionId: subscription.id }); feedback.advance('source-fetch', source.id, 'queued'); queryClient.setQueryData(queryKeys.jobs(user.id), (previous: { jobs: Job[] } | undefined) => ({ jobs: [job, ...(previous?.jobs ?? []).filter((entry) => entry.id !== job.id)] })); return invalidate() },
-    onError: (caught, { source }) => feedback.fail('source-fetch', source.id, mutationError(caught)),
+    onError: (caught, { source }) => {
+      feedback.clear('source-fetch', source.id)
+      actionToast.danger(`${source.display_name} 获取失败`, { description: mutationError(caught) })
+    },
   })
 
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data])
@@ -285,14 +312,6 @@ export function HeroSubscriptionsPage() {
   const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || scheduleQuery.error || jobsQuery.error || configQuery.error
   const loading = sourcesQuery.isLoading || typesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
   const schedulePending = feedback.isPending('feed-schedule', 'global')
-  const localFeedbackKeys = [
-    { action: 'feed-schedule', entity: 'global' },
-    ...sources.flatMap((source) => [
-      { action: 'source-fetch', entity: source.id },
-    ]),
-    ...(jobsQuery.data?.jobs ?? []).map((job) => ({ action: 'retry-job', entity: job.id })),
-  ]
-
   useEffect(() => {
     const jobs = jobsQuery.data?.jobs ?? []
     for (const job of jobs.filter((entry) => entry.user_id === user.id && entry.job_type === 'source_fetch' && ['succeeded', 'partial', 'failed', 'cancelled'].includes(entry.status))) {
@@ -308,15 +327,21 @@ export function HeroSubscriptionsPage() {
       initiatedJobs.current.delete(job.id)
       const count = Number((job.result ?? job.result_json)?.item_count ?? 0)
       if (job.status === 'succeeded') {
-        const message = `${initiated.label} 获取完成，共 ${count} 条。`
-        feedback.succeed(initiated.action, initiated.entity, message)
+        actionToast.success(`${initiated.label} 获取完成`, { description: `共 ${count} 条。` })
       } else if (job.status === 'partial') {
-        const message = `${initiated.label} 部分完成，请查看运行记录。`
-        feedback.advance(initiated.action, initiated.entity, 'partial', message)
+        actionToast.warning(`${initiated.label} 部分完成`, {
+          description: '请查看运行记录。',
+          onRetry: job.retryable ? () => retryJob(job) : undefined,
+        })
       } else {
-        const message = job.status === 'cancelled' ? `${initiated.label} 获取已取消。` : job.error_message || `${initiated.label} 获取失败。`
-        feedback.fail(initiated.action, initiated.entity, message)
+        const message = job.status === 'cancelled' ? '任务已取消。' : job.error_message || '请稍后重试。'
+        const show = job.status === 'cancelled' ? actionToast.warning : actionToast.danger
+        show(`${initiated.label} 获取${job.status === 'cancelled' ? '已取消' : '失败'}`, {
+          description: message,
+          onRetry: job.retryable ? () => retryJob(job) : undefined,
+        })
       }
+      feedback.clear(initiated.action, initiated.entity)
     }
     for (const job of jobs.filter((entry) => initiatedJobs.current.has(entry.id))) {
       const initiated = initiatedJobs.current.get(job.id)!
@@ -324,7 +349,7 @@ export function HeroSubscriptionsPage() {
         feedback.advance(initiated.action, initiated.entity, 'running')
       }
     }
-  }, [feedback, jobsQuery.data, queryClient, user.id])
+  }, [feedback, jobsQuery.data, queryClient, retryJob, user.id])
 
   async function createJob(kind: 'test' | 'fetch', sourceId: string, subscriptionId: string) {
     if (kind === 'test') await api.createSourceTest(sourceId, subscriptionId)
@@ -370,7 +395,6 @@ export function HeroSubscriptionsPage() {
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description="选择要持续关注的来源，并查看每次更新发生了什么。" actions={editable && <Button size="sm" onPress={() => setCreateOpen(true)}><Icons.Plus size={15} />新增来源</Button>} />
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
-    {localFeedbackKeys.map(({ action, entity }) => { const phase = feedback.phase(action, entity); const message = feedback.message(action, entity); if (!message || !phase || phase === 'pending' || phase === 'queued' || phase === 'running') return null; return <HeroActionNotice key={`${action}:${entity}`} phase={phase} message={message} onClose={() => feedback.clear(action, entity)} /> })}
     <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key))}>
       <Tabs.List aria-label="订阅与来源页面" className="grid w-full grid-cols-3 min-[768px]:flex min-[768px]:w-fit"><Tabs.Tab id="subscriptions" className="min-w-0 justify-center px-2 min-[768px]:px-3">我的订阅<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="library" className="min-w-0 justify-center px-2 min-[768px]:px-3">来源库<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="jobs" className="min-w-0 justify-center px-2 min-[768px]:px-3">运行记录<Tabs.Indicator /></Tabs.Tab></Tabs.List>
       <Tabs.Panel id="subscriptions" className="grid gap-5 pt-5">
@@ -423,8 +447,8 @@ export function HeroSubscriptionsPage() {
   </PageFrame>
 
   <HeroDialog isOpen={Boolean(editingSubscription)} onOpenChange={(open) => !open && setEditingSubscription(null)} title={editingSubscription ? `${editingSubscription.source.display_name} · 订阅设置` : '订阅设置'}>{editingSubscription && <SubscriptionForm {...editingSubscription} readonly={!editable} taxonomy={taxonomy} onDone={() => { void invalidate(); setEditingSubscription(null) }} onJob={createJob} />}</HeroDialog>
-  <HeroDialog isOpen={Boolean(editingSource)} onOpenChange={(open) => !open && setEditingSource(null)} title={editingSource ? `${editingSource.display_name} · 来源设置` : '来源设置'}>{editingSource && activeDefinition && <SourceForm definition={activeDefinition} source={editingSource} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="保存来源" onSubmit={async (payload) => { await api.updateSource(editingSource.id, payload); await invalidate(); setEditingSource(null) }} />}</HeroDialog>
-  <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setCreateType('') }} title="新增来源"><div className="grid gap-4"><HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type) }))]} />{activeDefinition && <SourceForm key={activeDefinition.type} definition={activeDefinition} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="创建并订阅" onSubmit={async (payload) => { const created = await api.createSource(payload); try { const result = await api.subscribe(created.id); const reused = result.subscription.reused_item_count ?? 0; toast.success('来源已创建并订阅', { description: reused > 0 ? `已复用 ${reused} 条已有内容。` : undefined, timeout: 4000 }) } catch (caught) { toast.danger('来源已创建，但订阅失败', { description: `${mutationError(caught)} 可在来源库中重试订阅。`, timeout: 8000 }) } await invalidate(); setCreateOpen(false); setCreateType('') }} />}</div></HeroDialog>
+  <HeroDialog isOpen={Boolean(editingSource)} onOpenChange={(open) => !open && setEditingSource(null)} title={editingSource ? `${editingSource.display_name} · 来源设置` : '来源设置'}>{editingSource && activeDefinition && <SourceForm definition={activeDefinition} source={editingSource} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="保存来源" onSubmit={async (payload) => { await api.updateSource(editingSource.id, payload); await invalidate(); setEditingSource(null); actionToast.success('来源设置已保存') }} />}</HeroDialog>
+  <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setCreateType('') }} title="新增来源"><div className="grid gap-4"><HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type) }))]} />{activeDefinition && <SourceForm key={activeDefinition.type} definition={activeDefinition} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="创建并订阅" onSubmit={async (payload) => { const created = await api.createSource(payload); try { const result = await api.subscribe(created.id); const reused = result.subscription.reused_item_count ?? 0; actionToast.success('来源已创建并订阅', { description: reused > 0 ? `已复用 ${reused} 条已有内容。` : undefined }) } catch (caught) { actionToast.danger('来源已创建，但订阅失败', { description: `${mutationError(caught)} 可在来源库中重试订阅。` }) } await invalidate(); setCreateOpen(false); setCreateType('') }} />}</div></HeroDialog>
   <HeroDialog isOpen={Boolean(usageSource)} onOpenChange={(open) => !open && setUsageSource(null)} title={usageSource ? `${usageSource.display_name} · 引用情况` : '来源引用情况'}>
     {usageMutation.isPending && <LoadingState label="正在统计引用" rows={1} />}
     {usageMutation.isError && <HeroNotice title="引用人数读取失败">{mutationError(usageMutation.error)}</HeroNotice>}

@@ -476,3 +476,11 @@
 - 原因：来源级 Key 引用会让同一额度耗尽 Key 继续被不同 Worker 使用，而在原 runId 上直接替换 Token 会把远端执行、dataset 和本地任务归属混在一起。工作区唯一顺序降低维护面，generation barrier 能保证备用 Key 不与额度恢复后的旧 Run 并发抓取。
 - 安全/兼容：schema v8 只保存 secret ref、额度安全数值、generation 和内部 Run ledger，Token 仍只在 SecretStore；公共 API/日志不返回账号、runId、datasetId 或上游原文。`source_catalog.secret_env` 仅作回滚数据；`HORIZON_APIFY_KEY_POOL_ENABLED=false` 时继续走 legacy 来源级路径。正式开启前必须停 Worker、核对未登记远端 Run、备份数据库并只做一次有上限 canary。
 - 影响范围：ServiceStore/schema v8、Apify client/adapter、pool/runtime services、Worker/Orchestrator/catalog runner、shared acquisition/schedule、管理员 API、source registry、React 设置与来源编辑器、合同、影响映射和回归测试；本分支未调用真实 Key、付费 Actor、AI、scheduler 或生产部署。
+
+### D056 全站终态操作反馈使用单一顶部 Toast 队列
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现、定向验收与完整门禁完成；未部署
+- 决策内容：设置、订阅、来源任务、Agent、成员和 Feed 的非表单终态反馈统一进入 `DesignSystemProvider` 拥有的顶部 HeroUI Toast 队列，不再通过页面顶部 Notice 或 Feed 横幅改变文档流。成功/信息为 4 秒，警告/失败为 8 秒，最多显示三条；可重试终态在 Toast 内提供一次性重试动作。
+- 原因：Key 保存等短暂结果若留在普通页面布局中，会持续占位并推动后续内容；分散的定时器、关闭按钮和反馈状态也容易在轮询重渲染时重复出现。单一设计系统入口可统一时长、覆盖层、去重和跨用户清理，同时保留触发控件上的 pending/queued/running 状态。
+- 边界：字段校验、需要修正的表单/Modal 错误、加载失败、禁用/降级状态和权限升级恢复命令继续留在上下文内。Toast 只使用安全投影后的文案，不包含 Key、原始 payload、带凭证 URL 或未脱敏错误；无 API、数据库、权限、Query Key、Worker、scheduler、抓取、AI、依赖或部署变化。

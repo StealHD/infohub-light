@@ -22,6 +22,16 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 7 月',
     entries: [
       {
+        date: '2026-07-23',
+        title: '操作结果不再挤压页面',
+        summary: '保存、更新与任务结果统一从页面顶部短暂出现，正文和列表保持原位。',
+        items: [
+          { title: '顶部操作反馈', description: '设置、订阅、Agent、成员和 Feed 的操作结果会以可关闭提示短暂出现，不再推动页面内容。' },
+          { title: '失败可直接重试', description: '刷新或来源任务失败且允许重试时，可直接在提示中重试；重复点击不会创建并行操作。' },
+          { title: '表单仍在原位修正', description: '字段校验、弹窗内错误与排队或运行状态继续显示在对应控件附近，方便就地处理。' },
+        ],
+      },
+      {
         date: '2026-07-22',
         title: '更清晰的交互反馈',
         summary: '让常用操作更靠近触发位置，状态变化更明确，工作区切换也更平稳。',

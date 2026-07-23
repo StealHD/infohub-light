@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import {
+  actionToast,
   Button,
   CalmSkeleton,
   EmptyState,
@@ -86,6 +87,23 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     retry: false,
   })
   const stateMutation = useOptimisticItemState({ api, user, beginAction, isActionCurrent, publishFeedback: false })
+  const stateMutationError = stateMutation.error
+  const stateMutationFailed = stateMutation.isError
+  const stateMutationToken = stateMutation.variables?.token
+  const resetStateMutation = stateMutation.reset
+
+  useEffect(() => {
+    if (!stateMutationFailed) return
+    if (!stateMutationToken || !isActionCurrent(stateMutationToken)) {
+      resetStateMutation()
+      return
+    }
+    const message = stateMutationError instanceof ApiError
+      ? `${stateMutationError.message}，状态已恢复。`
+      : '阅读状态保存失败，状态已恢复。'
+    actionToast.danger('操作未保存', { description: message })
+    resetStateMutation()
+  }, [isActionCurrent, resetStateMutation, stateMutationError, stateMutationFailed, stateMutationToken])
 
   useEffect(() => {
     if (!params.has('mode')) return
@@ -260,10 +278,6 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     </div>
 
     {deepLinkNotice && <div role="status" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
-    {stateMutation.isError && <div role="alert" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
-      <span className="flex-1">{stateMutation.error instanceof ApiError ? `${stateMutation.error.message}，状态已恢复。` : '阅读状态保存失败，状态已恢复。'}</span>
-      <Button size="sm" variant="ghost" isIconOnly aria-label="关闭操作错误" onPress={() => stateMutation.reset()}><Icons.X size={15} /></Button>
-    </div>}
     {detailQuery.isError && !selectedInSource && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
     <LoadingReveal
       loading={loading}

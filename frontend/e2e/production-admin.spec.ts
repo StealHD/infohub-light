@@ -46,6 +46,15 @@ async function mockAdminApi(page: Page, authenticated = true) {
       },
       taxonomy: { channels: ['AI', '产品机会', '其他'], topics: ['AI Agent', 'Codex'] },
     }
+    else if (url.pathname === '/api/admin/secrets' && route.request().method() === 'POST') data = {
+      id: 'secret-created',
+      name: 'DeepSeek Primary',
+      kind: 'ai',
+      provider: 'deepseek',
+      env_name: 'DEEPSEEK_API_KEY',
+      is_set: true,
+      used_by: [],
+    }
     else if (url.pathname === '/api/admin/secrets') data = { secrets: [
       { id: 'secret-1', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [{ type: 'ai', id: 'primary', name: 'AI 分析' }] },
       { id: 'secret-apify', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRIMARY_WORKSPACE_TOKEN', is_set: true, used_by: [] },
@@ -138,6 +147,52 @@ test('settings key table contains scrolling, quota, refresh and accessible modal
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toHaveCount(0)
   await expect(rotateTrigger).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
+test('successful Key creation uses a top overlay without moving settings content', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await mockAdminApi(page)
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
+  await page.evaluate(async () => {
+    await document.fonts.ready
+  })
+
+  await page.getByRole('textbox', { name: 'Key 名称' }).fill('DeepSeek Primary')
+  await page.getByRole('textbox', { name: 'Key provider' }).fill('deepseek')
+  await page.getByRole('textbox', { name: '环境变量名' }).fill('DEEPSEEK_API_KEY')
+  await page.getByLabel('Key 值').fill('write-only-e2e-value')
+  const keyHeading = page.getByRole('heading', { name: '密钥' })
+  const positionWithinPage = () => keyHeading.evaluate((element) => {
+    const pageFrame = element.closest('[data-page-frame="admin"]')
+    if (!pageFrame) throw new Error('Settings page frame is missing.')
+    const headingBounds = element.getBoundingClientRect()
+    const frameBounds = pageFrame.getBoundingClientRect()
+    return {
+      x: headingBounds.x - frameBounds.x,
+      y: headingBounds.y - frameBounds.y,
+    }
+  })
+  const before = await positionWithinPage()
+
+  await page.getByRole('button', { name: '新增 Key' }).click()
+  const toastTitle = page.getByText('Key 已安全保存', { exact: true })
+  await expect(toastTitle).toBeVisible()
+  const after = await positionWithinPage()
+  expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1)
+  await expect(page.locator('[data-page-frame="admin"]').getByText('Key 已安全保存', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Key 已保存，页面不会回显真实值。')).toHaveCount(0)
+
+  const toastBounds = await toastTitle.boundingBox()
+  const viewport = page.viewportSize()!
+  expect(toastBounds).not.toBeNull()
+  expect(toastBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(toastBounds!.x + toastBounds!.width).toBeLessThanOrEqual(viewport.width)
+  expect(toastBounds!.y).toBeGreaterThanOrEqual(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])

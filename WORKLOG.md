@@ -2494,3 +2494,24 @@
 - 执行验证：功能分支 `test_gate full` 22/22；合并结果首次仅因 main worktree 缺少 `node_modules` 退出，确认 lock hash 一致并临时复用依赖后 `test_gate full` 22/22、103.751 秒，临时链接已移除
 - 结果：本地 `main` 合并结果包含工作区单一 Apify Key 池与 fail-closed 排空切换；主工作区 `codex/0723` 的既有脏改动未触碰
 - 运行态：本地 API/Worker 继续运行同源功能镜像且 Key 池已启用供测试；未推送远端、未部署 VPS，scheduler 未启动，未由 Codex 触发抓取、Apify Actor 或 AI
+
+### 2026-07-23 17:55 Codex
+- 任务：从最新 `main` 隔离创建 `codex/ui-operation-feedback-toasts`，统一设置、订阅、来源任务、Agent、成员和 Feed 的终态操作反馈
+- 修改文件：新增设计系统 Toast 门面，移除页面流内终态 Notice/Feed 横幅，接入 4/8 秒、最多三条、可关闭及一次性重试；补充用户/事件去重、跨账户清理、Vitest/Playwright、UI 合同和 D056
+- 执行验证：TypeScript、UI contract、production build、45 files / 369 Vitest、lint 0 error（7 个既有 warning）通过；新增三视口 Playwright 6/6，完整规格并发中的两个既有移动端抖动用例隔离复跑 2/2；最终 `test_gate full` 22/22、104.775 秒，JSON 与 `git diff --check` 通过
+- 结果：Key 保存仅显示一次顶部 Toast；调度、抓取、Agent、成员和 Feed 终态不再挤压页面，表单/Modal 可修正错误及 pending/queued/running 状态仍保留在上下文内，刷新与来源任务的可重试失败复用现有 guarded callback
+- 控制面变更：UI_CONTRACT 与 D056 固化全站顶部 Toast 队列；无 API、数据库、权限、Query Key、依赖、容器或部署变化，未启动 Worker、scheduler、真实抓取、AI 或付费调用
+
+### 2026-07-23 18:05 Codex
+- 任务：构建并启动 `codex/ui-operation-feedback-toasts` 本地环境
+- 运行变更：API/Worker 切换到同一镜像 `inteliscope-service:local-877444e58831-ui-operation-feedback-toasts-dirty`，继续显式挂载主工作区既有 `.env`、`data` 与 `logs`
+- 执行验证：live=`1.7.2/877444e58831-ui-operation-feedback-toasts-dirty`，API/Worker ready、healthy、0 restart；运行 bundle 含 Key/调度/Feed Toast 文案，SQLite quick check=`ok`、active jobs=0、严重日志匹配=0
+- 安全边界：切换前创建 `0600` 备份 `data/backups/pre-ui-operation-feedback-toasts-20260723T100253Z.db`；独立 scheduler 未运行，Worker 启动时确认到期计划为 0，并将计划轮询间隔限制为 86400 秒
+- 控制面变更：无；未部署 VPS，未触发真实抓取、AI、付费调用或数据库恢复
+
+### 2026-07-23 21:40 Codex
+- 任务：把 `codex/ui-operation-feedback-toasts` 已验证改动本地合并到包含 Apify Key Pool 的最新 `main`
+- 修改文件：合入功能提交 `63049b0`；人工整合设置页 Key Pool 的缓存刷新、排空/排序反馈以及 D055/D056 和双方工作日志，并更新用户可见 Changelog
+- 产品文档：已审阅操作手册与更新日志；操作手册源仍属于另一个尚未合入的并行功能，未夹带其未提交页面，本次更新现有 Changelog
+- 执行验证：合并态 TypeScript、定向 Vitest 110/110；`test_gate full` 22/22、0 failed/error、113.807 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：本地 `main` 同时包含 Apify Key Pool 与全站顶部操作 Toast；现有脏工作树和本地运行容器保持不变，未推送、未部署，未触发 scheduler、真实抓取、AI 或付费调用
