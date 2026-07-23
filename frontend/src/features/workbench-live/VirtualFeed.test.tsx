@@ -579,11 +579,11 @@ describe('VirtualFeed', () => {
     expect(screen.queryByRole('button', { name: '查看 1 条新内容' })).not.toBeInTheDocument()
   })
 
-  it('resets to the fresh edge when the sort definition changes', async () => {
+  it('resets to the top when the sort definition changes in either direction', async () => {
     const ascending = Array.from({ length: 12 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
     const view = render(<VirtualFeed
       freshEdge="start"
-      resetToFreshEdgeKey="published:newest"
+      resetToTopKey="published:newest"
       cards={[...ascending].reverse()}
       sourceItemIds={ascending.map((card) => card.id)}
       contextIds={[]}
@@ -601,7 +601,7 @@ describe('VirtualFeed', () => {
     fireEvent.scroll(scroll)
     view.rerender(<VirtualFeed
       freshEdge="end"
-      resetToFreshEdgeKey="published:oldest"
+      resetToTopKey="published:oldest"
       cards={ascending}
       sourceItemIds={ascending.map((card) => card.id)}
       contextIds={[]}
@@ -611,6 +611,43 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    await waitFor(() => expect(scroll.scrollTop).toBe(1680))
+    await waitFor(() => expect(scroll.scrollTop).toBe(0))
+
+    scroll.scrollTop = 840
+    fireEvent.scroll(scroll)
+    view.rerender(<VirtualFeed
+      freshEdge="start"
+      resetToTopKey="ingested:newest"
+      cards={[...ascending].reverse()}
+      sourceItemIds={ascending.map((card) => card.id)}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    await waitFor(() => expect(scroll.scrollTop).toBe(0))
+  })
+
+  it('starts an oldest-first Feed at the top unless it has a navigation target', async () => {
+    const cards = Array.from({ length: 12 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
+    render(<VirtualFeed
+      freshEdge="end"
+      cards={cards}
+      sourceItemIds={cards.map((card) => card.id)}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 2400 },
+      clientHeight: { configurable: true, value: 720 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    })
+    await waitFor(() => expect(scroll.scrollTop).toBe(0))
   })
 })

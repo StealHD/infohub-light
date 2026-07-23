@@ -2369,3 +2369,19 @@
 - 执行验证：功能分支 `test_gate full` 22/22；合并结果 OpenClaw/助手连接前端定向 57/57、delegation 后端定向 35/35、`git diff --check` 通过
 - 结果：保留 `main` 的运行时模型规范化、思考档位、扁平时间线和 UI/Changelog 改进，同时加入服务端优先配对移除、scope-upgrade 与仅删除选中已吊销连接；原 `main` 未提交文档以独立 stash 保护，待合并门禁后原样恢复
 - 控制面变更：解决双方 D048/D049 编号碰撞，保留主线 D048/D049，并将配对移除与 delegation 删除分别落为 D050/D051；未修改本地容器、VPS、数据库、scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 11:20 Codex
+- 任务：完成成员 Table/重置密码、OpenClaw 模型级运行参数与上下文环、Feed 排序回顶的二轮优化，并启动当前功能分支容器
+- 修改文件：成员管理、OpenClaw 会话与运行参数、虚拟 Feed、相关前端测试、API/UI 合同、D052、计划及本工作日志
+- 执行验证：定向 Vitest 157/157，UI contract、TypeScript、lint（0 error）、production build 通过；最终 `test_gate full` 22/22、101.254 秒，配置 JSON 与 `git diff --check` 通过；桌面/1024/390px 验收无横向溢出，排序两种切换均从滚动位置回顶，控制台 0 error
+- 结果：`localhost:8080` 已运行 `inteliscope-service:local-70a3617610e9-polish-dirty`，API/Worker ready；成员为四列 custom-cell Table，Owner 受保护，非 Owner 可重置密码；OpenClaw 只保留模型旁用量环并按提供商分组，推理档位不再泄漏 Agent 级配置
+- 验收限制：已配对 OpenClaw token 已失效，真实 Gateway 数据态无法重连；已知/未知用量、模型分组和精确推理能力由组件与状态投影回归覆盖，未调用模型
+- 控制面变更：API/UI 合同与 D052 固化顶部重置、模型级能力及用量环规则；无新 Service API、数据库字段或迁移，未部署 VPS，未启动 scheduler、来源抓取、AI 或付费调用
+
+### 2026-07-23 11:43 Codex
+- 任务：按 HeroUI custom-cells 参考图继续收口当前分支的成员管理表格视觉
+- 修改文件：成员表格、通用 Select 可选紧凑形态、成员路由回归、UI 合同、D052、计划及本工作日志
+- 执行验证：成员路由 62/62，TypeScript、UI contract、production build、lint（0 error）通过；最终 `test_gate full` 22/22、103.386 秒；桌面/1024/390px 浏览器验收确认 76 px 行、三列排序、Owner 保护、局部横向滚动和控制台 0 error
+- 结果：成员列新增确定性渐变头像与双行身份，角色选择隐藏冗余标签，状态使用语义 Chip，操作改为圆形电源/钥匙/锁图标；没有引入示例中不对应现有业务的勾选、复制 ID、查看或删除动作
+- 容器：`localhost:8080` 已切换到 `inteliscope-service:local-70a3617610e9-members-dirty`，API/Worker ready、0 restart；原数据与配置继续挂载
+- 控制面变更：只细化 UI_CONTRACT、PLAN 第 60 项和 D052 的成员表格视觉合同；无 API、数据库、权限或迁移变化，未启动 scheduler、来源抓取、AI 或付费调用

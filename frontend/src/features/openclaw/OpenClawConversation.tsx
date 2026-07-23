@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type Key, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type Key, type ReactNode } from 'react'
 
 import {
   anchoredTooltipProps,
   Button,
   Card,
   Form,
+  Header,
   Icons,
   Input,
   Label,
@@ -20,7 +21,7 @@ import { buildAgentHandoffPrompt, type AgentContextItem } from '../workbench-liv
 import { HandoffComposer } from '../workbench-live/HandoffComposer'
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
 import type { useOpenClawChat } from './useOpenClawChat'
-import type { OpenClawContextUsage } from './useOpenClawChat'
+import type { OpenClawContextUsage, OpenClawModelOption } from './useOpenClawChat'
 
 type ChatController = ReturnType<typeof useOpenClawChat>
 
@@ -31,53 +32,50 @@ type FormattedMessageTime = {
 }
 
 const contextTokenFormatter = new Intl.NumberFormat('zh-CN')
+const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * 7
 
-export function OpenClawContextUsagePopover({
-  usage,
-  modelId,
-  attachmentCount,
-}: {
+export function OpenClawContextUsageIndicator({ usage }: {
   usage: OpenClawContextUsage | null
-  modelId: string | null
-  attachmentCount: number
 }) {
-  const displayModel = usage?.modelId ?? modelId
   const progressValue = usage ? Math.min(100, usage.percent) : 0
-  return <Popover>
-    <Popover.Trigger
-      aria-label="查看 OpenClaw 上下文用量"
-      className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+  const label = usage ? `上下文占用 ${usage.percent}%` : '上下文占用暂无可信用量'
+  return <Tooltip delay={250}>
+    <TooltipTriggerButton
+      aria-label={label}
+      className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground"
     >
-      <Icons.Gauge size={16} aria-hidden="true" />
-    </Popover.Trigger>
-    <Popover.Content placement="bottom end" offset={8} className="z-50 w-[min(300px,calc(100vw-24px))] p-0">
-      <Popover.Dialog aria-label="OpenClaw 上下文用量" className="grid gap-3 p-4">
-        <Popover.Heading className="type-page-title">背景信息</Popover.Heading>
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2">
-          <span className="type-meta text-muted">模型</span>
-          <span className="type-control min-w-0 truncate text-right" title={displayModel ?? undefined}>{displayModel ?? '暂无模型信息'}</span>
-          <span className="type-meta text-muted">附带信息</span>
-          <span className="type-control text-right">{attachmentCount} / 8</span>
-          <span className="type-meta text-muted">上下文占用</span>
-          <span className="type-control text-right">{usage
-            ? `${contextTokenFormatter.format(usage.usedTokens)} / ${contextTokenFormatter.format(usage.contextTokens)} · ${usage.percent}%`
-            : '暂无可信用量'}</span>
-        </div>
-        <div
-          role="progressbar"
-          aria-label="上下文占用"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progressValue}
-          aria-valuetext={usage ? `${usage.percent}%` : '暂无可信用量'}
-          className="h-1.5 overflow-hidden rounded-full bg-default"
-        >
-          <span className="block h-full rounded-full bg-accent transition-[width]" style={{ width: `${progressValue}%` }} />
-        </div>
-        {!usage && <p className="type-meta text-muted">仅展示 OpenClaw 返回且标记为最新的当前会话数据，不做估算。</p>}
-      </Popover.Dialog>
-    </Popover.Content>
-  </Popover>
+      <svg
+        role="progressbar"
+        aria-label="上下文占用"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={usage ? progressValue : undefined}
+        aria-valuetext={usage ? `${usage.percent}%` : '暂无可信用量'}
+        viewBox="0 0 20 20"
+        className="size-5"
+      >
+        <circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" strokeWidth="2" className="text-border" />
+        {usage && <circle
+          cx="10"
+          cy="10"
+          r="7"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
+          strokeDashoffset={CONTEXT_RING_CIRCUMFERENCE * (1 - progressValue / 100)}
+          transform="rotate(-90 10 10)"
+          className="text-accent"
+        />}
+      </svg>
+    </TooltipTriggerButton>
+    <Tooltip.Content placement="top" offset={8}>
+      {usage
+        ? `${contextTokenFormatter.format(usage.usedTokens)} / ${contextTokenFormatter.format(usage.contextTokens)} · ${usage.percent}%`
+        : '暂无可信用量'}
+    </Tooltip.Content>
+  </Tooltip>
 }
 
 function padTimePart(value: number): string {
@@ -345,29 +343,56 @@ function formatContextWindow(value?: number): string {
 
 const AUTO_THINKING_KEY = '__auto__'
 
+function groupModelsByProvider(models: OpenClawModelOption[]) {
+  const groups: Array<{ provider: string; models: OpenClawModelOption[] }> = []
+  const byProvider = new Map<string, OpenClawModelOption[]>()
+  for (const model of models) {
+    const existing = byProvider.get(model.provider)
+    if (existing) {
+      existing.push(model)
+      continue
+    }
+    const providerModels = [model]
+    byProvider.set(model.provider, providerModels)
+    groups.push({ provider: model.provider, models: providerModels })
+  }
+  return groups
+}
+
 function RuntimeControls({ chat }: { chat: ChatController }) {
+  const thinkingDescriptionId = useId()
   const currentModel = chat.models.find((model) => model.id === chat.runtimeSelection.modelId)
   const currentThinking = chat.thinkingOptions.find((option) => option.id === chat.runtimeSelection.thinkingLevel)
+  const modelGroups = useMemo(() => groupModelsByProvider(chat.models), [chat.models])
   const controlsDisabled = chat.isRunning || chat.runtimeUpdating || chat.runtimeLoading
   const modelDisabled = controlsDisabled || !chat.models.length
-  const thinkingDisabled = controlsDisabled || !currentModel
+  const thinkingUnavailableReason = !currentModel
+    ? '尚未取得当前模型信息。'
+    : currentModel.reasoning === false
+      ? '此模型未提供推理档位。'
+      : !chat.thinkingOptions.length
+        ? 'OpenClaw 未返回此模型的可选推理档位。'
+        : ''
+  const thinkingDisabled = controlsDisabled || Boolean(thinkingUnavailableReason)
   const modelLabel = currentModel?.name ?? (chat.runtimeLoading ? '正在读取模型…' : 'OpenClaw 当前设置')
   const thinkingLabel = currentThinking?.label ?? '自动'
   const thinkingItems: Array<{ id: string; label: string; description?: string }> = [
     {
       id: AUTO_THINKING_KEY,
       label: '自动',
-      description: currentModel?.reasoning === false ? '此模型未提供推理档位。' : '使用 OpenClaw 默认设置',
+      description: thinkingUnavailableReason || '使用 OpenClaw 默认设置',
     },
-    ...(currentModel?.reasoning === false
+    ...(thinkingUnavailableReason
       ? []
       : chat.thinkingOptions.map((option) => ({ ...option, description: undefined }))),
   ]
 
   return <div
     data-testid="openclaw-runtime-controls"
-    className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-0.5 overflow-hidden"
+    className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-0.5 overflow-hidden"
   >
+    <OpenClawContextUsageIndicator usage={chat.contextUsage} />
+
     <Select
       aria-label={`OpenClaw 模型：${modelLabel}`}
       selectedKey={chat.runtimeSelection.modelId ?? undefined}
@@ -386,49 +411,61 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
         <Select.Indicator><Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" /></Select.Indicator>
       </Select.Trigger>
       <Select.Popover placement="top start" offset={8} className="z-50 w-[min(320px,calc(100vw-24px))]">
-        <ListBox items={chat.models} aria-label="OpenClaw 模型">
-          {(model) => <ListBox.Item id={model.id} textValue={model.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
-            <span className="min-w-0">
-              <span className="type-control block min-w-0 truncate">{model.name}</span>
-              <span className="type-meta block min-w-0 truncate text-muted">{model.provider}{formatContextWindow(model.contextWindow) ? ` · ${formatContextWindow(model.contextWindow)}` : ''}</span>
-            </span>
-            <ListBox.ItemIndicator className="text-accent" />
-          </ListBox.Item>}
+        <ListBox aria-label="OpenClaw 模型">
+          {modelGroups.map((group) => <ListBox.Section key={group.provider} id={`provider:${group.provider}`}>
+            <Header className="type-label px-2 py-1.5 text-muted">{group.provider}</Header>
+            {group.models.map((model) => <ListBox.Item
+              key={model.id}
+              id={model.id}
+              textValue={`${model.provider} ${model.name}`}
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2"
+            >
+              <span className="min-w-0">
+                <span className="type-control block min-w-0 truncate">{model.name}</span>
+                {formatContextWindow(model.contextWindow) && <span className="type-meta block min-w-0 truncate text-muted">{formatContextWindow(model.contextWindow)}</span>}
+              </span>
+              <ListBox.ItemIndicator className="text-accent" />
+            </ListBox.Item>)}
+          </ListBox.Section>)}
         </ListBox>
       </Select.Popover>
     </Select>
 
-    <Select
-      aria-label={`OpenClaw 思考程度：${thinkingLabel}`}
-      selectedKey={chat.runtimeSelection.thinkingLevel ?? AUTO_THINKING_KEY}
-      onSelectionChange={(key: Key | null) => {
-        if (key === null) return
-        const next = String(key) === AUTO_THINKING_KEY ? null : String(key)
-        if (next === chat.runtimeSelection.thinkingLevel) return
-        void chat.setThinking(next)
-      }}
-      isDisabled={thinkingDisabled}
-      className="shrink-0"
-    >
-      <Select.Trigger
+    <div className="shrink-0" title={thinkingUnavailableReason || undefined}>
+      <Select
         aria-label={`OpenClaw 思考程度：${thinkingLabel}`}
-        className={`type-control flex min-h-8 shrink-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 shadow-none focus-visible:outline-2 focus-visible:outline-focus ${thinkingDisabled ? 'text-muted' : 'text-foreground hover:bg-default'}`}
+        selectedKey={chat.runtimeSelection.thinkingLevel ?? AUTO_THINKING_KEY}
+        onSelectionChange={(key: Key | null) => {
+          if (key === null) return
+          const next = String(key) === AUTO_THINKING_KEY ? null : String(key)
+          if (next === chat.runtimeSelection.thinkingLevel) return
+          void chat.setThinking(next)
+        }}
+        isDisabled={thinkingDisabled}
+        className="min-w-0"
       >
-        <span>{thinkingLabel}</span>
-        <Select.Indicator><Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" /></Select.Indicator>
-      </Select.Trigger>
-      <Select.Popover placement="top end" offset={8} className="z-50 w-[min(220px,calc(100vw-24px))]">
-        <ListBox items={thinkingItems} aria-label="OpenClaw 思考程度">
-          {(option) => <ListBox.Item id={option.id} textValue={option.label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
-            <span className="min-w-0">
-              <span className="type-control block">{option.label}</span>
-              {option.description && <span className="type-meta block text-muted">{option.description}</span>}
-            </span>
-            <ListBox.ItemIndicator className="text-accent" />
-          </ListBox.Item>}
-        </ListBox>
-      </Select.Popover>
-    </Select>
+        <Select.Trigger
+          aria-label={`OpenClaw 思考程度：${thinkingLabel}`}
+          aria-describedby={thinkingUnavailableReason ? thinkingDescriptionId : undefined}
+          className={`type-control flex min-h-8 shrink-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 shadow-none focus-visible:outline-2 focus-visible:outline-focus ${thinkingDisabled ? 'text-muted' : 'text-foreground hover:bg-default'}`}
+        >
+          <span>{thinkingLabel}</span>
+          <Select.Indicator><Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" /></Select.Indicator>
+        </Select.Trigger>
+        <Select.Popover placement="top end" offset={8} className="z-50 w-[min(220px,calc(100vw-24px))]">
+          <ListBox items={thinkingItems} aria-label="OpenClaw 思考程度">
+            {(option) => <ListBox.Item id={option.id} textValue={option.label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
+              <span className="min-w-0">
+                <span className="type-control block">{option.label}</span>
+                {option.description && <span className="type-meta block text-muted">{option.description}</span>}
+              </span>
+              <ListBox.ItemIndicator className="text-accent" />
+            </ListBox.Item>}
+          </ListBox>
+        </Select.Popover>
+      </Select>
+      {thinkingUnavailableReason && <span id={thinkingDescriptionId} className="sr-only">{thinkingUnavailableReason}</span>}
+    </div>
   </div>
 }
 

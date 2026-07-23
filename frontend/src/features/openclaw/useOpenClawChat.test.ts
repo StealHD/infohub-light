@@ -21,6 +21,7 @@ import {
   openClawTranscriptStorageKey,
   projectChatHistory,
   projectOpenClawContextUsage,
+  projectOpenClawRuntime,
   useOpenClawChat,
   writeOpenClawTranscript,
 } from './useOpenClawChat'
@@ -70,7 +71,13 @@ const agents = {
   }],
 }
 const session = {
-  session: { modelProvider: 'openai', model: 'gpt-5.4', thinkingLevel: 'high' },
+  session: {
+    modelProvider: 'openai',
+    model: 'gpt-5.4',
+    thinkingLevel: 'high',
+    thinkingLevels: agents.agents[0].thinkingLevels,
+    thinkingDefault: 'low',
+  },
 }
 
 describe('useOpenClawChat', () => {
@@ -104,6 +111,43 @@ describe('useOpenClawChat', () => {
     expect(projectOpenClawContextUsage({ sessionKey: 'other', totalTokens: 5, contextTokens: 10 }, 'session-usage')).toBeNull()
     expect(projectOpenClawContextUsage({ sessionKey: 'session-usage', totalTokens: 5, totalTokensFresh: false, contextTokens: 10 }, 'session-usage')).toBeNull()
     expect(projectOpenClawContextUsage({ sessionKey: 'session-usage', totalTokens: '5', contextTokens: 10 }, 'session-usage')).toBeNull()
+  })
+
+  it('projects thinking choices only from the exact model or current session', () => {
+    const agentOnly = projectOpenClawRuntime(
+      models,
+      agents,
+      { session: { modelProvider: 'openai', model: 'gpt-5.4', thinkingLevel: 'high' } },
+      'main',
+    )
+    expect(agentOnly.thinkingOptions).toEqual([])
+    expect(agentOnly.selection.thinkingLevel).toBeNull()
+
+    const sessionSpecific = projectOpenClawRuntime(models, agents, session, 'main')
+    expect(sessionSpecific.thinkingOptions).toEqual(agents.agents[0].thinkingLevels)
+    expect(sessionSpecific.selection.thinkingLevel).toBe('high')
+
+    const modelSpecific = projectOpenClawRuntime(
+      {
+        models: [{
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          provider: 'openai',
+          available: true,
+          reasoning: true,
+          thinkingLevels: [{ id: 'medium', label: '中等' }],
+          thinkingDefault: 'medium',
+        }],
+      },
+      agents,
+      session,
+      'main',
+    )
+    expect(modelSpecific.thinkingOptions).toEqual([{ id: 'medium', label: '中等' }])
+    expect(modelSpecific.selection).toMatchObject({
+      thinkingLevel: null,
+      defaultThinkingLevel: 'medium',
+    })
   })
 
   it('loads and subscribes to exact-session context usage without adopting another session', async () => {

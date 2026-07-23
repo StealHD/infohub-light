@@ -1187,14 +1187,19 @@ describe('App routes', () => {
 
     await screen.findByRole('heading', { name: '成员管理' })
     await screen.findByText('Workspace Owner')
-    expect(screen.getByRole('grid', { name: '成员列表' })).toBeInTheDocument()
+    const memberGrid = screen.getByRole('grid', { name: '成员列表' })
+    expect(memberGrid).toBeInTheDocument()
     expect(screen.getAllByRole('columnheader').map((column) => column.textContent)).toEqual(['成员', '角色', '账户状态', '操作'])
+    expect(within(memberGrid).getAllByRole('row')[1]).toHaveTextContent('Editable Member')
+    await browser.click(within(memberGrid).getByRole('columnheader', { name: '成员' }))
+    await waitFor(() => expect(within(memberGrid).getAllByRole('row')[1]).toHaveTextContent('Workspace Owner'))
     expect(screen.queryByRole('button', { name: /角色 workspace-owner/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '切换 workspace-owner 状态' })).toBeDisabled()
     await browser.click(screen.getByRole('button', { name: /角色 editable/ }))
     await browser.click(await screen.findByRole('option', { name: '只读成员' }))
     expect(updateUser).toHaveBeenCalledWith('editable-member', { role: 'viewer' })
     expect(screen.getByRole('button', { name: '切换 editable 状态' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '重置 editable 密码' })).toHaveTextContent('')
   })
 
   it('resets a non-owner member password from the table after local validation', async () => {
@@ -1476,7 +1481,7 @@ describe('App routes', () => {
     expect(api.feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 
-  it('removes a proven-stale 404 deep link and falls back to bottom-first Feed positioning', async () => {
+  it('removes a proven-stale 404 deep link and falls back to top-first Feed positioning', async () => {
     const items = Array.from({ length: 20 }, (_, index) => ({
       id: `live-${index + 1}`,
       title: `真实 API 条目 ${index + 1}`,
@@ -1498,7 +1503,8 @@ describe('App routes', () => {
       await waitFor(() => expect(screen.getAllByRole('article').length).toBeGreaterThan(0))
       expect(screen.getByLabelText('当前位置')).toHaveTextContent('/feed')
       expect(screen.getByLabelText('当前位置')).not.toHaveTextContent('item=')
-      await waitFor(() => expect(scrollTo.mock.calls.some(([options]) => (options as ScrollToOptions).behavior === 'auto')).toBe(true))
+      expect(screen.getByTestId('workbench-feed-scroll').scrollTop).toBe(0)
+      expect(scrollTo.mock.calls.some(([options]) => Number((options as ScrollToOptions).top) > 0)).toBe(false)
     } finally {
       if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: originalScrollTo })
       else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')

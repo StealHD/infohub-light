@@ -34,7 +34,7 @@ import {
   writeAgentContextDraft,
   type AgentContextDraftV3,
 } from './agentContext'
-import { OpenClawContextUsagePopover, OpenClawConversation } from '../openclaw/OpenClawConversation'
+import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
 import { HandoffComposer } from './HandoffComposer'
 import { FeedInsightsPanel } from './FeedInsightsPanel'
@@ -270,11 +270,6 @@ function AgentPanelContent({
     <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
       <Icons.Sparkles className="shrink-0" size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 对话</strong>
-      <OpenClawContextUsagePopover
-        usage={chat.contextUsage}
-        modelId={chat.runtimeSelection.modelId}
-        attachmentCount={value.draft.items.length}
-      />
       <LoadingReveal
         loading={configLoading}
         label="正在检查 Agent 连接"

@@ -15,6 +15,7 @@ export {
   FieldGroup,
   Fieldset,
   Form,
+  Header,
   Input,
   Label,
   Link,
@@ -39,6 +40,7 @@ export {
   toast,
 } from '@heroui/react'
 export type { LucideIcon } from 'lucide-react'
+export type { SortDescriptor } from '@heroui/react'
 
 export { DesignSystemProvider } from './DesignSystemProvider'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'

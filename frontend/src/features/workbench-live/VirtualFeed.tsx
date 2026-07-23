@@ -22,7 +22,7 @@ import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workben
 
 type VirtualFeedProps = {
   freshEdge?: 'start' | 'end'
-  resetToFreshEdgeKey?: string
+  resetToTopKey?: string
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
   expandedId?: string
@@ -313,7 +313,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const wasNearFreshEdge = useRef(true)
   const previousFreshEdge = useRef(freshEdge)
-  const previousResetToFreshEdgeKey = useRef(props.resetToFreshEdgeKey)
+  const previousResetToTopKey = useRef(props.resetToTopKey)
   const previousSourceIds = useRef(new Set(sourceItemIds))
   const previousCardsSignature = useRef(cardsSignature)
   const viewportAnchor = useRef<ViewportAnchor | null>(null)
@@ -344,9 +344,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
     },
     getItemKey: (index) => props.cards[index]?.id ?? index,
     initialRect: { width: 760, height: 720 },
-    initialOffset: freshEdge === 'start'
-      ? 0
-      : Math.max(0, (Math.max(0, initialTargetIndex) + 1) * collapsedEstimate - 720),
+    initialOffset: props.navigationTargetId && initialTargetIndex >= 0
+      ? Math.max(0, (initialTargetIndex + 1) * collapsedEstimate - 720)
+      : 0,
     observeElementRect: (instance, callback) => {
       const element = instance.scrollElement
       if (!(element instanceof HTMLElement)) return undefined
@@ -477,34 +477,37 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
   useEffect(() => {
     if (didInitialScroll.current || props.cards.length === 0) return
-    const targetIndex = props.navigationTargetId
-      ? props.cards.findIndex((card) => card.id === props.navigationTargetId)
-      : freshEdge === 'start' ? 0 : props.cards.length - 1
-    if (props.navigationTargetId && targetIndex < 0) return
+    if (!props.navigationTargetId) {
+      didInitialScroll.current = true
+      wasNearFreshEdge.current = freshEdge === 'start'
+      return
+    }
+    const targetIndex = props.cards.findIndex((card) => card.id === props.navigationTargetId)
+    if (targetIndex < 0) return
     didInitialScroll.current = true
+    wasNearFreshEdge.current = false
     const frame = window.requestAnimationFrame(() => {
       releaseNavigationOwnership()
-      virtualizer.scrollToIndex(targetIndex, { align: props.navigationTargetId ? 'center' : freshEdge })
+      virtualizer.scrollToIndex(targetIndex, { align: 'center' })
     })
     return () => window.cancelAnimationFrame(frame)
   }, [freshEdge, props.cards, props.navigationTargetId, releaseNavigationOwnership, virtualizer])
 
   useLayoutEffect(() => {
-    if (props.resetToFreshEdgeKey === undefined || previousResetToFreshEdgeKey.current === props.resetToFreshEdgeKey) return
-    previousResetToFreshEdgeKey.current = props.resetToFreshEdgeKey
+    if (props.resetToTopKey === undefined || previousResetToTopKey.current === props.resetToTopKey) return
+    previousResetToTopKey.current = props.resetToTopKey
     releaseNavigationOwnership()
     setNewItemCount(0)
-    wasNearFreshEdge.current = true
+    wasNearFreshEdge.current = freshEdge === 'start'
     const frame = window.requestAnimationFrame(() => {
       const scroll = scrollRef.current
-      if (!scroll || props.cards.length === 0) return
-      if (freshEdge === 'start') scroll.scrollTop = 0
-      else scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight)
-      virtualizerRef.current.scrollToIndex(freshEdge === 'start' ? 0 : props.cards.length - 1, { align: freshEdge })
+      if (!scroll) return
+      scroll.scrollTop = 0
+      if (props.cards.length > 0) virtualizerRef.current.scrollToIndex(0, { align: 'start' })
       viewportAnchor.current = readViewportAnchor(scroll)
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [freshEdge, props.cards.length, props.resetToFreshEdgeKey, releaseNavigationOwnership])
+  }, [freshEdge, props.cards.length, props.resetToTopKey, releaseNavigationOwnership])
 
   useEffect(() => {
     if (previousFreshEdge.current === freshEdge) return

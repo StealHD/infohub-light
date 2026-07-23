@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
-import { OpenClawContextUsagePopover, OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
+import { OpenClawContextUsageIndicator, OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
 
 function contextValue(overrides: Partial<WorkbenchAgentContextValue['draft']> = {}): WorkbenchAgentContextValue {
   return {
@@ -59,9 +59,9 @@ function chatController(overrides: Record<string, unknown> = {}) {
 }
 
 describe('OpenClaw conversation surface', () => {
-  it('shows trustworthy current-session context usage and attached background count', async () => {
+  it('shows only trustworthy current-session context usage beside the runtime controls', async () => {
     const browser = userEvent.setup()
-    render(<OpenClawContextUsagePopover
+    render(<OpenClawContextUsageIndicator
       usage={{
         sessionKey: 'session-usage',
         usedTokens: 42_000,
@@ -69,17 +69,25 @@ describe('OpenClaw conversation surface', () => {
         percent: 21,
         modelId: 'openai/gpt-5.4',
       }}
-      modelId="openai/fallback"
-      attachmentCount={3}
     />)
 
-    await browser.click(screen.getByRole('button', { name: '查看 OpenClaw 上下文用量' }))
-
-    expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文用量' })).toBeInTheDocument()
-    expect(screen.getByText('openai/gpt-5.4')).toBeInTheDocument()
-    expect(screen.getByText('3 / 8')).toBeInTheDocument()
-    expect(screen.getByText(/42[,.]?000 \/ 200[,.]?000 · 21%/u)).toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: '上下文占用 21%' })
     expect(screen.getByRole('progressbar', { name: '上下文占用' })).toHaveAttribute('aria-valuenow', '21')
+    await browser.hover(trigger)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/42[,.]?000 \/ 200[,.]?000 · 21%/u)
+    expect(screen.queryByText('openai/gpt-5.4')).not.toBeInTheDocument()
+    expect(screen.queryByText('背景信息')).not.toBeInTheDocument()
+  })
+
+  it('renders an accessible neutral ring when current-session usage is not trustworthy', async () => {
+    const browser = userEvent.setup()
+    render(<OpenClawContextUsageIndicator usage={null} />)
+
+    const progress = screen.getByRole('progressbar', { name: '上下文占用' })
+    expect(progress).not.toHaveAttribute('aria-valuenow')
+    expect(progress).toHaveAttribute('aria-valuetext', '暂无可信用量')
+    await browser.hover(screen.getByRole('button', { name: '上下文占用暂无可信用量' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('暂无可信用量')
   })
 
   it('keeps the disabled mode local and never asks for a Gateway credential', () => {
@@ -194,11 +202,16 @@ describe('OpenClaw conversation surface', () => {
       ],
       thinkingOptions: [{ id: 'low', label: '低' }, { id: 'high', label: '高' }],
       runtimeSelection: { modelId: 'openai/gpt-5.4', thinkingLevel: 'high', defaultModelId: 'openai/gpt-5.4', defaultThinkingLevel: 'low' },
+      contextUsage: { sessionKey: 'session-1', usedTokens: 10_000, contextTokens: 200_000, percent: 5 },
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
     expect(screen.queryByRole('button', { name: /OpenClaw 运行设置/ })).not.toBeInTheDocument()
+    const runtime = screen.getByTestId('openclaw-runtime-controls')
+    expect(runtime.firstElementChild).toBe(screen.getByRole('button', { name: '上下文占用 5%' }))
     await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4' }))
+    expect(screen.getByText('openai')).toBeInTheDocument()
+    expect(screen.getByText('local')).toBeInTheDocument()
     const selectedModel = screen.getByRole('option', { name: /GPT-5.4/ })
     expect(selectedModel).toHaveAttribute('aria-selected', 'true')
     expect(selectedModel.querySelector('[data-slot="list-box-item-indicator"][data-visible]')).toBeInTheDocument()
@@ -228,7 +241,7 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
-    expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_auto]')
+    expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('grid', 'grid-cols-[auto_minmax(0,1fr)_auto]')
     expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name' })).toHaveClass('w-full', 'min-w-0')
     expect(screen.getByRole('button', { name: 'OpenClaw 思考程度：深度分析' })).toHaveClass('shrink-0')
   })
@@ -307,8 +320,7 @@ describe('OpenClaw conversation surface', () => {
     expect(timeline.querySelector('b')).toBeNull()
   })
 
-  it('shows only the OpenClaw default thinking choice when the selected model does not reason', async () => {
-    const browser = userEvent.setup()
+  it('disables thinking at automatic when the selected model does not reason', () => {
     const chat = chatController({
       status: 'connected',
       sessionKey: 'session-1',
@@ -319,11 +331,30 @@ describe('OpenClaw conversation surface', () => {
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
     expect(screen.getByRole('button', { name: 'OpenClaw 模型：Quick' })).toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: 'OpenClaw 思考程度：自动' }))
-    expect(screen.getByRole('option', { name: /自动/ })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('此模型未提供推理档位。')).toBeInTheDocument()
+    const thinking = screen.getByRole('button', { name: 'OpenClaw 思考程度：自动' })
+    expect(thinking).toBeDisabled()
+    expect(document.getElementById(thinking.getAttribute('aria-describedby') ?? '')).toHaveTextContent('此模型未提供推理档位。')
+    expect(thinking.closest('[title]')).toHaveAttribute('title', '此模型未提供推理档位。')
     expect(screen.queryByRole('option', { name: '速度优先' })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: '深度分析' })).not.toBeInTheDocument()
+  })
+
+  it('does not invent thinking choices when OpenClaw returns no model-level options', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      models: [{ id: 'openai/plain', name: 'Plain', provider: 'openai', reasoning: true }],
+      thinkingOptions: [],
+      runtimeSelection: { modelId: 'openai/plain', thinkingLevel: null, defaultModelId: 'openai/plain', defaultThinkingLevel: null },
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    const thinking = screen.getByRole('button', { name: 'OpenClaw 思考程度：自动' })
+    expect(thinking).toBeDisabled()
+    expect(document.getElementById(thinking.getAttribute('aria-describedby') ?? '')).toHaveTextContent(
+      'OpenClaw 未返回此模型的可选推理档位。',
+    )
+    expect(thinking.closest('[title]')).toHaveAttribute('title', 'OpenClaw 未返回此模型的可选推理档位。')
   })
 
   it('offers an explicit blank-conversation fallback without exposing Gateway scope errors', async () => {

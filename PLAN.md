@@ -72,6 +72,7 @@
 57. Quiet Studio 交付加固：OpenClaw 用户轮次在 Gateway 请求前同步写入状态、引用与会话记录，并用稳定 client turn ID 对账；Agent 是否停靠改为按当前侧栏与最小 Feed/Agent 宽度动态判断；信息概览使用自然高度、隐藏空分组并以前三项加显式展开控制密度。权威规则见 `UI_CONTRACT.md` 和 D044。
 58. Quiet Studio 状态与导航反馈收口：生产主题跟随系统并在首帧前生效；Tooltip 锚定真实触发器并碰撞翻转；左右栏使用统一柔和布局动效；Feed 排序回到对应新鲜边缘；Agent 上下文与 OpenClaw 发送/停止动作提供稳定选中和位置反馈；本地更新日志通过独立路由与响应式时间线呈现。精确交互只见 `UI_CONTRACT.md`，主题与日志边界见 D048。
 59. OpenClaw 真实 Gateway 修复与 C2 对话密度：浏览器配对先于唯一 session 创建持久化，裸模型 ID 规范化后通过可验证分叉切换并按兼容性保留 per-send thinking；Agent transcript 改为 360px 右栏基准的扁平时间线、同行本地时间与安全 http/https 链接。权威规则见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D049。
+60. Quiet Studio 成员、OpenClaw 运行控件与 Feed 排序收口：成员列表使用带头像、可排序表头、紧凑角色控件、状态 Chip 与圆形图标操作的 HeroUI Table custom-cell renderer，并保留受保护的重置密码；上下文占用移到模型选择旁，模型按提供商分组且推理档位只使用精确模型/会话能力；排序或时间基准变化统一回到顶部，实时新内容边缘与深链定位保持独立。权威规则见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D052。
 
 当前仍需推进：
 

@@ -164,7 +164,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     kind === 'feed' && preference.subscriptionScope !== 'all',
   ].filter(Boolean).length
 
-  function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'fresh-edge' = 'preserve') {
+  function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'reset-top' = 'preserve') {
     const next = { ...preference, ...patch }
     if (scrollPolicy === 'preserve') window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     setPreferenceState({ userId: user.id, value: next })
@@ -218,7 +218,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           variant="ghost"
           className="type-control"
           aria-label={preference.sortBasis === 'ingested' ? '按入库时间排序' : '按发布时间排序'}
-          onPress={() => updatePreference({ sortBasis: preference.sortBasis === 'ingested' ? 'published' : 'ingested' }, 'fresh-edge')}
+          onPress={() => updatePreference({ sortBasis: preference.sortBasis === 'ingested' ? 'published' : 'ingested' }, 'reset-top')}
         >{preference.sortBasis === 'ingested' ? <Icons.Database size={14} aria-hidden="true" /> : <Icons.Clock3 size={14} aria-hidden="true" />}
           <span className="hidden min-[640px]:inline">{preference.sortBasis === 'ingested' ? '入库时间' : '发布时间'}</span>
         </Button>
@@ -227,7 +227,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           variant="ghost"
           className="type-control"
           aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
-          onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' }, 'fresh-edge')}
+          onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' }, 'reset-top')}
         ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>
         {!collectionRoute && <Button
           size="sm"
@@ -276,7 +276,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>
       : <VirtualFeed
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
-      resetToFreshEdgeKey={`${preference.sortBasis}:${preference.order}`}
+      resetToTopKey={`${preference.sortBasis}:${preference.order}`}
       cards={cards}
       sourceItemIds={sourceItemIds}
       expandedId={selectedId}

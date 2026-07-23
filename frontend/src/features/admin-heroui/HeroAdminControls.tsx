@@ -14,7 +14,20 @@ import {
 
 export type SelectOption = { id: string; label: string; description?: string; isDisabled?: boolean }
 
-export function HeroSelect({ label, value, options, onChange, isDisabled = false, name, isRequired = false, description, errorMessage }: {
+export function HeroSelect({
+  label,
+  value,
+  options,
+  onChange,
+  isDisabled = false,
+  name,
+  isRequired = false,
+  description,
+  errorMessage,
+  hideLabel = false,
+  className = '',
+  triggerClassName = '',
+}: {
   label: string
   value: string
   options: SelectOption[]
@@ -24,6 +37,9 @@ export function HeroSelect({ label, value, options, onChange, isDisabled = false
   isRequired?: boolean
   description?: string
   errorMessage?: string
+  hideLabel?: boolean
+  className?: string
+  triggerClassName?: string
 }) {
   return <Select
     aria-label={label}
@@ -33,10 +49,10 @@ export function HeroSelect({ label, value, options, onChange, isDisabled = false
     isDisabled={isDisabled}
     isRequired={isRequired}
     isInvalid={Boolean(errorMessage)}
-    className="min-w-40"
+    className={`min-w-40 ${className}`}
   >
-    <Label>{label}</Label>
-    <Select.Trigger className="type-control">
+    {!hideLabel && <Label>{label}</Label>}
+    <Select.Trigger className={`type-control ${triggerClassName}`}>
       <Select.Value />
       <Select.Indicator><Icons.ChevronDown size={15} aria-hidden="true" /></Select.Indicator>
     </Select.Trigger>

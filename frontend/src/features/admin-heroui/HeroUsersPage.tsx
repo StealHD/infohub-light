@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
@@ -7,6 +7,8 @@ import type { User } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
+  AvatarFallback,
+  AvatarRoot,
   Button,
   Chip,
   Icons,
@@ -18,12 +20,62 @@ import {
   Table,
   TextField,
   toast,
+  type SortDescriptor,
 } from '../../design-system'
 import { canAdministerWorkspace } from '../settings/settingsModel'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 
 const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
 const messageOf = (caught: unknown, fallback: string) => caught instanceof ApiError || caught instanceof Error ? caught.message : fallback
+
+const memberColumns = [
+  { key: 'identity', label: '成员', isRowHeader: true, allowsSorting: true, className: 'min-w-[300px] w-[38%]' },
+  { key: 'role', label: '角色', allowsSorting: true, className: 'min-w-[220px] w-[28%]' },
+  { key: 'status', label: '账户状态', allowsSorting: true, className: 'min-w-[130px] w-[15%]' },
+  { key: 'actions', label: '操作', allowsSorting: false, className: 'min-w-[140px] w-[19%] text-end' },
+] as const
+
+type MemberColumnKey = typeof memberColumns[number]['key']
+
+const avatarTones = [
+  'from-violet-300 via-fuchsia-300 to-rose-400',
+  'from-emerald-300 via-teal-300 to-blue-500',
+  'from-amber-200 via-orange-300 to-rose-500',
+  'from-sky-200 via-cyan-300 to-violet-500',
+] as const
+
+const roleOrder: Record<User['role'], number> = {
+  owner: 0,
+  admin: 1,
+  member: 2,
+  viewer: 3,
+}
+
+const memberCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+
+function avatarTone(username: string) {
+  let hash = 0
+  for (const character of username) hash = ((hash << 5) - hash + character.codePointAt(0)!) | 0
+  return avatarTones[Math.abs(hash) % avatarTones.length]
+}
+
+function memberInitial(member: User) {
+  return (member.display_name || member.username).trim().slice(0, 1).toUpperCase()
+}
+
+function compareMembers(a: User, b: User, column: MemberColumnKey) {
+  switch (column) {
+    case 'identity':
+      return memberCollator.compare(a.display_name || a.username, b.display_name || b.username)
+        || memberCollator.compare(a.username, b.username)
+    case 'role':
+      return roleOrder[a.role] - roleOrder[b.role]
+    case 'status':
+      return Number(b.enabled) - Number(a.enabled)
+    case 'actions':
+      return 0
+  }
+}
 
 function AccountPasswordSection() {
   const { api } = useAppContext()
@@ -76,6 +128,20 @@ export function HeroUsersPage() {
   const [error, setError] = useState('')
   const [resetTarget, setResetTarget] = useState<User | null>(null)
   const [resetError, setResetError] = useState('')
+  const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
+    column: 'identity',
+    direction: 'ascending',
+  })
+
+  const sortedMembers = useMemo(() => {
+    const source = users.data?.users ?? []
+    const column = sortDescriptor.column as MemberColumnKey
+    const direction = sortDescriptor.direction === 'descending' ? -1 : 1
+    return source
+      .map((member, index) => ({ member, index }))
+      .sort((left, right) => direction * compareMembers(left.member, right.member, column) || left.index - right.index)
+      .map(({ member }) => member)
+  }, [sortDescriptor, users.data?.users])
 
   const memberMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => api.updateUser(id, patch),
@@ -158,6 +224,85 @@ export function HeroUsersPage() {
     }
   }
 
+  function renderMemberCell(member: User, columnKey: MemberColumnKey) {
+    const pending = feedback.isPending('member-update', member.id)
+      || feedback.isPending('member-password-reset', member.id)
+
+    switch (columnKey) {
+      case 'identity':
+        return <div className="flex min-w-0 items-center gap-3">
+          <AvatarRoot
+            aria-hidden="true"
+            className={`size-10 shrink-0 bg-gradient-to-br ${avatarTone(member.username)} shadow-sm ring-1 ring-white/10`}
+          >
+            <AvatarFallback className="type-control bg-transparent text-black/70">{memberInitial(member)}</AvatarFallback>
+          </AvatarRoot>
+          <div className="min-w-0">
+            <strong className="type-body block truncate">{member.display_name || member.username}</strong>
+            <span className="type-meta block truncate text-muted">@{member.username}</span>
+          </div>
+        </div>
+      case 'role':
+        return member.role === 'owner'
+          ? <Chip size="sm" variant="soft">
+            <Icons.ShieldCheck size={13} aria-hidden="true" />
+            <Chip.Label>所有者 · 受保护</Chip.Label>
+          </Chip>
+          : <div className="min-w-44">
+            <HeroSelect
+              label={`角色 ${member.username}`}
+              value={member.role}
+              onChange={(role) => memberMutation.mutate({ id: member.id, patch: { role } })}
+              isDisabled={pending}
+              options={[
+                { id: 'admin', label: '管理员' },
+                { id: 'member', label: '成员' },
+                { id: 'viewer', label: '只读成员' },
+              ]}
+              hideLabel
+              className="min-w-0"
+              triggerClassName="border-transparent bg-transparent shadow-none hover:bg-default/70"
+            />
+          </div>
+      case 'status':
+        return <Chip size="sm" color={member.enabled ? 'success' : 'danger'} variant="soft">
+          <Chip.Label>{member.enabled ? '已启用' : '已停用'}</Chip.Label>
+        </Chip>
+      case 'actions':
+        return <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant={member.enabled && member.role !== 'owner' ? 'danger-soft' : 'tertiary'}
+            isIconOnly
+            className="size-9 rounded-full"
+            aria-label={`切换 ${member.username} 状态`}
+            isDisabled={member.role === 'owner' || pending}
+            onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}
+          >
+            {pending
+              ? <Icons.LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+              : member.role === 'owner'
+                ? <Icons.LockKeyhole size={16} aria-hidden="true" />
+                : <Icons.Power size={16} aria-hidden="true" />}
+          </Button>
+          {member.role !== 'owner' && <Button
+            size="sm"
+            variant="tertiary"
+            isIconOnly
+            className="size-9 rounded-full"
+            aria-label={`重置 ${member.username} 密码`}
+            isDisabled={pending}
+            onPress={() => {
+              setResetError('')
+              setResetTarget(member)
+            }}
+          >
+            <Icons.KeyRound size={16} aria-hidden="true" />
+          </Button>}
+        </div>
+    }
+  }
+
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username}`} />
     {error && <HeroNotice title={error} />}
@@ -172,30 +317,38 @@ export function HeroUsersPage() {
       </form>
       {users.isLoading && <LoadingState label="正在读取成员" rows={2} />}
       {users.isError && <div className="mt-4"><HeroNotice title="成员列表读取失败" /></div>}
-      {!users.isLoading && !users.isError && <Table className="mt-5" variant="secondary">
-        <Table.ScrollContainer className="max-w-full overflow-x-auto">
-          <Table.Content aria-label="成员列表" className="min-w-[760px]">
-            <Table.Header>
-              <Table.Column isRowHeader>成员</Table.Column>
-              <Table.Column>角色</Table.Column>
-              <Table.Column>账户状态</Table.Column>
-              <Table.Column>操作</Table.Column>
+      {!users.isLoading && !users.isError && <Table className="mt-5 overflow-hidden rounded-[22px] border border-separator bg-surface-secondary shadow-sm" variant="secondary">
+        <Table.ScrollContainer className="max-w-full overflow-x-auto overscroll-x-contain rounded-[22px]">
+          <Table.Content
+            aria-label="成员列表"
+            className="min-w-[820px]"
+            sortDescriptor={sortDescriptor}
+            onSortChange={setSortDescriptor}
+          >
+            <Table.Header className="bg-default/55">
+              {memberColumns.map((column) => <Table.Column
+                key={column.key}
+                id={column.key}
+                isRowHeader={'isRowHeader' in column && column.isRowHeader}
+                allowsSorting={column.allowsSorting}
+                className={`h-12 px-5 type-meta text-muted ${column.className}`}
+              >
+                {column.allowsSorting
+                  ? ({ sortDirection }) => <Table.SortableColumnHeader sortDirection={sortDirection}>
+                    {column.label}
+                  </Table.SortableColumnHeader>
+                  : column.label}
+              </Table.Column>)}
             </Table.Header>
-            <Table.Body>{(users.data?.users ?? []).map((member) => {
-              const pending = feedback.isPending('member-update', member.id) || feedback.isPending('member-password-reset', member.id)
-              return <Table.Row key={member.id} id={member.id}>
-                <Table.Cell><div className="min-w-0"><strong className="type-body block truncate">{member.display_name || member.username}</strong><span className="type-meta block truncate text-muted">{member.username}</span></div></Table.Cell>
-                <Table.Cell>{member.role === 'owner'
-                  ? <Chip size="sm" variant="soft"><Chip.Label>所有者 · 受保护</Chip.Label></Chip>
-                  : <div className="min-w-44"><HeroSelect label={`角色 ${member.username}`} value={member.role} onChange={(role) => memberMutation.mutate({ id: member.id, patch: { role } })} isDisabled={pending} options={[{ id: 'admin', label: '管理员' }, { id: 'member', label: '成员' }, { id: 'viewer', label: '只读成员' }]} /></div>}
-                </Table.Cell>
-                <Table.Cell><Chip size="sm" color={member.enabled ? 'success' : 'default'} variant="soft"><Chip.Label>{member.enabled ? '已启用' : '已停用'}</Chip.Label></Chip></Table.Cell>
-                <Table.Cell><div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="ghost" aria-label={`切换 ${member.username} 状态`} isDisabled={member.role === 'owner' || pending} onPress={() => memberMutation.mutate({ id: member.id, patch: { enabled: !member.enabled } })}>{pending ? '保存中…' : member.enabled ? '停用' : '启用'}</Button>
-                  {member.role !== 'owner' && <Button size="sm" variant="ghost" aria-label={`重置 ${member.username} 密码`} isDisabled={pending} onPress={() => { setResetError(''); setResetTarget(member) }}><Icons.KeyRound size={14} />重置密码</Button>}
-                </div></Table.Cell>
-              </Table.Row>
-            })}</Table.Body>
+            <Table.Body>{sortedMembers.map((member) => <Table.Row
+              key={member.id}
+              id={member.id}
+              className="border-b border-separator bg-surface-secondary transition-colors last:border-b-0 hover:bg-default/35"
+            >
+              {memberColumns.map((column) => <Table.Cell key={column.key} className="h-[76px] px-5 py-3">
+                {renderMemberCell(member, column.key)}
+              </Table.Cell>)}
+            </Table.Row>)}</Table.Body>
           </Table.Content>
         </Table.ScrollContainer>
       </Table>}

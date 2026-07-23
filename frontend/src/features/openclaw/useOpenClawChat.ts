@@ -491,7 +491,12 @@ type RuntimeProjection = {
   invalidSessionModel: boolean
 }
 
-function projectRuntime(modelsValue: unknown, agentsValue: unknown, sessionValue: unknown, requestedAgentId: string): RuntimeProjection {
+export function projectOpenClawRuntime(
+  modelsValue: unknown,
+  agentsValue: unknown,
+  sessionValue: unknown,
+  requestedAgentId: string,
+): RuntimeProjection {
   const models = normalizeModels(modelsValue)
   const agentsRoot = recordOf(agentsValue)
   const agents = Array.isArray(agentsRoot?.agents) ? agentsRoot.agents : []
@@ -511,14 +516,14 @@ function projectRuntime(modelsValue: unknown, agentsValue: unknown, sessionValue
   const modelId = matchedSessionModelId ?? (!hasExplicitSessionModel && defaultModelIsAvailable ? defaultModelId : null)
   const selectedModel = models.find((candidate) => candidate.id === modelId)
   const modelThinkingOptions = selectedModel?.thinkingLevels ?? []
-  const thinkingOptions = selectedModel?.reasoning === false
+  const thinkingOptions = !selectedModel || selectedModel.reasoning === false
     ? []
     : modelThinkingOptions.length
       ? modelThinkingOptions
       : sessionThinkingOptions.length
         ? sessionThinkingOptions
-        : normalizeThinkingOptions(agent?.thinkingLevels)
-  const rawDefaultThinkingLevel = selectedModel?.thinkingDefault ?? stringOf(session?.thinkingDefault) ?? stringOf(agent?.thinkingDefault)
+        : []
+  const rawDefaultThinkingLevel = selectedModel?.thinkingDefault ?? stringOf(session?.thinkingDefault)
   const defaultThinkingLevel = rawDefaultThinkingLevel && thinkingOptions.some((option) => option.id === rawDefaultThinkingLevel)
     ? rawDefaultThinkingLevel
     : null
@@ -711,7 +716,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       client.request('agents.list', {}),
       client.request('sessions.describe', { key }),
     ])
-    return projectRuntime(modelsValue, agentsValue, sessionValue, agentId)
+    return projectOpenClawRuntime(modelsValue, agentsValue, sessionValue, agentId)
   }, [])
 
   const applyRuntime = useCallback((projection: RuntimeProjection, preserveThinking = false) => {
