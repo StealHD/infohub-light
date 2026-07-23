@@ -43,7 +43,7 @@ services:
     build:
       context: .
       args:
-        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.7.1}
+        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.7.2}
         INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-unknown}
         INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-unknown}
     pull_policy: build
@@ -80,7 +80,7 @@ services:
     build:
       context: .
       args:
-        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.7.1}
+        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.7.2}
         INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-unknown}
         INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-unknown}
     pull_policy: build
