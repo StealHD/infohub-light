@@ -2414,3 +2414,11 @@
 - 执行验证：API/Worker 同 `inteliscope-service:local-86743b5-settings-key-feedback-quota-preview`、healthy、0 restart；live revision 匹配，设置页 200、quota OpenAPI 路由存在、active jobs=0、scheduler=0
 - 结果：`http://127.0.0.1:8080/settings` 已重新运行本分支，浏览器强制刷新即可加载
 - 控制面变更：无；未部署 VPS，未触发抓取、AI、付费 Actor 或 scheduler
+
+### 2026-07-23 13:48 Codex
+- 任务：把 `codex/settings-key-feedback-quota` 已验证改动本地合并到并行演进后的 `main`
+- 修改文件：合并设置页 Key 反馈、HeroUI Table、Apify 额度服务/API/Query cache 与测试；人工整合 `DECISION_LOG.md`、`PLAN.md`、`WORKLOG.md`，保留 main 的 D052/第 60 项并追加 D054/第 61 项
+- 执行验证：feature `test_gate full` 22/22、104.381 秒；合并结果后端定向 18/18、前端 68/68；`main` 的 `test_gate full` 22/22、0 failed/error、107.028 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：本地 `main` 通过 merge commit `2aa72db` 包含本功能及 main 既有成员/OpenClaw/Feed 改动；主工作区仍在 `codex/0723`，其原有未提交文档和临时目录保持不变
+- 运行态：`localhost:8080` 继续运行已验证的设置页预览镜像；未重新构建或切换数据卷
+- 控制面变更：合入 D054、PLAN 第 61 项与 API/UI 安全额度合同；未推送远端、未部署 VPS，未启动 scheduler、来源抓取、AI 或付费 Actor
