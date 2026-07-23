@@ -9,8 +9,15 @@
       (() => {
         const path = window.location.pathname
         const contentRoutes = ['/feed', '/saved', '/history', '/later', '/']
-        const systemDark = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
-        document.documentElement.dataset.theme = systemDark ? 'dark' : 'light'
+        let themePreference = null
+        try {
+          themePreference = JSON.parse(window.localStorage.getItem('inteliscope.ui.theme.v1') || 'null')
+        } catch {
+          themePreference = null
+        }
+        const colorMode = themePreference?.colorMode
+        document.documentElement.dataset.theme = colorMode === 'light' || colorMode === 'dark' ? colorMode : 'dark'
+        document.documentElement.dataset.inteliscopeTheme = 'graphite-purple'
         document.documentElement.dataset.bootstrapLayout = path === '/login'
           ? 'auth'
           : contentRoutes.includes(path) ? 'content' : 'admin'

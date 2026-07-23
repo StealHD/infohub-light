@@ -1,6 +1,8 @@
 export const designSystemTheme = {
   root: {
-    colorScheme: 'system',
+    colorModeSource: 'browser-preference',
+    defaultColorMode: 'dark',
+    colorModes: ['dark', 'light'],
     name: 'graphite-purple',
   },
   colors: {

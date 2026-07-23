@@ -2401,6 +2401,27 @@
 - 结果：新增失败在表单内给出中文原因并 Toast，失败仅清真实值；Apify 额度缓存五分钟且可手动刷新，Token/账户资料/原始响应不出服务端，额度失败不影响 Key 保存和列表
 - 控制面变更：新增 owner/admin、同 workspace 的 quota API 合同及设置页交互规则；无数据库结构、部署、抓取、AI、scheduler 或付费 Actor 变化
 
+### 2026-07-23 12:38 Codex
+- 任务：从 `main@f38553b` 创建 `codex/feed-insights-theme-toggle`，扩大遮挡信息概览的无效点击关闭范围并新增持久化白天/黑夜切换
+- 修改文件：主题偏好/Provider/右上角图标、首帧 bootstrap、Workbench 概览关闭状态机与动效、前端测试、UI 合同、PLAN、D053、实施计划及本工作日志
+- 执行验证：main 基线与最终 `test_gate full` 均 22/22；UI contract、TypeScript、45 files / 365 Vitest、production build/产物扫描、lint 0 error 通过；新增 Playwright 2/2 通过，完整三视口 33 passed/6 skipped/3 个既有 Feed 排序失败，并在 detached main 同样 3/3 复现
+- 结果：黑夜保留当前默认，白天/黑夜显式选择跨刷新保存且不受系统外观覆盖；概览仅在实测遮挡时由工作台内任意非交互主点击进入 220 ms 柔和退出，真实控件与概览内部点击不受影响
+- 控制面变更：UI_CONTRACT、PLAN 61 与 D053 记录主题模式/家族分离及概览退出规则；无 API、数据库、Query Key、scheduler、抓取、AI、付费调用、容器、部署或生产运行态变化
+
+### 2026-07-23 13:02 Codex
+- 任务：让 OpenClaw 发送按钮默认呈现与主题一致的紫色强调背景
+- 修改文件：Tooltip 图标按钮背景合并逻辑、OpenClaw/设计系统回归测试及本工作日志
+- 执行验证：回归先 RED 后定向 21/21；UI contract、TypeScript、45 files / 366 Vitest、production build/产物扫描、lint 0 error 通过；`test_gate full` 22/22、102.37 秒
+- 结果：显式 `bg-accent` 不再被通用 `bg-transparent` 覆盖，发送按钮使用当前明暗模式的语义紫色与对应前景色；未指定背景的 Tooltip 图标按钮仍保持透明
+- 控制面变更：无；未修改 API、数据库、权限、主题合同、容器、部署、scheduler、抓取、AI 或付费调用
+
+### 2026-07-23 13:12 Codex
+- 任务：启动 `codex/feed-insights-theme-toggle` 的本地 Web 容器
+- 运行变更：使用镜像 `inteliscope-service:local-4b60d2ab33fd`；worktree 复用原本地 `.env`，并通过临时 Compose override 明确挂载既有运行数据目录
+- 问题记录：首次启动因 worktree 缺少运行时文件而由 bind mount 生成空数据库；数据库文件符号链接在容器内也无法解析，已将“启动前验证 `.env`/数据库挂载、保留 tracked `data/` 并显式覆盖 `/app/data`”写入持久工作流规则，空数据库保留于 `/tmp/infohub-light-feed-theme-empty-service-20260723T1308.db`
+- 执行验证：`horizon-light-api` healthy；live=`1.5.0/4b60d2ab33fd`、ready database=`ready`；容器 `/app/data` 已确认挂载原运行数据目录
+- 运行安全：本次仅启动 API，未启动 Worker 或 scheduler；检测到 `settings-key-feedback-quota` 并发任务独立启动的 Worker 后保持原状，未触发抓取、AI 或付费调用
+
 ### 2026-07-23 13:21 Codex
 - 任务：构建并启动 `codex/settings-key-feedback-quota` 的本地容器供设置页验收
 - 修改文件：仅本工作日志；API/Worker 复用主工作区现有 `.env`、`data` 与 `logs`，切换前创建 `0600` 数据库备份 `data/backups/pre-settings-key-feedback-quota-20260723T051612Z.db`
@@ -2417,8 +2438,8 @@
 
 ### 2026-07-23 13:48 Codex
 - 任务：把 `codex/settings-key-feedback-quota` 已验证改动本地合并到并行演进后的 `main`
-- 修改文件：合并设置页 Key 反馈、HeroUI Table、Apify 额度服务/API/Query cache 与测试；人工整合 `DECISION_LOG.md`、`PLAN.md`、`WORKLOG.md`，保留 main 的 D052/第 60 项并追加 D054/第 61 项
+- 修改文件：合并设置页 Key 反馈、HeroUI Table、Apify 额度服务/API/Query cache 与测试；人工整合 `DECISION_LOG.md`、`PLAN.md`、`WORKLOG.md`，保留 main 的 D052/第 60 项并追加 D054/第 62 项
 - 执行验证：feature `test_gate full` 22/22、104.381 秒；合并结果后端定向 18/18、前端 68/68；`main` 的 `test_gate full` 22/22、0 failed/error、107.028 秒，配置 JSON 与 `git diff --check` 通过
 - 结果：本地 `main` 通过 merge commit `2aa72db` 包含本功能及 main 既有成员/OpenClaw/Feed 改动；主工作区仍在 `codex/0723`，其原有未提交文档和临时目录保持不变
 - 运行态：`localhost:8080` 继续运行已验证的设置页预览镜像；未重新构建或切换数据卷
-- 控制面变更：合入 D054、PLAN 第 61 项与 API/UI 安全额度合同；未推送远端、未部署 VPS，未启动 scheduler、来源抓取、AI 或付费 Actor
+- 控制面变更：合入 D054、PLAN 第 62 项与 API/UI 安全额度合同；未推送远端、未部署 VPS，未启动 scheduler、来源抓取、AI 或付费 Actor

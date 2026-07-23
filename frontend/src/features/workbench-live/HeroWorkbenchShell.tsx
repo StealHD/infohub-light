@@ -27,6 +27,7 @@ import {
   Popover,
   Separator,
   Skeleton,
+  ThemeModeToggle,
 } from '../../design-system'
 import {
   readAgentContextDraft,
@@ -59,7 +60,7 @@ import {
 } from './rightRailPreference'
 
 export type RightRailMode = 'closed' | 'agent'
-export type InsightsSurfaceState = 'closed' | 'auto' | 'manual'
+export type InsightsSurfaceState = 'closed' | 'auto' | 'manual' | 'closing'
 
 type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
 
@@ -208,6 +209,34 @@ function initialRightRailMode(userId: string): RightRailMode {
 const insightsDismissedKey = (userId: string) => `inteliscope.ui.insights-dismissed.v1:${userId}`
 export const FLOATING_INSIGHTS_REQUIRED_GUTTER = 376
 const deliberateLayoutMotionMs = 220
+const interactivePointerTarget = [
+  'a',
+  'button',
+  'input',
+  'textarea',
+  'select',
+  'label',
+  'summary',
+  'audio[controls]',
+  'video[controls]',
+  '[role="button"]',
+  '[role="link"]',
+  '[role="menuitem"]',
+  '[role="option"]',
+  '[role="tab"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="switch"]',
+  '[contenteditable]:not([contenteditable="false"])',
+].join(',')
+
+function insightsExitMotionMs(): number {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 1
+    : deliberateLayoutMotionMs
+}
 
 export function canFloatFeedInsights(mainRight: number, readingRight: number): boolean {
   return Number.isFinite(mainRight)
@@ -375,6 +404,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [rightRailAnimated, setRightRailAnimated] = useState(false)
   const [closingFixedRail, setClosingFixedRail] = useState(false)
   const closingFixedRailTimer = useRef<number | undefined>(undefined)
+  const insightsClosingTimer = useRef<number | undefined>(undefined)
   const [insightsSurface, setInsightsSurface] = useState<InsightsSurfaceState>('closed')
   const [insightsCanFloat, setInsightsCanFloat] = useState(false)
   const [insightsObstructsFeed, setInsightsObstructsFeed] = useState(false)
@@ -414,7 +444,9 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const dockCapable = agentRoute && canDockRightRail(viewportWidth, sidebarWidth)
   const fixedRightRail = dockCapable && visibleRightRailMode === 'agent'
   const fixedRailPresent = dockCapable && (fixedRightRail || closingFixedRail)
-  const insightsOpen = feedRoute && insightsSurface !== 'closed'
+  const insightsOpen = feedRoute && (insightsSurface === 'auto' || insightsSurface === 'manual')
+  const insightsPresent = feedRoute && insightsSurface !== 'closed'
+  const insightsClosing = insightsSurface === 'closing'
   const hasInsightsData = Boolean(insightsFeed.data?.items.length)
   const storedRightRailWidth = rightRailWidthState.userId === props.user.id ? rightRailWidthState.value : readRightRailWidth(props.user.id)
   const rightRailWidth = clampRightRailWidth(storedRightRailWidth, viewportWidth, sidebarWidth)
@@ -472,10 +504,34 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     }, deliberateLayoutMotionMs)
   }, [dockCapable])
 
+  const cancelInsightsClose = useCallback(() => {
+    window.clearTimeout(insightsClosingTimer.current)
+    insightsClosingTimer.current = undefined
+  }, [])
+
+  const completeInsightsClose = useCallback(() => {
+    cancelInsightsClose()
+    setInsightsSurface((current) => current === 'closing' ? 'closed' : current)
+  }, [cancelInsightsClose])
+
+  const dismissInsightsImmediately = useCallback(() => {
+    cancelInsightsClose()
+    setInsightsSurface('closed')
+  }, [cancelInsightsClose])
+
+  const closeInsights = useCallback((restoreFocus = true) => {
+    if (insightsSurface === 'closed' || insightsSurface === 'closing') return
+    suppressAutomaticInsights()
+    cancelInsightsClose()
+    setInsightsSurface('closing')
+    insightsClosingTimer.current = window.setTimeout(completeInsightsClose, insightsExitMotionMs())
+    if (restoreFocus) window.requestAnimationFrame(() => insightsToggleRef.current?.focus())
+  }, [cancelInsightsClose, completeInsightsClose, insightsSurface, suppressAutomaticInsights])
+
   const openComposer = useCallback(() => {
     if (!dockCapable) {
       suppressAutomaticInsights()
-      setInsightsSurface('closed')
+      dismissInsightsImmediately()
     }
     cancelFixedRailClose()
     setRightRailAnimated(true)
@@ -486,7 +542,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         '[aria-label="发送给 OpenClaw 的问题"], [aria-label="交给 OpenClaw 的问题"]',
       )?.focus()
     })
-  }, [cancelFixedRailClose, dockCapable, props.user.id, rightRailWidth, suppressAutomaticInsights])
+  }, [cancelFixedRailClose, dismissInsightsImmediately, dockCapable, props.user.id, rightRailWidth, suppressAutomaticInsights])
 
   const agentValue = useMemo<WorkbenchAgentContextValue>(() => ({
     draft,
@@ -511,7 +567,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     if (openclawChat.isRunning) return
     if (visibleRightRailMode !== 'agent' && !dockCapable) {
       suppressAutomaticInsights()
-      setInsightsSurface('closed')
+      dismissInsightsImmediately()
     }
     const nextMode = visibleRightRailMode === 'agent' ? 'closed' : 'agent'
     setRightRailAnimated(true)
@@ -519,29 +575,28 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     else finishFixedRailClose()
     setRightRailMode(nextMode)
     writeBootstrapShellRightRail(props.user.id, nextMode, rightRailWidth)
-  }, [cancelFixedRailClose, dockCapable, finishFixedRailClose, openclawChat.isRunning, props.user.id, rightRailWidth, suppressAutomaticInsights, visibleRightRailMode])
-
-  const closeInsights = useCallback((restoreFocus = true) => {
-    suppressAutomaticInsights()
-    setInsightsSurface('closed')
-    if (restoreFocus) window.requestAnimationFrame(() => insightsToggleRef.current?.focus())
-  }, [suppressAutomaticInsights])
+  }, [cancelFixedRailClose, dismissInsightsImmediately, dockCapable, finishFixedRailClose, openclawChat.isRunning, props.user.id, rightRailWidth, suppressAutomaticInsights, visibleRightRailMode])
 
   const toggleInsights = useCallback(() => {
     if (openclawChat.isRunning && !dockCapable) return
+    if (insightsClosing) {
+      cancelInsightsClose()
+      setInsightsSurface('manual')
+      return
+    }
     if (insightsOpen) {
       closeInsights(false)
       return
     }
     if (!dockCapable) setRightRailMode('closed')
     setInsightsSurface('manual')
-  }, [closeInsights, dockCapable, insightsOpen, openclawChat.isRunning])
+  }, [cancelInsightsClose, closeInsights, dockCapable, insightsClosing, insightsOpen, openclawChat.isRunning])
 
-  const handleFeedBlankPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+  const handleIneffectivePrimaryPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!feedRoute || !insightsOpen || !insightsObstructsFeed || event.button !== 0 || event.defaultPrevented) return
     const target = event.target
-    if (!(target instanceof Element) || !target.closest('[data-feed-blank-region]')) return
-    if (target.closest('a, button, input, textarea, select, label, summary, [role="button"], [role="dialog"], [contenteditable="true"], [data-testid="workbench-card"], [data-card-actions]')) return
+    if (!(target instanceof Element) || insightsRef.current?.contains(target)) return
+    if (target.closest(interactivePointerTarget)) return
     closeInsights(false)
   }, [closeInsights, feedRoute, insightsObstructsFeed, insightsOpen])
 
@@ -588,7 +643,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   }, [])
 
   useEffect(() => { rightRailWidthRef.current = rightRailWidth }, [rightRailWidth])
-  useEffect(() => () => window.clearTimeout(closingFixedRailTimer.current), [])
+  useEffect(() => () => {
+    window.clearTimeout(closingFixedRailTimer.current)
+    window.clearTimeout(insightsClosingTimer.current)
+  }, [])
 
   useEffect(() => {
     const main = mainRef.current
@@ -622,16 +680,16 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     if (reading) observer.observe(reading)
     if (insightsRef.current) observer.observe(insightsRef.current)
     return () => observer.disconnect()
-  }, [feedRoute, fixedRightRail, insightsOpen, rightRailWidth, sidebarExpanded, viewportWidth])
+  }, [feedRoute, fixedRightRail, insightsPresent, rightRailWidth, sidebarExpanded, viewportWidth])
 
   useEffect(() => {
     let closeFrame: number | undefined
     if (!feedRoute) {
-      if (insightsSurface !== 'closed') closeFrame = window.requestAnimationFrame(() => setInsightsSurface('closed'))
+      if (insightsSurface !== 'closed') closeFrame = window.requestAnimationFrame(dismissInsightsImmediately)
       return () => { if (closeFrame !== undefined) window.cancelAnimationFrame(closeFrame) }
     }
     if (insightsSurface === 'auto' && !insightsCanFloat) {
-      const autoCloseFrame = window.requestAnimationFrame(() => setInsightsSurface('closed'))
+      const autoCloseFrame = window.requestAnimationFrame(dismissInsightsImmediately)
       return () => window.cancelAnimationFrame(autoCloseFrame)
     }
     if (!insightsCanFloat || !hasInsightsData || insightsSurface !== 'closed') return
@@ -644,7 +702,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       setInsightsSurface('auto')
     })
     return () => window.cancelAnimationFrame(autoFrame)
-  }, [feedRoute, hasInsightsData, insightsCanFloat, insightsSurface, props.user.id])
+  }, [dismissInsightsImmediately, feedRoute, hasInsightsData, insightsCanFloat, insightsSurface, props.user.id])
 
   useEffect(() => {
     if ((visibleRightRailMode === 'closed' && !insightsOpen) || mobile || openclawChat.isRunning) return
@@ -724,6 +782,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         data-insights-obstructs-feed={insightsObstructsFeed ? 'true' : 'false'}
         data-rail-resizing={resizingRail ? 'true' : 'false'}
         data-layout-motion={rightRailAnimated && !resizingRail ? 'deliberate' : 'immediate'}
+        onPointerDown={handleIneffectivePrimaryPointerDown}
         style={desktopGridStyle}
         className={`grid h-dvh min-h-0 grid-cols-1 grid-rows-[52px_minmax(0,1fr)] overflow-hidden bg-background text-foreground min-[768px]:grid-cols-[72px_minmax(0,1fr)] ${desktopGridColumns} ${rightRailAnimated && !resizingRail ? 'transition-[grid-template-columns] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none' : 'transition-none'}`}
       >
@@ -840,7 +899,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         <PageHeader
           title={pageTitle}
           className="col-start-1 row-start-1 min-[768px]:col-start-2"
-          actions={agentRoute ? <div className="flex items-center gap-1">
+          actions={<div className="flex items-center gap-1">
             {feedRoute && <Button
               ref={insightsToggleRef}
               size="sm"
@@ -854,7 +913,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               isDisabled={openclawChat.isRunning && !dockCapable}
               onPress={toggleInsights}
             ><Icons.ChartNoAxesCombined size={18} aria-hidden="true" /></Button>}
-            <Button
+            {agentRoute && <Button
               ref={agentToggleRef}
               size="sm"
               variant="ghost"
@@ -867,11 +926,12 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               aria-controls="live-agent-panel"
               isDisabled={openclawChat.isRunning}
               onPress={toggleAgentRail}
-            ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>
-          </div> : undefined}
+            ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>}
+            <ThemeModeToggle />
+          </div>}
         />
 
-        <main ref={mainRef} onPointerDown={handleFeedBlankPointerDown} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
+        <main ref={mainRef} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
           {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
             <span className="flex-1">{props.refreshMessage}</span>{props.onRetry && <Button size="sm" variant="ghost" onPress={props.onRetry}>重试</Button>}
             <Button size="sm" variant="ghost" isIconOnly aria-label="关闭更新提示" onPress={() => setDismissedNotice(noticeKey)}><Icons.X size={15} /></Button>
@@ -912,19 +972,24 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           <AgentPanelContent open={fixedRailPresent} onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
         </aside>}
 
-        {feedRoute && insightsOpen && !mobile && <aside
+        {feedRoute && insightsPresent && !mobile && <aside
           ref={insightsRef}
           id="feed-insights-surface"
           role="complementary"
           aria-label="信息概览"
+          aria-hidden={insightsClosing}
+          inert={insightsClosing}
           data-insights-surface={insightsSurface}
-          className="quiet-surface-enter fixed top-[60px] z-30 flex max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] flex-col overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]"
+          className={`${insightsClosing ? 'quiet-surface-exit pointer-events-none' : 'quiet-surface-enter'} fixed top-[60px] z-30 flex max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] flex-col overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]`}
           style={{ right: fixedRightRail ? rightRailWidth + 12 : 12 }}
-        ><FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} includePrivateSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} /></aside>}
+          onAnimationEnd={insightsClosing ? (event) => {
+            if (event.target === event.currentTarget) completeInsightsClose()
+          } : undefined}
+        ><FeedInsightsPanel open={insightsOpen} onClose={() => closeInsights()} api={props.api} userId={props.user.id} includePrivateSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} /></aside>}
 
-        {agentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsOpen)) && <Drawer isOpen onOpenChange={(open) => {
+        {agentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsPresent)) && <Drawer isOpen={visibleRightRailMode === 'agent' || (mobile && insightsOpen)} onOpenChange={(open) => {
           if (open) return
-          if (insightsOpen) closeInsights()
+          if (insightsPresent && visibleRightRailMode !== 'agent') closeInsights()
           else closeRightRail()
         }}>
           <Drawer.Trigger aria-hidden="true" className="hidden">打开右侧面板</Drawer.Trigger>

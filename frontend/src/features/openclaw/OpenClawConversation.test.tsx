@@ -179,7 +179,8 @@ describe('OpenClaw conversation surface', () => {
 
     expect(toolbar.lastElementChild).toBe(sendButton)
     expect(sendButton).toHaveAttribute('data-slot', 'tooltip-trigger')
-    expect(sendButton).toHaveClass('size-9', 'shrink-0', 'rounded-full')
+    expect(sendButton).toHaveClass('size-9', 'shrink-0', 'rounded-full', 'bg-accent', 'text-accent-foreground')
+    expect(sendButton).not.toHaveClass('bg-transparent')
 
     const runningChat = chatController({ status: 'connected', sessionKey: 'session-1', isRunning: true })
     view.rerender(<OpenClawConversation chat={runningChat as never} value={contextValue()} />)

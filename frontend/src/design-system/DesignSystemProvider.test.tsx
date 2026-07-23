@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   Button,
@@ -29,7 +29,11 @@ import {
   Toast,
   Tooltip,
 } from '.'
-import { readSystemTheme } from './systemTheme'
+import {
+  DEFAULT_THEME_PREFERENCE,
+  readThemePreference,
+  THEME_PREFERENCE_STORAGE_KEY,
+} from './themePreference'
 
 function installSystemTheme(initialDark: boolean) {
   let dark = initialDark
@@ -54,37 +58,47 @@ function installSystemTheme(initialDark: boolean) {
 }
 
 describe('DesignSystemProvider', () => {
-  it('marks the formal design-system root with the system dark theme', () => {
-    installSystemTheme(true)
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('defaults to the existing dark graphite theme and ignores system changes', () => {
+    const theme = installSystemTheme(false)
     render(<MemoryRouter><DesignSystemProvider><main data-testid="content" /></DesignSystemProvider></MemoryRouter>)
 
     const root = screen.getByTestId('content').parentElement
     expect(root).toHaveAttribute('data-theme', 'dark')
     expect(root).toHaveAttribute('data-inteliscope-theme', 'graphite-purple')
     expect(root).toHaveClass('inteliscope-design-system')
-  })
-
-  it('starts in system light mode and updates the app and document when the system changes', () => {
-    const theme = installSystemTheme(false)
-    render(<MemoryRouter><DesignSystemProvider><main data-testid="content" /></DesignSystemProvider></MemoryRouter>)
-
-    const root = screen.getByTestId('content').parentElement
-    expect(root).toHaveAttribute('data-theme', 'light')
-    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
 
     act(() => theme.setDark(true))
     expect(root).toHaveAttribute('data-theme', 'dark')
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
   })
 
-  it('uses the light fallback when system color-scheme detection is unavailable', () => {
-    const matchMedia = window.matchMedia
-    try {
-      Object.defineProperty(window, 'matchMedia', { configurable: true, value: undefined })
-      expect(readSystemTheme()).toBe('light')
-    } finally {
-      Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia })
-    }
+  it('restores a valid persisted light preference on both theme roots', () => {
+    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, JSON.stringify({
+      themeName: 'graphite-purple',
+      colorMode: 'light',
+    }))
+    render(<MemoryRouter><DesignSystemProvider><main data-testid="content" /></DesignSystemProvider></MemoryRouter>)
+
+    const root = screen.getByTestId('content').parentElement
+    expect(root).toHaveAttribute('data-theme', 'light')
+    expect(root).toHaveAttribute('data-inteliscope-theme', 'graphite-purple')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+  })
+
+  it('sanitizes malformed or unsupported preferences back to dark graphite', () => {
+    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, JSON.stringify({
+      themeName: 'unsupported',
+      colorMode: 'system',
+    }))
+    expect(readThemePreference()).toEqual(DEFAULT_THEME_PREFERENCE)
+
+    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, '{broken')
+    expect(readThemePreference()).toEqual(DEFAULT_THEME_PREFERENCE)
   })
 
   it('routes HeroUI links through React Router without a document navigation', async () => {

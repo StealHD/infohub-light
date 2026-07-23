@@ -11,6 +11,7 @@ import {
   Input,
   Label,
   PageFrame,
+  ThemeModeToggle,
   TextField,
 } from '../../design-system'
 import { HeroNotice } from './HeroAdminControls'
@@ -38,7 +39,8 @@ export function HeroLoginPage({ api, onAuthenticated }: { api: ServiceApi; onAut
     }
   }
 
-  return <main className="grid min-h-dvh place-items-center bg-background p-4">
+  return <main className="relative grid min-h-dvh place-items-center bg-background p-4">
+    <div className="absolute right-3 top-3"><ThemeModeToggle /></div>
     <PageFrame width="auth">
       <Card variant="secondary" className="w-full p-6 min-[640px]:p-8" aria-labelledby="hero-login-title">
         <div className="mb-6 flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground"><Icons.InteliscopeMark size={21} aria-hidden="true" /></div>
