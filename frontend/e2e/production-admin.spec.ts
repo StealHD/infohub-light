@@ -59,6 +59,26 @@ async function mockAdminApi(page: Page, authenticated = true) {
       { id: 'secret-1', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [{ type: 'ai', id: 'primary', name: 'AI 分析' }] },
       { id: 'secret-apify', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRIMARY_WORKSPACE_TOKEN', is_set: true, used_by: [] },
     ] }
+    else if (url.pathname === '/api/admin/apify-key-pool') data = {
+      schema_version: 1,
+      enabled: false,
+      generation: 1,
+      status: 'ready',
+      active_secret_id: 'secret-apify',
+      draining_secret_id: null,
+      blocked_reason: null,
+      retry_at: null,
+      members: [{
+        secret_id: 'secret-apify',
+        position: 0,
+        status: 'active',
+        blocked_until: null,
+        cycle_end_at: '2026-07-31T23:59:59.999Z',
+        last_checked_at: '2026-07-23T08:30:00+00:00',
+        last_error_code: null,
+        active_run_count: 0,
+      }],
+    }
     else if (url.pathname === '/api/admin/secrets/secret-apify/quota') {
       quotaRequests += 1
       data = {
@@ -120,21 +140,77 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expectHeroAdminPage(page, '账户与成员')
   await expect(page.getByRole('heading', { name: '账户安全' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '成员管理' })).toBeVisible()
+
+  await page.goto('/manual')
+  await expectHeroAdminPage(page, '操作手册')
+  await expect(page.getByRole('heading', { name: '快速开始' })).toBeVisible()
+  await expect(page.getByText(/每次产品代码合并都由 Test Gate 检查/)).toBeVisible()
 })
 
-test('settings key table contains scrolling, quota, refresh and accessible modal behavior', async ({ page }) => {
+test('account and documentation menus open upward and expose manual, changelog, and Release destinations', async ({ page }, testInfo) => {
+  await mockAdminApi(page)
+
+  if (testInfo.project.name === 'mobile') {
+    await page.goto('/settings')
+    await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '查看更新日志' })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('href', 'https://github.com/StealHD/infohub-light/releases')
+    return
+  }
+
+  await page.goto('/subscriptions')
+  const accountTrigger = page.getByRole('button', { name: '打开账户菜单' })
+  await accountTrigger.click()
+  const accountMenu = page.getByRole('dialog', { name: '账户菜单' })
+  await expect(accountMenu).toBeVisible()
+  await expect(accountMenu.getByRole('button', { name: '操作手册' })).toBeVisible()
+  await expect(accountMenu.getByRole('button', { name: '更新日志' })).toBeVisible()
+  await expect(accountMenu.getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('target', '_blank')
+  const accountTriggerBounds = await accountTrigger.boundingBox()
+  const accountSurfaceBounds = await page.locator('[data-account-menu-surface]').boundingBox()
+  expect(accountTriggerBounds).not.toBeNull()
+  expect(accountSurfaceBounds).not.toBeNull()
+  expect(accountSurfaceBounds!.y + accountSurfaceBounds!.height).toBeLessThanOrEqual(accountTriggerBounds!.y)
+
+  await accountMenu.getByRole('button', { name: '操作手册' }).click()
+  await expect(page).toHaveURL(/\/manual$/)
+  await expect(page.getByRole('heading', { name: '操作手册' })).toBeVisible()
+
+  if (testInfo.project.name === 'desktop') {
+    await page.goto('/subscriptions')
+    await page.getByRole('button', { name: '展开侧栏' }).click()
+    const documentationTrigger = page.getByRole('button', { name: '打开文档与发布菜单' })
+    await documentationTrigger.click()
+    const documentationMenu = page.getByRole('dialog', { name: '文档与发布菜单' })
+    await expect(documentationMenu.getByRole('button', { name: '操作手册' })).toBeVisible()
+    await expect(documentationMenu.getByRole('button', { name: '更新日志' })).toBeVisible()
+    await expect(documentationMenu.getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('rel', 'noopener noreferrer')
+    const documentationTriggerBounds = await documentationTrigger.boundingBox()
+    const documentationSurfaceBounds = await page.locator('[data-documentation-menu-surface]').boundingBox()
+    expect(documentationTriggerBounds).not.toBeNull()
+    expect(documentationSurfaceBounds).not.toBeNull()
+    expect(documentationSurfaceBounds!.y + documentationSurfaceBounds!.height).toBeLessThanOrEqual(documentationTriggerBounds!.y)
+  }
+})
+
+test('settings key tables contain scrolling, quota, refresh and accessible modal behavior', async ({ page }) => {
   const apiState = await mockAdminApi(page)
   await page.goto('/settings')
 
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
-  const keyTable = page.getByRole('grid', { name: '已配置 Key' })
-  await expect(keyTable).toBeVisible()
-  await expect(keyTable.getByRole('columnheader')).toHaveText(['Key', '类型', '状态', '额度', '操作'])
+  const apifyTable = page.getByRole('grid', { name: 'Apify Key 池' })
+  const aiTable = page.getByRole('grid', { name: '已配置 AI Key' })
+  await expect(apifyTable).toBeVisible()
+  await expect(aiTable).toBeVisible()
+  await expect(apifyTable.getByRole('columnheader')).toHaveText(['Key', '池状态', '额度', '操作'])
+  await expect(aiTable.getByRole('columnheader')).toHaveText(['Key', '类型', '状态', '额度', '操作'])
   await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
   await expect(page.getByText('暂不支持查询')).toBeVisible()
   await expect.poll(apiState.quotaRequests).toBe(1)
   const tableScroll = page.getByTestId('secret-table-scroll')
+  const apifyTableScroll = page.getByTestId('apify-key-pool-scroll')
   expect(await tableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
+  expect(await apifyTableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
   if ((page.viewportSize()?.width ?? 0) <= 390) {
     expect(await tableScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
   }

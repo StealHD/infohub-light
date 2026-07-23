@@ -52,6 +52,7 @@ This file is the sole source of truth for production UI technology, visual langu
 | `/subscriptions` | Quiet Studio adaptive administration page with the same on-demand Agent rail/Drawer as Feed |
 | `/agents` | Quiet Studio adaptive assistant-connection page; no Agent panel |
 | `/settings` | Quiet Studio adaptive settings page; no Agent panel |
+| `/manual` | Quiet Studio source-controlled operation manual with responsive section navigation and no Agent panel |
 | `/changelog` | Quiet Studio product changelog with source-controlled Chinese entries, responsive month navigation, and no Agent panel |
 | `/login` | Standalone Quiet Studio login page |
 
@@ -63,7 +64,7 @@ This file is the sole source of truth for production UI technology, visual langu
 
 - Expanded navigation is organized as 浏览（信息流、收藏、历史）、常用视图（全部、当天、公共订阅、私人订阅）and 管理（订阅、助手连接、设置、用户管理）. 稍后读、未读、AI、朋友动态、产品机会 are absent. `全部` is the aligned baseline state: it clears unread/source/channel/topic/subscription-scope filters while preserving the user's selected order and sort basis. Other quick views only transform the existing user-isolated Feed preference and introduce no API or URL state. Public scope includes legacy `workspace` catalog rows; private scope contains only the current user's visible private sources.
 - Expanded route rows and quick-view rows use one shared sidebar navigation pattern: 40 px minimum height, identical spacing, control typography, focus ring, hover surface, and selected state. Sidebar rows never scale or translate on hover or press; the quick-view dot is the only structural difference.
-- The collapsed brand uses the Inteliscope scope mark rather than a text initial. In expanded navigation, the bottom account area separates the avatar/name account trigger from an independent far-right Changelog icon, replacing the former upward chevron. The account Popover contains identity, Chinese role, settings, Changelog fallback, and an explicit logout action; collapsed/tablet layouts use that fallback, and mobile Settings exposes the same route. A standalone logout icon is not rendered.
+- The collapsed brand uses the Inteliscope scope mark rather than a text initial. The bottom account Popover opens vertically above its avatar trigger and contains identity, Chinese role, account/member settings, operation manual, Changelog, the external GitHub Release destination, and an explicit logout action. In expanded navigation, the avatar/name trigger is separated from an independent far-right “文档与发布” trigger; its own upward Popover offers operation manual, Changelog, and Release choices instead of navigating immediately. Collapsed/tablet layouts use the account fallback, and mobile Settings exposes the same three destinations. A standalone logout icon is not rendered.
 - At 1360 px and above, expanded navigation retains the Inteliscope brand and uses the approved rounded split-panel control to collapse. Collapsed desktop and 768–1359 px overlay triggers use the same 40 px control: closed is neutral with restrained hover/press feedback, and open alone uses the accent surface and text, matching the Agent toggle. Mobile navigation remains unchanged.
 - Header height is 52 px. The Web application does not imitate macOS traffic lights, window chrome, drag regions, or desktop-only operating-system controls.
 - `/feed`, collection routes, administration pages and authentication all inherit the application font stack and semantic typography scale from the design system. A route must not switch typography independently.
@@ -130,6 +131,7 @@ This file is the sole source of truth for production UI technology, visual langu
 - Every signed-in user can change their own password. The user-management route is available to Owner/Admin for member administration and renders the member collection as a responsive HeroUI Table whose identity, role, account status, and actions columns use one explicit custom-cell renderer. The visual contract is an avatar-led 76 px member row, sortable identity/role/status headers, a label-free compact role selector, semantic soft status chips, circular icon actions, and an 820 px minimum table width contained by horizontal scrolling rather than page overflow. Owner rows remain protected; eligible non-owner rows expose a confirmation-validated reset-password dialog using the existing optional password patch. Ordinary members receive only their own account controls, and server authorization remains authoritative.
 - Login uses the shared `auth` PageFrame, brand mark, semantic typography, controls, and focus feedback without rendering the authenticated shell.
 - Changelog entries are local version-controlled product copy grouped by `month-YYYY-MM`. `/changelog#month-YYYY-MM` deep-links to a month; desktop uses a sticky right-side vertical rail whose active segment follows scrolling, while narrower layouts expose a horizontal month selector. Passive scrolling replaces the current hash and an explicit month selection creates navigable history. The page copies only the reference information architecture, never external changelog content.
+- Operation-manual sections are local version-controlled Chinese copy grouped by stable `manual-*` IDs. `/manual#manual-*` uses the same responsive compact/desktop navigation behavior, links only to real production routes, and names the fixed GitHub Releases destination explicitly. Its visible review metadata comes from the manual source rather than from runtime logs or user data.
 - Action failures are reversible where optimistic state is used, explain recovery in a live region, and never replay across users. Logout or account replacement clears user-scoped transient feedback and cache according to existing session rules.
 
 ## 8. Development preview isolation
@@ -142,7 +144,7 @@ This file is the sole source of truth for production UI technology, visual langu
 
 Every production UI change must pass, in order:
 
-1. Static UI contract checks and ESLint import restrictions.
+1. Static UI contract checks, product-documentation merge maintenance, and ESLint import restrictions.
 2. TypeScript and Vitest.
 3. Vite production build and artifact scan proving no MUI/Emotion modules, `Mui` class markers, deleted preview routes, or deleted comparison copy.
 4. Playwright at 1440×900, 1024×768, and 390×844, including persisted manual dark/light choices, Reduced Motion, and Axe with zero serious or critical findings.

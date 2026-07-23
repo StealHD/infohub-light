@@ -76,6 +76,7 @@
 61. Quiet Studio 概览与外观轻量收口：遮挡 Feed 的信息概览响应工作台任意无交互语义的主指针点击并柔和退出；生产默认保留黑夜外观，右上角显式切换并持久化白天/黑夜模式，主题家族与亮度状态分离。该项取代第 58 项的系统跟随主题部分；精确交互只见 `UI_CONTRACT.md`，理由见 D053。
 62. 设置页 Key 可观测性与 Apify 额度：新增 Key 的字段与服务端失败在表单内反馈并发送 Toast；已配置 Key 使用 HeroUI v3 Table，Apify 行通过 owner/admin 安全投影接口显示套餐、本月用量、硬上限与周期，按用户/secret 缓存五分钟并支持刷新；轮换/删除使用行级 Modal。无数据库迁移、抓取、AI、scheduler、付费 Actor 或部署。
 63. Apify 单一 Key 池与安全额度切换：additive schema v8 记录工作区有序成员、generation 和 Actor Run ledger，Service 的 `source_test/source_fetch/user_feed_refresh` 统一固定使用一把 Key 完成 start/poll/abort/dataset；402/明确额度耗尽与 401 才触发 Key 状态变化，旧 generation 全部 Run 中止并确认终态前 fail closed，未知 POST 结果永久阻塞待人工核对。设置页与管理员 API 只暴露安全池状态；`HORIZON_APIFY_KEY_POOL_ENABLED=false` 默认关闭，未调用真实 Key、付费 Actor、Worker、scheduler 或生产部署。
+64. 产品文档与发布入口：新增源码受控 `/manual` 操作手册；账户菜单和独立“文档与发布”菜单均向上展开并提供操作手册、更新日志和 GitHub Release 入口。Test Gate 对每次产品代码合并强制检查手册与更新日志双源已同步复核；权威交互见 `UI_CONTRACT.md`，流程理由见 D057。
 
 当前仍需推进：
 

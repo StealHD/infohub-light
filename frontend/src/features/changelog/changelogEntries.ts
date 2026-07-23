@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-23',
+        title: '操作手册与发布入口',
+        summary: '把使用说明、产品更新和正式 Release 放到随时可达的账户区域，并建立合并文档门禁。',
+        items: [
+          { title: '操作手册', description: '新增源码受控的操作手册，覆盖订阅、阅读、运行记录、Agent、账户设置和常见状态排查。' },
+          { title: '向上账户菜单', description: '侧栏底部头像菜单改为垂直向上展开；折叠导航也能直接进入操作手册、更新日志和 Release 发布页。' },
+          { title: '文档与发布菜单', description: '展开侧栏后，账户右侧提供独立的向上菜单，可在操作手册、更新日志和 GitHub Release 页面之间选择。' },
+          { title: '合并自动检查', description: '每次产品代码合并都由 Test Gate 验证操作手册与更新日志已同步复核，缺少任一项时检查失败。' },
+        ],
+      },
+      {
+        date: '2026-07-23',
         title: '操作结果不再挤压页面',
         summary: '保存、更新与任务结果统一从页面顶部短暂出现，正文和列表保持原位。',
         items: [
@@ -41,7 +52,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '柔和的工作区变化', description: '左右侧栏使用一致的短过渡；关闭 Agent 面板时先停止交互，再在动画结束后卸载内容。' },
           { title: '稳定的发送位置', description: 'OpenClaw 发送按钮切换为停止状态时保持在同一位置，连续操作不再引起工具栏跳动。' },
           { title: '可预期的信息流', description: '切换发布时间、入库时间或排序方向后，信息流会回到当前排序的新鲜边缘；筛选与刷新仍保留阅读位置。' },
-          { title: '跟随系统外观', description: '浅色与深色外观现在跟随操作系统，并在应用加载前确定主题，减少启动时的颜色闪动。' },
+          { title: '明确的明暗外观', description: '页头可以显式选择白天或黑夜模式；选择会在应用加载前恢复，不再被后续系统外观变化覆盖。' },
         ],
       },
       {

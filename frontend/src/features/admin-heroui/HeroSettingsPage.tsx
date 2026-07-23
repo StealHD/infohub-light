@@ -29,6 +29,7 @@ import {
   secretPresentation,
   settingsDataReady,
 } from '../settings/settingsModel'
+import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
 
@@ -753,8 +754,17 @@ export function HeroSettingsPage() {
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
 
-    <AdminSection title="关于 Inteliscope" description="查看近期的重要功能、交互和可用性变化。">
-      <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>
+    <AdminSection title="关于 Inteliscope" description="查阅操作方法、产品变化和正式发布记录。">
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="secondary" onPress={() => navigate('/manual')}><Icons.BookOpen size={16} aria-hidden="true" />查看操作手册</Button>
+        <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>
+        <a
+          href={PRODUCT_RELEASES_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="type-control inline-flex min-h-8 items-center gap-2 rounded-xl border border-separator bg-surface-secondary px-3 text-foreground hover:bg-default focus-visible:outline-2 focus-visible:outline-focus"
+        ><Icons.Rocket size={16} aria-hidden="true" />Release 发布页<Icons.ExternalLink size={13} aria-hidden="true" /></a>
+      </div>
     </AdminSection>
 
     <AdminSection title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">

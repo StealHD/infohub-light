@@ -2509,9 +2509,51 @@
 - 安全边界：切换前创建 `0600` 备份 `data/backups/pre-ui-operation-feedback-toasts-20260723T100253Z.db`；独立 scheduler 未运行，Worker 启动时确认到期计划为 0，并将计划轮询间隔限制为 86400 秒
 - 控制面变更：无；未部署 VPS，未触发真实抓取、AI、付费调用或数据库恢复
 
+### 2026-07-23 18:10 Codex
+- 任务：不修改产品项目，使用当前订阅数据临时预览 HeroUI Table 版页面
+- 修改文件：仅本工作日志；临时页面位于 `/tmp`，未修改产品源码、API、数据库或 `8080` 服务
+- 执行验证：深色主题下 9 个真实来源、状态、频道、结果和操作列均已呈现；搜索为本地过滤，其他按钮明确不执行真实操作
+- 结果：当前浏览器已打开仅回环访问的临时 Table 页面；点击“返回原页面”即可回到真实订阅页
+- 控制面变更：无
+
+### 2026-07-23 19:10 Codex
+- 任务：从 `main` 新建 `codex/account-help-release-menu`，新增操作手册并改造侧栏底部文档与发布入口
+- 修改文件：新增 `/manual`、版本说明链接与双源文档检查脚本；账户菜单和展开侧栏右侧菜单均向上展开，可选操作手册、更新日志或 GitHub Release
+- 执行验证：定向 Vitest 25/25 与手册复核 3/3、Python 8/8、TypeScript/UI 检查通过；`test_gate full` 22/22，release Playwright 51 passed/6 skipped；浏览器实测菜单方向、手册页首与控制台错误 0
+- 结果：产品代码合并时 Test Gate 强制同时复核源码化操作手册和更新日志，缺少任一项即失败；未调用外部服务、未改数据库或共享 `8080` 容器
+- 控制面变更：新增 D057、PLAN 第 64 项及 `/manual`、菜单交互和文档合并门禁 UI 合同；API 合同无变化
+
+### 2026-07-23 21:36 Codex
+- 任务：构建并启动 `codex/account-help-release-menu` 当前工作区的本地 API/Worker 容器
+- 运行变更：`./scripts/up-latest.sh` 生成并切换到 `inteliscope-service:local-9d5bd32467a0-dirty`；Compose 仍仅包含 API/Worker，未启动 scheduler
+- 执行验证：API/Worker healthy、0 restart、live revision 匹配且 ready；`/manual`、`/changelog` 均为 200，正式容器页面浏览器渲染正常且控制台错误 0
+- 结果：`http://127.0.0.1:8080/manual` 已留在浏览器供查看；切换前 active jobs=0，启动后出现 1 个本任务未创建的 queued source_fetch，未取消、重试或修改
+- 控制面变更：无；未由 Codex 触发 scheduler、来源抓取、Apify Actor 或 AI
+
 ### 2026-07-23 21:40 Codex
 - 任务：把 `codex/ui-operation-feedback-toasts` 已验证改动本地合并到包含 Apify Key Pool 的最新 `main`
 - 修改文件：合入功能提交 `63049b0`；人工整合设置页 Key Pool 的缓存刷新、排空/排序反馈以及 D055/D056 和双方工作日志，并更新用户可见 Changelog
 - 产品文档：已审阅操作手册与更新日志；操作手册源仍属于另一个尚未合入的并行功能，未夹带其未提交页面，本次更新现有 Changelog
 - 执行验证：合并态 TypeScript、定向 Vitest 110/110；`test_gate full` 22/22、0 failed/error、113.807 秒，配置 JSON 与 `git diff --check` 通过
 - 结果：本地 `main` 同时包含 Apify Key Pool 与全站顶部操作 Toast；现有脏工作树和本地运行容器保持不变，未推送、未部署，未触发 scheduler、真实抓取、AI 或付费调用
+
+### 2026-07-23 21:48 Codex
+- 任务：构建并启动合并后的 `main@18e67db`，在应用内浏览器打开设置页 Apify Key 池
+- 运行变更：API/Worker 切换到同一镜像 `inteliscope-service:local-18e67dbd88bd-main`，继续显式挂载既有 `.env/data/logs`；Key 池开关保持 `false`，Worker 计划轮询限制为 86400 秒
+- 执行验证：API/Worker healthy、0 restart、live=`1.7.2/18e67dbd88bd`、database/worker ready；SQLite quick check=`ok`，queued/running job、非终态 Actor Run、到期调度和 scheduler 均为 0，严重日志匹配为 0
+- 结果：`http://127.0.0.1:8080/settings` 已打开并滚动到 Apify Key 池；切换前创建 `0600` 备份 `data/backups/pre-main-toast-preview-20260723T134450Z.db`
+- 控制面变更：无；未启用 Key 自动切换，未部署、未触发 scheduler、真实抓取、AI、付费 Actor 或数据库恢复
+
+### 2026-07-23 22:14 Codex
+- 任务：按用户澄清让本地 Apify Key 池配置实际生效
+- 运行变更：先停 Worker，再将 API/Worker 的 `HORIZON_APIFY_KEY_POOL_ENABLED` 切为 `true` 并重建同版本容器；本机 `.env` 同步持久化开关且权限收紧为 `0600`
+- 执行验证：停机前后 queued/running job、有效 lease、非终态 Actor Run 和到期调度均为 0；API/Worker healthy、0 restart、同镜像、两侧 effective flag=`true`，SQLite quick check=`ok`
+- 结果：设置页已刷新并显示“当前主用：Apify3 · 可以启动新任务”；切换前备份为 `data/backups/pre-main-key-pool-enable-20260723T141206Z.db`
+- 安全边界：Worker 计划轮询保持 86400 秒，scheduler 未运行；未主动创建抓取任务、启动 Actor、执行付费 canary、调用 AI 或部署
+
+### 2026-07-23 22:41 Codex
+- 任务：把 `codex/account-help-release-menu` 已验证改动本地合并到包含全站 Toast 的最新 `main`
+- 修改文件：合入功能提交 `04014fb`；人工整合 D056/D057、双方 Changelog、操作手册中的顶部反馈说明、菜单/设置页及全部并行工作日志
+- 执行验证：合并态 TypeScript/UI 检查、定向 Vitest 96/96、Python 8/8；`test_gate full` 22/22、0 failed/error、101.906 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：本地 `main` 同时包含 Apify Key Pool、全站 Toast、操作手册、更新日志/Release 菜单和产品文档合并门禁；现有容器保持不变
+- 控制面变更：D057 与 PLAN 第 64 项落入 main；未推送、部署、重建容器或触发 scheduler、来源抓取、Apify Actor、AI

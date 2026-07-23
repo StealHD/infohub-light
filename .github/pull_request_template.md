@@ -22,3 +22,4 @@ Anything reviewers should pay attention to?
 - [ ] I explained the change clearly
 - [ ] I kept the PR focused and easy to review
 - [ ] I tested the change locally when applicable
+- [ ] Product-code changes review both `manualContent.ts` and `changelogEntries.ts` (enforced by Test Gate)
