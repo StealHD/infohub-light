@@ -837,11 +837,92 @@ class ServiceStore:
                 scope TEXT NOT NULL,
                 kind TEXT NOT NULL DEFAULT 'ai',
                 provider TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
                 FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE SET NULL
             );
+
+            CREATE TABLE IF NOT EXISTS apify_key_pool_state (
+                workspace_id TEXT PRIMARY KEY,
+                generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(generation >= 1),
+                status TEXT NOT NULL DEFAULT 'empty'
+                    CHECK(status IN ('empty', 'ready', 'draining', 'blocked', 'exhausted')),
+                active_secret_id TEXT,
+                draining_secret_id TEXT,
+                drain_generation INTEGER,
+                drain_target_status TEXT
+                    CHECK(drain_target_status IS NULL OR drain_target_status IN (
+                        'standby', 'depleted', 'invalid'
+                    )),
+                drain_reason TEXT,
+                drain_started_at TEXT,
+                blocked_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS apify_key_pool_members (
+                workspace_id TEXT NOT NULL,
+                secret_id TEXT NOT NULL,
+                position INTEGER NOT NULL CHECK(position >= 0),
+                status TEXT NOT NULL
+                    CHECK(status IN ('active', 'standby', 'draining', 'depleted', 'invalid')),
+                blocked_until TEXT,
+                cycle_start_at TEXT,
+                cycle_end_at TEXT,
+                last_checked_at TEXT,
+                last_error_code TEXT,
+                monthly_included_credits_usd REAL
+                    CHECK(monthly_included_credits_usd IS NULL OR monthly_included_credits_usd >= 0),
+                monthly_usage_usd REAL
+                    CHECK(monthly_usage_usd IS NULL OR monthly_usage_usd >= 0),
+                remaining_included_credits_usd REAL
+                    CHECK(remaining_included_credits_usd IS NULL OR remaining_included_credits_usd >= 0),
+                max_monthly_usage_usd REAL
+                    CHECK(max_monthly_usage_usd IS NULL OR max_monthly_usage_usd >= 0),
+                remaining_hard_limit_usd REAL
+                    CHECK(remaining_hard_limit_usd IS NULL OR remaining_hard_limit_usd >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, secret_id),
+                UNIQUE(workspace_id, position),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(secret_id) REFERENCES secret_refs(id) ON DELETE RESTRICT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_key_pool_one_active
+                ON apify_key_pool_members(workspace_id)
+                WHERE status = 'active';
+            CREATE INDEX IF NOT EXISTS idx_apify_key_pool_members_status
+                ON apify_key_pool_members(workspace_id, status, position);
+
+            CREATE TABLE IF NOT EXISTS apify_actor_runs (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                logical_run_id TEXT,
+                secret_id TEXT NOT NULL,
+                secret_version INTEGER NOT NULL CHECK(secret_version >= 1),
+                pool_generation INTEGER NOT NULL CHECK(pool_generation >= 1),
+                remote_run_id TEXT,
+                dataset_id TEXT,
+                status TEXT NOT NULL,
+                last_error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                terminal_at TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_runs_remote
+                ON apify_actor_runs(workspace_id, remote_run_id)
+                WHERE remote_run_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_runs_barrier
+                ON apify_actor_runs(workspace_id, pool_generation, status);
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_runs_secret_status
+                ON apify_actor_runs(workspace_id, secret_id, status);
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -923,6 +1004,7 @@ class ServiceStore:
         self._ensure_column("fetch_jobs", "cancelled_at", "TEXT")
         self._ensure_column("secret_refs", "kind", "TEXT NOT NULL DEFAULT 'ai'")
         self._ensure_column("secret_refs", "provider", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("secret_refs", "version", "INTEGER NOT NULL DEFAULT 1")
         self._ensure_column(
             "source_acquisition_states",
             "failure_count",
@@ -1006,6 +1088,8 @@ class ServiceStore:
         self.mark_agent_change_proposals_v7_migrated(commit=False)
         self._bootstrap_default_workspace()
         self._bootstrap_admin_user()
+        self._seed_apify_key_pools(commit=False)
+        self.mark_apify_key_pool_v8_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -1099,6 +1183,222 @@ class ServiceStore:
         )
         if commit:
             self.connect().commit()
+
+    def mark_apify_key_pool_v8_migrated(self, *, commit: bool = True) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (8, 'apify_key_pool_v8', 'apify-key-pool-v8-safe-failover', ?)
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def _seed_apify_key_pools(self, *, commit: bool = True) -> None:
+        """Idempotently seed workspace pools from existing Apify secret refs."""
+
+        conn = self.connect()
+        now = _now_iso()
+        workspace_rows = conn.execute(
+            "SELECT id FROM workspaces ORDER BY created_at, id"
+        ).fetchall()
+        for workspace_row in workspace_rows:
+            workspace_id = str(workspace_row["id"])
+            discovered_refs = conn.execute(
+                """
+                SELECT
+                    secret.id,
+                    secret.created_at,
+                    COUNT(source.id) AS enabled_reference_count
+                FROM secret_refs AS secret
+                LEFT JOIN source_catalog AS source
+                  ON source.workspace_id = secret.workspace_id
+                 AND source.secret_env = secret.env_name
+                 AND source.type = 'apify_social'
+                 AND source.enabled = 1
+                WHERE secret.workspace_id = ?
+                  AND (
+                    lower(secret.provider) = 'apify'
+                    OR lower(secret.kind) = 'apify'
+                )
+                GROUP BY secret.id, secret.created_at
+                """,
+                (workspace_id,),
+            ).fetchall()
+            refs: list[sqlite3.Row] = []
+            if discovered_refs:
+                primary = min(
+                    discovered_refs,
+                    key=lambda row: (
+                        -int(row["enabled_reference_count"]),
+                        str(row["created_at"]),
+                        str(row["id"]),
+                    ),
+                )
+                refs = [
+                    primary,
+                    *sorted(
+                        (
+                            row
+                            for row in discovered_refs
+                            if str(row["id"]) != str(primary["id"])
+                        ),
+                        key=lambda row: (
+                            str(row["created_at"]),
+                            str(row["id"]),
+                        ),
+                    ),
+                ]
+            state = conn.execute(
+                "SELECT * FROM apify_key_pool_state WHERE workspace_id = ?",
+                (workspace_id,),
+            ).fetchone()
+            if state is None:
+                primary_id = str(refs[0]["id"]) if refs else None
+                conn.execute(
+                    """
+                    INSERT INTO apify_key_pool_state (
+                        workspace_id, generation, status, active_secret_id,
+                        created_at, updated_at
+                    ) VALUES (?, 1, ?, ?, ?, ?)
+                    """,
+                    (
+                        workspace_id,
+                        "ready" if primary_id else "empty",
+                        primary_id,
+                        now,
+                        now,
+                    ),
+                )
+                state = conn.execute(
+                    "SELECT * FROM apify_key_pool_state WHERE workspace_id = ?",
+                    (workspace_id,),
+                ).fetchone()
+
+            existing_rows = conn.execute(
+                """
+                SELECT secret_id, position, status
+                FROM apify_key_pool_members
+                WHERE workspace_id = ?
+                ORDER BY position
+                """,
+                (workspace_id,),
+            ).fetchall()
+            existing_ids = {str(row["secret_id"]) for row in existing_rows}
+            next_position = (
+                max(int(row["position"]) for row in existing_rows) + 1
+                if existing_rows
+                else 0
+            )
+            active_secret_id = (
+                str(state["active_secret_id"])
+                if state is not None and state["active_secret_id"]
+                else None
+            )
+            seed_primary_id = (
+                str(refs[0]["id"])
+                if refs
+                and not existing_rows
+                and state is not None
+                and state["status"] in {"empty", "exhausted"}
+                and active_secret_id is None
+                else None
+            )
+            for ref in refs:
+                secret_id = str(ref["id"])
+                if secret_id in existing_ids:
+                    continue
+                status = (
+                    "active"
+                    if not existing_rows
+                    and (active_secret_id == secret_id or seed_primary_id == secret_id)
+                    and state is not None
+                    and state["status"] in {"ready", "empty", "exhausted"}
+                    else "standby"
+                )
+                conn.execute(
+                    """
+                    INSERT INTO apify_key_pool_members (
+                        workspace_id, secret_id, position, status,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (workspace_id, secret_id, next_position, status, now, now),
+                )
+                existing_ids.add(secret_id)
+                existing_rows = [*existing_rows, {"position": next_position}]
+                next_position += 1
+
+            if state is None or state["status"] in {"draining", "blocked"}:
+                continue
+            active = conn.execute(
+                """
+                SELECT secret_id
+                FROM apify_key_pool_members
+                WHERE workspace_id = ? AND status = 'active'
+                LIMIT 1
+                """,
+                (workspace_id,),
+            ).fetchone()
+            if active is not None:
+                conn.execute(
+                    """
+                    UPDATE apify_key_pool_state
+                    SET status = 'ready', active_secret_id = ?,
+                        blocked_reason = NULL, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (active["secret_id"], now, workspace_id),
+                )
+                continue
+            candidate = conn.execute(
+                """
+                SELECT secret_id
+                FROM apify_key_pool_members
+                WHERE workspace_id = ? AND status = 'standby'
+                ORDER BY position
+                LIMIT 1
+                """,
+                (workspace_id,),
+            ).fetchone()
+            if candidate is not None:
+                conn.execute(
+                    """
+                    UPDATE apify_key_pool_members
+                    SET status = 'active', updated_at = ?
+                    WHERE workspace_id = ? AND secret_id = ?
+                    """,
+                    (now, workspace_id, candidate["secret_id"]),
+                )
+                conn.execute(
+                    """
+                    UPDATE apify_key_pool_state
+                    SET status = 'ready', active_secret_id = ?,
+                        generation = generation + 1,
+                        blocked_reason = NULL, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (candidate["secret_id"], now, workspace_id),
+                )
+            else:
+                member_exists = conn.execute(
+                    """
+                    SELECT 1 FROM apify_key_pool_members
+                    WHERE workspace_id = ? LIMIT 1
+                    """,
+                    (workspace_id,),
+                ).fetchone()
+                conn.execute(
+                    """
+                    UPDATE apify_key_pool_state
+                    SET status = ?, active_secret_id = NULL, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    ("exhausted" if member_exists else "empty", now, workspace_id),
+                )
+        if commit:
+            conn.commit()
 
     def _has_unmigrated_content_index_v4_artifacts(self) -> bool:
         return bool(
@@ -2251,7 +2551,11 @@ class ServiceStore:
 
     def touch_secret_ref(self, secret_id: str) -> dict[str, Any]:
         self.connect().execute(
-            "UPDATE secret_refs SET updated_at = ? WHERE id = ?",
+            """
+            UPDATE secret_refs
+            SET version = version + 1, updated_at = ?
+            WHERE id = ?
+            """,
             (_now_iso(), secret_id),
         )
         self.connect().commit()

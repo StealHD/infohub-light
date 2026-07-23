@@ -116,6 +116,8 @@ describe('subscription model', () => {
 
   it('offers an Apify key only to the Apify source definition', () => {
     expect(sourceUsesSecret({ type: 'apify_social', fields: [] })).toBe(true)
+    expect(sourceUsesSecret({ type: 'apify_social', fields: [], credential_mode: 'source_secret' })).toBe(true)
+    expect(sourceUsesSecret({ type: 'apify_social', fields: [], credential_mode: 'workspace_apify_pool' })).toBe(false)
     expect(sourceUsesSecret({ type: 'rss', fields: [] })).toBe(false)
     expect(sourceUsesSecret({ type: 'github_release', fields: [] })).toBe(false)
   })

@@ -164,6 +164,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
     <HeroSelect name="default_channel" label="默认频道" value={channel} onChange={setChannel} options={[{ id: '', label: '未设置' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
     <TopicCombo label="默认主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
     {allowSecret && <HeroSelect name="secret_env" label="Apify Key" value={secretEnv} onChange={setSecretEnv} options={[{ id: '', label: '不使用 Key' }, ...secrets.filter((secret) => secret.kind === 'apify').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />}
+    {definition.credential_mode === 'workspace_apify_pool' && <HeroNotice title="由工作区 Apify Key 池自动管理" />}
     <Checkbox name="enabled" defaultSelected={source?.enabled ?? true}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用来源</Checkbox.Content></Checkbox>
     <Fieldset><Fieldset.Legend>高级配置</Fieldset.Legend><Fieldset.Group><TextArea fullWidth aria-label="高级配置 JSON" value={advanced} onChange={(event) => setAdvanced(event.target.value)} rows={5} /></Fieldset.Group></Fieldset>
     {error && <HeroNotice title={error} />}

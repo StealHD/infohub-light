@@ -55,7 +55,20 @@ def test_source_type_registry_lists_supported_types_and_templates():
         "template",
         "fields",
         "supports_secret_env",
+        "credential_mode",
     }
+    assert by_type["rss"]["credential_mode"] == "none"
+    assert by_type["apify_social"]["credential_mode"] == "source_secret"
+
+
+def test_source_type_registry_projects_workspace_apify_pool_mode(monkeypatch):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+
+    by_type = {item["type"]: item for item in list_source_types()}
+
+    assert by_type["apify_social"]["supports_secret_env"] is False
+    assert by_type["apify_social"]["credential_mode"] == "workspace_apify_pool"
+    assert by_type["rss"]["credential_mode"] == "none"
 
 
 def test_source_type_registry_exposes_safe_canonical_field_metadata():

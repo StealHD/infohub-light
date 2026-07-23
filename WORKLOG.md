@@ -2458,3 +2458,24 @@
 - 执行验证：切换前 active jobs=0、due schedules=0；API/Worker 同镜像且 healthy，live=`1.7.1/8531ea4efd8e`、database/worker ready；运行库保有 3 users、91 feed snapshots、707 feed items
 - 结果：`http://127.0.0.1:8080/` 已运行合并后的本地 main 版本；未启动 scheduler，未触发来源抓取、AI 或付费调用
 - 控制面变更：无；未推送远端或部署 VPS
+
+### 2026-07-23 15:56 Codex
+- 任务：从 `main@734d79d` 在隔离 worktree 实现 Apify 工作区单一 Key 池、Run 排空屏障与安全额度切换
+- 修改文件：schema v8、Key pool/runtime、Apify client/adapter、Worker/采集/调度、管理员 API、设置页与来源表单、合同/默认开关/影响映射及回归测试
+- 执行验证：后端定向 116/116、前端定向 89/89，TypeScript、UI contract、production build、lint（0 error、7 个既有 warning）通过；`test_gate full` 22/22、101.279 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：Service Apify 路径在开关开启后统一使用粘性主用/有序备用池；402/明确额度耗尽和无效 Token 先排空旧 generation 的已登记 Run，确认终态后才以新 Key 创建新 Run，未知启动结果保持 fail closed
+- 控制面变更：API/架构/UI 合同、PLAN、D055 与默认关闭的 `HORIZON_APIFY_KEY_POOL_ENABLED` 已更新；未调用真实 Key、付费 Actor、AI、Worker/scheduler、容器或生产部署
+
+### 2026-07-23 16:21 Codex
+- 任务：构建并启动 `codex/apify-key-pool-failover` 的本地 API/Worker 容器
+- 运行变更：使用镜像 `inteliscope-service:local-734d79d4f0f0-apify-key-pool-dirty`（image ID `sha256:a772b2176ebe…8f68`），通过临时 Compose override 显式复用原本地 `.env/data/logs`，并强制保持 `HORIZON_APIFY_KEY_POOL_ENABLED=false`
+- 数据安全：切换前 active jobs、due source/feed schedules 均为 0；备份 `data/backups/pre-apify-key-pool-preview-20260723T081814Z.db`，SHA-256 `2d88fa9c4834…63ab`、`0600`、integrity=`ok`
+- 执行验证：API/Worker 同镜像、healthy、0 restart；live revision=`734d79d4f0f0-apify-key-pool-dirty`、ready；schema v8 已应用，池为 1 active/3 standby、Actor Run=0；设置页 200、池 OpenAPI 路由存在、未认证池接口 401、严重日志匹配=0
+- 结果：`http://127.0.0.1:8080/` 已运行本分支；Job/Feed 计数未变化，scheduler 未启动，未调用真实 Key、付费 Actor、AI 或来源抓取
+
+### 2026-07-23 17:07 Codex
+- 任务：按用户要求启用本地 Apify Key 池供页面测试
+- 运行变更：同一分支镜像重建 API/Worker，临时 Compose override 将两者的 `HORIZON_APIFY_KEY_POOL_ENABLED` 显式切为 `true`
+- 数据安全：切换前 active jobs、非终态 Actor Runs、due source/feed schedules 均为 0；备份 `data/backups/pre-apify-key-pool-enable-20260723T090538Z.db`，SHA-256 `0d9c3b0a57c1…365c`、`0600`、integrity=`ok`
+- 执行验证：API/Worker healthy、0 restart、live/ready；两容器 effective flag 均为 true，池为 ready/generation 1（1 active、2 standby、1 depleted），启用后 Job/Actor Run 仍为 0；设置页 200、未认证池接口 401、严重/Actor 请求日志匹配均为 0
+- 结果：`http://127.0.0.1:8080/settings` 已可登录刷新测试；scheduler 未启动，Codex 未创建抓取任务或调用 Apify、AI、付费 Actor

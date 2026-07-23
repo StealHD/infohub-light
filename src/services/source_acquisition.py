@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from ..models import ContentItem
 from ..storage.service_store import ServiceStore
+from .apify_key_pool import apify_key_pool_enabled, apify_pool_generation
 
 
 ADAPTER_CONTRACT_VERSION = "service-content-v1"
@@ -97,6 +98,7 @@ class _AcquisitionContext:
     acquisition_key: str
     config_fingerprint: str
     isolation_scope: str
+    pool_generation: int | None
     source_id: str
     window_hours: int
 
@@ -272,6 +274,7 @@ class SourceAcquisitionCoordinator:
             ).hexdigest(),
             config_fingerprint=base_context.config_fingerprint,
             isolation_scope=base_context.isolation_scope,
+            pool_generation=base_context.pool_generation,
             source_id=base_context.source_id,
             window_hours=1,
         )
@@ -307,21 +310,35 @@ class SourceAcquisitionCoordinator:
             if catalog["scope"] == "private"
             else f"workspace:{self.workspace_id}"
         )
+        pool_managed = (
+            catalog["type"] == "apify_social" and apify_key_pool_enabled()
+        )
+        pool_generation = (
+            apify_pool_generation(self.store, self.workspace_id)
+            if pool_managed
+            else None
+        )
         secret_identity: dict[str, Any] | None = None
-        secret_env = str(catalog.get("secret_env") or "")
-        if secret_env:
-            secret = self.store.get_secret_ref_by_env(
-                workspace_id=self.workspace_id,
-                env_name=secret_env,
-            )
-            secret_identity = (
-                {
-                    "id": secret["id"],
-                    "updated_at": secret["updated_at"],
-                }
-                if secret
-                else {"env_name": secret_env}
-            )
+        if pool_managed:
+            secret_identity = {
+                "mode": "workspace_apify_pool",
+                "generation": pool_generation,
+            }
+        else:
+            secret_env = str(catalog.get("secret_env") or "")
+            if secret_env:
+                secret = self.store.get_secret_ref_by_env(
+                    workspace_id=self.workspace_id,
+                    env_name=secret_env,
+                )
+                secret_identity = (
+                    {
+                        "id": secret["id"],
+                        "updated_at": secret["updated_at"],
+                    }
+                    if secret
+                    else {"env_name": secret_env}
+                )
         fingerprint_payload = {
             "adapter_contract": ADAPTER_CONTRACT_VERSION,
             "source_type": catalog["type"],
@@ -350,6 +367,7 @@ class SourceAcquisitionCoordinator:
             acquisition_key=acquisition_key,
             config_fingerprint=config_fingerprint,
             isolation_scope=isolation_scope,
+            pool_generation=pool_generation,
             source_id=source_id,
             window_hours=window_hours,
         )
@@ -597,6 +615,14 @@ class SourceAcquisitionCoordinator:
         snapshot_id = f"acq_{uuid.uuid4().hex}"
         try:
             conn.execute("BEGIN IMMEDIATE")
+            if (
+                context.pool_generation is not None
+                and apify_pool_generation(self.store, self.workspace_id)
+                != context.pool_generation
+            ):
+                raise AcquisitionLeaseLostError(
+                    "Apify key pool generation changed before cache publication"
+                )
             state = conn.execute(
                 """
                 SELECT claim_token FROM source_acquisition_states

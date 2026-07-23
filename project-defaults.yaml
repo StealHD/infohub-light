@@ -10,7 +10,7 @@
     "legacy_settings_version": "0.1",
     "primary_runtime_config": "data/config.json",
     "system": {
-      "current_phase": "Shared acquisition and Feed storage v3 implemented and locally verified behind disabled rollout flags; vps-tokyo runs release api-20260714T110652Z-d0c8905-wt2e4cb2ea API-only with Worker and scheduler disabled; Nginx Basic Auth is removed and public owner login is verified; explicit v3 apply, full public UI acceptance, and natural-cycle rollout remain pending; Telegram direct-connect blocker remains",
+      "current_phase": "Shared acquisition, Feed storage v3, and workspace Apify key-pool failover are implemented and locally verified behind disabled rollout flags; vps-tokyo runs release api-20260714T110652Z-d0c8905-wt2e4cb2ea API-only with Worker and scheduler disabled; Nginx Basic Auth is removed and public owner login is verified; explicit v3 apply, controlled Apify drain/canary, full public UI acceptance, and natural-cycle rollout remain pending; Telegram direct-connect blocker remains",
       "capability_degrade_enabled": true,
       "evidence_required": true,
       "default_timezone": "Asia/Shanghai"
@@ -84,6 +84,7 @@
       "vps_staged_promotion_enabled": true,
       "admin_secret_management_enabled": true,
       "local_secret_hot_reload_enabled": true,
+      "apify_key_pool_enabled": false,
       "bounded_item_summary_enabled": true,
       "feed_presentation_v1_enabled": true,
       "user_scoped_analysis_cache_enabled": true,
@@ -109,6 +110,9 @@
       "max_ai_attempts_per_workspace_day": 1000,
       "max_fetch_attempts_per_workspace_day": 100,
       "max_fetch_attempts_per_provider_day": 100,
+      "apify_quota_snapshot_max_age_seconds": 60,
+      "apify_drain_timeout_seconds": 30,
+      "apify_max_attempts_per_key_per_logical_run": 1,
       "shared_acquisition_ttl_minutes": {"min": 5, "max": 60, "fallback": 30},
       "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14},
       "max_feed_snapshots_per_user": 100

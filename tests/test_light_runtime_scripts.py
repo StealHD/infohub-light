@@ -87,6 +87,24 @@ def test_remote_mcp_subscription_writes_are_wired_off_by_default():
         ) in api
 
 
+def test_apify_key_pool_is_wired_off_for_api_worker_and_release_smoke():
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "HORIZON_APIFY_KEY_POOL_ENABLED=false" in env_example
+    for filename in ("docker-compose.yml", "docker-compose.light.yml"):
+        compose = (ROOT / filename).read_text(encoding="utf-8")
+        services = _compose_service_blocks(compose)
+        for service_name in ("horizon-api", "horizon-worker"):
+            assert (
+                "HORIZON_APIFY_KEY_POOL_ENABLED: "
+                "${HORIZON_APIFY_KEY_POOL_ENABLED:-false}"
+            ) in services[service_name]
+    release_smoke = (ROOT / "docker-compose.test-gate.yml").read_text(
+        encoding="utf-8"
+    )
+    assert 'HORIZON_APIFY_KEY_POOL_ENABLED: "false"' in release_smoke
+
+
 def test_openclaw_browser_chat_is_wired_off_with_a_loopback_default():
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
 

@@ -9,15 +9,23 @@ Horizon is configured through two files: a `.env` file for API keys and a `data/
 
 ## Service acquisition, quotas, and retention
 
-Service jobs remain user-scoped, but production acquisition can reuse neutral content for a public/workspace source within one freshness window. Private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared. Both rollout flags default to `false`:
+Service jobs remain user-scoped, but production acquisition can reuse neutral content for a public/workspace source within one freshness window. Private sources, subscription projection, AI analysis, item state, and Feed snapshots are never shared. Rollout flags default to `false`:
 
 ```bash
+HORIZON_APIFY_KEY_POOL_ENABLED=false
 HORIZON_SHARED_ACQUISITION_ENABLED=false
 HORIZON_SHARED_ACQUISITION_MIN_TTL_MINUTES=5
 HORIZON_SHARED_ACQUISITION_MAX_TTL_MINUTES=60
 HORIZON_SHARED_ACQUISITION_FALLBACK_TTL_MINUTES=30
 HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=false
 ```
+
+`HORIZON_APIFY_KEY_POOL_ENABLED` is an independent Service-only rollout gate.
+When enabled, every Apify catalog source uses the workspace's ordered Key pool;
+source-level `secret_env` values remain stored only for rollback compatibility
+and are not read by Service jobs. Keep the flag disabled until Workers are
+stopped, existing remote runs are confirmed terminal, and the database is
+backed up.
 
 The shared TTL uses the shortest enabled source/Feed schedule and clamps it to the configured minimum/maximum. `source_test` always bypasses successful production content and does not publish into the shared pool, while still serializing same-source tests and charging a real upstream attempt.
 

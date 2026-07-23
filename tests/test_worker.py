@@ -215,6 +215,64 @@ def test_worker_source_test_payload_uses_registry_and_secret_env_name(tmp_path, 
     assert "real-token-value" not in repr(calls[0])
 
 
+def test_worker_source_test_uses_workspace_apify_pool_without_source_key_reference(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    secret = store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=None,
+        name="Workspace Apify",
+        env_name="APIFY_WORKSPACE_TOKEN",
+        kind="provider",
+        provider="apify",
+    )
+    SecretStore(tmp_path).set("APIFY_WORKSPACE_TOKEN", "private-workspace-token")
+    store.initialize()
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="OpenAI on X",
+        config={"platform": "x", "kind": "profile", "target": "openai"},
+        secret_env="LEGACY_SOURCE_TOKEN",
+        source_key="apify_social:x:profile:openai",
+    )
+    JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        job_type="source_test",
+        payload={"reason": "test"},
+    )
+    calls = []
+
+    def fake_run_source_test(payload, *, apify_coordinator):
+        calls.append((payload, apify_coordinator))
+        return {"ok": True, "source_type": payload["source_type"]}
+
+    monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
+
+    result = run_worker_once(data_dir=str(tmp_path), worker_id="pool-worker")
+
+    assert result["status"] == "succeeded"
+    assert len(calls) == 1
+    payload, coordinator = calls[0]
+    assert coordinator.workspace_id == workspace["id"]
+    assert coordinator.public_state(workspace["id"])["active_secret_id"] == secret["id"]
+    assert "token_env" not in payload
+    assert "secret_env" not in payload
+    assert "private-workspace-token" not in repr(payload)
+
+
 def test_worker_source_fetch_with_catalog_source_uses_catalog_runner(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
@@ -472,6 +530,7 @@ def test_worker_retries_failed_job_before_final_failure(tmp_path, monkeypatch):
 
     class TemporarySourceError(RuntimeError):
         retryable = True
+        code = "apify_key_drain_pending"
 
     def failing_run_source_test(_payload):
         raise TemporarySourceError("temporary source failure")
@@ -486,7 +545,7 @@ def test_worker_retries_failed_job_before_final_failure(tmp_path, monkeypatch):
     assert first["attempts"] == 1
     assert second["status"] == "failed"
     assert second["attempts"] == 2
-    assert second["error_code"] == "TemporarySourceError"
+    assert second["error_code"] == "apify_key_drain_pending"
 
 
 def test_worker_does_not_retry_deterministic_value_error(tmp_path, monkeypatch):
@@ -543,6 +602,7 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
     monkeypatch.setenv("HORIZON_SHARED_ACQUISITION_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
     (tmp_path / "config.json").write_text(
         json.dumps(
             {
@@ -572,6 +632,7 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
     )
 
     acquisition_coordinators = []
+    apify_coordinators = []
 
     class FakeOrchestrator:
         def __init__(self, _config, _storage):
@@ -579,6 +640,9 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
 
         def set_service_acquisition_coordinator(self, coordinator):
             acquisition_coordinators.append(coordinator)
+
+        def set_service_apify_coordinator(self, coordinator):
+            apify_coordinators.append(coordinator)
 
         async def execute(self, **_kwargs):
             item = ContentItem(
@@ -612,6 +676,8 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
     assert result["result_json"]["issues"] == []
     assert len(acquisition_coordinators) == 1
     assert acquisition_coordinators[0].user_id == owner["id"]
+    assert len(apify_coordinators) == 1
+    assert apify_coordinators[0].workspace_id == workspace["id"]
     assert latest["payload"]["items"][0]["id"] == "rss:item:worker"
     assert latest["payload"]["schema_version"] == 2
     assert latest["payload"]["today_items"] == latest["payload"]["items"]

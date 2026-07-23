@@ -6,9 +6,9 @@
 
 <!-- init-pro:section name=phase -->
 ## 2. 当前阶段状态
-结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取与 Feed storage v3 的两个 rollout flag 继续默认关闭。`vps-tokyo` 仍运行既有 API-only 版本，Worker 与 scheduler 没有新的启动或部署授权。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
+结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取、Feed storage v3 writer 与工作区 Apify Key 池的 rollout flag 继续默认关闭。Apify Key 池的 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；正式启用仍需停 Worker、核对未登记远端 Run、备份数据库并执行一次有上限 canary。`vps-tokyo` 仍运行既有 API-only 版本，Worker 与 scheduler 没有新的启动或部署授权。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
 
-前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。设置页密钥管理已增加局部失败反馈、HeroUI Table 与安全的 Apify 额度投影；该能力不改变上述运行、发布或数据授权状态。
+前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。设置页密钥管理已把 Apify Key 收敛为唯一的主用/备用池，提供安全额度投影、状态、排空和可访问排序；来源编辑器在池模式下不再展示来源级 Key 选择。该能力不改变上述运行、发布或数据授权状态。
 
 已完成：
 
@@ -75,19 +75,21 @@
 60. Quiet Studio 成员、OpenClaw 运行控件与 Feed 排序收口：成员列表使用带头像、可排序表头、紧凑角色控件、状态 Chip 与圆形图标操作的 HeroUI Table custom-cell renderer，并保留受保护的重置密码；上下文占用移到模型选择旁，模型按提供商分组且推理档位只使用精确模型/会话能力；排序或时间基准变化统一回到顶部，实时新内容边缘与深链定位保持独立。权威规则见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D052。
 61. Quiet Studio 概览与外观轻量收口：遮挡 Feed 的信息概览响应工作台任意无交互语义的主指针点击并柔和退出；生产默认保留黑夜外观，右上角显式切换并持久化白天/黑夜模式，主题家族与亮度状态分离。该项取代第 58 项的系统跟随主题部分；精确交互只见 `UI_CONTRACT.md`，理由见 D053。
 62. 设置页 Key 可观测性与 Apify 额度：新增 Key 的字段与服务端失败在表单内反馈并发送 Toast；已配置 Key 使用 HeroUI v3 Table，Apify 行通过 owner/admin 安全投影接口显示套餐、本月用量、硬上限与周期，按用户/secret 缓存五分钟并支持刷新；轮换/删除使用行级 Modal。无数据库迁移、抓取、AI、scheduler、付费 Actor 或部署。
+63. Apify 单一 Key 池与安全额度切换：additive schema v8 记录工作区有序成员、generation 和 Actor Run ledger，Service 的 `source_test/source_fetch/user_feed_refresh` 统一固定使用一把 Key 完成 start/poll/abort/dataset；402/明确额度耗尽与 401 才触发 Key 状态变化，旧 generation 全部 Run 中止并确认终态前 fail closed，未知 POST 结果永久阻塞待人工核对。设置页与管理员 API 只暴露安全池状态；`HORIZON_APIFY_KEY_POOL_ENABLED=false` 默认关闭，未调用真实 Key、付费 Actor、Worker、scheduler 或生产部署。
 
 当前仍需推进：
 
 1. 停止 API/Worker 后，对目标数据库再次 dry-run，使用 UTC `0600` backup 显式 apply Feed storage v3；成功验收 marker、hash backfill、integrity 和 foreign keys 后，才允许打开 compact writer。
 2. 只对非付费公共源打开 shared acquisition，观察两个自然周期的 cache hit/miss、upstream attempt、Feed 用户隔离和 Source Health；通过后再扩大范围。
 3. 付费来源只有在 operator 再次明确授权且上游 `maxItems=1` 时才可纳入共享获取 canary；本次实施没有进行任何付费真实调用。
-4. X 已改用 Apify Secondary 和支持精确 `maxItems=1` 的 Actor；真实直连运行成功但本次返回 0 条。VPS Worker 按用户要求保持停止；只有再次明确授权后才允许启动，并只观察一个 30 分钟自然周期的任务、计费和 Feed 合并结果。
-5. 本地 AI 已预置 `deepseek-v4-flash`、`DEEPSEEK_API_KEY` 且保持 disabled；用户写入轮换 Key 后，只对一篇 captured article 运行一次省略 `temperature`、SDK/application retry 均关闭的 smoke，成功后才启用。既有 Gemini 安全分析可按同用户/同 input hash 复用，不得冒充 DeepSeek 结果或恢复 `reason`。
-6. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 连接仍失败，待网络出口可用时只做 1 条公开频道复验。
-7. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
-8. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
-9. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护；视觉变更必须先修改该唯一真源。
-10. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；已删除的 MUI 对照原型、真实数据 preview 和 `VITE_UI_EXPERIENCE` 分叉不得恢复。
+4. 正式开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前必须暂停 Worker，确认本地无 running Job，并在 Apify 控制台终止旧版本可能已启动但尚未登记的 Run；随后备份 Service 数据库，只执行一次有上限 canary。任何无法核对的启动结果都保持 blocked，不得直接启用备用 Key。
+5. X 已改用 Apify Secondary 和支持精确 `maxItems=1` 的 Actor；真实直连运行成功但本次返回 0 条。VPS Worker 按用户要求保持停止；只有再次明确授权后才允许启动，并只观察一个 30 分钟自然周期的任务、计费和 Feed 合并结果。
+6. 本地 AI 已预置 `deepseek-v4-flash`、`DEEPSEEK_API_KEY` 且保持 disabled；用户写入轮换 Key 后，只对一篇 captured article 运行一次省略 `temperature`、SDK/application retry 均关闭的 smoke，成功后才启用。既有 Gemini 安全分析可按同用户/同 input hash 复用，不得冒充 DeepSeek 结果或恢复 `reason`。
+7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 连接仍失败，待网络出口可用时只做 1 条公开频道复验。
+8. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
+9. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
+10. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护；视觉变更必须先修改该唯一真源。
+11. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；已删除的 MUI 对照原型、真实数据 preview 和 `VITE_UI_EXPERIENCE` 分叉不得恢复。
 
 兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 仍可保留；兼容接口存在不等于当前产品能力，也不构成后续建设承诺。
 
@@ -127,7 +129,7 @@
 4. 低成本验证路径、任务队列、配额记录和明确的 capability / degrade 表达。
 5. 用户 Feed latest/history 的稳定读取、历史留存和行为状态补全。
 6. 用户订阅级来源健康、registry 驱动的来源/订阅编辑、全局 Feed activity 和确定性的 source priority 排序。
-7. 管理员 write-only AI/Apify Key 管理，以及每篇 Feed item 的受控长度概括。
+7. 管理员 write-only AI/Apify Key 管理、默认关闭的工作区 Apify 主用/备用池，以及每篇 Feed item 的受控长度概括。
 8. React 三栏 Service UI、用户作用域 Query cache、任务轮询和移动端主从阅读布局。
 9. Presentation v1 通用展示合同、来源解析 fixture、用户级 AI cache 和按 run 的 `analysis_usage` 成本诊断。
 10. HeroUI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与共享导航账户区域；视觉规则只见 `UI_CONTRACT.md`。

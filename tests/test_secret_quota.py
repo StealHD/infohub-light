@@ -78,7 +78,7 @@ def test_apify_quota_projects_safe_numbers_and_clamps_remaining_values() -> None
     ("status_code", "expected_code", "expected_status", "retryable"),
     [
         (401, "apify_quota_unauthorized", 422, False),
-        (403, "apify_quota_unauthorized", 422, False),
+        (403, "apify_quota_forbidden", 422, False),
         (429, "apify_quota_rate_limited", 429, True),
         (500, "apify_quota_unavailable", 503, True),
     ],

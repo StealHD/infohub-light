@@ -10,6 +10,14 @@ from ..storage.service_store import ServiceStore
 from ..tag_policy import normalize_channel, normalize_tags
 
 
+def _workspace_apify_pool_enabled() -> bool:
+    try:
+        from .apify_key_pool import apify_key_pool_enabled
+    except ImportError:
+        return False
+    return apify_key_pool_enabled()
+
+
 def _ensure_sources(data: dict[str, Any]) -> dict[str, Any]:
     sources = data.setdefault("sources", {})
     sources.setdefault("rss", [])
@@ -59,7 +67,9 @@ def _entry_with_overrides(record: dict[str, Any]) -> dict[str, Any]:
         )
     if record.get("analysis_mode"):
         entry["analysis_mode"] = record["analysis_mode"]
-    if record.get("secret_env"):
+    if record.get("secret_env") and not (
+        record.get("type") == "apify_social" and _workspace_apify_pool_enabled()
+    ):
         entry["token_env"] = record["secret_env"]
     if record.get("type") == "rss":
         entry["enforce_public_network"] = bool(record.get("enforce_public_network", True))
@@ -140,7 +150,7 @@ def _append_source(sources: dict[str, Any], record: dict[str, Any]) -> None:
         apify = sources["apify_social"]
         apify["enabled"] = True
         apify.setdefault("subscriptions", []).append(entry)
-        if record.get("secret_env"):
+        if record.get("secret_env") and not _workspace_apify_pool_enabled():
             names = list(apify.get("token_envs") or [])
             if record["secret_env"] not in names:
                 names.append(record["secret_env"])

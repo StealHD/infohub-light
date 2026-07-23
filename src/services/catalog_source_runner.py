@@ -24,6 +24,7 @@ from .source_acquisition import (
 )
 from .user_analysis_cache import UserAnalysisCache
 from .usage_attempt_meter import UsageAttemptMeter
+from .apify_pool_runtime import apify_coordinator_for_workspace
 
 
 def _reset_sources_for_single_source(data: dict[str, Any]) -> dict[str, Any]:
@@ -180,6 +181,14 @@ def run_catalog_source_fetch(
                     workspace_id=job["workspace_id"],
                     user_id=job["user_id"],
                     job_id=job["id"],
+                )
+            )
+        if hasattr(orchestrator, "set_service_apify_coordinator"):
+            orchestrator.set_service_apify_coordinator(
+                apify_coordinator_for_workspace(
+                    store,
+                    workspace_id=str(job["workspace_id"]),
+                    data_dir=data_dir,
                 )
             )
         if (

@@ -12,8 +12,10 @@ import pytest
 from src.models import ContentItem, SourceType
 from src.services.source_acquisition import (
     AcquisitionBusyError,
+    AcquisitionLeaseLostError,
     SourceAcquisitionCoordinator,
 )
+from src.services.apify_key_pool import ApifyKeyPoolService
 from src.storage.service_store import ServiceStore
 
 
@@ -138,6 +140,98 @@ def _content_item(*, suffix: str = "one") -> ContentItem:
             "topics": ["must-be-reprojected"],
             "personal_tags": ["must-not-leak"],
         },
+    )
+
+
+def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Shared X",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "OpenAI",
+            "fetch_limit": 1,
+        },
+        source_key="apify:x:profile:openai",
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    first_secret = store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="Apify Primary",
+        env_name="APIFY_POOL_PRIMARY_TEST",
+        kind="apify",
+        provider="apify",
+    )
+    second_secret = store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="Apify Backup",
+        env_name="APIFY_POOL_BACKUP_TEST",
+        kind="apify",
+        provider="apify",
+    )
+    pool = ApifyKeyPoolService(store)
+    pool.append_secret(first_secret["id"])
+    pool.append_secret(second_secret["id"])
+    projection = SimpleNamespace(
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        source_key="apify:x:profile:openai",
+        source_display_name="Shared X",
+        catalog_source_type="apify_social",
+        source_priority=0,
+        analysis_mode="full",
+        channel="AI",
+        category="AI",
+        topics=[],
+        tags=[],
+        personal_tags=[],
+    )
+    coordinator = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-apify-old-generation",
+    )
+    old_context = coordinator._context(projection, window_hours=24)
+
+    async def fetch_during_failover():
+        pool.begin_drain(first_secret["id"])
+        pool.complete_drain_and_failover(workspace["id"])
+        return [_content_item(suffix="apify")]
+
+    with pytest.raises(AcquisitionLeaseLostError):
+        asyncio.run(
+            coordinator.acquire(
+                source=projection,
+                provider="apify_social",
+                window_hours=24,
+                fetch=fetch_during_failover,
+            )
+        )
+
+    new_context = coordinator._context(projection, window_hours=24)
+    assert new_context.pool_generation != old_context.pool_generation
+    assert new_context.config_fingerprint != old_context.config_fingerprint
+    assert (
+        store.connect().execute(
+            "SELECT COUNT(*) FROM source_content_snapshots WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()[0]
+        == 0
     )
 
 

@@ -111,13 +111,21 @@ class ApifySecretQuotaService:
     def _raise_for_status(response: httpx.Response) -> None:
         if 200 <= response.status_code < 300:
             return
-        if response.status_code in {401, 403}:
+        if response.status_code == 401:
             raise SecretQuotaError(
                 "apify_quota_unauthorized",
                 "Apify Token 无效或无权读取额度。",
                 status_code=422,
                 retryable=False,
                 action="请轮换为有效的 Apify Token。",
+            )
+        if response.status_code == 403:
+            raise SecretQuotaError(
+                "apify_quota_forbidden",
+                "Apify 拒绝读取额度，但未判定 Key 无效。",
+                status_code=422,
+                retryable=False,
+                action="请检查 Apify 账号权限；该错误不会自动切换 Key。",
             )
         if response.status_code == 429:
             raise SecretQuotaError(

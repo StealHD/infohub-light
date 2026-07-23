@@ -287,6 +287,7 @@ export type SourceTypeDefinition = {
   type: string
   label?: string
   display_name?: string
+  credential_mode?: 'source_secret' | 'workspace_apify_pool'
   fields: CatalogField[]
 }
 
@@ -384,6 +385,36 @@ export type SecretQuota = {
   remaining_included_credits_usd: number
   max_monthly_usage_usd: number
   remaining_hard_limit_usd: number
+}
+
+export type ApifyKeyPoolMemberStatus =
+  | 'active'
+  | 'standby'
+  | 'draining'
+  | 'depleted'
+  | 'invalid'
+
+export type ApifyKeyPoolMember = {
+  secret_id: string
+  position: number
+  status: ApifyKeyPoolMemberStatus
+  blocked_until: string | null
+  cycle_end_at: string | null
+  last_checked_at: string | null
+  last_error_code: string | null
+  active_run_count: number
+}
+
+export type ApifyKeyPool = {
+  schema_version: 1
+  enabled: boolean
+  generation: number
+  status: 'empty' | 'ready' | 'draining' | 'blocked' | 'exhausted'
+  active_secret_id: string | null
+  draining_secret_id: string | null
+  blocked_reason: string | null
+  retry_at: string | null
+  members: ApifyKeyPoolMember[]
 }
 
 export type ConfigResponse = {

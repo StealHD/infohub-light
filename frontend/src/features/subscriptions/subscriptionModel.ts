@@ -4,7 +4,11 @@ export type HealthFilter = SourceHealthStatus | 'all' | 'problem'
 
 export const canMutateSubscriptions = (user: User) => user.role !== 'viewer'
 
-export const sourceUsesSecret = (definition: SourceTypeDefinition) => definition.type === 'apify_social'
+export const sourceUsesSecret = (definition: SourceTypeDefinition) => (
+  definition.credential_mode
+    ? definition.credential_mode === 'source_secret'
+    : definition.type === 'apify_social'
+)
 
 export const sourceScopesForUser = (user: User): CatalogSource['scope'][] => (
   user.role === 'owner' || user.role === 'admin'

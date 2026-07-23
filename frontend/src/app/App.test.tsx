@@ -31,6 +31,7 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     updateItemState: vi.fn(),
     ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
     subscribe: vi.fn().mockResolvedValue({ subscription: { reused_item_count: 0 } }),
+    apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
     ...overrides,
   } as unknown as ServiceApi
 }
@@ -752,8 +753,10 @@ describe('App routes', () => {
     expect(screen.queryByText('精选阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报条数')).not.toBeInTheDocument()
-    expect(screen.getByRole('grid', { name: '已配置 Key' })).toBeInTheDocument()
-    expect(screen.getByText('暂未配置 Key')).toBeInTheDocument()
+    expect(screen.getByRole('grid', { name: 'Apify Key 池' })).toBeInTheDocument()
+    expect(screen.getByRole('grid', { name: '已配置 AI Key' })).toBeInTheDocument()
+    expect(screen.getByText('尚未配置 Apify Key')).toBeInTheDocument()
+    expect(screen.getByText('尚未配置 AI Key')).toBeInTheDocument()
 
     await browser.type(screen.getByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
@@ -809,10 +812,80 @@ describe('App routes', () => {
     expect(createSecret).toHaveBeenCalledTimes(1)
   }, 10_000)
 
-  it('renders and caches Apify quota, skips AI quota, refreshes manually, and invalidates after rotation', async () => {
+  it('keeps legacy Apify secret maintenance available while pool rollout is disabled', async () => {
     const browser = userEvent.setup()
-    const secretQuota = vi.fn().mockResolvedValue({
-      secret_id: 'apify-key',
+    const disabledPool = {
+      enabled: false,
+      generation: 4,
+      status: 'ready',
+      active_secret_id: 'legacy-primary',
+      members: [
+        { secret_id: 'legacy-primary', position: 0, status: 'active', blocked_until: null, cycle_end_at: null, last_checked_at: null, last_error_code: null, active_run_count: 1 },
+        { secret_id: 'legacy-backup', position: 1, status: 'standby', blocked_until: null, cycle_end_at: null, last_checked_at: null, last_error_code: null, active_run_count: 0 },
+      ],
+    }
+    const reorderApifyKeyPool = vi.fn().mockResolvedValue({
+      ...disabledPool,
+      generation: 5,
+      members: [
+        { ...disabledPool.members[1], position: 0 },
+        { ...disabledPool.members[0], position: 1 },
+      ],
+    })
+    const rotateSecret = vi.fn().mockResolvedValue({})
+    const drainApifyKey = vi.fn()
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-rollout-off', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [
+        { id: 'legacy-primary', name: 'Legacy Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_LEGACY_PRIMARY', is_set: true, used_by: [] },
+        { id: 'legacy-backup', name: 'Legacy Backup', kind: 'apify', provider: 'apify', env_name: 'APIFY_LEGACY_BACKUP', is_set: true, used_by: [] },
+      ] }),
+      apifyKeyPool: vi.fn().mockResolvedValue(disabledPool),
+      reorderApifyKeyPool,
+      drainApifyKey,
+      rotateSecret,
+      secretQuota: vi.fn().mockResolvedValue({
+        secret_id: 'legacy-primary',
+        provider: 'apify',
+        currency: 'USD',
+        cycle_start_at: '2026-07-01T00:00:00.000Z',
+        cycle_end_at: '2026-07-31T23:59:59.999Z',
+        checked_at: '2026-07-23T08:30:00+00:00',
+        monthly_included_credits_usd: 49,
+        monthly_usage_usd: 0,
+        remaining_included_credits_usd: 49,
+        max_monthly_usage_usd: 100,
+        remaining_hard_limit_usd: 100,
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByText('Apify Key 池尚未启用')).toBeInTheDocument()
+    const primaryRow = screen.getByRole('row', { name: /Legacy Primary/ })
+    const rotateTrigger = within(primaryRow).getByRole('button', { name: '轮换 Legacy Primary' })
+    expect(rotateTrigger).toBeEnabled()
+    expect(within(primaryRow).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
+    expect(within(primaryRow).getByRole('button', { name: '下移 Legacy Primary' })).toBeEnabled()
+    expect(within(primaryRow).queryByRole('button', { name: '安全排空 Legacy Primary' })).not.toBeInTheDocument()
+
+    await browser.click(within(primaryRow).getByRole('button', { name: '下移 Legacy Primary' }))
+    await waitFor(() => expect(reorderApifyKeyPool).toHaveBeenCalledWith(['legacy-backup', 'legacy-primary'], 4))
+
+    await browser.click(screen.getByRole('button', { name: '轮换 Legacy Primary' }))
+    const dialog = screen.getByRole('dialog', { name: '轮换 Legacy Primary' })
+    await browser.type(within(dialog).getByLabelText('新 Key 值'), 'legacy-write-only')
+    await browser.click(within(dialog).getByRole('button', { name: '确认轮换' }))
+    await waitFor(() => expect(rotateSecret).toHaveBeenCalledWith('legacy-primary', 'legacy-write-only'))
+    expect(drainApifyKey).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toContain('legacy-write-only')
+  }, 10_000)
+
+  it('manages one ordered Apify pool without exposing or mutating an active key', async () => {
+    const browser = userEvent.setup()
+    const secretQuota = vi.fn().mockImplementation(async (secretId: string) => ({
+      secret_id: secretId,
       provider: 'apify',
       currency: 'USD',
       cycle_start_at: '2026-07-01T00:00:00.000Z',
@@ -823,18 +896,56 @@ describe('App routes', () => {
       remaining_included_credits_usd: 36.5,
       max_monthly_usage_usd: 100,
       remaining_hard_limit_usd: 87.5,
-    })
+    }))
+    const pool = {
+      enabled: true,
+      generation: 7,
+      status: 'ready',
+      active_secret_id: 'apify-primary',
+      members: [
+        { secret_id: 'apify-primary', position: 0, status: 'active', blocked_until: null, cycle_end_at: '2026-07-31T23:59:59.999Z', last_checked_at: '2026-07-23T08:30:00+00:00', last_error_code: null, active_run_count: 1 },
+        { secret_id: 'apify-backup-one', position: 1, status: 'standby', blocked_until: null, cycle_end_at: '2026-07-31T23:59:59.999Z', last_checked_at: '2026-07-23T08:30:00+00:00', last_error_code: null, active_run_count: 0 },
+        { secret_id: 'apify-backup-two', position: 2, status: 'standby', blocked_until: null, cycle_end_at: '2026-07-31T23:59:59.999Z', last_checked_at: '2026-07-23T08:30:00+00:00', last_error_code: null, active_run_count: 0 },
+      ],
+    }
+    const reorderedPool = {
+      ...pool,
+      generation: 8,
+      members: [
+        pool.members[0],
+        { ...pool.members[2], position: 1 },
+        { ...pool.members[1], position: 2 },
+      ],
+    }
+    const drainingPool = {
+      ...pool,
+      generation: 9,
+      status: 'draining',
+      members: [
+        { ...pool.members[0], status: 'draining' },
+        pool.members[1],
+        pool.members[2],
+      ],
+    }
     const rotateSecret = vi.fn().mockResolvedValue({})
+    const apifyKeyPool = vi.fn().mockResolvedValue(pool)
+    const reorderApifyKeyPool = vi.fn().mockResolvedValue(reorderedPool)
+    const drainApifyKey = vi.fn().mockResolvedValue(drainingPool)
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-quota', username: 'owner', role: 'owner', enabled: true } }),
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
       secrets: vi.fn().mockResolvedValue({ secrets: [
-        { id: 'apify-key', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_TOKEN', is_set: true, used_by: [{ type: 'source', id: 'source-1', name: 'X' }] },
+        { id: 'apify-primary', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRIMARY', is_set: true, used_by: [{ type: 'source', id: 'source-1', name: 'X' }] },
+        { id: 'apify-backup-one', name: 'Apify Backup One', kind: 'apify', provider: 'apify', env_name: 'APIFY_BACKUP_ONE', is_set: true, used_by: [] },
+        { id: 'apify-backup-two', name: 'Apify Backup Two', kind: 'apify', provider: 'apify', env_name: 'APIFY_BACKUP_TWO', is_set: true, used_by: [] },
         { id: 'ai-key', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [] },
       ] }),
       users: vi.fn().mockResolvedValue({ users: [] }),
       secretQuota,
       rotateSecret,
+      apifyKeyPool,
+      reorderApifyKeyPool,
+      drainApifyKey,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const renderSettings = () => render(
@@ -846,30 +957,52 @@ describe('App routes', () => {
     )
 
     const firstView = renderSettings()
-    expect(await screen.findByText('套餐剩余 $36.50')).toBeInTheDocument()
-    expect(screen.getByText('本月已用 $12.50 · 硬上限剩余 $87.50')).toBeInTheDocument()
+    expect(await screen.findByText('当前主用：Apify Primary · 可以启动新任务')).toBeInTheDocument()
+    expect(screen.getAllByText('套餐剩余 $36.50')).toHaveLength(3)
+    expect(screen.getAllByText('本月已用 $12.50 · 硬上限剩余 $87.50')).toHaveLength(3)
     expect(screen.getByText('暂不支持查询')).toBeInTheDocument()
-    expect(screen.getByText('1 个引用')).toBeInTheDocument()
-    expect(secretQuota.mock.calls.map(([secretId]) => secretId)).toEqual(['apify-key'])
+    expect(new Set(secretQuota.mock.calls.map(([secretId]) => secretId))).toEqual(new Set([
+      'apify-primary',
+      'apify-backup-one',
+      'apify-backup-two',
+    ]))
+    const primaryRow = screen.getByRole('row', { name: /Apify Primary/ })
+    expect(within(primaryRow).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled()
+    expect(within(primaryRow).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
+    expect(within(primaryRow).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled()
+    expect(within(primaryRow).getByRole('button', { name: '安全排空 Apify Primary' })).toBeEnabled()
 
     firstView.unmount()
     renderSettings()
-    expect(await screen.findByText('套餐剩余 $36.50')).toBeInTheDocument()
-    expect(secretQuota).toHaveBeenCalledTimes(1)
+    expect((await screen.findAllByText('套餐剩余 $36.50')).length).toBe(3)
+    expect(secretQuota).toHaveBeenCalledTimes(3)
 
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Primary 额度' }))
-    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(4))
 
-    const apifyRow = screen.getByRole('row', { name: /Apify Primary/ })
-    const rotateTrigger = within(apifyRow).getByRole('button', { name: '轮换 Apify Primary' })
+    const firstBackupRow = screen.getByRole('row', { name: /Apify Backup One/ })
+    expect(within(firstBackupRow).getByRole('button', { name: '上移 Apify Backup One' })).toBeDisabled()
+    await browser.click(within(firstBackupRow).getByRole('button', { name: '下移 Apify Backup One' }))
+    await waitFor(() => expect(reorderApifyKeyPool).toHaveBeenCalledWith(
+      ['apify-primary', 'apify-backup-two', 'apify-backup-one'],
+      7,
+    ))
+
+    const secondBackupRow = screen.getByRole('row', { name: /Apify Backup Two/ })
+    const rotateTrigger = within(secondBackupRow).getByRole('button', { name: '轮换 Apify Backup Two' })
     await browser.click(rotateTrigger)
-    const rotateDialog = screen.getByRole('dialog', { name: '轮换 Apify Primary' })
+    const rotateDialog = screen.getByRole('dialog', { name: '轮换 Apify Backup Two' })
     await browser.type(within(rotateDialog).getByLabelText('新 Key 值'), 'rotated-write-only')
     await browser.click(within(rotateDialog).getByRole('button', { name: '确认轮换' }))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '轮换 Apify Primary' })).not.toBeInTheDocument())
-    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(3))
-    expect(rotateSecret).toHaveBeenCalledWith('apify-key', 'rotated-write-only')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '轮换 Apify Backup Two' })).not.toBeInTheDocument())
+    await waitFor(() => expect(secretQuota.mock.calls.filter(([secretId]) => secretId === 'apify-backup-two')).toHaveLength(2))
+    expect(rotateSecret).toHaveBeenCalledWith('apify-backup-two', 'rotated-write-only')
     expect(rotateTrigger).toHaveFocus()
+
+    await browser.click(within(screen.getByRole('row', { name: /Apify Primary/ })).getByRole('button', { name: '安全排空 Apify Primary' }))
+    await waitFor(() => expect(drainApifyKey).toHaveBeenCalledWith('apify-primary'))
+    expect(await screen.findByText('正在安全排空')).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('rotated-write-only')
   }, 10_000)
 
   it('keeps rotation failures inside the row modal and clears the submitted value', async () => {

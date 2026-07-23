@@ -289,6 +289,65 @@ def test_two_connections_competing_for_due_source_schedule_create_one_job(
     ).isoformat()
 
 
+def test_exhausted_apify_pool_defers_only_apify_schedule(tmp_path, monkeypatch):
+    from src.services.source_schedule import SourceScheduleService
+
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner, rss_source_id, rss_subscription = _subscribed_owner(
+        tmp_path, monkeypatch
+    )
+    apify_source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Private X",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "OpenAI",
+            "fetch_limit": 1,
+        },
+        source_key="apify:x:profile:openai",
+    )
+    apify_subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=apify_source_id,
+    )
+    due = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    service = SourceScheduleService(store)
+    for subscription in (rss_subscription, apify_subscription):
+        service.update_subscription_schedule(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            subscription_id=subscription["id"],
+            enabled=True,
+            interval_minutes=30,
+            now=due,
+        )
+
+    result = service.enqueue_due(now=due)
+
+    assert result["enqueued"] == 1
+    assert {
+        item["subscription_id"]: item
+        for item in result["outcomes"]
+    }[apify_subscription["id"]] == {
+        "subscription_id": apify_subscription["id"],
+        "action": "skipped",
+        "reason": "apify_key_pool_exhausted",
+    }
+    jobs = store.connect().execute(
+        "SELECT source_id FROM fetch_jobs WHERE status = 'queued'"
+    ).fetchall()
+    assert [row["source_id"] for row in jobs] == [rss_source_id]
+    apify_schedule = store.get_source_schedule(apify_subscription["id"])
+    assert apify_schedule["last_skip_reason"] == "apify_key_pool_exhausted"
+    assert apify_schedule["next_run_at"] == (
+        due + timedelta(minutes=30)
+    ).isoformat()
+
+
 def test_worker_evaluates_due_source_schedule_before_claiming_regular_job(
     tmp_path, monkeypatch
 ):

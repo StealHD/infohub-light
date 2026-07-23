@@ -4,13 +4,14 @@ import { useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import type { SecretRef } from '../../api/types'
+import type { ApifyKeyPoolMember, SecretRef } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
   Button,
   Card,
   Checkbox,
+  Chip,
   FieldError,
   Icons,
   Input,
@@ -43,6 +44,7 @@ const secretProviders: Record<string, string[]> = {
   ai: ['gemini', 'openai', 'anthropic', 'deepseek'],
   apify: ['apify'],
 }
+const isApifySecret = (secret: SecretRef) => secret.kind === 'apify' || secret.provider === 'apify'
 const secretQuotaStaleTime = 5 * 60 * 1000
 
 type SecretDraft = {
@@ -119,6 +121,72 @@ function formatCycleEnd(value: string): string {
   }).format(date)
 }
 
+function formatDateTime(value: string | null): string {
+  if (!value) return '尚未记录'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '尚未记录'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+const poolStatusLabels: Record<string, string> = {
+  empty: '尚未配置 Key',
+  ready: '可以启动新任务',
+  active: '运行中',
+  draining: '正在安全排空',
+  blocked: '已阻塞，等待人工核对',
+  exhausted: '所有 Key 额度均已用尽',
+  disabled: '尚未启用',
+}
+
+const memberStatusPresentation: Record<ApifyKeyPoolMember['status'], {
+  label: string
+  color: 'default' | 'success' | 'warning' | 'danger'
+}> = {
+  active: { label: '主用', color: 'success' },
+  standby: { label: '备用', color: 'default' },
+  draining: { label: '排空中', color: 'warning' },
+  depleted: { label: '额度已用尽', color: 'warning' },
+  invalid: { label: 'Key 无效', color: 'danger' },
+}
+
+const memberErrorLabels: Record<string, string> = {
+  quota_exhausted: '额度不足，等待下个周期',
+  apify_quota_exhausted: '额度不足，等待下个周期',
+  apify_credits_depleted: '额度不足，等待下个周期',
+  invalid_token: 'Key 无效，请排空后轮换',
+  apify_invalid_token: 'Key 无效，请排空后轮换',
+  apify_token_invalid: 'Key 无效，请排空后轮换',
+  run_outcome_unknown: '启动结果未知，需要人工核对',
+  apify_start_outcome_unknown: '启动结果未知，需要人工核对',
+  apify_restart_start_outcome_unknown: '重启后启动结果未知，需要人工核对',
+}
+
+function ApifyPoolStatusCell({ member }: { member: ApifyKeyPoolMember | null }) {
+  if (!member) return <div className="min-w-48">
+    <p className="type-control">等待加入池</p>
+    <p className="type-meta mt-1 text-muted">刷新后仍未加入时，请检查服务状态</p>
+  </div>
+
+  const presentation = memberStatusPresentation[member.status] ?? { label: '状态未知', color: 'default' as const }
+  return <div className="min-w-52">
+    <Chip size="sm" color={presentation.color} variant="soft"><Chip.Label>{presentation.label}</Chip.Label></Chip>
+    <p className="type-meta mt-2 text-muted">
+      {member.active_run_count > 0 ? `${member.active_run_count} 个运行中任务` : '没有运行中任务'}
+    </p>
+    {member.blocked_until && <p className="type-meta mt-1 text-muted">受阻至 {formatDateTime(member.blocked_until)}</p>}
+    {member.cycle_end_at && <p className="type-meta mt-1 text-muted">额度周期至 {formatDateTime(member.cycle_end_at)}</p>}
+    <p className="type-meta mt-1 text-muted">最近检查 {formatDateTime(member.last_checked_at)}</p>
+    {member.last_error_code && <p className="type-meta mt-1 text-danger">
+      {memberErrorLabels[member.last_error_code] ?? 'Key 需要管理员检查'}
+    </p>}
+  </div>
+}
+
 function FormField({ label, name, defaultValue = '', type = 'text', min, max, required = false }: {
   label: string; name: string; defaultValue?: string | number; type?: string; min?: number; max?: number; required?: boolean
 }) {
@@ -127,7 +195,7 @@ function FormField({ label, name, defaultValue = '', type = 'text', min, max, re
 
 function SecretQuotaCell({ secret, userId }: { secret: SecretRef; userId: string }) {
   const { api } = useAppContext()
-  const supported = secret.kind === 'apify' && secret.provider === 'apify'
+  const supported = isApifySecret(secret)
   const quota = useQuery({
     queryKey: queryKeys.secretQuota(userId, secret.id),
     // Keep one shared in-flight lookup across React StrictMode's development remount.
@@ -176,9 +244,11 @@ function SecretQuotaCell({ secret, userId }: { secret: SecretRef; userId: string
   </div>
 }
 
-function SecretRowActions({ secret, onChanged }: {
+function SecretRowActions({ secret, onChanged, lifecycleLocked = false, lockMessage = '请先安全排空，再轮换或删除' }: {
   secret: SecretRef
   onChanged: (secretId: string, action: 'rotate' | 'delete') => void
+  lifecycleLocked?: boolean
+  lockMessage?: string
 }) {
   const { api } = useAppContext()
   const feedback = useActionFeedback()
@@ -254,7 +324,7 @@ function SecretRowActions({ secret, onChanged }: {
         queueMicrotask(() => rotateTriggerRef.current?.focus())
       }
     }}>
-      <Button ref={rotateTriggerRef} size="sm" type="button" variant="ghost" aria-label={`轮换 ${secret.name}`}>轮换</Button>
+      <Button ref={rotateTriggerRef} size="sm" type="button" variant="ghost" aria-label={`轮换 ${secret.name}`} isDisabled={lifecycleLocked}>轮换</Button>
       <Modal.Backdrop isDismissable={!rotating} isKeyboardDismissDisabled={rotating}>
         <Modal.Container>
           <Modal.Dialog>
@@ -286,7 +356,7 @@ function SecretRowActions({ secret, onChanged }: {
           queueMicrotask(() => deleteTriggerRef.current?.focus())
         }
       }}>
-        <Button ref={deleteTriggerRef} size="sm" type="button" variant="danger" aria-label={`删除 ${secret.name}`} isDisabled={secret.used_by.length > 0 || removing}>删除</Button>
+        <Button ref={deleteTriggerRef} size="sm" type="button" variant="danger" aria-label={`删除 ${secret.name}`} isDisabled={lifecycleLocked || secret.used_by.length > 0 || removing}>删除</Button>
         <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}>
           <Modal.Container>
             <Modal.Dialog>
@@ -303,7 +373,230 @@ function SecretRowActions({ secret, onChanged }: {
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+    {lifecycleLocked && <span className="type-meta basis-full text-muted">{lockMessage}</span>}
   </div>
+}
+
+function apifyPoolActionError(caught: unknown, fallback: string): string {
+  if (caught instanceof ApiError && (
+    caught.code === 'apify_key_pool_generation_conflict'
+    || caught.code === 'apify_key_pool_conflict'
+  )) {
+    return 'Key 池刚刚发生变化，已刷新最新顺序，请重试。'
+  }
+  return errorMessage(caught, fallback)
+}
+
+function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
+  secrets: SecretRef[]
+  userId: string
+  onSecretChanged: (secretId: string, action: 'rotate' | 'delete') => void
+}) {
+  const { api } = useAppContext()
+  const queryClient = useQueryClient()
+  const [actionError, setActionError] = useState('')
+  const poolQuery = useQuery({
+    queryKey: queryKeys.apifyKeyPool(userId),
+    queryFn: ({ signal }) => api.apifyKeyPool(signal),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) => query.state.data?.status === 'draining' ? 2_000 : false,
+  })
+  const orderMutation = useMutation({
+    mutationFn: ({ secretIds, expectedGeneration }: { secretIds: string[]; expectedGeneration: number }) => (
+      api.reorderApifyKeyPool(secretIds, expectedGeneration)
+    ),
+    onSuccess: (pool) => {
+      setActionError('')
+      queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
+      toast.success('Apify Key 顺序已更新', { timeout: 4000 })
+    },
+    onError: (caught) => {
+      const message = apifyPoolActionError(caught, 'Key 顺序更新失败，请稍后重试。')
+      setActionError(message)
+      if (caught instanceof ApiError && (
+        caught.code === 'apify_key_pool_generation_conflict'
+        || caught.code === 'apify_key_pool_conflict'
+      )) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(userId) })
+      }
+    },
+  })
+  const drainMutation = useMutation({
+    mutationFn: (secretId: string) => api.drainApifyKey(secretId),
+    onSuccess: (pool, secretId) => {
+      setActionError('')
+      queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
+      const secret = secrets.find((item) => item.id === secretId)
+      toast.success('已提交安全排空', { description: secret?.name, timeout: 4000 })
+    },
+    onError: (caught) => setActionError(apifyPoolActionError(caught, '安全排空失败，请稍后重试。')),
+  })
+
+  const apifySecrets = secrets.filter(isApifySecret)
+  const secretsById = new Map(apifySecrets.map((secret) => [secret.id, secret]))
+  const orderedMembers = [...(poolQuery.data?.members ?? [])].sort((left, right) => left.position - right.position)
+  const memberIds = new Set(orderedMembers.map((member) => member.secret_id))
+  const rows: Array<{ secret: SecretRef; member: ApifyKeyPoolMember | null }> = [
+    ...orderedMembers.flatMap((member) => {
+      const secret = secretsById.get(member.secret_id)
+      return secret ? [{ secret, member }] : []
+    }),
+    ...apifySecrets.filter((secret) => !memberIds.has(secret.id)).map((secret) => ({ secret, member: null })),
+  ]
+  const unresolvedMembers = orderedMembers.filter((member) => !secretsById.has(member.secret_id)).length
+  const poolBusy = poolQuery.data?.enabled === true && (
+    poolQuery.data.status === 'draining'
+    || poolQuery.data.status === 'blocked'
+  )
+
+  function moveMember(secretId: string, offset: -1 | 1) {
+    const pool = poolQuery.data
+    if (!pool || orderMutation.isPending || drainMutation.isPending || poolBusy) return
+    const members = [...pool.members].sort((left, right) => left.position - right.position)
+    const index = members.findIndex((member) => member.secret_id === secretId)
+    const target = index + offset
+    if (index < 0 || target < 0 || target >= members.length) return
+    const memberLocked = (member: ApifyKeyPoolMember) => pool.enabled && (
+      member.status === 'active'
+      || member.status === 'draining'
+      || member.active_run_count > 0
+      || pool.active_secret_id === member.secret_id
+    )
+    if (memberLocked(members[index]) || memberLocked(members[target])) return
+    const reordered = [...members]
+    const [moving] = reordered.splice(index, 1)
+    reordered.splice(target, 0, moving)
+    orderMutation.mutate({
+      secretIds: reordered.map((member) => member.secret_id),
+      expectedGeneration: pool.generation,
+    })
+  }
+
+  const poolStatus = poolQuery.data
+    ? poolStatusLabels[poolQuery.data.status] ?? '状态需要检查'
+    : '正在读取'
+  const activeName = poolQuery.data?.active_secret_id
+    ? secretsById.get(poolQuery.data.active_secret_id)?.name
+    : null
+
+  return <Card variant="secondary" className="p-4">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0">
+        <Card.Title>Apify Key 池</Card.Title>
+        <Card.Description className="mt-1">
+          所有 Apify 来源统一使用此池；额度不足时先停止旧 Key 的任务，再切换到下一备用 Key。
+        </Card.Description>
+      </div>
+      <Chip size="sm" color={poolQuery.data?.status === 'ready' ? 'success' : poolQuery.data?.status === 'blocked' || poolQuery.data?.status === 'exhausted' ? 'danger' : 'default'} variant="soft">
+        <Chip.Label>{poolStatus}</Chip.Label>
+      </Chip>
+    </div>
+    {poolQuery.isPending && <div className="mt-4"><LoadingState label="正在读取 Apify Key 池" rows={1} /></div>}
+    {poolQuery.isError && <div className="mt-4"><HeroNotice title="Apify Key 池读取失败">
+      为避免误操作，池状态恢复前不会提供排序或排空操作。
+    </HeroNotice></div>}
+    {poolQuery.data && !poolQuery.data.enabled && <div className="mt-4"><HeroNotice title="Apify Key 池尚未启用" status="warning" role="status">
+      当前仍处于兼容阶段；可以预先维护备用顺序，但不会自动切换。
+    </HeroNotice></div>}
+    {poolQuery.data?.enabled && <p className="type-meta mt-3 text-muted">
+      {activeName ? `当前主用：${activeName}` : '当前没有可用的主用 Key'} · {poolStatus}
+    </p>}
+    {unresolvedMembers > 0 && <div className="mt-4"><HeroNotice title="部分 Key 元数据尚未加载" status="warning" role="status">
+      已隐藏无法安全识别的池成员，请刷新页面后再操作。
+    </HeroNotice></div>}
+    {actionError && <div className="mt-4"><HeroNotice title={actionError} /></div>}
+    <div className="mt-4 min-w-0 max-w-full">
+      <Table variant="secondary" className="max-w-full">
+        <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="apify-key-pool-scroll">
+          <Table.Content aria-label="Apify Key 池">
+            <Table.Header>
+              <Table.Column isRowHeader>Key</Table.Column>
+              <Table.Column>池状态</Table.Column>
+              <Table.Column>额度</Table.Column>
+              <Table.Column>操作</Table.Column>
+            </Table.Header>
+            <Table.Body
+              items={rows}
+              renderEmptyState={() => <div className="p-6 text-center text-muted">尚未配置 Apify Key</div>}
+            >
+              {({ secret, member }) => {
+                const memberIndex = member ? orderedMembers.findIndex((item) => item.secret_id === member.secret_id) : -1
+                const poolEnabled = poolQuery.data?.enabled === true
+                const poolStateUnknown = poolEnabled && !member
+                const lifecycleLocked = poolStateUnknown || (
+                  poolEnabled && Boolean(member && (
+                    member.status === 'active'
+                    || member.status === 'draining'
+                    || member.active_run_count > 0
+                    || poolQuery.data?.active_secret_id === secret.id
+                  ))
+                )
+                const controlsDisabled = !member || poolQuery.isError || orderMutation.isPending || drainMutation.isPending || poolBusy
+                const previousMember = memberIndex > 0 ? orderedMembers[memberIndex - 1] : null
+                const nextMember = memberIndex >= 0 && memberIndex < orderedMembers.length - 1 ? orderedMembers[memberIndex + 1] : null
+                const neighborLocked = (candidate: ApifyKeyPoolMember | null) => poolEnabled && Boolean(candidate && (
+                  candidate.status === 'active'
+                  || candidate.status === 'draining'
+                  || candidate.active_run_count > 0
+                  || poolQuery.data?.active_secret_id === candidate.secret_id
+                ))
+                const draining = drainMutation.isPending && drainMutation.variables === secret.id
+                const canDrain = Boolean(
+                  poolQuery.data?.enabled
+                  && member
+                  && (lifecycleLocked || poolQuery.data.active_secret_id === secret.id),
+                )
+                return <Table.Row id={secret.id}>
+                  <Table.Cell>
+                    <div className="min-w-44">
+                      <p className="type-control">{secret.name}</p>
+                      <code className="type-meta text-muted">{secret.env_name}</code>
+                    </div>
+                  </Table.Cell>
+                  <Table.Cell><ApifyPoolStatusCell member={member} /></Table.Cell>
+                  <Table.Cell><SecretQuotaCell secret={secret} userId={userId} /></Table.Cell>
+                  <Table.Cell>
+                    <div className="flex min-w-64 flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isIconOnly
+                        aria-label={`上移 ${secret.name}`}
+                        isDisabled={controlsDisabled || memberIndex <= 0 || lifecycleLocked || neighborLocked(previousMember)}
+                        onPress={() => moveMember(secret.id, -1)}
+                      ><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isIconOnly
+                        aria-label={`下移 ${secret.name}`}
+                        isDisabled={controlsDisabled || memberIndex < 0 || memberIndex >= orderedMembers.length - 1 || lifecycleLocked || neighborLocked(nextMember)}
+                        onPress={() => moveMember(secret.id, 1)}
+                      ><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
+                      {canDrain && <Button
+                        size="sm"
+                        variant="secondary"
+                        aria-label={`安全排空 ${secret.name}`}
+                        isDisabled={draining || member?.status === 'draining' || poolQuery.data?.status === 'blocked'}
+                        onPress={() => drainMutation.mutate(secret.id)}
+                      ><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
+                      <SecretRowActions
+                        secret={secret}
+                        lifecycleLocked={lifecycleLocked}
+                        lockMessage={poolStateUnknown ? '池状态确认前不可轮换或删除' : undefined}
+                        onChanged={onSecretChanged}
+                      />
+                    </div>
+                  </Table.Cell>
+                </Table.Row>
+              }}
+            </Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
+      </Table>
+    </div>
+  </Card>
 }
 
 export function HeroSettingsPage() {
@@ -343,15 +636,24 @@ export function HeroSettingsPage() {
   }
 
   function secretChanged(secretId: string, action: 'rotate' | 'delete') {
+    const apifySecret = (secrets.data?.secrets ?? []).some((secret) => secret.id === secretId && isApifySecret(secret))
     if (action === 'rotate') {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) }),
+        ...(apifySecret
+          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
+          : []),
       ])
       return
     }
     queryClient.removeQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) })
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
+      ...(apifySecret
+        ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
+        : []),
+    ])
   }
 
   const configMutation = useMutation({
@@ -397,7 +699,12 @@ export function HeroSettingsPage() {
       feedback.succeed('secret-create', 'new', 'Key 已安全保存。')
       setMessage('Key 已保存，页面不会回显真实值。')
       toast.success('Key 已安全保存', { timeout: 4000 })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) })
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
+        ...(submitted.kind === 'apify'
+          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
+          : []),
+      ])
     } catch (caught) {
       const message = secretCreateErrorMessage(caught)
       setSecretFormError(message)
@@ -514,10 +821,18 @@ export function HeroSettingsPage() {
           {secretFormError && <div className="min-[760px]:col-span-5" data-testid="secret-form-feedback"><HeroNotice title={secretFormError} /></div>}
           <Button className="w-fit" type="submit" isDisabled={feedback.isPending('secret-create', 'new')}><Icons.KeyRound size={15} />{feedback.isPending('secret-create', 'new') ? '保存中…' : '新增 Key'}</Button>
         </form>
+        <div className="mt-5">
+          <ApifyKeyPoolTable
+            secrets={secrets.data?.secrets ?? []}
+            userId={user.id}
+            onSecretChanged={secretChanged}
+          />
+        </div>
         <div className="mt-5 min-w-0 max-w-full">
+          <h3 className="type-page-title mb-3">AI Key</h3>
           <Table variant="secondary" className="max-w-full">
             <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="secret-table-scroll">
-              <Table.Content aria-label="已配置 Key">
+              <Table.Content aria-label="已配置 AI Key">
                 <Table.Header>
                   <Table.Column isRowHeader>Key</Table.Column>
                   <Table.Column>类型</Table.Column>
@@ -526,8 +841,8 @@ export function HeroSettingsPage() {
                   <Table.Column>操作</Table.Column>
                 </Table.Header>
                 <Table.Body
-                  items={secrets.data?.secrets ?? []}
-                  renderEmptyState={() => <div className="p-6 text-center text-muted">暂未配置 Key</div>}
+                  items={(secrets.data?.secrets ?? []).filter((secret) => !isApifySecret(secret))}
+                  renderEmptyState={() => <div className="p-6 text-center text-muted">尚未配置 AI Key</div>}
                 >
                   {(secret) => {
                     const presentation = secretPresentation(secret)
@@ -538,7 +853,7 @@ export function HeroSettingsPage() {
                           <code className="type-meta text-muted">{secret.env_name}</code>
                         </div>
                       </Table.Cell>
-                      <Table.Cell><span className="type-meta">{secret.kind === 'apify' ? 'Apify' : 'AI'} · {presentation.provider}</span></Table.Cell>
+                      <Table.Cell><span className="type-meta">{isApifySecret(secret) ? 'Apify' : 'AI'} · {presentation.provider}</span></Table.Cell>
                       <Table.Cell>
                         <div className="min-w-28">
                           <p className="type-control">{presentation.status}</p>

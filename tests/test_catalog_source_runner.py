@@ -134,10 +134,12 @@ def test_catalog_runner_fallback_preserves_persisted_public_network_marker(
 
 def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_SHARED_ACQUISITION_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
     _write_config(tmp_path)
     store, workspace, owner, source_id, subscription = _store_with_rss_source(tmp_path, monkeypatch)
     calls = []
     acquisition_coordinators = []
+    apify_coordinators = []
 
     class FakeOrchestrator:
         def __init__(self, config, _storage):
@@ -146,6 +148,9 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
 
         def set_service_acquisition_coordinator(self, coordinator):
             acquisition_coordinators.append(coordinator)
+
+        def set_service_apify_coordinator(self, coordinator):
+            apify_coordinators.append(coordinator)
 
         async def execute(self, **kwargs):
             assert kwargs["enrich"] is False
@@ -202,6 +207,8 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
     assert calls == ["产品机会"]
     assert len(acquisition_coordinators) == 1
     assert acquisition_coordinators[0].user_id == owner["id"]
+    assert len(apify_coordinators) == 1
+    assert apify_coordinators[0].workspace_id == workspace["id"]
     assert result["ok"] is True
     assert result["job_type"] == "source_fetch"
     assert result["source_id"] == source_id
