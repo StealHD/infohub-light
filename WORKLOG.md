@@ -2451,3 +2451,10 @@
 - 结果：本地 `main` 通过 merge commit `01f685b` 同时包含明暗主题/概览交互和既有设置密钥/Apify 额度功能；主工作区继续停留在 `codex/0723`，未覆盖其状态
 - 运行态：未重建或切换共享容器，保持并发任务现有 API/Worker 原状
 - 控制面变更：合入 D053、PLAN 第 61 项和主题/概览 UI 合同，并保留 D054、PLAN 第 62 项；未推送远端、未部署 VPS，未触发 scheduler、抓取、AI 或付费调用
+
+### 2026-07-23 14:08 Codex
+- 任务：构建并启动本地 `main@8531ea4efd8e` 的 API/Worker 容器版本
+- 运行变更：从干净 `main` worktree 单次构建镜像 `inteliscope-service:local-8531ea4efd8e-main`，通过 Compose override 为两个服务显式挂载原 `.env`、`data` 与 `logs`
+- 执行验证：切换前 active jobs=0、due schedules=0；API/Worker 同镜像且 healthy，live=`1.7.1/8531ea4efd8e`、database/worker ready；运行库保有 3 users、91 feed snapshots、707 feed items
+- 结果：`http://127.0.0.1:8080/` 已运行合并后的本地 main 版本；未启动 scheduler，未触发来源抓取、AI 或付费调用
+- 控制面变更：无；未推送远端或部署 VPS
