@@ -2443,3 +2443,11 @@
 - 结果：本地 `main` 通过 merge commit `2aa72db` 包含本功能及 main 既有成员/OpenClaw/Feed 改动；主工作区仍在 `codex/0723`，其原有未提交文档和临时目录保持不变
 - 运行态：`localhost:8080` 继续运行已验证的设置页预览镜像；未重新构建或切换数据卷
 - 控制面变更：合入 D054、PLAN 第 62 项与 API/UI 安全额度合同；未推送远端、未部署 VPS，未启动 scheduler、来源抓取、AI 或付费 Actor
+
+### 2026-07-23 14:00 Codex
+- 任务：把 `codex/feed-insights-theme-toggle` 已验证改动本地合并到并行演进后的 `main`
+- 修改文件：合并主题偏好、明暗切换、概览柔和退出、OpenClaw 发送按钮强调色及回归；人工整合 `DECISION_LOG.md`、`PLAN.md`、`WORKLOG.md`，保留设置密钥/Apify 额度改动并固定 D053/D054、PLAN 61/62
+- 执行验证：feature `test_gate full` 22/22、103.731 秒；合并结果复用锁文件哈希一致的前端依赖后 `test_gate full` 22/22、105.008 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：本地 `main` 通过 merge commit `01f685b` 同时包含明暗主题/概览交互和既有设置密钥/Apify 额度功能；主工作区继续停留在 `codex/0723`，未覆盖其状态
+- 运行态：未重建或切换共享容器，保持并发任务现有 API/Worker 原状
+- 控制面变更：合入 D053、PLAN 第 61 项和主题/概览 UI 合同，并保留 D054、PLAN 第 62 项；未推送远端、未部署 VPS，未触发 scheduler、抓取、AI 或付费调用
