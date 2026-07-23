@@ -29,7 +29,9 @@ function useViewport(width: number) {
     value: vi.fn((query: string): MediaQueryList => {
       const min = query.match(/min-width:\s*(\d+(?:\.\d+)?)px/)
       const max = query.match(/max-width:\s*(\d+(?:\.\d+)?)px/)
-      const matches = (!min || width >= Number(min[1])) && (!max || width <= Number(max[1]))
+      const matches = query.includes('prefers-reduced-motion')
+        ? false
+        : (!min || width >= Number(min[1])) && (!max || width <= Number(max[1]))
       return { matches, media: query, onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() }
     }),
   })
@@ -229,7 +231,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(api.agentDelegations).toHaveBeenCalled()
   })
 
-  it('dismisses obstructing Insights from Feed blank space while keeping Agent open', async () => {
+  it('softly dismisses obstructing Insights from any ineffective shell click while preserving controls', async () => {
     const originalRect = HTMLElement.prototype.getBoundingClientRect
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.matches('[data-page-frame="reading"]')) return { left: 100, right: 1000, top: 60, bottom: 850, width: 900, height: 790, x: 100, y: 60, toJSON: () => ({}) }
@@ -240,10 +242,18 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     render(<Shell user={{ id: 'obstructed-insights', username: 'blocked', role: 'member', enabled: true }} />)
 
     await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    const surface = screen.getByRole('complementary', { name: '信息概览' })
+    await browser.click(screen.getByRole('button', { name: '切换到白天模式' }))
+    expect(surface).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    expect(surface).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'true'))
-    await browser.click(screen.getByText('content'))
-    expect(screen.queryByRole('complementary', { name: '信息概览' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('heading', { name: '信息流' }))
+    expect(surface).toHaveAttribute('data-insights-surface', 'closing')
+    expect(surface).toHaveAttribute('aria-hidden', 'true')
+    expect(surface).toHaveAttribute('inert')
+    expect(surface).toHaveClass('quiet-surface-exit', 'pointer-events-none')
+    await waitFor(() => expect(surface).not.toBeInTheDocument(), { timeout: 600 })
     expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
     vi.restoreAllMocks()
   })

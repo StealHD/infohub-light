@@ -30,5 +30,7 @@ describe('Quiet Studio shared page patterns', () => {
     expect(css).toContain('@keyframes inteliscope-content-reveal')
     expect(css).toContain('translateY(4px)')
     expect(css).toContain('animation: inteliscope-content-reveal 200ms')
+    expect(css).toContain('@keyframes quiet-surface-exit')
+    expect(css).toContain('animation: quiet-surface-exit var(--inteliscope-motion-deliberate)')
   })
 })

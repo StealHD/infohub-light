@@ -696,6 +696,22 @@ test('the production theme defaults to night and persists explicit day and night
   await expect(app).toHaveAttribute('data-theme', 'dark')
 })
 
+test('obstructing Insights softly exits after an ineffective header click', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The floating overlapping surface is a desktop interaction.')
+  await page.goto('/feed')
+  const shell = page.getByTestId('live-workbench-shell')
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const insights = page.locator('#feed-insights-surface')
+  await expect(insights).toBeVisible()
+  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'true')
+
+  await page.getByRole('heading', { name: '信息流' }).click()
+
+  await expect(insights).toHaveAttribute('data-insights-surface', 'closing')
+  expect(await insights.evaluate((element) => getComputedStyle(element).animationName)).toBe('quiet-surface-exit')
+  await expect(insights).toHaveCount(0)
+})
+
 test('social cards and Agent context show source information once without exposing item IDs', async ({ page }, testInfo) => {
   await page.goto('/feed?social=1')
   const card = page.getByTestId('workbench-card')
