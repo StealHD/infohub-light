@@ -2393,3 +2393,10 @@
 - 结果：本地 `main` 已包含当前功能分支全部代码；主工作区仍停留在 `codex/0723`，其原有未提交文档和输出文件保持不变
 - 运行态：`localhost:8080` 继续运行已验证的同源镜像 `inteliscope-service:local-70a3617610e9-members-dirty`；未重新构建或切换数据卷
 - 控制面变更：无新增规则；未推送远端、未部署 VPS，未启动 scheduler、来源抓取、AI 或付费调用
+
+### 2026-07-23 12:38 Codex
+- 任务：从 `main@f38553b` 创建 `codex/feed-insights-theme-toggle`，扩大遮挡信息概览的无效点击关闭范围并新增持久化白天/黑夜切换
+- 修改文件：主题偏好/Provider/右上角图标、首帧 bootstrap、Workbench 概览关闭状态机与动效、前端测试、UI 合同、PLAN、D053、实施计划及本工作日志
+- 执行验证：main 基线与最终 `test_gate full` 均 22/22；UI contract、TypeScript、45 files / 365 Vitest、production build/产物扫描、lint 0 error 通过；新增 Playwright 2/2 通过，完整三视口 33 passed/6 skipped/3 个既有 Feed 排序失败，并在 detached main 同样 3/3 复现
+- 结果：黑夜保留当前默认，白天/黑夜显式选择跨刷新保存且不受系统外观覆盖；概览仅在实测遮挡时由工作台内任意非交互主点击进入 220 ms 柔和退出，真实控件与概览内部点击不受影响
+- 控制面变更：UI_CONTRACT、PLAN 61 与 D053 记录主题模式/家族分离及概览退出规则；无 API、数据库、Query Key、scheduler、抓取、AI、付费调用、容器、部署或生产运行态变化
