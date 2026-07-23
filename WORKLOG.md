@@ -2458,3 +2458,11 @@
 - 执行验证：切换前 active jobs=0、due schedules=0；API/Worker 同镜像且 healthy，live=`1.7.1/8531ea4efd8e`、database/worker ready；运行库保有 3 users、91 feed snapshots、707 feed items
 - 结果：`http://127.0.0.1:8080/` 已运行合并后的本地 main 版本；未启动 scheduler，未触发来源抓取、AI 或付费调用
 - 控制面变更：无；未推送远端或部署 VPS
+
+### 2026-07-23 14:54 Codex
+- 任务：推送当前 `main`，发布精确 `v1.7.2` 到 `vps-tokyo`，并在 GitHub Release 页面补充相对上一个公开版本的更新内容
+- 修改文件：同步两项过期 release E2E 与权威 UI 合同，六处版本入口升级为 `1.7.2`，追加本工作日志；VPS 新增 revision-locked release/image 与 `0600` 回滚备份
+- 执行验证：三视口定向 Playwright 6/6、正式 `test_gate release` 24/24（215.325 秒）；`origin/main`、annotated tag 与部署源均精确为 `734d79d4f0f0`，GitHub Test Gate/Deploy Docs 成功；AMD64 镜像与源码归档双端 SHA-256 一致，隔离 18080 staging、公网 10 路由、API/MCP 401、API/Worker health、严重日志、数据库 integrity/foreign-key/active-job/due-schedule 均通过
+- 结果：生产 `/opt/inteliscope/current` 指向 `/opt/inteliscope/releases/v1.7.2-734d79d4f0f0`，API/Worker 同镜像 `sha256:e58e3aa387a…9a64`、版本 `1.7.2/734d79d4f0f0`；Release 已发布为 `https://github.com/StealHD/infohub-light/releases/tag/v1.7.2`，说明覆盖 `v1.7.0...v1.7.2`
+- 回退：切换前备份位于 `/opt/inteliscope/backups/pre-v1.7.2-734d79d4f0f0-20260723T064541Z`，数据库 SHA-256 `e81766eef86b…43f9`；旧 `/opt/inteliscope/releases/v1.7.1-c762fea20268-local` 与旧镜像保留
+- 控制面变更：无；全部非构建身份环境值保持一致，scheduler 继续缺席，未手动触发来源抓取、AI、付费调用或数据库恢复
