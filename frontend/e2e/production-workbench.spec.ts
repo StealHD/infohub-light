@@ -670,20 +670,30 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('the production theme follows the live system color scheme', async ({ page }, testInfo) => {
+test('the production theme defaults to night and persists explicit day and night choices', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'A single desktop browser covers the shared theme root.')
   await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('/changelog')
   const root = page.locator('html')
   const app = page.locator('[data-ui-system="heroui"]')
-  await expect(root).toHaveAttribute('data-theme', 'light')
-  await expect(app).toHaveAttribute('data-theme', 'light')
-  const lightBackground = await app.evaluate((element) => getComputedStyle(element).backgroundColor)
-
-  await page.emulateMedia({ colorScheme: 'dark' })
   await expect(root).toHaveAttribute('data-theme', 'dark')
   await expect(app).toHaveAttribute('data-theme', 'dark')
-  expect(await app.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(lightBackground)
+  const darkBackground = await app.evaluate((element) => getComputedStyle(element).backgroundColor)
+
+  await page.getByRole('button', { name: '切换到白天模式' }).click()
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  await expect(app).toHaveAttribute('data-theme', 'light')
+  expect(await app.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(darkBackground)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  await expect(app).toHaveAttribute('data-theme', 'light')
+
+  await page.reload()
+  await expect(root).toHaveAttribute('data-theme', 'light')
+  await expect(app).toHaveAttribute('data-theme', 'light')
+  await page.getByRole('button', { name: '切换到黑夜模式' }).click()
+  await expect(root).toHaveAttribute('data-theme', 'dark')
+  await expect(app).toHaveAttribute('data-theme', 'dark')
 })
 
 test('social cards and Agent context show source information once without exposing item IDs', async ({ page }, testInfo) => {

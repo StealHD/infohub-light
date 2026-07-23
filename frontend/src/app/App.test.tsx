@@ -838,6 +838,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '登录私人信息雷达' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="auth"]')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument()
     await browser.type(screen.getByLabelText('用户名'), 'owner')
     await browser.type(screen.getByLabelText('密码'), 'wrong-secret')
     await browser.click(screen.getByRole('button', { name: '登录' }))

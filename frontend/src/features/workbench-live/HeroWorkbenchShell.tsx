@@ -27,6 +27,7 @@ import {
   Popover,
   Separator,
   Skeleton,
+  ThemeModeToggle,
 } from '../../design-system'
 import {
   readAgentContextDraft,
@@ -840,7 +841,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         <PageHeader
           title={pageTitle}
           className="col-start-1 row-start-1 min-[768px]:col-start-2"
-          actions={agentRoute ? <div className="flex items-center gap-1">
+          actions={<div className="flex items-center gap-1">
             {feedRoute && <Button
               ref={insightsToggleRef}
               size="sm"
@@ -854,7 +855,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               isDisabled={openclawChat.isRunning && !dockCapable}
               onPress={toggleInsights}
             ><Icons.ChartNoAxesCombined size={18} aria-hidden="true" /></Button>}
-            <Button
+            {agentRoute && <Button
               ref={agentToggleRef}
               size="sm"
               variant="ghost"
@@ -867,8 +868,9 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               aria-controls="live-agent-panel"
               isDisabled={openclawChat.isRunning}
               onPress={toggleAgentRail}
-            ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>
-          </div> : undefined}
+            ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>}
+            <ThemeModeToggle />
+          </div>}
         />
 
         <main ref={mainRef} onPointerDown={handleFeedBlankPointerDown} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">

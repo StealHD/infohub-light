@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServiceApi } from '../../api/service'
 import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
+import { DesignSystemProvider } from '../../design-system'
 import { canFloatFeedInsights, HeroWorkbenchShell, rectanglesOverlap } from './HeroWorkbenchShell'
 
 function memoryStorage(): Storage {
@@ -70,10 +71,12 @@ function Shell({ user, path = '/feed', onLogout = vi.fn(), serviceApi = api }: {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[path]}>
-      <HeroWorkbenchShell api={serviceApi} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
-        <div data-page-frame="reading" data-feed-blank-region>content</div>
-      </HeroWorkbenchShell>
-      <LocationProbe />
+      <DesignSystemProvider>
+        <HeroWorkbenchShell api={serviceApi} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
+          <div data-page-frame="reading" data-feed-blank-region>content</div>
+        </HeroWorkbenchShell>
+        <LocationProbe />
+      </DesignSystemProvider>
     </MemoryRouter>
   </QueryClientProvider>
 }
@@ -262,7 +265,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     vi.restoreAllMocks()
   })
 
-  it('keeps the content header limited to title and the two right-rail modes', async () => {
+  it('keeps the content header limited to title, panel controls and the theme mode', async () => {
     const browser = userEvent.setup()
     render(<Shell user={{ id: 'feed-visual', username: 'feed', role: 'member', enabled: true }} />)
 
@@ -270,6 +273,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
     expect(screen.getByRole('heading', { name: '信息流' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开信息概览' })).toHaveAttribute('aria-expanded', 'false')
     await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
     expect(screen.getByRole('button', { name: '收起信息概览' })).toHaveAttribute('aria-expanded', 'true')

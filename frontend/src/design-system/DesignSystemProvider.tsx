@@ -71,9 +71,31 @@ type ThemePreferenceContextValue = ThemePreference & {
 const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null)
 
 export function useThemePreference(): ThemePreferenceContextValue {
-  const value = useContext(ThemePreferenceContext)
-  if (!value) throw new Error('useThemePreference must be used inside DesignSystemProvider')
-  return value
+  const provided = useContext(ThemePreferenceContext)
+  const [fallback, setFallback] = useState<ThemePreference>(readThemePreference)
+  const setFallbackColorMode = useCallback((colorMode: ThemeColorMode) => {
+    setFallback((current) => {
+      const next = writeThemePreference({ ...current, colorMode })
+      if (typeof document !== 'undefined') applyThemeRoot(document.documentElement, next)
+      return next
+    })
+  }, [])
+  const toggleFallbackColorMode = useCallback(() => {
+    setFallback((current) => {
+      const next = writeThemePreference({
+        ...current,
+        colorMode: current.colorMode === 'dark' ? 'light' : 'dark',
+      })
+      if (typeof document !== 'undefined') applyThemeRoot(document.documentElement, next)
+      return next
+    })
+  }, [])
+  const fallbackValue = useMemo<ThemePreferenceContextValue>(() => ({
+    ...fallback,
+    setColorMode: setFallbackColorMode,
+    toggleColorMode: toggleFallbackColorMode,
+  }), [fallback, setFallbackColorMode, toggleFallbackColorMode])
+  return provided ?? fallbackValue
 }
 
 export function DesignSystemProvider({ children }: { children: ReactNode }) {
