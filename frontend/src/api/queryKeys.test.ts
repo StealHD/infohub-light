@@ -10,5 +10,11 @@ describe('query keys', () => {
     expect(queryKeys.subscriptions('user-b')).toEqual(['user', 'user-b', 'subscriptions'])
     expect(queryKeys.jobs('user-b')).toEqual(['user', 'user-b', 'jobs'])
     expect(queryKeys.agentDelegations('user-b')).toEqual(['user', 'user-b', 'agent-delegations'])
+    expect(queryKeys.secretQuota('user-a', 'secret-1')).toEqual([
+      'user', 'user-a', 'secret-quota', 'secret-1',
+    ])
+    expect(queryKeys.secretQuota('user-b', 'secret-1')).not.toEqual(
+      queryKeys.secretQuota('user-a', 'secret-1'),
+    )
   })
 })

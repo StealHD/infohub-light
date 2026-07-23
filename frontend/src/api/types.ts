@@ -372,6 +372,20 @@ export type SecretRef = {
   used_by: Array<{ type: string; id: string; name: string }>
 }
 
+export type SecretQuota = {
+  secret_id: string
+  provider: 'apify'
+  currency: 'USD'
+  cycle_start_at: string
+  cycle_end_at: string
+  checked_at: string
+  monthly_included_credits_usd: number
+  monthly_usage_usd: number
+  remaining_included_credits_usd: number
+  max_monthly_usage_usd: number
+  remaining_hard_limit_usd: number
+}
+
 export type ConfigResponse = {
   path?: string
   config: Record<string, unknown>

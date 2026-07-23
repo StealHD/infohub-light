@@ -66,8 +66,10 @@ describe('service api', () => {
 
     await api.createSecret({ name: 'Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', value: 'write-only' })
     await api.rotateSecret('secret/1', 'new-value')
+    await api.secretQuota('secret/1')
 
     expect(client.post).toHaveBeenCalledWith('/api/admin/secrets', expect.objectContaining({ value: 'write-only' }))
     expect(client.put).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/value', { value: 'new-value' })
+    expect(client.get).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/quota', undefined)
   })
 })

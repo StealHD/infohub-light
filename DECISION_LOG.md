@@ -440,3 +440,12 @@
 - 决策内容：保留 `DELETE /api/me/agent-delegations/{id}` 的幂等吊销语义，新增显式 `/record` DELETE，只允许当前用户删除选中的一条 `revoked_at IS NOT NULL` delegation。`/agents` 的有效连接继续显示“吊销”，已吊销连接只显示经确认的“删除”；有效、仅到期、非本人和不存在记录均不得被该动作删除。
 - 原因：把“第二次吊销”解释为删除会让响应丢失后的网络重试误删记录，也混淆令牌失效与列表清理。独立端点和独立确认状态让目标、前置条件和失败语义可验证，同时满足用户只删除一个已吊销连接的需求。
 - 安全/兼容：删除查询同时限定 delegation ID、当前用户 ID 与已吊销状态；既有 proposal 按外键级联删除，其他连接、订阅、Feed、来源和用户数据不变。不新增 schema 或依赖，不改变 Remote MCP 认证、权限、令牌期限、有效连接上限，也不触碰 OpenClaw Gateway 浏览器配对。
+
+### D054 设置页密钥管理采用局部失败反馈与安全额度投影
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现与定向验收完成；未部署
+- 决策内容：新增 Key 的校验与服务端失败同时留在密钥表单并发送 Toast，失败仅清空真实值；已配置 Key 使用 HeroUI v3 Table 与行级轮换/删除 Modal。仅 `owner/admin` 可通过用户隔离 Query key 查询 Apify 额度，前端缓存五分钟并允许手动刷新。
+- 安全边界：服务端只从 SecretStore 读取 Token，并调用 Apify `/v2/users/me` 与 `/v2/users/me/limits`；浏览器只接收 USD 周期与非负额度数字。Token、账户资料、原始响应、错误正文、日志和数据库均不得承载秘密；额度失败不影响 Key 保存或列表。
+- 原因：页面顶部的通用错误离底部表单过远，新增失败缺少可执行反馈；同时管理员需要在不暴露 Token 或账户资料的前提下判断 Apify 套餐和硬上限余量。
+- 影响范围：Secret quota service、管理员 secret API、React Service API/Query cache、设置页 Key Table/Modal、API/UI 合同和测试；不新增数据库结构，不触发 Actor、抓取、AI、scheduler 或付费调用。

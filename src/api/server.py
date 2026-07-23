@@ -30,6 +30,7 @@ from ..services.job_eligibility import JobEligibilityService
 from ..services.job_queue import JobQueue
 from ..services.quota import QuotaExceeded, QuotaService
 from ..services.runtime_status import RuntimeStatusService
+from ..services.secret_quota import ApifySecretQuotaService, SecretQuotaError
 from ..services.source_health import SourceHealthService
 from ..services.source_schedule import (
     SOURCE_ALLOWED_INTERVALS,
@@ -372,6 +373,7 @@ def create_app(
     runtime_status = RuntimeStatusService(store)
     source_health = SourceHealthService(store)
     secret_values = SecretStore(data_path)
+    secret_quota = ApifySecretQuotaService()
     secret_values.load_into_environ()
     quota = QuotaService(
         store,
@@ -1655,6 +1657,40 @@ def create_app(
                     source_id=source["id"],
                 )
         return ok(public_secret(updated))
+
+    @app.get("/api/admin/secrets/{secret_id}/quota")
+    async def admin_secrets_quota(
+        secret_id: str,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        secret = store.get_secret_ref(secret_id)
+        if secret is None or secret["workspace_id"] != user["workspace_id"]:
+            raise ApiError("not_found", "secret reference not found", status_code=404)
+        if secret["kind"] != "apify" or secret["provider"] != "apify":
+            raise ApiError(
+                "quota_not_supported",
+                "该 Provider 暂不支持额度查询。",
+                status_code=400,
+            )
+        token = secret_values.read().get(secret["env_name"], "").strip()
+        if not token:
+            raise ApiError(
+                "secret_not_configured",
+                "该 Key 尚未配置真实值，无法查询额度。",
+                status_code=409,
+                action="请先轮换并保存有效的 Apify Token。",
+            )
+        try:
+            quota_data = await secret_quota.fetch(secret_id=secret_id, token=token)
+        except SecretQuotaError as exc:
+            raise ApiError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=exc.action,
+            ) from exc
+        return ok(quota_data)
 
     @app.delete("/api/admin/secrets/{secret_id}")
     async def admin_secrets_delete(

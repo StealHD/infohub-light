@@ -728,7 +728,10 @@ describe('App routes', () => {
 
   it('shows role-scoped live settings and clears only a failed secret value', async () => {
     const browser = userEvent.setup()
-    const createSecret = vi.fn().mockRejectedValue(new ApiError(400, { code: 'invalid_secret', message: 'Key 保存失败' }))
+    const createSecret = vi.fn().mockRejectedValue(new ApiError(409, {
+      code: 'secret_env_conflict',
+      message: 'the environment name is already registered',
+    }))
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-live', username: 'owner', role: 'owner', enabled: true } }),
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: ['AI'], topics: ['Agent'] } }),
@@ -737,7 +740,7 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
@@ -749,18 +752,157 @@ describe('App routes', () => {
     expect(screen.queryByText('精选阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报条数')).not.toBeInTheDocument()
+    expect(screen.getByRole('grid', { name: '已配置 Key' })).toBeInTheDocument()
+    expect(screen.getByText('暂未配置 Key')).toBeInTheDocument()
 
     await browser.type(screen.getByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
     await browser.type(screen.getByLabelText('Key 值'), 'secret-value')
     await browser.click(screen.getByRole('button', { name: '新增 Key' }))
-    expect(await screen.findByText('Key 保存失败')).toBeInTheDocument()
+    const localFeedback = await screen.findByTestId('secret-form-feedback')
+    expect(localFeedback).toHaveTextContent('环境变量名已被其他 Key 使用，请更换后重试。')
+    expect(await screen.findByText('新增 Key 失败')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Key 名称' })).toHaveValue('DeepSeek')
     expect(screen.getByRole('textbox', { name: 'Key provider' })).toHaveValue('deepseek')
     expect(screen.getByRole('textbox', { name: '环境变量名' })).toHaveValue('DEEPSEEK_API_KEY')
     expect(screen.getByLabelText('Key 值')).toHaveValue('')
   }, 10_000)
+
+  it('shows actionable local validation and network errors inside the key form', async () => {
+    const browser = userEvent.setup()
+    const createSecret = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-key-validation', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      createSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '密钥' })
+    await browser.type(screen.getByRole('textbox', { name: 'Key 名称' }), 'Invalid')
+    await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'unknown')
+    await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), '1INVALID-NAME')
+    await browser.type(screen.getByLabelText('Key 值'), 'temporary-value')
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+
+    expect((await screen.findAllByText('AI Key 的 Provider 仅支持 gemini、openai、anthropic 或 deepseek。')).length).toBeGreaterThan(0)
+    expect(screen.getByText('环境变量名必须以字母或下划线开头，且只能包含字母、数字和下划线。')).toBeInTheDocument()
+    expect(screen.getByLabelText('Key 值')).toHaveValue('')
+    expect(createSecret).not.toHaveBeenCalled()
+
+    await browser.clear(screen.getByRole('textbox', { name: 'Key provider' }))
+    await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'openai')
+    await browser.clear(screen.getByRole('textbox', { name: '环境变量名' }))
+    await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'OPENAI_API_KEY')
+    await browser.type(screen.getByLabelText('Key 值'), 'temporary-value-2')
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+
+    expect(await screen.findByTestId('secret-form-feedback')).toHaveTextContent('网络请求失败：Failed to fetch。请检查连接后重试。')
+    expect(screen.getByRole('textbox', { name: 'Key 名称' })).toHaveValue('Invalid')
+    expect(screen.getByRole('textbox', { name: 'Key provider' })).toHaveValue('openai')
+    expect(screen.getByRole('textbox', { name: '环境变量名' })).toHaveValue('OPENAI_API_KEY')
+    expect(screen.getByLabelText('Key 值')).toHaveValue('')
+    expect(createSecret).toHaveBeenCalledTimes(1)
+  }, 10_000)
+
+  it('renders and caches Apify quota, skips AI quota, refreshes manually, and invalidates after rotation', async () => {
+    const browser = userEvent.setup()
+    const secretQuota = vi.fn().mockResolvedValue({
+      secret_id: 'apify-key',
+      provider: 'apify',
+      currency: 'USD',
+      cycle_start_at: '2026-07-01T00:00:00.000Z',
+      cycle_end_at: '2026-07-31T23:59:59.999Z',
+      checked_at: '2026-07-23T08:30:00+00:00',
+      monthly_included_credits_usd: 49,
+      monthly_usage_usd: 12.5,
+      remaining_included_credits_usd: 36.5,
+      max_monthly_usage_usd: 100,
+      remaining_hard_limit_usd: 87.5,
+    })
+    const rotateSecret = vi.fn().mockResolvedValue({})
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-quota', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [
+        { id: 'apify-key', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_TOKEN', is_set: true, used_by: [{ type: 'source', id: 'source-1', name: 'X' }] },
+        { id: 'ai-key', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [] },
+      ] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      secretQuota,
+      rotateSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const renderSettings = () => render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/settings']}>
+          <DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const firstView = renderSettings()
+    expect(await screen.findByText('套餐剩余 $36.50')).toBeInTheDocument()
+    expect(screen.getByText('本月已用 $12.50 · 硬上限剩余 $87.50')).toBeInTheDocument()
+    expect(screen.getByText('暂不支持查询')).toBeInTheDocument()
+    expect(screen.getByText('1 个引用')).toBeInTheDocument()
+    expect(secretQuota.mock.calls.map(([secretId]) => secretId)).toEqual(['apify-key'])
+
+    firstView.unmount()
+    renderSettings()
+    expect(await screen.findByText('套餐剩余 $36.50')).toBeInTheDocument()
+    expect(secretQuota).toHaveBeenCalledTimes(1)
+
+    await browser.click(screen.getByRole('button', { name: '刷新 Apify Primary 额度' }))
+    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(2))
+
+    const apifyRow = screen.getByRole('row', { name: /Apify Primary/ })
+    const rotateTrigger = within(apifyRow).getByRole('button', { name: '轮换 Apify Primary' })
+    await browser.click(rotateTrigger)
+    const rotateDialog = screen.getByRole('dialog', { name: '轮换 Apify Primary' })
+    await browser.type(within(rotateDialog).getByLabelText('新 Key 值'), 'rotated-write-only')
+    await browser.click(within(rotateDialog).getByRole('button', { name: '确认轮换' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '轮换 Apify Primary' })).not.toBeInTheDocument())
+    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(3))
+    expect(rotateSecret).toHaveBeenCalledWith('apify-key', 'rotated-write-only')
+    expect(rotateTrigger).toHaveFocus()
+  }, 10_000)
+
+  it('keeps rotation failures inside the row modal and clears the submitted value', async () => {
+    const browser = userEvent.setup()
+    const rotateSecret = vi.fn().mockRejectedValue(new ApiError(422, {
+      code: 'invalid_secret',
+      message: 'secret value must be a single non-null line',
+    }))
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-rotate-failure', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'rotate-key', name: 'Rotate Key', kind: 'ai', provider: 'openai', env_name: 'ROTATE_KEY', is_set: true, used_by: [] }] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      rotateSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    const row = await screen.findByRole('row', { name: /Rotate Key/ })
+    const trigger = within(row).getByRole('button', { name: '轮换 Rotate Key' })
+    await browser.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '轮换 Rotate Key' })
+    const input = within(dialog).getByLabelText('新 Key 值')
+    await browser.type(input, 'bad-value')
+    await browser.click(within(dialog).getByRole('button', { name: '确认轮换' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('secret value must be a single non-null line')
+    expect(input).toHaveValue('')
+    expect(dialog).toBeInTheDocument()
+    await browser.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '轮换 Rotate Key' })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+  })
 
   it('requires explicit confirmation before deleting an unused secret', async () => {
     const browser = userEvent.setup()
@@ -776,8 +918,8 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const card = (await screen.findByText('Unused Key')).closest('[data-slot="card"]') as HTMLElement
-    const trigger = within(card).getByRole('button', { name: '删除' })
+    const row = await screen.findByRole('row', { name: /Unused Key/ })
+    const trigger = within(row).getByRole('button', { name: '删除 Unused Key' })
     await browser.click(trigger)
     expect(screen.getByRole('dialog', { name: '删除 Unused Key？' })).toBeInTheDocument()
     expect(deleteSecret).not.toHaveBeenCalled()
@@ -816,8 +958,8 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const card = (await screen.findByText('Failed Key')).closest('[data-slot="card"]') as HTMLElement
-    await browser.click(within(card).getByRole('button', { name: '删除' }))
+    const row = await screen.findByRole('row', { name: /Failed Key/ })
+    await browser.click(within(row).getByRole('button', { name: '删除 Failed Key' }))
     await browser.click(screen.getByRole('button', { name: '确认删除' }))
 
     const dialog = screen.getByRole('dialog', { name: '删除 Failed Key？' })

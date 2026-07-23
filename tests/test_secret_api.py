@@ -5,6 +5,7 @@ import json
 from fastapi.testclient import TestClient
 
 from src.api.server import create_app
+from src.services.secret_quota import SecretQuotaError
 from src.storage.service_store import ServiceStore
 
 
@@ -146,12 +147,156 @@ def test_secret_admin_routes_reject_member_and_viewer(tmp_path, monkeypatch) -> 
                 "env_name": "BLOCKED_KEY", "value": "blocked-value",
             }),
             ("PUT", "/api/admin/secrets/missing/value", {"value": "blocked-value"}),
+            ("GET", "/api/admin/secrets/missing/quota", None),
             ("DELETE", "/api/admin/secrets/missing", None),
         ):
             response = client.request(method, path, json=body)
             assert response.status_code == 403
             assert response.json()["error"]["code"] == "forbidden"
             assert "blocked-value" not in response.text
+
+
+def test_apify_quota_allows_owner_and_admin_and_returns_safe_projection(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    expected = {
+        "secret_id": "",
+        "provider": "apify",
+        "currency": "USD",
+        "cycle_start_at": "2026-07-01T00:00:00.000Z",
+        "cycle_end_at": "2026-07-31T23:59:59.999Z",
+        "checked_at": "2026-07-23T08:30:00+00:00",
+        "monthly_included_credits_usd": 49.0,
+        "monthly_usage_usd": 12.5,
+        "remaining_included_credits_usd": 36.5,
+        "max_monthly_usage_usd": 100.0,
+        "remaining_hard_limit_usd": 87.5,
+    }
+    observed: list[tuple[str, str]] = []
+
+    async def fake_fetch(_service, *, secret_id: str, token: str) -> dict:
+        observed.append((secret_id, token))
+        return {**expected, "secret_id": secret_id}
+
+    monkeypatch.setattr("src.api.server.ApifySecretQuotaService.fetch", fake_fetch)
+    client, _store = _client(tmp_path, monkeypatch)
+    _login(client)
+    secret = _create_secret(client)
+
+    owner_response = client.get(f"/api/admin/secrets/{secret['id']}/quota")
+    assert owner_response.status_code == 200
+    assert owner_response.json()["data"] == {**expected, "secret_id": secret["id"]}
+    assert "private-apify-value" not in owner_response.text
+
+    created_admin = client.post(
+        "/api/users",
+        json={"username": "admin", "password": "admin-password", "role": "admin"},
+    )
+    assert created_admin.status_code == 200
+    client.post("/api/auth/logout")
+    _login(client, "admin", "admin-password")
+
+    admin_response = client.get(f"/api/admin/secrets/{secret['id']}/quota")
+    assert admin_response.status_code == 200
+    assert admin_response.json()["data"] == {**expected, "secret_id": secret["id"]}
+    assert observed == [
+        (secret["id"], "private-apify-value"),
+        (secret["id"], "private-apify-value"),
+    ]
+
+
+def test_secret_quota_rejects_cross_workspace_non_apify_and_missing_value(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    owner = store.get_user_by_username("owner")
+    workspace = store.get_default_workspace()
+    assert owner is not None
+
+    ai_secret = _create_secret(
+        client,
+        name="Gemini",
+        kind="ai",
+        provider="gemini",
+        env_name="GEMINI_QUOTA_TEST_KEY",
+    )
+    unsupported = client.get(f"/api/admin/secrets/{ai_secret['id']}/quota")
+    assert unsupported.status_code == 400
+    assert unsupported.json()["error"] == {
+        "code": "quota_not_supported",
+        "message": "该 Provider 暂不支持额度查询。",
+        "retryable": False,
+        "action": "",
+    }
+
+    missing_secret = store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="Apify missing",
+        env_name="APIFY_MISSING_QUOTA_TOKEN",
+        kind="apify",
+        provider="apify",
+    )
+    missing = client.get(f"/api/admin/secrets/{missing_secret['id']}/quota")
+    assert missing.status_code == 409
+    assert missing.json()["error"]["code"] == "secret_not_configured"
+    assert missing.json()["error"]["retryable"] is False
+
+    store.connect().execute(
+        """
+        INSERT INTO workspaces (id, name, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            "workspace-other",
+            "Other",
+            "2026-07-23T00:00:00+00:00",
+            "2026-07-23T00:00:00+00:00",
+        ),
+    )
+    store.connect().commit()
+    other_secret = store.create_secret_ref(
+        workspace_id="workspace-other",
+        owner_user_id=None,
+        name="Other Apify",
+        env_name="OTHER_APIFY_QUOTA_TOKEN",
+        kind="apify",
+        provider="apify",
+    )
+    cross_workspace = client.get(f"/api/admin/secrets/{other_secret['id']}/quota")
+    assert cross_workspace.status_code == 404
+    assert cross_workspace.json()["error"]["code"] == "not_found"
+
+
+def test_secret_quota_preserves_retryable_error_contract(tmp_path, monkeypatch) -> None:
+    async def fake_fetch(_service, *, secret_id: str, token: str) -> dict:
+        del secret_id, token
+        raise SecretQuotaError(
+            "apify_quota_rate_limited",
+            "Apify 请求过于频繁，请稍后重试。",
+            status_code=429,
+            retryable=True,
+            action="稍后手动刷新额度。",
+        )
+
+    monkeypatch.setattr("src.api.server.ApifySecretQuotaService.fetch", fake_fetch)
+    client, _store = _client(tmp_path, monkeypatch)
+    _login(client)
+    secret = _create_secret(client)
+
+    response = client.get(f"/api/admin/secrets/{secret['id']}/quota")
+
+    assert response.status_code == 429
+    assert response.json()["error"] == {
+        "code": "apify_quota_rate_limited",
+        "message": "Apify 请求过于频繁，请稍后重试。",
+        "retryable": True,
+        "action": "稍后手动刷新额度。",
+    }
+    assert "private-apify-value" not in response.text
 
 
 def test_referenced_secret_cannot_be_deleted_and_rotation_resets_only_its_health(tmp_path, monkeypatch) -> None:

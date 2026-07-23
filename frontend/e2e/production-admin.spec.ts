@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
 
 async function mockAdminApi(page: Page, authenticated = true) {
+  let quotaRequests = 0
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
@@ -45,7 +46,26 @@ async function mockAdminApi(page: Page, authenticated = true) {
       },
       taxonomy: { channels: ['AI', '产品机会', '其他'], topics: ['AI Agent', 'Codex'] },
     }
-    else if (url.pathname === '/api/admin/secrets') data = { secrets: [{ id: 'secret-1', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [{ type: 'ai', id: 'primary', name: 'AI 分析' }] }] }
+    else if (url.pathname === '/api/admin/secrets') data = { secrets: [
+      { id: 'secret-1', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [{ type: 'ai', id: 'primary', name: 'AI 分析' }] },
+      { id: 'secret-apify', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRIMARY_WORKSPACE_TOKEN', is_set: true, used_by: [] },
+    ] }
+    else if (url.pathname === '/api/admin/secrets/secret-apify/quota') {
+      quotaRequests += 1
+      data = {
+        secret_id: 'secret-apify',
+        provider: 'apify',
+        currency: 'USD',
+        cycle_start_at: '2026-07-01T00:00:00.000Z',
+        cycle_end_at: '2026-07-31T23:59:59.999Z',
+        checked_at: '2026-07-23T08:30:00+00:00',
+        monthly_included_credits_usd: 49,
+        monthly_usage_usd: 12.5,
+        remaining_included_credits_usd: 36.5,
+        max_monthly_usage_usd: 100,
+        remaining_hard_limit_usd: 87.5,
+      }
+    }
     else if (url.pathname === '/api/users') data = { users: [owner] }
     else {
       await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: url.pathname } }) })
@@ -54,6 +74,7 @@ async function mockAdminApi(page: Page, authenticated = true) {
 
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
   })
+  return { quotaRequests: () => quotaRequests }
 }
 
 async function expectHeroAdminPage(page: Page, heading: string) {
@@ -90,6 +111,36 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expectHeroAdminPage(page, '账户与成员')
   await expect(page.getByRole('heading', { name: '账户安全' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '成员管理' })).toBeVisible()
+})
+
+test('settings key table contains scrolling, quota, refresh and accessible modal behavior', async ({ page }) => {
+  const apiState = await mockAdminApi(page)
+  await page.goto('/settings')
+
+  await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
+  const keyTable = page.getByRole('grid', { name: '已配置 Key' })
+  await expect(keyTable).toBeVisible()
+  await expect(keyTable.getByRole('columnheader')).toHaveText(['Key', '类型', '状态', '额度', '操作'])
+  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  await expect(page.getByText('暂不支持查询')).toBeVisible()
+  await expect.poll(apiState.quotaRequests).toBe(1)
+  const tableScroll = page.getByTestId('secret-table-scroll')
+  expect(await tableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
+  if ((page.viewportSize()?.width ?? 0) <= 390) {
+    expect(await tableScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  }
+  const refreshQuota = page.getByRole('button', { name: '刷新 Apify Primary 额度' })
+  await refreshQuota.click()
+  await expect.poll(apiState.quotaRequests).toBe(2)
+  const rotateTrigger = page.getByRole('button', { name: '轮换 Apify Primary' })
+  await rotateTrigger.click()
+  await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toHaveCount(0)
+  await expect(rotateTrigger).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('subscription controls preserve the first source card on the mobile first screen', async ({ page }, testInfo) => {

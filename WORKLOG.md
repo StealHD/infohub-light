@@ -2369,3 +2369,24 @@
 - 执行验证：功能分支 `test_gate full` 22/22；合并结果 OpenClaw/助手连接前端定向 57/57、delegation 后端定向 35/35、`git diff --check` 通过
 - 结果：保留 `main` 的运行时模型规范化、思考档位、扁平时间线和 UI/Changelog 改进，同时加入服务端优先配对移除、scope-upgrade 与仅删除选中已吊销连接；原 `main` 未提交文档以独立 stash 保护，待合并门禁后原样恢复
 - 控制面变更：解决双方 D048/D049 编号碰撞，保留主线 D048/D049，并将配对移除与 delegation 删除分别落为 D050/D051；未修改本地容器、VPS、数据库、scheduler、来源抓取、模型或付费调用
+
+### 2026-07-23 12:27 Codex
+- 任务：在隔离分支实现设置页新增 Key 失败反馈、HeroUI Key Table、行级轮换/删除 Modal 与 Apify 安全额度查询
+- 修改文件：Secret quota service/管理员 API、React API 与用户隔离 Query cache、设置页及后端/前端/三视口测试；同步 API/UI 合同、PLAN 和 D054
+- 执行验证：后端定向 18/18、前端定向 67/67；设置页 Playwright 在 1440×900、1024×768、390×844 通过，含内部滚动、页面无横向溢出、焦点恢复和 Axe serious/critical=0；UI contract、TypeScript、ESLint（0 error、6 个既有 warning）、production build/产物检查通过；最终 `test_gate full` 22/22、0 failed/error、105.958 秒，JSON 与 `git diff --check` 通过
+- 结果：新增失败在表单内给出中文原因并 Toast，失败仅清真实值；Apify 额度缓存五分钟且可手动刷新，Token/账户资料/原始响应不出服务端，额度失败不影响 Key 保存和列表
+- 控制面变更：新增 owner/admin、同 workspace 的 quota API 合同及设置页交互规则；无数据库结构、部署、抓取、AI、scheduler 或付费 Actor 变化
+
+### 2026-07-23 13:21 Codex
+- 任务：构建并启动 `codex/settings-key-feedback-quota` 的本地容器供设置页验收
+- 修改文件：仅本工作日志；API/Worker 复用主工作区现有 `.env`、`data` 与 `logs`，切换前创建 `0600` 数据库备份 `data/backups/pre-settings-key-feedback-quota-20260723T051612Z.db`
+- 执行验证：显式单次构建镜像 `sha256:59a0d14d40b…e91db`，API/Worker 同 image、healthy、0 restart；live revision=`86743b5b3acad-settings-key-feedback-quota-dirty`，设置页 200、未认证 secret API 401、OpenAPI 含 quota 路由，运行 bundle 含额度与 Key Table 文案；SQLite quick check=`ok`、foreign-key=0、active jobs=0、scheduler=0、严重日志匹配=0
+- 结果：`http://127.0.0.1:8080/settings` 已运行本分支；首次 Compose 同标签并行构建产物与主工作区哈希一致，未通过功能验收，已改用显式 worktree 单镜像构建并在切换前验证源码/前端产物
+- 控制面变更：无；未部署 VPS，未启动 scheduler、来源抓取、AI 或付费 Actor
+
+### 2026-07-23 13:34 Codex
+- 任务：按用户要求再次启动并确认设置页 Key/Apify 额度分支版本
+- 修改文件：仅本工作日志；使用已验证镜像强制重建本机 API/Worker，未重新构建或修改数据
+- 执行验证：API/Worker 同 `inteliscope-service:local-86743b5-settings-key-feedback-quota-preview`、healthy、0 restart；live revision 匹配，设置页 200、quota OpenAPI 路由存在、active jobs=0、scheduler=0
+- 结果：`http://127.0.0.1:8080/settings` 已重新运行本分支，浏览器强制刷新即可加载
+- 控制面变更：无；未部署 VPS，未触发抓取、AI、付费 Actor 或 scheduler
