@@ -12,6 +12,7 @@ import { HeroSubscriptionsPage } from '../features/admin-heroui/HeroSubscription
 import { HeroUsersPage } from '../features/admin-heroui/HeroUsersPage'
 import { HeroChangelogPage } from '../features/changelog/HeroChangelogPage'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
+import { HeroManualPage } from '../features/manual/HeroManualPage'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
 import { clearUserCache } from './sessionCache'
@@ -139,6 +140,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/agents" element={<HeroAgentsPage />} />
         <Route path="/settings" element={<HeroSettingsPage />} />
         <Route path="/users" element={<HeroUsersPage />} />
+        <Route path="/manual" element={<HeroManualPage />} />
         <Route path="/changelog" element={<HeroChangelogPage />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/feed' : '/login'} replace />} />

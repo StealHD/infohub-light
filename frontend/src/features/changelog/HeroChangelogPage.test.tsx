@@ -18,7 +18,9 @@ describe('HeroChangelogPage', () => {
     render(<MemoryRouter initialEntries={['/changelog#month-2026-07']}><HeroChangelogPage /></MemoryRouter>)
 
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 7 月' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: '操作手册与发布入口' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '更清晰的交互反馈' })).toBeInTheDocument()
+    expect(screen.getByText(/每次产品代码合并都由 Test Gate 验证/)).toBeInTheDocument()
     expect(screen.getByText(/鼠标与键盘触发的说明现在优先显示在控件右侧/)).toBeInTheDocument()
     expect(within(screen.getByRole('navigation', { name: '更新月份时间线' })).getByRole('button', { name: '2026 年 7 月' })).toHaveAttribute('aria-current', 'location')
     expect(within(screen.getByRole('navigation', { name: '更新月份' })).getByRole('button', { name: '2026 年 7 月' })).toHaveAttribute('aria-current', 'location')

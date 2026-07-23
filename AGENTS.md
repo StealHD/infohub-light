@@ -22,6 +22,7 @@ Current domain objects:
 - Do not run the full scheduler while developing a narrow change.
 - Keys pasted into a task are compromised evidence: never persist or call them. DeepSeek activation requires a replacement value written through SecretStore and a one-call smoke.
 - `content_repair` may refetch only free sources in bulk, updates existing stable content only, and must never create a Feed snapshot or call AI. Paid social repair requires separate per-item authorization.
+- Every merge containing product code must review both `frontend/src/features/manual/manualContent.ts` and `frontend/src/features/changelog/changelogEntries.ts`; `scripts/check_product_docs.py` enforces this in the Test Gate.
 
 <!-- init-pro:section name=precedence -->
 ## 3. Control Files

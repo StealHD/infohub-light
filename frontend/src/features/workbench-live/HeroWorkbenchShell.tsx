@@ -12,6 +12,7 @@ import {
   readFeedPreference,
   writeFeedPreference,
 } from '../feed/feedPreference'
+import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import {
   AvatarFallback,
   AvatarImage,
@@ -390,7 +391,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
   const agentRoute = contentRoute || location.pathname === '/subscriptions'
-  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/changelog') ? '更新日志' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
+  const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/manual') ? '操作手册' : location.pathname.endsWith('/changelog') ? '更新日志' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const shellRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   const insightsRef = useRef<HTMLElement>(null)
@@ -410,6 +411,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [insightsObstructsFeed, setInsightsObstructsFeed] = useState(false)
   const [resizingRail, setResizingRail] = useState(false)
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [documentationMenuOpen, setDocumentationMenuOpen] = useState(false)
   const [quickViewsOpen, setQuickViewsOpen] = useState(true)
   const [sidebarState, setSidebarState] = useState(() => ({ userId: props.user.id, value: readSidebarPreference(props.user.id) }))
   const [rightRailWidthState, setRightRailWidthState] = useState(() => ({ userId: props.user.id, value: readRightRailWidth(props.user.id) }))
@@ -859,7 +862,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
             />)}
           </nav>}
           <div className="flex items-center gap-1 border-t border-separator p-2">
-            <Popover>
+            <Popover isOpen={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
               <Popover.Trigger
                 aria-label="打开账户菜单"
                 title={sidebarExpanded ? undefined : '账户'}
@@ -870,29 +873,49 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   <span className="min-w-0 flex-1"><span className="type-control block truncate">{props.user.display_name || props.user.username}</span><span className="type-label block text-muted">{roleLabel[props.user.role]}</span></span>
                 </>}
               </Popover.Trigger>
-              <Popover.Content placement="right bottom" offset={8} className="z-50 w-56 p-0">
+              <Popover.Content data-account-menu-surface placement="top start" offset={8} className="z-50 w-60 p-0">
                 <Popover.Dialog aria-label="账户菜单" className="p-2">
                   <div className="px-2 py-2">
                     <strong className="type-control block truncate">{props.user.display_name || props.user.username}</strong>
                     <span className="type-meta text-muted">{props.user.username} · {roleLabel[props.user.role]}</span>
                   </div>
                   <Separator className="my-1" />
-                  <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/users')}><Icons.Users size={16} aria-hidden="true" />账户与成员</Button>
-                  <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/settings')}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
-                  <Button variant="ghost" className="w-full justify-start" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />更新日志</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/users') }}><Icons.Users size={16} aria-hidden="true" />账户与成员</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/settings') }}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/manual') }}><Icons.BookOpen size={16} aria-hidden="true" />操作手册</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/changelog') }}><Icons.ScrollText size={16} aria-hidden="true" />更新日志</Button>
+                  <a
+                    href={PRODUCT_RELEASES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="type-control flex min-h-9 w-full items-center gap-2 rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+                    onClick={() => setAccountMenuOpen(false)}
+                  ><Icons.Rocket size={16} aria-hidden="true" />Release 发布页<Icons.ExternalLink className="ml-auto" size={13} aria-hidden="true" /></a>
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start text-danger" aria-label="退出登录" onPress={() => { openclawChat.clearTranscript(); openclawChat.disconnect(); props.onLogout() }}><Icons.LogOut size={16} aria-hidden="true" />退出登录</Button>
                 </Popover.Dialog>
               </Popover.Content>
             </Popover>
-            {sidebarExpanded && <Button
-              size="sm"
-              variant="ghost"
-              isIconOnly
-              className="size-9 shrink-0 text-muted hover:bg-default hover:text-foreground"
-              aria-label="查看更新日志"
-              onPress={() => navigate('/changelog')}
-            ><Icons.ScrollText size={16} aria-hidden="true" /></Button>}
+            {sidebarExpanded && <Popover isOpen={documentationMenuOpen} onOpenChange={setDocumentationMenuOpen}>
+              <Popover.Trigger
+                aria-label="打开文档与发布菜单"
+                title="文档与发布"
+                className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+              ><Icons.BookMarked size={16} aria-hidden="true" /></Popover.Trigger>
+              <Popover.Content data-documentation-menu-surface placement="top end" offset={8} className="z-50 w-56 p-0">
+                <Popover.Dialog aria-label="文档与发布菜单" className="p-2">
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setDocumentationMenuOpen(false); navigate('/manual') }}><Icons.BookOpen size={16} aria-hidden="true" />操作手册</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setDocumentationMenuOpen(false); navigate('/changelog') }}><Icons.ScrollText size={16} aria-hidden="true" />更新日志</Button>
+                  <a
+                    href={PRODUCT_RELEASES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="type-control flex min-h-9 w-full items-center gap-2 rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+                    onClick={() => setDocumentationMenuOpen(false)}
+                  ><Icons.Rocket size={16} aria-hidden="true" />Release 发布页<Icons.ExternalLink className="ml-auto" size={13} aria-hidden="true" /></a>
+                </Popover.Dialog>
+              </Popover.Content>
+            </Popover>}
           </div>
         </aside>
 

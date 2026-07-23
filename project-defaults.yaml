@@ -101,7 +101,8 @@
       "test_gate_enabled": true,
       "test_gate_targeted_selection_enabled": true,
       "test_gate_ci_full_enabled": true,
-      "test_gate_release_api_only_smoke_enabled": true
+      "test_gate_release_api_only_smoke_enabled": true,
+      "product_documentation_merge_gate_enabled": true
     },
     "service_limits": {
       "max_fetch_jobs_per_user_day": 100,

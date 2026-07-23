@@ -2494,3 +2494,24 @@
 - 执行验证：功能分支 `test_gate full` 22/22；合并结果首次仅因 main worktree 缺少 `node_modules` 退出，确认 lock hash 一致并临时复用依赖后 `test_gate full` 22/22、103.751 秒，临时链接已移除
 - 结果：本地 `main` 合并结果包含工作区单一 Apify Key 池与 fail-closed 排空切换；主工作区 `codex/0723` 的既有脏改动未触碰
 - 运行态：本地 API/Worker 继续运行同源功能镜像且 Key 池已启用供测试；未推送远端、未部署 VPS，scheduler 未启动，未由 Codex 触发抓取、Apify Actor 或 AI
+
+### 2026-07-23 18:10 Codex
+- 任务：不修改产品项目，使用当前订阅数据临时预览 HeroUI Table 版页面
+- 修改文件：仅本工作日志；临时页面位于 `/tmp`，未修改产品源码、API、数据库或 `8080` 服务
+- 执行验证：深色主题下 9 个真实来源、状态、频道、结果和操作列均已呈现；搜索为本地过滤，其他按钮明确不执行真实操作
+- 结果：当前浏览器已打开仅回环访问的临时 Table 页面；点击“返回原页面”即可回到真实订阅页
+- 控制面变更：无
+
+### 2026-07-23 19:10 Codex
+- 任务：从 `main` 新建 `codex/account-help-release-menu`，新增操作手册并改造侧栏底部文档与发布入口
+- 修改文件：新增 `/manual`、版本说明链接与双源文档检查脚本；账户菜单和展开侧栏右侧菜单均向上展开，可选操作手册、更新日志或 GitHub Release
+- 执行验证：定向 Vitest 25/25 与手册复核 3/3、Python 8/8、TypeScript/UI 检查通过；`test_gate full` 22/22，release Playwright 51 passed/6 skipped；浏览器实测菜单方向、手册页首与控制台错误 0
+- 结果：产品代码合并时 Test Gate 强制同时复核源码化操作手册和更新日志，缺少任一项即失败；未调用外部服务、未改数据库或共享 `8080` 容器
+- 控制面变更：新增 D056、PLAN 第 64 项及 `/manual`、菜单交互和文档合并门禁 UI 合同；API 合同无变化
+
+### 2026-07-23 21:36 Codex
+- 任务：构建并启动 `codex/account-help-release-menu` 当前工作区的本地 API/Worker 容器
+- 运行变更：`./scripts/up-latest.sh` 生成并切换到 `inteliscope-service:local-9d5bd32467a0-dirty`；Compose 仍仅包含 API/Worker，未启动 scheduler
+- 执行验证：API/Worker healthy、0 restart、live revision 匹配且 ready；`/manual`、`/changelog` 均为 200，正式容器页面浏览器渲染正常且控制台错误 0
+- 结果：`http://127.0.0.1:8080/manual` 已留在浏览器供查看；切换前 active jobs=0，启动后出现 1 个本任务未创建的 queued source_fetch，未取消、重试或修改
+- 控制面变更：无；未由 Codex 触发 scheduler、来源抓取、Apify Actor 或 AI

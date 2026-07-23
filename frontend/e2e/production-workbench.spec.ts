@@ -647,7 +647,8 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   if (testInfo.project.name === 'desktop') {
     await page.goto('/feed')
     await page.getByRole('button', { name: '展开侧栏' }).click()
-    await page.getByRole('button', { name: '查看更新日志' }).click()
+    await page.getByRole('button', { name: '打开文档与发布菜单' }).click()
+    await page.getByRole('dialog', { name: '文档与发布菜单' }).getByRole('button', { name: '更新日志' }).click()
   } else if (testInfo.project.name === 'tablet') {
     await page.goto('/feed')
     await page.getByRole('button', { name: '打开账户菜单' }).click()

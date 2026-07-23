@@ -8,6 +8,7 @@ import type { ServiceApi } from '../../api/service'
 import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
 import { DesignSystemProvider } from '../../design-system'
+import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { canFloatFeedInsights, HeroWorkbenchShell, rectanglesOverlap } from './HeroWorkbenchShell'
 
 function memoryStorage(): Storage {
@@ -175,10 +176,14 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(route).toHaveClass('min-h-10', 'rounded-xl', 'transition-colors')
     expect(quickView).toHaveClass('min-h-10', 'rounded-xl', 'transition-colors')
     expect(quickView.className).not.toContain('scale-')
-    const changelog = screen.getByRole('button', { name: '查看更新日志' })
-    expect(changelog.querySelector('.lucide-scroll-text')).not.toBeNull()
-    expect(changelog.parentElement?.querySelector('.lucide-chevron-up')).toBeNull()
-    await browser.click(changelog)
+    const documentation = screen.getByRole('button', { name: '打开文档与发布菜单' })
+    expect(documentation.querySelector('.lucide-book-marked')).not.toBeNull()
+    expect(documentation.parentElement?.querySelector('.lucide-chevron-up')).toBeNull()
+    await browser.click(documentation)
+    const menu = screen.getByRole('dialog', { name: '文档与发布菜单' })
+    expect(within(menu).getByRole('button', { name: '操作手册' })).toBeInTheDocument()
+    expect(within(menu).getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('href', PRODUCT_RELEASES_URL)
+    await browser.click(within(menu).getByRole('button', { name: '更新日志' }))
     expect(screen.getByTestId('location-probe')).toHaveTextContent('/changelog')
     expect(screen.getByRole('heading', { name: '更新日志' })).toBeInTheDocument()
   })
@@ -192,7 +197,10 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     const account = screen.getByRole('button', { name: '打开账户菜单' })
     await browser.click(account)
     expect(screen.getByText('alpha · 管理员')).toBeInTheDocument()
+    expect(document.querySelector('[data-account-menu-surface]')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '操作手册' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '更新日志' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('href', PRODUCT_RELEASES_URL)
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
     expect(onLogout).not.toHaveBeenCalled()
 

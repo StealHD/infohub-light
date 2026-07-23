@@ -44,6 +44,7 @@ jobs:
           if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
             BASE_SHA="$(git rev-parse "$HEAD_SHA^")"
           fi
+          python scripts/check_product_docs.py --base "$BASE_SHA" --head "$HEAD_SHA"
           python scripts/test_gate.py plan \
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             --output /tmp/impact-plan.json | tee /tmp/impact-summary.json

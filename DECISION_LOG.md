@@ -476,3 +476,12 @@
 - 原因：来源级 Key 引用会让同一额度耗尽 Key 继续被不同 Worker 使用，而在原 runId 上直接替换 Token 会把远端执行、dataset 和本地任务归属混在一起。工作区唯一顺序降低维护面，generation barrier 能保证备用 Key 不与额度恢复后的旧 Run 并发抓取。
 - 安全/兼容：schema v8 只保存 secret ref、额度安全数值、generation 和内部 Run ledger，Token 仍只在 SecretStore；公共 API/日志不返回账号、runId、datasetId 或上游原文。`source_catalog.secret_env` 仅作回滚数据；`HORIZON_APIFY_KEY_POOL_ENABLED=false` 时继续走 legacy 来源级路径。正式开启前必须停 Worker、核对未登记远端 Run、备份数据库并只做一次有上限 canary。
 - 影响范围：ServiceStore/schema v8、Apify client/adapter、pool/runtime services、Worker/Orchestrator/catalog runner、shared acquisition/schedule、管理员 API、source registry、React 设置与来源编辑器、合同、影响映射和回归测试；本分支未调用真实 Key、付费 Actor、AI、scheduler 或生产部署。
+
+### D056 产品操作手册与更新日志采用双源合并门禁
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现
+- 决策内容：新增源码受控的 `/manual#manual-*` 操作手册，继续保留 `/changelog#month-*` 更新日志；两者只描述可审查的生产行为，不读取运行日志、任务数据或用户内容。账户菜单与独立“文档与发布”菜单均向上展开，并统一提供操作手册、更新日志和固定 GitHub Releases 目的地。
+- 自动维护：任何包含产品代码的 PR/合并都必须同时修改 `manualContent.ts` 与 `changelogEntries.ts`；`scripts/check_product_docs.py` 在既有 Test Gate 的 diff 计划前自动校验，`AGENTS.md` 与 PR 模板记录同一执行要求。测试或控制文档单独变更不伪造产品更新。
+- 原因：从提交主题或运行数据自动生成用户文案会混入内部实现、无法解释操作影响，也可能泄露状态；源码双源加确定性合并门禁既能让每次产品合并强制复核，又保持中文说明、页面路径和安全边界可审查。
+- 兼容/回退：新路由与外链为 additive，不新增 API、数据库、权限、Query Key、Worker、scheduler 或网络代理。回退页面与门禁即可恢复原账户入口，不产生服务端数据残留。
