@@ -2400,3 +2400,10 @@
 - 执行验证：main 基线与最终 `test_gate full` 均 22/22；UI contract、TypeScript、45 files / 365 Vitest、production build/产物扫描、lint 0 error 通过；新增 Playwright 2/2 通过，完整三视口 33 passed/6 skipped/3 个既有 Feed 排序失败，并在 detached main 同样 3/3 复现
 - 结果：黑夜保留当前默认，白天/黑夜显式选择跨刷新保存且不受系统外观覆盖；概览仅在实测遮挡时由工作台内任意非交互主点击进入 220 ms 柔和退出，真实控件与概览内部点击不受影响
 - 控制面变更：UI_CONTRACT、PLAN 61 与 D053 记录主题模式/家族分离及概览退出规则；无 API、数据库、Query Key、scheduler、抓取、AI、付费调用、容器、部署或生产运行态变化
+
+### 2026-07-23 13:02 Codex
+- 任务：让 OpenClaw 发送按钮默认呈现与主题一致的紫色强调背景
+- 修改文件：Tooltip 图标按钮背景合并逻辑、OpenClaw/设计系统回归测试及本工作日志
+- 执行验证：回归先 RED 后定向 21/21；UI contract、TypeScript、45 files / 366 Vitest、production build/产物扫描、lint 0 error 通过；`test_gate full` 22/22、102.37 秒
+- 结果：显式 `bg-accent` 不再被通用 `bg-transparent` 覆盖，发送按钮使用当前明暗模式的语义紫色与对应前景色；未指定背景的 Tooltip 图标按钮仍保持透明
+- 控制面变更：无；未修改 API、数据库、权限、主题合同、容器、部署、scheduler、抓取、AI 或付费调用

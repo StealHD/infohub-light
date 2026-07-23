@@ -7,6 +7,14 @@ import { TooltipTriggerButton } from './TooltipTriggerButton'
 import { Tooltip } from './index'
 
 describe('TooltipTriggerButton', () => {
+  it('lets an explicit semantic background replace the transparent default', () => {
+    render(<TooltipTriggerButton aria-label="强调动作" className="bg-accent">发送</TooltipTriggerButton>)
+
+    const trigger = screen.getByRole('button', { name: '强调动作' })
+    expect(trigger).toHaveClass('bg-accent')
+    expect(trigger).not.toHaveClass('bg-transparent')
+  })
+
   it('opens its nearby tooltip from the actual hovered button', async () => {
     const user = userEvent.setup()
     render(<Tooltip delay={0}>
@@ -17,6 +25,7 @@ describe('TooltipTriggerButton', () => {
     const trigger = screen.getByRole('button', { name: '说明' })
     await user.hover(trigger)
 
+    expect(trigger).toHaveClass('bg-transparent')
     expect(await screen.findByRole('tooltip')).toHaveTextContent('附近说明')
     expect(trigger).toHaveAttribute('aria-describedby')
   })
