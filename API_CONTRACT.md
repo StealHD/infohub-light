@@ -124,7 +124,7 @@ capability / degrade：
 17. `scripts/service_api_smoke.py`：运行中核心 API smoke，不访问外网源，不执行抓取，只验证登录、读 API、管理员 `/api/users` 读取、可选 private source/job/item-state 和 `member-ui-smoke` 写路径。
 18. `GET /api/health/live`：表达 API 进程存活，并返回 `status/version/revision/built_at` 以识别不可变镜像；`GET /api/health/ready`：依次检查数据库、Feed v2 migration、user content v4 migration、数据库内至少一个 enabled user 和可选 Worker readiness，未就绪返回 503 的统一 error envelope。fresh DB 没有可登录用户时返回 `auth_not_configured`，action 要求设置 `HORIZON_AUTH_PASSWORD` 或 `HORIZON_AUTH_PASSWORD_HASH` 后重启；一旦数据库已有 enabled user，后续 readiness 不再依赖 bootstrap 密码环境变量。
 19. `GET /api/ops/runtime`：仅 `owner/admin` 可读，返回 Worker heartbeat、队列积压、最老 queued job、stale running、最新 snapshot 年龄，以及用户 Feed 计划字段、`source_schedule_count/overdue_source_schedule_count/next_source_scheduled_at` 和三个 Source Health 聚合字段；`schedule_stats` 包含最近评估、最近入队和 skip reason 计数。响应不返回 claim token、source payload、密钥或 Webhook。
-20. `GET /api/admin/secrets`、`POST /api/admin/secrets`、`PUT /api/admin/secrets/{id}/value`、`DELETE /api/admin/secrets/{id}`：仅 `owner/admin` 管理 AI/Apify 密钥引用和值。值只在 create/rotate 请求中出现，任何成功或失败响应都不得回显。
+20. `GET /api/admin/secrets`、`POST /api/admin/secrets`、`PUT /api/admin/secrets/{id}/value`、`DELETE /api/admin/secrets/{id}`：仅 `owner/admin` 管理 AI/Apify 密钥引用和值。值只在 create/rotate 请求中出现，任何成功或失败响应都不得回显。`GET /api/admin/secrets/{id}/quota` 同样仅允许 `owner/admin`，且只为同 workspace、已配置的 Apify secret 返回下述安全额度投影；非 Apify 不触发上游请求。
 21. `GET /api/me/agent-delegations`、`POST /api/me/agent-delegations`、`PATCH /api/me/agent-delegations/{id}`、`DELETE /api/me/agent-delegations/{id}`、`DELETE /api/me/agent-delegations/{id}/record`：当前用户管理自己的 OpenClaw 数据连接。GET 返回 `enabled/mcp_url/subscription_writes_enabled/token_ttl_days/max_active/connections`，并返回 `openclaw_chat{enabled,default_gateway_url,protocol_version=4,target_version="2026.7.1"}`；该对象只是公共运行配置，不包含或接收 Gateway 凭证。每个 connection 返回稳定的 `access=read|subscriptions_write` 与 `scopes`。POST 接受 `name` 和可选 `access`（缺省 `read`）；`read` 仅授予 `inteliscope:read`，`subscriptions_write` 同时授予 `inteliscope:read` 与 `inteliscope:subscriptions:write`。写连接仅 `owner/admin/member` 可在 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=true` 时新建；viewer 返回 `forbidden`，开关关闭返回 `subscription_writes_disabled`。令牌固定 90 天、最多 5 个有效连接，且只在 201 + `Cache-Control: no-store` 响应中返回一次明文令牌；PATCH 仅重命名；基础 DELETE 保持幂等吊销。显式 `/record` DELETE 只允许当前用户永久删除一条 `revoked_at IS NOT NULL` 的记录并返回 `deleted=true`；有效或仅到期的记录返回 `agent_delegation_not_revoked`（409），非本人或不存在返回 `not_found`（404），既有 proposal 依外键级联删除，其他连接与业务数据不变。Remote MCP 总开关关闭时仍可查看、吊销和删除已吊销记录，但创建返回 `remote_mcp_disabled`。
 22. FastAPI 默认托管 React Service UI：`/assets/*` 为带内容哈希的 immutable 资源，非 `/api/*` 路径回退到 no-cache `index.html`。`HORIZON_SERVICE_UI_VARIANT=react|legacy` 控制 Service 前端，默认 `react`；React 构建缺失时可安全回退 legacy。`/mcp` 为精确协议路由，不参与 SPA fallback，不通过重定向修正路径。
 
@@ -147,7 +147,7 @@ capability / degrade：
 13. `owner/admin/member` 只能读取和修改自己的 Feed schedule；该接口不接受 `user_id` 代查。`viewer` 可以 GET 自己的状态，但 PATCH 返回 `forbidden`。
 13A. 订阅级 schedule 同样只允许操作当前用户自己的订阅，不接受 `user_id` 代查；`viewer` 可以 GET，PATCH 返回 `forbidden`。订阅、来源或用户未启用时不得开启。
 14. `owner/admin/member/viewer` 都可以读取自己的 Source Health；`GET /api/me/source-health` 不提供跨用户代理，即使 `owner/admin` 附带 `user_id` 查询参数也仍只返回当前登录用户的数据。
-15. 密钥列表、创建、轮换、删除以及 catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。非管理员 source 响应只给出 `secret_configured`，不得暴露环境变量名。
+15. 密钥列表、创建、轮换、删除、额度查询以及 catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。非管理员 source 响应只给出 `secret_configured`，不得暴露环境变量名。
 16. `owner/admin/member/viewer` 都可创建、查看、重命名和吊销自己的 read Agent delegation，也可显式删除自己已吊销的单条记录；只有 `owner/admin/member` 可创建 subscription-write delegation，且受写开关约束。不存在把既有 read connection 提升为 write 的接口；不提供管理员代查、代管或跨用户删除接口。delegation 令牌始终只映射其创建者，即使创建者是 `owner/admin`，Remote MCP 也不得使用管理员跨用户读权限。禁用用户时必须在同一事务永久吊销其全部连接，重新启用不恢复旧令牌。
 
 错误 envelope 规则：
@@ -155,7 +155,7 @@ capability / degrade：
 1. 未登录返回 `unauthorized`，权限不足返回 `forbidden`，不可见或不存在资源返回 `not_found`。
 2. Pydantic/body/query 校验失败返回 `invalid_request`，HTTP status 使用 400。
 3. 不存在的 `/api/*` 路径返回 `not_found` envelope；不得返回 FastAPI 默认 `{"detail": ...}`。
-4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。
+4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。
 
 ## 5B. Remote MCP 合同
 
@@ -245,10 +245,12 @@ capability / degrade：
 
 1. `secret_env` 必须是环境变量名，不得是疑似真实密钥；`secret_refs` 只保存 `name/kind/provider/env_name` 等元数据，`kind` 仅为 `ai|apify`。
 2. 真实值只保存在 Git/Docker 忽略的 `data/secrets.env`，由 `SecretStore` 以临时文件、`fsync`、原子替换和固定 `0600` 权限维护；Service DB、API、日志、job、Feed 和 DOM 均不得包含真实值。
-3. API 和 Worker 在需要配置或执行任务时重新加载密钥文件；新增/轮换无需重启。响应只返回 `id/name/kind/provider/env_name/is_set/used_by`，不返回 `value`。
+3. API 和 Worker 在需要配置或执行任务时重新加载密钥文件；新增/轮换无需重启。密钥列表及 create/rotate 响应只返回 `id/name/kind/provider/env_name/is_set/used_by` 和时间元数据，不返回 `value`。
 4. 同 workspace 的 `env_name` 唯一，重复创建返回 `409 secret_env_conflict`。被 AI 配置或 catalog source 引用时删除返回 `409 secret_in_use`；允许原地轮换。Apify 值轮换只把引用该 env 的订阅健康重置为 `unknown`。
-5. Catalog RSS URL 禁止 `${ENV_VAR}` 占位和 URL userinfo，避免把环境值或凭据写入 catalog/API；member 拥有的 RSS 在抓取前及每次 redirect 都必须只解析到公网地址，并只连接该次已验证的字面 IP，同时保留原 Host 与 HTTPS SNI。安全请求不得使用环境代理或跨 hostname 复用连接，响应拒绝压缩且流式硬限制为 2,000,000 bytes。只有 `owner/admin` 拥有的 source 可默认访问本地/私网 RSS；确定性的本地测试例外必须由管理员通过 `HORIZON_MEMBER_RSS_HOST_ALLOWLIST` 精确列出 host，默认空。
-6. `member` 创建的 source job 必须引用可见 `source_id`；Worker 以 catalog config 为权威并忽略 job payload 对 URL/source 字段的覆盖。
+5. Apify 额度接口从 `SecretStore` 读取目标 Token，以 Authorization header 分别调用官方 `/v2/users/me` 和 `/v2/users/me/limits`，不把 Token 放入 URL。成功响应的 `data` 精确包含 `secret_id/provider/currency/cycle_start_at/cycle_end_at/checked_at/monthly_included_credits_usd/monthly_usage_usd/remaining_included_credits_usd/max_monthly_usage_usd/remaining_hard_limit_usd`；`provider=apify`、`currency=USD`，金额为非负有限数字，两个 remaining 字段最低为 `0`。Token、账户 ID、用户名、邮箱、profile、proxy、原始响应和其他套餐字段不得进入浏览器、数据库、日志或错误 envelope。
+6. 单个额度上游请求失败不得影响密钥列表。跨 workspace secret 与不存在 secret 统一 `not_found`；非 Apify 返回 `quota_not_supported`；SecretStore 中无值返回 `secret_not_configured`。保存或轮换 Key 只验证本地元数据和值格式，不得以额度上游可用性作为成功前提。
+7. Catalog RSS URL 禁止 `${ENV_VAR}` 占位和 URL userinfo，避免把环境值或凭据写入 catalog/API；member 拥有的 RSS 在抓取前及每次 redirect 都必须只解析到公网地址，并只连接该次已验证的字面 IP，同时保留原 Host 与 HTTPS SNI。安全请求不得使用环境代理或跨 hostname 复用连接，响应拒绝压缩且流式硬限制为 2,000,000 bytes。只有 `owner/admin` 拥有的 source 可默认访问本地/私网 RSS；确定性的本地测试例外必须由管理员通过 `HORIZON_MEMBER_RSS_HOST_ALLOWLIST` 精确列出 host，默认空。
+8. `member` 创建的 source job 必须引用可见 `source_id`；Worker 以 catalog config 为权威并忽略 job payload 对 URL/source 字段的覆盖。
 
 AI 概括规则：
 

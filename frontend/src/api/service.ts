@@ -13,6 +13,7 @@ import type {
   FeedItem,
   IgnoredFeed,
   Job,
+  SecretQuota,
   SecretRef,
   SavedFeed,
   SourceHealthResponse,
@@ -108,6 +109,10 @@ export function createServiceApi(client: ApiClient) {
       new_password: newPassword,
     }),
     secrets: (signal?: AbortSignal) => client.get<ListResponse<SecretRef, 'secrets'>>('/api/admin/secrets', signal),
+    secretQuota: (secretId: string, signal?: AbortSignal) => client.get<SecretQuota>(
+      `${resource('/api/admin/secrets', secretId)}/quota`,
+      signal,
+    ),
     createSecret: (payload: { name: string; kind: string; provider: string; env_name: string; value: string }) => client.post<SecretRef>('/api/admin/secrets', payload),
     rotateSecret: (secretId: string, value: string) => client.put<SecretRef>(`${resource('/api/admin/secrets', secretId)}/value`, { value }),
     deleteSecret: (secretId: string) => client.delete<{ deleted: boolean }>(resource('/api/admin/secrets', secretId)),

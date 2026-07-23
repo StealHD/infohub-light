@@ -449,3 +449,12 @@
 - 原因：原成员行虽已使用 Table，但单元格逻辑散落且仍呈现为表单堆叠，成员身份、状态和动作层级不够清晰；Agent 头部背景卡重复模型和附件信息；Agent 级推理档位可能掩盖模型能力缺失；最旧优先切换到列表底部会让用户首先看到最新数据并误判排序错误。按职责拆开后，成员表格更接近高密度管理面板，界面位置、能力来源和滚动语义都与用户动作一致。
 - 取代范围：取代 UI_CONTRACT 中排序变化跳到 active fresh edge、Agent 头部背景信息弹窗，以及缺少精确模型档位时使用 Agent 级回退的部分；保留 D042/D049 的验证后模型分叉、per-send thinking、失败保留原会话和重试快照。
 - 安全/兼容：不新增 Service API、数据库或 Gateway 写操作；密码重置继续使用既有可选 password patch，Owner 保护和服务端权限不变。无可信 OpenClaw 用量或推理能力时显式降级，不估算也不补造。
+
+### D054 设置页密钥管理采用局部失败反馈与安全额度投影
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现与定向验收完成；未部署
+- 决策内容：新增 Key 的校验与服务端失败同时留在密钥表单并发送 Toast，失败仅清空真实值；已配置 Key 使用 HeroUI v3 Table 与行级轮换/删除 Modal。仅 `owner/admin` 可通过用户隔离 Query key 查询 Apify 额度，前端缓存五分钟并允许手动刷新。
+- 安全边界：服务端只从 SecretStore 读取 Token，并调用 Apify `/v2/users/me` 与 `/v2/users/me/limits`；浏览器只接收 USD 周期与非负额度数字。Token、账户资料、原始响应、错误正文、日志和数据库均不得承载秘密；额度失败不影响 Key 保存或列表。
+- 原因：页面顶部的通用错误离底部表单过远，新增失败缺少可执行反馈；同时管理员需要在不暴露 Token 或账户资料的前提下判断 Apify 套餐和硬上限余量。
+- 影响范围：Secret quota service、管理员 secret API、React Service API/Query cache、设置页 Key Table/Modal、API/UI 合同和测试；不新增数据库结构，不触发 Actor、抓取、AI、scheduler 或付费调用。

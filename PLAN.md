@@ -8,7 +8,7 @@
 ## 2. 当前阶段状态
 结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取与 Feed storage v3 的两个 rollout flag 继续默认关闭。`vps-tokyo` 仍运行既有 API-only 版本，Worker 与 scheduler 没有新的启动或部署授权。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
 
-前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。该切换不改变上述运行、发布或数据授权状态。
+前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。设置页密钥管理已增加局部失败反馈、HeroUI Table 与安全的 Apify 额度投影；该能力不改变上述运行、发布或数据授权状态。
 
 已完成：
 
@@ -73,6 +73,7 @@
 58. Quiet Studio 状态与导航反馈收口：生产主题跟随系统并在首帧前生效；Tooltip 锚定真实触发器并碰撞翻转；左右栏使用统一柔和布局动效；Feed 排序回到对应新鲜边缘；Agent 上下文与 OpenClaw 发送/停止动作提供稳定选中和位置反馈；本地更新日志通过独立路由与响应式时间线呈现。精确交互只见 `UI_CONTRACT.md`，主题与日志边界见 D048。
 59. OpenClaw 真实 Gateway 修复与 C2 对话密度：浏览器配对先于唯一 session 创建持久化，裸模型 ID 规范化后通过可验证分叉切换并按兼容性保留 per-send thinking；Agent transcript 改为 360px 右栏基准的扁平时间线、同行本地时间与安全 http/https 链接。权威规则见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D049。
 60. Quiet Studio 成员、OpenClaw 运行控件与 Feed 排序收口：成员列表使用带头像、可排序表头、紧凑角色控件、状态 Chip 与圆形图标操作的 HeroUI Table custom-cell renderer，并保留受保护的重置密码；上下文占用移到模型选择旁，模型按提供商分组且推理档位只使用精确模型/会话能力；排序或时间基准变化统一回到顶部，实时新内容边缘与深链定位保持独立。权威规则见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D052。
+61. 设置页 Key 可观测性与 Apify 额度：新增 Key 的字段与服务端失败在表单内反馈并发送 Toast；已配置 Key 使用 HeroUI v3 Table，Apify 行通过 owner/admin 安全投影接口显示套餐、本月用量、硬上限与周期，按用户/secret 缓存五分钟并支持刷新；轮换/删除使用行级 Modal。无数据库迁移、抓取、AI、scheduler、付费 Actor 或部署。
 
 当前仍需推进：
 
