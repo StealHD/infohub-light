@@ -13,6 +13,7 @@ const preference: FeedPreference = {
   order: 'newest',
   sortBasis: 'ingested',
   dateScope: 'all',
+  subscriptionScope: 'all',
 }
 
 function item(id: string, overrides: Partial<FeedItem> = {}): FeedItem {
@@ -67,5 +68,26 @@ describe('feed insights', () => {
     expect(model).toMatchObject({ todayCount: 1, unreadCount: 1, savedCount: 1, unhealthySourceCount: 1, visibleCount: 1, totalCount: 2 })
     expect(model.channels.map(({ label, count }) => [label, count])).toEqual(expect.arrayContaining([['AI', 1], ['产品机会', 1]]))
     expect(model.formats.map(({ label }) => label)).toEqual(expect.arrayContaining(['文章', '视频']))
+  })
+
+  it('uses the subscription catalog scope for the current visible count', () => {
+    const snapshot: FeedSnapshot = {
+      schema_version: 2,
+      generated_at: new Date(2026, 6, 21, 9, 0, 0).toISOString(),
+      items: [
+        item('public', { source_id: 'source-public' }),
+        item('private', { source_id: 'source-private' }),
+      ],
+    }
+    const scopedPreference = { ...preference, subscriptionScope: 'public' as const }
+    const model = buildFeedInsightsModel({
+      snapshot,
+      preference: scopedPreference,
+      query: '',
+      allowedSourceIds: new Set(['source-public']),
+    })
+
+    expect(model.visibleCount).toBe(1)
+    expect(model.totalCount).toBe(2)
   })
 })

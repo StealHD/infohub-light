@@ -29,6 +29,7 @@ import {
   type FeedPreference,
 } from '../feed/feedPreference'
 import { useOptimisticItemState } from '../feed/useOptimisticItemState'
+import { sourceMatchesSubscriptionVisibility } from '../subscriptions/subscriptionModel'
 import { useWorkbenchAgentContext } from './workbenchAgentContext'
 import { VirtualFeed } from './VirtualFeed'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
@@ -58,6 +59,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const feedQuery = useQuery({
     queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => api.latestFeed(signal),
+    enabled: kind === 'feed',
+  })
+  const sourceCatalogQuery = useQuery({
+    queryKey: queryKeys.sources(user.id),
+    queryFn: ({ signal }) => api.sources(user.role === 'owner' || user.role === 'admin', signal),
     enabled: kind === 'feed',
   })
   const savedQuery = useQuery({ queryKey: queryKeys.saved(user.id), queryFn: ({ signal }) => api.savedFeed(200, 0, signal), enabled: kind === 'saved' })
@@ -110,6 +116,14 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     () => sortWorkbenchItems(mergedItems, preference.order, preference.sortBasis),
     [mergedItems, preference.order, preference.sortBasis],
   )
+  const sourceScopeRequested = kind === 'feed' && preference.subscriptionScope !== 'all'
+  const allowedSourceIds = useMemo(() => {
+    if (!sourceScopeRequested || !sourceCatalogQuery.data) return undefined
+    const visibility = preference.subscriptionScope === 'public' ? 'public' : 'private'
+    return new Set(sourceCatalogQuery.data.sources
+      .filter((source) => sourceMatchesSubscriptionVisibility(source, visibility))
+      .map((source) => source.id))
+  }, [preference.subscriptionScope, sourceCatalogQuery.data, sourceScopeRequested])
   const filteredItems = useMemo(() => {
     const matching = filterFeedItems(
       orderedItems.filter((item) => !item.user_state?.dismissed),
@@ -120,6 +134,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         channel: preference.channel || undefined,
         topic: preference.topic || undefined,
         dateScope: kind === 'feed' ? preference.dateScope : 'all',
+        allowedSourceIds,
         now: localDayReference,
       },
     )
@@ -127,7 +142,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const matchingIds = new Set(matching.map((item) => item.id))
     const pinned = orderedItems.filter((item) => matchingIds.has(item.id) || item.id === selectedId)
     return filterFeedItems(pinned, { query: '', unreadFirst: preference.unreadFirst })
-  }, [detailQuery.data, kind, localDayReference, orderedItems, preference, query, selectedId])
+  }, [allowedSourceIds, detailQuery.data, kind, localDayReference, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
@@ -136,8 +151,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   }).filter(([value]) => Boolean(value))).entries()), [sourceItems])
   const channels = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.presentation?.taxonomy?.channel || item.channel || item.category).filter(Boolean) as string[])).sort(), [sourceItems])
   const topics = useMemo(() => Array.from(new Set(sourceItems.flatMap((item) => item.presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? []))).sort(), [sourceItems])
-  const loading = feedQuery.isLoading || savedQuery.isLoading || historyQuery.isLoading
-  const loadError = feedQuery.error || savedQuery.error || historyQuery.error
+  const loading = feedQuery.isLoading || savedQuery.isLoading || historyQuery.isLoading || (sourceScopeRequested && sourceCatalogQuery.isLoading)
+  const loadError = feedQuery.error || savedQuery.error || historyQuery.error || (sourceScopeRequested ? sourceCatalogQuery.error : null)
   const collectionRoute = kind !== 'feed'
   const refreshing = activity.state === 'queued' || activity.state === 'running'
   const activeFilterCount = [
@@ -146,6 +161,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     preference.channel,
     preference.topic,
     kind === 'feed' && preference.dateScope === 'today',
+    kind === 'feed' && preference.subscriptionScope !== 'all',
   ].filter(Boolean).length
 
   function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'fresh-edge' = 'preserve') {
@@ -167,7 +183,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     refresh()
   }
 
-  return <section aria-label="信息流工作区" className="flex h-full min-h-0 flex-col">
+  return <section aria-label="信息流工作区" data-feed-blank-region className="flex h-full min-h-0 flex-col">
     <div className="shrink-0 bg-background/95 px-3 py-2 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md sm:px-5">
       <PageFrame width="reading">
         <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'}>
@@ -230,10 +246,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
               <Popover.Heading className="type-page-title">信息流筛选</Popover.Heading>
               <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
+              {!collectionRoute && <FilterSelect label="订阅范围" value={preference.subscriptionScope} onChange={(value) => updatePreference({ subscriptionScope: value === 'public' || value === 'private' ? value : 'all' })} options={[{ id: 'all', label: '全部订阅' }, { id: 'public', label: '公共订阅' }, { id: 'private', label: '私人订阅' }]} />}
               <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
               <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
               <FilterSelect label="主题" value={preference.topic} onChange={(value) => updatePreference({ topic: value })} options={[{ id: '', label: '全部主题' }, ...topics.map((value) => ({ id: value, label: value }))]} />
-              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all' })}>清除筛选</Button>
+              <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })}>清除筛选</Button>
             </Popover.Dialog>
           </Popover.Content>
         </Popover>

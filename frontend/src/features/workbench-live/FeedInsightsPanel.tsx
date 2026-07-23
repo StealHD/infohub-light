@@ -6,6 +6,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { Button, Icons, Separator, Skeleton } from '../../design-system'
 import type { FeedPreference } from '../feed/feedPreference'
 import { relativeTime } from '../feed/feedModel'
+import { sourceMatchesSubscriptionVisibility } from '../subscriptions/subscriptionModel'
 import { useLocalDayReference } from '../feed/useLocalDayReference'
 import { buildFeedInsightsModel, type FeedInsightsDistribution } from './feedInsights'
 
@@ -36,6 +37,7 @@ export function FeedInsightsPanel({
   onClose,
   api,
   userId,
+  includePrivateSources,
   preference,
   query,
 }: {
@@ -43,6 +45,7 @@ export function FeedInsightsPanel({
   onClose: () => void
   api: ServiceApi
   userId: string
+  includePrivateSources: boolean
   preference: FeedPreference
   query: string
 }) {
@@ -57,13 +60,26 @@ export function FeedInsightsPanel({
     queryFn: ({ signal }) => api.sourceHealth(signal),
     enabled: open,
   })
+  const sources = useQuery({
+    queryKey: queryKeys.sources(userId),
+    queryFn: ({ signal }) => api.sources(includePrivateSources, signal),
+    enabled: open && preference.subscriptionScope !== 'all',
+  })
+  const allowedSourceIds = useMemo(() => {
+    if (preference.subscriptionScope === 'all') return undefined
+    const visibility = preference.subscriptionScope === 'public' ? 'public' : 'private'
+    return new Set((sources.data?.sources ?? [])
+      .filter((source) => sourceMatchesSubscriptionVisibility(source, visibility))
+      .map((source) => source.id))
+  }, [preference.subscriptionScope, sources.data?.sources])
   const model = useMemo(() => buildFeedInsightsModel({
     snapshot: feed.data,
     health: health.data,
     preference,
     query,
+    allowedSourceIds,
     now,
-  }), [feed.data, health.data, now, preference, query])
+  }), [allowedSourceIds, feed.data, health.data, now, preference, query])
   const metrics = [
     { label: '今日内容', value: model.todayCount },
     { label: '未读', value: model.unreadCount },
@@ -80,10 +96,10 @@ export function FeedInsightsPanel({
       </Button>
     </header>
     <div className="quiet-scroll-region min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-5 pb-5" data-testid="feed-insights-panel">
-      {(feed.isLoading || health.isLoading) && <div className="grid gap-2 pt-4" aria-label="正在读取信息概览">
+      {(feed.isLoading || health.isLoading || sources.isLoading) && <div className="grid gap-2 pt-4" aria-label="正在读取信息概览">
         {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-9 rounded-xl" />)}
       </div>}
-      {!feed.isLoading && <>
+      {!feed.isLoading && !sources.isLoading && <>
         <section aria-label="概况" className="pt-4">
           <h3 className="type-label mb-2 text-muted">概况</h3>
           <div className="grid grid-cols-2 gap-x-5 gap-y-2">

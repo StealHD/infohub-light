@@ -8,6 +8,7 @@ export type LegacyFeedPreference = {
 export type FeedOrder = 'newest' | 'oldest'
 export type FeedDateScope = 'all' | 'today'
 export type FeedSortBasis = 'published' | 'ingested'
+export type FeedSubscriptionScope = 'all' | 'public' | 'private'
 
 export type FeedPreference = {
   unreadFirst: boolean
@@ -18,6 +19,7 @@ export type FeedPreference = {
   order: FeedOrder
   sortBasis: FeedSortBasis
   dateScope: FeedDateScope
+  subscriptionScope: FeedSubscriptionScope
 }
 
 export const FEED_PREFERENCE_CHANGED_EVENT = 'inteliscope:feed-preference-changed'
@@ -31,6 +33,7 @@ const defaultPreference: FeedPreference = {
   order: 'newest',
   sortBasis: 'published',
   dateScope: 'all',
+  subscriptionScope: 'all',
 }
 const legacyDefaultPreference: LegacyFeedPreference = { mode: 'featured', unreadFirst: false }
 const storageKey = (userId: string) => `inteliscope.ui.feed.v2:${userId}`
@@ -48,6 +51,7 @@ function sanitizePreference(value: Partial<FeedPreference> | null): FeedPreferen
     order: value?.order === 'oldest' ? 'oldest' : 'newest',
     sortBasis: value?.sortBasis === 'ingested' ? 'ingested' : 'published',
     dateScope: value?.dateScope === 'today' ? 'today' : 'all',
+    subscriptionScope: value?.subscriptionScope === 'public' || value?.subscriptionScope === 'private' ? value.subscriptionScope : 'all',
   }
 }
 

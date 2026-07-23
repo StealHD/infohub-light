@@ -72,6 +72,14 @@ export type OpenClawRuntimeSelection = {
   defaultThinkingLevel: string | null
 }
 
+export type OpenClawContextUsage = {
+  sessionKey: string
+  usedTokens: number
+  contextTokens: number
+  percent: number
+  modelId?: string
+}
+
 export type OpenClawModelSwitchFallback = {
   modelId: string
   modelName: string
@@ -372,6 +380,52 @@ function stringOf(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+function contextUsageRecord(value: unknown, expectedSessionKey: string): Record<string, unknown> | null {
+  const root = recordOf(value)
+  if (!root) return null
+  if (Array.isArray(root.sessions)) {
+    return root.sessions
+      .map(recordOf)
+      .find((candidate) => stringOf(candidate?.key ?? candidate?.sessionKey) === expectedSessionKey)
+      ?? null
+  }
+  const session = recordOf(root.session) ?? root
+  const sessionKey = stringOf(session.key ?? session.sessionKey ?? root.sessionKey)
+  return sessionKey === expectedSessionKey ? session : null
+}
+
+function contextUsagePayloadMatchesSession(value: unknown, expectedSessionKey: string): boolean {
+  return contextUsageRecord(value, expectedSessionKey) !== null
+}
+
+export function projectOpenClawContextUsage(
+  value: unknown,
+  expectedSessionKey: string,
+): OpenClawContextUsage | null {
+  const session = contextUsageRecord(value, expectedSessionKey)
+  if (!session || session.totalTokensFresh === false) return null
+  const usedTokens = session.totalTokens
+  const contextTokens = session.contextTokens
+  if (
+    typeof usedTokens !== 'number'
+    || !Number.isFinite(usedTokens)
+    || usedTokens <= 0
+    || typeof contextTokens !== 'number'
+    || !Number.isFinite(contextTokens)
+    || contextTokens <= 0
+  ) return null
+  const provider = stringOf(session.modelProvider ?? session.provider)
+  const model = stringOf(session.modelId ?? session.model)
+  const modelId = model && provider && !model.includes('/') ? `${provider}/${model}` : model
+  return {
+    sessionKey: expectedSessionKey,
+    usedTokens: Math.floor(usedTokens),
+    contextTokens: Math.floor(contextTokens),
+    percent: Math.min(999, Math.max(0, Math.round((usedTokens / contextTokens) * 100))),
+    ...(modelId ? { modelId } : {}),
+  }
+}
+
 function normalizeModels(value: unknown): OpenClawModelOption[] {
   const root = recordOf(value)
   const entries = Array.isArray(root?.models) ? root.models : []
@@ -593,6 +647,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [runtimeUpdating, setRuntimeUpdating] = useState(false)
   const [runtimeIssue, setRuntimeIssue] = useState<string | null>(null)
   const [modelSwitchFallback, setModelSwitchFallback] = useState<OpenClawModelSwitchFallback | null>(null)
+  const [contextUsage, setContextUsage] = useState<OpenClawContextUsage | null>(null)
   const clientRef = useRef<OpenClawGatewayClient | null>(null)
   const agentIdRef = useRef<string | null>(null)
   const sessionKeyRef = useRef<string | null>(null)
@@ -701,9 +756,25 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     }
   }, [applyRuntime, readRuntime])
 
+  const loadContextUsage = useCallback(async (client: OpenClawGatewayClient, key: string) => {
+    if (sessionKeyRef.current === key) setContextUsage(null)
+    const [, listResult] = await Promise.allSettled([
+      client.request('sessions.subscribe', {}),
+      client.request('sessions.list', { search: key, limit: 100 }),
+    ])
+    if (sessionKeyRef.current !== key || listResult.status !== 'fulfilled') return
+    setContextUsage(projectOpenClawContextUsage(listResult.value, key))
+  }, [])
+
   useEffect(() => { streamTextRef.current = streamText }, [streamText])
 
   const handleGatewayEvent = useCallback((event: GatewayEvent) => {
+    if (event.event === 'sessions.changed') {
+      const key = sessionKeyRef.current
+      if (!key || !contextUsagePayloadMatchesSession(event.payload, key)) return
+      setContextUsage(projectOpenClawContextUsage(event.payload, key))
+      return
+    }
     if (event.event !== 'chat' || !event.payload || typeof event.payload !== 'object') return
     const payload = event.payload as ChatEventPayload
     if (!payload.sessionKey || payload.sessionKey !== sessionKeyRef.current) return
@@ -790,6 +861,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setRuntimeUpdating(false)
     setRuntimeIssue(null)
     setModelSwitchFallback(null)
+    setContextUsage(null)
     thinkingLevelRef.current = null
     setToolsStatus('unknown')
     setStatus(options.enabled ? 'idle' : 'disabled')
@@ -870,6 +942,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         client.request('tools.effective', { sessionKey: key, agentId }),
         loadHistory(client, key, agentId),
         loadRuntime(client, key, agentId),
+        loadContextUsage(client, key),
       ])
       setToolsStatus(hasInteliscopeTools(tools) ? 'available' : 'missing')
       reconnectDelayRef.current = 1000
@@ -884,7 +957,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       }
       return false
     }
-  }, [handleGatewayEvent, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.userId, persistVisibleTranscript, setGatewayUrl, vault])
+  }, [handleGatewayEvent, loadContextUsage, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.userId, persistVisibleTranscript, setGatewayUrl, vault])
 
   useEffect(() => {
     reconnectRef.current = (reconnecting = true) => { void connectInternal(undefined, reconnecting) }
@@ -1033,6 +1106,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       : projection, preserveThinking)
     setModelSwitchFallback(null)
     setRuntimeIssue(null)
+    void loadContextUsage(client, key)
     if (clearMessages) {
       replaceVisibleTranscript([])
       return
@@ -1046,7 +1120,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     } catch {
       // A fork preserves the visible local history even if the first history refresh is delayed.
     }
-  }, [applyRuntime, gatewayUrl, loadHistory, options.userId, persistVisibleTranscript, replaceVisibleTranscript, vault])
+  }, [applyRuntime, gatewayUrl, loadContextUsage, loadHistory, options.userId, persistVisibleTranscript, replaceVisibleTranscript, vault])
 
   const archiveFailedSession = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
     try {
@@ -1214,6 +1288,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     issue,
     runtimeIssue,
     modelSwitchFallback,
+    contextUsage,
     sessionKey,
     isRunning: sending || Boolean(runId),
     isStopping: stopping,

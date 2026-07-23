@@ -49,7 +49,16 @@ export type FeedFilterOptions = {
   topic?: string
   minScore?: number
   dateScope?: FeedDateScope
+  allowedSourceIds?: ReadonlySet<string>
   now?: Date
+}
+
+function itemSourceIds(item: FeedItem): string[] {
+  return Array.from(new Set([
+    item.presentation?.source.id,
+    item.source_id,
+    ...(item.source_ids ?? []),
+  ].filter((value): value is string => Boolean(value))))
 }
 
 export function feedItemTimestamp(item: FeedItem): number | null {
@@ -102,6 +111,7 @@ export function filterFeedItems(items: FeedItem[], filters: FeedFilterOptions): 
     const topics = item.presentation?.taxonomy.topics ?? item.topics ?? item.tags ?? []
     const score = item.presentation?.analysis.score ?? item.score ?? 0
     if (filters.dateScope === 'today' && !isFeedItemToday(item, filters.now)) return false
+    if (filters.allowedSourceIds && !itemSourceIds(item).some((id) => filters.allowedSourceIds!.has(id))) return false
     if (query && !searchableText(item).includes(query)) return false
     if (filters.sourceId && sourceId !== filters.sourceId) return false
     if (filters.channel && channel !== filters.channel) return false

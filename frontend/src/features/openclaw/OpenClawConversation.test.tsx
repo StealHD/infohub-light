@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
-import { OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
+import { OpenClawContextUsagePopover, OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
 
 function contextValue(overrides: Partial<WorkbenchAgentContextValue['draft']> = {}): WorkbenchAgentContextValue {
   return {
@@ -34,6 +34,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     issue: null,
     runtimeIssue: null,
     modelSwitchFallback: null,
+    contextUsage: null,
     sessionKey: null,
     isRunning: false,
     isStopping: false,
@@ -58,6 +59,29 @@ function chatController(overrides: Record<string, unknown> = {}) {
 }
 
 describe('OpenClaw conversation surface', () => {
+  it('shows trustworthy current-session context usage and attached background count', async () => {
+    const browser = userEvent.setup()
+    render(<OpenClawContextUsagePopover
+      usage={{
+        sessionKey: 'session-usage',
+        usedTokens: 42_000,
+        contextTokens: 200_000,
+        percent: 21,
+        modelId: 'openai/gpt-5.4',
+      }}
+      modelId="openai/fallback"
+      attachmentCount={3}
+    />)
+
+    await browser.click(screen.getByRole('button', { name: '查看 OpenClaw 上下文用量' }))
+
+    expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文用量' })).toBeInTheDocument()
+    expect(screen.getByText('openai/gpt-5.4')).toBeInTheDocument()
+    expect(screen.getByText('3 / 8')).toBeInTheDocument()
+    expect(screen.getByText(/42[,.]?000 \/ 200[,.]?000 · 21%/u)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '上下文占用' })).toHaveAttribute('aria-valuenow', '21')
+  })
+
   it('keeps the disabled mode local and never asks for a Gateway credential', () => {
     const chat = chatController({ status: 'disabled' })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)

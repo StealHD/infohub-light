@@ -8,9 +8,22 @@ export const sourceUsesSecret = (definition: SourceTypeDefinition) => definition
 
 export const sourceScopesForUser = (user: User): CatalogSource['scope'][] => (
   user.role === 'owner' || user.role === 'admin'
-    ? ['private', 'workspace', 'public']
+    ? ['private', 'public']
     : ['private']
 )
+
+export type SubscriptionVisibility = 'public' | 'private'
+
+export function isPublicSubscriptionScope(scope: CatalogSource['scope']): boolean {
+  return scope === 'public' || scope === 'workspace'
+}
+
+export function sourceMatchesSubscriptionVisibility(
+  source: Pick<CatalogSource, 'scope'>,
+  visibility: SubscriptionVisibility,
+): boolean {
+  return visibility === 'public' ? isPublicSubscriptionScope(source.scope) : source.scope === 'private'
+}
 
 export function canEditSource(user: User, source: CatalogSource): boolean {
   if (user.role === 'viewer') return false
@@ -19,9 +32,9 @@ export function canEditSource(user: User, source: CatalogSource): boolean {
 }
 
 const scopeMetadata = {
-  public: { label: '公共来源', description: '由管理员维护，所有成员都可以订阅。' },
-  workspace: { label: '团队来源', description: '供当前团队共享，由管理员维护。' },
-  private: { label: '我的私有来源', description: '仅创建者可见和编辑。' },
+  public: { label: '公共订阅', description: '由管理员维护，所有成员都可以订阅。' },
+  workspace: { label: '公共订阅', description: '由管理员维护，所有成员都可以订阅。' },
+  private: { label: '私人订阅', description: '仅创建者可见和编辑。' },
 } as const
 
 export function sourceScopeLabel(scope: CatalogSource['scope']): string {
@@ -33,11 +46,11 @@ export function sourceScopeDescription(scope: CatalogSource['scope']): string {
 }
 
 export function groupSourcesByScope<T extends Pick<CatalogSource, 'scope'>>(items: T[]) {
-  return (['public', 'workspace', 'private'] as const).map((scope) => ({
+  return (['public', 'private'] as const).map((scope) => ({
     scope,
     label: sourceScopeLabel(scope),
     description: sourceScopeDescription(scope),
-    items: items.filter((item) => item.scope === scope),
+    items: items.filter((item) => sourceMatchesSubscriptionVisibility(item, scope)),
   })).filter((group) => group.items.length > 0)
 }
 

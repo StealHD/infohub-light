@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -30,6 +29,7 @@ import {
   effectiveSubscriptionChannel,
   groupSourcesByChannel,
   healthMatches,
+  isPublicSubscriptionScope,
   isSourceSubscribed,
   presentSourceHealthIssue,
   presentJob,
@@ -55,7 +55,7 @@ const formatTime = (value?: string | null) => {
 }
 
 const healthOptions = [{ id: 'all', label: '全部健康状态' }, { id: 'healthy', label: '正常' }, { id: 'degraded', label: '需关注' }, { id: 'failing', label: '连续失败' }, { id: 'unknown', label: '尚未抓取' }]
-const scopeOptions = [{ id: 'all', label: '全部范围' }, { id: 'public', label: '公共来源' }, { id: 'workspace', label: '团队来源' }, { id: 'private', label: '我的私有来源' }]
+const scopeOptions = [{ id: 'all', label: '全部范围' }, { id: 'public', label: '公共订阅' }, { id: 'private', label: '私人订阅' }]
 
 function SourceFilters({ search, onSearchChange, definitions, typeFilter, onTypeChange, scopeFilter, onScopeChange, healthFilter, onHealthChange, includeHealth }: {
   search: string
@@ -214,7 +214,6 @@ export function HeroSubscriptionsPage() {
   const { api, user } = useAppContext()
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
   const agent = useWorkbenchAgentContext()
   const editable = canMutateSubscriptions(user)
   const isAdmin = adminRole(user.role)
@@ -229,7 +228,6 @@ export function HeroSubscriptionsPage() {
   const [createType, setCreateType] = useState('')
   const [usageSource, setUsageSource] = useState<CatalogSource | null>(null)
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
-  const [shareScope, setShareScope] = useState<'workspace' | 'public'>('workspace')
   const seenTerminalJobs = useRef(new Set<string>())
   const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string }>())
 
@@ -278,7 +276,7 @@ export function HeroSubscriptionsPage() {
   const sourceMap = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources])
   const healthMap = useMemo(() => new Map((healthQuery.data?.items ?? []).map((health) => [health.subscription_id, health])), [healthQuery.data])
   const normalized = search.trim().toLocaleLowerCase()
-  const matchesSource = (source: CatalogSource) => (typeFilter === 'all' || source.type === typeFilter) && (scopeFilter === 'all' || source.scope === scopeFilter) && (!normalized || [source.display_name, source.description, source.default_channel, ...(source.default_topics ?? [])].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalized)))
+  const matchesSource = (source: CatalogSource) => (typeFilter === 'all' || source.type === typeFilter) && (scopeFilter === 'all' || (scopeFilter === 'public' ? isPublicSubscriptionScope(source.scope) : source.scope === 'private')) && (!normalized || [source.display_name, source.description, source.default_channel, ...(source.default_topics ?? [])].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalized)))
   const entries = subscriptions.filter((subscription) => healthMatches(healthMap.get(subscription.id), healthFilter)).map((subscription): SubscriptionEntry => { const source = sourceForSubscription(subscription, sourceMap.get(subscription.source_id)); return { source, subscription, health: healthMap.get(subscription.id), channel: effectiveSubscriptionChannel(subscription, source) } }).filter(({ source }) => matchesSource(source))
   const filteredSources = sources.filter(matchesSource)
   const subscriptionGroups = groupSourcesByChannel(entries, (entry) => entry.channel, taxonomy.channels)
@@ -348,7 +346,6 @@ export function HeroSubscriptionsPage() {
   }
 
   function beginShare(source: CatalogSource) {
-    setShareScope('workspace')
     setShareSource(source)
   }
 
@@ -367,7 +364,6 @@ export function HeroSubscriptionsPage() {
     })
     if (!alreadySelected) {
       agent.openComposer()
-      navigate('/feed')
     }
   }
 
@@ -438,8 +434,8 @@ export function HeroSubscriptionsPage() {
   <HeroDialog isOpen={Boolean(shareSource)} onOpenChange={(open) => !open && setShareSource(null)} title={shareSource ? `分享 ${shareSource.display_name}` : '分享来源'}>
     <div className="grid gap-4">
       <HeroNotice title="分享后管理权将发生变化" status="warning">来源订阅地址和管理权会转交给工作区超级用户与管理员。你之后取消订阅只影响自己，不会删除其他成员正在使用的来源。</HeroNotice>
-      <HeroSelect label="分享范围" value={shareScope} onChange={(value) => setShareScope(value as 'workspace' | 'public')} options={[{ id: 'workspace', label: '团队来源 · 当前工作区可见' }, { id: 'public', label: '公共来源 · 所有成员可订阅' }]} />
-      <Button isDisabled={shareMutation.isPending} onPress={() => shareSource && shareMutation.mutate({ source: shareSource, scope: shareScope })}>{shareMutation.isPending ? '分享中…' : '确认分享并转交管理权'}</Button>
+      <p className="type-body text-muted">分享后将成为公共订阅，所有成员都可以发现并订阅。</p>
+      <Button isDisabled={shareMutation.isPending} onPress={() => shareSource && shareMutation.mutate({ source: shareSource, scope: 'public' })}>{shareMutation.isPending ? '分享中…' : '确认公开并转交管理权'}</Button>
     </div>
   </HeroDialog>
   </div>

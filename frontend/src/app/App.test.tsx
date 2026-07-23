@@ -225,7 +225,7 @@ describe('App routes', () => {
     }
   })
 
-  it('renders production administration routes in the HeroUI shell without an Agent panel', async () => {
+  it('renders the subscriptions route in the HeroUI shell with an available Agent panel', async () => {
     const source = {
       id: 'source-live', type: 'rss', display_name: '覆盖频道来源', scope: 'private' as const,
       owner_user_id: 'user-live', default_channel: '工作/项目', enabled: true,
@@ -256,7 +256,7 @@ describe('App routes', () => {
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(3)
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Agent 面板/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'AI' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
@@ -301,7 +301,7 @@ describe('App routes', () => {
     await browser.click(screen.getByRole('button', { name: /健康状态/ }))
     await browser.click(await screen.findByRole('option', { name: '连续失败' }))
     await browser.click(screen.getByRole('button', { name: /可见范围/ }))
-    await browser.click(await screen.findByRole('option', { name: '团队来源' }))
+    await browser.click(await screen.findByRole('option', { name: '公共订阅' }))
     expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
 
     await browser.click(screen.getByRole('button', { name: /健康状态/ }))
@@ -551,7 +551,7 @@ describe('App routes', () => {
 
     await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
     await browser.click(await screen.findByRole('button', { name: '加入 OpenClaw 上下文：测试来源连接' }))
-    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/feed'))
+    await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/subscriptions'))
     await waitFor(() => {
       const contextItem = document.querySelector('[data-context-resource="job"]')
       expect(contextItem).toBeInTheDocument()
@@ -941,7 +941,7 @@ describe('App routes', () => {
     const subscription = { id: 'private-share-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
     const sourceUsage = vi.fn().mockResolvedValue({ source_id: source.id, subscriber_count: 3, enabled_subscriber_count: 2 })
     const shareSource = vi.fn().mockResolvedValue({
-      source: { ...source, scope: 'workspace', owner_user_id: null },
+      source: { ...source, scope: 'public', owner_user_id: null },
       notice: '管理权已交给工作区管理员。',
     })
     const api = liveApi({
@@ -967,8 +967,8 @@ describe('App routes', () => {
     const shareDialog = await screen.findByRole('dialog', { name: '分享 私人研究源' })
     expect(within(shareDialog).getByText('分享后管理权将发生变化')).toBeInTheDocument()
     expect(within(shareDialog).getByText(/取消订阅只影响自己/)).toBeInTheDocument()
-    await browser.click(within(shareDialog).getByRole('button', { name: '确认分享并转交管理权' }))
-    await waitFor(() => expect(shareSource).toHaveBeenCalledWith(source.id, 'workspace'))
+    await browser.click(within(shareDialog).getByRole('button', { name: '确认公开并转交管理权' }))
+    await waitFor(() => expect(shareSource).toHaveBeenCalledWith(source.id, 'public'))
   })
 
   it('requires an explicit disposition when disabling a personal subscription', async () => {
@@ -1187,12 +1187,45 @@ describe('App routes', () => {
 
     await screen.findByRole('heading', { name: '成员管理' })
     await screen.findByText('Workspace Owner')
+    expect(screen.getByRole('grid', { name: '成员列表' })).toBeInTheDocument()
+    expect(screen.getAllByRole('columnheader').map((column) => column.textContent)).toEqual(['成员', '角色', '账户状态', '操作'])
     expect(screen.queryByRole('button', { name: /角色 workspace-owner/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '切换 workspace-owner 状态' })).toBeDisabled()
     await browser.click(screen.getByRole('button', { name: /角色 editable/ }))
     await browser.click(await screen.findByRole('option', { name: '只读成员' }))
     expect(updateUser).toHaveBeenCalledWith('editable-member', { role: 'viewer' })
     expect(screen.getByRole('button', { name: '切换 editable 状态' })).toBeEnabled()
+  })
+
+  it('resets a non-owner member password from the table after local validation', async () => {
+    const browser = userEvent.setup()
+    const workspaceOwner = { id: 'workspace-owner', username: 'workspace-owner', display_name: 'Workspace Owner', role: 'owner' as const, enabled: true }
+    const editableMember = { id: 'editable-member', username: 'editable', display_name: 'Editable Member', role: 'member' as const, enabled: true }
+    const updateUser = vi.fn().mockResolvedValue(editableMember)
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'actor-owner', username: 'owner', role: 'owner', enabled: true } }),
+      users: vi.fn().mockResolvedValue({ users: [workspaceOwner, editableMember] }),
+      updateUser,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/users']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '重置 editable 密码' }))
+    const dialog = screen.getByRole('dialog', { name: '重置成员密码' })
+    await browser.type(within(dialog).getByLabelText('新密码'), 'short')
+    await browser.type(within(dialog).getByLabelText('确认新密码'), 'different')
+    await browser.click(within(dialog).getByRole('button', { name: '确认重置' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('至少需要 8 个字符')
+    expect(updateUser).not.toHaveBeenCalled()
+
+    await browser.clear(within(dialog).getByLabelText('新密码'))
+    await browser.clear(within(dialog).getByLabelText('确认新密码'))
+    await browser.type(within(dialog).getByLabelText('新密码'), 'new-password')
+    await browser.type(within(dialog).getByLabelText('确认新密码'), 'new-password')
+    await browser.click(within(dialog).getByRole('button', { name: '确认重置' }))
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith('editable-member', { password: 'new-password' }))
+    expect(screen.queryByRole('dialog', { name: '重置成员密码' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重置 workspace-owner 密码' })).not.toBeInTheDocument()
   })
 
   it.each(['member', 'viewer'] as const)('does not expose live member administration controls to a %s', async (actorRole) => {

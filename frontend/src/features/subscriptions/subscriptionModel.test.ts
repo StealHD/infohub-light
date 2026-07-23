@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, User } from '../../api/types'
 import * as subscriptionModel from './subscriptionModel'
-import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isSourceSubscribed, presentJob, presentSourceHealthIssue, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
+import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
 
 const user = (role: User['role'], id = 'user-1'): User => ({ id, username: role, role, enabled: true })
 const source: CatalogSource = { id: 'src-1', type: 'rss', display_name: 'RSS', scope: 'workspace', enabled: true }
@@ -122,10 +122,10 @@ describe('subscription model', () => {
 
   it('limits members to creating private sources', () => {
     expect(sourceScopesForUser(user('member'))).toEqual(['private'])
-    expect(sourceScopesForUser(user('admin'))).toEqual(['private', 'workspace', 'public'])
+    expect(sourceScopesForUser(user('admin'))).toEqual(['private', 'public'])
   })
 
-  it('groups visible sources by permission scope and hides empty groups', () => {
+  it('folds legacy workspace sources into the public subscription presentation', () => {
     const groups = groupSourcesByScope([
       { ...source, id: 'private', scope: 'private', owner_user_id: 'user-1' },
       { ...source, id: 'workspace', scope: 'workspace' },
@@ -133,11 +133,13 @@ describe('subscription model', () => {
     ])
 
     expect(groups.map((group) => [group.scope, group.label, group.items.map((item) => item.id)])).toEqual([
-      ['public', '公共来源', ['public']],
-      ['workspace', '团队来源', ['workspace']],
-      ['private', '我的私有来源', ['private']],
+      ['public', '公共订阅', ['workspace', 'public']],
+      ['private', '私人订阅', ['private']],
     ])
     expect(groupSourcesByScope([{ ...source, id: 'public', scope: 'public' }]).map((group) => group.scope)).toEqual(['public'])
+    expect(isPublicSubscriptionScope('public')).toBe(true)
+    expect(isPublicSubscriptionScope('workspace')).toBe(true)
+    expect(isPublicSubscriptionScope('private')).toBe(false)
   })
 
   it('groups subscriptions by effective channel with a stable uncategorized fallback', () => {

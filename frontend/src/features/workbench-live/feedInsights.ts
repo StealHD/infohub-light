@@ -39,12 +39,14 @@ export function buildFeedInsightsModel({
   health,
   preference,
   query,
+  allowedSourceIds,
   now = new Date(),
 }: {
   snapshot?: FeedSnapshot
   health?: SourceHealthResponse
   preference: FeedPreference
   query: string
+  allowedSourceIds?: ReadonlySet<string>
   now?: Date
 }): FeedInsightsModel {
   const items = (snapshot?.items ?? []).filter((item) => !item.user_state?.dismissed)
@@ -55,6 +57,7 @@ export function buildFeedInsightsModel({
     channel: preference.channel || undefined,
     topic: preference.topic || undefined,
     dateScope: preference.dateScope,
+    allowedSourceIds,
     now,
   })
   const cards = items.map(toWorkbenchCardModel)

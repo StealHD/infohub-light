@@ -144,6 +144,31 @@ describe('feed model', () => {
     })).toEqual([canonical])
   })
 
+  it('filters subscription scope against every canonical and provenance source id', () => {
+    const canonical = item({ id: 'canonical', source_id: 'legacy-private', source_ids: ['provenance-private'], presentation: {
+      version: 2,
+      source: { id: 'canonical-public', catalog_type: 'rss', platform: 'rss', name: 'Canonical Source' },
+      author: { name: 'Author', kind: 'person' },
+      timing: { published_at: '2026-07-13T08:00:00Z', fetched_at: '2026-07-13T08:01:00Z' },
+      links: { canonical_url: 'https://example.com/canonical', source_url: 'https://example.com/canonical' },
+      content: { title: 'Canonical', title_origin: 'native', excerpt: 'body', content_kind: 'feed_summary', excerpt_truncated: false },
+      taxonomy: { channel: '其他', configured_topics: [], inferred_topics: [], topics: [], entities: [] },
+      engagement: { native_score: null, likes: null, comments: null, reposts: null, shares: null, upvote_ratio: null },
+      analysis: { status: 'fallback', score: 0, signal_strength: 'thin', signal_type: 'other', summary_zh: '概括' },
+    } })
+    const legacy = item({ id: 'legacy', source_id: 'legacy-private', source_ids: ['public-provenance'] })
+
+    expect(filterFeedItems([canonical, legacy], {
+      query: '', unreadFirst: false, allowedSourceIds: new Set(['canonical-public']),
+    }).map(({ id }) => id)).toEqual(['canonical'])
+    expect(filterFeedItems([canonical, legacy], {
+      query: '', unreadFirst: false, allowedSourceIds: new Set(['public-provenance']),
+    }).map(({ id }) => id)).toEqual(['legacy'])
+    expect(filterFeedItems([canonical, legacy], {
+      query: '', unreadFirst: false, allowedSourceIds: new Set(),
+    })).toEqual([])
+  })
+
   it('uses the most concerning source health across duplicate provenance', () => {
     const health: SourceHealthItem[] = [
       { subscription_id: 'sub-a', source_id: 'source-a', status: 'healthy', consecutive_failures: 0 },

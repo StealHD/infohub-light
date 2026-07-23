@@ -35,11 +35,11 @@
 - Produces: `FeedPreference.subscriptionScope: 'all' | 'public' | 'private'` with backward-compatible default `all`.
 - Produces: quick views `全部`, `当天`, `公共订阅`, `私人订阅`.
 
-- [ ] Add failing model/preference/quick-view tests covering legacy workspace folding and persistence migration.
-- [ ] Add failing Feed filtering tests covering canonical and provenance source identifiers.
-- [ ] Implement visibility projection helpers and remove team controls from subscription creation/filter/share UI.
-- [ ] Implement source-catalog-backed Feed scope filtering and inspectable scope filter controls.
-- [ ] Run targeted subscription and Feed Vitest suites.
+- [x] Add failing model/preference/quick-view tests covering legacy workspace folding and persistence migration.
+- [x] Add failing Feed filtering tests covering canonical and provenance source identifiers.
+- [x] Implement visibility projection helpers and remove team controls from subscription creation/filter/share UI.
+- [x] Implement source-catalog-backed Feed scope filtering and inspectable scope filter controls.
+- [x] Run targeted subscription and Feed Vitest suites.
 
 ---
 
@@ -54,10 +54,10 @@
 - Produces: responsive HeroUI member table with identity, role, status, and actions columns.
 - Produces: non-owner reset-password dialog with confirmation and minimum-eight-character validation.
 
-- [ ] Add failing application tests for table semantics, owner protection, reset validation, and reset request.
-- [ ] Replace free-form member cards with HeroUI Table while preserving role/status mutations.
-- [ ] Add isolated reset dialog state and mutation feedback.
-- [ ] Run the targeted application tests and TypeScript check.
+- [x] Add failing application tests for table semantics, owner protection, reset validation, and reset request.
+- [x] Replace free-form member cards with HeroUI Table while preserving role/status mutations.
+- [x] Add isolated reset dialog state and mutation feedback.
+- [x] Run the targeted application tests and TypeScript check.
 
 ---
 
@@ -73,10 +73,10 @@
 - Produces: measured `insightsObstructsFeed` state.
 - Produces: blank Feed activation that closes Insights only while obstruction exists.
 
-- [ ] Add failing shell tests for simultaneous surfaces and both blank-click branches.
-- [ ] Measure actual Feed/Insights rectangles after layout changes.
-- [ ] Mark Feed blank/card regions and implement interaction-safe dismissal.
-- [ ] Run targeted workbench tests at desktop and compact layout assumptions.
+- [x] Add failing shell tests for simultaneous surfaces and both blank-click branches.
+- [x] Measure actual Feed/Insights rectangles after layout changes.
+- [x] Mark Feed blank/card regions and implement interaction-safe dismissal.
+- [x] Run targeted workbench tests at desktop and compact layout assumptions.
 
 ---
 
@@ -94,11 +94,11 @@
 - Produces: OpenClaw context popover with model, used/max tokens, percentage, and selected-context `N/8`.
 - Produces: Agent rail/drawer on `/subscriptions`; adding run context opens the local composer without navigating to Feed.
 
-- [ ] Add failing projection/event tests for fresh, stale, mismatched, and absent usage.
-- [ ] Load and subscribe to exact-current-session usage across connect/switch/new-session flows.
-- [ ] Render accessible context usage details with a trustworthy unavailable state.
-- [ ] Extend workbench route capability to subscriptions and remove forced Feed navigation.
-- [ ] Run targeted OpenClaw, workbench, and subscription tests.
+- [x] Add failing projection/event tests for fresh, stale, mismatched, and absent usage.
+- [x] Load and subscribe to exact-current-session usage across connect/switch/new-session flows.
+- [x] Render accessible context usage details with a trustworthy unavailable state.
+- [x] Extend workbench route capability to subscriptions and remove forced Feed navigation.
+- [x] Run targeted OpenClaw, workbench, and subscription tests.
 
 ---
 
@@ -111,9 +111,8 @@
 - Modify: `PLAN.md`
 - Modify: `WORKLOG.md`
 
-- [ ] Record the two-scope UI projection, quick-view set, Insights dismissal rule, subscription Agent capability, and exact-session telemetry rule in their authoritative contracts.
-- [ ] Append a decision entry and concise worklog without overwriting existing dirty changes.
-- [ ] Run targeted frontend tests, typecheck, lint, and build.
-- [ ] Run `python scripts/test_gate.py run --mode full` and `git diff --check`.
-- [ ] Rebuild the latest local service and visually verify `/feed`, `/subscriptions`, and `/users` in three viewport classes.
-
+- [x] Record the two-scope UI projection, quick-view set, Insights dismissal rule, subscription Agent capability, and exact-session telemetry rule in their authoritative contracts.
+- [x] Append a decision entry and concise worklog without overwriting existing dirty changes.
+- [x] Run targeted frontend tests, typecheck, lint, and build.
+- [x] Run `python scripts/test_gate.py run --mode full` and `git diff --check`.
+- [x] Rebuild the latest local service and visually verify `/feed`, `/subscriptions`, and `/users` in three viewport classes.

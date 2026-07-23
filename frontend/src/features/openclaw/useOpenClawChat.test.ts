@@ -20,6 +20,7 @@ import {
   mergeOpenClawTranscript,
   openClawTranscriptStorageKey,
   projectChatHistory,
+  projectOpenClawContextUsage,
   useOpenClawChat,
   writeOpenClawTranscript,
 } from './useOpenClawChat'
@@ -77,6 +78,98 @@ describe('useOpenClawChat', () => {
     window.sessionStorage.clear()
     vi.mocked(forgetOpenClawBrowser).mockReset()
     vi.mocked(forgetOpenClawBrowser).mockResolvedValue('removed')
+  })
+
+  it('accepts only fresh exact-session context usage', () => {
+    const fresh = {
+      sessions: [
+        { key: 'other', totalTokens: 1, contextTokens: 10 },
+        {
+          key: 'session-usage',
+          totalTokens: 42_000,
+          totalTokensFresh: true,
+          contextTokens: 200_000,
+          modelProvider: 'openai',
+          model: 'gpt-5.4',
+        },
+      ],
+    }
+    expect(projectOpenClawContextUsage(fresh, 'session-usage')).toEqual({
+      sessionKey: 'session-usage',
+      usedTokens: 42_000,
+      contextTokens: 200_000,
+      percent: 21,
+      modelId: 'openai/gpt-5.4',
+    })
+    expect(projectOpenClawContextUsage({ sessionKey: 'other', totalTokens: 5, contextTokens: 10 }, 'session-usage')).toBeNull()
+    expect(projectOpenClawContextUsage({ sessionKey: 'session-usage', totalTokens: 5, totalTokensFresh: false, contextTokens: 10 }, 'session-usage')).toBeNull()
+    expect(projectOpenClawContextUsage({ sessionKey: 'session-usage', totalTokens: '5', contextTokens: 10 }, 'session-usage')).toBeNull()
+  })
+
+  it('loads and subscribes to exact-session context usage without adopting another session', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-usage', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-usage', publicKey: 'public-usage', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token',
+      scopes: [...OPENCLAW_CURRENT_SCOPES],
+      sessionKey: 'session-usage',
+    })
+    let onEvent: ((event: GatewayEvent) => void) | undefined
+    const request = vi.fn(async (method: string) => {
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return models
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      if (method === 'sessions.subscribe') return {}
+      if (method === 'sessions.list') return {
+        sessions: [
+          { key: 'other', totalTokens: 199_000, contextTokens: 200_000 },
+          { key: 'session-usage', totalTokens: 42_000, totalTokensFresh: true, contextTokens: 200_000 },
+        ],
+      }
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn((options: { onEvent?: (event: GatewayEvent) => void }) => {
+      onEvent = options.onEvent
+      return {
+        connect: vi.fn(async (): Promise<GatewayHello> => ({
+          auth: { deviceToken: 'device-token', scopes: [...OPENCLAW_CURRENT_SCOPES] },
+          snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+        })),
+        request,
+        close: vi.fn(),
+      }
+    })
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true,
+      userId: 'user-usage',
+      defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clientFactory: clientFactory as never,
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+    expect(result.current.contextUsage).toMatchObject({ sessionKey: 'session-usage', usedTokens: 42_000, percent: 21 })
+    expect(request).toHaveBeenCalledWith('sessions.list', { search: 'session-usage', limit: 100 })
+    expect(request).toHaveBeenCalledWith('sessions.subscribe', {})
+
+    act(() => onEvent?.({
+      type: 'event',
+      event: 'sessions.changed',
+      payload: { sessionKey: 'session-usage', session: { totalTokens: 64_000, totalTokensFresh: true, contextTokens: 200_000 } },
+    }))
+    expect(result.current.contextUsage).toMatchObject({ usedTokens: 64_000, percent: 32 })
+
+    act(() => onEvent?.({
+      type: 'event', event: 'sessions.changed', payload: { sessionKey: 'other', totalTokens: 1, contextTokens: 200_000 },
+    }))
+    expect(result.current.contextUsage).toMatchObject({ usedTokens: 64_000 })
+
+    act(() => onEvent?.({
+      type: 'event', event: 'sessions.changed', payload: { sessionKey: 'session-usage', totalTokens: 70_000, totalTokensFresh: false, contextTokens: 200_000 },
+    }))
+    expect(result.current.contextUsage).toBeNull()
   })
 
   it('does not create a Gateway client while browser chat is disabled', async () => {

@@ -12,6 +12,7 @@ const base: FeedPreference = {
   order: 'oldest',
   sortBasis: 'published',
   dateScope: 'all',
+  subscriptionScope: 'all',
 }
 
 describe('workbench quick views', () => {
@@ -27,22 +28,9 @@ describe('workbench quick views', () => {
       order: 'oldest',
       sortBasis: 'published',
       dateScope: 'all',
+      subscriptionScope: 'all',
     })
     expect(detectActiveQuickView(preference)).toBe('all')
-  })
-
-  it('applies unread without changing the selected order', () => {
-    expect(applyQuickView(base, 'unread')).toEqual({
-      unreadFirst: true,
-      source: '',
-      channel: '',
-      topic: '',
-      minScore: undefined,
-      order: 'oldest',
-      sortBasis: 'published',
-      dateScope: 'all',
-    })
-    expect(base.channel).toBe('投资')
   })
 
   it('applies the browser-local today scope and clears conflicting filters', () => {
@@ -56,22 +44,21 @@ describe('workbench quick views', () => {
       minScore: undefined,
       order: 'oldest',
       dateScope: 'today',
+      subscriptionScope: 'all',
     })
     expect(detectActiveQuickView(preference)).toBe('today')
   })
 
   it.each([
-    ['ai', 'AI'],
-    ['friends', '朋友动态'],
-    ['product', '产品机会'],
-  ] as const)('applies the %s channel view', (view, channel) => {
+    ['public', 'public'],
+    ['private', 'private'],
+  ] as const)('applies the %s subscription view', (view, subscriptionScope) => {
     const preference = applyQuickView(base, view)
-    expect(preference).toMatchObject({ unreadFirst: false, source: '', channel, topic: '', minScore: undefined, order: 'oldest' })
+    expect(preference).toMatchObject({ unreadFirst: false, source: '', channel: '', topic: '', minScore: undefined, order: 'oldest', subscriptionScope })
     expect(detectActiveQuickView(preference)).toBe(view)
   })
 
-  it('detects unread and treats mixed manual filters as custom', () => {
-    expect(detectActiveQuickView(applyQuickView(base, 'unread'))).toBe('unread')
-    expect(detectActiveQuickView({ ...applyQuickView(base, 'ai'), topic: 'Agent' })).toBeNull()
+  it('treats mixed manual filters as custom', () => {
+    expect(detectActiveQuickView({ ...applyQuickView(base, 'public'), topic: 'Agent' })).toBeNull()
   })
 })

@@ -34,7 +34,7 @@ import {
   writeAgentContextDraft,
   type AgentContextDraftV3,
 } from './agentContext'
-import { OpenClawConversation } from '../openclaw/OpenClawConversation'
+import { OpenClawContextUsagePopover, OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
 import { HandoffComposer } from './HandoffComposer'
 import { FeedInsightsPanel } from './FeedInsightsPanel'
@@ -215,6 +215,15 @@ export function canFloatFeedInsights(mainRight: number, readingRight: number): b
     && mainRight - readingRight >= FLOATING_INSIGHTS_REQUIRED_GUTTER
 }
 
+type RectBounds = Pick<DOMRectReadOnly, 'left' | 'right' | 'top' | 'bottom'>
+
+export function rectanglesOverlap(first: RectBounds, second: RectBounds): boolean {
+  return first.left < second.right
+    && first.right > second.left
+    && first.top < second.bottom
+    && first.bottom > second.top
+}
+
 const gatewayStatusLabel: Record<OpenClawConnectionStatus, string> = {
   disabled: '对话未启用',
   idle: '未连接',
@@ -261,6 +270,11 @@ function AgentPanelContent({
     <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
       <Icons.Sparkles className="shrink-0" size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 对话</strong>
+      <OpenClawContextUsagePopover
+        usage={chat.contextUsage}
+        modelId={chat.runtimeSelection.modelId}
+        attachmentCount={value.draft.items.length}
+      />
       <LoadingReveal
         loading={configLoading}
         label="正在检查 Agent 连接"
@@ -351,9 +365,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const navigate = useNavigate()
   const contentRoute = ['/feed', '/saved', '/history'].includes(location.pathname)
   const feedRoute = location.pathname === '/feed'
+  const agentRoute = contentRoute || location.pathname === '/subscriptions'
   const pageTitle = location.pathname.endsWith('/subscriptions') ? '订阅与来源' : location.pathname.endsWith('/agents') ? '助手连接' : location.pathname.endsWith('/users') ? '账户与成员' : location.pathname.endsWith('/settings') ? '设置' : location.pathname.endsWith('/changelog') ? '更新日志' : location.pathname.endsWith('/saved') ? '收藏' : location.pathname.endsWith('/history') ? '历史' : '信息流'
   const shellRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
+  const insightsRef = useRef<HTMLElement>(null)
   const agentToggleRef = useRef<HTMLButtonElement>(null)
   const insightsToggleRef = useRef<HTMLButtonElement>(null)
   const tabletNavToggleRef = useRef<HTMLDivElement>(null)
@@ -366,6 +382,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const closingFixedRailTimer = useRef<number | undefined>(undefined)
   const [insightsSurface, setInsightsSurface] = useState<InsightsSurfaceState>('closed')
   const [insightsCanFloat, setInsightsCanFloat] = useState(false)
+  const [insightsObstructsFeed, setInsightsObstructsFeed] = useState(false)
   const [resizingRail, setResizingRail] = useState(false)
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [quickViewsOpen, setQuickViewsOpen] = useState(true)
@@ -374,14 +391,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [feedPreferenceState, setFeedPreferenceState] = useState(() => ({ userId: props.user.id, value: readFeedPreference(props.user.id) }))
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
   const [dismissedNotice, setDismissedNotice] = useState('')
-  const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: contentRoute })
+  const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: agentRoute })
   const insightsFeed = useQuery({
     queryKey: queryKeys.feed(props.user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => props.api.latestFeed(signal),
     enabled: feedRoute,
   })
   const openclawChat = useOpenClawChat({
-    enabled: contentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),
+    enabled: agentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),
     userId: props.user.id,
     defaultGatewayUrl: delegations.data?.openclaw_chat?.default_gateway_url ?? 'ws://127.0.0.1:18789',
   })
@@ -394,12 +411,12 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const sidebarExpanded = extraWideDesktop && sidebarPreference === 'expanded'
   const sidebarWidth = sidebarExpanded ? 232 : 72
   const desktopSidebarColumn = sidebarExpanded ? 'min-[1360px]:grid-cols-[232px_minmax(0,1fr)]' : 'min-[1360px]:grid-cols-[72px_minmax(0,1fr)]'
-  const visibleRightRailMode: RightRailMode = !contentRoute
+  const visibleRightRailMode: RightRailMode = !agentRoute
     ? 'closed'
     : openclawChat.isRunning
       ? 'agent'
       : rightRailMode
-  const dockCapable = contentRoute && canDockRightRail(viewportWidth, sidebarWidth)
+  const dockCapable = agentRoute && canDockRightRail(viewportWidth, sidebarWidth)
   const fixedRightRail = dockCapable && visibleRightRailMode === 'agent'
   const fixedRailPresent = dockCapable && (fixedRightRail || closingFixedRail)
   const insightsOpen = feedRoute && insightsSurface !== 'closed'
@@ -525,6 +542,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     setInsightsSurface('manual')
   }, [closeInsights, dockCapable, insightsOpen, openclawChat.isRunning])
 
+  const handleFeedBlankPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (!feedRoute || !insightsOpen || !insightsObstructsFeed || event.button !== 0 || event.defaultPrevented) return
+    const target = event.target
+    if (!(target instanceof Element) || !target.closest('[data-feed-blank-region]')) return
+    if (target.closest('a, button, input, textarea, select, label, summary, [role="button"], [role="dialog"], [contenteditable="true"], [data-testid="workbench-card"], [data-card-actions]')) return
+    closeInsights(false)
+  }, [closeInsights, feedRoute, insightsObstructsFeed, insightsOpen])
+
   const changeTabletNavigation = useCallback((open: boolean) => {
     setTabletNavOpen(open)
     if (!open) window.requestAnimationFrame(() => tabletNavToggleRef.current?.focus())
@@ -574,18 +599,25 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     const main = mainRef.current
     if (!feedRoute || !main) {
       setInsightsCanFloat(false)
+      setInsightsObstructsFeed(false)
       return
     }
     const measure = () => {
       const reading = main.querySelector<HTMLElement>('[data-page-frame="reading"]')
       if (!reading) {
         setInsightsCanFloat(false)
+        setInsightsObstructsFeed(false)
         return
       }
       setInsightsCanFloat(canFloatFeedInsights(
         main.getBoundingClientRect().right,
         reading.getBoundingClientRect().right,
       ))
+      const insights = insightsRef.current
+      setInsightsObstructsFeed(Boolean(insights && rectanglesOverlap(
+        reading.getBoundingClientRect(),
+        insights.getBoundingClientRect(),
+      )))
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
@@ -593,8 +625,9 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     observer.observe(main)
     const reading = main.querySelector<HTMLElement>('[data-page-frame="reading"]')
     if (reading) observer.observe(reading)
+    if (insightsRef.current) observer.observe(insightsRef.current)
     return () => observer.disconnect()
-  }, [feedRoute, fixedRightRail, sidebarExpanded, viewportWidth])
+  }, [feedRoute, fixedRightRail, insightsOpen, rightRailWidth, sidebarExpanded, viewportWidth])
 
   useEffect(() => {
     let closeFrame: number | undefined
@@ -693,6 +726,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         data-ui-typography="system"
         data-fixed-agent-rail={fixedRightRail ? 'true' : 'false'}
         data-fixed-agent-rail-phase={fixedRightRail ? 'open' : fixedRailPresent ? 'closing' : 'absent'}
+        data-insights-obstructs-feed={insightsObstructsFeed ? 'true' : 'false'}
         data-rail-resizing={resizingRail ? 'true' : 'false'}
         data-layout-motion={rightRailAnimated && !resizingRail ? 'deliberate' : 'immediate'}
         style={desktopGridStyle}
@@ -811,7 +845,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         <PageHeader
           title={pageTitle}
           className="col-start-1 row-start-1 min-[768px]:col-start-2"
-          actions={contentRoute ? <div className="flex items-center gap-1">
+          actions={agentRoute ? <div className="flex items-center gap-1">
             {feedRoute && <Button
               ref={insightsToggleRef}
               size="sm"
@@ -842,7 +876,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           </div> : undefined}
         />
 
-        <main ref={mainRef} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
+        <main ref={mainRef} onPointerDown={handleFeedBlankPointerDown} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
           {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
             <span className="flex-1">{props.refreshMessage}</span>{props.onRetry && <Button size="sm" variant="ghost" onPress={props.onRetry}>重试</Button>}
             <Button size="sm" variant="ghost" isIconOnly aria-label="关闭更新提示" onPress={() => setDismissedNotice(noticeKey)}><Icons.X size={15} /></Button>
@@ -884,15 +918,16 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         </aside>}
 
         {feedRoute && insightsOpen && !mobile && <aside
+          ref={insightsRef}
           id="feed-insights-surface"
           role="complementary"
           aria-label="信息概览"
           data-insights-surface={insightsSurface}
           className="quiet-surface-enter fixed top-[60px] z-30 flex max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] flex-col overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]"
           style={{ right: fixedRightRail ? rightRailWidth + 12 : 12 }}
-        ><FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} /></aside>}
+        ><FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} includePrivateSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} /></aside>}
 
-        {contentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsOpen)) && <Drawer isOpen onOpenChange={(open) => {
+        {agentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsOpen)) && <Drawer isOpen onOpenChange={(open) => {
           if (open) return
           if (insightsOpen) closeInsights()
           else closeRightRail()
@@ -907,7 +942,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               >
                 {visibleRightRailMode === 'agent'
                   ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
-                  : <FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} preference={feedPreference} query={props.query} />}
+                  : <FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} includePrivateSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} />}
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>

@@ -20,6 +20,7 @@ import { buildAgentHandoffPrompt, type AgentContextItem } from '../workbench-liv
 import { HandoffComposer } from '../workbench-live/HandoffComposer'
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
 import type { useOpenClawChat } from './useOpenClawChat'
+import type { OpenClawContextUsage } from './useOpenClawChat'
 
 type ChatController = ReturnType<typeof useOpenClawChat>
 
@@ -27,6 +28,56 @@ type FormattedMessageTime = {
   label: string
   title: string
   dateTime: string
+}
+
+const contextTokenFormatter = new Intl.NumberFormat('zh-CN')
+
+export function OpenClawContextUsagePopover({
+  usage,
+  modelId,
+  attachmentCount,
+}: {
+  usage: OpenClawContextUsage | null
+  modelId: string | null
+  attachmentCount: number
+}) {
+  const displayModel = usage?.modelId ?? modelId
+  const progressValue = usage ? Math.min(100, usage.percent) : 0
+  return <Popover>
+    <Popover.Trigger
+      aria-label="查看 OpenClaw 上下文用量"
+      className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+    >
+      <Icons.Gauge size={16} aria-hidden="true" />
+    </Popover.Trigger>
+    <Popover.Content placement="bottom end" offset={8} className="z-50 w-[min(300px,calc(100vw-24px))] p-0">
+      <Popover.Dialog aria-label="OpenClaw 上下文用量" className="grid gap-3 p-4">
+        <Popover.Heading className="type-page-title">背景信息</Popover.Heading>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2">
+          <span className="type-meta text-muted">模型</span>
+          <span className="type-control min-w-0 truncate text-right" title={displayModel ?? undefined}>{displayModel ?? '暂无模型信息'}</span>
+          <span className="type-meta text-muted">附带信息</span>
+          <span className="type-control text-right">{attachmentCount} / 8</span>
+          <span className="type-meta text-muted">上下文占用</span>
+          <span className="type-control text-right">{usage
+            ? `${contextTokenFormatter.format(usage.usedTokens)} / ${contextTokenFormatter.format(usage.contextTokens)} · ${usage.percent}%`
+            : '暂无可信用量'}</span>
+        </div>
+        <div
+          role="progressbar"
+          aria-label="上下文占用"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progressValue}
+          aria-valuetext={usage ? `${usage.percent}%` : '暂无可信用量'}
+          className="h-1.5 overflow-hidden rounded-full bg-default"
+        >
+          <span className="block h-full rounded-full bg-accent transition-[width]" style={{ width: `${progressValue}%` }} />
+        </div>
+        {!usage && <p className="type-meta text-muted">仅展示 OpenClaw 返回且标记为最新的当前会话数据，不做估算。</p>}
+      </Popover.Dialog>
+    </Popover.Content>
+  </Popover>
 }
 
 function padTimePart(value: number): string {

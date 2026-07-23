@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServiceApi } from '../../api/service'
 import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
-import { canFloatFeedInsights, HeroWorkbenchShell } from './HeroWorkbenchShell'
+import { canFloatFeedInsights, HeroWorkbenchShell, rectanglesOverlap } from './HeroWorkbenchShell'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()
@@ -71,7 +71,7 @@ function Shell({ user, path = '/feed', onLogout = vi.fn(), serviceApi = api }: {
   return <QueryClientProvider client={queryClient}>
     <MemoryRouter initialEntries={[path]}>
       <HeroWorkbenchShell api={serviceApi} user={user} query="" onQueryChange={vi.fn()} onLogout={onLogout} refreshState="idle">
-        <div>content</div>
+        <div data-page-frame="reading" data-feed-blank-region>content</div>
       </HeroWorkbenchShell>
       <LocationProbe />
     </MemoryRouter>
@@ -133,10 +133,14 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(brandTrigger).toHaveAttribute('data-inteliscope-mark-trigger')
     expect(brandTrigger).not.toHaveTextContent(/^I$/)
     await browser.click(brandTrigger)
-    await browser.click(screen.getByRole('button', { name: 'AI' }))
+    expect(screen.queryByRole('button', { name: 'AI' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '未读' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '朋友动态' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '产品机会' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '公共订阅' }))
 
     expect(screen.getByTestId('location-probe')).toHaveTextContent('/feed')
-    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:quick-view') || '{}')).toMatchObject({ channel: 'AI', order: 'newest' })
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:quick-view') || '{}')).toMatchObject({ channel: '', subscriptionScope: 'public', order: 'newest' })
   })
 
   it('uses the shared sidebar row interaction and split-panel control across desktop states', async () => {
@@ -157,7 +161,7 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     const collapse = screen.getByRole('button', { name: '收起侧栏' })
     const route = screen.getAllByRole('link', { name: '信息流' }).find((candidate) => candidate.dataset.sidebarNavItem === 'expanded')
     if (!route) throw new Error('expanded Feed route was not rendered')
-    const quickView = screen.getByRole('button', { name: 'AI' })
+    const quickView = screen.getByRole('button', { name: '公共订阅' })
     expect(collapse).toHaveAttribute('data-sidebar-panel-toggle')
     expect(collapse).toHaveClass('bg-accent/15', 'text-accent')
     expect(collapse.querySelector('[data-split-panel-icon]')).not.toBeNull()
@@ -202,6 +206,60 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
   it('only allows automatic insights when the measured reading gutter is large enough', () => {
     expect(canFloatFeedInsights(1440, 1064)).toBe(true)
     expect(canFloatFeedInsights(1440, 1065)).toBe(false)
+    expect(rectanglesOverlap(
+      { left: 100, right: 1000, top: 60, bottom: 850 },
+      { left: 900, right: 1252, top: 60, bottom: 700 },
+    )).toBe(true)
+    expect(rectanglesOverlap(
+      { left: 100, right: 1000, top: 60, bottom: 850 },
+      { left: 1012, right: 1364, top: 60, bottom: 700 },
+    )).toBe(false)
+  })
+
+  it('exposes Agent on subscriptions without exposing Insights', async () => {
+    const browser = userEvent.setup()
+    render(<Shell path="/subscriptions" user={{ id: 'subscription-agent', username: 'sub', role: 'member', enabled: true }} />)
+
+    expect(screen.queryByRole('button', { name: '展开信息概览' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+    expect(api.agentDelegations).toHaveBeenCalled()
+  })
+
+  it('dismisses obstructing Insights from Feed blank space while keeping Agent open', async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.matches('[data-page-frame="reading"]')) return { left: 100, right: 1000, top: 60, bottom: 850, width: 900, height: 790, x: 100, y: 60, toJSON: () => ({}) }
+      if (this.getAttribute('aria-label') === '信息概览') return { left: 900, right: 1252, top: 60, bottom: 700, width: 352, height: 640, x: 900, y: 60, toJSON: () => ({}) }
+      return originalRect.call(this)
+    })
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'obstructed-insights', username: 'blocked', role: 'member', enabled: true }} />)
+
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'true'))
+    await browser.click(screen.getByText('content'))
+    expect(screen.queryByRole('complementary', { name: '信息概览' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps non-obstructing Insights open after Feed blank-space activation', async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.matches('[data-page-frame="reading"]')) return { left: 100, right: 1000, top: 60, bottom: 850, width: 900, height: 790, x: 100, y: 60, toJSON: () => ({}) }
+      if (this.getAttribute('aria-label') === '信息概览') return { left: 1012, right: 1364, top: 60, bottom: 700, width: 352, height: 640, x: 1012, y: 60, toJSON: () => ({}) }
+      return originalRect.call(this)
+    })
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'clear-insights', username: 'clear', role: 'member', enabled: true }} />)
+
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'false'))
+    await browser.click(screen.getByText('content'))
+    expect(screen.getByRole('complementary', { name: '信息概览' })).toBeInTheDocument()
+    vi.restoreAllMocks()
   })
 
   it('keeps the content header limited to title and the two right-rail modes', async () => {
