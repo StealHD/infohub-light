@@ -89,6 +89,7 @@ class HorizonOrchestrator:
         self._service_analysis_cache = analysis_cache
         self._service_attempt_meter: Any | None = None
         self._service_acquisition_coordinator: Any | None = None
+        self._service_apify_coordinator: Any | None = None
         self._last_analysis_usage = AnalysisUsage()
         self.console = Console()
         self.email_manager = EmailManager(config.email, console=self.console) if config.email else None
@@ -109,6 +110,10 @@ class HorizonOrchestrator:
     def set_service_acquisition_coordinator(self, coordinator: Any | None) -> None:
         """Attach the optional shared source-content coordinator."""
         self._service_acquisition_coordinator = coordinator
+
+    def set_service_apify_coordinator(self, coordinator: Any | None) -> None:
+        """Attach the workspace Key-pool coordinator for Service Apify Runs."""
+        self._service_apify_coordinator = coordinator
 
     def _service_acquisition_usage(self) -> AcquisitionUsage:
         metrics = getattr(self._service_acquisition_coordinator, "metrics", None)
@@ -322,7 +327,15 @@ class HorizonOrchestrator:
             for source in apify.subscriptions:
                 if source.enabled:
                     config = apify.model_copy(update={"enabled": True, "subscriptions": [source]})
-                    specs.append((f"Apify:{source.source_id or source.source_key or source.target}", ApifySocialScraper(config, client), source))
+                    specs.append((
+                        f"Apify:{source.source_id or source.source_key or source.target}",
+                        ApifySocialScraper(
+                            config,
+                            client,
+                            apify_coordinator=self._service_apify_coordinator,
+                        ),
+                        source,
+                    ))
 
         for _label, scraper, _source in specs:
             scraper.strict_errors = True

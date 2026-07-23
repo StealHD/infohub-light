@@ -3,63 +3,240 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+import math
 import time
-from typing import Any, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Protocol
 from urllib.parse import quote
 
 import httpx
 
 logger = logging.getLogger(__name__)
+# httpx request-line INFO logs include Actor Run and dataset identifiers in URLs.
+# Pool lifecycle diagnostics use the safe logger above instead.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-_ROTATE_STATUS_CODES = {402, 403, 429}
+@dataclass(frozen=True, slots=True)
+class ApifyCredentialLease:
+    """One durable credential reservation for starting exactly one Actor Run."""
+
+    secret_id: str
+    secret_version: int
+    pool_generation: int
+    env_name: str
+    reservation_id: str
+    token: str = field(repr=False)
+    quota_check_required: bool = False
 
 
-class _ApifyTokenRotationError(RuntimeError):
-    """Raised when a request should be retried with the next Apify token."""
+class ApifyCredentialFailureKind(str, Enum):
+    """Pool-level reasons that make a credential unavailable for new Runs."""
 
-    def __init__(self, env_name: str, status_code: int, message: str):
-        self.env_name = env_name
+    DEPLETED = "depleted"
+    INVALID = "invalid"
+
+
+ApifyRunAborter = Callable[[ApifyCredentialLease, str], Awaitable[str]]
+
+
+class ApifyRunCoordinator(Protocol):
+    """Storage/service boundary used by :class:`ApifyClient` in pool mode.
+
+    Methods may be synchronous or awaitable. ``report_credential_failure`` must
+    not return until the old generation has been drained and a failover is safe.
+    """
+
+    def acquire_credential(
+        self,
+        attempted_secret_ids: Collection[str] = (),
+        *,
+        logical_run_id: str | None = None,
+    ) -> ApifyCredentialLease | Awaitable[ApifyCredentialLease]: ...
+
+    def record_quota_snapshot(
+        self,
+        lease: ApifyCredentialLease,
+        *,
+        remaining_included_credits_usd: float,
+        checked_at: str | None = None,
+        cycle_start_at: str | None = None,
+        cycle_end_at: str | None = None,
+        monthly_included_credits_usd: float | None = None,
+        monthly_usage_usd: float | None = None,
+        max_monthly_usage_usd: float | None = None,
+        remaining_hard_limit_usd: float | None = None,
+    ) -> None | Awaitable[None]: ...
+
+    def assert_lease_startable(
+        self,
+        lease: ApifyCredentialLease,
+    ) -> None | Awaitable[None]: ...
+
+    def register_run(
+        self,
+        lease: ApifyCredentialLease,
+        remote_run_id: str,
+        dataset_id: str | None,
+        logical_run_id: str | None = None,
+    ) -> None | Awaitable[None]: ...
+
+    def get_run(
+        self,
+        reservation_id: str,
+    ) -> dict[str, Any] | None | Awaitable[dict[str, Any] | None]: ...
+
+    def mark_run_aborting(
+        self,
+        lease: ApifyCredentialLease,
+        remote_run_id: str,
+    ) -> None | Awaitable[None]: ...
+
+    def mark_run_terminal(
+        self,
+        lease: ApifyCredentialLease,
+        remote_run_id: str,
+        status: str,
+    ) -> bool | None | Awaitable[bool | None]: ...
+
+    def should_retry_after_terminal(
+        self,
+        lease: ApifyCredentialLease,
+        remote_run_id: str,
+        status: str,
+    ) -> bool | None | Awaitable[bool | None]: ...
+
+    def report_credential_failure(
+        self,
+        lease: ApifyCredentialLease,
+        *,
+        failure_kind: ApifyCredentialFailureKind,
+        status_code: int,
+        error_type: str | None,
+        abort_run: ApifyRunAborter,
+    ) -> None | Awaitable[None]: ...
+
+    def report_start_outcome_unknown(
+        self,
+        lease: ApifyCredentialLease,
+        error_code: str = "apify_start_outcome_unknown",
+    ) -> None | Awaitable[None]: ...
+
+    def release_reservation(
+        self,
+        lease: ApifyCredentialLease,
+        error_code: str,
+    ) -> None | Awaitable[None]: ...
+
+
+_TERMINAL_RUN_STATUSES = frozenset({"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"})
+_EXPLICIT_QUOTA_ERROR_TYPES = frozenset(
+    {
+        "account-credit-exhausted",
+        "failed-to-charge-user",
+        "insufficient-account-credit",
+        "monthly-usage-limit-exceeded",
+        "monthly-usage-limit-too-low",
+        "not-enough-usage-to-run-paid-actor",
+        "quota-exceeded",
+        "usage-limit-exceeded",
+    }
+)
+_INVALID_TOKEN_ERROR_TYPES = frozenset(
+    {
+        "invalid-token",
+        "invalid-token-type",
+        "missing-api-token",
+        "token-not-provided",
+    }
+)
+
+
+class ApifyClientError(RuntimeError):
+    """Safe, machine-readable Apify client failure."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool,
+        status_code: int | None = None,
+    ):
+        self.code = code
+        self.retryable = retryable
         self.status_code = status_code
-        self.message = message
-        super().__init__(f"HTTP {status_code}: {message}")
+        super().__init__(message)
+
+
+class _ApifyCredentialRejected(RuntimeError):
+    """Internal signal to retry a whole Run with a different credential."""
+
+    def __init__(
+        self,
+        failure_kind: ApifyCredentialFailureKind,
+        status_code: int,
+        error_type: str | None,
+    ):
+        self.failure_kind = failure_kind
+        self.status_code = status_code
+        self.error_type = error_type
+        self.remote_run_id: str | None = None
+        self.run_is_terminal = False
+        super().__init__(f"Apify credential rejected ({failure_kind.value})")
+
+
+class _RetryRunAfterDrain(RuntimeError):
+    """Internal signal for a Run aborted by a concurrent pool drain."""
 
 
 class ApifyClient:
-    """Run an Apify actor and return its default dataset items."""
+    """Run an Apify actor with one immutable credential lease per remote Run."""
 
     def __init__(
         self,
         *,
         token: str | None = None,
         tokens: Sequence[tuple[str, str]] | None = None,
+        coordinator: ApifyRunCoordinator | None = None,
         http_client: httpx.AsyncClient,
         base_url: str = "https://api.apify.com/v2",
         poll_interval: float = 3.0,
         timeout_seconds: int = 180,
+        drain_timeout_seconds: float = 30.0,
         retry_base_delay: float = 1.0,
     ):
-        if tokens is None:
-            if not token:
-                raise ValueError("Apify token is required")
+        if tokens is None and token:
             tokens = [("APIFY_TOKEN", token)]
+        elif tokens is None:
+            tokens = []
+
         cleaned_tokens: list[tuple[str, str]] = []
         for env_name, token_value in tokens:
             name = str(env_name or "APIFY_TOKEN").strip() or "APIFY_TOKEN"
             value = str(token_value or "").strip()
             if value:
                 cleaned_tokens.append((name, value))
-        if not cleaned_tokens:
+        if coordinator is None and not cleaned_tokens:
+            if token is None:
+                raise ValueError("Apify token is required")
             raise ValueError("No configured Apify tokens are set")
 
         self.tokens = cleaned_tokens
-        self._token_index = 0
-        self.token = self.tokens[0][1]
+        self.coordinator = coordinator
+        self._legacy_token_index = 0
+        self.token = self.tokens[0][1] if self.tokens else ""
         self.http_client = http_client
         self.base_url = base_url.rstrip("/")
         self.poll_interval = poll_interval
         self.timeout_seconds = timeout_seconds
+        self.drain_timeout_seconds = drain_timeout_seconds
         self.retry_base_delay = retry_base_delay
 
     async def run_actor(
@@ -68,83 +245,537 @@ class ApifyClient:
         actor_input: dict[str, Any],
         *,
         max_total_charge_usd: float | None = None,
+        logical_run_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Start an actor run, wait for success, then fetch dataset items."""
-        run = await self._request(
-            "POST",
-            f"/acts/{self._actor_path_id(actor_id)}/runs",
-            json=actor_input,
-            **(
-                {"params": {"maxTotalChargeUsd": f"{max_total_charge_usd:.2f}"}}
-                if max_total_charge_usd is not None
-                else {}
-            ),
-            timeout=30.0,
-        )
-        data = run.get("data") or {}
-        run_id = data.get("id")
-        dataset_id = data.get("defaultDatasetId")
-        if not run_id or not dataset_id:
-            raise ValueError("Apify run response missing id or defaultDatasetId")
+        """Start a fresh Run per credential attempt and return dataset items."""
+        attempted_secret_ids: set[str] = set()
 
-        await self._wait_for_run(str(run_id))
-        items = await self._request(
-            "GET",
-            f"/datasets/{dataset_id}/items",
-            params={"clean": "true"},
-            timeout=30.0,
+        while True:
+            lease, legacy_index = await self._acquire_credential(
+                attempted_secret_ids,
+                logical_run_id=logical_run_id,
+            )
+            if lease.secret_id in attempted_secret_ids:
+                raise ApifyClientError(
+                    "apify_key_pool_stalled",
+                    "Apify credential coordinator returned an already-attempted key",
+                    retryable=True,
+                )
+            attempted_secret_ids.add(lease.secret_id)
+            self.token = lease.token
+
+            try:
+                if lease.quota_check_required:
+                    await self._refresh_quota_snapshot(lease)
+                items = await self._run_actor_once(
+                    lease,
+                    actor_id,
+                    actor_input,
+                    max_total_charge_usd=max_total_charge_usd,
+                    logical_run_id=logical_run_id,
+                )
+            except _RetryRunAfterDrain:
+                continue
+            except _ApifyCredentialRejected as exc:
+                await self._handle_credential_failure(lease, exc)
+                if legacy_index is not None:
+                    self._legacy_token_index = legacy_index + 1
+                continue
+            else:
+                if legacy_index is not None:
+                    self._legacy_token_index = legacy_index
+                return items
+
+    async def abort_run(
+        self,
+        lease: ApifyCredentialLease,
+        remote_run_id: str,
+    ) -> str:
+        """Abort one Run with its original token and confirm a terminal status."""
+        run_id = quote(str(remote_run_id), safe="")
+        try:
+            await self._coordinator_call(
+                "mark_run_aborting",
+                lease,
+                str(remote_run_id),
+            )
+            try:
+                await self._request_json(
+                    lease,
+                    "POST",
+                    f"/actor-runs/{run_id}/abort",
+                    params={"gracefully": "false"},
+                    timeout=10.0,
+                    classify_credential=False,
+                )
+            except (httpx.HTTPError, ValueError):
+                # An idempotent retry can race with a Run that already reached a
+                # terminal state. The bounded poll below is the source of truth.
+                pass
+
+            deadline = time.monotonic() + self.drain_timeout_seconds
+            while time.monotonic() < deadline:
+                payload = await self._request_json(
+                    lease,
+                    "GET",
+                    f"/actor-runs/{run_id}",
+                    timeout=10.0,
+                    classify_credential=False,
+                )
+                status = self._run_status(payload)
+                if status in _TERMINAL_RUN_STATUSES:
+                    await self._coordinator_call(
+                        "mark_run_terminal",
+                        lease,
+                        str(remote_run_id),
+                        status,
+                    )
+                    return status
+                await asyncio.sleep(self.poll_interval)
+        except ApifyClientError:
+            raise
+        except (httpx.HTTPError, ValueError):
+            raise ApifyClientError(
+                "apify_key_drain_pending",
+                "Apify Run termination could not be confirmed",
+                retryable=True,
+            ) from None
+
+        raise ApifyClientError(
+            "apify_key_drain_pending",
+            "Apify Run termination could not be confirmed within 30 seconds",
+            retryable=True,
         )
+
+    async def _run_actor_once(
+        self,
+        lease: ApifyCredentialLease,
+        actor_id: str,
+        actor_input: dict[str, Any],
+        *,
+        max_total_charge_usd: float | None,
+        logical_run_id: str | None,
+    ) -> list[dict[str, Any]]:
+        start_path = f"/acts/{self._actor_path_id(actor_id)}/runs"
+        start_kwargs: dict[str, Any] = {
+            "json": actor_input,
+            "timeout": 30.0,
+        }
+        if max_total_charge_usd is not None:
+            start_kwargs["params"] = {
+                "maxTotalChargeUsd": f"{max_total_charge_usd:.2f}"
+            }
+
+        try:
+            await self._coordinator_call(
+                "assert_lease_startable",
+                lease,
+            )
+        except Exception as exc:
+            if getattr(exc, "code", None) != "apify_key_drain_pending":
+                raise
+            await self._release_reservation(
+                lease,
+                "apify_generation_changed_before_start",
+            )
+            if await self._should_retry_after_terminal(
+                lease,
+                "",
+                "ABORTED",
+            ):
+                raise _RetryRunAfterDrain() from None
+            raise
+
+        try:
+            run = await self._request_json(
+                lease,
+                "POST",
+                start_path,
+                **start_kwargs,
+            )
+        except _ApifyCredentialRejected:
+            raise
+        except httpx.TransportError:
+            await self._report_start_outcome_unknown(lease)
+            raise ApifyClientError(
+                "apify_start_outcome_unknown",
+                "Apify Run start outcome is unknown; the key pool is blocked",
+                retryable=False,
+            ) from None
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code >= 500:
+                await self._report_start_outcome_unknown(
+                    lease,
+                    error_code="apify_start_http_outcome_unknown",
+                )
+                raise ApifyClientError(
+                    "apify_start_outcome_unknown",
+                    "Apify Run start outcome is unknown; the key pool is blocked",
+                    retryable=False,
+                    status_code=status_code,
+                ) from None
+            await self._release_reservation(
+                lease,
+                f"apify_start_http_{status_code}",
+            )
+            raise self._safe_http_error(
+                "apify_actor_start_rejected",
+                "Apify rejected the Actor Run start",
+                status_code,
+            ) from None
+        except ValueError:
+            await self._report_start_outcome_unknown(lease)
+            raise ApifyClientError(
+                "apify_start_outcome_unknown",
+                "Apify Run start response could not be reconciled",
+                retryable=False,
+            ) from None
+
+        data = run.get("data") if isinstance(run, dict) else None
+        run_id = data.get("id") if isinstance(data, dict) else None
+        dataset_id = data.get("defaultDatasetId") if isinstance(data, dict) else None
+        if not run_id:
+            await self._report_start_outcome_unknown(lease)
+            raise ApifyClientError(
+                "apify_start_outcome_unknown",
+                "Apify Run response omitted its durable Run identifier",
+                retryable=False,
+            )
+        run_id = str(run_id)
+        dataset_id = str(dataset_id) if dataset_id else None
+
+        try:
+            await self._coordinator_call(
+                "register_run",
+                lease,
+                run_id,
+                dataset_id,
+                logical_run_id,
+            )
+        except Exception as exc:
+            if getattr(exc, "code", None) == "apify_key_drain_pending":
+                await self.abort_run(lease, run_id)
+                if await self._should_retry_after_terminal(
+                    lease,
+                    run_id,
+                    "ABORTED",
+                ):
+                    raise _RetryRunAfterDrain() from None
+                raise
+            persisted_run = await self._coordinator_call(
+                "get_run",
+                lease.reservation_id,
+                optional=True,
+            )
+            if (
+                isinstance(persisted_run, dict)
+                and str(persisted_run.get("remote_run_id") or "") == run_id
+            ):
+                await self.abort_run(lease, run_id)
+                raise ApifyClientError(
+                    "apify_run_registration_failed",
+                    "Apify Run registration did not complete cleanly",
+                    retryable=False,
+                ) from None
+            try:
+                await self._abort_remote_without_ledger(lease, run_id)
+            finally:
+                await self._report_start_outcome_unknown(
+                    lease,
+                    error_code="apify_run_registration_failed",
+                )
+            raise ApifyClientError(
+                "apify_run_registration_failed",
+                "Apify Run could not be bound to its local reservation",
+                retryable=False,
+            ) from None
+
+        if dataset_id is None:
+            await self.abort_run(lease, run_id)
+            raise ApifyClientError(
+                "apify_start_invalid_response",
+                "Apify Run response omitted its dataset identifier",
+                retryable=True,
+            )
+
+        try:
+            await self._wait_for_run(lease, run_id)
+        except _ApifyCredentialRejected as exc:
+            exc.remote_run_id = run_id
+            raise
+        except httpx.HTTPStatusError as exc:
+            await self.abort_run(lease, run_id)
+            raise self._safe_http_error(
+                "apify_run_status_unavailable",
+                "Apify rejected a Run status request",
+                exc.response.status_code,
+            ) from None
+        except httpx.TransportError:
+            await self.abort_run(lease, run_id)
+            raise ApifyClientError(
+                "apify_run_status_unavailable",
+                "Apify Run status is temporarily unavailable",
+                retryable=True,
+            ) from None
+
+        try:
+            items = await self._request_json(
+                lease,
+                "GET",
+                f"/datasets/{quote(dataset_id, safe='')}/items",
+                params={"clean": "true"},
+                timeout=30.0,
+            )
+        except _ApifyCredentialRejected as exc:
+            exc.remote_run_id = run_id
+            exc.run_is_terminal = True
+            raise
+        except httpx.HTTPStatusError as exc:
+            raise self._safe_http_error(
+                "apify_dataset_unavailable",
+                "Apify rejected a dataset request",
+                exc.response.status_code,
+            ) from None
+        except httpx.TransportError:
+            raise ApifyClientError(
+                "apify_dataset_unavailable",
+                "Apify dataset is temporarily unavailable",
+                retryable=True,
+            ) from None
         if not isinstance(items, list):
             raise ValueError("Apify dataset items response is not a list")
         return [item for item in items if isinstance(item, dict)]
 
-    async def _wait_for_run(self, run_id: str) -> None:
+    async def _wait_for_run(
+        self,
+        lease: ApifyCredentialLease,
+        run_id: str,
+    ) -> None:
         deadline = time.monotonic() + self.timeout_seconds
+        path = f"/actor-runs/{quote(run_id, safe='')}"
         while time.monotonic() < deadline:
-            payload = await self._request(
+            payload = await self._request_json(
+                lease,
                 "GET",
-                f"/actor-runs/{quote(run_id, safe='')}",
+                path,
                 timeout=10.0,
             )
-            status = ((payload.get("data") or {}).get("status") or "").upper()
-            if status == "SUCCEEDED":
-                return
-            if status in {"FAILED", "ABORTED", "TIMED-OUT"}:
-                raise ValueError(f"Apify run {run_id} ended with status {status}")
-            await asyncio.sleep(self.poll_interval)
-        raise TimeoutError(f"Apify run {run_id} timed out after {self.timeout_seconds}s")
-
-    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        failures: list[str] = []
-        while self._token_index < len(self.tokens):
-            env_name, token = self.tokens[self._token_index]
-            try:
-                self.token = token
-                return await self._request_with_token(env_name, token, method, path, **kwargs)
-            except _ApifyTokenRotationError as exc:
-                failures.append(f"{exc.env_name}: {exc}")
-                logger.warning(
-                    "Apify token %s cannot continue (%s); trying next token if available",
-                    exc.env_name,
-                    exc,
+            status = self._run_status(payload)
+            if status in _TERMINAL_RUN_STATUSES:
+                mark_result = await self._coordinator_call(
+                    "mark_run_terminal",
+                    lease,
+                    run_id,
+                    status,
                 )
-                self._token_index += 1
+                if status == "SUCCEEDED":
+                    return
+                should_retry = bool(mark_result)
+                if self.coordinator is not None and not should_retry:
+                    should_retry = await self._should_retry_after_terminal(
+                        lease,
+                        run_id,
+                        status,
+                    )
+                if should_retry:
+                    raise _RetryRunAfterDrain()
+                raise ValueError(f"Apify actor run ended with status {status}")
+            await asyncio.sleep(self.poll_interval)
 
-        raise ValueError("All Apify token envs failed: " + "; ".join(failures))
+        await self.abort_run(lease, run_id)
+        raise TimeoutError(
+            f"Apify actor run timed out after {self.timeout_seconds}s"
+        )
 
-    async def _request_with_token(
+    async def _handle_credential_failure(
         self,
-        env_name: str,
-        token: str,
+        lease: ApifyCredentialLease,
+        failure: _ApifyCredentialRejected,
+    ) -> None:
+        if self.coordinator is not None:
+            await self._coordinator_call(
+                "report_credential_failure",
+                lease,
+                failure_kind=failure.failure_kind,
+                status_code=failure.status_code,
+                error_type=failure.error_type,
+                abort_run=self.abort_run,
+            )
+            return
+
+        if failure.remote_run_id and not failure.run_is_terminal:
+            await self.abort_run(lease, failure.remote_run_id)
+
+        logger.warning(
+            "Apify token env %s cannot continue (%s); trying next token if available",
+            lease.env_name,
+            failure.failure_kind.value,
+        )
+        if self._legacy_token_index + 1 >= len(self.tokens):
+            raise ValueError(
+                "All Apify token envs failed: "
+                + ", ".join(name for name, _token in self.tokens)
+            )
+
+    async def _acquire_credential(
+        self,
+        attempted_secret_ids: Collection[str],
+        *,
+        logical_run_id: str | None,
+    ) -> tuple[ApifyCredentialLease, int | None]:
+        if self.coordinator is not None:
+            lease = await self._coordinator_call(
+                "acquire_credential",
+                tuple(attempted_secret_ids),
+                logical_run_id=logical_run_id,
+            )
+            if not isinstance(lease, ApifyCredentialLease):
+                required = (
+                    "secret_id",
+                    "secret_version",
+                    "pool_generation",
+                    "reservation_id",
+                    "env_name",
+                    "token",
+                    "quota_check_required",
+                )
+                if not all(hasattr(lease, name) for name in required):
+                    raise TypeError(
+                        "Apify coordinator returned an invalid credential lease"
+                    )
+            if not str(lease.token or "").strip():
+                raise ValueError("Apify coordinator returned an empty token")
+            return lease, None
+
+        index = self._legacy_token_index
+        while index < len(self.tokens):
+            env_name, token = self.tokens[index]
+            secret_id = f"legacy:{env_name}"
+            if secret_id not in attempted_secret_ids:
+                return (
+                    ApifyCredentialLease(
+                        secret_id=secret_id,
+                        secret_version=0,
+                        pool_generation=index,
+                        env_name=env_name,
+                        reservation_id=f"legacy:{index}",
+                        token=token,
+                    ),
+                    index,
+                )
+            index += 1
+
+        raise ValueError(
+            "All Apify token envs failed: "
+            + ", ".join(name for name, _token in self.tokens)
+        )
+
+    async def _refresh_quota_snapshot(self, lease: ApifyCredentialLease) -> None:
+        try:
+            user_payload = await self._request_json(
+                lease,
+                "GET",
+                "/users/me",
+                timeout=8.0,
+            )
+            limits_payload = await self._request_json(
+                lease,
+                "GET",
+                "/users/me/limits",
+                timeout=8.0,
+            )
+            snapshot = self._quota_snapshot(user_payload, limits_payload)
+        except _ApifyCredentialRejected:
+            raise
+        except httpx.HTTPStatusError as exc:
+            await self._release_reservation(lease, "apify_quota_check_failed")
+            raise self._safe_http_error(
+                "apify_quota_check_failed",
+                "Apify rejected the quota check",
+                exc.response.status_code,
+            ) from None
+        except httpx.TransportError:
+            await self._release_reservation(lease, "apify_quota_check_failed")
+            raise ApifyClientError(
+                "apify_quota_check_failed",
+                "Apify quota check is temporarily unavailable",
+                retryable=True,
+            ) from None
+        except (TypeError, ValueError):
+            await self._release_reservation(lease, "apify_quota_check_failed")
+            raise ApifyClientError(
+                "apify_quota_check_failed",
+                "Apify quota response could not be validated",
+                retryable=True,
+            ) from None
+
+        await self._coordinator_call(
+            "record_quota_snapshot",
+            lease,
+            **snapshot,
+        )
+        if snapshot["remaining_included_credits_usd"] <= 0:
+            raise _ApifyCredentialRejected(
+                ApifyCredentialFailureKind.DEPLETED,
+                402,
+                "quota-preflight-depleted",
+            )
+
+    async def _abort_remote_without_ledger(
+        self,
+        lease: ApifyCredentialLease,
+        run_id: str,
+    ) -> None:
+        encoded_id = quote(run_id, safe="")
+        try:
+            await self._request_json(
+                lease,
+                "POST",
+                f"/actor-runs/{encoded_id}/abort",
+                params={"gracefully": "false"},
+                timeout=10.0,
+                classify_credential=False,
+            )
+        except (httpx.HTTPError, ValueError):
+            pass
+
+        deadline = time.monotonic() + self.drain_timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                payload = await self._request_json(
+                    lease,
+                    "GET",
+                    f"/actor-runs/{encoded_id}",
+                    timeout=10.0,
+                    classify_credential=False,
+                )
+            except (httpx.HTTPError, ValueError):
+                break
+            if self._run_status(payload) in _TERMINAL_RUN_STATUSES:
+                return
+            await asyncio.sleep(self.poll_interval)
+        raise ApifyClientError(
+            "apify_key_drain_pending",
+            "Unregistered Apify Run termination could not be confirmed",
+            retryable=True,
+        )
+
+    async def _request_json(
+        self,
+        lease: ApifyCredentialLease,
         method: str,
         path: str,
+        *,
+        classify_credential: bool = True,
         **kwargs: Any,
     ) -> Any:
         url = f"{self.base_url}{path}"
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {"Authorization": f"Bearer {lease.token}"}
         provided_headers = kwargs.pop("headers", None) or {}
         headers.update(provided_headers)
 
+        response: httpx.Response | None = None
         for attempt in range(3):
             response = await self.http_client.request(
                 method,
@@ -154,47 +785,236 @@ class ApifyClient:
             )
             if response.status_code != 429:
                 break
-            if len(self.tokens) > 1:
-                raise _ApifyTokenRotationError(
-                    env_name,
-                    response.status_code,
-                    self._response_error_message(response),
-                )
             retry_after = response.headers.get("Retry-After")
             try:
-                delay = float(retry_after) if retry_after else self.retry_base_delay * (2**attempt)
+                delay = (
+                    float(retry_after)
+                    if retry_after
+                    else self.retry_base_delay * (2**attempt)
+                )
             except ValueError:
                 delay = self.retry_base_delay * (2**attempt)
-            logger.warning("Apify rate limited %s %s, retrying in %.1fs", method, path, delay)
-            await asyncio.sleep(delay)
-        if self._should_rotate_response(response):
-            raise _ApifyTokenRotationError(
-                env_name,
-                response.status_code,
-                self._response_error_message(response),
+            logger.warning(
+                "Apify rate limited a %s request; retrying with the same key in %.1fs",
+                method,
+                delay,
             )
+            await asyncio.sleep(delay)
+
+        if response is None:  # pragma: no cover - defensive loop invariant
+            raise RuntimeError("Apify request produced no response")
+        if classify_credential:
+            rejected = self._credential_rejection(response)
+            if rejected is not None:
+                raise rejected
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            raise ValueError("Apify response was not valid JSON") from None
+
+    async def _report_start_outcome_unknown(
+        self,
+        lease: ApifyCredentialLease,
+        *,
+        error_code: str = "apify_start_outcome_unknown",
+    ) -> None:
+        await self._coordinator_call(
+            "report_start_outcome_unknown",
+            lease,
+            error_code,
+        )
+
+    async def _release_reservation(
+        self,
+        lease: ApifyCredentialLease,
+        error_code: str,
+    ) -> None:
+        await self._coordinator_call(
+            "release_reservation",
+            lease,
+            error_code,
+        )
+
+    async def _should_retry_after_terminal(
+        self,
+        lease: ApifyCredentialLease,
+        run_id: str,
+        status: str,
+    ) -> bool:
+        if self.coordinator is None:
+            return False
+        deadline = time.monotonic() + self.drain_timeout_seconds
+        while True:
+            decision = await self._coordinator_call(
+                "should_retry_after_terminal",
+                lease,
+                run_id,
+                status,
+            )
+            if decision is not None:
+                return bool(decision)
+            if time.monotonic() >= deadline:
+                raise ApifyClientError(
+                    "apify_key_drain_pending",
+                    "Apify key failover is still draining",
+                    retryable=True,
+                )
+            await asyncio.sleep(self.poll_interval)
+
+    async def _coordinator_call(
+        self,
+        method_name: str,
+        *args: Any,
+        optional: bool = False,
+        default: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        if self.coordinator is None:
+            return default
+        method = getattr(self.coordinator, method_name, None)
+        if method is None:
+            if optional:
+                return default
+            raise TypeError(
+                f"Apify coordinator does not implement {method_name}()"
+            )
+        result = method(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    @staticmethod
+    def _run_status(payload: Any) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("status") or "").upper()
+
+    @classmethod
+    def _credential_rejection(
+        cls,
+        response: httpx.Response,
+    ) -> _ApifyCredentialRejected | None:
+        if response.status_code == 429:
+            return None
+        error_type = cls._response_error_type(response)
+        if response.status_code == 402 or cls._is_explicit_quota_type(error_type):
+            return _ApifyCredentialRejected(
+                ApifyCredentialFailureKind.DEPLETED,
+                response.status_code,
+                error_type,
+            )
+        if (
+            response.status_code == 401
+            or error_type in _INVALID_TOKEN_ERROR_TYPES
+        ):
+            return _ApifyCredentialRejected(
+                ApifyCredentialFailureKind.INVALID,
+                response.status_code,
+                error_type,
+            )
+        return None
+
+    @staticmethod
+    def _response_error_type(response: httpx.Response) -> str | None:
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        error = payload.get("error")
+        if isinstance(error, dict):
+            raw_type = error.get("type") or error.get("code")
+        else:
+            raw_type = payload.get("errorType") or payload.get("code")
+        normalized = str(raw_type or "").strip().lower().replace("_", "-")
+        return normalized or None
+
+    @staticmethod
+    def _is_explicit_quota_type(error_type: str | None) -> bool:
+        if not error_type:
+            return False
+        if error_type in _EXPLICIT_QUOTA_ERROR_TYPES:
+            return True
+        return (
+            "quota" in error_type
+            or (
+                "credit" in error_type
+                and any(
+                    marker in error_type
+                    for marker in ("exhausted", "insufficient", "not-enough")
+                )
+            )
+            or ("usage" in error_type and "limit" in error_type)
+        )
+
+    @staticmethod
+    def _quota_snapshot(
+        user_payload: Any,
+        limits_payload: Any,
+    ) -> dict[str, Any]:
+        try:
+            user_data = user_payload["data"]
+            plan = user_data["plan"]
+            limits_data = limits_payload["data"]
+            cycle = limits_data["monthlyUsageCycle"]
+            limits = limits_data["limits"]
+            current = limits_data["current"]
+            included = ApifyClient._safe_number(plan["monthlyUsageCreditsUsd"])
+            usage = ApifyClient._safe_number(current["monthlyUsageUsd"])
+            hard_limit = ApifyClient._safe_number(limits["maxMonthlyUsageUsd"])
+            cycle_start = ApifyClient._safe_timestamp(cycle["startAt"])
+            cycle_end = ApifyClient._safe_timestamp(cycle["endAt"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Apify quota response was not valid") from None
+
+        return {
+            "remaining_included_credits_usd": max(included - usage, 0.0),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "cycle_start_at": cycle_start,
+            "cycle_end_at": cycle_end,
+            "monthly_included_credits_usd": included,
+            "monthly_usage_usd": usage,
+            "max_monthly_usage_usd": hard_limit,
+            "remaining_hard_limit_usd": max(hard_limit - usage, 0.0),
+        }
+
+    @staticmethod
+    def _safe_number(value: Any) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("quota number is invalid")
+        number = float(value)
+        if not math.isfinite(number) or number < 0:
+            raise ValueError("quota number is invalid")
+        return number
+
+    @staticmethod
+    def _safe_timestamp(value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise TypeError("quota timestamp is invalid")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("quota timestamp must include a timezone")
+        return value
+
+    @staticmethod
+    def _safe_http_error(
+        code: str,
+        message: str,
+        status_code: int,
+    ) -> ApifyClientError:
+        return ApifyClientError(
+            code,
+            f"{message} (HTTP {status_code})",
+            retryable=status_code == 429 or status_code >= 500,
+            status_code=status_code,
+        )
 
     @staticmethod
     def _actor_path_id(actor_id: str) -> str:
         normalized = actor_id.strip().replace("/", "~")
         return quote(normalized, safe="~")
-
-    @staticmethod
-    def _response_error_message(response: httpx.Response) -> str:
-        try:
-            payload = response.json()
-        except ValueError:
-            return response.text[:500]
-        if isinstance(payload, dict):
-            error = payload.get("error")
-            if isinstance(error, dict) and error.get("message"):
-                return str(error["message"])
-            if payload.get("message"):
-                return str(payload["message"])
-        return str(payload)[:500]
-
-    @classmethod
-    def _should_rotate_response(cls, response: httpx.Response) -> bool:
-        return response.status_code in _ROTATE_STATUS_CODES

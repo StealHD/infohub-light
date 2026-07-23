@@ -71,7 +71,7 @@ Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_run
 
 ### 3.6D Shared Acquisition Boundary
 
-`src/services/source_acquisition.py::SourceAcquisitionCoordinator` 是 Service 生产抓取共享的唯一边界。public/workspace source 只共享同 workspace 的规范化中性内容；private source 的 acquisition key 必须包含 user isolation。用户频道/主题/标签、priority、analysis mode、AI 分析、行为状态和 Feed snapshot 永远不进入共享池。key 还必须覆盖 source identity/type、规范化网络配置、adapter contract、secret-ref identity/version 与抓取窗口；真实 secret 值不得入 key、表或诊断。
+`src/services/source_acquisition.py::SourceAcquisitionCoordinator` 是 Service 生产抓取共享的唯一边界。public/workspace source 只共享同 workspace 的规范化中性内容；private source 的 acquisition key 必须包含 user isolation。用户频道/主题/标签、priority、analysis mode、AI 分析、行为状态和 Feed snapshot 永远不进入共享池。key 还必须覆盖 source identity/type、规范化网络配置、adapter contract、secret-ref identity/version 与抓取窗口；Apify 池模式额外覆盖 pool generation，generation 变化后旧 owner 不得发布缓存。真实 secret 值不得入 key、表或诊断。
 
 `source_acquisition_states` 只负责 claim-token lease/backoff，`source_content_snapshots/items` 只负责成功内容（包括零条结果）。TTL 由相关启用 source/feed schedule 的最短周期派生并受 5..60 分钟边界约束；等待者不计上游 attempt，只有 claim winner 在实际调用前计量。`source_test` 共用同源互斥但绕过 production cache 且不写 content pool。该能力由 `HORIZON_SHARED_ACQUISITION_ENABLED` 控制并默认关闭，不改变公开 job type、API 异步边界或默认 API + Worker 拓扑。
 
@@ -95,8 +95,16 @@ Remote MCP 的 14 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP �
 
 Gateway bootstrap token 只存在于 React 表单 state；API、React Query、URL、Web storage 和日志均不得接收。浏览器配对后只把 non-exportable Ed25519 CryptoKey、exact `operator.read + operator.write` device token 和 session key保存在 IndexedDB，key 必须包含当前 Inteliscope user 与规范化 Gateway URL。页面登出清空内存消息并断开 socket；忘记设备同时删除 IndexedDB 凭证。MCP delegation token 与 Gateway token 是两套独立凭证，任何 UI、日志或配置都不得混名或互相复用。
 
+### 3.6G Apify Key Pool Boundary
+
+`src/services/apify_key_pool.py::ApifyKeyPoolService` 独占工作区有序成员、粘性 active Key、pool generation、额度快照与 Actor Run ledger。`src/scrapers/apify_client.py::ApifyClient` 独占 Apify HTTP 生命周期和错误分类；每次 Run 启动前取得不可变的 `secret_id + secret_version + pool_generation` lease，start、poll、abort 和 dataset 读取必须使用该 lease 的同一 Token。`src/services/apify_pool_runtime.py` 独占 Worker 启动后的持久 Run reconcile；Worker、API、Orchestrator、catalog runner 和 source adapter 只能调用这些边界，不得自行选 Key、改 generation 或把来源级 `secret_env` 重新注入 Service 抓取。
+
+切换是 generation barrier，不是请求级 token retry：池先进入 `draining` 并停止所有新 reservation，再中止旧 generation 下全部已登记的非终态 Run，并仅在确认 `SUCCEEDED/FAILED/ABORTED/TIMED-OUT` 后增加 generation、激活下一备用并由逻辑抓取创建全新 Run。30 秒未确认时保持 `apify_key_drain_pending`；Actor POST 结果未知或重启发现未登记 reservation 时保持 `blocked` 并要求人工核对，禁止猜测 runId、复用 dataset 或盲目换 Key。每个逻辑抓取对同一 Key 最多一次，全部不可用时只有 Apify outcome 失败或延后，其他来源继续执行。
+
+额度快照最长使用 60 秒。只有 `remaining_included_credits_usd <= 0`、HTTP 402 或明确额度错误可标记 `depleted`，401/明确无效 Token 标记 `invalid`；普通 403、429、5xx 和网络错误不得污染整个 Key。周期恢复后的旧 Key经重新核验只追加到备用队尾，不抢占当前 active，也不恢复历史 Run。该能力由 `HORIZON_APIFY_KEY_POOL_ENABLED` 控制并默认关闭；关闭时 schema/状态可维护，但 Service 保留既有来源级凭证兼容路径。
+
 ### 3.7 Secret Boundary
-Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥。真实 AI/Apify 值由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、DOM 和非管理员 source 投影不得返回真实值；引用中的 ref 不可删除，只能原地轮换。
+Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥。真实 AI/Apify 值由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、DOM 和非管理员 source 投影不得返回真实值。Apify pool 表只引用 `secret_id/version` 和安全状态；活动、排空中或仍有非终态 Run 的成员不得轮换或删除，必须先走安全排空。`source_catalog.secret_env` 在池模式只保留回滚兼容，不参与读取、展示或新来源写入。
 
 ### 3.8 Job Boundary
 长耗时抓取、source test 和用户 feed refresh 必须通过 job queue 表达。Web 请求只创建、取消、重试或查询 job；Worker 负责执行 job 并写入状态/result。Worker claim 在 `BEGIN IMMEDIATE` 中原子写入 `worker_id + claim_token + locked_until`；finalize、失败、续租必须带同一 claim guard。Worker 每 10 秒 heartbeat/续租，35 秒未更新视为 stale；过期 running job 会在下一次 claim 前回到 queued 或达到上限后 failed。SQLite MVP 不强杀正在执行的 Python 任务。

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..storage.service_store import ServiceStore
+from .apify_key_pool import ApifyKeyPoolService, apify_key_pool_enabled
 from .job_queue import JobQueue
 from .quota import QuotaExceeded, QuotaService
 
@@ -25,6 +26,15 @@ def _utc(value: datetime | None = None) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return _utc(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
+    except (TypeError, ValueError):
+        return None
 
 
 class SourceScheduleService:
@@ -81,6 +91,7 @@ class SourceScheduleService:
                 us.source_id,
                 us.enabled AS subscription_enabled,
                 sc.workspace_id,
+                sc.type AS source_type,
                 sc.enabled AS source_enabled,
                 u.enabled AS user_enabled,
                 u.role AS user_role
@@ -320,6 +331,20 @@ class SourceScheduleService:
                     and bool(subscription["source_enabled"])
                 ):
                     reason = "subscription_disabled"
+                elif (
+                    subscription is not None
+                    and subscription["source_type"] == "apify_social"
+                    and apify_key_pool_enabled()
+                ):
+                    pool_gate = ApifyKeyPoolService(self.store).schedule_gate(
+                        str(schedule["workspace_id"]),
+                        now=now_dt,
+                    )
+                    if pool_gate["blocked"]:
+                        reason = str(pool_gate["code"])
+                        retry_at = _parse_time(pool_gate.get("retry_at"))
+                        if retry_at is not None and retry_at > now_dt:
+                            interval_next = retry_at
 
                 if reason is not None:
                     self._record_skip(

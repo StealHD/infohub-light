@@ -467,3 +467,12 @@
 - 安全边界：服务端只从 SecretStore 读取 Token，并调用 Apify `/v2/users/me` 与 `/v2/users/me/limits`；浏览器只接收 USD 周期与非负额度数字。Token、账户资料、原始响应、错误正文、日志和数据库均不得承载秘密；额度失败不影响 Key 保存或列表。
 - 原因：页面顶部的通用错误离底部表单过远，新增失败缺少可执行反馈；同时管理员需要在不暴露 Token 或账户资料的前提下判断 Apify 套餐和硬上限余量。
 - 影响范围：Secret quota service、管理员 secret API、React Service API/Query cache、设置页 Key Table/Modal、API/UI 合同和测试；不新增数据库结构，不触发 Actor、抓取、AI、scheduler 或付费调用。
+
+### D055 Apify 切换采用工作区单一有序池与 Run generation 排空屏障
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现、定向验收与完整门禁完成；开关默认关闭，生产排空与 canary 待授权
+- 决策内容：Service 的全部 Apify 来源只从工作区粘性 `active + ordered standby` 池取得凭证；每个 Actor Run 持久绑定 `secret_id/version + pool_generation`，start、poll、abort 和 dataset 不得跨 Key。额度/401 失效先把池置为 draining，旧 generation 全部已登记 Run 确认终态后才增加 generation 并启动全新 Run；30 秒未完成或 POST 结果未知时 fail closed。
+- 原因：来源级 Key 引用会让同一额度耗尽 Key 继续被不同 Worker 使用，而在原 runId 上直接替换 Token 会把远端执行、dataset 和本地任务归属混在一起。工作区唯一顺序降低维护面，generation barrier 能保证备用 Key 不与额度恢复后的旧 Run 并发抓取。
+- 安全/兼容：schema v8 只保存 secret ref、额度安全数值、generation 和内部 Run ledger，Token 仍只在 SecretStore；公共 API/日志不返回账号、runId、datasetId 或上游原文。`source_catalog.secret_env` 仅作回滚数据；`HORIZON_APIFY_KEY_POOL_ENABLED=false` 时继续走 legacy 来源级路径。正式开启前必须停 Worker、核对未登记远端 Run、备份数据库并只做一次有上限 canary。
+- 影响范围：ServiceStore/schema v8、Apify client/adapter、pool/runtime services、Worker/Orchestrator/catalog runner、shared acquisition/schedule、管理员 API、source registry、React 设置与来源编辑器、合同、影响映射和回归测试；本分支未调用真实 Key、付费 Actor、AI、scheduler 或生产部署。

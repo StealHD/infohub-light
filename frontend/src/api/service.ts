@@ -5,6 +5,7 @@ import type {
   AgentDelegationAccess,
   AgentDelegationCreated,
   AgentDelegationsResponse,
+  ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
   FeedHistory,
@@ -112,6 +113,14 @@ export function createServiceApi(client: ApiClient) {
     secretQuota: (secretId: string, signal?: AbortSignal) => client.get<SecretQuota>(
       `${resource('/api/admin/secrets', secretId)}/quota`,
       signal,
+    ),
+    apifyKeyPool: (signal?: AbortSignal) => client.get<ApifyKeyPool>('/api/admin/apify-key-pool', signal),
+    reorderApifyKeyPool: (secretIds: string[], expectedGeneration: number) => client.put<ApifyKeyPool>(
+      '/api/admin/apify-key-pool/order',
+      { secret_ids: secretIds, expected_generation: expectedGeneration },
+    ),
+    drainApifyKey: (secretId: string) => client.post<ApifyKeyPool>(
+      `${resource('/api/admin/apify-key-pool', secretId)}/drain`,
     ),
     createSecret: (payload: { name: string; kind: string; provider: string; env_name: string; value: string }) => client.post<SecretRef>('/api/admin/secrets', payload),
     rotateSecret: (secretId: string, value: string) => client.put<SecretRef>(`${resource('/api/admin/secrets', secretId)}/value`, { value }),

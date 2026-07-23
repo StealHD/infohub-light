@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any
@@ -26,10 +27,22 @@ from .source_acquisition import (
 )
 from .usage_attempt_meter import UsageAttemptMeter
 from .media_cache import MediaCacheService
+from .apify_pool_runtime import (
+    apify_coordinator_for_workspace,
+    reconcile_all_apify_pools_sync,
+)
 from ..storage.service_store import ServiceStore
 
 
 logger = logging.getLogger(__name__)
+_SAFE_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_]{1,96}$")
+
+
+def _exception_code(exc: Exception) -> str:
+    """Prefer a bounded stable domain code without trusting arbitrary text."""
+
+    candidate = str(getattr(exc, "code", "") or "").strip()
+    return candidate if _SAFE_ERROR_CODE_RE.fullmatch(candidate) else type(exc).__name__
 
 
 def _cache_run_media(
@@ -109,14 +122,14 @@ class _LeaseHeartbeat:
                     current_job_id=self.job["id"],
                 )
             except Exception as exc:  # the guarded finalizer will reject a lost claim
-                self.last_error_code = type(exc).__name__
+                self.last_error_code = _exception_code(exc)
                 self.stop_event.set()
 
     def __exit__(self, exc_type, exc, _traceback) -> None:
         self.stop_event.set()
         if self.thread:
             self.thread.join(timeout=max(self.interval * 2, 2.0))
-        error_code = type(exc).__name__ if exc is not None else self.last_error_code
+        error_code = _exception_code(exc) if exc is not None else self.last_error_code
         try:
             self.store.upsert_worker_heartbeat(
                 self.job["worker_id"],
@@ -216,6 +229,14 @@ def _run_user_feed_refresh(
                     job_id=job["id"],
                 )
             )
+        if hasattr(orchestrator, "set_service_apify_coordinator"):
+            orchestrator.set_service_apify_coordinator(
+                apify_coordinator_for_workspace(
+                    store,
+                    workspace_id=str(job["workspace_id"]),
+                    data_dir=data_dir,
+                )
+            )
         if (
             shared_acquisition_enabled()
             and hasattr(orchestrator, "set_service_acquisition_coordinator")
@@ -309,6 +330,16 @@ def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict
                 provider=str(payload.get("source_type") or "unknown"),
                 source_id=str(job.get("source_id") or ""),
             )
+            apify_coordinator = apify_coordinator_for_workspace(
+                store,
+                workspace_id=str(job["workspace_id"]),
+                data_dir=data_dir,
+            )
+            if apify_coordinator is not None:
+                return run_source_test(
+                    payload,
+                    apify_coordinator=apify_coordinator,
+                )
             return run_source_test(payload)
 
         if shared_acquisition_enabled() and job.get("source_id"):
@@ -354,6 +385,13 @@ def run_worker_once(
     try:
         store.initialize()
         SecretStore(data_dir).load_into_environ()
+        for outcome in reconcile_all_apify_pools_sync(store, data_dir=data_dir):
+            if not outcome["ok"]:
+                logger.warning(
+                    "Apify pool reconcile pending workspace_id=%s code=%s",
+                    outcome["workspace_id"],
+                    outcome["code"],
+                )
         if (
             not store.feed_storage_v3_migration_required()
             and not store.content_index_v4_migration_required()
@@ -421,7 +459,7 @@ def run_worker_once(
                             )
                             finalized = queue.fail_or_retry_job(
                                 job["id"],
-                                error_code=type(exc).__name__,
+                                error_code=_exception_code(exc),
                                 error_message=sanitize_issue_message(str(exc)),
                                 retryable=_is_retryable_exception(exc),
                                 retry_base_seconds=retry_base,

@@ -67,9 +67,18 @@ describe('service api', () => {
     await api.createSecret({ name: 'Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', value: 'write-only' })
     await api.rotateSecret('secret/1', 'new-value')
     await api.secretQuota('secret/1')
+    await api.apifyKeyPool()
+    await api.reorderApifyKeyPool(['secret/1', 'secret-2'], 7)
+    await api.drainApifyKey('secret/1')
 
     expect(client.post).toHaveBeenCalledWith('/api/admin/secrets', expect.objectContaining({ value: 'write-only' }))
     expect(client.put).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/value', { value: 'new-value' })
     expect(client.get).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/quota', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-key-pool', undefined)
+    expect(client.put).toHaveBeenCalledWith('/api/admin/apify-key-pool/order', {
+      secret_ids: ['secret/1', 'secret-2'],
+      expected_generation: 7,
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-key-pool/secret%2F1/drain')
   })
 })

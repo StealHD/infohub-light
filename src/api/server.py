@@ -31,6 +31,14 @@ from ..services.job_queue import JobQueue
 from ..services.quota import QuotaExceeded, QuotaService
 from ..services.runtime_status import RuntimeStatusService
 from ..services.secret_quota import ApifySecretQuotaService, SecretQuotaError
+from ..services.apify_key_pool import (
+    ApifyKeyBusyError,
+    ApifyKeyDrainPendingError,
+    ApifyKeyPoolConflictError,
+    ApifyKeyPoolError,
+    ApifyKeyPoolService,
+    apify_key_pool_enabled,
+)
 from ..services.source_health import SourceHealthService
 from ..services.source_schedule import (
     SOURCE_ALLOWED_INTERVALS,
@@ -234,6 +242,13 @@ class SecretRotateRequest(BaseModel):
     value: str
 
 
+class ApifyKeyPoolOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    secret_ids: list[str]
+    expected_generation: StrictInt = Field(ge=1)
+
+
 class SubscriptionRequest(BaseModel):
     source_id: str
     enabled: bool = True
@@ -375,6 +390,7 @@ def create_app(
     secret_values = SecretStore(data_path)
     secret_quota = ApifySecretQuotaService()
     secret_values.load_into_environ()
+    apify_key_pool = ApifyKeyPoolService(store, secret_store=secret_values)
     quota = QuotaService(
         store,
         max_fetch_jobs_per_day=int(os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")),
@@ -407,18 +423,30 @@ def create_app(
     remote_mcp_settings = RemoteMCPSettings.from_env()
     openclaw_chat_settings = OpenClawChatSettings.from_env()
 
+    def is_apify_secret(secret: dict[str, Any]) -> bool:
+        return (
+            str(secret.get("provider") or "").lower() == "apify"
+            or str(secret.get("kind") or "").lower() == "apify"
+        )
+
     def secret_usage(secret: dict[str, Any]) -> list[dict[str, str]]:
-        usages = [
-            {
-                "type": "source",
-                "id": str(source["id"]),
-                "name": str(source.get("display_name") or source["id"]),
-            }
-            for source in store.list_sources_using_secret(
-                workspace_id=secret["workspace_id"],
-                env_name=secret["env_name"],
-            )
-        ]
+        pool_managed_apify = (
+            apify_key_pool_enabled()
+            and is_apify_secret(secret)
+        )
+        usages = []
+        if not pool_managed_apify:
+            usages = [
+                {
+                    "type": "source",
+                    "id": str(source["id"]),
+                    "name": str(source.get("display_name") or source["id"]),
+                }
+                for source in store.list_sources_using_secret(
+                    workspace_id=secret["workspace_id"],
+                    env_name=secret["env_name"],
+                )
+            ]
         try:
             _base_data, base_config = read_base_config()
         except Exception:
@@ -476,13 +504,60 @@ def create_app(
             source_id=str(source["id"]),
         )
         item["avatar_url"] = f"/api/media/{avatar['id']}" if avatar else ""
-        env_name = item.get("secret_env")
-        item["secret_configured"] = bool(
-            env_name and secret_values.status(str(env_name))["is_set"]
+        pool_managed_apify = (
+            source.get("type") == "apify_social" and apify_key_pool_enabled()
         )
-        if not _is_admin(user):
+        if pool_managed_apify:
+            pool = apify_key_pool.public_state(str(source["workspace_id"]))
+            active_secret_id = pool.get("active_secret_id")
+            active_secret = (
+                store.get_secret_ref(str(active_secret_id))
+                if active_secret_id
+                else None
+            )
+            item["secret_configured"] = bool(
+                active_secret
+                and secret_values.read().get(str(active_secret["env_name"]))
+            )
             item.pop("secret_env", None)
+        else:
+            env_name = item.get("secret_env")
+            item["secret_configured"] = bool(
+                env_name and secret_values.status(str(env_name))["is_set"]
+            )
+            if not _is_admin(user):
+                item.pop("secret_env", None)
         return item
+
+    def reject_pool_managed_source_secret(
+        source_type: str,
+        *,
+        supplied: bool,
+    ) -> None:
+        if (
+            supplied
+            and source_type == "apify_social"
+            and apify_key_pool_enabled()
+        ):
+            raise ApiError(
+                "apify_key_pool_managed",
+                "Apify source credentials are managed by the workspace Key pool.",
+                status_code=409,
+                action="Manage Apify Keys in Settings and omit secret_env.",
+            )
+
+    def pool_api_error(exc: ApifyKeyPoolError) -> ApiError:
+        return ApiError(
+            exc.code,
+            "The Apify Key pool cannot complete this transition safely.",
+            status_code=409,
+            retryable=bool(getattr(exc, "retryable", False)),
+            action=(
+                "Wait for active Actor Runs to reach a terminal state and retry."
+                if isinstance(exc, ApifyKeyDrainPendingError)
+                else "Refresh the Key pool state and retry."
+            ),
+        )
 
     def create_subscription_with_quota(
         *,
@@ -527,6 +602,10 @@ def create_app(
         *,
         user: dict[str, Any],
     ) -> dict[str, Any]:
+        reject_pool_managed_source_secret(
+            str(source.get("type") or ""),
+            supplied="secret_env" in updates,
+        )
         return subscription_mutations.rest_update_source(
             SubscriptionActor.from_user(user),
             source_id=str(source["id"]),
@@ -536,6 +615,10 @@ def create_app(
     def upsert_catalog_source(
         *, user: dict[str, Any], **values: Any
     ) -> dict[str, Any]:
+        reject_pool_managed_source_secret(
+            str(values.get("source_type") or ""),
+            supplied=values.get("secret_env") is not None,
+        )
         return subscription_mutations.rest_upsert_source(
             SubscriptionActor.from_user(user), values=values
         )
@@ -1596,6 +1679,56 @@ def create_app(
         secrets = store.list_secret_refs(workspace_id=user["workspace_id"])
         return ok({"secrets": [public_secret(secret) for secret in secrets]})
 
+    @app.get("/api/admin/apify-key-pool")
+    async def admin_apify_key_pool(
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        return ok(apify_key_pool.public_state(str(user["workspace_id"])))
+
+    @app.put("/api/admin/apify-key-pool/order")
+    async def admin_apify_key_pool_order(
+        payload: ApifyKeyPoolOrderRequest,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        try:
+            state = apify_key_pool.reorder(
+                str(user["workspace_id"]),
+                expected_generation=int(payload.expected_generation),
+                secret_ids=payload.secret_ids,
+            )
+        except ValueError as exc:
+            raise ApiError(
+                "invalid_request",
+                "secret_ids must contain every pool member exactly once",
+                status_code=400,
+            ) from exc
+        except ApifyKeyPoolError as exc:
+            raise pool_api_error(exc) from exc
+        return ok(state)
+
+    @app.post("/api/admin/apify-key-pool/{secret_id}/drain")
+    async def admin_apify_key_pool_drain(
+        secret_id: str,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        state = apify_key_pool.public_state(str(user["workspace_id"]))
+        if secret_id not in {
+            str(member["secret_id"]) for member in state["members"]
+        }:
+            raise ApiError("not_found", "Apify Key pool member not found", status_code=404)
+        try:
+            state = apify_key_pool.begin_drain(secret_id)
+            if state["status"] == "draining":
+                try:
+                    state = apify_key_pool.complete_drain_and_failover(
+                        str(user["workspace_id"])
+                    )
+                except ApifyKeyDrainPendingError:
+                    state = apify_key_pool.public_state(str(user["workspace_id"]))
+        except ApifyKeyPoolError as exc:
+            raise pool_api_error(exc) from exc
+        return ok(state)
+
     @app.post("/api/admin/secrets")
     async def admin_secrets_create(
         payload: SecretCreateRequest,
@@ -1608,6 +1741,7 @@ def create_app(
                 "the environment name is already registered",
                 status_code=409,
             )
+        secret: dict[str, Any] | None = None
         try:
             secret_values.set(env_name, payload.value)
             secret_values.load_into_environ()
@@ -1620,6 +1754,8 @@ def create_app(
                 provider=provider,
                 scope="workspace",
             )
+            if kind == "apify" and provider == "apify":
+                apify_key_pool.append_secret(secret["id"])
         except SecretEnvConflictError as exc:
             secret_values.delete(env_name)
             secret_values.load_into_environ()
@@ -1628,8 +1764,20 @@ def create_app(
                 "the environment name is already registered",
                 status_code=409,
             ) from exc
+        except ApifyKeyPoolError as exc:
+            if secret is not None:
+                store.delete_secret_ref(str(secret["id"]))
+            secret_values.delete(env_name)
+            secret_values.load_into_environ()
+            raise pool_api_error(exc) from exc
         except SecretValueError as exc:
             raise ApiError("invalid_secret", str(exc), status_code=400) from exc
+        except Exception:
+            if secret is not None:
+                store.delete_secret_ref(str(secret["id"]))
+            secret_values.delete(env_name)
+            secret_values.load_into_environ()
+            raise
         return ok(public_secret(secret))
 
     @app.put("/api/admin/secrets/{secret_id}/value")
@@ -1641,13 +1789,34 @@ def create_app(
         secret = store.get_secret_ref(secret_id)
         if secret is None or secret["workspace_id"] != user["workspace_id"]:
             raise ApiError("not_found", "secret reference not found", status_code=404)
+        apify_lifecycle: dict[str, Any] | None = None
+        if is_apify_secret(secret):
+            apify_lifecycle = apify_key_pool.secret_lifecycle(secret_id)
+            try:
+                if apify_key_pool_enabled():
+                    apify_key_pool.ensure_secret_mutable(secret_id)
+                elif (
+                    apify_lifecycle["managed"]
+                    and (
+                        int(apify_lifecycle["active_run_count"]) > 0
+                        or apify_lifecycle["status"] == "draining"
+                    )
+                ):
+                    raise ApifyKeyBusyError()
+            except ApifyKeyPoolError as exc:
+                raise pool_api_error(exc) from exc
         try:
             secret_values.set(secret["env_name"], payload.value)
             secret_values.load_into_environ()
         except SecretValueError as exc:
             raise ApiError("invalid_secret", str(exc), status_code=400) from exc
         updated = store.touch_secret_ref(secret_id)
-        if secret["kind"] == "apify":
+        if is_apify_secret(secret):
+            if apify_lifecycle and apify_lifecycle["managed"]:
+                try:
+                    apify_key_pool.mark_secret_rotated(secret_id)
+                except ApifyKeyPoolError as exc:
+                    raise pool_api_error(exc) from exc
             for source in store.list_sources_using_secret(
                 workspace_id=user["workspace_id"],
                 env_name=secret["env_name"],
@@ -1666,7 +1835,7 @@ def create_app(
         secret = store.get_secret_ref(secret_id)
         if secret is None or secret["workspace_id"] != user["workspace_id"]:
             raise ApiError("not_found", "secret reference not found", status_code=404)
-        if secret["kind"] != "apify" or secret["provider"] != "apify":
+        if not is_apify_secret(secret):
             raise ApiError(
                 "quota_not_supported",
                 "该 Provider 暂不支持额度查询。",
@@ -1690,6 +1859,28 @@ def create_app(
                 retryable=exc.retryable,
                 action=exc.action,
             ) from exc
+        lifecycle = apify_key_pool.secret_lifecycle(secret_id)
+        if lifecycle["managed"]:
+            apify_key_pool.record_member_quota(
+                workspace_id=str(user["workspace_id"]),
+                secret_id=secret_id,
+                remaining_included_credits_usd=float(
+                    quota_data["remaining_included_credits_usd"]
+                ),
+                checked_at=str(quota_data["checked_at"]),
+                cycle_start_at=str(quota_data["cycle_start_at"]),
+                cycle_end_at=str(quota_data["cycle_end_at"]),
+                monthly_included_credits_usd=float(
+                    quota_data["monthly_included_credits_usd"]
+                ),
+                monthly_usage_usd=float(quota_data["monthly_usage_usd"]),
+                max_monthly_usage_usd=float(
+                    quota_data["max_monthly_usage_usd"]
+                ),
+                remaining_hard_limit_usd=float(
+                    quota_data["remaining_hard_limit_usd"]
+                ),
+            )
         return ok(quota_data)
 
     @app.delete("/api/admin/secrets/{secret_id}")
@@ -1707,6 +1898,22 @@ def create_app(
                 status_code=409,
                 action="Reassign every reference before deleting this secret.",
             )
+        if is_apify_secret(secret):
+            try:
+                lifecycle = apify_key_pool.secret_lifecycle(secret_id)
+                if lifecycle["managed"]:
+                    if apify_key_pool_enabled():
+                        apify_key_pool.ensure_secret_mutable(secret_id)
+                    elif lifecycle["busy"]:
+                        if int(lifecycle["active_run_count"]) > 0:
+                            raise ApifyKeyBusyError()
+                        apify_key_pool.begin_drain(secret_id)
+                        apify_key_pool.complete_drain_and_failover(
+                            str(user["workspace_id"])
+                        )
+                    apify_key_pool.remove_secret(secret_id)
+            except ApifyKeyPoolError as exc:
+                raise pool_api_error(exc) from exc
         secret_values.delete(secret["env_name"])
         secret_values.load_into_environ()
         store.delete_secret_ref(secret_id)
@@ -1729,6 +1936,10 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
+        reject_pool_managed_source_secret(
+            payload.type,
+            supplied="secret_env" in payload.model_fields_set,
+        )
         if payload.secret_env is not None and not _is_admin(user):
             raise ApiError(
                 "forbidden",
@@ -1774,6 +1985,10 @@ def create_app(
     ) -> dict[str, Any]:
         require_mutating_member(user)
         source = manageable_source_or_404(source_id, user)
+        reject_pool_managed_source_secret(
+            str(source["type"]),
+            supplied="secret_env" in payload.model_fields_set,
+        )
         if "secret_env" in payload.model_fields_set and not _is_admin(user):
             raise ApiError(
                 "forbidden",

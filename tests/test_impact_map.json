@@ -40,6 +40,7 @@
         "src/api/*.py",
         "src/storage/**/*.py",
         "src/storage/*.py",
+        "src/services/apify_key_pool.py",
         "src/services/secret_store.py",
         "src/services/agent_change_proposal.py",
         "src/services/source_type_registry.py",
@@ -76,6 +77,7 @@
       "id": "queue/worker",
       "globs": [
         "src/services/feed_schedule.py",
+        "src/services/apify_pool_runtime.py",
         "src/services/job_eligibility.py",
         "src/services/job_queue.py",
         "src/services/quota.py",
@@ -219,6 +221,8 @@
       "tests/test_agent_delegations.py",
       "tests/test_api_permissions_matrix.py",
       "tests/test_api_service.py",
+      "tests/test_apify_key_pool.py",
+      "tests/test_apify_key_pool_api.py",
       "tests/test_auth.py",
       "tests/test_config_server.py",
       "tests/test_secret_api.py",
@@ -248,6 +252,8 @@
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",
+      "tests/test_apify_key_pool.py",
+      "tests/test_apify_pool_runtime.py",
       "tests/test_job_queue.py",
       "tests/test_job_queue_reliability.py",
       "tests/test_scheduler.py",
@@ -274,6 +280,7 @@
     ],
     "python_source_acquisition": [
       "tests/test_catalog_source_runner.py",
+      "tests/test_apify_key_pool.py",
       "tests/test_source_acquisition.py",
       "tests/test_source_health.py",
       "tests/test_source_health_api.py",

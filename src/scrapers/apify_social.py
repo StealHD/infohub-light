@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import httpx
 from dateutil.parser import isoparse
 
-from .apify_client import ApifyClient
+from .apify_client import ApifyClient, ApifyRunCoordinator
 from .base import BaseScraper, SourceFetchError
 from ..models import (
     ApifySocialConfig,
@@ -65,9 +65,15 @@ ACTOR_ADAPTER_REGISTRY = {
 class ApifySocialScraper(BaseScraper):
     """Fetch configured public social subscriptions through Apify actors."""
 
-    def __init__(self, config: ApifySocialConfig, http_client: httpx.AsyncClient):
+    def __init__(
+        self,
+        config: ApifySocialConfig,
+        http_client: httpx.AsyncClient,
+        apify_coordinator: ApifyRunCoordinator | None = None,
+    ):
         super().__init__(config.model_dump(), http_client)
         self.social_config = config
+        self.apify_coordinator = apify_coordinator
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
         if not self.social_config.enabled:
@@ -95,8 +101,12 @@ class ApifySocialScraper(BaseScraper):
         sub: ApifySocialSubscriptionConfig,
         since: datetime,
     ) -> list[ContentItem]:
-        token_records = self._token_records(sub.token_env)
-        if not token_records:
+        token_records = (
+            self._token_records(sub.token_env)
+            if self.apify_coordinator is None
+            else None
+        )
+        if self.apify_coordinator is None and not token_records:
             token_envs = ", ".join(self._token_env_names(sub.token_env))
             logger.warning(
                 "Apify token not found in env var(s) '%s'. Skipping %s/%s %s.",
@@ -114,6 +124,7 @@ class ApifySocialScraper(BaseScraper):
 
         apify = ApifyClient(
             tokens=token_records,
+            coordinator=self.apify_coordinator,
             http_client=self.client,
             timeout_seconds=self.social_config.timeout_seconds,
         )
@@ -124,6 +135,7 @@ class ApifySocialScraper(BaseScraper):
             actor_id,
             actor_input,
             max_total_charge_usd=contract.max_total_charge_usd,
+            logical_run_id=self._logical_run_id(sub),
         )
         self.observe_upstream_response(rows)
 
@@ -173,6 +185,7 @@ class ApifySocialScraper(BaseScraper):
                     "resultsType": "details",
                     "resultsLimit": 1,
                 },
+                logical_run_id=self._logical_run_id(sub),
             )
             self.observe_upstream_response(profile_rows)
             avatar_url = self._instagram_profile_avatar(profile_rows)
@@ -191,6 +204,10 @@ class ApifySocialScraper(BaseScraper):
     @staticmethod
     def _should_keep_latest_when_stale(sub: ApifySocialSubscriptionConfig) -> bool:
         return sub.kind in {"profile", "channel", "page", "group", "post"}
+
+    @staticmethod
+    def _logical_run_id(sub: ApifySocialSubscriptionConfig) -> str | None:
+        return sub.source_id or sub.subscription_id or sub.source_key
 
     def _actor_id(self, platform: ApifySocialPlatform) -> str:
         actors = self.social_config.actors

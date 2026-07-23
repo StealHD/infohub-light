@@ -26,6 +26,7 @@ export const queryKeys = {
   config: (userId: string) => [...userKey(userId), 'config'] as const,
   users: (userId: string) => [...userKey(userId), 'users'] as const,
   secrets: (userId: string) => [...userKey(userId), 'secrets'] as const,
+  apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,
   secretQuota: (userId: string, secretId: string) => [
     ...userKey(userId), 'secret-quota', secretId,
   ] as const,

@@ -86,7 +86,7 @@ capability / degrade：
 1. 配置 API 只保存环境变量名，不保存密钥值。
 2. 来源 topics 应写入 `topics`，同时保留 legacy `tags`。
 3. Hub channel 应写入 `channel`；Telegram 的平台频道名继续使用 `channel`，Hub 频道使用 `hub_channel` 或兼容 `category`。
-4. `apify_social.subscriptions[].token_env` 可为单条 Apify 订阅指定 key 环境变量名；为空时使用全局 `sources.apify_social.token_envs` 轮换。
+4. legacy CLI 的 `apify_social.subscriptions[].token_env` 可为单条 Apify 订阅指定 key 环境变量名；为空时使用全局 `sources.apify_social.token_envs` 轮换。该兼容规则不进入启用工作区池后的 Service API/Worker 路径。
 5. `set_tags` 优先接受 `payload.topics` 数组，同时兼容旧 `tags` 换行/逗号字符串；值会 trim、去空并按大小写无关去重，每项最多 40 字、总数最多 100。显式空数组表示清空主题库，不得恢复内置默认主题。
 6. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
 
@@ -125,6 +125,8 @@ capability / degrade：
 18. `GET /api/health/live`：表达 API 进程存活，并返回 `status/version/revision/built_at` 以识别不可变镜像；`GET /api/health/ready`：依次检查数据库、Feed v2 migration、user content v4 migration、数据库内至少一个 enabled user 和可选 Worker readiness，未就绪返回 503 的统一 error envelope。fresh DB 没有可登录用户时返回 `auth_not_configured`，action 要求设置 `HORIZON_AUTH_PASSWORD` 或 `HORIZON_AUTH_PASSWORD_HASH` 后重启；一旦数据库已有 enabled user，后续 readiness 不再依赖 bootstrap 密码环境变量。
 19. `GET /api/ops/runtime`：仅 `owner/admin` 可读，返回 Worker heartbeat、队列积压、最老 queued job、stale running、最新 snapshot 年龄，以及用户 Feed 计划字段、`source_schedule_count/overdue_source_schedule_count/next_source_scheduled_at` 和三个 Source Health 聚合字段；`schedule_stats` 包含最近评估、最近入队和 skip reason 计数。响应不返回 claim token、source payload、密钥或 Webhook。
 20. `GET /api/admin/secrets`、`POST /api/admin/secrets`、`PUT /api/admin/secrets/{id}/value`、`DELETE /api/admin/secrets/{id}`：仅 `owner/admin` 管理 AI/Apify 密钥引用和值。值只在 create/rotate 请求中出现，任何成功或失败响应都不得回显。`GET /api/admin/secrets/{id}/quota` 同样仅允许 `owner/admin`，且只为同 workspace、已配置的 Apify secret 返回下述安全额度投影；非 Apify 不触发上游请求。
+20A. `GET /api/admin/apify-key-pool`：仅 `owner/admin` 读取当前 workspace 的池。`data` 精确包含 `schema_version=1/enabled/generation/status/active_secret_id/draining_secret_id/blocked_reason/retry_at/members`；`status` 为 `empty|ready|draining|blocked|exhausted`。每个 member 只含 `secret_id/position/status/blocked_until/cycle_end_at/last_checked_at/last_error_code/active_run_count`，其中 member status 为 `active|standby|draining|depleted|invalid`。不得返回 env、Token、账号资料、额度原始响应、远端 runId 或 datasetId。
+20B. `PUT /api/admin/apify-key-pool/order` 接受完整且无重复的 `secret_ids` 与整数 `expected_generation`；集合缺失/多余为 `invalid_request`，generation 不匹配为 `apify_key_pool_conflict`，成功后 generation 原子加一。启用池时 active/draining/仍有非终态 Run 的 Key 不得通过排序替换。`POST /api/admin/apify-key-pool/{secret_id}/drain` 只操作同 workspace 成员并保持幂等；没有活跃 Run 时可直接完成切换，有 Run 时返回当前 `draining` 状态并由 Worker 持续 reconcile。
 21. `GET /api/me/agent-delegations`、`POST /api/me/agent-delegations`、`PATCH /api/me/agent-delegations/{id}`、`DELETE /api/me/agent-delegations/{id}`、`DELETE /api/me/agent-delegations/{id}/record`：当前用户管理自己的 OpenClaw 数据连接。GET 返回 `enabled/mcp_url/subscription_writes_enabled/token_ttl_days/max_active/connections`，并返回 `openclaw_chat{enabled,default_gateway_url,protocol_version=4,target_version="2026.7.1"}`；该对象只是公共运行配置，不包含或接收 Gateway 凭证。每个 connection 返回稳定的 `access=read|subscriptions_write` 与 `scopes`。POST 接受 `name` 和可选 `access`（缺省 `read`）；`read` 仅授予 `inteliscope:read`，`subscriptions_write` 同时授予 `inteliscope:read` 与 `inteliscope:subscriptions:write`。写连接仅 `owner/admin/member` 可在 `HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED=true` 时新建；viewer 返回 `forbidden`，开关关闭返回 `subscription_writes_disabled`。令牌固定 90 天、最多 5 个有效连接，且只在 201 + `Cache-Control: no-store` 响应中返回一次明文令牌；PATCH 仅重命名；基础 DELETE 保持幂等吊销。显式 `/record` DELETE 只允许当前用户永久删除一条 `revoked_at IS NOT NULL` 的记录并返回 `deleted=true`；有效或仅到期的记录返回 `agent_delegation_not_revoked`（409），非本人或不存在返回 `not_found`（404），既有 proposal 依外键级联删除，其他连接与业务数据不变。Remote MCP 总开关关闭时仍可查看、吊销和删除已吊销记录，但创建返回 `remote_mcp_disabled`。
 22. FastAPI 默认托管 React Service UI：`/assets/*` 为带内容哈希的 immutable 资源，非 `/api/*` 路径回退到 no-cache `index.html`。`HORIZON_SERVICE_UI_VARIANT=react|legacy` 控制 Service 前端，默认 `react`；React 构建缺失时可安全回退 legacy。`/mcp` 为精确协议路由，不参与 SPA fallback，不通过重定向修正路径。
 
@@ -147,7 +149,7 @@ capability / degrade：
 13. `owner/admin/member` 只能读取和修改自己的 Feed schedule；该接口不接受 `user_id` 代查。`viewer` 可以 GET 自己的状态，但 PATCH 返回 `forbidden`。
 13A. 订阅级 schedule 同样只允许操作当前用户自己的订阅，不接受 `user_id` 代查；`viewer` 可以 GET，PATCH 返回 `forbidden`。订阅、来源或用户未启用时不得开启。
 14. `owner/admin/member/viewer` 都可以读取自己的 Source Health；`GET /api/me/source-health` 不提供跨用户代理，即使 `owner/admin` 附带 `user_id` 查询参数也仍只返回当前登录用户的数据。
-15. 密钥列表、创建、轮换、删除、额度查询以及 catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。非管理员 source 响应只给出 `secret_configured`，不得暴露环境变量名。
+15. 密钥列表、创建、轮换、删除、额度查询、Apify Key 池读取/排序/排空以及 legacy catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。池模式下任何角色都不再得到 Apify 来源级 `secret_env`；非管理员其他 source 响应只给出 `secret_configured`，不得暴露环境变量名。
 16. `owner/admin/member/viewer` 都可创建、查看、重命名和吊销自己的 read Agent delegation，也可显式删除自己已吊销的单条记录；只有 `owner/admin/member` 可创建 subscription-write delegation，且受写开关约束。不存在把既有 read connection 提升为 write 的接口；不提供管理员代查、代管或跨用户删除接口。delegation 令牌始终只映射其创建者，即使创建者是 `owner/admin`，Remote MCP 也不得使用管理员跨用户读权限。禁用用户时必须在同一事务永久吊销其全部连接，重新启用不恢复旧令牌。
 
 错误 envelope 规则：
@@ -155,7 +157,7 @@ capability / degrade：
 1. 未登录返回 `unauthorized`，权限不足返回 `forbidden`，不可见或不存在资源返回 `not_found`。
 2. Pydantic/body/query 校验失败返回 `invalid_request`，HTTP status 使用 400。
 3. 不存在的 `/api/*` 路径返回 `not_found` envelope；不得返回 FastAPI 默认 `{"detail": ...}`。
-4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。
+4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_forbidden`（422、不可重试且不切 Key）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。Apify 池管理/任务还区分 `apify_key_pool_managed`、`apify_key_busy`、`apify_key_pool_conflict`、`apify_key_drain_pending`、`apify_key_pool_exhausted`、`apify_key_pool_blocked`、`apify_key_rejected` 和 `apify_start_outcome_unknown`；公开 message 只描述安全状态和下一步，不得拼接上游正文、Token、runId 或 datasetId。
 
 ## 5B. Remote MCP 合同
 
@@ -243,14 +245,21 @@ capability / degrade：
 
 密钥规则：
 
-1. `secret_env` 必须是环境变量名，不得是疑似真实密钥；`secret_refs` 只保存 `name/kind/provider/env_name` 等元数据，`kind` 仅为 `ai|apify`。
+1. `secret_env` 必须是环境变量名，不得是疑似真实密钥；`secret_refs` 只保存 `name/kind/provider/env_name/version` 等元数据，`kind` 仅为 `ai|apify`。每次原地轮换必须令 `version` 原子加一。
 2. 真实值只保存在 Git/Docker 忽略的 `data/secrets.env`，由 `SecretStore` 以临时文件、`fsync`、原子替换和固定 `0600` 权限维护；Service DB、API、日志、job、Feed 和 DOM 均不得包含真实值。
 3. API 和 Worker 在需要配置或执行任务时重新加载密钥文件；新增/轮换无需重启。密钥列表及 create/rotate 响应只返回 `id/name/kind/provider/env_name/is_set/used_by` 和时间元数据，不返回 `value`。
-4. 同 workspace 的 `env_name` 唯一，重复创建返回 `409 secret_env_conflict`。被 AI 配置或 catalog source 引用时删除返回 `409 secret_in_use`；允许原地轮换。Apify 值轮换只把引用该 env 的订阅健康重置为 `unknown`。
+4. 同 workspace 的 `env_name` 唯一，重复创建返回 `409 secret_env_conflict`。被 AI 配置或 legacy catalog source 引用时删除返回 `409 secret_in_use`。池模式下 active、draining 或仍有非终态 Actor Run 的 Apify Key 轮换/删除返回 `409 apify_key_busy`，必须先安全排空；新建 Apify secret 在 secret ref 与真实值均成功后自动追加为备用，追加失败必须回滚两者。空闲 Key 成功轮换后必须清除旧额度/周期/错误状态并令 generation 加一；已有 active 时把该 Key 放到备用队尾，只有池原本无 active 时才把它激活。
 5. Apify 额度接口从 `SecretStore` 读取目标 Token，以 Authorization header 分别调用官方 `/v2/users/me` 和 `/v2/users/me/limits`，不把 Token 放入 URL。成功响应的 `data` 精确包含 `secret_id/provider/currency/cycle_start_at/cycle_end_at/checked_at/monthly_included_credits_usd/monthly_usage_usd/remaining_included_credits_usd/max_monthly_usage_usd/remaining_hard_limit_usd`；`provider=apify`、`currency=USD`，金额为非负有限数字，两个 remaining 字段最低为 `0`。Token、账户 ID、用户名、邮箱、profile、proxy、原始响应和其他套餐字段不得进入浏览器、数据库、日志或错误 envelope。
 6. 单个额度上游请求失败不得影响密钥列表。跨 workspace secret 与不存在 secret 统一 `not_found`；非 Apify 返回 `quota_not_supported`；SecretStore 中无值返回 `secret_not_configured`。保存或轮换 Key 只验证本地元数据和值格式，不得以额度上游可用性作为成功前提。
-7. Catalog RSS URL 禁止 `${ENV_VAR}` 占位和 URL userinfo，避免把环境值或凭据写入 catalog/API；member 拥有的 RSS 在抓取前及每次 redirect 都必须只解析到公网地址，并只连接该次已验证的字面 IP，同时保留原 Host 与 HTTPS SNI。安全请求不得使用环境代理或跨 hostname 复用连接，响应拒绝压缩且流式硬限制为 2,000,000 bytes。只有 `owner/admin` 拥有的 source 可默认访问本地/私网 RSS；确定性的本地测试例外必须由管理员通过 `HORIZON_MEMBER_RSS_HOST_ALLOWLIST` 精确列出 host，默认空。
-8. `member` 创建的 source job 必须引用可见 `source_id`；Worker 以 catalog config 为权威并忽略 job payload 对 URL/source 字段的覆盖。
+7. additive schema v8 包含 `apify_key_pool_state`、`apify_key_pool_members` 和 `apify_actor_runs`。数据库只保存 workspace、`secret_id/version`、有序位置、安全状态/额度周期与数值、generation、内部远端 run/dataset 标识和终止状态；真实 Token 仍只来自 `SecretStore`。初始化幂等地把现有 Apify refs 加入池：被 enabled Apify source 引用次数最多者为初始 active，其余按创建时间进入 standby；同次 initialize 不改变已存在顺序或 generation。
+8. `HORIZON_APIFY_KEY_POOL_ENABLED=false` 为默认。开启后 Service Apify 来源统一使用工作区池，`source_catalog.secret_env` 仅保留回滚兼容且不再读取、展示或新增；registry 返回 `credential_mode=workspace_apify_pool`、`supports_secret_env=false`，创建或 PATCH 中只要提交 Apify `secret_env`（包括 `null`）就返回 `409 apify_key_pool_managed`。
+9. 每次 Actor Run 启动前必须在 SQLite 写事务内预留固定的 `secret_id + secret_version + pool_generation`；同一 Run 的 POST、轮询、中止和 dataset 读取始终使用该 lease 的同一 Token。新 Run 只接受最近不超过 60 秒且 `remaining_included_credits_usd > 0` 的额度快照；单次逻辑抓取对每个可用 Key 最多尝试一次。
+10. 只有 HTTP 402、明确 Apify 额度错误或额度快照 `remaining_included_credits_usd <= 0` 标记 `depleted`；HTTP 401 或明确无效 Token 标记 `invalid`。普通 403 只失败当前请求，429 在原 Key 退避，5xx/网络错误按原 Key 的可重试规则处理，均不得污染整个 Key。
+11. Key 失效时池先进入 `draining`，禁止任何 Worker 预留新 Run；旧 generation 下所有已登记非终态 Run 必须经 `POST /actor-runs/{runId}/abort` 并轮询确认 `SUCCEEDED/FAILED/ABORTED/TIMED-OUT`。30 秒仍未全部确认则保持 fail closed 并返回 `apify_key_drain_pending`；只有排空完成才把 generation 加一、启用下一 standby，并让原逻辑抓取创建全新 Run，禁止复用旧 runId 或 dataset。
+12. Actor POST 的结果未知，或进程重启后发现无法证明是否已创建远端 Run 的 reservation，必须把池置为 `blocked` 并返回安全的 `apify_start_outcome_unknown`/`apify_key_pool_blocked`，由人工核对 Apify 控制台；不得猜测远端标识或盲目切换。Worker 启动时必须先 reconcile 已登记非终态 Run，再领取新 Job。
+13. 全部 Key 耗尽时返回 `apify_key_pool_exhausted`，Apify 单源任务失败，完整 Feed 可为 partial 且其他免费来源继续运行；来源 schedule 延后到已知最早 `blocked_until/cycle_end_at`。周期到期后重新查询额度，恢复的旧 Key只追加到备用队尾，不抢占 active，也不恢复历史 Run。
+14. Catalog RSS URL 禁止 `${ENV_VAR}` 占位和 URL userinfo，避免把环境值或凭据写入 catalog/API；member 拥有的 RSS 在抓取前及每次 redirect 都必须只解析到公网地址，并只连接该次已验证的字面 IP，同时保留原 Host 与 HTTPS SNI。安全请求不得使用环境代理或跨 hostname 复用连接，响应拒绝压缩且流式硬限制为 2,000,000 bytes。只有 `owner/admin` 拥有的 source 可默认访问本地/私网 RSS；确定性的本地测试例外必须由管理员通过 `HORIZON_MEMBER_RSS_HOST_ALLOWLIST` 精确列出 host，默认空。
+15. `member` 创建的 source job 必须引用可见 `source_id`；Worker 以 catalog config 为权威并忽略 job payload 对 URL/source 字段的覆盖。
 
 AI 概括规则：
 
@@ -275,6 +284,7 @@ Source catalog 规则：
 10. 启用订阅时，100 条默认上限的检查与 subscription upsert 必须处于同一个 `BEGIN IMMEDIATE`；并发请求最多一个越过最后名额。任务 retry 的重新排队、配额检查和 usage 写入也必须同事务提交或回滚。
 11. private source 提升为 workspace/public 时只改变 catalog 管理边界并把该来源的共享媒体投影为 workspace/public；不重新抓取、不批量重写历史 snapshot。新订阅者从 `user_content_items` 复用最多 200 条去重稳定内容，重写为自己的 subscription provenance 并创建自己的 Feed snapshot。
 12. 来源引用人数不得成为 catalog 列表的常驻聚合查询；客户端只在用户展开引用信息时调用 usage 接口。shared source 的最后一个普通订阅者取消订阅不软停用 catalog，只有最后一个 private owner 取消订阅时防御性软停用僵尸来源。
+13. 池模式下 Apify source 的公开 `secret_configured` 只表示当前 active 池成员在 `SecretStore` 中有值；不得从 legacy `source_catalog.secret_env` 推断。配置兼容 facade、catalog runner、`source_test`、`source_fetch` 与 `user_feed_refresh` 必须使用同一个 workspace pool coordinator。
 
 任务规则：
 
@@ -307,6 +317,9 @@ Source catalog 规则：
 27. shared acquisition 成功必须缓存零条结果；TTL 取相关启用计划最短周期并默认夹在 5..60 分钟、无计划回退 30 分钟。并发 loser 最多等待 5 秒且不计 attempt；stale lease 可恢复，失败退避最多 5 分钟。`source_test` 绕过成功缓存且不写 content pool，但仍受同源并发和成本 admission 约束。
 28. Feed/source job result 增加精确 `acquisition_usage{cache_hits,cache_misses,upstream_attempts,waits}`；只包含非负计数。`/api/ops/runtime.operational_counts` 只聚合这些计数、`invalidated_jobs` 与 `quota_rejects`，不得输出 source/user id、配置、prompt 或 secret。
 29. terminal `source_test/source_fetch/user_feed_refresh` 的 `result_json` 可增加 `response_schemas[]`，每项精确包含 `source_id/catalog_type/capture_status/upstream/normalized`，可选 `job_truncated=true`。`capture_status` 只允许 `captured/empty/cached/unavailable`；两层结构只含 `root_type`、`fields[{path,type}]`、`truncated`，type 只允许 `object/array/string/integer/number/boolean/null/mixed`。每层最多深度 6、256 个路径、8 KiB，每个 Job 合计最多 64 KiB。结构摘要不得包含字段值、正文、source config、请求 URL、Actor input、header、token、secret 或密码；旧 Job 缺少该字段继续有效。共享缓存命中必须标记 `cached` 且不得复用旧 Job 的上游结构。
+30. 池模式下 Apify shared acquisition fingerprint 必须包含 reservation 时的 pool generation；缓存 owner 在发布前重新读取 generation，发生变化就放弃旧结果并禁止写入共享缓存。其他 source type 的 fingerprint 与缓存语义不变。
+31. Apify source schedule 在池 `draining/blocked/exhausted` 时只延后该来源，分别使用 30 秒 reconcile 窗口、人工解阻或最早额度恢复时间；完整 Feed 的非 Apify 来源照常获取。公开 schedule/job error 只保存有界 `apify_key_*` code 和通用安全 message，不得保存内部 pool row、远端 run/dataset 标识或上游正文。
+32. Worker 启动时在 claim 任意业务 Job 前按 workspace reconcile Apify ledger；已知远端 Run 使用其登记的旧 lease 执行 abort/poll，未知启动结果保持 blocked。重启 reconcile 和正常 failover 均不得启动 Actor，只有排空完成后的原逻辑抓取重试可以创建新 Run。
 
 Feed retention / legacy archive compatibility 规则：
 

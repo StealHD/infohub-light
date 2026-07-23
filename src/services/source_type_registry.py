@@ -101,6 +101,9 @@ class SourceTypeDefinition:
             "template": dict(self.template),
             "fields": [field.as_dict() for field in self.fields],
             "supports_secret_env": self.supports_secret_env,
+            "credential_mode": (
+                "source_secret" if self.type == "apify_social" else "none"
+            ),
         }
 
     def guide_summary(self, locale: str) -> dict[str, Any]:
@@ -903,7 +906,18 @@ _AGENT_BY_TYPE = {item.type: item for item in _AGENT_SOURCE_TYPES}
 def list_source_types() -> list[dict[str, Any]]:
     """Return source type metadata for API clients."""
 
-    return [item.as_dict() for item in _SOURCE_TYPES]
+    definitions = [item.as_dict() for item in _SOURCE_TYPES]
+    try:
+        from .apify_key_pool import apify_key_pool_enabled
+    except ImportError:
+        return definitions
+    if not apify_key_pool_enabled():
+        return definitions
+    for definition in definitions:
+        if definition["type"] == "apify_social":
+            definition["supports_secret_env"] = False
+            definition["credential_mode"] = "workspace_apify_pool"
+    return definitions
 
 
 def validate_agent_source_type(source_type: str) -> str:
@@ -1803,6 +1817,14 @@ def build_source_payload(source: dict[str, Any]) -> dict[str, Any]:
         payload["source_display_name"] = str(source["display_name"])
     payload["catalog_source_type"] = source_type
     secret_env = validate_secret_env_name(source.get("secret_env"))
-    if secret_env and not payload.get("token_env"):
+    pool_managed = False
+    if source_type == "apify_social":
+        try:
+            from .apify_key_pool import apify_key_pool_enabled
+        except ImportError:
+            pass
+        else:
+            pool_managed = apify_key_pool_enabled()
+    if secret_env and not pool_managed and not payload.get("token_env"):
         payload["token_env"] = secret_env
     return payload

@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
 from ..scrapers.apify_social import ApifySocialScraper
+from ..scrapers.apify_client import ApifyRunCoordinator
 from ..services.response_schema import bound_source_response_schemas, extract_response_schema
 from ..services.source_update import run_source_update
 from ..services.network_policy import fetch_public_http
@@ -457,7 +458,11 @@ def _source_test_result(
     return {**result, "response_schemas": response_schemas}
 
 
-async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, Any]:
+async def _run_apify_social_source_test(
+    payload: dict[str, Any],
+    *,
+    apify_coordinator: ApifyRunCoordinator | None = None,
+) -> dict[str, Any]:
     platform = _apify_social_platform(payload)
     kind = _apify_social_kind(payload, platform)
     target = _validated_apify_social_target(
@@ -475,7 +480,9 @@ async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, An
             "Apify Token 环境变量名",
             fallback="APIFY_TOKEN",
         )
-    if not any(os.getenv(name) for name in token_envs):
+    if apify_coordinator is None and not any(
+        os.getenv(name) for name in token_envs
+    ):
         joined = "、".join(token_envs)
         raise ValueError(f"{joined} 均未设置，测试 Apify 订阅前请先写入 .env 并重启服务")
 
@@ -505,7 +512,11 @@ async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, An
     )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        scraper = ApifySocialScraper(config, client)
+        scraper = ApifySocialScraper(
+            config,
+            client,
+            apify_coordinator=apify_coordinator,
+        )
         items = await scraper.fetch(datetime.now(timezone.utc) - timedelta(days=3650))
 
     if not items:
@@ -528,12 +539,21 @@ async def _run_apify_social_source_test(payload: dict[str, Any]) -> dict[str, An
     )
 
 
-def run_source_test(payload: dict[str, Any]) -> dict[str, Any]:
+def run_source_test(
+    payload: dict[str, Any],
+    *,
+    apify_coordinator: ApifyRunCoordinator | None = None,
+) -> dict[str, Any]:
     """Test one source definition without saving it or calling AI."""
     source_type = _text(payload, "source_type", "信源类型")
 
     if source_type == "apify_social":
-        return asyncio.run(_run_apify_social_source_test(payload))
+        return asyncio.run(
+            _run_apify_social_source_test(
+                payload,
+                apify_coordinator=apify_coordinator,
+            )
+        )
 
     if source_type == "rss":
         url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
