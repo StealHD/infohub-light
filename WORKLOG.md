@@ -2385,3 +2385,11 @@
 - 结果：成员列新增确定性渐变头像与双行身份，角色选择隐藏冗余标签，状态使用语义 Chip，操作改为圆形电源/钥匙/锁图标；没有引入示例中不对应现有业务的勾选、复制 ID、查看或删除动作
 - 容器：`localhost:8080` 已切换到 `inteliscope-service:local-70a3617610e9-members-dirty`，API/Worker ready、0 restart；原数据与配置继续挂载
 - 控制面变更：只细化 UI_CONTRACT、PLAN 第 60 项和 D052 的成员表格视觉合同；无 API、数据库、权限或迁移变化，未启动 scheduler、来源抓取、AI 或付费调用
+
+### 2026-07-23 12:00 Codex
+- 任务：把 `codex/openclaw-sidebar-controls` 已验证改动本地合并到 `main`
+- 修改文件：功能分支提交 `c243329` 包含成员管理、OpenClaw 运行控件、Feed 排序与合同测试；本条仅补充合并工作日志
+- 执行验证：`main` 从 `86743b5` 无冲突快进到 `c243329`；合并结果 `test_gate full` 22/22、130.606 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：本地 `main` 已包含当前功能分支全部代码；主工作区仍停留在 `codex/0723`，其原有未提交文档和输出文件保持不变
+- 运行态：`localhost:8080` 继续运行已验证的同源镜像 `inteliscope-service:local-70a3617610e9-members-dirty`；未重新构建或切换数据卷
+- 控制面变更：无新增规则；未推送远端、未部署 VPS，未启动 scheduler、来源抓取、AI 或付费调用
