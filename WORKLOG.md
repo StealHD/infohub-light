@@ -2407,3 +2407,10 @@
 - 执行验证：回归先 RED 后定向 21/21；UI contract、TypeScript、45 files / 366 Vitest、production build/产物扫描、lint 0 error 通过；`test_gate full` 22/22、102.37 秒
 - 结果：显式 `bg-accent` 不再被通用 `bg-transparent` 覆盖，发送按钮使用当前明暗模式的语义紫色与对应前景色；未指定背景的 Tooltip 图标按钮仍保持透明
 - 控制面变更：无；未修改 API、数据库、权限、主题合同、容器、部署、scheduler、抓取、AI 或付费调用
+
+### 2026-07-23 13:12 Codex
+- 任务：启动 `codex/feed-insights-theme-toggle` 的本地 Web 容器
+- 运行变更：使用镜像 `inteliscope-service:local-4b60d2ab33fd`；worktree 复用原本地 `.env`，并通过临时 Compose override 明确挂载既有运行数据目录
+- 问题记录：首次启动因 worktree 缺少运行时文件而由 bind mount 生成空数据库；数据库文件符号链接在容器内也无法解析，已将“启动前验证 `.env`/数据库挂载、保留 tracked `data/` 并显式覆盖 `/app/data`”写入持久工作流规则，空数据库保留于 `/tmp/infohub-light-feed-theme-empty-service-20260723T1308.db`
+- 执行验证：`horizon-light-api` healthy；live=`1.5.0/4b60d2ab33fd`、ready database=`ready`；容器 `/app/data` 已确认挂载原运行数据目录
+- 运行安全：本次仅启动 API，未启动 Worker 或 scheduler；检测到 `settings-key-feedback-quota` 并发任务独立启动的 Worker 后保持原状，未触发抓取、AI 或付费调用
