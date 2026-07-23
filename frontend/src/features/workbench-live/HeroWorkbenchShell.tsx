@@ -13,6 +13,7 @@ import {
   writeFeedPreference,
 } from '../feed/feedPreference'
 import {
+  actionToast,
   AvatarFallback,
   AvatarImage,
   AvatarRoot,
@@ -415,7 +416,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [rightRailWidthState, setRightRailWidthState] = useState(() => ({ userId: props.user.id, value: readRightRailWidth(props.user.id) }))
   const [feedPreferenceState, setFeedPreferenceState] = useState(() => ({ userId: props.user.id, value: readFeedPreference(props.user.id) }))
   const [draft, setDraft] = useState(() => readAgentContextDraft(props.user.id))
-  const [dismissedNotice, setDismissedNotice] = useState('')
+  const shownRefreshEvents = useRef(new Set<string>())
   const delegations = useQuery({ queryKey: queryKeys.agentDelegations(props.user.id), queryFn: ({ signal }) => props.api.agentDelegations(signal), retry: false, enabled: agentRoute })
   const insightsFeed = useQuery({
     queryKey: queryKeys.feed(props.user.id, { hideDismissed: false, unreadFirst: false }),
@@ -428,8 +429,6 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     defaultGatewayUrl: delegations.data?.openclaw_chat?.default_gateway_url ?? 'ws://127.0.0.1:18789',
   })
   const refreshing = props.refreshState === 'pending' || props.refreshState === 'queued' || props.refreshState === 'running'
-  const noticeKey = props.refreshEventKey || `${props.refreshState}:${props.refreshMessage ?? ''}`
-  const noticeOpen = Boolean(props.refreshMessage) && !refreshing && dismissedNotice !== noticeKey
   const sidebarPreference = sidebarState.userId === props.user.id ? sidebarState.value : readSidebarPreference(props.user.id)
   const feedPreference = feedPreferenceState.userId === props.user.id ? feedPreferenceState.value : readFeedPreference(props.user.id)
   const activeQuickView = detectActiveQuickView(feedPreference)
@@ -717,11 +716,26 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   }, [closeInsights, closeRightRail, insightsOpen, mobile, openclawChat.isRunning, visibleRightRailMode])
 
   useEffect(() => {
-    if (!noticeOpen) return
-    const longNotice = props.refreshState === 'failed' || props.refreshState === 'partial' || props.refreshState === 'blocked'
-    const timer = window.setTimeout(() => setDismissedNotice(noticeKey), longNotice ? 8000 : 4000)
-    return () => window.clearTimeout(timer)
-  }, [noticeKey, noticeOpen, props.refreshState])
+    if (!props.refreshMessage || refreshing) return
+    const eventKey = `${props.user.id}:${props.refreshEventKey || `${props.refreshState}:${props.refreshMessage}`}`
+    if (shownRefreshEvents.current.has(eventKey)) return
+    shownRefreshEvents.current.add(eventKey)
+    const options = {
+      description: props.refreshMessage,
+      onRetry: props.onRetry,
+    }
+    if (props.refreshState === 'succeeded') {
+      actionToast.success('信息流已更新', options)
+    } else if (props.refreshState === 'partial') {
+      actionToast.warning('信息流部分更新', options)
+    } else if (props.refreshState === 'blocked') {
+      actionToast.danger('信息流更新未开始', options)
+    } else if (props.refreshState === 'failed') {
+      actionToast.danger('信息流更新失败', options)
+    } else {
+      actionToast.info('信息流更新状态', options)
+    }
+  }, [props.onRetry, props.refreshEventKey, props.refreshMessage, props.refreshState, props.user.id, refreshing])
 
   const updateRailWidthFromPointer = useCallback((clientX: number) => {
     const shellRight = shellRef.current?.getBoundingClientRect().right ?? viewportWidth
@@ -932,10 +946,6 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
         />
 
         <main ref={mainRef} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
-          {noticeOpen && <div role={props.refreshState === 'failed' || props.refreshState === 'blocked' ? 'alert' : 'status'} className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted">
-            <span className="flex-1">{props.refreshMessage}</span>{props.onRetry && <Button size="sm" variant="ghost" onPress={props.onRetry}>重试</Button>}
-            <Button size="sm" variant="ghost" isIconOnly aria-label="关闭更新提示" onPress={() => setDismissedNotice(noticeKey)}><Icons.X size={15} /></Button>
-          </div>}
           {props.children}
         </main>
 

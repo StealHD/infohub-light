@@ -2466,3 +2466,17 @@
 - 结果：生产 `/opt/inteliscope/current` 指向 `/opt/inteliscope/releases/v1.7.2-734d79d4f0f0`，API/Worker 同镜像 `sha256:e58e3aa387a…9a64`、版本 `1.7.2/734d79d4f0f0`；Release 已发布为 `https://github.com/StealHD/infohub-light/releases/tag/v1.7.2`，说明覆盖 `v1.7.0...v1.7.2`
 - 回退：切换前备份位于 `/opt/inteliscope/backups/pre-v1.7.2-734d79d4f0f0-20260723T064541Z`，数据库 SHA-256 `e81766eef86b…43f9`；旧 `/opt/inteliscope/releases/v1.7.1-c762fea20268-local` 与旧镜像保留
 - 控制面变更：无；全部非构建身份环境值保持一致，scheduler 继续缺席，未手动触发来源抓取、AI、付费调用或数据库恢复
+
+### 2026-07-23 17:55 Codex
+- 任务：从最新 `main` 隔离创建 `codex/ui-operation-feedback-toasts`，统一设置、订阅、来源任务、Agent、成员和 Feed 的终态操作反馈
+- 修改文件：新增设计系统 Toast 门面，移除页面流内终态 Notice/Feed 横幅，接入 4/8 秒、最多三条、可关闭及一次性重试；补充用户/事件去重、跨账户清理、Vitest/Playwright、UI 合同和 D055
+- 执行验证：TypeScript、UI contract、production build、45 files / 369 Vitest、lint 0 error（7 个既有 warning）通过；新增三视口 Playwright 6/6，完整规格并发中的两个既有移动端抖动用例隔离复跑 2/2；最终 `test_gate full` 22/22、104.775 秒，JSON 与 `git diff --check` 通过
+- 结果：Key 保存仅显示一次顶部 Toast；调度、抓取、Agent、成员和 Feed 终态不再挤压页面，表单/Modal 可修正错误及 pending/queued/running 状态仍保留在上下文内，刷新与来源任务的可重试失败复用现有 guarded callback
+- 控制面变更：UI_CONTRACT 与 D055 固化全站顶部 Toast 队列；无 API、数据库、权限、Query Key、依赖、容器或部署变化，未启动 Worker、scheduler、真实抓取、AI 或付费调用
+
+### 2026-07-23 18:05 Codex
+- 任务：构建并启动 `codex/ui-operation-feedback-toasts` 本地环境
+- 运行变更：API/Worker 切换到同一镜像 `inteliscope-service:local-877444e58831-ui-operation-feedback-toasts-dirty`，继续显式挂载主工作区既有 `.env`、`data` 与 `logs`
+- 执行验证：live=`1.7.2/877444e58831-ui-operation-feedback-toasts-dirty`，API/Worker ready、healthy、0 restart；运行 bundle 含 Key/调度/Feed Toast 文案，SQLite quick check=`ok`、active jobs=0、严重日志匹配=0
+- 安全边界：切换前创建 `0600` 备份 `data/backups/pre-ui-operation-feedback-toasts-20260723T100253Z.db`；独立 scheduler 未运行，Worker 启动时确认到期计划为 0，并将计划轮询间隔限制为 86400 秒
+- 控制面变更：无；未部署 VPS，未触发真实抓取、AI、付费调用或数据库恢复

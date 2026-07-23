@@ -8,6 +8,7 @@ import type { ServiceApi } from '../../api/service'
 import type { AgentDelegation, AgentDelegationsResponse, User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
 import type { AppOutletContext } from '../../app/AppContext'
+import { DesignSystemProvider } from '../../design-system'
 import type { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
 import { OpenClawPairingUpgradeRequiredError } from '../openclaw/openclawDevice'
 import { OPENCLAW_CURRENT_SCOPES } from '../openclaw/openclawGateway'
@@ -94,7 +95,9 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
   const rendered = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/agents']}>
-        <Routes><Route element={<Layout />}><Route path="/agents" element={<HeroAgentsPage />} /></Route></Routes>
+        <DesignSystemProvider>
+          <Routes><Route element={<Layout />}><Route path="/agents" element={<HeroAgentsPage />} /></Route></Routes>
+        </DesignSystemProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -123,14 +126,14 @@ describe('OpenClaw browser pairing settings', () => {
     let resolveForget: ((value: 'removed') => void) | undefined
     const pendingForget = new Promise<'removed'>((resolve) => { resolveForget = resolve })
     const forgetBrowser = vi.fn(() => pendingForget)
-    render(<OpenClawBrowserSettings
+    render(<MemoryRouter><DesignSystemProvider><OpenClawBrowserSettings
       userId="member-1"
       enabled
       defaultUrl="ws://127.0.0.1:18789"
       targetVersion="2026.7.1"
       vault={vault}
       forgetBrowser={forgetBrowser}
-    />)
+    /></DesignSystemProvider></MemoryRouter>)
 
     await screen.findByText('此浏览器已配对')
     await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
@@ -154,21 +157,22 @@ describe('OpenClaw browser pairing settings', () => {
     await act(async () => { resolveForget?.('removed') })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).not.toBeInTheDocument())
     expect(screen.getByText('此浏览器未配对')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('服务端设备和当前浏览器配对已删除')
+    const success = screen.getByText('OpenClaw 服务端设备和当前浏览器配对已删除')
+    expect(success.closest('[data-slot="toast-region"]')).not.toBeNull()
   })
 
   it('keeps the pairing and shows the exact approval command for a legacy scope upgrade', async () => {
     const browser = userEvent.setup()
     const vault = pairedBrowserVault()
     const forgetBrowser = vi.fn().mockRejectedValue(new OpenClawPairingUpgradeRequiredError('request-upgrade-1'))
-    render(<OpenClawBrowserSettings
+    render(<MemoryRouter><DesignSystemProvider><OpenClawBrowserSettings
       userId="member-1"
       enabled
       defaultUrl="ws://127.0.0.1:18789"
       targetVersion="2026.7.1"
       vault={vault}
       forgetBrowser={forgetBrowser}
-    />)
+    /></DesignSystemProvider></MemoryRouter>)
 
     await screen.findByText('此浏览器已配对')
     await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
@@ -367,6 +371,7 @@ describe('HeroAgentsPage delegation access', () => {
 
     await act(async () => { resolveDelete?.({ deleted: true }) })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除已吊销连接' })).not.toBeInTheDocument())
-    expect(screen.getByText('已删除连接记录。')).toBeInTheDocument()
+    const success = screen.getByText('已删除连接记录')
+    expect(success.closest('[data-slot="toast-region"]')).not.toBeNull()
   })
 })

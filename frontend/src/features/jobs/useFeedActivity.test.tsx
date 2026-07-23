@@ -39,6 +39,11 @@ describe('useFeedActivity', () => {
     expect(hook.result.current.notice?.message).toContain('后台获取服务')
     expect(hook.feedSchedule).toHaveBeenCalledTimes(2)
     expect(hook.createFeedRefresh).not.toHaveBeenCalled()
+
+    expect(hook.result.current.retry).toEqual(expect.any(Function))
+    act(() => hook.result.current.retry?.())
+    await waitFor(() => expect(hook.feedSchedule).toHaveBeenCalledTimes(3))
+    expect(hook.createFeedRefresh).not.toHaveBeenCalled()
   })
 
   it('creates the refresh only after a fresh ready check', async () => {
@@ -110,6 +115,35 @@ describe('useFeedActivity', () => {
     }] }))
 
     await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('succeeded'))
+    expect(hook.result.current.notice).toBeUndefined()
+  })
+
+  it('does not carry a terminal notice into a replacement account', async () => {
+    const replacement: User = { id: 'user-2', username: 'member', role: 'member', enabled: true }
+    const api = {
+      jobs: vi.fn().mockResolvedValue({ jobs: [queuedJob] }),
+      feedSchedule: vi.fn().mockResolvedValue(schedule('ready')),
+    } as unknown as ServiceApi
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    const guards: Record<string, ActionGeneration> = {
+      [user.id]: new ActionGeneration(user.id),
+      [replacement.id]: new ActionGeneration(replacement.id),
+    }
+    const hook = renderHook(
+      ({ currentUser }: { currentUser: User }) => useFeedActivity(api, currentUser, guards[currentUser.id]),
+      { wrapper, initialProps: { currentUser: user } },
+    )
+    await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
+
+    act(() => client.setQueryData(['user', user.id, 'jobs'], { jobs: [{
+      ...queuedJob,
+      status: 'succeeded',
+      result: { item_count: 5, snapshot_created: true },
+    }] }))
+    await waitFor(() => expect(hook.result.current.notice?.key).toBe('job-1:succeeded'))
+
+    hook.rerender({ currentUser: replacement })
     expect(hook.result.current.notice).toBeUndefined()
   })
 })

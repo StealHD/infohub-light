@@ -467,3 +467,11 @@
 - 安全边界：服务端只从 SecretStore 读取 Token，并调用 Apify `/v2/users/me` 与 `/v2/users/me/limits`；浏览器只接收 USD 周期与非负额度数字。Token、账户资料、原始响应、错误正文、日志和数据库均不得承载秘密；额度失败不影响 Key 保存或列表。
 - 原因：页面顶部的通用错误离底部表单过远，新增失败缺少可执行反馈；同时管理员需要在不暴露 Token 或账户资料的前提下判断 Apify 套餐和硬上限余量。
 - 影响范围：Secret quota service、管理员 secret API、React Service API/Query cache、设置页 Key Table/Modal、API/UI 合同和测试；不新增数据库结构，不触发 Actor、抓取、AI、scheduler 或付费调用。
+
+### D055 全站终态操作反馈使用单一顶部 Toast 队列
+
+- 决策日期：2026-07-23
+- 当前状态：本地实现与验证中；未部署
+- 决策内容：设置、订阅、来源任务、Agent、成员和 Feed 的非表单终态反馈统一进入 `DesignSystemProvider` 拥有的顶部 HeroUI Toast 队列，不再通过页面顶部 Notice 或 Feed 横幅改变文档流。成功/信息为 4 秒，警告/失败为 8 秒，最多显示三条；可重试终态在 Toast 内提供一次性重试动作。
+- 原因：Key 保存等短暂结果若留在普通页面布局中，会持续占位并推动后续内容；分散的定时器、关闭按钮和反馈状态也容易在轮询重渲染时重复出现。单一设计系统入口可统一时长、覆盖层、去重和跨用户清理，同时保留触发控件上的 pending/queued/running 状态。
+- 边界：字段校验、需要修正的表单/Modal 错误、加载失败、禁用/降级状态和权限升级恢复命令继续留在上下文内。Toast 只使用安全投影后的文案，不包含 Key、原始 payload、带凭证 URL 或未脱敏错误；无 API、数据库、权限、Query Key、Worker、scheduler、抓取、AI、依赖或部署变化。

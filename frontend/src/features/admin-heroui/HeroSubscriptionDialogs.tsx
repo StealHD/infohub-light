@@ -5,6 +5,7 @@ import type { CatalogField, CatalogSource, SecretRef, SourceTypeDefinition, Subs
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
+  actionToast,
   Button,
   Checkbox,
   Chip,
@@ -19,7 +20,6 @@ import {
   Modal,
   TextArea,
   TextField,
-  toast,
 } from '../../design-system'
 import { formValuesForSource, sourceMutationPayload, sourceScopeLabel } from '../subscriptions/subscriptionModel'
 import { HeroNotice, HeroSelect } from './HeroAdminControls'
@@ -200,12 +200,11 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       if (intent === 'unsubscribe') {
         try {
           await api.unsubscribe(subscription.id)
-          toast.success(`${source.display_name} 已取消订阅。`, { timeout: 4000 })
+          actionToast.success(`${source.display_name} 已取消订阅`)
           if (isActionCurrent(token)) onDone()
         } catch (caught) {
-          toast.danger('取消订阅失败', {
+          actionToast.danger('取消订阅失败', {
             description: caught instanceof ApiError || caught instanceof Error ? caught.message : '请稍后重试。',
-            timeout: 8000,
           })
         }
         return
@@ -223,7 +222,10 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       await api.updateSourceSchedule(subscription.id, { enabled: enabled && form.has('source_schedule_enabled'), interval_minutes: Number(interval) })
       if (!isActionCurrent(token)) return
       if (intent === 'test' || intent === 'fetch') await onJob(intent, source.id, subscription.id)
-      if (isActionCurrent(token)) onDone()
+      if (isActionCurrent(token)) {
+        if (intent === 'save') actionToast.success('订阅设置已保存')
+        onDone()
+      }
     } catch (caught) { setError(caught instanceof ApiError ? caught.message : '订阅保存失败。') }
     finally { setPending(false) }
   }

@@ -9,7 +9,7 @@ import { ApiError } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import type { ServiceApi } from '../api/service'
 import type { FeedItem, Job } from '../api/types'
-import { DesignSystemProvider } from '../design-system'
+import { actionToast, DesignSystemProvider } from '../design-system'
 import { validateRegistryFields } from '../features/admin-heroui/sourceFormValidation'
 import { AppRoutes } from './App'
 
@@ -114,6 +114,27 @@ describe('App routes', () => {
     expect(api.latestFeed).toHaveBeenCalled()
     expect(api.agentDelegations).toHaveBeenCalled()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
+  })
+
+  it('clears queued Toasts before a replacement account can render', async () => {
+    const api = liveApi()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '信息流' })
+    act(() => {
+      actionToast.success('旧账户操作完成')
+    })
+    expect(await screen.findByText('旧账户操作完成')).toBeInTheDocument()
+
+    act(() => {
+      queryClient.setQueryData(queryKeys.auth, {
+        authenticated: true,
+        user: { id: 'replacement-user', username: 'replacement', role: 'member', enabled: true },
+      })
+    })
+
+    await waitFor(() => expect(screen.queryByText('旧账户操作完成')).not.toBeInTheDocument())
   })
 
   it('releases the static boot shell only after the authenticated shell commits', async () => {
@@ -402,7 +423,7 @@ describe('App routes', () => {
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
   }, 10_000)
 
-  it('explains a live single-source fetch block without queueing work', async () => {
+  it('explains a live single-source fetch block in an overlay without queueing work', async () => {
     const browser = userEvent.setup()
     const source = { id: 'blocked-source', type: 'rss', display_name: '阻塞来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const subscription = { id: 'blocked-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: 0 }
@@ -417,13 +438,13 @@ describe('App routes', () => {
       createSourceFetch,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 阻塞来源' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('后台获取服务当前不可用')
+    const message = await screen.findByText('后台获取服务当前不可用，请稍后再试。')
+    expect(message.closest('[data-slot="toast-region"]')).not.toBeNull()
+    expect(message.closest('[data-page-frame]')).toBeNull()
     expect(createSourceFetch).not.toHaveBeenCalled()
-    await browser.click(screen.getByRole('button', { name: '关闭通知' }))
-    expect(screen.queryByText(/后台获取服务当前不可用/)).not.toBeInTheDocument()
   })
 
   it('settles a live source fetch through queued, running and terminal lifecycle states', async () => {
@@ -442,7 +463,7 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 生命周期来源' }))
     expect(await screen.findByRole('button', { name: '已排队 生命周期来源' })).toBeDisabled()
@@ -453,7 +474,9 @@ describe('App routes', () => {
     expect(invalidate).not.toHaveBeenCalled()
 
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4 } }] }))
-    expect(await screen.findByText('生命周期来源 获取完成，共 4 条。')).toBeInTheDocument()
+    const completion = await screen.findByText('生命周期来源 获取完成')
+    expect(completion.closest('[data-slot="toast-region"]')).not.toBeNull()
+    expect(screen.getByText('共 4 条。')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '立即获取 生命周期来源' })).toBeEnabled()
     await waitFor(() => {
       const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
@@ -464,7 +487,7 @@ describe('App routes', () => {
     })
   }, 10_000)
 
-  it('keeps a manually dismissed source-fetch terminal notice closed across polling rerenders', async () => {
+  it('does not replay a cleared source-fetch terminal toast across polling rerenders', async () => {
     const browser = userEvent.setup()
     const source = { id: 'dismiss-source', type: 'rss', display_name: '可关闭来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const subscription = { id: 'dismiss-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true }
@@ -475,13 +498,13 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 可关闭来源' }))
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [terminal] }))
     expect(await screen.findByText('可关闭的抓取失败')).toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '关闭通知' }))
-    expect(screen.queryByText('可关闭的抓取失败')).not.toBeInTheDocument()
+    actionToast.clear()
+    await waitFor(() => expect(screen.queryByText('可关闭的抓取失败')).not.toBeInTheDocument())
 
     await act(async () => {
       queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...terminal }] })
@@ -491,10 +514,10 @@ describe('App routes', () => {
   })
 
   it.each([
-    ['partial', undefined, '终态来源 部分完成，请查看运行记录。'],
-    ['failed', '上游连接超时', '上游连接超时'],
-    ['cancelled', undefined, '终态来源 获取已取消。'],
-  ] as const)('surfaces sanitized live source fetch terminal state %s', async (status, errorMessage, expected) => {
+    ['partial', undefined, '终态来源 部分完成', '请查看运行记录。'],
+    ['failed', '上游连接超时', '终态来源 获取失败', '上游连接超时'],
+    ['cancelled', undefined, '终态来源 获取已取消', '任务已取消。'],
+  ] as const)('surfaces sanitized live source fetch terminal state %s', async (status, errorMessage, title, description) => {
     const browser = userEvent.setup()
     const source = { id: `terminal-${status}`, type: 'rss', display_name: '终态来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const subscription = { id: `terminal-sub-${status}`, user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: 0 }
@@ -504,11 +527,13 @@ describe('App routes', () => {
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '立即获取 终态来源' }))
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status, error_message: errorMessage, retryable: status === 'failed', result: { debug_payload: 'never expose this terminal payload' } }] }))
-    expect(await screen.findByText(expected)).toBeInTheDocument()
+    const terminalTitle = await screen.findByText(title)
+    expect(terminalTitle.closest('[data-slot="toast-region"]')).not.toBeNull()
+    expect(screen.getByText(description)).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '立即获取 终态来源' })).toBeEnabled()
     expect(screen.queryByText('never expose this terminal payload')).not.toBeInTheDocument()
   }, 10_000)
@@ -695,7 +720,7 @@ describe('App routes', () => {
     expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
   })
 
-  it('renders local accessible errors for live schedule, subscribe, unsubscribe and retry actions', async () => {
+  it('renders overlay errors for live schedule, subscribe, unsubscribe and retry actions', async () => {
     const browser = userEvent.setup()
     const subscribedSource = { id: 'error-subscribed', type: 'rss', display_name: '错误已订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const availableSource = { id: 'error-available', type: 'rss', display_name: '错误未订阅来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
@@ -713,7 +738,7 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: '关闭自动更新' }))
-    expect((await screen.findByText('计划保存失败')).closest('[role="alert"]')).not.toBeNull()
+    expect((await screen.findByText('计划保存失败')).closest('[data-slot="toast-region"]')).not.toBeNull()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
     await browser.click(await screen.findByRole('button', { name: '取消订阅 错误已订阅来源' }))
@@ -723,7 +748,42 @@ describe('App routes', () => {
 
     await browser.click(screen.getByRole('tab', { name: '运行记录' }))
     await browser.click(await screen.findByRole('button', { name: '重试' }))
-    expect((await screen.findByText('重试请求失败')).closest('[role="alert"]')).not.toBeNull()
+    expect((await screen.findByText('重试请求失败')).closest('[data-slot="toast-region"]')).not.toBeNull()
+  })
+
+  it('shows successful Key creation once in a top overlay without adding a page notice', async () => {
+    const browser = userEvent.setup()
+    const createSecret = vi.fn().mockResolvedValue({
+      id: 'secret-new',
+      name: 'DeepSeek',
+      kind: 'ai',
+      provider: 'deepseek',
+      env_name: 'DEEPSEEK_API_KEY',
+      is_set: true,
+      used_by: [],
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-key-success', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      createSecret,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '密钥' })
+    await browser.type(screen.getByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
+    await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
+    await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
+    await browser.type(screen.getByLabelText('Key 值'), 'write-only-value')
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+
+    await waitFor(() => expect(createSecret).toHaveBeenCalledOnce())
+    const successMessages = await screen.findAllByText('Key 已安全保存')
+    expect(successMessages).toHaveLength(1)
+    expect(successMessages[0].closest('[data-slot="toast-region"]')).not.toBeNull()
+    expect(successMessages[0].closest('[data-page-frame]')).toBeNull()
+    expect(screen.queryByText('Key 已保存，页面不会回显真实值。')).not.toBeInTheDocument()
   })
 
   it('shows role-scoped live settings and clears only a failed secret value', async () => {
@@ -1175,6 +1235,33 @@ describe('App routes', () => {
     await waitFor(() => expect(changePassword).toHaveBeenCalledWith('current-secret', 'new-secret-value'))
     expect(screen.getByLabelText('当前密码')).toHaveValue('')
     expect(screen.getByLabelText('新密码')).toHaveValue('')
+  })
+
+  it('keeps member-create correction feedback in its form while global failure uses a toast', async () => {
+    const browser = userEvent.setup()
+    const createUser = vi.fn().mockRejectedValue(new ApiError(409, {
+      code: 'username_conflict',
+      message: '用户名已存在',
+    }))
+    const owner = { id: 'owner-users', username: 'owner', role: 'owner' as const, enabled: true }
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: owner }),
+      users: vi.fn().mockResolvedValue({ users: [owner] }),
+      createUser,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/users']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '成员管理' })
+    await browser.type(screen.getByRole('textbox', { name: '用户名' }), 'duplicate')
+    await browser.type(screen.getByLabelText('初始密码'), 'initial-secret')
+    await browser.click(screen.getByRole('button', { name: '新增成员' }))
+
+    await waitFor(() => expect(createUser).toHaveBeenCalledOnce())
+    const messages = await screen.findAllByText('用户名已存在')
+    expect(messages.some((message) => message.closest('form'))).toBe(true)
+    expect(messages.some((message) => message.closest('[data-slot="toast-region"]'))).toBe(true)
+    expect(document.querySelector('[data-page-frame="admin"]')?.querySelector(':scope > [role="alert"]')).toBeNull()
   })
 
   it('keeps invalid registry source fields out of submission and explains their constraints', async () => {
@@ -1774,18 +1861,20 @@ describe('App routes', () => {
     }
   })
 
-  it('rolls optimistic saves back inside a HeroUI-only failure surface', async () => {
+  it('rolls optimistic saves back and reports the failure in an overlay toast', async () => {
     const user = userEvent.setup()
     const api = liveApi({
       updateItemState: vi.fn().mockRejectedValue(new ApiError(500, { code: 'save_failed', message: '收藏失败' })),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     const save = await screen.findByRole('button', { name: '收藏 真实 API 条目' })
     await user.click(save)
     await waitFor(() => expect(screen.getByRole('button', { name: '收藏 真实 API 条目' })).toBeInTheDocument())
-    expect(await screen.findByRole('alert')).toHaveTextContent('收藏失败，状态已恢复。')
+    const message = await screen.findByText('收藏失败，状态已恢复。')
+    expect(message.closest('[data-slot="toast-region"]')).not.toBeNull()
+    expect(message.closest('[data-page-frame]')).toBeNull()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
   })
 
