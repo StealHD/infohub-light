@@ -175,12 +175,16 @@ describe('OpenClaw conversation surface', () => {
 
     expect(screen.queryByRole('button', { name: /OpenClaw 运行设置/ })).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4' }))
-    expect(screen.getByRole('option', { name: /GPT-5.4/ })).toHaveAttribute('aria-selected', 'true')
+    const selectedModel = screen.getByRole('option', { name: /GPT-5.4/ })
+    expect(selectedModel).toHaveAttribute('aria-selected', 'true')
+    expect(selectedModel.querySelector('[data-slot="list-box-item-indicator"][data-visible]')).toBeInTheDocument()
     await browser.click(screen.getByRole('option', { name: /Quick/ }))
     expect(chat.setModel).toHaveBeenCalledWith('local/quick')
 
     await browser.click(screen.getByRole('button', { name: 'OpenClaw 思考程度：高' }))
-    expect(screen.getByRole('option', { name: '高' })).toHaveAttribute('aria-selected', 'true')
+    const selectedThinking = screen.getByRole('option', { name: '高' })
+    expect(selectedThinking).toHaveAttribute('aria-selected', 'true')
+    expect(selectedThinking.querySelector('[data-slot="list-box-item-indicator"][data-visible]')).toBeInTheDocument()
     await browser.click(screen.getByRole('option', { name: '低' }))
     expect(chat.setThinking).toHaveBeenCalledWith('low')
   })

@@ -336,9 +336,12 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
       </Select.Trigger>
       <Select.Popover placement="top start" offset={8} className="z-50 w-[min(320px,calc(100vw-24px))]">
         <ListBox items={chat.models} aria-label="OpenClaw 模型">
-          {(model) => <ListBox.Item id={model.id} textValue={model.name} className="min-w-0">
-            <span className="type-control block min-w-0 truncate">{model.name}</span>
-            <span className="type-meta block min-w-0 truncate text-muted">{model.provider}{formatContextWindow(model.contextWindow) ? ` · ${formatContextWindow(model.contextWindow)}` : ''}</span>
+          {(model) => <ListBox.Item id={model.id} textValue={model.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
+            <span className="min-w-0">
+              <span className="type-control block min-w-0 truncate">{model.name}</span>
+              <span className="type-meta block min-w-0 truncate text-muted">{model.provider}{formatContextWindow(model.contextWindow) ? ` · ${formatContextWindow(model.contextWindow)}` : ''}</span>
+            </span>
+            <ListBox.ItemIndicator className="text-accent" />
           </ListBox.Item>}
         </ListBox>
       </Select.Popover>
@@ -365,9 +368,12 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
       </Select.Trigger>
       <Select.Popover placement="top end" offset={8} className="z-50 w-[min(220px,calc(100vw-24px))]">
         <ListBox items={thinkingItems} aria-label="OpenClaw 思考程度">
-          {(option) => <ListBox.Item id={option.id} textValue={option.label} className="min-w-0">
-            <span className="type-control block">{option.label}</span>
-            {option.description && <span className="type-meta block text-muted">{option.description}</span>}
+          {(option) => <ListBox.Item id={option.id} textValue={option.label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
+            <span className="min-w-0">
+              <span className="type-control block">{option.label}</span>
+              {option.description && <span className="type-meta block text-muted">{option.description}</span>}
+            </span>
+            <ListBox.ItemIndicator className="text-accent" />
           </ListBox.Item>}
         </ListBox>
       </Select.Popover>
