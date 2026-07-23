@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useLayoutEffect,
   useMemo,
   useState,
@@ -11,11 +9,16 @@ import { ToastProvider } from '@heroui/react'
 
 import { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
 import {
+  applyThemePreferenceToRoot,
   readThemePreference,
   writeThemePreference,
   type ThemeColorMode,
   type ThemePreference,
 } from './themePreference'
+import {
+  ThemePreferenceContext,
+  type ThemePreferenceContextValue,
+} from './themePreferenceContext'
 import './theme.css'
 
 type ThemeRootLease = {
@@ -58,46 +61,6 @@ function acquireThemeRoot(root: HTMLElement) {
   }
 }
 
-function applyThemeRoot(root: HTMLElement, preference: ThemePreference) {
-  root.setAttribute('data-theme', preference.colorMode)
-  root.setAttribute('data-inteliscope-theme', preference.themeName)
-}
-
-type ThemePreferenceContextValue = ThemePreference & {
-  setColorMode: (mode: ThemeColorMode) => void
-  toggleColorMode: () => void
-}
-
-const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null)
-
-export function useThemePreference(): ThemePreferenceContextValue {
-  const provided = useContext(ThemePreferenceContext)
-  const [fallback, setFallback] = useState<ThemePreference>(readThemePreference)
-  const setFallbackColorMode = useCallback((colorMode: ThemeColorMode) => {
-    setFallback((current) => {
-      const next = writeThemePreference({ ...current, colorMode })
-      if (typeof document !== 'undefined') applyThemeRoot(document.documentElement, next)
-      return next
-    })
-  }, [])
-  const toggleFallbackColorMode = useCallback(() => {
-    setFallback((current) => {
-      const next = writeThemePreference({
-        ...current,
-        colorMode: current.colorMode === 'dark' ? 'light' : 'dark',
-      })
-      if (typeof document !== 'undefined') applyThemeRoot(document.documentElement, next)
-      return next
-    })
-  }, [])
-  const fallbackValue = useMemo<ThemePreferenceContextValue>(() => ({
-    ...fallback,
-    setColorMode: setFallbackColorMode,
-    toggleColorMode: toggleFallbackColorMode,
-  }), [fallback, setFallbackColorMode, toggleFallbackColorMode])
-  return provided ?? fallbackValue
-}
-
 export function DesignSystemProvider({ children }: { children: ReactNode }) {
   const [preference, setPreference] = useState<ThemePreference>(readThemePreference)
   const setColorMode = useCallback((colorMode: ThemeColorMode) => {
@@ -118,7 +81,7 @@ export function DesignSystemProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => acquireThemeRoot(document.documentElement), [])
   useLayoutEffect(() => {
     const root = document.documentElement
-    applyThemeRoot(root, preference)
+    applyThemePreferenceToRoot(root, preference)
   }, [preference])
 
   return <ThemePreferenceContext.Provider value={contextValue}>

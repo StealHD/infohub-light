@@ -13,6 +13,11 @@ export const DEFAULT_THEME_PREFERENCE: ThemePreference = {
   colorMode: 'dark',
 }
 
+export function applyThemePreferenceToRoot(root: HTMLElement, preference: ThemePreference) {
+  root.setAttribute('data-theme', preference.colorMode)
+  root.setAttribute('data-inteliscope-theme', preference.themeName)
+}
+
 function browserStorage(): Storage | undefined {
   if (typeof window === 'undefined') return undefined
   try {

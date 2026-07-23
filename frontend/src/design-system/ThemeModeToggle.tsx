@@ -1,7 +1,7 @@
 import { Button } from '@heroui/react'
 
 import * as Icons from './icons'
-import { useThemePreference } from './DesignSystemProvider'
+import { useThemePreference } from './themePreferenceContext'
 
 export function ThemeModeToggle() {
   const { colorMode, toggleColorMode } = useThemePreference()

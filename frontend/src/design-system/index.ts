@@ -42,9 +42,10 @@ export {
 export type { LucideIcon } from 'lucide-react'
 export type { SortDescriptor } from '@heroui/react'
 
-export { DesignSystemProvider, useThemePreference } from './DesignSystemProvider'
+export { DesignSystemProvider } from './DesignSystemProvider'
 export { DesignSystemRouterProvider } from './DesignSystemRouterProvider'
 export { ThemeModeToggle } from './ThemeModeToggle'
+export { useThemePreference } from './themePreferenceContext'
 export { Tooltip } from './AnchoredTooltip'
 export { anchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
