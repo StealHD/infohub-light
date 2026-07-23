@@ -618,7 +618,7 @@ test('a proven-stale initial deep link returns the real Feed viewport to the new
   expect(offset).toBeLessThanOrEqual(96)
 })
 
-test('Feed sort changes reset to the selected fresh edge', async ({ page }) => {
+test('Feed sort changes reset to the top', async ({ page }) => {
   await page.goto('/feed')
   const scroll = page.getByTestId('workbench-feed-scroll')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
@@ -629,14 +629,14 @@ test('Feed sort changes reset to the selected fresh edge', async ({ page }) => {
 
   await page.getByRole('button', { name: '最新优先' }).click()
   await expect(page.getByRole('button', { name: '最旧优先' })).toBeVisible()
-  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(96)
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
 
   await scroll.evaluate((element) => {
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
   await page.getByRole('button', { name: /按(发布时间|入库时间)排序/ }).click()
-  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(96)
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
 
   await page.getByRole('button', { name: '最旧优先' }).click()
   await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
