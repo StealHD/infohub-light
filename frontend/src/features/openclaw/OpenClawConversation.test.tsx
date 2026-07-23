@@ -159,7 +159,7 @@ describe('OpenClaw conversation surface', () => {
     expect(stopButton).toHaveClass('size-9', 'shrink-0', 'rounded-full')
   })
 
-  it('uses one compact runtime control and requests a verified model branch', async () => {
+  it('uses separate model and thinking selectors with verified runtime actions', async () => {
     const browser = userEvent.setup()
     const chat = chatController({
       status: 'connected',
@@ -173,12 +173,16 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    await browser.click(screen.getByRole('button', { name: 'OpenClaw 运行设置：GPT-5.4 · 高' }))
-    expect(screen.getByText('当前对话运行设置')).toBeInTheDocument()
-    expect(screen.getByLabelText('搜索 OpenClaw 模型')).toHaveValue('GPT-5.4 openai')
-    await browser.click(screen.getByRole('button', { name: /显示 OpenClaw 模型/ }))
+    expect(screen.queryByRole('button', { name: /OpenClaw 运行设置/ })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4' }))
+    expect(screen.getByRole('option', { name: /GPT-5.4/ })).toHaveAttribute('aria-selected', 'true')
     await browser.click(screen.getByRole('option', { name: /Quick/ }))
     expect(chat.setModel).toHaveBeenCalledWith('local/quick')
+
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 思考程度：高' }))
+    expect(screen.getByRole('option', { name: '高' })).toHaveAttribute('aria-selected', 'true')
+    await browser.click(screen.getByRole('option', { name: '低' }))
+    expect(chat.setThinking).toHaveBeenCalledWith('low')
   })
 
   it('keeps the connected composer input and actions in stable grid tracks', () => {
@@ -196,7 +200,9 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
-    expect(screen.getByRole('button', { name: 'OpenClaw 运行设置：A deliberately long model name · 深度分析' })).toHaveClass('w-full')
+    expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_auto]')
+    expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name' })).toHaveClass('w-full', 'min-w-0')
+    expect(screen.getByRole('button', { name: 'OpenClaw 思考程度：深度分析' })).toHaveClass('shrink-0')
   })
 
   it('keeps a long connected transcript scrolling above an unshrunk composer', () => {
@@ -284,12 +290,12 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByRole('button', { name: 'OpenClaw 运行设置：Quick · 自动' })).toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: 'OpenClaw 运行设置：Quick · 自动' }))
+    expect(screen.getByRole('button', { name: 'OpenClaw 模型：Quick' })).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: 'OpenClaw 思考程度：自动' }))
+    expect(screen.getByRole('option', { name: /自动/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('此模型未提供推理档位。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '自动' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByText('速度优先')).not.toBeInTheDocument()
-    expect(screen.queryByText('深度分析')).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '速度优先' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '深度分析' })).not.toBeInTheDocument()
   })
 
   it('offers an explicit blank-conversation fallback without exposing Gateway scope errors', async () => {
