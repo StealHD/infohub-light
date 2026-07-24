@@ -105,6 +105,9 @@ describe('App routes', () => {
     const refreshControl = screen.getByRole('button', { name: '更新信息流' })
     const filterControl = screen.getByRole('button', { name: '筛选信息流' })
     expect(itemCount).toHaveClass('type-control')
+    expect(itemCount).toHaveClass('whitespace-nowrap')
+    expect(itemCount.closest('[data-loading-reveal="feed-count"]')).toHaveClass('min-w-16')
+    expect(itemCount.closest('[data-loading-reveal="feed-count"]')).not.toHaveClass('w-16')
     expect(orderControl).toHaveClass('type-control')
     expect(refreshControl).toHaveClass('type-control')
     expect(filterControl).toHaveClass('type-control')
@@ -944,7 +947,7 @@ describe('App routes', () => {
 
   it('manages one ordered Apify pool without exposing or mutating an active key', async () => {
     const browser = userEvent.setup()
-    const secretQuota = vi.fn().mockImplementation(async (secretId: string) => ({
+    const quotaResponse = (secretId: string) => ({
       secret_id: secretId,
       provider: 'apify',
       currency: 'USD',
@@ -956,7 +959,12 @@ describe('App routes', () => {
       remaining_included_credits_usd: 36.5,
       max_monthly_usage_usd: 100,
       remaining_hard_limit_usd: 87.5,
-    }))
+    })
+    const primaryRefresh = deferred<ReturnType<typeof quotaResponse>>()
+    let deferPrimaryRefresh = false
+    const secretQuota = vi.fn().mockImplementation((secretId: string) => deferPrimaryRefresh && secretId === 'apify-primary'
+      ? primaryRefresh.promise
+      : Promise.resolve(quotaResponse(secretId)))
     const pool = {
       enabled: true,
       generation: 7,
@@ -1037,8 +1045,16 @@ describe('App routes', () => {
     expect((await screen.findAllByText('套餐剩余 $36.50')).length).toBe(3)
     expect(secretQuota).toHaveBeenCalledTimes(3)
 
+    deferPrimaryRefresh = true
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Primary 额度' }))
     await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(4))
+    const refreshingQuota = screen.getByRole('button', { name: '正在刷新 Apify Primary 额度' })
+    expect(refreshingQuota).toBeDisabled()
+    expect(refreshingQuota.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
+    expect(refreshingQuota.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+    expect(within(screen.getByRole('row', { name: /Apify Primary/ })).getByText('套餐剩余 $36.50')).toBeInTheDocument()
+    await act(async () => primaryRefresh.resolve(quotaResponse('apify-primary')))
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新 Apify Primary 额度' })).toBeEnabled())
 
     const firstBackupRow = screen.getByRole('row', { name: /Apify Backup One/ })
     expect(within(firstBackupRow).getByRole('button', { name: '上移 Apify Backup One' })).toBeDisabled()
@@ -1064,6 +1080,125 @@ describe('App routes', () => {
     expect(await screen.findByText('正在安全排空')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('rotated-write-only')
   }, 10_000)
+
+  it('announces deferred Apify quota retries and preserves the last trusted quota after refresh failure', async () => {
+    const browser = userEvent.setup()
+    const retryQuota = deferred<{
+      secret_id: string
+      provider: string
+      currency: string
+      cycle_start_at: string
+      cycle_end_at: string
+      checked_at: string
+      monthly_included_credits_usd: number
+      monthly_usage_usd: number
+      remaining_included_credits_usd: number
+      max_monthly_usage_usd: number
+      remaining_hard_limit_usd: number
+    }>()
+    const backgroundRetryQuota = deferred<Awaited<typeof retryQuota.promise>>()
+    const invalidationRetryQuota = deferred<Awaited<typeof retryQuota.promise>>()
+    const secretQuota = vi.fn()
+      .mockRejectedValueOnce(new Error('Apify 暂时不可用'))
+      .mockImplementationOnce(() => retryQuota.promise)
+      .mockRejectedValueOnce(new Error('Apify 刷新暂时不可用'))
+      .mockImplementationOnce(() => backgroundRetryQuota.promise)
+      .mockRejectedValueOnce(new Error('Apify 再次刷新失败'))
+      .mockImplementationOnce(() => invalidationRetryQuota.promise)
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-quota-retry', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [
+        { id: 'apify-retry', name: 'Apify Retry', kind: 'apify', provider: 'apify', env_name: 'APIFY_RETRY', is_set: true, used_by: [] },
+      ] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      secretQuota,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    const retry = await screen.findByRole('button', { name: '重试 Apify Retry 额度' })
+    await browser.click(retry)
+
+    const retrying = screen.getByRole('button', { name: '正在重试 Apify Retry 额度' })
+    expect(retrying).toBeDisabled()
+    expect(retrying.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
+    expect(retrying.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+    expect(secretQuota).toHaveBeenCalledTimes(2)
+
+    await act(async () => retryQuota.resolve({
+      secret_id: 'apify-retry',
+      provider: 'apify',
+      currency: 'USD',
+      cycle_start_at: '2026-07-01T00:00:00.000Z',
+      cycle_end_at: '2026-07-31T23:59:59.999Z',
+      checked_at: '2026-07-24T08:30:00+00:00',
+      monthly_included_credits_usd: 5,
+      monthly_usage_usd: 1,
+      remaining_included_credits_usd: 4,
+      max_monthly_usage_usd: 10,
+      remaining_hard_limit_usd: 9,
+    }))
+    expect(await screen.findByText('套餐剩余 $4.00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled()
+
+    await browser.click(screen.getByRole('button', { name: '刷新 Apify Retry 额度' }))
+    const backgroundRetry = await screen.findByRole('button', { name: '重试 Apify Retry 额度' })
+    expect(screen.getByText('套餐剩余 $4.00')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Apify 刷新暂时不可用')
+
+    await browser.click(backgroundRetry)
+    const backgroundRetrying = screen.getByRole('button', { name: '正在重试 Apify Retry 额度' })
+    expect(backgroundRetrying).toBeDisabled()
+    expect(backgroundRetrying.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
+    expect(backgroundRetrying.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+    expect(screen.getByText('套餐剩余 $4.00')).toBeInTheDocument()
+    expect(secretQuota).toHaveBeenCalledTimes(4)
+
+    await act(async () => backgroundRetryQuota.resolve({
+      secret_id: 'apify-retry',
+      provider: 'apify',
+      currency: 'USD',
+      cycle_start_at: '2026-07-01T00:00:00.000Z',
+      cycle_end_at: '2026-07-31T23:59:59.999Z',
+      checked_at: '2026-07-24T08:35:00+00:00',
+      monthly_included_credits_usd: 5,
+      monthly_usage_usd: 2,
+      remaining_included_credits_usd: 3,
+      max_monthly_usage_usd: 10,
+      remaining_hard_limit_usd: 8,
+    }))
+    expect(await screen.findByText('套餐剩余 $3.00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled()
+
+    await browser.click(screen.getByRole('button', { name: '刷新 Apify Retry 额度' }))
+    expect(await screen.findByRole('button', { name: '重试 Apify Retry 额度' })).toBeEnabled()
+    act(() => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.secretQuota('owner-quota-retry', 'apify-retry'),
+      })
+    })
+    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(6))
+    const invalidationRetrying = screen.getByRole('button', { name: '正在重试 Apify Retry 额度' })
+    expect(invalidationRetrying).toBeDisabled()
+    expect(invalidationRetrying.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+    expect(screen.getByText('套餐剩余 $3.00')).toBeInTheDocument()
+
+    await act(async () => invalidationRetryQuota.resolve({
+      secret_id: 'apify-retry',
+      provider: 'apify',
+      currency: 'USD',
+      cycle_start_at: '2026-07-01T00:00:00.000Z',
+      cycle_end_at: '2026-07-31T23:59:59.999Z',
+      checked_at: '2026-07-24T08:40:00+00:00',
+      monthly_included_credits_usd: 5,
+      monthly_usage_usd: 3,
+      remaining_included_credits_usd: 2,
+      max_monthly_usage_usd: 10,
+      remaining_hard_limit_usd: 7,
+    }))
+    expect(await screen.findByText('套餐剩余 $2.00')).toBeInTheDocument()
+  })
 
   it('keeps rotation failures inside the row modal and clears the submitted value', async () => {
     const browser = userEvent.setup()

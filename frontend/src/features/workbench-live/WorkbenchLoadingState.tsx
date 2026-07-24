@@ -3,7 +3,7 @@ import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_SKELETON_CARD_PX } from './workbe
 
 export function WorkbenchFeedSkeleton() {
   return <div data-workbench-feed-skeleton className="h-full min-h-0 overflow-hidden px-3 py-4 sm:px-5">
-    <div className="mx-auto w-full max-w-[var(--inteliscope-width-reading)]">
+    <div data-feed-reading-frame className="mx-auto w-full max-w-[var(--inteliscope-width-reading)]">
       {Array.from({ length: 5 }, (_, index) => <div
         key={index}
         data-workbench-feed-skeleton-row

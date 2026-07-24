@@ -106,6 +106,16 @@ def test_openclaw_skill_defends_against_prompt_injection_and_avoids_n_plus_one_r
         assert workflow in combined
 
 
+def test_browser_job_handoff_uses_safe_diagnosis_without_job_mutation():
+    workflows = _text("references/workflows.md")
+
+    assert "Browser handoff" in workflows
+    assert "selected `job_id`" in workflows
+    assert "call `diagnose_job` directly" in workflows
+    assert "bounded persisted safe evidence" in workflows
+    assert "never retry, cancel, modify" in workflows
+
+
 def test_skill_requires_preview_confirmation_and_never_collects_secrets():
     combined = all_skill_text().lower()
     assert "每次只询问一个" in combined

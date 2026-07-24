@@ -197,6 +197,8 @@ function FormField({ label, name, defaultValue = '', type = 'text', min, max, re
 function SecretQuotaCell({ secret, userId }: { secret: SecretRef; userId: string }) {
   const { api } = useAppContext()
   const supported = isApifySecret(secret)
+  const [manualAction, setManualAction] = useState<'refresh' | 'retry' | null>(null)
+  const [retryError, setRetryError] = useState<unknown>(null)
   const quota = useQuery({
     queryKey: queryKeys.secretQuota(userId, secret.id),
     // Keep one shared in-flight lookup across React StrictMode's development remount.
@@ -208,40 +210,72 @@ function SecretQuotaCell({ secret, userId }: { secret: SecretRef; userId: string
     refetchOnReconnect: false,
   })
 
+  async function refetchQuota(action: 'refresh' | 'retry') {
+    if (action === 'retry') setRetryError(quota.error)
+    setManualAction(action)
+    try {
+      await quota.refetch()
+    } finally {
+      setManualAction(null)
+    }
+  }
+
   if (!supported) return <span className="type-meta text-muted">暂不支持查询</span>
   if (!secret.is_set) return <span className="type-meta text-muted">Key 未配置，无法查询</span>
-  if (quota.isPending) return <span className="type-meta text-muted" aria-live="polite">正在查询额度…</span>
-  if (quota.isError) {
-    return <div className="min-w-56" role="alert">
-      <p className="type-meta text-danger">{errorMessage(quota.error, '额度查询失败，请稍后重试。')}</p>
+  const retrying = manualAction === 'retry'
+  const retryBusy = retrying || quota.isFetching
+  if (!quota.data && (quota.isError || retrying)) {
+    return <div className="min-w-56" role="alert" aria-busy={retryBusy}>
+      <p className="type-meta text-danger">{errorMessage(
+        quota.isError ? quota.error : retryError,
+        '额度查询失败，请稍后重试。',
+      )}</p>
       <Button
         className="mt-1"
         size="sm"
         variant="ghost"
-        aria-label={`重试 ${secret.name} 额度`}
-        isDisabled={quota.isFetching}
-        onPress={() => void quota.refetch()}
-      ><Icons.RefreshCw size={14} aria-hidden="true" />{quota.isFetching ? '重试中…' : '重试'}</Button>
+        aria-label={retryBusy ? `正在重试 ${secret.name} 额度` : `重试 ${secret.name} 额度`}
+        isDisabled={retryBusy}
+        onPress={() => void refetchQuota('retry')}
+      ><Icons.RefreshCw size={14} className={retryBusy ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />{retryBusy ? '重试中…' : '重试'}</Button>
     </div>
   }
+  if (quota.isPending) return <span className="type-meta text-muted" aria-live="polite">正在查询额度…</span>
   if (!quota.data) return <span className="type-meta text-muted">暂无额度数据</span>
 
-  return <div className="min-w-64" aria-live="polite">
+  const refreshing = manualAction === 'refresh' || (quota.isFetching && !retrying)
+  const refreshError = quota.isError || retrying
+    ? errorMessage(quota.isError ? quota.error : retryError, '额度刷新失败，请稍后重试。')
+    : null
+  return <div className="min-w-64" aria-live="polite" aria-busy={refreshing || retryBusy}>
     <p className="type-control">套餐剩余 {formatUsd(quota.data.remaining_included_credits_usd)}</p>
     <p className="type-meta mt-1 text-muted">
       本月已用 {formatUsd(quota.data.monthly_usage_usd)} · 硬上限剩余 {formatUsd(quota.data.remaining_hard_limit_usd)}
     </p>
     <div className="mt-1 flex items-center gap-2">
       <span className="type-meta text-muted">周期至 {formatCycleEnd(quota.data.cycle_end_at)}</span>
-      <Button
-        size="sm"
-        variant="ghost"
-        isIconOnly
-        aria-label={`刷新 ${secret.name} 额度`}
-        isDisabled={quota.isFetching}
-        onPress={() => void quota.refetch()}
-      ><Icons.RefreshCw size={14} aria-hidden="true" /></Button>
+      {refreshError ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={retryBusy ? `正在重试 ${secret.name} 额度` : `重试 ${secret.name} 额度`}
+          isDisabled={retryBusy}
+          onPress={() => void refetchQuota('retry')}
+        ><Icons.RefreshCw size={14} className={retryBusy ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />{retryBusy ? '重试中…' : '重试'}</Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          aria-label={refreshing ? `正在刷新 ${secret.name} 额度` : `刷新 ${secret.name} 额度`}
+          isDisabled={refreshing}
+          onPress={() => void refetchQuota('refresh')}
+        ><Icons.RefreshCw size={14} className={refreshing ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></Button>
+      )}
+      {refreshing && <span className="sr-only" role="status">正在刷新 {secret.name} 额度</span>}
+      {refreshError && retryBusy && <span className="sr-only" role="status">正在重试 {secret.name} 额度</span>}
     </div>
+    {refreshError && <p className="type-meta mt-1 text-danger" role="alert">{refreshError}</p>}
   </div>
 }
 

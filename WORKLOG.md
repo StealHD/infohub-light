@@ -2557,3 +2557,29 @@
 - 执行验证：合并态 TypeScript/UI 检查、定向 Vitest 96/96、Python 8/8；`test_gate full` 22/22、0 failed/error、101.906 秒，配置 JSON 与 `git diff --check` 通过
 - 结果：本地 `main` 同时包含 Apify Key Pool、全站 Toast、操作手册、更新日志/Release 菜单和产品文档合并门禁；现有容器保持不变
 - 控制面变更：D057 与 PLAN 第 64 项落入 main；未推送、部署、重建容器或触发 scheduler、来源抓取、Apify Actor、AI
+
+### 2026-07-24 02:52 Codex
+- 任务：从 `main@9019772` 新建 `codex/openclaw-run-context-ui-fixes`，修复 OpenClaw 运行诊断上下文、Insights 让位布局及七条浏览器界面反馈
+- 修改文件：Browser handoff 升级 V4，Job 直接只读 `diagnose_job`；新增全图预览、Footer 扩展命中区、图标展开、单行计数、Insights 几何、MCP 卡片对齐、连接按钮同行和额度刷新/重试反馈，并同步合同、决策、手册与更新日志
+- 执行验证：相关 Vitest 178/178、Python 15/15、三视口关键 Playwright 13 passed/2 skipped、TypeScript/UI/build/lint 0 error、浏览器 1440/1024/390 实测与 Axe 通过；`test_gate full` 22/22、0 failed/error、177.263 秒，配置 JSON 与 `git diff --check` 通过
+- 结果：最多 8 条上下文与 sessionStorage v3 保持不变，运行记录获得充分持久化安全诊断；图片、卡片、Insights 和管理控件按约定响应，未部署或改动当前主工作区
+- 控制面变更：更新 API/UI 合同与 D058/D059；无新 REST/MCP schema、数据库字段、权限、Worker、scheduler、真实 Apify、AI 或付费来源调用
+
+### 2026-07-24 11:01 Codex
+- 任务：构建并启动 `codex/openclaw-run-context-ui-fixes` 本地测试容器
+- 运行变更：API/Worker 切换到同一镜像 `inteliscope-service:local-901977258a15-openclaw-run-context-ui-fixes-dirty`，沿用主工作区 `.env/data/logs`，Worker 计划轮询保持 86400 秒
+- 执行验证：API/Worker healthy、0 restart，live revision 匹配、ready，五个页面路由 200，运行 bundle 含 Handoff V4；SQLite integrity=`ok`、外键异常/active jobs/非终态 Actor Run 均为 0
+- 安全边界：切换前创建 `0600` 备份 `data/backups/pre-openclaw-run-context-ui-fixes-20260724-105607.db`；scheduler 未运行，未触发真实抓取、Apify Actor、AI 或付费来源
+
+### 2026-07-24 11:13 Codex
+- 任务：解释 OpenClaw 对当前用户失败抓取返回 `get_job not_found` 的原因
+- 诊断：两条 Job 均存在、未过期且归属当前 `admin`；OpenClaw MCP 却配置为远端 `https://rb.jiefs.top/mcp`，本机连接最近使用时间未更新，同时共享 `8080` 已被另一分支覆盖，造成旧 `get_job` handoff 与跨环境 Job ID 查询
+- 真实失败：来源“食贫道”的 `rss.spriple.org` 在本机解析为非公网基准网段 `198.18.0.47`，触发成员来源 SSRF 公网地址校验，任务以 `FeedRunFailed` 终止
+- 安全边界：仅做数据库、运行版本、脱敏 MCP 配置与 DNS 只读检查；未重试、取消或修改任务、来源、OpenClaw 配置及容器
+
+### 2026-07-24 11:26 Codex
+- 任务：核对本地测试站与 VPS 同时连接 OpenClaw 后的数据路由
+- 诊断：两个来源化会话均存在且同属 `agent:main`；OpenClaw 2026.7.1 的 `mcp.servers` 是 Gateway 顶层全局配置，唯一 `inteliscope` 固定指向 VPS，不随会话标签切换
+- VPS 证据：生产库不存在两条本地 Job，生产 MCP delegation 在提问时更新 `last_used_at`；本地 delegation 未更新，确认本地 handoff 被确定性送往生产 MCP，并非 Job 丢失或用户权限错误
+- 结论：此前会话隔离只解决标签、历史和配对冲突，明确未覆盖 Remote MCP 数据源隔离；同时测试需使用独立 OpenClaw profile/Gateway（不同端口与状态目录），单 Gateway 双 MCP 仅靠 Prompt 选择不具备同等隔离保证
+- 安全边界：仅查看本机 Gateway/会话/schema 和 VPS 健康、脱敏环境、数据库聚合；未修改 OpenClaw、本机/VPS配置、容器、任务或数据

@@ -493,3 +493,19 @@
 - 自动维护：任何包含产品代码的 PR/合并都必须同时修改 `manualContent.ts` 与 `changelogEntries.ts`；`scripts/check_product_docs.py` 在既有 Test Gate 的 diff 计划前自动校验，`AGENTS.md` 与 PR 模板记录同一执行要求。测试或控制文档单独变更不伪造产品更新。
 - 原因：从提交主题或运行数据自动生成用户文案会混入内部实现、无法解释操作影响，也可能泄露状态；源码双源加确定性合并门禁既能让每次产品合并强制复核，又保持中文说明、页面路径和安全边界可审查。
 - 兼容/回退：新路由与外链为 additive，不新增 API、数据库、权限、Query Key、Worker、scheduler 或网络代理。回退页面与门禁即可恢复原账户入口，不产生服务端数据残留。
+
+### D058 Browser 运行记录交接直接使用安全任务诊断
+
+- 决策日期：2026-07-24
+- 当前状态：本地实施与验证完成；未部署
+- 决策内容：Browser Agent handoff 升级为 V4。Feed 记录继续以内部 article ID 调用 `get_item`，用户主动选择的运行记录以内部 job ID 直接调用只读 `diagnose_job`；最多八条混合上下文对应最多八次初始读取。Prompt 只要求持久化安全证据、显式未知与只读建议，禁止重试、取消、修复或其他写操作。
+- 原因：运行记录此前只路由到 `get_job`，只能读取状态摘要，无法获得已经由 Remote MCP 安全投影的原因、证据与建议；先 `get_job` 再 `diagnose_job` 又会让八条上下文超过十次工具 burst。复制 UI detail/error 原文既不能提高证据质量，也会扩大不可信提示面。
+- 兼容/边界：浏览器 sessionStorage v3 结构和八条上限不变；可见历史继续识别 V3 与旧无版本 handoff，并隐藏内部 Prompt 和 ID。无 Service API、MCP schema、权限、数据库、Worker、scheduler、来源抓取、AI 配置或自动任务变化。
+
+### D059 Feed Insights 先复用居中阅读列的左侧空白
+
+- 决策日期：2026-07-24
+- 当前状态：本地实施与验证完成；未部署
+- 决策内容：352 px Insights 继续作为右侧浮层而非第三列。用户手动打开时，ViewBar、Feed 卡片、Skeleton、空态和错误态作为一条 reading surface 等量左移，先消耗默认居中产生的左 gutter，并在主内容左侧保留 12 px；只有剩余空间仍不足时才允许覆盖卡片。面板位置和让位量以当前 main、侧栏及可拖拽 Agent rail 的实测几何为准。
+- 原因：固定右锚点直接覆盖卡片会浪费 reading surface 左侧的可用空间；把 Insights 换到左侧或压窄 820 px 卡片列则会改变用户已确认的视觉位置与阅读排版。统一平移能利用现有空白，又保持卡片宽度和纵向虚拟列表锚点。
+- 兼容/边界：自动展示仍只在原始右 gutter 至少 376 px 时发生，不因新算法扩大自动出现范围；移动端仍使用 Bottom Sheet。让位使用既有 220 ms motion，Agent 指针缩放立即跟手，Reduced Motion 立即完成。无新 API、Query、数据库、图表依赖、Feed snapshot 或运行任务变化。

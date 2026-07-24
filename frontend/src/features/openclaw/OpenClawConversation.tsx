@@ -260,17 +260,24 @@ function SetupPanel({ chat }: { chat: ChatController }) {
             <Label>Gateway token 或 dashboard 地址</Label>
             <Input aria-label="OpenClaw Gateway token" type="password" autoComplete="new-password" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
           </TextField>
-          <Button type="submit" isDisabled={!url.trim() || !authInput.trim() || chat.status === 'connecting'}>
-            {chat.status === 'connecting' ? '正在连接…' : '连接并授权'}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            isDisabled={!url.trim() || chat.status === 'connecting'}
-            onPress={() => void chat.connect(undefined, url)}
-          >
-            使用已配对设备重连
-          </Button>
+          <div className="grid min-w-0 grid-cols-2 gap-2" data-testid="openclaw-setup-actions">
+            <Button
+              type="submit"
+              className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]"
+              isDisabled={!url.trim() || !authInput.trim() || chat.status === 'connecting'}
+            >
+              {chat.status === 'connecting' ? '正在连接…' : '连接并授权'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center [overflow-wrap:anywhere]"
+              isDisabled={!url.trim() || chat.status === 'connecting'}
+              onPress={() => void chat.connect(undefined, url)}
+            >
+              使用已配对设备重连
+            </Button>
+          </div>
         </Form>
       </Card>
 

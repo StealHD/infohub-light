@@ -512,6 +512,7 @@ describe('useOpenClawChat', () => {
       question: '只显示这个问题',
       items: [{ articleId: 'internal-id', title: '标题' }],
     })
+    expect(gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V4]')
     expect(projectChatHistory({ messages: [{ id: 'user-1', role: 'user', text: gatewayPrompt }] })).toEqual([
       expect.objectContaining({
         id: 'user-1', role: 'user', text: '只显示这个问题', status: 'sent', contextCount: 1, origin: 'gateway',

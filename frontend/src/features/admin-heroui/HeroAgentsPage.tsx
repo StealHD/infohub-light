@@ -79,6 +79,37 @@ function accessLabel(access: AgentDelegationAccess) {
   return access === 'subscriptions_write' ? '可管理订阅' : '只读'
 }
 
+function OpenClawConfigurationCard({
+  title,
+  description,
+  configuration,
+  configurationLabel,
+  copyDisabled = false,
+  onCopy,
+}: {
+  title: string
+  description: string
+  configuration: string
+  configurationLabel: string
+  copyDisabled?: boolean
+  onCopy: () => void
+}) {
+  return <Card variant="secondary" className="min-w-0 p-4">
+    <div className="flex items-center justify-between gap-2">
+      <Card.Title>{title}</Card.Title>
+      <Button size="sm" variant="ghost" isDisabled={copyDisabled} onPress={onCopy}><Icons.Copy size={15} />复制</Button>
+    </div>
+    <Card.Description className="mt-1 min-h-10">{description}</Card.Description>
+    <pre
+      aria-label={configurationLabel}
+      tabIndex={0}
+      className="type-meta mt-3 max-h-56 min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]"
+    >
+      {configuration}
+    </pre>
+  </Card>
+}
+
 function DialogFrame({ title, children, footer, dismissable = true, testId }: {
   title: string
   children: React.ReactNode
@@ -353,8 +384,21 @@ export function HeroAgentsPage() {
 
       <AdminSection title="OpenClaw MCP 配置" description="MCP token 保存在本机 ~/.openclaw/.env 并设置 0600 权限；它与 Gateway token 完全不同，也不要配置 OAuth。">
         <div className="grid gap-3 min-[900px]:grid-cols-2">
-          <Card variant="secondary" className="p-4"><div className="flex items-center justify-between gap-2"><Card.Title>只读 · 10 个工具</Card.Title><Button size="sm" variant="ghost" onPress={() => void copy(readConfiguration, '只读配置已复制。')}><Icons.Copy size={15} />复制</Button></div><pre aria-label="OpenClaw 配置命令" tabIndex={0} className="type-meta mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{readConfiguration}</pre></Card>
-          <Card variant="secondary" className="p-4"><div className="flex items-center justify-between gap-2"><Card.Title>订阅管理 · 14 个工具</Card.Title><Button size="sm" variant="ghost" isDisabled={!query.data.subscription_writes_enabled} onPress={() => void copy(writeConfiguration, '订阅管理配置已复制。')}><Icons.Copy size={15} />复制</Button></div><Card.Description className="mt-1">{query.data.subscription_writes_enabled ? '变更仍需 prepare、准确确认和 apply。' : '生产订阅写入当前关闭。'}</Card.Description><pre aria-label="订阅管理 OpenClaw 配置命令" tabIndex={0} className="type-meta mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{writeConfiguration}</pre></Card>
+          <OpenClawConfigurationCard
+            title="只读 · 10 个工具"
+            description="读取并诊断信息流、订阅、来源健康和任务。"
+            configuration={readConfiguration}
+            configurationLabel="OpenClaw 配置命令"
+            onCopy={() => void copy(readConfiguration, '只读配置已复制。')}
+          />
+          <OpenClawConfigurationCard
+            title="订阅管理 · 14 个工具"
+            description={query.data.subscription_writes_enabled ? '变更仍需 prepare、准确确认和 apply。' : '生产订阅写入当前关闭。'}
+            configuration={writeConfiguration}
+            configurationLabel="订阅管理 OpenClaw 配置命令"
+            copyDisabled={!query.data.subscription_writes_enabled}
+            onCopy={() => void copy(writeConfiguration, '订阅管理配置已复制。')}
+          />
         </div>
       </AdminSection>
       <OpenClawBrowserSettings userId={user.id} enabled={chatSettings.enabled} defaultUrl={chatSettings.default_gateway_url} targetVersion={chatSettings.target_version} />
@@ -387,8 +431,8 @@ export function HeroAgentsPage() {
       <DialogFrame title="保存一次性 MCP token" dismissable={false} testId="one-time-token-backdrop" footer={<Button onPress={() => { setOneTimeCredential(null); actionToast.success('一次性令牌已从页面清除') }}>我已保存</Button>}>
         <HeroNotice title="关闭后无法恢复。" status="warning" role="status">请先保存到本机环境文件，再明确确认。</HeroNotice>
         <div className="mt-4 flex flex-col gap-2 min-[640px]:flex-row"><code className="min-w-0 flex-1 overflow-wrap-anywhere rounded-lg bg-default p-3">{oneTimeCredential?.token}</code><Button variant="ghost" onPress={() => oneTimeCredential && void copy(oneTimeCredential.token, '令牌已复制。')}><Icons.Copy size={15} />复制令牌</Button></div>
-        <pre aria-label="本地令牌环境命令" className="type-meta mt-4 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
-        <pre aria-label="OpenClaw 配置命令" className="type-meta mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-default p-3">{oneTimeConfiguration}</pre>
+        <pre aria-label="本地令牌环境命令" className="type-meta mt-4 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{'INTELISCOPE_MCP_TOKEN=<一次性令牌>\nchmod 0600 ~/.openclaw/.env'}</pre>
+        <pre aria-label="OpenClaw 配置命令" className="type-meta mt-3 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-default p-3 [overflow-wrap:anywhere]">{oneTimeConfiguration}</pre>
       </DialogFrame>
     </Modal>
 

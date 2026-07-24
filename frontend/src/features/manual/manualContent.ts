@@ -52,7 +52,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查看与保存',
-        description: '卡片可以展开已捕获的正文和媒体、打开原文、收藏，或加入 Agent 上下文。忽略的内容只能从设置页恢复。',
+        description: '卡片可以从标签或空白区域展开；图片会完整显示在缩略格中，点击后可查看全图并用左右按钮或方向键切换。也可以打开原文、收藏或加入 Agent 上下文，忽略的内容只能从设置页恢复。',
       },
       {
         title: '管理收藏',
@@ -81,7 +81,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '复用运行记录',
-        description: '运行记录可以直接加入 Agent 上下文，界面展示可读的来源、状态和结果，内部任务 ID 不会成为页面文案。',
+        description: '运行记录可以直接加入 Agent 上下文。OpenClaw 会通过只读任务诊断取得安全的原因、证据和建议，不会自动重试或修改任务；内部任务 ID 不会成为页面文案。',
       },
     ],
   },
@@ -102,7 +102,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '加入上下文',
-        description: '信息卡片或运行记录最多可加入 8 条上下文；发送时只传问题和条目 ID，由 OpenClaw 通过授权工具读取需要的详情。',
+        description: '信息卡片或运行记录最多可加入 8 条上下文；发送时只传问题和内部条目 ID。文章由 OpenClaw 读取授权内容，运行记录走只读诊断；页面摘要和错误原文不会预先发送给模型。',
       },
       {
         title: '断开与移除',
