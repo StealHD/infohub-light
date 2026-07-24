@@ -875,7 +875,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               leading={<Icon size={18} aria-hidden="true" />}
             />)}
           </nav>}
-          <div className="flex items-center gap-1 border-t border-separator p-2">
+          <div
+            data-sidebar-account-strip
+            className="flex items-center gap-1 border-t border-separator p-2"
+          >
             <Popover isOpen={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
               <Popover.Trigger
                 aria-label="打开账户菜单"
@@ -887,7 +890,14 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   <span className="min-w-0 flex-1"><span className="type-control block truncate">{props.user.display_name || props.user.username}</span><span className="type-label block text-muted">{roleLabel[props.user.role]}</span></span>
                 </>}
               </Popover.Trigger>
-              <Popover.Content data-account-menu-surface placement="top start" offset={8} className="z-50 w-60 p-0">
+              <Popover.Content
+                data-account-menu-surface
+                data-sidebar-menu-direction="up"
+                placement="top start"
+                offset={8}
+                containerPadding={12}
+                className="z-50 w-52 p-0"
+              >
                 <Popover.Dialog aria-label="账户菜单" className="p-2">
                   <div className="px-2 py-2">
                     <strong className="type-control block truncate">{props.user.display_name || props.user.username}</strong>
@@ -916,7 +926,15 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                 title="文档与发布"
                 className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
               ><Icons.BookMarked size={16} aria-hidden="true" /></Popover.Trigger>
-              <Popover.Content data-documentation-menu-surface placement="top end" offset={8} className="z-50 w-56 p-0">
+              <Popover.Content
+                data-documentation-menu-surface
+                data-sidebar-menu-direction="up"
+                placement="top end"
+                offset={8}
+                crossOffset={-3}
+                containerPadding={12}
+                className="z-50 w-52 p-0"
+              >
                 <Popover.Dialog aria-label="文档与发布菜单" className="p-2">
                   <Button variant="ghost" className="w-full justify-start" onPress={() => { setDocumentationMenuOpen(false); navigate('/manual') }}><Icons.BookOpen size={16} aria-hidden="true" />操作手册</Button>
                   <Button variant="ghost" className="w-full justify-start" onPress={() => { setDocumentationMenuOpen(false); navigate('/changelog') }}><Icons.ScrollText size={16} aria-hidden="true" />更新日志</Button>

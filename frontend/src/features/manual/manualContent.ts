@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-24',
-  change: '工作区统一邮件发送服务与 Provider 测试门禁',
+  change: '侧栏弹出菜单的内收与向上定位',
 } as const
 
 export const manualSections: ManualSection[] = [

@@ -2682,3 +2682,10 @@
 - 执行验证：邮件后端与前端定向测试通过；390/768/1440 Playwright 通过；`test_gate full` 22/22；API/Worker 当前镜像 healthy，schema v10、数据库 integrity、零真实 transport/active job/pending delivery、scheduler 未启动；应用内浏览器完成最终动态字段与无溢出复验
 - 结果：Owner/Admin 可按“保存 → 测试 → 启用”配置 QQ、网易、Gmail、Resend、Amazon SES；凭据只写 SecretStore，普通用户只填收件邮箱，暂停不入队不补发且 Webhook 不受影响
 - 控制面变更：D059、PLAN 第 66 项及 API/架构/UI 合同完成验收；未写入真实凭据、未调用真实 SMTP/Webhook/来源/AI/付费服务，未提交、推送或部署
+
+### 2026-07-24 Codex
+- 任务：在 `codex/sidebar-account-alignment` 修正侧栏账户与文档弹出菜单布局
+- 修改文件：Workbench Shell、对应测试、操作手册复核与更新日志
+- 执行验证：定向 Vitest 27/27、typecheck、lint、UI contract、JSON 与 diff 检查通过；`test_gate full` 22/22；应用内浏览器在 802×762、1440×900 验证三个弹层均为 208px、`x=12–220px`、向上间隔 8px且 Escape 正确归还焦点
+- 结果：头像、账户栏和右侧文档图标保持原位；账户与文档菜单统一内收至展开侧栏范围
+- 控制面变更：无；未修改 API、数据结构、路由或用户偏好，未提交、推送或部署
