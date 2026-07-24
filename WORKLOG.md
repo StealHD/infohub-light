@@ -2830,3 +2830,12 @@
 - 执行验证：合并态定向 Vitest 28/28、typecheck、UI contract 与 diff 检查通过；根工作区虚拟环境执行 `test_gate full` 22/22、0 failed/error、144.696 秒
 - 结果：本地 `main` 已包含账户与文档菜单 208px 内收、向上定位和焦点归还回归保护
 - 安全边界：未推送远端、未部署或重建容器，未触发真实来源、scheduler、AI、邮件、Webhook 或付费服务
+
+### 2026-07-24 22:10 Codex
+- 任务：发布最新 `main`、annotated tag 与 GitHub Release `v1.7.4`，并部署到 `vps-tokyo`
+- 修改文件：六处版本入口升级到 `1.7.4`，完成手册/更新日志发布复核并追加本工作日志
+- 执行验证：最终 tag 提交 `test_gate release` 24/24（273.155 秒）；GitHub main/tag 的 backend、frontend、三视口 UI 与 API-only Docker smoke 全绿；VPS 18080 staging 和生产 10 路由、live/ready、401 边界、严重日志与数据库完整性均通过
+- 结果：tag/Release 精确为 `e9daca159711` / `https://github.com/StealHD/infohub-light/releases/tag/v1.7.4`；生产 `current` 指向 `/opt/inteliscope/releases/v1.7.4-e9daca159711`，API/Worker 同 AMD64 镜像 `sha256:23337af80776…ba6b`、healthy、0 restart，schema 10 与用户/Feed 数据计数保持不变
+- 发布修正：首次 tag 因版本提交未同提交复核两份产品文档失败；强制更新事件又因 GitHub `before` 为旧 tag 对象失败；在无 Release 时完成实际文档复核并删除/重建同一最终 tag 后，完整 tag workflow 通过
+- 回退：`0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.4-e9daca159711-20260724T140906Z`，数据库 SHA-256 `435185bb58e47ec8bfff47cff847b41698e1bf4448f8a3edd5dcdb4c3f57e66e`；旧 v1.7.3 release/image 保留
+- 安全边界：scheduler、Apify Key 池、共享采集与 compact writer 均未因发布启用；未主动触发来源抓取、AI、邮件、Webhook 或付费调用
