@@ -2816,3 +2816,17 @@
 - 执行验证：功能分支 `test_gate full` 22/22、0 failed/error、121.074 秒；合并态重跑 22/22、0 failed/error、121.765 秒，`mapping_miss=false`
 - 结果：`main` 同时包含私有诊断日志及 Feed 强制重载、实际新增反馈、稳定刷新按钮与卡片交互优化
 - 安全边界：未推送远端、未部署或重建容器，未触发真实来源、scheduler、AI、邮件、Webhook 或付费服务
+
+### 2026-07-24 Codex
+- 任务：在 `codex/sidebar-account-alignment` 修正侧栏账户与文档弹出菜单布局
+- 修改文件：Workbench Shell、对应测试、操作手册复核与更新日志
+- 执行验证：定向 Vitest 27/27、typecheck、lint、UI contract、JSON 与 diff 检查通过；`test_gate full` 22/22；应用内浏览器在 802×762、1440×900 验证三个弹层均为 208px、`x=12–220px`、向上间隔 8px且 Escape 正确归还焦点
+- 结果：头像、账户栏和右侧文档图标保持原位；账户与文档菜单统一内收至展开侧栏范围
+- 控制面变更：无；未修改 API、数据结构、路由或用户偏好，未提交、推送或部署
+
+### 2026-07-24 Codex
+- 任务：将 `codex/sidebar-account-alignment` 的侧栏弹层修复合并到本地 `main`
+- 修改文件：合入功能提交 `b5d2a5b`；保留主线诊断日志、Feed 刷新及既有产品记录，人工整合手册、更新日志和工作日志
+- 执行验证：合并态定向 Vitest 28/28、typecheck、UI contract 与 diff 检查通过；根工作区虚拟环境执行 `test_gate full` 22/22、0 failed/error、144.696 秒
+- 结果：本地 `main` 已包含账户与文档菜单 208px 内收、向上定位和焦点归还回归保护
+- 安全边界：未推送远端、未部署或重建容器，未触发真实来源、scheduler、AI、邮件、Webhook 或付费服务

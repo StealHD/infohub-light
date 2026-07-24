@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-24',
-  change: 'OpenClaw 安全诊断与信息流实际新增、刷新及卡片交互',
+  change: 'OpenClaw 安全诊断、信息流实际新增与侧栏弹出菜单内收',
 } as const
 
 export const manualSections: ManualSection[] = [

@@ -23,6 +23,15 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-24',
+        title: '侧栏弹出菜单更整齐',
+        summary: '头像和文档入口保持原位，点击后出现的菜单收进侧栏范围。',
+        items: [
+          { title: '弹层内收', description: '账户菜单和文档菜单使用一致宽度，在展开侧栏内保留稳定的左右留白。' },
+          { title: '入口保持原位', description: '头像、账户栏和右侧文档图标不移动，两个菜单继续从对应入口向上展开。' },
+        ],
+      },
+      {
+        date: '2026-07-24',
         title: 'OpenClaw 安全诊断事件',
         summary: '排查任务和关键操作时可以取得更连贯的脱敏事件，同时保持日志与账户严格隔离。',
         items: [
