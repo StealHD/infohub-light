@@ -97,9 +97,10 @@ openclaw mcp doctor inteliscope --probe
 openclaw mcp status --verbose
 ```
 
-验收输出必须是 14 个服务端工具、10 个安全 read tools、3 个隔离检查和
+验收输出必须是 15 个服务端工具、11 个安全 read tools、3 个隔离检查和
 `subscription_writes_disabled`。再用真实 OpenClaw 对话询问“哪些订阅来源最近
-异常？”和“最近有哪些任务失败，原因是什么？”，只允许读取与诊断。
+异常？”、“最近有哪些任务失败，原因是什么？”和“查看该任务最近 24 小时的
+安全诊断事件”，只允许读取与诊断；事件结果不得包含原始日志、路径或身份。
 
 ## 3. Nginx 精确路由
 
