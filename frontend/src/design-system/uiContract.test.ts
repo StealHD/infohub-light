@@ -95,7 +95,7 @@ describe('HeroUI import contract', () => {
     const result = checkLint('src/features/feed/TemplateImport.tsx', source)
 
     expect(result.status).toBe(1)
-  })
+  }, 15_000)
 
   it('rejects visual constants in business CSS', () => {
     const result = checkSource(

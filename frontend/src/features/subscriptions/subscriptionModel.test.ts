@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, User } from '../../api/types'
 import * as subscriptionModel from './subscriptionModel'
-import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
+import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, resolveChannelSelection, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
 
 const user = (role: User['role'], id = 'user-1'): User => ({ id, username: role, role, enabled: true })
 const source: CatalogSource = { id: 'src-1', type: 'rss', display_name: 'RSS', scope: 'workspace', enabled: true }
@@ -162,6 +162,17 @@ describe('subscription model', () => {
       ['朋友动态', ['x']],
       ['其他', ['unknown']],
     ])
+  })
+
+  it('keeps an available channel selection and falls back to the first non-empty group', () => {
+    const groups = [
+      { channel: 'AI', items: [{ id: 'openai' }] },
+      { channel: '工作/项目', items: [{ id: 'apple' }] },
+    ]
+
+    expect(resolveChannelSelection(groups, '工作/项目')).toBe('工作/项目')
+    expect(resolveChannelSelection(groups, '朋友动态')).toBe('AI')
+    expect(resolveChannelSelection([], 'AI')).toBe('')
   })
 
   it('presents source and job enums as user-facing Chinese copy', () => {
