@@ -48,6 +48,8 @@
       "deepseek_provider_enabled": true,
       "authenticated_action_feedback_enabled": true,
       "feed_snapshot_event_notification_enabled": true,
+      "preferred_source_new_item_notifications_enabled": true,
+      "workspace_email_transport_enabled": true,
       "feedback_product_enabled": false,
       "feedback_api_compat_enabled": true,
       "feed_behavior_filters_enabled": true,
@@ -116,7 +118,9 @@
       "apify_max_attempts_per_key_per_logical_run": 1,
       "shared_acquisition_ttl_minutes": {"min": 5, "max": 60, "fallback": 30},
       "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14},
-      "max_feed_snapshots_per_user": 100
+      "max_feed_snapshots_per_user": 100,
+      "max_notification_items_per_delivery": 20,
+      "notification_test_cooldown_seconds": 60
     },
     "runtime_sources": {
       "service_catalog_types": [
@@ -245,6 +249,11 @@
       "deepseek_smoke_max_calls": 1,
       "content_repair_max_images_per_item": 6,
       "content_repair_bulk_paid_sources_enabled": false,
+      "preferred_source_notification_channels": ["email", "webhook"],
+      "workspace_email_transport_providers": ["qq", "netease", "gmail", "resend", "amazon_ses"],
+      "workspace_email_transport_custom_smtp_enabled": false,
+      "workspace_email_transport_outlook_enabled": false,
+      "preferred_source_notification_test_moves_cursor": false,
       "source_excerpt_max_chars": 600,
       "action_suggestion_max_chars": 80,
       "user_analysis_cache_retention_days": 30,

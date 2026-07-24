@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 import os
 import socket
+import threading
 from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urljoin, urlparse
@@ -16,6 +17,7 @@ import httpx
 MAX_PUBLIC_HTTP_RESPONSE_BYTES = 2_000_000
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 _SYNTHETIC_DNS_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+_MAX_PUBLIC_HTTP_DNS_SECONDS = 5.0
 
 
 class UnsafeNetworkTarget(ValueError):
@@ -67,6 +69,7 @@ def resolve_public_http_url(
     url: str,
     *,
     synthetic_dns_host_suffixes: tuple[str, ...] = (),
+    allow_private_host_allowlist: bool = True,
 ) -> ResolvedHttpTarget:
     """Resolve one HTTP(S) hop and return only addresses approved for connection."""
     value = str(url or "").strip()
@@ -77,7 +80,14 @@ def resolve_public_http_url(
         raise UnsafeNetworkTarget("source URL must be an http or https URL")
     if parsed.username is not None or parsed.password is not None:
         raise UnsafeNetworkTarget("source URL credentials are not allowed")
-    host = parsed.hostname.rstrip(".").encode("idna").decode("ascii")
+    try:
+        host = parsed.hostname.rstrip(".").encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise UnsafeNetworkTarget(
+            "source hostname is not a valid DNS name"
+        ) from exc
+    if not host:
+        raise UnsafeNetworkTarget("source hostname is not a valid DNS name")
     allowlisted_hosts = {
         entry.strip().lower().rstrip(".")
         for entry in os.getenv("HORIZON_MEMBER_RSS_HOST_ALLOWLIST", "").split(",")
@@ -94,7 +104,7 @@ def resolve_public_http_url(
     except ValueError:
         try:
             resolved = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-        except socket.gaierror as exc:
+        except OSError as exc:
             raise UnsafeNetworkTarget("source hostname could not be resolved to a public network address") from exc
         addresses = tuple(
             dict.fromkeys(
@@ -104,7 +114,7 @@ def resolve_public_http_url(
         )
     if not addresses:
         raise UnsafeNetworkTarget("source hostname could not be resolved to a public network address")
-    if host.lower() not in allowlisted_hosts:
+    if not allow_private_host_allowlist or host.lower() not in allowlisted_hosts:
         non_public = tuple(address for address in addresses if not address.is_global)
         synthetic_dns_allowed = (
             bool(non_public)
@@ -127,6 +137,65 @@ def require_public_http_url(url: str) -> str:
     return resolve_public_http_url(url).url
 
 
+async def _resolve_public_http_url_daemon(
+    url: str,
+    *,
+    timeout: float,
+    allow_private_host_allowlist: bool,
+) -> ResolvedHttpTarget:
+    """Resolve without tying event-loop shutdown to a blocking system resolver."""
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[ResolvedHttpTarget] = loop.create_future()
+
+    def resolve() -> None:
+        try:
+            target = resolve_public_http_url(
+                url,
+                allow_private_host_allowlist=allow_private_host_allowlist,
+            )
+        except Exception as exc:
+            outcome: tuple[ResolvedHttpTarget | None, Exception | None] = (
+                None,
+                exc,
+            )
+        else:
+            outcome = (target, None)
+
+        def publish() -> None:
+            if future.done():
+                return
+            target_result, error = outcome
+            if error is not None:
+                future.set_exception(error)
+            elif target_result is not None:
+                future.set_result(target_result)
+
+        try:
+            loop.call_soon_threadsafe(publish)
+        except RuntimeError:
+            # The bounded caller already returned and closed its event loop.
+            return
+
+    threading.Thread(
+        target=resolve,
+        name="public-http-resolver",
+        daemon=True,
+    ).start()
+    try:
+        return await asyncio.wait_for(
+            future,
+            timeout=max(
+                0.001,
+                min(float(timeout), _MAX_PUBLIC_HTTP_DNS_SECONDS),
+            ),
+        )
+    except TimeoutError as exc:
+        raise UnsafeNetworkTarget(
+            "source hostname resolution timed out"
+        ) from exc
+
+
 async def _request_pinned_address(
     target: ResolvedHttpTarget,
     address: str,
@@ -135,6 +204,9 @@ async def _request_pinned_address(
     timeout: float,
     max_response_bytes: int,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None,
+    method: str = "GET",
+    content: bytes | None = None,
+    read_response_body: bool = True,
 ) -> httpx.Response:
     request_headers = {
         key: value
@@ -151,17 +223,28 @@ async def _request_pinned_address(
         client_options["transport"] = transport_factory()
     async with httpx.AsyncClient(**client_options) as client:
         async with client.stream(
-            "GET",
+            method,
             target.pinned_url(address),
             headers=request_headers,
+            content=content,
             follow_redirects=False,
             extensions={"sni_hostname": target.hostname},
         ) as response:
             content = bytearray()
-            if response.status_code not in _REDIRECT_STATUSES and response.status_code < 400:
-                content_encoding = response.headers.get("content-encoding", "").strip().lower()
+            successful_response = (
+                response.status_code not in _REDIRECT_STATUSES
+                and response.status_code < 400
+            )
+            if read_response_body and successful_response:
+                content_encoding = (
+                    response.headers.get("content-encoding", "")
+                    .strip()
+                    .lower()
+                )
                 if content_encoding not in {"", "identity"}:
-                    raise UnsafeNetworkTarget("source response content encoding is not allowed")
+                    raise UnsafeNetworkTarget(
+                        "source response content encoding is not allowed"
+                    )
                 content_length = response.headers.get("content-length")
                 if content_length:
                     try:
@@ -253,4 +336,36 @@ async def fetch_public_http(
         max_response_bytes=max(1, int(max_response_bytes)),
         transport_factory=transport_factory,
         synthetic_dns_host_suffixes=synthetic_dns_host_suffixes,
+    )
+
+
+async def post_public_http(
+    url: str,
+    *,
+    content: bytes,
+    headers: dict[str, str] | None = None,
+    timeout: float = 20.0,
+    max_response_bytes: int = 64_000,
+    transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
+) -> httpx.Response:
+    """POST once to a public-only URL with DNS pinning and no redirects."""
+
+    target = await _resolve_public_http_url_daemon(
+        url,
+        timeout=timeout,
+        allow_private_host_allowlist=False,
+    )
+    # A POST may have reached the first address even when its response is lost.
+    # Replaying against another DNS answer would therefore duplicate a
+    # non-idempotent webhook delivery.
+    return await _request_pinned_address(
+        target,
+        target.addresses[0],
+        headers=headers,
+        timeout=timeout,
+        max_response_bytes=max(1, int(max_response_bytes)),
+        transport_factory=transport_factory,
+        method="POST",
+        content=bytes(content),
+        read_response_body=False,
     )

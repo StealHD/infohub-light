@@ -18,7 +18,8 @@ from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from ..services.feed_archive import FeedArchiveService
 from ..services.feed_schedule import (
@@ -54,6 +55,13 @@ from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
 from ..services.user_content_store import UserContentStore
 from ..services.media_cache import MediaCacheService
+from ..services.preferred_source_notifications import (
+    NotificationServiceError,
+    PreferredSourceNotificationService,
+)
+from ..services.notification_email_transport import (
+    EmailTransportError,
+)
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
@@ -196,6 +204,47 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class NotificationSettingsPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool | None = None
+    channel: Literal["email", "webhook"] | None = None
+    email_address: str | None = Field(default=None, min_length=3, max_length=320)
+    webhook_url: str | None = Field(default=None, min_length=8, max_length=4096)
+
+
+class NotificationEmailTransportPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal[
+        "qq",
+        "netease",
+        "gmail",
+        "resend",
+        "amazon_ses",
+    ] | None = None
+    sender_email: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=320,
+    )
+    sender_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+    )
+    credential: str | None = Field(default=None, max_length=4096)
+    enabled: StrictBool | None = None
+    region: str | None = Field(default=None, max_length=64)
+    smtp_username: str | None = Field(default=None, max_length=320)
+
+
+class NotificationEmailTransportTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipient_email: str = Field(min_length=3, max_length=320)
+
+
 class SourceCreateRequest(BaseModel):
     scope: str | None = None
     type: str
@@ -257,6 +306,7 @@ class SubscriptionRequest(BaseModel):
     personal_tags: list[str] = Field(default_factory=list)
     analysis_mode: str = "full"
     priority: StrictInt = Field(default=0, ge=0, le=100)
+    notify_on_new_items: StrictBool = False
 
 
 class SubscriptionPatchRequest(BaseModel):
@@ -266,6 +316,7 @@ class SubscriptionPatchRequest(BaseModel):
     personal_tags: list[str] | None = None
     analysis_mode: str | None = None
     priority: StrictInt | None = Field(default=None, ge=0, le=100)
+    notify_on_new_items: StrictBool | None = None
     on_disable: Literal["keep", "save", "dismiss"] | None = None
 
     @field_validator("priority")
@@ -390,6 +441,13 @@ def create_app(
     secret_values = SecretStore(data_path)
     secret_quota = ApifySecretQuotaService()
     secret_values.load_into_environ()
+    preferred_source_notifications = PreferredSourceNotificationService(
+        store,
+        data_dir=str(data_path),
+    )
+    workspace_email_transport = (
+        preferred_source_notifications.email_transport
+    )
     apify_key_pool = ApifyKeyPoolService(store, secret_store=secret_values)
     quota = QuotaService(
         store,
@@ -648,6 +706,8 @@ def create_app(
     app = FastAPI(title="InfoHub Light Service API", lifespan=app_lifespan)
     app.state.service_store = store
     app.state.subscription_mutations = subscription_mutations
+    app.state.preferred_source_notifications = preferred_source_notifications
+    app.state.workspace_email_transport = workspace_email_transport
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
 
     @app.middleware("http")
@@ -726,6 +786,52 @@ def create_app(
                 str(exc),
                 status_code=exc.status_code,
                 action=exc.action,
+            )
+        )
+
+    @app.exception_handler(NotificationServiceError)
+    async def _notification_service_error_handler(
+        _request: Request,
+        exc: NotificationServiceError,
+    ) -> JSONResponse:
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=(
+                    "Wait at least 60 seconds before sending another test."
+                    if exc.code == "notification_test_rate_limited"
+                    else (
+                        "Review the saved notification channel and send another test."
+                        if exc.status_code < 500
+                        else "Retry later without changing the Feed or source job."
+                    )
+                ),
+            )
+        )
+
+    @app.exception_handler(EmailTransportError)
+    async def _email_transport_error_handler(
+        _request: Request,
+        exc: EmailTransportError,
+    ) -> JSONResponse:
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=(
+                    "Wait at least 60 seconds before sending another test."
+                    if exc.code == "email_transport_test_rate_limited"
+                    else (
+                        "Save the provider settings, send a test, then enable the transport."
+                        if exc.status_code < 500
+                        else "Review the provider credential and retry the test."
+                    )
+                ),
             )
         )
 
@@ -1587,6 +1693,74 @@ def create_app(
         store.update_user(user["id"], password=payload.new_password)
         return ok({"changed": True})
 
+    @app.get("/api/me/notification-settings")
+    async def notification_settings_get(
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            preferred_source_notifications.get_public_settings(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+            )
+        )
+
+    @app.patch("/api/me/notification-settings")
+    async def notification_settings_patch(
+        payload: NotificationSettingsPatchRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        require_mutating_member(user)
+        provided = payload.model_fields_set
+        if not provided:
+            raise ApiError(
+                "invalid_notification_settings",
+                "at least one notification setting is required",
+                status_code=400,
+            )
+        if (
+            ("enabled" in provided and payload.enabled is None)
+            or ("channel" in provided and payload.channel is None)
+        ):
+            raise ApiError(
+                "invalid_notification_settings",
+                "enabled and channel cannot be null",
+                status_code=400,
+            )
+        updates = {
+            field: getattr(payload, field)
+            for field in (
+                "enabled",
+                "channel",
+                "email_address",
+                "webhook_url",
+            )
+            if field in provided
+        }
+        updated = preferred_source_notifications.upsert_settings(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+            **updates,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(updated)
+
+    @app.post("/api/me/notification-settings/test")
+    async def notification_settings_test(
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        require_mutating_member(user)
+        result = await run_in_threadpool(
+            preferred_source_notifications.send_test,
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
+
     @app.get("/api/config")
     async def config_get(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         return ok(config_response(user))
@@ -1678,6 +1852,94 @@ def create_app(
         secret_values.load_into_environ()
         secrets = store.list_secret_refs(workspace_id=user["workspace_id"])
         return ok({"secrets": [public_secret(secret) for secret in secrets]})
+
+    @app.get("/api/admin/notification-email-transport")
+    async def admin_notification_email_transport_get(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            workspace_email_transport.get_public_settings(
+                workspace_id=str(user["workspace_id"]),
+            )
+        )
+
+    @app.patch("/api/admin/notification-email-transport")
+    async def admin_notification_email_transport_patch(
+        payload: NotificationEmailTransportPatchRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        provided = payload.model_fields_set
+        if not provided:
+            raise ApiError(
+                "invalid_email_transport",
+                "at least one email transport setting is required",
+                status_code=400,
+            )
+        required_when_provided = {
+            "provider",
+            "sender_email",
+            "sender_name",
+            "enabled",
+        }
+        if any(
+            field in provided and getattr(payload, field) is None
+            for field in required_when_provided
+        ):
+            raise ApiError(
+                "invalid_email_transport",
+                "provider, sender_email, sender_name, and enabled cannot be null",
+                status_code=400,
+            )
+        updates = {
+            field: getattr(payload, field)
+            for field in (
+                "provider",
+                "sender_email",
+                "sender_name",
+                "credential",
+                "enabled",
+                "region",
+                "smtp_username",
+            )
+            if field in provided
+        }
+        updated = workspace_email_transport.upsert(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            **updates,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(updated)
+
+    @app.delete("/api/admin/notification-email-transport")
+    async def admin_notification_email_transport_delete(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        deleted = workspace_email_transport.delete(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"deleted": deleted})
+
+    @app.post("/api/admin/notification-email-transport/test")
+    async def admin_notification_email_transport_test(
+        payload: NotificationEmailTransportTestRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = await run_in_threadpool(
+            workspace_email_transport.send_test,
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            recipient_email=payload.recipient_email,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
 
     @app.get("/api/admin/apify-key-pool")
     async def admin_apify_key_pool(
@@ -2292,7 +2554,21 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
+        if payload.notify_on_new_items and (
+            payload.analysis_mode == "personal_only" or not payload.enabled
+        ):
+            raise ApiError(
+                "invalid_subscription_notification",
+                "disabled or personal_only subscriptions cannot send new-item notifications",
+                status_code=400,
+                action="Enable the subscription in full analysis mode or leave notifications disabled.",
+            )
         visible_source_or_404(payload.source_id, user)
+        notification_values = (
+            {"notify_on_new_items": payload.notify_on_new_items}
+            if "notify_on_new_items" in payload.model_fields_set
+            else {}
+        )
         subscription = create_subscription_with_quota(
             user=user,
             source_id=payload.source_id,
@@ -2302,6 +2578,7 @@ def create_app(
             personal_tags=payload.personal_tags,
             analysis_mode=payload.analysis_mode,
             priority=payload.priority,
+            **notification_values,
         )
         return ok(subscription)
 
@@ -2322,9 +2599,45 @@ def create_app(
                 "personal_tags",
                 "analysis_mode",
                 "priority",
+                "notify_on_new_items",
             )
             if field in provided
         }
+        current_subscription = store.get_subscription(subscription_id)
+        if (
+            payload.notify_on_new_items is True
+            and (
+                payload.analysis_mode == "personal_only"
+                or payload.enabled is False
+                or (
+                    payload.enabled is not True
+                    and current_subscription is not None
+                    and current_subscription.get("user_id") == user["id"]
+                    and not bool(current_subscription.get("enabled"))
+                )
+            )
+        ):
+            raise ApiError(
+                "invalid_subscription_notification",
+                "disabled or personal_only subscriptions cannot send new-item notifications",
+                status_code=400,
+                action="Enable the subscription in full analysis mode before enabling notifications.",
+            )
+        if (
+            payload.notify_on_new_items is True
+            and payload.analysis_mode is None
+            and current_subscription is not None
+            and current_subscription.get("user_id") == user["id"]
+            and current_subscription.get("analysis_mode") == "personal_only"
+        ):
+            raise ApiError(
+                "invalid_subscription_notification",
+                "personal_only subscriptions cannot send new-item notifications",
+                status_code=400,
+                action="Use full analysis mode before enabling notifications.",
+            )
+        if payload.analysis_mode == "personal_only":
+            updates["notify_on_new_items"] = False
         if "on_disable" in provided:
             if payload.enabled is not False:
                 raise ApiError(

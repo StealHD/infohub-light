@@ -18,6 +18,7 @@ from .feed_schedule import FeedScheduleService
 from .job_queue import JobQueue
 from .job_eligibility import JobEligibilityService
 from .maintenance import MaintenanceService
+from .preferred_source_notifications import PreferredSourceNotificationService
 from .source_type_registry import build_source_payload
 from .secret_store import SecretStore
 from .source_schedule import SourceScheduleService
@@ -409,6 +410,19 @@ def run_worker_once(
         if enqueue_schedules:
             FeedScheduleService(store).enqueue_due()
             SourceScheduleService(store).enqueue_due()
+        notifications = PreferredSourceNotificationService(
+            store,
+            data_dir=data_dir,
+        )
+        try:
+            notifications.dispatch_pending(limit=20)
+        except Exception:
+            if store.connect().in_transaction:
+                store.connect().rollback()
+            logger.warning(
+                "preferred-source notification backlog dispatch failed worker_id=%s",
+                worker_id,
+            )
         if store.get_worker_heartbeat(worker_id) is None:
             store.upsert_worker_heartbeat(worker_id, "starting")
         job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
@@ -431,6 +445,40 @@ def run_worker_once(
                     if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_index_v4_migration_required():
                         raise MigrationRequiredError("user content v4 migration is required before feed jobs can run")
                     result = _run_job(job, data_dir=data_dir, store=store)
+                    if result.get("snapshot_id"):
+                        conn = store.connect()
+                        if conn.in_transaction:
+                            conn.execute(
+                                "SAVEPOINT preferred_source_notification_stage"
+                            )
+                            try:
+                                notifications.stage_for_job(
+                                    job=job,
+                                    snapshot_id=str(result["snapshot_id"]),
+                                    snapshot_created=bool(
+                                        result.get("snapshot_created")
+                                    ),
+                                )
+                            except Exception:
+                                conn.execute(
+                                    "ROLLBACK TO preferred_source_notification_stage"
+                                )
+                                conn.execute(
+                                    "RELEASE preferred_source_notification_stage"
+                                )
+                                logger.warning(
+                                    "preferred-source notification staging failed job_id=%s",
+                                    job.get("id"),
+                                )
+                            else:
+                                conn.execute(
+                                    "RELEASE preferred_source_notification_stage"
+                                )
+                        else:
+                            logger.warning(
+                                "preferred-source notification staging skipped without feed transaction job_id=%s",
+                                job.get("id"),
+                            )
                 except Exception as exc:
                     from .feed_production import FeedRunFailed
                     from .feed_run import safe_run_diagnostics
@@ -524,6 +572,15 @@ def run_worker_once(
                             worker_id=worker_id,
                             claim_token=job["claim_token"],
                         )
+        try:
+            notifications.dispatch_pending(job_id=str(job["id"]))
+        except Exception:
+            if store.connect().in_transaction:
+                store.connect().rollback()
+            logger.warning(
+                "preferred-source notification dispatch failed job_id=%s",
+                job.get("id"),
+            )
         result_payload = finalized.get("result_json") or {}
         logger.info(
             "worker_id=%s job_id=%s job_type=%s run_id=%s duration_ms=%d status=%s",

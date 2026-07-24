@@ -1,3 +1,4 @@
+import hashlib
 import json
 import threading
 import time
@@ -12,7 +13,11 @@ from src.api.server import create_app
 from src.models import ContentItem, SourceType
 from src.services.feed_archive import FeedArchiveService
 from src.services.job_queue import JobQueue
+from src.services.notification_email_transport import (
+    WorkspaceEmailTransportService,
+)
 from src.services.quota import QuotaService
+from src.services.secret_store import SecretStore
 from src.services.subscription_mutation import SubscriptionMutationService
 from src.services.user_feed_store import UserFeedStore
 from src.services.user_item_state import UserItemStateStore
@@ -84,6 +89,51 @@ def _login_as(client, username, password):
     )
     assert response.status_code == 200
     return response
+
+
+def _assert_notification_destination_is_write_only(
+    response,
+    *destinations: str,
+) -> dict:
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    rendered = json.dumps(payload, ensure_ascii=False)
+    for destination in destinations:
+        assert destination not in rendered
+    return payload["data"]
+
+
+def _seed_ready_workspace_email_transport(data_dir) -> None:
+    store = ServiceStore(data_dir)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    assert workspace is not None
+    workspace_id = str(workspace["id"])
+    credential = "test-only-email-credential"
+    env_name = WorkspaceEmailTransportService.credential_env_name(
+        workspace_id=workspace_id
+    )
+    SecretStore(data_dir).set(env_name, credential)
+    store.upsert_workspace_email_transport(
+        workspace_id=workspace_id,
+        provider="resend",
+        sender_email="notice@example.com",
+        sender_name="InfoHub",
+        region=None,
+        smtp_username=None,
+        enabled=True,
+        credential_env_name=env_name,
+        credential_secret_digest=hashlib.sha256(
+            credential.encode("utf-8")
+        ).hexdigest(),
+        generation=1,
+        last_test_status="sent",
+        last_test_generation=1,
+        last_test_attempted_at="2026-07-24T00:00:00+00:00",
+        last_tested_at="2026-07-24T00:00:00+00:00",
+        last_test_error_code=None,
+    )
 
 
 def test_api_request_transaction_boundary_releases_stale_sqlite_snapshot(
@@ -628,6 +678,171 @@ def test_subscription_priority_api_rejects_non_integer_and_out_of_range_values(
     )
     assert updated.status_code == 200
     assert updated.json()["data"]["priority"] == 100
+
+
+def test_subscription_notification_preference_round_trip_and_personal_only_guard(
+    tmp_path, monkeypatch
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "rss",
+            "display_name": "Notification Preference Feed",
+            "config": {"url": "https://example.com/notification-preference.xml"},
+        },
+    ).json()["data"]
+    subscription = client.post(
+        "/api/me/subscriptions",
+        json={"source_id": source["id"]},
+    ).json()["data"]
+
+    assert subscription["notify_on_new_items"] is False
+    assert subscription["notification_enabled_at"] is None
+
+    enabled = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"notify_on_new_items": True},
+    )
+    assert enabled.status_code == 200
+    enabled_data = enabled.json()["data"]
+    assert enabled_data["notify_on_new_items"] is True
+    assert datetime.fromisoformat(
+        enabled_data["notification_enabled_at"].replace("Z", "+00:00")
+    ).tzinfo is not None
+    enabled_at = enabled_data["notification_enabled_at"]
+
+    idempotent_patch = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"notify_on_new_items": True},
+    )
+    assert idempotent_patch.status_code == 200
+    assert idempotent_patch.json()["data"]["notification_enabled_at"] == enabled_at
+
+    idempotent_post = client.post(
+        "/api/me/subscriptions",
+        json={
+            "source_id": source["id"],
+            "enabled": True,
+            "analysis_mode": "full",
+        },
+    )
+    assert idempotent_post.status_code == 200
+    assert idempotent_post.json()["data"]["id"] == subscription["id"]
+    assert idempotent_post.json()["data"]["notify_on_new_items"] is True
+    assert (
+        idempotent_post.json()["data"]["notification_enabled_at"]
+        == enabled_at
+    )
+    verification_store = ServiceStore(data_dir)
+    stored_subscription = verification_store.get_subscription(subscription["id"])
+    assert stored_subscription is not None
+    assert stored_subscription["notify_on_new_items"] is True
+    assert stored_subscription["notification_enabled_at"] == enabled_at
+    verification_store.close()
+
+    unrelated_patch = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"priority": 73},
+    )
+    assert unrelated_patch.status_code == 200
+    assert unrelated_patch.json()["data"]["notify_on_new_items"] is True
+    assert unrelated_patch.json()["data"]["notification_enabled_at"] == enabled_at
+
+    listed = client.get("/api/me/subscriptions")
+    listed_subscription = next(
+        item
+        for item in listed.json()["data"]["subscriptions"]
+        if item["id"] == subscription["id"]
+    )
+    assert listed_subscription["notify_on_new_items"] is True
+    assert listed_subscription["notification_enabled_at"] == enabled_at
+
+    invalid_disable_and_notify = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": False, "notify_on_new_items": True},
+    )
+    assert invalid_disable_and_notify.status_code == 400
+    assert (
+        invalid_disable_and_notify.json()["error"]["code"]
+        == "invalid_subscription_notification"
+    )
+
+    disabled = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["data"]["enabled"] is False
+    assert disabled.json()["data"]["notify_on_new_items"] is False
+    assert disabled.json()["data"]["notification_enabled_at"] is None
+
+    reenabled = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": True},
+    )
+    assert reenabled.status_code == 200
+    assert reenabled.json()["data"]["notify_on_new_items"] is False
+    assert reenabled.json()["data"]["notification_enabled_at"] is None
+
+    disabled_notification = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": False},
+    )
+    assert disabled_notification.status_code == 200
+    invalid_disabled_notification = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"notify_on_new_items": True},
+    )
+    assert invalid_disabled_notification.status_code == 400
+    assert (
+        invalid_disabled_notification.json()["error"]["code"]
+        == "invalid_subscription_notification"
+    )
+
+    restored = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={"enabled": True},
+    )
+    assert restored.status_code == 200
+
+    invalid_combination = client.patch(
+        f"/api/me/subscriptions/{subscription['id']}",
+        json={
+            "analysis_mode": "personal_only",
+            "notify_on_new_items": True,
+        },
+    )
+    assert invalid_combination.status_code == 400
+    assert invalid_combination.json()["ok"] is False
+
+    unchanged = client.get("/api/me/subscriptions").json()["data"]["subscriptions"]
+    unchanged_subscription = next(
+        item for item in unchanged if item["id"] == subscription["id"]
+    )
+    assert unchanged_subscription["analysis_mode"] == "full"
+    assert unchanged_subscription["notify_on_new_items"] is False
+    assert unchanged_subscription["notification_enabled_at"] is None
+
+    second_source = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "rss",
+            "display_name": "Personal-only Notification Feed",
+            "config": {"url": "https://example.com/personal-only-notification.xml"},
+        },
+    ).json()["data"]
+    personal_only = client.post(
+        "/api/me/subscriptions",
+        json={
+            "source_id": second_source["id"],
+            "analysis_mode": "personal_only",
+            "notify_on_new_items": True,
+        },
+    )
+    assert personal_only.status_code == 400
+    assert personal_only.json()["ok"] is False
 
 
 def test_source_fetch_identity_changes_reset_all_subscriber_health_but_metadata_does_not(
@@ -3026,6 +3241,415 @@ def test_member_cannot_queue_an_unscoped_source_payload(tmp_path, monkeypatch):
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "forbidden"
+
+
+def test_notification_settings_are_write_only_and_user_scoped(
+    tmp_path, monkeypatch
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    client.post(
+        "/api/users",
+        json={
+            "username": "notification-member",
+            "password": "member-password",
+            "role": "member",
+        },
+    )
+    _seed_ready_workspace_email_transport(data_dir)
+    webhook_url = "https://hooks.example.com/services/owner?token=owner-private"
+    email_address = "notification-member@example.com"
+    projection_keys = {
+        "schema_version",
+        "enabled",
+        "channel",
+        "email_configured",
+        "email_transport_ready",
+        "webhook_configured",
+        "last_test_status",
+        "last_tested_at",
+        "last_test_error_code",
+        "updated_at",
+    }
+
+    default_response = client.get("/api/me/notification-settings")
+    default_data = _assert_notification_destination_is_write_only(default_response)
+    assert set(default_data) == projection_keys
+    assert default_data["schema_version"] == 1
+    assert default_data["enabled"] is False
+    assert default_data["email_configured"] is False
+    assert default_data["email_transport_ready"] is True
+    assert default_data["webhook_configured"] is False
+
+    owner_update = client.patch(
+        "/api/me/notification-settings",
+        json={
+            "enabled": True,
+            "channel": "webhook",
+            "webhook_url": webhook_url,
+        },
+    )
+    owner_data = _assert_notification_destination_is_write_only(
+        owner_update,
+        webhook_url,
+        "owner-private",
+    )
+    assert set(owner_data) == projection_keys
+    assert owner_data["enabled"] is True
+    assert owner_data["channel"] == "webhook"
+    assert owner_data["webhook_configured"] is True
+    assert owner_data["email_configured"] is False
+
+    owner_read = _assert_notification_destination_is_write_only(
+        client.get("/api/me/notification-settings"),
+        webhook_url,
+        "owner-private",
+    )
+    assert owner_read == owner_data
+
+    client.post("/api/auth/logout")
+    _login_as(client, "notification-member", "member-password")
+    member_default = _assert_notification_destination_is_write_only(
+        client.get("/api/me/notification-settings"),
+        webhook_url,
+        email_address,
+    )
+    assert member_default["enabled"] is False
+    assert member_default["email_configured"] is False
+    assert member_default["webhook_configured"] is False
+
+    member_update = client.patch(
+        "/api/me/notification-settings",
+        json={
+            "enabled": True,
+            "channel": "email",
+            "email_address": email_address,
+        },
+    )
+    member_data = _assert_notification_destination_is_write_only(
+        member_update,
+        webhook_url,
+        email_address,
+    )
+    assert member_data["enabled"] is True
+    assert member_data["channel"] == "email"
+    assert member_data["email_configured"] is True
+    assert member_data["webhook_configured"] is False
+
+    client.post("/api/auth/logout")
+    _login(client)
+    owner_after_member_update = _assert_notification_destination_is_write_only(
+        client.get("/api/me/notification-settings"),
+        webhook_url,
+        email_address,
+    )
+    assert owner_after_member_update == owner_data
+
+
+def test_admin_email_transport_requires_test_and_never_returns_secret(
+    tmp_path, monkeypatch
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    client.post(
+        "/api/users",
+        json={
+            "username": "email-member",
+            "password": "member-password",
+            "role": "member",
+        },
+    )
+    unavailable = client.patch(
+        "/api/me/notification-settings",
+        json={
+            "enabled": True,
+            "channel": "email",
+            "email_address": "owner@example.com",
+        },
+    )
+    assert unavailable.status_code == 409
+    assert unavailable.json()["error"]["code"] == (
+        "notification_channel_unavailable"
+    )
+
+    default = client.get(
+        "/api/admin/notification-email-transport"
+    )
+    assert default.status_code == 200
+    default_data = default.json()["data"]
+    assert default_data["configured"] is False
+    assert default_data["ready"] is False
+    assert [
+        provider["provider"] for provider in default_data["providers"]
+    ] == ["qq", "netease", "gmail", "resend", "amazon_ses"]
+
+    client.post("/api/auth/logout")
+    _login_as(client, "email-member", "member-password")
+    assert client.get(
+        "/api/admin/notification-email-transport"
+    ).status_code == 403
+    assert client.patch(
+        "/api/admin/notification-email-transport",
+        json={"enabled": False},
+    ).status_code == 403
+    client.post("/api/auth/logout")
+    _login(client)
+
+    credential = "test-only-qq-authorization-code"
+    rejected_host = client.patch(
+        "/api/admin/notification-email-transport",
+        json={
+            "provider": "qq",
+            "sender_email": "notice@qq.com",
+            "sender_name": "InfoHub",
+            "credential": credential,
+            "smtp_host": "127.0.0.1",
+        },
+    )
+    assert rejected_host.status_code == 400
+
+    saved = client.patch(
+        "/api/admin/notification-email-transport",
+        json={
+            "provider": "qq",
+            "sender_email": "notice@qq.com",
+            "sender_name": "InfoHub",
+            "credential": credential,
+            "enabled": True,
+        },
+    )
+    assert saved.status_code == 200
+    saved_payload = saved.json()
+    saved_data = saved_payload["data"]
+    assert saved_data["enabled"] is False
+    assert saved_data["can_enable"] is False
+    assert saved_data["credential_configured"] is True
+    assert saved_data["connection"]["smtp_host"] == "smtp.qq.com"
+    assert credential not in json.dumps(saved_payload)
+    assert credential.encode() not in (data_dir / "service.db").read_bytes()
+
+    premature_enable = client.patch(
+        "/api/admin/notification-email-transport",
+        json={"enabled": True},
+    )
+    assert premature_enable.status_code == 409
+    assert premature_enable.json()["error"]["code"] == (
+        "email_transport_test_required"
+    )
+
+    sent_messages = []
+
+    class FakeSMTP:
+        def __init__(
+            self,
+            host,
+            port,
+            *,
+            timeout,
+            context,
+        ):
+            assert (host, port, timeout) == ("smtp.qq.com", 465, 20)
+            assert context is not None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def login(self, username, password):
+            assert username == "notice@qq.com"
+            assert password == credential
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    client.app.state.workspace_email_transport.smtp_factory = FakeSMTP
+    client.app.state.workspace_email_transport.ssl_context_factory = (
+        lambda: object()
+    )
+    recipient = "test-recipient@example.com"
+    tested = client.post(
+        "/api/admin/notification-email-transport/test",
+        json={"recipient_email": recipient},
+    )
+    assert tested.status_code == 200
+    assert tested.json()["data"]["sent"] is True
+    assert len(sent_messages) == 1
+    assert sent_messages[0]["To"] == recipient
+    assert recipient.encode() not in (data_dir / "service.db").read_bytes()
+
+    enabled = client.patch(
+        "/api/admin/notification-email-transport",
+        json={"enabled": True},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["data"]["ready"] is True
+    me = client.get("/api/me/notification-settings")
+    assert me.status_code == 200
+    assert me.json()["data"]["email_transport_ready"] is True
+
+    deleted = client.delete(
+        "/api/admin/notification-email-transport"
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["data"]["deleted"] is True
+    assert client.get(
+        "/api/me/notification-settings"
+    ).json()["data"]["email_transport_ready"] is False
+
+
+def test_notification_test_push_does_not_create_delivery_snapshot_or_job(
+    tmp_path, monkeypatch
+):
+    from src.services.preferred_source_notifications import (
+        PreferredSourceNotificationService,
+    )
+
+    calls = []
+
+    def fake_send_test(self, *, workspace_id, user_id):
+        calls.append(
+            {
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+            }
+        )
+        return {"sent": True, "channel": "webhook"}
+
+    monkeypatch.setattr(
+        PreferredSourceNotificationService,
+        "send_test",
+        fake_send_test,
+    )
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    webhook_url = "https://hooks.example.com/services/test?token=test-private"
+    configured = client.patch(
+        "/api/me/notification-settings",
+        json={
+            "enabled": True,
+            "channel": "webhook",
+            "webhook_url": webhook_url,
+        },
+    )
+    assert configured.status_code == 200
+
+    store = ServiceStore(data_dir)
+    store.initialize()
+    owner = store.get_user_by_username("owner")
+
+    def counts() -> tuple[int, int, int]:
+        connection = store.connect()
+        return (
+            int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM preferred_source_notification_deliveries"
+                ).fetchone()[0]
+            ),
+            int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM user_feed_snapshots"
+                ).fetchone()[0]
+            ),
+            int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM fetch_jobs"
+                ).fetchone()[0]
+            ),
+        )
+
+    before = counts()
+    tested = client.post("/api/me/notification-settings/test")
+
+    assert tested.status_code == 200
+    tested_data = tested.json()["data"]
+    assert tested_data == {"sent": True, "channel": "webhook"}
+    assert calls == [
+        {
+            "workspace_id": owner["workspace_id"],
+            "user_id": owner["id"],
+        }
+    ]
+    assert counts() == before == (0, 0, 0)
+    settings = _assert_notification_destination_is_write_only(
+        client.get("/api/me/notification-settings"),
+        webhook_url,
+        "test-private",
+    )
+    assert set(settings) == {
+        "schema_version",
+        "enabled",
+        "channel",
+        "email_configured",
+        "email_transport_ready",
+        "webhook_configured",
+        "last_test_status",
+        "last_tested_at",
+        "last_test_error_code",
+        "updated_at",
+    }
+
+
+def test_subscription_notification_preference_is_isolated_per_user(
+    tmp_path, monkeypatch
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    client.post(
+        "/api/users",
+        json={
+            "username": "notification-peer",
+            "password": "peer-password",
+            "role": "member",
+        },
+    )
+    source = client.post(
+        "/api/catalog/sources",
+        json={
+            "scope": "public",
+            "type": "rss",
+            "display_name": "Shared Notification Feed",
+            "config": {"url": "https://example.com/shared-notification.xml"},
+        },
+    ).json()["data"]
+    owner_subscription = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    owner_enabled = client.patch(
+        f"/api/me/subscriptions/{owner_subscription['id']}",
+        json={"notify_on_new_items": True},
+    )
+    assert owner_enabled.status_code == 200
+    assert owner_enabled.json()["data"]["notify_on_new_items"] is True
+
+    client.post("/api/auth/logout")
+    _login_as(client, "notification-peer", "peer-password")
+    peer_subscription = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    ).json()["data"]["subscription"]
+    assert peer_subscription["id"] != owner_subscription["id"]
+    assert peer_subscription["notify_on_new_items"] is False
+    assert peer_subscription["notification_enabled_at"] is None
+
+    peer_list = client.get("/api/me/subscriptions").json()["data"]["subscriptions"]
+    assert [item["id"] for item in peer_list] == [peer_subscription["id"]]
+    assert peer_list[0]["notify_on_new_items"] is False
+
+    other_user_patch = client.patch(
+        f"/api/me/subscriptions/{owner_subscription['id']}",
+        json={"notify_on_new_items": False},
+    )
+    assert other_user_patch.status_code == 404
+
+    client.post("/api/auth/logout")
+    _login(client)
+    owner_list = client.get("/api/me/subscriptions").json()["data"]["subscriptions"]
+    owner_projection = next(
+        item for item in owner_list if item["id"] == owner_subscription["id"]
+    )
+    assert owner_projection["notify_on_new_items"] is True
+    assert owner_projection["notification_enabled_at"] is not None
 
 
 def test_feed_schedule_get_defaults_and_patch_round_trip(tmp_path, monkeypatch):

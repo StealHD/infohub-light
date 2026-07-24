@@ -29,6 +29,7 @@ def _client(tmp_path, monkeypatch) -> tuple[TestClient, ServiceStore]:
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
     monkeypatch.setenv("HORIZON_AUTH_SESSION_SECRET", "test-session-secret")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "false")
     data_dir = tmp_path / "data"
     static_dir = tmp_path / "static"
     data_dir.mkdir()

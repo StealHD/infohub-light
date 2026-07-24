@@ -43,6 +43,7 @@
         "src/services/apify_key_pool.py",
         "src/services/secret_store.py",
         "src/services/agent_change_proposal.py",
+        "src/services/*notification*.py",
         "src/services/source_type_registry.py",
         "src/services/subscription_mutation.py",
         "src/services/user_config_builder.py",
@@ -80,6 +81,7 @@
         "src/services/apify_pool_runtime.py",
         "src/services/job_eligibility.py",
         "src/services/job_queue.py",
+        "src/services/*notification*.py",
         "src/services/quota.py",
         "src/services/runtime_status.py",
         "src/services/scheduler.py",
@@ -248,7 +250,9 @@
       "tests/test_remote_mcp_diagnostics.py",
       "tests/test_remote_mcp_subscription_http.py",
       "tests/test_openclaw_skill.py",
-      "tests/test_light_runtime_scripts.py"
+      "tests/test_light_runtime_scripts.py",
+      "tests/test_notification_email_transport.py",
+      "tests/test_preferred_source_notifications.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",
@@ -260,7 +264,9 @@
       "tests/test_source_health_worker.py",
       "tests/test_source_schedule.py",
       "tests/test_worker.py",
-      "tests/test_content_repair_v5.py"
+      "tests/test_content_repair_v5.py",
+      "tests/test_notification_email_transport.py",
+      "tests/test_preferred_source_notifications.py"
     ],
     "python_feed": [
       "tests/test_content_presentation.py",
@@ -276,7 +282,8 @@
       "tests/test_user_analysis_cache.py",
       "tests/test_user_content_v4_migration.py",
       "tests/test_user_feed_store.py",
-      "tests/test_content_repair_v5.py"
+      "tests/test_content_repair_v5.py",
+      "tests/test_preferred_source_notifications.py"
     ],
     "python_source_acquisition": [
       "tests/test_catalog_source_runner.py",

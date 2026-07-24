@@ -30,6 +30,8 @@ import {
   settingsDataReady,
 } from '../settings/settingsModel'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
+import { HeroEmailTransportSettings } from '../notifications/HeroEmailTransportSettings'
+import { HeroNotificationSettings } from '../notifications/HeroNotificationSettings'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
 
@@ -767,6 +769,13 @@ export function HeroSettingsPage() {
       </div>
     </AdminSection>
 
+    <AdminSection title="消息通知" description="选择当前账户的接收方式，并先发送一条安全的模拟通知进行验证。">
+      <HeroNotificationSettings />
+      {admin && <div className="mt-6 border-t border-separator pt-5">
+        <HeroEmailTransportSettings />
+      </div>}
+    </AdminSection>
+
     <AdminSection title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
       <Button size="sm" variant="secondary" onPress={() => navigate('/agents')}><Icons.Bot size={16} />管理助手连接</Button>
       {!admin && <Card variant="transparent" className="mt-4 p-4"><Card.Title>工作区设置只读</Card.Title><Card.Description className="mt-1">全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。</Card.Description></Card>}
@@ -794,7 +803,7 @@ export function HeroSettingsPage() {
     <AdminSection title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
       {ignored.isLoading && <LoadingState label="正在读取已忽略内容" rows={2} />}
       {ignored.isError && <HeroNotice title="已忽略内容读取失败" />}
-      {!ignored.isLoading && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
+      {!ignored.isLoading && !ignored.isError && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
       <div className="grid gap-2">{(ignored.data?.items ?? []).map((item) => <Card key={item.id} variant="transparent" className="flex-row items-center gap-3 p-3">
         <div className="min-w-0 flex-1"><Card.Title className="truncate">{item.presentation?.content?.title || item.title || '无标题内容'}</Card.Title><Card.Description className="truncate">{item.presentation?.source?.name || item.source || '未知来源'}</Card.Description></div>
         <Button size="sm" variant="ghost" isDisabled={restoreMutation.isPending && restoreMutation.variables === item.id} onPress={() => restoreMutation.mutate(item.id)}>{restoreMutation.isPending && restoreMutation.variables === item.id ? '恢复中…' : '恢复'}</Button>

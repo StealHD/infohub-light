@@ -2557,3 +2557,128 @@
 - 执行验证：合并态 TypeScript/UI 检查、定向 Vitest 96/96、Python 8/8；`test_gate full` 22/22、0 failed/error、101.906 秒，配置 JSON 与 `git diff --check` 通过
 - 结果：本地 `main` 同时包含 Apify Key Pool、全站 Toast、操作手册、更新日志/Release 菜单和产品文档合并门禁；现有容器保持不变
 - 控制面变更：D057 与 PLAN 第 64 项落入 main；未推送、部署、重建容器或触发 scheduler、来源抓取、Apify Actor、AI
+
+### 2026-07-23 23:12 Codex
+- 任务：按参考图先制作“我的订阅”桌面设置流概念稿供方向确认
+- 修改文件：仅本工作日志；概念图位于忽略目录 `.test-results/design-previews/`，产品源码保持不变
+- 执行验证：概念稿使用当前订阅名称与状态，展示页内搜索/频道索引、自动更新设置组和按频道分组的来源设置行
+- 结果：已输出静态概念图等待用户确认，未执行真实订阅、抓取、AI、Worker、scheduler 或付费调用
+- 控制面变更：无
+
+### 2026-07-23 23:15 Codex
+- 任务：补充三套可比较的“我的订阅”视觉方向
+- 修改文件：仅本工作日志；新增忽略目录中的一页总览与频道聚焦静态概念稿，产品源码保持不变
+- 执行验证：三版均使用相同订阅名称、频道、健康状态和数量，在 1440×900 浏览器视口完成渲染截图
+- 结果：形成 A 设置索引、B 一页总览、C 频道聚焦三种方向供选择，所有控件仅为视觉稿
+- 控制面变更：无
+
+### 2026-07-23 23:56 Codex
+- 任务：沿用频道聚焦骨架补充三套“我的订阅”管理方案
+- 修改文件：仅本工作日志；概念页与三张截图位于忽略目录 `.test-results/design-previews/`，产品源码保持不变
+- 执行验证：紧凑列表、三级设置、卡片浏览三版均使用相同频道与来源数据，在 1440×900 浏览器视口完成渲染和视觉检查
+- 结果：形成信息密度、连续编辑与视觉辨识三种侧重供选择，所有控件仅为视觉稿
+- 控制面变更：无
+
+### 2026-07-24 01:22 Codex
+- 任务：构建并启动最新本地 `main@901977258a15` 的 API/Worker 版本
+- 运行变更：从干净 main worktree 构建 `inteliscope-service:local-901977258a15-main`，切换 8080 API/Worker，并继续挂载主工作区 `.env/data/logs`
+- 执行验证：API/Worker 同镜像、healthy、0 restart，live revision 与 ready 通过；`/feed` 200，应用内浏览器加载 31 条且控制台错误 0；切换前后 active jobs、到期计划、运行中 Actor 均为 0，数据库 integrity 正常，严重日志匹配为 0
+- 结果：`http://127.0.0.1:8080/feed` 已运行本地 main 版本并留在浏览器；scheduler 未启动，未由 Codex 触发抓取、Apify Actor、AI 或付费调用
+- 控制面变更：无；未推送远端或部署 VPS
+
+### 2026-07-24 Codex
+- 任务：补齐偏好来源邮件/Webhook 新内容通知的后端 focused tests
+- 修改文件：新增 `tests/test_preferred_source_notifications.py`，并加入 API/store、queue/worker、Feed 三个影响分组
+- 执行验证：新增 9 项 pytest 全部通过；影响映射 JSON、Python 语法和限定差异检查通过
+- 结果：覆盖非幂等 POST 单地址、GET failover、write-only Webhook、基线/水位线、批量去重、安全 URL、发送前失效、测试冷却和 Worker staging 隔离
+
+### 2026-07-24 Codex
+- 任务：加固偏好来源通知的 provenance、生命周期、epoch 与 Secret 篡改回归测试
+- 修改文件：扩充 `tests/test_preferred_source_notifications.py`
+- 执行验证：整份通知 focused suite 共 17 项 pytest 全部通过，Python 语法与限定差异检查通过
+- 结果：覆盖双 provenance 部分失效、source 停用清 opt-in、no-op snapshot、既有订阅兼容、账户/订阅旧 epoch、disabled-user test 和 Webhook Secret 发送前重校验
+
+### 2026-07-24 Codex
+- 任务：修正通知 snapshot retry 语义并覆盖未知发送结果的不可重放边界
+- 修改文件：扩充 `tests/test_preferred_source_notifications.py`
+- 执行验证：整份通知 focused suite 共 19 项 pytest 全部通过，Python 语法与限定差异检查通过
+- 结果：同 Job retry 仅补新增 ledger，跨 Job 旧 snapshot 跳过；外呼结果未知时 ledger 保持 `sending` 且后续 dispatch 不再领取
+
+### 2026-07-24 Codex
+- 任务：验证通知 POST 仅消费响应状态、不读取上游正文
+- 修改文件：扩充 `tests/test_preferred_source_notifications.py`
+- 执行验证：整份通知 focused suite 共 20 项 pytest 全部通过，Python 语法与限定差异检查通过
+- 结果：2xx 压缩且超大响应正文未被迭代，返回空 content，并继续强制请求 `Accept-Encoding: identity`
+
+### 2026-07-24 Codex
+- 任务：补齐通知 API omission、DNS 阻断与 Webhook Secret 删除生命周期回归
+- 修改文件：扩充 `tests/test_preferred_source_notifications.py` 和 `tests/test_api_service.py`
+- 执行验证：通知 focused suite 加目标 API 用例共 23 项 pytest 全部通过，Python 语法与限定差异检查通过
+- 结果：同源 POST 省略通知字段保留 opt-in/精确水位线；混合公私 DNS 在 transport 前阻断；删除 Secret 文件后不回退残留环境变量
+
+### 2026-07-24 Codex
+- 任务：补齐通知 POST 的 DNS deadline 与响应头安全回归
+- 修改文件：扩充 `tests/test_preferred_source_notifications.py`
+- 执行验证：整份通知 focused suite 共 24 项 pytest 全部通过，Python 语法与限定差异检查通过
+- 结果：阻塞 DNS 在小超时内安全终止且零 transport；gzip 与超大 identity 响应均仅返回状态与空正文，且不消费响应 body
+
+### 2026-07-24 Codex
+- 任务：锁定通知旧 epoch 的服务端 ledger 时间边界与 gzip POST 最终合同
+- 修改文件：调整 `tests/test_preferred_source_notifications.py`
+- 执行验证：整份通知 focused suite 共 24 项 pytest 全部通过，Python 语法与限定差异检查通过
+- 结果：即使 payload 发布时间晚于新水位线，旧 ledger `created_at` 仍判 stale；gzip 2xx POST 继续只按状态成功且不消费正文
+
+### 2026-07-24 Codex
+- 任务：补齐偏好来源通知的 transport 测试、并发门禁与 fail-closed epoch/Secret 边界
+- 修改文件：调整通知服务、网络策略、订阅 mutation、Service schema，并扩充通知与订阅测试
+- 执行验证：通知 focused suite 37 项、API notification 4 项、相关 RSS/store/worker/subscription suite 196 项 pytest 全部通过；Python 语法与限定差异检查通过
+- 结果：无真实网络验证真实/测试 Webhook 载荷和单封多条邮件；锁内拒绝 stale 用户/来源写入，双 generation 阻断旧 epoch，用户绑定 env+Secret digest 阻断未提交/篡改目的地，非 identity 响应保持 `sending` 且不重放
+
+### 2026-07-24 Codex
+- 任务：从 main 新建 `codex/preferred-source-notifications`，完成偏好来源邮件/Webhook 严格新内容主动通知与测试推送
+- 修改文件：落地 schema v9、提交后 outbox、发送 transport/网络策略、用户与逐来源设置 API、HeroUI 设置流、产品手册/更新日志及回归测试；补齐 MCP `.env` 测试环境隔离
+- 执行验证：Python 完整顺序测试通过；前端定向 Vitest 16/16、typecheck、lint、build 与三视口 Playwright 6/6 通过；`test_gate full` 22/22、0 failed/error、109.85 秒
+- 结果：首次快照、旧数据、复用数据、`personal_only`、关闭后旧 epoch 与测试消息均不会补发；模拟 Webhook/邮件投递、60 秒测试冷却、权限隔离和失败语义已覆盖
+- 控制面变更：D058、PLAN 第 65 项及 API/架构/UI 合同完成验收；未调用真实邮件/Webhook、scheduler、来源、AI 或付费服务，未推送、部署或重建容器
+
+### 2026-07-24 10:28 Codex
+- 任务：启动当前偏好来源通知分支的本地容器并打开页面供验收
+- 运行变更：用 `./scripts/up-latest.sh` 构建 `inteliscope-service:local-901977258a15-dirty`，替换本地 8080 API/Worker，继续挂载当前工作区数据
+- 执行验证：API/Worker healthy、revision 匹配、restart 0、ready；数据库 integrity 为 `ok`、active Job 为 0、scheduler 未运行；浏览器核对通知设置和逐来源开关，控制台 error/warn 为 0
+- 结果：`http://127.0.0.1:8080/settings` 已留在应用内浏览器；未修改通知配置、未发送测试或真实通知，未触发抓取、AI、付费调用或 VPS 部署
+- 控制面变更：无；仅追加本工作日志，未提交或推送
+
+### 2026-07-24 Codex
+- 任务：核对当前偏好来源通知中负责邮件发送的服务与调用链
+- 修改文件：仅本工作日志
+- 执行验证：只读检查 Worker、通知服务、API 测试端点、SMTP 配置模型及 API 合同
+- 结果：真实新内容由 `horizon-worker` 调用 `PreferredSourceNotificationService` 经 Python `smtplib.SMTP_SSL` 发送；模拟测试由 `horizon-api` 同步复用同一发送实现
+- 控制面变更：无；未发送邮件、Webhook，未修改配置或运行状态
+
+### 2026-07-24 Codex
+- 任务：用非技术语言解释偏好来源邮件通知中的发件与收件职责
+- 修改文件：仅本工作日志
+- 执行验证：沿用已核对的 Worker、API 与 SMTP 调用链
+- 结果：明确 Inteliscope 负责发现新内容和组织邮件，实际投递借用管理员配置的发件邮箱 SMTP，用户设置页填写的是收件邮箱
+- 控制面变更：无；未修改配置或发送通知
+
+### 2026-07-24 Codex
+- 任务：评估服务端发件邮箱配置入口与邮件供应商方案
+- 修改文件：仅本工作日志
+- 执行验证：对照当前 SMTP/SecretStore 实现、设置页能力及 Resend、Amazon SES 官方 SMTP 文档
+- 结果：建议新增管理员级“邮件发送服务”配置，非敏感元数据存 Service DB、密码只进 SecretStore；首版采用供应商无关 SMTP，并优先用 Resend SMTP，保留 SES/自定义 SMTP
+- 控制面变更：仅形成建议，未修改 API、数据库、UI、配置或运行状态，未发送邮件
+
+### 2026-07-24 Codex
+- 任务：确认小团体场景使用 QQ 邮箱作为统一发件 SMTP 的可行性
+- 修改文件：仅本工作日志
+- 执行验证：核对当前 `SMTP_SSL` 465 实现及 QQ 邮箱 SMTP 开启、授权码要求
+- 结果：QQ 邮箱适合当前低频通知；建议使用专用 QQ 邮箱、`smtp.qq.com:465`、完整邮箱用户名和独立授权码
+- 控制面变更：无；未写入邮箱、授权码或配置，未发送邮件
+
+### 2026-07-24 11:42 Codex
+- 任务：实现工作区级主流邮件服务统一发件配置，并重建当前分支本地容器供验收
+- 修改文件：schema v10、Provider Registry/EmailTransport、管理员 API、通知门禁、HeroUI 设置页、合同/手册/更新日志与回归测试
+- 执行验证：邮件后端与前端定向测试通过；390/768/1440 Playwright 通过；`test_gate full` 22/22；API/Worker 当前镜像 healthy，schema v10、数据库 integrity、零真实 transport/active job/pending delivery、scheduler 未启动；应用内浏览器完成最终动态字段与无溢出复验
+- 结果：Owner/Admin 可按“保存 → 测试 → 启用”配置 QQ、网易、Gmail、Resend、Amazon SES；凭据只写 SecretStore，普通用户只填收件邮箱，暂停不入队不补发且 Webhook 不受影响
+- 控制面变更：D059、PLAN 第 66 项及 API/架构/UI 合同完成验收；未写入真实凭据、未调用真实 SMTP/Webhook/来源/AI/付费服务，未提交、推送或部署

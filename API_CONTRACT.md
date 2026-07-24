@@ -113,6 +113,8 @@ capability / degrade：
 9. `GET /api/me/source-health`：读取当前登录用户每条订阅的生产抓取健康状态；精确 schema、权限、状态与聚合语义见下文。
 10. `GET /api/me/feed-schedule`, `PATCH /api/me/feed-schedule`：读取或修改当前用户自己的 Feed 自动刷新计划；精确字段、权限和错误语义见下文。
 10A. `GET /api/me/subscriptions/{id}/schedule`, `PATCH /api/me/subscriptions/{id}/schedule`：读取或修改当前用户指定订阅的自动单源抓取计划；只创建现有 `source_fetch`，不新增同步抓取入口。
+10B. `GET /api/me/notification-settings`、`PATCH /api/me/notification-settings`：读取或修改当前用户自己的偏好来源通知渠道；`POST /api/me/notification-settings/test` 只向已保存渠道发送一条明确的模拟消息，不创建抓取任务、Feed snapshot 或内容投递记录，也不移动任何新内容基线。精确字段、write-only 目的地和旧数据规则见下文。
+10C. `GET/PATCH/DELETE /api/admin/notification-email-transport`：Owner/Admin 读取、修改或删除工作区唯一的 Service 邮件发送配置；`POST /api/admin/notification-email-transport/test` 使用请求内一次性 `recipient_email` 验证当前 generation。精确 Provider、SecretStore、测试门禁和暂停规则见下文。
 11. `POST /api/jobs/source-test`, `POST /api/jobs/source-fetch`, `POST /api/jobs/user-feed-refresh`, `POST /api/jobs/{id}/cancel`, `POST /api/jobs/{id}/retry`, `GET /api/jobs/{id}`, `GET /api/jobs`：创建、取消、重试和查询异步任务。`source_fetch` 带 `source_id` 时表示按 catalog source 精准抓取当前用户作用域。
 12. `GET /api/feed/latest`, `GET /api/feed/history`：登录后访问目标用户的 Feed snapshot。`latest` 支持 `hide_dismissed=true`、`unread_first=true`、`saved_first=true`；`history` 返回 schema-v2 用户历史留存 payload，精确语义见下文。
 12A. `GET /api/feed/saved?limit=200&offset=0` 按 `saved_at DESC` 返回当前用户稳定收藏；`GET /api/feed/ignored?limit=200&offset=0` 按 `dismissed_at DESC` 返回当前用户忽略集合；`GET /api/feed/items/{article_id}` 按需返回 Presentation v2 详情。三者只读 `user_content_items + user_item_state`，不得用另一用户或最近 snapshot 兜底。
@@ -148,6 +150,8 @@ capability / degrade：
 12. AI、过滤、全局标签库、Webhook 及其他非 source 全局配置只允许 `owner/admin` 修改；`member/viewer` 必须返回 `forbidden`。member 通过兼容 source action 提交的 topics/personal tags 只能写目标 source/subscription，不得回写全局 `data/config.json`。
 13. `owner/admin/member` 只能读取和修改自己的 Feed schedule；该接口不接受 `user_id` 代查。`viewer` 可以 GET 自己的状态，但 PATCH 返回 `forbidden`。
 13A. 订阅级 schedule 同样只允许操作当前用户自己的订阅，不接受 `user_id` 代查；`viewer` 可以 GET，PATCH 返回 `forbidden`。订阅、来源或用户未启用时不得开启。
+13B. 偏好来源通知设置和测试同样只操作当前用户，不接受 `user_id` 代查。所有角色可以 GET；`viewer` 的 PATCH 与测试返回 `forbidden`。订阅通知开关只能修改当前用户自己的订阅，且 `personal_only` 或已停用订阅不得开启。
+13C. 工作区邮件发送配置的 GET/PATCH/DELETE/test 只允许当前 workspace 的 `owner/admin`；`member/viewer` 均返回 `forbidden`。服务层在持有 SQLite 写锁后必须重读 actor，防止并发降权后的旧请求修改配置或 SecretStore。
 14. `owner/admin/member/viewer` 都可以读取自己的 Source Health；`GET /api/me/source-health` 不提供跨用户代理，即使 `owner/admin` 附带 `user_id` 查询参数也仍只返回当前登录用户的数据。
 15. 密钥列表、创建、轮换、删除、额度查询、Apify Key 池读取/排序/排空以及 legacy catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。池模式下任何角色都不再得到 Apify 来源级 `secret_env`；非管理员其他 source 响应只给出 `secret_configured`，不得暴露环境变量名。
 16. `owner/admin/member/viewer` 都可创建、查看、重命名和吊销自己的 read Agent delegation，也可显式删除自己已吊销的单条记录；只有 `owner/admin/member` 可创建 subscription-write delegation，且受写开关约束。不存在把既有 read connection 提升为 write 的接口；不提供管理员代查、代管或跨用户删除接口。delegation 令牌始终只映射其创建者，即使创建者是 `owner/admin`，Remote MCP 也不得使用管理员跨用户读权限。禁用用户时必须在同一事务永久吊销其全部连接，重新启用不恢复旧令牌。
@@ -157,7 +161,7 @@ capability / degrade：
 1. 未登录返回 `unauthorized`，权限不足返回 `forbidden`，不可见或不存在资源返回 `not_found`。
 2. Pydantic/body/query 校验失败返回 `invalid_request`，HTTP status 使用 400。
 3. 不存在的 `/api/*` 路径返回 `not_found` envelope；不得返回 FastAPI 默认 `{"detail": ...}`。
-4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_forbidden`（422、不可重试且不切 Key）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。Apify 池管理/任务还区分 `apify_key_pool_managed`、`apify_key_busy`、`apify_key_pool_conflict`、`apify_key_drain_pending`、`apify_key_pool_exhausted`、`apify_key_pool_blocked`、`apify_key_rejected` 和 `apify_start_outcome_unknown`；公开 message 只描述安全状态和下一步，不得拼接上游正文、Token、runId 或 datasetId。
+4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_subscription_notification`、`invalid_notification_settings`、`invalid_notification_destination`、`notification_destination_required`、`notification_channel_unavailable`、`notification_test_failed`、`notification_test_rate_limited`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。工作区邮件服务另外区分 `invalid_email_transport_provider`、`invalid_email_transport_sender`、`invalid_email_transport_region`、`invalid_email_transport_username`、`email_transport_not_configured`、`email_transport_test_required`、`email_transport_test_rate_limited`、`email_transport_credential_unavailable`、`notification_email_authentication_failed`、`notification_email_recipient_rejected`、`notification_email_rejected` 与 `notification_email_unavailable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_forbidden`（422、不可重试且不切 Key）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。Apify 池管理/任务还区分 `apify_key_pool_managed`、`apify_key_busy`、`apify_key_pool_conflict`、`apify_key_drain_pending`、`apify_key_pool_exhausted`、`apify_key_pool_blocked`、`apify_key_rejected` 和 `apify_start_outcome_unknown`；公开 message 只描述安全状态和下一步，不得拼接上游正文、Token、runId 或 datasetId。
 
 ## 5B. Remote MCP 合同
 
@@ -194,7 +198,31 @@ capability / degrade：
 3. 首次开启默认在下一个 Worker tick 运行；已开启时修改周期从当前时间重新计算。关闭计划会取消仍 queued 且 `reason=scheduled_source_fetch` 的任务，running 任务继续完成。停用订阅或把用户降级为 viewer 时必须同步关闭计划。
 4. Worker 每次 schedule tick 在 claim 普通任务前原子评估到期订阅。自动 job 固定为 `job_type=source_fetch`、`reason=scheduled_source_fetch`、`priority=-10`，沿用现有配额、claim token、Source Health 和 Feed v2 单源合并语义。
 5. 同一订阅最多一个 queued/running `source_fetch`；手动、自动和重复页面提交复用已有 active job。当前用户存在 active 全量刷新时延后 5 分钟；全量刷新成功参与该订阅后也推进其下一次单源计划，避免紧邻重复抓取。停用 catalog source 时，相关计划关闭并记录 `source_disabled`，仍 queued 的自动任务被取消。
-6. 调度链路不得调用 legacy scheduler、`HorizonOrchestrator.run()` 或 `LegacyPublisher`，不得读取或写入全局静态 Feed、摘要、通知、Graph 或 Archive analytics。
+6. 调度链路不得调用 legacy scheduler、`HorizonOrchestrator.run()` 或 `LegacyPublisher`，不得读取或写入全局静态 Feed、摘要、legacy 通知、Graph 或 Archive analytics。偏好来源通知只可由下述 Service outbox 在 Feed/Health/Job 提交后消费。
+
+用户偏好来源通知规则：
+
+1. 缺少 `user_notification_settings` row 等同 `enabled=false`；GET 不因缺 row 隐式写库。成功响应只返回 `schema_version=1`、`enabled`、`channel=email|webhook`、`email_configured`、`email_transport_ready`、`webhook_configured`、`last_test_status`、`last_tested_at`、`last_test_error_code` 和 `updated_at`，不得返回邮箱明文、Webhook URL、生成的环境变量名、SMTP 凭据或上游响应。
+2. PATCH 只接受 `enabled`、`channel`、write-only `email_address` 和 write-only `webhook_url`；至少提供一个字段。邮箱与 Webhook 可以分别预配置，但任一时刻只有 `channel` 指定的单一渠道生效；开启时该渠道必须已有目的地，否则返回 `notification_destination_required`。当目标渠道为 email 时还必须满足当前工作区 `email_transport_ready=true`，否则返回 `notification_channel_unavailable`；已经开启的 email opt-in 在 transport 暂停后仍保留，但暂停期间不产生 outbox，也不补发。partial PATCH 必须在同一 `BEGIN IMMEDIATE` 内重读实时用户并按 omission 合并，管理员刚完成的停用或降权不得被旧请求覆盖。从关闭变为开启时记录新的用户级 `enabled_at` 并把内部 `notification_generation` 原子加一；停用期间发布的内容不得补发。管理员停用用户时必须在同一事务关闭其通知设置并清除该水位；重新启用账户不得恢复通知开关。
+3. Webhook URL 只可在请求内短暂出现，随后写入 `SecretStore` 生成的用户专属环境变量；Service DB 只保存环境变量名和当前值的内部 SHA-256 一致性摘要，config JSON、outbox、API、DOM、Job、日志和错误 envelope 均不得保存或回显 URL。配置状态、staging 和发送都必须同时验证用户专属变量绑定与摘要匹配；SecretStore/SQLite 更新中断时只能 fail closed，显式清空还必须删除该用户确定性变量下没有 DB 引用的 orphan 值。投递时重新校验无 userinfo 的 HTTPS；固定到公网地址后使用 bounded DNS、单地址单次 POST、5 秒 transport timeout 与 6 秒总 deadline，禁用环境代理并拒绝重定向。请求声明 `Accept-Encoding: identity`，响应只检查状态与 encoding header，不读取或解压正文；非 identity 响应属于已开始发送后的未知结果。
+4. `user_subscriptions.notify_on_new_items` 默认 false。PATCH 从 false 切为 true 时记录 `notification_enabled_at=now` 并把内部 `notification_generation` 原子加一；已是 true 的幂等保存不得重置水位或代数。旧客户端或重复 create 请求省略该 additive 字段时，已有订阅必须保留原开关、水位与代数，新订阅仍默认关闭。订阅或 catalog source 停用、订阅切到 `analysis_mode=personal_only` 时原子清除通知开关和时间；重新启用不得自动恢复 opt-in。在同一请求中显式提交 `personal_only + notify_on_new_items=true` 或给已停用订阅开启时返回 `invalid_subscription_notification`。
+5. 内容投递只比较本次成功/partial Feed snapshot 与其紧邻上一份 snapshot 的稳定 `article_id` 差集。用户首份 snapshot 仅建立基线；标题变化、删除、排序、no-op、共享内容复用、生命周期 reconcile、`source_test`、`content_repair` 和无 snapshot 的失败均不得生成内容通知。
+6. 差集 item 还必须包含已开启订阅的 provenance，且其规范 `published_at` 必须严格晚于用户通知 `enabled_at` 与该订阅 `notification_enabled_at` 两者；缺失、无时区或不可解析时间一律 fail closed 跳过。`personal_only` item 永远不进入 outbox。
+7. `preferred_source_notification_deliveries` 以订阅和稳定文章 ID 唯一去重，并在 stage 时固化账户与订阅两层 generation。候选 outbox 必须与 snapshot、Source Health 和 claim-guarded Job 终态处于同一事务；claim 失效时整体回滚且不得外呼。Worker 只在 `complete_job` 成功提交后发送，并在外呼前复查用户、来源、订阅、通知开关和渠道仍然有效，还必须同时要求 delivery 双 generation 与当前值完全相等、可信的 delivery `created_at` 与来源 `published_at` 严格晚于“当前”账户和订阅双水位；关闭后重新开启的旧 epoch pending 即使墙钟回拨或伪造未来发布时间也要安全终结且不外呼。通知发送或 staging 的局部失败只更新/跳过通知状态，绝不把已成功的抓取 Job 或 snapshot 改成失败或触发重新抓取。
+8. 外部通知不假设幂等。未开始的 `pending` delivery 可由后续 Worker tick 领取；领取后先写 `sending`，再外呼。Webhook timeout/连接中断、SMTP 连接中断、非 identity 响应或其他已开始发送但结果未知的 delivery 必须保持 `sending` 且永不自动重放；只有发送前校验失败或明确上游拒绝才进入 `failed` 并记录有界安全 code。任何状态都不保存上游正文或目的地。
+9. Service 邮箱投递只读取 schema v10 工作区 transport 与其 SecretStore 凭据，绝不回退到 `data/config.json.email`；收件地址仍仅属于当前用户。Webhook 使用固定的安全 JSON 事件，真实批次为 `inteliscope.preferred_source.new_items` + `data.items[]`，模拟测试为 `inteliscope.preferred_source.test` + `data.test=true`。Worker 对同一用户、渠道和 Job 原子领取最多 20 个 distinct article ID 及这些文章的全部 eligible provenance ledger，按 article ID 去重后合并为一次外呼；Email 展开条目列表，而 outbox 仍对批内每个 `(subscription_id, article_id)` 保留唯一记录与一致终态。
+10. POST test 使用模拟标题和正文，只验证已保存的当前渠道。成功只返回安全的 `sent/channel`；失败使用 `notification_test_failed` 等稳定错误，不回显目的地或上游正文。外呼前必须在 SQLite 写事务中原子领取当前用户 60 秒测试冷却，并发或冷却内重复请求返回 429 `notification_test_rate_limited`。测试只更新内部 attempt 时间与 `last_tested_at/last_test_status/last_test_error_code`，不写内容 outbox、不读写 Feed 基线、不创建 Job，也不触发来源、AI、scheduler 或付费调用。
+
+工作区邮件发送服务规则：
+
+1. 缺少 `workspace_email_transports` row 等同未配置且关闭；schema v10 只保存 `provider/sender_email/sender_name/region/smtp_username/enabled/generation/test metadata`、确定性 SecretStore 环境变量名与当前凭据 SHA-256 一致性摘要。授权码、App Password、API Key、SES SMTP Password 和测试收件人不得进入 SQLite、config JSON、Job、Feed、outbox、日志或 API 响应。
+2. Provider Registry 只支持固定的 SSL/465 连接：QQ=`smtp.qq.com` 且登录名为完整 QQ/Foxmail 地址；网易=`smtp.163.com` 且接受 163/126/yeah.net 完整地址；Gmail=`smtp.gmail.com` 且登录名为完整地址；Resend=`smtp.resend.com` 且登录名固定 `resend`；Amazon SES=`email-smtp.<validated-region>.amazonaws.com` 且使用显式 SES SMTP username。API 不接受 host、port、TLS 模式或自定义 SMTP，浏览器不得覆盖派生结果。
+3. PATCH 至少包含 `provider`、`sender_email`、`sender_name`、write-only `credential`、`enabled`、SES-only `region/smtp_username` 中一个。首次创建必须得到可解析 Provider 配置；Provider、发件身份、Region、SES 用户名或凭据变化会推进不可回退 `generation`、自动关闭、清除旧测试状态并要求当前 generation 重新测试。账号相关字段变化且未同时提交新凭据时清除旧凭据绑定；凭据提交后 API 永不回显。
+4. `enabled=true` 只在 SecretStore 当前值与确定性变量/摘要匹配、Provider 配置有效、且 `last_test_status=sent` 与 `last_test_generation=generation` 时允许。每次 API 测试和 Worker 发送都重新读取 SecretStore 并比较摘要，无需重启容器；文件/SQLite 部分失败必须补偿或 fail closed。
+5. 管理员 test 只接受一次性 `recipient_email`，按 workspace 在 SQLite 写锁内原子领取 60 秒冷却；成功只返回 `sent=true/generation`。测试通过与启用是两个独立动作，测试不创建 Feed/Job/outbox、不移动用户或订阅水位，也不把测试收件人写入任何持久状态。
+6. 统一 `EmailTransport` 使用系统 CA 校验的 TLS、20 秒 timeout 和同一 MIME/HTML 转义实现；API 测试与 Worker 正式投递不得复制 Provider 发送逻辑。正式发送在 SMTP 连接中断或其他结果未知后保持 delivery=`sending` 且不自动重放；认证、发件人、收件人或 DATA 的明确拒绝可安全终结为 `failed`。
+7. transport 轮换、停用或删除时，尚未开始的 workspace email `pending` delivery 原子终结为 `failed/notification_transport_changed`；已经 `sending` 的记录保持未知结果。transport 未 ready 时不创建新的 email outbox；已有用户 email opt-in 和逐来源水位均保留，因此恢复后只比较暂停期间保存的最新相邻 Feed 基线并发送之后严格新增的内容。Webhook staging 与发送不受邮件 transport 状态影响。
+8. `data/config.json.email` 与 legacy `EmailManager` 只服务显式 CLI/日报兼容路径，Service API、Worker、设置页与偏好来源通知不得读取它们作为配置或降级兜底。
 
 用户 Source Health 规则：
 
@@ -278,7 +306,7 @@ Source catalog 规则：
 4. Telegram 源身份字段使用 config 内的 `channel`；Hub 分类频道使用 `hub_channel` 或兼容 `category`，不得混淆。
 5. 无效 source config 返回 `invalid_source_config`；疑似真实密钥返回 `invalid_secret_env`。
 6. `PATCH /api/catalog/sources/{id}` 中未出现的字段必须保持原值。显式 `default_channel: null`、`secret_env: null` 分别清空可空标量，`default_topics: []` 清空列表；`config` 仍按 source 的既有 type 通过 registry 校验，source type 不可通过 PATCH 改变，key 冲突保持 `409 source_key_conflict`。
-7. `PATCH /api/me/subscriptions/{id}` 同样区分 omission 与显式清空：`override_channel: null` 清空 override，`override_topics: []`、`personal_tags: []` 清空列表。subscription `priority` 默认 `0`，创建和更新只接受严格整数 `0..100`；显式 `null`、boolean、浮点数、字符串或越界值均为 `400 invalid_request`。
+7. `PATCH /api/me/subscriptions/{id}` 同样区分 omission 与显式清空：`override_channel: null` 清空 override，`override_topics: []`、`personal_tags: []` 清空列表。subscription `priority` 默认 `0`，创建和更新只接受严格整数 `0..100`；显式 `null`、boolean、浮点数、字符串或越界值均为 `400 invalid_request`。additive `notify_on_new_items` 为严格 boolean，时间水位与内部 generation 只由服务端维护并按上文规则清除或推进；create 对已有订阅省略此字段也必须保持原值。
 8. API 使用 Pydantic field-set 信息，storage 使用私有 sentinel，确保 omission/null/空列表语义不会在入口到 SQLite 的传递中丢失；读取既有 subscription 时继续返回整数 priority。
 9. `GET /api/catalog/sources?include_disabled=true` 只允许 `owner/admin`；`member/viewer` 返回 `403 forbidden`。管理权限检查不得依赖来源是否 enabled，普通成员取消订阅必须使用自己的 subscription id，即使 catalog source 已停用也可完成。
 10. 启用订阅时，100 条默认上限的检查与 subscription upsert 必须处于同一个 `BEGIN IMMEDIATE`；并发请求最多一个越过最后名额。任务 retry 的重新排队、配额检查和 usage 写入也必须同事务提交或回滚。
@@ -298,7 +326,7 @@ Source catalog 规则：
 8. `POST /api/jobs/{id}/retry` 只把 failed、partial 或 cancelled job 重新排队，并重置 attempts；同一 job 的新 run 必须在最终 claim 事务内原子替换已有 snapshot payload/items，不得复用旧 partial 内容或创建第二个 snapshot。
 9. terminal job 可按 `expires_at` 清理；默认保留天数由 `HORIZON_JOB_RETENTION_DAYS` 控制。
 10. `user_feed_refresh` 成功后必须保存 `user_feed_snapshots/user_feed_items`，job result 至少包含 `snapshot_id` 和 `item_count`。
-11. `source_fetch` 带 `source_id` 时，Worker 必须从 `source_catalog + 当前用户 subscription override` 合成单源 `Config`，跳过 notifications、summaries、enrichment、full-text 和 scheduler 副作用；成功后保存当前用户 feed snapshot，job result 至少包含 `snapshot_id`、`item_count`、`source_id`、`source_type` 和 `source_key`。
+11. `source_fetch` 带 `source_id` 时，Worker 必须从 `source_catalog + 当前用户 subscription override` 合成单源 `Config`，跳过 legacy notifications、summaries、enrichment、full-text 和 scheduler 副作用；成功后保存当前用户 feed snapshot，job result 至少包含 `snapshot_id`、`item_count`、`source_id`、`source_type` 和 `source_key`。只有 snapshot/health/job 同事务内的偏好来源 outbox 与提交后发送属于允许的 additive Service 副作用。
 12. 真实源 smoke gate 使用 `scripts/service_real_source_smoke.py` 创建/更新 catalog sources、订阅当前用户、创建 `source_test/source_fetch` job，并验证 RSS、Hacker News、GitHub Releases、Telegram public channel 的闭环；Reddit/Apify 只能作为 optional degraded 记录。
 13. Worker 每 10 秒写 heartbeat 并在任务执行中续租；heartbeat age 达到 35 秒即视为 stale。完成、失败、续租和 snapshot finalize 都必须匹配 `job_id + worker_id + claim_token + running`。
 14. schema-v2 snapshot、`user_feed_items` 和 job 终态必须在同一短事务提交；同一非空 `job_id` 最多生成一个 snapshot，同一 snapshot 内 `article_id` 唯一。
@@ -456,6 +484,7 @@ Feed retention / legacy archive compatibility 规则：
 4. 通知、邮件、webhook 不默认视为幂等，触发前必须确认配置和运行路径。
 5. Service Feed snapshot 以非空 `job_id` 为幂等键；重复 finalize 返回既有 snapshot，不得创建第二份。snapshot item 以 `article_id` 稳定去重。
 6. Source Health 以内部 `(subscription_id, job_id)` application ledger 保证 outcome 重放幂等；同一 job 的重复应用不重复累计失败。
+7. 偏好来源通知以 `(subscription_id, article_id)` outbox 唯一键抑制全量/单源/重试重放；测试通知是显式非幂等人工动作，但不会消费内容唯一键或移动基线。
 
 ## 11. 后台任务合同
 异步、批量、定时、长耗时任务必须定义任务状态合同。

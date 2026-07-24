@@ -516,6 +516,10 @@ class ServiceStore:
                 personal_tags_json TEXT NOT NULL DEFAULT '[]',
                 analysis_mode TEXT NOT NULL DEFAULT 'full',
                 priority INTEGER NOT NULL DEFAULT 0,
+                notify_on_new_items INTEGER NOT NULL DEFAULT 0
+                    CHECK(notify_on_new_items IN (0, 1)),
+                notification_enabled_at TEXT,
+                notification_generation INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(user_id, source_id),
@@ -637,6 +641,62 @@ class ServiceStore:
             CREATE INDEX IF NOT EXISTS idx_user_source_schedules_due
                 ON user_source_schedules(enabled, next_run_at);
 
+            CREATE TABLE IF NOT EXISTS user_notification_settings (
+                user_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                channel TEXT NOT NULL DEFAULT 'webhook'
+                    CHECK(channel IN ('email', 'webhook')),
+                email_address TEXT,
+                webhook_env_name TEXT,
+                webhook_secret_digest TEXT,
+                notification_enabled_at TEXT,
+                notification_generation INTEGER NOT NULL DEFAULT 0,
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN ('sent', 'failed')),
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_notification_settings_workspace
+                ON user_notification_settings(workspace_id, user_id);
+
+            CREATE TABLE IF NOT EXISTS workspace_email_transports (
+                workspace_id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL
+                    CHECK(provider IN (
+                        'qq', 'netease', 'gmail', 'resend', 'amazon_ses'
+                    )),
+                sender_email TEXT NOT NULL,
+                sender_name TEXT NOT NULL DEFAULT 'Inteliscope',
+                region TEXT,
+                smtp_username TEXT,
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                credential_env_name TEXT,
+                credential_secret_digest TEXT,
+                generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN ('sent', 'failed')),
+                last_test_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                CHECK(
+                    (credential_env_name IS NULL AND credential_secret_digest IS NULL)
+                    OR (
+                        credential_env_name IS NOT NULL
+                        AND credential_secret_digest IS NOT NULL
+                    )
+                ),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS user_feed_snapshots (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
@@ -679,6 +739,38 @@ class ServiceStore:
                 ON user_feed_items(user_id, article_id);
             CREATE INDEX IF NOT EXISTS idx_user_feed_items_snapshot
                 ON user_feed_items(snapshot_id);
+
+            CREATE TABLE IF NOT EXISTS preferred_source_notification_deliveries (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                subscription_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                snapshot_id TEXT NOT NULL,
+                job_id TEXT NOT NULL,
+                article_id TEXT NOT NULL,
+                channel TEXT NOT NULL CHECK(channel IN ('email', 'webhook')),
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending', 'sending', 'succeeded', 'failed')),
+                attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+                account_notification_generation INTEGER NOT NULL DEFAULT 0,
+                subscription_notification_generation INTEGER NOT NULL DEFAULT 0,
+                error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                sent_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(subscription_id, article_id),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+                FOREIGN KEY(source_id) REFERENCES source_catalog(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_preferred_source_notifications_pending
+                ON preferred_source_notification_deliveries(status, created_at, id);
+            CREATE INDEX IF NOT EXISTS idx_preferred_source_notifications_job
+                ON preferred_source_notification_deliveries(job_id, status, created_at);
 
             CREATE TABLE IF NOT EXISTS user_content_items (
                 id TEXT PRIMARY KEY,
@@ -1017,6 +1109,51 @@ class ServiceStore:
             """
         )
         self._ensure_column("fetch_jobs", "expires_at", "TEXT")
+        self._ensure_column(
+            "user_subscriptions",
+            "notify_on_new_items",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        self._ensure_column(
+            "user_subscriptions",
+            "notification_enabled_at",
+            "TEXT",
+        )
+        self._ensure_column(
+            "user_subscriptions",
+            "notification_generation",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        self._ensure_column(
+            "user_notification_settings",
+            "notification_enabled_at",
+            "TEXT",
+        )
+        self._ensure_column(
+            "user_notification_settings",
+            "notification_generation",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        self._ensure_column(
+            "user_notification_settings",
+            "webhook_secret_digest",
+            "TEXT",
+        )
+        self._ensure_column(
+            "user_notification_settings",
+            "last_test_attempted_at",
+            "TEXT",
+        )
+        self._ensure_column(
+            "preferred_source_notification_deliveries",
+            "account_notification_generation",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        self._ensure_column(
+            "preferred_source_notification_deliveries",
+            "subscription_notification_generation",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
         self._ensure_column("user_feed_snapshots", "schema_version", "INTEGER NOT NULL DEFAULT 2")
         self._ensure_column("user_feed_snapshots", "storage_version", "INTEGER NOT NULL DEFAULT 1")
         self._ensure_column("user_feed_snapshots", "content_hash", "TEXT")
@@ -1090,6 +1227,8 @@ class ServiceStore:
         self._bootstrap_admin_user()
         self._seed_apify_key_pools(commit=False)
         self.mark_apify_key_pool_v8_migrated(commit=False)
+        self.mark_preferred_source_notifications_v9_migrated(commit=False)
+        self.mark_workspace_email_transports_v10_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -1189,6 +1328,42 @@ class ServiceStore:
             """
             INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
             VALUES (8, 'apify_key_pool_v8', 'apify-key-pool-v8-safe-failover', ?)
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def mark_preferred_source_notifications_v9_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (
+                9,
+                'preferred_source_notifications_v9',
+                'preferred-source-notifications-v9-outbox',
+                ?
+            )
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def mark_workspace_email_transports_v10_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (
+                10,
+                'workspace_email_transports_v10',
+                'workspace-email-transports-v10-provider-registry',
+                ?
+            )
             """,
             (_now_iso(),),
         )
@@ -1580,8 +1755,55 @@ class ServiceStore:
             return None
         data = dict(row)
         data["enabled"] = _bool(data.get("enabled"))
+        data["notify_on_new_items"] = _bool(data.get("notify_on_new_items"))
+        data.pop("notification_generation", None)
         data["override_topics"] = _json_loads(data.pop("override_topics_json", None), [])
         data["personal_tags"] = _json_loads(data.pop("personal_tags_json", None), [])
+        return data
+
+    @staticmethod
+    def _notification_settings(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["enabled"] = _bool(data.get("enabled"))
+        data["notification_generation"] = int(
+            data.get("notification_generation") or 0
+        )
+        return data
+
+    @staticmethod
+    def _workspace_email_transport(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["enabled"] = _bool(data.get("enabled"))
+        data["generation"] = int(data.get("generation") or 0)
+        if data.get("last_test_generation") is not None:
+            data["last_test_generation"] = int(
+                data["last_test_generation"]
+            )
+        return data
+
+    @staticmethod
+    def _preferred_source_notification_delivery(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["attempts"] = int(data.get("attempts") or 0)
+        data["account_notification_generation"] = int(
+            data.get("account_notification_generation") or 0
+        )
+        data["subscription_notification_generation"] = int(
+            data.get("subscription_notification_generation") or 0
+        )
+        data["payload"] = _json_loads(data.pop("payload_json", None), {})
         return data
 
     @staticmethod
@@ -1845,6 +2067,16 @@ class ServiceStore:
                     ),
                 )
             if not target_enabled:
+                conn.execute(
+                    """
+                    UPDATE user_notification_settings
+                    SET enabled = 0,
+                        notification_enabled_at = NULL,
+                        updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (now, user_id),
+                )
                 conn.execute(
                     """
                     UPDATE agent_delegations
@@ -2519,6 +2751,744 @@ class ServiceStore:
             raise LookupError("created secret ref not found")
         return secret
 
+    def get_workspace_email_transport(
+        self,
+        *,
+        workspace_id: str,
+    ) -> dict[str, Any] | None:
+        row = self.connect().execute(
+            """
+            SELECT *
+            FROM workspace_email_transports
+            WHERE workspace_id = ?
+            """,
+            (workspace_id,),
+        ).fetchone()
+        return self._workspace_email_transport(row)
+
+    def upsert_workspace_email_transport(
+        self,
+        *,
+        workspace_id: str,
+        provider: str,
+        sender_email: str,
+        sender_name: str,
+        region: str | None,
+        smtp_username: str | None,
+        enabled: bool,
+        credential_env_name: str | None,
+        credential_secret_digest: str | None,
+        generation: int,
+        last_test_status: str | None,
+        last_test_generation: int | None,
+        last_test_attempted_at: str | None,
+        last_tested_at: str | None,
+        last_test_error_code: str | None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if provider not in {
+            "qq",
+            "netease",
+            "gmail",
+            "resend",
+            "amazon_ses",
+        }:
+            raise ValueError("unsupported email provider")
+        if last_test_status not in {None, "sent", "failed"}:
+            raise ValueError("email transport test status is invalid")
+        if bool(credential_env_name) != bool(credential_secret_digest):
+            raise ValueError(
+                "email transport credential environment and digest must be configured together"
+            )
+        if credential_secret_digest and not re.fullmatch(
+            r"[0-9a-f]{64}",
+            credential_secret_digest,
+        ):
+            raise ValueError(
+                "email transport credential digest must be a SHA-256 value"
+            )
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            conn.execute(
+                """
+                INSERT INTO workspace_email_transports (
+                    workspace_id, provider, sender_email, sender_name, region,
+                    smtp_username, enabled, credential_env_name,
+                    credential_secret_digest, generation, last_test_status,
+                    last_test_generation, last_test_attempted_at,
+                    last_tested_at, last_test_error_code, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                ON CONFLICT(workspace_id) DO UPDATE SET
+                    provider = excluded.provider,
+                    sender_email = excluded.sender_email,
+                    sender_name = excluded.sender_name,
+                    region = excluded.region,
+                    smtp_username = excluded.smtp_username,
+                    enabled = excluded.enabled,
+                    credential_env_name = excluded.credential_env_name,
+                    credential_secret_digest = excluded.credential_secret_digest,
+                    generation = excluded.generation,
+                    last_test_status = excluded.last_test_status,
+                    last_test_generation = excluded.last_test_generation,
+                    last_test_attempted_at = excluded.last_test_attempted_at,
+                    last_tested_at = excluded.last_tested_at,
+                    last_test_error_code = excluded.last_test_error_code,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    workspace_id,
+                    provider,
+                    sender_email,
+                    sender_name,
+                    region,
+                    smtp_username,
+                    1 if enabled else 0,
+                    credential_env_name,
+                    credential_secret_digest,
+                    max(0, int(generation)),
+                    last_test_status,
+                    last_test_generation,
+                    last_test_attempted_at,
+                    last_tested_at,
+                    last_test_error_code,
+                    now,
+                    now,
+                ),
+            )
+            updated = self.get_workspace_email_transport(
+                workspace_id=workspace_id
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated is None:
+            raise LookupError(
+                "workspace email transport not found after update"
+            )
+        return updated
+
+    def delete_workspace_email_transport(
+        self,
+        *,
+        workspace_id: str,
+        commit: bool = True,
+    ) -> bool:
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            deleted = conn.execute(
+                """
+                DELETE FROM workspace_email_transports
+                WHERE workspace_id = ?
+                """,
+                (workspace_id,),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return deleted.rowcount == 1
+
+    def invalidate_pending_email_deliveries(
+        self,
+        *,
+        workspace_id: str,
+        error_code: str = "notification_transport_changed",
+        commit: bool = True,
+    ) -> int:
+        if not re.fullmatch(r"[a-z][a-z0-9_.:-]{0,63}", error_code):
+            raise ValueError("notification delivery error code is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            updated = conn.execute(
+                """
+                UPDATE preferred_source_notification_deliveries
+                SET status = 'failed',
+                    error_code = ?,
+                    updated_at = ?
+                WHERE workspace_id = ?
+                  AND channel = 'email'
+                  AND status = 'pending'
+                """,
+                (error_code, now, workspace_id),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return max(int(updated.rowcount), 0)
+
+    def claim_workspace_email_transport_test_attempt(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        cooldown_seconds: int = 60,
+        attempted_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically authorize and reserve a workspace SMTP test window."""
+
+        conn = self.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "email transport test attempt requires no active transaction"
+            )
+        cooldown = max(1, int(cooldown_seconds))
+        try:
+            now = (
+                datetime.fromisoformat(
+                    str(attempted_at).replace("Z", "+00:00")
+                )
+                if attempted_at
+                else datetime.now(timezone.utc)
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "email transport test attempt timestamp must be ISO 8601"
+            ) from exc
+        if now.tzinfo is None:
+            raise ValueError(
+                "email transport test attempt timestamp must include a timezone"
+            )
+        now = now.astimezone(timezone.utc)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            actor = self.get_user(actor_user_id)
+            if (
+                actor is None
+                or not bool(actor.get("enabled"))
+                or str(actor.get("workspace_id")) != str(workspace_id)
+                or str(actor.get("role") or "") not in {"owner", "admin"}
+            ):
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "forbidden",
+                    "retry_after_seconds": 0,
+                    "transport": None,
+                }
+            current = self.get_workspace_email_transport(
+                workspace_id=workspace_id
+            )
+            if current is None:
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "not_configured",
+                    "retry_after_seconds": 0,
+                    "transport": None,
+                }
+            previous_value = current.get("last_test_attempted_at")
+            elapsed: float | None = None
+            if previous_value:
+                try:
+                    previous = datetime.fromisoformat(
+                        str(previous_value).replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    previous = None
+                if previous is not None and previous.tzinfo is not None:
+                    elapsed = (
+                        now - previous.astimezone(timezone.utc)
+                    ).total_seconds()
+            if elapsed is not None and elapsed < cooldown:
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "rate_limited",
+                    "retry_after_seconds": max(
+                        1,
+                        int(math.ceil(cooldown - elapsed)),
+                    ),
+                    "transport": current,
+                }
+            attempted_at_iso = now.isoformat()
+            conn.execute(
+                """
+                UPDATE workspace_email_transports
+                SET last_test_attempted_at = ?,
+                    updated_at = ?
+                WHERE workspace_id = ?
+                """,
+                (attempted_at_iso, attempted_at_iso, workspace_id),
+            )
+            claimed = self.get_workspace_email_transport(
+                workspace_id=workspace_id
+            )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        if claimed is None:
+            raise LookupError(
+                "workspace email transport not found after test claim"
+            )
+        return {
+            "claimed": True,
+            "reason": None,
+            "retry_after_seconds": 0,
+            "transport": claimed,
+        }
+
+    def record_workspace_email_transport_test(
+        self,
+        *,
+        workspace_id: str,
+        generation: int,
+        status: str,
+        error_code: str | None = None,
+        tested_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Record a test only if it still targets the current generation."""
+
+        if status not in {"sent", "failed"}:
+            raise ValueError("email transport test status is invalid")
+        conn = self.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = tested_at or _now_iso()
+            conn.execute(
+                """
+                UPDATE workspace_email_transports
+                SET last_test_status = ?,
+                    last_test_generation = ?,
+                    last_tested_at = ?,
+                    last_test_error_code = ?,
+                    updated_at = ?
+                WHERE workspace_id = ? AND generation = ?
+                """,
+                (
+                    status,
+                    int(generation),
+                    now,
+                    error_code if status == "failed" else None,
+                    now,
+                    workspace_id,
+                    int(generation),
+                ),
+            )
+            updated = self.get_workspace_email_transport(
+                workspace_id=workspace_id
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if (
+            updated is None
+            or int(updated.get("generation") or 0) != int(generation)
+        ):
+            return None
+        return updated
+
+    def get_user_notification_settings(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        row = self.connect().execute(
+            """
+            SELECT *
+            FROM user_notification_settings
+            WHERE workspace_id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchone()
+        return self._notification_settings(row)
+
+    def upsert_user_notification_settings(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        enabled: Any = _UNSET,
+        channel: Any = _UNSET,
+        email_address: Any = _UNSET,
+        webhook_env_name: Any = _UNSET,
+        webhook_secret_digest: Any = _UNSET,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            user = self.get_user(user_id)
+            if (
+                user is None
+                or str(user["workspace_id"]) != str(workspace_id)
+                or not bool(user.get("enabled"))
+            ):
+                raise LookupError("user not found")
+            if str(user.get("role") or "") not in {"owner", "admin", "member"}:
+                raise PermissionError(
+                    "user cannot modify notification settings"
+                )
+            current = self.get_user_notification_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            target_enabled = bool(
+                (current or {}).get("enabled", False)
+                if enabled is _UNSET or enabled is None
+                else enabled
+            )
+            target_channel = str(
+                (current or {}).get("channel") or "webhook"
+                if channel is _UNSET or channel is None
+                else channel
+            ).strip().lower()
+            if target_channel not in {"email", "webhook"}:
+                raise ValueError("notification channel must be email or webhook")
+            target_email = (
+                (current or {}).get("email_address")
+                if email_address is _UNSET
+                else email_address
+            )
+            target_webhook_env = (
+                (current or {}).get("webhook_env_name")
+                if webhook_env_name is _UNSET
+                else webhook_env_name
+            )
+            target_webhook_digest = (
+                (current or {}).get("webhook_secret_digest")
+                if webhook_secret_digest is _UNSET
+                else webhook_secret_digest
+            )
+            if bool(str(target_webhook_env or "").strip()) != bool(
+                str(target_webhook_digest or "").strip()
+            ):
+                raise ValueError(
+                    "webhook destination environment and digest must be configured together"
+                )
+            if target_webhook_digest and not re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(target_webhook_digest),
+            ):
+                raise ValueError(
+                    "webhook destination digest must be a SHA-256 value"
+                )
+            if (
+                target_enabled
+                and target_channel == "email"
+                and not str(target_email or "").strip()
+            ):
+                raise ValueError(
+                    "enabled email notifications require an email destination"
+                )
+            if (
+                target_enabled
+                and target_channel == "webhook"
+                and (
+                    not str(target_webhook_env or "").strip()
+                    or not str(target_webhook_digest or "").strip()
+                )
+            ):
+                raise ValueError(
+                    "enabled webhook notifications require a webhook destination"
+                )
+            now = _now_iso()
+            notification_enabled_at = (current or {}).get(
+                "notification_enabled_at"
+            )
+            notification_generation = int(
+                (current or {}).get("notification_generation") or 0
+            )
+            if not target_enabled:
+                notification_enabled_at = None
+            elif not bool((current or {}).get("enabled")):
+                notification_enabled_at = now
+                notification_generation += 1
+            conn.execute(
+                """
+                INSERT INTO user_notification_settings (
+                    user_id, workspace_id, enabled, channel, email_address,
+                    webhook_env_name, webhook_secret_digest,
+                    notification_enabled_at, notification_generation,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    workspace_id = excluded.workspace_id,
+                    enabled = excluded.enabled,
+                    channel = excluded.channel,
+                    email_address = excluded.email_address,
+                    webhook_env_name = excluded.webhook_env_name,
+                    webhook_secret_digest = excluded.webhook_secret_digest,
+                    notification_enabled_at = excluded.notification_enabled_at,
+                    notification_generation = excluded.notification_generation,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    workspace_id,
+                    1 if target_enabled else 0,
+                    target_channel,
+                    target_email,
+                    target_webhook_env,
+                    target_webhook_digest,
+                    notification_enabled_at,
+                    notification_generation,
+                    now,
+                    now,
+                ),
+            )
+            updated = self.get_user_notification_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated is None:
+            raise LookupError("notification settings not found after update")
+        return updated
+
+    def record_user_notification_test(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        status: str,
+        error_code: str | None = None,
+        tested_at: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if status not in {"sent", "failed"}:
+            raise ValueError("notification test status must be sent or failed")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            current = self.get_user_notification_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            if current is None:
+                raise LookupError("notification settings not found")
+            now = tested_at or _now_iso()
+            updated_row = conn.execute(
+                """
+                UPDATE user_notification_settings
+                SET last_test_status = ?,
+                    last_tested_at = ?,
+                    last_test_error_code = ?,
+                    updated_at = ?
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (
+                    status,
+                    now,
+                    error_code if status == "failed" else None,
+                    now,
+                    workspace_id,
+                    user_id,
+                ),
+            )
+            if updated_row.rowcount != 1:
+                raise LookupError("notification settings not found")
+            updated = self.get_user_notification_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated is None:
+            raise LookupError("notification settings not found after test update")
+        return updated
+
+    def claim_user_notification_test_attempt(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        cooldown_seconds: int = 60,
+        attempted_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically reserve a per-user test-send cooldown window."""
+
+        conn = self.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "notification test attempt requires no active transaction"
+            )
+        cooldown = max(1, int(cooldown_seconds))
+        try:
+            now = (
+                datetime.fromisoformat(
+                    str(attempted_at).replace("Z", "+00:00")
+                )
+                if attempted_at
+                else datetime.now(timezone.utc)
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "notification test attempt timestamp must be ISO 8601"
+            ) from exc
+        if now.tzinfo is None:
+            raise ValueError(
+                "notification test attempt timestamp must include a timezone"
+            )
+        now = now.astimezone(timezone.utc)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            user = self.get_user(user_id)
+            if (
+                user is None
+                or not bool(user.get("enabled"))
+                or str(user.get("workspace_id")) != str(workspace_id)
+                or str(user.get("role") or "")
+                not in {"owner", "admin", "member"}
+            ):
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "user_disabled",
+                    "retry_after_seconds": 0,
+                    "settings": None,
+                }
+            current = self.get_user_notification_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            if current is None:
+                raise LookupError("notification settings not found")
+            last_attempted_at = current.get("last_test_attempted_at")
+            elapsed: float | None = None
+            if last_attempted_at:
+                try:
+                    previous = datetime.fromisoformat(
+                        str(last_attempted_at).replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    previous = None
+                if previous is not None and previous.tzinfo is not None:
+                    elapsed = (
+                        now - previous.astimezone(timezone.utc)
+                    ).total_seconds()
+            if elapsed is not None and elapsed < cooldown:
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "rate_limited",
+                    "retry_after_seconds": max(
+                        1,
+                        int(math.ceil(cooldown - elapsed)),
+                    ),
+                    "settings": current,
+                }
+            attempted_at_iso = now.isoformat()
+            conn.execute(
+                """
+                UPDATE user_notification_settings
+                SET last_test_attempted_at = ?
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (attempted_at_iso, workspace_id, user_id),
+            )
+            claimed = self.get_user_notification_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        if claimed is None:
+            raise LookupError("notification settings not found after test claim")
+        return {
+            "claimed": True,
+            "reason": None,
+            "retry_after_seconds": 0,
+            "settings": claimed,
+        }
+
+    def get_preferred_source_notification_delivery(
+        self,
+        delivery_id: str,
+    ) -> dict[str, Any] | None:
+        row = self.connect().execute(
+            """
+            SELECT *
+            FROM preferred_source_notification_deliveries
+            WHERE id = ?
+            """,
+            (delivery_id,),
+        ).fetchone()
+        return self._preferred_source_notification_delivery(row)
+
+    def list_preferred_source_notification_deliveries(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str | None = None,
+        status: str | None = None,
+        job_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        clauses = ["workspace_id = ?"]
+        parameters: list[Any] = [workspace_id]
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            parameters.append(user_id)
+        if status is not None:
+            clauses.append("status = ?")
+            parameters.append(status)
+        if job_id is not None:
+            clauses.append("job_id = ?")
+            parameters.append(job_id)
+        parameters.append(max(1, min(int(limit), 200)))
+        rows = self.connect().execute(
+            f"""
+            SELECT *
+            FROM preferred_source_notification_deliveries
+            WHERE {" AND ".join(clauses)}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+        return [
+            delivery
+            for row in rows
+            if (
+                delivery := self._preferred_source_notification_delivery(row)
+            )
+        ]
+
     def get_secret_ref(self, secret_id: str) -> dict[str, Any] | None:
         row = self.connect().execute(
             "SELECT * FROM secret_refs WHERE id = ?",
@@ -2908,6 +3878,20 @@ class ServiceStore:
             if not target_enabled:
                 conn.execute(
                     """
+                    UPDATE user_subscriptions
+                    SET notify_on_new_items = 0,
+                        notification_enabled_at = NULL,
+                        updated_at = ?
+                    WHERE source_id = ?
+                      AND (
+                        notify_on_new_items = 1
+                        OR notification_enabled_at IS NOT NULL
+                      )
+                    """,
+                    (now, source_id),
+                )
+                conn.execute(
+                    """
                     UPDATE user_source_schedules
                     SET enabled = 0,
                         next_run_at = NULL,
@@ -2994,10 +3978,24 @@ class ServiceStore:
         personal_tags: list[str] | None = None,
         analysis_mode: str = "full",
         priority: int = 0,
+        notify_on_new_items: Any = _UNSET,
         commit: bool = True,
     ) -> dict[str, Any]:
+        requested_notifications = bool(
+            False
+            if notify_on_new_items is _UNSET or notify_on_new_items is None
+            else notify_on_new_items
+        )
         if analysis_mode not in {"full", "personal_only"}:
             raise ValueError("analysis_mode must be full or personal_only")
+        if not enabled and requested_notifications:
+            raise ValueError(
+                "disabled subscriptions cannot enable new-item notifications"
+            )
+        if analysis_mode == "personal_only" and requested_notifications:
+            raise ValueError(
+                "personal_only subscriptions cannot enable new-item notifications"
+            )
         priority = _validate_subscription_priority(priority)
         now = _now_iso()
         sub_id = _new_id("sub")
@@ -3024,6 +4022,7 @@ class ServiceStore:
                     personal_tags=personal_tags or [],
                     analysis_mode=analysis_mode,
                     priority=priority,
+                    notify_on_new_items=notify_on_new_items,
                     commit=False,
                 )
                 if owns_transaction:
@@ -3034,8 +4033,9 @@ class ServiceStore:
                 INSERT INTO user_subscriptions (
                     id, user_id, source_id, enabled, override_channel,
                     override_topics_json, personal_tags_json, analysis_mode,
-                    priority, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    priority, notify_on_new_items, notification_enabled_at,
+                    notification_generation, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, source_id) DO UPDATE SET
                     enabled=excluded.enabled,
                     override_channel=excluded.override_channel,
@@ -3043,6 +4043,9 @@ class ServiceStore:
                     personal_tags_json=excluded.personal_tags_json,
                     analysis_mode=excluded.analysis_mode,
                     priority=excluded.priority,
+                    notify_on_new_items=excluded.notify_on_new_items,
+                    notification_enabled_at=excluded.notification_enabled_at,
+                    notification_generation=excluded.notification_generation,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -3055,6 +4058,9 @@ class ServiceStore:
                     _json_dumps(personal_tags or []),
                     analysis_mode,
                     priority,
+                    1 if requested_notifications else 0,
+                    now if enabled and requested_notifications else None,
+                    1 if enabled and requested_notifications else 0,
                     now,
                     now,
                 ),
@@ -3105,6 +4111,8 @@ class ServiceStore:
                 us.personal_tags_json,
                 us.analysis_mode,
                 us.priority,
+                us.notify_on_new_items,
+                us.notification_enabled_at,
                 sc.workspace_id,
                 sc.scope,
                 sc.owner_user_id,
@@ -3132,6 +4140,7 @@ class ServiceStore:
         for row in rows:
             data = dict(row)
             data["subscription_enabled"] = _bool(data["subscription_enabled"])
+            data["notify_on_new_items"] = _bool(data["notify_on_new_items"])
             data["source_enabled"] = _bool(data["source_enabled"])
             data["override_topics"] = _json_loads(data.pop("override_topics_json"), [])
             data["personal_tags"] = _json_loads(data.pop("personal_tags_json"), [])
@@ -3160,6 +4169,8 @@ class ServiceStore:
                 us.personal_tags_json,
                 us.analysis_mode,
                 us.priority,
+                us.notify_on_new_items,
+                us.notification_enabled_at,
                 sc.workspace_id,
                 sc.scope,
                 sc.owner_user_id,
@@ -3186,6 +4197,7 @@ class ServiceStore:
         for row in rows:
             data = dict(row)
             data["subscription_enabled"] = _bool(data["subscription_enabled"])
+            data["notify_on_new_items"] = _bool(data["notify_on_new_items"])
             data["source_enabled"] = _bool(data["source_enabled"])
             data["override_topics"] = _json_loads(data.pop("override_topics_json"), [])
             data["personal_tags"] = _json_loads(data.pop("personal_tags_json"), [])
@@ -3200,6 +4212,24 @@ class ServiceStore:
             (subscription_id,),
         ).fetchone()
         return self._subscription(row)
+
+    def get_subscription_notification_generation(
+        self,
+        subscription_id: str,
+    ) -> int | None:
+        row = self.connect().execute(
+            """
+            SELECT notification_generation
+            FROM user_subscriptions
+            WHERE id = ?
+            """,
+            (subscription_id,),
+        ).fetchone()
+        return (
+            int(row["notification_generation"] or 0)
+            if row is not None
+            else None
+        )
 
     def get_source_schedule(self, subscription_id: str) -> dict[str, Any] | None:
         row = self.connect().execute(
@@ -3234,6 +4264,7 @@ class ServiceStore:
         personal_tags: Any = _UNSET,
         analysis_mode: Any = _UNSET,
         priority: Any = _UNSET,
+        notify_on_new_items: Any = _UNSET,
         disable_disposition: str = "remove",
         commit: bool = True,
     ) -> dict[str, Any]:
@@ -3270,12 +4301,55 @@ class ServiceStore:
                 else enabled
             )
             now = _now_iso()
+            target_notifications = bool(
+                current["notify_on_new_items"]
+                if notify_on_new_items is _UNSET or notify_on_new_items is None
+                else notify_on_new_items
+            )
+            if (
+                not target_enabled
+                and notify_on_new_items is not _UNSET
+                and notify_on_new_items is not None
+                and bool(notify_on_new_items)
+            ):
+                raise ValueError(
+                    "disabled subscriptions cannot enable new-item notifications"
+                )
+            if mode == "personal_only":
+                if (
+                    notify_on_new_items is not _UNSET
+                    and notify_on_new_items is not None
+                    and bool(notify_on_new_items)
+                ):
+                    raise ValueError(
+                        "personal_only subscriptions cannot enable new-item notifications"
+                    )
+                target_notifications = False
+            if not target_enabled:
+                target_notifications = False
+            notification_enabled_at = current.get("notification_enabled_at")
+            notification_generation = int(
+                self.get_subscription_notification_generation(
+                    subscription_id
+                )
+                or 0
+            )
+            if not target_notifications or not target_enabled:
+                notification_enabled_at = None
+            elif (
+                not current["notify_on_new_items"]
+                or not current["enabled"]
+                or not notification_enabled_at
+            ):
+                notification_enabled_at = now
+                notification_generation += 1
             conn.execute(
                 """
                 UPDATE user_subscriptions
                 SET enabled = ?, override_channel = ?, override_topics_json = ?,
                     personal_tags_json = ?, analysis_mode = ?, priority = ?,
-                    updated_at = ?
+                    notify_on_new_items = ?, notification_enabled_at = ?,
+                    notification_generation = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -3295,6 +4369,9 @@ class ServiceStore:
                     ),
                     mode,
                     next_priority,
+                    1 if target_notifications else 0,
+                    notification_enabled_at,
+                    notification_generation,
                     now,
                     subscription_id,
                 ),

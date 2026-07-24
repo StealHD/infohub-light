@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-23',
-  change: '操作手册、更新日志、Release 入口与操作反馈',
+  reviewedAt: '2026-07-24',
+  change: '工作区统一邮件发送服务与 Provider 测试门禁',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -76,6 +76,12 @@ export const manualSections: ManualSection[] = [
         description: '可以按允许的周期开启自动更新。系统只抓取已启用订阅，不会因为调整周期而修改其他订阅设置。',
       },
       {
+        title: '只通知之后的新内容',
+        description: '先在设置页保存收件邮箱或 Webhook 并启用消息通知，再在订阅设置中开启“从现在开始接收新内容通知”。邮箱还要求管理员已启用工作区发件服务；服务暂停时保留你的选择，但不入队也不补发。首次快照、历史或复用内容、停用期间发现的内容都不会补推；personal_only 来源不参与通知。',
+        href: '/settings',
+        linkLabel: '配置消息通知',
+      },
+      {
         title: '排查失败',
         description: '来源状态为降级或失败时，先打开状态详情查看安全摘要和恢复建议；页面不会展示凭据或原始上游错误。',
       },
@@ -131,9 +137,15 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '设置页集中管理主题、恢复已忽略内容以及管理员可见的 AI 与 Key 配置。真实 Key 不会在页面回显。',
+        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI 与 Key 配置。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
+      },
+      {
+        title: '管理员配置发件服务',
+        description: 'Owner/Admin 在“邮件发送服务”选择 QQ、网易、Gmail、Resend 或 Amazon SES，按页面填写完整发件邮箱及对应的授权码、App Password、API Key 或 SES SMTP Password，再依次“保存配置 → 发送测试邮件 → 启用”。凭据和测试收件人提交后立即清空且不会回显；修改账号或凭据后必须重新测试。普通成员只填写自己的收件邮箱。',
+        href: '/settings',
+        linkLabel: '配置邮件发送服务',
       },
     ],
   },

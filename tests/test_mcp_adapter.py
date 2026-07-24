@@ -75,9 +75,13 @@ def test_load_config_expands_env_vars(tmp_path: Path, monkeypatch) -> None:
         encoding="utf-8",
     )
     monkeypatch.setenv("TEST_BASE_URL", "https://api.example.com")
-    runtime = load_runtime(Path(__file__).resolve().parents[1])
-
-    config = load_config(runtime, config_path)
+    environment_before_runtime_load = dict(os.environ)
+    try:
+        runtime = load_runtime(Path(__file__).resolve().parents[1])
+        config = load_config(runtime, config_path)
+    finally:
+        os.environ.clear()
+        os.environ.update(environment_before_runtime_load)
 
     assert config.ai.base_url == "https://api.example.com/v1"
 
