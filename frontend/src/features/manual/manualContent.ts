@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-23',
-  change: '操作手册、更新日志、Release 入口与操作反馈',
+  reviewedAt: '2026-07-24',
+  change: '订阅自动更新与运行详情交互收口',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -31,7 +31,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '获取内容',
-        description: '订阅卡片的“立即获取”会创建后台任务；任务状态和结果在同页“运行记录”中查看，不需要反复点击。',
+        description: '订阅列表的“立即获取”会创建后台任务；任务状态和结果在同页“运行记录”中查看，不需要反复点击。',
       },
       {
         title: '开始阅读',
@@ -68,12 +68,16 @@ export const manualSections: ManualSection[] = [
     summary: '管理来源范围、自动更新、健康状态和后台任务。',
     steps: [
       {
+        title: '按频道管理',
+        description: '“我的订阅”和“来源库”会分别记住当前频道。搜索覆盖全部来源，类型、健康状态和可见范围通过“筛选”下拉菜单设置；当前频道无结果时会自动显示首个有内容的频道。',
+      },
+      {
         title: '公共与私人',
         description: '公共订阅可被工作区成员发现，私人订阅只对创建者可见。旧的 workspace 来源会作为公共订阅显示。',
       },
       {
-        title: '自动更新',
-        description: '可以按允许的周期开启自动更新。系统只抓取已启用订阅，不会因为调整周期而修改其他订阅设置。',
+        title: '全部订阅自动更新',
+        description: '卡片右上角的开关直接开启或关闭全部订阅自动更新，右下角的“更新周期”单独选择周期；手机端也无需先展开管理区。它始终作用于全部已启用订阅，不是频道级设置。',
       },
       {
         title: '排查失败',
@@ -81,7 +85,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '复用运行记录',
-        description: '运行记录可以直接加入 Agent 上下文，界面展示可读的来源、状态和结果，内部任务 ID 不会成为页面文案。',
+        description: '运行记录优先显示任务、状态、来源或结果以及创建和完成时间；技术详情与响应结构默认折叠，可通过带箭头的独立按钮柔和展开，并可直接加入 Agent 上下文。',
       },
     ],
   },

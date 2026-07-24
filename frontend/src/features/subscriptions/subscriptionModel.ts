@@ -79,6 +79,14 @@ export function groupSourcesByChannel<T>(
   })
 }
 
+export function resolveChannelSelection<T>(
+  groups: Array<{ channel: string; items: T[] }>,
+  preferredChannel: string,
+): string {
+  if (preferredChannel && groups.some((group) => group.channel === preferredChannel)) return preferredChannel
+  return groups[0]?.channel ?? ''
+}
+
 export function effectiveSubscriptionChannel(subscription: Subscription, source: CatalogSource): string {
   return String(subscription.override_channel || source.default_channel || '').trim() || '其他'
 }

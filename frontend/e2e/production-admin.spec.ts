@@ -5,12 +5,28 @@ const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员
 
 async function mockAdminApi(page: Page, authenticated = true) {
   let quotaRequests = 0
+  let productSubscribed = false
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
 
     if (url.pathname === '/api/auth/status') data = { authenticated, user: authenticated ? owner : null }
     else if (url.pathname === '/api/auth/login') data = { authenticated: true, user: owner }
+    else if (url.pathname === '/api/catalog/sources/source-2/subscribe' && route.request().method() === 'POST') {
+      productSubscribed = true
+      data = {
+        subscription: {
+          id: 'subscription-2',
+          user_id: owner.id,
+          source_id: 'source-2',
+          source_display_name: 'Product Notes',
+          source_type: 'rss',
+          enabled: true,
+          analysis_mode: 'full',
+          priority: 0,
+        },
+      }
+    }
     else if (url.pathname === '/api/catalog/sources') data = { sources: [
       { id: 'source-1', type: 'rss', display_name: 'OpenAI Blog', description: '官方产品与研究动态', scope: 'workspace', default_channel: 'AI', default_topics: ['Codex'], enabled: true },
       { id: 'source-2', type: 'rss', display_name: 'Product Notes', description: '产品机会观察', scope: 'public', default_channel: '产品机会', default_topics: ['产品'], enabled: true },
@@ -20,6 +36,7 @@ async function mockAdminApi(page: Page, authenticated = true) {
     ] }
     else if (url.pathname === '/api/me/subscriptions') data = { subscriptions: [
       { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
+      ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
     else if (url.pathname === '/api/me/source-health') data = {
       schema_version: 1,
@@ -274,7 +291,12 @@ test('successful Key creation uses a top overlay without moving settings content
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
-test('subscription controls preserve the first source card on the mobile first screen', async ({ page }, testInfo) => {
+test('subscription channels stay compact, actionable and accessible at every acceptance viewport', async ({ page }, testInfo) => {
+  const consoleErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => consoleErrors.push(error.message))
   await mockAdminApi(page)
   await page.goto('/subscriptions')
 
@@ -288,15 +310,28 @@ test('subscription controls preserve the first source card on the mobile first s
     tabWidths.push(bounds!.width)
   }
 
+  const scheduleCard = page.locator('[data-feed-schedule]')
+  const scheduleSwitch = scheduleCard.getByRole('switch', { name: '全部订阅自动更新' })
+  const scheduleSelect = scheduleCard.getByRole('button', { name: /更新周期/ })
+  await expect(scheduleSwitch).toBeChecked()
+  await expect(scheduleSelect).toBeVisible()
+  await expect(scheduleCard.getByText('自动更新', { exact: true })).toHaveCount(0)
+  await expect(scheduleCard.getByRole('button', { name: '管理自动更新' })).toHaveCount(0)
+  const scheduleBounds = await scheduleCard.boundingBox()
+  const switchBounds = await scheduleSwitch.boundingBox()
+  const selectBounds = await scheduleSelect.boundingBox()
+  expect(scheduleBounds).not.toBeNull()
+  expect(switchBounds).not.toBeNull()
+  expect(selectBounds).not.toBeNull()
+  expect(switchBounds!.x).toBeGreaterThan(scheduleBounds!.x + scheduleBounds!.width / 2)
+  expect(switchBounds!.y).toBeLessThan(selectBounds!.y)
+  expect(Math.abs((selectBounds!.x + selectBounds!.width) - (scheduleBounds!.x + scheduleBounds!.width - 16))).toBeLessThanOrEqual(8)
+
   if (testInfo.project.name === 'mobile') {
     expect(Math.max(...tabWidths) - Math.min(...tabWidths)).toBeLessThanOrEqual(1)
-    const mobileSchedule = page.locator('[data-mobile-schedule]')
-    await expect(mobileSchedule.getByRole('button', { name: '管理自动更新' })).toBeVisible()
-    await expect(mobileSchedule.getByText('更新周期', { exact: true })).toHaveCount(0)
-    await expect(page.getByRole('heading', { name: 'OpenAI Blog', exact: true })).toBeInViewport()
-    await mobileSchedule.getByRole('button', { name: '管理自动更新' }).click()
-    await expect(mobileSchedule.getByText('更新周期', { exact: true })).toBeVisible()
-    await expect(mobileSchedule.getByRole('button', { name: '关闭自动更新' })).toBeVisible()
+    await expect(page.locator('[data-channel-rail]')).toBeHidden()
+    await expect(page.locator('[data-compact-channel-controls]')).toBeVisible()
+    await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeInViewport()
 
     await expect(page.getByRole('searchbox', { name: '搜索来源' })).toBeVisible()
     await page.getByRole('button', { name: '筛选来源，已启用 0 项' }).click()
@@ -310,26 +345,93 @@ test('subscription controls preserve the first source card on the mobile first s
     await filterDialog.getByRole('button', { name: '来源类型' }).click()
     await page.getByRole('option', { name: 'RSS/Atom' }).click()
     await expect(clearFilters).toBeEnabled()
-    await filterDialog.getByRole('button', { name: '关闭筛选' }).click()
+    await filterDialog.getByRole('button', { name: '完成' }).click()
     await expect(filterDialog).toHaveCount(0)
     await expect(page.getByRole('button', { name: '筛选来源，已启用 1 项' })).toBeVisible()
     await page.getByRole('button', { name: '筛选来源，已启用 1 项' }).click()
     await page.getByRole('dialog', { name: '筛选来源' }).getByRole('button', { name: '清除筛选' }).click()
     await expect(page.getByRole('button', { name: '筛选来源，已启用 0 项' })).toBeVisible()
-    await page.getByRole('dialog', { name: '筛选来源' }).getByRole('button', { name: '关闭筛选' }).click()
+    await page.getByRole('dialog', { name: '筛选来源' }).getByRole('button', { name: '完成' }).click()
     await expect(page.getByRole('dialog', { name: '筛选来源' })).toHaveCount(0)
+
+    const originalViewport = page.viewportSize()
+    await page.setViewportSize({ width: 320, height: 700 })
+    await expect(scheduleSwitch).toBeVisible()
+    await expect(scheduleSelect).toBeVisible()
+    const narrowScheduleBounds = await scheduleCard.boundingBox()
+    const narrowSourceBounds = await page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ }).boundingBox()
+    expect(narrowScheduleBounds).not.toBeNull()
+    expect(narrowSourceBounds).not.toBeNull()
+    expect(narrowScheduleBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(narrowScheduleBounds!.x + narrowScheduleBounds!.width).toBeLessThanOrEqual(320)
+    expect(narrowSourceBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(narrowSourceBounds!.x + narrowSourceBounds!.width).toBeLessThanOrEqual(320)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    if (originalViewport) await page.setViewportSize(originalViewport)
   } else {
-    const desktopSchedule = page.locator('[data-desktop-schedule]')
-    const desktopFilters = page.locator('[data-desktop-source-filters]').first()
-    await expect(page.getByRole('button', { name: '管理自动更新' })).toBeHidden()
-    await expect(desktopSchedule.getByText('更新周期', { exact: true })).toBeVisible()
-    await expect(desktopFilters.getByText('来源类型', { exact: true })).toBeVisible()
-    await expect(desktopFilters.getByText('健康状态', { exact: true })).toBeVisible()
-    await expect(desktopFilters.getByText('可见范围', { exact: true })).toBeVisible()
+    await expect(page.getByRole('list', { name: '当前频道订阅' })).toBeVisible()
+    if (testInfo.project.name === 'desktop') {
+      const channelRail = page.locator('[data-channel-rail]')
+      await expect(channelRail).toBeVisible()
+      await expect(page.locator('[data-compact-channel-controls]')).toBeHidden()
+      const railBounds = await channelRail.boundingBox()
+      expect(railBounds).not.toBeNull()
+      expect(Math.abs(railBounds!.width - 236)).toBeLessThanOrEqual(1)
+    } else {
+      await expect(page.locator('[data-channel-rail]')).toBeHidden()
+      await expect(page.locator('[data-compact-channel-controls]')).toBeVisible()
+    }
   }
 
+  const sourceHealthChip = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ }).locator('[data-source-health-chip][data-slot="chip"]')
+  await expect(sourceHealthChip).toHaveText('正常')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+  await page.getByRole('tab', { name: '来源库' }).click()
+  if (testInfo.project.name === 'desktop') {
+    await page.getByRole('navigation', { name: '来源库频道' }).getByRole('button', { name: /产品机会/ }).click()
+  } else {
+    const compactControls = page.locator('[data-compact-channel-controls]')
+    await compactControls.getByRole('button', { name: /频道/ }).click()
+    await page.getByRole('option', { name: /产品机会/ }).click()
+  }
+  await expect(page.getByRole('listitem', { name: /Product Notes 来源/ })).toBeVisible()
+  await page.getByRole('button', { name: '订阅 Product Notes' }).click()
+  await expect(page.getByText('Product Notes 订阅成功', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '取消订阅 Product Notes' })).toBeVisible()
+
+  const moreActions = page.getByRole('button', { name: '更多操作：Product Notes' })
+  await moreActions.focus()
+  await page.keyboard.press('Enter')
+  const moreDialog = page.getByRole('dialog', { name: 'Product Notes 更多操作' })
+  await expect(moreDialog).toBeVisible()
+  expect(await moreDialog.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
+  await expect(moreDialog.getByRole('button', { name: '查看 Product Notes 引用人数' })).toHaveCount(0)
+  await expect(moreDialog.getByRole('button', { name: '编辑 Product Notes 来源' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('tab', { name: '运行记录' }).click()
+  const runCard = page.locator('[data-compact-job-card]').first()
+  await expect(runCard).toBeVisible()
+  const runBounds = await runCard.boundingBox()
+  expect(runBounds).not.toBeNull()
+  expect(runBounds!.height).toBeLessThanOrEqual(190)
+  if (testInfo.project.name === 'mobile') {
+    const technicalDisclosure = runCard.getByRole('button', { name: '技术详情' })
+    const schemaDisclosure = runCard.getByRole('button', { name: '响应结构' })
+    await expect(technicalDisclosure).toHaveAttribute('aria-expanded', 'false')
+    await expect(schemaDisclosure).toHaveAttribute('aria-expanded', 'false')
+    await technicalDisclosure.click()
+    await schemaDisclosure.click()
+    await expect(technicalDisclosure).toHaveAttribute('aria-expanded', 'true')
+    await expect(schemaDisclosure).toHaveAttribute('aria-expanded', 'true')
+    await expect(runCard.locator('[data-disclosure-state="open"]')).toHaveCount(2)
+  }
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  expect(consoleErrors).toEqual([])
 })
 
 test('production login is a standalone HeroUI page at every acceptance viewport', async ({ page }) => {

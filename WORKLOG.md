@@ -2557,3 +2557,39 @@
 - 执行验证：合并态 TypeScript/UI 检查、定向 Vitest 96/96、Python 8/8；`test_gate full` 22/22、0 failed/error、101.906 秒，配置 JSON 与 `git diff --check` 通过
 - 结果：本地 `main` 同时包含 Apify Key Pool、全站 Toast、操作手册、更新日志/Release 菜单和产品文档合并门禁；现有容器保持不变
 - 控制面变更：D057 与 PLAN 第 64 项落入 main；未推送、部署、重建容器或触发 scheduler、来源抓取、Apify Actor、AI
+
+### 2026-07-24 01:43 Codex
+- 任务：从 `main@9019772` 创建隔离分支 `codex/subscriptions-channel-compact-list`，将“我的订阅”和“来源库”改为频道聚焦紧凑列表
+- 修改文件：新增共用频道视图、响应式语义表格/移动卡片与选择回退模型；接入现有订阅、来源权限、健康详情、获取生命周期和 Toast，并同步 UI 合同、D058、操作手册与 2026-07-24 更新日志
+- 执行验证：46 files / 376 Vitest、三视口定向 Playwright 3/3、TypeScript、UI contract、production build、产品文档门禁通过；lint 0 error（7 个既有 warning）；`test_gate full` 22/22、109.250 秒，`git diff --check` 通过
+- 结果：桌面使用 236 px 频道栏，平板使用频道选择器与紧凑表格，手机使用纵向来源卡；两个标签独立记忆频道，筛选失效自动回退，全局周期明确为“全部订阅自动更新”，运行记录保持原状
+- 控制面变更：更新 `UI_CONTRACT.md` 与 D058；无 API、数据库、权限、Query Key、调度、依赖或部署变化，未启动 scheduler、真实抓取、AI 或付费调用
+
+### 2026-07-24 01:53 Codex
+- 任务：构建并启动 `codex/subscriptions-channel-compact-list` 分支容器，打开订阅页供本地验收
+- 运行变更：API/Worker 切换到镜像 `inteliscope-service:local-901977258a15-subscriptions-channel-compact-list-dirty`，继续挂载既有 `.env/data/logs`；Worker 计划轮询限制为 86400 秒
+- 执行验证：API/Worker healthy，live=`1.7.2/901977258a15-subscriptions-channel-compact-list-dirty`，database/worker ready；SQLite quick check=`ok`、active fetch job=0，页面无横向溢出、控制台错误=0
+- 结果：`http://127.0.0.1:8080/subscriptions` 已在应用内浏览器打开并保留；切换前创建 `0600` 备份 `data/backups/pre-subscriptions-compact-preview-20260723T175101Z.db`
+- 安全边界：scheduler 未启动，未主动触发来源抓取、AI、Apify Actor、付费调用或部署
+
+### 2026-07-24 02:53 Codex
+- 任务：按浏览器验收反馈继续收口订阅来源、全局自动更新、筛选与运行记录 UI
+- 修改文件：订阅频道视图、订阅页面、响应结构详情、Vitest/Playwright、UI 合同、D059、操作手册、2026-07-24 更新日志及本工作日志
+- 执行验证：TypeScript、UI contract、production build、46 files / 376 Vitest、三视口 Playwright 3/3 通过；Axe 严重/致命问题和浏览器控制台错误均为 0，lint 0 error（7 个既有 warning）；`test_gate full` 22/22、170.44 秒
+- 结果：来源统一为低噪声 HeroUI 卡片，筛选改为锚定下拉，全局自动更新改为 Switch，运行记录压缩且详情仍可展开，来源列表移除“查看引用”及省略号操作入口
+- 运行态：API/Worker 使用镜像 `inteliscope-service:local-901977258a15-subscriptions-ui-refine-dirty` 且 healthy；798×994 实页来源卡约 127 px、运行卡约 141–175 px，无横向溢出
+- 控制面变更：D059 取代 D058 的平板表格、固定列、查看引用入口和运行记录不变描述；无 API、数据库、权限、Query Key 或调度语义变化，scheduler 未启动，未触发抓取、AI、Apify、部署
+
+### 2026-07-24 10:24 Codex
+- 任务：恢复并确认 `codex/subscriptions-channel-compact-list` 分支本地容器可用
+- 运行变更：Docker 引擎恢复后，API/Worker 继续运行分支镜像 `inteliscope-service:local-901977258a15-subscriptions-ui-refine-dirty`
+- 执行验证：API/Worker healthy、0 restart，live revision 匹配，database/worker ready；`/subscriptions` 返回 200
+- 安全边界：Worker 计划轮询保持 86400 秒，独立 scheduler 未运行；未触发抓取、AI、Apify Actor、付费调用或部署
+
+### 2026-07-24 11:06 Codex
+- 任务：按二次浏览器标注收口订阅健康标签、自动更新控件、320 px 布局与运行详情交互
+- 修改文件：来源/频道视图、订阅页、柔和 Disclosure、响应结构详情、Vitest/Playwright、UI 合同、D060、操作手册与 2026-07-24 更新日志
+- 执行验证：46 files / 376 Vitest、三视口 Playwright 3/3（移动端含 320 px）、TypeScript、UI contract、production build 通过；Axe 严重/致命问题和浏览器控制台错误为 0，lint 0 error（7 个既有 warning）；`test_gate full` 22/22、112.061 秒
+- 结果：健康状态使用 HeroUI soft Chip；纯 Switch 固定右上、周期 Select 固定右下，320 px 下状态独占一行且无横向溢出；技术详情/响应结构默认收起并以 200 ms、无障碍状态完整的 Disclosure 展开
+- 运行态：最终镜像 `inteliscope-service:local-901977258a15-subscriptions-controls-320-v2-dirty` 的 API/Worker healthy、0 restart；共享 8080 被并行任务切换后已重新核对并恢复为本分支 revision
+- 安全边界：复用主工作区 `.env/data/logs`，计划轮询保持 86400 秒；active jobs、非终态 Actor Run 与到期计划均为 0，scheduler 未运行，未触发抓取、AI、Apify、付费调用或部署
