@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-24',
-  change: '订阅交互、偏好通知与工作区邮件发送服务',
+  change: 'OpenClaw 当前账户安全诊断事件与私有日志边界',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -113,6 +113,10 @@ export const manualSections: ManualSection[] = [
       {
         title: '加入上下文',
         description: '信息卡片或运行记录最多可加入 8 条上下文；发送时只传问题和内部条目 ID。文章由 OpenClaw 读取授权内容，运行记录走只读诊断；页面摘要和错误原文不会预先发送给模型，窄屏条目也不会造成横向溢出。',
+      },
+      {
+        title: '查询安全诊断事件',
+        description: '明确要求排障时，OpenClaw 可以按最近时间或任务、来源、订阅、请求关联读取当前账户的脱敏操作事件。即使是管理员连接也只能读取与自己相关的事件；原始日志、路径、身份、文章内容、URL、凭据和堆栈不会进入页面或 Agent 上下文。',
       },
       {
         title: '断开与移除',

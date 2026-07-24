@@ -47,6 +47,7 @@ curl http://127.0.0.1:8080/api/health/ready
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), log in, create or subscribe to a source, and select “获取新内容”.
 
 Runtime data is mounted from `./data` and `./logs`. Production images do not contain `.env`, `service.db`, `data/config.json`, logs, or backups.
+API, Worker, Scheduler, and CLI runtime/operation logs are private UTC-rotated JSONL files with a 30-day default retention. See the [diagnostic logging developer guide](docs/dev/observability-logging.md); logs are never rendered in the frontend.
 
 The default Service UI is the React three-column radar. For frontend development:
 
@@ -78,7 +79,7 @@ Nginx Basic Auth may be used as an additional outer gate, but it never replaces 
 
 ## Local OpenClaw assistant
 
-Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes ten safe Feed, subscription, source guidance, health, job, and diagnosis tools for that user. Subscription changes require a separately authorized connection and server flag.
+Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes eleven safe Feed, subscription, source guidance, health, job, diagnosis, and sanitized operation-event tools for that user. Subscription changes require a separately authorized connection and server flag.
 
 Browser chat is a separate opt-in connection. The browser connects directly to the user's OpenClaw Gateway v4; Inteliscope never proxies the Gateway or stores its bootstrap token. Local development accepts only `ws://127.0.0.1` or `ws://localhost`, while a remote per-user Gateway must use `wss://`. Paired browser credentials are isolated by Inteliscope user and Gateway URL. Turning the chat flag off restores the copy-only handoff without affecting Remote MCP.
 

@@ -26,6 +26,10 @@ from ..services.agent_change_proposal import (
     AgentProposalError,
     DelegatedActor,
 )
+from ..services.operation_log import (
+    OperationLogQueryService,
+    safe_emit_operation_event,
+)
 from ..services.runtime_status import RuntimeStatusService
 from ..services.source_type_registry import SourceConfigError
 from ..services.subscription_mutation import (
@@ -152,10 +156,39 @@ class SafeRemoteMCP(FastMCP):
         self,
         *args: Any,
         limiter: DelegationRateLimiter,
+        principal_resolver: Callable[[str], dict[str, Any] | None],
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._delegation_limiter = limiter
+        self._principal_resolver = principal_resolver
+
+    def _record_rejected_call(
+        self,
+        *,
+        delegation_id: str,
+        tool_name: str,
+        request_id: str,
+        error_code: str,
+        elapsed_ms: int,
+    ) -> None:
+        try:
+            principal = self._principal_resolver(delegation_id)
+        except Exception:
+            return
+        if principal is None:
+            return
+        safe_emit_operation_event(
+            category="agent",
+            action=f"mcp.{tool_name}",
+            outcome="denied",
+            level="warning",
+            workspace_id=principal.get("workspace_id"),
+            actor_user_id=principal.get("user_id"),
+            request_id=request_id,
+            error_code=error_code,
+            duration_ms=elapsed_ms,
+        )
 
     async def call_tool(
         self,
@@ -182,6 +215,13 @@ class SafeRemoteMCP(FastMCP):
                     "rate_limited",
                     elapsed_ms,
                     request_id,
+                )
+                self._record_rejected_call(
+                    delegation_id=delegation_id,
+                    tool_name=name,
+                    request_id=request_id,
+                    error_code="rate_limited",
+                    elapsed_ms=elapsed_ms,
                 )
                 raise ToolError("rate_limited") from None
             try:
@@ -216,6 +256,13 @@ class SafeRemoteMCP(FastMCP):
                         for detail in errors
                     ):
                         message = _CREATE_SOURCE_SHAPE_HINT
+                self._record_rejected_call(
+                    delegation_id=delegation_id,
+                    tool_name=name,
+                    request_id=request_id,
+                    error_code="invalid_request",
+                    elapsed_ms=elapsed_ms,
+                )
                 raise ToolError(message) from None
 
         return await super().call_tool(name, arguments)
@@ -227,6 +274,7 @@ def create_remote_mcp(
     *,
     mutation_service: SubscriptionMutationService,
     runtime_status: RuntimeStatusService,
+    operation_logs: OperationLogQueryService,
     secret_is_set: Callable[[str], bool],
 ) -> RemoteMCPApplication:
     """Create a fresh MCP server/session manager for one FastAPI application."""
@@ -254,6 +302,7 @@ def create_remote_mcp(
     server = SafeRemoteMCP(
         "Inteliscope",
         limiter=limiter,
+        principal_resolver=store.get_active_agent_delegation_principal,
         instructions="User-scoped Inteliscope information and controlled subscription tools.",
         token_verifier=AgentDelegationTokenVerifier(store),
         auth=AuthSettings(
@@ -327,6 +376,7 @@ def create_remote_mcp(
         outcome = "ok"
         logged_proposal_id = audit_value(audit_proposal_id)
         logged_action = audit_value(audit_action)
+        actor: DelegatedActor | None = None
         try:
             actor = actor_from_access(access)
             result = (
@@ -353,6 +403,24 @@ def create_remote_mcp(
                 )
                 if result_action:
                     logged_action = audit_value(result_action)
+                if (
+                    actor is not None
+                    and tool_name == "apply_subscription_change"
+                    and isinstance(result_summary, dict)
+                    and result_action in {"created", "updated", "deleted"}
+                ):
+                    safe_emit_operation_event(
+                        category="subscription",
+                        action=f"mcp_{result_action}",
+                        outcome="succeeded",
+                        workspace_id=actor.workspace_id,
+                        actor_user_id=actor.user_id,
+                        request_id=request_id,
+                        source_id=result_summary.get("source_id"),
+                        subscription_id=result_summary.get(
+                            "subscription_id"
+                        ),
+                    )
             return result
         except RemoteMCPNotFound:
             outcome = "not_found"
@@ -382,6 +450,43 @@ def create_remote_mcp(
                 elapsed_ms,
                 request_id,
             )
+            if actor is not None:
+                operation_outcome = (
+                    "succeeded"
+                    if outcome == "ok"
+                    else (
+                        "denied"
+                        if outcome
+                        in {
+                            "unauthorized",
+                            "forbidden",
+                            "invalid_request",
+                            "write_scope_required",
+                            "rate_limited",
+                        }
+                        else "failed"
+                    )
+                )
+                operation_level = (
+                    "info"
+                    if operation_outcome == "succeeded"
+                    else (
+                        "warning"
+                        if operation_outcome == "denied"
+                        else "error"
+                    )
+                )
+                safe_emit_operation_event(
+                    category="agent",
+                    action=f"mcp.{tool_name}",
+                    outcome=operation_outcome,
+                    level=operation_level,
+                    workspace_id=actor.workspace_id,
+                    actor_user_id=actor.user_id,
+                    request_id=request_id,
+                    error_code=None if outcome == "ok" else outcome,
+                    duration_ms=elapsed_ms,
+                )
 
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def get_my_feed(
@@ -606,6 +711,60 @@ def create_remote_mcp(
             diagnostics.diagnose_job,
             actor_operation=True,
             job_id=job_id,
+        )
+
+    @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
+    def query_operation_logs(
+        lookback_hours: Annotated[int, Field(ge=1, le=720)] = 24,
+        category: Literal[
+            "auth",
+            "account",
+            "source",
+            "subscription",
+            "schedule",
+            "secret",
+            "notification",
+            "agent",
+            "job",
+            "acquisition",
+        ]
+        | None = None,
+        outcome: Literal[
+            "ok",
+            "queued",
+            "running",
+            "succeeded",
+            "partial",
+            "failed",
+            "denied",
+            "cancelled",
+            "retried",
+            "skipped",
+            "unavailable",
+        ]
+        | None = None,
+        minimum_level: Literal["info", "warning", "error"] = "info",
+        job_id: Annotated[str | None, Field(min_length=1, max_length=128)] = None,
+        source_id: Annotated[str | None, Field(min_length=1, max_length=128)] = None,
+        subscription_id: Annotated[
+            str | None, Field(min_length=1, max_length=128)
+        ] = None,
+        request_id: Annotated[str | None, Field(min_length=1, max_length=128)] = None,
+        limit: Annotated[int, Field(ge=1, le=100)] = 50,
+    ) -> dict[str, Any]:
+        """Query current-user structured events without raw log access."""
+        return run_tool(
+            "query_operation_logs",
+            operation_logs.query,
+            lookback_hours=lookback_hours,
+            category=category,
+            outcome=outcome,
+            minimum_level=minimum_level,
+            job_id=job_id,
+            source_id=source_id,
+            subscription_id=subscription_id,
+            request_id=request_id,
+            limit=limit,
         )
 
     for tool in server._tool_manager.list_tools():

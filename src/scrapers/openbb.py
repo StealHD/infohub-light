@@ -99,9 +99,8 @@ class OpenBBScraper(BaseScraper):
                 fetched = await self._fetch_watchlist(watchlist, since_utc)
             except Exception as exc:
                 logger.warning(
-                    "OpenBB watchlist '%s' failed: %s",
-                    watchlist.name,
-                    exc,
+                    "OpenBB watchlist failed error_code=%s",
+                    type(exc).__name__,
                 )
                 continue
             for item in fetched:

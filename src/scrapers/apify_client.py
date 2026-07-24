@@ -608,8 +608,7 @@ class ApifyClient:
             await self.abort_run(lease, failure.remote_run_id)
 
         logger.warning(
-            "Apify token env %s cannot continue (%s); trying next token if available",
-            lease.env_name,
+            "Apify credential cannot continue failure_kind=%s; trying next credential",
             failure.failure_kind.value,
         )
         if self._legacy_token_index + 1 >= len(self.tokens):

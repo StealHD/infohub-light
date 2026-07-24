@@ -6,6 +6,8 @@ import argparse
 import logging
 import os
 import re
+import time
+import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -21,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from ..logging_utils import configure_logging
 from ..services.feed_archive import FeedArchiveService
 from ..services.feed_schedule import (
     ALLOWED_INTERVALS,
@@ -58,6 +61,13 @@ from ..services.media_cache import MediaCacheService
 from ..services.preferred_source_notifications import (
     NotificationServiceError,
     PreferredSourceNotificationService,
+)
+from ..services.operation_log import (
+    OperationLogQueryService,
+    begin_request_context,
+    bind_operation_actor,
+    end_request_context,
+    safe_emit_operation_event,
 )
 from ..services.notification_email_transport import (
     EmailTransportError,
@@ -423,15 +433,103 @@ SOURCE_META_KEYS = {
     "source_display_name",
 }
 
+MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
+    ("POST", "/api/auth/login"): ("auth", "login"),
+    ("POST", "/api/auth/logout"): ("auth", "logout"),
+    ("POST", "/api/me/password"): ("account", "password_change"),
+    ("PATCH", "/api/me/notification-settings"): (
+        "notification",
+        "settings_update",
+    ),
+    ("POST", "/api/me/notification-settings/test"): (
+        "notification",
+        "settings_test",
+    ),
+    ("POST", "/api/config/action"): ("source", "compat_config_action"),
+    ("POST", "/api/users"): ("account", "member_create"),
+    ("PATCH", "/api/users/{user_id}"): ("account", "member_update"),
+    ("PATCH", "/api/admin/notification-email-transport"): (
+        "notification",
+        "email_transport_update",
+    ),
+    ("DELETE", "/api/admin/notification-email-transport"): (
+        "notification",
+        "email_transport_delete",
+    ),
+    ("POST", "/api/admin/notification-email-transport/test"): (
+        "notification",
+        "email_transport_test",
+    ),
+    ("PUT", "/api/admin/apify-key-pool/order"): ("secret", "pool_reorder"),
+    ("POST", "/api/admin/apify-key-pool/{secret_id}/drain"): (
+        "secret",
+        "pool_drain",
+    ),
+    ("POST", "/api/admin/secrets"): ("secret", "create"),
+    ("PUT", "/api/admin/secrets/{secret_id}/value"): ("secret", "rotate"),
+    ("DELETE", "/api/admin/secrets/{secret_id}"): ("secret", "delete"),
+    ("POST", "/api/catalog/import-config-sources"): ("source", "import"),
+    ("POST", "/api/catalog/sources"): ("source", "create"),
+    ("PATCH", "/api/catalog/sources/{source_id}"): ("source", "update"),
+    ("POST", "/api/catalog/sources/{source_id}/share"): ("source", "share"),
+    ("DELETE", "/api/catalog/sources/{source_id}"): ("source", "disable"),
+    ("POST", "/api/catalog/sources/{source_id}/subscribe"): (
+        "subscription",
+        "create",
+    ),
+    ("DELETE", "/api/catalog/sources/{source_id}/subscription"): (
+        "subscription",
+        "delete",
+    ),
+    ("POST", "/api/me/agent-delegations"): ("agent", "delegation_create"),
+    ("PATCH", "/api/me/agent-delegations/{delegation_id}"): (
+        "agent",
+        "delegation_rename",
+    ),
+    ("DELETE", "/api/me/agent-delegations/{delegation_id}"): (
+        "agent",
+        "delegation_revoke",
+    ),
+    ("DELETE", "/api/me/agent-delegations/{delegation_id}/record"): (
+        "agent",
+        "delegation_delete",
+    ),
+    ("PATCH", "/api/me/feed-schedule"): ("schedule", "feed_update"),
+    ("POST", "/api/me/subscriptions"): ("subscription", "create"),
+    ("PATCH", "/api/me/subscriptions/{subscription_id}"): (
+        "subscription",
+        "update",
+    ),
+    ("PATCH", "/api/me/subscriptions/{subscription_id}/schedule"): (
+        "schedule",
+        "source_update",
+    ),
+    ("DELETE", "/api/me/subscriptions/{subscription_id}"): (
+        "subscription",
+        "delete",
+    ),
+    ("POST", "/api/jobs/source-test"): ("job", "source_test_queue"),
+    ("POST", "/api/jobs/source-fetch"): ("job", "source_fetch_queue"),
+    ("POST", "/api/jobs/user-feed-refresh"): ("job", "feed_refresh_queue"),
+    ("POST", "/api/source/test"): ("job", "compat_source_test_queue"),
+    ("POST", "/api/source/update"): ("job", "compat_source_update_queue"),
+    ("POST", "/api/jobs/{job_id}/cancel"): ("job", "cancel"),
+    ("POST", "/api/jobs/{job_id}/retry"): ("job", "retry"),
+}
+
 
 def create_app(
     *,
     data_dir: Path | str = "data",
     static_dir: Path | str | None = None,
+    log_dir: Path | str | None = None,
 ) -> FastAPI:
     """Create the FastAPI app with a local SQLite-backed service store."""
 
     data_path = Path(data_dir)
+    operation_logs = OperationLogQueryService(
+        Path(log_dir) if log_dir is not None else data_path.parent / "logs"
+    )
     static_path = Path(static_dir) if static_dir is not None else resolve_service_static_dir()
     store = ServiceStore(data_path)
     store.initialize()
@@ -687,6 +785,7 @@ def create_app(
             remote_mcp_settings,
             mutation_service=subscription_mutations,
             runtime_status=runtime_status,
+            operation_logs=operation_logs,
             secret_is_set=lambda env_name: bool(
                 secret_values.status(env_name)["is_set"]
             ),
@@ -756,10 +855,13 @@ def create_app(
             else:
                 if conn.in_transaction:
                     conn.rollback()
+                    request.state.operation_error_code = (
+                        "database_transaction_leak"
+                    )
                     _LOGGER.error(
-                        "API database transaction leaked method=%s path=%s",
+                        "API database transaction leaked method=%s route=%s",
                         request.method,
-                        request.url.path,
+                        getattr(request.scope.get("route"), "path", "-"),
                     )
                     return error_response(
                         ApiError(
@@ -772,14 +874,176 @@ def create_app(
                     )
                 return response
 
+    @app.middleware("http")
+    async def _request_operation_context(request: Request, call_next):
+        request_id = f"req_{uuid.uuid4().hex}"
+        token = begin_request_context(request_id)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            route = request.scope.get("route")
+            route_template = getattr(route, "path", None)
+            _LOGGER.exception(
+                "api_request_failed method=%s route=%s request_id=%s",
+                request.method,
+                route_template if isinstance(route_template, str) else "-",
+                request_id,
+            )
+            operation = (
+                MUTATION_OPERATION_ROUTES.get((request.method, route_template))
+                if isinstance(route_template, str)
+                else None
+            )
+            if operation is not None:
+                category, action = operation
+                safe_emit_operation_event(
+                    category=category,
+                    action=action,
+                    outcome="failed",
+                    level="error",
+                    workspace_id=getattr(
+                        request.state, "operation_workspace_id", None
+                    ),
+                    actor_user_id=getattr(
+                        request.state, "operation_actor_user_id", None
+                    ),
+                    subject_user_id=(
+                        getattr(request.state, "operation_subject_user_id", None)
+                    ),
+                    job_id=(
+                        getattr(request.state, "operation_job_id", None)
+                    ),
+                    source_id=(
+                        getattr(request.state, "operation_source_id", None)
+                    ),
+                    subscription_id=(
+                        getattr(request.state, "operation_subscription_id", None)
+                    ),
+                    error_code=(
+                        getattr(request.state, "operation_error_code", None)
+                        or "internal_error"
+                    ),
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                    route=route_template,
+                    method=(
+                        request.method
+                        if request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                        else None
+                    ),
+                    status_code=500,
+                )
+            raise
+        else:
+            if request.url.path.startswith("/api/") or request.url.path == "/mcp":
+                response.headers["X-Request-ID"] = request_id
+            route = request.scope.get("route")
+            route_template = getattr(route, "path", None)
+            operation = (
+                MUTATION_OPERATION_ROUTES.get((request.method, route_template))
+                if isinstance(route_template, str)
+                else None
+            )
+            if operation is not None and not getattr(
+                request.state, "operation_logged", False
+            ):
+                category, action = operation
+                status_code = int(response.status_code)
+                explicit_outcome = getattr(
+                    request.state, "operation_outcome", None
+                )
+                explicit_level = getattr(request.state, "operation_level", None)
+                if status_code < 400 and explicit_outcome is not None:
+                    outcome = explicit_outcome
+                    level = explicit_level or (
+                        "warning"
+                        if outcome in {"partial", "retried", "skipped"}
+                        else "info"
+                    )
+                elif status_code < 400:
+                    outcome = "succeeded"
+                    level = "info"
+                elif status_code in {400, 401, 403, 404, 409, 422, 429}:
+                    outcome = "denied"
+                    level = "warning"
+                else:
+                    outcome = "failed"
+                    level = "error"
+                path_params = request.path_params
+                include_path_ids = status_code < 400
+                safe_emit_operation_event(
+                    category=category,
+                    action=action,
+                    outcome=outcome,
+                    level=level,
+                    workspace_id=getattr(
+                        request.state, "operation_workspace_id", None
+                    ),
+                    actor_user_id=getattr(
+                        request.state, "operation_actor_user_id", None
+                    ),
+                    subject_user_id=(
+                        getattr(request.state, "operation_subject_user_id", None)
+                        or (
+                            str(path_params["user_id"])
+                            if include_path_ids and "user_id" in path_params
+                            else None
+                        )
+                    ),
+                    job_id=(
+                        getattr(request.state, "operation_job_id", None)
+                        or (
+                            str(path_params["job_id"])
+                            if include_path_ids and "job_id" in path_params
+                            else None
+                        )
+                    ),
+                    source_id=(
+                        getattr(request.state, "operation_source_id", None)
+                        or (
+                            str(path_params["source_id"])
+                            if include_path_ids and "source_id" in path_params
+                            else None
+                        )
+                    ),
+                    subscription_id=(
+                        getattr(request.state, "operation_subscription_id", None)
+                        or (
+                            str(path_params["subscription_id"])
+                            if include_path_ids
+                            and "subscription_id" in path_params
+                            else None
+                        )
+                    ),
+                    error_code=getattr(
+                        request.state, "operation_error_code", None
+                    ),
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                    changed_fields=getattr(
+                        request.state, "operation_changed_fields", None
+                    ),
+                    counts=getattr(request.state, "operation_counts", None),
+                    route=route_template,
+                    method=request.method,
+                    status_code=status_code,
+                )
+            return response
+        finally:
+            end_request_context(token)
+
+    def mark_operation_error(request: Request, code: str) -> None:
+        request.state.operation_error_code = code
+
     @app.exception_handler(ApiError)
-    async def _api_error_handler(_request: Request, exc: ApiError) -> JSONResponse:
+    async def _api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+        mark_operation_error(request, exc.code)
         return error_response(exc)
 
     @app.exception_handler(SubscriptionMutationError)
     async def _subscription_mutation_error_handler(
-        _request: Request, exc: SubscriptionMutationError
+        request: Request, exc: SubscriptionMutationError
     ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
         return error_response(
             ApiError(
                 exc.code,
@@ -791,9 +1055,10 @@ def create_app(
 
     @app.exception_handler(NotificationServiceError)
     async def _notification_service_error_handler(
-        _request: Request,
+        request: Request,
         exc: NotificationServiceError,
     ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
         return error_response(
             ApiError(
                 exc.code,
@@ -814,9 +1079,10 @@ def create_app(
 
     @app.exception_handler(EmailTransportError)
     async def _email_transport_error_handler(
-        _request: Request,
+        request: Request,
         exc: EmailTransportError,
     ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
         return error_response(
             ApiError(
                 exc.code,
@@ -837,6 +1103,7 @@ def create_app(
 
     @app.exception_handler(QuotaExceeded)
     async def _quota_error_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:
+        mark_operation_error(request, exc.code)
         user = store.get_session_user(request.cookies.get(COOKIE_NAME))
         if user:
             try:
@@ -859,11 +1126,13 @@ def create_app(
         )
 
     @app.exception_handler(ValueError)
-    async def _value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
+    async def _value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        mark_operation_error(request, "invalid_request")
         return error_response(ApiError("invalid_request", str(exc), status_code=400))
 
     @app.exception_handler(RequestValidationError)
-    async def _request_validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def _request_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        mark_operation_error(request, "invalid_request")
         errors = exc.errors()
         message = "invalid request"
         if errors:
@@ -885,6 +1154,12 @@ def create_app(
         user = store.get_session_user(token)
         if not user:
             raise ApiError("unauthorized", "login required", status_code=401, action="Log in and retry.")
+        bind_operation_actor(
+            workspace_id=str(user["workspace_id"]),
+            user_id=str(user["id"]),
+        )
+        request.state.operation_workspace_id = str(user["workspace_id"])
+        request.state.operation_actor_user_id = str(user["id"])
         return user
 
     async def current_admin(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
@@ -1649,10 +1924,20 @@ def create_app(
         )
 
     @app.post("/api/auth/login")
-    async def auth_login(payload: LoginRequest, response: Response) -> dict[str, Any]:
+    async def auth_login(
+        payload: LoginRequest,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
         user = store.authenticate_user(payload.username, payload.password)
         if not user:
             raise ApiError("invalid_credentials", "username or password is incorrect", status_code=401)
+        bind_operation_actor(
+            workspace_id=str(user["workspace_id"]),
+            user_id=str(user["id"]),
+        )
+        request.state.operation_workspace_id = str(user["workspace_id"])
+        request.state.operation_actor_user_id = str(user["id"])
         token = store.create_session(
             user["id"],
             ttl_seconds=auth_settings.session_ttl_seconds,
@@ -1669,7 +1954,16 @@ def create_app(
 
     @app.post("/api/auth/logout")
     async def auth_logout(request: Request, response: Response) -> dict[str, Any]:
-        store.delete_session(request.cookies.get(COOKIE_NAME))
+        session_token = request.cookies.get(COOKIE_NAME)
+        user = store.get_session_user(session_token)
+        if user is not None:
+            bind_operation_actor(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+            )
+            request.state.operation_workspace_id = str(user["workspace_id"])
+            request.state.operation_actor_user_id = str(user["id"])
+        store.delete_session(session_token)
         response.delete_cookie(
             COOKIE_NAME,
             httponly=True,
@@ -1681,6 +1975,7 @@ def create_app(
     @app.post("/api/me/password")
     async def me_password_change(
         payload: PasswordChangeRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         authenticated = store.authenticate_user(user["username"], payload.current_password)
@@ -1691,6 +1986,7 @@ def create_app(
                 status_code=400,
             )
         store.update_user(user["id"], password=payload.new_password)
+        request.state.operation_changed_fields = ["password"]
         return ok({"changed": True})
 
     @app.get("/api/me/notification-settings")
@@ -1709,6 +2005,7 @@ def create_app(
     @app.patch("/api/me/notification-settings")
     async def notification_settings_patch(
         payload: NotificationSettingsPatchRequest,
+        request: Request,
         response: Response,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
@@ -1744,6 +2041,7 @@ def create_app(
             user_id=user["id"],
             **updates,
         )
+        request.state.operation_changed_fields = sorted(provided)
         response.headers["Cache-Control"] = "no-store"
         return ok(updated)
 
@@ -1794,6 +2092,7 @@ def create_app(
     @app.post("/api/users")
     async def users_create(
         payload: UserCreateRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         if payload.role not in ROLES:
@@ -1806,12 +2105,21 @@ def create_app(
             display_name=payload.display_name,
             enabled=payload.enabled,
         )
+        request.state.operation_subject_user_id = str(created["id"])
+        request.state.operation_changed_fields = [
+            "display_name",
+            "enabled",
+            "password",
+            "role",
+            "username",
+        ]
         return ok(_sanitize_user(created))
 
     @app.patch("/api/users/{user_id}")
     async def users_patch(
         user_id: str,
         payload: UserPatchRequest,
+        request: Request,
         _admin: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         if payload.role is not None and payload.role not in ROLES:
@@ -1823,6 +2131,7 @@ def create_app(
             display_name=payload.display_name,
             password=payload.password.strip() if payload.password and payload.password.strip() else None,
         )
+        request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(_sanitize_user(updated))
 
     @app.get("/api/catalog/sources")
@@ -1868,6 +2177,7 @@ def create_app(
     @app.patch("/api/admin/notification-email-transport")
     async def admin_notification_email_transport_patch(
         payload: NotificationEmailTransportPatchRequest,
+        request: Request,
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
@@ -1911,6 +2221,7 @@ def create_app(
             actor_user_id=str(user["id"]),
             **updates,
         )
+        request.state.operation_changed_fields = sorted(provided)
         response.headers["Cache-Control"] = "no-store"
         return ok(updated)
 
@@ -2195,6 +2506,7 @@ def create_app(
     @app.post("/api/catalog/sources")
     async def catalog_create(
         payload: SourceCreateRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2237,12 +2549,15 @@ def create_app(
                 status_code=409,
                 action="Use the existing visible source or choose a different source configuration.",
             ) from exc
+        request.state.operation_source_id = str(source["id"])
+        request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(public_source(source, user))
 
     @app.patch("/api/catalog/sources/{source_id}")
     async def catalog_patch(
         source_id: str,
         payload: SourcePatchRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2290,6 +2605,7 @@ def create_app(
                 status_code=409,
                 action="Keep the current source configuration or choose a different source.",
             ) from exc
+        request.state.operation_changed_fields = sorted(provided)
         return ok(public_source(updated, user))
 
     @app.get("/api/catalog/sources/{source_id}/usage")
@@ -2304,6 +2620,7 @@ def create_app(
     async def catalog_source_share(
         source_id: str,
         payload: SourceShareRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2312,6 +2629,7 @@ def create_app(
             source_id=source_id,
             target_scope=payload.scope,
         )
+        request.state.operation_changed_fields = ["scope"]
         return ok(
             {
                 "source": public_source(shared, user),
@@ -2323,6 +2641,7 @@ def create_app(
     @app.delete("/api/catalog/sources/{source_id}")
     async def catalog_delete(
         source_id: str,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2338,11 +2657,13 @@ def create_app(
         )
         internal_safe = dict(updated)
         internal_safe.pop("enforce_public_network", None)
+        request.state.operation_changed_fields = ["enabled"]
         return ok(internal_safe)
 
     @app.post("/api/catalog/sources/{source_id}/subscribe")
     async def catalog_subscribe(
         source_id: str,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2351,11 +2672,13 @@ def create_app(
             user=user,
             source_id=source_id,
         )
+        request.state.operation_subscription_id = str(subscription["id"])
         return ok({"subscription": subscription})
 
     @app.delete("/api/catalog/sources/{source_id}/subscription")
     async def catalog_unsubscribe(
         source_id: str,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2363,6 +2686,7 @@ def create_app(
         subscription = store.get_user_subscription_for_source(user["id"], source_id)
         if not subscription:
             raise ApiError("not_found", "subscription not found", status_code=404)
+        request.state.operation_subscription_id = str(subscription["id"])
         return ok(
             {
                 "deleted": subscription_mutations.rest_delete_subscription(
@@ -2507,6 +2831,7 @@ def create_app(
     @app.patch("/api/me/feed-schedule")
     async def feed_schedule_patch(
         payload: FeedSchedulePatchRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2546,11 +2871,13 @@ def create_app(
                 str(exc),
                 status_code=400,
             ) from exc
+        request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(feed_schedule_response(user))
 
     @app.post("/api/me/subscriptions")
     async def subscriptions_create(
         payload: SubscriptionRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2580,12 +2907,16 @@ def create_app(
             priority=payload.priority,
             **notification_values,
         )
+        request.state.operation_source_id = str(subscription["source_id"])
+        request.state.operation_subscription_id = str(subscription["id"])
+        request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(subscription)
 
     @app.patch("/api/me/subscriptions/{subscription_id}")
     async def subscriptions_patch(
         subscription_id: str,
         payload: SubscriptionPatchRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2651,6 +2982,8 @@ def create_app(
             subscription_id=subscription_id,
             updates=updates,
         )
+        request.state.operation_source_id = str(updated["source_id"])
+        request.state.operation_changed_fields = sorted(provided)
         return ok(updated)
 
     @app.get("/api/me/subscriptions/{subscription_id}/schedule")
@@ -2664,6 +2997,7 @@ def create_app(
     async def subscription_schedule_patch(
         subscription_id: str,
         payload: SourceSchedulePatchRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
@@ -2703,6 +3037,7 @@ def create_app(
                 status_code=409,
                 action="Enable the subscription and source before enabling its schedule.",
             ) from exc
+        request.state.operation_changed_fields = sorted(payload.model_fields_set)
         return ok(source_schedule_response(user, subscription_id))
 
     @app.delete("/api/me/subscriptions/{subscription_id}")
@@ -2877,41 +3212,65 @@ def create_app(
         )
         return _public_job(job)
 
+    def mark_queued_job_operation(request: Request, job: dict[str, Any]) -> None:
+        request.state.operation_job_id = str(job["id"])
+        if job.get("source_id"):
+            request.state.operation_source_id = str(job["source_id"])
+        if job.get("subscription_id"):
+            request.state.operation_subscription_id = str(job["subscription_id"])
+        deduplicated = bool(job.get("deduplicated"))
+        request.state.operation_outcome = "skipped" if deduplicated else "queued"
+        request.state.operation_level = "info"
+        request.state.operation_counts = {"deduplicated": int(deduplicated)}
+
     @app.post("/api/jobs/source-test")
     async def jobs_source_test(
         payload: JobCreateRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
-        return ok(create_job(payload, "source_test", user))
+        job = create_job(payload, "source_test", user)
+        mark_queued_job_operation(request, job)
+        return ok(job)
 
     @app.post("/api/jobs/source-fetch")
     async def jobs_source_fetch(
         payload: JobCreateRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
-        return ok(create_job(payload, "source_fetch", user))
+        job = create_job(payload, "source_fetch", user)
+        mark_queued_job_operation(request, job)
+        return ok(job)
 
     @app.post("/api/jobs/user-feed-refresh")
     async def jobs_user_feed_refresh(
         payload: JobCreateRequest,
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
-        return ok(create_job(payload, "user_feed_refresh", user))
+        job = create_job(payload, "user_feed_refresh", user)
+        mark_queued_job_operation(request, job)
+        return ok(job)
 
     @app.post("/api/source/test")
     async def source_test_compat(
         payload: dict[str, Any],
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         job = create_job(compatibility_job_payload(payload), "source_test", user)
+        mark_queued_job_operation(request, job)
         return ok(queued_job_response(job, "测试任务已排队，Worker 会异步执行。"))
 
     @app.post("/api/source/update")
     async def source_update_compat(
         payload: dict[str, Any],
+        request: Request,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         job = create_job(compatibility_job_payload(payload), "source_fetch", user)
+        mark_queued_job_operation(request, job)
         return ok(queued_job_response(job, "更新任务已排队，Worker 会异步执行。"))
 
     @app.get("/api/jobs/{job_id}")
@@ -2919,16 +3278,31 @@ def create_app(
         return ok(_public_job(job_or_404(job_id, user)))
 
     @app.post("/api/jobs/{job_id}/cancel")
-    async def jobs_cancel(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    async def jobs_cancel(
+        job_id: str,
+        request: Request,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
         require_mutating_member(user)
         job_or_404(job_id, user)
         try:
-            return ok(_public_job(queue.cancel_job(job_id, user_id=None if _is_admin(user) else user["id"])))
+            cancelled = _public_job(
+                queue.cancel_job(
+                    job_id,
+                    user_id=None if _is_admin(user) else user["id"],
+                )
+            )
+            request.state.operation_outcome = "cancelled"
+            return ok(cancelled)
         except ValueError as exc:
             raise ApiError("job_not_cancelable", str(exc), status_code=409) from exc
 
     @app.post("/api/jobs/{job_id}/retry")
-    async def jobs_retry(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    async def jobs_retry(
+        job_id: str,
+        request: Request,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
         require_mutating_member(user)
         conn = store.connect()
         try:
@@ -2965,6 +3339,7 @@ def create_app(
                     commit=False,
                 )
             conn.commit()
+            request.state.operation_outcome = "retried"
             return ok(_public_job(retried))
         except ValueError as exc:
             if conn.in_transaction:
@@ -3255,10 +3630,12 @@ def main() -> None:
     parser.add_argument("--host", default=os.getenv("HORIZON_WEB_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.getenv("HORIZON_WEB_PORT", "8080")))
     parser.add_argument("--data-dir", default="data")
+    parser.add_argument("--log-dir", default="logs")
     args = parser.parse_args()
 
     load_dotenv()
-    app = create_app(data_dir=args.data_dir)
+    configure_logging(log_dir=args.log_dir, service="api")
+    app = create_app(data_dir=args.data_dir, log_dir=args.log_dir)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

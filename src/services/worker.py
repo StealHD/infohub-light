@@ -13,12 +13,14 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from ..logging_utils import configure_logging
 from ..ui.server import run_source_test
 from .feed_schedule import FeedScheduleService
 from .job_queue import JobQueue
 from .job_eligibility import JobEligibilityService
 from .maintenance import MaintenanceService
 from .preferred_source_notifications import PreferredSourceNotificationService
+from .operation_log import safe_emit_operation_event
 from .source_type_registry import build_source_payload
 from .secret_store import SecretStore
 from .source_schedule import SourceScheduleService
@@ -408,8 +410,65 @@ def run_worker_once(
         queue.requeue_stale_running_jobs()
         queue.prune_terminal_jobs()
         if enqueue_schedules:
-            FeedScheduleService(store).enqueue_due()
-            SourceScheduleService(store).enqueue_due()
+            feed_enqueue_result = FeedScheduleService(store).enqueue_due()
+            source_enqueue_result = SourceScheduleService(store).enqueue_due()
+            for outcome in feed_enqueue_result["outcomes"]:
+                if outcome.get("action") not in {"enqueued", "deduplicated"}:
+                    continue
+                scheduled_user = store.get_user(str(outcome["user_id"]))
+                if scheduled_user is None:
+                    continue
+                safe_emit_operation_event(
+                    category="job",
+                    action="scheduled_queue",
+                    outcome=(
+                        "queued"
+                        if outcome["action"] == "enqueued"
+                        else "skipped"
+                    ),
+                    level="info",
+                    workspace_id=str(scheduled_user["workspace_id"]),
+                    subject_user_id=str(scheduled_user["id"]),
+                    job_id=outcome.get("job_id"),
+                    counts={
+                        "deduplicated": int(
+                            outcome["action"] == "deduplicated"
+                        )
+                    },
+                )
+            for outcome in source_enqueue_result["outcomes"]:
+                if outcome.get("action") not in {"enqueued", "deduplicated"}:
+                    continue
+                scheduled_subscription = store.get_subscription(
+                    str(outcome["subscription_id"])
+                )
+                if scheduled_subscription is None:
+                    continue
+                scheduled_user = store.get_user(
+                    str(scheduled_subscription["user_id"])
+                )
+                if scheduled_user is None:
+                    continue
+                safe_emit_operation_event(
+                    category="job",
+                    action="scheduled_queue",
+                    outcome=(
+                        "queued"
+                        if outcome["action"] == "enqueued"
+                        else "skipped"
+                    ),
+                    level="info",
+                    workspace_id=str(scheduled_user["workspace_id"]),
+                    subject_user_id=str(scheduled_subscription["user_id"]),
+                    job_id=outcome.get("job_id"),
+                    source_id=str(scheduled_subscription["source_id"]),
+                    subscription_id=str(scheduled_subscription["id"]),
+                    counts={
+                        "deduplicated": int(
+                            outcome["action"] == "deduplicated"
+                        )
+                    },
+                )
         notifications = PreferredSourceNotificationService(
             store,
             data_dir=data_dir,
@@ -420,8 +479,7 @@ def run_worker_once(
             if store.connect().in_transaction:
                 store.connect().rollback()
             logger.warning(
-                "preferred-source notification backlog dispatch failed worker_id=%s",
-                worker_id,
+                "preferred-source notification backlog dispatch failed"
             )
         if store.get_worker_heartbeat(worker_id) is None:
             store.upsert_worker_heartbeat(worker_id, "starting")
@@ -429,6 +487,17 @@ def run_worker_once(
         if not job:
             store.upsert_worker_heartbeat(worker_id, "idle")
             return None
+        safe_emit_operation_event(
+            category="job",
+            action="claim",
+            outcome="running",
+            workspace_id=str(job["workspace_id"]),
+            subject_user_id=str(job["user_id"]),
+            job_id=str(job["id"]),
+            source_id=job.get("source_id"),
+            subscription_id=job.get("subscription_id"),
+            counts={"attempts": int(job.get("attempts") or 0)},
+        )
         with _LeaseHeartbeat(data_dir=data_dir, job=job, lease_seconds=lease):
             eligibility = JobEligibilityService(store).evaluate(job)
             if not eligibility.allowed:
@@ -573,33 +642,140 @@ def run_worker_once(
                             claim_token=job["claim_token"],
                         )
         try:
-            notifications.dispatch_pending(job_id=str(job["id"]))
-        except Exception:
+            delivery_summary = notifications.dispatch_pending(job_id=str(job["id"]))
+        except Exception as exc:
             if store.connect().in_transaction:
                 store.connect().rollback()
             logger.warning(
                 "preferred-source notification dispatch failed job_id=%s",
                 job.get("id"),
             )
+            safe_emit_operation_event(
+                category="notification",
+                action="dispatch",
+                outcome="failed",
+                level="error",
+                workspace_id=str(job["workspace_id"]),
+                subject_user_id=str(job["user_id"]),
+                job_id=str(job["id"]),
+                source_id=job.get("source_id"),
+                subscription_id=job.get("subscription_id"),
+                error_code=_exception_code(exc),
+            )
+        else:
+            if int(delivery_summary.get("claimed") or 0) > 0:
+                failed_deliveries = int(delivery_summary.get("failed") or 0)
+                succeeded_deliveries = int(
+                    delivery_summary.get("succeeded") or 0
+                )
+                if failed_deliveries and succeeded_deliveries:
+                    delivery_outcome = "partial"
+                    delivery_level = "warning"
+                elif failed_deliveries:
+                    delivery_outcome = "failed"
+                    delivery_level = "error"
+                else:
+                    delivery_outcome = "succeeded"
+                    delivery_level = "info"
+                safe_emit_operation_event(
+                    category="notification",
+                    action="dispatch",
+                    outcome=delivery_outcome,
+                    level=delivery_level,
+                    workspace_id=str(job["workspace_id"]),
+                    subject_user_id=str(job["user_id"]),
+                    job_id=str(job["id"]),
+                    source_id=job.get("source_id"),
+                    subscription_id=job.get("subscription_id"),
+                    counts={
+                        "claimed": int(delivery_summary["claimed"]),
+                        "failed": failed_deliveries,
+                        "succeeded": succeeded_deliveries,
+                    },
+                )
         result_payload = finalized.get("result_json") or {}
+        final_status = str(finalized["status"])
+        outcome_by_status = {
+            "queued": "retried",
+            "succeeded": "succeeded",
+            "partial": "partial",
+            "failed": "failed",
+            "cancelled": "cancelled",
+        }
+        final_outcome = outcome_by_status.get(final_status, "failed")
+        if final_outcome == "failed":
+            final_level = "error"
+        elif final_outcome in {"partial", "retried"}:
+            final_level = "warning"
+        else:
+            final_level = "info"
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        final_counts = {"attempts": int(finalized.get("attempts") or 0)}
+        if isinstance(result_payload.get("item_count"), int):
+            final_counts["items"] = max(int(result_payload["item_count"]), 0)
+        safe_emit_operation_event(
+            category="job",
+            action="finish",
+            outcome=final_outcome,
+            level=final_level,
+            workspace_id=str(job["workspace_id"]),
+            subject_user_id=str(job["user_id"]),
+            job_id=str(job["id"]),
+            source_id=job.get("source_id"),
+            subscription_id=job.get("subscription_id"),
+            error_code=finalized.get("error_code"),
+            duration_ms=duration_ms,
+            counts=final_counts,
+        )
+        if job["job_type"] in {
+            "source_test",
+            "source_fetch",
+            "user_feed_refresh",
+        }:
+            safe_emit_operation_event(
+                category="acquisition",
+                action=(
+                    "test" if job["job_type"] == "source_test" else "fetch"
+                ),
+                outcome=final_outcome,
+                level=final_level,
+                workspace_id=str(job["workspace_id"]),
+                subject_user_id=str(job["user_id"]),
+                job_id=str(job["id"]),
+                source_id=job.get("source_id"),
+                subscription_id=job.get("subscription_id"),
+                error_code=finalized.get("error_code"),
+                duration_ms=duration_ms,
+                counts=final_counts,
+            )
         logger.info(
-            "worker_id=%s job_id=%s job_type=%s run_id=%s duration_ms=%d status=%s",
-            worker_id,
+            "job_id=%s job_type=%s duration_ms=%d status=%s",
             job["id"],
             job["job_type"],
-            result_payload.get("run_id") or "-",
-            int((time.monotonic() - started_at) * 1000),
+            duration_ms,
             finalized["status"],
         )
         return finalized
-    except Exception:
+    except Exception as exc:
         if job is not None:
             logger.exception(
-                "worker_id=%s job_id=%s job_type=%s run_id=- duration_ms=%d status=error",
-                worker_id,
+                "job_id=%s job_type=%s duration_ms=%d status=error",
                 job["id"],
                 job["job_type"],
                 int((time.monotonic() - started_at) * 1000),
+            )
+            safe_emit_operation_event(
+                category="job",
+                action="worker_boundary",
+                outcome="failed",
+                level="error",
+                workspace_id=str(job["workspace_id"]),
+                subject_user_id=str(job["user_id"]),
+                job_id=str(job["id"]),
+                source_id=job.get("source_id"),
+                subscription_id=job.get("subscription_id"),
+                error_code=_exception_code(exc),
+                duration_ms=int((time.monotonic() - started_at) * 1000),
             )
         raise
     finally:
@@ -607,10 +783,6 @@ def run_worker_once(
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=getattr(logging, os.getenv("HORIZON_LOG_LEVEL", "INFO").upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
     parser = argparse.ArgumentParser(description="Run InfoHub queued jobs")
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--worker-id", default=os.getenv("HORIZON_WORKER_ID", "horizon-worker"))
@@ -639,6 +811,7 @@ def main() -> None:
         store.initialize()
         heartbeat = RuntimeStatusService(store).get_worker(args.worker_id)
         raise SystemExit(0 if heartbeat and not heartbeat["is_stale"] else 1)
+    configure_logging(service="worker")
     if args.once:
         run_worker_once(
             data_dir=args.data_dir,

@@ -155,11 +155,17 @@ class RSSScraper(BaseScraper):
                 items.append(item)
 
         except httpx.HTTPError as e:
-            logger.warning("Error fetching RSS feed %s: %s", source.name, e)
+            logger.warning(
+                "RSS feed fetch failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
         except Exception as e:
-            logger.warning("Error parsing RSS feed %s: %s", source.name, e)
+            logger.warning(
+                "RSS feed parse failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
 

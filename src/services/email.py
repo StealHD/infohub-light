@@ -44,9 +44,7 @@ class EmailManager:
             self.console = console
 
         if not self.pwd and self.config.enabled:
-            logger.warning(
-                f"Environment variable {self.config.password_env} not set. Email features may fail."
-            )
+            logger.warning("Email credential is unavailable")
             self.console.print(
                 f"[yellow]Warning: Environment variable {self.config.password_env} not set. Email features may fail.[/yellow]"
             )
@@ -99,9 +97,9 @@ class EmailManager:
                                             "Subscribed to Horizon",
                                             "You have been successfully subscribed to Horizon daily summaries.",
                                         )
-                                        logger.info(f"Added subscriber: {email_addr}")
+                                        logger.info("Email subscriber added")
                                     else:
-                                        logger.info(f"Already subscribed: {email_addr}")
+                                        logger.info("Email subscriber already present")
 
             unsub_keyword = self.config.unsubscribe_keyword
             search_crit_unsub = f'(UNSEEN SUBJECT "{unsub_keyword}")'
@@ -141,15 +139,18 @@ class EmailManager:
                                             "Unsubscribed from Horizon",
                                             "You have been successfully unsubscribed from Horizon daily summaries.",
                                         )
-                                        logger.info(f"Removed subscriber: {email_addr}")
+                                        logger.info("Email subscriber removed")
                                     else:
-                                        logger.info(f"Not subscribed: {email_addr}")
+                                        logger.info("Email subscriber was not present")
 
             mail.close()
             mail.logout()
 
         except Exception as e:
-            logger.error(f"Error checking subscriptions: {e}")
+            logger.error(
+                "Email subscription check failed error_code=%s",
+                type(e).__name__,
+            )
 
     def send_daily_summary(self, summary_md: str, subject: str, subscribers: List[str]):
         """Sends the daily summary to all subscribers."""
@@ -212,12 +213,15 @@ class EmailManager:
 
                     try:
                         server.send_message(msg)
-                        logger.info(f"Sent summary to {subscriber}")
+                        logger.info("Email summary sent")
                     except Exception as e:
-                        logger.error(f"Failed to send to {subscriber}: {e}")
+                        logger.error(
+                            "Email summary send failed error_code=%s",
+                            type(e).__name__,
+                        )
 
         except Exception as e:
-            logger.error(f"SMTP Error: {e}")
+            logger.error("Email SMTP failed error_code=%s", type(e).__name__)
 
     def _send_reply(self, to_email: str, subject: str, body: str):
         """Helper to send a simple reply."""
@@ -236,4 +240,7 @@ class EmailManager:
 
                 server.send_message(msg)
         except Exception as e:
-            logger.error(f"Failed to send reply to {to_email}: {e}")
+            logger.error(
+                "Email reply send failed error_code=%s",
+                type(e).__name__,
+            )

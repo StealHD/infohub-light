@@ -47,6 +47,7 @@ Use one authoritative file for each topic:
 | Service API and legacy compatibility interfaces | `API_CONTRACT.md` |
 | Layering and module boundaries | `ARCHITECTURE_CONTRACT.md` |
 | React visual system, UI components, layout, interaction and visual gates | `UI_CONTRACT.md` |
+| Runtime/operation logging, redaction, retention and safe query rules | `docs/dev/observability-logging.md` |
 | Decision reasons and compatibility rationale | `DECISION_LOG.md` |
 | Context reading strategy | `CONTEXT_READ_RULES.md` |
 | Execution history | `WORKLOG.md` |

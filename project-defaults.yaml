@@ -104,7 +104,10 @@
       "test_gate_targeted_selection_enabled": true,
       "test_gate_ci_full_enabled": true,
       "test_gate_release_api_only_smoke_enabled": true,
-      "product_documentation_merge_gate_enabled": true
+      "product_documentation_merge_gate_enabled": true,
+      "private_structured_logging_enabled": true,
+      "openclaw_operation_log_query_enabled": true,
+      "frontend_log_display_enabled": false
     },
     "service_limits": {
       "max_fetch_jobs_per_user_day": 100,
@@ -117,10 +120,22 @@
       "apify_drain_timeout_seconds": 30,
       "apify_max_attempts_per_key_per_logical_run": 1,
       "shared_acquisition_ttl_minutes": {"min": 5, "max": 60, "fallback": 30},
-      "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14},
+      "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14, "managed_logs": 30},
       "max_feed_snapshots_per_user": 100,
       "max_notification_items_per_delivery": 20,
       "notification_test_cooldown_seconds": 60
+    },
+    "observability": {
+      "log_level": "INFO",
+      "log_retention_days": 30,
+      "log_retention_min_days": 1,
+      "log_retention_max_days": 365,
+      "operation_log_query_default_hours": 24,
+      "operation_log_query_max_hours": 720,
+      "operation_log_query_default_limit": 50,
+      "operation_log_query_max_limit": 100,
+      "operation_log_max_scan_records": 20000,
+      "frontend_log_display_enabled": false
     },
     "runtime_sources": {
       "service_catalog_types": [

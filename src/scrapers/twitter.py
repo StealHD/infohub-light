@@ -38,12 +38,10 @@ class TwitterScraper(BaseScraper):
 
         token = os.environ.get(self.config.apify_token_env)
         if not token:
-            logger.warning(
-                f"Apify token not found in env var '{self.config.apify_token_env}'. Skipping Twitter."
-            )
+            logger.warning("Twitter Apify credential is unavailable; source skipped")
             return []
 
-        logger.info(f"Fetching Twitter (Apify) for users: {users}")
+        logger.info("Fetching Twitter profiles count=%d", len(users))
 
         run_id, dataset_id = await self._start_run(token, users)
         if not run_id:
@@ -62,7 +60,7 @@ class TwitterScraper(BaseScraper):
             if parsed:
                 items.append(parsed)
 
-        logger.info(f"Fetched {len(items)} tweets via Apify.")
+        logger.info("Fetched Twitter items count=%d", len(items))
         return items
 
     async def _start_run(
@@ -81,10 +79,13 @@ class TwitterScraper(BaseScraper):
             data = resp.json()["data"]
             run_id = data["id"]
             dataset_id = data["defaultDatasetId"]
-            logger.debug(f"Started Apify run {run_id}, dataset {dataset_id}")
+            logger.debug("Started Twitter Apify run")
             return run_id, dataset_id
         except Exception as exc:
-            logger.error(f"Failed to start Apify run: {exc}")
+            logger.error(
+                "Failed to start Twitter Apify run error_code=%s",
+                type(exc).__name__,
+            )
             return None, None
 
     async def _wait_for_run(self, token: str, run_id: str) -> bool:
@@ -98,13 +99,16 @@ class TwitterScraper(BaseScraper):
                 if status == "SUCCEEDED":
                     return True
                 if status in ("FAILED", "ABORTED", "TIMED-OUT"):
-                    logger.error(f"Apify run {run_id} ended with status: {status}")
+                    logger.error("Twitter Apify run ended status=%s", status)
                     return False
             except Exception as exc:
-                logger.warning(f"Error polling Apify run {run_id}: {exc}")
+                logger.warning(
+                    "Twitter Apify run poll failed error_code=%s",
+                    type(exc).__name__,
+                )
             await asyncio.sleep(_POLL_INTERVAL)
             elapsed += _POLL_INTERVAL
-        logger.warning(f"Apify run {run_id} timed out after {_MAX_WAIT}s.")
+        logger.warning("Twitter Apify run timed out seconds=%d", _MAX_WAIT)
         return False
 
     async def _fetch_dataset(self, token: str, dataset_id: str) -> list:
@@ -114,7 +118,10 @@ class TwitterScraper(BaseScraper):
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
-            logger.error(f"Failed to fetch Apify dataset {dataset_id}: {exc}")
+            logger.error(
+                "Failed to fetch Twitter Apify dataset error_code=%s",
+                type(exc).__name__,
+            )
             return []
 
     async def fetch_replies_for_item(self, item: ContentItem) -> List[str]:
@@ -150,7 +157,10 @@ class TwitterScraper(BaseScraper):
             run_id = data["id"]
             dataset_id = data["defaultDatasetId"]
         except Exception as exc:
-            logger.warning(f"Failed to start replies run for {item.id}: {exc}")
+            logger.warning(
+                "Failed to start Twitter reply run error_code=%s",
+                type(exc).__name__,
+            )
             return []
 
         if not await self._wait_for_run(token, run_id):
@@ -309,5 +319,8 @@ class TwitterScraper(BaseScraper):
                 },
             )
         except Exception as exc:
-            logger.debug(f"Failed to parse tweet: {exc}")
+            logger.debug(
+                "Failed to parse Twitter item error_code=%s",
+                type(exc).__name__,
+            )
             return None
