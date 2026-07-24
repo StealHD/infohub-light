@@ -42,15 +42,31 @@ describe('Agent context draft', () => {
       question: '提炼机会',
       items: [
         { articleId: 'a', title: 'A' },
-        { articleId: 'job:job-1', resourceType: 'job' as const, jobId: 'job-1', title: '抓取单个来源' },
+        {
+          articleId: 'job:job-1',
+          resourceType: 'job' as const,
+          jobId: 'job-1',
+          title: '抓取单个来源',
+          sourceName: '来源一',
+          statusLabel: '失败',
+          detail: '上游返回的错误详情不应进入 prompt',
+        },
       ],
     }
     const prompt = buildAgentHandoffPrompt(draft)
 
+    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V4]')
     expect(prompt).toContain(INTELISCOPE_HANDOFF_MARKER)
     expect(prompt).toContain('问题：提炼机会')
     expect(prompt).toContain('1. 调用 get_item，article_id="a"')
-    expect(prompt).toContain('2. 调用 get_job，job_id="job-1"')
+    expect(prompt).toContain('2. 调用 diagnose_job，job_id="job-1"')
+    expect(prompt).toContain('仅依据工具返回的持久化安全证据回答')
+    expect(prompt).toContain('证据不足时明确说明未知信息')
+    expect(prompt).toContain('不得重试、取消或修改任务')
+    expect(prompt).not.toContain('调用 get_job')
+    expect(prompt).not.toContain('上游返回的错误详情')
+    expect(prompt).not.toContain('来源一')
+    expect(prompt).not.toContain('失败')
     expect(prompt).not.toContain('模型偏好')
     expect(projectAgentHandoffDisplay(prompt)).toEqual({ displayText: '提炼机会', contextCount: 2 })
     expect(buildAgentHandoffPrompt(draft)).toBe(prompt)
@@ -85,14 +101,21 @@ describe('Agent context draft', () => {
   })
 
   it('projects legacy handoffs without exposing their internal instructions', () => {
+    const v3 = [
+      '[INTELISCOPE_HANDOFF_V3]',
+      '{"displayText":"旧版交接","contextCount":2}',
+      'INTERNAL MCP get_item and get_job instructions',
+    ].join('\n')
     const legacy = [
       '请使用 Inteliscope Remote MCP 完成以下任务。',
       '问题：比较变化',
       '模型偏好：深度分析',
       '必须按顺序读取上下文，不要把标题或摘要当作完整正文：',
       '1. 调用 get_item，article_id="internal-a"',
+      '2. 调用 diagnose_job，job_id="internal-job"',
     ].join('\n')
-    expect(projectAgentHandoffDisplay(legacy)).toEqual({ displayText: '比较变化', contextCount: 1 })
+    expect(projectAgentHandoffDisplay(v3)).toEqual({ displayText: '旧版交接', contextCount: 2 })
+    expect(projectAgentHandoffDisplay(legacy)).toEqual({ displayText: '比较变化', contextCount: 2 })
   })
 
   it('clears only the requested user draft', () => {

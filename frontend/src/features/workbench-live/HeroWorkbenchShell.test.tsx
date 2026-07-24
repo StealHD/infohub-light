@@ -9,7 +9,12 @@ import type { FeedItem, User } from '../../api/types'
 import { sidebarPreferenceKey } from '../../app/sidebarPreference'
 import { DesignSystemProvider } from '../../design-system'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
-import { canFloatFeedInsights, HeroWorkbenchShell, rectanglesOverlap } from './HeroWorkbenchShell'
+import {
+  calculateFeedInsightsLayout,
+  canFloatFeedInsights,
+  HeroWorkbenchShell,
+  rectanglesOverlap,
+} from './HeroWorkbenchShell'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()
@@ -247,6 +252,33 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
   it('only allows automatic insights when the measured reading gutter is large enough', () => {
     expect(canFloatFeedInsights(1440, 1064)).toBe(true)
     expect(canFloatFeedInsights(1440, 1065)).toBe(false)
+    expect(calculateFeedInsightsLayout(
+      { left: 72, right: 1364 },
+      { left: 308, right: 1128 },
+      true,
+    )).toEqual({
+      panelLeft: 1000,
+      readingShift: -140,
+      obstructsFeed: false,
+    })
+    expect(calculateFeedInsightsLayout(
+      { left: 72, right: 1264 },
+      { left: 100, right: 920 },
+      true,
+    )).toEqual({
+      panelLeft: 900,
+      readingShift: -16,
+      obstructsFeed: true,
+    })
+    expect(calculateFeedInsightsLayout(
+      { left: 72, right: 1364 },
+      { left: 308, right: 1128 },
+      false,
+    )).toEqual({
+      panelLeft: 1000,
+      readingShift: 0,
+      obstructsFeed: true,
+    })
     expect(rectanglesOverlap(
       { left: 100, right: 1000, top: 60, bottom: 850 },
       { left: 900, right: 1252, top: 60, bottom: 700 },
@@ -300,7 +332,8 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
   it('softly dismisses obstructing Insights from any ineffective shell click while preserving controls', async () => {
     const originalRect = HTMLElement.prototype.getBoundingClientRect
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.matches('[data-page-frame="reading"]')) return { left: 100, right: 1000, top: 60, bottom: 850, width: 900, height: 790, x: 100, y: 60, toJSON: () => ({}) }
+      if (this.tagName === 'MAIN') return { left: 72, right: 1264, top: 52, bottom: 900, width: 1192, height: 848, x: 72, y: 52, toJSON: () => ({}) }
+      if (this.matches('[data-page-frame="reading"]')) return { left: 258, right: 1078, top: 60, bottom: 850, width: 820, height: 790, x: 258, y: 60, toJSON: () => ({}) }
       if (this.getAttribute('aria-label') === '信息概览') return { left: 900, right: 1252, top: 60, bottom: 700, width: 352, height: 640, x: 900, y: 60, toJSON: () => ({}) }
       return originalRect.call(this)
     })
@@ -314,6 +347,10 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(surface).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'true'))
+    expect(surface).toHaveStyle({ left: '900px' })
+    const main = screen.getByText('content').closest('main')
+    expect(main?.style.getPropertyValue('--inteliscope-feed-reading-shift')).toBe('-174px')
+    expect(main).toHaveAttribute('data-feed-layout-motion', 'deliberate')
     await browser.click(screen.getByRole('heading', { name: '信息流' }))
     expect(surface).toHaveAttribute('data-insights-surface', 'closing')
     expect(surface).toHaveAttribute('aria-hidden', 'true')
@@ -327,7 +364,8 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
   it('keeps non-obstructing Insights open after Feed blank-space activation', async () => {
     const originalRect = HTMLElement.prototype.getBoundingClientRect
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.matches('[data-page-frame="reading"]')) return { left: 100, right: 1000, top: 60, bottom: 850, width: 900, height: 790, x: 100, y: 60, toJSON: () => ({}) }
+      if (this.tagName === 'MAIN') return { left: 72, right: 1376, top: 52, bottom: 900, width: 1304, height: 848, x: 72, y: 52, toJSON: () => ({}) }
+      if (this.matches('[data-page-frame="reading"]')) return { left: 314, right: 1134, top: 60, bottom: 850, width: 820, height: 790, x: 314, y: 60, toJSON: () => ({}) }
       if (this.getAttribute('aria-label') === '信息概览') return { left: 1012, right: 1364, top: 60, bottom: 700, width: 352, height: 640, x: 1012, y: 60, toJSON: () => ({}) }
       return originalRect.call(this)
     })
@@ -336,6 +374,8 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
 
     await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
     await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'false'))
+    expect(screen.getByRole('complementary', { name: '信息概览' })).toHaveStyle({ left: '1012px' })
+    expect(screen.getByText('content').closest('main')?.style.getPropertyValue('--inteliscope-feed-reading-shift')).toBe('-134px')
     await browser.click(screen.getByText('content'))
     expect(screen.getByRole('complementary', { name: '信息概览' })).toBeInTheDocument()
     vi.restoreAllMocks()
@@ -575,7 +615,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:context-missing') || '{}')).toMatchObject({ items: [] })
   })
 
-  it('copies a v3 handoff without simulated model guidance or a network request', async () => {
+  it('copies a v4 handoff without simulated model guidance or a network request', async () => {
     const browser = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
@@ -588,7 +628,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V3]'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V4]'))
     expect(writeText).toHaveBeenCalledWith(expect.not.stringContaining('模型偏好'))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('交接提示词已复制')
     expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:composer-copy') || '{}')).toMatchObject({ question: '分析机会' })

@@ -214,6 +214,28 @@ describe('HeroAgentsPage delegation access', () => {
     expect(includedTools(configuration)).toEqual(readTools)
   })
 
+  it('aligns both configuration cards and wraps long commands without horizontal scrolling', async () => {
+    renderPage()
+
+    const readConfiguration = await screen.findByLabelText('OpenClaw 配置命令')
+    const writeConfiguration = screen.getByLabelText('订阅管理 OpenClaw 配置命令')
+    expect(screen.getByText('读取并诊断信息流、订阅、来源健康和任务。')).toHaveClass('min-h-10')
+    expect(screen.getByText('变更仍需 prepare、准确确认和 apply。')).toHaveClass('min-h-10')
+    for (const configuration of [readConfiguration, writeConfiguration]) {
+      expect(configuration).toHaveClass(
+        'max-h-56',
+        'min-w-0',
+        'max-w-full',
+        'overflow-x-hidden',
+        'overflow-y-auto',
+        'whitespace-pre-wrap',
+        'break-words',
+        '[overflow-wrap:anywhere]',
+      )
+      expect(configuration).not.toHaveClass('overflow-auto')
+    }
+  })
+
   it('never offers subscription-management access to a viewer', async () => {
     const browser = userEvent.setup()
     renderPage(listing, viewer)

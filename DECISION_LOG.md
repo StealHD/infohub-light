@@ -536,3 +536,19 @@
 - 门禁与故障语义：Provider、发件身份或凭据变化推进 generation、自动停用并清除测试状态；只有当前 generation 真实测试成功且每次读取的 SecretStore 值仍匹配摘要时才能启用。管理员测试使用一次性收件人和工作区 60 秒原子冷却；API 测试与 Worker 复用同一 `EmailTransport`、系统 CA、20 秒 timeout 与 MIME/HTML 转义。轮换、停用或删除只终结尚未开始的 email pending；已经 `sending` 或连接中断的结果未知记录保持未知且不自动重放。
 - 原因：让每个用户配置发件账号会扩大秘密数量与支持成本；继续读取 `data/config.json.email` 又会把 Service 权威配置与 legacy CLI 混在一起。固定 Registry 可以在不允许浏览器指定任意 SMTP 主机的前提下覆盖小团体常用服务；generation 测试门禁让凭据轮换后的“已测试”状态不可误继承。暂停期间继续保存 Feed 基线且不写 email outbox，能在恢复后自然只发送之后的新差集，而不形成历史补发队列。
 - 兼容/回退：schema v10 additive，缺 row 等同邮件 transport 未配置；已有 email opt-in 保留但投影为暂停，Webhook 不受影响。删除工作区 row 与确定性 SecretStore 值即可回退 Service 邮件能力，不修改 Feed、订阅水位或 legacy `data/config.json.email`；后者继续只供显式 CLI/日报兼容路径使用。
+
+### D063 Browser 运行记录交接直接使用安全任务诊断
+
+- 决策日期：2026-07-24
+- 当前状态：本地实施与验证完成；未部署
+- 决策内容：Browser Agent handoff 升级为 V4。Feed 记录继续以内部 article ID 调用 `get_item`，用户主动选择的运行记录以内部 job ID 直接调用只读 `diagnose_job`；最多八条混合上下文对应最多八次初始读取。Prompt 只要求持久化安全证据、显式未知与只读建议，禁止重试、取消、修复或其他写操作。
+- 原因：运行记录此前只路由到 `get_job`，只能读取状态摘要，无法获得已经由 Remote MCP 安全投影的原因、证据与建议；先 `get_job` 再 `diagnose_job` 又会让八条上下文超过十次工具 burst。复制 UI detail/error 原文既不能提高证据质量，也会扩大不可信提示面。
+- 兼容/边界：浏览器 sessionStorage v3 结构和八条上限不变；可见历史继续识别 V3 与旧无版本 handoff，并隐藏内部 Prompt 和 ID。无 Service API、MCP schema、权限、数据库、Worker、scheduler、来源抓取、AI 配置或自动任务变化。
+
+### D064 Feed Insights 先复用居中阅读列的左侧空白
+
+- 决策日期：2026-07-24
+- 当前状态：本地实施与验证完成；未部署
+- 决策内容：352 px Insights 继续作为右侧浮层而非第三列。用户手动打开时，ViewBar、Feed 卡片、Skeleton、空态和错误态作为一条 reading surface 等量左移，先消耗默认居中产生的左 gutter，并在主内容左侧保留 12 px；只有剩余空间仍不足时才允许覆盖卡片。面板位置和让位量以当前 main、侧栏及可拖拽 Agent rail 的实测几何为准。
+- 原因：固定右锚点直接覆盖卡片会浪费 reading surface 左侧的可用空间；把 Insights 换到左侧或压窄 820 px 卡片列则会改变用户已确认的视觉位置与阅读排版。统一平移能利用现有空白，又保持卡片宽度和纵向虚拟列表锚点。
+- 兼容/边界：自动展示仍只在原始右 gutter 至少 376 px 时发生，不因新算法扩大自动出现范围；移动端仍使用 Bottom Sheet。让位使用既有 220 ms motion，Agent 指针缩放立即跟手，Reduced Motion 立即完成。无新 API、Query、数据库、图表依赖、Feed snapshot 或运行任务变化。

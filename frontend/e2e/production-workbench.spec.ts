@@ -427,6 +427,7 @@ test('a hard refresh preserves shell geometry and reveals only loaded content', 
 })
 
 test('production HeroUI workbench preserves responsive shell, virtualization and Agent handoff', async ({ context, page }, testInfo) => {
+  test.setTimeout(60_000)
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/feed')
   await expect(page.getByRole('heading', { name: '信息流' })).toBeVisible()
@@ -436,7 +437,9 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(page.getByText('稍后读')).toHaveCount(0)
   expect(await page.locator('[data-testid="workbench-card"]').count()).toBeLessThanOrEqual(40)
   await expect(page.getByRole('navigation', { name: '信息流进度' })).toHaveCount(0)
-  await expect(page.getByText('200 条内容', { exact: true })).toBeVisible()
+  const itemCount = page.getByText('200 条内容', { exact: true })
+  await expect(itemCount).toBeVisible()
+  expect(await itemCount.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
   await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '更新信息流' })).toBeVisible()
@@ -487,7 +490,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.right-rail.v1:e2e-user'))).toBe(JSON.stringify({ width: 384 }))
     const quietCard = page.locator('[data-card-visual="quiet-studio"]').first()
     expect(await quietCard.evaluate((element) => getComputedStyle(element).borderRadius)).toBe('18px')
-    expect((await quietCard.boundingBox())?.width ?? 0).toBeLessThanOrEqual(820)
+    expect(Math.round((await quietCard.boundingBox())?.width ?? 0)).toBeLessThanOrEqual(820)
     await expect(desktopNavigation).toBeVisible()
     await expect(mobileNavigation).toBeHidden()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
@@ -661,7 +664,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(agent.getByRole('button', { name: /模型偏好/ })).toHaveCount(0)
   await agent.getByRole('button', { name: '复制交接提示词' }).click()
   const handoff = await page.evaluate(() => navigator.clipboard.readText())
-  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V3]')
+  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V4]')
   expect(handoff).toContain('调用 get_item')
   expect(handoff).not.toContain('模型偏好：')
 
@@ -770,20 +773,72 @@ test('the production theme defaults to night and persists explicit day and night
   await expect(app).toHaveAttribute('data-theme', 'dark')
 })
 
-test('obstructing Insights softly exits after an ineffective header click', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'The floating overlapping surface is a desktop interaction.')
+test('Insights shifts the reading column before overlap and only obstructing layouts softly exit', async ({ page }, testInfo) => {
+  test.setTimeout(60_000)
+  test.skip(testInfo.project.name !== 'desktop', 'The floating surface geometry is exercised from the desktop project.')
   await page.goto('/feed')
   const shell = page.getByTestId('live-workbench-shell')
+  const main = page.locator('main[data-feed-reading-layout="true"]')
+  const reading = main.locator('[data-page-frame="reading"]')
+  const scroll = page.getByTestId('workbench-feed-scroll')
+  const centeredReading = await reading.boundingBox()
+  await scroll.evaluate((element) => {
+    element.scrollTop = 480
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const scrollTop = await scroll.evaluate((element) => element.scrollTop)
+
   await page.getByRole('button', { name: '展开信息概览' }).click()
   const insights = page.locator('#feed-insights-surface')
   await expect(insights).toBeVisible()
-  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'true')
+  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'false')
+  await reading.evaluate(async (element) => Promise.all(
+    element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  ))
+  await insights.evaluate(async (element) => Promise.all(
+    element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  ))
+  const mainBounds = await main.boundingBox()
+  const shiftedReading = await reading.boundingBox()
+  const insightsBounds = await insights.boundingBox()
+  expect(centeredReading).not.toBeNull()
+  expect(mainBounds).not.toBeNull()
+  expect(shiftedReading).not.toBeNull()
+  expect(insightsBounds).not.toBeNull()
+  expect(shiftedReading!.x).toBeLessThan(centeredReading!.x)
+  expect(shiftedReading!.x).toBeGreaterThanOrEqual(mainBounds!.x + 11)
+  expect(insightsBounds!.x - (shiftedReading!.x + shiftedReading!.width)).toBeGreaterThanOrEqual(11)
+  expect(Math.abs((insightsBounds!.x + insightsBounds!.width) - (mainBounds!.x + mainBounds!.width - 12))).toBeLessThanOrEqual(1)
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(scrollTop)
 
   await page.getByRole('heading', { name: '信息流' }).click()
-
-  await expect(insights).toHaveAttribute('data-insights-surface', 'closing')
-  expect(await insights.evaluate((element) => getComputedStyle(element).animationName)).toBe('quiet-surface-exit')
+  await expect(insights).toBeVisible()
+  await page.getByRole('button', { name: '关闭信息概览' }).click()
   await expect(insights).toHaveCount(0)
+
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const narrowInsights = page.locator('#feed-insights-surface')
+  await expect(narrowInsights).toBeVisible()
+  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'true')
+  await reading.evaluate(async (element) => Promise.all(
+    element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  ))
+  await narrowInsights.evaluate(async (element) => Promise.all(
+    element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  ))
+  const narrowMainBounds = await main.boundingBox()
+  const narrowReadingBounds = await reading.boundingBox()
+  const narrowInsightsBounds = await narrowInsights.boundingBox()
+  expect(narrowMainBounds).not.toBeNull()
+  expect(narrowReadingBounds).not.toBeNull()
+  expect(narrowInsightsBounds).not.toBeNull()
+  expect(Math.abs(narrowReadingBounds!.x - (narrowMainBounds!.x + 12))).toBeLessThanOrEqual(1)
+  expect(narrowReadingBounds!.x + narrowReadingBounds!.width).toBeGreaterThan(narrowInsightsBounds!.x)
+  expect(Math.abs((narrowInsightsBounds!.x + narrowInsightsBounds!.width) - (narrowMainBounds!.x + narrowMainBounds!.width - 12))).toBeLessThanOrEqual(1)
+  await page.getByRole('heading', { name: '信息流' }).click()
+
+  await expect(narrowInsights).toHaveCount(0)
 })
 
 test('social cards and Agent context show source information once without exposing item IDs', async ({ page }, testInfo) => {
@@ -798,11 +853,40 @@ test('social cards and Agent context show source information once without exposi
   await expect(page.getByText(socialRouteItem.title, { exact: true })).toHaveCount(0)
   await expect(card.getByText('图集', { exact: true })).toBeVisible()
   await expect(card.getByText('4 张图片 · 可查看 2 张', { exact: true })).toBeVisible()
-  await card.getByRole('button', { name: /展开 / }).click()
-  await expect(card.getByLabel('2 张可查看图片').getByRole('img')).toHaveCount(2)
+  const expand = card.getByRole('button', { name: /展开 / })
+  await expand.hover()
+  await expect(page.getByText('展开内容', { exact: true })).toBeVisible()
+  await page.mouse.move(4, 4)
+  await card.locator('[data-card-expand-zone="true"]').click()
+  await expect(card.getByRole('button', { name: /收起 / })).toHaveAttribute('aria-expanded', 'true')
+  const gallery = card.getByLabel('2 张可查看图片')
+  await expect(gallery.getByRole('img')).toHaveCount(2)
+  expect(await gallery.getByRole('img').evaluateAll((images) => images.map((image) => getComputedStyle(image).objectFit))).toEqual(['contain', 'contain'])
   await expect(card.getByText('仅获取到内容片段，打开原文查看完整内容。', { exact: true })).toBeVisible()
 
+  const firstImage = gallery.getByRole('button', { name: '查看第 1 张图片，共 2 张' })
+  const routeBeforePreview = page.url()
+  await firstImage.click()
+  const preview = page.getByRole('dialog', { name: /图片预览$/ })
+  await expect(preview).toBeVisible()
+  await expect(preview.getByRole('status')).toHaveText('1 / 2')
+  expect(await preview.getByRole('img').evaluate((image) => getComputedStyle(image).objectFit)).toBe('contain')
+  for (const name of ['关闭图片预览', '上一张图片', '下一张图片']) {
+    const bounds = await preview.getByRole('button', { name }).boundingBox()
+    expect(bounds?.width ?? 0).toBeGreaterThanOrEqual(44)
+    expect(bounds?.height ?? 0).toBeGreaterThanOrEqual(44)
+  }
+  await preview.press('ArrowLeft')
+  await expect(preview.getByRole('status')).toHaveText('2 / 2')
+  await preview.press('ArrowRight')
+  await expect(preview.getByRole('status')).toHaveText('1 / 2')
+  await preview.press('Escape')
+  await expect(preview).toHaveCount(0)
+  await expect(firstImage).toBeFocused()
+  expect(page.url()).toBe(routeBeforePreview)
+
   await card.getByRole('button', { name: /加入 Agent 上下文/ }).click()
+  await expect(card.getByRole('button', { name: /收起 / })).toHaveAttribute('aria-expanded', 'true')
   const agent = testInfo.project.name === 'desktop'
     ? page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     : page.getByRole('dialog', { name: 'OpenClaw 上下文' })

@@ -50,6 +50,24 @@ const socialItem = (): FeedItem => ({
   },
 })
 
+function galleryItem(): FeedItem {
+  const item = socialItem()
+  if (!item.presentation) throw new Error('presentation fixture missing')
+  item.presentation.content.format = 'gallery'
+  item.presentation.content.format_origin = 'upstream'
+  item.presentation.content.body_completeness = 'excerpt_only'
+  item.presentation.media = {
+    images: [
+      { asset_id: 'one', url: '/api/media/one', alt: '图片一' },
+      { asset_id: 'two', url: '/api/media/two', alt: '图片二' },
+    ],
+    count: 2,
+    total_image_count: 8,
+    truncated: true,
+  }
+  return item
+}
+
 describe('VirtualFeed', () => {
   it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
@@ -113,6 +131,7 @@ describe('VirtualFeed', () => {
 
     expect(screen.getByRole('article', { name: '信息 1' })).toHaveAttribute('data-card-visual', 'quiet-studio')
     expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('data-state', 'collapsed')
+    expect(screen.getByTestId('card-details-item-1')).toHaveAttribute('inert')
 
     view.rerender(<VirtualFeed
       cards={[card]}
@@ -163,6 +182,7 @@ describe('VirtualFeed', () => {
 
     const details = screen.getByTestId('card-details-item-1')
     expect(details).toHaveAttribute('data-state', 'expanded')
+    expect(details).not.toHaveAttribute('inert')
     expect(details.className).toContain('grid-rows-[1fr]')
     const idleButton = screen.getByRole('button', { name: '将 信息 1 加入 Agent 上下文' })
     expect(idleButton).toHaveAttribute('data-context-state', 'idle')
@@ -268,6 +288,49 @@ describe('VirtualFeed', () => {
     expect(onItemAction).not.toHaveBeenCalled()
   })
 
+  it('uses an icon-only expand control while making the footer labels a separate expand target', async () => {
+    const user = userEvent.setup()
+    const onToggleExpanded = vi.fn()
+    const onToggleSaved = vi.fn()
+    const onToggleContext = vi.fn()
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(socialItem())]}
+      contextIds={[]}
+      onToggleExpanded={onToggleExpanded}
+      onToggleSaved={onToggleSaved}
+      onToggleContext={onToggleContext}
+      onItemAction={vi.fn()}
+    />)
+
+    const card = screen.getByRole('article')
+    const expandZone = within(card).getByLabelText('内容分类、频道和主题')
+    const expandButton = within(card).getByRole('button', { name: /^展开 / })
+    const actions = card.querySelector<HTMLElement>('[data-card-actions]')
+    if (!actions) throw new Error('card actions were not rendered')
+
+    expect(expandButton).toHaveTextContent('')
+    expect(expandButton.querySelector('.lucide-chevron-down')).not.toBeNull()
+    expect(expandButton).toHaveAttribute('aria-controls', 'card-details-social-x')
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+    expect(expandZone).not.toContainElement(expandButton)
+    expect(expandZone).not.toContainElement(actions)
+
+    await user.click(expandZone)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+    await user.click(expandButton)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(2)
+
+    await user.click(within(actions).getByRole('button', { name: /^收藏 / }))
+    await user.click(within(actions).getByRole('button', { name: /^将 .* 加入 Agent 上下文$/ }))
+    await user.click(within(actions).getByRole('button', { name: /^更多操作 / }))
+    expect(onToggleSaved).toHaveBeenCalledTimes(1)
+    expect(onToggleContext).toHaveBeenCalledTimes(1)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(2)
+
+    fireEvent.pointerEnter(expandButton, { pointerType: 'mouse' })
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('展开内容')
+  })
+
   it('does not render a fake expand control for fully visible short content', () => {
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(makeItem(1))]}
@@ -302,20 +365,7 @@ describe('VirtualFeed', () => {
   })
 
   it('shows type, original image total, cached gallery and source-fragment notice', () => {
-    const item = socialItem()
-    if (!item.presentation) throw new Error('presentation fixture missing')
-    item.presentation.content.format = 'gallery'
-    item.presentation.content.format_origin = 'upstream'
-    item.presentation.content.body_completeness = 'excerpt_only'
-    item.presentation.media = {
-      images: [
-        { asset_id: 'one', url: '/api/media/one', alt: '图片一' },
-        { asset_id: 'two', url: '/api/media/two', alt: '图片二' },
-      ],
-      count: 2,
-      total_image_count: 8,
-      truncated: true,
-    }
+    const item = galleryItem()
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(item)]}
       expandedId="social-x"
@@ -328,8 +378,79 @@ describe('VirtualFeed', () => {
 
     expect(screen.getByText('图集')).toBeInTheDocument()
     expect(screen.getByText('8 张图片 · 可查看 2 张')).toBeInTheDocument()
-    expect(screen.getByLabelText('2 张可查看图片').querySelectorAll('img')).toHaveLength(2)
+    const gallery = screen.getByLabelText('2 张可查看图片')
+    expect(gallery.querySelectorAll('img')).toHaveLength(2)
+    expect(within(gallery).getByRole('button', { name: '查看第 1 张图片，共 2 张' })).toHaveClass('aspect-[4/3]')
+    expect(within(gallery).getByRole('button', { name: '查看第 2 张图片，共 2 张' })).toHaveClass('aspect-[4/3]')
+    for (const image of within(gallery).getAllByRole('img')) {
+      expect(image).toHaveClass('object-contain', 'h-full')
+      expect(image).not.toHaveClass('object-cover')
+    }
     expect(screen.getByText('仅获取到内容片段，打开原文查看完整内容。')).toBeInTheDocument()
+  })
+
+  it('previews cached images in one modal, loops with controls and keys, then restores thumbnail focus', async () => {
+    const user = userEvent.setup()
+    const onToggleExpanded = vi.fn()
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(galleryItem())]}
+      expandedId="social-x"
+      contextIds={[]}
+      onToggleExpanded={onToggleExpanded}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    Object.defineProperty(scroll, 'scrollTop', { configurable: true, writable: true, value: 180 })
+    const firstThumbnail = screen.getByRole('button', { name: '查看第 1 张图片，共 2 张' })
+
+    await user.click(firstThumbnail)
+    const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
+    expect(within(dialog).getByRole('img', { name: '图片一' })).toHaveClass('object-contain')
+    expect(within(dialog).getByRole('status')).toHaveTextContent('1 / 2')
+
+    await user.keyboard('{ArrowLeft}')
+    expect(within(dialog).getByRole('img', { name: '图片二' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('status')).toHaveTextContent('2 / 2')
+    await user.keyboard('{ArrowRight}')
+    expect(within(dialog).getByRole('img', { name: '图片一' })).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '下一张图片' }))
+    expect(within(dialog).getByRole('img', { name: '图片二' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: '关闭图片预览' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /图片预览$/ })).not.toBeInTheDocument())
+    await waitFor(() => expect(firstThumbnail).toHaveFocus())
+    expect(scroll.scrollTop).toBe(180)
+    expect(onToggleExpanded).not.toHaveBeenCalled()
+  })
+
+  it('dismisses the image preview with Escape and by clicking the backdrop', async () => {
+    const user = userEvent.setup()
+    const view = render(<VirtualFeed
+      cards={[toWorkbenchCardModel(galleryItem())]}
+      expandedId="social-x"
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    const thumbnail = screen.getByRole('button', { name: '查看第 1 张图片，共 2 张' })
+
+    await user.click(thumbnail)
+    expect(await screen.findByRole('dialog', { name: /图片预览$/ })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /图片预览$/ })).not.toBeInTheDocument())
+    await waitFor(() => expect(thumbnail).toHaveFocus())
+
+    await user.click(thumbnail)
+    expect(await screen.findByRole('dialog', { name: /图片预览$/ })).toBeInTheDocument()
+    const backdrop = view.baseElement.querySelector<HTMLElement>('[data-slot="modal-backdrop"]')
+    if (!backdrop) throw new Error('modal backdrop was not rendered')
+    await user.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /图片预览$/ })).not.toBeInTheDocument())
+    await waitFor(() => expect(thumbnail).toHaveFocus())
   })
 
   it('keeps detail loading and failure local to the expanded card', () => {

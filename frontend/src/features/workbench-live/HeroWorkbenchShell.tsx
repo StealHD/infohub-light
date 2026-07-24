@@ -210,6 +210,9 @@ function initialRightRailMode(userId: string): RightRailMode {
 
 const insightsDismissedKey = (userId: string) => `inteliscope.ui.insights-dismissed.v1:${userId}`
 export const FLOATING_INSIGHTS_REQUIRED_GUTTER = 376
+export const FLOATING_INSIGHTS_WIDTH = 352
+export const FLOATING_INSIGHTS_INSET = 12
+export const FLOATING_INSIGHTS_GAP = 12
 const deliberateLayoutMotionMs = 220
 const interactivePointerTarget = [
   'a',
@@ -244,6 +247,40 @@ export function canFloatFeedInsights(mainRight: number, readingRight: number): b
   return Number.isFinite(mainRight)
     && Number.isFinite(readingRight)
     && mainRight - readingRight >= FLOATING_INSIGHTS_REQUIRED_GUTTER
+}
+
+type HorizontalBounds = Pick<DOMRectReadOnly, 'left' | 'right'>
+
+export type FeedInsightsLayout = {
+  panelLeft: number
+  readingShift: number
+  obstructsFeed: boolean
+}
+
+export function calculateFeedInsightsLayout(
+  main: HorizontalBounds,
+  reading: HorizontalBounds,
+  shiftReading: boolean,
+): FeedInsightsLayout {
+  const values = [main.left, main.right, reading.left, reading.right]
+  if (values.some((value) => !Number.isFinite(value)) || main.right <= main.left || reading.right <= reading.left) {
+    return { panelLeft: 0, readingShift: 0, obstructsFeed: false }
+  }
+
+  const panelLeft = main.right - FLOATING_INSIGHTS_INSET - FLOATING_INSIGHTS_WIDTH
+  const requiredShift = shiftReading
+    ? Math.max(0, reading.right + FLOATING_INSIGHTS_GAP - panelLeft)
+    : 0
+  const availableLeftGutter = Math.max(0, reading.left - (main.left + FLOATING_INSIGHTS_INSET))
+  const readingShift = requiredShift > 0 ? -Math.min(requiredShift, availableLeftGutter) : 0
+  const shiftedReading = {
+    left: reading.left + readingShift,
+    right: reading.right + readingShift,
+  }
+  const obstructsFeed = shiftedReading.left < panelLeft + FLOATING_INSIGHTS_WIDTH
+    && shiftedReading.right > panelLeft
+
+  return { panelLeft, readingShift, obstructsFeed }
 }
 
 type RectBounds = Pick<DOMRectReadOnly, 'left' | 'right' | 'top' | 'bottom'>
@@ -410,6 +447,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [insightsSurface, setInsightsSurface] = useState<InsightsSurfaceState>('closed')
   const [insightsCanFloat, setInsightsCanFloat] = useState(false)
   const [insightsObstructsFeed, setInsightsObstructsFeed] = useState(false)
+  const [feedInsightsLayout, setFeedInsightsLayout] = useState<FeedInsightsLayout | null>(null)
   const [resizingRail, setResizingRail] = useState(false)
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
@@ -655,6 +693,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     if (!feedRoute || !main) {
       setInsightsCanFloat(false)
       setInsightsObstructsFeed(false)
+      setFeedInsightsLayout(null)
       return
     }
     const measure = () => {
@@ -662,17 +701,33 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       if (!reading) {
         setInsightsCanFloat(false)
         setInsightsObstructsFeed(false)
+        setFeedInsightsLayout(null)
         return
       }
+      const mainBounds = main.getBoundingClientRect()
+      const shiftedReadingBounds = reading.getBoundingClientRect()
+      const readingWidth = shiftedReadingBounds.width || shiftedReadingBounds.right - shiftedReadingBounds.left
+      const centeredReadingLeft = mainBounds.left + (mainBounds.right - mainBounds.left - readingWidth) / 2
+      const readingBounds = {
+        left: centeredReadingLeft,
+        right: centeredReadingLeft + readingWidth,
+      }
       setInsightsCanFloat(canFloatFeedInsights(
-        main.getBoundingClientRect().right,
-        reading.getBoundingClientRect().right,
+        mainBounds.right,
+        readingBounds.right,
       ))
-      const insights = insightsRef.current
-      setInsightsObstructsFeed(Boolean(insights && rectanglesOverlap(
-        reading.getBoundingClientRect(),
-        insights.getBoundingClientRect(),
-      )))
+      const layout = calculateFeedInsightsLayout(
+        mainBounds,
+        readingBounds,
+        insightsSurface === 'manual',
+      )
+      setFeedInsightsLayout((current) => current
+        && current.panelLeft === layout.panelLeft
+        && current.readingShift === layout.readingShift
+        && current.obstructsFeed === layout.obstructsFeed
+        ? current
+        : layout)
+      setInsightsObstructsFeed(insightsSurface === 'manual' && layout.obstructsFeed)
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
@@ -680,9 +735,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     observer.observe(main)
     const reading = main.querySelector<HTMLElement>('[data-page-frame="reading"]')
     if (reading) observer.observe(reading)
-    if (insightsRef.current) observer.observe(insightsRef.current)
     return () => observer.disconnect()
-  }, [feedRoute, fixedRightRail, insightsPresent, rightRailWidth, sidebarExpanded, viewportWidth])
+  }, [feedRoute, fixedRightRail, insightsSurface, rightRailWidth, sidebarExpanded, viewportWidth])
 
   useEffect(() => {
     let closeFrame: number | undefined
@@ -968,7 +1022,15 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           </div>}
         />
 
-        <main ref={mainRef} className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0">
+        <main
+          ref={mainRef}
+          data-feed-reading-layout={feedRoute ? 'true' : undefined}
+          data-feed-layout-motion={resizingRail ? 'immediate' : 'deliberate'}
+          className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0"
+          style={feedRoute ? {
+            '--inteliscope-feed-reading-shift': `${feedInsightsLayout?.readingShift ?? 0}px`,
+          } as CSSProperties : undefined}
+        >
           {props.children}
         </main>
 
@@ -1013,8 +1075,10 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           aria-hidden={insightsClosing}
           inert={insightsClosing}
           data-insights-surface={insightsSurface}
-          className={`${insightsClosing ? 'quiet-surface-exit pointer-events-none' : 'quiet-surface-enter'} fixed top-[60px] z-30 flex max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] flex-col overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]`}
-          style={{ right: fixedRightRail ? rightRailWidth + 12 : 12 }}
+          className={`${insightsClosing ? 'quiet-surface-exit pointer-events-none' : 'quiet-surface-enter'} ${resizingRail ? 'transition-none' : 'transition-[left] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none'} fixed top-[60px] z-30 flex max-h-[calc(100dvh-72px)] w-[min(352px,calc(100vw-24px))] flex-col overflow-hidden rounded-[var(--inteliscope-radius-panel)] border border-separator bg-surface shadow-[var(--overlay-shadow)]`}
+          style={feedInsightsLayout
+            ? { left: feedInsightsLayout.panelLeft }
+            : { right: fixedRightRail ? rightRailWidth + FLOATING_INSIGHTS_INSET : FLOATING_INSIGHTS_INSET }}
           onAnimationEnd={insightsClosing ? (event) => {
             if (event.target === event.currentTarget) completeInsightsClose()
           } : undefined}

@@ -124,6 +124,24 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByLabelText('OpenClaw Gateway token')).toHaveValue('')
   })
 
+  it('keeps both setup actions in one bounded two-column row', () => {
+    const chat = chatController()
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    const actions = screen.getByTestId('openclaw-setup-actions')
+    expect(actions).toHaveClass('grid', 'min-w-0', 'grid-cols-2')
+    expect(screen.getByRole('button', { name: '连接并授权' })).toHaveClass(
+      'min-w-0',
+      'whitespace-normal',
+      '[overflow-wrap:anywhere]',
+    )
+    expect(screen.getByRole('button', { name: '使用已配对设备重连' })).toHaveClass(
+      'min-w-0',
+      'whitespace-normal',
+      '[overflow-wrap:anywhere]',
+    )
+  })
+
   it('sends a concise visible message, keeps the MCP prompt private and clears the composer immediately', async () => {
     const browser = userEvent.setup()
     const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })

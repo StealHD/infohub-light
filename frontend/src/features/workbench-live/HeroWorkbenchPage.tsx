@@ -210,9 +210,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           loading={loading}
           label="正在读取内容数量"
           name="feed-count"
-          className="mr-auto min-h-4 w-16 shrink-0"
+          className="mr-auto min-h-4 min-w-16 shrink-0"
           skeleton={<span data-feed-count-skeleton><CalmSkeleton className="h-4 w-16 rounded-md" /></span>}
-        ><span className="type-control shrink-0 text-muted">{cards.length} 条内容</span></LoadingReveal>
+        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{cards.length} 条内容</span></LoadingReveal>
         {collectionRoute && <div className={`${collectionSearchOpen ? 'flex' : 'hidden'} min-w-0 flex-1 sm:flex`}>
           <SearchField aria-label="搜索信息流" value={query} onChange={setQuery} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">

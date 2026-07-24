@@ -6,6 +6,8 @@ const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员
 async function mockAdminApi(page: Page, authenticated = true) {
   let quotaRequests = 0
   let productSubscribed = false
+  let quotaRefreshGate: Promise<void> | null = null
+  let releaseQuotaRefresh: (() => void) | null = null
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
@@ -138,6 +140,11 @@ async function mockAdminApi(page: Page, authenticated = true) {
     }
     else if (url.pathname === '/api/admin/secrets/secret-apify/quota') {
       quotaRequests += 1
+      if (quotaRequests > 1 && quotaRefreshGate) {
+        await quotaRefreshGate
+        quotaRefreshGate = null
+        releaseQuotaRefresh = null
+      }
       data = {
         secret_id: 'secret-apify',
         provider: 'apify',
@@ -160,7 +167,15 @@ async function mockAdminApi(page: Page, authenticated = true) {
 
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
   })
-  return { quotaRequests: () => quotaRequests }
+  return {
+    quotaRequests: () => quotaRequests,
+    deferQuotaRefresh: () => {
+      quotaRefreshGate ??= new Promise<void>((resolve) => {
+        releaseQuotaRefresh = resolve
+      })
+    },
+    releaseQuotaRefresh: () => releaseQuotaRefresh?.(),
+  }
 }
 
 async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable = false } = {}) {
@@ -177,6 +192,7 @@ async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable
 }
 
 test('production administration routes use the adaptive Quiet Studio page pattern at every acceptance viewport', async ({ page }) => {
+  test.setTimeout(60_000)
   await mockAdminApi(page)
 
   await page.goto('/subscriptions')
@@ -186,6 +202,21 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await page.goto('/agents')
   await expectHeroAdminPage(page, '助手连接')
   await expect(page.getByText('本机 OpenClaw')).toBeVisible()
+  const openClawConfigurations = page.locator('pre[aria-label$="OpenClaw 配置命令"]')
+  await expect(openClawConfigurations).toHaveCount(2)
+  const configurationMetrics = await openClawConfigurations.evaluateAll((blocks) => blocks.map((block) => ({
+    top: block.getBoundingClientRect().top,
+    clientWidth: block.clientWidth,
+    scrollWidth: block.scrollWidth,
+    overflowX: getComputedStyle(block).overflowX,
+  })))
+  if ((page.viewportSize()?.width ?? 0) >= 900) {
+    expect(Math.abs(configurationMetrics[0].top - configurationMetrics[1].top)).toBeLessThanOrEqual(1)
+  } else {
+    expect(configurationMetrics[1].top).toBeGreaterThan(configurationMetrics[0].top)
+  }
+  expect(configurationMetrics.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true)
+  expect(configurationMetrics.every(({ overflowX }) => overflowX === 'hidden')).toBe(true)
 
   await page.goto('/settings')
   await expectHeroAdminPage(page, '设置')
@@ -301,8 +332,16 @@ test('settings key tables contain scrolling, quota, refresh and accessible modal
     expect(await tableScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
   }
   const refreshQuota = page.getByRole('button', { name: '刷新 Apify Primary 额度' })
+  apiState.deferQuotaRefresh()
   await refreshQuota.click()
   await expect.poll(apiState.quotaRequests).toBe(2)
+  const refreshingQuota = page.getByRole('button', { name: '正在刷新 Apify Primary 额度' })
+  await expect(refreshingQuota).toBeDisabled()
+  await expect(refreshingQuota.locator('svg')).toHaveClass(/animate-spin/)
+  await expect(refreshingQuota.locator('xpath=ancestor::*[@aria-busy][1]')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  apiState.releaseQuotaRefresh()
+  await expect(refreshQuota).toBeEnabled()
   const rotateTrigger = page.getByRole('button', { name: '轮换 Apify Primary' })
   await rotateTrigger.click()
   await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toBeVisible()
@@ -322,6 +361,7 @@ test('successful Key creation uses a top overlay without moving settings content
   await page.evaluate(async () => {
     await document.fonts.ready
   })
+  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Key 名称' }).fill('DeepSeek Primary')
   await page.getByRole('textbox', { name: 'Key provider' }).fill('deepseek')
@@ -338,7 +378,21 @@ test('successful Key creation uses a top overlay without moving settings content
       y: headingBounds.y - frameBounds.y,
     }
   })
-  const before = await positionWithinPage()
+  const stablePositionWithinPage = async () => {
+    let previous = await positionWithinPage()
+    let stableFrames = 0
+    for (let frame = 0; frame < 20 && stableFrames < 3; frame += 1) {
+      await page.waitForTimeout(50)
+      const current = await positionWithinPage()
+      stableFrames = Math.abs(current.x - previous.x) <= 0.5 && Math.abs(current.y - previous.y) <= 0.5
+        ? stableFrames + 1
+        : 0
+      previous = current
+    }
+    expect(stableFrames).toBe(3)
+    return previous
+  }
+  const before = await stablePositionWithinPage()
 
   await page.getByRole('button', { name: '新增 Key' }).click()
   const toastTitle = page.getByText('Key 已安全保存', { exact: true })

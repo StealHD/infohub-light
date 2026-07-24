@@ -419,6 +419,21 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   animation: quiet-surface-exit var(--inteliscope-motion-deliberate) ease-in both;
 }
 
+.inteliscope-design-system [data-feed-reading-layout] :is(
+  [data-page-frame="reading"],
+  [data-feed-reading-frame]
+) {
+  translate: var(--inteliscope-feed-reading-shift, 0px) 0;
+  transition: translate var(--inteliscope-motion-deliberate) ease-out;
+}
+
+.inteliscope-design-system [data-feed-reading-layout][data-feed-layout-motion="immediate"] :is(
+  [data-page-frame="reading"],
+  [data-feed-reading-frame]
+) {
+  transition-property: none;
+}
+
 @keyframes inteliscope-skeleton-breathe {
   0%, 100% { opacity: 0.62; }
   50% { opacity: 0.82; }
@@ -526,6 +541,13 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
     .spinner
   ) {
     animation-name: none !important;
+    transition-property: none !important;
+  }
+
+  .inteliscope-design-system [data-feed-reading-layout] :is(
+    [data-page-frame="reading"],
+    [data-feed-reading-frame]
+  ) {
     transition-property: none !important;
   }
 
