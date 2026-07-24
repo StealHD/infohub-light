@@ -370,7 +370,7 @@ function AgentPanelContent({
               const label = item.sourceName ? `${item.sourceName} · ${item.title}` : item.title
               return <Card key={id} data-agent-context-item data-context-resource="job" variant="secondary" className="h-9 min-w-0 flex-row items-center gap-2 px-2 py-1">
                 <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-default text-accent"><Icons.ScrollText size={14} aria-hidden="true" /></span>
-                <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap">
                   <span className="type-meta shrink-0 text-muted">运行记录{item.statusLabel ? ` · ${item.statusLabel}` : ''}</span>
                   <span className="text-muted/60" aria-hidden="true">—</span>
                   <span className="type-control min-w-0 flex-1 truncate" title={item.detail || label}>{label}</span>
@@ -401,7 +401,7 @@ function AgentPanelContent({
                 {card?.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
                 <AvatarFallback>{avatarLabel.slice(0, 1).toUpperCase()}</AvatarFallback>
               </AvatarRoot>
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+              <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap">
                 <span className="type-meta flex min-w-0 shrink-0 items-center gap-1.5 text-muted">
                   {sourceLabels.map((label, labelIndex) => <Fragment key={label}>
                     {labelIndex > 0 && <span aria-hidden="true">·</span>}

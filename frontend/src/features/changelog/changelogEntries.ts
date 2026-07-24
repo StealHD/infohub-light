@@ -59,7 +59,7 @@ export const changelogMonths: ChangelogMonth[] = [
         title: '运行诊断与阅读细节完善',
         summary: 'OpenClaw 能取得更充分的安全任务证据，图片、概览和常用控件在窄空间下也更容易操作。',
         items: [
-          { title: '运行记录直接诊断', description: '从运行记录加入 OpenClaw 后会读取安全的原因、证据和恢复建议，不再只停留在任务状态摘要，也不会自动重试或修改任务。' },
+          { title: '运行记录直接诊断', description: '从运行记录加入 OpenClaw 后会读取安全的原因、证据和恢复建议，不再只停留在任务状态摘要，也不会自动重试或修改任务；窄屏上下文保持紧凑且不横向溢出。' },
           { title: '图片全图预览', description: '多图缩略格不再裁掉竖图；点击可查看完整图片，并通过左右按钮或方向键循环切换。' },
           { title: '更大的展开区域', description: '卡片使用图标式展开提示，标签和 Footer 空白也能展开；收藏、原文、Agent 与更多操作仍保持独立。' },
           { title: '概览先利用空白', description: '手动打开信息概览时，阅读列会先使用左侧空余空间让位，到达安全边界后才覆盖卡片。' },
