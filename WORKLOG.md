@@ -2765,3 +2765,12 @@
 - 执行验证：TypeScript、UI 合同、产品文档门禁、OpenClaw Python 测试与相关 Vitest 178/178 通过；合并态 `test_gate full` 22/22、0 failed/error、113.884 秒
 - 结果：本地 `main` 同时包含运行记录 V4 安全诊断、全图预览、Feed/Insights/管理交互修复及既有订阅/通知能力
 - 安全边界：未推送远端、未部署、未重建容器或修改 OpenClaw 配置；未触发 scheduler、来源抓取、Apify、AI、邮件或 Webhook
+
+### 2026-07-24 15:11 Codex
+- 任务：发布 `main`、annotated tag 与 GitHub Release `v1.7.3`，并把本地构建的精确 AMD64 镜像部署到 `vps-tokyo`
+- 修改文件：六处版本入口升级到 `1.7.3`；修复订阅选中态对比度、窄屏 Agent 上下文溢出和 release Toast E2E 的异步 mock；追加本工作日志
+- 执行验证：Toast tablet/mobile 重复 20/20、正式 `test_gate release` 24/24（257.139 秒）；GitHub main/tag Test Gate 成功，tag 额外通过 API-only Docker smoke；源码与镜像归档双端 SHA-256、隔离 18080 staging、生产内外路由/TLS/API 边界、API/Worker health、严重日志、数据库 integrity/foreign-key/active-job/due-schedule 均通过
+- 结果：`origin/main` 与 tag 发布提交精确为 `a5f2c66b5342`；Release 为 `https://github.com/StealHD/infohub-light/releases/tag/v1.7.3`；生产 `current` 指向 `/opt/inteliscope/releases/v1.7.3-a5f2c66b5342`，API/Worker 同镜像 `sha256:1d29c8e89839…aaa3`、healthy、0 restart，数据库 schema 10
+- 部署修正：首次切换发现源码归档中的 release-local `data/` 被误挂载并导致 readiness 503；共享生产数据库未被该容器触碰，先手动恢复 v1.7.2，再把 local `data/logs/.env` 移入回滚备份、重建共享符号链接并经容器内外 SHA/用户/schema 验证后重试成功
+- 回退：最终切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.3-a5f2c66b5342-retry-20260724T070805Z`，数据库 SHA-256 `6c65fe7bd884…b22b8f3`；旧 v1.7.2 release/image 保留
+- 安全边界：scheduler、Apify Key 池、共享采集与 compact writer 均保持关闭；未由 Codex 触发来源抓取、AI、邮件、Webhook 或付费调用
