@@ -302,7 +302,7 @@ function ChannelRail<T>({ groups, selectedChannel, onSelectChannel, detail, sear
           className={`grid min-h-14 w-full grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-focus ${selected ? 'bg-accent/15 text-foreground ring-1 ring-inset ring-accent/25' : 'text-muted hover:bg-default hover:text-foreground'}`}
           onClick={() => onSelectChannel(group.channel)}
         >
-          <span aria-hidden="true" className={`grid size-8 place-items-center rounded-lg type-label ${selected ? 'bg-accent/15 text-accent' : 'bg-default text-muted'}`}>
+          <span aria-hidden="true" className={`grid size-8 place-items-center rounded-lg type-label ${selected ? 'bg-accent/15 text-foreground' : 'bg-default text-muted'}`}>
             {group.channel === 'AI' ? 'AI' : Array.from(group.channel)[0]}
           </span>
           <span className="min-w-0">
