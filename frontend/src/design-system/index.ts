@@ -48,7 +48,7 @@ export { actionToast } from './actionToast'
 export { ThemeModeToggle } from './ThemeModeToggle'
 export { useThemePreference } from './themePreferenceContext'
 export { Tooltip } from './AnchoredTooltip'
-export { anchoredTooltipProps } from './tooltip'
+export { anchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
 export {
   CalmSkeleton,

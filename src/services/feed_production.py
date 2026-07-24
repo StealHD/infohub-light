@@ -259,6 +259,15 @@ class FeedProductionService:
             workspace_id=workspace_id,
             user_id=user_id,
         )
+        previous_snapshot_item_ids = {
+            str(item["id"])
+            for item in (
+                previous_snapshot["payload"].get("items") or []
+                if previous_snapshot
+                else []
+            )
+            if isinstance(item, dict) and item.get("id")
+        }
         previous_items = []
         if previous_snapshot:
             previous_items = list(previous_snapshot["payload"].get("items") or [])
@@ -364,6 +373,14 @@ class FeedProductionService:
             raise ValueError(f"unsupported feed job type: {job_type}")
 
         items = _sorted_items(merged_items)
+        new_item_count = len(
+            {
+                str(item["id"])
+                for item in items
+                if isinstance(item, dict) and item.get("id")
+            }
+            - previous_snapshot_item_ids
+        )
         payload = normalize_feed_payload({**current, "items": items})
         payload.update(
             {
@@ -398,4 +415,4 @@ class FeedProductionService:
             user_id=user_id,
             items=list(result.items),
         )
-        return snapshot
+        return {**snapshot, "new_item_count": new_item_count}

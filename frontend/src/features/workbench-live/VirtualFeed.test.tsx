@@ -293,7 +293,7 @@ describe('VirtualFeed', () => {
     const onToggleExpanded = vi.fn()
     const onToggleSaved = vi.fn()
     const onToggleContext = vi.fn()
-    render(<VirtualFeed
+    const view = render(<VirtualFeed
       cards={[toWorkbenchCardModel(socialItem())]}
       contextIds={[]}
       onToggleExpanded={onToggleExpanded}
@@ -309,7 +309,7 @@ describe('VirtualFeed', () => {
     if (!actions) throw new Error('card actions were not rendered')
 
     expect(expandButton).toHaveTextContent('')
-    expect(expandButton.querySelector('.lucide-chevron-down')).not.toBeNull()
+    expect(expandButton.querySelector('.lucide-unfold-vertical')).not.toBeNull()
     expect(expandButton).toHaveAttribute('aria-controls', 'card-details-social-x')
     expect(expandButton).toHaveAttribute('aria-expanded', 'false')
     expect(expandZone).not.toContainElement(expandButton)
@@ -329,6 +329,17 @@ describe('VirtualFeed', () => {
 
     fireEvent.pointerEnter(expandButton, { pointerType: 'mouse' })
     expect(await screen.findByRole('tooltip')).toHaveTextContent('展开内容')
+
+    view.rerender(<VirtualFeed
+      cards={[toWorkbenchCardModel(socialItem())]}
+      expandedId="social-x"
+      contextIds={[]}
+      onToggleExpanded={onToggleExpanded}
+      onToggleSaved={onToggleSaved}
+      onToggleContext={onToggleContext}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByRole('button', { name: /^收起 / }).querySelector('.lucide-fold-vertical')).not.toBeNull()
   })
 
   it('does not render a fake expand control for fully visible short content', () => {
@@ -732,6 +743,10 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
+    await waitFor(() => expect(scroll.scrollTop).toBe(0))
+    // A mobile virtualizer can apply one late measurement correction after the
+    // first reset frame; the reset remains authoritative until geometry settles.
+    scroll.scrollTop = 456
     await waitFor(() => expect(scroll.scrollTop).toBe(0))
 
     scroll.scrollTop = 840

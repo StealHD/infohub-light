@@ -217,6 +217,7 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
     assert result["snapshot_id"] == latest["id"]
     assert result["fetched_count"] == 1
     assert result["item_count"] == 1
+    assert result["new_item_count"] == 1
     assert result["acquisition_usage"] == {
         "cache_hits": 0,
         "cache_misses": 0,

@@ -552,3 +552,11 @@
 - 决策内容：352 px Insights 继续作为右侧浮层而非第三列。用户手动打开时，ViewBar、Feed 卡片、Skeleton、空态和错误态作为一条 reading surface 等量左移，先消耗默认居中产生的左 gutter，并在主内容左侧保留 12 px；只有剩余空间仍不足时才允许覆盖卡片。面板位置和让位量以当前 main、侧栏及可拖拽 Agent rail 的实测几何为准。
 - 原因：固定右锚点直接覆盖卡片会浪费 reading surface 左侧的可用空间；把 Insights 换到左侧或压窄 820 px 卡片列则会改变用户已确认的视觉位置与阅读排版。统一平移能利用现有空白，又保持卡片宽度和纵向虚拟列表锚点。
 - 兼容/边界：自动展示仍只在原始右 gutter 至少 376 px 时发生，不因新算法扩大自动出现范围；移动端仍使用 Bottom Sheet。让位使用既有 220 ms motion，Agent 指针缩放立即跟手，Reduced Motion 立即完成。无新 API、Query、数据库、图表依赖、Feed snapshot 或运行任务变化。
+
+### D065 Feed 数据重载与后台更新采用独立完成边界
+
+- 决策日期：2026-07-24
+- 当前状态：本地实施、三档验收与完整门禁完成；未部署
+- 决策内容：Feed ViewBar 将只读 `刷新` 与后台 `更新` 拆为两个同行动作。`刷新` 对所有角色强制读取当前用户最新 snapshot，不检查 Worker、不创建 Job；pending 时保持文字和几何不变，只旋转图标并暴露忙碌状态。`更新` 保留既有权限、Worker 预检和任务语义。浏览器观察到本会话中的整份或单源 Feed 任务成功/部分成功后，必须先完成最新 Feed 读取，再发布“已完成”反馈；数量使用 Feed 写事务内相邻去重 snapshot 稳定 ID 的实际新增差集。
+- 原因：任务终态只证明服务端 snapshot 已提交，不能证明浏览器缓存已经重读。此前来源任务在 inactive Feed query 上 fire-and-forget 失效缓存，并立即显示后端 item count，导致完成提示先于新卡片出现；该条数是整份 snapshot 总量，`fetched_count` 又是合并前抓取量，两者都不是用户关心的实际新增。刷新按钮把文字切成“刷新中”还会改变中等宽度 ViewBar 的固有宽度并造成横向抖动。
+- 兼容/边界：复用既有 `/api/feed/latest`、`user_feed_refresh` 与 `source_fetch`；Job `result_json` 只增加可选非负整数 `new_item_count`，旧任务缺少时 UI 不推测数量。REST 路径、数据库、权限和 snapshot payload 不变。重载失败保留最后可信卡片并提供手动重试；排序、新内容边缘、虚拟列表锚点和 `N 条新内容` 行为保持不变。页头主题/Insights/Agent 顺序和卡片 Footer 顶部 Tooltip 只属于 `UI_CONTRACT.md` 的呈现规则。

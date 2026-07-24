@@ -263,6 +263,7 @@ def run_catalog_source_fetch(
         "snapshot_created": bool(snapshot.get("snapshot_created", True)),
         "fetched_count": fetched_count,
         "item_count": snapshot["item_count"],
+        "new_item_count": snapshot["new_item_count"],
         "analysis_usage": run_result.analysis_usage.as_dict(),
         "acquisition_usage": run_result.acquisition_usage.as_dict(),
         "_job_status": run_result.status,

@@ -4,6 +4,7 @@ import { queryKeys } from './queryKeys'
 
 describe('query keys', () => {
   it('scopes every private resource by user id', () => {
+    expect(queryKeys.feedRoot('user-a')).toEqual(['user', 'user-a', 'feed'])
     expect(queryKeys.feed('user-a', { hideDismissed: true, unreadFirst: false })).toEqual([
       'user', 'user-a', 'feed', { hideDismissed: true, unreadFirst: false },
     ])

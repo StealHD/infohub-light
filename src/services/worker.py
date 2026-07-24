@@ -309,6 +309,7 @@ def _run_user_feed_refresh(
         "job_type": "user_feed_refresh",
         "snapshot_id": snapshot["id"],
         "snapshot_created": bool(snapshot.get("snapshot_created", True)),
+        "new_item_count": snapshot["new_item_count"],
         **safe_run_diagnostics(run_result, item_count=snapshot["item_count"]),
         "_job_status": run_result.status,
     }

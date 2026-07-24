@@ -11,3 +11,14 @@ export const anchoredTooltipProps = {
   containerPadding: 8,
   shouldFlip: true,
 }
+
+/**
+ * Card footer actions form a horizontal row, so their help belongs above the
+ * trigger. Collision handling can still flip or shift the overlay when needed.
+ */
+export const topAnchoredTooltipProps = {
+  placement: 'top' as const,
+  offset: 8,
+  containerPadding: 8,
+  shouldFlip: true,
+}
