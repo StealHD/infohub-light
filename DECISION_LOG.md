@@ -561,3 +561,11 @@
 - 原因：仅靠自由文本运行日志难以用 request/Job/source/subscription ID 串联问题，也不能安全进入 Agent 上下文；数据库审计表又会引入迁移、备份与产品数据生命周期。独立结构化文件可提供足够诊断关联，同时把原始 runtime、身份和文件系统细节留在服务器。
 - 安全/产品边界：不新增数据库表、日志 REST API 或前端日志页面。日志不记录凭据、目的地、URL、config/payload、环境变量名、个人标签、文章 ID/正文、上游响应或确认短语；MCP 再执行白名单、扫描上限、损坏行跳过、符号链接拒绝和当前用户隔离。普通 GET、Feed 浏览、item state、空轮询与 heartbeat 成功不落 operation event。
 - 兼容/回退：`HORIZON_LOG_RETENTION_DAYS` 缺省 30、合法范围 1..365；关闭 Remote MCP 或移除该 read tool 不影响文件日志。回退代码和 toolFilter 后可保留既有 JSONL 到自然过期，不需要数据库迁移或数据恢复。
+
+### D066 Feed 数据重载与后台更新采用独立完成边界
+
+- 决策日期：2026-07-24
+- 当前状态：本地实施、三档验收与完整门禁完成；未部署
+- 决策内容：Feed ViewBar 将只读 `刷新` 与后台 `更新` 拆为两个同行动作。`刷新` 对所有角色强制读取当前用户最新 snapshot，不检查 Worker、不创建 Job；pending 时保持文字和几何不变，只旋转图标并暴露忙碌状态。`更新` 保留既有权限、Worker 预检和任务语义。浏览器观察到本会话中的整份或单源 Feed 任务成功/部分成功后，必须先完成最新 Feed 读取，再发布“已完成”反馈；数量使用 Feed 写事务内相邻去重 snapshot 稳定 ID 的实际新增差集。
+- 原因：任务终态只证明服务端 snapshot 已提交，不能证明浏览器缓存已经重读。此前来源任务在 inactive Feed query 上 fire-and-forget 失效缓存，并立即显示后端 item count，导致完成提示先于新卡片出现；该条数是整份 snapshot 总量，`fetched_count` 又是合并前抓取量，两者都不是用户关心的实际新增。刷新按钮把文字切成“刷新中”还会改变中等宽度 ViewBar 的固有宽度并造成横向抖动。
+- 兼容/边界：复用既有 `/api/feed/latest`、`user_feed_refresh` 与 `source_fetch`；Job `result_json` 只增加可选非负整数 `new_item_count`，旧任务缺少时 UI 不推测数量。REST 路径、数据库、权限和 snapshot payload 不变。重载失败保留最后可信卡片并提供手动重试；排序、新内容边缘、虚拟列表锚点和 `N 条新内容` 行为保持不变。页头主题/Insights/Agent 顺序和卡片 Footer 顶部 Tooltip 只属于 `UI_CONTRACT.md` 的呈现规则。

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import type { CatalogSource, FeedSchedule, Job, SourceTypeDefinition, Subscription, TaxonomyOptions } from '../../api/types'
+import type { ActionToken } from '../../app/actionGeneration'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
@@ -20,7 +21,7 @@ import {
   Tooltip,
   TooltipTriggerButton,
 } from '../../design-system'
-import { describeFeedJob } from '../jobs/jobModel'
+import { describeFeedJob, newItemCountOf } from '../jobs/jobModel'
 import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContext'
 import {
   canEditSource,
@@ -115,7 +116,7 @@ function FeedScheduleControls({ schedule, editable, pending, onUpdate }: {
 }
 
 export function HeroSubscriptionsPage() {
-  const { api, user } = useAppContext()
+  const { api, user, reloadFeed, beginAction, isActionCurrent } = useAppContext()
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
   const agent = useWorkbenchAgentContext()
@@ -134,7 +135,7 @@ export function HeroSubscriptionsPage() {
   const [createType, setCreateType] = useState('')
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
   const seenTerminalJobs = useRef(new Set<string>())
-  const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string }>())
+  const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string; token: ActionToken }>())
 
   const sourcesQuery = useQuery({ queryKey: queryKeys.sources(user.id), queryFn: ({ signal }) => api.sources(isAdmin, signal) })
   const typesQuery = useQuery({ queryKey: queryKeys.sourceTypes(user.id), queryFn: ({ signal }) => api.sourceTypes(signal) })
@@ -146,7 +147,7 @@ export function HeroSubscriptionsPage() {
   const secretsQuery = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: isAdmin })
 
   const invalidate = () => Promise.all([
-    queryClient.invalidateQueries({ queryKey: queryKeys.sources(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) }), queryClient.invalidateQueries({ queryKey: ['user', user.id, 'feed'] }), queryClient.invalidateQueries({ queryKey: queryKeys.history(user.id) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.sources(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.history(user.id) }),
   ])
   const mutationError = (caught: unknown) => caught instanceof ApiError || caught instanceof Error ? caught.message : '操作失败，请稍后重试。'
   const scheduleMutation = useMutation({
@@ -193,9 +194,19 @@ export function HeroSubscriptionsPage() {
       if (schedule.data?.worker_status !== 'ready') throw new Error('后台获取服务当前不可用，请稍后再试。')
       return api.createSourceFetch(source.id, subscription.id)
     },
-    onMutate: ({ source }) => feedback.begin('source-fetch', source.id),
-    onSuccess: (job, { source, subscription }) => { initiatedJobs.current.set(job.id, { action: 'source-fetch', entity: source.id, label: source.display_name, subscriptionId: subscription.id }); feedback.advance('source-fetch', source.id, 'queued'); queryClient.setQueryData(queryKeys.jobs(user.id), (previous: { jobs: Job[] } | undefined) => ({ jobs: [job, ...(previous?.jobs ?? []).filter((entry) => entry.id !== job.id)] })); return invalidate() },
-    onError: (caught, { source }) => {
+    onMutate: ({ source }) => {
+      feedback.begin('source-fetch', source.id)
+      return { token: beginAction() }
+    },
+    onSuccess: (job, { source, subscription }, context) => {
+      if (!context || !isActionCurrent(context.token)) return
+      initiatedJobs.current.set(job.id, { action: 'source-fetch', entity: source.id, label: source.display_name, subscriptionId: subscription.id, token: context.token })
+      feedback.advance('source-fetch', source.id, 'queued')
+      queryClient.setQueryData(queryKeys.jobs(user.id), (previous: { jobs: Job[] } | undefined) => ({ jobs: [job, ...(previous?.jobs ?? []).filter((entry) => entry.id !== job.id)] }))
+      return invalidate()
+    },
+    onError: (caught, { source }, context) => {
+      if (!context || !isActionCurrent(context.token)) return
       feedback.clear('source-fetch', source.id)
       actionToast.danger(`${source.display_name} 获取失败`, { description: mutationError(caught) })
     },
@@ -268,28 +279,48 @@ export function HeroSubscriptionsPage() {
       seenTerminalJobs.current.add(key)
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) })
-      void queryClient.invalidateQueries({ queryKey: ['user', user.id, 'feed'] })
       void queryClient.invalidateQueries({ queryKey: queryKeys.history(user.id) })
       const initiated = initiatedJobs.current.get(job.id)
       if (!initiated) continue
       initiatedJobs.current.delete(job.id)
-      const count = Number((job.result ?? job.result_json)?.item_count ?? 0)
-      if (job.status === 'succeeded') {
-        actionToast.success(`${initiated.label} 获取完成`, { description: `共 ${count} 条。` })
-      } else if (job.status === 'partial') {
-        actionToast.warning(`${initiated.label} 部分完成`, {
-          description: '请查看运行记录。',
-          onRetry: job.retryable ? () => retryJob(job) : undefined,
-        })
-      } else {
+      if (!isActionCurrent(initiated.token)) continue
+      const newItemCount = newItemCountOf(job)
+      if (job.status === 'failed' || job.status === 'cancelled') {
         const message = job.status === 'cancelled' ? '任务已取消。' : job.error_message || '请稍后重试。'
         const show = job.status === 'cancelled' ? actionToast.warning : actionToast.danger
         show(`${initiated.label} 获取${job.status === 'cancelled' ? '已取消' : '失败'}`, {
           description: message,
           onRetry: job.retryable ? () => retryJob(job) : undefined,
         })
+        feedback.clear(initiated.action, initiated.entity)
+        continue
       }
-      feedback.clear(initiated.action, initiated.entity)
+      void reloadFeed()
+        .then(() => {
+          if (!isActionCurrent(initiated.token)) return
+          if (job.status === 'succeeded') {
+            actionToast.success(`${initiated.label} 获取完成`, {
+              description: newItemCount === undefined
+                ? '信息流已加载。'
+                : newItemCount === 0
+                  ? '本次没有新增内容，信息流已加载。'
+                  : `新增 ${newItemCount} 条，信息流已加载。`,
+            })
+          } else {
+            actionToast.warning(`${initiated.label} 部分完成`, {
+              description: newItemCount === undefined
+                ? '信息流已加载；请查看运行记录。'
+                : newItemCount === 0
+                  ? '本次没有新增内容，信息流已加载；请查看运行记录。'
+                  : `新增 ${newItemCount} 条，信息流已加载；请查看运行记录。`,
+              onRetry: job.retryable ? () => retryJob(job) : undefined,
+            })
+          }
+          feedback.clear(initiated.action, initiated.entity)
+        })
+        .catch(() => {
+          if (isActionCurrent(initiated.token)) feedback.clear(initiated.action, initiated.entity)
+        })
     }
     for (const job of jobs.filter((entry) => initiatedJobs.current.has(entry.id))) {
       const initiated = initiatedJobs.current.get(job.id)!
@@ -297,16 +328,18 @@ export function HeroSubscriptionsPage() {
         feedback.advance(initiated.action, initiated.entity, 'running')
       }
     }
-  }, [feedback, jobsQuery.data, queryClient, retryJob, user.id])
+  }, [feedback, isActionCurrent, jobsQuery.data, queryClient, reloadFeed, retryJob, user.id])
 
   async function createJob(kind: 'test' | 'fetch', sourceId: string, subscriptionId: string) {
     if (kind === 'test') await api.createSourceTest(sourceId, subscriptionId)
     else {
+      const token = beginAction()
       const schedule = await scheduleQuery.refetch()
       if (schedule.data?.worker_status !== 'ready') throw new Error('后台获取服务当前不可用，请稍后再试。')
       const job = await api.createSourceFetch(sourceId, subscriptionId)
+      if (!isActionCurrent(token)) return
       const source = sourceMap.get(sourceId)
-      initiatedJobs.current.set(job.id, { action: 'source-fetch', entity: sourceId, label: source?.display_name ?? '来源', subscriptionId })
+      initiatedJobs.current.set(job.id, { action: 'source-fetch', entity: sourceId, label: source?.display_name ?? '来源', subscriptionId, token })
       feedback.advance('source-fetch', sourceId, 'queued')
     }
     await invalidate()

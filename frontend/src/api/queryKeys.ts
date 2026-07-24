@@ -7,6 +7,7 @@ const userKey = (userId: string) => ['user', userId] as const
 
 export const queryKeys = {
   auth: ['auth'] as const,
+  feedRoot: (userId: string) => [...userKey(userId), 'feed'] as const,
   feed: (userId: string, options: FeedQueryOptions) => [
     ...userKey(userId), 'feed', options,
   ] as const,

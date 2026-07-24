@@ -89,7 +89,7 @@ function Shell({
   path?: string
   onLogout?: () => void
   serviceApi?: ServiceApi
-  refreshState?: 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
+  refreshState?: 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked' | 'reload_failed'
   refreshMessage?: string
   refreshEventKey?: string
   onRetry?: () => void
@@ -319,6 +319,19 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(retry).toHaveBeenCalledTimes(1)
   })
 
+  it('distinguishes a completed acquisition from a failed Feed data reload', async () => {
+    render(<Shell
+      user={{ id: 'reload-failed', username: 'reload-failed', role: 'member', enabled: true }}
+      refreshState="reload_failed"
+      refreshMessage="内容获取已完成，但信息流加载失败。请点击“刷新”重试。"
+      refreshEventKey="source-job:reload-failed"
+    />)
+
+    expect(await screen.findByText('信息流加载失败')).toBeInTheDocument()
+    expect(screen.getByText('内容获取已完成，但信息流加载失败。请点击“刷新”重试。')).toBeInTheDocument()
+    expect(screen.queryByText('信息流更新未开始')).not.toBeInTheDocument()
+  })
+
   it('exposes Agent on subscriptions without exposing Insights', async () => {
     const browser = userEvent.setup()
     render(<Shell path="/subscriptions" user={{ id: 'subscription-agent', username: 'sub', role: 'member', enabled: true }} />)
@@ -388,8 +401,13 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.queryByPlaceholderText('搜索标题、来源或主题')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-ui-typography', 'system')
-    expect(screen.getByRole('heading', { name: '信息流' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument()
+    const header = screen.getByRole('heading', { name: '信息流' }).closest('header')
+    expect(header).not.toBeNull()
+    expect(Array.from(header!.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'))).toEqual([
+      '切换到白天模式',
+      '展开信息概览',
+      '展开 Agent 面板',
+    ])
     expect(screen.getByRole('button', { name: '展开信息概览' })).toHaveAttribute('aria-expanded', 'false')
     await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
     expect(screen.getByRole('button', { name: '收起信息概览' })).toHaveAttribute('aria-expanded', 'true')

@@ -183,6 +183,88 @@ def test_partial_refresh_retains_recent_items_from_successful_and_failed_sources
     }
 
 
+def test_new_item_count_compares_adjacent_deduplicated_snapshot_ids(
+    tmp_path,
+    monkeypatch,
+):
+    _store, workspace, owner, service = _service(tmp_path, monkeypatch)
+    first_item = _item("stable-a", "src_a", "sub_a")
+    first = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_new_count_first",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_new_count_first",
+            "succeeded",
+            (first_item, first_item),
+            (_outcome("src_a", "sub_a"),),
+        ),
+        active_source_ids={"src_a"},
+    )
+
+    assert first["item_count"] == 1
+    assert first["new_item_count"] == 1
+
+    metadata_update = _item("stable-a", "src_a", "sub_a")
+    metadata_update.title = "same stable item with updated metadata"
+    metadata_only = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_new_count_metadata",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_new_count_metadata",
+            "succeeded",
+            (metadata_update,),
+            (_outcome("src_a", "sub_a"),),
+        ),
+        active_source_ids={"src_a"},
+    )
+
+    assert metadata_only["new_item_count"] == 0
+
+    partial = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_new_count_partial",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_new_count_partial",
+            "partial",
+            (_item("stable-b", "src_a", "sub_a"),),
+            (
+                _outcome("src_a", "sub_a"),
+                _outcome("src_failed", "sub_failed", failed=True),
+            ),
+        ),
+        active_source_ids={"src_a", "src_failed"},
+    )
+
+    assert partial["new_item_count"] == 1
+    assert {item["id"] for item in partial["payload"]["items"]} == {
+        "stable-a",
+        "stable-b",
+    }
+
+    replacement = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_new_count_replacement",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_new_count_replacement",
+            "succeeded",
+            (_item("stable-c", "src_c", "sub_c"),),
+            (_outcome("src_c", "sub_c"),),
+        ),
+        active_source_ids={"src_c"},
+    )
+
+    assert replacement["new_item_count"] == 1
+    assert [item["id"] for item in replacement["payload"]["items"]] == ["stable-c"]
+
+
 def test_profile_source_fetch_expires_item_beyond_global_window_when_empty(
     tmp_path, monkeypatch
 ):
@@ -1021,6 +1103,7 @@ def test_source_fetch_merges_items_without_replacing_other_sources(tmp_path, mon
         "a-new",
         "b-old",
     }
+    assert snapshot["new_item_count"] == 1
 
 
 def test_source_fetch_resorts_full_latest_feed_without_rewriting_old_snapshot(

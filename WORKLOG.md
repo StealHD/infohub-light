@@ -2775,6 +2775,19 @@
 - 回退：最终切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.3-a5f2c66b5342-retry-20260724T070805Z`，数据库 SHA-256 `6c65fe7bd884…b22b8f3`；旧 v1.7.2 release/image 保留
 - 安全边界：scheduler、Apify Key 池、共享采集与 compact writer 均保持关闭；未由 Codex 触发来源抓取、AI、邮件、Webhook 或付费调用
 
+### 2026-07-24 16:30 Codex
+- 任务：从 `main@ee93d72` 创建 `codex/feed-data-refresh`，修复更新完成提示先于 Feed 卡片重载，并新增只读“刷新”按钮
+- 修改文件：统一 Feed Query 根键与强制重载、全局观察整份/单源任务终态、订阅完成反馈、Feed ViewBar、虚拟列表稳定归顶、UI 合同/决策、操作手册、更新日志及回归测试
+- 执行验证：相关 Vitest 140/140、工作台 Playwright 45 passed/12 skipped（含 390/768/1440 锚点、N 条新内容、键盘、Axe 与无溢出）、TypeScript/UI 合同/Lint/产品文档/构建通过；最终 `test_gate full` 22/22、0 failed/error、110.034 秒
+- 结果：“刷新”只读取 `/api/feed/latest` 且 viewer 可用，“更新”继续创建后台任务；成功/部分成功任务先重载 Feed 再提示，失败保留可信卡片并引导手动刷新
+- 控制面变更：更新 `UI_CONTRACT.md` 与 D066；REST、数据库、权限和 Feed payload 不变，未启动 Worker、scheduler、真实来源、AI 或付费服务，未提交、推送或部署
+
+### 2026-07-24 16:43 Codex
+- 任务：构建并启动 `codex/feed-data-refresh` 修复后的本地容器
+- 运行变更：从隔离 worktree 无缓存构建 `inteliscope-service:local-ee93d72e4d73-dirty`，再由主工作区 Compose 原位替换 8080 API/Worker，继续挂载原有 `.env/data/logs`
+- 执行验证：API/Worker healthy，live revision 与 ready 通过；运行 bundle 含“刷新信息流数据”，SQLite quick_check=`ok`，active Job 为 0，启动日志无严重错误，scheduler 未运行
+- 安全边界：未创建或执行抓取任务，未启动 scheduler，未调用真实来源、AI、邮件、Webhook 或付费服务；未提交、推送或部署
+
 ### 2026-07-24 17:13 Codex
 - 任务：从本地 `main@ee93d72` 创建 `codex/diagnostic-logging`，实现私有结构化诊断日志与 OpenClaw 当前用户安全查询
 - 修改文件：统一 runtime/operation JSONL、30 天轮转清理、请求上下文与脱敏；覆盖 API/MCP/Worker/Scheduler/CLI 关键操作，新增第 11 个安全读工具、OpenClaw 配置、开发手册、产品文档和回归测试
@@ -2789,3 +2802,17 @@
 - 执行验证：功能分支 `test_gate full` 22/22、0 failed/error、118.733 秒；合并态使用仓库虚拟环境重跑 22/22、0 failed/error、136.769 秒，`mapping_miss=false`
 - 结果：非快进合并无冲突，完整门禁通过
 - 安全边界：未推送远端、未部署，未触发真实来源、AI、付费调用、通知或完整 Scheduler
+
+### 2026-07-24 18:04 Codex
+- 任务：继续优化 Feed 刷新反馈、实际新增数量、顶部操作顺序与卡片交互，并重建本地容器
+- 修改文件：Feed 快照生产与两类 Job 结果、前端完成文案/运行记录、稳定刷新按钮、顶部 Header、卡片图标与 Tooltip、API/UI 合同、D066、手册、更新日志及回归测试
+- 执行验证：后端 50/50、相关 Vitest 167/167、三端 Playwright 49 passed/20 skipped、TypeScript/UI/Lint/生产构建通过；`test_gate full` 22/22（121.074 秒）；API/Worker 最新镜像 healthy、0 restart，SQLite quick_check=`ok`、active Job 为 0，应用内浏览器无运行错误
+- 结果：更新反馈统一展示相邻快照去重后的实际新增数；刷新忙碌态不换文案且几何稳定；主题/统计/Agent 顺序、Fold/Unfold 图标与五个上方 Tooltip 均按约定生效
+- 控制面变更：Job `result_json` 新增可选 `new_item_count` 并保持旧任务兼容；未修改 REST 路径、数据库、Feed payload 或权限，未触发真实抓取、scheduler、AI、邮件、Webhook 或付费服务，未提交、推送或部署
+
+### 2026-07-24 19:28 Codex
+- 任务：将 `codex/feed-data-refresh` 的已验证改动合并到本地 `main`
+- 修改文件：合入功能提交 `b4071f0`；保留主线私有诊断日志，人工整合 D065/D066、手册、更新日志与工作日志
+- 执行验证：功能分支 `test_gate full` 22/22、0 failed/error、121.074 秒；合并态重跑 22/22、0 failed/error、121.765 秒，`mapping_miss=false`
+- 结果：`main` 同时包含私有诊断日志及 Feed 强制重载、实际新增反馈、稳定刷新按钮与卡片交互优化
+- 安全边界：未推送远端、未部署或重建容器，未触发真实来源、scheduler、AI、邮件、Webhook 或付费服务

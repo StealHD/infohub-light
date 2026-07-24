@@ -185,7 +185,7 @@ describe('subscription model', () => {
     expect(presentJob(queued, new Map())).not.toHaveProperty('job_type')
   })
 
-  it('separates fetched source items from final feed totals in run records', () => {
+  it('presents post-deduplication additions without falling back to fetched or total counts', () => {
     const job: Job = {
       id: 'job-source',
       user_id: 'user-1',
@@ -196,16 +196,16 @@ describe('subscription model', () => {
     const sources = new Map([['src-1', source]])
 
     expect(presentJob({ ...job, result: {
-      fetched_count: 1, item_count: 4, snapshot_created: true,
-    } }, sources).resultLabel).toBe('本次抓取 1 条，信息流已更新')
+      fetched_count: 8, item_count: 4, new_item_count: 1, snapshot_created: true,
+    } }, sources).resultLabel).toBe('新增 1 条，信息流已更新')
     expect(presentJob({ ...job, result: {
-      fetched_count: 1, item_count: 4, snapshot_created: false,
-    } }, sources).resultLabel).toBe('本次抓取 1 条，信息流无变化')
+      fetched_count: 8, item_count: 4, new_item_count: 0, snapshot_created: false,
+    } }, sources).resultLabel).toBe('本次没有新增内容，信息流无变化')
     expect(presentJob({ ...job, result: {
-      item_count: 4, snapshot_created: false,
+      fetched_count: 8, item_count: 4, snapshot_created: false,
     } }, sources).resultLabel).toBe('信息流无变化')
     expect(presentJob({ ...job, result: {
-      item_count: 4, snapshot_created: true,
+      fetched_count: 8, item_count: 4, snapshot_created: true,
     } }, sources).resultLabel).toBe('信息流已更新')
   })
 })

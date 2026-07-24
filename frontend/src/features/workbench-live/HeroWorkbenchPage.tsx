@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -45,13 +45,14 @@ import {
 } from './workbenchModel'
 
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
-  const { api, user, query, setQuery, activity, refresh, beginAction, isActionCurrent } = useAppContext()
+  const { api, user, query, setQuery, activity, refresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
   const agent = useWorkbenchAgentContext()
   const location = useLocation()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
   const [collectionSearchOpen, setCollectionSearchOpen] = useState(false)
+  const reloadButtonRef = useRef<HTMLButtonElement>(null)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
@@ -170,9 +171,18 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const channels = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.presentation?.taxonomy?.channel || item.channel || item.category).filter(Boolean) as string[])).sort(), [sourceItems])
   const topics = useMemo(() => Array.from(new Set(sourceItems.flatMap((item) => item.presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? []))).sort(), [sourceItems])
   const loading = feedQuery.isLoading || savedQuery.isLoading || historyQuery.isLoading || (sourceScopeRequested && sourceCatalogQuery.isLoading)
-  const loadError = feedQuery.error || savedQuery.error || historyQuery.error || (sourceScopeRequested ? sourceCatalogQuery.error : null)
+  const loadError = (feedQuery.data ? null : feedQuery.error) || savedQuery.error || historyQuery.error || (sourceScopeRequested ? sourceCatalogQuery.error : null)
   const collectionRoute = kind !== 'feed'
-  const refreshing = activity.state === 'queued' || activity.state === 'running'
+  const updating = activity.state === 'queued' || activity.state === 'running'
+  const reloading = kind === 'feed' && feedQuery.isFetching
+  // React Aria filters aria-busy from Button DOM props, so keep the rendered
+  // button state synchronized explicitly without changing its child geometry.
+  useLayoutEffect(() => {
+    const button = reloadButtonRef.current
+    if (!button) return
+    if (reloading) button.setAttribute('aria-busy', 'true')
+    else button.removeAttribute('aria-busy')
+  }, [reloading])
   const activeFilterCount = [
     preference.unreadFirst,
     preference.source,
@@ -196,9 +206,22 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     setParams(next)
   }
 
-  function refreshFeed() {
+  function updateFeed() {
     window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     refresh()
+  }
+
+  async function reloadFeedData() {
+    const token = beginAction()
+    window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
+    try {
+      await reloadFeed()
+    } catch (caught) {
+      if (!isActionCurrent(token)) return
+      actionToast.danger('信息流刷新失败', {
+        description: caught instanceof ApiError ? caught.message : '无法加载最新信息流，请稍后重试。',
+      })
+    }
   }
 
   return <section aria-label="信息流工作区" data-feed-blank-region className="flex h-full min-h-0 flex-col">
@@ -248,13 +271,22 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' }, 'reset-top')}
         ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>
         {!collectionRoute && <Button
+          ref={reloadButtonRef}
+          size="sm"
+          variant="ghost"
+          className="type-control"
+          aria-label="刷新信息流数据"
+          isDisabled={reloading}
+          onPress={() => void reloadFeedData()}
+        ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">刷新</span></Button>}
+        {!collectionRoute && <Button
           size="sm"
           variant="ghost"
           className="type-control"
           aria-label="更新信息流"
-          isDisabled={refreshing || user.role === 'viewer'}
-          onPress={refreshFeed}
-        ><Icons.RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">{refreshing ? '更新中' : '更新'}</span></Button>}
+          isDisabled={updating || user.role === 'viewer'}
+          onPress={updateFeed}
+        >{updating ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Download size={14} aria-hidden="true" />}<span className="hidden min-[560px]:inline">{updating ? '更新中' : '更新'}</span></Button>}
         <Popover>
           <Popover.Trigger aria-label="筛选信息流" className="type-control inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
           <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选

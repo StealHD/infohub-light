@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
-  anchoredTooltipProps,
   AvatarFallback,
   AvatarImage,
   AvatarRoot,
@@ -14,6 +13,7 @@ import {
   Skeleton,
   Tooltip,
   TooltipTriggerButton,
+  topAnchoredTooltipProps,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
 import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
@@ -269,8 +269,8 @@ function WorkbenchCard({
           aria-controls={detailsId}
           aria-expanded={expanded}
           onClick={onToggleExpanded}
-        >{expanded ? <Icons.ChevronUp size={15} aria-hidden="true" /> : <Icons.ChevronDown size={15} aria-hidden="true" />}</TooltipTriggerButton>
-        <Tooltip.Content {...anchoredTooltipProps}>{expanded ? '收起内容' : '展开内容'}</Tooltip.Content>
+        >{expanded ? <Icons.FoldVertical size={15} aria-hidden="true" /> : <Icons.UnfoldVertical size={15} aria-hidden="true" />}</TooltipTriggerButton>
+        <Tooltip.Content {...topAnchoredTooltipProps}>{expanded ? '收起内容' : '展开内容'}</Tooltip.Content>
       </Tooltip>}
       <div
         data-card-actions
@@ -286,7 +286,7 @@ function WorkbenchCard({
             aria-label={`打开 ${cardLabel} 原文`}
             className={`${triggerProps.className ?? ''} inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
           ><Icons.ExternalLink size={15} aria-hidden="true" /></a>} />
-          <Tooltip.Content {...anchoredTooltipProps}>在新窗口打开原文</Tooltip.Content>
+          <Tooltip.Content {...topAnchoredTooltipProps}>在新窗口打开原文</Tooltip.Content>
         </Tooltip>}
         <Tooltip delay={600}>
           <TooltipTriggerButton
@@ -295,7 +295,7 @@ function WorkbenchCard({
             aria-label={`${card.userState.is_saved ? '取消收藏' : '收藏'} ${cardLabel}`}
             onClick={onToggleSaved}
           >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</TooltipTriggerButton>
-          <Tooltip.Content {...anchoredTooltipProps}>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
+          <Tooltip.Content {...topAnchoredTooltipProps}>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
         </Tooltip>
         <Tooltip delay={600}>
           <TooltipTriggerButton
@@ -306,7 +306,7 @@ function WorkbenchCard({
             aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
             onClick={onToggleContext}
           ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></TooltipTriggerButton>
-          <Tooltip.Content {...anchoredTooltipProps}>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
+          <Tooltip.Content {...topAnchoredTooltipProps}>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
         </Tooltip>
         <details className="relative">
           <Tooltip delay={600}>
@@ -316,7 +316,7 @@ function WorkbenchCard({
               aria-label={`更多操作 ${cardLabel}`}
               className={`${triggerProps.className ?? ''} flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
             ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>} />
-            <Tooltip.Content {...anchoredTooltipProps}>复制摘要或忽略这条内容</Tooltip.Content>
+            <Tooltip.Content {...topAnchoredTooltipProps}>复制摘要或忽略这条内容</Tooltip.Content>
           </Tooltip>
           <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
             <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
@@ -349,6 +349,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const restorationAnchor = useRef<ViewportAnchor | null>(null)
   const pendingNavigation = useRef<PendingNavigation | null>(null)
   const pendingNavigationFrame = useRef<number | undefined>(undefined)
+  const resetToTopRequest = useRef<object | null>(null)
+  const resetToTopFrame = useRef<number | undefined>(undefined)
   const inlineScrollAnchor = useRef<number | null>(null)
   const inlineAnchorTimer = useRef<number | undefined>(undefined)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
@@ -423,6 +425,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
     pendingNavigation.current = null
     window.cancelAnimationFrame(pendingNavigationFrame.current ?? 0)
     pendingNavigationFrame.current = undefined
+    resetToTopRequest.current = null
+    window.cancelAnimationFrame(resetToTopFrame.current ?? 0)
+    resetToTopFrame.current = undefined
     window.clearTimeout(inlineAnchorTimer.current)
     window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
   }, [])
@@ -548,14 +553,36 @@ export function VirtualFeed(props: VirtualFeedProps) {
     releaseNavigationOwnership()
     setNewItemCount(0)
     wasNearFreshEdge.current = freshEdge === 'start'
-    const frame = window.requestAnimationFrame(() => {
+    const request = {}
+    resetToTopRequest.current = request
+    let remainingFrames = 120
+    let stableFrames = 0
+    const reset = () => {
+      if (resetToTopRequest.current !== request) return
       const scroll = scrollRef.current
-      if (!scroll) return
+      if (!scroll) {
+        resetToTopRequest.current = null
+        resetToTopFrame.current = undefined
+        return
+      }
+      stableFrames = scroll.scrollTop <= 0.5 ? stableFrames + 1 : 0
       scroll.scrollTop = 0
       if (props.cards.length > 0) virtualizerRef.current.scrollToIndex(0, { align: 'start' })
       viewportAnchor.current = readViewportAnchor(scroll)
-    })
-    return () => window.cancelAnimationFrame(frame)
+      remainingFrames -= 1
+      if (stableFrames >= 6 || remainingFrames <= 0) {
+        resetToTopRequest.current = null
+        resetToTopFrame.current = undefined
+        return
+      }
+      resetToTopFrame.current = window.requestAnimationFrame(reset)
+    }
+    resetToTopFrame.current = window.requestAnimationFrame(reset)
+    return () => {
+      if (resetToTopRequest.current === request) resetToTopRequest.current = null
+      window.cancelAnimationFrame(resetToTopFrame.current ?? 0)
+      resetToTopFrame.current = undefined
+    }
   }, [freshEdge, props.cards.length, props.resetToTopKey, releaseNavigationOwnership])
 
   useEffect(() => {

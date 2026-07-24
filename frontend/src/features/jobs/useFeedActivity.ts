@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { ServiceApi } from '../../api/service'
-import type { User } from '../../api/types'
+import type { FeedSnapshot, Job, User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
 import { describeFeedJob, feedJobNotice, latestFeedJob, pollingTimedOut, type FeedNotice } from './jobModel'
 import type { ActionGeneration, ActionToken } from '../../app/actionGeneration'
@@ -12,9 +12,16 @@ type ScopedNotice = {
   notice?: FeedNotice
 }
 
+const feedProducer = (job: Job, userId: string) => (
+  job.user_id === userId
+  && (job.job_type === 'user_feed_refresh' || job.job_type === 'source_fetch')
+)
+const activeJob = (job: Job) => job.status === 'queued' || job.status === 'running'
+const reloadableTerminal = (job: Job) => job.status === 'succeeded' || job.status === 'partial'
+
 export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGeneration) {
   const queryClient = useQueryClient()
-  const terminalHandled = useRef('')
+  const currentUserId = useRef(user.id)
   const jobsInitialized = useRef(false)
   const observedActiveJobs = useRef(new Set<string>())
   const seenTerminalJobs = useRef(new Set<string>())
@@ -25,13 +32,19 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   const jobNotice = jobNoticeState.userId === user.id ? jobNoticeState.notice : undefined
   const setRequestNotice = useCallback((notice?: FeedNotice) => setRequestNoticeState({ userId: user.id, notice }), [user.id])
   const setJobNotice = useCallback((notice?: FeedNotice) => setJobNoticeState({ userId: user.id, notice }), [user.id])
+  const reloadFeed = useCallback((): Promise<FeedSnapshot> => queryClient.fetchQuery({
+    queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }),
+    queryFn: ({ signal }) => api.latestFeed(signal),
+    staleTime: 0,
+  }), [api, queryClient, user.id])
   const jobsQuery = useQuery({
     queryKey: queryKeys.jobs(user.id),
     queryFn: ({ signal }) => api.jobs(signal),
-    refetchInterval: (query) => {
-      const current = latestFeedJob(query.state.data?.jobs ?? [], user.id)
-      return current && !pollingTimedOut(current) && (current.status === 'queued' || current.status === 'running') ? 2000 : false
-    },
+    refetchInterval: (query) => (query.state.data?.jobs ?? []).some((job) => (
+      feedProducer(job, user.id)
+      && activeJob(job)
+      && (job.job_type === 'source_fetch' || !pollingTimedOut(job))
+    )) ? 2000 : false,
   })
   const currentJob = useMemo(() => latestFeedJob(jobsQuery.data?.jobs ?? [], user.id), [jobsQuery.data, user.id])
   const scheduleQuery = useQuery({
@@ -41,7 +54,7 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   const activity = describeFeedJob(currentJob, scheduleQuery.data?.worker_status ?? 'unknown')
 
   useEffect(() => {
-    terminalHandled.current = ''
+    currentUserId.current = user.id
     jobsInitialized.current = false
     observedActiveJobs.current.clear()
     seenTerminalJobs.current.clear()
@@ -53,34 +66,61 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
     const jobs = jobsQuery.data?.jobs ?? []
     if (!jobsInitialized.current) {
       for (const job of jobs) {
-        if (job.user_id !== user.id || job.job_type !== 'user_feed_refresh') continue
-        if (job.status === 'queued' || job.status === 'running') observedActiveJobs.current.add(job.id)
+        if (!feedProducer(job, user.id)) continue
+        if (activeJob(job)) observedActiveJobs.current.add(job.id)
         else seenTerminalJobs.current.add(`${job.id}:${job.status}`)
       }
       jobsInitialized.current = true
       return
     }
-    if (!currentJob) return
-    if (currentJob.status === 'queued' || currentJob.status === 'running') {
-      observedActiveJobs.current.add(currentJob.id)
-      return
+    const settled: Job[] = []
+    for (const job of jobs) {
+      if (!feedProducer(job, user.id)) continue
+      if (activeJob(job)) {
+        observedActiveJobs.current.add(job.id)
+        continue
+      }
+      const terminalKey = `${job.id}:${job.status}`
+      if (seenTerminalJobs.current.has(terminalKey)) continue
+      seenTerminalJobs.current.add(terminalKey)
+      if (observedActiveJobs.current.has(job.id)) settled.push(job)
     }
-    const terminalKey = `${currentJob.id}:${currentJob.status}`
-    if (seenTerminalJobs.current.has(terminalKey)) return
-    seenTerminalJobs.current.add(terminalKey)
-    if (!observedActiveJobs.current.has(currentJob.id)) return
-    setJobNotice(feedJobNotice(currentJob))
-  }, [currentJob, jobsQuery.data, jobsQuery.isSuccess, setJobNotice, user.id])
-
-  useEffect(() => {
-    if (!currentJob || !activity.terminal || terminalHandled.current === `${currentJob.id}:${currentJob.status}`) return
-    terminalHandled.current = `${currentJob.id}:${currentJob.status}`
+    if (settled.length === 0) return
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.history(user.id) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }),
     ])
-  }, [activity.terminal, currentJob, queryClient, user.id])
+    const newestFullRefresh = settled
+      .filter((job) => job.job_type === 'user_feed_refresh')
+      .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
+    const reloadable = settled.filter(reloadableTerminal)
+    if (newestFullRefresh && !reloadableTerminal(newestFullRefresh)) {
+      const notice = feedJobNotice(newestFullRefresh)
+      const noticeUserId = user.id
+      void Promise.resolve().then(() => {
+        if (currentUserId.current === noticeUserId) setJobNotice(notice)
+      })
+    }
+    if (reloadable.length === 0) return
+    const reloadOwner = reloadable
+      .sort((left, right) => String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')))[0]
+    const reloadUserId = user.id
+    void reloadFeed()
+      .then(() => {
+        if (currentUserId.current !== reloadUserId) return
+        if (newestFullRefresh && reloadableTerminal(newestFullRefresh)) {
+          setJobNotice(feedJobNotice(newestFullRefresh))
+        }
+      })
+      .catch(() => {
+        if (currentUserId.current !== reloadUserId) return
+        setJobNotice({
+          key: `${reloadOwner.id}:${reloadOwner.status}:feed-reload-failed`,
+          state: 'reload_failed',
+          message: '内容获取已完成，但信息流加载失败。请点击“刷新”重试。',
+        })
+      })
+  }, [jobsQuery.data, jobsQuery.isSuccess, queryClient, reloadFeed, setJobNotice, user.id])
 
   const refreshMutation = useMutation({
     mutationFn: async (token: ActionToken) => {
@@ -143,11 +183,12 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
     currentJob,
     activity,
     notice: requestNotice ?? (
-      currentJob?.status === 'queued' || currentJob?.status === 'running'
+      (currentJob?.status === 'queued' || currentJob?.status === 'running') && jobNotice?.state !== 'reload_failed'
         ? undefined
         : jobNotice
     ),
     refresh: () => refreshMutation.mutate(guard.capture()),
+    reloadFeed,
     retry,
     pending: refreshMutation.isPending || retryMutation.isPending,
   }

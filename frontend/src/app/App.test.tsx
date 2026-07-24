@@ -70,6 +70,16 @@ function detailedItem(id: string, overrides: Partial<FeedItem> = {}): FeedItem {
   }
 }
 
+function basicFeedItem(id: string, title: string): FeedItem {
+  return {
+    id,
+    title,
+    url: `https://example.com/${id}`,
+    published_at: '2026-07-17T02:00:00Z',
+    user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false },
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
@@ -114,14 +124,16 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
     const itemCount = await screen.findByText('1 条内容')
     const orderControl = screen.getByRole('button', { name: '最新优先' })
-    const refreshControl = screen.getByRole('button', { name: '更新信息流' })
+    const reloadControl = screen.getByRole('button', { name: '刷新信息流数据' })
+    const updateControl = screen.getByRole('button', { name: '更新信息流' })
     const filterControl = screen.getByRole('button', { name: '筛选信息流' })
     expect(itemCount).toHaveClass('type-control')
     expect(itemCount).toHaveClass('whitespace-nowrap')
     expect(itemCount.closest('[data-loading-reveal="feed-count"]')).toHaveClass('min-w-16')
     expect(itemCount.closest('[data-loading-reveal="feed-count"]')).not.toHaveClass('w-16')
     expect(orderControl).toHaveClass('type-control')
-    expect(refreshControl).toHaveClass('type-control')
+    expect(reloadControl).toHaveClass('type-control')
+    expect(updateControl).toHaveClass('type-control')
     expect(filterControl).toHaveClass('type-control')
     expect(screen.getByTestId('feed-view-bar')).toBeInTheDocument()
     expect(screen.queryByText('旧内容在上，最新内容在下 · 1 条')).not.toBeInTheDocument()
@@ -130,6 +142,82 @@ describe('App routes', () => {
     expect(api.latestFeed).toHaveBeenCalled()
     expect(api.agentDelegations).toHaveBeenCalled()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
+  })
+
+  it('reloads Feed data without creating a background update job', async () => {
+    const browser = userEvent.setup()
+    const nextFeed = deferred<{ schema_version: number; items: FeedItem[] }>()
+    const latestFeed = vi.fn()
+      .mockResolvedValueOnce({
+        schema_version: 2,
+        items: [basicFeedItem('before-reload', '刷新前条目')],
+      })
+      .mockReturnValueOnce(nextFeed.promise)
+    const createFeedRefresh = vi.fn()
+    const api = liveApi({ latestFeed, createFeedRefresh } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('article', { name: '刷新前条目' })).toBeInTheDocument()
+    const reload = screen.getByRole('button', { name: '刷新信息流数据' })
+    expect(reload).toHaveTextContent('刷新')
+    expect(reload).not.toHaveAttribute('aria-busy')
+    await browser.click(reload)
+
+    expect(screen.getByRole('button', { name: '刷新信息流数据' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '刷新信息流数据' })).toHaveTextContent('刷新')
+    expect(screen.getByRole('button', { name: '刷新信息流数据' })).toHaveAttribute('aria-busy', 'true')
+    await browser.click(screen.getByRole('button', { name: '刷新信息流数据' }))
+    expect(latestFeed).toHaveBeenCalledTimes(2)
+    expect(createFeedRefresh).not.toHaveBeenCalled()
+
+    act(() => nextFeed.resolve({
+      schema_version: 2,
+      items: [basicFeedItem('after-reload', '刷新后条目')],
+    }))
+    expect(await screen.findByRole('article', { name: '刷新后条目' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '刷新信息流数据' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: '刷新信息流数据' })).not.toHaveAttribute('aria-busy')
+    })
+  })
+
+  it('keeps the last trusted Feed visible when a manual data reload fails', async () => {
+    const browser = userEvent.setup()
+    const latestFeed = vi.fn()
+      .mockResolvedValueOnce({
+        schema_version: 2,
+        items: [basicFeedItem('trusted-feed', '可信旧条目')],
+      })
+      .mockRejectedValueOnce(new ApiError(503, { code: 'temporarily_unavailable', message: '最新信息流暂时不可用' }))
+    const api = liveApi({ latestFeed } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('article', { name: '可信旧条目' })).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '刷新信息流数据' }))
+
+    expect(await screen.findByText('信息流刷新失败')).toBeInTheDocument()
+    expect(screen.getByText('最新信息流暂时不可用')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '可信旧条目' })).toBeInTheDocument()
+    expect(screen.queryByText('信息流加载失败')).not.toBeInTheDocument()
+  })
+
+  it('allows a viewer to reload Feed data while keeping background updates disabled', async () => {
+    const latestFeed = vi.fn().mockResolvedValue({
+      schema_version: 2,
+      items: [basicFeedItem('viewer-feed', '只读信息流条目')],
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'viewer-user', username: 'viewer', role: 'viewer', enabled: true } }),
+      latestFeed,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('article', { name: '只读信息流条目' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新信息流数据' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '更新信息流' })).toBeDisabled()
   })
 
   it('clears queued Toasts before a replacement account can render', async () => {
@@ -223,6 +311,7 @@ describe('App routes', () => {
     const viewBar = screen.getByTestId('collection-view-bar')
     expect(within(viewBar).getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
     expect(within(viewBar).getByRole('button', { name: '最新优先' })).toBeInTheDocument()
+    expect(within(viewBar).queryByRole('button', { name: '刷新信息流数据' })).not.toBeInTheDocument()
     expect(within(viewBar).queryByRole('button', { name: '更新信息流' })).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '信息流进度' })).not.toBeInTheDocument()
     expect(screen.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
@@ -561,6 +650,7 @@ describe('App routes', () => {
 
   it('settles a live source fetch through queued, running and terminal lifecycle states', async () => {
     const browser = userEvent.setup()
+    const feedReload = deferred<{ schema_version: number; items: FeedItem[] }>()
     const source = { id: 'lifecycle-source', type: 'rss', display_name: '生命周期来源', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const subscription = { id: 'lifecycle-sub', user_id: 'user-live', source_id: source.id, source_display_name: source.display_name, source_type: source.type, enabled: true, priority: 0 }
     const queued: Job = { id: 'lifecycle-job', user_id: 'user-live', job_type: 'source_fetch', source_id: source.id, subscription_id: subscription.id, status: 'queued', created_at: '2026-07-17T01:00:00Z' }
@@ -572,6 +662,7 @@ describe('App routes', () => {
       config: vi.fn().mockResolvedValue({ config: { tags: [] }, taxonomy: { channels: ['AI'], topics: [] } }),
       jobs: vi.fn().mockResolvedValue({ jobs: [] }),
       createSourceFetch: vi.fn().mockResolvedValue(queued),
+      latestFeed: vi.fn().mockReturnValue(feedReload.promise),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
@@ -585,16 +676,18 @@ describe('App routes', () => {
     expect(await screen.findByRole('button', { name: '获取中 生命周期来源' })).toBeDisabled()
     expect(invalidate).not.toHaveBeenCalled()
 
-    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4 } }] }))
+    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4, new_item_count: 2 } }] }))
+    await waitFor(() => expect(api.latestFeed).toHaveBeenCalledOnce())
+    expect(screen.queryByText('生命周期来源 获取完成')).not.toBeInTheDocument()
+    act(() => feedReload.resolve({ schema_version: 2, items: [basicFeedItem('lifecycle-feed', '生命周期信息流条目')] }))
     const completion = await screen.findByText('生命周期来源 获取完成')
     expect(completion.closest('[data-slot="toast-region"]')).not.toBeNull()
-    expect(screen.getByText('共 4 条。')).toBeInTheDocument()
+    expect(screen.getByText('新增 2 条，信息流已加载。')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '立即获取 生命周期来源' })).toBeEnabled()
     await waitFor(() => {
       const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
       expect(keys).toContain(JSON.stringify(queryKeys.sourceHealth('user-live')))
       expect(keys).toContain(JSON.stringify(queryKeys.jobs('user-live')))
-      expect(keys).toContain(JSON.stringify(['user', 'user-live', 'feed']))
       expect(keys).toContain(JSON.stringify(queryKeys.history('user-live')))
     })
   }, 10_000)
@@ -626,7 +719,7 @@ describe('App routes', () => {
   })
 
   it.each([
-    ['partial', undefined, '终态来源 部分完成', '请查看运行记录。'],
+    ['partial', undefined, '终态来源 部分完成', '信息流已加载；请查看运行记录。'],
     ['failed', '上游连接超时', '终态来源 获取失败', '上游连接超时'],
     ['cancelled', undefined, '终态来源 获取已取消', '任务已取消。'],
   ] as const)('surfaces sanitized live source fetch terminal state %s', async (status, errorMessage, title, description) => {

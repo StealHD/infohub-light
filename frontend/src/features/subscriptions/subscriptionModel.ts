@@ -1,4 +1,5 @@
 import type { CatalogSource, Job, SourceHealthItem, SourceHealthStatus, SourceTypeDefinition, Subscription, User } from '../../api/types'
+import { newItemCountOf } from '../jobs/jobModel'
 
 export type HealthFilter = SourceHealthStatus | 'all' | 'problem'
 
@@ -131,14 +132,16 @@ const jobStatusTones: Record<Job['status'], 'neutral' | 'positive' | 'warning' |
 export function presentJob(job: Job, sources: Map<string, CatalogSource>) {
   const result = job.result ?? job.result_json ?? {}
   const message = typeof result.message === 'string' ? result.message : ''
-  const fetchedCount = typeof result.fetched_count === 'number' && Number.isFinite(result.fetched_count)
-    ? Math.max(0, Math.trunc(result.fetched_count))
-    : undefined
+  const newItemCount = newItemCountOf(job)
   const feedJob = job.job_type === 'source_fetch' || job.job_type === 'user_feed_refresh'
   const feedTerminal = feedJob && (job.status === 'succeeded' || job.status === 'partial')
   const changeLabel = result.snapshot_created === true ? '信息流已更新' : '信息流无变化'
   const resultLabel = feedTerminal
-    ? fetchedCount === undefined ? changeLabel : `本次抓取 ${fetchedCount} 条，${changeLabel}`
+    ? newItemCount === undefined
+      ? changeLabel
+      : newItemCount === 0
+        ? `本次没有新增内容，${changeLabel}`
+        : `新增 ${newItemCount} 条，${changeLabel}`
     : job.status === 'succeeded' || job.status === 'partial' ? '任务已完成' : '尚未产生结果'
   return {
     title: jobTypeLabels[job.job_type] ?? '后台任务',

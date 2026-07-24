@@ -64,7 +64,7 @@ import {
 export type RightRailMode = 'closed' | 'agent'
 export type InsightsSurfaceState = 'closed' | 'auto' | 'manual' | 'closing'
 
-type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked'
+type RefreshState = 'idle' | 'pending' | 'queued' | 'running' | 'partial' | 'failed' | 'succeeded' | 'blocked' | 'reload_failed'
 
 type HeroWorkbenchShellProps = {
   api: ServiceApi
@@ -785,6 +785,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
       actionToast.success('信息流已更新', options)
     } else if (props.refreshState === 'partial') {
       actionToast.warning('信息流部分更新', options)
+    } else if (props.refreshState === 'reload_failed') {
+      actionToast.danger('信息流加载失败', options)
     } else if (props.refreshState === 'blocked') {
       actionToast.danger('信息流更新未开始', options)
     } else if (props.refreshState === 'failed') {
@@ -991,6 +993,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           title={pageTitle}
           className="col-start-1 row-start-1 min-[768px]:col-start-2"
           actions={<div className="flex items-center gap-1">
+            <ThemeModeToggle />
             {feedRoute && <Button
               ref={insightsToggleRef}
               size="sm"
@@ -1018,7 +1021,6 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               isDisabled={openclawChat.isRunning}
               onPress={toggleAgentRail}
             ><Icons.SplitPanel open={visibleRightRailMode === 'agent'} size={18} aria-hidden="true" /></Button>}
-            <ThemeModeToggle />
           </div>}
         />
 

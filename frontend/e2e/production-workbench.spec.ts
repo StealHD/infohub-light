@@ -146,22 +146,45 @@ async function alignVisibleCardToTop(page: Page) {
 }
 
 async function requestBackgroundRefresh(page: Page) {
-  await page.evaluate(async () => {
-    window.dispatchEvent(new Event('inteliscope:workbench-refresh-request'))
-    await (window as typeof window & {
-      completeBackgroundRefresh: () => Promise<void>
-    }).completeBackgroundRefresh()
-  })
+  // The desktop Insights surface can overlap the ViewBar by this point in the
+  // end-to-end flow, so invoke the already-rendered control without pointer scrolling.
+  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
+  await page.evaluate(() => (window as typeof window & {
+    completeBackgroundRefresh: () => Promise<void>
+  }).completeBackgroundRefresh())
 }
 
 test.beforeEach(async ({ page }) => {
   let backgroundRefreshComplete = false
+  let manualReloadComplete = false
+  let manualReloadGate: Promise<void> | null = null
+  let releaseManualReload = () => undefined
   let feedbackRefreshRequested = false
   let feedbackRetryRequests = 0
+  let latestFeedRequests = 0
+  let feedUpdateRequests = 0
   const backgroundRefreshCreatedAt = new Date().toISOString()
   await page.exposeFunction('completeBackgroundRefresh', () => {
     backgroundRefreshComplete = true
   })
+  await page.exposeFunction('completeManualFeedReload', () => {
+    manualReloadComplete = true
+    releaseManualReload()
+  })
+  await page.exposeFunction('pauseManualFeedReload', () => {
+    manualReloadComplete = true
+    manualReloadGate = new Promise<void>((resolve) => {
+      releaseManualReload = () => {
+        manualReloadGate = null
+        releaseManualReload = () => undefined
+        resolve()
+      }
+    })
+  })
+  await page.exposeFunction('feedRequestCounts', () => ({
+    latest: latestFeedRequests,
+    updates: feedUpdateRequests,
+  }))
   await page.exposeFunction('feedbackRetryCount', () => feedbackRetryRequests)
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const url = new URL(route.request().url())
@@ -177,15 +200,19 @@ test.beforeEach(async ({ page }) => {
     }
     if (url.pathname === '/api/auth/status') data = { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } }
     else if (url.pathname === '/api/feed/latest') {
+      latestFeedRequests += 1
+      const pendingManualReload = manualReloadGate
+      if (pendingManualReload) await pendingManualReload
       const batchMode = new URL(page.url()).searchParams.has('batch')
       const socialMode = new URL(page.url()).searchParams.has('social')
-      data = { schema_version: 2, items: socialMode ? [socialRouteItem] : backgroundRefreshComplete
+      data = { schema_version: 2, items: socialMode ? [socialRouteItem] : backgroundRefreshComplete || manualReloadComplete
         ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem]
         : items }
     }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
     else if (url.pathname === '/api/feed/history') data = { items: [historyRouteItem] }
     else if (url.pathname === '/api/jobs/user-feed-refresh' && route.request().method() === 'POST') {
+      feedUpdateRequests += 1
       feedbackRefreshRequested = true
       data = {
         id: 'refresh-1',
@@ -206,7 +233,7 @@ test.beforeEach(async ({ page }) => {
       }
     }
     else if (url.pathname === '/api/jobs') data = {
-      jobs: feedbackMode && !feedbackRefreshRequested
+      jobs: !feedbackRefreshRequested
         ? []
         : [{
             id: 'refresh-1',
@@ -253,6 +280,14 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test.afterEach(async ({ page }) => {
+  if (page.isClosed()) return
+  await page.evaluate(() => (window as typeof window & {
+    completeManualFeedReload: () => Promise<void>
+  }).completeManualFeedReload())
+  await page.unrouteAll({ behavior: 'wait' })
+})
+
 test('a retryable refresh failure uses a top Toast without moving the Feed viewport', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/feed?toast-feedback=1')
@@ -295,6 +330,178 @@ test('a retryable refresh failure uses a top Toast without moving the Feed viewp
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
+
+test('manual Feed data reload reads the latest snapshot without creating an update job', async ({ page }) => {
+  await page.goto('/feed')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  const before = await page.evaluate(() => (window as typeof window & {
+    feedRequestCounts: () => Promise<{ latest: number; updates: number }>
+  }).feedRequestCounts())
+  await page.evaluate(() => (window as typeof window & {
+    completeManualFeedReload: () => Promise<void>
+  }).completeManualFeedReload())
+
+  await page.getByRole('button', { name: '刷新信息流数据' }).click()
+
+  await expect(page.getByRole('article', { name: '实时条目 201' })).toBeVisible()
+  const after = await page.evaluate(() => (window as typeof window & {
+    feedRequestCounts: () => Promise<{ latest: number; updates: number }>
+  }).feedRequestCounts())
+  expect(after.latest).toBeGreaterThan(before.latest)
+  expect(after.updates).toBe(before.updates)
+  await expect(page.getByRole('button', { name: '刷新信息流数据' })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The exact feedback viewport is covered once.')
+  await page.setViewportSize({ width: 675, height: 762 })
+  await page.goto('/feed')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await page.evaluate(async () => { await document.fonts.ready })
+  const reload = page.getByRole('button', { name: '刷新信息流数据' })
+  const update = page.getByRole('button', { name: '更新信息流' })
+  const filter = page.getByRole('button', { name: '筛选信息流' })
+  const viewBar = page.getByTestId('feed-view-bar')
+  const controls = [viewBar, reload, update, filter]
+  const geometry = async () => Promise.all(controls.map(async (control) => {
+    const box = await control.boundingBox()
+    expect(box).not.toBeNull()
+    return box!
+  }))
+  const expectStableGeometry = (current: Awaited<ReturnType<typeof geometry>>, baseline: Awaited<ReturnType<typeof geometry>>) => {
+    current.forEach((box, index) => {
+      expect(Math.abs(box.x - baseline[index].x)).toBeLessThanOrEqual(1)
+      expect(Math.abs(box.y - baseline[index].y)).toBeLessThanOrEqual(1)
+      expect(Math.abs(box.width - baseline[index].width)).toBeLessThanOrEqual(1)
+      expect(Math.abs(box.height - baseline[index].height)).toBeLessThanOrEqual(1)
+    })
+  }
+  const before = await geometry()
+  const anchorBefore = await stableTopVisibleSnapshot(page)
+  await page.evaluate(() => (window as typeof window & {
+    pauseManualFeedReload: () => Promise<void>
+  }).pauseManualFeedReload())
+
+  await reload.click()
+
+  await expect(reload).toBeDisabled()
+  await expect(reload).toHaveAttribute('aria-busy', 'true')
+  await expect(reload).toHaveText('刷新')
+  expectStableGeometry(await geometry(), before)
+  const anchorPending = await topVisibleSnapshot(page)
+  expect(anchorPending.name).toBe(anchorBefore.name)
+  expect(Math.abs(anchorPending.offset - anchorBefore.offset)).toBeLessThanOrEqual(1)
+
+  await page.evaluate(() => (window as typeof window & {
+    completeManualFeedReload: () => Promise<void>
+  }).completeManualFeedReload())
+  await expect(page.getByRole('article', { name: '实时条目 201' })).toBeVisible()
+  await expect(reload).toBeEnabled()
+  await expect(reload).not.toHaveAttribute('aria-busy')
+  await expect(reload).toHaveText('刷新')
+  expectStableGeometry(await geometry(), before)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 1024, height: 768 },
+  { width: 1440, height: 900 },
+]) {
+  test(`header order and card action tooltips stay correct at ${viewport.width}px`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'One browser project exercises the three explicit acceptance widths.')
+    await page.setViewportSize(viewport)
+    await page.goto('/feed?social=1')
+    const card = page.getByRole('article', { name: /@thsottiaux: Oops/ })
+    await expect(card).toBeVisible()
+
+    const theme = page.getByRole('button', { name: '切换到白天模式' })
+    const insights = page.getByRole('button', { name: '展开信息概览' })
+    const agent = page.getByRole('button', { name: '展开 Agent 面板' })
+    const [themeBox, insightsBox, agentBox] = await Promise.all([
+      theme.boundingBox(),
+      insights.boundingBox(),
+      agent.boundingBox(),
+    ])
+    expect(themeBox).not.toBeNull()
+    expect(insightsBox).not.toBeNull()
+    expect(agentBox).not.toBeNull()
+    expect(themeBox!.x).toBeLessThan(insightsBox!.x)
+    expect(insightsBox!.x).toBeLessThan(agentBox!.x)
+
+    const tooltipCases: Array<{ trigger: Locator; text: string }> = [
+      { trigger: card.locator('[data-expand-trigger]'), text: '展开内容' },
+      { trigger: card.getByRole('link', { name: /打开 .* 原文/ }), text: '在新窗口打开原文' },
+      { trigger: card.getByRole('button', { name: /收藏 / }), text: '加入收藏' },
+      { trigger: card.getByRole('button', { name: /加入 Agent 上下文/ }), text: '加入 Agent 上下文' },
+      { trigger: card.getByRole('button', { name: /更多操作/ }), text: '复制摘要或忽略这条内容' },
+    ]
+    for (const { trigger, text } of tooltipCases) {
+      await trigger.scrollIntoViewIfNeeded()
+      await trigger.hover()
+      const tooltip = page.getByRole('tooltip').filter({ hasText: text })
+      await expect(tooltip).toBeVisible()
+      const [triggerBounds, tooltipBounds] = await Promise.all([
+        trigger.boundingBox(),
+        tooltip.boundingBox(),
+      ])
+      expect(triggerBounds).not.toBeNull()
+      expect(tooltipBounds).not.toBeNull()
+      expect(triggerBounds!.y - (tooltipBounds!.y + tooltipBounds!.height)).toBeGreaterThanOrEqual(2)
+      expect(tooltipBounds!.x).toBeGreaterThanOrEqual(7)
+      expect(tooltipBounds!.x + tooltipBounds!.width).toBeLessThanOrEqual(viewport.width - 7)
+      await page.mouse.move(1, 1)
+      await expect(tooltip).toBeHidden()
+    }
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const accessibility = await new AxeBuilder({ page }).analyze()
+    expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  })
+}
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 768, height: 900 },
+  { width: 1440, height: 900 },
+]) {
+  test(`Feed data refresh preserves the reading anchor at ${viewport.width}px`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'One browser project exercises the three explicit acceptance widths.')
+    await page.setViewportSize(viewport)
+    await page.goto('/feed')
+    await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+    const reload = page.getByRole('button', { name: '刷新信息流数据' })
+    const update = page.getByRole('button', { name: '更新信息流' })
+    await expect(reload).toBeVisible()
+    await expect(update).toBeVisible()
+    await reload.focus()
+    await expect(reload).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(update).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(reload).toBeFocused()
+
+    const feedScroll = page.getByTestId('workbench-feed-scroll')
+    await feedScroll.evaluate((element) => {
+      element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
+      element.dispatchEvent(new Event('scroll'))
+    })
+    const anchorBefore = await alignVisibleCardToTop(page)
+    await page.evaluate(() => (window as typeof window & {
+      completeManualFeedReload: () => Promise<void>
+    }).completeManualFeedReload())
+    await page.keyboard.press('Enter')
+
+    await expect(page.getByRole('button', { name: '查看 1 条新内容' })).toBeVisible()
+    const anchorAfter = await topVisibleSnapshot(page)
+    expect(anchorAfter.name).toBe(anchorBefore.name)
+    expect(Math.abs(anchorAfter.offset - anchorBefore.offset)).toBeLessThanOrEqual(2)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const accessibility = await new AxeBuilder({ page }).analyze()
+    expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  })
+}
 
 test('a hard refresh preserves shell geometry and reveals only loaded content', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The persisted docked rail is a desktop refresh contract.')
@@ -442,6 +649,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   expect(await itemCount.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
   await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '刷新信息流数据' })).toBeVisible()
   await expect(page.getByRole('button', { name: '更新信息流' })).toBeVisible()
   const agentToggle = page.getByRole('banner').getByRole('button', { name: /^(收起|展开) Agent 面板$/ })
   await expect(agentToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
@@ -460,8 +668,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   expect(tooltipBounds).not.toBeNull()
   expect(tooltipBounds!.x).toBeGreaterThanOrEqual(8)
   expect(tooltipBounds!.x + tooltipBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width - 8)
-  expect(Math.abs((tooltipBounds!.y + tooltipBounds!.height / 2) - (triggerBounds!.y + triggerBounds!.height / 2))).toBeLessThanOrEqual(24)
-  if (testInfo.project.name === 'desktop') expect(tooltipBounds!.x - (triggerBounds!.x + triggerBounds!.width)).toBeGreaterThanOrEqual(6)
+  expect(triggerBounds!.y - (tooltipBounds!.y + tooltipBounds!.height)).toBeGreaterThanOrEqual(2)
   await page.mouse.move(4, 4)
 
   const shell = page.getByTestId('live-workbench-shell')
@@ -914,9 +1121,9 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
   })
   await alignVisibleCardToTop(page)
 
-  // Sample and complete the background task in one browser task so a later Virtualizer measurement cannot make
+  // Sample and start the background task in one browser task so a later Virtualizer measurement cannot make
   // the expected anchor older than the request-time geometry captured by the application.
-  const anchorBefore = await feedScroll.evaluate(async (scroll) => {
+  const anchorBefore = await feedScroll.evaluate((scroll) => {
     const bounds = scroll.getBoundingClientRect()
     const top = Array.from(scroll.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
       .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
@@ -925,13 +1132,14 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
       name: top?.getAttribute('aria-label') ?? '',
       offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
     }
-    window.dispatchEvent(new Event('inteliscope:workbench-refresh-request'))
-    await (window as typeof window & {
-      completeBackgroundRefresh: () => Promise<void>
-    }).completeBackgroundRefresh()
+    document.querySelector<HTMLButtonElement>('button[aria-label="更新信息流"]')?.click()
     return anchor
   })
   expect(anchorBefore.name).not.toBe('')
+  await expect(page.getByRole('button', { name: '更新信息流' })).toBeDisabled()
+  await page.evaluate(() => (window as typeof window & {
+    completeBackgroundRefresh: () => Promise<void>
+  }).completeBackgroundRefresh())
   await expect(page.getByRole('button', { name: '查看 80 条新内容' })).toBeVisible({ timeout: 7000 })
   await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBefore.name)
   await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBefore.offset)).toBeLessThanOrEqual(2)
@@ -1017,6 +1225,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByRole('banner')).toHaveAttribute('data-header-visual', 'quiet-studio')
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '刷新信息流数据' })).toHaveCount(0)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: savedRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
   await expect(page.locator('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'ready')
@@ -1030,6 +1239,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '刷新信息流数据' })).toHaveCount(0)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: historyRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
   await expect(page.locator('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'ready')

@@ -89,6 +89,7 @@ function renderPage(response: AgentDelegationsResponse = listing, currentUser: U
     setQuery: vi.fn(),
     activity: { state: 'idle', retryable: false, terminal: true },
     refresh: vi.fn(),
+    reloadFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [] }),
     beginAction: () => ({ userId: currentUser.id, generation: 0 }),
     isActionCurrent: () => true,
   }

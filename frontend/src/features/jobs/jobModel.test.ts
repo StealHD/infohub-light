@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Job } from '../../api/types'
-import { describeFeedJob, feedJobNotice, latestFeedJob, pollingTimedOut } from './jobModel'
+import { describeFeedJob, feedJobNotice, latestFeedJob, newItemCountOf, pollingTimedOut } from './jobModel'
 
 const job = (overrides: Partial<Job>): Job => ({
   id: 'job-1',
@@ -27,8 +27,8 @@ describe('feed job model', () => {
     expect(describeFeedJob(job({ status: 'queued' }), 'stale').message).toContain('等待后台服务恢复')
     expect(describeFeedJob(job({
       status: 'partial',
-      result: { item_count: 12, source_outcomes: [{ status: 'succeeded' }, { status: 'failed' }] },
-    }), 'ready').message).toContain('12')
+      result: { item_count: 12, new_item_count: 3, snapshot_created: true, source_outcomes: [{ status: 'succeeded' }, { status: 'failed' }] },
+    }), 'ready').message).toBe('新增 3 条内容，1 个来源失败。')
     expect(describeFeedJob(job({ status: 'failed', error_code: 'upstream_error', error_message: '上游失败', retryable: true }), 'ready')).toMatchObject({
       state: 'failed',
       retryable: true,
@@ -38,8 +38,8 @@ describe('feed job model', () => {
   it('emits a success notice only when the worker created a new snapshot', () => {
     expect(feedJobNotice(job({
       status: 'succeeded',
-      result: { item_count: 5, snapshot_created: true },
-    }))).toMatchObject({ state: 'succeeded', message: '信息流已更新，共 5 条。' })
+      result: { item_count: 5, new_item_count: 2, snapshot_created: true },
+    }))).toMatchObject({ state: 'succeeded', message: '信息流已更新，新增 2 条。' })
 
     expect(feedJobNotice(job({
       status: 'succeeded',
@@ -52,14 +52,32 @@ describe('feed job model', () => {
       status: 'partial',
       result: {
         item_count: 5,
+        new_item_count: 0,
         snapshot_created: false,
         source_outcomes: [{ status: 'succeeded' }, { status: 'failed' }],
       },
     }))
 
     expect(notice?.state).toBe('partial')
-    expect(notice?.message).toContain('未更新信息流')
-    expect(notice?.message).not.toContain('已更新 5 条')
+    expect(notice?.message).toContain('本次没有新增内容')
+    expect(notice?.message).toContain('信息流无变化')
+    expect(notice?.message).not.toContain('5 条')
+  })
+
+  it('accepts only finite non-negative integer new-item counts and never falls back to totals', () => {
+    const valid = job({ status: 'succeeded', result: { item_count: 99, new_item_count: 0, snapshot_created: true } })
+    expect(newItemCountOf(valid)).toBe(0)
+    expect(describeFeedJob(valid).message).toBe('信息流已更新，本次没有新增内容。')
+
+    for (const value of [undefined, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const legacy = job({
+        status: 'succeeded',
+        result: { item_count: 99, new_item_count: value, snapshot_created: true },
+      })
+      expect(newItemCountOf(legacy)).toBeUndefined()
+      expect(describeFeedJob(legacy).message).toBe('信息流已更新。')
+      expect(describeFeedJob(legacy).message).not.toContain('99')
+    }
   })
 
   it('stops treating an active job as pollable after 180 seconds', () => {

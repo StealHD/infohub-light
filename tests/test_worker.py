@@ -690,6 +690,7 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
     assert result["status"] == "succeeded"
     assert result["result_json"]["snapshot_id"] == latest["id"]
     assert result["result_json"]["item_count"] == 1
+    assert result["result_json"]["new_item_count"] == 1
     assert result["result_json"]["run_id"] == "run_worker"
     assert result["result_json"]["run_status"] == "succeeded"
     assert result["result_json"]["source_outcomes"] == []
@@ -875,6 +876,7 @@ def test_worker_partial_feed_run_persists_snapshot_and_terminal_partial(tmp_path
     assert result["result_json"]["run_id"] == "run_partial"
     assert result["result_json"]["run_status"] == "partial"
     assert result["result_json"]["item_count"] == 1
+    assert result["result_json"]["new_item_count"] == 1
     assert len(result["result_json"]["source_outcomes"]) == 2
     assert result["result_json"]["source_outcomes"][1]["issue"] == result["result_json"]["issues"][0]
     serialized = str(result["result_json"])
@@ -939,6 +941,7 @@ def test_worker_all_sources_failed_does_not_create_snapshot(tmp_path, monkeypatc
     assert result["result_json"]["run_id"] == "run_failed"
     assert result["result_json"]["run_status"] == "failed"
     assert result["result_json"]["item_count"] == 0
+    assert "new_item_count" not in result["result_json"]
     assert len(result["result_json"]["source_outcomes"]) == 1
     assert len(result["result_json"]["issues"]) == 1
     serialized = str(
