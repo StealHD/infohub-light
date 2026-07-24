@@ -519,3 +519,20 @@
 - 原因：浏览器二次验收显示，文字式 Switch 与周期选择并排造成右侧拥挤，移动端折叠成“管理自动更新”又增加一次操作；原生 summary 缺少清楚的悬停、焦点和展开反馈。固定角落位置与受控 Disclosure 能降低阅读噪声，并让鼠标、键盘和触屏的状态一致。
 - 取代范围：细化 D059 的自动更新和默认折叠详情规则，取代移动端先展开管理区才能操作 Switch/周期的实现；频道、来源卡、权限、任务和筛选语义不变。
 - 兼容/回退：纯前端展示与交互调整；不修改 API、数据库、权限、Query Key、调度语义或抓取行为。`prefers-reduced-motion` 下禁用 Disclosure 过渡。
+### D061 偏好来源通知采用提交后 outbox 与双启用水位
+
+- 决策日期：2026-07-24
+- 当前状态：本地实现、定向验收与完整门禁完成；未部署
+- 决策内容：每个账户在邮箱或 Webhook 中选择一个活动通知通道，每个订阅再显式选择是否接收新内容。只有相邻用户 Feed 快照中新出现、且 `published_at` 严格晚于账户通知启用时间和订阅通知启用时间的稳定条目，才在 Feed 快照、来源健康和任务成功同一事务中写入幂等 outbox；账户与订阅每次关闭后再开启还会推进不可回退 generation，Worker 提交事务后只发送仍匹配当前双 generation 的 delivery。
+- 原因：只比较“数据库里是否见过”会把首次快照、共享复用和重新启用前的历史误判为新消息；只用墙钟水位又无法可靠抵抗时钟回拨；把网络发送放进获取事务或任务重试路径还会让接收端故障触发重复抓取。相邻快照、双水位、双 generation、事务 outbox 和提交后发送把“什么是新内容”与“如何投递”分别固定在可验证边界。
+- 安全边界：用户 Webhook 地址只经 SecretStore 写入，SQLite 仅保存用户专属环境变量名与 SHA-256 一致性摘要，API、outbox、日志和页面只暴露配置状态；摘要不匹配或文件/数据库更新中断时 fail closed，显式清空删除无引用 orphan。Webhook 仅用 HTTPS、公共网络固定解析、单地址单次 POST，并禁用代理和重定向。`personal_only`、首次快照、旧/复用数据、无任务共享协调、内容修复和模拟测试均不产生真实 outbox；测试受 SQLite 原子 60 秒用户级冷却且不移动水位。同一用户/渠道/Job 最多 20 个 distinct article ID 及其全部 provenance ledger 按文章去重后合并为一次外呼；发送前用双 generation、可信 delivery 创建时间、来源发布时间和当前双水位共同排除关闭后重开的旧 epoch。发送失败不回滚已成功的 Feed 任务，transport 结果未知时保持 `sending` 且不自动重试不具备端到端幂等保证的外部请求。
+- 兼容/回退：schema v9 为 additive，缺失设置与旧订阅均视为通知关闭；旧客户端忽略新增字段即可继续工作。关闭账户或订阅通知会停止后续入队，不删除 Feed 历史，也不调用 legacy publisher、旧 webhook 或 scheduler 推送链。
+
+### D062 Service 邮件采用工作区 Provider Registry 与测试代数门禁
+
+- 决策日期：2026-07-24
+- 当前状态：本地实现、定向验收、完整门禁与本地容器复验完成；未部署
+- 决策内容：Owner/Admin 通过 schema v10 为工作区统一配置发件服务，普通用户只保存自己的收件邮箱。首版 Registry 只允许 QQ、网易、Gmail、Resend 与 Amazon SES 的固定 SSL/465 预设，host、port、TLS 与登录名由服务端根据 Provider、发件地址及受限 SES Region 派生；不开放自定义 SMTP，也不接入需要 OAuth 的 Microsoft 365。凭据只进入工作区确定性 SecretStore 变量，数据库仅保存变量名与 SHA-256 摘要。
+- 门禁与故障语义：Provider、发件身份或凭据变化推进 generation、自动停用并清除测试状态；只有当前 generation 真实测试成功且每次读取的 SecretStore 值仍匹配摘要时才能启用。管理员测试使用一次性收件人和工作区 60 秒原子冷却；API 测试与 Worker 复用同一 `EmailTransport`、系统 CA、20 秒 timeout 与 MIME/HTML 转义。轮换、停用或删除只终结尚未开始的 email pending；已经 `sending` 或连接中断的结果未知记录保持未知且不自动重放。
+- 原因：让每个用户配置发件账号会扩大秘密数量与支持成本；继续读取 `data/config.json.email` 又会把 Service 权威配置与 legacy CLI 混在一起。固定 Registry 可以在不允许浏览器指定任意 SMTP 主机的前提下覆盖小团体常用服务；generation 测试门禁让凭据轮换后的“已测试”状态不可误继承。暂停期间继续保存 Feed 基线且不写 email outbox，能在恢复后自然只发送之后的新差集，而不形成历史补发队列。
+- 兼容/回退：schema v10 additive，缺 row 等同邮件 transport 未配置；已有 email opt-in 保留但投影为暂停，Webhook 不受影响。删除工作区 row 与确定性 SecretStore 值即可回退 Service 邮件能力，不修改 Feed、订阅水位或 legacy `data/config.json.email`；后者继续只供显式 CLI/日报兼容路径使用。

@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from src.models import ContentItem, SourceType
 from src.mcp.server import hz_get_metrics
 from src.mcp.service import HorizonPipelineService
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_environment() -> None:
+    environment_before_test = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(environment_before_test)
 
 
 def make_item(item_id: str, score: float | None = None) -> ContentItem:

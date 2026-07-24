@@ -33,6 +33,28 @@ export const changelogMonths: ChangelogMonth[] = [
         ],
       },
       {
+        date: '2026-07-24',
+        title: '主流邮件服务统一发件配置',
+        summary: '由工作区管理员统一配置发件服务，成员只需填写自己的收件邮箱。',
+        items: [
+          { title: '五种服务商预设', description: '支持 QQ、网易、Gmail、Resend 与 Amazon SES；服务器、端口和 SSL 方式由系统固定派生，不开放任意 SMTP 地址。' },
+          { title: '保存、测试、启用', description: '配置或凭据变化会自动停用；只有当前配置成功发送测试邮件后才能启用，凭据与测试收件人提交后立即清空且不回显。' },
+          { title: '暂停不补发', description: '邮件服务未就绪时保留用户原有邮箱通知选择，但不会产生邮件队列；恢复后只通知之后真正新增的内容，Webhook 不受影响。' },
+          { title: '凭据隔离', description: '授权码、App Password、API Key 与 SES SMTP Password 只写入 SecretStore；设置页和接口只显示安全配置状态。' },
+        ],
+      },
+      {
+        date: '2026-07-24',
+        title: '偏好来源新内容通知',
+        summary: '为明确选择的来源增加邮箱或 Webhook 主动通知，同时把历史数据留在信息流而不补推。',
+        items: [
+          { title: '账户接收方式', description: '每个账户可在设置页选择邮箱或 Webhook，保存后只显示是否已配置，并可发送一条不抓取来源的模拟测试通知。' },
+          { title: '按来源开启', description: '订阅设置新增“从现在开始接收新内容通知”；开启后的来源卡片会显示通知状态。' },
+          { title: '旧数据保护', description: '首次快照、历史或复用内容、停用期间的内容以及 personal_only 来源不会补推，只投递启用后确认的新条目。' },
+          { title: '投递与获取隔离', description: '通知在信息流结果提交后独立发送；接收端失败不会让已经成功的来源获取被重复执行。' },
+        ],
+      },
+      {
         date: '2026-07-23',
         title: '操作手册与发布入口',
         summary: '把使用说明、产品更新和正式 Release 放到随时可达的账户区域，并建立合并文档门禁。',

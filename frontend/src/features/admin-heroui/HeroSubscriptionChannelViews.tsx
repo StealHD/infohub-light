@@ -389,7 +389,7 @@ function ChannelLayout<T>({
   </>
 }
 
-function SubscriptionRows({ items, editable, onFetch, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionRows({ items, editable, onFetch, onEditSubscription, onEditSource, onShare }: {
   items: SubscriptionViewEntry[]
   editable: boolean
   onFetch: (entry: SubscriptionViewEntry) => void
@@ -414,6 +414,7 @@ function SubscriptionRows({ items, editable, onFetch, onEditSubscription, onEdit
           <div className="min-w-0 flex-1">
             <SourceIdentity source={source} detail={`${sourceTypeLabel(source.type)} · ${sourceScopeLabel(source.scope)}`} />
           </div>
+          {subscription.enabled && subscription.notify_on_new_items && subscription.analysis_mode !== 'personal_only' && <Chip size="sm" variant="soft"><Chip.Label>新内容通知</Chip.Label></Chip>}
           <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
           <MoreActions
             source={source}

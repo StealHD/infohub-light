@@ -2502,3 +2502,82 @@ def test_rest_context_preserves_subscription_omission_null_and_list_clear(
     assert updated["personal_tags"] == ["keep"]
     assert updated["priority"] == 40
     assert mutation_context["store"].connect().in_transaction is False
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("revocation", ["user", "source"])
+def test_rest_notification_mutation_rechecks_actor_and_source_inside_lock(
+    mutation_context,
+    monkeypatch,
+    operation,
+    revocation,
+):
+    source_id = _create_shared_source(
+        mutation_context,
+        suffix=f"notification-race-{operation}-{revocation}",
+    )
+    actor = SubscriptionActor.from_user(mutation_context["member"])
+    subscription = None
+    if operation == "update":
+        subscription = mutation_context["service"].rest_create_subscription(
+            actor,
+            source_id=source_id,
+            values={"notify_on_new_items": False},
+        )
+    admin_store = ServiceStore(mutation_context["data_dir"])
+    admin_store.initialize()
+    original_live_actor = mutation_context["service"]._live_actor
+    live_checks = 0
+
+    def revoke_after_outer_check(candidate):
+        nonlocal live_checks
+        user = original_live_actor(candidate)
+        live_checks += 1
+        if live_checks == 1:
+            if revocation == "user":
+                admin_store.update_user(actor.user_id, enabled=False)
+            else:
+                admin_store.update_source(source_id, enabled=False)
+        return user
+
+    monkeypatch.setattr(
+        mutation_context["service"],
+        "_live_actor",
+        revoke_after_outer_check,
+    )
+
+    with pytest.raises(SubscriptionMutationError) as exc_info:
+        if operation == "create":
+            mutation_context["service"].rest_create_subscription(
+                actor,
+                source_id=source_id,
+                values={"notify_on_new_items": True},
+            )
+        else:
+            mutation_context["service"].rest_update_subscription(
+                actor,
+                subscription_id=subscription["id"],
+                updates={"notify_on_new_items": True},
+            )
+
+    if revocation == "user":
+        assert exc_info.value.code == "not_found"
+    else:
+        assert exc_info.value.code in {
+            "not_found",
+            "invalid_subscription_notification",
+        }
+    if subscription is None:
+        assert (
+            admin_store.get_user_subscription_for_source(
+                actor.user_id,
+                source_id,
+            )
+            is None
+        )
+    else:
+        stored = admin_store.get_subscription(subscription["id"])
+        assert stored is not None
+        assert stored["notify_on_new_items"] is False
+        assert stored["notification_enabled_at"] is None
+    admin_store.close()

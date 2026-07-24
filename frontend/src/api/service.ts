@@ -14,6 +14,10 @@ import type {
   FeedItem,
   IgnoredFeed,
   Job,
+  NotificationEmailTransport,
+  NotificationEmailTransportPatch,
+  NotificationEmailTransportTestResult,
+  NotificationTestResult,
   SecretQuota,
   SecretRef,
   SavedFeed,
@@ -25,6 +29,8 @@ import type {
   SubscriptionPatch,
   User,
   UserItemState,
+  UserNotificationSettings,
+  UserNotificationSettingsPatch,
 } from './types'
 
 type ListResponse<T, K extends string> = Record<K, T[]>
@@ -88,6 +94,24 @@ export function createServiceApi(client: ApiClient) {
     feedSchedule: (signal?: AbortSignal) => client.get<FeedSchedule>('/api/me/feed-schedule', signal),
     updateFeedSchedule: (patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>('/api/me/feed-schedule', patch),
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
+    notificationSettings: (signal?: AbortSignal) => client.get<UserNotificationSettings>('/api/me/notification-settings', signal),
+    updateNotificationSettings: (patch: UserNotificationSettingsPatch) => client.patch<UserNotificationSettings>('/api/me/notification-settings', patch),
+    testNotificationSettings: () => client.post<NotificationTestResult>('/api/me/notification-settings/test'),
+    notificationEmailTransport: (signal?: AbortSignal) => client.get<NotificationEmailTransport>(
+      '/api/admin/notification-email-transport',
+      signal,
+    ),
+    updateNotificationEmailTransport: (patch: NotificationEmailTransportPatch) => client.patch<NotificationEmailTransport>(
+      '/api/admin/notification-email-transport',
+      patch,
+    ),
+    testNotificationEmailTransport: (recipientEmail: string) => client.post<NotificationEmailTransportTestResult>(
+      '/api/admin/notification-email-transport/test',
+      { recipient_email: recipientEmail },
+    ),
+    deleteNotificationEmailTransport: () => client.delete<{ deleted: boolean }>(
+      '/api/admin/notification-email-transport',
+    ),
 
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
     createAgentDelegation: (name: string, access: AgentDelegationAccess = 'read') => client.post<AgentDelegationCreated>(

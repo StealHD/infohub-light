@@ -112,6 +112,7 @@ def test_anonymous_core_api_returns_unauthorized_envelope(tmp_path, monkeypatch)
         ("GET", "/api/feed/latest"),
         ("GET", "/api/config"),
         ("GET", "/api/me/item-state?article_ids=rss:item:1"),
+        ("GET", "/api/me/notification-settings"),
     ]:
         response = client.request(method, path)
         _assert_error(response, 401, "unauthorized")
@@ -142,6 +143,7 @@ def test_viewer_is_read_only_across_core_service_api(tmp_path, monkeypatch):
         client.get("/api/feed/latest"),
         client.get("/api/me/item-state?article_ids=rss:item:viewer"),
         client.get("/api/config"),
+        client.get("/api/me/notification-settings"),
     ]:
         assert response.status_code == 200
         assert response.json()["ok"] is True
@@ -163,6 +165,15 @@ def test_viewer_is_read_only_across_core_service_api(tmp_path, monkeypatch):
         client.post("/api/config/action", json={"action": "upsert_rss", "payload": {"name": "Viewer RSS"}}),
         client.post("/api/source/test", json={"source_id": public_source_id}),
         client.post("/api/source/update", json={"source_id": public_source_id}),
+        client.patch(
+            "/api/me/notification-settings",
+            json={
+                "enabled": True,
+                "channel": "webhook",
+                "webhook_url": "https://hooks.example.com/viewer",
+            },
+        ),
+        client.post("/api/me/notification-settings/test"),
     ]
     for response in forbidden_requests:
         _assert_error(response, 403, "forbidden")

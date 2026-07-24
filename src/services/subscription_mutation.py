@@ -1866,6 +1866,27 @@ class SubscriptionMutationService:
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            self._live_actor(actor)
+            source = self.store.get_source(source_id)
+            if source is None or not self._visible(source, actor):
+                raise self._error(
+                    "not_found",
+                    "source not found",
+                    status_code=404,
+                )
+            if (
+                values.get("notify_on_new_items") is True
+                and (
+                    not bool(values.get("enabled", True))
+                    or values.get("analysis_mode", "full")
+                    == "personal_only"
+                )
+            ):
+                raise self._error(
+                    "invalid_subscription_notification",
+                    "disabled or personal_only subscriptions cannot enable new-item notifications",
+                    status_code=400,
+                )
             if bool(values.get("enabled", True)):
                 self.quota.ensure_source_allowed(
                     workspace_id=actor.workspace_id,
@@ -1951,9 +1972,32 @@ class SubscriptionMutationService:
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            self._live_actor(actor)
             subscription, source, _schedule = self._subscription_context(
                 actor, subscription_id
             )
+            if (
+                updates.get("notify_on_new_items") is True
+                and (
+                    not bool(source.get("enabled"))
+                    or not bool(
+                        subscription.get("enabled")
+                        if updates.get("enabled") is None
+                        else updates["enabled"]
+                    )
+                    or (
+                        subscription.get("analysis_mode")
+                        if updates.get("analysis_mode") is None
+                        else updates["analysis_mode"]
+                    )
+                    == "personal_only"
+                )
+            ):
+                raise self._error(
+                    "invalid_subscription_notification",
+                    "disabled or personal_only subscriptions cannot enable new-item notifications",
+                    status_code=400,
+                )
             if updates.get("enabled") is True:
                 self.quota.ensure_source_allowed(
                     workspace_id=actor.workspace_id,

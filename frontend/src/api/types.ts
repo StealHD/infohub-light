@@ -14,6 +14,88 @@ export type AuthStatus = {
   user: User | null
 }
 
+export type NotificationChannel = 'email' | 'webhook'
+
+export type UserNotificationSettings = {
+  schema_version: number
+  enabled: boolean
+  channel: NotificationChannel
+  email_configured: boolean
+  email_transport_ready: boolean
+  webhook_configured: boolean
+  last_test_status: string | null
+  last_tested_at: string | null
+  last_test_error_code: string | null
+  updated_at: string | null
+}
+
+export type UserNotificationSettingsPatch = {
+  enabled?: boolean
+  channel?: NotificationChannel
+  email_address?: string | null
+  webhook_url?: string | null
+}
+
+export type NotificationTestResult = {
+  sent: boolean
+  channel: NotificationChannel
+}
+
+export type NotificationEmailProvider = 'qq' | 'netease' | 'gmail' | 'resend' | 'amazon_ses'
+
+export type NotificationEmailProviderOption = {
+  provider: NotificationEmailProvider
+  label: string
+  credential_label: string
+  sender_hint: string
+  requires_region: boolean
+  requires_smtp_username: boolean
+  smtp_port: 465
+  security: 'ssl'
+}
+
+export type NotificationEmailTransport = {
+  schema_version: number
+  configured: boolean
+  provider: NotificationEmailProvider | null
+  sender_email: string | null
+  sender_name: string
+  region: string | null
+  smtp_username: string | null
+  enabled: boolean
+  credential_configured: boolean
+  generation: number
+  last_test_status: 'sent' | 'failed' | null
+  last_test_generation: number | null
+  last_tested_at: string | null
+  last_test_error_code: string | null
+  can_enable: boolean
+  ready: boolean
+  connection: {
+    smtp_host: string
+    smtp_port: 465
+    security: 'ssl'
+    smtp_username: string
+  } | null
+  providers: NotificationEmailProviderOption[]
+  updated_at: string | null
+}
+
+export type NotificationEmailTransportPatch = {
+  provider?: NotificationEmailProvider
+  sender_email?: string
+  sender_name?: string
+  credential?: string | null
+  enabled?: boolean
+  region?: string | null
+  smtp_username?: string | null
+}
+
+export type NotificationEmailTransportTestResult = {
+  sent: boolean
+  generation: number
+}
+
 export type AgentDelegationAccess = 'read' | 'subscriptions_write'
 
 export type AgentDelegationScope = 'inteliscope:read' | 'inteliscope:subscriptions:write'
@@ -334,6 +416,8 @@ export type Subscription = {
   personal_tags?: string[]
   analysis_mode?: 'full' | 'personal_only'
   priority?: number
+  notify_on_new_items?: boolean
+  notification_enabled_at?: string | null
   schedule?: SourceSchedule
   reused_item_count?: number
 }
@@ -341,7 +425,7 @@ export type Subscription = {
 export type SubscriptionDisableDisposition = 'keep' | 'save' | 'dismiss'
 
 export type SubscriptionPatch = Partial<Pick<Subscription,
-  'enabled' | 'override_channel' | 'override_topics' | 'personal_tags' | 'analysis_mode' | 'priority'
+  'enabled' | 'override_channel' | 'override_topics' | 'personal_tags' | 'analysis_mode' | 'priority' | 'notify_on_new_items'
 >> & {
   on_disable?: SubscriptionDisableDisposition
 }

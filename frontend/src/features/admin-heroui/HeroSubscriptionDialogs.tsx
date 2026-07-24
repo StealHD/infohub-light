@@ -18,6 +18,7 @@ import {
   Label,
   ListBox,
   Modal,
+  Switch,
   TextArea,
   TextField,
 } from '../../design-system'
@@ -186,6 +187,7 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
   const [channel, setChannel] = useState(subscription.override_channel ?? '')
   const [topics, setTopics] = useState(subscription.override_topics ?? [])
   const [analysisMode, setAnalysisMode] = useState(subscription.analysis_mode ?? 'full')
+  const [notifyOnNewItems, setNotifyOnNewItems] = useState(Boolean(subscription.notify_on_new_items))
   const [interval, setInterval] = useState(String(subscription.schedule?.interval_minutes ?? 360))
   const [enabled, setEnabled] = useState(subscription.enabled)
   const [disableDisposition, setDisableDisposition] = useState<SubscriptionDisableDisposition>('dismiss')
@@ -217,6 +219,7 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
         personal_tags: String(form.get('personal_tags') ?? '').split(',').map((value) => value.trim()).filter(Boolean),
         analysis_mode: analysisMode as Subscription['analysis_mode'],
         priority: Number(form.get('priority') ?? 0),
+        notify_on_new_items: analysisMode === 'personal_only' || !enabled ? false : notifyOnNewItems,
         ...(subscription.enabled && !enabled ? { on_disable: disableDisposition } : {}),
       })
       if (!isActionCurrent(token)) return
@@ -237,9 +240,32 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       <HeroSelect name="override_channel" label="个人频道" value={channel} onChange={setChannel} options={[{ id: '', label: '继承来源默认频道' }, ...taxonomy.channels.map((value) => ({ id: value, label: value }))]} />
       <TopicCombo label="阅读主题" options={taxonomy.topics} values={topics} onChange={setTopics} />
       <TextField fullWidth name="personal_tags" defaultValue={(subscription.personal_tags ?? []).join(', ')}><Label>个人标签</Label><Input /></TextField>
-      <HeroSelect name="analysis_mode" label="分析模式" value={analysisMode} onChange={(value) => setAnalysisMode(value as NonNullable<Subscription['analysis_mode']>)} options={[{ id: 'full', label: '完整分析' }, { id: 'personal_only', label: '仅收集' }]} />
+      <HeroSelect name="analysis_mode" label="分析模式" value={analysisMode} onChange={(value) => {
+        const nextMode = value as NonNullable<Subscription['analysis_mode']>
+        setAnalysisMode(nextMode)
+        if (nextMode === 'personal_only') setNotifyOnNewItems(false)
+      }} options={[{ id: 'full', label: '完整分析' }, { id: 'personal_only', label: '仅收集' }]} />
+      <div className="grid gap-1">
+        <Switch
+          isSelected={notifyOnNewItems}
+          isDisabled={analysisMode === 'personal_only' || !enabled}
+          onChange={setNotifyOnNewItems}
+        >
+          <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>从现在开始接收新内容通知</Switch.Content>
+        </Switch>
+        <Description>
+          {analysisMode === 'personal_only'
+            ? '“仅收集”内容不会推送；切回“完整分析”后可以重新开启。'
+            : !enabled
+              ? '停用订阅会同时关闭通知；重新启用后可再次选择。'
+            : '只推送保存成功后首次入库的新内容；已有历史和复用内容不会补发。'}
+        </Description>
+      </div>
       <TextField fullWidth name="priority" defaultValue={String(subscription.priority ?? 0)}><Label>信源优先级</Label><Input type="number" min={0} max={100} /></TextField>
-      <Checkbox name="enabled" isSelected={enabled} onChange={setEnabled}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用订阅</Checkbox.Content></Checkbox>
+      <Checkbox name="enabled" isSelected={enabled} onChange={(value) => {
+        setEnabled(value)
+        if (!value) setNotifyOnNewItems(false)
+      }}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用订阅</Checkbox.Content></Checkbox>
       {subscription.enabled && !enabled && <div className="rounded-control border border-separator bg-surface-secondary p-3">
         <HeroSelect
           label="关闭后如何处理已有内容"

@@ -77,6 +77,8 @@
 62. 设置页 Key 可观测性与 Apify 额度：新增 Key 的字段与服务端失败在表单内反馈并发送 Toast；已配置 Key 使用 HeroUI v3 Table，Apify 行通过 owner/admin 安全投影接口显示套餐、本月用量、硬上限与周期，按用户/secret 缓存五分钟并支持刷新；轮换/删除使用行级 Modal。无数据库迁移、抓取、AI、scheduler、付费 Actor 或部署。
 63. Apify 单一 Key 池与安全额度切换：additive schema v8 记录工作区有序成员、generation 和 Actor Run ledger，Service 的 `source_test/source_fetch/user_feed_refresh` 统一固定使用一把 Key 完成 start/poll/abort/dataset；402/明确额度耗尽与 401 才触发 Key 状态变化，旧 generation 全部 Run 中止并确认终态前 fail closed，未知 POST 结果永久阻塞待人工核对。设置页与管理员 API 只暴露安全池状态；`HORIZON_APIFY_KEY_POOL_ENABLED=false` 默认关闭，未调用真实 Key、付费 Actor、Worker、scheduler 或生产部署。
 64. 产品文档与发布入口：新增源码受控 `/manual` 操作手册；账户菜单和独立“文档与发布”菜单均向上展开并提供操作手册、更新日志和 GitHub Release 入口。Test Gate 对每次产品代码合并强制检查手册与更新日志双源已同步复核；权威交互见 `UI_CONTRACT.md`，流程理由见 D057。
+65. 偏好来源新内容通知：用户可在设置页选择邮箱或 write-only Webhook，并在订阅设置中逐源开启；schema v9 outbox 以双水位和不可回退双 generation 只消费启用后的严格新 article ID，首份 Feed、历史复用、旧发布时间、`personal_only` 和测试消息均不推进或补发内容通知。Worker 在 Feed/Health/Job 原子提交后发送，Webhook 通过 SecretStore 摘要一致性 fail closed，通知失败不改变抓取终态；精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D061。
+66. 工作区统一邮件发送服务：schema v10 与 Provider Registry 为 Owner/Admin 提供 QQ、网易、Gmail、Resend、Amazon SES 固定 SSL/465 预设；Service 邮件以该数据库配置和 SecretStore 摘要绑定为唯一真源，按“保存 → 测试 → 启用”门禁运行，轮换/停用时安全终结未开始 delivery，已发送结果未知者不重放。邮件服务暂停不清除用户 opt-in、不入队也不补发，Webhook 独立保持可用；`data/config.json.email` 只留给 legacy CLI。精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D062。
 
 当前仍需推进：
 
@@ -141,10 +143,10 @@
 
 1. 第三方 AIHub/AIHOT API 逆向或依赖。
 2. 私密群组、好友流、cookie、session、账号密码采集。
-3. 未确认的生产推送、邮件群发或 scheduler 启动。
+3. 未确认的生产通知 rollout、邮件群发或 scheduler 启动；本期只实现当前用户显式开启的逐来源新内容通知。
 4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
 5. 多 workspace、商业计费、自助注册、应用内手动主题切换/强制主题选择或独立移动 App；HeroUI 生产体验只跟随操作系统明暗偏好，视觉规则只见 `UI_CONTRACT.md`。
-6. 个人摘要、个人推送，以及把 compatibility-only API 扩展为默认 UI 能力。
+6. 个人摘要、推荐型/评分型推送，以及把 compatibility-only API 扩展为默认 UI 能力；逐来源新内容事件通知不属于该非目标。
 7. 服务器侧 Agent/LLM/Gateway 代理、客户间共享 OpenClaw、生产 Remote MCP 写入、OAuth、ClawHub 或模型密钥托管；浏览器直连用户自有 Gateway 只在独立开关下实现。
 
 <!-- init-pro:section name=priorities -->
@@ -162,6 +164,7 @@
 9. 稳定 React Service UI 的 Docker 与浏览器闭环；公网入口已切至 API-only 版本并仅保留应用登录，owner 登录已通过，Feed/订阅/历史仍待人工验收。
 10. 用目标测试覆盖每个兼容边界。
 11. 完成 `test_gate` 的 10 提交观察期；未达标前默认完成门禁保持 `full`，不得只凭本地 targeted 结果宣称完成。
+12. 稳定新内容通知的用户/订阅隔离、历史基线、outbox 幂等和失败不影响 Feed/Job 的边界；不得回调 legacy publisher。
 
 ## 6. 当前实现强约束
 1. 不得把外部系统原始字段扩散到业务层。

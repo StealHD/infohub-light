@@ -45,6 +45,19 @@ async function mockAdminApi(page: Page, authenticated = true) {
       items: [{ subscription_id: 'subscription-1', source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 7 }],
     }
     else if (url.pathname === '/api/me/feed-schedule') data = { schema_version: 1, enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440], worker_status: 'ready', next_run_at: '2026-07-17T12:00:00Z' }
+    else if (url.pathname === '/api/me/notification-settings') data = {
+      schema_version: 1,
+      enabled: false,
+      channel: 'webhook',
+      email_configured: false,
+      email_transport_ready: false,
+      webhook_configured: false,
+      last_test_status: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      updated_at: null,
+    }
+    else if (url.pathname === '/api/me/notification-settings/test') data = { sent: true, channel: 'webhook' }
     else if (url.pathname === '/api/jobs') data = { jobs: [{ id: 'job-1', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'succeeded', created_at: '2026-07-17T08:00:00Z', finished_at: '2026-07-17T08:00:02Z', result: { item_count: 7 } }] }
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
@@ -76,6 +89,33 @@ async function mockAdminApi(page: Page, authenticated = true) {
       { id: 'secret-1', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [{ type: 'ai', id: 'primary', name: 'AI 分析' }] },
       { id: 'secret-apify', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRIMARY_WORKSPACE_TOKEN', is_set: true, used_by: [] },
     ] }
+    else if (url.pathname === '/api/admin/notification-email-transport') data = {
+      schema_version: 1,
+      configured: false,
+      provider: null,
+      sender_email: null,
+      sender_name: 'Inteliscope',
+      region: null,
+      smtp_username: null,
+      enabled: false,
+      credential_configured: false,
+      generation: 0,
+      last_test_status: null,
+      last_test_generation: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      can_enable: false,
+      ready: false,
+      connection: null,
+      providers: [
+        { provider: 'qq', label: 'QQ 邮箱', credential_label: 'SMTP 授权码', sender_hint: '填写完整 QQ 邮箱地址', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+        { provider: 'netease', label: '网易邮箱', credential_label: 'SMTP 授权码', sender_hint: '支持 163、126 与 yeah.net', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+        { provider: 'gmail', label: 'Gmail', credential_label: 'App Password', sender_hint: '填写完整邮箱地址', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+        { provider: 'resend', label: 'Resend', credential_label: 'API Key', sender_hint: '使用已验证域名', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+        { provider: 'amazon_ses', label: 'Amazon SES', credential_label: 'SES SMTP Password', sender_hint: '使用已验证地址', requires_region: true, requires_smtp_username: true, smtp_port: 465, security: 'ssl' },
+      ],
+      updated_at: null,
+    }
     else if (url.pathname === '/api/admin/apify-key-pool') data = {
       schema_version: 1,
       enabled: false,
@@ -149,6 +189,10 @@ test('production administration routes use the adaptive Quiet Studio page patter
 
   await page.goto('/settings')
   await expectHeroAdminPage(page, '设置')
+  await expect(page.getByRole('heading', { name: '消息通知' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送测试通知' })).toBeDisabled()
+  await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
@@ -162,6 +206,31 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expectHeroAdminPage(page, '操作手册')
   await expect(page.getByRole('heading', { name: '快速开始' })).toBeVisible()
   await expect(page.getByText(/每次产品代码合并都由 Test Gate 检查/)).toBeVisible()
+})
+
+test('workspace email transport stays bounded at 390, 768 and 1440 pixels', async ({ page }) => {
+  await mockAdminApi(page)
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 768, height: 900 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await page.goto('/settings')
+
+    await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
+    await expect(page.getByRole('switch', { name: '未启用' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+    await page.getByRole('button', { name: /邮件服务商/ }).click()
+    await page.getByRole('option', { name: /Amazon SES/ }).click()
+    await expect(page.getByLabel('Amazon SES Region')).toBeVisible()
+    await expect(page.getByLabel('SES SMTP 用户名')).toBeVisible()
+    await expect(page.getByLabel('SES SMTP Password')).toHaveAttribute('type', 'password')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  }
 })
 
 test('account and documentation menus open upward and expose manual, changelog, and Release destinations', async ({ page }, testInfo) => {

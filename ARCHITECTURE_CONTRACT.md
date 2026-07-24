@@ -35,7 +35,7 @@ Service AI cache 归 `src/services/user_analysis_cache.py` 所有，必须按 wo
 稳定详情归 `src/services/user_content_store.py` 所有：每次 Feed finalize 将规范列表 item 写入 `user_content_items`，再把抓取器已有正文清洗为最多 20,000 字的 captured body。详情投影升级为 Presentation v2；旧 snapshot 回填只能是 `excerpt_only`。`src/services/media_cache.py` 在 Worker 内经公共网络地址固定策略下载最多 6 张内容图和一个来源头像，验证真实图片类型、8 MiB 上限并原子落盘；第三方临时媒体 URL 不得进入 snapshot 或稳定索引，浏览器只能通过登录保护的 `/api/media/*` 访问。合成 DNS 例外仅允许 Instagram 既有 CDN 与精确后缀 `pbs.twimg.com`；头像身份忽略 query/fragment，身份变化即时验证候选，同身份最多每 24 小时复验 checksum，候选失败必须保留旧 ready 版本。
 
 ### 3.4 Service Frontend Boundary
-默认 Service UI 位于 `frontend/`，由 React + TypeScript 构建到独立 `src/ui/service_static` 产物，只通过 `/api/*` 消费数据；不得直接调用 scraper、AI client 或 storage，也不依赖 `data/site/*.json` 或 `data/config.json` 源列表的内部文件结构。阅读、收藏与历史只调用 `/api/feed/*`；条目提供站内查看已抓正文/图片、打开原文、显式已读/未读、复制摘要、收藏、稍后读和忽略，不提供网页全文代理/iframe、偏好 feedback 或 Graph。订阅控制台通过 catalog、subscriptions、jobs、schedule、source-health 和 users API 管理信息获取，不调用 archive/source-quality；首页“获取新内容”创建 `user_feed_refresh`，不得退化为只重新 GET snapshot。设置页保留 `/api/config`、`/api/config/action` facade 管理全局非 source 配置。
+默认 Service UI 位于 `frontend/`，由 React + TypeScript 构建到独立 `src/ui/service_static` 产物，只通过 `/api/*` 消费数据；不得直接调用 scraper、AI client 或 storage，也不依赖 `data/site/*.json` 或 `data/config.json` 源列表的内部文件结构。阅读、收藏与历史只调用 `/api/feed/*`；条目提供站内查看已抓正文/图片、打开原文、显式已读/未读、复制摘要、收藏、稍后读和忽略，不提供网页全文代理/iframe、偏好 feedback 或 Graph。订阅控制台通过 catalog、subscriptions、jobs、schedule、source-health 和 users API 管理信息获取，并通过 subscription 字段逐源选择新内容通知；首页“获取新内容”创建 `user_feed_refresh`，不得退化为只重新 GET snapshot。设置页保留 `/api/config`、`/api/config/action` facade 管理全局非 source 配置，并通过用户作用域 notification settings API 管理 write-only 目的地和模拟发送测试；两者不得混用 legacy Webhook 状态。
 
 React Query 的所有用户数据 key 必须包含当前 `user_id`；logout、401 或身份切换必须先取消旧请求并删除旧用户缓存。Vite 的 hashed `/assets/*` 可 immutable cache，`index.html` 必须 no-cache；BrowserRouter 深链接由 FastAPI 回退到 React index。`HORIZON_SERVICE_UI_VARIANT=legacy` 只作为一个发布周期的回滚入口，`src/ui/static` 继续服务 legacy CLI/horizon-web，不得重新成为默认 Service 数据路径。
 
@@ -65,7 +65,7 @@ Service UI 在小团体服务模式下必须先完成登录门禁，再加载用
 Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_runner.py` 管理。该 runner 只能读取 catalog source、当前用户 subscription override 和全局非 source 配置来生成单源 `Config`；不得把 UI payload 当作权威抓取配置，也不得在 Worker 中绕过用户作用域 snapshot 写入。
 
 ### 3.6C Structured Feed Production Boundary
-`HorizonOrchestrator.execute()` 只负责抓取、跨源去重、可选分析并返回不可变 `FeedRunResult`；来源级成功/失败必须由 `SourceOutcome` 显式表达，抓取异常不得折叠为空列表。跨源 URL 去重必须保留完整 `source_ids/subscription_ids/source_keys` provenance，且 query identifier 属于 URL 身份。`FeedProductionService` 是全量刷新、单源合并、失败来源旧内容保留、窗口清理和排序的唯一 finalizer；partial 保留判断使用 provenance 与 failed active source 的交集，不能只看 primary `source_id`。Service Worker 与 catalog runner 必须共用该 finalizer，不得执行全局历史增量去重或写全局静态文件、摘要、通知和图谱。
+`HorizonOrchestrator.execute()` 只负责抓取、跨源去重、可选分析并返回不可变 `FeedRunResult`；来源级成功/失败必须由 `SourceOutcome` 显式表达，抓取异常不得折叠为空列表。跨源 URL 去重必须保留完整 `source_ids/subscription_ids/source_keys` provenance，且 query identifier 属于 URL 身份。`FeedProductionService` 是全量刷新、单源合并、失败来源旧内容保留、窗口清理和排序的唯一 finalizer；partial 保留判断使用 provenance 与 failed active source 的交集，不能只看 primary `source_id`。Service Worker 与 catalog runner 必须共用该 finalizer，不得执行全局历史增量去重或写全局静态文件、摘要、legacy 通知和图谱；偏好来源事件只可交给 3.8C 的 Service outbox。
 
 旧 CLI/scheduler 的 `run()` 先调用结构化 `execute(legacy_sources=True)`，再由 `src/services/legacy_publisher.py::LegacyPublisher` 独占全局静态站、`history-data`、摘要、通知、`ArticleStore` archive 和 graph 发布；单源 CLI 静态写入也必须通过该 publisher。该路径可以保留 legacy optional 的全局 archive/graph，但不得被 Service API/Worker 调用，也不得成为 Service UI 的读取兜底。
 
@@ -104,7 +104,7 @@ Gateway bootstrap token 只存在于 React 表单 state；API、React Query、UR
 额度快照最长使用 60 秒。只有 `remaining_included_credits_usd <= 0`、HTTP 402 或明确额度错误可标记 `depleted`，401/明确无效 Token 标记 `invalid`；普通 403、429、5xx 和网络错误不得污染整个 Key。周期恢复后的旧 Key经重新核验只追加到备用队尾，不抢占当前 active，也不恢复历史 Run。该能力由 `HORIZON_APIFY_KEY_POOL_ENABLED` 控制并默认关闭；关闭时 schema/状态可维护，但 Service 保留既有来源级凭证兼容路径。
 
 ### 3.7 Secret Boundary
-Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥。真实 AI/Apify 值由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、DOM 和非管理员 source 投影不得返回真实值。Apify pool 表只引用 `secret_id/version` 和安全状态；活动、排空中或仍有非终态 Run 的成员不得轮换或删除，必须先走安全排空。`source_catalog.secret_env` 在池模式只保留回滚兼容，不参与读取、展示或新来源写入。
+Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥或 Webhook URL。真实 AI/Apify 值与用户 write-only Webhook URL 由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、outbox、DOM 和非管理员 source 投影不得返回真实值。Apify pool 表只引用 `secret_id/version` 和安全状态；活动、排空中或仍有非终态 Run 的成员不得轮换或删除，必须先走安全排空。`source_catalog.secret_env` 在池模式只保留回滚兼容，不参与读取、展示或新来源写入。
 
 ### 3.8 Job Boundary
 长耗时抓取、source test 和用户 feed refresh 必须通过 job queue 表达。Web 请求只创建、取消、重试或查询 job；Worker 负责执行 job 并写入状态/result。Worker claim 在 `BEGIN IMMEDIATE` 中原子写入 `worker_id + claim_token + locked_until`；finalize、失败、续租必须带同一 claim guard。Worker 每 10 秒 heartbeat/续租，35 秒未更新视为 stale；过期 running job 会在下一次 claim 前回到 queued 或达到上限后 failed。SQLite MVP 不强杀正在执行的 Python 任务。
@@ -136,10 +136,22 @@ Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为
 
 现有 Worker 在用户 Feed schedule 之后、claim 普通任务之前评估到期 source schedule。到期检查、active job 去重、配额、job 创建和计划推进必须处于同一 `BEGIN IMMEDIATE` 事务；自动任务固定 `reason=scheduled_source_fetch`、`priority=-10`，并继续复用 catalog runner、结构化 run、Feed v2 finalizer、Source Health 和 claim guard。手动/自动单源任务共享“同一订阅最多一个 queued/running”；active 全量刷新会延后单源计划，参与该订阅的全量刷新也会推进下一周期。
 
-关闭计划、停用订阅或 catalog source、用户降级为 viewer 时，只取消仍 queued 的自动单源任务，不强杀 running claim。该链路与用户 Feed schedule 共享同一个 Worker 和 30 秒 tick，不新增容器，不接触 legacy scheduler、全局静态 Feed、摘要、通知、Graph 或 Archive analytics。
+关闭计划、停用订阅或 catalog source、用户降级为 viewer 时，只取消仍 queued 的自动单源任务，不强杀 running claim。该链路与用户 Feed schedule 共享同一个 Worker 和 30 秒 tick，不新增容器，不接触 legacy scheduler、全局静态 Feed、摘要、legacy 通知、Graph 或 Archive analytics。成功 Feed 的偏好来源 outbox 仍由 3.8C 独立判定。
+
+### 3.8C Preferred-source Notification Boundary
+
+`src/services/preferred_source_notifications.py::PreferredSourceNotificationService` 独占当前用户邮箱/Webhook 目的地设置、新文章差集判定、schema v9 outbox、用户级模拟测试和提交后调度。ServiceStore 只保存 write-safe setting metadata、订阅 opt-in/启用时间与不可回退 generation、Webhook 值的一致性摘要和 delivery 状态；Webhook URL 真实值只存在于 `SecretStore` 的用户专属环境变量，不能进入 SQLite、config JSON、Feed、Job、日志或 API 响应。设置 partial PATCH 必须在 SQLite 写锁内重读实时用户并合并，任何 SecretStore mutation 前再次确认 enabled/writable role；摘要与用户专属变量不匹配时配置、staging 和发送全部 fail closed，显式清空负责删除确定性变量下的 orphan 值。
+
+`src/services/notification_email_transport.py::WorkspaceEmailTransportService` 独占 schema v10 工作区邮件发送配置、固定 Provider Registry、凭据绑定、管理员测试门禁和 MIME/SMTP 发送。QQ、网易、Gmail、Resend 与 Amazon SES 的 host/port/login 只由 Registry 派生，API 不接受自定义 host 或 TLS 模式；SES host 只能由经过格式约束的 Region 拼接。Owner/Admin mutation 在 SQLite 写锁内重读实时 actor；凭据只写确定性的工作区 SecretStore 变量，SQLite 只保存变量名与 SHA-256 摘要。API 测试与 Worker 必须复用同一发送方法，每次发送重新读取 SecretStore 并比较摘要，TLS 使用系统 CA、SSL/465 和 20 秒 timeout。
+
+通知候选必须在 `FeedProductionService` 已生成 snapshot 后、`JobQueue.complete_job()` 的 claim-guarded 事务提交前通过局部 savepoint stage；它只接受相邻 snapshot 的稳定 article ID 新增、完整订阅 provenance、严格晚于用户与订阅启用水位的可解析 `published_at`，并跳过首份 snapshot、历史复用、reconcile、`personal_only`、source test、content repair 和失败任务。snapshot、Source Health、Job 或 claim 回滚时 outbox 同步回滚；通知 staging 自身失败只回滚该 savepoint，不得让已完成获取重跑。
+
+外部邮箱/Webhook 只能在 Job 成功提交后由同一常驻 Worker 消费；不得在 finalizer 事务内联网，也不得调用 `LegacyPublisher`、legacy `EmailManager`/`WebhookNotifier` 或新增 dispatcher/scheduler 容器。同一用户/渠道/Job 最多 20 个 distinct article ID 及这些文章的全部 provenance ledger 在一次事务中 claim 为 `sending`，payload 按 article ID 去重后合并为一次外呼；外呼前必须复查用户、来源、订阅、设置、当前双启用水位和双 generation，同时要求可信的 delivery 创建时间和来源 `published_at` 均严格晚于该水位。generation 不受墙钟回拨影响，任何关闭后重开的旧 delivery 都必须安全终结。明确失败只写安全状态并保持 Feed/Job 成功，transport 结果未知的 `sending` 永不自动重放。工作区邮件 transport 不 ready 时 email 不进入 outbox，用户 opt-in 与 Feed 基线仍保留；恢复后只消费之后相邻快照中的严格新增内容，不补发暂停期间条目。transport 轮换、停用或删除把尚未开始的 email delivery 终结为 `notification_transport_changed`，已经 `sending` 的记录保持未知。停用用户在同一事务关闭账户通知并清除用户水位；停用 subscription、catalog source 或切到 `personal_only` 清除逐源 opt-in 与水位，重新启用不自动恢复。测试 API 发送明确模拟内容且不创建 delivery、不读取或推进内容基线、不触发抓取/AI，并分别使用用户级或工作区级 SQLite 原子 60 秒冷却限制并发滥用。
+
+Webhook egress 只接受 SecretStore 当前保存的 credential-free HTTPS，并复用 `src/services/network_policy.py` 的公网解析和 IP pinning；它禁用环境代理、拒绝 redirect，以 bounded DNS、单地址单次 POST、5 秒 transport timeout 和 6 秒总 deadline 发送。请求只接受 identity encoding，响应正文不得读取或解压；非 identity 响应按已开始发送但结果未知处理。Service 邮箱只使用 schema v10 workspace transport 与其 SecretStore 凭据，不读取 `data/config.json.email` 或进程环境作为兜底。两种 transport 的上游正文、目的地和凭据均不得进入公开错误或日志。
 
 ### 3.9 Config Compatibility Boundary
-`data/config.json` 暂时只承载 AI、过滤、Webhook、标签库等全局配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
+`data/config.json` 暂时只承载 AI、过滤、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户偏好来源通知位于 Service schema v9，工作区 Service 邮件 transport 位于 schema v10，真实值分别进入 SecretStore，不复用 legacy Webhook/SMTP 配置。兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
 
 全局非 source 配置只允许 `owner/admin` 修改；`member/viewer` 不得借兼容 facade 改写 AI、过滤、标签或 Webhook。member source action 的 topics/personal tags 只写 source/subscription；任何管理员全局标签写入也必须在 catalog/subscription 成功后执行。旧配置批量导入只能更新 scope/owner/type 兼容的 source，另一用户 private key 碰撞必须跳过。SQLite 连接必须统一开启 foreign keys 和 busy timeout；native/Linux 默认使用 WAL，但 macOS Docker bind mount 的 light Compose 必须让 API/Worker 同时使用 DELETE journal，避免跨容器 WAL 共享内存可见性漂移。journal mode 只能由 `HORIZON_SQLITE_JOURNAL_MODE=WAL|DELETE` 选择。API 连接按 ContextVar 请求作用域隔离，禁止跨并发请求共享。
 
@@ -173,7 +185,7 @@ DeepSeek 继续复用 OpenAI-compatible client，缺省 Base URL 和 Key env 归
 6. 禁止把成本型流程作为 light runtime 的默认副作用。
 7. 禁止静态 UI 直接读取 `radar-data.json`、`history-data.json`、`article-graph.json` 或依赖 `data/config.json` 源列表文件结构。
 8. 禁止默认 Service UI 调用 archive analytics、source-quality、Graph 或 feedback compatibility routes。
-9. 禁止用 legacy scheduler、第三个 dispatcher、摘要/通知或静态 publisher 承担用户 Feed schedule。
+9. 禁止用 legacy scheduler、第三个 dispatcher、摘要/legacy 通知或静态 publisher 承担用户 Feed schedule；偏好来源通知只能消费 3.8C 的提交后 outbox。
 10. 禁止 Remote MCP 复用 legacy MCP 工具注册、接受客户端指定的 user/workspace，或运行任何服务器侧 Agent/模型。
 
 ## 5. 扩展原则

@@ -3,7 +3,7 @@
 
 <!-- init-pro:section name=purpose -->
 ## 1. Project Context
-Inteliscope InfoHub Light is a private multi-user, multi-source information hub. Its current product job is source subscription, acquisition, Feed display, and per-user Feed history retention; archive analytics, recommendation, Graph, and in-site article proxying are not the current product line.
+Inteliscope InfoHub Light is a private multi-user, multi-source information hub. Its current product job is source subscription, acquisition, Feed display, per-user Feed history retention, and opt-in new-item notification for user-selected sources; archive analytics, recommendation, Graph, and in-site article proxying are not the current product line.
 
 Current domain objects:
 
