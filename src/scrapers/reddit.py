@@ -68,7 +68,10 @@ class RedditScraper(BaseScraper):
         items = []
         for result in results:
             if isinstance(result, Exception):
-                logger.warning("Error fetching Reddit source: %s", result)
+                logger.warning(
+                    "Reddit source fetch failed error_code=%s",
+                    type(result).__name__,
+                )
                 if self.strict_errors:
                     raise result
             elif isinstance(result, list):
@@ -87,8 +90,7 @@ class RedditScraper(BaseScraper):
             data = await self._reddit_get(url, params)
         except RedditBlockedError:
             logger.warning(
-                "Reddit blocked JSON listing for r/%s; falling back to RSS",
-                cfg.subreddit,
+                "Reddit blocked JSON listing; falling back to RSS"
             )
             return await self._fetch_subreddit_rss(cfg, since)
         if data is not None:
@@ -126,7 +128,10 @@ class RedditScraper(BaseScraper):
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
-            logger.warning("Reddit RSS fallback failed for r/%s: %s", cfg.subreddit, e)
+            logger.warning(
+                "Reddit RSS fallback failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
             return []
@@ -379,8 +384,7 @@ class RedditScraper(BaseScraper):
                 )
             if response.status_code == 403 and "/comments/" in url:
                 logger.info(
-                    "Reddit blocked comments request for %s; continuing without comments",
-                    url,
+                    "Reddit blocked comments request; continuing without comments"
                 )
                 return None
             if response.status_code == 403:
@@ -390,7 +394,10 @@ class RedditScraper(BaseScraper):
         except RedditBlockedError:
             raise
         except httpx.HTTPError as e:
-            logger.warning("Reddit request failed for %s: %s", url, e)
+            logger.warning(
+                "Reddit request failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
             return None

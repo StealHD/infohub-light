@@ -40,12 +40,17 @@ def test_worker_source_test_job_builds_payload_from_catalog_source(tmp_path, mon
         payload={},
     )
     calls = []
+    operation_events = []
 
     def fake_run_source_test(payload):
         calls.append(payload)
         return {"ok": True, "source_type": payload["source_type"]}
 
     monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
+    monkeypatch.setattr(
+        "src.services.worker.safe_emit_operation_event",
+        lambda **event: operation_events.append(event) or True,
+    )
     caplog.set_level("INFO", logger="src.services.worker")
 
     result = run_worker_once(data_dir=str(tmp_path), worker_id="test-worker")
@@ -67,12 +72,27 @@ def test_worker_source_test_job_builds_payload_from_catalog_source(tmp_path, mon
     ]
     messages = [record.getMessage() for record in caplog.records]
     assert any(
-        f"worker_id=test-worker job_id={job['id']} job_type=source_test run_id=-" in message
+        f"job_id={job['id']} job_type=source_test" in message
         and "status=succeeded" in message
         and "duration_ms=" in message
         for message in messages
     )
     assert all("feed.xml" not in message and "claim_token" not in message for message in messages)
+    assert [
+        (event["category"], event["action"], event["outcome"])
+        for event in operation_events
+    ] == [
+        ("job", "claim", "running"),
+        ("job", "finish", "succeeded"),
+        ("acquisition", "test", "succeeded"),
+    ]
+    assert all(
+        event["workspace_id"] == workspace["id"]
+        and event["subject_user_id"] == owner["id"]
+        and event["job_id"] == job["id"]
+        and event["source_id"] == source_id
+        for event in operation_events
+    )
     attempt_usage = store.connect().execute(
         """
         SELECT provider, quantity

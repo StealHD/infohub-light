@@ -188,7 +188,7 @@ def _extract_headers(headers_str: Optional[str]) -> dict:
             continue
         parts = line.split(":", 1)
         if len(parts) != 2:
-            logger.warning("Invalid webhook header line: %s", line)
+            logger.warning("Invalid webhook header line")
             continue
         k, v = parts[0].strip(), parts[1].strip()
         headers[k] = v
@@ -288,10 +288,7 @@ class WebhookNotifier:
         raw_url = os.getenv(self.config.url_env)
         if raw_url is None:
             # env var name configured, but the env var itself doesn't exist
-            logger.warning(
-                "Webhook enabled but env var '%s' is not set, skipping notification.",
-                self.config.url_env,
-            )
+            logger.warning("Webhook destination is unavailable; skipping notification")
             self.console.print(
                 f"[yellow]Webhook enabled but env var '{self.config.url_env}' is not set "
                 f"in your environment. Skipping notification.[/yellow]"
@@ -559,10 +556,7 @@ class WebhookNotifier:
             return
 
         if not self.url:
-            logger.warning(
-                "Webhook enabled but URL is empty (env var %s not set), skipping notification.",
-                self.config.url_env,
-            )
+            logger.warning("Webhook destination is unavailable; skipping notification")
             self.console.print(
                 f"[yellow]Webhook enabled but URL is empty — "
                 f"env var '{self.config.url_env}' is not set. Skipping notification.[/yellow]"
@@ -573,9 +567,8 @@ class WebhookNotifier:
         safe_url = redact_url(request_url)
         if body_content is not None:
             logger.debug(
-                "Webhook POST body (%d chars): %s",
+                "Webhook POST body prepared chars=%d",
                 len(body_content or ""),
-                (body_content or "")[:2000],
             )
 
         try:
@@ -595,22 +588,34 @@ class WebhookNotifier:
             self.console.print(
                 f"[red]Webhook URL is invalid: {e}[/red]"
             )
-            logger.error("Webhook URL invalid: %s, env var: %s", e, self.config.url_env)
+            logger.error(
+                "Webhook destination invalid error_code=%s",
+                type(e).__name__,
+            )
         except httpx.ConnectError as e:
             self.console.print(
                 f"[red]Webhook connection failed: {e}[/red]"
             )
-            logger.error("Webhook connection failed: URL=%s, error=%s", safe_url, e)
+            logger.error(
+                "Webhook connection failed error_code=%s",
+                type(e).__name__,
+            )
         except httpx.TimeoutException as e:
             self.console.print(
                 f"[red]Webhook request timed out: {e}[/red]"
             )
-            logger.error("Webhook timeout: URL=%s, error=%s", safe_url, e)
+            logger.error(
+                "Webhook timeout error_code=%s",
+                type(e).__name__,
+            )
         except Exception as e:
             self.console.print(
                 f"[red]Webhook call failed unexpectedly: {type(e).__name__}: {e}[/red]"
             )
-            logger.error("Webhook unexpected error: URL=%s, type=%s, error=%s", safe_url, type(e).__name__, e)
+            logger.error(
+                "Webhook unexpected failure error_code=%s",
+                type(e).__name__,
+            )
 
     def _check_body_error_code(self, body: str) -> Optional[str]:
         """Check if a 2xx response body contains a platform-specific error code.
@@ -654,6 +659,7 @@ class WebhookNotifier:
         in the JSON body (e.g. Feishu code=19001, DingTalk errcode=400,
         Slack ok=false).
         """
+        del safe_url
         status = response.status_code
         body = response.text[:500]
 
@@ -661,50 +667,49 @@ class WebhookNotifier:
             error_hint = self._check_body_error_code(body)
             if error_hint:
                 logger.warning(
-                    "Webhook 2xx but body contains error: URL=%s, status=%d, body=%s",
-                    safe_url, status, body,
+                    "Webhook 2xx response contains an error status=%d",
+                    status,
                 )
                 self.console.print(
                     f"[yellow]Webhook response (status={status}): {body}[/yellow]\n"
                     f"[yellow]{error_hint}[/yellow]"
                 )
             else:
-                logger.info("Webhook sent OK. URL: %s, body: %s", safe_url, body)
+                logger.info("Webhook sent successfully status=%d", status)
                 self.console.print(
                     f"[green]Webhook response (status={status}): {body}[/green]"
                 )
             return
 
         if 300 <= status < 400:
-            location = response.headers.get("location", "")
             self.console.print(
                 f"[yellow]Webhook received redirect (status={status})[/yellow]"
             )
             logger.warning(
-                "Webhook redirect: URL=%s, status=%d, location=%s",
-                safe_url, status, location,
+                "Webhook redirect rejected status=%d",
+                status,
             )
         elif 400 <= status < 500:
             self.console.print(
                 f"[red]Webhook client error (status={status}): {response.text[:500]}[/red]"
             )
             logger.error(
-                "Webhook client error: URL=%s, status=%d, body=%s",
-                safe_url, status, response.text[:500],
+                "Webhook client error status=%d",
+                status,
             )
         elif 500 <= status < 600:
             self.console.print(
                 f"[red]Webhook server error (status={status}): {response.text[:500]}[/red]"
             )
             logger.error(
-                "Webhook server error: URL=%s, status=%d, body=%s",
-                safe_url, status, response.text[:500],
+                "Webhook server error status=%d",
+                status,
             )
         else:
             self.console.print(
                 f"[red]Webhook unexpected status={status}: {response.text[:500]}[/red]"
             )
-            logger.error("Webhook unexpected status: URL=%s, status=%d", safe_url, status)
+            logger.error("Webhook unexpected status=%d", status)
 
     async def send_daily_summary(
         self,

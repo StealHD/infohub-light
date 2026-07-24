@@ -26,9 +26,15 @@
 - `src/ui/static/config.js`: config forms, tag editors, source forms.
 - `src/ui/static/app.js`: data loading and startup binding.
 
+## Observability
+- [`observability-logging.md`](observability-logging.md): private runtime/operation JSONL, retention, redaction, event emission, and OpenClaw query boundary.
+- `src/logging_utils.py`: shared private file handlers, UTC rotation, retention cleanup, and final runtime redaction.
+- `src/services/operation_log.py`: schema-v1 operation events and bounded current-user query service.
+
 ## Tests
 - `tests/test_config_server.py`: config validation/actions and source-test API behavior.
 - `tests/test_analyzer.py`: AI analysis behavior and cache.
 - `tests/test_token_usage.py`: token accounting.
 - `tests/test_orchestrator_token_budget.py`: personal-only analysis partitioning.
 - `tests/test_static_reading_ui.py`: static UI contract checks.
+- `tests/test_logging_utils.py`, `tests/test_operation_log.py`, `tests/test_api_operation_logging.py`: file, schema, isolation, and transaction logging contracts.

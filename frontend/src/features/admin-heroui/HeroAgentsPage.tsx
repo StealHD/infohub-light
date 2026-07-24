@@ -42,6 +42,7 @@ export const READ_TOOL_FILTER = [
   'list_available_sources',
   'diagnose_source',
   'diagnose_job',
+  'query_operation_logs',
 ] as const
 export const SUBSCRIPTION_WRITE_TOOL_FILTER = [
   ...READ_TOOL_FILTER,
@@ -385,14 +386,14 @@ export function HeroAgentsPage() {
       <AdminSection title="OpenClaw MCP 配置" description="MCP token 保存在本机 ~/.openclaw/.env 并设置 0600 权限；它与 Gateway token 完全不同，也不要配置 OAuth。">
         <div className="grid gap-3 min-[900px]:grid-cols-2">
           <OpenClawConfigurationCard
-            title="只读 · 10 个工具"
+            title="只读 · 11 个工具"
             description="读取并诊断信息流、订阅、来源健康和任务。"
             configuration={readConfiguration}
             configurationLabel="OpenClaw 配置命令"
             onCopy={() => void copy(readConfiguration, '只读配置已复制。')}
           />
           <OpenClawConfigurationCard
-            title="订阅管理 · 14 个工具"
+            title="订阅管理 · 15 个工具"
             description={query.data.subscription_writes_enabled ? '变更仍需 prepare、准确确认和 apply。' : '生产订阅写入当前关闭。'}
             configuration={writeConfiguration}
             configurationLabel="订阅管理 OpenClaw 配置命令"

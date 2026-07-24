@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-24',
+        title: 'OpenClaw 安全诊断事件',
+        summary: '排查任务和关键操作时可以取得更连贯的脱敏事件，同时保持日志与账户严格隔离。',
+        items: [
+          { title: '按关联线索排查', description: 'OpenClaw 可在明确排障请求中按最近时间、任务、来源、订阅或请求关联查看安全事件，帮助串联排队、执行、获取和通知结果。' },
+          { title: '只限当前账户', description: '只读与订阅管理连接都只能取得与当前账户相关的事件；Owner 或 Admin 连接也不能代查其他成员。' },
+          { title: '原始日志不展示', description: '页面不新增日志列表或日志正文；原始消息、文件路径、身份、文章内容、URL、凭据和堆栈不会交给 OpenClaw。' },
+          { title: '连接配置同步', description: '只读连接现在包含 11 个安全工具，订阅管理连接包含 15 个；原有 prepare、准确确认和 apply 边界不变。' },
+        ],
+      },
+      {
+        date: '2026-07-24',
         title: '订阅与运行记录更清爽',
         summary: '用更清楚的来源卡、筛选下拉和自动更新开关减少订阅页的信息拥挤。',
         items: [

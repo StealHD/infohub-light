@@ -19,6 +19,7 @@ TOOLS = {
     "apply_subscription_change",
     "diagnose_source",
     "diagnose_job",
+    "query_operation_logs",
 }
 READ_TOOLS = {
     "get_my_feed",
@@ -31,6 +32,7 @@ READ_TOOLS = {
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
+    "query_operation_logs",
 }
 
 
@@ -81,7 +83,8 @@ def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_call
         r"`(get_my_feed|get_item|list_subscriptions|source_health|list_jobs|get_job|"
         r"get_source_setup_guide|list_available_sources|prepare_create_subscription|"
         r"prepare_update_subscription|prepare_delete_subscription|"
-        r"apply_subscription_change|diagnose_source|diagnose_job)`",
+        r"apply_subscription_change|diagnose_source|diagnose_job|"
+        r"query_operation_logs)`",
         combined,
     ))
     assert named_tools == TOOLS
@@ -155,7 +158,7 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     assert [
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
-    ] == [(10, READ_TOOLS), (14, TOOLS)]
+    ] == [(11, READ_TOOLS), (15, TOOLS)]
 
 
 def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch():

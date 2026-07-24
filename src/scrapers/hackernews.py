@@ -80,7 +80,10 @@ class HackerNewsScraper(BaseScraper):
             return items
 
         except httpx.HTTPError as e:
-            logger.warning("Error fetching Hacker News stories: %s", e)
+            logger.warning(
+                "Hacker News fetch failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
             return []

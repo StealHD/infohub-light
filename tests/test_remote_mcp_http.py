@@ -1,6 +1,8 @@
+import json
 import httpx
 import pytest
 import sqlite3
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -210,7 +212,7 @@ async def test_remote_mcp_uses_exact_path_static_bearer_and_transport_security(
 
 
 @pytest.mark.anyio
-async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations_and_calls_reads(
+async def test_real_mcp_client_lists_fifteen_tools_with_exact_annotations_and_calls_reads(
     tmp_path, monkeypatch
 ):
     app = _app(tmp_path, monkeypatch)
@@ -282,6 +284,7 @@ async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations_and_c
         "apply_subscription_change",
         "diagnose_source",
         "diagnose_job",
+        "query_operation_logs",
     ]
     get_item_schema = next(
         tool.inputSchema for tool in listed.tools if tool.name == "get_item"
@@ -310,6 +313,7 @@ async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations_and_c
         "list_available_sources",
         "diagnose_source",
         "diagnose_job",
+        "query_operation_logs",
     }:
         assert annotations[name].readOnlyHint is True
         assert annotations[name].destructiveHint is False
@@ -332,6 +336,121 @@ async def test_real_mcp_client_lists_fourteen_tools_with_exact_annotations_and_c
     assert result.structuredContent["items"][0]["article_id"] == "article-1"
     assert all(call.isError is False for call in remaining_results)
     assert _business_dump(app) == before
+
+
+@pytest.mark.anyio
+async def test_query_operation_logs_is_strictly_current_user_scoped_for_all_roles(
+    tmp_path,
+    monkeypatch,
+):
+    app = _app(tmp_path, monkeypatch)
+    store = app.state.service_store
+    workspace = store.get_default_workspace()
+    users = {
+        "owner": store.get_user_by_username("owner"),
+        **{
+            role: store.create_user(
+                workspace_id=workspace["id"],
+                username=f"{role}-logs",
+                password=f"{role}-password",
+                role=role,
+            )
+            for role in ("admin", "member", "viewer")
+        },
+    }
+    tokens = {
+        role: store.create_agent_delegation(
+            workspace_id=workspace["id"],
+            user_id=user["id"],
+            name=f"{role} log reader",
+            access="read",
+        )[1]
+        for role, user in users.items()
+    }
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    raw_events = [
+        {
+            "schema_version": 1,
+            "event_id": f"evt_{role}",
+            "timestamp": now,
+            "level": "info",
+            "service": "api",
+            "category": "account",
+            "action": "profile_update",
+            "outcome": "succeeded",
+            "workspace_id": workspace["id"],
+            "actor_user_id": user["id"],
+            "job_id": f"job_{role}",
+            "message": "raw message must not escape",
+            "stack": "private stack",
+            "path": "/private/log/path",
+            "url": "https://private.example/path",
+            "authorization": "Bearer private",
+            "article_id": "private-article",
+        }
+        for role, user in users.items()
+    ]
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    log_dir.joinpath("operations-api.jsonl").write_text(
+        "".join(json.dumps(event) + "\n" for event in raw_events),
+        encoding="utf-8",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    results = {}
+    async with app.router.lifespan_context(app):
+        for role, token in tokens.items():
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://127.0.0.1:8080",
+                headers={"Authorization": f"Bearer {token}"},
+            ) as client:
+                async with streamable_http_client(
+                    "http://127.0.0.1:8080/mcp",
+                    http_client=client,
+                    terminate_on_close=False,
+                ) as (read_stream, write_stream, _get_session_id):
+                    async with ClientSession(
+                        read_stream, write_stream
+                    ) as session:
+                        await session.initialize()
+                        results[role] = await session.call_tool(
+                            "query_operation_logs",
+                            {"lookback_hours": 1, "limit": 100},
+                        )
+                        cross_scope = await session.call_tool(
+                            "query_operation_logs",
+                            {
+                                "lookback_hours": 1,
+                                "job_id": (
+                                    "job_member"
+                                    if role != "member"
+                                    else "job_owner"
+                                ),
+                            },
+                        )
+                        assert cross_scope.structuredContent["events"] == []
+
+    for role, result in results.items():
+        assert result.isError is False
+        payload = result.structuredContent
+        assert [event["event_id"] for event in payload["events"]] == [
+            f"evt_{role}"
+        ]
+        serialized = json.dumps(payload)
+        for user in users.values():
+            assert user["id"] not in serialized
+        for forbidden in (
+            workspace["id"],
+            "raw message",
+            "private stack",
+            "/private/log/path",
+            "private.example",
+            "Bearer private",
+            "private-article",
+        ):
+            assert forbidden not in serialized
 
 
 @pytest.mark.anyio

@@ -41,7 +41,10 @@ class TelegramScraper(BaseScraper):
         items = []
         for result in results:
             if isinstance(result, Exception):
-                logger.warning("Error fetching Telegram channel: %s", result)
+                logger.warning(
+                    "Telegram channel fetch failed error_code=%s",
+                    type(result).__name__,
+                )
                 if self.strict_errors:
                     raise result
             elif isinstance(result, list):
@@ -55,12 +58,18 @@ class TelegramScraper(BaseScraper):
             response = await self.client.get(url, headers=headers, follow_redirects=True, timeout=120.0)
             if response.status_code == 429:
                 retry_after = int(response.headers.get("Retry-After", 5))
-                logger.warning("Telegram rate limited for %s, retrying after %ds", cfg.channel, retry_after)
+                logger.warning(
+                    "Telegram rate limited; retrying after seconds=%d",
+                    retry_after,
+                )
                 await asyncio.sleep(retry_after)
                 response = await self.client.get(url, headers=headers, follow_redirects=True, timeout=120.0)
             response.raise_for_status()
         except Exception as e:
-            logger.warning("Telegram request failed for %s: [%s] %r", cfg.channel, type(e).__name__, e)
+            logger.warning(
+                "Telegram request failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
             return []

@@ -212,8 +212,8 @@
 ### D024 每用户本地 OpenClaw 通过远程只读 MCP 访问 Inteliscope
 
 - 决策日期：2026-07-16
-- 当前状态：10 个安全读工具的本地实现与发布自动化完成，默认功能关闭，待 API-only staging、Nginx 和真实 OpenClaw canary 验收后才能在生产打开；订阅写开关继续关闭。
-- 决策内容：模型、对话、推理和 Skill 均运行在用户本地 OpenClaw；Inteliscope 在现有 `horizon-api` 的 `/mcp` 为 read delegation 提供 10 个无状态、用户隔离、有界的安全读、来源指导和诊断工具，Web UI 只管理 delegation 凭证和配置指南。
+- 当前状态：11 个安全读工具的本地实现与发布自动化完成，默认功能关闭，待 API-only staging、Nginx 和真实 OpenClaw canary 验收后才能在生产打开；订阅写开关继续关闭。
+- 决策内容：模型、对话、推理和 Skill 均运行在用户本地 OpenClaw；Inteliscope 在现有 `horizon-api` 的 `/mcp` 为 read delegation 提供 11 个无状态、用户隔离、有界的安全读、来源指导、诊断与脱敏事件工具，Web UI 只管理 delegation 凭证和配置指南。
 - 原因：多人都可使用自己的本地模型与 OpenClaw 配置，服务器不承担 Agent/LLM 资源和会话状态；工具直接调用 Service/Store 可避免内部 HTTP 回环延迟。
 - 影响范围：additive v6/v7 数据结构、Cookie Session 管理 API、精确 `/mcp` 路由、`/agents` 页面和本地 Skill 包。所有角色都可创建自己的 read connection，但管理员令牌仍只能读管理员自己的数据。旧 `src/mcp/server.py` 继续作为本地 stdio/legacy 能力，不对外暴露。
 - 非目标：OAuth、站内聊天、本地 Agent URL、刷新/抓取、任务控制、Feed 状态写入、管理员 delegation 控制台、ClawHub 发布、服务器侧 Agent 或模型；订阅写流程由 D034 单独约束且本次生产发布不启用。
@@ -297,7 +297,7 @@
 
 - 决策日期：2026-07-18
 - 当前状态：本地实现与合同完成；写开关默认关闭。真实 OpenClaw canary、API-only staging 和生产启用尚未执行。
-- 决策内容：保留 read delegation 的 `inteliscope:read`，其 OpenClaw toolFilter 包含全部 10 个安全读取、指导/发现与诊断工具；仅 Web 显式创建的新 `subscriptions_write` connection 同时拥有 `inteliscope:subscriptions:write` 并额外暴露三个 prepare 与一个 apply。`owner/admin/member` 可选择该权限，viewer 永远只读；`HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED` 是独立的 opt-in server flag。prepare 只产生 10 分钟的密封 proposal 和完整 preview；只有带精确确认短语的 apply 能调用共享 `SubscriptionMutationService` 写入。
+- 决策内容：保留 read delegation 的 `inteliscope:read`，其 OpenClaw toolFilter 包含全部 11 个安全读取、指导/发现、诊断与脱敏事件工具；仅 Web 显式创建的新 `subscriptions_write` connection 同时拥有 `inteliscope:subscriptions:write` 并额外暴露三个 prepare 与一个 apply。`owner/admin/member` 可选择该权限，viewer 永远只读；`HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED` 是独立的 opt-in server flag。prepare 只产生 10 分钟的密封 proposal 和完整 preview；只有带精确确认短语的 apply 能调用共享 `SubscriptionMutationService` 写入。
 - 原因：把 flag、scope、实时角色、所有权、配额和指纹复查放到服务端事务内，避免 Skill 文案或一次 MCP 调用成为业务写入授权；REST 与 MCP 复用同一 mutation owner，不形成内部 HTTP loop。当前 OpenClaw 通用 `mcp.servers` 客户端没有 Elicitation handler，因此确认短语是兼容性流程，不能声称协议层已证明真人确认；未来支持 Elicitation 时可替换交互步骤而不改变 proposal 模型。
 - 安全边界：诊断仅基于脱敏持久化证据并允许 `unknown`；Skill/文章内容不能驱动写参数。密钥继续只在 Web SecretStore 管理，聊天、MCP 输入、proposal、日志和 UI 配置均不得接收或回显密钥。
 - 非目标：不新增 OAuth、refresh token、服务器 Agent/LLM、站内聊天、本地 Gateway 探测、共享来源管理、密钥管理、刷新/重试/取消、Feed item 状态写入或 ClawHub 发布。
@@ -552,3 +552,12 @@
 - 决策内容：352 px Insights 继续作为右侧浮层而非第三列。用户手动打开时，ViewBar、Feed 卡片、Skeleton、空态和错误态作为一条 reading surface 等量左移，先消耗默认居中产生的左 gutter，并在主内容左侧保留 12 px；只有剩余空间仍不足时才允许覆盖卡片。面板位置和让位量以当前 main、侧栏及可拖拽 Agent rail 的实测几何为准。
 - 原因：固定右锚点直接覆盖卡片会浪费 reading surface 左侧的可用空间；把 Insights 换到左侧或压窄 820 px 卡片列则会改变用户已确认的视觉位置与阅读排版。统一平移能利用现有空白，又保持卡片宽度和纵向虚拟列表锚点。
 - 兼容/边界：自动展示仍只在原始右 gutter 至少 376 px 时发生，不因新算法扩大自动出现范围；移动端仍使用 Bottom Sheet。让位使用既有 220 ms motion，Agent 指针缩放立即跟手，Reduced Motion 立即完成。无新 API、Query、数据库、图表依赖、Feed snapshot 或运行任务变化。
+
+### D065 诊断日志采用私有双流文件与当前用户 MCP 投影
+
+- 决策日期：2026-07-24
+- 当前状态：本地实现、定向验收与完整门禁完成；未部署
+- 决策内容：API、Worker、legacy Scheduler 与 CLI 共用 UTC 每日轮转的 runtime/operation JSONL；默认保留 30 天并固定私有权限。关键状态变化只写有界 schema-v1 事件，成功必须在提交后产生。OpenClaw 新增只读 `query_operation_logs`，只投影当前 delegation workspace 中 actor 或 subject 为当前用户的脱敏事件；Owner/Admin 无跨用户例外。
+- 原因：仅靠自由文本运行日志难以用 request/Job/source/subscription ID 串联问题，也不能安全进入 Agent 上下文；数据库审计表又会引入迁移、备份与产品数据生命周期。独立结构化文件可提供足够诊断关联，同时把原始 runtime、身份和文件系统细节留在服务器。
+- 安全/产品边界：不新增数据库表、日志 REST API 或前端日志页面。日志不记录凭据、目的地、URL、config/payload、环境变量名、个人标签、文章 ID/正文、上游响应或确认短语；MCP 再执行白名单、扫描上限、损坏行跳过、符号链接拒绝和当前用户隔离。普通 GET、Feed 浏览、item state、空轮询与 heartbeat 成功不落 operation event。
+- 兼容/回退：`HORIZON_LOG_RETENTION_DAYS` 缺省 30、合法范围 1..365；关闭 Remote MCP 或移除该 read tool 不影响文件日志。回退代码和 toolFilter 后可保留既有 JSONL 到自然过期，不需要数据库迁移或数据恢复。

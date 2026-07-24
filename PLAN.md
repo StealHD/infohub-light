@@ -10,6 +10,8 @@
 
 前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。设置页密钥管理已把 Apify Key 收敛为唯一的主用/备用池，提供安全额度投影、状态、排空和可访问排序；来源编辑器在池模式下不再展示来源级 Key 选择。该能力不改变上述运行、发布或数据授权状态。
 
+当前诊断日志分支已从本地 `main@ee93d72` 建立：API/Worker/Scheduler/CLI 私有双流 JSONL、30 天默认保留、提交后关键事件与 OpenClaw 当前用户安全查询已完成定向与完整门禁验收；不含日志 REST API、前端日志展示、数据库迁移、真实来源/AI/付费调用、完整 scheduler 或部署。
+
 已完成：
 
 1. 默认 runtime 固定启动独立 API + Worker，scheduler 仅在显式 profile 中启用。
@@ -57,7 +59,7 @@
 43. 低 Token 分层测试门禁 v1：`scripts/test_gate.py` 提供 snapshot/plan/targeted/full/release，`tests/test_impact_map.json` 负责确定性映射，完整日志私有落盘并只输出 2 KiB 成功或 8 KiB 首失败摘要；PR/main 并行跑 full backend/frontend，UI 改动追加 Playwright，正式发布追加隔离的 API-only Docker smoke。
 43. 收藏、站内阅读与社交媒体完整性 v1：additive `user_content_items/media_assets`、Presentation v2 详情、用户隔离收藏/媒体 API、显式已读/未读、按用户持久化 Feed 偏好、RSS/Instagram/X 图片和统一头像缓存、社交 profile 最新一条保留、Xquik adapter 与 v4 显式迁移已实现。Xquik 真实 canary 尚未通过：当前备用 Key 所在 FREE tier 单条价格为 `$0.015`，因此计划固定的 `$0.01` 运行上限被 Apify 拒绝；正式 X Actor 配置仍保持旧值，等待明确授权把 canary cap 提升到至少 `$0.02`。
 44. Feed 事件、历史修复与 DeepSeek v1：Feed terminal 通知只消费当前会话观察到的真实 snapshot 事件；认证动作按 user/action/entity 提供局部状态；v5 显式修复、reconcile 和 `content_repair` 保持零 snapshot/AI，当前内容为 24 captured/2 excerpt-only；DeepSeek Secret/UI、`deepseek-v4-flash`、模型无关 input hash、安全跨模型复用、零 Token 预检与单次 smoke 已实现。真实 DeepSeek 启用仍等待轮换 Key。
-45. OpenClaw Remote MCP subscription management v1：本地实现已完成 14 个工具（10 个安全读、3 个 prepare、1 个 apply）、additive v6/v7 结构、显式 read/write delegation、共享 mutation service、`/agents` capability/tool-filter UI、本地 Skill、只读 canary 与 API-only 发布 Runbook；read/write flags 默认关闭。100-call 性能基准已通过；真实 OpenClaw canary、API-only staging、TLS `/mcp`、吊销立即 401 与两用户隔离仍是发布前人工边界，生产只能先保持写 flag 关闭。
+45. OpenClaw Remote MCP subscription management v1：本地实现已完成 15 个工具（11 个安全读、3 个 prepare、1 个 apply），新增当前用户脱敏 operation event 查询；additive v6/v7 结构、显式 read/write delegation、共享 mutation service、`/agents` capability/tool-filter UI、本地 Skill、只读 canary 与 API-only 发布 Runbook保持同步，read/write flags 默认关闭。100-call 性能基准已通过；真实 OpenClaw canary、API-only staging、TLS `/mcp`、吊销立即 401 与两用户隔离仍是发布前人工边界，生产只能先保持写 flag 关闭。
 46. Codex-inspired Next Web 工作台视觉原型（历史阶段，已由第 48 项完成生产化）：开发专用无认证原型曾验证暗色层级、精简导航、旧上新下卡片流、短刻度、新内容提示和最多 8 条 OpenClaw 上下文交接。
 47. HeroUI v3 独立候选原型：开发专用 `/__preview/workbench-heroui` 使用 HeroUI v3/Tailwind v4；三档响应式、Axe、焦点归还及生产构建剔除已建立。候选已被第 48 项选为生产体系，固定数据预览继续作为开发验收面。
 48. HeroUI 全站生产切换：`AppBootstrap` 的单一 HeroUI provider、Feed/saved/history 工作台、subscriptions/agents/settings、独立 login、`/later → /saved` 替换、MUI/Emotion/旧 UI 层删除、静态契约和三视口 Playwright/Axe 已完成。当前视觉与交互规则只见 `UI_CONTRACT.md`；API、权限、Query key、Remote MCP 和运行边界均未改变。
@@ -79,6 +81,7 @@
 64. 产品文档与发布入口：新增源码受控 `/manual` 操作手册；账户菜单和独立“文档与发布”菜单均向上展开并提供操作手册、更新日志和 GitHub Release 入口。Test Gate 对每次产品代码合并强制检查手册与更新日志双源已同步复核；权威交互见 `UI_CONTRACT.md`，流程理由见 D057。
 65. 偏好来源新内容通知：用户可在设置页选择邮箱或 write-only Webhook，并在订阅设置中逐源开启；schema v9 outbox 以双水位和不可回退双 generation 只消费启用后的严格新 article ID，首份 Feed、历史复用、旧发布时间、`personal_only` 和测试消息均不推进或补发内容通知。Worker 在 Feed/Health/Job 原子提交后发送，Webhook 通过 SecretStore 摘要一致性 fail closed，通知失败不改变抓取终态；精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D061。
 66. 工作区统一邮件发送服务：schema v10 与 Provider Registry 为 Owner/Admin 提供 QQ、网易、Gmail、Resend、Amazon SES 固定 SSL/465 预设；Service 邮件以该数据库配置和 SecretStore 摘要绑定为唯一真源，按“保存 → 测试 → 启用”门禁运行，轮换/停用时安全终结未开始 delivery，已发送结果未知者不重放。邮件服务暂停不清除用户 opt-in、不入队也不补发，Webhook 独立保持可用；`data/config.json.email` 只留给 legacy CLI。精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D062。
+67. 私有结构化诊断日志：API、Worker、legacy Scheduler 与 CLI 按服务写 runtime/operation JSONL，UTC 每日轮转、默认保留 30 天并固定私有权限；API mutation、MCP、Job、获取与通知关键状态以 request/Job/source/subscription ID 串联，成功只在提交后写入。OpenClaw 只通过第 11 个安全读工具读取当前用户脱敏事件，前端不展示日志；精确边界见 `docs/dev/observability-logging.md`、`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md` 和 D065。
 
 当前仍需推进：
 
@@ -137,7 +140,7 @@
 9. Presentation v1 通用展示合同、来源解析 fixture、用户级 AI cache 和按 run 的 `analysis_usage` 成本诊断。
 10. HeroUI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与共享导航账户区域；视觉规则只见 `UI_CONTRACT.md`。
 11. `test_gate` 映射观察期：保留全量覆盖，记录连续 10 个不同 CI 提交的 selector、`mapping_miss` 和日志/摘要一致性。
-12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、10 个安全读/诊断工具与 4 个受控订阅流程工具、浏览器直连用户 Gateway 的对话 UI 和本地 Skill；生产订阅写开关保持关闭。
+12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、11 个安全读/诊断工具与 4 个受控订阅流程工具、浏览器直连用户 Gateway 的对话 UI 和本地 Skill；生产订阅写开关保持关闭，原始日志与 runtime 不进入 Agent 上下文。
 
 本阶段不做：
 

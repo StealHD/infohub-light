@@ -112,7 +112,10 @@ class GitHubScraper(BaseScraper):
                     items.append(item)
 
         except httpx.HTTPError as e:
-            logger.warning("Error fetching GitHub events for %s: %s", username, e)
+            logger.warning(
+                "GitHub events fetch failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
 
@@ -228,7 +231,10 @@ class GitHubScraper(BaseScraper):
                 items.append(item)
 
         except httpx.HTTPError as e:
-            logger.warning("Error fetching releases for %s/%s: %s", owner, repo, e)
+            logger.warning(
+                "GitHub releases fetch failed error_code=%s",
+                type(e).__name__,
+            )
             if self.strict_errors:
                 raise
 

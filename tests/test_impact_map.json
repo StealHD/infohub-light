@@ -34,6 +34,20 @@
   ],
   "rules": [
     {
+      "id": "observability logging",
+      "globs": [
+        "src/logging_utils.py",
+        "src/main.py",
+        "src/services/email.py",
+        "src/services/operation_log.py",
+        "src/services/webhook.py",
+        "tests/test_api_operation_logging.py",
+        "tests/test_logging_utils.py",
+        "tests/test_operation_log.py"
+      ],
+      "groups": ["python_api_store"]
+    },
+    {
       "id": "API/store",
       "globs": [
         "src/api/**/*.py",
@@ -221,6 +235,7 @@
     "python_api_store": [
       "tests/test_agent_delegation_api.py",
       "tests/test_agent_delegations.py",
+      "tests/test_api_operation_logging.py",
       "tests/test_api_permissions_matrix.py",
       "tests/test_api_service.py",
       "tests/test_apify_key_pool.py",
@@ -252,7 +267,11 @@
       "tests/test_openclaw_skill.py",
       "tests/test_light_runtime_scripts.py",
       "tests/test_notification_email_transport.py",
-      "tests/test_preferred_source_notifications.py"
+      "tests/test_preferred_source_notifications.py",
+      "tests/test_email.py",
+      "tests/test_logging_utils.py",
+      "tests/test_operation_log.py",
+      "tests/test_webhook.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",

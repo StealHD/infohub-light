@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from ..logging_utils import configure_logging
 from ..orchestrator import HorizonOrchestrator
 from ..storage.manager import ConfigError, StorageManager
 from .daily_push import select_daily_push_items
+from .operation_log import safe_emit_operation_event
 
 
 console = Console()
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging(log_dir: str = "logs") -> None:
-    configure_logging(log_dir=log_dir, filename="scheduler.log")
+    configure_logging(log_dir=log_dir, service="scheduler")
 
 
 async def run_once(
@@ -35,24 +37,58 @@ async def run_once(
     enrich: bool = True,
 ) -> None:
     """Run one Horizon aggregation job."""
+    started_at = time.monotonic()
     load_dotenv()
     storage = StorageManager(data_dir="data")
     try:
         config = storage.load_config()
     except FileNotFoundError:
+        safe_emit_operation_event(
+            category="acquisition",
+            action="legacy_scheduler_run",
+            outcome="failed",
+            level="error",
+            error_code="configuration_missing",
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
         console.print("[bold red]Configuration file not found: data/config.json[/bold red]")
         raise
     except ConfigError as exc:
+        safe_emit_operation_event(
+            category="acquisition",
+            action="legacy_scheduler_run",
+            outcome="failed",
+            level="error",
+            error_code="configuration_invalid",
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
         console.print(f"[bold red]Configuration error: {exc}[/bold red]")
         raise
 
     orchestrator = HorizonOrchestrator(config, storage)
-    await orchestrator.run(
-        force_hours=hours,
-        send_notifications=send_notifications,
-        write_summaries=write_summaries,
-        incremental=incremental,
-        enrich=enrich,
+    try:
+        await orchestrator.run(
+            force_hours=hours,
+            send_notifications=send_notifications,
+            write_summaries=write_summaries,
+            incremental=incremental,
+            enrich=enrich,
+        )
+    except Exception as exc:
+        safe_emit_operation_event(
+            category="acquisition",
+            action="legacy_scheduler_run",
+            outcome="failed",
+            level="error",
+            error_code="legacy_run_failed",
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
+        raise
+    safe_emit_operation_event(
+        category="acquisition",
+        action="legacy_scheduler_run",
+        outcome="succeeded",
+        duration_ms=int((time.monotonic() - started_at) * 1000),
     )
 
 
@@ -138,7 +174,10 @@ async def run_scheduler(
                     )
                     logger.info("Scheduled daily Horizon job completed")
                 except Exception as exc:
-                    logger.exception("Scheduled daily Horizon job failed: %s", exc)
+                    logger.exception(
+                        "Scheduled daily Horizon job failed error_code=%s",
+                        type(exc).__name__,
+                    )
                 next_poll = _next_poll_run(datetime.now(tz), poll_interval_minutes)
                 continue
             if now >= next_poll:
@@ -153,7 +192,10 @@ async def run_scheduler(
                     )
                     logger.info("Scheduled Horizon poll completed")
                 except Exception as exc:
-                    logger.exception("Scheduled Horizon poll failed: %s", exc)
+                    logger.exception(
+                        "Scheduled Horizon poll failed error_code=%s",
+                        type(exc).__name__,
+                    )
                 next_poll = _next_poll_run(datetime.now(tz), poll_interval_minutes)
                 continue
 
@@ -170,11 +212,15 @@ async def run_scheduler(
             await run_once(hours)
             logger.info("Scheduled Horizon job completed")
         except Exception as exc:
-            logger.exception("Scheduled Horizon job failed: %s", exc)
+            logger.exception(
+                "Scheduled Horizon job failed error_code=%s",
+                type(exc).__name__,
+            )
 
 
 def main() -> None:
     """CLI entry point for horizon-scheduler."""
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Run Horizon on a daily schedule")
     parser.add_argument(
         "--time",

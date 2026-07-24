@@ -36,6 +36,7 @@ ALL_REMOTE_TOOLS = (
     "apply_subscription_change",
     "diagnose_source",
     "diagnose_job",
+    "query_operation_logs",
 )
 SAFE_READ_TOOLS = (
     "get_my_feed",
@@ -48,6 +49,7 @@ SAFE_READ_TOOLS = (
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
+    "query_operation_logs",
 )
 
 
@@ -223,6 +225,16 @@ async def _primary_checks(
         primary, "diagnose_job", {"job_id": job_id}, latencies=latencies
     )
     read_status["diagnose_job"] = "ok"
+    # The contract intentionally has eleven read tools while the server keeps a
+    # burst of ten; wait for one token rather than weakening the production limit.
+    await anyio.sleep(1.05)
+    await _read_call(
+        primary,
+        "query_operation_logs",
+        {"lookback_hours": 24, "limit": 10},
+        latencies=latencies,
+    )
+    read_status["query_operation_logs"] = "ok"
     return registered_tools, article_id, subscription_id, job_id
 
 

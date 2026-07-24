@@ -1,6 +1,6 @@
 ---
 name: inteliscope
-description: Use when the user asks OpenClaw to read, diagnose, add, change, or remove Inteliscope subscriptions, sources, schedules, Feed items, or jobs.
+description: Use when the user asks OpenClaw to read or diagnose Inteliscope activity, subscriptions, sources, schedules, Feed items, or jobs, or to add, change, or remove subscriptions.
 metadata:
   openclaw:
     requires:
@@ -14,7 +14,7 @@ Use the configured Inteliscope MCP connection only for its current caller. Read 
 
 ## Core routing
 
-1. Use the narrowest list tool first. For Feed content, call `get_item` only for user-selected entries or when the body is necessary; avoid N+1 detail calls.
+1. Use the narrowest list tool first. For Feed content, call `get_item` only for user-selected entries or when the body is necessary; avoid N+1 detail calls. Use `query_operation_logs` only for an explicit troubleshooting request or after a bounded diagnosis needs the related safe event trail; never request raw files.
    When analysis needs more stored body text, follow `next_body_offset` for at most
    three total `get_item` calls and at most 20,000 characters. Stop immediately
    when `body_has_more=false`.
@@ -61,5 +61,5 @@ Never ask for, receive, or supply a caller account identifier, workspace identif
 
 ## Tools
 
-- Safe read, setup, discovery, and diagnosis: `get_my_feed`, `get_item`, `list_subscriptions`, `source_health`, `list_jobs`, `get_job`, `get_source_setup_guide`, `list_available_sources`, `diagnose_source`, `diagnose_job`.
+- Safe read, setup, discovery, and diagnosis: `get_my_feed`, `get_item`, `list_subscriptions`, `source_health`, `list_jobs`, `get_job`, `get_source_setup_guide`, `list_available_sources`, `diagnose_source`, `diagnose_job`, `query_operation_logs`.
 - Confirmed subscription management: `prepare_create_subscription`, `prepare_update_subscription`, `prepare_delete_subscription`, `apply_subscription_change`.

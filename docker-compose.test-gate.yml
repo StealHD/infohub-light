@@ -22,6 +22,8 @@ services:
       HORIZON_SQLITE_JOURNAL_MODE: DELETE
       HORIZON_APIFY_KEY_POOL_ENABLED: "false"
       HORIZON_REMOTE_MCP_ENABLED: "false"
+      HORIZON_LOG_LEVEL: INFO
+      HORIZON_LOG_RETENTION_DAYS: "30"
       HORIZON_AUTH_USER: ${HORIZON_AUTH_USER:-admin}
       HORIZON_AUTH_PASSWORD: ${HORIZON_AUTH_PASSWORD:?test-gate password is required}
     entrypoint: ["uv", "run", "--no-sync", "horizon-api"]

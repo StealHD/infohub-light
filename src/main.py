@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ from .logging_utils import configure_logging
 from .storage.manager import ConfigError, StorageManager
 from .orchestrator import HorizonOrchestrator
 from .services.source_update import run_source_update
+from .services.operation_log import safe_emit_operation_event
 
 
 console = Console()
@@ -35,7 +37,8 @@ def print_banner():
 
 def main():
     """Main CLI entry point."""
-    configure_logging()
+    load_dotenv()
+    configure_logging(service="cli")
     print_banner()
 
     parser = argparse.ArgumentParser(description="Horizon - AI-Driven Information Aggregation System")
@@ -45,11 +48,12 @@ def main():
         help="Immediately update one source, e.g. rss:0, github:1, apify_social:0, or hackernews",
     )
     args = parser.parse_args()
+    started_at = time.monotonic()
+    operation_action = (
+        "legacy_cli_source_update" if args.source else "legacy_cli_run"
+    )
 
     try:
-        # Load environment variables from .env file
-        load_dotenv()
-
         # Ensure we're in the project directory or use data/ in current dir
         data_dir = Path("data")
 
@@ -60,6 +64,14 @@ def main():
         try:
             config = storage.load_config()
         except FileNotFoundError:
+            safe_emit_operation_event(
+                category="acquisition",
+                action=operation_action,
+                outcome="failed",
+                level="error",
+                error_code="configuration_missing",
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
             console.print("[bold red]❌ Configuration file not found![/bold red]\n")
             data_dir_path = data_dir if isinstance(data_dir, Path) else Path(data_dir)
             example_path = data_dir_path / "config.example.json"
@@ -73,9 +85,25 @@ def main():
             )
             sys.exit(1)
         except ConfigError as e:
+            safe_emit_operation_event(
+                category="acquisition",
+                action=operation_action,
+                outcome="failed",
+                level="error",
+                error_code="configuration_invalid",
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
             console.print(f"[bold red]❌ Error loading configuration: {e}[/bold red]")
             sys.exit(1)
         except Exception as e:
+            safe_emit_operation_event(
+                category="acquisition",
+                action=operation_action,
+                outcome="failed",
+                level="error",
+                error_code="configuration_load_failed",
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
             console.print(f"[bold red]❌ Error loading configuration: {e}[/bold red]")
             sys.exit(1)
 
@@ -87,17 +115,48 @@ def main():
                 index=None,
                 hours=hours,
             )
+            safe_emit_operation_event(
+                category="acquisition",
+                action=operation_action,
+                outcome="succeeded",
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
             console.print(f"[bold green]✅ Source update completed:[/bold green] {result}")
             return
 
         # Create and run orchestrator
         orchestrator = HorizonOrchestrator(config, storage)
         asyncio.run(orchestrator.run(force_hours=args.hours))
+        safe_emit_operation_event(
+            category="acquisition",
+            action=operation_action,
+            outcome="succeeded",
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
 
     except KeyboardInterrupt:
+        safe_emit_operation_event(
+            category="acquisition",
+            action=operation_action,
+            outcome="cancelled",
+            level="warning",
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
         console.print("\n[yellow]⚠️  Interrupted by user[/yellow]")
         sys.exit(0)
     except Exception as e:
+        safe_emit_operation_event(
+            category="acquisition",
+            action=operation_action,
+            outcome="failed",
+            level="error",
+            error_code=(
+                "legacy_source_update_failed"
+                if args.source
+                else "legacy_run_failed"
+            ),
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
         console.print(f"\n[bold red]❌ Fatal error: {e}[/bold red]")
         import traceback
         traceback.print_exc()

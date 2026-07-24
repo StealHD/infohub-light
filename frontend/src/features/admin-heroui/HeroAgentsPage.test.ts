@@ -19,6 +19,7 @@ describe('Hero Agents OpenClaw configuration', () => {
       'list_available_sources',
       'diagnose_source',
       'diagnose_job',
+      'query_operation_logs',
     ])
     expect(SUBSCRIPTION_WRITE_TOOL_FILTER).toEqual([
       ...READ_TOOL_FILTER,

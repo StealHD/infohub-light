@@ -2774,3 +2774,18 @@
 - 部署修正：首次切换发现源码归档中的 release-local `data/` 被误挂载并导致 readiness 503；共享生产数据库未被该容器触碰，先手动恢复 v1.7.2，再把 local `data/logs/.env` 移入回滚备份、重建共享符号链接并经容器内外 SHA/用户/schema 验证后重试成功
 - 回退：最终切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.3-a5f2c66b5342-retry-20260724T070805Z`，数据库 SHA-256 `6c65fe7bd884…b22b8f3`；旧 v1.7.2 release/image 保留
 - 安全边界：scheduler、Apify Key 池、共享采集与 compact writer 均保持关闭；未由 Codex 触发来源抓取、AI、邮件、Webhook 或付费调用
+
+### 2026-07-24 17:13 Codex
+- 任务：从本地 `main@ee93d72` 创建 `codex/diagnostic-logging`，实现私有结构化诊断日志与 OpenClaw 当前用户安全查询
+- 修改文件：统一 runtime/operation JSONL、30 天轮转清理、请求上下文与脱敏；覆盖 API/MCP/Worker/Scheduler/CLI 关键操作，新增第 11 个安全读工具、OpenClaw 配置、开发手册、产品文档和回归测试
+- 执行验证：日志/查询/API/MCP/Worker/抓取与前端定向测试通过；最终 `test_gate full` 22/22、0 failed/error、118.733 秒，`mapping_miss=false`
+- 结果：日志固定 `0700/0600`、UTC 每日轮转且默认保留 30 天；OpenClaw 只读当前 delegation workspace 内与自身 actor/subject 相关的白名单事件，前端无日志接口或展示
+- 安全边界：未新增数据库迁移，未运行真实来源、AI、付费调用、通知或完整 Scheduler，未部署、提交或推送
+- 控制面变更：更新 API/架构/UI/阶段/defaults 与 D065，新增 `docs/dev/observability-logging.md`
+
+### 2026-07-24 17:19 Codex
+- 任务：将 `codex/diagnostic-logging` 合并到本地 `main`
+- 修改文件：合入功能提交 `b5a7940`，并追加本次合并记录
+- 执行验证：功能分支 `test_gate full` 22/22、0 failed/error、118.733 秒；合并态使用仓库虚拟环境重跑 22/22、0 failed/error、136.769 秒，`mapping_miss=false`
+- 结果：非快进合并无冲突，完整门禁通过
+- 安全边界：未推送远端、未部署，未触发真实来源、AI、付费调用、通知或完整 Scheduler

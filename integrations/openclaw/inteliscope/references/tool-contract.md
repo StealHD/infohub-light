@@ -18,10 +18,11 @@ The MCP identity fixes caller scope. Never add identity fields, credentials, raw
 | `apply_subscription_change` | proposal ID and exact confirmation phrase | The only change call. Claim success only from its successful result. |
 | `diagnose_source` | user-selected subscription ID | Explain bounded persisted evidence; does not repair. |
 | `diagnose_job` | user-selected job ID | Explain bounded persisted evidence; does not retry/cancel. |
+| `query_operation_logs` | 1..720 hour window, optional category/outcome/level and safe event IDs, limit 1..100 | Read newest-first, caller-scoped sanitized operation events only. Never exposes raw messages, paths, identities, credentials, content, URLs, or stacks. |
 
 `not_found` can mean absent or outside the current scope: do not try alternate identities. For rate limiting, reduce repeated calls. For `internal_error`, report only the returned request ID. A stale, expired, consumed, or confirmation-mismatch proposal must be prepared again; never reuse it.
 
-A read-only connection exposes the ten read, setup, discovery, and diagnosis tools above. A subscription-management connection adds only the four `prepare_*`/`apply_subscription_change` tools; diagnosis never requires write access.
+A read-only connection exposes the eleven read, setup, discovery, and diagnosis tools above. A subscription-management connection adds only the four `prepare_*`/`apply_subscription_change` tools; diagnosis never requires write access.
 
 Exact private-source example for public `r/codex`:
 

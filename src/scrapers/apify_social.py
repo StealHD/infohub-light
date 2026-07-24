@@ -89,7 +89,10 @@ class ApifySocialScraper(BaseScraper):
         items: list[ContentItem] = []
         for result in results:
             if isinstance(result, Exception):
-                logger.warning("Apify social subscription failed: %s", result)
+                logger.warning(
+                    "Apify social subscription failed error_code=%s",
+                    type(result).__name__,
+                )
                 if self.strict_errors:
                     raise result
             elif isinstance(result, list):
@@ -107,15 +110,11 @@ class ApifySocialScraper(BaseScraper):
             else None
         )
         if self.apify_coordinator is None and not token_records:
-            token_envs = ", ".join(self._token_env_names(sub.token_env))
             logger.warning(
-                "Apify token not found in env var(s) '%s'. Skipping %s/%s %s.",
-                token_envs,
-                sub.platform.value,
-                sub.kind,
-                sub.target,
+                "Apify social credential is unavailable; source skipped"
             )
             if self.strict_errors:
+                token_envs = ", ".join(self._token_env_names(sub.token_env))
                 raise SourceFetchError(
                     f"Apify token not found in env var(s): {token_envs}",
                     retryable=False,
@@ -164,11 +163,7 @@ class ApifySocialScraper(BaseScraper):
                     break
             if items:
                 logger.info(
-                    "No Apify social items newer than %s for %s/%s %s; keeping latest %d stale item(s)",
-                    since.isoformat(),
-                    sub.platform.value,
-                    sub.kind,
-                    sub.target,
+                    "No new Apify social items; keeping latest stale items count=%d",
                     len(items),
                 )
         if (
@@ -193,11 +188,8 @@ class ApifySocialScraper(BaseScraper):
                 for item in items:
                     item.metadata["author_avatar_url"] = avatar_url
         logger.info(
-            "Fetched %d Apify social items for %s/%s %s",
+            "Fetched Apify social items count=%d",
             len(items),
-            sub.platform.value,
-            sub.kind,
-            sub.target,
         )
         return items
 

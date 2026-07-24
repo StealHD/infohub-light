@@ -33,11 +33,13 @@ const viewer: User = {
 const readTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
   'get_source_setup_guide', 'list_available_sources', 'diagnose_source', 'diagnose_job',
+  'query_operation_logs',
 ]
 
 const writeTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
   'get_source_setup_guide', 'list_available_sources', 'diagnose_source', 'diagnose_job',
+  'query_operation_logs',
   'prepare_create_subscription', 'prepare_update_subscription', 'prepare_delete_subscription',
   'apply_subscription_change',
 ]
@@ -188,7 +190,7 @@ describe('OpenClaw browser pairing settings', () => {
 })
 
 describe('HeroAgentsPage delegation access', () => {
-  it('creates a subscription-management connection with the fourteen-tool configuration', async () => {
+  it('creates a subscription-management connection with the fifteen-tool configuration', async () => {
     const browser = userEvent.setup()
     const { api } = renderPage()
 
@@ -207,11 +209,22 @@ describe('HeroAgentsPage delegation access', () => {
     expect(configuration).not.toContain('ih_mcp_v1_one_time_secret')
   })
 
-  it('keeps the default page configuration read-only with ten tools', async () => {
+  it('keeps the default page configuration read-only with eleven tools', async () => {
     renderPage()
 
     const configuration = (await screen.findByLabelText('OpenClaw 配置命令')).textContent || ''
     expect(includedTools(configuration)).toEqual(readTools)
+  })
+
+  it('exposes diagnostics only in the generated config without a log UI', async () => {
+    renderPage()
+
+    const configuration = (await screen.findByLabelText('OpenClaw 配置命令')).textContent || ''
+    expect(configuration).toContain('query_operation_logs')
+    expect(configuration).not.toContain('/api/log')
+    expect(screen.queryByText('操作日志')).not.toBeInTheDocument()
+    expect(screen.queryByText('日志正文')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-testid="operation-log-list"]')).toBeNull()
   })
 
   it('aligns both configuration cards and wraps long commands without horizontal scrolling', async () => {

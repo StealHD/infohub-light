@@ -85,17 +85,27 @@ compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数
 
 OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑或其专属云端 Gateway；Service 端不新增 Agent、LLM、Worker、端口或容器，也不代理 Gateway。浏览器的 `frontend/src/features/openclaw/` 直接实现 OpenClaw Gateway WebSocket v4、设备签名、用户/Gateway 隔离凭证库和有界聊天状态；功能关闭时不得创建 WebSocket。未来从本地切换云端只替换为用户专属 `wss://` URL 和对应 Origin allowlist，不改变 Remote MCP 或 Service 部署。
 
-`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter；10 个安全读工具分别由 `remote_service.py` 的有界数据投影、`remote_subscription_service.py` 的 registry 引导/发现和 `remote_diagnostics.py` 的确定性只读诊断提供，后者同时承载写连接专用的 prepare facade。它们全部直接调用 Service/Store，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
+`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter；11 个安全读工具分别由 `remote_service.py` 的有界数据投影、`remote_subscription_service.py` 的 registry 引导/发现、`remote_diagnostics.py` 的确定性只读诊断和 `operation_log.py` 的脱敏事件查询提供，diagnostics 同时承载写连接专用的 prepare facade。它们全部直接调用 Service/Store 或私有结构化事件文件，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
 
-Remote MCP 的 14 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
+Remote MCP 的 15 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
 
 `SubscriptionMutationService` 是 REST 与 Remote MCP 的唯一 subscription/source/schedule 业务 mutation owner；Remote MCP 不复制 REST 写逻辑。`AgentChangeProposalService` 只拥有短期密封 proposal 的授权、指纹和 lifecycle：prepare 在自己的短事务持久化 preview/确认 hash，apply 在 `BEGIN IMMEDIATE` 内重验实时主体与 mutation 先决条件，并与业务 mutation 原子提交。proposal record 只保存安全 snapshot、preview、指纹和结果摘要；cleanup 是 commit 后 best-effort，绝不把已提交业务变化伪装成失败。
 
-`RemoteMCPDiagnostics` 只读取用户范围内持久化的 Source Health、schedule、safe Job projection、匿名 Worker readiness 和 `secret_configured`；它不执行修复、重试、取消、网络访问或写入。其分类、脱敏和 unknown 退化属于服务端合同，而不是 Skill 推理。Remote MCP adapter 保持无 session、无调用方身份参数、无服务器侧 Agent 状态；`last_used_at` 的有界 touch 和 proposal/audit 行是显式例外，不构成会话状态。
+`RemoteMCPDiagnostics` 只读取用户范围内持久化的 Source Health、schedule、safe Job projection、匿名 Worker readiness 和 `secret_configured`；它不执行修复、重试、取消、网络访问或写入。`OperationLogQueryService` 只读私有 operation JSONL，并在文件解析后再次执行 workspace + 当前 actor/subject 隔离与输出白名单。二者的分类、脱敏和 unknown/unavailable 退化属于服务端合同，而不是 Skill 推理。Remote MCP adapter 保持无 session、无调用方身份参数、无服务器侧 Agent 状态；`last_used_at` 的有界 touch 和 proposal/audit 行是显式例外，不构成会话状态。
 
 Gateway bootstrap token 只存在于 React 表单 state；API、React Query、URL、Web storage 和日志均不得接收。浏览器配对后只把 non-exportable Ed25519 CryptoKey、exact `operator.read + operator.write` device token 和 session key保存在 IndexedDB，key 必须包含当前 Inteliscope user 与规范化 Gateway URL。页面登出清空内存消息并断开 socket；忘记设备同时删除 IndexedDB 凭证。MCP delegation token 与 Gateway token 是两套独立凭证，任何 UI、日志或配置都不得混名或互相复用。
 
-### 3.6G Apify Key Pool Boundary
+### 3.6G Observability Logging Boundary
+
+`src/logging_utils.py` 是 API、Worker、legacy Scheduler 和 CLI 的唯一进程日志配置边界；它分别创建 `runtime-<service>.jsonl` 与 `operations-<service>.jsonl`，使用 UTC 每日轮转、私有目录/文件权限及只匹配系统文件名的保留清理。运行日志必须先格式化再统一脱敏；业务模块不得自行建立日志文件 handler、记录 query/body 或把任意业务对象序列化到日志。
+
+`src/services/operation_log.py` 独占 schema-v1 operation event 构造、request ContextVar、严格标识符/枚举校验、白名单查询和最多 20,000 行的反向读取。workspace/actor/subject 只存在于文件内用于隔离；MCP 投影必须移除身份、文件、message、stack、URL、config/payload、文章内容和凭据。符号链接、损坏/未完成行和不可读目录必须安全退化，查询不新增数据库表、REST API 或前端状态。
+
+API 只接受服务端生成的 request ID；路由事件只使用模板路径。成功事件由最外层请求边界在业务事务已经提交且 transaction guard 通过后写入；回滚、事务泄漏与未处理异常只能写失败。Worker 的 claim、finalize、来源获取和通知事件也只能在各自持久状态提交后写入。普通 GET、Feed 浏览、item-state 高频成功、空轮询和 heartbeat 不生成 operation event；结构化日志失败为 best-effort，不得改变业务事务或公开响应。
+
+详细字段、敏感值禁令、事件矩阵和排障流程以 `docs/dev/observability-logging.md` 为唯一真源。
+
+### 3.6H Apify Key Pool Boundary
 
 `src/services/apify_key_pool.py::ApifyKeyPoolService` 独占工作区有序成员、粘性 active Key、pool generation、额度快照与 Actor Run ledger。`src/scrapers/apify_client.py::ApifyClient` 独占 Apify HTTP 生命周期和错误分类；每次 Run 启动前取得不可变的 `secret_id + secret_version + pool_generation` lease，start、poll、abort 和 dataset 读取必须使用该 lease 的同一 Token。`src/services/apify_pool_runtime.py` 独占 Worker 启动后的持久 Run reconcile；Worker、API、Orchestrator、catalog runner 和 source adapter 只能调用这些边界，不得自行选 Key、改 generation 或把来源级 `secret_env` 重新注入 Service 抓取。
 
