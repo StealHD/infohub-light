@@ -47,6 +47,14 @@ async function mockAdminApi(page: Page, authenticated = true) {
       items: [{ subscription_id: 'subscription-1', source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 7 }],
     }
     else if (url.pathname === '/api/me/feed-schedule') data = { schema_version: 1, enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440], worker_status: 'ready', next_run_at: '2026-07-17T12:00:00Z' }
+    else if (url.pathname === '/api/feed/ignored') data = {
+      schema_version: 1,
+      scope: 'user',
+      items: [],
+      item_count: 0,
+      limit: 200,
+      offset: 0,
+    }
     else if (url.pathname === '/api/me/notification-settings') data = {
       schema_version: 1,
       enabled: false,
@@ -362,6 +370,7 @@ test('successful Key creation uses a top overlay without moving settings content
     await document.fonts.ready
   })
   await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  await expect(page.getByText('暂无已忽略内容', { exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Key 名称' }).fill('DeepSeek Primary')
   await page.getByRole('textbox', { name: 'Key provider' }).fill('deepseek')
