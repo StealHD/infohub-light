@@ -12,6 +12,13 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from ..storage.service_store import ServiceStore
+from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
+from .content_presentation import complete_content_presentation
+from .media_cache import MediaCacheService
+from .source_acquisition import (
+    TargetSubscriptionProjection,
+    target_subscription_projection,
+)
 from .user_content_store import UserContentStore, service_public_item
 
 
@@ -50,6 +57,7 @@ def _float_or_none(value: Any) -> float | None:
 
 
 _VOLATILE_CONTENT_KEYS = {
+    INTERNAL_SOURCE_NATIVE_TITLE_KEY,
     "acquisition_usage",
     "analysis_usage",
     "created_at",
@@ -78,6 +86,289 @@ _COMPACT_COLLECTIONS = {
     "daily_push_items": "daily_push_item_ids",
     "personal_items": "personal_item_ids",
 }
+_SAFE_PRESENTATION_CONTENT_FIELDS = {
+    "content_kind",
+    "excerpt",
+    "excerpt_truncated",
+    "title",
+    "title_origin",
+}
+_SAFE_PRESENTATION_ENGAGEMENT_FIELDS = {
+    "comments",
+    "likes",
+    "native_score",
+    "reposts",
+    "shares",
+    "upvote_ratio",
+}
+
+
+def _safe_text(value: Any) -> str:
+    return str(value) if isinstance(value, (str, int, float)) else ""
+
+
+def _safe_presentation_section(
+    presentation: Mapping[str, Any],
+    name: str,
+) -> dict[str, Any]:
+    value = presentation.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_engagement(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: (
+            item
+            if item is None
+            or (isinstance(item, (int, float)) and not isinstance(item, bool))
+            else None
+        )
+        for key, item in value.items()
+        if key in _SAFE_PRESENTATION_ENGAGEMENT_FIELDS
+    }
+
+
+def _reuse_projection(
+    *,
+    source: Mapping[str, Any],
+    subscription: Mapping[str, Any],
+) -> TargetSubscriptionProjection:
+    return target_subscription_projection(
+        {
+            "source_id": source.get("id"),
+            "subscription_id": subscription.get("id"),
+            "source_key": source.get("source_key"),
+            "source_display_name": source.get("display_name"),
+            "catalog_source_type": source.get("type"),
+            "source_priority": subscription.get("priority"),
+            "analysis_mode": subscription.get("analysis_mode"),
+            "override_channel": subscription.get("override_channel"),
+            "default_channel": source.get("default_channel"),
+            "override_topics": subscription.get("override_topics"),
+            "default_topics": source.get("default_topics"),
+            "personal_tags": subscription.get("personal_tags"),
+        }
+    )
+
+
+def _neutral_reuse_item(
+    *,
+    donor: Mapping[str, Any],
+    article_id: str,
+    source_native_title: str,
+    row: Mapping[str, Any],
+    projection: TargetSubscriptionProjection,
+    source_avatar_url: str,
+    reused_at: str,
+) -> dict[str, Any]:
+    """Allowlist canonical donor content, then apply only target-owned fields."""
+
+    donor_presentation = (
+        donor.get("presentation")
+        if isinstance(donor.get("presentation"), dict)
+        else {}
+    )
+    donor_author = _safe_presentation_section(donor_presentation, "author")
+    donor_timing = _safe_presentation_section(donor_presentation, "timing")
+    donor_links = _safe_presentation_section(donor_presentation, "links")
+    donor_content = _safe_presentation_section(donor_presentation, "content")
+    donor_engagement = _safe_presentation_section(
+        donor_presentation, "engagement"
+    )
+
+    title = source_native_title
+    author = (
+        _safe_text(donor.get("author"))
+        or _safe_text(donor_author.get("name"))
+    )
+    url = (
+        _safe_text(donor.get("url"))
+        or _safe_text(donor_links.get("canonical_url"))
+    )
+    discussion_url = (
+        _safe_text(donor.get("discussion_url"))
+        or _safe_text(donor_links.get("source_url"))
+        or url
+    )
+    published_at = (
+        _safe_text(donor.get("published_at"))
+        or _safe_text(donor_timing.get("published_at"))
+    )
+    fetched_at = (
+        _safe_text(donor.get("fetched_at"))
+        or _safe_text(donor_timing.get("fetched_at"))
+    )
+    source_type = (
+        _safe_text(donor.get("source_type"))
+        or str(projection.catalog_source_type or "")
+    )
+    source_name = str(
+        projection.source_display_name
+        or projection.catalog_source_type
+        or source_type
+    )
+    channel = str(
+        projection.channel
+        or source_type
+        or projection.catalog_source_type
+        or "other"
+    )
+    topics = list(projection.topics)
+    personal_tags = list(projection.personal_tags)
+    analysis_status = (
+        "personal_only"
+        if projection.analysis_mode == "personal_only"
+        else "fallback"
+    )
+    signal_type = (
+        "personal_update"
+        if projection.analysis_mode == "personal_only"
+        else "other"
+    )
+    body_completeness = str(
+        row["body_completeness"] or "excerpt_only"
+    )
+    body_is_captured = body_completeness == "captured"
+    body_text = str(row["body_text"] or "") if body_is_captured else ""
+    excerpt = (
+        _safe_text(donor_content.get("excerpt"))
+        or _safe_text(donor.get("excerpt"))
+    )
+    summary = (excerpt.strip() or body_text.strip() or title)[:200]
+    retention_policy = str(donor.get("retention_policy") or "")
+    if retention_policy not in {"latest_per_source", "time_window"}:
+        retention_policy = "time_window"
+
+    safe_content = {
+        key: value
+        for key, value in donor_content.items()
+        if key in _SAFE_PRESENTATION_CONTENT_FIELDS
+        and (
+            isinstance(value, str)
+            or (
+                key == "excerpt_truncated"
+                and isinstance(value, bool)
+            )
+        )
+    }
+    safe_content.update(
+        {
+            "title": title,
+            "excerpt": excerpt,
+            "body_text": body_text,
+            "body_truncated": (
+                bool(row["body_truncated"]) if body_is_captured else False
+            ),
+            "body_completeness": body_completeness,
+            "unresolved_reason": (
+                str(row["unresolved_reason"] or "")
+                if body_is_captured
+                else ""
+            ),
+        }
+    )
+    presentation_source = {
+        "id": projection.source_id,
+        "catalog_type": str(projection.catalog_source_type or source_type),
+        "platform": source_type,
+        "name": source_name,
+    }
+    if source_avatar_url:
+        presentation_source["avatar_url"] = source_avatar_url
+
+    item = {
+        "id": article_id,
+        "title": title,
+        INTERNAL_SOURCE_NATIVE_TITLE_KEY: title,
+        "source_type": source_type,
+        "source": source_name,
+        "author": author,
+        "url": url,
+        "discussion_url": discussion_url,
+        "published_at": published_at,
+        "fetched_at": fetched_at,
+        "score": 0.0,
+        "reason": "",
+        "channel": channel,
+        "topics": topics,
+        "tags": list(topics),
+        "category": channel,
+        "signal_strength": "thin",
+        "signal_type": signal_type,
+        "entities": [],
+        "is_featured": False,
+        "show_on_featured_home": False,
+        "summary_zh": summary,
+        "action_suggestion": "",
+        "image_url": "",
+        "media_urls": [],
+        "personal_tags": personal_tags,
+        "interest_score": 8.0 if personal_tags else 0.0,
+        "show_in_personal_feed": bool(
+            personal_tags or projection.analysis_mode == "personal_only"
+        ),
+        "scoring_disabled": False,
+        "source_id": projection.source_id,
+        "source_ids": [projection.source_id],
+        "subscription_id": str(projection.subscription_id or ""),
+        "subscription_ids": (
+            [str(projection.subscription_id)]
+            if projection.subscription_id
+            else []
+        ),
+        "source_key": str(projection.source_key or ""),
+        "source_keys": (
+            [str(projection.source_key)] if projection.source_key else []
+        ),
+        "source_priority": projection.source_priority,
+        "analysis_mode": projection.analysis_mode,
+        "retention_policy": retention_policy,
+        "retention_policy_explicit": bool(
+            donor.get("retention_policy_explicit")
+        ),
+        "ingested_at": reused_at,
+        "presentation": {
+            "version": 1,
+            "source": presentation_source,
+            "author": {
+                "name": author,
+                "kind": _safe_text(donor_author.get("kind")) or "unknown",
+            },
+            "timing": {
+                "published_at": published_at,
+                "fetched_at": fetched_at,
+            },
+            "links": {
+                "canonical_url": url,
+                "source_url": discussion_url,
+            },
+            "content": safe_content,
+            "taxonomy": {
+                "channel": channel,
+                "configured_topics": topics,
+                "inferred_topics": [],
+                "topics": list(topics),
+                "entities": [],
+            },
+            "engagement": _safe_engagement(donor_engagement),
+            "analysis": {
+                "status": analysis_status,
+                "score": 0.0,
+                "signal_strength": "thin",
+                "signal_type": signal_type,
+                "summary_zh": summary,
+                "action_suggestion": "",
+            },
+            "media": {
+                "images": [],
+                "count": 0,
+                "total_image_count": 0,
+                "truncated": False,
+            },
+        },
+    }
+    item["presentation"] = complete_content_presentation(item)
+    return item
 
 
 def compact_feed_snapshots_enabled() -> bool:
@@ -322,19 +613,44 @@ class UserFeedStore:
         """Seed a subscriber Feed from already indexed shared-source content."""
 
         source = self.store.get_source(source_id)
+        subscription = self.store.get_subscription(subscription_id)
+        user = self.store.get_user(user_id)
         if (
             source is None
+            or subscription is None
+            or user is None
             or source.get("workspace_id") != workspace_id
+            or user.get("workspace_id") != workspace_id
+            or subscription.get("user_id") != user_id
+            or subscription.get("source_id") != source_id
+            or not bool(subscription.get("enabled"))
+            or not bool(source.get("enabled"))
             or (
                 source.get("scope") == "private"
                 and source.get("owner_user_id") != user_id
             )
         ):
             return {"reused_count": 0, "snapshot": None}
+        projection = _reuse_projection(
+            source=source,
+            subscription=subscription,
+        )
+        avatar = MediaCacheService(
+            self.store,
+            data_dir=self.store.data_dir,
+        ).avatar_for_source(
+            workspace_id=workspace_id,
+            source_id=source_id,
+        )
+        source_avatar_url = (
+            f"/api/media/{avatar['id']}" if avatar is not None else ""
+        )
+        reused_at = _now_iso()
         rows = self.store.connect().execute(
             """
-            SELECT item_json, body_text, body_truncated, body_completeness,
-                   unresolved_reason, first_seen_at, last_seen_at, article_id
+            SELECT item_json, source_native_title, body_text, body_truncated,
+                   body_completeness, unresolved_reason, first_seen_at,
+                   last_seen_at, article_id
             FROM user_content_items
             WHERE workspace_id = ? AND source_id = ?
             ORDER BY last_seen_at DESC, first_seen_at DESC, id DESC
@@ -348,31 +664,26 @@ class UserFeedStore:
             article_id = str(row["article_id"])
             if article_id in seen_ids:
                 continue
+            source_native_title = str(
+                row["source_native_title"] or ""
+            ).strip()
+            if not source_native_title:
+                continue
             item = _json_loads(row["item_json"], {})
             if not isinstance(item, dict):
                 continue
             seen_ids.add(article_id)
-            item = service_public_item(item)
-            item["id"] = article_id
-            item["source_id"] = source_id
-            item["source_ids"] = [source_id]
-            item["subscription_id"] = subscription_id
-            item["subscription_ids"] = [subscription_id]
-            item["ingested_at"] = str(row["first_seen_at"] or row["last_seen_at"] or "")
-            item.pop("user_state", None)
-            presentation = item.setdefault("presentation", {})
-            if isinstance(presentation, dict):
-                content = presentation.setdefault("content", {})
-                if isinstance(content, dict):
-                    content.update(
-                        {
-                            "body_text": str(row["body_text"] or ""),
-                            "body_truncated": bool(row["body_truncated"]),
-                            "body_completeness": str(row["body_completeness"] or "excerpt_only"),
-                            "unresolved_reason": str(row["unresolved_reason"] or ""),
-                        }
-                    )
-            reused.append(item)
+            reused.append(
+                _neutral_reuse_item(
+                    donor=item,
+                    article_id=article_id,
+                    source_native_title=source_native_title,
+                    row=row,
+                    projection=projection,
+                    source_avatar_url=source_avatar_url,
+                    reused_at=reused_at,
+                )
+            )
         if not reused:
             return {"reused_count": 0, "snapshot": None}
 
@@ -465,6 +776,7 @@ class UserFeedStore:
     ) -> dict[str, Any]:
         existing = self._snapshot_by_job_id(job_id) if job_id else None
         deduped_items: list[dict[str, Any]] = []
+        content_items: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
         for item in items:
             if not isinstance(item, dict) or not item.get("id"):
@@ -473,6 +785,7 @@ class UserFeedStore:
             if article_id in seen_ids:
                 continue
             seen_ids.add(article_id)
+            content_items.append(deepcopy(item))
             deduped_items.append(service_public_item(item))
         items = deduped_items
         now = _now_iso()
@@ -483,11 +796,29 @@ class UserFeedStore:
         normalized_payload["generated_at"] = generated_at
         normalized_payload["items"] = items
         normalized_payload["today_items"] = list(items)
+        for collection_key in _COMPACT_COLLECTIONS:
+            collection = normalized_payload.get(collection_key)
+            if isinstance(collection, list):
+                normalized_payload[collection_key] = [
+                    service_public_item(item)
+                    if isinstance(item, dict)
+                    else item
+                    for item in collection
+                ]
         normalized_payload["today_total_items"] = len(items)
         normalized_payload["item_count"] = len(items)
         content_hash = feed_content_hash(normalized_payload, items)
         conn = self.store.connect()
         if existing is not None and existing["payload"].get("run_id") == normalized_payload.get("run_id"):
+            native_title_updates = UserContentStore(
+                self.store
+            ).update_source_native_titles(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                items=content_items,
+            )
+            if commit and native_title_updates:
+                conn.commit()
             return {**existing, "snapshot_created": False}
         latest = self.latest_snapshot(workspace_id=workspace_id, user_id=user_id)
         if latest is not None:
@@ -496,6 +827,15 @@ class UserFeedStore:
                 _list((latest.get("payload") or {}).get("items")),
             )
             if latest_hash == content_hash and (existing is None or latest["id"] == existing["id"]):
+                native_title_updates = UserContentStore(
+                    self.store
+                ).update_source_native_titles(
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    items=content_items,
+                )
+                if commit and native_title_updates:
+                    conn.commit()
                 return {
                     **latest,
                     "content_hash": latest_hash,
@@ -600,7 +940,7 @@ class UserFeedStore:
         UserContentStore(self.store).upsert_items(
             workspace_id=workspace_id,
             user_id=user_id,
-            items=items,
+            items=content_items,
             seen_at=generated_at,
         )
         if commit:

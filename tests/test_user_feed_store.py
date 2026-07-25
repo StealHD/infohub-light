@@ -112,6 +112,131 @@ def test_user_feed_store_saves_latest_snapshot_and_items(tmp_path, monkeypatch):
     assert stored_scores == [8.5, None]
 
 
+def test_source_native_title_is_internal_and_legacy_upsert_cannot_erase_it(
+    tmp_path,
+    monkeypatch,
+):
+    from src.services.canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
+    from src.ui.site import build_site_payload, serialize_item
+
+    store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
+    try:
+        columns = {
+            row["name"]
+            for row in store.connect().execute(
+                "PRAGMA table_info(user_content_items)"
+            ).fetchall()
+        }
+        assert "source_native_title" in columns
+        item = ContentItem(
+            id="rss:native-title:upsert",
+            source_type=SourceType.RSS,
+            title="Canonical source title",
+            url="https://example.com/native-title-upsert",
+            published_at=datetime(2026, 7, 24, tzinfo=timezone.utc),
+            metadata={"title_zh": "Donor AI display title"},
+        )
+        serialized = serialize_item(item, featured_threshold=8.0)
+        assert (
+            serialized[INTERNAL_SOURCE_NATIVE_TITLE_KEY]
+            == "Canonical source title"
+        )
+        UserContentStore(store).upsert_items(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            items=[serialized],
+            seen_at="2026-07-24T00:00:00+00:00",
+        )
+        legacy_update = dict(serialized)
+        legacy_update.pop(INTERNAL_SOURCE_NATIVE_TITLE_KEY)
+        legacy_update["title"] = "Later display-only title"
+        UserContentStore(store).upsert_items(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            items=[legacy_update],
+            seen_at="2026-07-24T01:00:00+00:00",
+        )
+
+        stored = store.connect().execute(
+            """
+            SELECT source_native_title, item_json
+            FROM user_content_items
+            WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+            """,
+            (workspace["id"], owner["id"], item.id),
+        ).fetchone()
+        assert stored["source_native_title"] == "Canonical source title"
+        assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in stored["item_json"]
+        static_payload = build_site_payload(
+            all_items=[item],
+            date="2026-07-24",
+            total_fetched=1,
+        )
+        assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in json.dumps(
+            static_payload,
+            sort_keys=True,
+        )
+    finally:
+        store.close()
+
+
+def test_initialize_adds_nullable_native_title_column_without_backfill(
+    tmp_path,
+    monkeypatch,
+):
+    import sqlite3
+
+    store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-legacy-native-title-schema",
+        payload={
+            "generated_at": "2026-07-24T00:00:00+00:00",
+            "items": [
+                {
+                    "id": "rss:legacy:native-title-schema",
+                    "title": "Unproven legacy display title",
+                }
+            ],
+        },
+    )
+    store.close()
+    legacy_connection = sqlite3.connect(tmp_path / "service.db")
+    try:
+        legacy_connection.execute(
+            "ALTER TABLE user_content_items DROP COLUMN source_native_title"
+        )
+        legacy_connection.commit()
+    finally:
+        legacy_connection.close()
+
+    reopened = ServiceStore(tmp_path)
+    try:
+        reopened.initialize()
+        columns = {
+            row["name"]
+            for row in reopened.connect().execute(
+                "PRAGMA table_info(user_content_items)"
+            ).fetchall()
+        }
+        legacy_row = reopened.connect().execute(
+            """
+            SELECT source_native_title FROM user_content_items
+            WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+            """,
+            (
+                workspace["id"],
+                owner["id"],
+                "rss:legacy:native-title-schema",
+            ),
+        ).fetchone()
+        assert "source_native_title" in columns
+        assert legacy_row["source_native_title"] is None
+    finally:
+        reopened.close()
+
+
 def test_snapshot_upserts_stable_user_content_without_dropping_old_items(
     tmp_path, monkeypatch
 ):

@@ -23,6 +23,7 @@ from src.services.user_feed_store import UserFeedStore
 from src.services.user_item_state import UserItemStateStore
 from src.storage.article_store import ArticleStore
 from src.storage.service_store import ServiceStore
+from src.ui.site import serialize_item
 
 
 SAFE_DISABLED_GRAPH = {
@@ -257,6 +258,23 @@ def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_
     owner_subscription = client.post(
         f"/api/catalog/sources/{source['id']}/subscribe"
     ).json()["data"]["subscription"]
+    donor = ContentItem(
+        id="rss:shared-existing",
+        source_type=SourceType.RSS,
+        title="Already fetched once",
+        url="https://example.com/private-share/article",
+        content="Already fetched once",
+        published_at=datetime.now(timezone.utc),
+        metadata={
+            "source_id": source["id"],
+            "source_ids": [source["id"]],
+            "subscription_id": owner_subscription["id"],
+            "subscription_ids": [owner_subscription["id"]],
+            "source_display_name": "Owner private feed",
+            "catalog_source_type": "rss",
+            "analysis_mode": "full",
+        },
+    )
     UserFeedStore(client.app.state.service_store).save_snapshot(
         workspace_id=owner["workspace_id"],
         user_id=owner["id"],
@@ -264,15 +282,22 @@ def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_
         payload={
             "schema_version": 2,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "items": [{
-                "id": "rss:shared-existing",
-                "title": "Already fetched once",
-                "source_id": source["id"],
-                "source_ids": [source["id"]],
-                "subscription_id": owner_subscription["id"],
-                "subscription_ids": [owner_subscription["id"]],
-            }],
+            "items": [serialize_item(donor, featured_threshold=8.0)],
         },
+    )
+    owner_feed = client.get("/api/feed/latest").json()["data"]
+    assert "_source_native_title" not in json.dumps(owner_feed, sort_keys=True)
+    assert client.patch(
+        "/api/me/items/rss:shared-existing/state",
+        json={"is_saved": True},
+    ).status_code == 200
+    assert "_source_native_title" not in json.dumps(
+        client.get("/api/feed/saved").json()["data"],
+        sort_keys=True,
+    )
+    assert "_source_native_title" not in json.dumps(
+        client.get("/api/feed/items/rss:shared-existing").json()["data"],
+        sort_keys=True,
     )
 
     shared = client.post(
@@ -295,7 +320,15 @@ def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_
     assert subscribed.json()["data"]["subscription"]["reused_item_count"] == 1
     member_feed = client.get("/api/feed/latest").json()["data"]
     assert [item["id"] for item in member_feed["items"]] == ["rss:shared-existing"]
-    assert member_feed["items"][0]["subscription_id"] == subscribed.json()["data"]["subscription"]["id"]
+    reused_item = member_feed["items"][0]
+    assert reused_item["subscription_id"] == subscribed.json()["data"]["subscription"]["id"]
+    assert reused_item["analysis_mode"] == "full"
+    assert reused_item["score"] == 0
+    assert reused_item["summary_zh"] == "Already fetched once"
+    assert reused_item["presentation"]["analysis"]["status"] == "fallback"
+    assert reused_item["presentation"]["analysis"]["score"] == 0
+    assert reused_item["image_url"] == ""
+    assert reused_item["media_urls"] == []
 
     usage = client.get(f"/api/catalog/sources/{source['id']}/usage").json()["data"]
     assert usage["subscriber_count"] == 2
@@ -306,6 +339,8 @@ def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_
     assert client.get(f"/api/catalog/sources/{source['id']}/usage").json()["data"]["subscriber_count"] == 1
     assert client.get("/api/feed/latest").json()["data"]["items"][0]["id"] == "rss:shared-existing"
     assert member["id"] != owner["id"]
+    client.app.state.service_store.close()
+    client.close()
 
 
 def test_subscription_disable_can_save_or_dismiss_existing_source_content(tmp_path, monkeypatch):
@@ -324,6 +359,21 @@ def test_subscription_disable_can_save_or_dismiss_existing_source_content(tmp_pa
     subscription = client.post(
         f"/api/catalog/sources/{source['id']}/subscribe"
     ).json()["data"]["subscription"]
+    lifecycle_item = ContentItem(
+        id="rss:lifecycle-item",
+        source_type=SourceType.RSS,
+        title="Lifecycle item",
+        url="https://example.com/lifecycle-choice/article",
+        content="Lifecycle item",
+        published_at=datetime.now(timezone.utc),
+        metadata={
+            "source_id": source["id"],
+            "subscription_id": subscription["id"],
+            "source_display_name": "Lifecycle source",
+            "catalog_source_type": "rss",
+            "analysis_mode": "full",
+        },
+    )
     UserFeedStore(client.app.state.service_store).save_snapshot(
         workspace_id=owner["workspace_id"],
         user_id=owner["id"],
@@ -331,12 +381,7 @@ def test_subscription_disable_can_save_or_dismiss_existing_source_content(tmp_pa
         payload={
             "schema_version": 2,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "items": [{
-                "id": "rss:lifecycle-item",
-                "title": "Lifecycle item",
-                "source_id": source["id"],
-                "subscription_id": subscription["id"],
-            }],
+            "items": [serialize_item(lifecycle_item, featured_threshold=8.0)],
         },
     )
 
@@ -363,6 +408,8 @@ def test_subscription_disable_can_save_or_dismiss_existing_source_content(tmp_pa
     assert dismissed.status_code == 200
     state = client.get("/api/me/item-state?article_ids=rss:lifecycle-item").json()["data"]["states"]
     assert state["rss:lifecycle-item"]["dismissed"] is True
+    client.app.state.service_store.close()
+    client.close()
 
 
 def test_unsubscribing_last_private_source_disables_orphan(tmp_path, monkeypatch):

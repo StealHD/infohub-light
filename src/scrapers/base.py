@@ -7,6 +7,7 @@ import httpx
 
 from ..models import ContentItem
 from ..services.response_schema import extract_response_schema, merge_response_schemas
+from ..services.source_acquisition import target_subscription_projection
 
 
 class SourceFetchError(RuntimeError):
@@ -77,35 +78,4 @@ class BaseScraper(ABC):
 
     def _tag_metadata(self, source_config) -> dict:
         """Return separated reading topics and personal tags for a source."""
-        topics = list(getattr(source_config, "topics", []) or [])
-        legacy_tags = list(getattr(source_config, "tags", []) or [])
-        for tag in legacy_tags:
-            if tag not in topics:
-                topics.append(tag)
-        if hasattr(source_config, "hub_channel"):
-            hub_channel = getattr(source_config, "hub_channel", None) or getattr(
-                source_config, "category", None
-            )
-        else:
-            hub_channel = getattr(source_config, "channel", None) or getattr(
-                source_config, "category", None
-            )
-        analysis_mode = getattr(source_config, "analysis_mode", "full")
-        if hasattr(analysis_mode, "value"):
-            analysis_mode = analysis_mode.value
-        metadata = {
-            "channel": hub_channel,
-            "topics": topics,
-            "tags": topics,
-            "personal_tags": list(getattr(source_config, "personal_tags", []) or []),
-            "source_id": getattr(source_config, "source_id", None),
-            "subscription_id": getattr(source_config, "subscription_id", None),
-            "source_key": getattr(source_config, "source_key", None),
-            "source_display_name": getattr(source_config, "source_display_name", None),
-            "catalog_source_type": getattr(source_config, "catalog_source_type", None),
-            "source_priority": int(getattr(source_config, "source_priority", 0) or 0),
-            "analysis_mode": str(analysis_mode or "full"),
-        }
-        if metadata["analysis_mode"] == "personal_only":
-            metadata["show_in_personal_feed"] = True
-        return metadata
+        return target_subscription_projection(source_config).metadata()

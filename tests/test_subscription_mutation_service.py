@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
+from datetime import datetime, timezone
 import json
 from unittest.mock import Mock
 
 import pytest
 
+from src.models import ContentItem, SourceType
+from src.services.canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from src.services.media_cache import MediaCacheService
 from src.services.quota import QuotaExceeded, QuotaService
 from src.services.source_health import SourceHealthService
@@ -19,8 +22,10 @@ from src.services.subscription_mutation import (
     SubscriptionMutationService,
 )
 from src.services.user_config_builder import build_user_config_data
+from src.services.user_feed_store import UserFeedStore
 from src.services.worker import _source_payload_from_catalog
 from src.storage.service_store import ServiceStore
+from src.ui.site import serialize_item
 import src.services.subscription_mutation as subscription_mutation_module
 import src.services.media_cache as media_cache_module
 
@@ -56,19 +61,22 @@ def mutation_context(tmp_path, monkeypatch):
         source_health=health,
         media_cache=media,
     )
-    return {
-        "store": store,
-        "workspace": workspace,
-        "owner": owner,
-        "member": member,
-        "viewer": viewer,
-        "quota": quota,
-        "schedules": schedules,
-        "health": health,
-        "media": media,
-        "service": service,
-        "data_dir": tmp_path,
-    }
+    try:
+        yield {
+            "store": store,
+            "workspace": workspace,
+            "owner": owner,
+            "member": member,
+            "viewer": viewer,
+            "quota": quota,
+            "schedules": schedules,
+            "health": health,
+            "media": media,
+            "service": service,
+            "data_dir": tmp_path,
+        }
+    finally:
+        store.close()
 
 
 def _private_rss_plan(context, *, user="member", suffix="private"):
@@ -1541,6 +1549,456 @@ def test_existing_shared_source_can_be_subscribed_but_not_mutated(mutation_conte
             schedule_updates=None,
         )
     assert exc_info.value.code == "forbidden"
+
+
+def test_shared_source_reuse_uses_content_item_native_title_not_donor_ai_title(
+    mutation_context,
+):
+    store = mutation_context["store"]
+    workspace = mutation_context["workspace"]
+    owner = mutation_context["owner"]
+    member = mutation_context["member"]
+    source_id = _create_shared_source(
+        mutation_context,
+        suffix="reuse-native-title",
+    )
+    owner_subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    donor = ContentItem(
+        id="rss:reuse:native-title",
+        source_type=SourceType.RSS,
+        title="CANONICAL_SOURCE_TITLE",
+        url="https://example.com/reuse-native-title/article",
+        content="Canonical source excerpt",
+        author="Canonical author",
+        published_at=datetime(2026, 7, 24, 1, 0, tzinfo=timezone.utc),
+        metadata={
+            "title_zh": "DONOR_AI_TRANSLATED_TITLE",
+            "source_id": source_id,
+            "source_ids": [source_id],
+            "subscription_id": owner_subscription["id"],
+            "subscription_ids": [owner_subscription["id"]],
+            "source_key": "rss:https://example.com/reuse-native-title.xml",
+            "source_keys": ["rss:https://example.com/reuse-native-title.xml"],
+            "source_display_name": "Shared RSS",
+            "catalog_source_type": "rss",
+            "analysis_mode": "full",
+        },
+    )
+    serialized = serialize_item(donor, featured_threshold=8.0)
+    assert serialized["title"] == "DONOR_AI_TRANSLATED_TITLE"
+    assert (
+        serialized[INTERNAL_SOURCE_NATIVE_TITLE_KEY]
+        == "CANONICAL_SOURCE_TITLE"
+    )
+    owner_snapshot = UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-owner-reuse-native-title",
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-07-24T01:10:00+00:00",
+            "items": [serialized],
+        },
+    )
+    stored_owner = store.connect().execute(
+        """
+        SELECT source_native_title, item_json
+        FROM user_content_items
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (workspace["id"], owner["id"], donor.id),
+    ).fetchone()
+    assert stored_owner["source_native_title"] == "CANONICAL_SOURCE_TITLE"
+    assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in stored_owner["item_json"]
+    assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in json.dumps(
+        owner_snapshot["payload"],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    owner_feed_item_json = store.connect().execute(
+        """
+        SELECT item_json FROM user_feed_items
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (workspace["id"], owner["id"], donor.id),
+    ).fetchone()["item_json"]
+    assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in owner_feed_item_json
+    member_subscription = store.create_subscription(
+        user_id=member["id"],
+        source_id=source_id,
+    )
+
+    result = UserFeedStore(store).reuse_source_content(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=member_subscription["id"],
+    )
+
+    assert result["reused_count"] == 1
+    member_item = result["snapshot"]["payload"]["items"][0]
+    assert member_item["title"] == "CANONICAL_SOURCE_TITLE"
+    assert member_item["presentation"]["content"]["title"] == "CANONICAL_SOURCE_TITLE"
+    assert "DONOR_AI_TRANSLATED_TITLE" not in json.dumps(
+        result["snapshot"]["payload"],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in json.dumps(
+        result["snapshot"]["payload"],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    stored_member_title = store.connect().execute(
+        """
+        SELECT source_native_title FROM user_content_items
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (workspace["id"], member["id"], donor.id),
+    ).fetchone()["source_native_title"]
+    assert stored_member_title == "CANONICAL_SOURCE_TITLE"
+    latest_owner = UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )
+    assert latest_owner is not None
+    assert latest_owner["id"] == owner_snapshot["id"]
+    assert latest_owner["payload"]["items"][0]["title"] == "DONOR_AI_TRANSLATED_TITLE"
+
+
+def test_shared_source_reuse_skips_legacy_donor_without_native_title(
+    mutation_context,
+):
+    store = mutation_context["store"]
+    workspace = mutation_context["workspace"]
+    owner = mutation_context["owner"]
+    member = mutation_context["member"]
+    source_id = _create_shared_source(
+        mutation_context,
+        suffix="reuse-legacy-title",
+    )
+    owner_subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-owner-reuse-legacy-title",
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-07-24T01:10:00+00:00",
+            "items": [
+                {
+                    "id": "rss:reuse:legacy-title",
+                    "title": "UNPROVEN_DONOR_DISPLAY_TITLE",
+                    "source_id": source_id,
+                    "subscription_id": owner_subscription["id"],
+                    "presentation": {
+                        "content": {
+                            "title": "UNPROVEN_PRESENTATION_TITLE",
+                        }
+                    },
+                }
+            ],
+        },
+    )
+    member_subscription = store.create_subscription(
+        user_id=member["id"],
+        source_id=source_id,
+    )
+
+    result = UserFeedStore(store).reuse_source_content(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=member_subscription["id"],
+    )
+
+    assert result == {"reused_count": 0, "snapshot": None}
+    assert UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+    ) is None
+
+
+def test_shared_source_reuse_reprojects_donor_content_for_target_user(
+    mutation_context,
+):
+    store = mutation_context["store"]
+    workspace = mutation_context["workspace"]
+    owner = mutation_context["owner"]
+    member = mutation_context["member"]
+    source_id = _create_shared_source(mutation_context, suffix="reuse-isolation")
+    owner_subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+        override_channel="Owner Channel",
+        override_topics=["Owner Topic"],
+        personal_tags=["Owner Personal"],
+        analysis_mode="full",
+        priority=91,
+    )
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+            id, workspace_id, user_id, source_id, article_id, asset_kind,
+            remote_url, local_path, mime_type, byte_size, checksum, alt,
+            visibility_scope, status, created_at, updated_at
+        ) VALUES (
+            'med-current-source-avatar', ?, NULL, ?, NULL, 'source_avatar',
+            '', 'media/current-source-avatar.png', 'image/png', 3,
+            'current-source-avatar-sum', 'Shared RSS', 'workspace', 'ready',
+            '2026-07-24T00:00:00+00:00', '2026-07-24T00:00:00+00:00'
+        )
+        """,
+        (workspace["id"], source_id),
+    )
+    store.connect().commit()
+    owner_payload = {
+        "id": "rss:reuse:isolation",
+        "title": "Canonical donor title",
+        INTERNAL_SOURCE_NATIVE_TITLE_KEY: "Canonical donor title",
+        "source": "Shared RSS",
+        "source_type": "rss",
+        "author": "Canonical author",
+        "url": "https://example.com/reuse-isolation/article",
+        "discussion_url": "https://example.com/reuse-isolation/discussion",
+        "published_at": "2026-07-24T01:00:00+00:00",
+        "fetched_at": "2026-07-24T01:05:00+00:00",
+        "source_id": source_id,
+        "source_ids": [source_id],
+        "subscription_id": owner_subscription["id"],
+        "subscription_ids": [owner_subscription["id"]],
+        "source_priority": 91,
+        "channel": "Owner Channel",
+        "category": "Owner Channel",
+        "topics": ["Owner Topic"],
+        "tags": ["Owner Topic"],
+        "personal_tags": ["Owner Personal"],
+        "analysis_mode": "full",
+        "interest_score": 9.5,
+        "show_in_personal_feed": True,
+        "score": 9.8,
+        "summary_zh": "OWNER_AI_SUMMARY",
+        "signal_strength": "strong",
+        "signal_type": "owner_signal",
+        "entities": ["Owner Entity"],
+        "is_featured": True,
+        "show_on_featured_home": True,
+        "image_url": "/api/media/owner-private-image",
+        "media_urls": ["/api/media/owner-private-image"],
+        "user_state": {
+            "is_read": True,
+            "is_saved": True,
+            "is_later": True,
+            "dismissed": True,
+        },
+        "presentation": {
+            "version": 1,
+            "source": {
+                "id": source_id,
+                "catalog_type": "rss",
+                "platform": "rss",
+                "name": "Shared RSS",
+                "avatar_url": "/api/media/owner-private-avatar",
+            },
+            "author": {"name": "Canonical author", "kind": "person"},
+            "timing": {
+                "published_at": "2026-07-24T01:00:00+00:00",
+                "fetched_at": "2026-07-24T01:05:00+00:00",
+            },
+            "links": {
+                "canonical_url": "https://example.com/reuse-isolation/article",
+                "source_url": "https://example.com/reuse-isolation/discussion",
+            },
+            "content": {
+                "title": "Canonical donor title",
+                "title_origin": "native",
+                "excerpt": "Canonical excerpt",
+                "content_kind": "feed_summary",
+                "excerpt_truncated": False,
+                "body_text": "Canonical captured body",
+                "body_truncated": False,
+                "body_completeness": "captured",
+                "unresolved_reason": "",
+            },
+            "taxonomy": {
+                "channel": "Owner Channel",
+                "configured_topics": ["Owner Topic"],
+                "inferred_topics": ["Owner Inferred"],
+                "topics": ["Owner Topic", "Owner Inferred"],
+                "entities": ["Owner Entity"],
+            },
+            "engagement": {
+                "native_score": 12,
+                "likes": 3,
+                "comments": 2,
+                "reposts": None,
+                "shares": None,
+                "upvote_ratio": None,
+            },
+            "analysis": {
+                "status": "ai",
+                "score": 9.8,
+                "signal_strength": "strong",
+                "signal_type": "owner_signal",
+                "summary_zh": "OWNER_AI_SUMMARY",
+                "action_suggestion": "OWNER_AI_ACTION",
+            },
+            "media": {
+                "images": [
+                    {
+                        "asset_id": "owner-private-image",
+                        "url": "/api/media/owner-private-image",
+                    }
+                ],
+                "count": 1,
+                "total_image_count": 1,
+                "truncated": False,
+            },
+        },
+    }
+    legacy_ai_only_payload = {
+        "id": "rss:reuse:legacy-ai-only",
+        "title": "Legacy canonical title",
+        "source_id": source_id,
+        "source_ids": [source_id],
+        "subscription_id": owner_subscription["id"],
+        "subscription_ids": [owner_subscription["id"]],
+        "summary_zh": "OWNER_LEGACY_AI_BODY",
+    }
+    owner_snapshot = UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-owner-reuse-isolation",
+        payload={
+            "schema_version": 2,
+            "generated_at": "2026-07-24T01:10:00+00:00",
+            "items": [owner_payload, legacy_ai_only_payload],
+        },
+    )
+    feed_store = UserFeedStore(store)
+    assert feed_store.reuse_source_content(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=owner_subscription["id"],
+    ) == {"reused_count": 0, "snapshot": None}
+    unrelated_source_id = _create_shared_source(
+        mutation_context,
+        suffix="reuse-isolation-unrelated",
+    )
+    unrelated_subscription = store.create_subscription(
+        user_id=member["id"],
+        source_id=unrelated_source_id,
+    )
+    assert feed_store.reuse_source_content(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=unrelated_subscription["id"],
+    ) == {"reused_count": 0, "snapshot": None}
+    member_subscription = store.create_subscription(
+        user_id=member["id"],
+        source_id=source_id,
+        enabled=False,
+    )
+    assert feed_store.reuse_source_content(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=member_subscription["id"],
+    ) == {"reused_count": 0, "snapshot": None}
+    assert feed_store.latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+    ) is None
+
+    member_result = mutation_context["service"].rest_create_subscription(
+        SubscriptionActor.from_user(member),
+        source_id=source_id,
+        values={
+            "enabled": True,
+            "override_channel": "Member Channel",
+            "override_topics": ["Member Topic"],
+            "personal_tags": ["Member Personal"],
+            "analysis_mode": "personal_only",
+            "priority": 7,
+        },
+    )
+    member_snapshot = UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+    )
+
+    assert member_result["reused_item_count"] == 1
+    assert member_snapshot is not None
+    member_item = next(
+        item
+        for item in member_snapshot["payload"]["items"]
+        if item["id"] == owner_payload["id"]
+    )
+    assert [item["id"] for item in member_snapshot["payload"]["items"]] == [
+        owner_payload["id"]
+    ]
+    assert member_item["id"] == owner_payload["id"]
+    assert member_item["title"] == "Canonical donor title"
+    assert member_item["subscription_id"] == member_result["id"]
+    assert member_item["subscription_ids"] == [member_result["id"]]
+    assert member_item["source_id"] == source_id
+    assert member_item["source_ids"] == [source_id]
+    assert member_item["source_priority"] == 7
+    assert member_item["channel"] == "Member Channel"
+    assert member_item["topics"] == ["Member Topic"]
+    assert member_item["personal_tags"] == ["Member Personal"]
+    assert member_item["analysis_mode"] == "personal_only"
+    assert member_item["presentation"]["taxonomy"] == {
+        "channel": "Member Channel",
+        "configured_topics": ["Member Topic"],
+        "inferred_topics": [],
+        "topics": ["Member Topic"],
+        "entities": [],
+    }
+    assert member_item["presentation"]["analysis"]["status"] == "personal_only"
+    assert member_item["presentation"]["analysis"]["score"] == 0
+    assert member_item["presentation"]["analysis"]["summary_zh"] == "Canonical excerpt"
+    assert (
+        member_item["presentation"]["source"]["avatar_url"]
+        == "/api/media/med-current-source-avatar"
+    )
+    assert "user_state" not in member_item
+    assert member_item["image_url"] == ""
+    assert member_item["media_urls"] == []
+    serialized_member = json.dumps(
+        member_snapshot["payload"]["items"],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    for owner_only in (
+        "Owner Channel",
+        "Owner Topic",
+        "Owner Personal",
+        "Owner Inferred",
+        "Owner Entity",
+        "OWNER_AI_SUMMARY",
+        "OWNER_AI_ACTION",
+        "OWNER_LEGACY_AI_BODY",
+        "owner_signal",
+        "owner-private-avatar",
+        "owner-private-image",
+    ):
+        assert owner_only not in serialized_member
+    latest_owner_snapshot = UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )
+    assert latest_owner_snapshot is not None
+    assert latest_owner_snapshot["id"] == owner_snapshot["id"]
+    assert latest_owner_snapshot["payload"] == owner_snapshot["payload"]
 
 
 def test_cross_user_and_missing_subscription_ids_share_not_found_contract(

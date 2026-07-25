@@ -779,6 +779,7 @@ class ServiceStore:
                 article_id TEXT NOT NULL,
                 source_id TEXT,
                 subscription_id TEXT,
+                source_native_title TEXT,
                 item_json TEXT NOT NULL DEFAULT '{}',
                 body_text TEXT NOT NULL DEFAULT '',
                 body_truncated INTEGER NOT NULL DEFAULT 0 CHECK(body_truncated IN (0, 1)),
@@ -1163,6 +1164,9 @@ class ServiceStore:
         self._ensure_column("user_feed_items", "item_json", "TEXT")
         self._ensure_column(
             "user_content_items", "analysis_input_hash", "TEXT NOT NULL DEFAULT ''"
+        )
+        self._ensure_column(
+            "user_content_items", "source_native_title", "TEXT"
         )
         self._ensure_column(
             "user_content_items", "unresolved_reason", "TEXT"

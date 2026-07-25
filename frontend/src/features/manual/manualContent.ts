@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-24',
-  change: 'v1.7.4：OpenClaw 安全诊断、信息流实际新增与侧栏弹出菜单内收',
+  reviewedAt: '2026-07-25',
+  change: 'v1.7.5：共享内容按当前订阅重新投影，媒体只在数据库提交后清理',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -73,7 +73,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '公共与私人',
-        description: '公共订阅可被工作区成员发现，私人订阅只对创建者可见。旧的 workspace 来源会作为公共订阅显示。',
+        description: '公共订阅可被工作区成员发现，私人订阅只对创建者可见。旧的 workspace 来源会作为公共订阅显示。订阅共享来源时，只复用能够确认来源原始标题的历史内容，并按当前账户的频道、主题、个人标签和分析模式重新生成；缺少可信原始标题的旧内容不会预填，也不会继承其他成员的 AI 翻译标题、偏好、分析结果、阅读状态或内容图片。',
       },
       {
         title: '全部订阅自动更新',

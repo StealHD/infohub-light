@@ -7,6 +7,7 @@ import pytest
 
 from src.models import Config, ContentItem, SourceType
 from src.orchestrator import HorizonOrchestrator
+from src.services.canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from src.services.feed_production import FeedProductionService
 from src.services.feed_run import FeedRunResult, RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
@@ -720,6 +721,8 @@ def test_incremental_feed_merge_uses_canonical_url_and_stable_existing_id(
     assert first["payload"]["items"][0]["id"] == "stable-id"
 
     duplicate = _item("new-native-id", "src_b", "sub_b")
+    duplicate.title = "Fresh canonical source title"
+    duplicate.metadata["title_zh"] = "Fresh donor AI display title"
     duplicate.url = "https://example.com/story?view=full#second"
     merged = service.save_run_result(
         workspace_id=workspace["id"],
@@ -739,6 +742,18 @@ def test_incremental_feed_merge_uses_canonical_url_and_stable_existing_id(
     item = merged["payload"]["items"][0]
     assert set(item["source_ids"]) == {"src_a", "src_b"}
     assert set(item["subscription_ids"]) == {"sub_a", "sub_b"}
+    assert item["title"] == "Fresh donor AI display title"
+    assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in item
+    stable_content = _store.connect().execute(
+        """
+        SELECT source_native_title, item_json
+        FROM user_content_items
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (workspace["id"], owner["id"], "stable-id"),
+    ).fetchone()
+    assert stable_content["source_native_title"] == "Fresh canonical source title"
+    assert INTERNAL_SOURCE_NATIVE_TITLE_KEY not in stable_content["item_json"]
 
     distinct_query = _item("query-two", "src_b", "sub_b")
     distinct_query.url = "https://example.com/story?view=compact"
@@ -760,6 +775,7 @@ def test_incremental_feed_merge_uses_canonical_url_and_stable_existing_id(
         "stable-id",
         "query-two",
     }
+    _store.close()
 
 
 def test_unchanged_feed_reuses_snapshot_and_changed_content_creates_version(
@@ -783,6 +799,14 @@ def test_unchanged_feed_reuses_snapshot_and_changed_content_creates_version(
         ),
         active_source_ids={"src_a"},
     )
+    store.connect().execute(
+        """
+        UPDATE user_content_items SET source_native_title = NULL
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (workspace["id"], owner["id"], "same-id"),
+    )
+    store.connect().commit()
     same_item = _item(
         "same-id", "src_a", "sub_a", published_at=published_at
     )
@@ -807,6 +831,13 @@ def test_unchanged_feed_reuses_snapshot_and_changed_content_creates_version(
         "SELECT COUNT(*) FROM user_feed_snapshots WHERE user_id = ?",
         (owner["id"],),
     ).fetchone()[0] == 1
+    assert store.connect().execute(
+        """
+        SELECT source_native_title FROM user_content_items
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (workspace["id"], owner["id"], "same-id"),
+    ).fetchone()["source_native_title"] == "same-id"
 
     changed_item = _item(
         "same-id", "src_a", "sub_a", published_at=published_at
@@ -829,6 +860,7 @@ def test_unchanged_feed_reuses_snapshot_and_changed_content_creates_version(
     assert changed["snapshot_created"] is True
     assert changed["id"] != first["id"]
     assert changed["content_hash"] != first["content_hash"]
+    store.close()
 
 
 def test_compact_feed_write_keeps_full_items_only_in_item_rows_and_dual_reads(

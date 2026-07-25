@@ -19,11 +19,13 @@ from src.services.apify_key_pool import ApifyKeyPoolService
 from src.storage.service_store import ServiceStore
 
 
-def _store(tmp_path, monkeypatch):
+def _store(tmp_path, monkeypatch, request=None):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
     store = ServiceStore(tmp_path)
     store.initialize()
+    if request is not None:
+        request.addfinalizer(store.close)
     return store, store.get_default_workspace(), store.get_user_by_username("owner")
 
 
@@ -108,6 +110,7 @@ def _projection(
     *,
     channel: str,
     personal_tag: str,
+    analysis_mode: str = "personal_only",
 ):
     return SimpleNamespace(
         source_id=source_id,
@@ -116,7 +119,7 @@ def _projection(
         source_display_name="Shared RSS",
         catalog_source_type="rss",
         source_priority=7,
-        analysis_mode="personal_only",
+        analysis_mode=analysis_mode,
         channel=channel,
         category=channel,
         topics=[f"{channel}-topic"],
@@ -236,9 +239,9 @@ def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
 
 
 def test_public_source_reuses_fresh_acquisition_and_reprojects_per_user(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, request
 ):
-    store, workspace, owner = _store(tmp_path, monkeypatch)
+    store, workspace, owner = _store(tmp_path, monkeypatch, request)
     member = store.create_user(
         workspace_id=workspace["id"],
         username="member",
@@ -252,7 +255,36 @@ def test_public_source_reuses_fresh_acquisition_and_reprojects_per_user(
     async def fetch():
         nonlocal calls
         calls += 1
-        return [_content_item()]
+        item = _content_item()
+        item.ai_score = 9.7
+        item.ai_reason = "PRODUCER_AI_REASON"
+        item.ai_summary = "PRODUCER_AI_SUMMARY"
+        item.ai_summary_zh = "PRODUCER_AI_SUMMARY_ZH"
+        item.ai_category = "Producer AI Category"
+        item.ai_is_featured = True
+        item.ai_tags = ["Producer AI Tag"]
+        item.ai_channel = "Producer AI Channel"
+        item.ai_topics = ["Producer AI Topic"]
+        item.ai_signal_strength = "strong"
+        item.ai_signal_type = "producer_signal"
+        item.ai_entities = ["Producer Entity"]
+        item.ai_action_suggestion = "PRODUCER_AI_ACTION"
+        item.metadata.update(
+            {
+                "ai_content_format": "video",
+                "analysis_status": "ai",
+                "configured_topics": ["Producer Configured"],
+                "detailed_summary_zh": "PRODUCER_DETAILED_SUMMARY",
+                "interest_score": 9.4,
+                "inferred_topics": ["Producer Inferred"],
+                "scoring_disabled": True,
+                "signal_strength": "strong",
+                "signal_type": "producer_metadata_signal",
+                "title_zh": "PRODUCER_TRANSLATED_TITLE",
+                "user_state": {"is_saved": True},
+            }
+        )
+        return [item]
 
     first = SourceAcquisitionCoordinator(
         store,
@@ -284,6 +316,7 @@ def test_public_source_reuses_fresh_acquisition_and_reprojects_per_user(
                 member_sub["id"],
                 channel="member",
                 personal_tag="member-only",
+                analysis_mode="full",
             ),
             provider="rss",
             window_hours=24,
@@ -297,6 +330,35 @@ def test_public_source_reuses_fresh_acquisition_and_reprojects_per_user(
     assert member_items[0].metadata["subscription_id"] == member_sub["id"]
     assert member_items[0].metadata["personal_tags"] == ["member-only"]
     assert member_items[0].metadata["channel"] == "member"
+    assert member_items[0].metadata["configured_topics"] == ["member-topic"]
+    assert member_items[0].metadata["analysis_mode"] == "full"
+    assert "show_in_personal_feed" not in member_items[0].metadata
+    assert member_items[0].ai_score is None
+    assert member_items[0].ai_reason is None
+    assert member_items[0].ai_summary is None
+    assert member_items[0].ai_summary_zh is None
+    assert member_items[0].ai_category is None
+    assert member_items[0].ai_is_featured is False
+    assert member_items[0].ai_tags == []
+    assert member_items[0].ai_channel is None
+    assert member_items[0].ai_topics == []
+    assert member_items[0].ai_signal_strength is None
+    assert member_items[0].ai_signal_type is None
+    assert member_items[0].ai_entities == []
+    assert member_items[0].ai_action_suggestion is None
+    for metadata_key in (
+        "ai_content_format",
+        "analysis_status",
+        "detailed_summary_zh",
+        "interest_score",
+        "inferred_topics",
+        "scoring_disabled",
+        "signal_strength",
+        "signal_type",
+        "title_zh",
+        "user_state",
+    ):
+        assert metadata_key not in member_items[0].metadata
     assert first.metrics.as_dict() == {
         "cache_hits": 0,
         "cache_misses": 1,

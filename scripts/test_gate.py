@@ -338,7 +338,20 @@ def _full_backend_specs(root: Path) -> list[CommandSpec]:
     python = _python(root)
     script = str(Path(__file__).resolve())
     return [
-        _spec("python_full", [python, "-m", "pytest", "-q", "--tb=short", "--maxfail=1"], root),
+        _spec(
+            "python_full",
+            [
+                python,
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=short",
+                "--maxfail=1",
+                "-W",
+                "default::ResourceWarning",
+            ],
+            root,
+        ),
         _spec("python_syntax", [python, "-m", "compileall", "-q", "src", "scripts"], root),
         _spec("compose_default", ["docker", "compose", "-f", "docker-compose.yml", "config"], root),
         _spec("compose_light", ["docker", "compose", "-f", "docker-compose.light.yml", "config"], root),
@@ -400,7 +413,17 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
         specs.append(
             _spec(
                 "python_targeted",
-                [python, "-m", "pytest", "-q", "--tb=short", "--maxfail=1", *sorted(targets)],
+                [
+                    python,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "--tb=short",
+                    "--maxfail=1",
+                    "-W",
+                    "default::ResourceWarning",
+                    *sorted(targets),
+                ],
                 root,
             )
         )
@@ -439,7 +462,16 @@ def _targeted_specs(root: Path, plan: dict[str, Any], mapping: dict[str, Any]) -
         specs.append(
             _spec(
                 "legacy_ui_contract",
-                [python, "-m", "pytest", "-q", "--tb=short", "tests/test_static_reading_ui.py"],
+                [
+                    python,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "--tb=short",
+                    "-W",
+                    "default::ResourceWarning",
+                    "tests/test_static_reading_ui.py",
+                ],
                 root,
                 domain="frontend",
             )
@@ -596,6 +628,21 @@ def _sanitize_log(raw_path: Path, log_path: Path, sensitive_values: list[str]) -
         os.chmod(log_path, 0o600)
 
 
+_UNCLOSED_SQLITE_CONNECTION_WARNING = re.compile(
+    r"ResourceWarning:\s+unclosed (?:database in )?<sqlite3\.Connection object"
+)
+
+
+def _unclosed_sqlite_connection_warnings(log_path: Path) -> int:
+    count = 0
+    with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+        for index, line in enumerate(handle):
+            if index == 0 and line.startswith("$ "):
+                continue
+            count += len(_UNCLOSED_SQLITE_CONNECTION_WARNING.findall(line))
+    return count
+
+
 def _failure_details(spec: CommandSpec, exit_code: int, log_path: Path) -> dict[str, Any]:
     last_lines: deque[str] = deque(maxlen=80)
     failure_id: str | None = None
@@ -669,6 +716,7 @@ def execute_specs(
     passed = 0
     failed = 0
     error = 0
+    unclosed_sqlite_connection_warnings = 0
 
     for index, original_spec in enumerate(specs, start=1):
         replacements = {
@@ -740,12 +788,17 @@ def execute_specs(
             generated_report.chmod(0o600)
         elapsed = round(time.monotonic() - command_started, 3)
         result["log_paths"].append(_display_path(root, log_path))
+        command_sqlite_warnings = _unclosed_sqlite_connection_warnings(
+            log_path
+        )
+        unclosed_sqlite_connection_warnings += command_sqlite_warnings
         command_result = {
             "command_id": spec.command_id,
             "command": shlex.join(spec.argv),
             "duration": elapsed,
             "exit_code": exit_code,
             "log_path": _display_path(root, log_path),
+            "unclosed_sqlite_connection_warnings": command_sqlite_warnings,
         }
         commands.append(command_result)
         if exit_code == 0:
@@ -768,6 +821,9 @@ def execute_specs(
         "commands_passed": passed,
         "commands_failed": failed,
         "commands_error": error,
+        "unclosed_sqlite_connection_warnings": (
+            unclosed_sqlite_connection_warnings
+        ),
     }
     result["duration"] = round(time.monotonic() - started, 3)
     result_path = run_dir / "result.json"

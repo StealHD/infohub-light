@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..storage.service_store import ServiceStore
+from .media_cache import PostCommitMediaCleanup
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
@@ -98,6 +99,8 @@ class MaintenanceService:
         conn = self.store.connect()
         if conn.in_transaction:
             raise RuntimeError("maintenance requires no active transaction")
+        media_cleanup = PostCommitMediaCleanup()
+        result: dict[str, Any]
         try:
             conn.execute("BEGIN IMMEDIATE")
             state = conn.execute(
@@ -111,28 +114,41 @@ class MaintenanceService:
                 and current < last_run + timedelta(seconds=max(self.interval_seconds, 1))
             ):
                 conn.commit()
-                return {"ran": False, "deleted": {}}
-
-            deleted = self._prune_locked(current)
-            now_iso = current.isoformat()
-            conn.execute(
-                """
-                INSERT INTO maintenance_state (key, last_run_at, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET
-                    last_run_at = excluded.last_run_at,
-                    updated_at = excluded.updated_at
-                """,
-                (self.STATE_KEY, now_iso, now_iso),
-            )
-            conn.commit()
-            return {"ran": True, "deleted": deleted}
-        except Exception:
-            if conn.in_transaction:
-                conn.rollback()
+                result = {"ran": False, "deleted": {}}
+            else:
+                deleted = self._prune_locked(
+                    current,
+                    media_cleanup=media_cleanup,
+                )
+                now_iso = current.isoformat()
+                conn.execute(
+                    """
+                    INSERT INTO maintenance_state (key, last_run_at, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        last_run_at = excluded.last_run_at,
+                        updated_at = excluded.updated_at
+                    """,
+                    (self.STATE_KEY, now_iso, now_iso),
+                )
+                conn.commit()
+                result = {"ran": True, "deleted": deleted}
+        except BaseException:
+            try:
+                if conn.in_transaction:
+                    conn.rollback()
+            finally:
+                media_cleanup.discard()
             raise
+        media_cleanup.run()
+        return result
 
-    def _prune_locked(self, now: datetime) -> dict[str, int]:
+    def _prune_locked(
+        self,
+        now: datetime,
+        *,
+        media_cleanup: PostCommitMediaCleanup,
+    ) -> dict[str, int]:
         conn = self.store.connect()
         feed_cutoff = now - timedelta(days=max(self.feed_retention_days, 1))
         source_cutoff = now - timedelta(days=max(self.source_retention_days, 1))
@@ -238,10 +254,7 @@ class MaintenanceService:
             for media in media_rows:
                 path = (Path(self.store.data_dir) / str(media["local_path"])).resolve()
                 if path.is_relative_to(media_root):
-                    try:
-                        path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    media_cleanup.add(path)
             conn.execute("DELETE FROM user_content_items WHERE id = ?", (content["id"],))
             conn.execute(
                 """

@@ -2860,3 +2860,51 @@
 - 执行验证：逐项确认目标文件消失、根工作区无未提交改动，最终本地仅保留 `main`
 - 结果：未将被放弃的文档、OpenClaw 运行时代码或验收产物合入主线
 - 控制面变更：无；未修改产品代码、tag、Release、VPS 或运行数据
+
+### 2026-07-25 10:57 Codex
+- 任务：从当前工作区无缓存构建并启动最新本地测试容器
+- 运行变更：执行 `./scripts/up-latest.sh`；检测到首轮构建期间新增运行时代码后再次无缓存构建，最终以 `inteliscope-service:local-5b8c8ecb2577-dirty` 重建 API/Worker
+- 执行验证：API 与 Worker 均 healthy、0 restart；live 返回 revision `5b8c8ecb2577-dirty`，ready 返回 database/worker ready；4 个已修改运行时源码与容器内哈希一致，启动日志无错误
+- 安全边界：未触发 scheduler、来源抓取、AI、通知或付费调用，未修改现有产品代码、提交、推送或部署
+
+### 2026-07-25 Codex
+- 任务：修复付费试点前的跨用户内容复用泄漏与媒体提交前删除阻断项
+- 修改范围：共享获取只保存中性内容，复用 donor 采用字段 allowlist 并按目标订阅重投影；维护媒体改为提交后清理；Test Gate 增加未关闭 SQLite 连接告警计数；同步操作手册与更新日志
+- 执行验证：8 条 RED 先稳定失败；安全用例在 `-W error::ResourceWarning` 下转绿，所属后端与文档测试通过；`test_gate full` 22/22、0 failed/error、138.335 秒，并观测到 962 条既有 SQLite 连接告警
+- 结果：owner/member 个性化、AI、用户状态与用户级媒体隔离；SQL、commit 和中断回滚均保留文件，成功提交后才尽力清理
+- 安全边界：未提交、推送、部署或触发真实来源、AI、scheduler、通知及付费调用；API、架构与数据库 schema 未变
+
+### 2026-07-25 Codex
+- 任务：提供付费试点安全阻断项的独立验收方法
+- 修改范围：仅追加本工作日志；给出分支基线、P0/P1 攻击与故障注入、真实 API 路径、完整门禁和残余风险的判定标准
+- 执行验证：验收方法复用最终源码状态下已通过的 8 条严格安全测试、跨用户 API 测试及 22/22 完整 Test Gate
+- 结果：形成可由第二位验收人独立执行、逐项判定通过或失败的最小清单
+- 控制面变更：无；未修改产品代码、测试、配置、运行数据或外部系统
+
+### 2026-07-25 Codex
+- 任务：独立复审最新已提交版本及 `fix-pilot-blockers` 工作区是否仍有跨用户复用和维护清理问题
+- 修改范围：仅追加本工作日志；未修改待审产品代码、测试或控制文件
+- 执行验证：确认 `origin/main` 与 HEAD 均为 `5b8c8ec`；相关定向测试通过；`test_gate full` 22/22，通过但统计到 962 条未关闭 SQLite 连接告警；最小复现确认 donor `title_zh` 及 Telegram identity channel 残余
+- 结果：已提交版本仍有原 P0/P1；当前未提交候选已修复媒体提交顺序 P1，但 donor AI 翻译标题仍可跨用户复用，P0 尚不能关闭；SQLite 告警未清零
+- 控制面变更：无；未运行真实来源、AI、Worker、scheduler、通知或付费调用，未提交、推送或部署
+
+### 2026-07-25 Codex
+- 任务：清零跨用户内容复用中的 donor AI 翻译标题 P0
+- 修改范围：为稳定内容索引增加内部可空原生标题列；真实 `ContentItem` 序列化以隐藏旁路穿过 canonical merge，写快照前剥离；复用只接受可信原生标题，旧行逐条跳过；同步安全回归、操作手册和更新日志
+- 执行验证：真实链路 RED 先复现 `CANONICAL_SOURCE_TITLE → DONOR_AI_TRANSLATED_TITLE`；修复后 9 项安全/API 用例在 `-W error::ResourceWarning` 下通过，相关模块 256 项通过；`test_gate full` 22/22、0 failed/error、127.398 秒，观测到 958 条既有 SQLite 告警；JSON、产品文档和 diff 检查通过
+- 结果：owner 保留 AI 展示标题，member 只得到来源原始标题；隐藏字段不进入快照、稳定 item JSON、Feed/收藏/详情或静态 payload；全 legacy donor 返回零复用，混合批次只复用安全条目
+- 安全边界：未提交、推送、部署或触发真实来源、AI、Worker、scheduler、通知及付费调用；公开 API 与架构合同不变
+
+### 2026-07-25 Codex
+- 任务：将付费试点安全阻断项修复合入本地 `main`
+- 修改范围：提交 `codex/fix-pilot-blockers` 的 P0/P1、连接告警观测、测试和产品文档改动，并按项目历史使用非快进合并保留功能提交
+- 执行验证：合入前 `test_gate full` 22/22、0 failed/error，9 项严格安全/API 用例及 JSON、产品文档、diff 检查通过；合入后复核提交图、分支指向和干净工作树
+- 结果：本地 `main` 包含跨用户原生标题隔离、中性共享获取、提交后媒体清理及对应回归保护
+- 安全边界：未推送远端、部署、重建容器或触发真实来源、AI、Worker、scheduler、通知及付费调用
+
+### 2026-07-25 Codex
+- 任务：复审 `codex/fix-pilot-blockers` 当前最新工作区是否已关闭跨用户复用与维护清理问题
+- 修改范围：仅追加本工作日志；未修改待审产品代码、测试或控制文件
+- 执行验证：11 项跨用户标题/旧数据降级/故障注入测试通过；`test_gate full` 22/22、0 failed/error、139.67 秒，但仍统计 956 条未关闭 SQLite 连接告警；最小复现确认 Telegram identity/taxonomy 混用
+- 结果：未提交候选已修复 donor 个性化投影与 AI 标题复用 P0、提交前删文件 P1；SQLite 生命周期、提交后孤儿文件治理与 Telegram 投影回归未收口，且分支 HEAD 仍与 `origin/main` 同为 `5b8c8ec`
+- 安全边界：未提交、推送、部署或触发真实来源、AI、Worker、scheduler、通知及付费调用

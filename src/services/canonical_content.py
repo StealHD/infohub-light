@@ -8,6 +8,9 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit
 
 
+INTERNAL_SOURCE_NATIVE_TITLE_KEY = "_source_native_title"
+
+
 def canonical_url_key(url: Any) -> str:
     """Normalize URL identity while preserving the complete query string."""
 
