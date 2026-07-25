@@ -2839,3 +2839,10 @@
 - 发布修正：首次 tag 因版本提交未同提交复核两份产品文档失败；强制更新事件又因 GitHub `before` 为旧 tag 对象失败；在无 Release 时完成实际文档复核并删除/重建同一最终 tag 后，完整 tag workflow 通过
 - 回退：`0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.4-e9daca159711-20260724T140906Z`，数据库 SHA-256 `435185bb58e47ec8bfff47cff847b41698e1bf4448f8a3edd5dcdb4c3f57e66e`；旧 v1.7.3 release/image 保留
 - 安全边界：scheduler、Apify Key 池、共享采集与 compact writer 均未因发布启用；未主动触发来源抓取、AI、邮件、Webhook 或付费调用
+
+### 2026-07-25 Codex
+- 任务：清理当前本地、worktree 与远端旧分支
+- 修改范围：移除 6 个干净 worktree、9 个已合入 `main` 的本地功能分支，以及 4 个已合入 `main` 的远端 feature/release 分支
+- 执行验证：逐项确认本地/远端目标均为 `main` 祖先；远端最终只保留 `main` 与文档发布所需 `gh-pages`
+- 结果：保留 2 个含未合并提交的本地分支及 2 个带未提交文件的本地分支，避免丢失独有代码、文档、日志和验收产物
+- 控制面变更：无；未修改产品代码、tag、Release、VPS 或运行数据
