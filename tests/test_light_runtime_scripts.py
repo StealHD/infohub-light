@@ -158,6 +158,12 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
 
     assert "git status --porcelain" in script
     assert "archive --format=tar.gz" in script
+    assert "docker buildx build" in script
+    assert 'platform="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"' in script
+    assert 'docker save "$image"' in script
+    assert 'docker load -i "$image_archive"' in script
+    assert '[[ "$loaded_arch" == amd64 ]]' in script
+    assert "docker compose -f docker-compose.light.yml build" not in script
     assert "vps-tokyo" in script
     assert "${INTELISCOPE_DEPLOY_BASE:-/opt/inteliscope}" in script
     assert 'release_dir="$base/releases/$release_id"' in script

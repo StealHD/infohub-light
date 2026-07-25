@@ -578,3 +578,11 @@
 - 来源与 Agent 合同：RSSHub 是 workspace runtime service，不是 catalog type。Bilibili UP 视频仍保存为 catalog `rss`，稳定身份为 `rss:rsshub:bilibili:user_video:<uid>`；OpenClaw 新增公开 `bilibili` 类型，只提交 allowlisted `site=bilibili`、`route_key=user_video`、正整数 `params.uid` 和可选 `keep_latest_item`。MCP guide、preview 与 discovery 不返回 Base URL，且不接受任意 RSSHub URL/path、Cookie、ACCESS_KEY 或凭据。
 - 安全/兼容：运行 URL 只由管理员 Base URL 与服务端 allowlist 拼接，允许安全反向代理 path prefix，受控抓取禁用 redirect。自建公网入口强制使用 SecretStore `RSSHUB_ACCESS_KEY`，Worker 只发送 `md5(route path + key)` 派生的 route-scoped code；主密钥不进入 URL、配置、catalog、MCP、OpenClaw、Feed 或日志。direct RSS 的公网 egress/管理员私网信任边界不变。迁移只精确识别 `/bilibili/user/video/<uid>[/1]`，先备份 config/SQLite，再原位更新 source config/key，保留 source、subscription 和 schedule ID。切换 Base URL 不改变来源 key 或订阅状态。
 - 原因：测试环境需要本地公网直连而不维护 tunnel；裸 HTTP 会暴露密钥，直接开放容器端口又绕过现有 TLS/限流。单 VPS loopback 容器、现有 Nginx HTTPS、RSSHub 原生访问控制与语义路由同时满足直接复用、可替换和小规格 VPS 资源约束。
+
+### D068 Inteliscope 生产镜像只允许本地跨架构构建
+
+- 决策日期：2026-07-25
+- 当前状态：控制规则与旧 RC 脚本已修正，定向校验通过；完整门禁与首次按新规则发布进行中
+- 决策内容：Inteliscope production image 必须从干净、revision-locked commit 在本机使用 Buildx 构建 `linux/amd64`，完成本地门禁/镜像身份检查后压缩上传，在 `vps-tokyo` 只执行校验与 `docker load`。VPS 禁止对本仓库执行 `docker compose build` 或 `docker build`；仅允许 pull RSSHub 等 pinned third-party runtime image。
+- 原因：2026-07-22 已因沿用旧脚本远端构建而纠偏为本地传包，但规则只留在 WORKLOG 且旧脚本未同步；2026-07-25 再次远端构建令 1.6 GiB VPS 出现整机资源争用。把发布地点提升为硬约束并让脚本符合规则，可避免执行者忽略历史记录后重复事故。
+- 安全/回退：构建位置变化不改业务镜像内容、数据库、Compose 服务或回滚模型。源码归档与镜像必须绑定同一 revision；VPS 保留旧 release/image，切换前仍执行 `0600` 数据/配置备份和 Worker-first rollback。

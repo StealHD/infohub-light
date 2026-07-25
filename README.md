@@ -128,7 +128,8 @@ The repository includes a guarded two-phase deployment flow for `vps-tokyo`:
   --output /tmp/inteliscope-service-rc1.db
 
 # Requires a clean, authorized release commit. Runs all local gates, creates
-# a git archive, builds on the VPS and starts API-only staging on port 18080.
+# a git archive, builds a linux/amd64 image locally, uploads it for docker load,
+# and starts API-only staging on port 18080. The VPS never builds this project.
 ./scripts/release_rc1.sh prepare /tmp/inteliscope-service-rc1.db
 
 # After staging validation, switch 8080 and start API + Worker.

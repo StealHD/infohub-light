@@ -69,24 +69,52 @@ prepare_release() {
   require_clean_tree
   validate_database_artifact "$database"
 
-  local revision version built_at release_id image archive remote_archive remote_database
+  local revision version built_at release_id image platform expected_arch actual_arch image_revision
+  local archive image_archive remote_archive remote_image_archive remote_database
   revision="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
   version="$(./.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
   built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   release_id="rc1-$(date -u +%Y%m%dT%H%M%SZ)-${revision}"
   image="inteliscope-service:${release_id}"
+  platform="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"
+  expected_arch="${platform#linux/}"
   archive="$(mktemp -t inteliscope-rc1.XXXXXX.tar.gz)"
+  image_archive="$(mktemp -t inteliscope-rc1-image.XXXXXX.tar.gz)"
   remote_archive="/tmp/${release_id}.tar.gz"
+  remote_image_archive="/tmp/${release_id}-image.tar.gz"
   remote_database="/tmp/${release_id}-service.db"
-  trap 'rm -f "$archive"' RETURN
+  trap 'rm -f "$archive" "$image_archive"' RETURN
 
+  docker buildx build \
+    --platform "$platform" \
+    --load \
+    --build-arg "INTELISCOPE_VERSION=$version" \
+    --build-arg "INTELISCOPE_BUILD_REVISION=$revision" \
+    --build-arg "INTELISCOPE_BUILT_AT=$built_at" \
+    --tag "$image" \
+    "$ROOT_DIR"
+  actual_arch="$(docker image inspect "$image" --format '{{.Architecture}}')"
+  image_revision="$(
+    docker image inspect "$image" \
+      --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+  )"
+  [[ "$actual_arch" == "$expected_arch" ]] || {
+    echo "local release image architecture mismatch: expected=$expected_arch actual=$actual_arch" >&2
+    exit 1
+  }
+  [[ "$image_revision" == "$revision" ]] || {
+    echo "local release image revision mismatch: expected=$revision actual=$image_revision" >&2
+    exit 1
+  }
+  docker save "$image" | gzip -1 >"$image_archive"
   git -C "$ROOT_DIR" archive --format=tar.gz --output="$archive" HEAD
   scp "$archive" "$REMOTE_HOST:$remote_archive"
+  scp "$image_archive" "$REMOTE_HOST:$remote_image_archive"
   scp "$database" "$REMOTE_HOST:$remote_database"
 
   ssh "$REMOTE_HOST" bash -s -- \
     "$REMOTE_BASE" "$release_id" "$image" "$version" "$revision" "$built_at" \
-    "$remote_archive" "$remote_database" <<'REMOTE'
+    "$remote_archive" "$remote_database" "$remote_image_archive" <<'REMOTE'
 set -euo pipefail
 base="$1"
 release_id="$2"
@@ -96,6 +124,7 @@ revision="$5"
 built_at="$6"
 archive="$7"
 database="$8"
+image_archive="$9"
 release_dir="$base/releases/$release_id"
 
 if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then
@@ -111,11 +140,28 @@ fi
 mkdir -p "$base/releases" "$base/data" "$base/logs"
 [[ ! -e "$release_dir" ]] || { echo "release already exists: $release_dir" >&2; exit 1; }
 mkdir "$release_dir"
-tar -xzf "$archive" -C "$release_dir"
-rm -rf "$release_dir/data" "$release_dir/logs" "$release_dir/.env"
+tar -xzf "$archive" -C "$release_dir" \
+  --exclude='data' --exclude='data/*' \
+  --exclude='logs' --exclude='logs/*' \
+  --exclude='.env'
 ln -s "$base/data" "$release_dir/data"
 ln -s "$base/logs" "$release_dir/logs"
 ln -s "$base/.env" "$release_dir/.env"
+
+docker load -i "$image_archive"
+loaded_arch="$(docker image inspect "$image" --format '{{.Architecture}}')"
+loaded_revision="$(
+  docker image inspect "$image" \
+    --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+)"
+[[ "$loaded_arch" == amd64 ]] || {
+  echo "loaded release image architecture mismatch: $loaded_arch" >&2
+  exit 1
+}
+[[ "$loaded_revision" == "$revision" ]] || {
+  echo "loaded release image revision mismatch: $loaded_revision" >&2
+  exit 1
+}
 
 [[ ! -e "$base/data/service.db" ]] || {
   echo "refusing to replace an existing remote service.db during RC1 bootstrap" >&2
@@ -123,7 +169,7 @@ ln -s "$base/.env" "$release_dir/.env"
 }
 install -m 600 "$database" "$base/data/.service.db.${release_id}.tmp"
 mv "$base/data/.service.db.${release_id}.tmp" "$base/data/service.db"
-rm -f "$archive" "$database"
+rm -f "$archive" "$database" "$image_archive"
 
 set_env() {
   key="$1"
@@ -148,7 +194,6 @@ set_env HORIZON_AUTH_SESSION_TTL_SECONDS 604800
 cd "$base"
 docker compose stop horizon-scheduler
 cd "$release_dir"
-docker compose -f docker-compose.light.yml build --pull horizon-api
 docker compose -f docker-compose.light.yml up -d --no-build --force-recreate horizon-api
 for attempt in $(seq 1 60); do
   if curl -fsS http://127.0.0.1:18080/api/health/ready >/dev/null; then
