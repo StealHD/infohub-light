@@ -602,3 +602,11 @@
 - 决策内容：`setup_openclaw_local.py` 不再把“存在 inteliscope Skill”等同于“版本正确”。它比较 bundled 与 `openclaw skills info` 返回目录中的托管文件，忽略 OpenClaw 安装元数据；缺失时安装、内容漂移时 `--force` 刷新，且只在 Skill 或 Origin 变化时重启已运行 Gateway。刷新后用新会话验收，现有会话不作为新路由合同的证据。
 - 原因：VPS MCP 已提供 `bilibili` 指南，但本机 2026-07-20 的旧 Skill 仍把 Bilibili 路由成普通 `rss`，导致模型成功调用错误类型的指南并索要公开 RSSHub URL。仅检查 Skill 是否可见无法发现这种跨版本漂移。
 - 安全/兼容：该 reconcile 只管理仓库拥有的 `inteliscope` Skill，不读取或写入 MCP/Gateway token，不调用订阅 prepare/apply；`--skip-skill` 保留显式退出。旧 Skill 已以 `0600` 本地备份保留，回退时可恢复并重启 Gateway。
+
+### D071 OpenClaw 通过固定 Bilibili 公开查询把账号名称解析为 UID
+
+- 决策日期：2026-07-25
+- 当前状态：本地实现与定向测试完成，待完整门禁、VPS 发布和真实 OpenClaw 新会话验收
+- 决策内容：Remote MCP 新增只读、non-destructive、idempotent、open-world 的 `search_bilibili_users`，使 OpenClaw 可把用户明确提供的 Bilibili 账号名称解析为受控订阅所需 UID。服务只访问固定 Bilibili 首页和官方用户搜索端点，在单次内存 client 中先取得匿名设备 Cookie，再返回最多五个仅含名称、UID、官方主页和精确匹配标记的候选；只有唯一规范化精确同名时才生成 `resolved_user`。OpenClaw 必须优先复用现有来源；无现有精确名称时调用该工具，唯一精确命中可直接 prepare，多候选必须交给用户选择，仍保留 `prepare → 准确确认 → apply` 写入边界。
+- 原因：仅把 RSSHub URL 输入收窄到 UID 仍要求用户手工查主页，不能完成“给出 UP 主名称后自行建立订阅”的产品目标。VPS 直接调用用户搜索接口会返回 `-412`，而先访问 Bilibili 首页取得无账号匿名 Cookie 后同一 VPS 可稳定得到“食贫道 → 39627524”；因此名称解析必须由服务端显式建模，而不能让模型猜 UID。
+- 安全/回退：查询拒绝 URL、身份字段和凭据，禁用环境代理与 redirect，使用固定 timeout、512,000-byte 上限及 300/30 秒缓存；不接收或复用账号 Cookie，不投影签名、粉丝数、视频数或上游正文，候选名称标记为不可信公开 metadata。上游不可用返回稳定 `availability=unavailable` 且不得猜测；移除该工具和 toolFilter 后，既有 UID/主页输入、受控 RSSHub 路由与已创建订阅继续可用，不需要数据库迁移。

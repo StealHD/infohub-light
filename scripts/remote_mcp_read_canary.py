@@ -29,6 +29,7 @@ ALL_REMOTE_TOOLS = (
     "list_jobs",
     "get_job",
     "get_source_setup_guide",
+    "search_bilibili_users",
     "list_available_sources",
     "prepare_create_subscription",
     "prepare_update_subscription",
@@ -46,6 +47,7 @@ SAFE_READ_TOOLS = (
     "list_jobs",
     "get_job",
     "get_source_setup_guide",
+    "search_bilibili_users",
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
@@ -160,6 +162,7 @@ async def _primary_checks(
     primary: ClientSession,
     *,
     latencies: list[float],
+    open_world_latencies: list[float],
     read_status: dict[str, str],
 ) -> tuple[tuple[str, ...], str, str, str]:
     listed = await primary.list_tools()
@@ -210,6 +213,20 @@ async def _primary_checks(
         latencies=latencies,
     )
     read_status["get_source_setup_guide"] = "ok"
+    bilibili_search = await _read_call(
+        primary,
+        "search_bilibili_users",
+        {"query": "食贫道", "limit": 5},
+        latencies=open_world_latencies,
+    )
+    resolved_user = bilibili_search.get("resolved_user")
+    if (
+        bilibili_search.get("match_status") != "exact"
+        or not isinstance(resolved_user, dict)
+        or not str(resolved_user.get("uid") or "").isdigit()
+    ):
+        raise CanaryFailure("bilibili_resolution_failed")
+    read_status["search_bilibili_users"] = "ok"
     await _read_call(
         primary, "list_available_sources", {}, latencies=latencies
     )
@@ -221,13 +238,13 @@ async def _primary_checks(
         latencies=latencies,
     )
     read_status["diagnose_source"] = "ok"
+    # The contract has twelve read tools while the server keeps a burst of ten.
+    # Refill two tokens rather than weakening the production limit.
+    await anyio.sleep(2.05)
     await _read_call(
         primary, "diagnose_job", {"job_id": job_id}, latencies=latencies
     )
     read_status["diagnose_job"] = "ok"
-    # The contract intentionally has eleven read tools while the server keeps a
-    # burst of ten; wait for one token rather than weakening the production limit.
-    await anyio.sleep(1.05)
     await _read_call(
         primary,
         "query_operation_logs",
@@ -283,6 +300,7 @@ async def verify_canary(
     if not primary_token or not secondary_token:
         raise CanaryFailure("missing_environment")
     latencies: list[float] = []
+    open_world_latencies: list[float] = []
     read_status = {name: "pending" for name in SAFE_READ_TOOLS}
     primary_failure: CanaryFailure | None = None
     primary_result: tuple[tuple[str, ...], str, str, str] | None = None
@@ -291,7 +309,10 @@ async def verify_canary(
     ) as primary:
         try:
             primary_result = await _primary_checks(
-                primary, latencies=latencies, read_status=read_status
+                primary,
+                latencies=latencies,
+                open_world_latencies=open_world_latencies,
+                read_status=read_status,
             )
         except CanaryFailure as exc:
             primary_failure = exc
@@ -329,6 +350,10 @@ async def verify_canary(
             "sample_count": len(latencies),
             "p95": round(_p95(latencies), 3),
             "maximum": round(max(latencies, default=0.0), 3),
+        },
+        "bilibili_lookup_latency_ms": {
+            "sample_count": len(open_world_latencies),
+            "maximum": round(max(open_world_latencies, default=0.0), 3),
         },
     }
 

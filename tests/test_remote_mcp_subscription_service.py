@@ -259,6 +259,57 @@ def test_setup_guide_is_safe_and_does_not_require_write_scope(context):
     assert "token_env" not in serialized
 
 
+def test_bilibili_user_search_is_read_scoped_and_projects_resolver_result(
+    context,
+):
+    resolver = Mock()
+    resolver.search.return_value = {
+        "schema_version": 1,
+        "query": "食贫道",
+        "availability": "available",
+        "match_status": "exact",
+        "resolved_user": {
+            "uid": "39627524",
+            "name": "食贫道",
+            "profile_url": "https://space.bilibili.com/39627524",
+        },
+        "candidates": [],
+        "returned": 0,
+        "truncated": False,
+        "data_trust": "untrusted_public_metadata",
+        "error_code": None,
+    }
+    context["service"].bilibili_user_search = resolver
+
+    result = context["service"].search_bilibili_users(
+        actor=_read_actor(context),
+        query="食贫道",
+        limit=3,
+    )
+
+    assert result["resolved_user"]["uid"] == "39627524"
+    resolver.search.assert_called_once_with(query="食贫道", limit=3)
+
+
+def test_bilibili_user_search_maps_invalid_input_to_safe_tool_error(context):
+    resolver = Mock()
+    resolver.search.side_effect = ValueError("do not expose input")
+    context["service"].bilibili_user_search = resolver
+
+    with pytest.raises(AgentProposalError) as error:
+        context["service"].search_bilibili_users(
+            actor=_read_actor(context),
+            query="invalid",
+            limit=5,
+        )
+
+    assert error.value.code == "invalid_request"
+    assert str(error.value) == "Bilibili account query is invalid"
+    assert "do not expose" not in repr(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+
+
 def test_available_sources_are_current_user_scoped_and_secret_safe(context):
     public = _source(
         context,

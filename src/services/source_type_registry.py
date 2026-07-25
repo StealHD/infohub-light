@@ -864,8 +864,8 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
                 ('{"uid":"39627524"}',),
                 ('{"uid":"39627524"}',),
                 ('{"uid":"39627524"}',),
-                "Read the numeric UID from https://space.bilibili.com/<uid>.",
-                "从 https://space.bilibili.com/<uid> 中读取数字 UID。",
+                "Resolve the public account name with search_bilibili_users; an explicit https://space.bilibili.com/<uid> is also accepted.",
+                "使用 search_bilibili_users 解析公开账号名称；也可接受明确的 https://space.bilibili.com/<uid>。",
             ),
             "keep_latest_item": _guide_field(
                 "Keep latest item",

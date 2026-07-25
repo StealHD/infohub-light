@@ -32,13 +32,13 @@ const viewer: User = {
 
 const readTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
-  'get_source_setup_guide', 'list_available_sources', 'diagnose_source', 'diagnose_job',
+  'get_source_setup_guide', 'search_bilibili_users', 'list_available_sources', 'diagnose_source', 'diagnose_job',
   'query_operation_logs',
 ]
 
 const writeTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
-  'get_source_setup_guide', 'list_available_sources', 'diagnose_source', 'diagnose_job',
+  'get_source_setup_guide', 'search_bilibili_users', 'list_available_sources', 'diagnose_source', 'diagnose_job',
   'query_operation_logs',
   'prepare_create_subscription', 'prepare_update_subscription', 'prepare_delete_subscription',
   'apply_subscription_change',
@@ -191,7 +191,7 @@ describe('OpenClaw browser pairing settings', () => {
 })
 
 describe('HeroAgentsPage delegation access', () => {
-  it('creates a subscription-management connection with the fifteen-tool configuration', async () => {
+  it('creates a subscription-management connection with the sixteen-tool configuration', async () => {
     const browser = userEvent.setup()
     const { api } = renderPage()
 
@@ -210,7 +210,7 @@ describe('HeroAgentsPage delegation access', () => {
     expect(configuration).not.toContain('ih_mcp_v1_one_time_secret')
   })
 
-  it('keeps the default page configuration read-only with eleven tools', async () => {
+  it('keeps the default page configuration read-only with twelve tools', async () => {
     renderPage()
 
     const configuration = (await screen.findByLabelText('OpenClaw 配置命令')).textContent || ''
@@ -233,7 +233,7 @@ describe('HeroAgentsPage delegation access', () => {
 
     const readConfiguration = await screen.findByLabelText('OpenClaw 配置命令')
     const writeConfiguration = screen.getByLabelText('订阅管理 OpenClaw 配置命令')
-    expect(screen.getByText('读取并诊断信息流、订阅、来源健康和任务。')).toHaveClass('min-h-10')
+    expect(screen.getByText('读取并诊断信息流、订阅、来源健康和任务，也可按名称查询公开 B 站账号。')).toHaveClass('min-h-10')
     expect(screen.getByText('变更仍需 prepare、准确确认和 apply。')).toHaveClass('min-h-10')
     for (const configuration of [readConfiguration, writeConfiguration]) {
       expect(configuration).toHaveClass(

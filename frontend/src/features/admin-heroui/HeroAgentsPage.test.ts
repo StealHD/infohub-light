@@ -16,6 +16,7 @@ describe('Hero Agents OpenClaw configuration', () => {
       'list_jobs',
       'get_job',
       'get_source_setup_guide',
+      'search_bilibili_users',
       'list_available_sources',
       'diagnose_source',
       'diagnose_job',

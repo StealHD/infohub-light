@@ -12,6 +12,7 @@ TOOLS = {
     "list_jobs",
     "get_job",
     "get_source_setup_guide",
+    "search_bilibili_users",
     "list_available_sources",
     "prepare_create_subscription",
     "prepare_update_subscription",
@@ -29,6 +30,7 @@ READ_TOOLS = {
     "list_jobs",
     "get_job",
     "get_source_setup_guide",
+    "search_bilibili_users",
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
@@ -81,7 +83,7 @@ def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_call
     )
     named_tools = set(re.findall(
         r"`(get_my_feed|get_item|list_subscriptions|source_health|list_jobs|get_job|"
-        r"get_source_setup_guide|list_available_sources|prepare_create_subscription|"
+        r"get_source_setup_guide|search_bilibili_users|list_available_sources|prepare_create_subscription|"
         r"prepare_update_subscription|prepare_delete_subscription|"
         r"apply_subscription_change|diagnose_source|diagnose_job|"
         r"query_operation_logs)`",
@@ -162,7 +164,7 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     assert [
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
-    ] == [(11, READ_TOOLS), (15, TOOLS)]
+    ] == [(12, READ_TOOLS), (16, TOOLS)]
 
 
 def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch():
@@ -202,6 +204,11 @@ def test_skill_uses_exact_create_envelopes_and_routes_bilibili_through_rsshub():
     assert "Bilibili" in combined and "B站" in combined and "UP 主" in combined
     assert "RSSHub Base URL" in combined
     assert 'source_type="bilibili"' in combined
+    assert "search_bilibili_users" in combined
+    assert 'match_status="exact"' in combined
+    assert "without asking the user for a UID" in combined
+    assert "unsubscribed_only=false" in combined
+    assert "do not prepare a duplicate" in combined
     assert '"type": "bilibili"' in combined
     assert '"route_key": "user_video"' in combined
     assert '"params": {"uid": "39627524"}' in combined

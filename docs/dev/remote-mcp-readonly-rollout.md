@@ -97,10 +97,12 @@ openclaw mcp doctor inteliscope --probe
 openclaw mcp status --verbose
 ```
 
-验收输出必须是 15 个服务端工具、11 个安全 read tools、3 个隔离检查和
+验收输出必须是 16 个服务端工具、12 个安全 read tools、3 个隔离检查和
 `subscription_writes_disabled`。再用真实 OpenClaw 对话询问“哪些订阅来源最近
 异常？”、“最近有哪些任务失败，原因是什么？”和“查看该任务最近 24 小时的
-安全诊断事件”，只允许读取与诊断；事件结果不得包含原始日志、路径或身份。
+安全诊断事件”，并要求“订阅 B 站 UP 主食贫道”；最后一项必须自行解析唯一
+精确名称 UID 并只生成订阅预览，不得要求手工提供 UID，也不得在未确认时
+apply。事件结果不得包含原始日志、路径或身份。
 
 ## 3. Nginx 精确路由
 
@@ -197,8 +199,9 @@ export INTELISCOPE_MCP_URL=https://rb.jiefs.top/mcp
 
 ## 5. 24 小时观察
 
-观察 24 小时并记录：MCP 5xx/`internal_error`/意外 429 为 0；热身后读调用
-p95 小于 2 秒；API RSS 相对启用前没有超过 80 MiB 的持续增长；proposal 数量
+观察 24 小时并记录：MCP 5xx/`internal_error`/意外 429 为 0；热身后
+closed-world 读调用 p95 小于 2 秒，单次 Bilibili 名称查询小于其 8 秒 I/O
+timeout；API RSS 相对启用前没有超过 80 MiB 的持续增长；proposal 数量
 不因只读调用增长；`last_used_at` 有界更新；Worker、scheduler、抓取、AI 和
 付费调用均为 0。观察期只通知 canary 用户，不增加服务器 allowlist。
 

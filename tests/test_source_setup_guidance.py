@@ -111,6 +111,7 @@ def test_bilibili_setup_guide_exposes_semantic_route_without_service_url():
         "keep_latest_item",
     }
     assert "RSSHub Base URL" in repr((zh, en))
+    assert "search_bilibili_users" in repr((zh, en))
     assert "http://rsshub" not in repr((zh, en))
 
 

@@ -110,6 +110,7 @@
       "frontend_log_display_enabled": false,
       "workspace_rsshub_base_url_enabled": true,
       "managed_bilibili_subscription_enabled": true,
+      "bilibili_user_name_resolution_enabled": true,
       "vps_private_rsshub_enabled": true
     },
     "service_limits": {
@@ -194,6 +195,13 @@
         },
         "credentials_enabled": false,
         "redirects_enabled": false,
+        "user_name_resolution": {
+          "official_endpoints_only": true,
+          "anonymous_cookie_bootstrap": true,
+          "candidate_limit": 5,
+          "success_cache_seconds": 300,
+          "unavailable_cache_seconds": 30
+        },
         "default_vps_base_url": "http://rsshub:1200",
         "default_local_docker_base_url": "http://host.docker.internal:1200"
       },
