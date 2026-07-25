@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 import json
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -1369,6 +1370,61 @@ def test_agent_private_create_consumes_policy_and_keeps_public_type_separate(
     assert plan.payload["source"]["agent_type"] == "github"
     assert plan.payload["source"]["catalog_source_type"] == "github_release"
     assert result["source"]["type"] == "github_release"
+
+
+def test_agent_bilibili_create_keeps_rsshub_origin_out_of_plan_and_catalog(
+    mutation_context,
+    monkeypatch,
+):
+    actor = SubscriptionActor.from_user(mutation_context["member"])
+    plan = mutation_context["service"].plan_create(
+        actor,
+        source={
+            "mode": "private",
+            "type": "bilibili",
+            "display_name": "食贫道",
+            "config": {
+                "site": "bilibili",
+                "route_key": "user_video",
+                "params": {"uid": "39627524"},
+            },
+        },
+        subscription={},
+        schedule=None,
+    )
+
+    assert plan.preview["source"] == {
+        "display_name": "食贫道",
+        "type": "bilibili",
+        "public_target": {
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524"},
+        },
+    }
+    assert "rsshub:1200" not in repr(plan.to_snapshot()).lower()
+
+    created = mutation_context["service"].apply_plan(actor, plan)
+    source = mutation_context["store"].get_source(created["source"]["id"])
+    assert source["type"] == "rss"
+    assert source["source_key"] == "rss:rsshub:bilibili:user_video:39627524"
+    assert source["enforce_public_network"] is False
+    assert source["config"]["url"] == "https://space.bilibili.com/39627524"
+
+    monkeypatch.setattr(
+        "src.services.worker.StorageManager.load_config",
+        lambda _self: SimpleNamespace(
+            rsshub=SimpleNamespace(base_url="https://rsshub.example.com")
+        ),
+    )
+    worker_payload = _source_payload_from_catalog(
+        {"source_id": source["id"], "payload_json": {}},
+        store=mutation_context["store"],
+    )
+    assert worker_payload["url"] == (
+        "https://rsshub.example.com/bilibili/user/video/39627524/1"
+    )
+    assert worker_payload["enforce_public_network"] is False
 
 
 @pytest.mark.parametrize("agent_type", ["twitter", "apify"])

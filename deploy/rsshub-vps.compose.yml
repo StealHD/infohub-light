@@ -1,0 +1,52 @@
+name: inteliscope-rsshub
+
+services:
+  rsshub:
+    image: ghcr.io/diygod/rsshub:chromium-bundled@sha256:49e13e8cc399b705bb188c842d3bbc4c106a85e749b1ab67bb5c144f2c771d9c
+    container_name: inteliscope-rsshub
+    restart: unless-stopped
+    init: true
+    ports:
+      # The container stays on loopback. Existing Nginx exposes the authenticated
+      # HTTPS /rsshub/ prefix documented in deploy/rsshub-vps.md.
+      - "127.0.0.1:${INTELISCOPE_RSSHUB_PORT:-1200}:1200"
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+      ACCESS_KEY: ${RSSHUB_ACCESS_KEY:?RSSHUB_ACCESS_KEY must be provided through SecretStore}
+      # Bilibili currently returns 412 to RSSHub's random browser UA while the
+      # built-in FeedFetcher UA is accepted for the same public route.
+      NO_RANDOM_UA: "true"
+      # The pinned chromium-bundled image stores the browser below /app while
+      # Patchright otherwise probes /root/.cache and cannot launch it.
+      CHROMIUM_EXECUTABLE_PATH: /app/node_modules/.cache/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-linux64/chrome-headless-shell
+      # This is an anonymous Bilibili anti-bot cookie, not an account session.
+      # Keeping it in SecretStore avoids persisting even operational cookies in Git.
+      BILIBILI_COOKIE_0: ${RSSHUB_BILIBILI_ANONYMOUS_COOKIE:?RSSHUB_BILIBILI_ANONYMOUS_COOKIE must be provided through SecretStore}
+      NODE_OPTIONS: ${INTELISCOPE_RSSHUB_NODE_OPTIONS:---max-old-space-size=384}
+    mem_limit: ${INTELISCOPE_RSSHUB_MEMORY_LIMIT:-640m}
+    pids_limit: 256
+    shm_size: 128m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:1200/healthz?key='+encodeURIComponent(process.env.ACCESS_KEY)).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      default:
+        aliases:
+          - rsshub
+
+networks:
+  default:
+    external: true
+    name: ${INTELISCOPE_DOCKER_NETWORK:-infohub-light_default}

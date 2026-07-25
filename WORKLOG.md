@@ -2908,3 +2908,37 @@
 - 执行验证：11 项跨用户标题/旧数据降级/故障注入测试通过；`test_gate full` 22/22、0 failed/error、139.67 秒，但仍统计 956 条未关闭 SQLite 连接告警；最小复现确认 Telegram identity/taxonomy 混用
 - 结果：未提交候选已修复 donor 个性化投影与 AI 标题复用 P0、提交前删文件 P1；SQLite 生命周期、提交后孤儿文件治理与 Telegram 投影回归未收口，且分支 HEAD 仍与 `origin/main` 同为 `5b8c8ec`
 - 安全边界：未提交、推送、部署或触发真实来源、AI、Worker、scheduler、通知及付费调用
+
+### 2026-07-25 Codex
+- 任务：评估 `vps-tokyo` 承载私有 RSSHub 的容量及跨网站订阅扩展差异
+- 修改范围：仅追加本工作日志；未修改产品代码、配置或运行环境
+- 执行验证：只读核对 VPS 的 2 vCPU、1.6 GiB 内存、2 GiB Swap、19 GiB 可用磁盘及现有容器占用，并对照 RSSHub 官方 Compose 与 Bilibili 路由实现
+- 结果：当前容量适合少量低频公开路由的单容器试点；扩站公共层可复用，主要增量来自路由参数、鉴权、反爬和输出质量
+- 安全边界：未创建分支、部署容器、清理 Docker、抓取真实来源或修改 VPS
+
+### 2026-07-25 18:43 Codex
+- 任务：从本地 `main` 建立 `codex/self-hosted-rsshub-openclaw`，让本地与 VPS 共用可切换的鉴权 RSSHub，并接通 OpenClaw Bilibili 结构化订阅
+- 修改范围：RSSHub 语义路由/来源测试/设置页/MCP 合同、原位迁移、官方固定摘要 Compose、Nginx HTTPS、匿名 Cookie 刷新、本地构建上传规则、产品文档与回归测试
+- 执行验证：release gate 24/24；本地与 VPS API/Worker、RSSHub 均 healthy 且 0 restart；公网无鉴权 403、派生 code 200、原始 1200 不可达；两条来源 ID、2 条订阅与 360 分钟周期保留
+- 结果：本地 Base URL 为 `https://rb.jiefs.top/rsshub`，VPS 为 `http://rsshub:1200`；VPS 发布 revision `215aab17c37e`，数据库 integrity/foreign keys 正常且 active job 为 0
+- 发布/回退：生产镜像在本机 Buildx 为 AMD64 后上传并由 VPS `docker load`，当前 release 为 `/opt/inteliscope/releases/v1.7.4-215aab17c37e`，`0600` 回退备份位于 `/opt/inteliscope/backups/pre-v1.7.4-215aab17c37e-20260725T103833Z`
+- 残余边界：1.6 GiB VPS 适合当前低频测试但禁止项目构建和高并发 Chromium 冷路由；真实 UID 曾返回 30 条，连续不同冷请求仍触发 Bilibili `-352`/超时，已停止重试并保留第三方 Base URL 降级
+
+### 2026-07-25 18:50 Codex
+- 任务：明确 `vps-tokyo` 上 RSSHub 的内外访问地址
+- 结果：VPS Inteliscope 使用容器内 Base URL `http://rsshub:1200`；本地或其他公网客户端使用鉴权 HTTPS Base URL `https://rb.jiefs.top/rsshub`
+- 控制面变更：无；仅补充本工作日志
+
+### 2026-07-25 20:05 Codex
+- 任务：排查 VPS OpenClaw 把“订阅食贫道”误路由为普通 RSS 并索要公开 RSSHub URL
+- 根因：VPS MCP revision `215aab17c37e` 与 `bilibili` 指南均正确；18:48 安全事件显示 list/guide 调用成功，但本机实际加载的是 2026-07-20 旧 Skill，其文案仍强制 Bilibili 使用 `source_type=rss`
+- 修改范围：覆盖安装当前 bundled Skill、重启本机 Gateway；本地初始化新增 managed Skill 内容对账、漂移 `--force` 刷新与必要时重启，并同步架构/决策、操作手册、更新日志和测试
+- 执行验证：Skill/安装器定向测试 25/25；安装目录与 bundled 内容一致，Gateway RPC 正常；全新只读会话只追问“食贫道”的数字 UID，VPS 操作事件只有 `list_available_sources`，无 prepare/apply 写调用
+- 回退：旧 Skill 的 `0600` 备份为 `/Users/stealmac/.openclaw/backups/inteliscope-skill-pre-bilibili-20260725T115732Z.tar.gz`；现有旧对话可能保留旧指令，需新建对话
+
+### 2026-07-25 22:18 Codex
+- 任务：让 OpenClaw 按 Bilibili 账号名称自行解析 UID，并完成 VPS RSSHub、真实 MCP 与新会话验收
+- 修改范围：新增固定 Bilibili 公开账号查询服务和 Remote MCP 工具，更新 Skill/工具白名单/受控订阅流程、产品文档、D071/PLAN、影响映射与回归；补充禁止 B站订阅误走 Chrome、浏览器或 shell 的强触发规则
+- 执行验证：名称解析与 Skill 定向测试通过；`test_gate full` 22/22、121.427 秒，最终 `mapping_miss=false`；此前同 revision release gate 24/24；VPS 将“食贫道”唯一解析为 UID `39627524`，自建 RSSHub 返回 200、XML 与 30 条内容
+- 结果：VPS 当前 revision `8de9ab4a8ca7`，API/Worker/RSSHub healthy 且 0 restart；全新 OpenClaw 会话生成 create preview，不再索要 UID 或要求浏览器调试
+- 安全边界：诊断中被 CLI 回显的旧 MCP 凭据已撤销并静默轮换，新连接与 `search_bilibili_users` probe 正常；用户未回复准确确认短语，因此仅有一条 pending proposal，catalog/source/subscription 零写入、active job 为 0

@@ -1,14 +1,17 @@
 import json
-import httpx
-import pytest
 import sqlite3
 from datetime import datetime, timezone
+
+import anyio
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from src.api.server import create_app
 from src.mcp.remote_server import AgentDelegationTokenVerifier, DelegationRateLimiter
+from src.services.bilibili_user_search import BilibiliUserSearchService
 from src.services.job_queue import JobQueue
 from src.services.user_feed_store import UserFeedStore
 
@@ -26,6 +29,26 @@ def _app(tmp_path, monkeypatch, *, enabled: bool = True):
         "HORIZON_REMOTE_MCP_ENABLED", "true" if enabled else "false"
     )
     monkeypatch.setenv("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false")
+    monkeypatch.setattr(
+        BilibiliUserSearchService,
+        "search",
+        lambda _self, *, query, limit=5: {
+            "schema_version": 1,
+            "query": query,
+            "availability": "available",
+            "match_status": "exact",
+            "resolved_user": {
+                "uid": "39627524",
+                "name": "食贫道",
+                "profile_url": "https://space.bilibili.com/39627524",
+            },
+            "candidates": [],
+            "returned": 0,
+            "truncated": False,
+            "data_trust": "untrusted_public_metadata",
+            "error_code": None,
+        },
+    )
     if enabled:
         monkeypatch.setenv(
             "HORIZON_REMOTE_MCP_PUBLIC_URL", "http://127.0.0.1:8080/mcp"
@@ -212,7 +235,7 @@ async def test_remote_mcp_uses_exact_path_static_bearer_and_transport_security(
 
 
 @pytest.mark.anyio
-async def test_real_mcp_client_lists_fifteen_tools_with_exact_annotations_and_calls_reads(
+async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_calls_reads(
     tmp_path, monkeypatch
 ):
     app = _app(tmp_path, monkeypatch)
@@ -259,15 +282,22 @@ async def test_real_mcp_client_lists_fifteen_tools_with_exact_annotations_and_ca
                         await session.call_tool("list_jobs", {}),
                         await session.call_tool("get_job", {"job_id": job["id"]}),
                         await session.call_tool("get_source_setup_guide", {}),
+                        await session.call_tool(
+                            "search_bilibili_users",
+                            {"query": "食贫道", "limit": 5},
+                        ),
                         await session.call_tool("list_available_sources", {}),
                         await session.call_tool(
                             "diagnose_source",
                             {"subscription_id": subscription["id"]},
                         ),
+                    ]
+                    await anyio.sleep(1.05)
+                    remaining_results.append(
                         await session.call_tool(
                             "diagnose_job", {"job_id": job["id"]}
-                        ),
-                    ]
+                        )
+                    )
 
     assert [tool.name for tool in listed.tools] == [
         "get_my_feed",
@@ -277,6 +307,7 @@ async def test_real_mcp_client_lists_fifteen_tools_with_exact_annotations_and_ca
         "list_jobs",
         "get_job",
         "get_source_setup_guide",
+        "search_bilibili_users",
         "list_available_sources",
         "prepare_create_subscription",
         "prepare_update_subscription",
@@ -297,6 +328,16 @@ async def test_real_mcp_client_lists_fifteen_tools_with_exact_annotations_and_ca
         "minimum": 1,
         "maximum": 8000,
     } == get_item_schema["properties"]["max_body_chars"]
+    search_schema = next(
+        tool.inputSchema
+        for tool in listed.tools
+        if tool.name == "search_bilibili_users"
+    )
+    assert search_schema["properties"]["query"]["maxLength"] == 50
+    assert search_schema["properties"]["limit"] | {
+        "minimum": 1,
+        "maximum": 5,
+    } == search_schema["properties"]["limit"]
     annotations = {tool.name: tool.annotations for tool in listed.tools}
     assert all(
         tool.inputSchema.get("additionalProperties") is False
@@ -319,6 +360,10 @@ async def test_real_mcp_client_lists_fifteen_tools_with_exact_annotations_and_ca
         assert annotations[name].destructiveHint is False
         assert annotations[name].idempotentHint is True
         assert annotations[name].openWorldHint is False
+    assert annotations["search_bilibili_users"].readOnlyHint is True
+    assert annotations["search_bilibili_users"].destructiveHint is False
+    assert annotations["search_bilibili_users"].idempotentHint is True
+    assert annotations["search_bilibili_users"].openWorldHint is True
     for name in {
         "prepare_create_subscription",
         "prepare_update_subscription",

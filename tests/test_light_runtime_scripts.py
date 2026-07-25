@@ -158,6 +158,12 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
 
     assert "git status --porcelain" in script
     assert "archive --format=tar.gz" in script
+    assert "docker buildx build" in script
+    assert 'platform="${INTELISCOPE_DEPLOY_PLATFORM:-linux/amd64}"' in script
+    assert 'docker save "$image"' in script
+    assert 'docker load -i "$image_archive"' in script
+    assert '[[ "$loaded_arch" == amd64 ]]' in script
+    assert "docker compose -f docker-compose.light.yml build" not in script
     assert "vps-tokyo" in script
     assert "${INTELISCOPE_DEPLOY_BASE:-/opt/inteliscope}" in script
     assert 'release_dir="$base/releases/$release_id"' in script
@@ -178,6 +184,26 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert "scripts/test_gate.py run --mode release" in local_gates
     assert "pytest -q" not in local_gates
     assert "node --test" not in local_gates
+
+
+def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_store():
+    script = (
+        ROOT / "scripts" / "refresh_rsshub_bilibili_cookie.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "set -euo pipefail" in script
+    assert "browser.newContext({ userAgent })" in script
+    assert "https://www.bilibili.com/" in script
+    assert "https://space.bilibili.com/1/dynamic" in script
+    assert "https://api.bilibili.com/x/frontend/finger/spi" in script
+    assert '["_uuid", "b_lsid", "b_nut", "buvid3", "buvid4", "buvid_fp"]' in script
+    assert 'SecretStore("/app/data").set(' in script
+    assert '"RSSHUB_BILIBILI_ANONYMOUS_COOKIE", value' in script
+    assert "--entrypoint /app/.venv/bin/python" in script
+    assert ".config/google-chrome" not in script
+    assert ".mozilla" not in script
+    assert "process.stdout.write" in script
+    assert "console.log" not in script
 
 
 def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():

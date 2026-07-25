@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-25',
-  change: 'v1.7.5：共享内容按当前订阅重新投影，媒体只在数据库提交后清理',
+  change: 'v1.7.5：OpenClaw 可按 Bilibili 账号名称解析 UID，再创建受控 RSSHub 订阅',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -107,6 +107,10 @@ export const manualSections: ManualSection[] = [
         linkLabel: '打开助手连接',
       },
       {
+        title: '按名称订阅 B 站 UP 主',
+        description: '直接告诉 OpenClaw 公开账号名称；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会直接用于订阅预览，不再要求你手工查 UID；同名或模糊结果必须先由你选择。候选只是公开不可信元数据，最终写入仍需核对预览并回复准确确认短语。',
+      },
+      {
         title: '连接本地 Gateway',
         description: '浏览器直接连接用户自己的 OpenClaw Gateway。Inteliscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },
@@ -145,7 +149,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI 与 Key 配置。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
+        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的自建、反向代理前缀或第三方 RSSHub；自建公网实例可把 RSSHUB_ACCESS_KEY 写入 SecretStore，来源测试与 Worker 抓取只发送路由级 code，OpenClaw 不会看到或提交服务地址与密钥。更新项目后重新运行本地 OpenClaw 初始化会自动刷新旧 Skill 并重启 Gateway；请新建对话，使“按账号名称自行解析 UID”的规则生效。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
       },

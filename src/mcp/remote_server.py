@@ -70,6 +70,12 @@ READ_ANNOTATIONS = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
+OPEN_WORLD_READ_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=True,
+)
 PREPARE_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=False,
@@ -558,6 +564,7 @@ def create_remote_mcp(
     def get_source_setup_guide(
         source_type: Literal[
             "rss",
+            "bilibili",
             "telegram",
             "github",
             "reddit",
@@ -578,10 +585,25 @@ def create_remote_mcp(
             locale=locale,
         )
 
+    @server.tool(annotations=OPEN_WORLD_READ_ANNOTATIONS, structured_output=True)
+    def search_bilibili_users(
+        query: Annotated[str, Field(min_length=1, max_length=50)],
+        limit: Annotated[int, Field(ge=1, le=5)] = 5,
+    ) -> dict[str, Any]:
+        """Resolve a public Bilibili account name through fixed official endpoints."""
+        return run_tool(
+            "search_bilibili_users",
+            subscription_service.search_bilibili_users,
+            actor_operation=True,
+            query=query,
+            limit=limit,
+        )
+
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def list_available_sources(
         source_type: Literal[
             "rss",
+            "bilibili",
             "telegram",
             "github",
             "reddit",

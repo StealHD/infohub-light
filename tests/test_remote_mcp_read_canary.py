@@ -13,6 +13,7 @@ from scripts.remote_mcp_read_canary import (
     verify_canary,
 )
 from src.api.server import create_app
+from src.services.bilibili_user_search import BilibiliUserSearchService
 from src.services.job_queue import JobQueue
 from src.services.user_feed_store import UserFeedStore
 
@@ -32,6 +33,26 @@ def _app(tmp_path, monkeypatch):
     )
     monkeypatch.setenv(
         "HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false"
+    )
+    monkeypatch.setattr(
+        BilibiliUserSearchService,
+        "search",
+        lambda _self, *, query, limit=5: {
+            "schema_version": 1,
+            "query": query,
+            "availability": "available",
+            "match_status": "exact",
+            "resolved_user": {
+                "uid": "39627524",
+                "name": "食贫道",
+                "profile_url": "https://space.bilibili.com/39627524",
+            },
+            "candidates": [],
+            "returned": 0,
+            "truncated": False,
+            "data_trust": "untrusted_public_metadata",
+            "error_code": None,
+        },
     )
     static_dir = tmp_path / "static"
     static_dir.mkdir()
@@ -140,12 +161,13 @@ async def test_verify_canary_calls_safe_tools_checks_isolation_and_leaks_nothing
 
     assert result["ok"] is True
     assert result["mode"] == "verify"
-    assert result["tool_count"] == 15
+    assert result["tool_count"] == 16
     assert result["registered_tools"] == list(ALL_REMOTE_TOOLS)
     assert result["read_tools"] == {name: "ok" for name in SAFE_READ_TOOLS}
     assert result["isolation_checks"] == 3
     assert result["write_guard"] == "subscription_writes_disabled"
     assert result["latency_ms"]["sample_count"] == 11
+    assert result["bilibili_lookup_latency_ms"]["sample_count"] == 1
     after_proposals = app.state.service_store.connect().execute(
         "SELECT COUNT(*) FROM agent_change_proposals"
     ).fetchone()[0]

@@ -79,7 +79,7 @@ Nginx Basic Auth may be used as an additional outer gate, but it never replaces 
 
 ## Local OpenClaw assistant
 
-Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes eleven safe Feed, subscription, source guidance, health, job, diagnosis, and sanitized operation-event tools for that user. Subscription changes require a separately authorized connection and server flag.
+Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes twelve safe Feed, subscription, source guidance, bounded public Bilibili account lookup, health, job, diagnosis, and sanitized operation-event tools for that user. Subscription changes require a separately authorized connection and server flag.
 
 Browser chat is a separate opt-in connection. The browser connects directly to the user's OpenClaw Gateway v4; Inteliscope never proxies the Gateway or stores its bootstrap token. Local development accepts only `ws://127.0.0.1` or `ws://localhost`, while a remote per-user Gateway must use `wss://`. Paired browser credentials are isolated by Inteliscope user and Gateway URL. Turning the chat flag off restores the copy-only handoff without affecting Remote MCP.
 
@@ -95,8 +95,11 @@ HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 
 For first-time local integration, use the idempotent bootstrap. It discovers the
 actual Gateway URL, merges the current browser Origin, updates `.env`, installs
-the bundled Skill, starts the services, and verifies readiness. It never reads
-or stores Gateway/MCP tokens and never approves a device:
+or refreshes the bundled Skill, restarts the Gateway only when the Skill or
+Origin changed, starts the services, and verifies readiness. It never reads or
+stores Gateway/MCP tokens and never approves a device. After a Skill refresh,
+start a new OpenClaw conversation so an existing transcript cannot retain old
+source-routing instructions:
 
 ```bash
 ./scripts/setup_openclaw_local.sh --dry-run
@@ -128,7 +131,8 @@ The repository includes a guarded two-phase deployment flow for `vps-tokyo`:
   --output /tmp/inteliscope-service-rc1.db
 
 # Requires a clean, authorized release commit. Runs all local gates, creates
-# a git archive, builds on the VPS and starts API-only staging on port 18080.
+# a git archive, builds a linux/amd64 image locally, uploads it for docker load,
+# and starts API-only staging on port 18080. The VPS never builds this project.
 ./scripts/release_rc1.sh prepare /tmp/inteliscope-service-rc1.db
 
 # After staging validation, switch 8080 and start API + Worker.

@@ -27,6 +27,7 @@ from .source_type_registry import (
     SourceConfigError,
     normalize_source_setup_input,
     project_catalog_source_public_summary,
+    self_service_agent_type_for_catalog,
     source_key,
     validate_normalized_source_setup,
     validate_public_source_metadata,
@@ -73,14 +74,6 @@ _CATALOG_SOURCE_TYPES = {
     "apify_social",
     "hackernews",
 }
-_SELF_SERVICE_AGENT_TYPE_BY_CATALOG = {
-    "rss": "rss",
-    "github_release": "github",
-    "reddit_subreddit": "reddit",
-    "telegram_channel": "telegram",
-}
-
-
 class SubscriptionMutationError(ValueError):
     """Stable domain error suitable for REST and MCP adapters."""
 
@@ -422,6 +415,12 @@ class SubscriptionMutationService:
     @staticmethod
     def _public_target(source_type: str, config: dict[str, Any]) -> Any:
         if source_type == "rss":
+            if config.get("provider") == "rsshub":
+                return {
+                    "site": config.get("site"),
+                    "route_key": config.get("route_key"),
+                    "params": config.get("params"),
+                }
             return config.get("url")
         if source_type == "github_release":
             return f"{config.get('owner', '')}/{config.get('repo', '')}".strip("/")
@@ -485,8 +484,29 @@ class SubscriptionMutationService:
         if target == "web_setup_required":
             if display_name != "Web-managed source":
                 raise ValueError("opaque source summary is invalid")
+        elif source_type == "rss":
+            if isinstance(target, str) and target:
+                pass
+            else:
+                target_values = self._require_exact_keys(
+                    target,
+                    {"site", "route_key", "params"},
+                    "managed RSSHub target",
+                )
+                params = self._require_exact_keys(
+                    target_values["params"],
+                    {"uid"},
+                    "managed RSSHub params",
+                )
+                if (
+                    target_values["site"] != "bilibili"
+                    or target_values["route_key"] != "user_video"
+                    or not isinstance(params["uid"], str)
+                    or not params["uid"].isdigit()
+                    or int(params["uid"]) <= 0
+                ):
+                    raise ValueError("managed RSSHub target is invalid")
         elif source_type in {
-            "rss",
             "github_release",
             "github_user",
             "reddit_subreddit",
@@ -557,7 +577,7 @@ class SubscriptionMutationService:
         config: dict[str, Any],
     ) -> dict[str, Any]:
         normalized = validate_source_config(source_type, config)
-        agent_type = _SELF_SERVICE_AGENT_TYPE_BY_CATALOG.get(source_type)
+        agent_type = self_service_agent_type_for_catalog(source_type, normalized)
         if agent_type is None:
             return normalized
         setup = validate_normalized_source_setup(
@@ -606,7 +626,14 @@ class SubscriptionMutationService:
             ):
                 raise ValueError("source config identity is invalid")
             if source_type == "rss":
-                if value.get("enforce_public_network") is not True:
+                agent_type = self_service_agent_type_for_catalog(
+                    source_type, config
+                )
+                expected_public_network = agent_type != "bilibili"
+                if (
+                    value.get("enforce_public_network")
+                    is not expected_public_network
+                ):
                     raise ValueError("RSS public network marker is invalid")
             elif "enforce_public_network" in value:
                 raise ValueError("unexpected public network marker")
@@ -1242,17 +1269,22 @@ class SubscriptionMutationService:
                         )
                     try:
                         if source["type"] == "rss":
-                            setup = normalize_source_setup_input("rss", value)
+                            agent_type = self_service_agent_type_for_catalog(
+                                "rss", dict(source.get("config") or {})
+                            )
+                            if agent_type is None:
+                                raise SourceConfigError("source_requires_web_setup")
+                            setup = normalize_source_setup_input(agent_type, value)
                             policy = setup.get("policy") or {}
                             if (
                                 setup.get("catalog_source_type") != "rss"
-                                or policy.get("public_network_only") is not True
+                                or policy.get("self_service") is not True
                             ):
                                 raise SourceConfigError("source_requires_web_setup")
                             config = dict(setup["config"])
                             normalized_source_updates[
                                 "enforce_public_network"
-                            ] = True
+                            ] = bool(policy.get("public_network_only", False))
                         else:
                             config = validate_source_config(
                                 str(source["type"]), value

@@ -569,3 +569,44 @@
 - 决策内容：Feed ViewBar 将只读 `刷新` 与后台 `更新` 拆为两个同行动作。`刷新` 对所有角色强制读取当前用户最新 snapshot，不检查 Worker、不创建 Job；pending 时保持文字和几何不变，只旋转图标并暴露忙碌状态。`更新` 保留既有权限、Worker 预检和任务语义。浏览器观察到本会话中的整份或单源 Feed 任务成功/部分成功后，必须先完成最新 Feed 读取，再发布“已完成”反馈；数量使用 Feed 写事务内相邻去重 snapshot 稳定 ID 的实际新增差集。
 - 原因：任务终态只证明服务端 snapshot 已提交，不能证明浏览器缓存已经重读。此前来源任务在 inactive Feed query 上 fire-and-forget 失效缓存，并立即显示后端 item count，导致完成提示先于新卡片出现；该条数是整份 snapshot 总量，`fetched_count` 又是合并前抓取量，两者都不是用户关心的实际新增。刷新按钮把文字切成“刷新中”还会改变中等宽度 ViewBar 的固有宽度并造成横向抖动。
 - 兼容/边界：复用既有 `/api/feed/latest`、`user_feed_refresh` 与 `source_fetch`；Job `result_json` 只增加可选非负整数 `new_item_count`，旧任务缺少时 UI 不推测数量。REST 路径、数据库、权限和 snapshot payload 不变。重载失败保留最后可信卡片并提供手动重试；排序、新内容边缘、虚拟列表锚点和 `N 条新内容` 行为保持不变。页头主题/Insights/Agent 顺序和卡片 Footer 顶部 Tooltip 只属于 `UI_CONTRACT.md` 的呈现规则。
+
+### D067 RSSHub 采用单 VPS 鉴权服务与语义来源身份
+
+- 决策日期：2026-07-25
+- 当前状态：本地实现、双环境迁移、release 门禁、VPS 部署与鉴权边界验收完成；Bilibili 上游冷路由保留明确降级
+- 决策内容：只在 `vps-tokyo` 运行一套 `chromium-bundled` RSSHub。容器加入生产应用网络并把 1200 仅绑定 VPS loopback；VPS Inteliscope 使用 `http://rsshub:1200`，本地项目通过现有 Nginx HTTPS 前缀使用 `https://rb.jiefs.top/rsshub`，不使用 SSH tunnel。Owner/Admin 可在 Settings 修改 RSSHub Base URL，因此自建和第三方实例可互换，本地不运行第二套 RSSHub。
+- 来源与 Agent 合同：RSSHub 是 workspace runtime service，不是 catalog type。Bilibili UP 视频仍保存为 catalog `rss`，稳定身份为 `rss:rsshub:bilibili:user_video:<uid>`；OpenClaw 新增公开 `bilibili` 类型，只提交 allowlisted `site=bilibili`、`route_key=user_video`、正整数 `params.uid` 和可选 `keep_latest_item`。MCP guide、preview 与 discovery 不返回 Base URL，且不接受任意 RSSHub URL/path、Cookie、ACCESS_KEY 或凭据。
+- 安全/兼容：运行 URL 只由管理员 Base URL 与服务端 allowlist 拼接，允许安全反向代理 path prefix，受控抓取禁用 redirect。自建公网入口强制使用 SecretStore `RSSHUB_ACCESS_KEY`，Worker 只发送 `md5(route path + key)` 派生的 route-scoped code；主密钥不进入 URL、配置、catalog、MCP、OpenClaw、Feed 或日志。direct RSS 的公网 egress/管理员私网信任边界不变。迁移只精确识别 `/bilibili/user/video/<uid>[/1]`，先备份 config/SQLite，再原位更新 source config/key，保留 source、subscription 和 schedule ID。切换 Base URL 不改变来源 key 或订阅状态。
+- 原因：测试环境需要本地公网直连而不维护 tunnel；裸 HTTP 会暴露密钥，直接开放容器端口又绕过现有 TLS/限流。单 VPS loopback 容器、现有 Nginx HTTPS、RSSHub 原生访问控制与语义路由同时满足直接复用、可替换和小规格 VPS 资源约束。
+
+### D068 Inteliscope 生产镜像只允许本地跨架构构建
+
+- 决策日期：2026-07-25
+- 当前状态：控制规则与旧 RC 脚本已修正；release 门禁及 revision `215aab17c37e` 首次本地 AMD64 构建、校验、上传和 VPS `docker load` 发布完成
+- 决策内容：Inteliscope production image 必须从干净、revision-locked commit 在本机使用 Buildx 构建 `linux/amd64`，完成本地门禁/镜像身份检查后压缩上传，在 `vps-tokyo` 只执行校验与 `docker load`。VPS 禁止对本仓库执行 `docker compose build` 或 `docker build`；仅允许 pull RSSHub 等 pinned third-party runtime image。
+- 原因：2026-07-22 已因沿用旧脚本远端构建而纠偏为本地传包，但规则只留在 WORKLOG 且旧脚本未同步；2026-07-25 再次远端构建令 1.6 GiB VPS 出现整机资源争用。把发布地点提升为硬约束并让脚本符合规则，可避免执行者忽略历史记录后重复事故。
+- 安全/回退：构建位置变化不改业务镜像内容、数据库、Compose 服务或回滚模型。源码归档与镜像必须绑定同一 revision；VPS 保留旧 release/image，切换前仍执行 `0600` 数据/配置备份和 Worker-first rollback。
+
+### D069 RSSHub 的 Bilibili 匿名运行态由隔离浏览器刷新
+
+- 决策日期：2026-07-25
+- 当前状态：VPS 配置、SecretStore 写入、真实 UID 单次成功与公网验收完成；连续不同冷请求仍可触发 Bilibili `-352` 并超时
+- 决策内容：固定摘要的官方 `chromium-bundled` 镜像显式配置其实际容器内 `CHROMIUM_EXECUTABLE_PATH`，并使用 RSSHub 官方 `NO_RANDOM_UA=true`。Bilibili 公开路由所需 `_uuid`、`b_lsid`、`b_nut`、`buvid3`、`buvid4`、`buvid_fp` 只能由 `scripts/refresh_rsshub_bilibili_cookie.sh` 在无 profile、无账号的全新浏览器 context 中访问公开首页与动态页取得，缺失的 `buvid3/buvid4` 可由公开 fingerprint SPI 补齐；结果经匿名管道写入 VPS SecretStore 的 `RSSHUB_BILIBILI_ANONYMOUS_COOKIE`，再映射为 RSSHub `BILIBILI_COOKIE_0`。
+- 原因：该固定镜像的 Patchright 默认查找 `/root/.cache`，但 Chromium 实际位于 `/app/node_modules/.cache`；默认随机浏览器 UA 被 Bilibili 返回 412，而不完整匿名参数会更早触发风险控制。显式浏览器路径、RSSHub FeedFetcher UA 和完整匿名参数曾让真实 UID 在约 6 秒内返回 30 条，但连续不同冷请求仍会被上游返回 `-352` 并进入浏览器 fallback 超时；这是可替换外部服务的可用性限制，不是匿名 Cookie 能消除的保证。
+- 安全/回退：刷新脚本先以 `0600` 备份 SecretStore，不读取本机或用户浏览器 profile，不接受或输出账号 Cookie，真实值不进入 Git、配置、数据库、MCP、OpenClaw、Feed 或日志。失败时保留旧 SecretStore；可恢复备份、recreate RSSHub，或在 Settings 把 Base URL 切换到第三方实例。
+
+### D070 本地初始化主动对账仓库托管的 OpenClaw Skill
+
+- 决策日期：2026-07-25
+- 当前状态：安装脚本、定向测试、本机覆盖安装、Gateway 重启与新会话只读 smoke 完成
+- 决策内容：`setup_openclaw_local.py` 不再把“存在 inteliscope Skill”等同于“版本正确”。它比较 bundled 与 `openclaw skills info` 返回目录中的托管文件，忽略 OpenClaw 安装元数据；缺失时安装、内容漂移时 `--force` 刷新，且只在 Skill 或 Origin 变化时重启已运行 Gateway。刷新后用新会话验收，现有会话不作为新路由合同的证据。
+- 原因：VPS MCP 已提供 `bilibili` 指南，但本机 2026-07-20 的旧 Skill 仍把 Bilibili 路由成普通 `rss`，导致模型成功调用错误类型的指南并索要公开 RSSHub URL。仅检查 Skill 是否可见无法发现这种跨版本漂移。
+- 安全/兼容：该 reconcile 只管理仓库拥有的 `inteliscope` Skill，不读取或写入 MCP/Gateway token，不调用订阅 prepare/apply；`--skip-skill` 保留显式退出。旧 Skill 已以 `0600` 本地备份保留，回退时可恢复并重启 Gateway。
+
+### D071 OpenClaw 通过固定 Bilibili 公开查询把账号名称解析为 UID
+
+- 决策日期：2026-07-25
+- 当前状态：本地实现、full/release 门禁、VPS 发布、真实 RSSHub Feed 与 OpenClaw 全新会话验收完成
+- 决策内容：Remote MCP 新增只读、non-destructive、idempotent、open-world 的 `search_bilibili_users`，使 OpenClaw 可把用户明确提供的 Bilibili 账号名称解析为受控订阅所需 UID。服务只访问固定 Bilibili 首页和官方用户搜索端点，在单次内存 client 中先取得匿名设备 Cookie，再返回最多五个仅含名称、UID、官方主页和精确匹配标记的候选；只有唯一规范化精确同名时才生成 `resolved_user`。OpenClaw 必须优先复用现有来源；无现有精确名称时调用该工具，唯一精确命中可直接 prepare，多候选必须交给用户选择，仍保留 `prepare → 准确确认 → apply` 写入边界。包含“订阅/关注/添加”和“B站/Bilibili/UP主”的请求即使未提 Inteliscope 也必须进入该 Skill，禁止为名称解析调用 Chrome、浏览器、Web 搜索或 shell。
+- 原因：仅把 RSSHub URL 输入收窄到 UID 仍要求用户手工查主页，不能完成“给出 UP 主名称后自行建立订阅”的产品目标。VPS 直接调用用户搜索接口会返回 `-412`，而先访问 Bilibili 首页取得无账号匿名 Cookie 后同一 VPS 可稳定得到“食贫道 → 39627524”；因此名称解析必须由服务端显式建模，而不能让模型猜 UID。
+- 安全/回退：查询拒绝 URL、身份字段和凭据，禁用环境代理与 redirect，使用固定 timeout、512,000-byte 上限及 300/30 秒缓存；不接收或复用账号 Cookie，不投影签名、粉丝数、视频数或上游正文，候选名称标记为不可信公开 metadata。上游不可用返回稳定 `availability=unavailable` 且不得猜测；移除该工具和 toolFilter 后，既有 UID/主页输入、受控 RSSHub 路由与已创建订阅继续可用，不需要数据库迁移。

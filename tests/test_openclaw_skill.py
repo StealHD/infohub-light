@@ -12,6 +12,7 @@ TOOLS = {
     "list_jobs",
     "get_job",
     "get_source_setup_guide",
+    "search_bilibili_users",
     "list_available_sources",
     "prepare_create_subscription",
     "prepare_update_subscription",
@@ -29,6 +30,7 @@ READ_TOOLS = {
     "list_jobs",
     "get_job",
     "get_source_setup_guide",
+    "search_bilibili_users",
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
@@ -67,6 +69,10 @@ def test_openclaw_skill_has_required_files_frontmatter_and_mcp_dependency():
     frontmatter = skill.split("---", 2)[1]
     assert re.search(r"(?m)^name:\s+inteliscope\s*$", frontmatter)
     assert "mcp.servers.inteliscope" in frontmatter
+    assert all(
+        trigger in frontmatter
+        for trigger in ("订阅", "B站", "Bilibili", "UP主", "search_bilibili_users")
+    )
 
 
 def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_caller_scope_input():
@@ -81,7 +87,7 @@ def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_call
     )
     named_tools = set(re.findall(
         r"`(get_my_feed|get_item|list_subscriptions|source_health|list_jobs|get_job|"
-        r"get_source_setup_guide|list_available_sources|prepare_create_subscription|"
+        r"get_source_setup_guide|search_bilibili_users|list_available_sources|prepare_create_subscription|"
         r"prepare_update_subscription|prepare_delete_subscription|"
         r"apply_subscription_change|diagnose_source|diagnose_job|"
         r"query_operation_logs)`",
@@ -144,7 +150,11 @@ def test_skill_change_safety_routes_existing_sources_and_web_only_setup_correctl
 
 def test_openclaw_skill_readme_documents_local_install_and_env_file_permissions():
     readme = _text("README.md")
-    assert "openclaw skills install ./integrations/openclaw/inteliscope --as inteliscope" in readme
+    assert (
+        "openclaw skills install ./integrations/openclaw/inteliscope "
+        "--as inteliscope --force"
+    ) in readme
+    assert "openclaw gateway restart" in readme
     assert "openclaw skills check" in readme
     assert "~/.openclaw/.env" in readme
     assert "0600" in readme
@@ -158,7 +168,7 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     assert [
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
-    ] == [(11, READ_TOOLS), (15, TOOLS)]
+    ] == [(12, READ_TOOLS), (16, TOOLS)]
 
 
 def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch():
@@ -196,11 +206,30 @@ def test_skill_uses_exact_create_envelopes_and_routes_bilibili_through_rsshub():
     assert "mode: create" in combined or 'mode="create"' in combined
     assert "Never" in combined and "source_type" in combined and "fields" in combined
     assert "Bilibili" in combined and "B站" in combined and "UP 主" in combined
-    assert "self-hosted RSSHub" in combined
-    assert 'source_type="rss"' in combined
-    assert "public_target" in combined
+    assert "RSSHub Base URL" in combined
+    assert 'source_type="bilibili"' in combined
+    assert "search_bilibili_users" in combined
+    assert 'match_status="exact"' in combined
+    assert "without asking the user for a UID" in combined
     assert "unsubscribed_only=false" in combined
-    assert "route template" in flattened
-    assert "never copy the template UID" in flattened
+    assert "do not prepare a duplicate" in combined
+    assert '"type": "bilibili"' in combined
+    assert '"route_key": "user_video"' in combined
+    assert '"params": {"uid": "39627524"}' in combined
+    assert "public_target" in combined
     assert "never Apify" in combined or "Never call Apify" in combined
-    assert "private-network" in combined and "Web" in combined
+    assert "never ask for or submit an RSSHub URL" in flattened
+    assert "Cookie" in combined and "ACCESS_KEY" in combined
+
+
+def test_bilibili_name_subscription_never_routes_to_browser_or_shell():
+    skill = _text("SKILL.md")
+
+    assert "must use this Skill" in skill
+    assert "even when the user does" in skill
+    assert "not say “Inteliscope”" in skill
+    assert "never invoke Chrome" in skill
+    assert "browser/browser-control tool" in skill
+    assert "never ask the user to enable remote debugging" in skill
+    assert "Do not ask for a Bilibili UID before calling" in skill
+    assert "`search_bilibili_users`" in skill

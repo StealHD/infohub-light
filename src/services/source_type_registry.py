@@ -14,6 +14,18 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 
+from ..rsshub import (
+    BILIBILI_SITE,
+    BILIBILI_USER_VIDEO_ROUTE,
+    DEFAULT_RSSHUB_BASE_URL,
+    RSSHUB_PROVIDER,
+    is_managed_rsshub_config,
+    normalize_managed_rsshub_config,
+    normalize_rsshub_route,
+    rsshub_feed_url,
+    rsshub_public_target,
+    rsshub_source_key,
+)
 from ..security import (
     public_data_contains_credentials,
     url_contains_credentials,
@@ -574,22 +586,20 @@ _GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "rss": _guide_source(
         "RSS/Atom",
         "RSS/Atom 订阅",
-        "Add a public RSS or Atom feed URL, including a Bilibili feed from a self-hosted RSSHub.",
-        "添加公开的 RSS 或 Atom 订阅地址，包括自建 RSSHub 生成的 Bilibili 订阅。",
+        "Add a public RSS or Atom feed URL.",
+        "添加公开的 RSS 或 Atom 订阅地址。",
         self_service=True,
         requires_web_setup=False,
-        en_web_setup_note=(
-            "Authenticated or private-network RSSHub feeds must be configured in Web first."
-        ),
-        zh_web_setup_note="需要登录或位于私网的 RSSHub 订阅必须先在 Web 中配置。",
+        en_web_setup_note="Authenticated or private-network feeds must be configured in Web first.",
+        zh_web_setup_note="需要登录或位于私网的订阅必须先在 Web 中配置。",
         fields={
             "url": _guide_field(
                 "Feed URL", "订阅地址",
-                "Use a public HTTP or HTTPS RSS/Atom URL. For Bilibili, use the full feed URL from the self-hosted RSSHub, not a Bilibili page URL.",
-                "请输入公开的 HTTP 或 HTTPS RSS/Atom 地址。Bilibili 必须填写自建 RSSHub 的完整订阅地址，不能填写 B 站页面地址。",
+                "Use a public HTTP or HTTPS RSS/Atom URL.",
+                "请输入公开的 HTTP 或 HTTPS RSS/Atom 地址。",
                 ("https://host/path.xml",), ("https://域名/路径.xml",),
                 ("https://example.com/feed.xml",), ("https://example.com/feed.xml",),
-                "Copy the feed URL from the publisher or self-hosted RSSHub.", "从发布者或自建 RSSHub 复制完整订阅地址。",
+                "Copy the feed URL from the publisher.", "从发布者复制完整订阅地址。",
             ),
             "name": _guide_field(
                 "Feed name", "订阅名称",
@@ -804,6 +814,73 @@ _GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
 
 _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "rss": _GUIDE_METADATA["rss"],
+    "bilibili": _guide_source(
+        "Bilibili UP Videos",
+        "Bilibili UP 主视频",
+        "Follow public videos from one Bilibili UP account through the workspace RSSHub service.",
+        "通过工作区 RSSHub 服务关注一个 Bilibili UP 主的公开视频。",
+        self_service=True,
+        requires_web_setup=False,
+        en_web_setup_note=(
+            "OpenClaw provides only the controlled route identity. The workspace "
+            "RSSHub Base URL is configured by an administrator and is never part "
+            "of the proposal."
+        ),
+        zh_web_setup_note=(
+            "OpenClaw 只提供受控路由身份；工作区 RSSHub Base URL 由管理员配置，"
+            "不会出现在提案中。"
+        ),
+        fields={
+            "site": _guide_field(
+                "Site",
+                "站点",
+                "Controlled site identifier. Use bilibili.",
+                "受控站点标识，固定填写 bilibili。",
+                ("bilibili",),
+                ("bilibili",),
+                ("bilibili",),
+                ("bilibili",),
+                "Use the fixed value bilibili.",
+                "使用固定值 bilibili。",
+            ),
+            "route_key": _guide_field(
+                "Route",
+                "路由",
+                "Controlled route key. Use user_video for one UP account's public videos.",
+                "受控路由键；订阅单个 UP 主公开视频时固定填写 user_video。",
+                ("user_video",),
+                ("user_video",),
+                ("user_video",),
+                ("user_video",),
+                "Use the fixed value user_video.",
+                "使用固定值 user_video。",
+            ),
+            "params": _guide_field(
+                "Route parameters",
+                "路由参数",
+                "Object containing exactly one positive numeric Bilibili UID.",
+                "只包含一个正整数 Bilibili UID 的对象。",
+                ('{"uid":"39627524"}',),
+                ('{"uid":"39627524"}',),
+                ('{"uid":"39627524"}',),
+                ('{"uid":"39627524"}',),
+                "Resolve the public account name with search_bilibili_users; an explicit https://space.bilibili.com/<uid> is also accepted.",
+                "使用 search_bilibili_users 解析公开账号名称；也可接受明确的 https://space.bilibili.com/<uid>。",
+            ),
+            "keep_latest_item": _guide_field(
+                "Keep latest item",
+                "保留最新内容",
+                "When no video is in the time window, keep the newest dated video.",
+                "时间窗口内没有视频时，保留最新的带日期视频。",
+                ("true or false",),
+                ("true 或 false",),
+                ("false",),
+                ("false",),
+                "Leave false unless the newest video must always remain visible.",
+                "通常保持 false；需要始终保留最新视频时再开启。",
+            ),
+        },
+    ),
     "telegram": _GUIDE_METADATA["telegram_channel"],
     "github": _guide_source(
         "GitHub Releases",
@@ -884,6 +961,46 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
 
 _AGENT_SOURCE_TYPES: tuple[AgentSourceTypeDefinition, ...] = (
     AgentSourceTypeDefinition("rss", "rss", ("url",), _BY_TYPE["rss"].fields, _AGENT_GUIDE_METADATA["rss"]),
+    AgentSourceTypeDefinition(
+        "bilibili",
+        "rss",
+        ("site", "route_key", "params"),
+        (
+            _field(
+                "site",
+                "Site",
+                "select",
+                required=True,
+                default=BILIBILI_SITE,
+                options=(BILIBILI_SITE,),
+                help="Controlled site identifier.",
+            ),
+            _field(
+                "route_key",
+                "Route",
+                "select",
+                required=True,
+                default=BILIBILI_USER_VIDEO_ROUTE,
+                options=(BILIBILI_USER_VIDEO_ROUTE,),
+                help="Controlled RSSHub route key.",
+            ),
+            _field(
+                "params",
+                "Route parameters",
+                "object",
+                required=True,
+                help="Object containing exactly the public Bilibili UID.",
+            ),
+            _field(
+                "keep_latest_item",
+                "Keep latest item",
+                "boolean",
+                default=False,
+                help="Keep the newest dated video when the fetch window is empty.",
+            ),
+        ),
+        _AGENT_GUIDE_METADATA["bilibili"],
+    ),
     AgentSourceTypeDefinition("telegram", "telegram_channel", ("channel",), _BY_TYPE["telegram_channel"].fields, _AGENT_GUIDE_METADATA["telegram"]),
     AgentSourceTypeDefinition(
         "github", "github_release", ("repository",),
@@ -955,10 +1072,10 @@ def catalog_source_matches_agent_type(
     """Match a safe discovery filter to the registry's public Agent type.
 
     Several public setup types deliberately map to sets or subsets of internal
-    catalog types.  RSS and Website intentionally expose the same non-YouTube
-    RSS rows because persisted rows have no discriminator that can separate
-    those two public labels.  Twitter owns the managed X/profile subset while
-    generic Apify owns the remaining managed rows.
+    catalog types. RSS and Website intentionally expose the same direct,
+    non-YouTube RSS rows. Controlled RSSHub-backed Bilibili rows use their
+    explicit provider discriminator. Twitter owns the managed X/profile subset
+    while generic Apify owns the remaining managed rows.
     """
 
     public_type = validate_agent_source_type(source_type)
@@ -967,6 +1084,8 @@ def catalog_source_matches_agent_type(
 
     def is_youtube_rss() -> bool:
         if catalog_type != "rss" or not isinstance(config, dict):
+            return False
+        if is_managed_rsshub_config(config):
             return False
         url = config.get("url")
         if not isinstance(url, str):
@@ -988,7 +1107,17 @@ def catalog_source_matches_agent_type(
         )
 
     if public_type in {"rss", "website"}:
-        return catalog_type == "rss" and not is_youtube_rss()
+        return (
+            catalog_type == "rss"
+            and not is_managed_rsshub_config(config)
+            and not is_youtube_rss()
+        )
+    if public_type == "bilibili":
+        return bool(
+            catalog_type == "rss"
+            and isinstance(config, dict)
+            and is_managed_rsshub_config(config)
+        )
     if public_type == "youtube":
         return is_youtube_rss()
     if public_type == "github":
@@ -1002,6 +1131,21 @@ def catalog_source_matches_agent_type(
     if public_type == "apify":
         return catalog_type == "apify_social" and not is_twitter_managed()
     return False
+
+
+def self_service_agent_type_for_catalog(
+    source_type: str,
+    config: dict[str, Any],
+) -> str | None:
+    """Return the reversible self-service Agent type for one catalog config."""
+
+    if source_type == "rss":
+        return "bilibili" if is_managed_rsshub_config(config) else "rss"
+    return {
+        "github_release": "github",
+        "reddit_subreddit": "reddit",
+        "telegram_channel": "telegram",
+    }.get(source_type)
 
 
 def _safe_urlparse(value: str) -> Any:
@@ -1239,7 +1383,18 @@ def _youtube_feed_url(value: str) -> str:
 
 def _normalize_agent_aliases(source_type: str, config: dict[str, Any]) -> dict[str, Any]:
     data = dict(config)
-    if source_type == "github" and "repository" in data:
+    if source_type == "bilibili":
+        route = normalize_rsshub_route(
+            site=data.get("site"),
+            route_key=data.get("route_key"),
+            params=data.get("params"),
+        )
+        data = {
+            "provider": RSSHUB_PROVIDER,
+            **route,
+            "keep_latest_item": data.get("keep_latest_item", False),
+        }
+    elif source_type == "github" and "repository" in data:
         owner, repo = _github_path(data.pop("repository"), kind="repository")
         data["owner"] = owner
         data["repo"] = repo
@@ -1275,6 +1430,8 @@ def _validate_agent_field_types(
             raise SourceConfigError(f"{name} must be an integer")
         if field.input_type == "boolean" and not isinstance(value, bool):
             raise SourceConfigError(f"{name} must be a boolean")
+        if field.input_type == "object" and not isinstance(value, dict):
+            raise SourceConfigError(f"{name} must be an object")
 
 
 _HISTORICAL_IPV4_COMPONENT_RE = re.compile(r"(?:0[xX][0-9A-Fa-f]+|[0-9]+)")
@@ -1441,6 +1598,12 @@ def validate_normalized_source_setup(
             for key in ("url", "name", "keep_latest_item")
             if key in config
         }
+    elif source_type == "bilibili":
+        reverse_input = {
+            key: config[key]
+            for key in ("site", "route_key", "params", "keep_latest_item")
+            if key in config
+        }
     elif source_type == "telegram":
         reverse_input = {
             key: config[key]
@@ -1543,15 +1706,19 @@ def project_catalog_source_public_summary(
         _validate_public_url_inputs(classification_input)
 
         if source_type == "rss":
-            setup = normalize_source_setup_input(
-                "rss",
-                {
-                    key: config[key]
-                    for key in ("url", "name", "keep_latest_item")
-                    if key in config
-                },
-            )
-            public_target: Any = setup["config"]["url"]
+            if is_managed_rsshub_config(config):
+                normalized = validate_source_config(source_type, config)
+                public_target = rsshub_public_target(normalized)
+            else:
+                setup = normalize_source_setup_input(
+                    "rss",
+                    {
+                        key: config[key]
+                        for key in ("url", "name", "keep_latest_item")
+                        if key in config
+                    },
+                )
+                public_target = setup["config"]["url"]
         elif source_type == "github_release":
             setup = normalize_source_setup_input(
                 "github",
@@ -1712,6 +1879,50 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
     data = _base_config(config or {})
 
     if source_type == "rss":
+        if is_managed_rsshub_config(data):
+            if _contains_secret_shape(data):
+                raise SourceConfigError(_CREDENTIAL_ERROR)
+            allowed = {
+                "provider",
+                "site",
+                "route_key",
+                "params",
+                "url",
+                "name",
+                "keep_latest_item",
+                "enabled",
+                "category",
+                "channel",
+                "topics",
+                "tags",
+                "personal_tags",
+                "analysis_mode",
+            }
+            unknown = set(data) - allowed
+            if unknown:
+                raise SourceConfigError(
+                    "unsupported managed RSSHub fields: "
+                    + ", ".join(sorted(unknown))
+                )
+            try:
+                data = normalize_managed_rsshub_config(data)
+            except ValueError as exc:
+                raise SourceConfigError(str(exc)) from exc
+            data["name"] = str(data.get("name") or data["url"]).strip()
+            data["keep_latest_item"] = _bool(
+                data.get("keep_latest_item"), default=False
+            )
+            return data
+        if data.get("provider", "direct") != "direct":
+            raise SourceConfigError("unsupported RSS provider")
+        if any(data.get(key) not in {None, ""} for key in ("site", "route_key")) or data.get(
+            "params"
+        ):
+            raise SourceConfigError("direct RSS cannot contain RSSHub route fields")
+        data.pop("provider", None)
+        data.pop("site", None)
+        data.pop("route_key", None)
+        data.pop("params", None)
         url = _validate_http_url(_text(data, "url", "url"))
         data["url"] = url
         data["name"] = str(data.get("name") or url).strip()
@@ -1784,6 +1995,8 @@ def source_key(source_type: str, config: dict[str, Any]) -> str:
 
     normalized = validate_source_config(source_type, config)
     if source_type == "rss":
+        if is_managed_rsshub_config(normalized):
+            return rsshub_source_key(normalized)
         return f"rss:{normalized['url']}"
     if source_type == "github_release":
         return f"github_release:{normalized['owner'].lower()}/{normalized['repo'].lower()}"
@@ -1805,11 +2018,18 @@ def source_key(source_type: str, config: dict[str, Any]) -> str:
     raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
 
 
-def build_source_payload(source: dict[str, Any]) -> dict[str, Any]:
+def build_source_payload(
+    source: dict[str, Any],
+    *,
+    rsshub_base_url: str = DEFAULT_RSSHUB_BASE_URL,
+) -> dict[str, Any]:
     """Return a worker/test payload from one catalog source row."""
 
     source_type = str(source.get("type") or "")
     payload = validate_source_config(source_type, source.get("config") or {})
+    if source_type == "rss" and is_managed_rsshub_config(payload):
+        payload["url"] = rsshub_feed_url(rsshub_base_url, payload)
+        payload["enforce_public_network"] = False
     payload["source_type"] = source_type
     if source.get("id"):
         payload["source_id"] = str(source["id"])

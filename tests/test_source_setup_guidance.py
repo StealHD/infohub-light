@@ -15,6 +15,7 @@ from src.services.source_type_registry import (
 
 SOURCE_TYPES = {
     "rss",
+    "bilibili",
     "telegram",
     "github",
     "reddit",
@@ -86,6 +87,7 @@ def test_setup_guide_summaries_include_safe_minimum_required_fields():
 
     assert summaries == {
         "rss": ["url"],
+        "bilibili": ["site", "route_key", "params"],
         "telegram": ["channel"],
         "github": ["repository"],
         "reddit": ["subreddit"],
@@ -96,18 +98,21 @@ def test_setup_guide_summaries_include_safe_minimum_required_fields():
     }
 
 
-def test_rss_setup_guide_routes_bilibili_through_self_hosted_rsshub():
-    zh = get_source_setup_guide("rss", "zh-CN")["source_type"]
-    en = get_source_setup_guide("rss", "en")["source_type"]
-    zh_url = next(field for field in zh["fields"] if field["name"] == "url")
-    en_url = next(field for field in en["fields"] if field["name"] == "url")
+def test_bilibili_setup_guide_exposes_semantic_route_without_service_url():
+    zh = get_source_setup_guide("bilibili", "zh-CN")["source_type"]
+    en = get_source_setup_guide("bilibili", "en")["source_type"]
 
-    assert "Bilibili" in zh["description"]
-    assert "自建 RSSHub" in zh_url["help"]
-    assert "B 站页面地址" in zh_url["help"]
-    assert "Bilibili" in en["description"]
-    assert "self-hosted RSSHub" in en_url["help"]
-    assert "Bilibili page URL" in en_url["help"]
+    assert zh["required_fields"] == ["site", "route_key", "params"]
+    assert en["required_fields"] == ["site", "route_key", "params"]
+    assert {field["name"] for field in zh["fields"]} == {
+        "site",
+        "route_key",
+        "params",
+        "keep_latest_item",
+    }
+    assert "RSSHub Base URL" in repr((zh, en))
+    assert "search_bilibili_users" in repr((zh, en))
+    assert "http://rsshub" not in repr((zh, en))
 
 
 def test_agent_setup_contract_is_distinct_from_the_rest_catalog_projection():
@@ -130,6 +135,14 @@ def test_agent_setup_contract_is_distinct_from_the_rest_catalog_projection():
 
 
 def test_agent_normalization_maps_public_types_to_catalog_types():
+    bilibili = normalize_source_setup_input(
+        "bilibili",
+        {
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "039627524"},
+        },
+    )
     github = normalize_source_setup_input(
         "github", {"repository": "https://github.com/openai/codex"}
     )
@@ -158,6 +171,24 @@ def test_agent_normalization_maps_public_types_to_catalog_types():
             "owner": "openai",
             "repo": "codex",
             "type": "repo_releases",
+        },
+        "policy": {
+            "resolution_mode": "create_or_existing",
+            "self_service": True,
+            "requires_web_setup": False,
+        },
+    }
+    assert bilibili == {
+        "catalog_source_type": "rss",
+        "config": {
+            "enabled": True,
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524"},
+            "url": "https://space.bilibili.com/39627524",
+            "name": "https://space.bilibili.com/39627524",
+            "keep_latest_item": False,
         },
         "policy": {
             "resolution_mode": "create_or_existing",

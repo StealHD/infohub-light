@@ -1014,7 +1014,11 @@ describe('App routes', () => {
     }))
     const api = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-live', username: 'owner', role: 'owner', enabled: true } }),
-      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: ['AI'], topics: ['Agent'] } }),
+      config: vi.fn().mockResolvedValue({
+        config: { ai: {}, filtering: {} },
+        taxonomy: { channels: ['AI'], topics: ['Agent'] },
+        env_status: [{ name: 'RSSHUB_ACCESS_KEY', set: true, used_by: ['rsshub.access_key'] }],
+      }),
       secrets: vi.fn().mockResolvedValue({ secrets: [] }),
       users: vi.fn().mockResolvedValue({ users: [] }),
       createSecret,
@@ -1026,6 +1030,9 @@ describe('App routes', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
+    expect(screen.getByText('RSSHub 访问密钥：已配置')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '密钥' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: '账户与成员' })).toHaveAttribute('href', '/users')

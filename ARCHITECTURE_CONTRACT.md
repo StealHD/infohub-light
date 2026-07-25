@@ -58,7 +58,7 @@ Service UI 在小团体服务模式下必须先完成登录门禁，再加载用
 用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。旧 feedback 写入路径只兼容保留，不进入默认 UI，也不改变 Feed 过滤、排序或推荐。
 
 ### 3.6B Source Catalog Boundary
-`src/services/source_type_registry.py` 是 Service API source type 元数据、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action 和 Worker 都必须复用该 registry，避免在路由、前端或任务执行层散落 source 类型字段规则。
+`src/services/source_type_registry.py` 是 Service API source type 元数据、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`src/rsshub.py` 只拥有 workspace RSSHub Base URL、受控站点/route allowlist、语义 source key、runtime feed URL 与 route-scoped access code 解析；RSSHub 不得成为独立 catalog type。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action、Remote MCP 和 Worker 都必须复用这些边界，避免在路由、前端、Skill 或任务执行层散落 source 类型与 RSSHub path 规则。
 
 `source_catalog.source_key` 是同 workspace 内 source 的幂等身份键。旧 `data/config.json` source 导入、同一操作者的重复/并发 catalog 写入和后续 source 市场同步必须按 `source_key` 更新已有 source，不得制造重复公共源；另一用户拥有的 private source 不得因 key 碰撞被返回、接管或覆盖。Telegram 这类字段名复用的来源必须在 registry/API helper 中区分“源身份字段”和“Hub 分类字段”。
 
@@ -85,9 +85,11 @@ compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数
 
 OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑或其专属云端 Gateway；Service 端不新增 Agent、LLM、Worker、端口或容器，也不代理 Gateway。浏览器的 `frontend/src/features/openclaw/` 直接实现 OpenClaw Gateway WebSocket v4、设备签名、用户/Gateway 隔离凭证库和有界聊天状态；功能关闭时不得创建 WebSocket。未来从本地切换云端只替换为用户专属 `wss://` URL 和对应 Origin allowlist，不改变 Remote MCP 或 Service 部署。
 
-`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter；11 个安全读工具分别由 `remote_service.py` 的有界数据投影、`remote_subscription_service.py` 的 registry 引导/发现、`remote_diagnostics.py` 的确定性只读诊断和 `operation_log.py` 的脱敏事件查询提供，diagnostics 同时承载写连接专用的 prepare facade。它们全部直接调用 Service/Store 或私有结构化事件文件，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
+`scripts/setup_openclaw_local.py` 是仓库托管 Inteliscope Skill 的本地 reconcile 入口：比较 bundled 与已安装目录中的非隐藏文件，忽略 OpenClaw 自己的 `.openclaw` 元数据；缺失时安装，漂移时使用 `--force` 刷新，并只在 Skill 或 Origin 变化时重启已运行 Gateway。旧会话可能保留历史路由指令，刷新后必须用新会话验收；`--skip-skill` 是保留用户自主管理 Skill 的显式退出路径。该流程不得读取或写入 MCP/Gateway token，也不得触发订阅 prepare/apply。
 
-Remote MCP 的 15 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
+`src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter；12 个读工具分别由 `remote_service.py` 的有界数据投影、`remote_subscription_service.py` 的 registry 引导/发现与 Bilibili 名称查询 facade、`remote_diagnostics.py` 的确定性只读诊断和 `operation_log.py` 的脱敏事件查询提供，diagnostics 同时承载写连接专用的 prepare facade。除 `search_bilibili_users` 通过 `src/services/bilibili_user_search.py` 访问固定 Bilibili 公开端点外，它们全部直接调用 Service/Store 或私有结构化事件文件；任何工具都禁止内部 HTTP 回环和调用用户提供的任意 URL。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
+
+Remote MCP 的 16 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
 
 `SubscriptionMutationService` 是 REST 与 Remote MCP 的唯一 subscription/source/schedule 业务 mutation owner；Remote MCP 不复制 REST 写逻辑。`AgentChangeProposalService` 只拥有短期密封 proposal 的授权、指纹和 lifecycle：prepare 在自己的短事务持久化 preview/确认 hash，apply 在 `BEGIN IMMEDIATE` 内重验实时主体与 mutation 先决条件，并与业务 mutation 原子提交。proposal record 只保存安全 snapshot、preview、指纹和结果摘要；cleanup 是 commit 后 best-effort，绝不把已提交业务变化伪装成失败。
 
@@ -161,18 +163,18 @@ Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为
 Webhook egress 只接受 SecretStore 当前保存的 credential-free HTTPS，并复用 `src/services/network_policy.py` 的公网解析和 IP pinning；它禁用环境代理、拒绝 redirect，以 bounded DNS、单地址单次 POST、5 秒 transport timeout 和 6 秒总 deadline 发送。请求只接受 identity encoding，响应正文不得读取或解压；非 identity 响应按已开始发送但结果未知处理。Service 邮箱只使用 schema v10 workspace transport 与其 SecretStore 凭据，不读取 `data/config.json.email` 或进程环境作为兜底。两种 transport 的上游正文、目的地和凭据均不得进入公开错误或日志。
 
 ### 3.9 Config Compatibility Boundary
-`data/config.json` 暂时只承载 AI、过滤、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户偏好来源通知位于 Service schema v9，工作区 Service 邮件 transport 位于 schema v10，真实值分别进入 SecretStore，不复用 legacy Webhook/SMTP 配置。兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
+`data/config.json` 暂时只承载 AI、过滤、workspace RSSHub Base URL、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户偏好来源通知位于 Service schema v9，工作区 Service 邮件 transport 位于 schema v10，真实值分别进入 SecretStore，不复用 legacy Webhook/SMTP 配置。RSSHub Base URL 是可切换的非密钥 runtime URL，可含安全 path prefix，但不得复制进 catalog config、MCP/Agent 输出或 Feed；可选 `RSSHUB_ACCESS_KEY` 只存在 SecretStore，Worker 只派生 route-scoped access code。VPS-only `RSSHUB_BILIBILI_ANONYMOUS_COOKIE` 也只能进入 SecretStore 和 RSSHub 容器环境，且必须由隔离的无 profile 浏览器 context 从公开页面生成，禁止复用账号 Cookie。兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
 
 全局非 source 配置只允许 `owner/admin` 修改；`member/viewer` 不得借兼容 facade 改写 AI、过滤、标签或 Webhook。member source action 的 topics/personal tags 只写 source/subscription；任何管理员全局标签写入也必须在 catalog/subscription 成功后执行。旧配置批量导入只能更新 scope/owner/type 兼容的 source，另一用户 private key 碰撞必须跳过。SQLite 连接必须统一开启 foreign keys 和 busy timeout；native/Linux 默认使用 WAL，但 macOS Docker bind mount 的 light Compose 必须让 API/Worker 同时使用 DELETE journal，避免跨容器 WAL 共享内存可见性漂移。journal mode 只能由 `HORIZON_SQLITE_JOURNAL_MODE=WAL|DELETE` 选择。API 连接按 ContextVar 请求作用域隔离，禁止跨并发请求共享。
 
-member 控制的 catalog RSS URL 不得包含环境变量占位或 URL userinfo；Worker 必须以 catalog row 而非 job payload 为权威。初始请求和每次 redirect 都必须解析并审核全部地址，随后只连接本次审核通过的字面 IP并保留原 Host/SNI；安全请求使用隔离且 `trust_env=False` 的连接、拒绝压缩响应并执行 2 MB 流式上限。`owner/admin` 拥有的 source 是本地/私网 RSS 的唯一显式信任边界。
+member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL userinfo；Worker 必须以 catalog row 而非 job payload 为权威。初始请求和每次 redirect 都必须解析并审核全部地址，随后只连接本次审核通过的字面 IP并保留原 Host/SNI；安全请求使用隔离且 `trust_env=False` 的连接、拒绝压缩响应并执行 2 MB 流式上限。受控 RSSHub row 是单独边界：成员只能提供 allowlisted `site/route_key/params`，运行 origin 只来自管理员配置，Worker 禁止跟随 redirect。除此之外，`owner/admin` 拥有的 source 仍是本地/私网任意 RSS URL 的唯一显式信任边界。
 
 ### 3.10 Runtime / Migration Boundary
 默认部署单元是独立 `horizon-api + horizon-worker`；用户 Feed schedule 内嵌在现有 Worker，不形成第三个默认进程或容器。旧 scheduler 永远位于显式 `scheduler` profile，也不参与 Service Feed 调度。旧 snapshot 到 Feed v2 的清空重建只能由 `scripts/migrate_user_feed_v2.py --apply` 在服务停止后显式执行，应用启动不得自动删除用户数据；未完成迁移时 readiness 和 Feed Worker 都必须拒绝继续。迁移工具已存在不表示真实数据库已执行迁移。
 
 Feed storage v3 使用 `scripts/migrate_feed_storage_v3.py --dry-run|--apply`。apply 前必须停止 Worker；工具以 SQLite backup API 创建 UTC 命名、权限 `0600` 的独立副本，additive 初始化/backfill content hash，执行 retention，并通过 `integrity_check` 与 `foreign_key_check` 后才记录 version 3。Worker maintenance 以持久化小时门禁执行相同 retention，且无论时间/数量阈值都保留每用户/每 acquisition key 最新必要记录。
 
-生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；发布包必须来自干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
+生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。Inteliscope production image 必须从干净、revision-locked commit 在本机以 `linux/amd64` 构建并验收，压缩归档经校验上传后只在 VPS 执行 `docker load`；禁止在 `vps-tokyo` 对本仓库执行 Docker build。RSSHub 作为单独的 VPS-only 容器加入生产 Compose 网络并只绑定 VPS loopback；VPS 项目使用容器 DNS，本地项目经现有 Nginx 的 HTTPS path prefix 复用同一实例，不使用 SSH tunnel，也不在本地启动第二套 RSSHub。公网入口必须启用 RSSHub `ACCESS_KEY`、关闭该 location 的 access log 并保持容器端口不直接暴露；固定摘要的 `chromium-bundled` 镜像必须显式使用已验证的容器内 Chromium 路径和 RSSHub 非随机 UA，匿名 Bilibili Cookie 只能通过受控刷新脚本写入 SecretStore。匿名参数不构成 Bilibili 可用性保证；连续冷路由出现上游 `-352` 时必须停止高频探测，等待上游窗口恢复或切换第三方实例显式降级。RSSHub 这类 pinned third-party runtime image 可以在 VPS 直接 pull。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；源码发布包必须来自同一干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
 
 ### 3.11 Content Repair Boundary
 

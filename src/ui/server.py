@@ -26,6 +26,12 @@ from dotenv import load_dotenv
 
 from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
+from ..rsshub import (
+    RSSHUB_ACCESS_KEY_ENV,
+    is_managed_rsshub_config,
+    normalize_rsshub_base_url,
+    rsshub_request_url,
+)
 from ..scrapers.apify_social import ApifySocialScraper
 from ..scrapers.apify_client import ApifyRunCoordinator
 from ..services.response_schema import bound_source_response_schemas, extract_response_schema
@@ -556,11 +562,18 @@ def run_source_test(
         )
 
     if source_type == "rss":
-        url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
+        feed_url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
+        request_url = feed_url
+        if is_managed_rsshub_config(payload):
+            request_url = rsshub_request_url(
+                feed_url,
+                payload,
+                access_key=os.getenv(RSSHUB_ACCESS_KEY_ENV),
+            )
         if payload.get("enforce_public_network"):
-            feed_text = _fetch_text(url, enforce_public_network=True)
+            feed_text = _fetch_text(request_url, enforce_public_network=True)
         else:
-            feed_text = _fetch_text(url)
+            feed_text = _fetch_text(request_url)
         feed = feedparser.parse(feed_text)
         entries = list(feed.entries or [])
         if not entries:
@@ -571,7 +584,9 @@ def run_source_test(
             "source_type": source_type,
             "count": len(entries),
             "sample_title": str(first.get("title") or "Untitled"),
-            "sample_url": str(first.get("link") or url),
+            # Never return the route-scoped access code when a feed omits its
+            # own item link.
+            "sample_url": str(first.get("link") or feed_url),
             "message": f"RSS/Atom 可用，解析到 {len(entries)} 条。",
         }
         return _source_test_result(
@@ -1040,6 +1055,13 @@ def apply_config_action(
         apify.setdefault("subscriptions", [])
         _delete_list_item(apify["subscriptions"], _index(payload))
 
+    elif action == "set_rsshub":
+        updated["rsshub"] = {
+            "base_url": normalize_rsshub_base_url(
+                _text(payload, "base_url", "RSSHub Base URL")
+            )
+        }
+
     elif action == "set_filtering":
         filtering = updated.setdefault("filtering", {})
         filtering["ai_score_threshold"] = _number(payload, "ai_score_threshold", default=7.5, minimum=0, maximum=10)
@@ -1155,6 +1177,7 @@ def build_env_status(config: Config) -> list[dict[str, Any]]:
         add(config.webhook.url_env, "webhook.url_env")
     if config.email and config.email.enabled:
         add(config.email.password_env, "email.password_env")
+    add(RSSHUB_ACCESS_KEY_ENV, "rsshub.access_key")
     if config.sources.twitter and config.sources.twitter.enabled:
         add(config.sources.twitter.apify_token_env, "sources.twitter.apify_token_env")
     if config.sources.apify_social:

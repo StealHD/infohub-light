@@ -24,6 +24,7 @@ class PrivateSourceInput(RemoteMCPInputModel):
     mode: Literal["private"]
     type: Literal[
         "rss",
+        "bilibili",
         "telegram",
         "github",
         "reddit",

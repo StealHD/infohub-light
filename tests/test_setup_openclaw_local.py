@@ -12,6 +12,7 @@ from scripts.setup_openclaw_local import (
     default_origin,
     merge_allowed_origins,
     parse_gateway_status,
+    skill_tree_matches,
     update_env_text,
     validate_gateway_url,
     validate_origin,
@@ -131,3 +132,35 @@ def test_managed_values_do_not_enable_subscription_writes() -> None:
 
     assert '("HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED", "false")' in source
     assert "INTELISCOPE_MCP_TOKEN" not in json.dumps(source)
+
+
+def test_skill_tree_matches_ignores_install_metadata_and_detects_drift(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    installed = tmp_path / "installed"
+    (source / "references").mkdir(parents=True)
+    (installed / "references").mkdir(parents=True)
+    (installed / ".openclaw").mkdir()
+    (source / "SKILL.md").write_text("current\n", encoding="utf-8")
+    (installed / "SKILL.md").write_text("current\n", encoding="utf-8")
+    (source / "references" / "workflow.md").write_text("safe\n", encoding="utf-8")
+    (installed / "references" / "workflow.md").write_text("safe\n", encoding="utf-8")
+    (installed / ".openclaw" / "source-origin.json").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+
+    assert skill_tree_matches(source, installed) is True
+
+    (installed / "SKILL.md").write_text("stale\n", encoding="utf-8")
+
+    assert skill_tree_matches(source, installed) is False
+
+
+def test_setup_refreshes_a_stale_installed_skill_and_restarts_gateway() -> None:
+    source = (ROOT / "scripts" / "setup_openclaw_local.py").read_text(encoding="utf-8")
+
+    assert '"refresh needed" if skill_present else "install needed"' in source
+    assert 'install_command.append("--force")' in source
+    assert "elif origins_changed or skill_changed:" in source

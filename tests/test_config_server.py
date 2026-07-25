@@ -1,3 +1,4 @@
+import hashlib
 import json
 import socket
 from contextlib import asynccontextmanager
@@ -132,6 +133,7 @@ def test_migrate_config_tag_layers_keeps_custom_tags_as_reading_topics():
 
 def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-value")
+    monkeypatch.setenv("RSSHUB_ACCESS_KEY", "rsshub-master-secret")
     monkeypatch.delenv("HORIZON_WEBHOOK_URL", raising=False)
     config = validate_config_data(_minimal_config())
 
@@ -148,7 +150,13 @@ def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
         "set": False,
         "used_by": ["webhook.url_env"],
     }
+    assert by_name["RSSHUB_ACCESS_KEY"] == {
+        "name": "RSSHUB_ACCESS_KEY",
+        "set": True,
+        "used_by": ["rsshub.access_key"],
+    }
     assert "sk-secret-value" not in json.dumps(status)
+    assert "rsshub-master-secret" not in json.dumps(status)
 
 
 def test_env_status_hides_ai_key_when_ai_disabled(monkeypatch):
@@ -381,6 +389,48 @@ def test_apply_config_action_sets_recent_item_limit():
     )
 
     assert updated["filtering"]["recent_item_limit"] == 20
+
+
+def test_apply_config_action_sets_switchable_rsshub_base_url():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "set_rsshub",
+        {"base_url": "https://rsshub.example.com/"},
+    )
+
+    assert updated["rsshub"] == {
+        "base_url": "https://rsshub.example.com"
+    }
+
+    prefixed = apply_config_action(
+        config,
+        "set_rsshub",
+        {"base_url": "https://rsshub.example.com/private/rsshub/"},
+    )
+    assert prefixed["rsshub"] == {
+        "base_url": "https://rsshub.example.com/private/rsshub"
+    }
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "file:///tmp/rsshub",
+        "http://user:password@example.com",
+        "https://example.com/rsshub?key=secret",
+        "https://example.com/rsshub/../admin",
+        "https://example.com/rsshub%2Fadmin",
+    ],
+)
+def test_apply_config_action_rejects_unsafe_rsshub_base_url(base_url):
+    with pytest.raises(ValueError, match="RSSHub Base URL"):
+        apply_config_action(
+            _minimal_config(),
+            "set_rsshub",
+            {"base_url": base_url},
+        )
 
 
 def test_apply_config_action_rejects_secret_in_api_key_env():
@@ -818,6 +868,50 @@ def test_source_payload_parses_rss_feed(monkeypatch):
     assert "sample_title" in {
         field["path"] for field in response_schema["normalized"]["fields"]
     }
+
+
+def test_managed_rsshub_source_test_uses_route_code_without_returning_it(
+    monkeypatch,
+):
+    seen = []
+    master_key = "rsshub-test-master"
+    monkeypatch.setenv("RSSHUB_ACCESS_KEY", master_key)
+
+    def fake_fetch(url, *, headers=None, enforce_public_network=False):
+        seen.append((url, enforce_public_network))
+        return """<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example</title>
+    <item><title>First item</title></item>
+  </channel>
+</rss>"""
+
+    monkeypatch.setattr("src.ui.server._fetch_text", fake_fetch)
+    feed_url = (
+        "https://rsshub.example.com/private/"
+        "bilibili/user/video/39627524/1"
+    )
+    result = run_source_test(
+        {
+            "source_type": "rss",
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524"},
+            "url": feed_url,
+            "enforce_public_network": False,
+        }
+    )
+
+    expected_code = hashlib.md5(
+        f"/bilibili/user/video/39627524/1{master_key}".encode(),
+        usedforsecurity=False,
+    ).hexdigest()
+    assert seen == [(f"{feed_url}?code={expected_code}", False)]
+    assert result["sample_url"] == feed_url
+    assert expected_code not in json.dumps(result)
+    assert master_key not in json.dumps(result)
 
 
 def test_source_test_propagates_member_public_network_policy(monkeypatch):

@@ -505,7 +505,7 @@ export type ConfigResponse = {
   path?: string
   config: Record<string, unknown>
   taxonomy?: TaxonomyOptions
-  env_status?: Array<{ name?: string; configured?: boolean; label?: string }>
+  env_status?: Array<{ name?: string; set?: boolean; used_by?: string[]; configured?: boolean; label?: string }>
 }
 
 export type TaxonomyOptions = {

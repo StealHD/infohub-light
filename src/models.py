@@ -1,10 +1,20 @@
 """Core data models for Horizon."""
 
+from copy import deepcopy
 import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, HttpUrl, Field, field_validator, model_validator
+
+from .rsshub import (
+    DEFAULT_RSSHUB_BASE_URL,
+    RSSHUB_PROVIDER,
+    is_managed_rsshub_config,
+    normalize_managed_rsshub_config,
+    normalize_rsshub_base_url,
+    rsshub_feed_url,
+)
 
 _ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SECRET_PREFIXES = ("sk-", "sk_", "AIza", "xai-", "gsk_", "hf_", "tp-")
@@ -100,6 +110,17 @@ class AnalysisMode(str, Enum):
     PERSONAL_ONLY = "personal_only"
 
 
+class RSSHubConfig(BaseModel):
+    """Workspace RSSHub service connection."""
+
+    base_url: str = DEFAULT_RSSHUB_BASE_URL
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        return normalize_rsshub_base_url(value)
+
+
 class ServiceSourceConfig(BaseModel):
     """Service catalog identity carried through source adapters."""
 
@@ -139,6 +160,10 @@ class RSSSourceConfig(ServiceSourceConfig):
 
     name: str
     url: HttpUrl
+    provider: str = "direct"
+    site: Optional[str] = None
+    route_key: Optional[str] = None
+    params: Dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
     category: Optional[str] = None
     channel: Optional[str] = None
@@ -147,6 +172,24 @@ class RSSSourceConfig(ServiceSourceConfig):
     personal_tags: List[str] = Field(default_factory=list)
     enforce_public_network: bool = False
     keep_latest_item: bool = False
+
+    @model_validator(mode="after")
+    def validate_provider_contract(self) -> "RSSSourceConfig":
+        if self.provider == RSSHUB_PROVIDER:
+            normalize_managed_rsshub_config(
+                {
+                    "provider": self.provider,
+                    "site": self.site,
+                    "route_key": self.route_key,
+                    "params": self.params,
+                }
+            )
+            return self
+        if self.provider != "direct":
+            raise ValueError("unsupported RSS provider")
+        if self.site is not None or self.route_key is not None or self.params:
+            raise ValueError("direct RSS cannot contain RSSHub route fields")
+        return self
 
 
 class RedditSubredditConfig(ServiceSourceConfig):
@@ -529,6 +572,7 @@ class Config(BaseModel):
 
     version: str = "1.0"
     ai: AIConfig
+    rsshub: RSSHubConfig = Field(default_factory=RSSHubConfig)
     sources: SourcesConfig
     filtering: FilteringConfig
     tags: List[str] = Field(default_factory=list)
@@ -537,3 +581,36 @@ class Config(BaseModel):
     article_graph: ArticleGraphConfig = Field(default_factory=ArticleGraphConfig)
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_managed_rsshub_sources(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = deepcopy(value)
+        rsshub = data.get("rsshub")
+        if rsshub is None:
+            rsshub = {}
+        if not isinstance(rsshub, dict):
+            raise ValueError("rsshub must be an object")
+        base_url = normalize_rsshub_base_url(
+            rsshub.get("base_url", DEFAULT_RSSHUB_BASE_URL)
+        )
+        data["rsshub"] = {**rsshub, "base_url": base_url}
+        sources = data.get("sources")
+        rss_sources = sources.get("rss") if isinstance(sources, dict) else None
+        if not isinstance(rss_sources, list):
+            return data
+        for index, source in enumerate(rss_sources):
+            if not is_managed_rsshub_config(source):
+                continue
+            normalized = normalize_managed_rsshub_config(source)
+            normalized["url"] = rsshub_feed_url(base_url, normalized)
+            normalized["name"] = str(
+                normalized.get("name")
+                or source.get("source_display_name")
+                or normalize_managed_rsshub_config(source)["url"]
+            )
+            normalized["enforce_public_network"] = False
+            rss_sources[index] = normalized
+        return data
