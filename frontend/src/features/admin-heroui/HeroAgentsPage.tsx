@@ -388,7 +388,7 @@ export function HeroAgentsPage() {
         <div className="grid gap-3 min-[900px]:grid-cols-2">
           <OpenClawConfigurationCard
             title="只读 · 12 个工具"
-            description="读取并诊断信息流、订阅、来源健康和任务，也可按名称查询公开 B 站账号。"
+            description="读取并诊断信息流、订阅、来源健康和任务。"
             configuration={readConfiguration}
             configurationLabel="OpenClaw 配置命令"
             onCopy={() => void copy(readConfiguration, '只读配置已复制。')}

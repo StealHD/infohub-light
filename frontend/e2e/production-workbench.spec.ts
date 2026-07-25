@@ -729,7 +729,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     expect(fullyVisibleCards).toBeLessThanOrEqual(5)
 
     await page.setViewportSize({ width: 1280, height: 800 })
-    expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
+    await expect.poll(async () => Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
     await expect(page.getByRole('button', { name: /侧栏/ })).toHaveCount(0)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
     agent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })

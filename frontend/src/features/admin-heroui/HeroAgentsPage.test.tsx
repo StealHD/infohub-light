@@ -233,7 +233,7 @@ describe('HeroAgentsPage delegation access', () => {
 
     const readConfiguration = await screen.findByLabelText('OpenClaw 配置命令')
     const writeConfiguration = screen.getByLabelText('订阅管理 OpenClaw 配置命令')
-    expect(screen.getByText('读取并诊断信息流、订阅、来源健康和任务，也可按名称查询公开 B 站账号。')).toHaveClass('min-h-10')
+    expect(screen.getByText('读取并诊断信息流、订阅、来源健康和任务。')).toHaveClass('min-h-10')
     expect(screen.getByText('变更仍需 prepare、准确确认和 apply。')).toHaveClass('min-h-10')
     for (const configuration of [readConfiguration, writeConfiguration]) {
       expect(configuration).toHaveClass(
