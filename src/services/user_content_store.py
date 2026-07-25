@@ -12,6 +12,7 @@ from typing import Any
 from ..storage.service_store import ServiceStore
 from ..models import ContentItem
 from .content_presentation import complete_content_presentation
+from .canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from .user_item_state import UserItemStateStore
 from .media_cache import MediaCacheService
 from ..ai.analysis_cache import AnalysisCache
@@ -56,6 +57,7 @@ def service_public_item(value: dict[str, Any]) -> dict[str, Any]:
     """Strip upstream media locations before an item enters user-visible storage."""
 
     item = deepcopy(value)
+    item.pop(INTERNAL_SOURCE_NATIVE_TITLE_KEY, None)
     item.pop("remote_image_url", None)
     item.pop("remote_media_urls", None)
     image_url = str(item.get("image_url") or "")
@@ -172,6 +174,11 @@ class UserContentStore:
     ) -> None:
         conn = self.store.connect()
         for raw_item in items:
+            source_native_title = (
+                str(raw_item.get(INTERNAL_SOURCE_NATIVE_TITLE_KEY) or "").strip()
+                if isinstance(raw_item, dict)
+                else ""
+            ) or None
             item = service_public_item(raw_item) if isinstance(raw_item, dict) else raw_item
             if not isinstance(item, dict) or not item.get("id"):
                 continue
@@ -190,13 +197,17 @@ class UserContentStore:
                 """
                 INSERT INTO user_content_items (
                     id, workspace_id, user_id, article_id, source_id,
-                    subscription_id, item_json, body_text, body_truncated,
-                    body_completeness, analysis_input_hash, first_seen_at,
-                    last_seen_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    subscription_id, source_native_title, item_json, body_text,
+                    body_truncated, body_completeness, analysis_input_hash,
+                    first_seen_at, last_seen_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(workspace_id, user_id, article_id) DO UPDATE SET
                     source_id = excluded.source_id,
                     subscription_id = excluded.subscription_id,
+                    source_native_title = COALESCE(
+                        excluded.source_native_title,
+                        user_content_items.source_native_title
+                    ),
                     item_json = excluded.item_json,
                     body_text = excluded.body_text,
                     body_truncated = excluded.body_truncated,
@@ -211,6 +222,7 @@ class UserContentStore:
                     article_id,
                     source_id,
                     subscription_id,
+                    source_native_title,
                     _json_dumps(item),
                     body_text,
                     1 if body_truncated else 0,
@@ -250,6 +262,46 @@ class UserContentStore:
                             article_id,
                         ),
                     )
+
+    def update_source_native_titles(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        items: list[dict[str, Any]],
+    ) -> int:
+        """Persist newly proven native titles without rewriting public item data."""
+
+        updated = 0
+        conn = self.store.connect()
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            source_native_title = str(
+                item.get(INTERNAL_SOURCE_NATIVE_TITLE_KEY) or ""
+            ).strip()
+            if not source_native_title:
+                continue
+            cursor = conn.execute(
+                """
+                UPDATE user_content_items
+                SET source_native_title = ?
+                WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+                  AND (
+                    source_native_title IS NULL
+                    OR source_native_title != ?
+                  )
+                """,
+                (
+                    source_native_title,
+                    workspace_id,
+                    user_id,
+                    str(item["id"]),
+                    source_native_title,
+                ),
+            )
+            updated += max(0, int(cursor.rowcount))
+        return updated
 
     def get_item(
         self,

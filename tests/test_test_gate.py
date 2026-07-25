@@ -245,6 +245,10 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     release_by_id = {spec.command_id: spec for spec in release}
     assert any("pytest" in command and "tests/test_api_service.py" in command for command in targeted_commands)
     assert any("vitest related" in command and "feedModel.ts" in command for command in targeted_commands)
+    for spec in [*targeted, *full, *release]:
+        if "pytest" in spec.argv:
+            assert "-W" in spec.argv
+            assert "default::ResourceWarning" in spec.argv
     assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
     assert "release_playwright" in release_by_id
     assert release_by_id["release_playwright"].argv == ("npm", "run", "e2e:release")
@@ -404,6 +408,47 @@ def test_success_summary_is_at_most_two_kibibytes(tmp_path):
             "mapping_miss",
         )
     ) <= json.loads(summary).keys()
+
+
+def test_execute_specs_counts_unclosed_sqlite_resource_warnings(tmp_path):
+    spec = CommandSpec(
+        command_id="sqlite_warning",
+        argv=(
+            sys.executable,
+            "-c",
+            "print('ResourceWarning: unclosed database in <sqlite3.Connection object>'); "
+            "print('ResourceWarning: unclosed database in <sqlite3.Connection object>')",
+        ),
+        cwd=tmp_path,
+    )
+    result = execute_specs(
+        ROOT,
+        [spec],
+        {
+            "mode": "full",
+            "status": "planned",
+            "changed_files": [],
+            "selected_groups": ["full"],
+            "reasons": ["warning observation"],
+            "counts": {},
+            "duration": 0.0,
+            "first_failure": None,
+            "log_paths": [],
+            "ui_impacted": False,
+            "mapping_miss": False,
+        },
+        result_root=tmp_path / ".test-results",
+        run_id="unit-sqlite-warning",
+    )
+
+    assert result["commands"][0]["unclosed_sqlite_connection_warnings"] == 2
+    assert result["counts"]["unclosed_sqlite_connection_warnings"] == 2
+    assert (
+        json.loads(format_summary(result))["counts"][
+            "unclosed_sqlite_connection_warnings"
+        ]
+        == 2
+    )
 
 
 def test_run_id_cannot_escape_private_result_directory(tmp_path):

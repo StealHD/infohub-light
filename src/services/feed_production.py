@@ -248,6 +248,7 @@ class FeedProductionService:
             tag_library=self.config.tags,
             personal_tag_library=self.config.personal_tags,
             ai_enabled=bool(self.config.ai.enabled),
+            include_internal_storage_fields=True,
         )
         source_priorities = {
             item.id: int(item.metadata.get("source_priority") or 0)

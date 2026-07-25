@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from src.services.job_queue import JobQueue
 from src.services.maintenance import MaintenanceService
+from src.services.user_content_store import UserContentStore
 from src.storage.service_store import ServiceStore
 
 
@@ -30,6 +33,67 @@ def _store(tmp_path, monkeypatch):
         config={"url": "https://example.com/maintenance.xml"},
     )
     return store, workspace, owner, member, source_id
+
+
+def _seed_expired_content_with_media(
+    store,
+    *,
+    workspace_id,
+    user_id,
+    data_dir,
+    now,
+    suffix,
+):
+    old = (now - timedelta(days=100)).isoformat()
+    article_id = f"maintenance-expired-{suffix}"
+    UserContentStore(store).upsert_items(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        seen_at=old,
+        items=[
+            {
+                "id": article_id,
+                "title": f"Expired {suffix}",
+                "url": f"https://example.com/{suffix}",
+            }
+        ],
+    )
+    media_path = data_dir / "media" / f"{suffix}.png"
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"old")
+    media_id = f"med-maintenance-{suffix}"
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+          id, workspace_id, user_id, article_id, asset_kind, remote_url,
+          local_path, mime_type, byte_size, checksum, alt, visibility_scope,
+          status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'content_image', '', ?,
+          'image/png', 3, 'sum', 'old', 'private', 'ready', ?, ?)
+        """,
+        (
+            media_id,
+            workspace_id,
+            user_id,
+            article_id,
+            f"media/{suffix}.png",
+            old,
+            old,
+        ),
+    )
+    store.connect().commit()
+    return article_id, media_id, media_path
+
+
+def _assert_content_and_media_rows_exist(store, *, article_id, media_id):
+    assert store.connect().execute(
+        "SELECT 1 FROM user_content_items WHERE article_id = ?",
+        (article_id,),
+    ).fetchone() is not None
+    assert store.connect().execute(
+        "SELECT 1 FROM media_assets WHERE id = ?",
+        (media_id,),
+    ).fetchone() is not None
 
 
 def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
@@ -287,6 +351,187 @@ def test_maintenance_keeps_saved_and_later_content_but_prunes_unpinned_media(
         ).fetchall()
     } == {"saved-old", "later-old"}
     assert not media_path.exists()
+
+
+def test_maintenance_unlinks_media_only_after_database_commit(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, _member, _source_id = _store(tmp_path, monkeypatch)
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    article_id, media_id, media_path = _seed_expired_content_with_media(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        data_dir=tmp_path,
+        now=now,
+        suffix="post-commit",
+    )
+    transaction_states = []
+    original_unlink = Path.unlink
+
+    def tracked_unlink(path, *args, **kwargs):
+        if path == media_path:
+            transaction_states.append(store.connect().in_transaction)
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", tracked_unlink)
+    try:
+        result = MaintenanceService(
+            store,
+            feed_retention_days=30,
+        ).run_if_due(now=now, force=True)
+
+        assert result["deleted"]["content_items"] == 1
+        assert result["deleted"]["media_assets"] == 1
+        assert transaction_states == [False]
+        assert not media_path.exists()
+        assert store.connect().execute(
+            "SELECT 1 FROM user_content_items WHERE article_id = ?",
+            (article_id,),
+        ).fetchone() is None
+        assert store.connect().execute(
+            "SELECT 1 FROM media_assets WHERE id = ?",
+            (media_id,),
+        ).fetchone() is None
+    finally:
+        store.close()
+
+
+def test_maintenance_late_sql_failure_rolls_back_without_unlinking_media(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, _member, _source_id = _store(tmp_path, monkeypatch)
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    article_id, media_id, media_path = _seed_expired_content_with_media(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        data_dir=tmp_path,
+        now=now,
+        suffix="late-sql-failure",
+    )
+
+    def fail_late_cleanup(*_args, **_kwargs):
+        raise RuntimeError("simulated late maintenance SQL failure")
+
+    monkeypatch.setattr(
+        store,
+        "cleanup_agent_change_proposals",
+        fail_late_cleanup,
+    )
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="simulated late maintenance SQL failure",
+        ):
+            MaintenanceService(
+                store,
+                feed_retention_days=30,
+            ).run_if_due(now=now, force=True)
+
+        assert media_path.exists()
+        assert store.connect().in_transaction is False
+        _assert_content_and_media_rows_exist(
+            store,
+            article_id=article_id,
+            media_id=media_id,
+        )
+    finally:
+        if store.connect().in_transaction:
+            store.connect().rollback()
+        store.close()
+
+
+def test_maintenance_commit_failure_rolls_back_without_unlinking_media(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, _member, _source_id = _store(tmp_path, monkeypatch)
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    article_id, media_id, media_path = _seed_expired_content_with_media(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        data_dir=tmp_path,
+        now=now,
+        suffix="commit-failure",
+    )
+    connection = store.connect()
+
+    class CommitFailingConnection:
+        def __getattr__(self, name):
+            return getattr(connection, name)
+
+        def commit(self):
+            raise sqlite3.OperationalError("simulated maintenance commit failure")
+
+    failing_connection = CommitFailingConnection()
+    monkeypatch.setattr(store, "connect", lambda: failing_connection)
+    try:
+        with pytest.raises(
+            sqlite3.OperationalError,
+            match="simulated maintenance commit failure",
+        ):
+            MaintenanceService(
+                store,
+                feed_retention_days=30,
+            ).run_if_due(now=now, force=True)
+
+        assert media_path.exists()
+        assert connection.in_transaction is False
+        _assert_content_and_media_rows_exist(
+            store,
+            article_id=article_id,
+            media_id=media_id,
+        )
+    finally:
+        if connection.in_transaction:
+            connection.rollback()
+        store.close()
+
+
+def test_maintenance_interrupt_rolls_back_without_unlinking_media(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner, _member, _source_id = _store(tmp_path, monkeypatch)
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    article_id, media_id, media_path = _seed_expired_content_with_media(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        data_dir=tmp_path,
+        now=now,
+        suffix="interrupt",
+    )
+
+    def interrupt_late_cleanup(*_args, **_kwargs):
+        raise KeyboardInterrupt("simulated maintenance interruption")
+
+    monkeypatch.setattr(
+        store,
+        "cleanup_agent_change_proposals",
+        interrupt_late_cleanup,
+    )
+    try:
+        with pytest.raises(
+            KeyboardInterrupt,
+            match="simulated maintenance interruption",
+        ):
+            MaintenanceService(
+                store,
+                feed_retention_days=30,
+            ).run_if_due(now=now, force=True)
+
+        assert media_path.exists()
+        assert store.connect().in_transaction is False
+        _assert_content_and_media_rows_exist(
+            store,
+            article_id=article_id,
+            media_id=media_id,
+        )
+    finally:
+        if store.connect().in_transaction:
+            store.connect().rollback()
+        store.close()
 
 
 def test_maintenance_does_not_commit_a_callers_transaction(tmp_path, monkeypatch):

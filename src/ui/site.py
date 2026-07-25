@@ -10,6 +10,7 @@ from typing import Any, Iterable
 
 from ..config_migration import normalize_personal_tags
 from ..models import ContentItem
+from ..services.canonical_content import INTERNAL_SOURCE_NATIVE_TITLE_KEY
 from ..services.content_presentation import build_content_presentation
 from ..tag_policy import (
     HUB_CHANNELS,
@@ -202,6 +203,7 @@ def serialize_item(
     return {
         "id": item.id,
         "title": item.metadata.get("title_zh") or item.title,
+        INTERNAL_SOURCE_NATIVE_TITLE_KEY: item.title,
         "source_type": item.source_type.value,
         "source": source,
         "author": item.author or "",
@@ -777,6 +779,7 @@ def build_site_payload(
     tag_library: Iterable[str] | None = None,
     personal_tag_library: Iterable[str] | None = None,
     ai_enabled: bool = True,
+    include_internal_storage_fields: bool = False,
 ) -> dict[str, Any]:
     """Build the JSON payload consumed by the static web UI."""
     serialized = [
@@ -788,6 +791,9 @@ def build_site_payload(
         )
         for item in sorted(all_items, key=_score, reverse=True)
     ]
+    if not include_internal_storage_fields:
+        for item in serialized:
+            item.pop(INTERNAL_SOURCE_NATIVE_TITLE_KEY, None)
     featured_items = [
         item for item in serialized if item["score"] >= featured_threshold
     ]
