@@ -14,6 +14,7 @@ import feedparser
 
 from .base import BaseScraper
 from ..models import ContentItem, SourceType, RSSSourceConfig
+from ..rsshub import RSSHUB_PROVIDER, rsshub_source_key
 from ..services.network_policy import fetch_public_http
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ class RSSScraper(BaseScraper):
             response = await self._request_feed(
                 feed_url,
                 enforce_public_network=source.enforce_public_network,
+                managed_rsshub=source.provider == RSSHUB_PROVIDER,
             )
 
             # Parse feed
@@ -108,7 +110,20 @@ class RSSScraper(BaseScraper):
             for published_at, entry in selected:
 
                 # Generate unique ID from feed URL and entry ID
-                feed_id = str(source.url).split("//")[1].replace("/", "_")
+                if source.provider == RSSHUB_PROVIDER:
+                    feed_identity = source.source_key or rsshub_source_key(
+                        {
+                            "provider": source.provider,
+                            "site": source.site,
+                            "route_key": source.route_key,
+                            "params": source.params,
+                        }
+                    )
+                    feed_id = hashlib.sha256(
+                        feed_identity.encode("utf-8")
+                    ).hexdigest()[:16]
+                else:
+                    feed_id = str(source.url).split("//")[1].replace("/", "_")
                 entry_id = entry.get("id", entry.get("link", ""))
                 entry_hash = hashlib.sha256(str(entry_id).encode("utf-8")).hexdigest()[
                     :16
@@ -176,6 +191,7 @@ class RSSScraper(BaseScraper):
         feed_url: str,
         *,
         enforce_public_network: bool,
+        managed_rsshub: bool = False,
     ) -> httpx.Response:
         if enforce_public_network:
             response = await fetch_public_http(
@@ -183,7 +199,13 @@ class RSSScraper(BaseScraper):
                 transport_factory=self.public_http_transport_factory,
             )
         else:
-            response = await self.client.get(feed_url, follow_redirects=True)
+            response = await self.client.get(
+                feed_url,
+                # A managed route is resolved from an admin-owned origin and an
+                # allowlisted path. Do not let that origin redirect the worker
+                # to a second, unreviewed network target.
+                follow_redirects=not managed_rsshub,
+            )
         response.raise_for_status()
         return response
 

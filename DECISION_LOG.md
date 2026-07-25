@@ -569,3 +569,12 @@
 - 决策内容：Feed ViewBar 将只读 `刷新` 与后台 `更新` 拆为两个同行动作。`刷新` 对所有角色强制读取当前用户最新 snapshot，不检查 Worker、不创建 Job；pending 时保持文字和几何不变，只旋转图标并暴露忙碌状态。`更新` 保留既有权限、Worker 预检和任务语义。浏览器观察到本会话中的整份或单源 Feed 任务成功/部分成功后，必须先完成最新 Feed 读取，再发布“已完成”反馈；数量使用 Feed 写事务内相邻去重 snapshot 稳定 ID 的实际新增差集。
 - 原因：任务终态只证明服务端 snapshot 已提交，不能证明浏览器缓存已经重读。此前来源任务在 inactive Feed query 上 fire-and-forget 失效缓存，并立即显示后端 item count，导致完成提示先于新卡片出现；该条数是整份 snapshot 总量，`fetched_count` 又是合并前抓取量，两者都不是用户关心的实际新增。刷新按钮把文字切成“刷新中”还会改变中等宽度 ViewBar 的固有宽度并造成横向抖动。
 - 兼容/边界：复用既有 `/api/feed/latest`、`user_feed_refresh` 与 `source_fetch`；Job `result_json` 只增加可选非负整数 `new_item_count`，旧任务缺少时 UI 不推测数量。REST 路径、数据库、权限和 snapshot payload 不变。重载失败保留最后可信卡片并提供手动重试；排序、新内容边缘、虚拟列表锚点和 `N 条新内容` 行为保持不变。页头主题/Insights/Agent 顺序和卡片 Footer 顶部 Tooltip 只属于 `UI_CONTRACT.md` 的呈现规则。
+
+### D067 RSSHub 采用单 VPS 私有服务与语义来源身份
+
+- 决策日期：2026-07-25
+- 当前状态：本地实现与定向测试完成；完整门禁、VPS 部署和双环境真实抓取验收进行中
+- 决策内容：只在 `vps-tokyo` 运行一套 `chromium-bundled` RSSHub。容器加入生产应用网络并把 1200 仅绑定 VPS loopback；VPS Inteliscope 使用 `http://rsshub:1200`，本地 Docker 通过认证 SSH tunnel 使用 `http://host.docker.internal:1200`。Owner/Admin 可在 Settings 修改同一个 RSSHub Base URL，因此自建和第三方实例可互换，本地不运行第二套 RSSHub。
+- 来源与 Agent 合同：RSSHub 是 workspace runtime service，不是 catalog type。Bilibili UP 视频仍保存为 catalog `rss`，稳定身份为 `rss:rsshub:bilibili:user_video:<uid>`；OpenClaw 新增公开 `bilibili` 类型，只提交 allowlisted `site=bilibili`、`route_key=user_video`、正整数 `params.uid` 和可选 `keep_latest_item`。MCP guide、preview 与 discovery 不返回 Base URL，且不接受任意 RSSHub URL/path、Cookie、ACCESS_KEY 或凭据。
+- 安全/兼容：运行 URL 只由管理员 origin 与服务端 allowlist 拼接，受控抓取禁用 redirect；direct RSS 的公网 egress/管理员私网信任边界不变。迁移只精确识别 `/bilibili/user/video/<uid>[/1]`，先备份 config/SQLite，再原位更新 source config/key，保留 source、subscription 和 schedule ID。切换 Base URL 不改变来源 key 或订阅状态。
+- 原因：把完整 RSSHub URL存进来源会把部署拓扑暴露给 Agent，并使自建/第三方切换制造新来源；本地和 VPS各跑一套又增加内存和维护成本。单 VPS 服务、私有 tunnel 与语义路由同时满足复用、可替换、最小暴露和小规格 VPS 资源约束。

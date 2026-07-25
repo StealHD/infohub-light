@@ -196,11 +196,12 @@ def test_skill_uses_exact_create_envelopes_and_routes_bilibili_through_rsshub():
     assert "mode: create" in combined or 'mode="create"' in combined
     assert "Never" in combined and "source_type" in combined and "fields" in combined
     assert "Bilibili" in combined and "B站" in combined and "UP 主" in combined
-    assert "self-hosted RSSHub" in combined
-    assert 'source_type="rss"' in combined
+    assert "RSSHub Base URL" in combined
+    assert 'source_type="bilibili"' in combined
+    assert '"type": "bilibili"' in combined
+    assert '"route_key": "user_video"' in combined
+    assert '"params": {"uid": "39627524"}' in combined
     assert "public_target" in combined
-    assert "unsubscribed_only=false" in combined
-    assert "route template" in flattened
-    assert "never copy the template UID" in flattened
     assert "never Apify" in combined or "Never call Apify" in combined
-    assert "private-network" in combined and "Web" in combined
+    assert "never ask for or submit an RSSHub URL" in flattened
+    assert "Cookie" in combined and "ACCESS_KEY" in combined

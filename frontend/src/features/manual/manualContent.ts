@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-25',
-  change: 'v1.7.5：共享内容按当前订阅重新投影，媒体只在数据库提交后清理',
+  change: 'v1.7.5：Bilibili 订阅改用工作区 RSSHub 受控路由，服务地址可在设置中切换',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -145,7 +145,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI 与 Key 配置。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
+        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的自建或第三方 RSSHub；OpenClaw 不会看到或提交该服务地址。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
       },

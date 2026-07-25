@@ -116,16 +116,24 @@ class RemoteMCPSubscriptionService:
             if secret_error is not None:
                 raise secret_error
             public_summary = project_catalog_source_public_summary(source)
+            public_target = public_summary["public_target"]
+            public_type = (
+                "bilibili"
+                if source.get("type") == "rss"
+                and isinstance(public_target, dict)
+                and public_target.get("site") == "bilibili"
+                else source["type"]
+            )
             items.append(
                 {
                     "id": source_id,
                     "name": source["display_name"],
-                    "type": source["type"],
+                    "type": public_type,
                     "scope": source["scope"],
                     "enabled": bool(source["enabled"]),
                     "default_channel": source.get("default_channel"),
                     "default_topics": list(source.get("default_topics") or []),
-                    "public_target": public_summary["public_target"],
+                    "public_target": public_target,
                     "secret_configured": secret_configured,
                     "subscribed": subscribed,
                 }

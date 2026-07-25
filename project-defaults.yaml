@@ -107,7 +107,10 @@
       "product_documentation_merge_gate_enabled": true,
       "private_structured_logging_enabled": true,
       "openclaw_operation_log_query_enabled": true,
-      "frontend_log_display_enabled": false
+      "frontend_log_display_enabled": false,
+      "workspace_rsshub_base_url_enabled": true,
+      "managed_bilibili_subscription_enabled": true,
+      "vps_private_rsshub_enabled": true
     },
     "service_limits": {
       "max_fetch_jobs_per_user_day": 100,
@@ -138,6 +141,17 @@
       "frontend_log_display_enabled": false
     },
     "runtime_sources": {
+      "agent_public_types": [
+        "rss",
+        "bilibili",
+        "telegram",
+        "github",
+        "reddit",
+        "twitter",
+        "website",
+        "youtube",
+        "apify"
+      ],
       "service_catalog_types": [
         "rss",
         "github_release",
@@ -173,6 +187,16 @@
         "facebook",
         "telegram_public"
       ],
+      "managed_rsshub": {
+        "catalog_type": "rss",
+        "sites": {
+          "bilibili": ["user_video"]
+        },
+        "credentials_enabled": false,
+        "redirects_enabled": false,
+        "default_vps_base_url": "http://rsshub:1200",
+        "default_local_docker_base_url": "http://host.docker.internal:1200"
+      },
       "out_of_scope": [
         "private_groups",
         "private_channels",
@@ -253,6 +277,8 @@
 
       ],
       "worker_retry_base_seconds": 30,
+      "rsshub_vps_memory_limit_mb": 640,
+      "rsshub_vps_loopback_port": 1200,
       "job_retention_days": 14,
       "summary_max_chars": 200,
       "analysis_max_output_tokens": 800,

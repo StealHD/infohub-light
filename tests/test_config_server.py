@@ -383,6 +383,37 @@ def test_apply_config_action_sets_recent_item_limit():
     assert updated["filtering"]["recent_item_limit"] == 20
 
 
+def test_apply_config_action_sets_switchable_rsshub_base_url():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "set_rsshub",
+        {"base_url": "https://rsshub.example.com/"},
+    )
+
+    assert updated["rsshub"] == {
+        "base_url": "https://rsshub.example.com"
+    }
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "file:///tmp/rsshub",
+        "http://user:password@example.com",
+        "https://example.com/rsshub",
+    ],
+)
+def test_apply_config_action_rejects_unsafe_rsshub_base_url(base_url):
+    with pytest.raises(ValueError, match="RSSHub Base URL"):
+        apply_config_action(
+            _minimal_config(),
+            "set_rsshub",
+            {"base_url": base_url},
+        )
+
+
 def test_apply_config_action_rejects_secret_in_api_key_env():
     config = _minimal_config()
 

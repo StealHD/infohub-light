@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 
 from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
+from ..rsshub import normalize_rsshub_base_url
 from ..scrapers.apify_social import ApifySocialScraper
 from ..scrapers.apify_client import ApifyRunCoordinator
 from ..services.response_schema import bound_source_response_schemas, extract_response_schema
@@ -1039,6 +1040,13 @@ def apply_config_action(
         apify = sources.setdefault("apify_social", _apify_social_defaults())
         apify.setdefault("subscriptions", [])
         _delete_list_item(apify["subscriptions"], _index(payload))
+
+    elif action == "set_rsshub":
+        updated["rsshub"] = {
+            "base_url": normalize_rsshub_base_url(
+                _text(payload, "base_url", "RSSHub Base URL")
+            )
+        }
 
     elif action == "set_filtering":
         filtering = updated.setdefault("filtering", {})

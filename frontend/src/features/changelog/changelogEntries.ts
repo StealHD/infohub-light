@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-25',
+        title: 'Bilibili 订阅接入私有 RSSHub',
+        summary: 'VPS 运行一套不对公网开放的 RSSHub，本地与 VPS 项目可复用，并可在设置中切换到第三方实例。',
+        items: [
+          { title: '服务地址可切换', description: 'Owner/Admin 可在设置页维护 RSSHub Base URL；来源身份与服务地址分离，切换自建或第三方实例无需重建订阅。' },
+          { title: 'OpenClaw 结构化输入', description: 'Bilibili UP 主订阅只接收 bilibili、user_video 和数字 UID，不再要求或接受 RSSHub URL、Cookie、ACCESS_KEY 或任意路由。' },
+          { title: '私有部署与复用', description: 'RSSHub 只绑定 VPS loopback 并加入应用 Docker 网络；本地 Docker 通过 SSH tunnel 访问同一实例，不新增第二套服务。' },
+          { title: '既有状态原位迁移', description: '精确匹配的 Bilibili URL 可原位转成受控路由，保留来源、订阅与自动更新计划 ID，并在写入前备份配置和数据库。' },
+        ],
+      },
+      {
+        date: '2026-07-25',
         title: '共享内容隔离与安全清理',
         summary: '共享来源继续复用已获取的正文，但每位成员只得到自己的订阅投影，媒体文件也只在数据库提交成功后清理。',
         items: [

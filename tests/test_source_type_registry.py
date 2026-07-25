@@ -14,6 +14,7 @@ from src.services.source_type_registry import (
 def test_agent_source_type_validator_owns_exact_public_enum():
     public_types = {
         "rss",
+        "bilibili",
         "telegram",
         "github",
         "reddit",
@@ -206,6 +207,77 @@ def test_rss_latest_item_flag_is_opt_in_and_reaches_worker_payload():
             "config": enabled,
         }
     )["keep_latest_item"] is True
+
+
+def test_managed_bilibili_rss_uses_semantic_identity_and_configured_base_url():
+    config = validate_source_config(
+        "rss",
+        {
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "039627524"},
+            "keep_latest_item": True,
+        },
+    )
+
+    assert config == {
+        "enabled": True,
+        "provider": "rsshub",
+        "site": "bilibili",
+        "route_key": "user_video",
+        "params": {"uid": "39627524"},
+        "url": "https://space.bilibili.com/39627524",
+        "name": "https://space.bilibili.com/39627524",
+        "keep_latest_item": True,
+    }
+    assert source_key("rss", config) == (
+        "rss:rsshub:bilibili:user_video:39627524"
+    )
+
+    payload = build_source_payload(
+        {
+            "id": "src-bilibili",
+            "type": "rss",
+            "display_name": "食贫道",
+            "config": config,
+        },
+        rsshub_base_url="https://rsshub.example.com/",
+    )
+
+    assert payload["url"] == (
+        "https://rsshub.example.com/bilibili/user/video/39627524/1"
+    )
+    assert payload["enforce_public_network"] is False
+    assert "rsshub.example.com" not in source_key("rss", config)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "abc"},
+        },
+        {
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "followings_video",
+            "params": {"uid": "39627524"},
+        },
+        {
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524", "cookie": "never"},
+        },
+    ],
+)
+def test_managed_bilibili_rss_rejects_uncontrolled_route_inputs(config):
+    with pytest.raises(SourceConfigError):
+        validate_source_config("rss", config)
 
 
 def test_source_type_registry_rejects_invalid_configs_and_secret_values():

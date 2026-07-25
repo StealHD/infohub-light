@@ -2,6 +2,7 @@
   "version": 1,
   "docs_only_globs": [
     "*.md",
+    "deploy/*.md",
     "docs/*.md",
     "docs/**/*.md",
     "src/mcp/*.md"
@@ -12,6 +13,8 @@
     ".env.example",
     "Dockerfile",
     "docker-compose*.yml",
+    "deploy/*.compose.yml",
+    "project-defaults.yaml",
     "pyproject.toml",
     "tests/conftest.py",
     "tests/test_impact_map.json",
@@ -58,6 +61,7 @@
         "src/services/secret_store.py",
         "src/services/agent_change_proposal.py",
         "src/services/*notification*.py",
+        "src/rsshub.py",
         "src/services/source_type_registry.py",
         "src/services/subscription_mutation.py",
         "src/services/user_config_builder.py",
@@ -157,7 +161,11 @@
     },
     {
       "id": "scripts",
-      "globs": ["scripts/*.py", "scripts/*.sh"],
+      "globs": [
+        "scripts/*.py",
+        "scripts/*.sh",
+        "tests/test_migrate_rsshub_sources.py"
+      ],
       "groups": ["python_scripts"]
     },
     {
@@ -266,6 +274,7 @@
       "tests/test_remote_mcp_subscription_http.py",
       "tests/test_openclaw_skill.py",
       "tests/test_light_runtime_scripts.py",
+      "tests/test_migrate_rsshub_sources.py",
       "tests/test_notification_email_transport.py",
       "tests/test_preferred_source_notifications.py",
       "tests/test_email.py",
@@ -345,6 +354,7 @@
       "tests/test_feed_storage_v3_migration.py",
       "tests/test_feed_v2_migration.py",
       "tests/test_light_runtime_scripts.py",
+      "tests/test_migrate_rsshub_sources.py",
       "tests/test_prepare_service_deployment.py",
       "tests/test_remote_mcp_performance_script.py",
       "tests/test_reset_local_service.py",

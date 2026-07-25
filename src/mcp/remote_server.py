@@ -558,6 +558,7 @@ def create_remote_mcp(
     def get_source_setup_guide(
         source_type: Literal[
             "rss",
+            "bilibili",
             "telegram",
             "github",
             "reddit",
@@ -582,6 +583,7 @@ def create_remote_mcp(
     def list_available_sources(
         source_type: Literal[
             "rss",
+            "bilibili",
             "telegram",
             "github",
             "reddit",

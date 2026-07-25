@@ -34,22 +34,16 @@ Use the configured Inteliscope MCP connection only for its current caller. Read 
 5. Call `apply_subscription_change` only after the user replies with that exact confirmation phrase, unchanged.
 6. Say the subscription changed only after `apply_subscription_change` returns success; otherwise explain the safe error and leave the state unclaimed.
 
-For Bilibili/B站/UP 主 requests, use the RSS workflow, never Apify. First call
-`list_available_sources` with `source_type="rss"`; if no matching source exists,
-ask only for the full public RSS/Atom URL produced by the user's self-hosted
-RSSHub. A Bilibili profile or video-page URL is not a feed URL. A localhost,
-private-network, authenticated, or Cookie-backed RSSHub feed must be configured
-in Web first, then selected only by an ID returned from
-`list_available_sources`.
-
-If the user explicitly names an existing Bilibili RSS source as a route
-template, call `list_available_sources` with `source_type="rss"` and
-`unsubscribed_only=false` so subscribed templates remain visible. Match the
-template by its returned name and reuse only a returned public HTTPS
-`public_target`. Preserve its RSSHub host and route structure and replace only
-the numeric Bilibili UID that the user supplied in a profile URL or as a field;
-never copy the template's UID, guess a UID from an account name, or reuse
-`web_setup_required`. Show the resulting feed URL in the proposal preview.
+For Bilibili/B站/UP 主 requests, use `source_type="bilibili"`, never Apify or a
+raw RSSHub URL. First call `list_available_sources` with that type. If no
+matching source exists, call `get_source_setup_guide` for `bilibili` and ask
+only for the numeric UID from `https://space.bilibili.com/<uid>`. The exact
+private-source config is
+`{"site":"bilibili","route_key":"user_video","params":{"uid":"<UID>"}}`;
+`keep_latest_item` is optional. Never ask for, infer, preserve, or submit an
+RSSHub host, route path, Cookie, ACCESS_KEY, or other credential. Inteliscope
+resolves the controlled route against the administrator-configured RSSHub Base
+URL.
 
 For create calls, the only valid source envelopes are
 `{mode: existing, source_id}` and

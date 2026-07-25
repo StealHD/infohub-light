@@ -14,6 +14,8 @@ import httpx
 from dotenv import load_dotenv
 
 from ..logging_utils import configure_logging
+from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
+from ..storage.manager import StorageManager
 from ..ui.server import run_source_test
 from .feed_schedule import FeedScheduleService
 from .job_queue import JobQueue
@@ -156,14 +158,29 @@ def _source_payload_from_catalog(
     if not source:
         return payload
 
-    canonical = build_source_payload(source)
+    managed_rsshub = bool(
+        source.get("type") == "rss"
+        and is_managed_rsshub_config(source.get("config"))
+    )
+    rsshub_base_url = DEFAULT_RSSHUB_BASE_URL
+    if managed_rsshub:
+        rsshub_base_url = StorageManager(
+            data_dir=str(store.data_dir)
+        ).load_config().rsshub.base_url
+    canonical = build_source_payload(
+        source,
+        rsshub_base_url=rsshub_base_url,
+    )
     if source.get("type") == "rss":
-        owner = store.get_user(str(source.get("owner_user_id") or ""))
-        canonical["enforce_public_network"] = bool(
-            source.get("enforce_public_network")
-        ) or not (
-            owner and owner.get("role") in {"owner", "admin"}
-        )
+        if managed_rsshub:
+            canonical["enforce_public_network"] = False
+        else:
+            owner = store.get_user(str(source.get("owner_user_id") or ""))
+            canonical["enforce_public_network"] = bool(
+                source.get("enforce_public_network")
+            ) or not (
+                owner and owner.get("role") in {"owner", "admin"}
+            )
     runtime_payload = {
         key: value
         for key, value in payload.items()

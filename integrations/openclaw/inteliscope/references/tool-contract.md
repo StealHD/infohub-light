@@ -43,18 +43,32 @@ Exact private-source example for public `r/codex`:
 }
 ```
 
-For a Bilibili UP 主, use the same private envelope with `type="rss"` only
-after the user supplies the full public feed URL from their self-hosted RSSHub.
-Use the UP 主 name as `display_name` and put `url`, optional `name`, and optional
-`keep_latest_item` inside `config`. Never call Apify for Bilibili. If the RSSHub
-URL is local/private/authenticated, direct the user to create it in Web and then
-use the returned visible existing source ID.
+For a Bilibili UP 主, use this private envelope. Use the UP 主 name as
+`display_name`; `config` must contain exactly the controlled identity plus the
+optional latest-item flag:
 
-When the user explicitly names an existing Bilibili RSS source as a route
-template, list RSS sources with `unsubscribed_only=false`, match its returned
-name, and reuse only its public HTTPS `public_target`. Replace only a separately
-supplied numeric Bilibili UID; never copy the template UID or infer one from an
-account name. `web_setup_required` is not a reusable target.
+```json
+{
+  "source": {
+    "mode": "private",
+    "type": "bilibili",
+    "display_name": "食贫道",
+    "config": {
+      "site": "bilibili",
+      "route_key": "user_video",
+      "params": {"uid": "39627524"},
+      "keep_latest_item": false
+    }
+  }
+}
+```
+
+The UID must be a positive numeric value read from the user's explicit
+`https://space.bilibili.com/<uid>` input. Never call Apify for Bilibili and
+never ask for or submit an RSSHub URL, raw route path, Cookie, ACCESS_KEY, or
+credential. The administrator-owned RSSHub Base URL is outside the MCP
+contract. Existing Bilibili sources expose only a semantic `public_target`
+with `site`, `route_key`, and `params`.
 
 `get_item.presentation.content` keeps the compatibility fields and adds
 `body_offset`, `body_end`, `body_total_chars`, `body_has_more`, and

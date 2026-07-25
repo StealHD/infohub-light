@@ -23,7 +23,7 @@
 2. `normalized_url`: 内容去重使用的 URL 归一化键；legacy SQLite archive/Graph 可继续兼容读取。
 3. `source_ref`: 单源刷新使用的引用，如 `rss:0`、`github:1`、`apify_social:0`、`hackernews`。
 4. `article_id`: Feed item state 的稳定文章键，等同 `ContentItem.id`；legacy archive/Graph 沿用同一键。
-5. `source_catalog.source_key`: catalog source 的幂等身份键，由 `src/services/source_type_registry.py` 生成，例如 `rss:https://example.com/feed.xml`、`github_release:owner/repo`、`reddit_subreddit:localllama`。
+5. `source_catalog.source_key`: catalog source 的幂等身份键，由 `src/services/source_type_registry.py` 生成，例如 `rss:https://example.com/feed.xml`、`rss:rsshub:bilibili:user_video:39627524`、`github_release:owner/repo`、`reddit_subreddit:localllama`。受控 RSSHub 来源的 key 不包含当前服务 Base URL，因此切换自建/第三方实例不改变订阅身份。
 
 要求：
 
@@ -88,6 +88,7 @@ capability / degrade：
 3. Hub channel 应写入 `channel`；Telegram 的平台频道名继续使用 `channel`，Hub 频道使用 `hub_channel` 或兼容 `category`。
 4. legacy CLI 的 `apify_social.subscriptions[].token_env` 可为单条 Apify 订阅指定 key 环境变量名；为空时使用全局 `sources.apify_social.token_envs` 轮换。该兼容规则不进入启用工作区池后的 Service API/Worker 路径。
 5. `set_tags` 优先接受 `payload.topics` 数组，同时兼容旧 `tags` 换行/逗号字符串；值会 trim、去空并按大小写无关去重，每项最多 40 字、总数最多 100。显式空数组表示清空主题库，不得恢复内置默认主题。
+6. `set_rsshub` 只接受 `payload.base_url`，保存为 HTTP(S) origin；禁止 userinfo、path、query、fragment。该地址可指向工作区自建或第三方 RSSHub，但不进入 catalog source config、MCP guide/preview、Job result 或 Feed。
 6. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
 
 响应规则：
@@ -121,7 +122,7 @@ capability / degrade：
 12B. `GET /api/media/{asset_id}` 登录后读取 Worker 已缓存的同源图片或头像。内容图片只允许所属用户读取；workspace/public 来源头像允许同 workspace 用户读取；private 来源头像只允许 owner 读取；越权和不存在统一返回 404。Feed、收藏和详情响应不得暴露上游临时媒体 URL，所有可展示图片 URL 必须是 `/api/media/*`。内容图片的稳定身份为 `workspace + user + article + asset_kind + checksum`；同内容的 CDN 域名或查询签名变化只更新远端线索并复用既有 ready asset，不得写重复本地文件。
 13. `GET /api/me/item-state`, `PATCH /api/me/items/{article_id}/state`：当前产品使用的已读、收藏、稍后读和忽略状态接口。`POST /api/me/items/{article_id}/feedback` 与 feedback 表只为既有调用方兼容保留，默认 UI 不调用。
 14. `GET /api/archive/items`, `GET /api/archive/trends`, `GET /api/archive/facets`, `GET /api/archive/source-quality` 是 compatibility-only archive analytics；默认阅读 UI 和订阅 UI 均不调用，接口存在不等于当前产品能力或路线承诺。`GET /api/archive/graph` 同为兼容路由，但固定返回 disabled 安全空响应。
-15. `GET /api/config`, `POST /api/config/action`：配置页兼容 facade。读取时返回旧配置页可消费的 `config/env_status`，并附加 `taxonomy{channels,topics}`；source 列表由 `source_catalog + user_subscriptions` 合成，非 source 全局配置仍写 `data/config.json`。`set_tags` 的精确数组/空数组/兼容字符串语义见上文。
+15. `GET /api/config`, `POST /api/config/action`：配置页兼容 facade。读取时返回旧配置页可消费的 `config/env_status`，并附加 `taxonomy{channels,topics}`；source 列表由 `source_catalog + user_subscriptions` 合成，非 source 全局配置仍写 `data/config.json`。`set_tags` 的精确数组/空数组/兼容字符串语义及 `set_rsshub` 的 origin-only 语义见上文。
 16. `POST /api/source/test`, `POST /api/source/update`：配置页兼容 facade。只创建 `source_test/source_fetch` job，不在 Web 请求内同步抓取。
 17. `scripts/service_api_smoke.py`：运行中核心 API smoke，不访问外网源，不执行抓取，只验证登录、读 API、管理员 `/api/users` 读取、可选 private source/job/item-state 和 `member-ui-smoke` 写路径。
 18. `GET /api/health/live`：表达 API 进程存活，并返回 `status/version/revision/built_at` 以识别不可变镜像；`GET /api/health/ready`：依次检查数据库、Feed v2 migration、user content v4 migration、数据库内至少一个 enabled user 和可选 Worker readiness，未就绪返回 503 的统一 error envelope。fresh DB 没有可登录用户时返回 `auth_not_configured`，action 要求设置 `HORIZON_AUTH_PASSWORD` 或 `HORIZON_AUTH_PASSWORD_HASH` 后重启；一旦数据库已有 enabled user，后续 readiness 不再依赖 bootstrap 密码环境变量。
@@ -171,7 +172,7 @@ capability / degrade：
 3. 工具清单精确为 15 个：11 个安全读工具 `get_my_feed`、`get_item`、`list_subscriptions`、`source_health`、`list_jobs`、`get_job`、`get_source_setup_guide`、`list_available_sources`、`diagnose_source`、`diagnose_job`、`query_operation_logs`；三个 prepare `prepare_create_subscription`、`prepare_update_subscription`、`prepare_delete_subscription`；唯一 apply `apply_subscription_change`。安全读工具标记 read-only、non-destructive、idempotent、closed-world；prepare 标记非只读、non-destructive、非幂等、closed-world；apply 标记非只读、destructive、非幂等、closed-world。工具结果直接返回 structured content，不包装 REST `{ok,data}`。
    OpenClaw read connection 的客户端 `toolFilter` 精确包含上述 11 个读、引导/发现与诊断工具；subscription-write connection 才额外包含三个 prepare 与一个 apply。该过滤只控制客户端可见性，不改变服务端 scope 与逐调用鉴权。
 4. 所有输入拒绝未声明字段与身份字段 `user_id/workspace`，以及任意 URL、SQL、文件路径或密钥。ID 最长 128；确认短语 1..160；Feed/Job 列表 `limit` 默认 20、最大 50；`get_my_feed` 的 `offset` 最大 10,000；`get_item.body_offset` 为 0..20,000，`max_body_chars` 默认 4000、范围 1..8000。`query_operation_logs` 的 `lookback_hours` 默认 24、范围 `1..720`，`limit` 默认 50、最大 100，可选 category、outcome、`minimum_level=info|warning|error` 以及 Job/source/subscription/request ID，单次最多扫描 20,000 行。详情保持原字段兼容并增加 `body_offset/body_end/body_total_chars/body_has_more/next_body_offset`；`body_truncated=true` 在最后一段仍成立时表示采集阶段已经截断，客户端不得声称已读取完整网页。来源类型、创建/更新字段、计划周期、priority 及 scope 均由严格 Pydantic 模型和 registry/共享 mutation service 校验。`get_my_feed` 只接受 `latest/history/saved/later`；列表不返回完整正文、媒体、原始 metadata 或 legacy reason。跨用户 ID 与不存在 ID 统一 `not_found`。
-5. `get_source_setup_guide` 仅返回八类公开来源的 registry 指导和 Web/密钥前置条件；`list_available_sources` 只返回当前用户可见、启用来源的安全摘要、`secret_configured` 布尔值与经过投影的 `public_target`。公网 RSS 可返回完整公开 feed URL；含凭证、私网、loopback 或无法安全分类的目标统一返回 `web_setup_required`。它们不返回原始 source config、`secret_env`、其他用户身份或任何密钥。普通 subscription/job/health 投影继续排除 `personal_tags`、source config、secret ref、workspace/user、worker、claim/lock、payload 和原始 result。
+5. `get_source_setup_guide` 仅返回九类公开来源的 registry 指导和 Web/密钥前置条件；新增公开类型 `bilibili` 映射到 catalog `rss`，且 private create 的 config 精确为 `{"site":"bilibili","route_key":"user_video","params":{"uid":"<positive numeric UID>"}}`，可选 `keep_latest_item`。OpenClaw 不得提供 RSSHub URL、任意 route path、Cookie、ACCESS_KEY 或其他凭据。`list_available_sources` 只返回当前用户可见、启用来源的安全摘要、`secret_configured` 布尔值与经过投影的 `public_target`；受控 Bilibili target 精确为 `site/route_key/params` 且不含 Base URL。公网 direct RSS 可返回完整公开 feed URL；含凭证、私网、loopback 或无法安全分类的 direct target 统一返回 `web_setup_required`。它们不返回原始 source config、`secret_env`、其他用户身份或任何密钥。普通 subscription/job/health 投影继续排除 `personal_tags`、source config、secret ref、workspace/user、worker、claim/lock、payload 和原始 result。
 6. 每项订阅变更固定为 `prepare → preview → exact confirmation → apply`：prepare 只写一条密封 proposal 与安全 preview，不修改业务订阅；apply 是唯一业务写入入口。proposal 绑定同一 delegation/user/workspace，10 分钟到期、每 delegation 最多 10 个 pending，确认短语只保存 hash。apply 在 `BEGIN IMMEDIATE` 内重新检查开关、scope、实时角色、所有权、可见性、配额、source key 和目标指纹；成功一次后为 `proposal_consumed`，过期为 `proposal_expired`，目标变化为 `proposal_stale`，确认不匹配为 `confirmation_mismatch`，任一失败不得部分写入或消费 proposal。删除必须显式 `source_disposition=keep|disable_private`；后者只限调用者拥有的 private source。
 7. `diagnose_source(subscription_id)` 与 `diagnose_job(job_id)` 只读取当前用户范围内脱敏、持久化的 Health/Schedule/Job 证据，返回固定 `target/status/cause/evidence/suggested_actions/related_job_id` shape。cause 分类仅为 `auth_missing`、`rate_limited`、`network_timeout`、`upstream_rejected`、`invalid_source_config`、`source_disabled`、`subscription_disabled`、`schedule_blocked`、`worker_unavailable`、`no_items`、`unknown`；无充分证据必须返回 `unknown`，诊断不修复、重试或取消任务。
 7A. `query_operation_logs` 只读取系统管理的 schema-v1 operation JSONL，按时间倒序返回当前 delegation workspace 内、actor 或 subject 为当前用户的白名单事件；`owner/admin` 也没有跨用户例外。结果精确包含 `availability=available|empty|unavailable`、`window`、`events`、`returned` 与 `truncated`；事件可含时间、event/request/Job/source/subscription ID、服务、级别、类别、动作、结果、错误码、耗时、变更字段名和计数，不得含 workspace/user、文件名、路径、原始 message、stack、文章 ID/正文、URL、config/payload、环境变量名或凭据。损坏/未完成行安全跳过，目录不可安全读取时稳定返回 `unavailable`；跨用户对象 ID 过滤返回空结果，不形成存在性侧信道。
@@ -304,6 +305,7 @@ Source catalog 规则：
 
 1. `src/services/source_type_registry.py` 是 catalog source type、config 校验、`source_key` 和 Worker payload 的统一合同入口。
 2. 当前 registry 支持 `rss`、`github_release`、`github_user`、`reddit_subreddit`、`reddit_user`、`telegram_channel`、`apify_social`、`hackernews`。
+2A. RSSHub 是 workspace runtime service，不是第九种 catalog type。受控 Bilibili row 继续保存为 `type=rss`，config 只允许 `provider=rsshub/site=bilibili/route_key=user_video/params.uid` 加既有安全 RSS 展示/保留字段；catalog URL 固定投影为公开 Bilibili profile，Worker 才用当前 `rsshub.base_url` 解析 `/bilibili/user/video/<uid>/1`。受控请求禁用 redirect，且不经过 member 任意 URL 的公网 egress 路径。
 3. `source_key` 在同一 workspace 内唯一；导入旧配置和重复写入必须按 `source_key` 更新兼容的已有 source，而不是重复创建。旧配置导入碰到另一用户 private source 必须跳过并记录 `source_key_conflict`，不得覆盖其 metadata/config/secret_env。
 4. Telegram 源身份字段使用 config 内的 `channel`；Hub 分类频道使用 `hub_channel` 或兼容 `category`，不得混淆。
 5. 无效 source config 返回 `invalid_source_config`；疑似真实密钥返回 `invalid_secret_env`。

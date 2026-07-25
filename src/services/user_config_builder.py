@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from ..models import Config
+from ..rsshub import is_managed_rsshub_config
 from ..storage.service_store import ServiceStore
 from ..tag_policy import normalize_channel, normalize_tags
 
@@ -79,12 +80,15 @@ def _entry_with_overrides(record: dict[str, Any]) -> dict[str, Any]:
 def _record_with_network_policy(store: ServiceStore, record: dict[str, Any]) -> dict[str, Any]:
     prepared = dict(record)
     if prepared.get("type") == "rss":
-        owner = store.get_user(str(prepared.get("owner_user_id") or ""))
-        prepared["enforce_public_network"] = bool(
-            prepared.get("enforce_public_network")
-        ) or not (
-            owner and owner.get("role") in {"owner", "admin"}
-        )
+        if is_managed_rsshub_config(prepared.get("config")):
+            prepared["enforce_public_network"] = False
+        else:
+            owner = store.get_user(str(prepared.get("owner_user_id") or ""))
+            prepared["enforce_public_network"] = bool(
+                prepared.get("enforce_public_network")
+            ) or not (
+                owner and owner.get("role") in {"owner", "admin"}
+            )
     if prepared.get("type") == "apify_social":
         config = deepcopy(prepared.get("config") or {})
         if config.get("platform") == "instagram" and config.get("kind") == "profile":

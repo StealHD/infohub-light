@@ -323,6 +323,34 @@ def test_trusted_rss_keeps_private_network_compatibility() -> None:
     )
 
 
+def test_managed_rsshub_route_disables_redirect_following() -> None:
+    response = MagicMock(status_code=200, headers={})
+    response.text = "<rss version='2.0'><channel></channel></rss>"
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+    source = RSSSourceConfig(
+        name="Bilibili",
+        url="http://rsshub:1200/bilibili/user/video/39627524/1",
+        provider="rsshub",
+        site="bilibili",
+        route_key="user_video",
+        params={"uid": "39627524"},
+        source_key="rss:rsshub:bilibili:user_video:39627524",
+        enforce_public_network=False,
+    )
+
+    result = asyncio.run(
+        RSSScraper([source], client).fetch(datetime.now(timezone.utc))
+    )
+
+    assert result == []
+    client.get.assert_awaited_once_with(
+        "http://rsshub:1200/bilibili/user/video/39627524/1",
+        follow_redirects=False,
+    )
+
+
 def test_member_controlled_rss_validates_every_redirect_target() -> None:
     calls = []
 

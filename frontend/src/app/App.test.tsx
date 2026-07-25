@@ -1026,6 +1026,8 @@ describe('App routes', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
     expect(screen.getByRole('heading', { name: '密钥' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: '账户与成员' })).toHaveAttribute('href', '/users')

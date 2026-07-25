@@ -2908,3 +2908,10 @@
 - 执行验证：11 项跨用户标题/旧数据降级/故障注入测试通过；`test_gate full` 22/22、0 failed/error、139.67 秒，但仍统计 956 条未关闭 SQLite 连接告警；最小复现确认 Telegram identity/taxonomy 混用
 - 结果：未提交候选已修复 donor 个性化投影与 AI 标题复用 P0、提交前删文件 P1；SQLite 生命周期、提交后孤儿文件治理与 Telegram 投影回归未收口，且分支 HEAD 仍与 `origin/main` 同为 `5b8c8ec`
 - 安全边界：未提交、推送、部署或触发真实来源、AI、Worker、scheduler、通知及付费调用
+
+### 2026-07-25 Codex
+- 任务：评估 `vps-tokyo` 承载私有 RSSHub 的容量及跨网站订阅扩展差异
+- 修改范围：仅追加本工作日志；未修改产品代码、配置或运行环境
+- 执行验证：只读核对 VPS 的 2 vCPU、1.6 GiB 内存、2 GiB Swap、19 GiB 可用磁盘及现有容器占用，并对照 RSSHub 官方 Compose 与 Bilibili 路由实现
+- 结果：当前容量适合少量低频公开路由的单容器试点；扩站公共层可复用，主要增量来自路由参数、鉴权、反爬和输出质量
+- 安全边界：未创建分支、部署容器、清理 Docker、抓取真实来源或修改 VPS

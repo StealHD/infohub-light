@@ -668,6 +668,7 @@ export function HeroSettingsPage() {
   }
   const aiDraft = aiOverride ?? configuredAiDraft
   const filtering = recordOf(config.data?.config.filtering)
+  const rsshub = recordOf(config.data?.config.rsshub)
 
   function clearSecretFieldError(field: SecretField) {
     setSecretFieldErrors((current) => {
@@ -784,6 +785,15 @@ export function HeroSettingsPage() {
     } })
   }
 
+  function saveRsshub(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    configMutation.mutate({
+      action: 'set_rsshub',
+      payload: { base_url: inputValue(data, 'base_url') },
+    })
+  }
+
   const ready = settingsDataReady({ admin, configLoaded: config.isSuccess, secretsLoaded: secrets.isSuccess })
   if (!ready) return <PageFrame width="admin" className="p-5">{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <LoadingState label="正在读取设置" rows={1} />}</PageFrame>
 
@@ -846,6 +856,16 @@ export function HeroSettingsPage() {
 
     {admin && <>
       <AdminSection title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">
+        <div className="grid gap-3 border-b border-separator pb-5">
+          <div>
+            <h3 className="type-control">RSSHub 服务</h3>
+            <p className="type-caption mt-1 text-foreground-muted">Bilibili 等受控路由统一使用此 Base URL。可填写自建或第三方 RSSHub；OpenClaw 只提交站点、路由和参数，不接收该地址。</p>
+          </div>
+          <form className="grid gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end" onSubmit={saveRsshub}>
+            <FormField name="base_url" label="RSSHub Base URL" type="url" defaultValue={String(rsshub.base_url ?? 'http://rsshub:1200')} />
+            <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_rsshub')}>{feedback.isPending('config-save', 'set_rsshub') ? '保存中…' : '保存 RSSHub 地址'}</Button>
+          </form>
+        </div>
         <form className="grid gap-4" onSubmit={saveFiltering}><div className="grid gap-4 min-[720px]:grid-cols-2"><FormField name="time_window_hours" label="抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} /><FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} /></div><Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button></form>
         <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
       </AdminSection>

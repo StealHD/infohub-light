@@ -322,6 +322,49 @@ def test_available_sources_are_current_user_scoped_and_secret_safe(context):
     assert "OTHER_TOKEN" not in serialized
 
 
+def test_available_bilibili_source_exposes_only_semantic_target(context):
+    source = _source(
+        context,
+        name="食贫道",
+        config={
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524"},
+            "url": "https://space.bilibili.com/39627524",
+            "name": "食贫道",
+            "enabled": True,
+            "keep_latest_item": False,
+        },
+    )
+
+    result = context["service"].list_available_sources(
+        actor=_read_actor(context),
+        source_type="bilibili",
+        unsubscribed_only=False,
+    )
+
+    assert result["items"] == [
+        {
+            "id": source["id"],
+            "name": "食贫道",
+            "type": "bilibili",
+            "scope": "workspace",
+            "enabled": True,
+            "default_channel": None,
+            "default_topics": [],
+            "public_target": {
+                "site": "bilibili",
+                "route_key": "user_video",
+                "params": {"uid": "39627524"},
+            },
+            "secret_configured": False,
+            "subscribed": False,
+        }
+    ]
+    assert "rsshub" not in repr(result).lower()
+
+
 def test_available_source_public_target_hides_unsafe_rss_urls(context):
     unsafe = _source(
         context,
