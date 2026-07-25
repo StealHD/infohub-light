@@ -2948,3 +2948,11 @@
 - 执行验证：原始 dashboard session 两轮消息均被 `INTELISCOPE_HANDOFF_V4` 追加“不得执行任何写操作”；审计只有 list/guide/search 调用，prepare/apply 为 0；当前 delegation 为 active `subscriptions_write`、VPS 写开关为 true、OpenClaw 写工具过滤完整
 - 结果：根因锁定为 `frontend/src/features/workbench-live/agentContext.ts` 无条件生成只读交接提示词，不是 MCP 权限、Skill、RSSHub 或 VPS 故障
 - 控制面变更：无；仅记录只读诊断，未修改产品代码、连接、订阅、proposal、VPS 或运行任务
+
+### 2026-07-26 02:39 Codex
+- 任务：修复浏览器 OpenClaw 把无附件订阅请求错误限制为只读，并发布到 `vps-tokyo`
+- 修改范围：Gateway handoff 升级为 V5，按附件存在性拆分 `direct/context_readonly`；同步 API/UI 合同、D072、PLAN、操作手册、更新日志及前端/浏览器回归
+- 执行验证：先以 RED 用例复现；修复后核心发送测试 28/28、相关前端 50/50、TypeScript、Lint（0 error）、产品文档门禁通过；`test_gate full` 22/22（119.953 秒）、release 24/24（283.625 秒）
+- 结果：本地 AMD64 镜像 revision `c05e246544e4` 已上传并由 VPS `docker load`；API/Worker/RSSHub healthy、0 restart，公网 V5 bundle、401/403 边界、数据库 integrity/foreign keys 与 3/6/9 用户/来源/订阅计数通过；真实 OpenClaw 同 payload 自行解析 UID `39627524` 并调用 prepare 返回未应用 preview，未调用 apply，来源/订阅与 active Job 均未变化
+- 发布/回退：当前 release 为 `/opt/inteliscope/releases/v1.7.4-c05e246544e4`；切换前 `0600` 数据库与环境备份位于 `/opt/inteliscope/backups/pre-v1.7.4-c05e246544e4-20260725T182833Z`，旧 `v1.7.4-8de9ab4a8ca7` release/image 保留
+- 安全边界：未代用户回复确认短语；验收 proposal 保持 pending 并按 10 分钟合同自动到期，未触发来源抓取、scheduler、AI 分析、邮件、Webhook 或付费服务

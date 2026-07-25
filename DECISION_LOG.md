@@ -614,7 +614,7 @@
 ### D072 Browser OpenClaw 按附件存在性拆分直接请求与只读交接
 
 - 决策日期：2026-07-26
-- 当前状态：本地实现、定向回归及 full/release 门禁完成，待 VPS 验收
+- 当前状态：本地实现、定向回归、full/release 门禁、VPS 发布与真实 OpenClaw preview 验收完成
 - 决策内容：Gateway handoff 升级为 V5，并把浏览器提交明确拆为两种模式。有一条或更多 Feed/任务记录时使用 `context_readonly`，继续按 D063 只读分析；没有记录且问题非空时使用 `direct`，保留用户直接提出的请求，允许既有订阅 Skill 执行 `prepare → preview → 准确确认 → apply`。普通 direct 请求只可 prepare；只有下一条问题与当前 proposal 返回的准确确认短语完全一致时才可 apply。
 - 原因：V4 无条件追加“不得执行任何写操作”，导致用户已在浏览器明确要求创建订阅、甚至已另行回复准确确认短语时，OpenClaw 仍被前端提示词要求拒绝所有写工具。MCP delegation、写开关和 proposal 均正常，因此根因是浏览器把直接请求错误当成文章/任务交接，而不是服务端授权不足。
 - 安全/兼容：direct 提示词不得代用户生成、改写或回答确认短语，也不得绕过 delegation scope、实时角色、写开关、proposal 到期/指纹与事务复查；有附件的正文和任务证据仍不可触发写入。可见历史继续投影 V4、V3 与旧无版本 handoff。回退 V5 前端即可恢复旧只读行为，不涉及 API schema、数据库、RSSHub、Worker、来源抓取或 OpenClaw 全局配置。

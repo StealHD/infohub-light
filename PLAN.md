@@ -6,7 +6,7 @@
 
 <!-- init-pro:section name=phase -->
 ## 2. 当前阶段状态
-结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取、Feed storage v3 writer 与工作区 Apify Key 池的 rollout flag 继续默认关闭。Apify Key 池的 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；正式启用仍需停 Worker、核对未登记远端 Run、备份数据库并执行一次有上限 canary。`vps-tokyo` 已运行 revision `215aab17c37e` 的 API + Worker，并通过内部网络复用同机 RSSHub；legacy scheduler 仍未启动。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
+结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取、Feed storage v3 writer 与工作区 Apify Key 池的 rollout flag 继续默认关闭。Apify Key 池的 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；正式启用仍需停 Worker、核对未登记远端 Run、备份数据库并执行一次有上限 canary。`vps-tokyo` 已运行 revision `c05e246544e4` 的 API + Worker，并通过内部网络复用同机 RSSHub；legacy scheduler 仍未启动。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
 
 前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。设置页密钥管理已把 Apify Key 收敛为唯一的主用/备用池，提供安全额度投影、状态、排空和可访问排序；来源编辑器在池模式下不再展示来源级 Key 选择。该能力不改变上述运行、发布或数据授权状态。
 
@@ -84,7 +84,7 @@
 67. 私有结构化诊断日志：API、Worker、legacy Scheduler 与 CLI 按服务写 runtime/operation JSONL，UTC 每日轮转、默认保留 30 天并固定私有权限；API mutation、MCP、Job、获取与通知关键状态以 request/Job/source/subscription ID 串联，成功只在提交后写入。OpenClaw 只通过第 11 个安全读工具读取当前用户脱敏事件，前端不展示日志；精确边界见 `docs/dev/observability-logging.md`、`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md` 和 D065。
 68. 单 VPS RSSHub 与 Bilibili 受控订阅：官方固定摘要 `chromium-bundled` 只在 `vps-tokyo` 运行，本地经 HTTPS 鉴权前缀、VPS 经容器 DNS 共用；Owner/Admin 可切换自建或第三方 Base URL，catalog 使用与服务地址无关的语义 key，OpenClaw 只提交 allowlisted Bilibili UID。两条本地既有来源已原位迁移并保留订阅/周期；公网 403/route code、原始端口隔离、API/Worker/RSSHub 健康及本地构建上传发布已验收。本地初始化会对账并刷新旧 OpenClaw Skill；按名称自行解析 UID 的最终验收见第 69 项。Bilibili 对连续冷请求仍可能返回 `-352`，不以匿名 Cookie 承诺上游持续可用。
 69. Bilibili 名称解析与 OpenClaw 验收：Remote MCP 以固定官方端点和匿名内存 Cookie 提供最多五个公开账号候选，唯一精确同名才解析 UID；VPS revision `8de9ab4a8ca7` 已将“食贫道”解析为 `39627524`，自建 RSSHub 返回 30 条 XML 内容。全新 OpenClaw 会话无需 Chrome、远程调试或人工 UID 即生成 create preview，并在用户未回复准确确认短语时保持 catalog/source/subscription 零写入。
-70. Browser OpenClaw 直接订阅修复：V5 handoff 以是否附带记录区分 `context_readonly` 与 `direct`；文章/任务交接继续禁止写入，无附件的用户原话可进入既有 `prepare → preview → 准确确认 → apply` 订阅流程，浏览器不得代答确认短语，MCP scope、实时角色、写开关和 proposal 事务边界不变。精确合同见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D072。
+70. Browser OpenClaw 直接订阅修复：V5 handoff 以是否附带记录区分 `context_readonly` 与 `direct`；文章/任务交接继续禁止写入，无附件的用户原话可进入既有 `prepare → preview → 准确确认 → apply` 订阅流程，浏览器不得代答确认短语，MCP scope、实时角色、写开关和 proposal 事务边界不变。revision `c05e246544e4` 已部署 VPS；真实同 payload 新会话自行解析“食贫道”并生成未应用 preview，来源/订阅计数保持不变。精确合同见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D072。
 
 当前仍需推进：
 
