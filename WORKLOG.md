@@ -2935,3 +2935,10 @@
 - 修改范围：覆盖安装当前 bundled Skill、重启本机 Gateway；本地初始化新增 managed Skill 内容对账、漂移 `--force` 刷新与必要时重启，并同步架构/决策、操作手册、更新日志和测试
 - 执行验证：Skill/安装器定向测试 25/25；安装目录与 bundled 内容一致，Gateway RPC 正常；全新只读会话只追问“食贫道”的数字 UID，VPS 操作事件只有 `list_available_sources`，无 prepare/apply 写调用
 - 回退：旧 Skill 的 `0600` 备份为 `/Users/stealmac/.openclaw/backups/inteliscope-skill-pre-bilibili-20260725T115732Z.tar.gz`；现有旧对话可能保留旧指令，需新建对话
+
+### 2026-07-25 22:18 Codex
+- 任务：让 OpenClaw 按 Bilibili 账号名称自行解析 UID，并完成 VPS RSSHub、真实 MCP 与新会话验收
+- 修改范围：新增固定 Bilibili 公开账号查询服务和 Remote MCP 工具，更新 Skill/工具白名单/受控订阅流程、产品文档、D071/PLAN、影响映射与回归；补充禁止 B站订阅误走 Chrome、浏览器或 shell 的强触发规则
+- 执行验证：名称解析与 Skill 定向测试通过；`test_gate full` 22/22、121.427 秒，最终 `mapping_miss=false`；此前同 revision release gate 24/24；VPS 将“食贫道”唯一解析为 UID `39627524`，自建 RSSHub 返回 200、XML 与 30 条内容
+- 结果：VPS 当前 revision `8de9ab4a8ca7`，API/Worker/RSSHub healthy 且 0 restart；全新 OpenClaw 会话生成 create preview，不再索要 UID 或要求浏览器调试
+- 安全边界：诊断中被 CLI 回显的旧 MCP 凭据已撤销并静默轮换，新连接与 `search_bilibili_users` probe 正常；用户未回复准确确认短语，因此仅有一条 pending proposal，catalog/source/subscription 零写入、active job 为 0

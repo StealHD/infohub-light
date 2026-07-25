@@ -27,7 +27,7 @@ export const changelogMonths: ChangelogMonth[] = [
         summary: 'VPS 运行一套带访问控制的 RSSHub，本地与 VPS 项目可复用，并可在设置中切换到第三方实例。',
         items: [
           { title: '服务地址可切换', description: 'Owner/Admin 可在设置页维护 RSSHub Base URL；来源身份与服务地址分离，切换自建或第三方实例无需重建订阅。' },
-          { title: 'OpenClaw 自行解析账号', description: '直接提供 Bilibili 账号名称即可查询公开候选；唯一精确同名会解析为 UID 并进入订阅预览，同名多候选必须由用户选择，不再默认要求手工查 UID。' },
+          { title: 'OpenClaw 自行解析账号', description: '直接提供 Bilibili 账号名称即可通过 Inteliscope MCP 查询公开候选，无需启用 Chrome 或浏览器远程调试；唯一精确同名会解析为 UID 并进入订阅预览，同名多候选必须由用户选择，不再默认要求手工查 UID。' },
           { title: '查询数据严格收口', description: '名称查询只返回最多 5 个名称、UID、官方主页和精确匹配标记，不接收账号 Cookie，也不返回签名、粉丝数、视频数或上游正文。' },
           { title: 'Skill 自动刷新', description: '重新运行本地 OpenClaw 初始化会比较已安装 Skill 与仓库版本；发现旧版时覆盖更新并重启 Gateway，新会话不会继续沿用“手填 RSSHub URL”的旧规则。' },
           { title: '鉴权公网复用', description: 'RSSHub 容器只绑定 VPS loopback，由现有 Nginx 提供 HTTPS；本地直接访问公网入口，来源测试与 Worker 抓取使用路由级 code，主密钥不进入结果、日志或 OpenClaw。' },

@@ -1,6 +1,6 @@
 ---
 name: inteliscope
-description: Use when the user asks OpenClaw to read or diagnose Inteliscope activity, subscriptions, sources, schedules, Feed items, or jobs, or to add, change, or remove subscriptions.
+description: Use for Inteliscope and RSS subscription requests, especially Chinese requests such as “订阅/关注 B站、Bilibili UP主或账号”; resolve Bilibili names and UIDs with Inteliscope MCP search_bilibili_users, never Chrome, browser search, or shell.
 metadata:
   openclaw:
     requires:
@@ -11,6 +11,18 @@ metadata:
 # Inteliscope
 
 Use the configured Inteliscope MCP connection only for its current caller. Read [references/tool-contract.md](references/tool-contract.md) before an unfamiliar call and [references/workflows.md](references/workflows.md) for the exact source and change workflows.
+
+## Mandatory subscription routing
+
+1. A request containing `订阅`, `关注`, or `添加` together with `B站`,
+   `Bilibili`, `UP主`, or `UP 主` must use this Skill even when the user does
+   not say “Inteliscope”.
+2. For that request, never invoke Chrome, a browser/browser-control tool, web
+   search, Bash, or shell, and never ask the user to enable remote debugging.
+   Account-name resolution belongs exclusively to the configured Inteliscope
+   MCP tool `search_bilibili_users`.
+3. Do not ask for a Bilibili UID before calling `search_bilibili_users`. Ask
+   the user only when the bounded result is ambiguous or unavailable.
 
 ## Core routing
 

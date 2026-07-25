@@ -69,6 +69,10 @@ def test_openclaw_skill_has_required_files_frontmatter_and_mcp_dependency():
     frontmatter = skill.split("---", 2)[1]
     assert re.search(r"(?m)^name:\s+inteliscope\s*$", frontmatter)
     assert "mcp.servers.inteliscope" in frontmatter
+    assert all(
+        trigger in frontmatter
+        for trigger in ("订阅", "B站", "Bilibili", "UP主", "search_bilibili_users")
+    )
 
 
 def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_caller_scope_input():
@@ -216,3 +220,16 @@ def test_skill_uses_exact_create_envelopes_and_routes_bilibili_through_rsshub():
     assert "never Apify" in combined or "Never call Apify" in combined
     assert "never ask for or submit an RSSHub URL" in flattened
     assert "Cookie" in combined and "ACCESS_KEY" in combined
+
+
+def test_bilibili_name_subscription_never_routes_to_browser_or_shell():
+    skill = _text("SKILL.md")
+
+    assert "must use this Skill" in skill
+    assert "even when the user does" in skill
+    assert "not say “Inteliscope”" in skill
+    assert "never invoke Chrome" in skill
+    assert "browser/browser-control tool" in skill
+    assert "never ask the user to enable remote debugging" in skill
+    assert "Do not ask for a Bilibili UID before calling" in skill
+    assert "`search_bilibili_users`" in skill

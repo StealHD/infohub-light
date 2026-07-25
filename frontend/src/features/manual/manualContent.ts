@@ -108,7 +108,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '按名称订阅 B 站 UP 主',
-        description: '直接告诉 OpenClaw 公开账号名称；它会通过固定的 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选。唯一精确同名会直接用于订阅预览，不再要求你手工查 UID；同名或模糊结果必须先由你选择。候选只是公开不可信元数据，最终写入仍需核对预览并回复准确确认短语。',
+        description: '直接告诉 OpenClaw 公开账号名称；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会直接用于订阅预览，不再要求你手工查 UID；同名或模糊结果必须先由你选择。候选只是公开不可信元数据，最终写入仍需核对预览并回复准确确认短语。',
       },
       {
         title: '连接本地 Gateway',

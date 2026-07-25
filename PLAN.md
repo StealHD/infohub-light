@@ -82,7 +82,8 @@
 65. 偏好来源新内容通知：用户可在设置页选择邮箱或 write-only Webhook，并在订阅设置中逐源开启；schema v9 outbox 以双水位和不可回退双 generation 只消费启用后的严格新 article ID，首份 Feed、历史复用、旧发布时间、`personal_only` 和测试消息均不推进或补发内容通知。Worker 在 Feed/Health/Job 原子提交后发送，Webhook 通过 SecretStore 摘要一致性 fail closed，通知失败不改变抓取终态；精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D061。
 66. 工作区统一邮件发送服务：schema v10 与 Provider Registry 为 Owner/Admin 提供 QQ、网易、Gmail、Resend、Amazon SES 固定 SSL/465 预设；Service 邮件以该数据库配置和 SecretStore 摘要绑定为唯一真源，按“保存 → 测试 → 启用”门禁运行，轮换/停用时安全终结未开始 delivery，已发送结果未知者不重放。邮件服务暂停不清除用户 opt-in、不入队也不补发，Webhook 独立保持可用；`data/config.json.email` 只留给 legacy CLI。精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D062。
 67. 私有结构化诊断日志：API、Worker、legacy Scheduler 与 CLI 按服务写 runtime/operation JSONL，UTC 每日轮转、默认保留 30 天并固定私有权限；API mutation、MCP、Job、获取与通知关键状态以 request/Job/source/subscription ID 串联，成功只在提交后写入。OpenClaw 只通过第 11 个安全读工具读取当前用户脱敏事件，前端不展示日志；精确边界见 `docs/dev/observability-logging.md`、`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md` 和 D065。
-68. 单 VPS RSSHub 与 Bilibili 受控订阅：官方固定摘要 `chromium-bundled` 只在 `vps-tokyo` 运行，本地经 HTTPS 鉴权前缀、VPS 经容器 DNS 共用；Owner/Admin 可切换自建或第三方 Base URL，catalog 使用与服务地址无关的语义 key，OpenClaw 只提交 allowlisted Bilibili UID。两条本地既有来源已原位迁移并保留订阅/周期；公网 403/route code、原始端口隔离、API/Worker/RSSHub 健康及本地构建上传发布已验收。本地初始化会对账并刷新旧 OpenClaw Skill；此前新会话只验证了数字 UID 输入，尚不构成“按名称自行解析 UID”的最终验收。Bilibili 对连续冷请求仍可能返回 `-352`，不以匿名 Cookie 承诺上游持续可用。
+68. 单 VPS RSSHub 与 Bilibili 受控订阅：官方固定摘要 `chromium-bundled` 只在 `vps-tokyo` 运行，本地经 HTTPS 鉴权前缀、VPS 经容器 DNS 共用；Owner/Admin 可切换自建或第三方 Base URL，catalog 使用与服务地址无关的语义 key，OpenClaw 只提交 allowlisted Bilibili UID。两条本地既有来源已原位迁移并保留订阅/周期；公网 403/route code、原始端口隔离、API/Worker/RSSHub 健康及本地构建上传发布已验收。本地初始化会对账并刷新旧 OpenClaw Skill；按名称自行解析 UID 的最终验收见第 69 项。Bilibili 对连续冷请求仍可能返回 `-352`，不以匿名 Cookie 承诺上游持续可用。
+69. Bilibili 名称解析与 OpenClaw 验收：Remote MCP 以固定官方端点和匿名内存 Cookie 提供最多五个公开账号候选，唯一精确同名才解析 UID；VPS revision `8de9ab4a8ca7` 已将“食贫道”解析为 `39627524`，自建 RSSHub 返回 30 条 XML 内容。全新 OpenClaw 会话无需 Chrome、远程调试或人工 UID 即生成 create preview，并在用户未回复准确确认短语时保持 catalog/source/subscription 零写入。
 
 当前仍需推进：
 
@@ -90,7 +91,6 @@
 2. 只对非付费公共源打开 shared acquisition，观察两个自然周期的 cache hit/miss、upstream attempt、Feed 用户隔离和 Source Health；通过后再扩大范围。
 3. 付费来源只有在 operator 再次明确授权且上游 `maxItems=1` 时才可纳入共享获取 canary；本次实施没有进行任何付费真实调用。
 4. 正式开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前必须暂停 Worker，确认本地无 running Job，并在 Apify 控制台终止旧版本可能已启动但尚未登记的 Run；随后备份 Service 数据库，只执行一次有上限 canary。任何无法核对的启动结果都保持 blocked，不得直接启用备用 Key。
-5. 完成 D071 的完整门禁、VPS 发布和真实 OpenClaw 新会话验收；“食贫道”必须由名称查询唯一解析为 UID 后进入 prepare，不能再次要求用户手工提供 UID，也不能跳过准确确认直接 apply。
 5. X 已改用 Apify Secondary 和支持精确 `maxItems=1` 的 Actor；真实直连运行成功但本次返回 0 条。VPS Worker 按用户要求保持停止；只有再次明确授权后才允许启动，并只观察一个 30 分钟自然周期的任务、计费和 Feed 合并结果。
 6. 本地 AI 已预置 `deepseek-v4-flash`、`DEEPSEEK_API_KEY` 且保持 disabled；用户写入轮换 Key 后，只对一篇 captured article 运行一次省略 `temperature`、SDK/application retry 均关闭的 smoke，成功后才启用。既有 Gemini 安全分析可按同用户/同 input hash 复用，不得冒充 DeepSeek 结果或恢复 `reason`。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 连接仍失败，待网络出口可用时只做 1 条公开频道复验。
