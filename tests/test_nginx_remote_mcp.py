@@ -46,5 +46,16 @@ def test_rsshub_public_entry_keeps_container_private_and_requires_access_key():
     assert "proxy_set_header X-Forwarded-Prefix /rsshub;" in location
     assert '127.0.0.1:${INTELISCOPE_RSSHUB_PORT:-1200}:1200' in compose
     assert "ACCESS_KEY: ${RSSHUB_ACCESS_KEY:?" in compose
+    assert 'NO_RANDOM_UA: "true"' in compose
+    assert (
+        "CHROMIUM_EXECUTABLE_PATH: "
+        "/app/node_modules/.cache/ms-playwright/"
+        "chromium_headless_shell-1228/chrome-headless-shell-linux64/"
+        "chrome-headless-shell"
+    ) in compose
+    assert (
+        "BILIBILI_COOKIE_0: ${RSSHUB_BILIBILI_ANONYMOUS_COOKIE:?"
+        in compose
+    )
     assert "healthz?key=" in compose
     assert "0.0.0.0:1200" not in compose

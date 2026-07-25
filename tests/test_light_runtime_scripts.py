@@ -186,6 +186,24 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert "node --test" not in local_gates
 
 
+def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_store():
+    script = (
+        ROOT / "scripts" / "refresh_rsshub_bilibili_cookie.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "set -euo pipefail" in script
+    assert "browser.newContext({ userAgent })" in script
+    assert "https://space.bilibili.com/1/dynamic" in script
+    assert '["_uuid", "b_lsid", "b_nut", "buvid3", "buvid4", "buvid_fp"]' in script
+    assert 'SecretStore("/app/data").set(' in script
+    assert '"RSSHUB_BILIBILI_ANONYMOUS_COOKIE", value' in script
+    assert "--entrypoint /app/.venv/bin/python" in script
+    assert ".config/google-chrome" not in script
+    assert ".mozilla" not in script
+    assert "process.stdout.write" in script
+    assert "console.log" not in script
+
+
 def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     workflow = (ROOT / ".github" / "workflows" / "test-gate.yml").read_text(encoding="utf-8")
 

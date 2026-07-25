@@ -586,3 +586,11 @@
 - 决策内容：Inteliscope production image 必须从干净、revision-locked commit 在本机使用 Buildx 构建 `linux/amd64`，完成本地门禁/镜像身份检查后压缩上传，在 `vps-tokyo` 只执行校验与 `docker load`。VPS 禁止对本仓库执行 `docker compose build` 或 `docker build`；仅允许 pull RSSHub 等 pinned third-party runtime image。
 - 原因：2026-07-22 已因沿用旧脚本远端构建而纠偏为本地传包，但规则只留在 WORKLOG 且旧脚本未同步；2026-07-25 再次远端构建令 1.6 GiB VPS 出现整机资源争用。把发布地点提升为硬约束并让脚本符合规则，可避免执行者忽略历史记录后重复事故。
 - 安全/回退：构建位置变化不改业务镜像内容、数据库、Compose 服务或回滚模型。源码归档与镜像必须绑定同一 revision；VPS 保留旧 release/image，切换前仍执行 `0600` 数据/配置备份和 Worker-first rollback。
+
+### D069 RSSHub 的 Bilibili 匿名运行态由隔离浏览器刷新
+
+- 决策日期：2026-07-25
+- 当前状态：VPS 配置、SecretStore 写入、真实 UID 冷启动与公网验收完成
+- 决策内容：固定摘要的官方 `chromium-bundled` 镜像显式配置其实际容器内 `CHROMIUM_EXECUTABLE_PATH`，并使用 RSSHub 官方 `NO_RANDOM_UA=true`。Bilibili 公开路由所需 `_uuid`、`b_lsid`、`b_nut`、`buvid3`、`buvid4`、`buvid_fp` 只能由 `scripts/refresh_rsshub_bilibili_cookie.sh` 在无 profile、无账号的全新浏览器 context 中取得，经匿名管道写入 VPS SecretStore 的 `RSSHUB_BILIBILI_ANONYMOUS_COOKIE`，再映射为 RSSHub `BILIBILI_COOKIE_0`。
+- 原因：该固定镜像的 Patchright 默认查找 `/root/.cache`，但 Chromium 实际位于 `/app/node_modules/.cache`；默认随机浏览器 UA 被 Bilibili 返回 412，而只保存 `buvid3/b_nut` 会在连续 WBI 请求中更快触发 `-352`。显式浏览器路径、RSSHub FeedFetcher UA 和完整匿名参数使公开路由在 30 秒 Worker 预算内完成，同时不引入账号登录态。
+- 安全/回退：刷新脚本先以 `0600` 备份 SecretStore，不读取本机或用户浏览器 profile，不接受或输出账号 Cookie，真实值不进入 Git、配置、数据库、MCP、OpenClaw、Feed 或日志。失败时保留旧 SecretStore；可恢复备份、recreate RSSHub，或在 Settings 把 Base URL 切换到第三方实例。
