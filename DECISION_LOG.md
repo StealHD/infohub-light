@@ -573,7 +573,7 @@
 ### D067 RSSHub 采用单 VPS 鉴权服务与语义来源身份
 
 - 决策日期：2026-07-25
-- 当前状态：本地实现与定向、完整、release 门禁完成；VPS 部署和双环境真实抓取验收进行中
+- 当前状态：本地实现、双环境迁移、release 门禁、VPS 部署与鉴权边界验收完成；Bilibili 上游冷路由保留明确降级
 - 决策内容：只在 `vps-tokyo` 运行一套 `chromium-bundled` RSSHub。容器加入生产应用网络并把 1200 仅绑定 VPS loopback；VPS Inteliscope 使用 `http://rsshub:1200`，本地项目通过现有 Nginx HTTPS 前缀使用 `https://rb.jiefs.top/rsshub`，不使用 SSH tunnel。Owner/Admin 可在 Settings 修改 RSSHub Base URL，因此自建和第三方实例可互换，本地不运行第二套 RSSHub。
 - 来源与 Agent 合同：RSSHub 是 workspace runtime service，不是 catalog type。Bilibili UP 视频仍保存为 catalog `rss`，稳定身份为 `rss:rsshub:bilibili:user_video:<uid>`；OpenClaw 新增公开 `bilibili` 类型，只提交 allowlisted `site=bilibili`、`route_key=user_video`、正整数 `params.uid` 和可选 `keep_latest_item`。MCP guide、preview 与 discovery 不返回 Base URL，且不接受任意 RSSHub URL/path、Cookie、ACCESS_KEY 或凭据。
 - 安全/兼容：运行 URL 只由管理员 Base URL 与服务端 allowlist 拼接，允许安全反向代理 path prefix，受控抓取禁用 redirect。自建公网入口强制使用 SecretStore `RSSHUB_ACCESS_KEY`，Worker 只发送 `md5(route path + key)` 派生的 route-scoped code；主密钥不进入 URL、配置、catalog、MCP、OpenClaw、Feed 或日志。direct RSS 的公网 egress/管理员私网信任边界不变。迁移只精确识别 `/bilibili/user/video/<uid>[/1]`，先备份 config/SQLite，再原位更新 source config/key，保留 source、subscription 和 schedule ID。切换 Base URL 不改变来源 key 或订阅状态。
@@ -582,7 +582,7 @@
 ### D068 Inteliscope 生产镜像只允许本地跨架构构建
 
 - 决策日期：2026-07-25
-- 当前状态：控制规则与旧 RC 脚本已修正，定向校验通过；完整门禁与首次按新规则发布进行中
+- 当前状态：控制规则与旧 RC 脚本已修正；release 门禁及 revision `215aab17c37e` 首次本地 AMD64 构建、校验、上传和 VPS `docker load` 发布完成
 - 决策内容：Inteliscope production image 必须从干净、revision-locked commit 在本机使用 Buildx 构建 `linux/amd64`，完成本地门禁/镜像身份检查后压缩上传，在 `vps-tokyo` 只执行校验与 `docker load`。VPS 禁止对本仓库执行 `docker compose build` 或 `docker build`；仅允许 pull RSSHub 等 pinned third-party runtime image。
 - 原因：2026-07-22 已因沿用旧脚本远端构建而纠偏为本地传包，但规则只留在 WORKLOG 且旧脚本未同步；2026-07-25 再次远端构建令 1.6 GiB VPS 出现整机资源争用。把发布地点提升为硬约束并让脚本符合规则，可避免执行者忽略历史记录后重复事故。
 - 安全/回退：构建位置变化不改业务镜像内容、数据库、Compose 服务或回滚模型。源码归档与镜像必须绑定同一 revision；VPS 保留旧 release/image，切换前仍执行 `0600` 数据/配置备份和 Worker-first rollback。
@@ -590,7 +590,7 @@
 ### D069 RSSHub 的 Bilibili 匿名运行态由隔离浏览器刷新
 
 - 决策日期：2026-07-25
-- 当前状态：VPS 配置、SecretStore 写入、真实 UID 冷启动与公网验收完成
-- 决策内容：固定摘要的官方 `chromium-bundled` 镜像显式配置其实际容器内 `CHROMIUM_EXECUTABLE_PATH`，并使用 RSSHub 官方 `NO_RANDOM_UA=true`。Bilibili 公开路由所需 `_uuid`、`b_lsid`、`b_nut`、`buvid3`、`buvid4`、`buvid_fp` 只能由 `scripts/refresh_rsshub_bilibili_cookie.sh` 在无 profile、无账号的全新浏览器 context 中取得，经匿名管道写入 VPS SecretStore 的 `RSSHUB_BILIBILI_ANONYMOUS_COOKIE`，再映射为 RSSHub `BILIBILI_COOKIE_0`。
-- 原因：该固定镜像的 Patchright 默认查找 `/root/.cache`，但 Chromium 实际位于 `/app/node_modules/.cache`；默认随机浏览器 UA 被 Bilibili 返回 412，而只保存 `buvid3/b_nut` 会在连续 WBI 请求中更快触发 `-352`。显式浏览器路径、RSSHub FeedFetcher UA 和完整匿名参数使公开路由在 30 秒 Worker 预算内完成，同时不引入账号登录态。
+- 当前状态：VPS 配置、SecretStore 写入、真实 UID 单次成功与公网验收完成；连续不同冷请求仍可触发 Bilibili `-352` 并超时
+- 决策内容：固定摘要的官方 `chromium-bundled` 镜像显式配置其实际容器内 `CHROMIUM_EXECUTABLE_PATH`，并使用 RSSHub 官方 `NO_RANDOM_UA=true`。Bilibili 公开路由所需 `_uuid`、`b_lsid`、`b_nut`、`buvid3`、`buvid4`、`buvid_fp` 只能由 `scripts/refresh_rsshub_bilibili_cookie.sh` 在无 profile、无账号的全新浏览器 context 中访问公开首页与动态页取得，缺失的 `buvid3/buvid4` 可由公开 fingerprint SPI 补齐；结果经匿名管道写入 VPS SecretStore 的 `RSSHUB_BILIBILI_ANONYMOUS_COOKIE`，再映射为 RSSHub `BILIBILI_COOKIE_0`。
+- 原因：该固定镜像的 Patchright 默认查找 `/root/.cache`，但 Chromium 实际位于 `/app/node_modules/.cache`；默认随机浏览器 UA 被 Bilibili 返回 412，而不完整匿名参数会更早触发风险控制。显式浏览器路径、RSSHub FeedFetcher UA 和完整匿名参数曾让真实 UID 在约 6 秒内返回 30 条，但连续不同冷请求仍会被上游返回 `-352` 并进入浏览器 fallback 超时；这是可替换外部服务的可用性限制，不是匿名 Cookie 能消除的保证。
 - 安全/回退：刷新脚本先以 `0600` 备份 SecretStore，不读取本机或用户浏览器 profile，不接受或输出账号 Cookie，真实值不进入 Git、配置、数据库、MCP、OpenClaw、Feed 或日志。失败时保留旧 SecretStore；可恢复备份、recreate RSSHub，或在 Settings 把 Base URL 切换到第三方实例。

@@ -52,6 +52,11 @@ INTELISCOPE_DATA_DIR=/opt/inteliscope/data \
 `secrets.env`，使用 RSSHub 官方镜像内的全新临时浏览器 context，不读取
 任何浏览器 profile；完成后需 recreate RSSHub 容器让新值生效。
 
+该匿名运行态只提高公开路由的可用性，不绕过 Bilibili 风控，也不保证每次
+冷请求成功。连续测试不同 UID 可能返回 `-352` 并进入 Chromium fallback
+超时；出现后应停止高频探测，等待上游窗口恢复，或在设置中临时切换第三方
+RSSHub。不要通过复制账号 Cookie 或增加无界重试来处理。
+
 ```bash
 docker compose \
   --env-file data/secrets.env \

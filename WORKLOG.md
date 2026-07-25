@@ -2915,3 +2915,11 @@
 - 执行验证：只读核对 VPS 的 2 vCPU、1.6 GiB 内存、2 GiB Swap、19 GiB 可用磁盘及现有容器占用，并对照 RSSHub 官方 Compose 与 Bilibili 路由实现
 - 结果：当前容量适合少量低频公开路由的单容器试点；扩站公共层可复用，主要增量来自路由参数、鉴权、反爬和输出质量
 - 安全边界：未创建分支、部署容器、清理 Docker、抓取真实来源或修改 VPS
+
+### 2026-07-25 18:43 Codex
+- 任务：从本地 `main` 建立 `codex/self-hosted-rsshub-openclaw`，让本地与 VPS 共用可切换的鉴权 RSSHub，并接通 OpenClaw Bilibili 结构化订阅
+- 修改范围：RSSHub 语义路由/来源测试/设置页/MCP 合同、原位迁移、官方固定摘要 Compose、Nginx HTTPS、匿名 Cookie 刷新、本地构建上传规则、产品文档与回归测试
+- 执行验证：release gate 24/24；本地与 VPS API/Worker、RSSHub 均 healthy 且 0 restart；公网无鉴权 403、派生 code 200、原始 1200 不可达；两条来源 ID、2 条订阅与 360 分钟周期保留
+- 结果：本地 Base URL 为 `https://rb.jiefs.top/rsshub`，VPS 为 `http://rsshub:1200`；VPS 发布 revision `215aab17c37e`，数据库 integrity/foreign keys 正常且 active job 为 0
+- 发布/回退：生产镜像在本机 Buildx 为 AMD64 后上传并由 VPS `docker load`，当前 release 为 `/opt/inteliscope/releases/v1.7.4-215aab17c37e`，`0600` 回退备份位于 `/opt/inteliscope/backups/pre-v1.7.4-215aab17c37e-20260725T103833Z`
+- 残余边界：1.6 GiB VPS 适合当前低频测试但禁止项目构建和高并发 Chromium 冷路由；真实 UID 曾返回 30 条，连续不同冷请求仍触发 Bilibili `-352`/超时，已停止重试并保留第三方 Base URL 降级

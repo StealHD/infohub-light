@@ -6,7 +6,7 @@
 
 <!-- init-pro:section name=phase -->
 ## 2. 当前阶段状态
-结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取、Feed storage v3 writer 与工作区 Apify Key 池的 rollout flag 继续默认关闭。Apify Key 池的 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；正式启用仍需停 Worker、核对未登记远端 Run、备份数据库并执行一次有上限 canary。`vps-tokyo` 仍运行既有 API-only 版本，Worker 与 scheduler 没有新的启动或部署授权。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
+结论：当前主线仅为“小团体多人的信息获取 + Feed 留存”。本地已完成 Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复与显式 reconcile：26 条历史内容当前为 24 条 captured、2 条 excerpt-only，冲突的 `source_body_not_available` 及旧 NOT NULL schema 遗留的 23 个空字符串占位已在 `0600` 备份后规范化为 nullable reason（23 条 `NULL`、1 条保留 `media_cache_failed:2`）；snapshot、Job、媒体和 AI usage 未变化。全局 AI 目标已预置为 `deepseek-v4-flash` 但保持 disabled，对话中旧 Key 视为泄露，必须由用户写入轮换 Key 并通过零 Token 模型预检与一次 retry=0 completion 后才能启用。公共源共享获取、Feed storage v3 writer 与工作区 Apify Key 池的 rollout flag 继续默认关闭。Apify Key 池的 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；正式启用仍需停 Worker、核对未登记远端 Run、备份数据库并执行一次有上限 canary。`vps-tokyo` 已运行 revision `215aab17c37e` 的 API + Worker，并通过内部网络复用同机 RSSHub；legacy scheduler 仍未启动。低 Token `test_gate` 仍处于 0/10 提交观察期，完成门禁保持 wrapper `full`。
 
 前端当前已完成 HeroUI 全站生产切换；视觉、响应式和浏览器验收只以 `UI_CONTRACT.md` 为真源，旧 MUI/Emotion 双栈不再存在。设置页密钥管理已把 Apify Key 收敛为唯一的主用/备用池，提供安全额度投影、状态、排空和可访问排序；来源编辑器在池模式下不再展示来源级 Key 选择。该能力不改变上述运行、发布或数据授权状态。
 
@@ -82,6 +82,7 @@
 65. 偏好来源新内容通知：用户可在设置页选择邮箱或 write-only Webhook，并在订阅设置中逐源开启；schema v9 outbox 以双水位和不可回退双 generation 只消费启用后的严格新 article ID，首份 Feed、历史复用、旧发布时间、`personal_only` 和测试消息均不推进或补发内容通知。Worker 在 Feed/Health/Job 原子提交后发送，Webhook 通过 SecretStore 摘要一致性 fail closed，通知失败不改变抓取终态；精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D061。
 66. 工作区统一邮件发送服务：schema v10 与 Provider Registry 为 Owner/Admin 提供 QQ、网易、Gmail、Resend、Amazon SES 固定 SSL/465 预设；Service 邮件以该数据库配置和 SecretStore 摘要绑定为唯一真源，按“保存 → 测试 → 启用”门禁运行，轮换/停用时安全终结未开始 delivery，已发送结果未知者不重放。邮件服务暂停不清除用户 opt-in、不入队也不补发，Webhook 独立保持可用；`data/config.json.email` 只留给 legacy CLI。精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D062。
 67. 私有结构化诊断日志：API、Worker、legacy Scheduler 与 CLI 按服务写 runtime/operation JSONL，UTC 每日轮转、默认保留 30 天并固定私有权限；API mutation、MCP、Job、获取与通知关键状态以 request/Job/source/subscription ID 串联，成功只在提交后写入。OpenClaw 只通过第 11 个安全读工具读取当前用户脱敏事件，前端不展示日志；精确边界见 `docs/dev/observability-logging.md`、`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md` 和 D065。
+68. 单 VPS RSSHub 与 Bilibili 受控订阅：官方固定摘要 `chromium-bundled` 只在 `vps-tokyo` 运行，本地经 HTTPS 鉴权前缀、VPS 经容器 DNS 共用；Owner/Admin 可切换自建或第三方 Base URL，catalog 使用与服务地址无关的语义 key，OpenClaw 只提交 allowlisted Bilibili UID。两条本地既有来源已原位迁移并保留订阅/周期；公网 403/route code、原始端口隔离、API/Worker/RSSHub 健康及本地构建上传发布已验收。Bilibili 对连续冷请求仍可能返回 `-352`，不以匿名 Cookie 承诺上游持续可用。
 
 当前仍需推进：
 
@@ -93,7 +94,7 @@
 6. 本地 AI 已预置 `deepseek-v4-flash`、`DEEPSEEK_API_KEY` 且保持 disabled；用户写入轮换 Key 后，只对一篇 captured article 运行一次省略 `temperature`、SDK/application retry 均关闭的 smoke，成功后才启用。既有 Gemini 安全分析可按同用户/同 input hash 复用，不得冒充 DeepSeek 结果或恢复 `reason`。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 连接仍失败，待网络出口可用时只做 1 条公开频道复验。
 8. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
-9. VPS 当前固定为 API-only 发布，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed/订阅/历史人工验收、Feed storage v3 apply、rollout flag 开启和 Worker 自然周期仍未执行，必须分别满足门禁并获得对应授权。
+9. VPS 当前运行 revision-locked API + Worker 与独立 RSSHub，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed storage v3 apply、rollout flag 开启和任何付费来源 canary 仍必须分别满足门禁并获得对应授权。Bilibili 连续冷路由被上游风控时不得高频重试，可在设置中临时切换第三方 RSSHub。
 10. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护；视觉变更必须先修改该唯一真源。
 11. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；已删除的 MUI 对照原型、真实数据 preview 和 `VITE_UI_EXPERIENCE` 分叉不得恢复。
 
@@ -162,9 +163,9 @@
 4. 稳定 source type registry、`source_key`、旧配置导入和 Worker payload 生成。
 5. 稳定默认 UI 只通过用户 Feed、订阅、任务和配置 API 读写，不调用 archive analytics、source-quality、Graph 或 feedback。
 6. 稳定 `/api/feed/history`；其精确响应与算法以 `API_CONTRACT.md` 为唯一真源。
-7. 持续观察 VPS API-only 部署的 live/ready、数据库和 React UI；Worker/队列自然周期保持冻结。
-8. 在本地自动化中持续回归每用户 schedule 的到期入队、手动/自动竞争、skip reason 和 Worker stale/missing；VPS 不执行 canary 周期。
-9. 稳定 React Service UI 的 Docker 与浏览器闭环；公网入口已切至 API-only 版本并仅保留应用登录，owner 登录已通过，Feed/订阅/历史仍待人工验收。
+7. 持续观察 VPS API + Worker + RSSHub 的 live/ready、数据库、资源和 React UI；legacy scheduler 保持停止。
+8. 在本地自动化中持续回归每用户 schedule 的到期入队、手动/自动竞争、skip reason 和 Worker stale/missing；VPS 不强制触发额外 canary，不用连续冷请求探测 Bilibili。
+9. 稳定 React Service UI 的 Docker 与浏览器闭环；公网入口只保留应用登录，Owner/Admin 可切换 RSSHub Base URL，Feed/订阅/历史人工验收继续独立进行。
 10. 用目标测试覆盖每个兼容边界。
 11. 完成 `test_gate` 的 10 提交观察期；未达标前默认完成门禁保持 `full`，不得只凭本地 targeted 结果宣称完成。
 12. 稳定新内容通知的用户/订阅隔离、历史基线、outbox 幂等和失败不影响 Feed/Job 的边界；不得回调 legacy publisher。
