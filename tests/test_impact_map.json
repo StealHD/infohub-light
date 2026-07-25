@@ -88,7 +88,8 @@
         "tests/test_openclaw_skill.py",
         "tests/test_setup_openclaw_local.py",
         "deploy/nginx/inteliscope-basic-auth.conf",
-        "deploy/nginx/inteliscope-rate-limit.conf"
+        "deploy/nginx/inteliscope-rate-limit.conf",
+        "deploy/nginx-rsshub-location.conf"
       ],
       "groups": ["python_api_store"]
     },

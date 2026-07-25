@@ -7,12 +7,13 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      # Host access is limited to loopback. Local development reaches this
-      # listener only through the authenticated SSH tunnel documented below.
+      # The container stays on loopback. Existing Nginx exposes the authenticated
+      # HTTPS /rsshub/ prefix documented in deploy/rsshub-vps.md.
       - "127.0.0.1:${INTELISCOPE_RSSHUB_PORT:-1200}:1200"
     environment:
       NODE_ENV: production
       CACHE_TYPE: memory
+      ACCESS_KEY: ${RSSHUB_ACCESS_KEY:?RSSHUB_ACCESS_KEY must be provided through SecretStore}
       NODE_OPTIONS: ${INTELISCOPE_RSSHUB_NODE_OPTIONS:---max-old-space-size=384}
     mem_limit: ${INTELISCOPE_RSSHUB_MEMORY_LIMIT:-640m}
     pids_limit: 256
@@ -25,7 +26,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:1200/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:1200/healthz?key='+encodeURIComponent(process.env.ACCESS_KEY)).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s

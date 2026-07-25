@@ -58,7 +58,7 @@ Service UI 在小团体服务模式下必须先完成登录门禁，再加载用
 用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。旧 feedback 写入路径只兼容保留，不进入默认 UI，也不改变 Feed 过滤、排序或推荐。
 
 ### 3.6B Source Catalog Boundary
-`src/services/source_type_registry.py` 是 Service API source type 元数据、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`src/rsshub.py` 只拥有 workspace RSSHub Base URL、受控站点/route allowlist、语义 source key 与 runtime feed URL 解析；RSSHub 不得成为独立 catalog type。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action、Remote MCP 和 Worker 都必须复用这些边界，避免在路由、前端、Skill 或任务执行层散落 source 类型与 RSSHub path 规则。
+`src/services/source_type_registry.py` 是 Service API source type 元数据、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`src/rsshub.py` 只拥有 workspace RSSHub Base URL、受控站点/route allowlist、语义 source key、runtime feed URL 与 route-scoped access code 解析；RSSHub 不得成为独立 catalog type。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action、Remote MCP 和 Worker 都必须复用这些边界，避免在路由、前端、Skill 或任务执行层散落 source 类型与 RSSHub path 规则。
 
 `source_catalog.source_key` 是同 workspace 内 source 的幂等身份键。旧 `data/config.json` source 导入、同一操作者的重复/并发 catalog 写入和后续 source 市场同步必须按 `source_key` 更新已有 source，不得制造重复公共源；另一用户拥有的 private source 不得因 key 碰撞被返回、接管或覆盖。Telegram 这类字段名复用的来源必须在 registry/API helper 中区分“源身份字段”和“Hub 分类字段”。
 
@@ -161,7 +161,7 @@ Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为
 Webhook egress 只接受 SecretStore 当前保存的 credential-free HTTPS，并复用 `src/services/network_policy.py` 的公网解析和 IP pinning；它禁用环境代理、拒绝 redirect，以 bounded DNS、单地址单次 POST、5 秒 transport timeout 和 6 秒总 deadline 发送。请求只接受 identity encoding，响应正文不得读取或解压；非 identity 响应按已开始发送但结果未知处理。Service 邮箱只使用 schema v10 workspace transport 与其 SecretStore 凭据，不读取 `data/config.json.email` 或进程环境作为兜底。两种 transport 的上游正文、目的地和凭据均不得进入公开错误或日志。
 
 ### 3.9 Config Compatibility Boundary
-`data/config.json` 暂时只承载 AI、过滤、workspace RSSHub Base URL、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户偏好来源通知位于 Service schema v9，工作区 Service 邮件 transport 位于 schema v10，真实值分别进入 SecretStore，不复用 legacy Webhook/SMTP 配置。RSSHub Base URL 是可切换的非密钥 runtime origin，不得复制进 catalog config、MCP/Agent 输出或 Feed；兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
+`data/config.json` 暂时只承载 AI、过滤、workspace RSSHub Base URL、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户偏好来源通知位于 Service schema v9，工作区 Service 邮件 transport 位于 schema v10，真实值分别进入 SecretStore，不复用 legacy Webhook/SMTP 配置。RSSHub Base URL 是可切换的非密钥 runtime URL，可含安全 path prefix，但不得复制进 catalog config、MCP/Agent 输出或 Feed；可选 `RSSHUB_ACCESS_KEY` 只存在 SecretStore，Worker 只派生 route-scoped access code。兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
 
 全局非 source 配置只允许 `owner/admin` 修改；`member/viewer` 不得借兼容 facade 改写 AI、过滤、标签或 Webhook。member source action 的 topics/personal tags 只写 source/subscription；任何管理员全局标签写入也必须在 catalog/subscription 成功后执行。旧配置批量导入只能更新 scope/owner/type 兼容的 source，另一用户 private key 碰撞必须跳过。SQLite 连接必须统一开启 foreign keys 和 busy timeout；native/Linux 默认使用 WAL，但 macOS Docker bind mount 的 light Compose 必须让 API/Worker 同时使用 DELETE journal，避免跨容器 WAL 共享内存可见性漂移。journal mode 只能由 `HORIZON_SQLITE_JOURNAL_MODE=WAL|DELETE` 选择。API 连接按 ContextVar 请求作用域隔离，禁止跨并发请求共享。
 
@@ -172,7 +172,7 @@ member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL us
 
 Feed storage v3 使用 `scripts/migrate_feed_storage_v3.py --dry-run|--apply`。apply 前必须停止 Worker；工具以 SQLite backup API 创建 UTC 命名、权限 `0600` 的独立副本，additive 初始化/backfill content hash，执行 retention，并通过 `integrity_check` 与 `foreign_key_check` 后才记录 version 3。Worker maintenance 以持久化小时门禁执行相同 retention，且无论时间/数量阈值都保留每用户/每 acquisition key 最新必要记录。
 
-生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。RSSHub 作为单独的 VPS-only 容器加入生产 Compose 网络并只绑定 VPS loopback；VPS 项目使用容器 DNS，本地 Docker 只可经认证 SSH tunnel 复用该 listener，不得把 1200 暴露到公网或在本地再启动第二套 RSSHub。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；发布包必须来自干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
+生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。RSSHub 作为单独的 VPS-only 容器加入生产 Compose 网络并只绑定 VPS loopback；VPS 项目使用容器 DNS，本地项目经现有 Nginx 的 HTTPS path prefix 复用同一实例，不使用 SSH tunnel，也不在本地启动第二套 RSSHub。公网入口必须启用 RSSHub `ACCESS_KEY`、关闭该 location 的 access log 并保持容器端口不直接暴露。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；发布包必须来自干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
 
 ### 3.11 Content Repair Boundary
 

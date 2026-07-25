@@ -7,6 +7,7 @@ the workspace-configured service base URL.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 DEFAULT_RSSHUB_BASE_URL = "http://rsshub:1200"
+RSSHUB_ACCESS_KEY_ENV = "RSSHUB_ACCESS_KEY"
 RSSHUB_PROVIDER = "rsshub"
 BILIBILI_SITE = "bilibili"
 BILIBILI_USER_VIDEO_ROUTE = "user_video"
@@ -81,16 +83,25 @@ def normalize_rsshub_base_url(value: Any) -> str:
         or parsed.password is not None
         or parsed.query
         or parsed.fragment
-        or parsed.path not in {"", "/"}
     ):
         raise RSSHubConfigError(
-            "RSSHub Base URL must be an HTTP(S) origin without credentials, path, query, or fragment"
+            "RSSHub Base URL must be HTTP(S) without credentials, query, or fragment"
         )
+    path = parsed.path.rstrip("/")
+    if (
+        "\\" in path
+        or "//" in path
+        or any(segment in {".", ".."} for segment in path.split("/"))
+        or "%" in path
+        or any(character.isspace() for character in path)
+        or _CONTROL_CHARACTER_RE.search(path)
+    ):
+        raise RSSHubConfigError("RSSHub Base URL path prefix is invalid")
     host = hostname.lower()
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     netloc = f"{host}:{port}" if port is not None else host
-    return urlunsplit((parsed.scheme.lower(), netloc, "", "", ""))
+    return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
 
 
 def _normalize_bilibili_uid(value: Any) -> str:
@@ -160,6 +171,35 @@ def rsshub_feed_url(base_url: Any, config: dict[str, Any]) -> str:
     normalized = normalize_managed_rsshub_config(config)
     route = _ROUTES[(normalized["site"], normalized["route_key"])]
     return f"{base}{route.path(normalized['params'])}"
+
+
+def rsshub_request_url(
+    feed_url: Any,
+    config: dict[str, Any],
+    *,
+    access_key: Any = None,
+) -> str:
+    """Add a route-scoped access code without exposing the RSSHub master key."""
+
+    url = str(feed_url or "")
+    key = str(access_key or "").strip()
+    if not key:
+        return url
+    normalized = normalize_managed_rsshub_config(config)
+    route = _ROUTES[(normalized["site"], normalized["route_key"])]
+    route_path = route.path(normalized["params"])
+    code = hashlib.md5(
+        f"{route_path}{key}".encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()
+    parsed = urlsplit(url)
+    if parsed.query or parsed.fragment:
+        raise RSSHubConfigError(
+            "managed RSSHub feed URL cannot contain query or fragment"
+        )
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, f"code={code}", "")
+    )
 
 
 def rsshub_public_target(config: dict[str, Any]) -> dict[str, Any]:

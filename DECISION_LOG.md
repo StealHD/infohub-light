@@ -570,11 +570,11 @@
 - 原因：任务终态只证明服务端 snapshot 已提交，不能证明浏览器缓存已经重读。此前来源任务在 inactive Feed query 上 fire-and-forget 失效缓存，并立即显示后端 item count，导致完成提示先于新卡片出现；该条数是整份 snapshot 总量，`fetched_count` 又是合并前抓取量，两者都不是用户关心的实际新增。刷新按钮把文字切成“刷新中”还会改变中等宽度 ViewBar 的固有宽度并造成横向抖动。
 - 兼容/边界：复用既有 `/api/feed/latest`、`user_feed_refresh` 与 `source_fetch`；Job `result_json` 只增加可选非负整数 `new_item_count`，旧任务缺少时 UI 不推测数量。REST 路径、数据库、权限和 snapshot payload 不变。重载失败保留最后可信卡片并提供手动重试；排序、新内容边缘、虚拟列表锚点和 `N 条新内容` 行为保持不变。页头主题/Insights/Agent 顺序和卡片 Footer 顶部 Tooltip 只属于 `UI_CONTRACT.md` 的呈现规则。
 
-### D067 RSSHub 采用单 VPS 私有服务与语义来源身份
+### D067 RSSHub 采用单 VPS 鉴权服务与语义来源身份
 
 - 决策日期：2026-07-25
-- 当前状态：本地实现与定向测试完成；完整门禁、VPS 部署和双环境真实抓取验收进行中
-- 决策内容：只在 `vps-tokyo` 运行一套 `chromium-bundled` RSSHub。容器加入生产应用网络并把 1200 仅绑定 VPS loopback；VPS Inteliscope 使用 `http://rsshub:1200`，本地 Docker 通过认证 SSH tunnel 使用 `http://host.docker.internal:1200`。Owner/Admin 可在 Settings 修改同一个 RSSHub Base URL，因此自建和第三方实例可互换，本地不运行第二套 RSSHub。
+- 当前状态：本地实现与定向、完整、release 门禁完成；VPS 部署和双环境真实抓取验收进行中
+- 决策内容：只在 `vps-tokyo` 运行一套 `chromium-bundled` RSSHub。容器加入生产应用网络并把 1200 仅绑定 VPS loopback；VPS Inteliscope 使用 `http://rsshub:1200`，本地项目通过现有 Nginx HTTPS 前缀使用 `https://rb.jiefs.top/rsshub`，不使用 SSH tunnel。Owner/Admin 可在 Settings 修改 RSSHub Base URL，因此自建和第三方实例可互换，本地不运行第二套 RSSHub。
 - 来源与 Agent 合同：RSSHub 是 workspace runtime service，不是 catalog type。Bilibili UP 视频仍保存为 catalog `rss`，稳定身份为 `rss:rsshub:bilibili:user_video:<uid>`；OpenClaw 新增公开 `bilibili` 类型，只提交 allowlisted `site=bilibili`、`route_key=user_video`、正整数 `params.uid` 和可选 `keep_latest_item`。MCP guide、preview 与 discovery 不返回 Base URL，且不接受任意 RSSHub URL/path、Cookie、ACCESS_KEY 或凭据。
-- 安全/兼容：运行 URL 只由管理员 origin 与服务端 allowlist 拼接，受控抓取禁用 redirect；direct RSS 的公网 egress/管理员私网信任边界不变。迁移只精确识别 `/bilibili/user/video/<uid>[/1]`，先备份 config/SQLite，再原位更新 source config/key，保留 source、subscription 和 schedule ID。切换 Base URL 不改变来源 key 或订阅状态。
-- 原因：把完整 RSSHub URL存进来源会把部署拓扑暴露给 Agent，并使自建/第三方切换制造新来源；本地和 VPS各跑一套又增加内存和维护成本。单 VPS 服务、私有 tunnel 与语义路由同时满足复用、可替换、最小暴露和小规格 VPS 资源约束。
+- 安全/兼容：运行 URL 只由管理员 Base URL 与服务端 allowlist 拼接，允许安全反向代理 path prefix，受控抓取禁用 redirect。自建公网入口强制使用 SecretStore `RSSHUB_ACCESS_KEY`，Worker 只发送 `md5(route path + key)` 派生的 route-scoped code；主密钥不进入 URL、配置、catalog、MCP、OpenClaw、Feed 或日志。direct RSS 的公网 egress/管理员私网信任边界不变。迁移只精确识别 `/bilibili/user/video/<uid>[/1]`，先备份 config/SQLite，再原位更新 source config/key，保留 source、subscription 和 schedule ID。切换 Base URL 不改变来源 key 或订阅状态。
+- 原因：测试环境需要本地公网直连而不维护 tunnel；裸 HTTP 会暴露密钥，直接开放容器端口又绕过现有 TLS/限流。单 VPS loopback 容器、现有 Nginx HTTPS、RSSHub 原生访问控制与语义路由同时满足直接复用、可替换和小规格 VPS 资源约束。

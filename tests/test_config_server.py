@@ -132,6 +132,7 @@ def test_migrate_config_tag_layers_keeps_custom_tags_as_reading_topics():
 
 def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-value")
+    monkeypatch.setenv("RSSHUB_ACCESS_KEY", "rsshub-master-secret")
     monkeypatch.delenv("HORIZON_WEBHOOK_URL", raising=False)
     config = validate_config_data(_minimal_config())
 
@@ -148,7 +149,13 @@ def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
         "set": False,
         "used_by": ["webhook.url_env"],
     }
+    assert by_name["RSSHUB_ACCESS_KEY"] == {
+        "name": "RSSHUB_ACCESS_KEY",
+        "set": True,
+        "used_by": ["rsshub.access_key"],
+    }
     assert "sk-secret-value" not in json.dumps(status)
+    assert "rsshub-master-secret" not in json.dumps(status)
 
 
 def test_env_status_hides_ai_key_when_ai_disabled(monkeypatch):
@@ -396,13 +403,24 @@ def test_apply_config_action_sets_switchable_rsshub_base_url():
         "base_url": "https://rsshub.example.com"
     }
 
+    prefixed = apply_config_action(
+        config,
+        "set_rsshub",
+        {"base_url": "https://rsshub.example.com/private/rsshub/"},
+    )
+    assert prefixed["rsshub"] == {
+        "base_url": "https://rsshub.example.com/private/rsshub"
+    }
+
 
 @pytest.mark.parametrize(
     "base_url",
     [
         "file:///tmp/rsshub",
         "http://user:password@example.com",
-        "https://example.com/rsshub",
+        "https://example.com/rsshub?key=secret",
+        "https://example.com/rsshub/../admin",
+        "https://example.com/rsshub%2Fadmin",
     ],
 )
 def test_apply_config_action_rejects_unsafe_rsshub_base_url(base_url):

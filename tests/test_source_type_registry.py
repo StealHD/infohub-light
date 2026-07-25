@@ -242,11 +242,11 @@ def test_managed_bilibili_rss_uses_semantic_identity_and_configured_base_url():
             "display_name": "食贫道",
             "config": config,
         },
-        rsshub_base_url="https://rsshub.example.com/",
+        rsshub_base_url="https://rsshub.example.com/private/",
     )
 
     assert payload["url"] == (
-        "https://rsshub.example.com/bilibili/user/video/39627524/1"
+        "https://rsshub.example.com/private/bilibili/user/video/39627524/1"
     )
     assert payload["enforce_public_network"] is False
     assert "rsshub.example.com" not in source_key("rss", config)

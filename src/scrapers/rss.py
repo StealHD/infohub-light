@@ -14,7 +14,12 @@ import feedparser
 
 from .base import BaseScraper
 from ..models import ContentItem, SourceType, RSSSourceConfig
-from ..rsshub import RSSHUB_PROVIDER, rsshub_source_key
+from ..rsshub import (
+    RSSHUB_ACCESS_KEY_ENV,
+    RSSHUB_PROVIDER,
+    rsshub_request_url,
+    rsshub_source_key,
+)
 from ..services.network_policy import fetch_public_http
 
 logger = logging.getLogger(__name__)
@@ -80,6 +85,17 @@ class RSSScraper(BaseScraper):
                 lambda m: os.environ.get(m.group(1), m.group(0)).strip(),
                 str(source.url),
             )
+            if source.provider == RSSHUB_PROVIDER:
+                feed_url = rsshub_request_url(
+                    feed_url,
+                    {
+                        "provider": source.provider,
+                        "site": source.site,
+                        "route_key": source.route_key,
+                        "params": source.params,
+                    },
+                    access_key=os.getenv(RSSHUB_ACCESS_KEY_ENV),
+                )
 
             response = await self._request_feed(
                 feed_url,

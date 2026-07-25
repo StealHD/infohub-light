@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import hashlib
 import socket
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -323,7 +324,8 @@ def test_trusted_rss_keeps_private_network_compatibility() -> None:
     )
 
 
-def test_managed_rsshub_route_disables_redirect_following() -> None:
+def test_managed_rsshub_route_disables_redirect_following(monkeypatch) -> None:
+    monkeypatch.delenv("RSSHUB_ACCESS_KEY", raising=False)
     response = MagicMock(status_code=200, headers={})
     response.text = "<rss version='2.0'><channel></channel></rss>"
     response.raise_for_status.return_value = None
@@ -349,6 +351,42 @@ def test_managed_rsshub_route_disables_redirect_following() -> None:
         "http://rsshub:1200/bilibili/user/video/39627524/1",
         follow_redirects=False,
     )
+
+
+def test_managed_rsshub_route_uses_scoped_access_code(monkeypatch) -> None:
+    access_key = "private-master-key"
+    monkeypatch.setenv("RSSHUB_ACCESS_KEY", access_key)
+    response = MagicMock(status_code=200, headers={})
+    response.text = "<rss version='2.0'><channel></channel></rss>"
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+    source = RSSSourceConfig(
+        name="Bilibili",
+        url="https://rsshub.example.com/prefix/bilibili/user/video/39627524/1",
+        provider="rsshub",
+        site="bilibili",
+        route_key="user_video",
+        params={"uid": "39627524"},
+        source_key="rss:rsshub:bilibili:user_video:39627524",
+        enforce_public_network=False,
+    )
+
+    result = asyncio.run(
+        RSSScraper([source], client).fetch(datetime.now(timezone.utc))
+    )
+
+    route = "/bilibili/user/video/39627524/1"
+    code = hashlib.md5(
+        f"{route}{access_key}".encode(),
+        usedforsecurity=False,
+    ).hexdigest()
+    assert result == []
+    client.get.assert_awaited_once_with(
+        f"https://rsshub.example.com/prefix{route}?code={code}",
+        follow_redirects=False,
+    )
+    assert access_key not in str(client.get.await_args)
 
 
 def test_member_controlled_rss_validates_every_redirect_target() -> None:

@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
-from ..rsshub import normalize_rsshub_base_url
+from ..rsshub import RSSHUB_ACCESS_KEY_ENV, normalize_rsshub_base_url
 from ..scrapers.apify_social import ApifySocialScraper
 from ..scrapers.apify_client import ApifyRunCoordinator
 from ..services.response_schema import bound_source_response_schemas, extract_response_schema
@@ -1163,6 +1163,7 @@ def build_env_status(config: Config) -> list[dict[str, Any]]:
         add(config.webhook.url_env, "webhook.url_env")
     if config.email and config.email.enabled:
         add(config.email.password_env, "email.password_env")
+    add(RSSHUB_ACCESS_KEY_ENV, "rsshub.access_key")
     if config.sources.twitter and config.sources.twitter.enabled:
         add(config.sources.twitter.apify_token_env, "sources.twitter.apify_token_env")
     if config.sources.apify_social:

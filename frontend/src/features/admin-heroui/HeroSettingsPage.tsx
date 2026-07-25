@@ -669,6 +669,9 @@ export function HeroSettingsPage() {
   const aiDraft = aiOverride ?? configuredAiDraft
   const filtering = recordOf(config.data?.config.filtering)
   const rsshub = recordOf(config.data?.config.rsshub)
+  const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
+    (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
+  )
 
   function clearSecretFieldError(field: SecretField) {
     setSecretFieldErrors((current) => {
@@ -859,7 +862,8 @@ export function HeroSettingsPage() {
         <div className="grid gap-3 border-b border-separator pb-5">
           <div>
             <h3 className="type-control">RSSHub 服务</h3>
-            <p className="type-caption mt-1 text-foreground-muted">Bilibili 等受控路由统一使用此 Base URL。可填写自建或第三方 RSSHub；OpenClaw 只提交站点、路由和参数，不接收该地址。</p>
+            <p className="type-caption mt-1 text-foreground-muted">Bilibili 等受控路由统一使用此 Base URL，可填写自建、反向代理前缀或第三方 RSSHub。自建公网实例可通过 SecretStore 的 RSSHUB_ACCESS_KEY 启用访问控制；Worker 只发送路由级 code，OpenClaw 不接收地址或密钥。</p>
+            <p className="type-meta mt-2 text-muted">RSSHub 访问密钥：{rsshubAccessKeySet ? '已配置' : '未配置（无鉴权第三方实例可留空）'}</p>
           </div>
           <form className="grid gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end" onSubmit={saveRsshub}>
             <FormField name="base_url" label="RSSHub Base URL" type="url" defaultValue={String(rsshub.base_url ?? 'http://rsshub:1200')} />
