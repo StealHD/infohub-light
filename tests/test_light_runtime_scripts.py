@@ -193,7 +193,9 @@ def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_stor
 
     assert "set -euo pipefail" in script
     assert "browser.newContext({ userAgent })" in script
+    assert "https://www.bilibili.com/" in script
     assert "https://space.bilibili.com/1/dynamic" in script
+    assert "https://api.bilibili.com/x/frontend/finger/spi" in script
     assert '["_uuid", "b_lsid", "b_nut", "buvid3", "buvid4", "buvid_fp"]' in script
     assert 'SecretStore("/app/data").set(' in script
     assert '"RSSHUB_BILIBILI_ANONYMOUS_COOKIE", value' in script

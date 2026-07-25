@@ -25,7 +25,7 @@ if [[ -f "$DATA_DIR/secrets.env" ]]; then
 fi
 
 # A fresh browser context contains no account profile or login state. It visits
-# one public page and emits only its anonymous Bilibili anti-bot cookies into
+# public pages and emits only their anonymous Bilibili anti-bot cookies into
 # the downstream SecretStore writer; the values are never printed.
 timeout --signal=KILL 40s \
   docker exec "$RSSHUB_CONTAINER" node --input-type=module -e '
@@ -43,18 +43,33 @@ try {
   });
   const context = await browser.newContext({ userAgent });
   const page = await context.newPage();
-  const response = await page.goto("https://space.bilibili.com/1/dynamic", {
-    waitUntil: "domcontentloaded",
-    timeout: 15000,
-  });
-  if (!response || response.status() !== 200) {
-    throw new Error("unexpected Bilibili response");
+  for (const url of [
+    "https://www.bilibili.com/",
+    "https://space.bilibili.com/1/dynamic",
+  ]) {
+    const response = await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000,
+    });
+    if (!response || response.status() !== 200) {
+      throw new Error("unexpected Bilibili response");
+    }
+    await page.waitForTimeout(5000);
   }
-  await page.waitForTimeout(5000);
   const values = new Map((await context.cookies()).map((cookie) => [
     cookie.name,
     cookie.value,
   ]));
+  const spiResponse = await fetch("https://api.bilibili.com/x/frontend/finger/spi");
+  if (spiResponse.ok) {
+    const spi = await spiResponse.json();
+    if (!values.get("buvid3") && spi?.data?.b_3) {
+      values.set("buvid3", spi.data.b_3);
+    }
+    if (!values.get("buvid4") && spi?.data?.b_4) {
+      values.set("buvid4", spi.data.b_4);
+    }
+  }
   if (required.some((name) => !values.get(name))) {
     throw new Error("anonymous Bilibili cookie set is incomplete");
   }
