@@ -166,8 +166,29 @@ describe('OpenClaw conversation surface', () => {
       contextItems: value.draft.items,
     }))
     const request = chat.send.mock.calls[0][0]
+    expect(request.gatewayPrompt).toContain('"mode":"context_readonly"')
     expect(request.gatewayPrompt).toContain('article_id="article-3"')
+    expect(request.gatewayPrompt).toContain('不得执行任何写操作')
     expect(request.displayText).not.toContain('article_id=')
+  })
+
+  it('sends a direct subscription request through the controlled proposal flow', async () => {
+    const browser = userEvent.setup()
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    const value = contextValue({ question: '创建食贫道的 Bilibili 订阅' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+
+    await browser.click(screen.getByRole('button', { name: '发送给 OpenClaw' }))
+
+    const request = chat.send.mock.calls[0][0]
+    expect(request).toMatchObject({
+      displayText: '创建食贫道的 Bilibili 订阅',
+      contextItems: [],
+    })
+    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V5]')
+    expect(request.gatewayPrompt).toContain('"mode":"direct"')
+    expect(request.gatewayPrompt).toContain('prepare → preview → exact confirmation → apply')
+    expect(request.gatewayPrompt).not.toContain('不得执行任何写操作')
   })
 
   it('uses an attachment-count fallback when the user sends without a question', async () => {

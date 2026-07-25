@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-25',
-  change: 'v1.7.5：OpenClaw 可按 Bilibili 账号名称解析 UID，再创建受控 RSSHub 订阅',
+  reviewedAt: '2026-07-26',
+  change: 'v1.7.5：浏览器 OpenClaw 可直接发起并准确确认受控订阅',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -108,7 +108,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '按名称订阅 B 站 UP 主',
-        description: '直接告诉 OpenClaw 公开账号名称；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会直接用于订阅预览，不再要求你手工查 UID；同名或模糊结果必须先由你选择。候选只是公开不可信元数据，最终写入仍需核对预览并回复准确确认短语。',
+        description: '在浏览器 Agent 面板不附带文章或任务，直接告诉 OpenClaw 公开账号名称并要求订阅；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会进入订阅预览，同名或模糊结果必须先由你选择。核对预览后，另发一条与服务端返回内容完全一致的准确确认短语才会应用；浏览器和 OpenClaw 都不能代你生成或改写确认。附带文章或任务的交接始终只读。',
       },
       {
         title: '连接本地 Gateway',

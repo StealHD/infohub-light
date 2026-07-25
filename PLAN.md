@@ -84,6 +84,7 @@
 67. 私有结构化诊断日志：API、Worker、legacy Scheduler 与 CLI 按服务写 runtime/operation JSONL，UTC 每日轮转、默认保留 30 天并固定私有权限；API mutation、MCP、Job、获取与通知关键状态以 request/Job/source/subscription ID 串联，成功只在提交后写入。OpenClaw 只通过第 11 个安全读工具读取当前用户脱敏事件，前端不展示日志；精确边界见 `docs/dev/observability-logging.md`、`API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md` 和 D065。
 68. 单 VPS RSSHub 与 Bilibili 受控订阅：官方固定摘要 `chromium-bundled` 只在 `vps-tokyo` 运行，本地经 HTTPS 鉴权前缀、VPS 经容器 DNS 共用；Owner/Admin 可切换自建或第三方 Base URL，catalog 使用与服务地址无关的语义 key，OpenClaw 只提交 allowlisted Bilibili UID。两条本地既有来源已原位迁移并保留订阅/周期；公网 403/route code、原始端口隔离、API/Worker/RSSHub 健康及本地构建上传发布已验收。本地初始化会对账并刷新旧 OpenClaw Skill；按名称自行解析 UID 的最终验收见第 69 项。Bilibili 对连续冷请求仍可能返回 `-352`，不以匿名 Cookie 承诺上游持续可用。
 69. Bilibili 名称解析与 OpenClaw 验收：Remote MCP 以固定官方端点和匿名内存 Cookie 提供最多五个公开账号候选，唯一精确同名才解析 UID；VPS revision `8de9ab4a8ca7` 已将“食贫道”解析为 `39627524`，自建 RSSHub 返回 30 条 XML 内容。全新 OpenClaw 会话无需 Chrome、远程调试或人工 UID 即生成 create preview，并在用户未回复准确确认短语时保持 catalog/source/subscription 零写入。
+70. Browser OpenClaw 直接订阅修复：V5 handoff 以是否附带记录区分 `context_readonly` 与 `direct`；文章/任务交接继续禁止写入，无附件的用户原话可进入既有 `prepare → preview → 准确确认 → apply` 订阅流程，浏览器不得代答确认短语，MCP scope、实时角色、写开关和 proposal 事务边界不变。精确合同见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D072。
 
 当前仍需推进：
 

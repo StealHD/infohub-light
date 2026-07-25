@@ -638,7 +638,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:context-missing') || '{}')).toMatchObject({ items: [] })
   })
 
-  it('copies a v4 handoff without simulated model guidance or a network request', async () => {
+  it('copies a v5 handoff without simulated model guidance or a network request', async () => {
     const browser = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
@@ -651,7 +651,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V4]'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V5]'))
     expect(writeText).toHaveBeenCalledWith(expect.not.stringContaining('模型偏好'))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('交接提示词已复制')
     expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:composer-copy') || '{}')).toMatchObject({ question: '分析机会' })

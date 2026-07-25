@@ -20,12 +20,12 @@ export type AgentHandoffDisplay = {
   contextCount: number
 }
 
-export const INTELISCOPE_HANDOFF_MARKER = '[INTELISCOPE_HANDOFF_V4]'
+export const INTELISCOPE_HANDOFF_MARKER = '[INTELISCOPE_HANDOFF_V5]'
 
 const storageKey = (userId: string) => `inteliscope.agent-context.v3:${userId}`
 const v2StorageKey = (userId: string) => `inteliscope.agent-context.v2:${userId}`
 const legacyStorageKey = (userId: string) => `inteliscope.agent-context.v1:${userId}`
-const previousHandoffMarkers = ['[INTELISCOPE_HANDOFF_V3]'] as const
+const previousHandoffMarkers = ['[INTELISCOPE_HANDOFF_V4]', '[INTELISCOPE_HANDOFF_V3]'] as const
 const maxItems = 8
 const maxQuestionLength = 1200
 
@@ -128,12 +128,25 @@ export function clearAgentContextDraft(userId: string): void {
 export function buildAgentHandoffPrompt(draft: AgentContextDraftV3): string {
   const value = sanitizeDraft(draft.userId, draft)
   const question = value.question.trim() || '请基于这些信息提炼关键变化、机会和风险。'
+  if (!value.items.length) {
+    return [
+      INTELISCOPE_HANDOFF_MARKER,
+      JSON.stringify({ displayText: question, contextCount: 0, mode: 'direct' }),
+      '这是用户直接在 Inteliscope Agent 面板提交的无附件请求；请按“问题”原文处理。',
+      `问题：${question}`,
+      '涉及 Inteliscope 数据或订阅时，只使用 Inteliscope Remote MCP，并遵循已安装的 Inteliscope Skill。',
+      '每项订阅变更必须遵循 prepare → preview → exact confirmation → apply：普通请求只可 prepare，并向用户完整展示安全预览和服务端返回的准确确认短语。',
+      '只有“问题”与当前待处理 proposal 返回的准确确认短语完全一致时，才可调用 apply_subscription_change；不得替用户生成、改写或代答确认短语，也不得用其他工具绕过 proposal。',
+      'prepare 不会修改业务订阅；没有准确确认或 proposal 已失效时，不得执行订阅写入。',
+      '任务诊断仍保持只读，不得重试、取消或修改任务。',
+    ].join('\n')
+  }
   const calls = value.items.map((item, index) => item.resourceType === 'job'
     ? `${index + 1}. 调用 diagnose_job，job_id="${item.jobId}"`
     : `${index + 1}. 调用 get_item，article_id="${item.articleId}"`).join('\n')
   return [
     INTELISCOPE_HANDOFF_MARKER,
-    JSON.stringify({ displayText: question, contextCount: value.items.length }),
+    JSON.stringify({ displayText: question, contextCount: value.items.length, mode: 'context_readonly' }),
     '请使用 Inteliscope Remote MCP 完成以下任务。',
     `问题：${question}`,
     '必须按顺序读取上下文，不要把标题或摘要当作完整正文：',

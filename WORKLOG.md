@@ -2942,3 +2942,9 @@
 - 执行验证：名称解析与 Skill 定向测试通过；`test_gate full` 22/22、121.427 秒，最终 `mapping_miss=false`；此前同 revision release gate 24/24；VPS 将“食贫道”唯一解析为 UID `39627524`，自建 RSSHub 返回 200、XML 与 30 条内容
 - 结果：VPS 当前 revision `8de9ab4a8ca7`，API/Worker/RSSHub healthy 且 0 restart；全新 OpenClaw 会话生成 create preview，不再索要 UID 或要求浏览器调试
 - 安全边界：诊断中被 CLI 回显的旧 MCP 凭据已撤销并静默轮换，新连接与 `search_bilibili_users` probe 正常；用户未回复准确确认短语，因此仅有一条 pending proposal，catalog/source/subscription 零写入、active job 为 0
+
+### 2026-07-26 01:59 Codex
+- 任务：诊断浏览器 OpenClaw 已解析“食贫道”但连续拒绝创建订阅的原因
+- 执行验证：原始 dashboard session 两轮消息均被 `INTELISCOPE_HANDOFF_V4` 追加“不得执行任何写操作”；审计只有 list/guide/search 调用，prepare/apply 为 0；当前 delegation 为 active `subscriptions_write`、VPS 写开关为 true、OpenClaw 写工具过滤完整
+- 结果：根因锁定为 `frontend/src/features/workbench-live/agentContext.ts` 无条件生成只读交接提示词，不是 MCP 权限、Skill、RSSHub 或 VPS 故障
+- 控制面变更：无；仅记录只读诊断，未修改产品代码、连接、订阅、proposal、VPS 或运行任务

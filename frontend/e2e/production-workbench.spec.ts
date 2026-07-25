@@ -871,7 +871,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(agent.getByRole('button', { name: /模型偏好/ })).toHaveCount(0)
   await agent.getByRole('button', { name: '复制交接提示词' }).click()
   const handoff = await page.evaluate(() => navigator.clipboard.readText())
-  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V4]')
+  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V5]')
   expect(handoff).toContain('调用 get_item')
   expect(handoff).not.toContain('模型偏好：')
 

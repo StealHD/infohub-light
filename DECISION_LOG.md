@@ -610,3 +610,11 @@
 - 决策内容：Remote MCP 新增只读、non-destructive、idempotent、open-world 的 `search_bilibili_users`，使 OpenClaw 可把用户明确提供的 Bilibili 账号名称解析为受控订阅所需 UID。服务只访问固定 Bilibili 首页和官方用户搜索端点，在单次内存 client 中先取得匿名设备 Cookie，再返回最多五个仅含名称、UID、官方主页和精确匹配标记的候选；只有唯一规范化精确同名时才生成 `resolved_user`。OpenClaw 必须优先复用现有来源；无现有精确名称时调用该工具，唯一精确命中可直接 prepare，多候选必须交给用户选择，仍保留 `prepare → 准确确认 → apply` 写入边界。包含“订阅/关注/添加”和“B站/Bilibili/UP主”的请求即使未提 Inteliscope 也必须进入该 Skill，禁止为名称解析调用 Chrome、浏览器、Web 搜索或 shell。
 - 原因：仅把 RSSHub URL 输入收窄到 UID 仍要求用户手工查主页，不能完成“给出 UP 主名称后自行建立订阅”的产品目标。VPS 直接调用用户搜索接口会返回 `-412`，而先访问 Bilibili 首页取得无账号匿名 Cookie 后同一 VPS 可稳定得到“食贫道 → 39627524”；因此名称解析必须由服务端显式建模，而不能让模型猜 UID。
 - 安全/回退：查询拒绝 URL、身份字段和凭据，禁用环境代理与 redirect，使用固定 timeout、512,000-byte 上限及 300/30 秒缓存；不接收或复用账号 Cookie，不投影签名、粉丝数、视频数或上游正文，候选名称标记为不可信公开 metadata。上游不可用返回稳定 `availability=unavailable` 且不得猜测；移除该工具和 toolFilter 后，既有 UID/主页输入、受控 RSSHub 路由与已创建订阅继续可用，不需要数据库迁移。
+
+### D072 Browser OpenClaw 按附件存在性拆分直接请求与只读交接
+
+- 决策日期：2026-07-26
+- 当前状态：本地实现、定向回归及 full/release 门禁完成，待 VPS 验收
+- 决策内容：Gateway handoff 升级为 V5，并把浏览器提交明确拆为两种模式。有一条或更多 Feed/任务记录时使用 `context_readonly`，继续按 D063 只读分析；没有记录且问题非空时使用 `direct`，保留用户直接提出的请求，允许既有订阅 Skill 执行 `prepare → preview → 准确确认 → apply`。普通 direct 请求只可 prepare；只有下一条问题与当前 proposal 返回的准确确认短语完全一致时才可 apply。
+- 原因：V4 无条件追加“不得执行任何写操作”，导致用户已在浏览器明确要求创建订阅、甚至已另行回复准确确认短语时，OpenClaw 仍被前端提示词要求拒绝所有写工具。MCP delegation、写开关和 proposal 均正常，因此根因是浏览器把直接请求错误当成文章/任务交接，而不是服务端授权不足。
+- 安全/兼容：direct 提示词不得代用户生成、改写或回答确认短语，也不得绕过 delegation scope、实时角色、写开关、proposal 到期/指纹与事务复查；有附件的正文和任务证据仍不可触发写入。可见历史继续投影 V4、V3 与旧无版本 handoff。回退 V5 前端即可恢复旧只读行为，不涉及 API schema、数据库、RSSHub、Worker、来源抓取或 OpenClaw 全局配置。

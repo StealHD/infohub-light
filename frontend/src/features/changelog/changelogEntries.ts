@@ -22,6 +22,16 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 7 月',
     entries: [
       {
+        date: '2026-07-26',
+        title: '浏览器 OpenClaw 可完成受控订阅',
+        summary: '直接对话与文章/任务交接采用不同安全模式，创建订阅不再被只读提示词误拦截。',
+        items: [
+          { title: '直接请求可生成预览', description: 'Agent 面板没有附带文章或任务时，订阅请求会按用户原话交给 OpenClaw，并继续使用 Inteliscope Skill 与 MCP 的 prepare 流程。' },
+          { title: '准确确认后才写入', description: '普通请求只展示安全预览与服务端返回的准确确认短语；只有下一条消息完全匹配该短语时才可 apply，浏览器不会替用户生成或改写。' },
+          { title: '上下文交接仍只读', description: '附带文章或运行记录的分析继续只读取持久化安全证据，并禁止重试、取消、修复或其他写操作。' },
+        ],
+      },
+      {
         date: '2026-07-25',
         title: 'Bilibili 订阅接入自建 RSSHub',
         summary: 'VPS 运行一套带访问控制的 RSSHub，本地与 VPS 项目可复用，并可在设置中切换到第三方实例。',
