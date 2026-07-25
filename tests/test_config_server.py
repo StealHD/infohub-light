@@ -1,3 +1,4 @@
+import hashlib
 import json
 import socket
 from contextlib import asynccontextmanager
@@ -867,6 +868,50 @@ def test_source_payload_parses_rss_feed(monkeypatch):
     assert "sample_title" in {
         field["path"] for field in response_schema["normalized"]["fields"]
     }
+
+
+def test_managed_rsshub_source_test_uses_route_code_without_returning_it(
+    monkeypatch,
+):
+    seen = []
+    master_key = "rsshub-test-master"
+    monkeypatch.setenv("RSSHUB_ACCESS_KEY", master_key)
+
+    def fake_fetch(url, *, headers=None, enforce_public_network=False):
+        seen.append((url, enforce_public_network))
+        return """<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example</title>
+    <item><title>First item</title></item>
+  </channel>
+</rss>"""
+
+    monkeypatch.setattr("src.ui.server._fetch_text", fake_fetch)
+    feed_url = (
+        "https://rsshub.example.com/private/"
+        "bilibili/user/video/39627524/1"
+    )
+    result = run_source_test(
+        {
+            "source_type": "rss",
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524"},
+            "url": feed_url,
+            "enforce_public_network": False,
+        }
+    )
+
+    expected_code = hashlib.md5(
+        f"/bilibili/user/video/39627524/1{master_key}".encode(),
+        usedforsecurity=False,
+    ).hexdigest()
+    assert seen == [(f"{feed_url}?code={expected_code}", False)]
+    assert result["sample_url"] == feed_url
+    assert expected_code not in json.dumps(result)
+    assert master_key not in json.dumps(result)
 
 
 def test_source_test_propagates_member_public_network_policy(monkeypatch):

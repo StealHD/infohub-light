@@ -88,7 +88,7 @@ capability / degrade：
 3. Hub channel 应写入 `channel`；Telegram 的平台频道名继续使用 `channel`，Hub 频道使用 `hub_channel` 或兼容 `category`。
 4. legacy CLI 的 `apify_social.subscriptions[].token_env` 可为单条 Apify 订阅指定 key 环境变量名；为空时使用全局 `sources.apify_social.token_envs` 轮换。该兼容规则不进入启用工作区池后的 Service API/Worker 路径。
 5. `set_tags` 优先接受 `payload.topics` 数组，同时兼容旧 `tags` 换行/逗号字符串；值会 trim、去空并按大小写无关去重，每项最多 40 字、总数最多 100。显式空数组表示清空主题库，不得恢复内置默认主题。
-6. `set_rsshub` 只接受 `payload.base_url`，保存为不含 userinfo、query 或 fragment 的 HTTP(S) Base URL；允许安全的反向代理 path prefix。该地址可指向工作区自建或第三方 RSSHub，但不进入 catalog source config、MCP guide/preview、Job result 或 Feed。可选主密钥只允许使用固定 SecretStore 环境变量 `RSSHUB_ACCESS_KEY`；Worker 按 RSSHub 的 `md5(route path + key)` 规则只发送 route-scoped `code`，配置/API/日志不得保存或返回主密钥。
+6. `set_rsshub` 只接受 `payload.base_url`，保存为不含 userinfo、query 或 fragment 的 HTTP(S) Base URL；允许安全的反向代理 path prefix。该地址可指向工作区自建或第三方 RSSHub，但不进入 catalog source config、MCP guide/preview、Job result 或 Feed。可选主密钥只允许使用固定 SecretStore 环境变量 `RSSHUB_ACCESS_KEY`；`source_test` 与 Worker 抓取都按 RSSHub 的 `md5(route path + key)` 规则只发送 route-scoped `code`，配置/API/测试结果/日志不得保存或返回主密钥或派生 code。
 6. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
 
 响应规则：

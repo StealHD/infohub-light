@@ -26,7 +26,12 @@ from dotenv import load_dotenv
 
 from ..config_migration import migrate_config_tag_layers
 from ..models import ApifySocialConfig, ApifySocialSubscriptionConfig, Config
-from ..rsshub import RSSHUB_ACCESS_KEY_ENV, normalize_rsshub_base_url
+from ..rsshub import (
+    RSSHUB_ACCESS_KEY_ENV,
+    is_managed_rsshub_config,
+    normalize_rsshub_base_url,
+    rsshub_request_url,
+)
 from ..scrapers.apify_social import ApifySocialScraper
 from ..scrapers.apify_client import ApifyRunCoordinator
 from ..services.response_schema import bound_source_response_schemas, extract_response_schema
@@ -557,11 +562,18 @@ def run_source_test(
         )
 
     if source_type == "rss":
-        url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
+        feed_url = _http_url(_text(payload, "url", "RSS URL"), "RSS URL")
+        request_url = feed_url
+        if is_managed_rsshub_config(payload):
+            request_url = rsshub_request_url(
+                feed_url,
+                payload,
+                access_key=os.getenv(RSSHUB_ACCESS_KEY_ENV),
+            )
         if payload.get("enforce_public_network"):
-            feed_text = _fetch_text(url, enforce_public_network=True)
+            feed_text = _fetch_text(request_url, enforce_public_network=True)
         else:
-            feed_text = _fetch_text(url)
+            feed_text = _fetch_text(request_url)
         feed = feedparser.parse(feed_text)
         entries = list(feed.entries or [])
         if not entries:
@@ -572,7 +584,9 @@ def run_source_test(
             "source_type": source_type,
             "count": len(entries),
             "sample_title": str(first.get("title") or "Untitled"),
-            "sample_url": str(first.get("link") or url),
+            # Never return the route-scoped access code when a feed omits its
+            # own item link.
+            "sample_url": str(first.get("link") or feed_url),
             "message": f"RSS/Atom 可用，解析到 {len(entries)} 条。",
         }
         return _source_test_result(

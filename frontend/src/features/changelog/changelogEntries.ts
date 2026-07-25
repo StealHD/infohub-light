@@ -28,7 +28,7 @@ export const changelogMonths: ChangelogMonth[] = [
         items: [
           { title: '服务地址可切换', description: 'Owner/Admin 可在设置页维护 RSSHub Base URL；来源身份与服务地址分离，切换自建或第三方实例无需重建订阅。' },
           { title: 'OpenClaw 结构化输入', description: 'Bilibili UP 主订阅只接收 bilibili、user_video 和数字 UID，不再要求或接受 RSSHub URL、Cookie、ACCESS_KEY 或任意路由。' },
-          { title: '鉴权公网复用', description: 'RSSHub 容器只绑定 VPS loopback，由现有 Nginx 提供 HTTPS；本地直接访问公网入口，Worker 使用路由级 code，主密钥不进入 URL、日志或 OpenClaw。' },
+          { title: '鉴权公网复用', description: 'RSSHub 容器只绑定 VPS loopback，由现有 Nginx 提供 HTTPS；本地直接访问公网入口，来源测试与 Worker 抓取使用路由级 code，主密钥不进入结果、日志或 OpenClaw。' },
           { title: '既有状态原位迁移', description: '精确匹配的 Bilibili URL 可原位转成受控路由，保留来源、订阅与自动更新计划 ID，并在写入前备份配置和数据库。' },
         ],
       },
