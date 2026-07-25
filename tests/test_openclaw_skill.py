@@ -144,7 +144,11 @@ def test_skill_change_safety_routes_existing_sources_and_web_only_setup_correctl
 
 def test_openclaw_skill_readme_documents_local_install_and_env_file_permissions():
     readme = _text("README.md")
-    assert "openclaw skills install ./integrations/openclaw/inteliscope --as inteliscope" in readme
+    assert (
+        "openclaw skills install ./integrations/openclaw/inteliscope "
+        "--as inteliscope --force"
+    ) in readme
+    assert "openclaw gateway restart" in readme
     assert "openclaw skills check" in readme
     assert "~/.openclaw/.env" in readme
     assert "0600" in readme

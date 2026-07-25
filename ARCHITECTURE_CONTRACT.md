@@ -85,6 +85,8 @@ compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数
 
 OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电脑或其专属云端 Gateway；Service 端不新增 Agent、LLM、Worker、端口或容器，也不代理 Gateway。浏览器的 `frontend/src/features/openclaw/` 直接实现 OpenClaw Gateway WebSocket v4、设备签名、用户/Gateway 隔离凭证库和有界聊天状态；功能关闭时不得创建 WebSocket。未来从本地切换云端只替换为用户专属 `wss://` URL 和对应 Origin allowlist，不改变 Remote MCP 或 Service 部署。
 
+`scripts/setup_openclaw_local.py` 是仓库托管 Inteliscope Skill 的本地 reconcile 入口：比较 bundled 与已安装目录中的非隐藏文件，忽略 OpenClaw 自己的 `.openclaw` 元数据；缺失时安装，漂移时使用 `--force` 刷新，并只在 Skill 或 Origin 变化时重启已运行 Gateway。旧会话可能保留历史路由指令，刷新后必须用新会话验收；`--skip-skill` 是保留用户自主管理 Skill 的显式退出路径。该流程不得读取或写入 MCP/Gateway token，也不得触发订阅 prepare/apply。
+
 `src/mcp/remote_server.py` 是现有 FastAPI 上的无状态 Streamable HTTP adapter；11 个安全读工具分别由 `remote_service.py` 的有界数据投影、`remote_subscription_service.py` 的 registry 引导/发现、`remote_diagnostics.py` 的确定性只读诊断和 `operation_log.py` 的脱敏事件查询提供，diagnostics 同时承载写连接专用的 prepare facade。它们全部直接调用 Service/Store 或私有结构化事件文件，禁止内部 HTTP 回环。每个 FastAPI app 拥有独立 FastMCP 和 session manager，父 app lifespan 显式管理其生命周期，`/mcp` 与 `/api/*` 共用请求级 SQLite connection scope 和事务泄漏检查。
 
 Remote MCP 的 15 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。

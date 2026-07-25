@@ -95,8 +95,11 @@ HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
 
 For first-time local integration, use the idempotent bootstrap. It discovers the
 actual Gateway URL, merges the current browser Origin, updates `.env`, installs
-the bundled Skill, starts the services, and verifies readiness. It never reads
-or stores Gateway/MCP tokens and never approves a device:
+or refreshes the bundled Skill, restarts the Gateway only when the Skill or
+Origin changed, starts the services, and verifies readiness. It never reads or
+stores Gateway/MCP tokens and never approves a device. After a Skill refresh,
+start a new OpenClaw conversation so an existing transcript cannot retain old
+source-routing instructions:
 
 ```bash
 ./scripts/setup_openclaw_local.sh --dry-run

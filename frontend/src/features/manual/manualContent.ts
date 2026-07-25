@@ -145,7 +145,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的自建、反向代理前缀或第三方 RSSHub；自建公网实例可把 RSSHUB_ACCESS_KEY 写入 SecretStore，来源测试与 Worker 抓取只发送路由级 code，OpenClaw 不会看到或提交服务地址与密钥。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
+        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的自建、反向代理前缀或第三方 RSSHub；自建公网实例可把 RSSHUB_ACCESS_KEY 写入 SecretStore，来源测试与 Worker 抓取只发送路由级 code，OpenClaw 不会看到或提交服务地址与密钥。更新项目后重新运行本地 OpenClaw 初始化会自动刷新旧 Skill 并重启 Gateway；请新建对话，使“只询问数字 UID”的最新规则生效。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
       },

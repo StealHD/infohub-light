@@ -594,3 +594,11 @@
 - 决策内容：固定摘要的官方 `chromium-bundled` 镜像显式配置其实际容器内 `CHROMIUM_EXECUTABLE_PATH`，并使用 RSSHub 官方 `NO_RANDOM_UA=true`。Bilibili 公开路由所需 `_uuid`、`b_lsid`、`b_nut`、`buvid3`、`buvid4`、`buvid_fp` 只能由 `scripts/refresh_rsshub_bilibili_cookie.sh` 在无 profile、无账号的全新浏览器 context 中访问公开首页与动态页取得，缺失的 `buvid3/buvid4` 可由公开 fingerprint SPI 补齐；结果经匿名管道写入 VPS SecretStore 的 `RSSHUB_BILIBILI_ANONYMOUS_COOKIE`，再映射为 RSSHub `BILIBILI_COOKIE_0`。
 - 原因：该固定镜像的 Patchright 默认查找 `/root/.cache`，但 Chromium 实际位于 `/app/node_modules/.cache`；默认随机浏览器 UA 被 Bilibili 返回 412，而不完整匿名参数会更早触发风险控制。显式浏览器路径、RSSHub FeedFetcher UA 和完整匿名参数曾让真实 UID 在约 6 秒内返回 30 条，但连续不同冷请求仍会被上游返回 `-352` 并进入浏览器 fallback 超时；这是可替换外部服务的可用性限制，不是匿名 Cookie 能消除的保证。
 - 安全/回退：刷新脚本先以 `0600` 备份 SecretStore，不读取本机或用户浏览器 profile，不接受或输出账号 Cookie，真实值不进入 Git、配置、数据库、MCP、OpenClaw、Feed 或日志。失败时保留旧 SecretStore；可恢复备份、recreate RSSHub，或在 Settings 把 Base URL 切换到第三方实例。
+
+### D070 本地初始化主动对账仓库托管的 OpenClaw Skill
+
+- 决策日期：2026-07-25
+- 当前状态：安装脚本、定向测试、本机覆盖安装、Gateway 重启与新会话只读 smoke 完成
+- 决策内容：`setup_openclaw_local.py` 不再把“存在 inteliscope Skill”等同于“版本正确”。它比较 bundled 与 `openclaw skills info` 返回目录中的托管文件，忽略 OpenClaw 安装元数据；缺失时安装、内容漂移时 `--force` 刷新，且只在 Skill 或 Origin 变化时重启已运行 Gateway。刷新后用新会话验收，现有会话不作为新路由合同的证据。
+- 原因：VPS MCP 已提供 `bilibili` 指南，但本机 2026-07-20 的旧 Skill 仍把 Bilibili 路由成普通 `rss`，导致模型成功调用错误类型的指南并索要公开 RSSHub URL。仅检查 Skill 是否可见无法发现这种跨版本漂移。
+- 安全/兼容：该 reconcile 只管理仓库拥有的 `inteliscope` Skill，不读取或写入 MCP/Gateway token，不调用订阅 prepare/apply；`--skip-skill` 保留显式退出。旧 Skill 已以 `0600` 本地备份保留，回退时可恢复并重启 Gateway。

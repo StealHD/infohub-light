@@ -2923,3 +2923,15 @@
 - 结果：本地 Base URL 为 `https://rb.jiefs.top/rsshub`，VPS 为 `http://rsshub:1200`；VPS 发布 revision `215aab17c37e`，数据库 integrity/foreign keys 正常且 active job 为 0
 - 发布/回退：生产镜像在本机 Buildx 为 AMD64 后上传并由 VPS `docker load`，当前 release 为 `/opt/inteliscope/releases/v1.7.4-215aab17c37e`，`0600` 回退备份位于 `/opt/inteliscope/backups/pre-v1.7.4-215aab17c37e-20260725T103833Z`
 - 残余边界：1.6 GiB VPS 适合当前低频测试但禁止项目构建和高并发 Chromium 冷路由；真实 UID 曾返回 30 条，连续不同冷请求仍触发 Bilibili `-352`/超时，已停止重试并保留第三方 Base URL 降级
+
+### 2026-07-25 18:50 Codex
+- 任务：明确 `vps-tokyo` 上 RSSHub 的内外访问地址
+- 结果：VPS Inteliscope 使用容器内 Base URL `http://rsshub:1200`；本地或其他公网客户端使用鉴权 HTTPS Base URL `https://rb.jiefs.top/rsshub`
+- 控制面变更：无；仅补充本工作日志
+
+### 2026-07-25 20:05 Codex
+- 任务：排查 VPS OpenClaw 把“订阅食贫道”误路由为普通 RSS 并索要公开 RSSHub URL
+- 根因：VPS MCP revision `215aab17c37e` 与 `bilibili` 指南均正确；18:48 安全事件显示 list/guide 调用成功，但本机实际加载的是 2026-07-20 旧 Skill，其文案仍强制 Bilibili 使用 `source_type=rss`
+- 修改范围：覆盖安装当前 bundled Skill、重启本机 Gateway；本地初始化新增 managed Skill 内容对账、漂移 `--force` 刷新与必要时重启，并同步架构/决策、操作手册、更新日志和测试
+- 执行验证：Skill/安装器定向测试 25/25；安装目录与 bundled 内容一致，Gateway RPC 正常；全新只读会话只追问“食贫道”的数字 UID，VPS 操作事件只有 `list_available_sources`，无 prepare/apply 写调用
+- 回退：旧 Skill 的 `0600` 备份为 `/Users/stealmac/.openclaw/backups/inteliscope-skill-pre-bilibili-20260725T115732Z.tar.gz`；现有旧对话可能保留旧指令，需新建对话

@@ -238,23 +238,29 @@ def _json_output(result: subprocess.CompletedProcess[str], label: str) -> Any:
         raise SetupError(f"{label} did not return valid JSON.") from exc
 
 
-def _skill_present(payload: Any, slug: str) -> bool:
-    target = slug.casefold()
+def skill_tree_matches(source: Path, installed: Path) -> bool:
+    """Compare managed Skill content while ignoring OpenClaw install metadata."""
 
-    def visit(value: Any) -> bool:
-        if isinstance(value, str):
-            return value.casefold() == target
-        if isinstance(value, list):
-            return any(visit(item) for item in value)
-        if isinstance(value, dict):
-            for key in ("name", "slug", "id"):
-                candidate = value.get(key)
-                if isinstance(candidate, str) and candidate.casefold() == target:
-                    return True
-            return any(visit(item) for item in value.values())
-        return False
+    def managed_files(root: Path) -> dict[Path, bytes] | None:
+        if not root.is_dir():
+            return None
+        files: dict[Path, bytes] = {}
+        try:
+            for path in root.rglob("*"):
+                relative = path.relative_to(root)
+                if any(part.startswith(".") for part in relative.parts):
+                    continue
+                if path.is_symlink():
+                    return None
+                if path.is_file():
+                    files[relative] = path.read_bytes()
+        except OSError:
+            return None
+        return files
 
-    return visit(payload)
+    source_files = managed_files(source)
+    installed_files = managed_files(installed)
+    return source_files is not None and source_files == installed_files
 
 
 def _compose_file(root: Path) -> Path:
@@ -366,10 +372,27 @@ def run_setup(args: argparse.Namespace) -> None:
     merged_origins = merge_allowed_origins(current_origins, origin)
     origins_changed = merged_origins != current_origins
 
+    skill_dir: Path | None = None
     skill_present = False
+    skill_current = False
     if not args.skip_skill:
-        skills_result = runner.capture(["openclaw", "skills", "check", "--json"])
-        skill_present = _skill_present(_json_output(skills_result, "openclaw skills check"), "inteliscope")
+        skill_dir = root / "integrations" / "openclaw" / "inteliscope"
+        if not skill_dir.is_dir():
+            raise SetupError(f"bundled Inteliscope Skill was not found: {skill_dir}")
+        skill_info_result = runner.capture(
+            ["openclaw", "skills", "info", "inteliscope", "--json"],
+            check=False,
+        )
+        skill_present = skill_info_result.returncode == 0
+        if skill_present:
+            skill_info = _json_output(skill_info_result, "openclaw skills info")
+            installed_base = skill_info.get("baseDir") if isinstance(skill_info, dict) else None
+            if isinstance(installed_base, str) and installed_base:
+                skill_current = skill_tree_matches(
+                    skill_dir,
+                    Path(installed_base).expanduser().resolve(),
+                )
+    skill_changed = not args.skip_skill and not skill_current
 
     print("OpenClaw local setup")
     print(f"  version: {gateway.cli_version}")
@@ -378,7 +401,12 @@ def run_setup(args: argparse.Namespace) -> None:
     print(f"  env update: {'needed' if env_changed else 'already configured'}")
     print(f"  Origin update: {'needed' if origins_changed else 'already configured'}")
     if not args.skip_skill:
-        print(f"  Skill: {'already installed' if skill_present else 'install needed'}")
+        skill_status = (
+            "current"
+            if skill_current
+            else ("refresh needed" if skill_present else "install needed")
+        )
+        print(f"  Skill: {skill_status}")
     if compose_image:
         print(f"  Docker image: reuse {compose_image}")
 
@@ -400,15 +428,23 @@ def run_setup(args: argparse.Namespace) -> None:
             ]
         )
 
-    if not args.skip_skill and not skill_present:
-        skill_dir = root / "integrations" / "openclaw" / "inteliscope"
-        if not skill_dir.is_dir():
-            raise SetupError(f"bundled Inteliscope Skill was not found: {skill_dir}")
-        runner.execute(["openclaw", "skills", "install", str(skill_dir), "--as", "inteliscope"])
+    if skill_changed:
+        assert skill_dir is not None
+        install_command = [
+            "openclaw",
+            "skills",
+            "install",
+            str(skill_dir),
+            "--as",
+            "inteliscope",
+        ]
+        if skill_present:
+            install_command.append("--force")
+        runner.execute(install_command)
 
     if not gateway.running:
         runner.execute(["openclaw", "gateway", "start"])
-    elif origins_changed:
+    elif origins_changed or skill_changed:
         runner.execute(["openclaw", "gateway", "restart"])
     runner.execute(["openclaw", "gateway", "status", "--require-rpc", "--timeout", "10000"])
 

@@ -5,9 +5,16 @@ This local Skill uses the current caller's Inteliscope MCP connection. Create th
 ## Install
 
 ```bash
-openclaw skills install ./integrations/openclaw/inteliscope --as inteliscope
+openclaw skills install ./integrations/openclaw/inteliscope --as inteliscope --force
+openclaw gateway restart
 openclaw skills check
 ```
+
+Re-run `./scripts/setup_openclaw_local.sh` after updating Inteliscope. It
+compares the installed managed Skill with the bundled files, refreshes a stale
+copy with `--force`, and restarts a running Gateway only when the Skill or
+allowed Origin changed. Start a new OpenClaw conversation after a Skill refresh
+so an existing transcript cannot preserve obsolete routing instructions.
 
 Save the one-time connection credential locally in `~/.openclaw/.env`, with mode `0600`:
 
