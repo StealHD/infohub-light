@@ -581,6 +581,25 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await page.mouse.move(0, 0)
 
   await expect(subscriptionCard.getByRole('button', { name: '更多操作：OpenAI Blog' })).toHaveCount(0)
+  const notificationSwitch = subscriptionCard.getByRole('switch', { name: '新内容通知：OpenAI Blog' })
+  await notificationSwitch.focus()
+  await expect(notificationSwitch).toBeFocused()
+  const notificationUpdate = page.waitForResponse((response) => {
+    const request = response.request()
+    return (
+      new URL(response.url()).pathname === '/api/me/subscriptions/subscription-1'
+      && request.method() === 'PATCH'
+      && response.ok()
+    )
+  })
+  if (testInfo.project.name === 'mobile') {
+    await notificationSwitch.click()
+  } else {
+    await page.keyboard.press('Space')
+  }
+  await notificationUpdate
+  await expect(notificationSwitch).toBeChecked()
+
   await editSource.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'OpenAI Blog · 来源设置' })).toBeVisible()
@@ -588,13 +607,6 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(page.getByRole('dialog', { name: 'OpenAI Blog · 来源设置' })).toHaveCount(0)
   await expect(editSource).toBeFocused()
 
-  const notificationSwitch = subscriptionCard.getByRole('switch', { name: '新内容通知：OpenAI Blog' })
-  if (testInfo.project.name === 'mobile') {
-    await notificationSwitch.click()
-  } else {
-    await notificationSwitch.press('Space')
-  }
-  await expect(notificationSwitch).toBeChecked()
   await subscriptionCard.getByRole('button', { name: '配置 OpenAI Blog 订阅' }).click()
   const subscriptionDialog = page.getByRole('dialog', { name: 'OpenAI Blog · 订阅设置' })
   await expect(subscriptionDialog.getByRole('switch', { name: /新内容通知/ })).toHaveCount(0)
