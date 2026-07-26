@@ -2,7 +2,6 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
-  snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}',
   testIgnore: [
     '**/heroui-workbench-preview.spec.ts',
     '**/design-system-contract.spec.ts',
@@ -15,7 +14,7 @@ export default defineConfig({
   reporter: 'line',
   use: {
     baseURL: 'http://127.0.0.1:4174',
-    channel: 'chrome',
+    channel: process.env.PLAYWRIGHT_USE_BUNDLED_CHROMIUM === '1' ? undefined : 'chrome',
     trace: 'retain-on-failure',
   },
   webServer: {
