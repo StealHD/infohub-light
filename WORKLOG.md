@@ -2973,3 +2973,8 @@
 - 任务：启动 `codex/subscription-ui-rss-initial-window` 改动分支的本地容器
 - 结果：从隔离 worktree 无缓存构建分支镜像，复用原工作区运行配置与数据重建 API/Worker；`127.0.0.1:8080`、liveness、readiness 和分支 revision 均验证通过
 - 安全边界：未启动 scheduler、手动采集、AI、付费供应商或通知流程
+
+### 2026-07-26 19:21 Codex
+- 任务：将订阅界面与 RSS 首次抓取窗口改动合并到本地 `main`
+- 执行验证：合并前 `main` 与 `origin/main` 均为 `2b6d078`；功能提交 `9b24eac` 经独立干净 worktree 合并，合并后 `test_gate full` 22/22 通过且 `mapping_miss=false`
+- 安全边界：另一任务的未提交 worktree 保持不变；未推送 GitHub，未启动 scheduler、真实采集、AI、付费供应商或通知流程
