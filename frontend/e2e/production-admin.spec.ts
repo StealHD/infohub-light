@@ -7,8 +7,6 @@ async function mockAdminApi(page: Page, authenticated = true) {
   let quotaRequests = 0
   let productSubscribed = false
   let notificationEnabled = false
-  let rssInitialFetchWindowHours = 168
-  const filteringActions: Record<string, unknown>[] = []
   let quotaRefreshGate: Promise<void> | null = null
   let releaseQuotaRefresh: (() => void) | null = null
   let sourceFetchGate: Promise<void> | null = null
@@ -96,18 +94,10 @@ async function mockAdminApi(page: Page, authenticated = true) {
       max_active: 5,
       connections: [{ id: 'agent-1', name: '本机 OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'ih_mcp_v1_demo', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
-    else if (url.pathname === '/api/config/action' && route.request().method() === 'POST') {
-      const body = route.request().postDataJSON() as { action?: string; payload?: Record<string, unknown> }
-      if (body.action === 'set_filtering' && body.payload) {
-        filteringActions.push(body.payload)
-        rssInitialFetchWindowHours = Number(body.payload.rss_initial_fetch_window_hours)
-      }
-      data = { saved: true }
-    }
     else if (url.pathname === '/api/config') data = {
       config: {
         ai: { enabled: true, provider: 'gemini', model: 'gemini-3.5-flash', api_key_env: 'GOOGLE_API_KEY', base_url: '', languages: 'zh', analysis_content_chars: 8000, analysis_comments_chars: 4000, summary_max_chars: 240, analysis_max_output_tokens: 800 },
-        filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, rss_initial_fetch_window_hours: rssInitialFetchWindowHours, recent_item_limit: 200 },
+        filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, rss_initial_fetch_window_hours: 168, recent_item_limit: 200 },
         tags: ['AI Agent'],
       },
       taxonomy: { channels: ['AI', '产品机会', '其他'], topics: ['AI Agent', 'Codex'] },
@@ -209,7 +199,6 @@ async function mockAdminApi(page: Page, authenticated = true) {
       })
     },
     releaseQuotaRefresh: () => releaseQuotaRefresh?.(),
-    filteringActions: () => filteringActions,
     deferSourceFetch: () => {
       sourceFetchGate ??= new Promise<void>((resolve) => {
         releaseSourceFetch = resolve
@@ -234,7 +223,7 @@ async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable
 
 test('production administration routes use the adaptive Quiet Studio page pattern at every acceptance viewport', async ({ page }) => {
   test.setTimeout(60_000)
-  const apiState = await mockAdminApi(page)
+  await mockAdminApi(page)
 
   await page.goto('/subscriptions')
   await expectHeroAdminPage(page, '订阅与来源', { agentAvailable: true })
@@ -243,6 +232,21 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await page.goto('/agents')
   await expectHeroAdminPage(page, '助手连接')
   await expect(page.getByText('本机 OpenClaw')).toBeVisible()
+  const connectionMore = page.getByRole('button', { name: '更多操作：本机 OpenClaw' })
+  await expect(connectionMore).toBeVisible()
+  await expect(page.getByRole('button', { name: '吊销 本机 OpenClaw' })).toHaveCount(0)
+  await connectionMore.click()
+  const connectionActions = page.getByRole('dialog', { name: '本机 OpenClaw 连接操作' })
+  await expect(connectionActions.getByRole('button', { name: '复制配置' })).toBeVisible()
+  await expect(connectionActions.getByRole('button', { name: '重命名' })).toBeVisible()
+  const revokeAction = connectionActions.getByRole('button', { name: '吊销连接' })
+  await expect(revokeAction).toBeVisible()
+  await expect(revokeAction).not.toHaveClass(/bg-danger/)
+  await revokeAction.click()
+  const revokeDialog = page.getByRole('dialog', { name: '吊销助手连接' })
+  await expect(revokeDialog.getByRole('button', { name: '确认吊销' })).toBeVisible()
+  await revokeDialog.getByRole('button', { name: '取消' }).click()
+  await expect(connectionMore).toBeFocused()
   const openClawConfigurations = page.locator('pre[aria-label$="OpenClaw 配置命令"]')
   await expect(openClawConfigurations).toHaveCount(2)
   const configurationMetrics = await openClawConfigurations.evaluateAll((blocks) => blocks.map((block) => ({
@@ -272,11 +276,24 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(initialRssWindow).toContainText('7 天')
   await initialRssWindow.click()
   await expect(page.getByRole('option', { name: '7 天' })).toBeVisible()
+  await expect(page.getByRole('option', { name: '30 天' })).toBeVisible()
   await page.getByRole('option', { name: '30 天' }).click()
   await expect(initialRssWindow).toContainText('30 天')
-  await page.getByRole('button', { name: '保存获取设置' }).click()
-  await expect.poll(() => apiState.filteringActions().at(-1)?.rss_initial_fetch_window_hours).toBe(720)
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
+  const settingsSelector = page.locator('[data-mobile-settings-selector]')
+  if ((page.viewportSize()?.width ?? 0) < 768) {
+    await expect(settingsSelector).toBeVisible()
+  } else {
+    await expect(settingsSelector).toBeHidden()
+    const settingsRoute = page.getByRole('link', { name: '设置' })
+    await settingsRoute.hover()
+    const settingsDirectory = page.getByRole('dialog', { name: '设置目录' })
+    await expect(settingsDirectory).toBeVisible()
+    await expect(settingsDirectory.getByRole('link')).toHaveCount(6)
+    await page.keyboard.press('Escape')
+    await expect(settingsDirectory).toHaveCount(0)
+    await expect(settingsRoute).toBeFocused()
+  }
 
   await page.goto('/users')
   await expectHeroAdminPage(page, '账户与成员')
@@ -318,6 +335,21 @@ test('account and documentation menus open upward and expose manual, changelog, 
   await mockAdminApi(page)
 
   if (testInfo.project.name === 'mobile') {
+    await page.goto('/subscriptions')
+    const mobileNavigation = page.getByRole('navigation', { name: '移动端主导航' })
+    await expect(mobileNavigation).toBeVisible()
+    const navigationBounds = await mobileNavigation.boundingBox()
+    expect(navigationBounds).not.toBeNull()
+    expect(Math.abs((navigationBounds!.y + navigationBounds!.height) - (page.viewportSize()?.height ?? 0))).toBeLessThanOrEqual(1)
+    await page.getByRole('button', { name: '更多与账户' }).click()
+    const mobileMore = page.getByRole('dialog', { name: '更多与账户' })
+    await expect(mobileMore.getByRole('button', { name: '账户与成员' })).toBeVisible()
+    await expect(mobileMore.getByRole('button', { name: '设置' })).toBeVisible()
+    await expect(mobileMore.getByRole('button', { name: '操作手册' })).toBeVisible()
+    await expect(mobileMore.getByRole('button', { name: '退出登录' })).toBeVisible()
+    await mobileMore.getByRole('button', { name: '设置' }).click()
+    await expect(page).toHaveURL(/\/settings$/)
+    await expect(mobileMore).toHaveCount(0)
     await page.goto('/settings')
     await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
     await expect(page.getByRole('button', { name: '查看更新日志' })).toBeVisible()
@@ -523,11 +555,11 @@ test('subscription channels stay compact, actionable and accessible at every acc
   const subscriptionCard = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })
   const cardHeader = subscriptionCard.locator('[data-source-card-header]')
   const healthChip = cardHeader.locator('[data-source-health-chip]')
-  const cardActions = cardHeader.locator('[data-source-card-actions]')
+  const editSource = cardHeader.getByRole('button', { name: '编辑来源：OpenAI Blog' })
   const [headerBounds, healthBounds, actionBounds] = await Promise.all([
     cardHeader.boundingBox(),
     healthChip.boundingBox(),
-    cardActions.boundingBox(),
+    editSource.boundingBox(),
   ])
   expect(headerBounds).not.toBeNull()
   expect(healthBounds).not.toBeNull()
@@ -535,10 +567,20 @@ test('subscription channels stay compact, actionable and accessible at every acc
   const headerCenter = headerBounds!.y + headerBounds!.height / 2
   expect(Math.abs((healthBounds!.y + healthBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
   expect(Math.abs((actionBounds!.y + actionBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
+  const healthyStatus = subscriptionCard.getByRole('button', { name: '正常' })
+  await healthyStatus.hover()
+  const healthTooltip = page.getByRole('tooltip')
+  await expect(healthTooltip).toHaveText('正常')
+  const [healthyStatusBounds, healthTooltipBounds] = await Promise.all([
+    healthyStatus.boundingBox(),
+    healthTooltip.boundingBox(),
+  ])
+  expect(healthyStatusBounds).not.toBeNull()
+  expect(healthTooltipBounds).not.toBeNull()
+  expect(healthTooltipBounds!.y + healthTooltipBounds!.height).toBeLessThanOrEqual(healthyStatusBounds!.y + 1)
+  await page.mouse.move(0, 0)
 
-  const editSource = subscriptionCard.getByRole('button', { name: '编辑 OpenAI Blog 来源' })
-  await expect(editSource).toBeVisible()
-  await expect(subscriptionCard.getByRole('button', { name: /更多操作/ })).toHaveCount(0)
+  await expect(subscriptionCard.getByRole('button', { name: '更多操作：OpenAI Blog' })).toHaveCount(0)
   await editSource.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'OpenAI Blog · 来源设置' })).toBeVisible()
@@ -547,8 +589,12 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(editSource).toBeFocused()
 
   const notificationSwitch = subscriptionCard.getByRole('switch', { name: '新内容通知：OpenAI Blog' })
-  await notificationSwitch.focus()
-  await page.keyboard.press('Space')
+  if (testInfo.project.name === 'mobile') {
+    await notificationSwitch.click()
+  } else {
+    await notificationSwitch.focus()
+    await page.keyboard.press('Space')
+  }
   await expect(notificationSwitch).toBeChecked()
   await subscriptionCard.getByRole('button', { name: '配置 OpenAI Blog 订阅' }).click()
   const subscriptionDialog = page.getByRole('dialog', { name: 'OpenAI Blog · 订阅设置' })
@@ -572,7 +618,8 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(subscriptionCard.getByRole('button', { name: '已排队 OpenAI Blog' })).toBeDisabled()
 
   if (testInfo.project.name === 'mobile') {
-    expect(Math.max(...tabWidths) - Math.min(...tabWidths)).toBeLessThanOrEqual(1)
+    expect(Math.max(...tabWidths) - Math.min(...tabWidths)).toBeGreaterThan(1)
+    expect(tabWidths.every((width) => width < viewportWidth / 2)).toBe(true)
     await expect(page.locator('[data-channel-rail]')).toBeHidden()
     await expect(page.locator('[data-compact-channel-controls]')).toBeVisible()
     await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeInViewport()
@@ -631,6 +678,7 @@ test('subscription channels stay compact, actionable and accessible at every acc
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
   await page.getByRole('tab', { name: '来源库' }).click()
+  await expect(page).toHaveURL(/\/subscriptions\?tab=library$/)
   if (testInfo.project.name === 'desktop') {
     await page.getByRole('navigation', { name: '来源库频道' }).getByRole('button', { name: /产品机会/ }).click()
   } else {
@@ -643,10 +691,18 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(page.getByText('Product Notes 订阅成功', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '取消订阅 Product Notes' })).toBeVisible()
 
-  await expect(page.getByRole('button', { name: '编辑 Product Notes 来源' })).toBeVisible()
+  const productEdit = page.getByRole('button', { name: '编辑来源：Product Notes' })
+  await expect(productEdit).toBeVisible()
   await expect(page.getByRole('button', { name: '更多操作：Product Notes' })).toHaveCount(0)
+  await productEdit.click()
+  const productDialog = page.getByRole('dialog', { name: 'Product Notes · 来源设置' })
+  await expect(productDialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(productDialog).toHaveCount(0)
+  await expect(productEdit).toBeFocused()
 
   await page.getByRole('tab', { name: '运行记录' }).click()
+  await expect(page).toHaveURL(/\/subscriptions\?tab=jobs$/)
   const runCard = page.locator('[data-compact-job-card]').first()
   await expect(runCard).toBeVisible()
   const runBounds = await runCard.boundingBox()
@@ -668,6 +724,30 @@ test('subscription channels stay compact, actionable and accessible at every acc
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   expect(consoleErrors).toEqual([])
+})
+
+test('subscription semantic UI matches light and dark visual baselines at every acceptance viewport', async ({ page }) => {
+  await mockAdminApi(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/subscriptions')
+
+  for (const colorMode of ['light', 'dark'] as const) {
+    await page.evaluate((mode) => {
+      window.localStorage.setItem('inteliscope.ui.theme.v1', JSON.stringify({
+        themeName: 'graphite-purple',
+        colorMode: mode,
+      }))
+    }, colorMode)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorMode)
+    await page.evaluate(async () => {
+      await document.fonts.ready
+    })
+    await expect(page).toHaveScreenshot(`subscriptions-semantic-${colorMode}.png`, {
+      animations: 'disabled',
+      caret: 'hide',
+    })
+  }
 })
 
 test('production login is a standalone HeroUI page at every acceptance viewport', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
@@ -9,7 +9,6 @@ import {
   actionToast,
   Button,
   Card,
-  Chip,
   FieldError,
   Form,
   Icons,
@@ -18,7 +17,13 @@ import {
   LoadingState,
   Modal,
   PageFrame,
+  Popover,
+  Separator,
+  StatusIndicator,
   TextField,
+  Tooltip,
+  TooltipTriggerButton,
+  topAnchoredTooltipProps,
 } from '../../design-system'
 import { OpenClawCredentialVault } from '../openclaw/openclawCredentialVault'
 import { forgetOpenClawBrowser } from '../openclaw/openclawDevice'
@@ -72,9 +77,9 @@ function dateTime(value: string) {
 }
 
 function statusLabel(connection: AgentDelegation) {
-  if (connection.status === 'active') return { label: '有效', color: 'success' as const }
-  if (connection.status === 'expired') return { label: '已过期', color: 'warning' as const }
-  return { label: '已吊销', color: 'default' as const }
+  if (connection.status === 'active') return { label: '有效', tone: 'success' as const, icon: <Icons.CircleCheck size={13} aria-hidden="true" /> }
+  if (connection.status === 'expired') return { label: '已过期', tone: 'warning' as const, icon: <Icons.ClockAlert size={13} aria-hidden="true" /> }
+  return { label: '已吊销', tone: 'neutral' as const, icon: <Icons.CircleSlash2 size={13} aria-hidden="true" /> }
 }
 
 function accessLabel(access: AgentDelegationAccess) {
@@ -130,6 +135,60 @@ function DialogFrame({ title, children, footer, dismissable = true, testId }: {
   </Modal.Backdrop>
 }
 
+type ConnectionAction = 'copy' | 'rename' | 'revoke' | 'delete'
+
+function ConnectionCardActions({
+  connection,
+  open,
+  onOpenChange,
+  onAction,
+}: {
+  connection: AgentDelegation
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onAction: (action: ConnectionAction, trigger: HTMLButtonElement | null) => void
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dangerAction = connection.status === 'active'
+    ? { action: 'revoke' as const, label: '吊销连接', icon: Icons.Unplug }
+    : connection.status === 'revoked'
+      ? { action: 'delete' as const, label: '删除记录', icon: Icons.Trash2 }
+      : null
+
+  function choose(action: ConnectionAction) {
+    onAction(action, triggerRef.current)
+  }
+
+  return <Popover isOpen={open} onOpenChange={onOpenChange}>
+    <Popover.Trigger<'button'>
+      ref={triggerRef}
+      aria-label={`更多操作：${connection.name}`}
+      className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11"
+      render={(triggerProps) => <button {...triggerProps} type="button" />}
+    ><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
+    <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-44 p-0">
+      <Popover.Dialog aria-label={`${connection.name} 连接操作`} className="grid gap-0.5 p-2">
+        <Button variant="ghost" className="w-full justify-start" onPress={() => choose('copy')}>
+          <Icons.Copy size={15} aria-hidden="true" />复制配置
+        </Button>
+        <Button variant="ghost" className="w-full justify-start" onPress={() => choose('rename')}>
+          <Icons.Pencil size={15} aria-hidden="true" />重命名
+        </Button>
+        {dangerAction && <>
+          <Separator className="my-1" />
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-danger"
+            onPress={() => choose(dangerAction.action)}
+          >
+            <dangerAction.icon size={15} aria-hidden="true" />{dangerAction.label}
+          </Button>
+        </>}
+      </Popover.Dialog>
+    </Popover.Content>
+  </Popover>
+}
+
 export function OpenClawBrowserSettings({
   userId,
   enabled,
@@ -151,6 +210,8 @@ export function OpenClawBrowserSettings({
   const [forgetError, setForgetError] = useState('')
   const [forgetOpen, setForgetOpen] = useState(false)
   const [forgetPending, setForgetPending] = useState(false)
+  const saveAddressRef = useRef<HTMLButtonElement>(null)
+  const forgetTriggerRef = useRef<HTMLButtonElement>(null)
   const defaultVault = useMemo(() => new OpenClawCredentialVault(), [])
   const vault = providedVault ?? defaultVault
 
@@ -176,6 +237,14 @@ export function OpenClawBrowserSettings({
     }
   }
 
+  function closeForgetDialog() {
+    setForgetOpen(false)
+    setForgetError('')
+    window.requestAnimationFrame(() => {
+      ;(forgetTriggerRef.current ?? saveAddressRef.current)?.focus()
+    })
+  }
+
   async function confirmForget() {
     setForgetPending(true)
     setForgetError('')
@@ -188,7 +257,7 @@ export function OpenClawBrowserSettings({
         clearTranscripts: clearOpenClawTranscript,
       })
       setPaired(false)
-      setForgetOpen(false)
+      closeForgetDialog()
       actionToast.success(result === 'not-paired'
         ? '当前浏览器已无可删除的 OpenClaw 配对'
         : 'OpenClaw 服务端设备和当前浏览器配对已删除')
@@ -211,18 +280,31 @@ export function OpenClawBrowserSettings({
           <Input aria-label="OpenClaw Gateway URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
           {urlError && <FieldError>{urlError}</FieldError>}
         </TextField>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
-          <Button
-            size="sm"
-            variant="danger"
-            isDisabled={!paired || forgetPending}
-            onPress={() => { setForgetError(''); setForgetOpen(true) }}
-          >忘记此浏览器</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button ref={saveAddressRef} size="sm" variant="ghost" onPress={saveUrl}>保存地址</Button>
+          {paired && <Tooltip delay={250}>
+            <TooltipTriggerButton
+              ref={forgetTriggerRef}
+              aria-label="忘记此浏览器"
+              disabled={forgetPending}
+              className="size-8 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
+              onClick={() => { setForgetError(''); setForgetOpen(true) }}
+            ><Icons.Unplug size={16} aria-hidden="true" /></TooltipTriggerButton>
+            <Tooltip.Content {...topAnchoredTooltipProps}>忘记此浏览器</Tooltip.Content>
+          </Tooltip>}
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Chip size="sm" color={paired ? 'success' : 'default'} variant="soft"><Chip.Label>{paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}</Chip.Label></Chip>
+        <StatusIndicator
+          iconOnly
+          label={paired === null ? '正在检查配对' : paired ? '此浏览器已配对' : '此浏览器未配对'}
+          tone={paired === null ? 'accent' : paired ? 'success' : 'neutral'}
+          icon={paired === null
+            ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            : paired
+              ? <Icons.CircleCheck size={13} aria-hidden="true" />
+              : <Icons.CircleDashed size={13} aria-hidden="true" />}
+        />
         {enabled && <a className="type-control text-accent" href="/feed">打开信息流对话面板</a>}
       </div>
       <p className="type-meta mt-2 text-muted">确认忘记后会先从 OpenClaw Gateway 移除当前设备；只有服务端成功或设备已不存在时，才会清除本地对话和配对凭据。</p>
@@ -230,15 +312,15 @@ export function OpenClawBrowserSettings({
     </AdminSection>
     <Modal isOpen={forgetOpen} onOpenChange={(open) => {
       if (forgetPending) return
-      setForgetOpen(open)
-      if (!open) setForgetError('')
+      if (open) setForgetOpen(true)
+      else closeForgetDialog()
     }}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开移除浏览器配对</Modal.Trigger>
       <DialogFrame
         title="移除 OpenClaw 浏览器配对"
         dismissable={!forgetPending}
         footer={<>
-          <Button variant="ghost" isDisabled={forgetPending} onPress={() => setForgetOpen(false)}>取消</Button>
+          <Button variant="ghost" isDisabled={forgetPending} onPress={closeForgetDialog}>取消</Button>
           <Button variant="danger" isDisabled={forgetPending} onPress={() => void confirmForget()}>
             {forgetPending ? '正在移除…' : '确认移除并忘记'}
           </Button>
@@ -269,6 +351,8 @@ export function HeroAgentsPage() {
   const [renameName, setRenameName] = useState('')
   const [revokeTarget, setRevokeTarget] = useState<AgentDelegation | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AgentDelegation | null>(null)
+  const [openConnectionMenuId, setOpenConnectionMenuId] = useState<string | null>(null)
+  const connectionActionTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [createError, setCreateError] = useState('')
   const [renameError, setRenameError] = useState('')
   const [revokeError, setRevokeError] = useState('')
@@ -277,6 +361,30 @@ export function HeroAgentsPage() {
   const writeConfiguration = useMemo(() => agentConfiguration(query.data?.mcp_url || '<MCP_URL>', 'subscriptions_write'), [query.data?.mcp_url])
   const oneTimeConfiguration = oneTimeCredential?.access === 'subscriptions_write' ? writeConfiguration : readConfiguration
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.agentDelegations(user.id) })
+
+  function restoreConnectionActionFocus() {
+    const trigger = connectionActionTriggerRef.current
+    window.requestAnimationFrame(() => trigger?.focus())
+  }
+
+  function closeRenameDialog() {
+    setRenameTarget(null)
+    setRenameName('')
+    setRenameError('')
+    restoreConnectionActionFocus()
+  }
+
+  function closeRevokeDialog() {
+    setRevokeTarget(null)
+    setRevokeError('')
+    restoreConnectionActionFocus()
+  }
+
+  function closeDeleteDialog() {
+    setDeleteTarget(null)
+    setDeleteError('')
+    restoreConnectionActionFocus()
+  }
 
   function openCreateDialog() {
     setCreateName('')
@@ -306,9 +414,7 @@ export function HeroAgentsPage() {
   const rename = useMutation({
     mutationFn: () => api.renameAgentDelegation(renameTarget!.id, renameName.trim()),
     onSuccess: () => {
-      setRenameTarget(null)
-      setRenameName('')
-      setRenameError('')
+      closeRenameDialog()
       actionToast.success('连接名称已更新')
       refresh()
     },
@@ -317,8 +423,7 @@ export function HeroAgentsPage() {
   const revoke = useMutation({
     mutationFn: () => api.revokeAgentDelegation(revokeTarget!.id),
     onSuccess: () => {
-      setRevokeTarget(null)
-      setRevokeError('')
+      closeRevokeDialog()
       actionToast.success('连接已永久吊销')
       refresh()
     },
@@ -327,8 +432,7 @@ export function HeroAgentsPage() {
   const deleteRecord = useMutation({
     mutationFn: () => api.deleteAgentDelegationRecord(deleteTarget!.id),
     onSuccess: () => {
-      setDeleteTarget(null)
-      setDeleteError('')
+      closeDeleteDialog()
       actionToast.success('已删除连接记录')
       refresh()
     },
@@ -341,6 +445,37 @@ export function HeroAgentsPage() {
       actionToast.success(message)
     } catch {
       actionToast.danger('复制失败', { description: '无法写入剪贴板，请手动复制。' })
+    }
+  }
+
+  function chooseConnectionAction(
+    connection: AgentDelegation,
+    action: ConnectionAction,
+    trigger: HTMLButtonElement | null,
+  ) {
+    connectionActionTriggerRef.current = trigger
+    setOpenConnectionMenuId(null)
+    if (action === 'copy') {
+      void copy(
+        agentConfiguration(query.data?.mcp_url || '<MCP_URL>', connection.access),
+        `${connection.name} 配置已复制。`,
+      ).finally(restoreConnectionActionFocus)
+      return
+    }
+    if (action === 'rename') {
+      setRenameError('')
+      setRenameTarget(connection)
+      setRenameName(connection.name)
+      return
+    }
+    if (action === 'revoke' && connection.status === 'active') {
+      setRevokeError('')
+      setRevokeTarget(connection)
+      return
+    }
+    if (action === 'delete' && connection.status === 'revoked') {
+      setDeleteError('')
+      setDeleteTarget(connection)
     }
   }
 
@@ -375,8 +510,13 @@ export function HeroAgentsPage() {
           const status = statusLabel(connection)
           return <Card key={connection.id} variant="secondary" className="p-4">
             <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center">
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><Chip size="sm" color={status.color} variant="soft"><Chip.Label>{status.label}</Chip.Label></Chip><Chip size="sm" variant="soft"><Chip.Label>{accessLabel(connection.access)}</Chip.Label></Chip></div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
-              <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" aria-label={`复制 ${connection.name} 配置`} onPress={() => void copy(agentConfiguration(query.data.mcp_url, connection.access), `${connection.name} 配置已复制。`)}><Icons.Copy size={15} />复制配置</Button><Button size="sm" variant="ghost" aria-label={`重命名 ${connection.name}`} onPress={() => { setRenameError(''); setRenameTarget(connection); setRenameName(connection.name) }}>重命名</Button>{connection.status === 'revoked' ? <Button size="sm" variant="danger" aria-label={`删除 ${connection.name}`} onPress={() => { setDeleteError(''); setDeleteTarget(connection) }}>删除</Button> : <Button size="sm" variant="danger" isDisabled={connection.status !== 'active'} aria-label={`吊销 ${connection.name}`} onPress={() => { setRevokeError(''); setRevokeTarget(connection) }}>吊销</Button>}</div>
+              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><StatusIndicator iconOnly label={status.label} tone={status.tone} icon={status.icon} /><span className="type-meta inline-flex items-center gap-1 text-muted"><Icons.LockKeyhole size={12} aria-hidden="true" />{accessLabel(connection.access)}</span></div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
+              <ConnectionCardActions
+                connection={connection}
+                open={openConnectionMenuId === connection.id}
+                onOpenChange={(open) => setOpenConnectionMenuId(open ? connection.id : null)}
+                onAction={(action, trigger) => chooseConnectionAction(connection, action, trigger)}
+              />
             </div>
           </Card>
         })}
@@ -438,28 +578,28 @@ export function HeroAgentsPage() {
       </DialogFrame>
     </Modal>
 
-    <Modal isOpen={Boolean(renameTarget)} onOpenChange={(open) => !open && !rename.isPending && setRenameTarget(null)}>
+    <Modal isOpen={Boolean(renameTarget)} onOpenChange={(open) => !open && !rename.isPending && closeRenameDialog()}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开重命名连接</Modal.Trigger>
-      <DialogFrame title="重命名助手连接" footer={<><Button variant="ghost" onPress={() => setRenameTarget(null)}>取消</Button><Button isDisabled={!renameName.trim() || rename.isPending} onPress={() => rename.mutate()}>保存名称</Button></>}>
+      <DialogFrame title="重命名助手连接" dismissable={!rename.isPending} footer={<><Button variant="ghost" isDisabled={rename.isPending} onPress={closeRenameDialog}>取消</Button><Button isDisabled={!renameName.trim() || rename.isPending} onPress={() => rename.mutate()}>{rename.isPending ? '保存中…' : '保存名称'}</Button></>}>
         <TextField autoFocus fullWidth isRequired value={renameName} onChange={setRenameName}><Label>连接名称</Label><Input maxLength={80} /></TextField>
         {renameError && <div className="mt-4"><HeroNotice title={renameError} /></div>}
       </DialogFrame>
     </Modal>
 
-    <Modal isOpen={Boolean(revokeTarget)} onOpenChange={(open) => !open && !revoke.isPending && setRevokeTarget(null)}>
+    <Modal isOpen={Boolean(revokeTarget)} onOpenChange={(open) => !open && !revoke.isPending && closeRevokeDialog()}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开吊销连接</Modal.Trigger>
-      <DialogFrame title="吊销助手连接" footer={<><Button variant="ghost" onPress={() => setRevokeTarget(null)}>取消</Button><Button variant="danger" isDisabled={revoke.isPending} onPress={() => revoke.mutate()}>确认吊销</Button></>}>
+      <DialogFrame title="吊销助手连接" dismissable={!revoke.isPending} footer={<><Button variant="ghost" isDisabled={revoke.isPending} onPress={closeRevokeDialog}>取消</Button><Button variant="danger" isDisabled={revoke.isPending} onPress={() => revoke.mutate()}>{revoke.isPending ? '正在吊销…' : '确认吊销'}</Button></>}>
         <p className="type-body text-muted">吊销后无法恢复，OpenClaw 的下一次请求会立即失败。需要恢复时请创建新连接。</p>
         {revokeError && <div className="mt-4"><HeroNotice title={revokeError} /></div>}
       </DialogFrame>
     </Modal>
 
-    <Modal isOpen={Boolean(deleteTarget)} onOpenChange={(open) => !open && !deleteRecord.isPending && setDeleteTarget(null)}>
+    <Modal isOpen={Boolean(deleteTarget)} onOpenChange={(open) => !open && !deleteRecord.isPending && closeDeleteDialog()}>
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开删除连接</Modal.Trigger>
       <DialogFrame
         title="删除已吊销连接"
         dismissable={!deleteRecord.isPending}
-        footer={<><Button variant="ghost" isDisabled={deleteRecord.isPending} onPress={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" isDisabled={deleteRecord.isPending} onPress={() => deleteRecord.mutate()}>{deleteRecord.isPending ? '正在删除…' : '确认删除'}</Button></>}
+        footer={<><Button variant="ghost" isDisabled={deleteRecord.isPending} onPress={closeDeleteDialog}>取消</Button><Button variant="danger" isDisabled={deleteRecord.isPending} onPress={() => deleteRecord.mutate()}>{deleteRecord.isPending ? '正在删除…' : '确认删除'}</Button></>}
       >
         <p className="type-body text-muted">只会删除这一条已吊销连接记录，不会影响其他连接。删除后无法恢复。</p>
         {deleteError && <div className="mt-4"><HeroNotice title={deleteError} /></div>}

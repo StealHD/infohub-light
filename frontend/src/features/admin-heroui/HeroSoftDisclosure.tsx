@@ -36,7 +36,7 @@ export function HeroSoftDisclosure({
     <div
       id={contentId}
       aria-hidden={!open}
-      className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none ${open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+      className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
     >
       <div className="min-h-0 overflow-hidden">
         <div className="px-2 pb-2 pt-1">{children}</div>

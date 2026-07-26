@@ -7,9 +7,10 @@ import {
   AvatarRoot,
   Button,
   Card,
-  Chip,
   Icons,
+  MetaTag,
   Modal,
+  Popover,
   Skeleton,
   Tooltip,
   TooltipTriggerButton,
@@ -97,12 +98,15 @@ function WorkbenchCard({
   expanded,
   inContext,
   contextFull,
+  contextCount,
+  actionMenuOpen,
   detailLoading,
   detailError,
   readonly,
   onToggleExpanded,
   onToggleSaved,
   onToggleContext,
+  onActionMenuOpenChange,
   onItemAction,
   onOpenMedia,
 }: {
@@ -110,12 +114,15 @@ function WorkbenchCard({
   expanded: boolean
   inContext: boolean
   contextFull: boolean
+  contextCount: number
+  actionMenuOpen: boolean
   detailLoading?: boolean
   detailError?: boolean
   readonly?: boolean
   onToggleExpanded: () => void
   onToggleSaved: () => void
   onToggleContext: () => void
+  onActionMenuOpenChange: (open: boolean) => void
   onItemAction: (dismissed: boolean) => void
   onOpenMedia: (index: number, trigger: HTMLButtonElement) => void
 }) {
@@ -126,6 +133,7 @@ function WorkbenchCard({
   const sourceParts = workbenchSourceLabels(card)
   const [copyNotice, setCopyNotice] = useState('')
   const copyNoticeTimer = useRef<number | undefined>(undefined)
+  const actionMenuTriggerRef = useRef<HTMLDivElement>(null)
   const {
     overflow: measuredOverflow,
     primaryRef: measurePrimary,
@@ -145,6 +153,15 @@ function WorkbenchCard({
 
   useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
 
+  function setActionMenuOpen(open: boolean) {
+    onActionMenuOpenChange(open)
+    if (!open) {
+      window.requestAnimationFrame(() => {
+        if (actionMenuTriggerRef.current?.isConnected) actionMenuTriggerRef.current.focus()
+      })
+    }
+  }
+
   async function copySummary() {
     window.clearTimeout(copyNoticeTimer.current)
     try {
@@ -154,6 +171,7 @@ function WorkbenchCard({
     } catch {
       setCopyNotice('复制失败，请手动复制')
     }
+    setActionMenuOpen(false)
     copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(''), 2800)
   }
 
@@ -252,14 +270,17 @@ function WorkbenchCard({
     <Card.Footer className="flex items-center gap-2 px-[19px] pb-[15px] pt-[10px]">
       <div
         data-card-expand-zone={canToggleExpansion ? 'true' : 'false'}
-        className={`flex min-w-0 flex-1 flex-wrap items-center gap-1.5 self-stretch rounded-lg py-1 text-left ${canToggleExpansion ? 'cursor-pointer' : ''}`}
+        className="type-meta flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 self-stretch py-1 text-left text-muted"
         aria-label="内容分类、频道和主题"
-        onClick={canToggleExpansion ? onToggleExpanded : undefined}
       >
-        <Chip size="sm" variant="soft" className="type-micro"><Chip.Label>{card.formatLabel}</Chip.Label></Chip>
-        {imageCountLabel && <Chip size="sm" variant="soft" className="type-micro"><Chip.Label>{imageCountLabel}</Chip.Label></Chip>}
-        <Chip size="sm" color="accent" variant="soft" className="type-micro"><Chip.Label>{card.channel}</Chip.Label></Chip>
-        {card.topics.slice(0, 3).map((topic) => <Chip key={topic} size="sm" variant="soft" className="type-micro"><Chip.Label>{topic}</Chip.Label></Chip>)}
+        <span>{card.formatLabel}</span>
+        {imageCountLabel && <>
+          <span aria-hidden="true">·</span>
+          <span>{card.mediaTruncated ? `图片 ${card.displayImageCount}/${card.totalImageCount}` : `图片 ${card.totalImageCount}`}</span>
+        </>}
+        <MetaTag tone="accent">{card.channel}</MetaTag>
+        {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
+        {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
       </div>
       {canToggleExpansion && <Tooltip delay={600}>
         <TooltipTriggerButton
@@ -297,37 +318,45 @@ function WorkbenchCard({
           >{card.userState.is_saved ? <Icons.BookmarkCheck size={15} aria-hidden="true" /> : <Icons.Bookmark size={15} aria-hidden="true" />}</TooltipTriggerButton>
           <Tooltip.Content {...topAnchoredTooltipProps}>{card.userState.is_saved ? '从收藏中移除' : '加入收藏'}</Tooltip.Content>
         </Tooltip>
-        <Tooltip delay={600}>
-          <TooltipTriggerButton
-            data-context-state={inContext ? 'selected' : 'idle'}
-            className="size-8 rounded-lg bg-transparent text-muted active:scale-95 hover:bg-default hover:text-foreground pointer-coarse:size-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 data-[context-state=selected]:hover:bg-accent/25 data-[context-state=selected]:hover:text-accent motion-reduce:transform-none"
-            disabled={contextFull && !inContext}
-            aria-pressed={inContext}
-            aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
-            onClick={onToggleContext}
-          ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></TooltipTriggerButton>
-          <Tooltip.Content {...topAnchoredTooltipProps}>{inContext ? '从 Agent 上下文移除' : '加入 Agent 上下文'}</Tooltip.Content>
-        </Tooltip>
-        <details className="relative">
-          <Tooltip delay={600}>
-            <Tooltip.Trigger<'summary'> render={(triggerProps) => <summary
-              {...triggerProps}
-              role="button"
-              aria-label={`更多操作 ${cardLabel}`}
-              className={`${triggerProps.className ?? ''} flex size-8 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none`}
-            ><Icons.MoreHorizontal size={16} aria-hidden="true" /></summary>} />
-            <Tooltip.Content {...topAnchoredTooltipProps}>复制摘要或忽略这条内容</Tooltip.Content>
-          </Tooltip>
-          <div className="absolute bottom-10 right-0 z-20 grid min-w-32 gap-1 rounded-xl border border-separator bg-overlay p-1 shadow-lg">
-            <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left" onClick={() => void copySummary()}>
-              <Icons.Copy size={14} aria-hidden="true" />复制摘要
-            </button>
-            {copyNotice && <span role="status" aria-live="polite" className="type-meta px-3 py-1 text-muted">{copyNotice}</span>}
-            <button disabled={readonly} type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left disabled:opacity-40" onClick={() => onItemAction(!card.userState.dismissed)}>
-              <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
-            </button>
-          </div>
-        </details>
+        <button
+          type="button"
+          data-context-state={inContext ? 'selected' : 'idle'}
+          className="type-control inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg bg-transparent px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:min-h-11 data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 motion-reduce:transform-none"
+          disabled={contextFull && !inContext}
+          aria-pressed={inContext}
+          aria-label={`将 ${cardLabel} ${inContext ? '移出' : '加入'} Agent 上下文`}
+          onClick={onToggleContext}
+        >
+          <Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" />
+          <span>{inContext ? `已加入 ${contextCount}/8` : '问 Agent'}</span>
+        </button>
+        <Popover isOpen={actionMenuOpen} onOpenChange={setActionMenuOpen}>
+          <Popover.Trigger
+            ref={actionMenuTriggerRef}
+            aria-label={`更多操作 ${cardLabel}`}
+            title="复制摘要或忽略这条内容"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus active:scale-95 pointer-coarse:size-11 motion-reduce:transform-none"
+          ><Icons.MoreHorizontal size={16} aria-hidden="true" /></Popover.Trigger>
+          <Popover.Content placement="top end" offset={6} className="z-40 min-w-36 p-0">
+            <Popover.Dialog aria-label={`${cardLabel} 更多操作`} className="grid gap-1 p-1">
+              <button type="button" className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus" onClick={() => void copySummary()}>
+                <Icons.Copy size={14} aria-hidden="true" />复制摘要
+              </button>
+              <button
+                disabled={readonly}
+                type="button"
+                className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40"
+                onClick={() => {
+                  setActionMenuOpen(false)
+                  onItemAction(!card.userState.dismissed)
+                }}
+              >
+                <Icons.EyeOff size={14} aria-hidden="true" />{card.userState.dismissed ? '取消忽略' : '忽略'}
+              </button>
+            </Popover.Dialog>
+          </Popover.Content>
+        </Popover>
+        {copyNotice && <span role="status" aria-live="polite" className="sr-only">{copyNotice}</span>}
       </div>
     </Card.Footer>
   </Card>
@@ -356,9 +385,15 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
   const [newItemCount, setNewItemCount] = useState(0)
+  const [openActionCardId, setOpenActionCardId] = useState<string | null>(null)
   const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null)
+  const [mediaLoading, setMediaLoading] = useState(false)
+  const [mediaError, setMediaError] = useState(false)
+  const [mediaRetryKey, setMediaRetryKey] = useState(0)
   const mediaTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const mediaSwipeStart = useRef<number | null>(null)
   const mediaViewerOpen = mediaViewer !== null
+  const activeMediaUrl = mediaViewer?.images[mediaViewer.index]?.url
   const initialTargetIndex = props.navigationTargetId
     ? props.cards.findIndex((card) => card.id === props.navigationTargetId)
     : freshEdge === 'start' ? 0 : props.cards.length - 1
@@ -416,6 +451,21 @@ export function VirtualFeed(props: VirtualFeedProps) {
     window.addEventListener('keydown', navigateWithArrowKey)
     return () => window.removeEventListener('keydown', navigateWithArrowKey)
   }, [mediaViewerOpen])
+
+  useEffect(() => {
+    if (!activeMediaUrl) return
+    setMediaLoading(true)
+    setMediaError(false)
+    if (!mediaViewer || mediaViewer.images.length < 2 || typeof Image === 'undefined') return
+    const neighborIndexes = [
+      (mediaViewer.index - 1 + mediaViewer.images.length) % mediaViewer.images.length,
+      (mediaViewer.index + 1) % mediaViewer.images.length,
+    ]
+    neighborIndexes.forEach((index) => {
+      const image = new Image()
+      image.src = mediaViewer.images[index]?.url ?? ''
+    })
+  }, [activeMediaUrl, mediaRetryKey, mediaViewer])
 
   const releaseNavigationOwnership = useCallback(() => {
     requestedRefreshAnchor.current = null
@@ -714,12 +764,15 @@ export function VirtualFeed(props: VirtualFeedProps) {
               expanded={card.id === props.expandedId}
               inContext={props.contextIds.includes(card.id)}
               contextFull={props.contextIds.length >= 8}
+              contextCount={props.contextIds.length}
+              actionMenuOpen={openActionCardId === card.id}
               detailLoading={card.id === props.expandedId && props.detailLoading}
               detailError={card.id === props.expandedId && props.detailError}
               readonly={props.readonly}
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
               onToggleContext={() => props.onToggleContext(card)}
+              onActionMenuOpenChange={(open) => setOpenActionCardId(open ? card.id : null)}
               onItemAction={(dismissed) => props.onItemAction(card.id, dismissed)}
               onOpenMedia={(index, trigger) => openMediaViewer(card, index, trigger)}
             />
@@ -752,15 +805,48 @@ export function VirtualFeed(props: VirtualFeedProps) {
                 aria-label="关闭图片预览"
                 className="z-20 size-11 rounded-full bg-background/80 text-foreground hover:bg-default"
               />
-              <Modal.Body className="relative m-0 grid min-h-0 place-items-center overflow-hidden p-0 text-foreground">
+              <Modal.Body
+                className="relative m-0 grid min-h-0 touch-pan-y place-items-center overflow-hidden bg-default/40 p-0 pb-20 text-foreground"
+                onPointerDown={(event) => {
+                  if (event.pointerType === 'mouse') return
+                  mediaSwipeStart.current = event.clientX
+                  event.currentTarget.setPointerCapture?.(event.pointerId)
+                }}
+                onPointerUp={(event) => {
+                  const start = mediaSwipeStart.current
+                  mediaSwipeStart.current = null
+                  if (start === null || mediaViewer?.images.length === 1) return
+                  const distance = event.clientX - start
+                  if (Math.abs(distance) >= 48) moveMediaViewer(distance > 0 ? -1 : 1)
+                }}
+                onPointerCancel={() => { mediaSwipeStart.current = null }}
+              >
+                {mediaLoading && !mediaError && <Skeleton aria-label="正在加载图片" className="absolute inset-[10%] rounded-2xl" />}
                 {activeMedia && <img
-                  key={activeMedia.url}
+                  key={`${activeMedia.url}:${mediaRetryKey}`}
                   src={activeMedia.url}
                   alt={activeMedia.alt || `${mediaViewer?.cardLabel || '内容'} 图片 ${(mediaViewer?.index ?? 0) + 1}`}
-                  className="max-h-full max-w-full object-contain"
+                  className={`z-[1] max-h-full max-w-full object-contain transition-opacity motion-reduce:transition-none ${mediaLoading || mediaError ? 'opacity-0' : 'opacity-100'}`}
                   width={activeMedia.width}
                   height={activeMedia.height}
+                  onLoad={() => {
+                    setMediaLoading(false)
+                    setMediaError(false)
+                  }}
+                  onError={() => {
+                    setMediaLoading(false)
+                    setMediaError(true)
+                  }}
                 />}
+                {mediaError && <div role="alert" className="z-[2] grid justify-items-center gap-3 rounded-2xl bg-background/90 p-5 text-center">
+                  <Icons.ImageOff size={28} className="text-muted" aria-hidden="true" />
+                  <p className="type-control">图片加载失败</p>
+                  <Button size="sm" variant="secondary" onPress={() => {
+                    setMediaError(false)
+                    setMediaLoading(true)
+                    setMediaRetryKey((value) => value + 1)
+                  }}>重试这张图片</Button>
+                </div>}
                 {mediaViewer && <p
                   role="status"
                   aria-live="polite"
@@ -782,6 +868,18 @@ export function VirtualFeed(props: VirtualFeedProps) {
                     aria-label="下一张图片"
                     onPress={() => moveMediaViewer(1)}
                   ><Icons.ChevronRight size={22} aria-hidden="true" /></Button>
+                  <div aria-label="图片缩略图" className="quiet-scroll-region absolute inset-x-14 bottom-3 z-10 flex justify-center gap-2 overflow-x-auto">
+                    {mediaViewer.images.map((image, index) => <button
+                      key={image.url}
+                      type="button"
+                      aria-label={`切换到第 ${index + 1} 张图片`}
+                      aria-current={index === mediaViewer.index ? 'true' : undefined}
+                      className={`size-12 shrink-0 overflow-hidden rounded-lg border-2 bg-background/80 focus-visible:outline-2 focus-visible:outline-focus ${index === mediaViewer.index ? 'border-accent' : 'border-transparent opacity-70 hover:opacity-100'}`}
+                      onClick={() => setMediaViewer((current) => current ? { ...current, index } : current)}
+                    >
+                      <img src={image.url} alt="" className="size-full object-cover" loading="eager" />
+                    </button>)}
+                  </div>
                 </>}
               </Modal.Body>
             </div>

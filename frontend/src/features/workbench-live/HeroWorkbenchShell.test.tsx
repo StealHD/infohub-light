@@ -68,11 +68,14 @@ const api = {
   feedItem: vi.fn().mockImplementation((id: string) => Promise.resolve(contextItem(id))),
   latestFeed: vi.fn().mockResolvedValue({ generated_at: '2026-07-18T08:05:00Z', updated_at: '2026-07-18T08:05:00Z', items: [] }),
   sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
+  sources: vi.fn().mockResolvedValue({ sources: [] }),
+  subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+  jobs: vi.fn().mockResolvedValue({ jobs: [] }),
 } as unknown as ServiceApi
 
 function LocationProbe() {
   const location = useLocation()
-  return <output data-testid="location-probe">{location.pathname}</output>
+  return <output data-testid="location-probe">{`${location.pathname}${location.search}${location.hash}`}</output>
 }
 
 function Shell({
@@ -164,6 +167,32 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
+  it('opens the role-scoped settings directory from collapsed and expanded sidebar focus', async () => {
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'settings-directory', username: 'settings', role: 'member', enabled: true }} />)
+
+    const collapsedSettings = screen.getByRole('link', { name: '设置' })
+    expect(collapsedSettings).toHaveAttribute('data-sidebar-nav-item', 'collapsed')
+    await browser.hover(collapsedSettings)
+    expect(screen.queryByRole('dialog', { name: '设置目录' })).not.toBeInTheDocument()
+    const collapsedDirectory = await screen.findByRole('dialog', { name: '设置目录' })
+    expect(within(collapsedDirectory).getAllByRole('link')).toHaveLength(4)
+    expect(within(collapsedDirectory).queryByRole('link', { name: '获取与主题' })).not.toBeInTheDocument()
+
+    await browser.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '设置目录' })).not.toBeInTheDocument())
+    await waitFor(() => expect(collapsedSettings).toHaveFocus())
+
+    await browser.click(screen.getByRole('button', { name: '展开侧栏' }))
+    const expandedSettings = screen.getAllByRole('link', { name: '设置' })
+      .find((candidate) => candidate.getAttribute('data-sidebar-nav-item') === 'expanded')
+    if (!expandedSettings) throw new Error('expanded Settings route was not rendered')
+    expandedSettings.focus()
+    const expandedDirectory = await screen.findByRole('dialog', { name: '设置目录' })
+    await browser.click(within(expandedDirectory).getByRole('link', { name: '消息通知' }))
+    expect(screen.getByTestId('location-probe')).toHaveTextContent('/settings#settings-notifications')
+  })
+
   it('uses an Inteliscope mark and applies quick views before navigating to Feed', async () => {
     const browser = userEvent.setup()
     render(<Shell path="/settings" user={{ id: 'quick-view', username: 'quick', role: 'member', enabled: true }} />)
@@ -243,6 +272,27 @@ describe('HeroWorkbenchShell sidebar preference', () => {
     expect(onLogout).not.toHaveBeenCalled()
 
     await browser.click(screen.getByRole('button', { name: '退出登录' }))
+    expect(onLogout).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps account routes and logout reachable from the safe-area mobile More sheet', async () => {
+    useViewport(390)
+    const browser = userEvent.setup()
+    const onLogout = vi.fn()
+    render(<Shell user={{ id: 'mobile-account', username: 'mobile', role: 'member', enabled: true }} onLogout={onLogout} />)
+
+    const navigation = screen.getByRole('navigation', { name: '移动端主导航' })
+    expect(navigation).toHaveClass('pb-[env(safe-area-inset-bottom)]', 'grid-cols-5')
+    const trigger = within(navigation).getByRole('button', { name: '更多与账户' })
+    await browser.click(trigger)
+
+    const sheet = screen.getByRole('dialog', { name: '更多与账户' })
+    expect(sheet).toHaveClass('pb-[env(safe-area-inset-bottom)]')
+    expect(within(sheet).getByRole('button', { name: '账户与成员' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: '设置' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: '操作手册' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('href', PRODUCT_RELEASES_URL)
+    await browser.click(within(sheet).getByRole('button', { name: '退出登录' }))
     expect(onLogout).toHaveBeenCalledTimes(1)
   })
 })
@@ -345,13 +395,16 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
     const statusContainer = document.querySelector('[data-agent-header-status]') as HTMLElement
+    expect(screen.getByText('OpenClaw 对话')).toBeInTheDocument()
     expect(statusContainer).toHaveClass('items-center', 'self-center')
     const statusReveal = document.querySelector('[data-loading-reveal="agent-status"]') as HTMLElement
     expect(statusReveal).toHaveClass(
       '[&_[data-content-layer]]:items-center',
       '[&_[data-content-layer]]:justify-center',
     )
-    expect(statusReveal.querySelector('[data-slot="chip"]')).toHaveClass('self-center')
+    expect(statusReveal.querySelector('[data-status-indicator]')).toHaveClass('self-center')
+    expect(statusReveal).toHaveTextContent('OpenClaw')
+    expect(statusContainer.querySelectorAll('[data-status-indicator]')).toHaveLength(1)
     expect(api.agentDelegations).toHaveBeenCalled()
   })
 
@@ -540,6 +593,61 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     await browser.click(reveal)
     expect(within(channelSection).getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
     expect(within(channelSection).getAllByText(/AI|产品|投资|生活|政策/)).toHaveLength(5)
+  })
+
+  it('loads subscription statistics independently and deep-links to the requested tab', async () => {
+    const browser = userEvent.setup()
+    const serviceApi = {
+      ...api,
+      subscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
+      }),
+      sources: vi.fn().mockResolvedValue({
+        sources: [{ id: 'source-1' }, { id: 'source-2' }, { id: 'source-3' }],
+      }),
+      jobs: vi.fn().mockResolvedValue({
+        jobs: [
+          { id: 'job-1', user_id: 'insights-stats' },
+          { id: 'job-2', user_id: 'insights-stats' },
+          { id: 'job-other', user_id: 'someone-else' },
+        ],
+      }),
+    } as unknown as ServiceApi
+    render(<Shell
+      user={{ id: 'insights-stats', username: 'stats', role: 'owner', enabled: true }}
+      serviceApi={serviceApi}
+    />)
+
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    const statistics = await screen.findByRole('region', { name: '订阅与运行' })
+    expect(within(statistics).getByRole('button', { name: '我的订阅 2，打开相关页面' })).toBeInTheDocument()
+    expect(within(statistics).getByRole('button', { name: '来源库 3，打开相关页面' })).toBeInTheDocument()
+    expect(within(statistics).getByRole('button', { name: '最近运行 2，打开相关页面' })).toBeInTheDocument()
+    expect(within(statistics).getByText('最近运行只统计最近加载的记录，最多 100 条。')).toBeInTheDocument()
+    expect(serviceApi.sources).toHaveBeenCalledWith(true, expect.any(AbortSignal))
+
+    await browser.click(within(statistics).getByRole('button', { name: '最近运行 2，打开相关页面' }))
+    expect(screen.getByTestId('location-probe')).toHaveTextContent('/subscriptions?tab=jobs')
+  })
+
+  it('uses an em dash instead of a false zero when one statistics request fails', async () => {
+    const browser = userEvent.setup()
+    const serviceApi = {
+      ...api,
+      subscriptions: vi.fn().mockRejectedValue(new Error('subscriptions unavailable')),
+      sources: vi.fn().mockResolvedValue({ sources: [{ id: 'source-1' }] }),
+      jobs: vi.fn().mockRejectedValue(new Error('jobs unavailable')),
+    } as unknown as ServiceApi
+    render(<Shell
+      user={{ id: 'insights-partial', username: 'partial', role: 'member', enabled: true }}
+      serviceApi={serviceApi}
+    />)
+
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    const statistics = await screen.findByRole('region', { name: '订阅与运行' })
+    expect(await within(statistics).findByRole('button', { name: '我的订阅暂时无法读取' })).toHaveTextContent('—')
+    expect(within(statistics).getByRole('button', { name: '来源库 1，打开相关页面' })).toBeEnabled()
+    expect(await within(statistics).findByRole('button', { name: '最近运行暂时无法读取' })).toHaveTextContent('—')
   })
 
   it('uses the same Quiet Studio header for collection routes', async () => {

@@ -20,6 +20,7 @@ import {
   mergeOpenClawTranscript,
   openClawTranscriptStorageKey,
   projectChatHistory,
+  projectOpenClawAgentEvent,
   projectOpenClawContextUsage,
   projectOpenClawRuntime,
   useOpenClawChat,
@@ -81,6 +82,47 @@ const session = {
 }
 
 describe('useOpenClawChat', () => {
+  it('projects only bounded, allowlisted agent activity and drops private payload data', () => {
+    const projected = projectOpenClawAgentEvent({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-safe',
+        runId: 'run-safe',
+        seq: 4,
+        stream: 'tool',
+        ts: 1_725_000_000_000,
+        data: {
+          phase: 'start',
+          name: 'mcp__inteliscope__diagnose_source',
+          toolCallId: 'call-safe',
+          args: { token: 'NEVER_RENDER_TOKEN', url: 'https://secret.example' },
+          result: 'NEVER_RENDER_RESULT',
+          meta: { raw: 'NEVER_RENDER_META' },
+          error: 'NEVER_RENDER_ERROR',
+        },
+      },
+    }, 'session-safe')
+
+    expect(projected).toEqual({
+      runId: 'run-safe',
+      seq: 4,
+      stream: 'tool',
+      phase: 'start',
+      timestamp: 1_725_000_000_000,
+      toolCallId: 'call-safe',
+      toolKey: 'diagnose_source',
+      toolLabel: '诊断来源',
+      failed: false,
+    })
+    expect(JSON.stringify(projected)).not.toMatch(/NEVER_RENDER|secret\.example/u)
+    expect(projectOpenClawAgentEvent({
+      type: 'event',
+      event: 'agent',
+      payload: { sessionKey: 'other', runId: 'run-safe', seq: 5, stream: 'thinking', data: { text: 'private reasoning' } },
+    }, 'session-safe')).toBeNull()
+  })
+
   beforeEach(() => {
     window.sessionStorage.clear()
     vi.mocked(forgetOpenClawBrowser).mockReset()
@@ -621,7 +663,10 @@ describe('useOpenClawChat', () => {
     let gatewayEvent: ((event: GatewayEvent) => void) | undefined
     let historyCalls = 0
     let resolveSend: ((value: { runId: string }) => void) | undefined
+    let resolveLateSend: ((value: { runId: string }) => void) | undefined
+    let sendCalls = 0
     const sendResult = new Promise<{ runId: string }>((resolve) => { resolveSend = resolve })
+    const lateSendResult = new Promise<{ runId: string }>((resolve) => { resolveLateSend = resolve })
     const request = vi.fn(async (method: string) => {
       if (method === 'tools.effective') return { groups: [] }
       if (method === 'chat.history') {
@@ -633,7 +678,10 @@ describe('useOpenClawChat', () => {
       if (method === 'models.list') return models
       if (method === 'agents.list') return agents
       if (method === 'sessions.describe') return session
-      if (method === 'chat.send') return sendResult
+      if (method === 'chat.send') {
+        sendCalls += 1
+        return sendCalls === 1 ? sendResult : lateSendResult
+      }
       throw new Error(`unexpected method ${method}`)
     })
     const clientFactory = vi.fn((options: { onEvent?: (event: GatewayEvent) => void }) => {
@@ -668,6 +716,11 @@ describe('useOpenClawChat', () => {
     const storedBeforeGateway = window.sessionStorage.getItem(openClawTranscriptStorageKey(
       'user-atomic', 'ws://127.0.0.1:18789', 'session-atomic',
     ))
+    expect(result.current.runTrace).toMatchObject({
+      phase: 'sending',
+      status: 'running',
+      activities: [],
+    })
     expect(storedBeforeGateway).toContain('必须保留的问题')
     expect(JSON.parse(storedBeforeGateway || '{}').messages[0]).toMatchObject({
       role: 'user',
@@ -695,6 +748,30 @@ describe('useOpenClawChat', () => {
     ))
     expect(storedAfterHistory).toContain('必须保留的问题')
     expect(storedAfterHistory).not.toContain('INTELISCOPE_PRIVATE_GATEWAY_PROMPT')
+
+    let lateSend: Promise<boolean> | undefined
+    act(() => {
+      lateSend = result.current.send({
+        displayText: '首字前停止',
+        gatewayPrompt: 'PRIVATE_LATE_PROMPT',
+        contextItems: [],
+      })
+    })
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'chat',
+      payload: { state: 'aborted', sessionKey: 'session-atomic', runId: 'run-late' },
+    }))
+    expect(result.current.isRunning).toBe(false)
+    expect(result.current.runTrace).toMatchObject({ phase: 'aborted', status: 'aborted' })
+
+    await act(async () => {
+      resolveLateSend?.({ runId: 'run-late' })
+      await lateSend
+    })
+    expect(result.current.isRunning).toBe(false)
+    expect(result.current.runTrace).toMatchObject({ phase: 'aborted', status: 'aborted' })
+    expect(result.current.messages.find((message) => message.text === '首字前停止')).toMatchObject({ status: 'sent' })
   })
 
   it('restores a session, uses real model metadata, sends separate display text and retains a partial aborted reply', async () => {
@@ -774,8 +851,88 @@ describe('useOpenClawChat', () => {
     }))
     expect(result.current.messages.at(-1)).toMatchObject({ role: 'user', text: '分析 article-1', contextCount: 1, status: 'sent' })
 
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-1',
+        runId: 'run-1',
+        seq: 1,
+        stream: 'thinking',
+        ts: Date.now(),
+        data: { text: 'PRIVATE_CHAIN_OF_THOUGHT' },
+      },
+    }))
+    expect(result.current.runTrace).toMatchObject({ runId: 'run-1', phase: 'thinking', status: 'running' })
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-1',
+        runId: 'run-1',
+        seq: 2,
+        stream: 'tool',
+        ts: Date.now(),
+        data: {
+          phase: 'start',
+          name: 'mcp__inteliscope__get_item',
+          toolCallId: 'call-item',
+          args: { article_id: 'PRIVATE_ARTICLE_ID' },
+        },
+      },
+    }))
+    expect(result.current.runTrace).toMatchObject({
+      phase: 'using_tool',
+      activities: [expect.objectContaining({ label: '接收 1 条上下文', status: 'completed' }), expect.objectContaining({ label: '读取文章详情', status: 'running' })],
+    })
+    expect(JSON.stringify(result.current.runTrace)).not.toMatch(/PRIVATE_CHAIN_OF_THOUGHT|PRIVATE_ARTICLE_ID/u)
+    const activitiesAfterStart = result.current.runTrace?.activities
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-1',
+        runId: 'run-1',
+        seq: 2,
+        stream: 'tool',
+        data: { phase: 'start', name: 'mcp__inteliscope__get_item', toolCallId: 'call-item' },
+      },
+    }))
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-1',
+        runId: 'other-run',
+        seq: 99,
+        stream: 'tool',
+        data: { phase: 'start', name: 'mcp__inteliscope__diagnose_job', toolCallId: 'wrong-run' },
+      },
+    }))
+    expect(result.current.runTrace?.activities).toEqual(activitiesAfterStart)
+    act(() => gatewayEvent?.({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-1',
+        runId: 'run-1',
+        seq: 3,
+        stream: 'tool',
+        ts: Date.now(),
+        data: {
+          phase: 'result',
+          name: 'mcp__inteliscope__get_item',
+          toolCallId: 'call-item',
+          result: 'PRIVATE_TOOL_RESULT',
+        },
+      },
+    }))
+    expect(result.current.runTrace?.activities.at(-1)).toMatchObject({ label: '读取文章详情', status: 'completed' })
+    expect(JSON.stringify(result.current.runTrace)).not.toContain('PRIVATE_TOOL_RESULT')
+
     act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'delta', sessionKey: 'session-1', runId: 'run-1', seq: 1, deltaText: '流式回复' } }))
     expect(result.current.streamText).toBe('流式回复')
+    expect(result.current.runTrace?.phase).toBe('streaming')
     const firstStreamCreatedAt = result.current.streamCreatedAt
     expect(firstStreamCreatedAt).toEqual(expect.any(Number))
     const now = vi.spyOn(Date, 'now').mockReturnValue((firstStreamCreatedAt ?? 0) + 60_000)
@@ -787,6 +944,7 @@ describe('useOpenClawChat', () => {
     act(() => gatewayEvent?.({ type: 'event', event: 'chat', payload: { state: 'aborted', sessionKey: 'session-1', runId: 'run-1' } }))
     expect(result.current.streamText).toBe('')
     expect(result.current.messages.at(-1)).toMatchObject({ role: 'assistant', text: '流式回复继续', status: 'aborted' })
+    expect(result.current.runTrace).toMatchObject({ status: 'aborted', phase: 'aborted' })
 
     await act(async () => {
       await result.current.send({ displayText: '第二个问题', gatewayPrompt: 'second gateway prompt', contextItems: [] })

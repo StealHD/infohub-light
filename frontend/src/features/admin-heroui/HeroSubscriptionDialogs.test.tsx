@@ -18,7 +18,18 @@ const source: CatalogSource = {
   enabled: true,
 }
 
-function renderSubscriptionForm(subscription: Subscription) {
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
+
+function renderSubscriptionForm(subscription: Subscription, options: {
+  api?: Partial<ServiceApi>
+  onDone?: () => void
+  onJob?: (kind: 'test' | 'fetch', sourceId: string, subscriptionId: string) => Promise<void>
+  onPendingChange?: (pending: boolean) => void
+} = {}) {
   const api = {
     updateSubscription: vi.fn().mockResolvedValue(subscription),
     updateSourceSchedule: vi.fn().mockResolvedValue({
@@ -27,6 +38,7 @@ function renderSubscriptionForm(subscription: Subscription) {
       worker_status: 'ready',
     }),
     unsubscribe: vi.fn(),
+    ...options.api,
   } as unknown as ServiceApi
   const token = { userId: 'user-1', generation: 0 }
   const context = {
@@ -49,8 +61,9 @@ function renderSubscriptionForm(subscription: Subscription) {
             source={source}
             readonly={false}
             taxonomy={{ channels: [], topics: [] }}
-            onDone={vi.fn()}
-            onJob={vi.fn()}
+            onDone={options.onDone ?? vi.fn()}
+            onJob={options.onJob ?? vi.fn()}
+            onPendingChange={options.onPendingChange}
           />} />
         </Route>
       </Routes>
@@ -60,7 +73,7 @@ function renderSubscriptionForm(subscription: Subscription) {
 }
 
 describe('SubscriptionForm notification ownership', () => {
-  it('does not submit notification state when analysis changes to personal only', async () => {
+  it('does not render or submit notifications when analysis changes to personal only', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
       id: 'subscription-1',
@@ -77,15 +90,18 @@ describe('SubscriptionForm notification ownership', () => {
     await browser.click(screen.getByRole('button', { name: /分析模式/ }))
     await browser.click(await screen.findByRole('option', { name: '仅收集' }))
 
-    await browser.click(screen.getByRole('button', { name: '保存订阅' }))
+    await browser.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalled())
-    const [, payload] = vi.mocked(api.updateSubscription).mock.calls[0]
-    expect(payload).toEqual(expect.objectContaining({ analysis_mode: 'personal_only' }))
-    expect(payload).not.toHaveProperty('notify_on_new_items')
+    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalledWith(
+      subscription.id,
+      expect.objectContaining({
+        analysis_mode: 'personal_only',
+      }),
+    ))
+    expect(vi.mocked(api.updateSubscription).mock.calls[0]?.[1]).not.toHaveProperty('notify_on_new_items')
   })
 
-  it('does not overwrite a disabled card notification preference on save', async () => {
+  it('leaves an existing notification preference untouched for full analysis', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
       id: 'subscription-2',
@@ -99,15 +115,18 @@ describe('SubscriptionForm notification ownership', () => {
     const api = renderSubscriptionForm(subscription)
 
     expect(screen.queryByRole('switch', { name: /新内容通知/ })).not.toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '保存订阅' }))
+    await browser.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalled())
-    const [, payload] = vi.mocked(api.updateSubscription).mock.calls[0]
-    expect(payload).toEqual(expect.objectContaining({ analysis_mode: 'full' }))
-    expect(payload).not.toHaveProperty('notify_on_new_items')
+    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalledWith(
+      subscription.id,
+      expect.objectContaining({
+        analysis_mode: 'full',
+      }),
+    ))
+    expect(vi.mocked(api.updateSubscription).mock.calls[0]?.[1]).not.toHaveProperty('notify_on_new_items')
   })
 
-  it('does not overwrite an enabled card notification preference when disabling the subscription', async () => {
+  it('does not submit notifications when the subscription is disabled', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
       id: 'subscription-3',
@@ -121,12 +140,63 @@ describe('SubscriptionForm notification ownership', () => {
     const api = renderSubscriptionForm(subscription)
 
     await browser.click(screen.getByRole('checkbox', { name: '启用订阅' }))
+    expect(screen.queryByRole('switch', { name: /新内容通知/ })).not.toBeInTheDocument()
 
-    await browser.click(screen.getByRole('button', { name: '保存订阅' }))
+    await browser.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalled())
-    const [, payload] = vi.mocked(api.updateSubscription).mock.calls[0]
-    expect(payload).toEqual(expect.objectContaining({ enabled: false }))
-    expect(payload).not.toHaveProperty('notify_on_new_items')
+    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalledWith(
+      subscription.id,
+      expect.objectContaining({
+        enabled: false,
+      }),
+    ))
+    expect(vi.mocked(api.updateSubscription).mock.calls[0]?.[1]).not.toHaveProperty('notify_on_new_items')
+  })
+
+  it('requires an explicit second action before unsubscribing', async () => {
+    const browser = userEvent.setup()
+    const subscription: Subscription = {
+      id: 'subscription-unsubscribe',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      analysis_mode: 'full',
+      schedule: { enabled: false, interval_minutes: 360 },
+    }
+    const api = renderSubscriptionForm(subscription)
+
+    await browser.click(screen.getByRole('button', { name: '取消订阅…' }))
+    expect(screen.getByText('确认取消这个订阅？')).toBeInTheDocument()
+    expect(api.unsubscribe).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('button', { name: '确认取消订阅' }))
+    await waitFor(() => expect(api.unsubscribe).toHaveBeenCalledWith(subscription.id))
+  })
+
+  it('locks every form exit while a save is pending', async () => {
+    const browser = userEvent.setup()
+    const updateRequest = deferred<Subscription>()
+    const onPendingChange = vi.fn()
+    const subscription: Subscription = {
+      id: 'subscription-pending',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      analysis_mode: 'full',
+      schedule: { enabled: false, interval_minutes: 360 },
+    }
+    renderSubscriptionForm(subscription, {
+      api: { updateSubscription: vi.fn().mockReturnValue(updateRequest.promise) },
+      onPendingChange,
+    })
+
+    await browser.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(true))
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存并获取' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '仅测试连接' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '取消订阅…' })).toBeDisabled()
+
+    updateRequest.resolve(subscription)
+    await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(false))
   })
 })

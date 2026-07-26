@@ -795,12 +795,9 @@ def _integer_choice(
     allowed: set[int],
 ) -> int:
     raw = payload.get(key, default)
-    if isinstance(raw, (bool, float)):
+    if isinstance(raw, bool) or not isinstance(raw, int):
         raise ValueError(f"{key} 必须是允许的整数选项")
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{key} 必须是允许的整数选项") from exc
+    value = raw
     if value not in allowed:
         choices = " 或 ".join(str(item) for item in sorted(allowed))
         raise ValueError(f"{key} 必须是 {choices}")

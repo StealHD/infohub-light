@@ -218,18 +218,20 @@ describe('VirtualFeed', () => {
     />)
 
     const card = screen.getByRole('article', { name: '信息 1' })
-    const actions = [
+    const compactActions = [
       within(card).getByRole('link', { name: '打开 信息 1 原文' }),
       within(card).getByRole('button', { name: '收藏 信息 1' }),
-      within(card).getByRole('button', { name: '将 信息 1 加入 Agent 上下文' }),
       within(card).getByRole('button', { name: '更多操作 信息 1' }),
     ]
 
-    for (const action of actions) {
+    for (const action of compactActions) {
       expect(action).toHaveClass('size-8')
       expect(action).toHaveClass('pointer-coarse:size-11')
       expect(action.className).not.toContain('min-[768px]:size-8')
     }
+    const agentAction = within(card).getByRole('button', { name: '将 信息 1 加入 Agent 上下文' })
+    expect(agentAction).toHaveClass('min-h-8', 'pointer-coarse:min-h-11')
+    expect(agentAction).toHaveTextContent('问 Agent')
   })
 
   it('does not nest interactive card actions inside tooltip trigger controls', () => {
@@ -288,7 +290,7 @@ describe('VirtualFeed', () => {
     expect(onItemAction).not.toHaveBeenCalled()
   })
 
-  it('uses an icon-only expand control while making the footer labels a separate expand target', async () => {
+  it('uses an explicit expand control while keeping flat footer metadata non-interactive', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()
     const onToggleSaved = vi.fn()
@@ -316,16 +318,17 @@ describe('VirtualFeed', () => {
     expect(expandZone).not.toContainElement(actions)
 
     await user.click(expandZone)
-    expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+    expect(onToggleExpanded).not.toHaveBeenCalled()
     await user.click(expandButton)
-    expect(onToggleExpanded).toHaveBeenCalledTimes(2)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(1)
 
     await user.click(within(actions).getByRole('button', { name: /^收藏 / }))
     await user.click(within(actions).getByRole('button', { name: /^将 .* 加入 Agent 上下文$/ }))
     await user.click(within(actions).getByRole('button', { name: /^更多操作 / }))
     expect(onToggleSaved).toHaveBeenCalledTimes(1)
     expect(onToggleContext).toHaveBeenCalledTimes(1)
-    expect(onToggleExpanded).toHaveBeenCalledTimes(2)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+    await user.keyboard('{Escape}')
 
     fireEvent.pointerEnter(expandButton, { pointerType: 'mouse' })
     expect(await screen.findByRole('tooltip')).toHaveTextContent('展开内容')
@@ -340,6 +343,34 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
     expect(screen.getByRole('button', { name: /^收起 / }).querySelector('.lucide-fold-vertical')).not.toBeNull()
+  })
+
+  it('keeps only one card action menu open at a time', async () => {
+    const user = userEvent.setup()
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1)), toWorkbenchCardModel(makeItem(2))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const firstTrigger = screen.getByRole('button', { name: '更多操作 信息 1' })
+    const secondTrigger = screen.getByRole('button', { name: '更多操作 信息 2' })
+    await user.click(firstTrigger)
+    expect(screen.getByRole('dialog', { name: '信息 1 更多操作' })).toBeInTheDocument()
+
+    secondTrigger.focus()
+    fireEvent.click(secondTrigger)
+    expect(screen.queryByRole('dialog', { name: '信息 1 更多操作' })).not.toBeInTheDocument()
+    const secondDialog = screen.getByRole('dialog', { name: '信息 2 更多操作' })
+    expect(secondDialog).toBeInTheDocument()
+
+    secondDialog.focus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '信息 2 更多操作' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '更多操作 信息 2' })).toHaveFocus())
   })
 
   it('does not render a fake expand control for fully visible short content', () => {
@@ -388,7 +419,7 @@ describe('VirtualFeed', () => {
     />)
 
     expect(screen.getByText('图集')).toBeInTheDocument()
-    expect(screen.getByText('8 张图片 · 可查看 2 张')).toBeInTheDocument()
+    expect(screen.getByText('图片 2/8')).toBeInTheDocument()
     const gallery = screen.getByLabelText('2 张可查看图片')
     expect(gallery.querySelectorAll('img')).toHaveLength(2)
     expect(within(gallery).getByRole('button', { name: '查看第 1 张图片，共 2 张' })).toHaveClass('aspect-[4/3]')
@@ -434,6 +465,37 @@ describe('VirtualFeed', () => {
     await waitFor(() => expect(firstThumbnail).toHaveFocus())
     expect(scroll.scrollTop).toBe(180)
     expect(onToggleExpanded).not.toHaveBeenCalled()
+  })
+
+  it('supports thumbnail navigation, touch swipe and a local broken-image retry', async () => {
+    const user = userEvent.setup()
+    const view = render(<VirtualFeed
+      cards={[toWorkbenchCardModel(galleryItem())]}
+      expandedId="social-x"
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    await user.click(screen.getByRole('button', { name: '查看第 1 张图片，共 2 张' }))
+    const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
+    const thumbnails = within(dialog).getByLabelText('图片缩略图')
+    expect(within(thumbnails).getByRole('button', { name: '切换到第 1 张图片' })).toHaveAttribute('aria-current', 'true')
+    await user.click(within(thumbnails).getByRole('button', { name: '切换到第 2 张图片' }))
+    expect(within(dialog).getByRole('img', { name: '图片二' })).toBeInTheDocument()
+
+    const body = view.baseElement.querySelector<HTMLElement>('[data-slot="modal-body"]')
+    if (!body) throw new Error('image modal body was not rendered')
+    fireEvent.pointerDown(body, { pointerType: 'touch', pointerId: 1, clientX: 220 })
+    fireEvent.pointerUp(body, { pointerType: 'touch', pointerId: 1, clientX: 120 })
+    expect(within(dialog).getByRole('img', { name: '图片一' })).toBeInTheDocument()
+
+    fireEvent.error(within(dialog).getByRole('img', { name: '图片一' }))
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('图片加载失败')
+    await user.click(within(dialog).getByRole('button', { name: '重试这张图片' }))
+    expect(within(dialog).getByLabelText('正在加载图片')).toBeInTheDocument()
   })
 
   it('dismisses the image preview with Escape and by clicking the backdrop', async () => {
@@ -511,8 +573,8 @@ describe('VirtualFeed', () => {
     expect(within(card).getByRole('button', { name: '收藏 信息 1' })).toBeDisabled()
     await user.click(within(card).getByRole('button', { name: '更多操作 信息 1' }))
     expect(within(card).queryByRole('button', { name: /标记.*读/ })).not.toBeInTheDocument()
-    expect(within(card).getByRole('button', { name: '忽略' })).toBeDisabled()
-    await user.click(within(card).getByRole('button', { name: '复制摘要' }))
+    expect(screen.getByRole('button', { name: '忽略' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '复制摘要' }))
     expect(copy).toHaveBeenCalledWith('这是第 1 条摘要')
     expect(await within(card).findByRole('status')).toHaveTextContent('摘要已复制')
   })
@@ -535,7 +597,7 @@ describe('VirtualFeed', () => {
 
     const card = await screen.findByRole('article', { name: '信息 1' })
     await user.click(within(card).getByRole('button', { name: '更多操作 信息 1' }))
-    await user.click(within(card).getByRole('button', { name: '复制摘要' }))
+    await user.click(screen.getByRole('button', { name: '复制摘要' }))
 
     expect(await within(card).findByRole('status')).toHaveTextContent('复制失败，请手动复制')
   })

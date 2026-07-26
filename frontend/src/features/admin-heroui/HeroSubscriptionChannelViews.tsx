@@ -5,17 +5,19 @@ import {
   anchoredTooltipProps,
   Button,
   Card,
-  Chip,
   Icons,
+  MetaTag,
   Modal,
   Popover,
   SearchField,
-  Switch,
+  StatusIndicator,
   Tooltip,
   TooltipTriggerButton,
+  topAnchoredTooltipProps,
 } from '../../design-system'
 import {
   presentSourceHealthIssue,
+  presentSourceHealthStatus,
   sourceScopeLabel,
   sourceTypeLabel,
   type ChannelViewGroup,
@@ -77,17 +79,8 @@ type ChannelLayoutProps<T> = {
 
 type SourceCardActionsProps = {
   source: CatalogSource
-  canEdit: boolean
   canShare: boolean
-  onEditSource: (trigger: HTMLElement) => void
   onShare: (trigger: HTMLElement) => void
-}
-
-const healthLabel: Record<string, string> = {
-  healthy: '正常',
-  degraded: '需关注',
-  failing: '连续失败',
-  unknown: '尚未抓取',
 }
 
 const healthOptions = [
@@ -161,25 +154,34 @@ function SourceHealthStatus({ health, canRetry, canEdit }: { health?: SourceHeal
   const status = health?.status ?? 'unknown'
   const issue = health?.last_issue
   const presentation = health && issue ? presentSourceHealthIssue(health, { canRetry, canEdit }) : null
-  const chip = <Chip
-    data-source-health-chip
-    aria-label={`健康状态：${healthLabel[status]}`}
-    size="sm"
-    color={status === 'healthy' ? 'success' : status === 'failing' ? 'danger' : 'default'}
-    variant="soft"
-    className="shrink-0 self-center"
-  ><Chip.Label>{healthLabel[status]}</Chip.Label></Chip>
+  const healthStatus = presentSourceHealthStatus(status)
+  const icon = healthStatus.icon === 'check'
+    ? <Icons.CircleCheck size={13} aria-hidden="true" />
+    : healthStatus.icon === 'warning'
+      ? <Icons.TriangleAlert size={13} aria-hidden="true" />
+      : healthStatus.icon === 'error'
+        ? <Icons.CircleX size={13} aria-hidden="true" />
+        : <Icons.CircleDashed size={13} aria-hidden="true" />
+  const indicator = <span data-source-health-chip aria-label={`健康状态：${healthStatus.label}`} className="inline-flex shrink-0 self-center">
+    <StatusIndicator
+      iconOnly
+      withTooltip={!issue || !presentation}
+      label={healthStatus.label}
+      tone={healthStatus.tone}
+      icon={icon}
+    />
+  </span>
 
-  if (!health || !issue || !presentation) return chip
+  if (!health || !issue || !presentation) return indicator
   const failureCount = Math.max(health.consecutive_failures || 0, 1)
   return <>
     <Tooltip delay={250}>
       <TooltipTriggerButton
         ref={triggerRef}
         className="h-auto min-h-0 rounded-full p-0"
-        aria-label={`查看 ${healthLabel[status]} 详情`}
+        aria-label={`查看 ${healthStatus.label} 详情`}
         onClick={() => setDetailsOpen(true)}
-      >{chip}</TooltipTriggerButton>
+      >{indicator}</TooltipTriggerButton>
       <Tooltip.Content {...anchoredTooltipProps}>{`已连续 ${failureCount} 次失败：${presentation.reason}`}</Tooltip.Content>
     </Tooltip>
     <Modal isOpen={detailsOpen} onOpenChange={(open) => {
@@ -200,44 +202,73 @@ function SourceHealthStatus({ health, canRetry, canEdit }: { health?: SourceHeal
   </>
 }
 
-function SourceCardActions({ source, canEdit, canShare, onEditSource, onShare }: SourceCardActionsProps) {
-  const [shareTooltipOpen, setShareTooltipOpen] = useState(false)
-  const [editTooltipOpen, setEditTooltipOpen] = useState(false)
-  if (!canEdit && !canShare) return null
+function SourceEditAction({ source, onEditSource }: {
+  source: CatalogSource
+  onEditSource: (trigger: HTMLElement) => void
+}) {
+  return <Tooltip delay={250}>
+    <TooltipTriggerButton
+      aria-label={`编辑来源：${source.display_name}`}
+      className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
+      onClick={(event) => onEditSource(event.currentTarget)}
+    ><Icons.Pencil size={15} aria-hidden="true" /></TooltipTriggerButton>
+    <Tooltip.Content {...topAnchoredTooltipProps}>编辑来源</Tooltip.Content>
+  </Tooltip>
+}
 
-  const runAction = (
-    trigger: HTMLButtonElement,
-    action: (trigger: HTMLElement) => void,
-    closeTooltip: (open: boolean) => void,
-  ) => {
-    closeTooltip(false)
-    trigger.blur()
+function SourceCardActions({ source, canShare, onShare }: SourceCardActionsProps) {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLDivElement>(null)
+  if (!canShare) return null
+
+  const runAction = (action: (trigger: HTMLElement) => void) => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    setOpen(false)
     action(trigger)
   }
 
-  const triggerClassName = 'size-8 shrink-0 rounded-lg bg-transparent text-muted hover:bg-default hover:text-foreground'
-  return <div data-source-card-actions className="flex shrink-0 items-center gap-0.5 self-center">
-    {canShare && <Tooltip delay={600} isOpen={shareTooltipOpen} onOpenChange={setShareTooltipOpen}>
-      <TooltipTriggerButton
-        className={triggerClassName}
-        aria-label={`分享 ${source.display_name}`}
-        onClick={(event) => runAction(event.currentTarget, onShare, setShareTooltipOpen)}
+  return <div data-source-card-actions className="flex shrink-0 items-center self-center">
+    <Popover isOpen={open} onOpenChange={setOpen}>
+      <Popover.Trigger
+        ref={triggerRef}
+        aria-label={`更多操作：${source.display_name}`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-transparent text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11"
       >
-        <Icons.Share2 size={14} aria-hidden="true" />
-      </TooltipTriggerButton>
-      <Tooltip.Content {...anchoredTooltipProps}>分享来源</Tooltip.Content>
-    </Tooltip>}
-    {canEdit && <Tooltip delay={600} isOpen={editTooltipOpen} onOpenChange={setEditTooltipOpen}>
-      <TooltipTriggerButton
-        className={triggerClassName}
-        aria-label={`编辑 ${source.display_name} 来源`}
-        onClick={(event) => runAction(event.currentTarget, onEditSource, setEditTooltipOpen)}
-      >
-        <Icons.Pencil size={14} aria-hidden="true" />
-      </TooltipTriggerButton>
-      <Tooltip.Content {...anchoredTooltipProps}>编辑来源</Tooltip.Content>
-    </Tooltip>}
+        <Icons.MoreHorizontal size={16} aria-hidden="true" />
+      </Popover.Trigger>
+      <Popover.Content placement="bottom end" offset={6} className="z-40 min-w-36 p-0">
+        <Popover.Dialog aria-label={`${source.display_name} 来源操作`} className="grid gap-1 p-1">
+          {canShare && <button
+            type="button"
+            className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus"
+            onClick={() => runAction(onShare)}
+          >
+            <Icons.Share2 size={14} aria-hidden="true" />分享来源
+          </button>}
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   </div>
+}
+
+function notificationDisabledReason({
+  editable,
+  source,
+  subscription,
+  pending,
+}: {
+  editable: boolean
+  source: CatalogSource
+  subscription: Subscription
+  pending: boolean
+}) {
+  if (pending) return '正在保存新内容通知'
+  if (!editable) return '当前账户无权修改新内容通知'
+  if (!source.enabled) return '来源已停用，无法开启通知'
+  if (!subscription.enabled) return '订阅已停用，无法开启通知'
+  if (subscription.analysis_mode === 'personal_only') return '仅个人模式不发送新内容通知'
+  return ''
 }
 
 function ChannelSearch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -443,11 +474,13 @@ export function SubscriptionRows({ items, editable, onFetch, onToggleNotificatio
             <SourceIdentity source={source} detail={`${sourceTypeLabel(source.type)} · ${sourceScopeLabel(source.scope)}`} />
           </div>
           <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
+          {entry.canEdit && <SourceEditAction
+            source={source}
+            onEditSource={(trigger) => onEditSource(source, trigger)}
+          />}
           <SourceCardActions
             source={source}
-            canEdit={entry.canEdit}
             canShare={entry.canShare}
-            onEditSource={(trigger) => onEditSource(source, trigger)}
             onShare={(trigger) => onShare(source, trigger)}
           />
         </div>
@@ -458,21 +491,40 @@ export function SubscriptionRows({ items, editable, onFetch, onToggleNotificatio
             {schedule?.enabled && <span>{schedule.next_run_at ? `下次 ${formatCompactTime(schedule.next_run_at)}` : '等待下次更新'}</span>}
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-            <Switch
-              aria-label={`新内容通知：${source.display_name}`}
-              aria-busy={entry.notificationPending}
-              isSelected={notificationSelected}
-              isDisabled={notificationDisabled}
-              onChange={(enabled) => onToggleNotification(entry, enabled)}
-            >
-              <Switch.Content className="type-meta gap-2 whitespace-nowrap text-muted">
-                <Switch.Control><Switch.Thumb /></Switch.Control>
-                新内容通知
-              </Switch.Content>
-            </Switch>
-            <Button size="sm" variant="ghost" aria-label={`${editable ? '配置' : '查看'} ${source.display_name} 订阅`} onPress={() => onEditSubscription(entry)}>
-              {editable ? '订阅设置' : '查看订阅'}
-            </Button>
+            <Tooltip delay={250}>
+              <TooltipTriggerButton
+                role="switch"
+                aria-label={`新内容通知：${source.display_name}`}
+                aria-checked={notificationSelected}
+                aria-busy={entry.notificationPending}
+                aria-disabled={notificationDisabled}
+                className={`size-8 shrink-0 rounded-lg pointer-coarse:size-11 ${notificationSelected ? 'bg-accent/15 text-accent hover:bg-accent/20' : 'text-muted hover:bg-default hover:text-foreground'} ${notificationDisabled ? 'cursor-not-allowed opacity-45' : ''}`}
+                onClick={() => {
+                  if (!notificationDisabled) onToggleNotification(entry, !notificationSelected)
+                }}
+              >
+                {entry.notificationPending
+                  ? <Icons.LoaderCircle size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  : notificationSelected
+                    ? <Icons.BellRing size={15} aria-hidden="true" />
+                    : <Icons.Bell size={15} aria-hidden="true" />}
+              </TooltipTriggerButton>
+              <Tooltip.Content {...topAnchoredTooltipProps}>
+                {notificationDisabled
+                  ? notificationDisabledReason({ editable, source, subscription, pending: entry.notificationPending })
+                  : notificationSelected
+                    ? '新内容通知已开启，点击关闭'
+                    : '新内容通知已关闭，点击开启'}
+              </Tooltip.Content>
+            </Tooltip>
+            <Tooltip delay={250}>
+              <TooltipTriggerButton
+                aria-label={`${editable ? '配置' : '查看'} ${source.display_name} 订阅`}
+                className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
+                onClick={() => onEditSubscription(entry)}
+              ><Icons.Settings2 size={15} aria-hidden="true" /></TooltipTriggerButton>
+              <Tooltip.Content {...topAnchoredTooltipProps}>{editable ? '订阅设置' : '查看订阅'}</Tooltip.Content>
+            </Tooltip>
             {editable && <span className="inline-flex" aria-busy={fetchBusy || undefined}>
               <Button
                 size="sm"
@@ -517,17 +569,20 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
           <div className="min-w-0 flex-1">
             <SourceIdentity source={source} detail={`${sourceTypeLabel(source.type)} · ${source.description || '暂无说明'}`} />
           </div>
-          <Chip size="sm" variant="soft"><Chip.Label>{sourceScopeLabel(source.scope)}</Chip.Label></Chip>
+          <MetaTag icon={source.scope === 'private' ? <Icons.Lock size={12} aria-hidden="true" /> : <Icons.Globe2 size={12} aria-hidden="true" />}>
+            {sourceScopeLabel(source.scope)}
+          </MetaTag>
+          {entry.canEdit && <SourceEditAction
+            source={source}
+            onEditSource={(trigger) => onEditSource(source, trigger)}
+          />}
           <SourceCardActions
             source={source}
-            canEdit={entry.canEdit}
             canShare={entry.canShare}
-            onEditSource={(trigger) => onEditSource(source, trigger)}
             onShare={(trigger) => onShare(source, trigger)}
           />
         </div>
-        <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-separator pt-2">
-          <Chip size="sm" color={entry.subscribed ? 'success' : 'default'} variant="soft"><Chip.Label>{entry.subscribed ? '已订阅' : '未订阅'}</Chip.Label></Chip>
+        <div className="mt-2 flex min-w-0 flex-wrap items-center justify-end gap-2 border-t border-separator pt-2">
           {entry.subscribed ? <Button
             size="sm"
             variant="ghost"

@@ -82,11 +82,12 @@ export function AdminPageHeader({ description, actions }: { description: string;
   return <PageIntro description={description} actions={actions} />
 }
 
-export function AdminSection({ title, description, children, className = '' }: {
+export function AdminSection({ title, description, children, className = '', id }: {
   title: string
   description?: string
   children: ReactNode
   className?: string
+  id?: string
 }) {
-  return <PageSection title={title} description={description} className={className}>{children}</PageSection>
+  return <PageSection id={id} title={title} description={description} className={className}>{children}</PageSection>
 }

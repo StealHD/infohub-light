@@ -23,6 +23,34 @@ import {
 
 export type OpenClawConnectionStatus = 'disabled' | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 export type OpenClawToolsStatus = 'unknown' | 'available' | 'missing'
+export type OpenClawRunPhase =
+  | 'sending'
+  | 'waiting'
+  | 'thinking'
+  | 'using_tool'
+  | 'composing'
+  | 'streaming'
+  | 'stopping'
+  | 'completed'
+  | 'aborted'
+  | 'failed'
+
+export type OpenClawRunActivity = {
+  id: string
+  label: string
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  startedAt: number
+  endedAt?: number
+}
+
+export type OpenClawRunTrace = {
+  runId: string | null
+  phase: OpenClawRunPhase
+  status: 'running' | 'completed' | 'aborted' | 'failed'
+  startedAt: number
+  endedAt?: number
+  activities: OpenClawRunActivity[]
+}
 
 export type OpenClawChatMessage = {
   id: string
@@ -100,6 +128,18 @@ type ChatEventPayload = {
   errorMessage?: string
 }
 
+export type OpenClawSanitizedAgentEvent = {
+  runId: string
+  seq: number
+  stream: string
+  phase: string | null
+  timestamp: number
+  toolCallId: string | null
+  toolKey: string | null
+  toolLabel: string | null
+  failed: boolean
+}
+
 type OpenClawChatOptions = {
   enabled: boolean
   userId: string
@@ -112,6 +152,26 @@ export const OPENCLAW_GATEWAY_URL_KEY_PREFIX = 'inteliscope.openclaw.gateway.v1:
 export const OPENCLAW_TRANSCRIPT_KEY_PREFIX = 'inteliscope.openclaw.transcript.v1:'
 const MAX_MESSAGES = 100
 const MAX_HISTORY_CHARS = 100_000
+const MAX_RUN_ACTIVITIES = 20
+
+const INTELISCOPE_TOOL_LABELS: Record<string, string> = {
+  get_my_feed: '读取信息流',
+  get_item: '读取文章详情',
+  list_subscriptions: '查看订阅',
+  source_health: '检查来源健康',
+  list_jobs: '查找运行记录',
+  get_job: '读取任务详情',
+  get_source_setup_guide: '读取来源配置指引',
+  search_bilibili_users: '查找 Bilibili 账号',
+  list_available_sources: '查找可用来源',
+  diagnose_source: '诊断来源',
+  diagnose_job: '诊断任务',
+  query_operation_logs: '查询脱敏操作事件',
+  prepare_create_subscription: '准备创建订阅',
+  prepare_update_subscription: '准备更新订阅',
+  prepare_delete_subscription: '准备删除订阅',
+  apply_subscription_change: '应用订阅变更',
+}
 
 type StoredOpenClawTranscriptV1 = {
   version: 1
@@ -380,6 +440,125 @@ function stringOf(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+function safeAgentIdentifier(value: unknown, maxLength = 160): string | null {
+  const candidate = stringOf(value)
+  if (!candidate || candidate.length > maxLength || !/^[a-zA-Z0-9_.:/-]+$/u.test(candidate)) return null
+  return candidate
+}
+
+function projectToolLabel(value: unknown): { key: string | null; label: string } {
+  const identifier = safeAgentIdentifier(value, 200)?.toLocaleLowerCase() ?? null
+  if (!identifier) return { key: null, label: '使用工具' }
+  for (const [key, label] of Object.entries(INTELISCOPE_TOOL_LABELS)) {
+    if (
+      identifier === key
+      || identifier.endsWith(`__${key}`)
+      || identifier.endsWith(`.${key}`)
+      || identifier.endsWith(`/${key}`)
+      || identifier.endsWith(`:${key}`)
+    ) return { key, label }
+  }
+  return { key: null, label: '使用工具' }
+}
+
+export function projectOpenClawAgentEvent(
+  event: GatewayEvent,
+  expectedSessionKey: string,
+): OpenClawSanitizedAgentEvent | null {
+  if (event.event !== 'agent') return null
+  const payload = recordOf(event.payload)
+  if (!payload || stringOf(payload.sessionKey) !== expectedSessionKey) return null
+  const runId = safeAgentIdentifier(payload.runId)
+  const stream = safeAgentIdentifier(payload.stream, 48)?.toLocaleLowerCase()
+  const seqCandidate = payload.seq ?? event.seq
+  const seq = typeof seqCandidate === 'number' && Number.isFinite(seqCandidate) && seqCandidate >= 0
+    ? Math.floor(seqCandidate)
+    : null
+  if (!runId || !stream || seq === null) return null
+  const data = recordOf(payload.data) ?? {}
+  const phase = safeAgentIdentifier(data.phase ?? data.state, 32)?.toLocaleLowerCase() ?? null
+  const tool = stream === 'tool' ? projectToolLabel(data.name) : { key: null, label: '' }
+  const timestamp = typeof payload.ts === 'number' && Number.isFinite(payload.ts) && payload.ts > 0
+    ? payload.ts
+    : Date.now()
+  const status = safeAgentIdentifier(data.status, 32)?.toLocaleLowerCase()
+  return {
+    runId,
+    seq,
+    stream,
+    phase,
+    timestamp,
+    toolCallId: safeAgentIdentifier(data.toolCallId ?? data.callId),
+    toolKey: tool.key,
+    toolLabel: stream === 'tool' ? tool.label : null,
+    failed: data.isError === true || status === 'error' || status === 'failed' || phase === 'error',
+  }
+}
+
+function mergeRunActivity(
+  activities: OpenClawRunActivity[],
+  event: OpenClawSanitizedAgentEvent,
+): OpenClawRunActivity[] {
+  const terminal = event.phase === 'result' || event.phase === 'end' || event.phase === 'done' || event.failed
+  const status: OpenClawRunActivity['status'] = event.failed ? 'failed' : terminal ? 'completed' : 'running'
+  const id = event.toolCallId
+    ?? [...activities].reverse().find((activity) => activity.status === 'running' && activity.id.startsWith(`tool:${event.toolKey ?? 'unknown'}:`))?.id
+    ?? `tool:${event.toolKey ?? 'unknown'}:${event.seq}`
+  const existingIndex = activities.findIndex((activity) => activity.id === id)
+  const next = activities.map((activity) => ({ ...activity }))
+  const activity: OpenClawRunActivity = {
+    id,
+    label: event.toolLabel ?? '使用工具',
+    status,
+    startedAt: existingIndex >= 0 ? next[existingIndex].startedAt : event.timestamp,
+    ...(terminal ? { endedAt: event.timestamp } : {}),
+  }
+  if (existingIndex >= 0) next[existingIndex] = activity
+  else next.push(activity)
+  return next.slice(-MAX_RUN_ACTIVITIES)
+}
+
+function applyAgentEventToTrace(
+  trace: OpenClawRunTrace | null,
+  event: OpenClawSanitizedAgentEvent,
+): OpenClawRunTrace {
+  const current: OpenClawRunTrace = trace ?? {
+    runId: event.runId,
+    phase: 'waiting',
+    status: 'running',
+    startedAt: event.timestamp,
+    activities: [],
+  }
+  if (event.stream === 'tool') {
+    return {
+      ...current,
+      runId: event.runId,
+      phase: 'using_tool',
+      status: 'running',
+      activities: mergeRunActivity(current.activities, event),
+    }
+  }
+  if (event.stream === 'thinking' || event.stream === 'plan') {
+    return { ...current, runId: event.runId, phase: 'thinking', status: 'running' }
+  }
+  if (event.stream === 'assistant') {
+    return { ...current, runId: event.runId, phase: 'composing', status: 'running' }
+  }
+  if (event.stream === 'lifecycle') {
+    if (event.failed || event.phase === 'error') {
+      return { ...current, runId: event.runId, phase: 'failed', status: 'failed', endedAt: event.timestamp }
+    }
+    if (event.phase === 'end' || event.phase === 'done') {
+      return { ...current, runId: event.runId, phase: 'composing', status: 'running' }
+    }
+    return { ...current, runId: event.runId, phase: 'thinking', status: 'running' }
+  }
+  if (event.stream === 'error') {
+    return { ...current, runId: event.runId, phase: 'failed', status: 'failed', endedAt: event.timestamp }
+  }
+  return { ...current, runId: event.runId, phase: 'waiting', status: 'running' }
+}
+
 function contextUsageRecord(value: unknown, expectedSessionKey: string): Record<string, unknown> | null {
   const root = recordOf(value)
   if (!root) return null
@@ -636,8 +815,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [streamText, setStreamText] = useState('')
   const [streamCreatedAt, setStreamCreatedAt] = useState<number | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
+  const [runTrace, setRunTrace] = useState<OpenClawRunTrace | null>(null)
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [issue, setIssue] = useState<OpenClawSetupIssue | null>(null)
   const [sessionKey, setSessionKey] = useState<string | null>(null)
   const [models, setModels] = useState<OpenClawModelOption[]>([])
@@ -657,8 +838,14 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const agentIdRef = useRef<string | null>(null)
   const sessionKeyRef = useRef<string | null>(null)
   const runIdRef = useRef<string | null>(null)
+  const runTraceRef = useRef<OpenClawRunTrace | null>(null)
+  const pendingSendRef = useRef(false)
+  const sendAttemptRef = useRef(0)
+  const terminalSendAttemptsRef = useRef(new Set<number>())
+  const agentEventSeqRef = useRef(new Map<string, number>())
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectDelayRef = useRef(1000)
+  const reconnectAttemptRef = useRef(0)
   const generationRef = useRef(0)
   const manualCloseRef = useRef(false)
   const automaticConnectKeyRef = useRef<string | null>(null)
@@ -670,6 +857,61 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const terminalRunIdsRef = useRef(new Set<string>())
   const thinkingLevelRef = useRef<string | null>(null)
   const setModelRef = useRef<(modelId: string | null) => Promise<boolean>>(async () => false)
+
+  const updateRunTrace = useCallback((
+    update: OpenClawRunTrace | null | ((current: OpenClawRunTrace | null) => OpenClawRunTrace | null),
+  ) => {
+    setRunTrace((current) => {
+      const next = typeof update === 'function' ? update(current) : update
+      runTraceRef.current = next
+      return next
+    })
+  }, [])
+
+  const beginRunTrace = useCallback((contextCount: number) => {
+    const startedAt = Date.now()
+    agentEventSeqRef.current.clear()
+    const activities: OpenClawRunActivity[] = contextCount > 0 ? [{
+      id: 'context',
+      label: `接收 ${contextCount} 条上下文`,
+      status: 'completed',
+      startedAt,
+      endedAt: startedAt,
+    }] : []
+    updateRunTrace({
+      runId: null,
+      phase: 'sending',
+      status: 'running',
+      startedAt,
+      activities,
+    })
+  }, [updateRunTrace])
+
+  const finishRunTrace = useCallback((
+    terminal: 'completed' | 'aborted' | 'failed',
+    completedRunId: string,
+  ) => {
+    const endedAt = Date.now()
+    updateRunTrace((current) => {
+      const trace = current ?? {
+        runId: completedRunId,
+        phase: terminal,
+        status: terminal,
+        startedAt: endedAt,
+        activities: [],
+      }
+      return {
+        ...trace,
+        runId: completedRunId,
+        phase: terminal,
+        status: terminal,
+        endedAt,
+        activities: trace.activities.map((activity) => activity.status === 'running'
+          ? { ...activity, status: terminal === 'completed' ? 'completed' : 'stopped', endedAt }
+          : activity),
+      }
+    })
+  }, [updateRunTrace])
 
   const persistVisibleTranscript = useCallback((
     update: OpenClawChatMessage[] | ((current: OpenClawChatMessage[]) => OpenClawChatMessage[]),
@@ -780,6 +1022,23 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       setContextUsage(projectOpenClawContextUsage(event.payload, key))
       return
     }
+    if (event.event === 'agent') {
+      const key = sessionKeyRef.current
+      if (!key) return
+      const projected = projectOpenClawAgentEvent(event, key)
+      if (!projected || terminalRunIdsRef.current.has(projected.runId)) return
+      if (runIdRef.current && projected.runId !== runIdRef.current) return
+      if (!runIdRef.current && !pendingSendRef.current && runTraceRef.current?.status !== 'running') return
+      const previousSeq = agentEventSeqRef.current.get(projected.runId)
+      if (previousSeq !== undefined && projected.seq <= previousSeq) return
+      agentEventSeqRef.current.set(projected.runId, projected.seq)
+      if (!runIdRef.current) {
+        runIdRef.current = projected.runId
+        setRunId(projected.runId)
+      }
+      updateRunTrace((current) => applyAgentEventToTrace(current, projected))
+      return
+    }
     if (event.event !== 'chat' || !event.payload || typeof event.payload !== 'object') return
     const payload = event.payload as ChatEventPayload
     if (!payload.sessionKey || payload.sessionKey !== sessionKeyRef.current) return
@@ -790,6 +1049,12 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       setRunId(payload.runId)
     }
     if (payload.state === 'delta' && typeof payload.deltaText === 'string') {
+      updateRunTrace((current) => current ? {
+        ...current,
+        runId: payload.runId ?? current.runId,
+        phase: 'streaming',
+        status: 'running',
+      } : current)
       if (streamCreatedAtRef.current === null && payload.deltaText) {
         const createdAt = Date.now()
         streamCreatedAtRef.current = createdAt
@@ -802,14 +1067,21 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       })
       return
     }
-    if (payload.state === 'error') setIssue({ kind: 'unknown', message: payload.errorMessage || 'OpenClaw 对话失败。' })
+    if (payload.state === 'error') setIssue({ kind: 'unknown', message: 'OpenClaw 对话失败，请重试。' })
     if (payload.state === 'final' || payload.state === 'aborted' || payload.state === 'error') {
       const partialText = streamTextRef.current.trim()
       const partialCreatedAt = streamCreatedAtRef.current ?? Date.now()
       const completedRunId = payload.runId || runIdRef.current || crypto.randomUUID()
       terminalRunIdsRef.current.add(completedRunId)
       if (terminalRunIdsRef.current.size > 20) terminalRunIdsRef.current.delete(terminalRunIdsRef.current.values().next().value!)
+      if (pendingSendRef.current) {
+        terminalSendAttemptsRef.current.add(sendAttemptRef.current)
+        if (terminalSendAttemptsRef.current.size > 20) {
+          terminalSendAttemptsRef.current.delete(terminalSendAttemptsRef.current.values().next().value!)
+        }
+      }
       runIdRef.current = null
+      pendingSendRef.current = false
       setRunId(null)
       setSending(false)
       setStopping(false)
@@ -820,6 +1092,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       const client = clientRef.current
       const key = sessionKeyRef.current
       const agentId = agentIdRef.current
+      finishRunTrace(
+        payload.state === 'aborted' ? 'aborted' : payload.state === 'error' ? 'failed' : 'completed',
+        completedRunId,
+      )
       if (client && key && agentId) void loadRuntime(client, key, agentId, true)
       if (partialText) {
         const assistantMessage: OpenClawChatMessage = {
@@ -836,7 +1112,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       if (payload.state === 'aborted') return
       if (client && key && agentId) void loadHistory(client, key, agentId).catch(() => undefined)
     }
-  }, [loadHistory, loadRuntime, persistVisibleTranscript])
+  }, [finishRunTrace, loadHistory, loadRuntime, persistVisibleTranscript, updateRunTrace])
 
   const disconnect = useCallback(() => {
     manualCloseRef.current = true
@@ -849,10 +1125,17 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     sessionKeyRef.current = null
     transcriptReadyKeyRef.current = null
     runIdRef.current = null
+    pendingSendRef.current = false
+    sendAttemptRef.current += 1
+    terminalSendAttemptsRef.current.clear()
+    agentEventSeqRef.current.clear()
     terminalRunIdsRef.current.clear()
     setRunId(null)
+    updateRunTrace(null)
     setSending(false)
     setStopping(false)
+    reconnectAttemptRef.current = 0
+    setReconnectAttempt(0)
     setSessionKey(null)
     streamTextRef.current = ''
     setStreamText('')
@@ -870,7 +1153,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     thinkingLevelRef.current = null
     setToolsStatus('unknown')
     setStatus(options.enabled ? 'idle' : 'disabled')
-  }, [options.enabled, replaceVisibleTranscript])
+  }, [options.enabled, replaceVisibleTranscript, updateRunTrace])
 
   const connectInternal = useCallback(async (authInput?: string, reconnecting = false, requestedUrl?: string): Promise<boolean> => {
     if (!options.enabled) return false
@@ -901,6 +1184,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         onClose: () => {
           if (manualCloseRef.current || generation !== generationRef.current) return
           setStatus('reconnecting')
+          reconnectAttemptRef.current += 1
+          setReconnectAttempt(reconnectAttemptRef.current)
           const delay = reconnectDelayRef.current
           reconnectDelayRef.current = Math.min(Math.round(delay * 1.7), 30_000)
           reconnectTimerRef.current = window.setTimeout(() => {
@@ -951,6 +1236,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       ])
       setToolsStatus(hasInteliscopeTools(tools) ? 'available' : 'missing')
       reconnectDelayRef.current = 1000
+      reconnectAttemptRef.current = 0
+      setReconnectAttempt(0)
       setStatus('connected')
       return true
     } catch (error) {
@@ -968,11 +1255,21 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     reconnectRef.current = (reconnecting = true) => { void connectInternal(undefined, reconnecting) }
   }, [connectInternal])
 
+  const retryConnection = useCallback(() => {
+    if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current)
+    reconnectTimerRef.current = null
+    reconnectRef.current(true)
+  }, [])
+
   const submitSend = useCallback(async (snapshot: OpenClawSendSnapshot, messageId: string): Promise<boolean> => {
     const client = clientRef.current
     const key = sessionKeyRef.current
     const agentId = agentIdRef.current
     if (!client || !key || !agentId || !snapshot.gatewayPrompt.trim() || runIdRef.current) return false
+    const sendAttempt = ++sendAttemptRef.current
+    terminalSendAttemptsRef.current.delete(sendAttempt)
+    beginRunTrace(snapshot.contextItems.length)
+    pendingSendRef.current = true
     streamTextRef.current = ''
     streamCreatedAtRef.current = null
     setStreamText('')
@@ -988,22 +1285,43 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         idempotencyKey: snapshot.idempotencyKey,
         ...(snapshot.thinkingLevel ? { thinking: snapshot.thinkingLevel } : {}),
       })
+      const terminatedBeforeResponse = terminalSendAttemptsRef.current.delete(sendAttempt)
       persistVisibleTranscript((current) => current.map((message) => (
         message.id === messageId ? { ...message, status: 'sent', sendSnapshot: undefined } : message
       )))
-      runIdRef.current = result.runId || snapshot.idempotencyKey
+      if (sendAttempt !== sendAttemptRef.current || terminatedBeforeResponse) return true
+      runIdRef.current = runIdRef.current || result.runId || snapshot.idempotencyKey
       setRunId(runIdRef.current)
+      pendingSendRef.current = false
+      updateRunTrace((current) => current ? {
+        ...current,
+        runId: runIdRef.current,
+        phase: current.phase === 'sending' ? 'waiting' : current.phase,
+      } : current)
       return true
     } catch (error) {
-      setIssue(setupIssue(error))
+      const terminatedBeforeResponse = terminalSendAttemptsRef.current.delete(sendAttempt)
+      if (terminatedBeforeResponse) {
+        persistVisibleTranscript((current) => current.map((message) => (
+          message.id === messageId ? { ...message, status: 'sent', sendSnapshot: undefined } : message
+        )))
+        return true
+      }
       persistVisibleTranscript((current) => current.map((message) => (
         message.id === messageId ? { ...message, status: 'failed' } : message
       )))
+      if (sendAttempt !== sendAttemptRef.current) return false
+      const failedRunId = runIdRef.current || snapshot.idempotencyKey
+      pendingSendRef.current = false
+      runIdRef.current = null
+      setRunId(null)
+      finishRunTrace('failed', failedRunId)
+      setIssue(setupIssue(error))
       return false
     } finally {
-      setSending(false)
+      if (sendAttempt === sendAttemptRef.current) setSending(false)
     }
-  }, [persistVisibleTranscript])
+  }, [beginRunTrace, finishRunTrace, persistVisibleTranscript, updateRunTrace])
 
   const send = useCallback(async (request: OpenClawSendRequest): Promise<boolean> => {
     if (runIdRef.current || sending) return false
@@ -1070,14 +1388,20 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     const key = sessionKeyRef.current
     if (!client || !key || stopping) return
     setStopping(true)
+    updateRunTrace((current) => current ? { ...current, phase: 'stopping', status: 'running' } : current)
     setIssue(null)
     try {
       await client.request('chat.abort', { sessionKey: key, agentId: agentIdRef.current || undefined, runId: runIdRef.current || undefined })
     } catch (error) {
       setStopping(false)
+      updateRunTrace((current) => current ? {
+        ...current,
+        phase: streamTextRef.current ? 'streaming' : 'waiting',
+        status: 'running',
+      } : current)
       setIssue(setupIssue(error))
     }
-  }, [stopping])
+  }, [stopping, updateRunTrace])
 
   const activateSession = useCallback(async (
     client: OpenClawGatewayClient,
@@ -1100,8 +1424,13 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     transcriptReadyKeyRef.current = key
     setSessionKey(key)
     runIdRef.current = null
+    pendingSendRef.current = false
+    sendAttemptRef.current += 1
+    terminalSendAttemptsRef.current.clear()
+    agentEventSeqRef.current.clear()
     terminalRunIdsRef.current.clear()
     setRunId(null)
+    updateRunTrace(null)
     streamTextRef.current = ''
     streamCreatedAtRef.current = null
     setStreamText('')
@@ -1125,7 +1454,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     } catch {
       // A fork preserves the visible local history even if the first history refresh is delayed.
     }
-  }, [applyRuntime, gatewayUrl, loadContextUsage, loadHistory, options.userId, persistVisibleTranscript, replaceVisibleTranscript, vault])
+  }, [applyRuntime, gatewayUrl, loadContextUsage, loadHistory, options.userId, persistVisibleTranscript, replaceVisibleTranscript, updateRunTrace, vault])
 
   const archiveFailedSession = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
     try {
@@ -1290,6 +1619,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     messages,
     streamText,
     streamCreatedAt,
+    runTrace,
     issue,
     runtimeIssue,
     modelSwitchFallback,
@@ -1297,12 +1627,14 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     sessionKey,
     isRunning: sending || Boolean(runId),
     isStopping: stopping,
+    reconnectAttempt,
     runtimeLoading,
     runtimeUpdating,
     models,
     thinkingOptions,
     runtimeSelection,
     connect: (authInput?: string, requestedUrl?: string) => connectInternal(authInput, false, requestedUrl),
+    retryConnection,
     disconnect,
     clearTranscript,
     forget,

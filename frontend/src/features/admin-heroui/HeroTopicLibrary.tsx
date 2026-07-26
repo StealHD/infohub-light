@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { Button, Chip, Icons, Input, Label, TextField } from '../../design-system'
+import { Button, Input, Label, RemovableTag, TextField } from '../../design-system'
 
 function normalizeTopics(values: string[]) {
   const seen = new Set<string>()
@@ -35,7 +35,7 @@ export function HeroTopicLibrary({ topics, pending, onSave }: { topics: string[]
       <TextField fullWidth value={search} onChange={setSearch}><Label>搜索主题</Label><Input /></TextField>
     </div>
     <div className="flex min-h-10 flex-wrap gap-2">
-      {visible.map((topic) => <Chip key={topic} variant="soft"><Chip.Label>{topic}</Chip.Label><button type="button" aria-label={`删除 ${topic}`} disabled={pending} onClick={() => setDraft((current) => current.filter((item) => item !== topic))}><Icons.X size={13} /></button></Chip>)}
+      {visible.map((topic) => <RemovableTag key={topic} label={topic} disabled={pending} onRemove={() => setDraft((current) => current.filter((item) => item !== topic))} />)}
       {!visible.length && <span className="type-body text-muted">没有匹配的主题。</span>}
     </div>
     <div className="flex gap-2"><Button size="sm" isDisabled={!dirty || pending} onPress={() => onSave(draft)}>{pending ? '保存中…' : '保存更改'}</Button><Button size="sm" variant="ghost" isDisabled={!dirty || pending} onPress={() => setDraft(source)}>撤销更改</Button></div>

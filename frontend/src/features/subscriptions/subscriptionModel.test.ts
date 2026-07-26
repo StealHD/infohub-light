@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, User } from '../../api/types'
 import * as subscriptionModel from './subscriptionModel'
-import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, resolveChannelSelection, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
+import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, presentSourceHealthStatus, resolveChannelSelection, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
 
 const user = (role: User['role'], id = 'user-1'): User => ({ id, username: role, role, enabled: true })
 const source: CatalogSource = { id: 'src-1', type: 'rss', display_name: 'RSS', scope: 'workspace', enabled: true }
@@ -221,6 +221,27 @@ describe('subscription model', () => {
     expect(presentJob(queued, new Map())).toMatchObject({ title: '更新整个信息流', statusLabel: '等待后台处理', resultLabel: '尚未产生结果' })
     expect(presentJob(failed, new Map([['src-1', source]]))).toMatchObject({ title: '抓取单个来源', statusLabel: '失败', sourceName: 'RSS', detail: '连接超时' })
     expect(presentJob(queued, new Map())).not.toHaveProperty('job_type')
+  })
+
+  it.each([
+    ['queued', '等待后台处理', 'neutral', 'clock'],
+    ['running', '正在获取', 'accent', 'loader'],
+    ['succeeded', '已完成', 'positive', 'check'],
+    ['partial', '部分完成', 'warning', 'warning'],
+    ['failed', '失败', 'critical', 'error'],
+    ['cancelled', '已取消', 'neutral', 'stop'],
+  ] as const)('maps the %s job state to distinct copy, tone and icon semantics', (status, statusLabel, tone, icon) => {
+    const job: Job = { id: `job-${status}`, user_id: 'user-1', job_type: 'source_test', status }
+    expect(presentJob(job, new Map())).toMatchObject({ statusLabel, tone, icon })
+  })
+
+  it.each([
+    ['unknown', '尚未抓取', 'neutral', 'empty'],
+    ['healthy', '正常', 'success', 'check'],
+    ['degraded', '需关注', 'warning', 'warning'],
+    ['failing', '连续失败', 'danger', 'error'],
+  ] as const)('maps the %s source health state to distinct copy, tone and icon semantics', (status, label, tone, icon) => {
+    expect(presentSourceHealthStatus(status)).toEqual({ label, tone, icon })
   })
 
   it('presents post-deduplication additions without falling back to fetched or total counts', () => {

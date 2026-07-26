@@ -2978,3 +2978,35 @@
 - 任务：将订阅界面与 RSS 首次抓取窗口改动合并到本地 `main`
 - 执行验证：合并前 `main` 与 `origin/main` 均为 `2b6d078`；功能提交 `9b24eac` 经独立干净 worktree 合并，合并后 `test_gate full` 22/22 通过且 `mapping_miss=false`
 - 安全边界：另一任务的未提交 worktree 保持不变；未推送 GitHub，未启动 scheduler、真实采集、AI、付费供应商或通知流程
+
+### 2026-07-26 14:46 Codex
+- 任务：评估在不取得 HeroUI Pro 源码的前提下，按公开视觉参考独立实现相似 UI 效果的可行性与边界
+- 结果：可基于截图、公开演示和交互描述从零实现同类视觉与行为，并针对本项目设计系统做优化；不复制、提取或反编译其付费源码和专有素材
+- 控制面变更：无；仅补充本工作日志
+
+### 2026-07-26 18:07 Codex
+- 任务：在从本地 `main` 创建的 `codex/ui-interaction-roadmap-impl-20260726` 实施 OpenClaw 运行反馈、状态语义系统及移动端、Feed、订阅和设置交互优化
+- 修改范围：安全事件投影与运行轨迹、四类紧凑语义组件、关键可用性修复、产品合同/手册/更新日志，以及明暗主题三视口视觉基线
+- 执行验证：TypeScript、Lint（0 error）、UI 合同、生产构建通过；Vitest 52 文件 447 项、Playwright 24/24 通过，390×844、1024×768、1440×900 的 Axe serious/critical 为 0；`test_gate full` 22/22、0 failed/error、132.372 秒
+- 结果：首段回答前不再空白等待，状态/元数据/数量/可移除标签语义分离，并补齐账户出口、搜索隔离、稳定加载、受控菜单、撤销、多图和分区设置交互；未复制或引入 HeroUI Pro 源码
+- 安全边界：运行轨迹不显示或持久化原始思维、工具参数、结果、meta、错误、URL、令牌或确认短语；未提交、推送、部署或触发真实来源、AI、Worker、scheduler、通知及付费调用
+
+### 2026-07-26 18:59 Codex
+- 任务：启动 `codex/ui-interaction-roadmap-impl-20260726` 的本地服务
+- 执行验证：`./scripts/up-latest.sh` 完成当前 dirty workspace 镜像重建；API 与 Worker 均为 healthy，根页面与 `/api/health/ready` 返回 200
+- 结果：本地 revision `2b6d078ac3d4-dirty` 已运行于 `http://127.0.0.1:8080`
+- 安全边界：仅重建并重启本地 Compose 服务；未部署、推送、运行真实来源抓取、AI、scheduler、通知或付费调用
+
+### 2026-07-26 19:14 Codex
+- 任务：避免两个活跃 Codex 会话在同一 Git 分支或工作树并发修改
+- 修改范围：在 `$CODEX_HOME` 增加全局分支会话 Hook、原子租约状态与协作规则；仓库内仅追加本工作日志
+- 执行验证：Hook JSON、Python 编译及 10 项隔离用例通过；Codex Hooks 为 stable/enabled 并完成信任；嵌套 Codex 端到端冲突探针在模型调用前以 0 token 停止、测试租约清零；`test_gate full` 22/22、0 failed/error、128.827 秒
+- 结果：每轮开始登记占用、工具调用刷新 30 分钟租约、正常结束释放；冲突会话收到分支/会话提示并暂停，需等待或改用 Worktree/新分支
+- 安全边界：未覆盖个人技能中的既有未提交改动，未修改当前产品代码、测试、运行数据、容器、VPS、Git 分支或远端
+
+### 2026-07-26 20:27 Codex
+- 任务：完成第二轮 UI 精简并修复 OpenClaw 中文输入法 Enter 误发送
+- 修改范围：IME composition 边界、图标状态与订阅卡操作、订阅统计深链接、设置侧栏悬浮目录、Agent 危险操作渐进披露，以及 UI 合同、手册、更新日志和三视口明暗基线
+- 执行验证：TypeScript、Lint（0 error）、UI 合同和生产构建通过；目标 Vitest 161 项、Playwright 24/24 与 6 张视觉基线通过，Axe serious/critical 为 0；`test_gate full` 22/22、0 failed/error、123.241 秒
+- 结果：输入法确认候选不再误发，桌面设置恢复单列，订阅与 Agent 高密度区域去除常驻状态文字和突兀红色操作；本地 API/Worker 重建后 healthy，根页面与 readiness 均返回 200
+- 安全边界：无新后端接口、数据库或 Gateway 持久化；保留工作树其他未提交改动，未提交、推送、部署或触发真实来源、AI、scheduler、通知及付费调用

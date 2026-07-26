@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -14,11 +14,15 @@ import {
   LoadingReveal,
   PageFrame,
   Popover,
+  RemovableTag,
   SearchField,
   Select,
   StatusNotice,
   Switch,
+  Tooltip,
+  TooltipTriggerButton,
   ViewBar,
+  anchoredTooltipProps,
 } from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
 import { filterFeedItems, sortWorkbenchItems } from '../feed/feedModel'
@@ -175,14 +179,6 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const collectionRoute = kind !== 'feed'
   const updating = activity.state === 'queued' || activity.state === 'running'
   const reloading = kind === 'feed' && feedQuery.isFetching
-  // React Aria filters aria-busy from Button DOM props, so keep the rendered
-  // button state synchronized explicitly without changing its child geometry.
-  useLayoutEffect(() => {
-    const button = reloadButtonRef.current
-    if (!button) return
-    if (reloading) button.setAttribute('aria-busy', 'true')
-    else button.removeAttribute('aria-busy')
-  }, [reloading])
   const activeFilterCount = [
     preference.unreadFirst,
     preference.source,
@@ -191,6 +187,17 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     kind === 'feed' && preference.dateScope === 'today',
     kind === 'feed' && preference.subscriptionScope !== 'all',
   ].filter(Boolean).length
+  const collectionSearchVisible = collectionSearchOpen || Boolean(query)
+  const hasActiveConstraints = Boolean(query) || activeFilterCount > 0
+  const activeFilterSummaries = [
+    ...(query ? [{ id: 'query', label: `搜索：${query}`, clear: () => setQuery('') }] : []),
+    ...(preference.unreadFirst ? [{ id: 'unread', label: '未读优先', clear: () => updatePreference({ unreadFirst: false }) }] : []),
+    ...(preference.source ? [{ id: 'source', label: `来源：${sources.find(([id]) => id === preference.source)?.[1] ?? preference.source}`, clear: () => updatePreference({ source: '' }) }] : []),
+    ...(preference.channel ? [{ id: 'channel', label: `频道：${preference.channel}`, clear: () => updatePreference({ channel: '' }) }] : []),
+    ...(preference.topic ? [{ id: 'topic', label: `主题：${preference.topic}`, clear: () => updatePreference({ topic: '' }) }] : []),
+    ...(kind === 'feed' && preference.dateScope === 'today' ? [{ id: 'date', label: '仅今天', clear: () => updatePreference({ dateScope: 'all' }) }] : []),
+    ...(kind === 'feed' && preference.subscriptionScope !== 'all' ? [{ id: 'scope', label: preference.subscriptionScope === 'public' ? '公共订阅' : '私人订阅', clear: () => updatePreference({ subscriptionScope: 'all' }) }] : []),
+  ]
 
   function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'reset-top' = 'preserve') {
     const next = { ...preference, ...patch }
@@ -236,7 +243,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           className="mr-auto min-h-4 min-w-16 shrink-0"
           skeleton={<span data-feed-count-skeleton><CalmSkeleton className="h-4 w-16 rounded-md" /></span>}
         ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{cards.length} 条内容</span></LoadingReveal>
-        {collectionRoute && <div className={`${collectionSearchOpen ? 'flex' : 'hidden'} min-w-0 flex-1 sm:flex`}>
+        {collectionRoute && <div className={`${collectionSearchVisible ? 'flex' : 'hidden'} min-w-0 flex-1 sm:flex`}>
           <SearchField aria-label="搜索信息流" value={query} onChange={setQuery} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
               <SearchField.SearchIcon><Icons.Search size={14} /></SearchField.SearchIcon>
@@ -250,10 +257,17 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           variant="ghost"
           isIconOnly
           className="sm:hidden"
-          aria-label={collectionSearchOpen ? '收起搜索' : '搜索信息流'}
-          aria-expanded={collectionSearchOpen}
-          onPress={() => setCollectionSearchOpen((value) => !value)}
-        ><Icons.Search size={14} aria-hidden="true" /></Button>}
+          aria-label={query ? '清除搜索' : collectionSearchOpen ? '收起搜索' : '搜索信息流'}
+          aria-expanded={collectionSearchVisible}
+          onPress={() => {
+            if (query) {
+              setQuery('')
+              setCollectionSearchOpen(false)
+              return
+            }
+            setCollectionSearchOpen((value) => !value)
+          }}
+        >{query ? <Icons.X size={14} aria-hidden="true" /> : <Icons.Search size={14} aria-hidden="true" />}</Button>}
         <Button
           size="sm"
           variant="ghost"
@@ -270,23 +284,27 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
           onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' }, 'reset-top')}
         ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>
-        {!collectionRoute && <Button
-          ref={reloadButtonRef}
-          size="sm"
-          variant="ghost"
-          className="type-control"
-          aria-label="刷新信息流数据"
-          isDisabled={reloading}
-          onPress={() => void reloadFeedData()}
-        ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">刷新</span></Button>}
-        {!collectionRoute && <Button
-          size="sm"
-          variant="ghost"
-          className="type-control"
-          aria-label="更新信息流"
-          isDisabled={updating || user.role === 'viewer'}
-          onPress={updateFeed}
-        >{updating ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Download size={14} aria-hidden="true" />}<span className="hidden min-[560px]:inline">{updating ? '更新中' : '更新'}</span></Button>}
+        {!collectionRoute && <Tooltip delay={500}>
+          <TooltipTriggerButton
+            ref={reloadButtonRef}
+            className="type-control min-h-8 gap-1.5 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+            aria-label="重新载入信息流数据"
+            aria-busy={reloading || undefined}
+            disabled={reloading}
+            onClick={() => void reloadFeedData()}
+          ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">重新载入</span></TooltipTriggerButton>
+          <Tooltip.Content {...anchoredTooltipProps}>重新载入本地信息流数据</Tooltip.Content>
+        </Tooltip>}
+        {!collectionRoute && <Tooltip delay={500}>
+          <TooltipTriggerButton
+            className="type-control min-h-8 gap-1.5 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+            aria-label="获取新内容"
+            aria-busy={updating || undefined}
+            disabled={updating || user.role === 'viewer'}
+            onClick={updateFeed}
+          >{updating ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Download size={14} aria-hidden="true" />}<span className="hidden min-[560px]:inline">{updating ? '获取中' : '获取新内容'}</span></TooltipTriggerButton>
+          <Tooltip.Content {...anchoredTooltipProps}>{user.role === 'viewer' ? '只读账户不可获取新内容' : '触发所有已启用订阅获取新内容'}</Tooltip.Content>
+        </Tooltip>}
         <Popover>
           <Popover.Trigger aria-label="筛选信息流" className="type-control inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
           <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选
@@ -305,6 +323,13 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           </Popover.Content>
         </Popover>
         </ViewBar>
+        {activeFilterSummaries.length > 0 && <div aria-label="当前筛选条件" className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+          {activeFilterSummaries.map((filter) => <RemovableTag key={filter.id} label={filter.label} onRemove={filter.clear} />)}
+          <Button size="sm" variant="ghost" onPress={() => {
+            setQuery('')
+            updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })
+          }}>清除全部</Button>
+        </div>}
         </div>
       </PageFrame>
     </div>
@@ -319,7 +344,33 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       skeleton={<WorkbenchFeedSkeleton />}
     >
     {loadError ? <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>
-      : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><EmptyState title="没有匹配的信息" description="清除筛选或等待下一次更新。" /></PageFrame>
+      : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><EmptyState
+        title={hasActiveConstraints
+          ? '没有符合当前条件的信息'
+          : kind === 'saved'
+            ? '还没有收藏'
+            : kind === 'history'
+              ? '还没有阅读记录'
+              : '信息流还是空的'}
+        description={hasActiveConstraints
+          ? '清除搜索或筛选后再试。'
+          : kind === 'saved'
+            ? '在信息流中收藏的内容会出现在这里。'
+            : kind === 'history'
+              ? '打开过的内容会保留在这里。'
+              : '先订阅来源，再获取一次新内容。'}
+        actions={hasActiveConstraints
+          ? <>
+            {query && <Button size="sm" variant="ghost" onPress={() => setQuery('')}>清除搜索</Button>}
+            {activeFilterCount > 0 && <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })}>清除筛选</Button>}
+          </>
+          : kind === 'feed'
+            ? <>
+              <Button size="sm" variant="ghost" onPress={() => navigate('/subscriptions')}>订阅来源</Button>
+              {user.role !== 'viewer' && <Button size="sm" onPress={updateFeed}>获取新内容</Button>}
+            </>
+            : <Button size="sm" onPress={() => navigate('/feed')}>返回信息流</Button>}
+      /></PageFrame>
       : <VirtualFeed
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       resetToTopKey={`${preference.sortBasis}:${preference.order}`}
@@ -332,7 +383,17 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       detailError={detailQuery.isError && selectedInSource}
       readonly={user.role === 'viewer'}
       onToggleExpanded={toggleExpanded}
-      onToggleSaved={(id, saved) => stateMutation.mutateItem(id, { is_saved: saved })}
+      onToggleSaved={(id, saved) => {
+        stateMutation.mutateItem(id, { is_saved: saved })
+        if (!saved) {
+          actionToast.info('已取消收藏', {
+            description: '内容已从收藏列表移除。',
+            timeout: 8_000,
+            retryLabel: '撤销',
+            onRetry: () => stateMutation.mutateItem(id, { is_saved: true }),
+          })
+        }
+      }}
       onToggleContext={(card) => {
         const alreadySelected = agent.draft.items.some((item) => item.articleId === card.id)
         agent.toggleItem({
@@ -343,7 +404,17 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         })
         if (!alreadySelected) agent.openComposer()
       }}
-      onItemAction={(id, value) => stateMutation.mutateItem(id, { dismissed: value })}
+      onItemAction={(id, value) => {
+        stateMutation.mutateItem(id, { dismissed: value })
+        if (value) {
+          actionToast.info('已忽略这条内容', {
+            description: '8 秒内可以撤销，内容会回到原来的排序位置。',
+            timeout: 8_000,
+            retryLabel: '撤销',
+            onRetry: () => stateMutation.mutateItem(id, { dismissed: false }),
+          })
+        }
+      }}
     />}
     </LoadingReveal>
   </section>

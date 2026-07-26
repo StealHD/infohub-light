@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 
@@ -15,13 +16,13 @@ import {
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import {
   actionToast,
+  anchoredTooltipProps,
   AvatarFallback,
   AvatarImage,
   AvatarRoot,
   Button,
   CalmSkeleton,
   Card,
-  Chip,
   Drawer,
   Icons,
   LoadingReveal,
@@ -29,7 +30,9 @@ import {
   Popover,
   Separator,
   Skeleton,
+  StatusIndicator,
   ThemeModeToggle,
+  Tooltip,
 } from '../../design-system'
 import {
   readAgentContextDraft,
@@ -38,9 +41,9 @@ import {
   type AgentContextDraftV3,
 } from './agentContext'
 import { OpenClawConversation } from '../openclaw/OpenClawConversation'
-import { useOpenClawChat, type OpenClawConnectionStatus, type OpenClawToolsStatus } from '../openclaw/useOpenClawChat'
+import { useOpenClawChat } from '../openclaw/useOpenClawChat'
 import { HandoffComposer } from './HandoffComposer'
-import { FeedInsightsPanel } from './FeedInsightsPanel'
+import { FeedInsightsPanel, type FeedInsightsMetric } from './FeedInsightsPanel'
 import { AgentPanelSkeleton } from './WorkbenchLoadingState'
 import { WorkbenchAgentContext, type WorkbenchAgentContextValue } from './workbenchAgentContext'
 import { relativeTime } from '../feed/feedModel'
@@ -60,6 +63,7 @@ import {
   readRightRailWidth,
   writeRightRailWidth,
 } from './rightRailPreference'
+import { settingsSectionsForRole } from '../admin-heroui/settingsSections'
 
 export type RightRailMode = 'closed' | 'agent'
 export type InsightsSurfaceState = 'closed' | 'auto' | 'manual' | 'closing'
@@ -94,7 +98,7 @@ const managementNavigation = [
 ] as const
 
 const navigation = [...browseNavigation, ...managementNavigation] as const
-const mobileNavigation = navigation.filter((item) => item.id !== 'users')
+const mobilePrimaryNavigation = navigation.filter((item) => ['feed', 'saved', 'subscriptions', 'agents'].includes(item.id))
 
 const roleLabel = {
   owner: '所有者',
@@ -109,6 +113,8 @@ type CategorizedNavigationProps = {
   onQuickViewsToggle: () => void
   onQuickView: (id: WorkbenchQuickViewId) => void
   onNavigate?: () => void
+  role: User['role']
+  settingsDirectory?: boolean
 }
 
 const sidebarItemBase = 'type-control mb-0.5 flex w-full items-center rounded-xl text-muted transition-colors duration-[var(--inteliscope-motion-standard)] hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none'
@@ -133,15 +139,31 @@ function SidebarNavItem({
 }) {
   const itemClass = (active: boolean) => `${sidebarItemBase} ${compact ? 'min-h-11 justify-center px-0' : 'min-h-10 gap-3 px-3 text-left'}${active ? ' bg-default text-foreground' : ''}`
   const content = <>{leading}{!compact && <span>{label}</span>}</>
-  if (href) return <NavLink
-    to={href}
-    end={end}
-    aria-label={label}
-    data-sidebar-nav-item={compact ? 'collapsed' : 'expanded'}
-    onClick={onActivate}
-    className={({ isActive }) => itemClass(isActive)}
-  >{content}</NavLink>
-  return <button
+  if (href) {
+    if (compact) return <Tooltip delay={450}>
+      <Tooltip.Trigger<'a'>
+        aria-label={label}
+        render={(triggerProps) => <NavLink
+          {...triggerProps}
+          to={href}
+          end={end}
+          data-sidebar-nav-item="collapsed"
+          onClick={onActivate}
+          className={({ isActive }) => `${triggerProps.className ?? ''} ${itemClass(isActive)}`}
+        >{content}</NavLink>}
+      />
+      <Tooltip.Content {...anchoredTooltipProps}>{label}</Tooltip.Content>
+    </Tooltip>
+    return <NavLink
+      to={href}
+      end={end}
+      aria-label={label}
+      data-sidebar-nav-item="expanded"
+      onClick={onActivate}
+      className={({ isActive }) => itemClass(isActive)}
+    >{content}</NavLink>
+  }
+  const button = <button
     type="button"
     aria-label={label}
     aria-pressed={selected}
@@ -149,6 +171,182 @@ function SidebarNavItem({
     className={itemClass(selected)}
     onClick={onActivate}
   >{content}</button>
+  if (!compact) return button
+  return <Tooltip delay={450}>
+    <Tooltip.Trigger render={(triggerProps) => <button {...triggerProps} type="button" aria-label={label} aria-pressed={selected} data-sidebar-nav-item="collapsed" className={`${triggerProps.className ?? ''} ${itemClass(selected)}`} onClick={onActivate}>{content}</button>} />
+    <Tooltip.Content {...anchoredTooltipProps}>{label}</Tooltip.Content>
+  </Tooltip>
+}
+
+function SettingsSidebarNavigationItem({
+  compact,
+  role,
+  onNavigate,
+}: {
+  compact: boolean
+  role: User['role']
+  onNavigate?: () => void
+}) {
+  const location = useLocation()
+  const triggerRef = useRef<HTMLAnchorElement>(null)
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  const openTimerRef = useRef<number | null>(null)
+  const closeTimerRef = useRef<number | null>(null)
+  const suppressFocusOpenRef = useRef(false)
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ left: 80, top: 12 })
+  const sections = useMemo(() => settingsSectionsForRole(role), [role])
+
+  const itemClass = `${sidebarItemBase} ${compact ? 'min-h-11 justify-center px-0' : 'min-h-10 gap-3 px-3 text-left'}${location.pathname === '/settings' ? ' bg-default text-foreground' : ''}`
+
+  const clearTimers = useCallback(() => {
+    if (openTimerRef.current !== null) window.clearTimeout(openTimerRef.current)
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+    openTimerRef.current = null
+    closeTimerRef.current = null
+  }, [])
+
+  function scheduleOpen() {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+    if (open || openTimerRef.current !== null) return
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null
+      setOpen(true)
+    }, 150)
+  }
+
+  function openImmediately() {
+    if (suppressFocusOpenRef.current) return
+    clearTimers()
+    setOpen(true)
+  }
+
+  function scheduleClose() {
+    if (openTimerRef.current !== null) window.clearTimeout(openTimerRef.current)
+    openTimerRef.current = null
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null
+      setOpen(false)
+    }, 150)
+  }
+
+  const closeDirectory = useCallback((returnFocus = false) => {
+    clearTimers()
+    setOpen(false)
+    if (!returnFocus) return
+    suppressFocusOpenRef.current = true
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.focus()
+      window.requestAnimationFrame(() => {
+        suppressFocusOpenRef.current = false
+      })
+    })
+  }, [clearTimers])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const updatePosition = () => {
+      const trigger = triggerRef.current
+      if (!trigger) return
+      const rect = trigger.getBoundingClientRect()
+      const top = Math.min(Math.max(8, rect.top), Math.max(8, window.innerHeight - 300))
+      setPosition({ left: rect.right + 8, top })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (triggerRef.current?.contains(target) || surfaceRef.current?.contains(target)) return
+      closeDirectory(true)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeDirectory(true)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [closeDirectory, open])
+
+  useEffect(() => () => clearTimers(), [clearTimers])
+
+  const surface = open && typeof document !== 'undefined'
+    ? createPortal(
+      <div
+        ref={surfaceRef}
+        role="dialog"
+        aria-label="设置目录"
+        aria-modal="false"
+        data-settings-directory
+        style={{ left: position.left, top: position.top }}
+        className="fixed z-[70] grid w-52 gap-0.5 rounded-2xl border border-separator bg-surface p-2 shadow-xl"
+        onPointerEnter={clearTimers}
+        onPointerLeave={scheduleClose}
+        onFocus={clearTimers}
+        onBlur={(event) => {
+          const next = event.relatedTarget as Node | null
+          if (triggerRef.current?.contains(next) || event.currentTarget.contains(next)) return
+          scheduleClose()
+        }}
+      >
+        <p className="type-label px-3 pb-1 pt-1 text-muted">设置目录</p>
+        {sections.map((section) => <NavLink
+          key={section.id}
+          to={`/settings#${section.id}`}
+          aria-current={location.hash === `#${section.id}` ? 'location' : undefined}
+          className="type-control min-h-9 rounded-xl px-3 py-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-[current=location]:bg-accent/10 aria-[current=location]:text-accent"
+          onClick={() => {
+            closeDirectory()
+            onNavigate?.()
+          }}
+        >{section.label}</NavLink>)}
+      </div>,
+      document.body,
+    )
+    : null
+
+  return <>
+    <NavLink
+      ref={triggerRef}
+      to="/settings"
+      aria-label="设置"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      data-sidebar-nav-item={compact ? 'collapsed' : 'expanded'}
+      className={itemClass}
+      onPointerEnter={scheduleOpen}
+      onPointerLeave={scheduleClose}
+      onFocus={openImmediately}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null
+        if (surfaceRef.current?.contains(next)) return
+        scheduleClose()
+      }}
+      onClick={() => {
+        closeDirectory()
+        onNavigate?.()
+      }}
+    >
+      <Icons.Settings size={compact ? 18 : 17} aria-hidden="true" />
+      {!compact && <span>设置</span>}
+    </NavLink>
+    {surface}
+  </>
 }
 
 function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigation[number] & { onNavigate?: () => void }) {
@@ -161,7 +359,7 @@ function ExpandedRoute({ href, label, icon: Icon, onNavigate }: typeof navigatio
   />
 }
 
-function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate }: CategorizedNavigationProps) {
+function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsToggle, onQuickView, onNavigate, role, settingsDirectory = true }: CategorizedNavigationProps) {
   return <nav aria-label="分类导航内容" className="quiet-scroll-region min-h-0 overflow-x-hidden overflow-y-auto px-2 pb-3">
     <p className="type-label px-3 pb-1 pt-2 text-muted">浏览</p>
     {browseNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
@@ -184,7 +382,9 @@ function CategorizedNavigation({ activeQuickView, quickViewsOpen, onQuickViewsTo
     </div>}
 
     <p className="type-label mt-3 px-3 pb-1 pt-2 text-muted">管理</p>
-    {managementNavigation.map((item) => <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
+    {managementNavigation.map((item) => item.id === 'settings' && settingsDirectory
+      ? <SettingsSidebarNavigationItem key={item.href} compact={false} role={role} onNavigate={onNavigate} />
+      : <ExpandedRoute key={item.href} {...item} onNavigate={onNavigate} />)}
   </nav>
 }
 
@@ -292,21 +492,6 @@ export function rectanglesOverlap(first: RectBounds, second: RectBounds): boolea
     && first.bottom > second.top
 }
 
-const gatewayStatusLabel: Record<OpenClawConnectionStatus, string> = {
-  disabled: '对话未启用',
-  idle: '未连接',
-  connecting: '连接中',
-  connected: '已连接',
-  reconnecting: '重连中',
-  error: '连接失败',
-}
-
-const toolsStatusLabel: Record<OpenClawToolsStatus, string> = {
-  unknown: '工具检查中',
-  available: '工具可用',
-  missing: '工具未发现',
-}
-
 function AgentPanelContent({
   open,
   onClose,
@@ -334,6 +519,33 @@ function AgentPanelContent({
     })),
   })
   const itemQueryById = new Map(feedItems.map((item, index) => [item.articleId, itemQueries[index]]))
+  const gatewayTone = chat.status === 'error'
+    ? 'danger'
+    : chat.isRunning || chat.status === 'connecting' || chat.status === 'reconnecting'
+      ? 'accent'
+      : chat.status === 'connected'
+        ? 'success'
+        : 'neutral'
+  const headerStatusLabel = chat.isRunning
+    ? 'OpenClaw · 正在处理'
+    : chat.status === 'reconnecting'
+      ? `OpenClaw · 重连中${chat.reconnectAttempt > 0 ? ` ${chat.reconnectAttempt}` : ''}`
+      : chat.status === 'connecting'
+        ? 'OpenClaw · 连接中'
+        : chat.status === 'error'
+          ? 'OpenClaw · 连接失败'
+          : chat.status === 'disabled'
+            ? 'OpenClaw · 未配置'
+            : chat.status === 'idle'
+              ? 'OpenClaw · 未连接'
+              : chat.toolsStatus === 'missing'
+                ? 'OpenClaw · 工具未发现'
+                : chat.toolsStatus === 'unknown'
+                  ? 'OpenClaw · 检查工具'
+                  : 'OpenClaw'
+  const headerTone = chat.status === 'error' || chat.toolsStatus === 'missing'
+    ? 'danger'
+    : gatewayTone
   return <>
     <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
       <Icons.Sparkles className="shrink-0" size={17} aria-hidden="true" />
@@ -343,10 +555,17 @@ function AgentPanelContent({
           loading={configLoading}
           label="正在检查 Agent 连接"
           name="agent-status"
-          className="h-5 w-16 shrink-0 [&_[data-content-layer]]:items-center [&_[data-content-layer]]:justify-center"
-          skeleton={<CalmSkeleton className="h-5 w-16 rounded-lg" />}
-        ><Chip className="self-center" size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip></LoadingReveal>
-        {(chat.status === 'connected' || chat.status === 'reconnecting') && <Chip className="self-center" size="sm" color={chat.toolsStatus === 'available' ? 'success' : 'default'} variant="soft"><Chip.Label>{toolsStatusLabel[chat.toolsStatus]}</Chip.Label></Chip>}
+          className="h-6 min-w-14 shrink-0 [&_[data-content-layer]]:items-center [&_[data-content-layer]]:justify-center"
+          skeleton={<CalmSkeleton className="h-5 w-14 rounded-lg" />}
+        ><StatusIndicator
+          iconOnly
+          className="self-center"
+          label={headerStatusLabel}
+          tone={headerTone}
+          icon={chat.isRunning || chat.status === 'connecting' || chat.status === 'reconnecting'
+            ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            : undefined}
+        /></LoadingReveal>
       </div>
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" isDisabled={chat.isRunning} onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
@@ -454,6 +673,11 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [documentationMenuOpen, setDocumentationMenuOpen] = useState(false)
+  const [mobileMoreRoute, setMobileMoreRoute] = useState<string | null>(null)
+  const mobileMoreOpen = mobileMoreRoute === location.pathname
+  const setMobileMoreOpen = useCallback((open: boolean) => {
+    setMobileMoreRoute(open ? location.pathname : null)
+  }, [location.pathname])
   const [quickViewsOpen, setQuickViewsOpen] = useState(true)
   const [sidebarState, setSidebarState] = useState(() => ({ userId: props.user.id, value: readSidebarPreference(props.user.id) }))
   const [rightRailWidthState, setRightRailWidthState] = useState(() => ({ userId: props.user.id, value: readRightRailWidth(props.user.id) }))
@@ -516,6 +740,37 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     writeFeedPreference(props.user.id, next)
     setFeedPreferenceState({ userId: props.user.id, value: next })
     setTabletNavOpen(false)
+    navigate('/feed')
+  }
+
+  function handleInsightsMetric(metric: FeedInsightsMetric) {
+    if (metric === 'subscriptions' || metric === 'sources' || metric === 'recent_runs') {
+      const tab = metric === 'sources' ? 'library' : metric === 'recent_runs' ? 'jobs' : 'subscriptions'
+      navigate(`/subscriptions?tab=${tab}`)
+      return
+    }
+    if (metric === 'saved') {
+      navigate('/saved')
+      return
+    }
+    if (metric === 'unhealthy') {
+      navigate('/subscriptions')
+      return
+    }
+    if (metric === 'today') {
+      selectQuickView('today')
+      return
+    }
+    const next = { ...feedPreference, unreadFirst: true }
+    writeFeedPreference(props.user.id, next)
+    setFeedPreferenceState({ userId: props.user.id, value: next })
+    navigate('/feed')
+  }
+
+  function handleInsightsChannel(channel: string) {
+    const next = { ...feedPreference, channel }
+    writeFeedPreference(props.user.id, next)
+    setFeedPreferenceState({ userId: props.user.id, value: next })
     navigate('/feed')
   }
 
@@ -903,6 +1158,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                     onQuickViewsToggle={() => setQuickViewsOpen((value) => !value)}
                     onQuickView={selectQuickView}
                     onNavigate={() => changeTabletNavigation(false)}
+                    role={props.user.role}
+                    settingsDirectory={false}
                   />
                 </Popover.Dialog>
               </Popover.Content>
@@ -914,6 +1171,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               quickViewsOpen={quickViewsOpen}
               onQuickViewsToggle={() => setQuickViewsOpen((value) => !value)}
               onQuickView={selectQuickView}
+              role={props.user.role}
             />
           </div> : <nav aria-label="工作台导航" className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-2">
             {browseNavigation.map(({ label, href, icon: Icon }) => <SidebarNavItem
@@ -925,13 +1183,15 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               leading={<Icon size={18} aria-hidden="true" />}
             />)}
             <Separator className="my-2" />
-            {managementNavigation.map(({ label, href, icon: Icon }) => <SidebarNavItem
-              key={href}
-              href={href}
-              compact
-              label={label}
-              leading={<Icon size={18} aria-hidden="true" />}
-            />)}
+            {managementNavigation.map(({ id, label, href, icon: Icon }) => id === 'settings'
+              ? <SettingsSidebarNavigationItem key={href} compact role={props.user.role} />
+              : <SidebarNavItem
+                key={href}
+                href={href}
+                compact
+                label={label}
+                leading={<Icon size={18} aria-hidden="true" />}
+              />)}
           </nav>}
           <div
             data-sidebar-account-strip
@@ -1048,7 +1308,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           ref={mainRef}
           data-feed-reading-layout={feedRoute ? 'true' : undefined}
           data-feed-layout-motion={resizingRail ? 'immediate' : 'deliberate'}
-          className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-16 min-[768px]:col-start-2 min-[768px]:pb-0"
+          className="relative col-start-1 row-start-2 min-h-0 min-w-0 overflow-hidden pb-[calc(64px+env(safe-area-inset-bottom))] min-[768px]:col-start-2 min-[768px]:pb-0"
           style={feedRoute ? {
             '--inteliscope-feed-reading-shift': `${feedInsightsLayout?.readingShift ?? 0}px`,
           } as CSSProperties : undefined}
@@ -1104,7 +1364,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
           onAnimationEnd={insightsClosing ? (event) => {
             if (event.target === event.currentTarget) completeInsightsClose()
           } : undefined}
-        ><FeedInsightsPanel open={insightsOpen} onClose={() => closeInsights()} api={props.api} userId={props.user.id} includePrivateSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} /></aside>}
+        ><FeedInsightsPanel open={insightsOpen} onClose={() => closeInsights()} api={props.api} userId={props.user.id} includeDisabledSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} onMetricAction={handleInsightsMetric} onChannelAction={handleInsightsChannel} /></aside>}
 
         {agentRoute && !fixedRightRail && (visibleRightRailMode === 'agent' || (mobile && insightsPresent)) && <Drawer isOpen={visibleRightRailMode === 'agent' || (mobile && insightsOpen)} onOpenChange={(open) => {
           if (open) return
@@ -1121,16 +1381,73 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
               >
                 {visibleRightRailMode === 'agent'
                   ? <AgentPanelContent open onClose={closeRightRail} chat={openclawChat} configLoading={delegations.isLoading} value={agentValue} api={props.api} userId={props.user.id} />
-                  : <FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} includePrivateSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} />}
+                  : <FeedInsightsPanel open onClose={() => closeInsights()} api={props.api} userId={props.user.id} includeDisabledSources={props.user.role === 'owner' || props.user.role === 'admin'} preference={feedPreference} query={props.query} onMetricAction={handleInsightsMetric} onChannelAction={handleInsightsChannel} />}
               </Drawer.Dialog>
             </Drawer.Content>
           </Drawer.Backdrop>
         </Drawer>}
 
-        <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-6 border-t border-separator bg-surface min-[768px]:hidden">
-          {mobileNavigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">
+        <Drawer isOpen={mobileMoreOpen} onOpenChange={setMobileMoreOpen}>
+          <Drawer.Trigger aria-hidden="true" className="hidden">打开更多与账户</Drawer.Trigger>
+          <Drawer.Backdrop variant="blur" className="min-[768px]:hidden">
+            <Drawer.Content placement="bottom">
+              <Drawer.Dialog aria-label="更多与账户" className="max-h-[min(82dvh,680px)] w-full overflow-y-auto rounded-t-2xl bg-surface p-0 pb-[env(safe-area-inset-bottom)] outline-none">
+                <Drawer.Header className="border-b border-separator px-5 py-4">
+                  <Drawer.Heading>更多与账户</Drawer.Heading>
+                </Drawer.Header>
+                <Drawer.Body className="grid gap-1 p-3">
+                  <div className="mb-2 flex items-center gap-3 rounded-xl bg-default/70 p-3">
+                    <AvatarRoot className="size-9 shrink-0"><AvatarFallback>{(props.user.display_name || props.user.username).slice(0, 1).toUpperCase()}</AvatarFallback></AvatarRoot>
+                    <span className="min-w-0"><strong className="type-control block truncate">{props.user.display_name || props.user.username}</strong><span className="type-meta text-muted">{props.user.username} · {roleLabel[props.user.role]}</span></span>
+                  </div>
+                  {[
+                    { label: '历史', href: '/history', icon: Icons.History },
+                    { label: '账户与成员', href: '/users', icon: Icons.Users },
+                    { label: '设置', href: '/settings', icon: Icons.Settings },
+                    { label: '操作手册', href: '/manual', icon: Icons.BookOpen },
+                    { label: '更新日志', href: '/changelog', icon: Icons.ScrollText },
+                  ].map(({ label, href, icon: Icon }) => <Button
+                    key={href}
+                    variant="ghost"
+                    className="min-h-11 w-full justify-start"
+                    onPress={() => {
+                      setMobileMoreOpen(false)
+                      navigate(href)
+                    }}
+                  ><Icon size={17} aria-hidden="true" />{label}</Button>)}
+                  <a
+                    href={PRODUCT_RELEASES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="type-control flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+                    onClick={() => setMobileMoreOpen(false)}
+                  ><Icons.Rocket size={17} aria-hidden="true" />Release 发布页<Icons.ExternalLink className="ml-auto" size={13} aria-hidden="true" /></a>
+                  <Separator className="my-2" />
+                  <Button variant="ghost" className="min-h-11 w-full justify-start text-danger" aria-label="退出登录" onPress={() => {
+                    setMobileMoreOpen(false)
+                    openclawChat.clearTranscript()
+                    openclawChat.disconnect()
+                    props.onLogout()
+                  }}><Icons.LogOut size={17} aria-hidden="true" />退出登录</Button>
+                </Drawer.Body>
+              </Drawer.Dialog>
+            </Drawer.Content>
+          </Drawer.Backdrop>
+        </Drawer>
+
+        <nav aria-label="移动端主导航" className="fixed inset-x-0 bottom-0 z-30 grid min-h-16 grid-cols-5 border-t border-separator bg-surface pb-[env(safe-area-inset-bottom)] min-[768px]:hidden">
+          {mobilePrimaryNavigation.map(({ label, href, icon: Icon }) => <NavLink key={href} to={href} end={href === '/feed'} aria-label={label} className="type-micro flex min-h-16 min-w-11 flex-col items-center justify-center gap-1 text-muted aria-[current=page]:text-accent">
             <Icon size={17} aria-hidden="true" /><span>{label}</span>
           </NavLink>)}
+          <button
+            type="button"
+            aria-label="更多与账户"
+            aria-expanded={mobileMoreOpen}
+            className={`type-micro flex min-h-16 min-w-11 flex-col items-center justify-center gap-1 ${mobileMoreOpen || ['/history', '/users', '/settings', '/manual', '/changelog'].includes(location.pathname) ? 'text-accent' : 'text-muted'}`}
+            onClick={() => setMobileMoreOpen(true)}
+          >
+            <Icons.Menu size={17} aria-hidden="true" /><span>更多</span>
+          </button>
         </nav>
       </div>
   </WorkbenchAgentContext.Provider>

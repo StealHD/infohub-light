@@ -407,13 +407,16 @@ def test_apply_config_action_sets_rss_initial_fetch_window():
     updated = apply_config_action(
         config,
         "set_filtering",
-        {"rss_initial_fetch_window_hours": "720"},
+        {"rss_initial_fetch_window_hours": 720},
     )
 
     assert updated["filtering"]["rss_initial_fetch_window_hours"] == 720
 
 
-@pytest.mark.parametrize("value", [24, 169, True, False, 168.0, 168.5, "invalid"])
+@pytest.mark.parametrize(
+    "value",
+    [24, 169, True, False, 168.0, 168.5, "168", "720", "invalid"],
+)
 def test_apply_config_action_rejects_invalid_rss_initial_fetch_window(value):
     with pytest.raises(ValueError, match="rss_initial_fetch_window_hours"):
         apply_config_action(
