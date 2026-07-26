@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -12,10 +13,10 @@ import {
   anchoredTooltipProps,
   Button,
   Card,
-  Chip,
   Icons,
   LoadingState,
   PageFrame,
+  StatusIndicator,
   Switch,
   Tabs,
   Tooltip,
@@ -66,18 +67,28 @@ const formatCompactTime = (value?: string | null) => {
 }
 
 
-function FeedScheduleControls({ schedule, editable, pending, onUpdate }: {
+function FeedScheduleControls({ schedule, editable, pending, loading, error, onRetry, onUpdate }: {
   schedule?: FeedSchedule
   editable: boolean
   pending: boolean
+  loading: boolean
+  error: boolean
+  onRetry: () => void
   onUpdate: (patch: { enabled: boolean; interval_minutes: number }) => void
 }) {
   const interval = schedule?.interval_minutes ?? 360
   const intervalOptions = (schedule?.allowed_intervals ?? [60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value < 60 ? `每 ${value} 分钟` : `每 ${value / 60} 小时` }))
-  const workerStatus = schedule?.worker_status === 'ready' ? '后台服务正常' : '后台服务不可用'
-  const status = schedule?.enabled
-    ? `${schedule.next_run_at ? `下次计划：${formatTime(schedule.next_run_at)}` : '等待下次计划'} · ${workerStatus}`
-    : `已关闭 · ${workerStatus}`
+  const controlsDisabled = !editable || pending || loading || error || !schedule
+  const scheduleStatus = schedule?.enabled
+    ? schedule.next_run_at ? `下次计划：${formatTime(schedule.next_run_at)}` : '等待下次计划'
+    : '已关闭'
+  const serviceStatus = loading
+    ? { label: '正在检查后台服务', tone: 'accent' as const, icon: <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> }
+    : error
+      ? { label: '自动更新状态读取失败', tone: 'warning' as const, icon: <Icons.TriangleAlert size={13} aria-hidden="true" /> }
+      : schedule?.worker_status === 'ready'
+        ? { label: '后台服务正常', tone: 'success' as const, icon: <Icons.CircleCheck size={13} aria-hidden="true" /> }
+        : { label: '后台服务不可用', tone: 'danger' as const, icon: <Icons.CircleX size={13} aria-hidden="true" /> }
 
   return <Card data-feed-schedule variant="secondary" className="min-w-0 max-w-full border border-separator bg-surface-secondary p-3 shadow-none min-[640px]:p-4">
     <div className="grid min-w-0 gap-3">
@@ -91,7 +102,7 @@ function FeedScheduleControls({ schedule, editable, pending, onUpdate }: {
             aria-label="全部订阅自动更新"
             aria-busy={pending}
             isSelected={schedule?.enabled ?? false}
-            isDisabled={!editable || pending}
+            isDisabled={controlsDisabled}
             onChange={(enabled) => onUpdate({ enabled, interval_minutes: interval })}
           >
             <Switch.Content className="gap-0">
@@ -102,12 +113,16 @@ function FeedScheduleControls({ schedule, editable, pending, onUpdate }: {
         </div>
       </div>
       <div className="grid min-w-0 gap-3 min-[480px]:grid-cols-[minmax(0,1fr)_auto] min-[480px]:items-end">
-        <div className="type-body min-w-0 text-muted">{status}</div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <StatusIndicator iconOnly role="status" label={serviceStatus.label} tone={serviceStatus.tone} icon={serviceStatus.icon} />
+          {!loading && !error && schedule && <span className="type-body text-muted">{scheduleStatus}</span>}
+          {error && <Button size="sm" variant="ghost" onPress={onRetry}>重试</Button>}
+        </div>
         <HeroSelect
           label="更新周期"
           value={String(interval)}
           onChange={(value) => onUpdate({ enabled: schedule?.enabled ?? false, interval_minutes: Number(value) })}
-          isDisabled={!editable || pending}
+          isDisabled={controlsDisabled}
           options={intervalOptions}
           className="w-40 max-w-full justify-self-end"
         />
@@ -123,7 +138,9 @@ export function HeroSubscriptionsPage() {
   const agent = useWorkbenchAgentContext()
   const editable = canMutateSubscriptions(user)
   const isAdmin = adminRole(user.role)
-  const [tab, setTab] = useState('subscriptions')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const tab = requestedTab === 'library' || requestedTab === 'jobs' ? requestedTab : 'subscriptions'
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [scopeFilter, setScopeFilter] = useState('all')
@@ -131,14 +148,32 @@ export function HeroSubscriptionsPage() {
   const [subscriptionChannel, setSubscriptionChannel] = useState('all')
   const [libraryChannel, setLibraryChannel] = useState('')
   const [editingSubscription, setEditingSubscription] = useState<{ source: CatalogSource; subscription: Subscription } | null>(null)
+  const [subscriptionDialogPending, setSubscriptionDialogPending] = useState(false)
   const [editingSource, setEditingSource] = useState<CatalogSource | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createType, setCreateType] = useState('')
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
+  const editingSubscriptionReturnFocus = useRef<HTMLElement | null>(null)
   const editingSourceReturnFocus = useRef<HTMLElement | null>(null)
   const shareSourceReturnFocus = useRef<HTMLElement | null>(null)
   const seenTerminalJobs = useRef(new Set<string>())
   const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string; token: ActionToken }>())
+
+  function rememberDialogTrigger(target: { current: HTMLElement | null }) {
+    target.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }
+
+  function closeEditingSubscription() {
+    setEditingSubscription(null)
+  }
+
+  function closeEditingSource() {
+    setEditingSource(null)
+  }
+
+  function closeShareSource() {
+    setShareSource(null)
+  }
 
   const sourcesQuery = useQuery({ queryKey: queryKeys.sources(user.id), queryFn: ({ signal }) => api.sources(isAdmin, signal) })
   const typesQuery = useQuery({ queryKey: queryKeys.sourceTypes(user.id), queryFn: ({ signal }) => api.sourceTypes(signal) })
@@ -172,7 +207,7 @@ export function HeroSubscriptionsPage() {
     mutationFn: ({ source, scope }: { source: CatalogSource; scope: 'workspace' | 'public' }) => api.shareSource(source.id, scope),
     onSuccess: async (result) => {
       await invalidate()
-      setShareSource(null)
+      closeShareSource()
       actionToast.success('来源已分享', { description: result.notice })
     },
     onError: (caught) => actionToast.danger('来源分享失败', { description: mutationError(caught) }),
@@ -312,7 +347,7 @@ export function HeroSubscriptionsPage() {
   const activeSubscriptionChannel = resolveViewSelection(subscriptionGroups, subscriptionChannel)
   const activeLibraryChannel = resolveViewSelection(sourceGroups, libraryChannel)
   const activeDefinition = definitions.find((definition) => definition.type === (editingSource?.type || createType))
-  const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || scheduleQuery.error || jobsQuery.error || configQuery.error
+  const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || configQuery.error
   const loading = sourcesQuery.isLoading || typesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
   const schedulePending = feedback.isPending('feed-schedule', 'global')
   useEffect(() => {
@@ -399,6 +434,11 @@ export function HeroSubscriptionsPage() {
     setEditingSource(source)
   }
 
+  function beginEditSubscription(entry: SubscriptionViewEntry) {
+    rememberDialogTrigger(editingSubscriptionReturnFocus)
+    setEditingSubscription({ source: entry.source, subscription: entry.subscription })
+  }
+
   function toggleJobContext(job: Job, title: string, sourceName: string | undefined, statusLabel: string, detail: string) {
     const articleId = `job:${job.id}`
     const alreadySelected = agent.draft.items.some((item) => item.articleId === articleId)
@@ -417,11 +457,23 @@ export function HeroSubscriptionsPage() {
     }
   }
 
+  function selectTab(key: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', key === 'library' || key === 'jobs' ? key : 'subscriptions')
+    setSearchParams(next, { replace: true })
+  }
+
   return <div className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description="选择要持续关注的来源，并查看每次更新发生了什么。" actions={editable && <Button size="sm" onPress={() => setCreateOpen(true)}><Icons.Plus size={15} />新增来源</Button>} />
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
-    <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key))}>
-      <Tabs.List aria-label="订阅与来源页面" className="grid w-full grid-cols-3 min-[768px]:flex min-[768px]:w-fit"><Tabs.Tab id="subscriptions" className="min-w-0 justify-center px-2 min-[768px]:px-3">我的订阅<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="library" className="min-w-0 justify-center px-2 min-[768px]:px-3">来源库<Tabs.Indicator /></Tabs.Tab><Tabs.Tab id="jobs" className="min-w-0 justify-center px-2 min-[768px]:px-3">运行记录<Tabs.Indicator /></Tabs.Tab></Tabs.List>
+    <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key))}>
+      <div className="quiet-scroll-region max-w-full overflow-x-auto">
+        <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
+          <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
+          <Tabs.Tab id="library" aria-label="来源库" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">来源库<Tabs.Indicator /></Tabs.Tab>
+          <Tabs.Tab id="jobs" aria-label="运行记录" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">运行记录<Tabs.Indicator /></Tabs.Tab>
+        </Tabs.List>
+      </div>
       <Tabs.Panel id="subscriptions" className="grid gap-5 pt-5">
         {loading
           ? <LoadingState label="正在读取订阅" rows={1} />
@@ -442,10 +494,18 @@ export function HeroSubscriptionsPage() {
                 includeHealth: true,
               }}
               editable={editable}
-              schedule={<FeedScheduleControls schedule={scheduleQuery.data} editable={editable} pending={schedulePending} onUpdate={(patch) => scheduleMutation.mutate(patch)} />}
+              schedule={<FeedScheduleControls
+                schedule={scheduleQuery.data}
+                editable={editable}
+                pending={schedulePending}
+                loading={scheduleQuery.isLoading}
+                error={scheduleQuery.isError}
+                onRetry={() => void scheduleQuery.refetch()}
+                onUpdate={(patch) => scheduleMutation.mutate(patch)}
+              />}
               onFetch={(entry) => fetchMutation.mutate({ source: entry.source, subscription: entry.subscription })}
               onToggleNotification={(entry, enabled) => notificationMutation.mutate({ source: entry.source, subscription: entry.subscription, enabled })}
-              onEditSubscription={(entry) => setEditingSubscription({ source: entry.source, subscription: entry.subscription })}
+              onEditSubscription={beginEditSubscription}
               onEditSource={beginEditSource}
               onShare={beginShare}
             />}
@@ -481,6 +541,11 @@ export function HeroSubscriptionsPage() {
       </Tabs.Panel>
       <Tabs.Panel id="jobs" className="grid gap-3 pt-5">
         <p className="type-body text-muted">任务类型和状态使用中文展示；可加入 OpenClaw 分析，仅管理员可展开技术详情。</p>
+        {jobsQuery.isLoading && <LoadingState label="正在读取运行记录" rows={2} />}
+        {jobsQuery.isError && <HeroNotice title="运行记录读取失败" status="warning">
+          <span>订阅和来源仍可继续使用。</span>
+          <Button size="sm" variant="ghost" className="ml-2" onPress={() => void jobsQuery.refetch()}>重试</Button>
+        </HeroNotice>}
         {(jobsQuery.data?.jobs ?? []).filter((job) => job.user_id === user.id).slice(0, 20).map((job) => {
           const presented = presentJob(job, sourceMap)
           const feedActivity = job.job_type === 'user_feed_refresh' ? describeFeedJob(job, scheduleQuery.data?.worker_status) : undefined
@@ -490,10 +555,22 @@ export function HeroSubscriptionsPage() {
           const resultDetail = feedActivity?.message || presented.detail || presented.resultLabel
           const resultSummary = feedActivity?.message || presented.resultLabel
           const extraDetail = presented.detail && presented.detail !== resultSummary ? presented.detail : null
+          const statusTone = presented.tone === 'positive' ? 'success' : presented.tone === 'critical' ? 'danger' : presented.tone
+          const statusIcon = presented.icon === 'loader'
+            ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            : presented.icon === 'check'
+              ? <Icons.CircleCheck size={13} aria-hidden="true" />
+              : presented.icon === 'warning'
+                ? <Icons.TriangleAlert size={13} aria-hidden="true" />
+                : presented.icon === 'error'
+                  ? <Icons.CircleX size={13} aria-hidden="true" />
+                  : presented.icon === 'stop'
+                    ? <Icons.CircleStop size={13} aria-hidden="true" />
+                    : <Icons.Clock3 size={13} aria-hidden="true" />
           return <Card key={job.id} data-compact-job-card variant="secondary" className="min-w-0 max-w-full border border-separator bg-surface-secondary p-3 shadow-none">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Card.Title className="min-w-0 flex-1">{presented.title}</Card.Title>
-              <Chip size="sm" variant="soft"><Chip.Label>{presented.statusLabel}</Chip.Label></Chip>
+              <StatusIndicator iconOnly label={presented.statusLabel} tone={statusTone} icon={statusIcon} />
               <Tooltip delay={600}>
                 <TooltipTriggerButton
                   data-context-state={inContext ? 'selected' : 'idle'}
@@ -522,10 +599,23 @@ export function HeroSubscriptionsPage() {
     </Tabs>
   </PageFrame>
 
-  <HeroDialog isOpen={Boolean(editingSubscription)} onOpenChange={(open) => !open && setEditingSubscription(null)} title={editingSubscription ? `${editingSubscription.source.display_name} · 订阅设置` : '订阅设置'}>{editingSubscription && <SubscriptionForm {...editingSubscription} readonly={!editable} taxonomy={taxonomy} onDone={() => { void invalidate(); setEditingSubscription(null) }} onJob={createJob} />}</HeroDialog>
-  <HeroDialog isOpen={Boolean(editingSource)} onOpenChange={(open) => !open && setEditingSource(null)} returnFocusRef={editingSourceReturnFocus} title={editingSource ? `${editingSource.display_name} · 来源设置` : '来源设置'}>{editingSource && activeDefinition && <SourceForm definition={activeDefinition} source={editingSource} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="保存来源" onSubmit={async (payload) => { await api.updateSource(editingSource.id, payload); await invalidate(); setEditingSource(null); actionToast.success('来源设置已保存') }} />}</HeroDialog>
+  <HeroDialog
+    isOpen={Boolean(editingSubscription)}
+    onOpenChange={(open) => !open && closeEditingSubscription()}
+    returnFocusRef={editingSubscriptionReturnFocus}
+    title={editingSubscription ? `${editingSubscription.source.display_name} · 订阅设置` : '订阅设置'}
+    locked={subscriptionDialogPending}
+  >{editingSubscription && <SubscriptionForm
+    {...editingSubscription}
+    readonly={!editable}
+    taxonomy={taxonomy}
+    onPendingChange={setSubscriptionDialogPending}
+    onDone={() => { void invalidate(); closeEditingSubscription() }}
+    onJob={createJob}
+  />}</HeroDialog>
+  <HeroDialog isOpen={Boolean(editingSource)} onOpenChange={(open) => !open && closeEditingSource()} returnFocusRef={editingSourceReturnFocus} title={editingSource ? `${editingSource.display_name} · 来源设置` : '来源设置'}>{editingSource && activeDefinition && <SourceForm definition={activeDefinition} source={editingSource} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="保存来源" onSubmit={async (payload) => { await api.updateSource(editingSource.id, payload); await invalidate(); closeEditingSource(); actionToast.success('来源设置已保存') }} />}</HeroDialog>
   <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setCreateType('') }} title="新增来源"><div className="grid gap-4"><HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type) }))]} />{activeDefinition && <SourceForm key={activeDefinition.type} definition={activeDefinition} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="创建并订阅" onSubmit={async (payload) => { const created = await api.createSource(payload); try { const result = await api.subscribe(created.id); const reused = result.subscription.reused_item_count ?? 0; actionToast.success('来源已创建并订阅', { description: reused > 0 ? `已复用 ${reused} 条已有内容。` : undefined }) } catch (caught) { actionToast.danger('来源已创建，但订阅失败', { description: `${mutationError(caught)} 可在来源库中重试订阅。` }) } await invalidate(); setCreateOpen(false); setCreateType('') }} />}</div></HeroDialog>
-  <HeroDialog isOpen={Boolean(shareSource)} onOpenChange={(open) => !open && setShareSource(null)} returnFocusRef={shareSourceReturnFocus} title={shareSource ? `分享 ${shareSource.display_name}` : '分享来源'}>
+  <HeroDialog isOpen={Boolean(shareSource)} onOpenChange={(open) => !open && closeShareSource()} returnFocusRef={shareSourceReturnFocus} title={shareSource ? `分享 ${shareSource.display_name}` : '分享来源'}>
     <div className="grid gap-4">
       <HeroNotice title="分享后管理权将发生变化" status="warning">来源订阅地址和管理权会转交给工作区超级用户与管理员。你之后取消订阅只影响自己，不会删除其他成员正在使用的来源。</HeroNotice>
       <p className="type-body text-muted">分享后将成为公共订阅，所有成员都可以发现并订阅。</p>

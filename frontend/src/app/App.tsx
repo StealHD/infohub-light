@@ -1,4 +1,4 @@
-import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -64,15 +64,24 @@ function LegacyLaterRedirect() {
 function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const queryClient = useQueryClient()
   const location = useLocation()
-  const [query, setQuery] = useState('')
+  const [collectionQueries, setCollectionQueries] = useState({ saved: '', history: '' })
   const previousUserId = useRef(user.id)
   const actionGuard = useMemo(() => new ActionGeneration(user.id), [user.id])
   const feedActivity = useFeedActivity(api, user, actionGuard)
   const canMutate = user.role !== 'viewer'
+  const collectionRoute = location.pathname === '/saved' ? 'saved' : location.pathname === '/history' ? 'history' : null
+  const query = collectionRoute ? collectionQueries[collectionRoute] : ''
+  const setQuery = useCallback((value: string) => {
+    if (!collectionRoute) return
+    setCollectionQueries((current) => current[collectionRoute] === value
+      ? current
+      : { ...current, [collectionRoute]: value })
+  }, [collectionRoute])
 
   useLayoutEffect(() => {
     if (previousUserId.current !== user.id) {
       actionToast.clear()
+      setCollectionQueries({ saved: '', history: '' })
       void clearUserCache(queryClient, previousUserId.current)
     }
     previousUserId.current = user.id

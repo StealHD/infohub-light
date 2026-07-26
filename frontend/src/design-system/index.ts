@@ -65,6 +65,13 @@ export {
 } from './patterns'
 export type { CompactSelectOption, LoadingRevealProps, PageFrameWidth, ViewBarAction } from './patterns'
 export {
+  CountBadge,
+  MetaTag,
+  RemovableTag,
+  StatusIndicator,
+} from './semantic'
+export type { SemanticTone } from './semantic'
+export {
   DEFAULT_THEME_PREFERENCE,
   readThemePreference,
   THEME_PREFERENCE_STORAGE_KEY,

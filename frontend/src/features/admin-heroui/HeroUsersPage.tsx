@@ -11,13 +11,13 @@ import {
   AvatarFallback,
   AvatarRoot,
   Button,
-  Chip,
   Icons,
   Input,
   Label,
   LoadingState,
   Modal,
   PageFrame,
+  StatusIndicator,
   Table,
   TextField,
   type SortDescriptor,
@@ -244,10 +244,9 @@ export function HeroUsersPage() {
         </div>
       case 'role':
         return member.role === 'owner'
-          ? <Chip size="sm" variant="soft">
-            <Icons.ShieldCheck size={13} aria-hidden="true" />
-            <Chip.Label>所有者 · 受保护</Chip.Label>
-          </Chip>
+          ? <span className="type-meta inline-flex items-center gap-1.5 text-muted">
+            <Icons.ShieldCheck size={13} aria-hidden="true" />所有者 · 受保护
+          </span>
           : <div className="min-w-44">
             <HeroSelect
               label={`角色 ${member.username}`}
@@ -265,9 +264,13 @@ export function HeroUsersPage() {
             />
           </div>
       case 'status':
-        return <Chip size="sm" color={member.enabled ? 'success' : 'danger'} variant="soft">
-          <Chip.Label>{member.enabled ? '已启用' : '已停用'}</Chip.Label>
-        </Chip>
+        return <StatusIndicator
+          label={member.enabled ? '已启用' : '已停用'}
+          tone={member.enabled ? 'success' : 'danger'}
+          icon={member.enabled
+            ? <Icons.CircleCheck size={13} aria-hidden="true" />
+            : <Icons.CircleX size={13} aria-hidden="true" />}
+        />
       case 'actions':
         return <div className="flex items-center justify-end gap-2">
           <Button

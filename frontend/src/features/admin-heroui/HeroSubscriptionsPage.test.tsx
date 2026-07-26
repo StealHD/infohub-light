@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -17,6 +17,8 @@ const source: CatalogSource = {
 
 function renderCard(subscription: Subscription, overrides: Partial<Parameters<typeof SubscriptionRows>[0]['items'][number]> = {}) {
   const onToggleNotification = vi.fn()
+  const onEditSource = vi.fn()
+  const onShare = vi.fn()
   render(<MemoryRouter><DesignSystemProvider><SubscriptionRows
     items={[{
       source,
@@ -32,14 +34,15 @@ function renderCard(subscription: Subscription, overrides: Partial<Parameters<ty
     onFetch={vi.fn()}
     onToggleNotification={onToggleNotification}
     onEditSubscription={vi.fn()}
-    onEditSource={vi.fn()}
-    onShare={vi.fn()}
+    onEditSource={onEditSource}
+    onShare={onShare}
   /></DesignSystemProvider></MemoryRouter>)
-  return { onToggleNotification }
+  return { onToggleNotification, onEditSource, onShare }
 }
 
 describe('subscription source card notifications', () => {
   it('shows the effective notification state as a card switch', async () => {
+    const browser = userEvent.setup()
     const subscription = {
       id: 'subscription-1',
       user_id: 'user-1',
@@ -53,15 +56,16 @@ describe('subscription source card notifications', () => {
 
     expect(notification).toBeChecked()
     expect(notification).toBeEnabled()
-    await userEvent.click(notification)
+    notification.focus()
+    await browser.keyboard('[Space]')
     expect(onToggleNotification).toHaveBeenCalledWith(
       expect.objectContaining({ subscription }),
       false,
     )
   })
 
-  it('disables and clears the effective switch for personal-only content', () => {
-    renderCard({
+  it('keeps a focusable explanation while blocking personal-only notifications', async () => {
+    const { onToggleNotification } = renderCard({
       id: 'subscription-2',
       user_id: 'user-1',
       source_id: source.id,
@@ -71,11 +75,13 @@ describe('subscription source card notifications', () => {
     })
     const notification = screen.getByRole('switch', { name: '新内容通知：通知来源' })
     expect(notification).not.toBeChecked()
-    expect(notification).toBeDisabled()
+    expect(notification).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.click(notification)
+    expect(onToggleNotification).not.toHaveBeenCalled()
   })
 
-  it('disables and clears the effective switch for a disabled subscription', () => {
-    renderCard({
+  it('blocks notifications for a disabled subscription', async () => {
+    const { onToggleNotification } = renderCard({
       id: 'subscription-3',
       user_id: 'user-1',
       source_id: source.id,
@@ -85,12 +91,14 @@ describe('subscription source card notifications', () => {
     })
     const notification = screen.getByRole('switch', { name: '新内容通知：通知来源' })
     expect(notification).not.toBeChecked()
-    expect(notification).toBeDisabled()
+    expect(notification).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.click(notification)
+    expect(onToggleNotification).not.toHaveBeenCalled()
   })
 
-  it('disables and clears the effective switch for a disabled source', () => {
-    renderCard({
-      id: 'subscription-source-disabled',
+  it('blocks notifications for a disabled source', async () => {
+    const { onToggleNotification } = renderCard({
+      id: 'subscription-disabled-source',
       user_id: 'user-1',
       source_id: source.id,
       enabled: true,
@@ -99,7 +107,9 @@ describe('subscription source card notifications', () => {
     }, { source: { ...source, enabled: false } })
     const notification = screen.getByRole('switch', { name: '新内容通知：通知来源' })
     expect(notification).not.toBeChecked()
-    expect(notification).toBeDisabled()
+    expect(notification).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.click(notification)
+    expect(onToggleNotification).not.toHaveBeenCalled()
   })
 
   it('keeps the fetch button label and geometry class stable while busy', () => {
@@ -118,16 +128,25 @@ describe('subscription source card notifications', () => {
     expect(fetchButton.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
   })
 
-  it('places share and edit actions directly on the card', () => {
-    renderCard({
+  it('keeps edit direct and trims the More menu to sharing only', async () => {
+    const browser = userEvent.setup()
+    const { onEditSource, onShare } = renderCard({
       id: 'subscription-5',
       user_id: 'user-1',
       source_id: source.id,
       enabled: true,
     }, { canEdit: true, canShare: true })
 
-    expect(screen.getByRole('button', { name: '分享 通知来源' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '编辑 通知来源 来源' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /更多操作/ })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '编辑来源：通知来源' }))
+    expect(onEditSource).toHaveBeenCalledWith(source, expect.any(HTMLElement))
+
+    const trigger = screen.getByRole('button', { name: '更多操作：通知来源' })
+    expect(screen.queryByRole('button', { name: '分享来源' })).not.toBeInTheDocument()
+    await browser.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '通知来源 来源操作' })
+    expect(within(dialog).queryByRole('button', { name: '编辑来源' })).not.toBeInTheDocument()
+    await browser.click(within(dialog).getByRole('button', { name: '分享来源' }))
+    expect(onShare).toHaveBeenCalledWith(source, expect.any(HTMLElement))
+    expect(screen.queryByRole('dialog', { name: '通知来源 来源操作' })).not.toBeInTheDocument()
   })
 })

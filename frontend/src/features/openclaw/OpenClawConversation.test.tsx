@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { WorkbenchAgentContextValue } from '../workbench-live/workbenchAgentContext'
-import { OpenClawContextUsageIndicator, OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
+import { OpenClawActivityTrace, OpenClawContextUsageIndicator, OpenClawConversation, gatewayOriginSetupCommands } from './OpenClawConversation'
 
 function contextValue(overrides: Partial<WorkbenchAgentContextValue['draft']> = {}): WorkbenchAgentContextValue {
   return {
@@ -31,6 +31,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     messages: [],
     streamText: '',
     streamCreatedAt: null,
+    runTrace: null,
     issue: null,
     runtimeIssue: null,
     modelSwitchFallback: null,
@@ -38,12 +39,14 @@ function chatController(overrides: Record<string, unknown> = {}) {
     sessionKey: null,
     isRunning: false,
     isStopping: false,
+    reconnectAttempt: 0,
     runtimeLoading: false,
     runtimeUpdating: false,
     models: [],
     thinkingOptions: [],
     runtimeSelection: { modelId: null, thinkingLevel: null, defaultModelId: null, defaultThinkingLevel: null },
     connect: vi.fn().mockResolvedValue(true),
+    retryConnection: vi.fn(),
     disconnect: vi.fn(),
     forget: vi.fn(),
     send: vi.fn().mockResolvedValue(true),
@@ -172,6 +175,80 @@ describe('OpenClaw conversation surface', () => {
     expect(request.displayText).not.toContain('article_id=')
   })
 
+  it('does not send while an IME composition is being confirmed', () => {
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    const value = contextValue({ question: 'english' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+    const composer = screen.getByLabelText('发送给 OpenClaw 的问题')
+
+    fireEvent.compositionStart(composer)
+    const composingEnter = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+      isComposing: true,
+    })
+    composer.dispatchEvent(composingEnter)
+    expect(composingEnter.defaultPrevented).toBe(false)
+    expect(chat.send).not.toHaveBeenCalled()
+
+    fireEvent.compositionEnd(composer)
+    const sendEnter = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+    })
+    composer.dispatchEvent(sendEnter)
+    expect(sendEnter.defaultPrevented).toBe(true)
+    expect(chat.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores the WebKit keyCode 229 Enter after composition end', () => {
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    const value = contextValue({ question: 'english' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+    const composer = screen.getByLabelText('发送给 OpenClaw 的问题')
+
+    fireEvent.compositionStart(composer)
+    fireEvent.compositionEnd(composer)
+    const webkitEnter = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+    })
+    Object.defineProperty(webkitEnter, 'keyCode', { value: 229 })
+    composer.dispatchEvent(webkitEnter)
+    expect(webkitEnter.defaultPrevented).toBe(false)
+    expect(chat.send).not.toHaveBeenCalled()
+
+    const sendEnter = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+    })
+    Object.defineProperty(sendEnter, 'keyCode', { value: 13 })
+    composer.dispatchEvent(sendEnter)
+    expect(sendEnter.defaultPrevented).toBe(true)
+    expect(chat.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps Shift+Enter as a newline without sending', () => {
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    const value = contextValue({ question: 'first line' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+    const composer = screen.getByLabelText('发送给 OpenClaw 的问题')
+    const newline = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+      shiftKey: true,
+    })
+
+    composer.dispatchEvent(newline)
+    expect(newline.defaultPrevented).toBe(false)
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+
   it('sends a direct subscription request through the controlled proposal flow', async () => {
     const browser = userEvent.setup()
     const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
@@ -276,14 +353,102 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(96px,auto)_36px]', 'gap-2')
-    expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-24')
+    expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(44px,auto)_36px]', 'gap-2')
+    expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-11', 'max-h-[120px]', '[field-sizing:content]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
     expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('grid', 'grid-cols-[auto_minmax(0,1fr)_auto]')
     expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name' })).toHaveClass('w-full', 'min-w-0')
     expect(screen.getByRole('button', { name: 'OpenClaw 思考程度：深度分析' })).toHaveClass('shrink-0')
+  })
+
+  it('shows a sanitized collapsible run trace before the first answer text', async () => {
+    const browser = userEvent.setup()
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      isRunning: true,
+      runTrace: {
+        runId: 'run-1',
+        phase: 'using_tool',
+        status: 'running',
+        startedAt: Date.now() - 3000,
+        activities: [
+          { id: 'context', label: '接收 2 条上下文', status: 'completed', startedAt: Date.now() - 3000, endedAt: Date.now() - 2900 },
+          { id: 'tool-1', label: '检查来源健康', status: 'running', startedAt: Date.now() - 2000 },
+        ],
+      },
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    await waitFor(() => expect(screen.getAllByText('正在检查来源健康')).not.toHaveLength(0))
+    expect(screen.getByText('已接收 2 条上下文')).toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: /正在检查来源健康/u })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await browser.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('merges fast tool calls into a stable row while retaining longer activity details', async () => {
+    const browser = userEvent.setup()
+    render(<OpenClawActivityTrace
+      running={false}
+      trace={{
+        runId: 'run-fast',
+        phase: 'completed',
+        status: 'completed',
+        startedAt: 1_000,
+        endedAt: 3_000,
+        activities: [
+          { id: 'tool-fast', label: '读取任务详情', status: 'completed', startedAt: 1_100, endedAt: 1_300 },
+          { id: 'tool-slow', label: '检查来源健康', status: 'completed', startedAt: 1_400, endedAt: 2_200 },
+        ],
+      }}
+    />)
+
+    const toggle = screen.getByRole('button', { name: /已完成 2 个步骤/u })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await browser.click(toggle)
+    expect(screen.getByText('已完成 1 个快速步骤')).toBeInTheDocument()
+    expect(screen.getByText('已检查来源健康')).toBeInTheDocument()
+    expect(screen.queryByText('已读取任务详情')).not.toBeInTheDocument()
+  })
+
+  it('states clearly when a run is stopped before any answer text arrives', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      runTrace: {
+        runId: 'run-aborted-empty',
+        phase: 'aborted',
+        status: 'aborted',
+        startedAt: 1_000,
+        endedAt: 2_000,
+        activities: [],
+      },
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    expect(screen.getByText('已停止，未生成回答')).toBeInTheDocument()
+  })
+
+  it('offers suggestions without auto-sending and exposes reconnect recovery next to the composer', async () => {
+    const browser = userEvent.setup()
+    const value = contextValue()
+    const chat = chatController({
+      status: 'reconnecting',
+      sessionKey: 'session-1',
+      reconnectAttempt: 2,
+    })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+
+    await browser.click(screen.getByRole('button', { name: '诊断最近失败任务' }))
+    expect(value.setQuestion).toHaveBeenCalledWith('诊断最近失败任务')
+    expect(chat.send).not.toHaveBeenCalled()
+    expect(screen.getByText('连接中断，正在重连 · 第 2 次')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '立即重试' }))
+    expect(chat.retryConnection).toHaveBeenCalledTimes(1)
   })
 
   it('keeps a long connected transcript scrolling above an unshrunk composer', () => {

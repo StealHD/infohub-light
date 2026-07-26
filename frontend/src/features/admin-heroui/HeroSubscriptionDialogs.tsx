@@ -8,7 +8,6 @@ import {
   actionToast,
   Button,
   Checkbox,
-  Chip,
   ComboBox,
   Description,
   FieldError,
@@ -18,6 +17,7 @@ import {
   Label,
   ListBox,
   Modal,
+  RemovableTag,
   TextArea,
   TextField,
 } from '../../design-system'
@@ -49,7 +49,11 @@ function TopicCombo({ label, options, values, onChange }: { label: string; optio
       <ComboBox.InputGroup><Input aria-label={label} onKeyDown={(event) => { if (event.key === 'Enter' && input.trim()) { event.preventDefault(); add(input) } }} /><ComboBox.Trigger aria-label={`打开${label}候选`}><Icons.ChevronDown size={15} /></ComboBox.Trigger></ComboBox.InputGroup>
       <ComboBox.Popover><ListBox>{options.filter((option) => !values.includes(option)).map((option) => <ListBox.Item id={option} key={option}>{option}</ListBox.Item>)}</ListBox></ComboBox.Popover>
     </ComboBox>
-    <div className="flex flex-wrap gap-2">{values.map((topic) => <Chip key={topic} variant="soft"><Chip.Label>{topic}{!active.has(topic.toLocaleLowerCase()) && <span className="type-micro ml-1 text-muted">已停用</span>}</Chip.Label><button type="button" aria-label={`移除 ${topic}`} onClick={() => onChange(values.filter((value) => value !== topic))}><Icons.X size={12} /></button></Chip>)}</div>
+    <div className="flex flex-wrap gap-2">{values.map((topic) => <RemovableTag
+      key={topic}
+      label={`${topic}${!active.has(topic.toLocaleLowerCase()) ? '（已停用）' : ''}`}
+      onRemove={() => onChange(values.filter((value) => value !== topic))}
+    />)}</div>
   </div>
 }
 
@@ -172,13 +176,14 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
   </form>
 }
 
-export function SubscriptionForm({ subscription, source, readonly, taxonomy, onDone, onJob }: {
+export function SubscriptionForm({ subscription, source, readonly, taxonomy, onDone, onJob, onPendingChange }: {
   subscription: Subscription
   source: CatalogSource
   readonly: boolean
   taxonomy: TaxonomyOptions
   onDone: () => void
   onJob: (kind: 'test' | 'fetch', sourceId: string, subscriptionId: string) => Promise<void>
+  onPendingChange?: (pending: boolean) => void
 }) {
   const { api, beginAction, isActionCurrent } = useAppContext()
   const [error, setError] = useState('')
@@ -189,6 +194,12 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
   const [interval, setInterval] = useState(String(subscription.schedule?.interval_minutes ?? 360))
   const [enabled, setEnabled] = useState(subscription.enabled)
   const [disableDisposition, setDisableDisposition] = useState<SubscriptionDisableDisposition>('dismiss')
+  const [confirmUnsubscribe, setConfirmUnsubscribe] = useState(false)
+
+  useEffect(() => {
+    onPendingChange?.(pending)
+    return () => onPendingChange?.(false)
+  }, [onPendingChange, pending])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -255,16 +266,34 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
       <Checkbox name="source_schedule_enabled" defaultSelected={subscription.schedule?.enabled ?? false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用单源周期</Checkbox.Content></Checkbox>
     </Fieldset>
     {error && <HeroNotice title={error} />}
-    {!readonly && <div className="flex flex-wrap gap-2"><Button type="submit" name="intent" value="save">保存订阅</Button><Button type="submit" name="intent" value="test" variant="secondary">测试连接</Button><Button type="submit" name="intent" value="fetch" variant="secondary">保存并立即抓取</Button><Button type="submit" name="intent" value="unsubscribe" variant="danger">取消订阅</Button></div>}
+    {!readonly && <>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" name="intent" value="save" isDisabled={pending}>保存</Button>
+        <Button type="submit" name="intent" value="fetch" variant="secondary" isDisabled={pending}>保存并获取</Button>
+        <Button type="submit" name="intent" value="test" variant="ghost" size="sm" isDisabled={pending}>仅测试连接</Button>
+      </div>
+      <div className="border-t border-separator pt-3">
+        {confirmUnsubscribe
+          ? <HeroNotice title="确认取消这个订阅？" status="warning">
+            <p className="mb-2">这只影响你的订阅，不会删除共享来源或其他成员的数据。</p>
+            <span className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="ghost" isDisabled={pending} onPress={() => setConfirmUnsubscribe(false)}>保留订阅</Button>
+              <Button type="submit" size="sm" name="intent" value="unsubscribe" variant="danger" isDisabled={pending}>确认取消订阅</Button>
+            </span>
+          </HeroNotice>
+          : <Button type="button" size="sm" variant="ghost" className="text-danger" isDisabled={pending} onPress={() => setConfirmUnsubscribe(true)}>取消订阅…</Button>}
+      </div>
+    </>}
   </form>
 }
 
-export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, children }: {
+export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, children, locked = false }: {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   returnFocusRef?: RefObject<HTMLElement | null>
   title: string
   children: React.ReactNode
+  locked?: boolean
 }) {
   const wasOpen = useRef(isOpen)
   const pendingReturnFocus = useRef<HTMLElement | null>(null)
@@ -302,20 +331,28 @@ export function HeroDialog({ isOpen, onOpenChange, returnFocusRef, title, childr
     if (!isOpen) return
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      if (locked) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        return
+      }
       event.preventDefault()
       event.stopImmediatePropagation()
       onOpenChange(false)
     }
     window.addEventListener('keydown', closeOnEscape, true)
     return () => window.removeEventListener('keydown', closeOnEscape, true)
-  }, [isOpen, onOpenChange])
+  }, [isOpen, locked, onOpenChange])
 
-  return <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
+  return <Modal isOpen={isOpen} onOpenChange={(open) => {
+    if (!open && locked) return
+    onOpenChange(open)
+  }}>
     <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开{title}</Modal.Trigger>
-    <Modal.Backdrop onAnimationEnd={(event) => {
+    <Modal.Backdrop isDismissable={!locked} onAnimationEnd={(event) => {
       if (event.target === event.currentTarget && event.currentTarget.dataset.exiting === 'true') finishReturnFocus()
     }}>
-      <Modal.Container size="lg" scroll="inside"><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body>{children}</Modal.Body><Modal.Footer><Button variant="ghost" onPress={() => onOpenChange(false)}>关闭</Button></Modal.Footer></Modal.Dialog></Modal.Container>
+      <Modal.Container size="lg" scroll="inside"><Modal.Dialog><Modal.Header><Modal.Heading>{title}</Modal.Heading></Modal.Header><Modal.Body>{children}</Modal.Body><Modal.Footer><Button variant="ghost" isDisabled={locked} onPress={() => onOpenChange(false)}>{locked ? '正在保存…' : '关闭'}</Button></Modal.Footer></Modal.Dialog></Modal.Container>
     </Modal.Backdrop>
   </Modal>
 }

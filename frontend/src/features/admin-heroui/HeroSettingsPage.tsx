@@ -1,6 +1,6 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -12,7 +12,6 @@ import {
   Button,
   Card,
   Checkbox,
-  Chip,
   FieldError,
   Icons,
   Input,
@@ -20,6 +19,7 @@ import {
   LoadingState,
   Modal,
   PageFrame,
+  StatusIndicator,
   Table,
   TextField,
 } from '../../design-system'
@@ -27,13 +27,13 @@ import {
   aiDefaultsForProvider,
   canAdministerWorkspace,
   secretPresentation,
-  settingsDataReady,
 } from '../settings/settingsModel'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { HeroEmailTransportSettings } from '../notifications/HeroEmailTransportSettings'
 import { HeroNotificationSettings } from '../notifications/HeroNotificationSettings'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
+import { settingsSectionFromHash, settingsSectionsForRole } from './settingsSections'
 
 const recordOf = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {}
 const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
@@ -148,13 +148,13 @@ const poolStatusLabels: Record<string, string> = {
 
 const memberStatusPresentation: Record<ApifyKeyPoolMember['status'], {
   label: string
-  color: 'default' | 'success' | 'warning' | 'danger'
+  tone: 'neutral' | 'success' | 'warning' | 'danger'
 }> = {
-  active: { label: '主用', color: 'success' },
-  standby: { label: '备用', color: 'default' },
-  draining: { label: '排空中', color: 'warning' },
-  depleted: { label: '额度已用尽', color: 'warning' },
-  invalid: { label: 'Key 无效', color: 'danger' },
+  active: { label: '主用', tone: 'success' },
+  standby: { label: '备用', tone: 'neutral' },
+  draining: { label: '排空中', tone: 'warning' },
+  depleted: { label: '额度已用尽', tone: 'warning' },
+  invalid: { label: 'Key 无效', tone: 'danger' },
 }
 
 const memberErrorLabels: Record<string, string> = {
@@ -175,9 +175,21 @@ function ApifyPoolStatusCell({ member }: { member: ApifyKeyPoolMember | null }) 
     <p className="type-meta mt-1 text-muted">刷新后仍未加入时，请检查服务状态</p>
   </div>
 
-  const presentation = memberStatusPresentation[member.status] ?? { label: '状态未知', color: 'default' as const }
+  const presentation = memberStatusPresentation[member.status] ?? { label: '状态未知', tone: 'neutral' as const }
   return <div className="min-w-52">
-    <Chip size="sm" color={presentation.color} variant="soft"><Chip.Label>{presentation.label}</Chip.Label></Chip>
+    <StatusIndicator
+      label={presentation.label}
+      tone={presentation.tone}
+      icon={member.status === 'draining'
+        ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        : member.status === 'active'
+          ? <Icons.CircleCheck size={13} aria-hidden="true" />
+          : member.status === 'invalid'
+            ? <Icons.CircleX size={13} aria-hidden="true" />
+            : member.status === 'depleted'
+              ? <Icons.TriangleAlert size={13} aria-hidden="true" />
+              : <Icons.CircleDashed size={13} aria-hidden="true" />}
+    />
     <p className="type-meta mt-2 text-muted">
       {member.active_run_count > 0 ? `${member.active_run_count} 个运行中任务` : '没有运行中任务'}
     </p>
@@ -526,6 +538,20 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
   const activeName = poolQuery.data?.active_secret_id
     ? secretsById.get(poolQuery.data.active_secret_id)?.name
     : null
+  const poolTone = poolQuery.data?.status === 'ready'
+    ? 'success'
+    : poolQuery.data?.status === 'blocked' || poolQuery.data?.status === 'exhausted'
+      ? 'danger'
+      : poolQuery.data?.status === 'draining'
+        ? 'warning'
+        : 'neutral'
+  const poolIcon = poolQuery.data?.status === 'draining'
+    ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+    : poolQuery.data?.status === 'ready'
+      ? <Icons.CircleCheck size={13} aria-hidden="true" />
+      : poolQuery.data?.status === 'blocked' || poolQuery.data?.status === 'exhausted'
+        ? <Icons.CircleX size={13} aria-hidden="true" />
+        : <Icons.CircleDashed size={13} aria-hidden="true" />
 
   return <Card variant="secondary" className="p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -535,9 +561,7 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
           所有 Apify 来源统一使用此池；额度不足时先停止旧 Key 的任务，再切换到下一备用 Key。
         </Card.Description>
       </div>
-      <Chip size="sm" color={poolQuery.data?.status === 'ready' ? 'success' : poolQuery.data?.status === 'blocked' || poolQuery.data?.status === 'exhausted' ? 'danger' : 'default'} variant="soft">
-        <Chip.Label>{poolStatus}</Chip.Label>
-      </Chip>
+      <StatusIndicator label={poolStatus} tone={poolTone} icon={poolIcon} />
     </div>
     {poolQuery.isPending && <div className="mt-4"><LoadingState label="正在读取 Apify Key 池" rows={1} /></div>}
     {poolQuery.isError && <div className="mt-4"><HeroNotice title="Apify Key 池读取失败">
@@ -650,6 +674,7 @@ export function HeroSettingsPage() {
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const location = useLocation()
   const admin = canAdministerWorkspace(user)
   const config = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal) })
   const ignored = useQuery({ queryKey: queryKeys.ignored(user.id), queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal) })
@@ -659,6 +684,10 @@ export function HeroSettingsPage() {
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
   const [secretFormError, setSecretFormError] = useState('')
   const [rssInitialFetchWindowOverride, setRssInitialFetchWindowOverride] = useState<string | null>(null)
+  const [activeSection, setActiveSection] = useState<string>(
+    () => settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about',
+  )
+  const [settingsDirty, setSettingsDirty] = useState(false)
   const ai = recordOf(config.data?.config.ai)
   const configuredAiProvider = String(ai.provider ?? 'gemini')
   const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
@@ -675,6 +704,69 @@ export function HeroSettingsPage() {
   const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
     (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
   )
+  const sectionOptions = useMemo(() => settingsSectionsForRole(user.role), [user.role])
+
+  useEffect(() => {
+    if (!settingsDirty) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [settingsDirty])
+
+  useEffect(() => {
+    const section = settingsSectionFromHash(location.hash, user.role)
+    if (!section) return
+    const frame = window.requestAnimationFrame(() => {
+      setActiveSection(section.id)
+      const target = document.getElementById(section.id)
+      target?.scrollIntoView?.({
+        block: 'start',
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      })
+      target?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.hash, user.role])
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return
+    const targets = sectionOptions
+      .map((section) => document.getElementById(section.id))
+      .filter((target): target is HTMLElement => Boolean(target))
+    if (!targets.length) return
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => Math.abs(left.boundingClientRect.top) - Math.abs(right.boundingClientRect.top))
+      const id = visible[0]?.target.id
+      if (!id || id === activeSection) return
+      setActiveSection(id)
+      const nextUrl = `${window.location.pathname}${window.location.search}#${id}`
+      window.history.replaceState(window.history.state, '', nextUrl)
+    }, {
+      rootMargin: '-12% 0px -68% 0px',
+      threshold: [0, 0.01, 0.5],
+    })
+    targets.forEach((target) => observer.observe(target))
+    return () => observer.disconnect()
+  }, [activeSection, sectionOptions])
+
+  function jumpToSection(id: string) {
+    if (!sectionOptions.some((section) => section.id === id)) return
+    setActiveSection(id)
+    if (location.hash === `#${id}`) {
+      window.requestAnimationFrame(() => {
+        const target = document.getElementById(id)
+        target?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+        target?.focus({ preventScroll: true })
+      })
+      return
+    }
+    navigate({ pathname: location.pathname, search: location.search, hash: `#${id}` })
+  }
 
   function clearSecretFieldError(field: SecretField) {
     setSecretFieldErrors((current) => {
@@ -712,6 +804,7 @@ export function HeroSettingsPage() {
     onMutate: ({ action }) => feedback.begin('config-save', action),
     onSuccess: (_result, { action }) => {
       feedback.clear('config-save', action)
+      setSettingsDirty(false)
       actionToast.success('设置已保存')
       void queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) })
     },
@@ -755,6 +848,7 @@ export function HeroSettingsPage() {
       setSecretDraft({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
       setSecretFieldErrors({})
       setSecretFormError('')
+      setSettingsDirty(false)
       feedback.clear('secret-create', 'new')
       actionToast.success('Key 已安全保存')
       void Promise.all([
@@ -801,13 +895,20 @@ export function HeroSettingsPage() {
     })
   }
 
-  const ready = settingsDataReady({ admin, configLoaded: config.isSuccess, secretsLoaded: secrets.isSuccess })
-  if (!ready) return <PageFrame width="admin" className="p-5">{config.isError || secrets.isError ? <HeroNotice title="设置读取失败" /> : <LoadingState label="正在读取设置" rows={1} />}</PageFrame>
-
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
+    {settingsDirty && <div
+      data-settings-dirty-notice
+      className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 ml-auto max-w-sm min-[768px]:bottom-4 min-[768px]:left-auto min-[768px]:right-4"
+    >
+      <HeroNotice title="有尚未保存的更改" status="warning" role="status">离开或刷新页面前，请先保存当前设置。</HeroNotice>
+    </div>}
+    <div data-mobile-settings-selector className="min-[768px]:pointer-fine:hidden">
+      <HeroSelect label="设置区域" value={activeSection} onChange={jumpToSection} options={[...sectionOptions]} className="w-full" />
+    </div>
+    <div className="grid min-w-0 gap-5">
 
-    <AdminSection title="关于 Inteliscope" description="查阅操作方法、产品变化和正式发布记录。">
+    <AdminSection id="settings-about" title="关于 Inteliscope" description="查阅操作方法、产品变化和正式发布记录。">
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="secondary" onPress={() => navigate('/manual')}><Icons.BookOpen size={16} aria-hidden="true" />查看操作手册</Button>
         <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>
@@ -820,26 +921,42 @@ export function HeroSettingsPage() {
       </div>
     </AdminSection>
 
-    <AdminSection title="消息通知" description="选择当前账户的接收方式，并先发送一条安全的模拟通知进行验证。">
+    <AdminSection id="settings-notifications" title="消息通知" description="选择当前账户的接收方式，并先发送一条安全的模拟通知进行验证。">
       <HeroNotificationSettings />
       {admin && <div className="mt-6 border-t border-separator pt-5">
         <HeroEmailTransportSettings />
       </div>}
     </AdminSection>
 
-    <AdminSection title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
+    <AdminSection id="settings-ai" title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
       <Button size="sm" variant="secondary" onPress={() => navigate('/agents')}><Icons.Bot size={16} />管理助手连接</Button>
       {!admin && <Card variant="transparent" className="mt-4 p-4"><Card.Title>工作区设置只读</Card.Title><Card.Description className="mt-1">全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。</Card.Description></Card>}
-      {admin && <form className="mt-5 grid gap-4" onSubmit={saveAi}>
+      {admin && (config.isLoading || secrets.isLoading
+        ? <LoadingState label="正在读取 AI 设置" rows={2} />
+        : config.isError || secrets.isError
+          ? <HeroNotice title="AI 设置读取失败" status="warning">
+            <Button size="sm" variant="ghost" onPress={() => {
+              void config.refetch()
+              void secrets.refetch()
+            }}>重试此区域</Button>
+          </HeroNotice>
+          : <form className="mt-5 grid gap-4" onChange={() => setSettingsDirty(true)} onSubmit={saveAi}>
         <Checkbox name="enabled" defaultSelected={ai.enabled !== false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 分析</Checkbox.Content></Checkbox>
         <div className="grid gap-4 min-[720px]:grid-cols-3">
           <HeroSelect label="Provider" value={aiDraft.provider} onChange={(nextProvider) => {
             const defaults = aiDefaultsForProvider(nextProvider)
             const available = (secrets.data?.secrets ?? []).some((secret) => secret.kind === 'ai' && secret.env_name === defaults.apiKeyEnv)
             setAiOverride({ provider: nextProvider, model: defaults.model, apiKeyEnv: available ? defaults.apiKeyEnv : aiDraft.apiKeyEnv })
+            setSettingsDirty(true)
           }} options={[{ id: 'gemini', label: 'Gemini' }, { id: 'openai', label: 'OpenAI' }, { id: 'anthropic', label: 'Anthropic' }, { id: 'deepseek', label: 'DeepSeek' }]} />
-          <TextField fullWidth value={aiDraft.model} onChange={(model) => setAiOverride({ ...aiDraft, model })} isRequired><Label>模型</Label><Input /></TextField>
-          <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => setAiOverride({ ...aiDraft, apiKeyEnv })} options={[{ id: '', label: '请选择' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
+          <TextField fullWidth value={aiDraft.model} onChange={(model) => {
+            setAiOverride({ ...aiDraft, model })
+            setSettingsDirty(true)
+          }} isRequired><Label>模型</Label><Input /></TextField>
+          <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
+            setAiOverride({ ...aiDraft, apiKeyEnv })
+            setSettingsDirty(true)
+          }} options={[{ id: '', label: '请选择' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
           <FormField name="base_url" label="Base URL" type="url" defaultValue={String(ai.base_url ?? '')} />
           <FormField name="languages" label="输出语言" defaultValue={Array.isArray(ai.languages) ? ai.languages.join(',') : 'zh'} />
           <FormField name="analysis_content_chars" label="正文输入字符" type="number" min={100} max={10000} defaultValue={Number(ai.analysis_content_chars ?? 1000)} />
@@ -848,10 +965,10 @@ export function HeroSettingsPage() {
           <FormField name="analysis_max_output_tokens" label="最大输出 Token" type="number" min={256} max={2048} defaultValue={Number(ai.analysis_max_output_tokens ?? 800)} />
         </div>
         <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_ai')}><Icons.Save size={15} />{feedback.isPending('config-save', 'set_ai') ? '保存中…' : '保存 AI 设置'}</Button>
-      </form>}
+      </form>)}
     </AdminSection>
 
-    <AdminSection title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
+    <AdminSection id="settings-ignored" title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
       {ignored.isLoading && <LoadingState label="正在读取已忽略内容" rows={2} />}
       {ignored.isError && <HeroNotice title="已忽略内容读取失败" />}
       {!ignored.isLoading && !ignored.isError && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
@@ -862,26 +979,34 @@ export function HeroSettingsPage() {
     </AdminSection>
 
     {admin && <>
-      <AdminSection title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">
+      <AdminSection id="settings-fetching" title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">
+        {config.isLoading
+          ? <LoadingState label="正在读取获取与主题设置" rows={2} />
+          : config.isError
+            ? <HeroNotice title="获取与主题设置读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></HeroNotice>
+            : <>
         <div className="grid gap-3 border-b border-separator pb-5">
           <div>
             <h3 className="type-control">RSSHub 服务</h3>
-            <p className="type-caption mt-1 text-foreground-muted">Bilibili 等受控路由统一使用此 Base URL，可填写自建、反向代理前缀或第三方 RSSHub。自建公网实例可通过 SecretStore 的 RSSHUB_ACCESS_KEY 启用访问控制；Worker 只发送路由级 code，OpenClaw 不接收地址或密钥。</p>
+            <p className="type-meta mt-1 text-muted">Bilibili 等受控路由统一使用此 Base URL，可填写自建、反向代理前缀或第三方 RSSHub。自建公网实例可通过 SecretStore 的 RSSHUB_ACCESS_KEY 启用访问控制；Worker 只发送路由级 code，OpenClaw 不接收地址或密钥。</p>
             <p className="type-meta mt-2 text-muted">RSSHub 访问密钥：{rsshubAccessKeySet ? '已配置' : '未配置（无鉴权第三方实例可留空）'}</p>
           </div>
-          <form className="grid gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end" onSubmit={saveRsshub}>
+          <form className="grid gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end" onChange={() => setSettingsDirty(true)} onSubmit={saveRsshub}>
             <FormField name="base_url" label="RSSHub Base URL" type="url" defaultValue={String(rsshub.base_url ?? 'http://rsshub:1200')} />
             <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_rsshub')}>{feedback.isPending('config-save', 'set_rsshub') ? '保存中…' : '保存 RSSHub 地址'}</Button>
           </form>
         </div>
-        <form className="grid gap-4" onSubmit={saveFiltering}>
+        <form className="grid gap-4" onChange={() => setSettingsDirty(true)} onSubmit={saveFiltering}>
           <div className="grid gap-4 min-[720px]:grid-cols-3">
             <FormField name="time_window_hours" label="日常抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} />
             <HeroSelect
               name="rss_initial_fetch_window_hours"
               label="RSS 首次抓取窗口"
               value={rssInitialFetchWindow}
-              onChange={setRssInitialFetchWindowOverride}
+              onChange={(value) => {
+                setRssInitialFetchWindowOverride(value)
+                setSettingsDirty(true)
+              }}
               description="RSS 或 RSSHub 订阅在首次成功前使用该窗口；成功后恢复日常窗口。"
               options={[
                 { id: '168', label: '7 天' },
@@ -893,10 +1018,16 @@ export function HeroSettingsPage() {
           <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button>
         </form>
         <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
+        </>}
       </AdminSection>
 
-      <AdminSection title="密钥" description="真实 Key 只写入 SecretStore，保存后永不回显。">
-        <form className="grid gap-3 min-[760px]:grid-cols-5" noValidate onSubmit={createSecret}>
+      <AdminSection id="settings-secrets" title="密钥" description="真实 Key 只写入 SecretStore，保存后永不回显。">
+        {secrets.isLoading
+          ? <LoadingState label="正在读取密钥" rows={2} />
+          : secrets.isError
+            ? <HeroNotice title="密钥读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void secrets.refetch()}>重试此区域</Button></HeroNotice>
+            : <>
+        <form className="grid gap-3 min-[760px]:grid-cols-5" noValidate onChange={() => setSettingsDirty(true)} onSubmit={createSecret}>
           <TextField fullWidth value={secretDraft.name} onChange={(name) => {
             setSecretDraft((current) => ({ ...current, name }))
             clearSecretFieldError('name')
@@ -906,6 +1037,7 @@ export function HeroSettingsPage() {
           <div>
             <HeroSelect label="Key 类型" value={secretDraft.kind} onChange={(kind) => {
               setSecretDraft((current) => ({ ...current, kind }))
+              setSettingsDirty(true)
               clearSecretFieldError('kind')
               clearSecretFieldError('provider')
             }} options={[{ id: 'ai', label: 'AI' }, { id: 'apify', label: 'Apify' }]} />
@@ -980,8 +1112,10 @@ export function HeroSettingsPage() {
             </Table.ScrollContainer>
           </Table>
         </div>
+        </>}
       </AdminSection>
 
     </>}
+    </div>
   </PageFrame></div>
 }

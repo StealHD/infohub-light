@@ -371,13 +371,21 @@ def test_execute_uses_runtime_rss_window_until_explicit_hours_override(
                 "api_key_env": "MISSING_TEST_API_KEY",
             },
             "sources": {
-                "rss": [{
-                    "name": "Initial RSS",
-                    "url": "https://example.com/feed.xml",
-                    "source_id": "src_rss",
-                    "subscription_id": "sub_rss",
-                    "service_fetch_window_hours": 168,
-                }],
+                "rss": [
+                    {
+                        "name": "Initial RSS",
+                        "url": "https://example.com/initial.xml",
+                        "source_id": "src_initial",
+                        "subscription_id": "sub_initial",
+                        "service_fetch_window_hours": 168,
+                    },
+                    {
+                        "name": "Daily RSS",
+                        "url": "https://example.com/daily.xml",
+                        "source_id": "src_daily",
+                        "subscription_id": "sub_daily",
+                    },
+                ],
                 "hackernews": {"enabled": False},
             },
             "filtering": {"time_window_hours": 24},
@@ -387,12 +395,12 @@ def test_execute_uses_runtime_rss_window_until_explicit_hours_override(
         config,
         StorageManager(data_dir=str(tmp_path)),
     )
-    windows: list[float] = []
+    windows: dict[str, float] = {}
 
     async def capture_fetch(_label, _scraper, _source, since):
-        windows.append(
-            (datetime.now(timezone.utc) - since).total_seconds() / 3600
-        )
+        windows[_source.name] = (
+            datetime.now(timezone.utc) - since
+        ).total_seconds() / 3600
         return []
 
     monkeypatch.setattr(orchestrator, "_fetch_service_source", capture_fetch)
@@ -400,14 +408,15 @@ def test_execute_uses_runtime_rss_window_until_explicit_hours_override(
 
     default_result = asyncio.run(orchestrator.execute())
     assert default_result.status == "succeeded"
-    assert len(windows) == 1
-    assert 167.9 <= windows[0] <= 168.1
+    assert len(windows) == 2
+    assert 167.9 <= windows["Initial RSS"] <= 168.1
+    assert 23.9 <= windows["Daily RSS"] <= 24.1
 
     windows.clear()
     forced_result = asyncio.run(orchestrator.execute(force_hours=6))
     assert forced_result.status == "succeeded"
-    assert len(windows) == 1
-    assert 5.9 <= windows[0] <= 6.1
+    assert len(windows) == 2
+    assert all(5.9 <= value <= 6.1 for value in windows.values())
 
 
 def test_fetch_service_sources_admits_attempt_before_adapter_network_call(

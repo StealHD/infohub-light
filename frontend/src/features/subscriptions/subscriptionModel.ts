@@ -170,6 +170,15 @@ const jobStatusTones: Record<Job['status'], 'neutral' | 'positive' | 'warning' |
   cancelled: 'neutral',
 }
 
+const jobStatusIcons: Record<Job['status'], 'clock' | 'loader' | 'check' | 'warning' | 'error' | 'stop'> = {
+  queued: 'clock',
+  running: 'loader',
+  succeeded: 'check',
+  partial: 'warning',
+  failed: 'error',
+  cancelled: 'stop',
+}
+
 export function presentJob(job: Job, sources: Map<string, CatalogSource>) {
   const result = job.result ?? job.result_json ?? {}
   const message = typeof result.message === 'string' ? result.message : ''
@@ -188,10 +197,26 @@ export function presentJob(job: Job, sources: Map<string, CatalogSource>) {
     title: jobTypeLabels[job.job_type] ?? '后台任务',
     statusLabel: jobStatusLabels[job.status],
     tone: jobStatusTones[job.status],
+    icon: jobStatusIcons[job.status],
     sourceName: job.source_id ? sources.get(job.source_id)?.display_name : undefined,
     resultLabel,
     detail: job.error_message || message || '',
   }
+}
+
+const sourceHealthPresentations: Record<SourceHealthStatus, {
+  label: string
+  tone: 'neutral' | 'success' | 'warning' | 'danger'
+  icon: 'empty' | 'check' | 'warning' | 'error'
+}> = {
+  unknown: { label: '尚未抓取', tone: 'neutral', icon: 'empty' },
+  healthy: { label: '正常', tone: 'success', icon: 'check' },
+  degraded: { label: '需关注', tone: 'warning', icon: 'warning' },
+  failing: { label: '连续失败', tone: 'danger', icon: 'error' },
+}
+
+export function presentSourceHealthStatus(status: SourceHealthStatus = 'unknown') {
+  return sourceHealthPresentations[status]
 }
 
 export function formValuesForSource(definition: SourceTypeDefinition, source?: CatalogSource): Record<string, unknown> {

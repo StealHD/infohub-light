@@ -66,13 +66,14 @@ export function ViewBar({ children, className = '' }: { children: ReactNode; cla
   return <div data-view-bar className={`flex min-h-10 w-full items-center gap-1 rounded-xl border border-separator/80 bg-surface-secondary/70 px-2.5 ${className}`}>{children}</div>
 }
 
-export function PageSection({ title, description, children, className = '' }: {
+export function PageSection({ title, description, children, className = '', id }: {
   title: string
   description?: string
   children: ReactNode
   className?: string
+  id?: string
 }) {
-  return <Card data-page-section variant="secondary" className={`gap-0 border border-separator bg-surface-secondary p-4 shadow-none min-[640px]:p-5 ${className}`}>
+  return <Card id={id} tabIndex={id ? -1 : undefined} data-page-section variant="secondary" className={`scroll-mt-4 gap-0 border border-separator bg-surface-secondary p-4 shadow-none focus-visible:outline-2 focus-visible:outline-focus min-[640px]:p-5 ${className}`}>
     <Card.Header className="px-0 pt-0">
       <div>
         <Card.Title className="type-page-title">{title}</Card.Title>

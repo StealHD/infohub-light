@@ -1,5 +1,5 @@
 import type { Job, ResponseSchemaField, ResponseSchemaSummary, SourceResponseSchema } from '../../api/types'
-import { Chip } from '../../design-system'
+import { MetaTag, StatusIndicator } from '../../design-system'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 
 type SourceName = string | { display_name?: string }
@@ -30,6 +30,11 @@ export function HeroResponseSchemaDetails({ job, sourceNames, className = 'mt-3'
   return <HeroSoftDisclosure label="响应结构" className={className}>{!values.length && <p className="type-body text-foreground">本次运行未记录响应结构。</p>}<div className="grid gap-4">{values.map((schema, index) => {
     const source = sourceNames.get(schema.source_id)
     const name = typeof source === 'string' ? source : source?.display_name || schema.source_id
-    return <section key={`${schema.source_id}:${index}`} className="min-w-0 border-t border-separator pt-3"><div className="flex flex-wrap items-center gap-2"><h4 className="type-control">{name}</h4>{schema.catalog_type && <Chip size="sm" variant="soft"><Chip.Label>{schema.catalog_type}</Chip.Label></Chip>}{schema.capture_status && <Chip size="sm" variant="soft"><Chip.Label>{labels[schema.capture_status] || '未记录'}</Chip.Label></Chip>}</div>{schema.capture_status && messages[schema.capture_status] && <p className="type-body mt-2 text-foreground">{messages[schema.capture_status]}</p>}{schema.job_truncated && <p className="type-body mt-2 text-foreground">字段较多，已按安全上限截断。</p>}<div className="mt-3 grid min-w-0 gap-4 min-[760px]:grid-cols-2"><SchemaTable title="上游原始结构" schema={schema.upstream} /><SchemaTable title="系统标准化结构" schema={schema.normalized} /></div></section>
+    const captureTone = schema.capture_status === 'captured'
+      ? 'success'
+      : schema.capture_status === 'unavailable' || schema.capture_status === 'truncated'
+        ? 'warning'
+        : 'neutral'
+    return <section key={`${schema.source_id}:${index}`} className="min-w-0 border-t border-separator pt-3"><div className="flex flex-wrap items-center gap-2"><h4 className="type-control">{name}</h4>{schema.catalog_type && <MetaTag>{schema.catalog_type}</MetaTag>}{schema.capture_status && <StatusIndicator tone={captureTone} label={labels[schema.capture_status] || '未记录'} />}</div>{schema.capture_status && messages[schema.capture_status] && <p className="type-body mt-2 text-foreground">{messages[schema.capture_status]}</p>}{schema.job_truncated && <p className="type-body mt-2 text-foreground">字段较多，已按安全上限截断。</p>}<div className="mt-3 grid min-w-0 gap-4 min-[760px]:grid-cols-2"><SchemaTable title="上游原始结构" schema={schema.upstream} /><SchemaTable title="系统标准化结构" schema={schema.normalized} /></div></section>
   })}</div></HeroSoftDisclosure>
 }

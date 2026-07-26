@@ -139,12 +139,17 @@ describe('OpenClaw browser pairing settings', () => {
     /></DesignSystemProvider></MemoryRouter>)
 
     await screen.findByText('此浏览器已配对')
-    await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
+    const forgetTrigger = screen.getByRole('button', { name: '忘记此浏览器' })
+    expect(forgetTrigger).not.toHaveTextContent('忘记此浏览器')
+    await browser.hover(forgetTrigger)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('忘记此浏览器')
+    await browser.click(forgetTrigger)
     let dialog = screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })
     expect(forgetBrowser).not.toHaveBeenCalled()
     await browser.click(within(dialog).getByRole('button', { name: '取消' }))
     expect(screen.queryByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).not.toBeInTheDocument()
     expect(forgetBrowser).not.toHaveBeenCalled()
+    await waitFor(() => expect(forgetTrigger).toHaveFocus())
 
     await browser.click(screen.getByRole('button', { name: '忘记此浏览器' }))
     dialog = screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })
@@ -156,9 +161,14 @@ describe('OpenClaw browser pairing settings', () => {
       clearTranscripts: expect.any(Function),
     }))
     expect(within(dialog).getByRole('button', { name: '正在移除…' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: '取消' })).toBeDisabled()
+    await browser.keyboard('{Escape}')
+    expect(screen.getByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).toBeInTheDocument()
 
     await act(async () => { resolveForget?.('removed') })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '移除 OpenClaw 浏览器配对' })).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '忘记此浏览器' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存地址' })).toHaveFocus())
     expect(screen.getByText('此浏览器未配对')).toBeInTheDocument()
     const success = screen.getByText('OpenClaw 服务端设备和当前浏览器配对已删除')
     expect(success.closest('[data-slot="toast-region"]')).not.toBeNull()
@@ -300,7 +310,8 @@ describe('HeroAgentsPage delegation access', () => {
     renderPage({ ...listing, connections: [...listing.connections, writeConnection] })
 
     await screen.findByRole('heading', { name: 'Write Mac' })
-    await browser.click(screen.getByRole('button', { name: '复制 Write Mac 配置' }))
+    await browser.click(screen.getByRole('button', { name: '更多操作：Write Mac' }))
+    await browser.click(within(screen.getByRole('dialog', { name: 'Write Mac 连接操作' })).getByRole('button', { name: '复制配置' }))
     const configuration = String(writeText.mock.calls[0][0])
     expect(includedTools(configuration)).toEqual(writeTools)
     expect(configuration).toContain('${INTELISCOPE_MCP_TOKEN}')
@@ -337,7 +348,9 @@ describe('HeroAgentsPage delegation access', () => {
     const { api, unmount } = renderPage()
     await screen.findByRole('heading', { name: 'Office Mac' })
 
-    await browser.click(screen.getByRole('button', { name: '重命名 Office Mac' }))
+    const more = screen.getByRole('button', { name: '更多操作：Office Mac' })
+    await browser.click(more)
+    await browser.click(within(screen.getByRole('dialog', { name: 'Office Mac 连接操作' })).getByRole('button', { name: '重命名' }))
     const renameDialog = screen.getByRole('dialog', { name: '重命名助手连接' })
     const input = within(renameDialog).getByRole('textbox', { name: '连接名称' })
     await browser.clear(input)
@@ -345,8 +358,10 @@ describe('HeroAgentsPage delegation access', () => {
     await browser.click(within(renameDialog).getByRole('button', { name: '保存名称' }))
     expect(api.renameAgentDelegation).toHaveBeenCalledWith('agent-1', 'Renamed Mac')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '重命名助手连接' })).not.toBeInTheDocument())
+    await waitFor(() => expect(more).toHaveFocus())
 
-    await browser.click(screen.getByRole('button', { name: '吊销 Office Mac' }))
+    await browser.click(more)
+    await browser.click(within(screen.getByRole('dialog', { name: 'Office Mac 连接操作' })).getByRole('button', { name: '吊销连接' }))
     const revokeDialog = screen.getByRole('dialog', { name: '吊销助手连接' })
     await browser.click(within(revokeDialog).getByRole('button', { name: '确认吊销' }))
     expect(api.revokeAgentDelegation).toHaveBeenCalledWith('agent-1')
@@ -377,9 +392,16 @@ describe('HeroAgentsPage delegation access', () => {
       status: 'revoked',
       revoked_at: '2026-07-22T12:00:00Z',
     }
+    const expiredConnection: AgentDelegation = {
+      ...listing.connections[0],
+      id: 'agent-expired',
+      name: 'Expired Mac',
+      status: 'expired',
+      expires_at: '2026-07-01T00:00:00Z',
+    }
     const { api } = renderPage({
       ...listing,
-      connections: [revokedConnection, activeConnection],
+      connections: [revokedConnection, expiredConnection, activeConnection],
     })
     let resolveDelete: ((result: { deleted: boolean }) => void) | undefined
     vi.mocked(api.deleteAgentDelegationRecord).mockReturnValueOnce(
@@ -387,23 +409,40 @@ describe('HeroAgentsPage delegation access', () => {
     )
 
     await screen.findByRole('heading', { name: 'Revoked Mac' })
-    expect(screen.getByRole('button', { name: '吊销 Active Mac' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: '删除 Active Mac' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '吊销 Revoked Mac' })).not.toBeInTheDocument()
-
-    await browser.click(screen.getByRole('button', { name: '删除 Revoked Mac' }))
+    const activeMore = screen.getByRole('button', { name: '更多操作：Active Mac' })
+    const revokedMore = screen.getByRole('button', { name: '更多操作：Revoked Mac' })
+    const expiredMore = screen.getByRole('button', { name: '更多操作：Expired Mac' })
+    await browser.click(activeMore)
+    let actionDialog = screen.getByRole('dialog', { name: 'Active Mac 连接操作' })
+    expect(within(actionDialog).getByRole('button', { name: '吊销连接' })).toBeInTheDocument()
+    expect(within(actionDialog).queryByRole('button', { name: '删除记录' })).not.toBeInTheDocument()
+    await browser.keyboard('{Escape}')
+    await browser.click(expiredMore)
+    actionDialog = screen.getByRole('dialog', { name: 'Expired Mac 连接操作' })
+    expect(within(actionDialog).queryByRole('button', { name: '吊销连接' })).not.toBeInTheDocument()
+    expect(within(actionDialog).queryByRole('button', { name: '删除记录' })).not.toBeInTheDocument()
+    await browser.keyboard('{Escape}')
+    await browser.click(revokedMore)
+    actionDialog = screen.getByRole('dialog', { name: 'Revoked Mac 连接操作' })
+    expect(within(actionDialog).queryByRole('button', { name: '吊销连接' })).not.toBeInTheDocument()
+    await browser.click(within(actionDialog).getByRole('button', { name: '删除记录' }))
     let dialog = screen.getByRole('dialog', { name: '删除已吊销连接' })
     expect(within(dialog).getByText(/只会删除这一条已吊销连接记录/)).toBeInTheDocument()
     await browser.click(within(dialog).getByRole('button', { name: '取消' }))
     expect(api.deleteAgentDelegationRecord).not.toHaveBeenCalled()
+    await waitFor(() => expect(revokedMore).toHaveFocus())
 
-    await browser.click(screen.getByRole('button', { name: '删除 Revoked Mac' }))
+    await browser.click(revokedMore)
+    await browser.click(within(screen.getByRole('dialog', { name: 'Revoked Mac 连接操作' })).getByRole('button', { name: '删除记录' }))
     dialog = screen.getByRole('dialog', { name: '删除已吊销连接' })
     await browser.click(within(dialog).getByRole('button', { name: '确认删除' }))
     expect(api.deleteAgentDelegationRecord).toHaveBeenCalledOnce()
     expect(api.deleteAgentDelegationRecord).toHaveBeenCalledWith('agent-revoked')
     expect(api.revokeAgentDelegation).not.toHaveBeenCalledWith('agent-revoked')
     expect(within(dialog).getByRole('button', { name: '正在删除…' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: '取消' })).toBeDisabled()
+    await browser.keyboard('{Escape}')
+    expect(screen.getByRole('dialog', { name: '删除已吊销连接' })).toBeInTheDocument()
 
     await act(async () => { resolveDelete?.({ deleted: true }) })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '删除已吊销连接' })).not.toBeInTheDocument())
