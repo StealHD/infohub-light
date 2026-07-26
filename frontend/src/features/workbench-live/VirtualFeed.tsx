@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
@@ -150,6 +150,16 @@ function WorkbenchCard({
     ? '仅获取到内容片段，打开原文查看完整内容。'
     : ''
   const detailsId = `card-details-${card.id}`
+  const classificationMetadata = <>
+    <span>{card.formatLabel}</span>
+    {imageCountLabel && <>
+      <span aria-hidden="true">·</span>
+      <span>{card.mediaTruncated ? `图片 ${card.displayImageCount}/${card.totalImageCount}` : `图片 ${card.totalImageCount}`}</span>
+    </>}
+    <MetaTag tone="accent">{card.channel}</MetaTag>
+    {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
+    {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
+  </>
 
   useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
 
@@ -175,6 +185,12 @@ function WorkbenchCard({
     copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(''), 2800)
   }
 
+  function handleCardClick(event: ReactMouseEvent<HTMLElement>) {
+    if (!canToggleExpansion || !(event.target instanceof Element)) return
+    if (event.target.closest('a, button, input, select, textarea, [role="button"], [data-card-actions]')) return
+    onToggleExpanded()
+  }
+
   return <Card
     data-testid="workbench-card"
     data-card-visual="quiet-studio"
@@ -183,6 +199,7 @@ function WorkbenchCard({
     aria-label={cardLabel}
     variant="secondary"
     className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
+    onClick={handleCardClick}
   >
     {canToggleExpansion ? <button
       type="button"
@@ -270,18 +287,9 @@ function WorkbenchCard({
     <Card.Footer className="flex items-center gap-2 px-[19px] pb-[15px] pt-[10px]">
       <div
         data-card-expand-zone={canToggleExpansion ? 'true' : 'false'}
-        className="type-meta flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 self-stretch py-1 text-left text-muted"
+        className={`type-meta flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 self-stretch py-1 text-left text-muted ${canToggleExpansion ? 'cursor-pointer' : ''}`}
         aria-label="内容分类、频道和主题"
-      >
-        <span>{card.formatLabel}</span>
-        {imageCountLabel && <>
-          <span aria-hidden="true">·</span>
-          <span>{card.mediaTruncated ? `图片 ${card.displayImageCount}/${card.totalImageCount}` : `图片 ${card.totalImageCount}`}</span>
-        </>}
-        <MetaTag tone="accent">{card.channel}</MetaTag>
-        {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
-        {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
-      </div>
+      >{classificationMetadata}</div>
       {canToggleExpansion && <Tooltip delay={600}>
         <TooltipTriggerButton
           data-expand-trigger

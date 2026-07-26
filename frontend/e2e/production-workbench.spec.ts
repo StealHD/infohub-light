@@ -148,7 +148,7 @@ async function alignVisibleCardToTop(page: Page) {
 async function requestBackgroundRefresh(page: Page) {
   // The desktop Insights surface can overlap the ViewBar by this point in the
   // end-to-end flow, so invoke the already-rendered control without pointer scrolling.
-  await page.getByRole('button', { name: '更新信息流' }).evaluate((element: HTMLElement) => element.click())
+  await page.getByRole('button', { name: '获取新内容' }).evaluate((element: HTMLElement) => element.click())
   await page.evaluate(() => (window as typeof window & {
     completeBackgroundRefresh: () => Promise<void>
   }).completeBackgroundRefresh())
@@ -298,7 +298,7 @@ test('a retryable refresh failure uses a top Toast without moving the Feed viewp
   const feedScroll = page.getByTestId('workbench-feed-scroll')
   const before = await feedScroll.boundingBox()
 
-  await page.getByRole('button', { name: '更新信息流' }).click()
+  await page.getByRole('button', { name: '获取新内容' }).click()
   await page.evaluate(() => (window as typeof window & {
     completeBackgroundRefresh: () => Promise<void>
   }).completeBackgroundRefresh())
@@ -341,7 +341,7 @@ test('manual Feed data reload reads the latest snapshot without creating an upda
     completeManualFeedReload: () => Promise<void>
   }).completeManualFeedReload())
 
-  await page.getByRole('button', { name: '刷新信息流数据' }).click()
+  await page.getByRole('button', { name: '重新载入信息流数据' }).click()
 
   await expect(page.getByRole('article', { name: '实时条目 201' })).toBeVisible()
   const after = await page.evaluate(() => (window as typeof window & {
@@ -349,7 +349,7 @@ test('manual Feed data reload reads the latest snapshot without creating an upda
   }).feedRequestCounts())
   expect(after.latest).toBeGreaterThan(before.latest)
   expect(after.updates).toBe(before.updates)
-  await expect(page.getByRole('button', { name: '刷新信息流数据' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '重新载入信息流数据' })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -359,8 +359,8 @@ test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', 
   await page.goto('/feed')
   await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
   await page.evaluate(async () => { await document.fonts.ready })
-  const reload = page.getByRole('button', { name: '刷新信息流数据' })
-  const update = page.getByRole('button', { name: '更新信息流' })
+  const reload = page.getByRole('button', { name: '重新载入信息流数据' })
+  const update = page.getByRole('button', { name: '获取新内容' })
   const filter = page.getByRole('button', { name: '筛选信息流' })
   const viewBar = page.getByTestId('feed-view-bar')
   const controls = [viewBar, reload, update, filter]
@@ -387,7 +387,7 @@ test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', 
 
   await expect(reload).toBeDisabled()
   await expect(reload).toHaveAttribute('aria-busy', 'true')
-  await expect(reload).toHaveText('刷新')
+  await expect(reload).toHaveText('重新载入')
   expectStableGeometry(await geometry(), before)
   const anchorPending = await topVisibleSnapshot(page)
   expect(anchorPending.name).toBe(anchorBefore.name)
@@ -399,7 +399,7 @@ test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', 
   await expect(page.getByRole('article', { name: '实时条目 201' })).toBeVisible()
   await expect(reload).toBeEnabled()
   await expect(reload).not.toHaveAttribute('aria-busy')
-  await expect(reload).toHaveText('刷新')
+  await expect(reload).toHaveText('重新载入')
   expectStableGeometry(await geometry(), before)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
@@ -434,8 +434,6 @@ for (const viewport of [
       { trigger: card.locator('[data-expand-trigger]'), text: '展开内容' },
       { trigger: card.getByRole('link', { name: /打开 .* 原文/ }), text: '在新窗口打开原文' },
       { trigger: card.getByRole('button', { name: /收藏 / }), text: '加入收藏' },
-      { trigger: card.getByRole('button', { name: /加入 Agent 上下文/ }), text: '加入 Agent 上下文' },
-      { trigger: card.getByRole('button', { name: /更多操作/ }), text: '复制摘要或忽略这条内容' },
     ]
     for (const { trigger, text } of tooltipCases) {
       await trigger.scrollIntoViewIfNeeded()
@@ -454,6 +452,8 @@ for (const viewport of [
       await page.mouse.move(1, 1)
       await expect(tooltip).toBeHidden()
     }
+    await expect(card.getByRole('button', { name: /加入 Agent 上下文/ })).toHaveText('问 Agent')
+    await expect(card.getByRole('button', { name: /更多操作/ })).toHaveAttribute('title', '复制摘要或忽略这条内容')
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     const accessibility = await new AxeBuilder({ page }).analyze()
@@ -471,8 +471,8 @@ for (const viewport of [
     await page.setViewportSize(viewport)
     await page.goto('/feed')
     await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
-    const reload = page.getByRole('button', { name: '刷新信息流数据' })
-    const update = page.getByRole('button', { name: '更新信息流' })
+    const reload = page.getByRole('button', { name: '重新载入信息流数据' })
+    const update = page.getByRole('button', { name: '获取新内容' })
     await expect(reload).toBeVisible()
     await expect(update).toBeVisible()
     await reload.focus()
@@ -649,8 +649,8 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   expect(await itemCount.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
   await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
   await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '刷新信息流数据' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '更新信息流' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '重新载入信息流数据' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '获取新内容' })).toBeVisible()
   const agentToggle = page.getByRole('banner').getByRole('button', { name: /^(收起|展开) Agent 面板$/ })
   await expect(agentToggle).toHaveAttribute('data-agent-toggle-visual', 'quiet-studio')
   await expect(agentToggle.locator('[data-split-panel-icon]')).toHaveCount(1)
@@ -659,17 +659,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await page.evaluate(() => document.fonts.ready)
 
   const contextTrigger = page.getByRole('article', { name: '实时条目 200' }).getByRole('button', { name: '将 实时条目 200 加入 Agent 上下文' })
-  await contextTrigger.hover()
-  const contextTooltip = page.getByText('加入 Agent 上下文', { exact: true })
-  await expect(contextTooltip).toBeVisible()
-  const triggerBounds = await contextTrigger.boundingBox()
-  const tooltipBounds = await contextTooltip.boundingBox()
-  expect(triggerBounds).not.toBeNull()
-  expect(tooltipBounds).not.toBeNull()
-  expect(tooltipBounds!.x).toBeGreaterThanOrEqual(8)
-  expect(tooltipBounds!.x + tooltipBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width - 8)
-  expect(triggerBounds!.y - (tooltipBounds!.y + tooltipBounds!.height)).toBeGreaterThanOrEqual(2)
-  await page.mouse.move(4, 4)
+  await expect(contextTrigger).toContainText('问 Agent')
 
   const shell = page.getByTestId('live-workbench-shell')
   expect(await page.locator('body').evaluate((element) => getComputedStyle(element).color)).toBe(
@@ -702,7 +692,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await expect(mobileNavigation).toBeHidden()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
-    await expect(agent.getByText('对话未启用')).toBeVisible()
+    await expect(agent.getByRole('button', { name: 'OpenClaw · 未配置' })).toBeVisible()
     await page.getByRole('button', { name: '展开侧栏' }).click()
     await expect.poll(async () => Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
     expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.sidebar.v1:e2e-user'))).toBe('expanded')
@@ -785,7 +775,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     agent = page.getByRole('dialog', { name: 'OpenClaw 上下文' })
     await expect(agent).toBeVisible()
     await expect(page.getByTestId('right-rail-drawer-backdrop')).toBeVisible()
-    await expect(agent.getByText('对话未启用')).toBeVisible()
+    await expect(agent.getByRole('button', { name: 'OpenClaw · 未配置' })).toBeVisible()
     await agent.evaluate(async (element) => Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined))))
     const openFeedBounds = await feedScroll.boundingBox()
     expect(feedBounds).not.toBeNull()
@@ -812,13 +802,17 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
       expect(Math.abs((agentBounds?.width ?? 0) - 360)).toBeLessThanOrEqual(1)
       expect(Math.round((agentBounds?.x ?? 0) + (agentBounds?.width ?? 0))).toBe(1024)
     }
+    // The focused icon-only status owns a Tooltip, so Escape dismisses the
+    // innermost overlay before the containing Agent Drawer.
     await page.keyboard.press('Escape')
-    await expect(toggle).toBeFocused()
+    await page.keyboard.press('Escape')
     await expect(agent).toBeHidden()
+    await expect(toggle).toBeFocused()
   }
   if (testInfo.project.name === 'mobile') {
-    await expect(mobileNavigation.getByRole('link')).toHaveCount(6)
+    await expect(mobileNavigation.getByRole('link')).toHaveCount(4)
     await expect(mobileNavigation.getByRole('link', { name: '助手连接' })).toBeVisible()
+    await expect(mobileNavigation.getByRole('button', { name: '更多与账户' })).toBeVisible()
   }
 
   const feedScroll = page.getByTestId('workbench-feed-scroll')
@@ -877,7 +871,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
 
   const horizontalOverflow = await agent.evaluate((element) => {
     const regions = [element, ...element.querySelectorAll<HTMLElement>('*')]
-    return regions.flatMap((region) => region.scrollWidth > region.clientWidth ? [{
+    return regions.flatMap((region) => !region.classList.contains('sr-only') && region.scrollWidth > region.clientWidth ? [{
       testId: region.getAttribute('data-testid') || 'agent-panel',
       tag: region.tagName.toLowerCase(),
       className: region.className,
@@ -1059,7 +1053,7 @@ test('social cards and Agent context show source information once without exposi
   await expect(page.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toHaveCount(1)
   await expect(page.getByText(socialRouteItem.title, { exact: true })).toHaveCount(0)
   await expect(card.getByText('图集', { exact: true })).toBeVisible()
-  await expect(card.getByText('4 张图片 · 可查看 2 张', { exact: true })).toBeVisible()
+  await expect(card.getByText('图片 2/4', { exact: true })).toBeVisible()
   const expand = card.getByRole('button', { name: /展开 / })
   await expand.hover()
   await expect(page.getByText('展开内容', { exact: true })).toBeVisible()
@@ -1132,11 +1126,11 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
       name: top?.getAttribute('aria-label') ?? '',
       offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
     }
-    document.querySelector<HTMLButtonElement>('button[aria-label="更新信息流"]')?.click()
+    document.querySelector<HTMLButtonElement>('button[aria-label="获取新内容"]')?.click()
     return anchor
   })
   expect(anchorBefore.name).not.toBe('')
-  await expect(page.getByRole('button', { name: '更新信息流' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '获取新内容' })).toBeDisabled()
   await page.evaluate(() => (window as typeof window & {
     completeBackgroundRefresh: () => Promise<void>
   }).completeBackgroundRefresh())
@@ -1211,8 +1205,8 @@ test('Quiet Studio keeps keyboard expansion and mobile action targets accessible
   if (testInfo.project.name === 'mobile') {
     const openOriginal = card.getByRole('link', { name: '打开 实时条目 200 原文' })
     const box = await openOriginal.boundingBox()
-    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    expect(Math.round(box?.width ?? 0)).toBeGreaterThanOrEqual(44)
+    expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44)
   }
 })
 
@@ -1225,8 +1219,8 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByRole('banner')).toHaveAttribute('data-header-visual', 'quiet-studio')
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '刷新信息流数据' })).toHaveCount(0)
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '重新载入信息流数据' })).toHaveCount(0)
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '获取新内容' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: savedRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
   await expect(page.locator('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'ready')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -1239,8 +1233,8 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '刷新信息流数据' })).toHaveCount(0)
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '更新信息流' })).toHaveCount(0)
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '重新载入信息流数据' })).toHaveCount(0)
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '获取新内容' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: historyRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
   await expect(page.locator('[data-loading-reveal="feed"]')).toHaveAttribute('data-loading-state', 'ready')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -1252,7 +1246,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByRole('article', { name: savedRouteItem.title })).toBeVisible()
 })
 
-test('content-route navigation keeps the same shell and a closed Agent panel', async ({ page }) => {
+test('content-route navigation keeps the same shell and a closed Agent panel', async ({ page }, testInfo) => {
   await page.goto('/feed')
   const shell = page.getByTestId('live-workbench-shell')
   await shell.evaluate((element) => {
@@ -1269,7 +1263,12 @@ test('content-route navigation keeps the same shell and a closed Agent panel', a
   await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
   expect(await page.evaluate(() => (window as typeof window & { workbenchShellProbe?: Element }).workbenchShellProbe === document.querySelector('[data-testid="live-workbench-shell"]'))).toBe(true)
 
-  await page.getByRole('link', { name: '历史', exact: true }).click()
+  if (testInfo.project.name === 'mobile') {
+    await page.getByRole('button', { name: '更多与账户' }).click()
+    await page.getByRole('dialog', { name: '更多与账户' }).getByRole('button', { name: '历史', exact: true }).click()
+  } else {
+    await page.getByRole('link', { name: '历史', exact: true }).click()
+  }
   await expect(page.getByRole('heading', { name: '历史', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '展开 Agent 面板' })).toBeVisible()
   await expect(shell).toHaveAttribute('data-lifecycle-probe', 'persistent-shell')

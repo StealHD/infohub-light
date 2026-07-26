@@ -592,8 +592,7 @@ test('subscription channels stay compact, actionable and accessible at every acc
   if (testInfo.project.name === 'mobile') {
     await notificationSwitch.click()
   } else {
-    await notificationSwitch.focus()
-    await page.keyboard.press('Space')
+    await notificationSwitch.press('Space')
   }
   await expect(notificationSwitch).toBeChecked()
   await subscriptionCard.getByRole('button', { name: '配置 OpenAI Blog 订阅' }).click()

@@ -380,6 +380,10 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   animation-duration: var(--inteliscope-motion-deliberate) !important;
 }
 
+.inteliscope-design-system .tooltip[data-exiting="true"] {
+  visibility: hidden;
+}
+
 ::view-transition-new(.toast-bottom):only-child,
 ::view-transition-old(.toast-bottom):only-child,
 ::view-transition-new(.toast-top):only-child,

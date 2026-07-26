@@ -290,7 +290,7 @@ describe('VirtualFeed', () => {
     expect(onItemAction).not.toHaveBeenCalled()
   })
 
-  it('uses an explicit expand control while keeping flat footer metadata non-interactive', async () => {
+  it('uses an explicit expand control while footer metadata shares the pointer expansion target', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()
     const onToggleSaved = vi.fn()
@@ -318,16 +318,16 @@ describe('VirtualFeed', () => {
     expect(expandZone).not.toContainElement(actions)
 
     await user.click(expandZone)
-    expect(onToggleExpanded).not.toHaveBeenCalled()
-    await user.click(expandButton)
     expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+    await user.click(expandButton)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(2)
 
     await user.click(within(actions).getByRole('button', { name: /^收藏 / }))
     await user.click(within(actions).getByRole('button', { name: /^将 .* 加入 Agent 上下文$/ }))
     await user.click(within(actions).getByRole('button', { name: /^更多操作 / }))
     expect(onToggleSaved).toHaveBeenCalledTimes(1)
     expect(onToggleContext).toHaveBeenCalledTimes(1)
-    expect(onToggleExpanded).toHaveBeenCalledTimes(1)
+    expect(onToggleExpanded).toHaveBeenCalledTimes(2)
     await user.keyboard('{Escape}')
 
     fireEvent.pointerEnter(expandButton, { pointerType: 'mouse' })
