@@ -787,6 +787,26 @@ def _number(
     return value
 
 
+def _integer_choice(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    default: int,
+    allowed: set[int],
+) -> int:
+    raw = payload.get(key, default)
+    if isinstance(raw, (bool, float)):
+        raise ValueError(f"{key} 必须是允许的整数选项")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} 必须是允许的整数选项") from exc
+    if value not in allowed:
+        choices = " 或 ".join(str(item) for item in sorted(allowed))
+        raise ValueError(f"{key} 必须是 {choices}")
+    return value
+
+
 def _ensure_sources(data: dict[str, Any]) -> dict[str, Any]:
     sources = data.setdefault("sources", {})
     sources.setdefault("rss", [])
@@ -1070,6 +1090,12 @@ def apply_config_action(
         filtering["daily_push_limit"] = _number(payload, "daily_push_limit", default=10, minimum=1, maximum=50, integer=True)
         filtering["homepage_min_score"] = _number(payload, "homepage_min_score", default=6.0, minimum=0, maximum=10)
         filtering["time_window_hours"] = _number(payload, "time_window_hours", default=24, minimum=1, maximum=720, integer=True)
+        filtering["rss_initial_fetch_window_hours"] = _integer_choice(
+            payload,
+            "rss_initial_fetch_window_hours",
+            default=168,
+            allowed={168, 720},
+        )
         filtering["recent_item_limit"] = _number(payload, "recent_item_limit", default=20, minimum=1, maximum=200, integer=True)
 
     elif action == "set_ai":

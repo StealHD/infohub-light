@@ -146,7 +146,7 @@ def test_execute_returns_fresh_succeeded_empty_result_without_legacy_side_effect
         StorageManager(data_dir=str(tmp_path)),
     )
 
-    async def fetch_nothing(since):
+    async def fetch_nothing(since, **_kwargs):
         return [], ()
 
     monkeypatch.setattr(orchestrator, "fetch_service_sources", fetch_nothing)
@@ -175,7 +175,7 @@ def test_execute_ai_enabled_empty_result_skips_analysis_selection(tmp_path, monk
         StorageManager(data_dir=str(tmp_path)),
     )
 
-    async def fetch_nothing(since):
+    async def fetch_nothing(since, **_kwargs):
         return [], ()
 
     async def forbidden_stage(*args, **kwargs):
@@ -202,7 +202,7 @@ def test_execute_returns_structured_failure_for_pipeline_exception(tmp_path, mon
         StorageManager(data_dir=str(tmp_path)),
     )
 
-    async def fail_fetch(since):
+    async def fail_fetch(since, **_kwargs):
         raise TimeoutError("source fetch timed out")
 
     monkeypatch.setattr(orchestrator, "fetch_service_sources", fail_fetch)
@@ -229,7 +229,7 @@ def test_execute_marks_deterministic_pipeline_exception_non_retryable(
         StorageManager(data_dir=str(tmp_path)),
     )
 
-    async def fail_fetch(_since):
+    async def fail_fetch(_since, **_kwargs):
         raise ValueError("invalid deterministic source configuration")
 
     monkeypatch.setattr(orchestrator, "fetch_service_sources", fail_fetch)
@@ -307,7 +307,7 @@ def test_execute_returns_partial_with_per_source_outcomes(tmp_path, monkeypatch)
         ),
     )
 
-    async def fetch_partial(_since):
+    async def fetch_partial(_since, **_kwargs):
         return [item], outcomes
 
     monkeypatch.setattr(orchestrator, "fetch_service_sources", fetch_partial)
@@ -355,6 +355,59 @@ def test_fetch_service_sources_stamps_priority_even_when_adapter_metadata_omits_
 
     assert items[0].metadata["source_priority"] == 64
     assert outcomes[0].source_id == "src_hn"
+
+
+def test_execute_uses_runtime_rss_window_until_explicit_hours_override(
+    tmp_path,
+    monkeypatch,
+):
+    config = Config.model_validate(
+        {
+            "version": "1.0",
+            "ai": {
+                "enabled": False,
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "api_key_env": "MISSING_TEST_API_KEY",
+            },
+            "sources": {
+                "rss": [{
+                    "name": "Initial RSS",
+                    "url": "https://example.com/feed.xml",
+                    "source_id": "src_rss",
+                    "subscription_id": "sub_rss",
+                    "service_fetch_window_hours": 168,
+                }],
+                "hackernews": {"enabled": False},
+            },
+            "filtering": {"time_window_hours": 24},
+        }
+    )
+    orchestrator = HorizonOrchestrator(
+        config,
+        StorageManager(data_dir=str(tmp_path)),
+    )
+    windows: list[float] = []
+
+    async def capture_fetch(_label, _scraper, _source, since):
+        windows.append(
+            (datetime.now(timezone.utc) - since).total_seconds() / 3600
+        )
+        return []
+
+    monkeypatch.setattr(orchestrator, "_fetch_service_source", capture_fetch)
+    _forbid_legacy_side_effects(monkeypatch, orchestrator)
+
+    default_result = asyncio.run(orchestrator.execute())
+    assert default_result.status == "succeeded"
+    assert len(windows) == 1
+    assert 167.9 <= windows[0] <= 168.1
+
+    windows.clear()
+    forced_result = asyncio.run(orchestrator.execute(force_hours=6))
+    assert forced_result.status == "succeeded"
+    assert len(windows) == 1
+    assert 5.9 <= windows[0] <= 6.1
 
 
 def test_fetch_service_sources_admits_attempt_before_adapter_network_call(
@@ -506,7 +559,7 @@ def test_execute_returns_failed_when_all_service_sources_fail(tmp_path, monkeypa
         ),
     )
 
-    async def fetch_failed(_since):
+    async def fetch_failed(_since, **_kwargs):
         return [], outcomes
 
     monkeypatch.setattr(orchestrator, "fetch_service_sources", fetch_failed)
@@ -528,7 +581,7 @@ def test_execute_uses_failed_outcome_for_partial_even_without_issue(tmp_path, mo
         SourceOutcome("src_failed", "sub_failed", "rss:failed", "full", "failed", 0),
     )
 
-    async def fetch_mixed(_since):
+    async def fetch_mixed(_since, **_kwargs):
         return [item], outcomes
 
     monkeypatch.setattr(orchestrator, "fetch_service_sources", fetch_mixed)
@@ -550,7 +603,7 @@ def test_execute_preserves_fetch_issue_when_later_analysis_fails(tmp_path, monke
         SourceOutcome("src_bad", "sub_bad", "rss:bad", "full", "failed", 0, fetch_issue),
     )
 
-    async def fetch_mixed(_since):
+    async def fetch_mixed(_since, **_kwargs):
         return [item], outcomes
 
     async def fail_analysis(_items):
@@ -574,7 +627,7 @@ def test_execute_ai_analysis_does_not_use_the_global_disk_cache(tmp_path, monkey
     )
     item = _item("hackernews:item:private", "https://example.com/private")
 
-    async def fetch_item(_since):
+    async def fetch_item(_since, **_kwargs):
         return [item], ()
 
     async def analyze_without_cache(analyzer, items):
@@ -619,7 +672,7 @@ def test_execute_returns_analyzed_deduped_items_and_selection_ids_without_publis
         "https://example.com/daily",
     )
 
-    async def fetch_items(since):
+    async def fetch_items(since, **_kwargs):
         return [duplicate, retained, featured, daily], ()
 
     async def analyze(items):
@@ -704,7 +757,7 @@ def test_execute_makes_mixed_mode_url_group_personal_only_before_ai(tmp_path, mo
         ),
     )
 
-    async def fetch_items(_since):
+    async def fetch_items(_since, **_kwargs):
         return [full, personal], outcomes
 
     analyzed_content = []

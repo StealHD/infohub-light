@@ -71,6 +71,16 @@ def test_validate_config_data_accepts_valid_config():
     assert validated.sources.rss[0].name == "Example Feed"
     assert validated.premium_analysis.enabled is False
     assert validated.article_graph.enabled is False
+    assert validated.filtering.rss_initial_fetch_window_hours == 168
+
+
+@pytest.mark.parametrize("value", [168.0, "168", True])
+def test_validate_config_data_rejects_non_integer_rss_initial_window(value):
+    config = _minimal_config()
+    config["filtering"]["rss_initial_fetch_window_hours"] = value
+
+    with pytest.raises(ValueError, match="rss_initial_fetch_window_hours"):
+        validate_config_data(config)
 
 
 def test_apify_social_ui_default_uses_single_item_capable_x_actor():
@@ -389,6 +399,28 @@ def test_apply_config_action_sets_recent_item_limit():
     )
 
     assert updated["filtering"]["recent_item_limit"] == 20
+
+
+def test_apply_config_action_sets_rss_initial_fetch_window():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "set_filtering",
+        {"rss_initial_fetch_window_hours": "720"},
+    )
+
+    assert updated["filtering"]["rss_initial_fetch_window_hours"] == 720
+
+
+@pytest.mark.parametrize("value", [24, 169, True, False, 168.0, 168.5, "invalid"])
+def test_apply_config_action_rejects_invalid_rss_initial_fetch_window(value):
+    with pytest.raises(ValueError, match="rss_initial_fetch_window_hours"):
+        apply_config_action(
+            _minimal_config(),
+            "set_filtering",
+            {"rss_initial_fetch_window_hours": value},
+        )
 
 
 def test_apply_config_action_sets_switchable_rsshub_base_url():

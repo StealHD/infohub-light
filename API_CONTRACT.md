@@ -89,7 +89,8 @@ capability / degrade：
 4. legacy CLI 的 `apify_social.subscriptions[].token_env` 可为单条 Apify 订阅指定 key 环境变量名；为空时使用全局 `sources.apify_social.token_envs` 轮换。该兼容规则不进入启用工作区池后的 Service API/Worker 路径。
 5. `set_tags` 优先接受 `payload.topics` 数组，同时兼容旧 `tags` 换行/逗号字符串；值会 trim、去空并按大小写无关去重，每项最多 40 字、总数最多 100。显式空数组表示清空主题库，不得恢复内置默认主题。
 6. `set_rsshub` 只接受 `payload.base_url`，保存为不含 userinfo、query 或 fragment 的 HTTP(S) Base URL；允许安全的反向代理 path prefix。该地址可指向工作区自建或第三方 RSSHub，但不进入 catalog source config、MCP guide/preview、Job result 或 Feed。可选主密钥只允许使用固定 SecretStore 环境变量 `RSSHUB_ACCESS_KEY`；`source_test` 与 Worker 抓取都按 RSSHub 的 `md5(route path + key)` 规则只发送 route-scoped `code`，配置/API/测试结果/日志不得保存或返回主密钥或派生 code。
-6. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
+7. `set_filtering` 的 additive `payload.rss_initial_fetch_window_hours` 只接受严格整数 `168` 或 `720`，boolean、浮点数、字符串及其他整数均返回可读配置错误；缺失配置按 `168` 处理。既有 `filtering.time_window_hours` 继续表示日常抓取窗口。
+8. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
 
 响应规则：
 
@@ -337,6 +338,7 @@ Source catalog 规则：
 15. `POST /api/jobs/user-feed-refresh` 的 data 增加 `deduplicated`。同一用户已有 queued/running 全量刷新时返回原 job 且 `deduplicated=true`；真正新建时为 false。手动、多标签页和自动刷新共同受同一原子去重约束。
 16. 手动全量刷新必须在同一个 `BEGIN IMMEDIATE` 事务中完成“查找/创建 active job、配额 admission、usage 记录”；只有真正新建 job 才计一次配额，配额失败同时回滚 job 和 usage。复用已有 active job 不重复计费，也不因当日配额后来耗尽而拒绝读取该 job。
 17. Worker 在 claim 普通 job 前按 `HORIZON_SCHEDULE_POLL_SECONDS` 检查到期计划，默认 30 秒。自动任务复用 `user_feed_refresh`，固定 `payload.reason=scheduled_service_refresh`、`priority=-10`，仍使用用户完整 `filtering.time_window_hours`，刷新周期不替代抓取窗口。
+17A. 没有 `last_success_at` 健康记录的直接 RSS 与受控 RSSHub 订阅，生产 `source_fetch/user_feed_refresh` 按单来源使用 `filtering.rss_initial_fetch_window_hours`（只允许 `168|720`，缺省 `168`）；同一次混合刷新可因此具有不同来源窗口。抓到零条的成功 outcome 同样建立成功边界，之后恢复 `filtering.time_window_hours`；失败及中间重试保持首次窗口。Job payload 或调用方显式传入的 `hours` 始终覆盖首次窗口。单来源窗口只存在于 Worker 合成的内部运行配置，必须从持久化 config 与所有公共序列化中排除；该规则只改变上游采集范围，不改变 Feed 留存，也不需要数据库迁移。
 18. 到期检查、active job 去重、usage 记录和 schedule 推进必须处于同一 SQLite 写事务；两个连接竞争同一计划最多创建一个 job。重启或长时间离线只补一个任务并把下一次推进到 `now + interval`，不追赶全部漏跑周期。
 19. active `source_fetch` 或 migration 未完成时计划延后 5 分钟，避免 snapshot 竞争或热循环；disabled user、无有效订阅或配额耗尽时不入队并推进到下一周期。`partial/failed` 不关闭计划，后续仍按已计算的下一周期继续。
 20. `user_feed_refresh` 的 `succeeded/partial` job `result_json` 必须包含 `run_id/run_status/item_count/new_item_count/source_outcomes/issues/analysis_usage`，并保留既有 `snapshot_id/snapshot_created`；`source_fetch` 的 `succeeded/partial` 结果同样包含 `new_item_count`。该字段是在 Feed 写事务内，以最终 canonical merge 与稳定 ID 去重后的 snapshot 相对紧邻上一份 snapshot 实际新增的唯一文章 ID 数：首份 snapshot 的全部唯一条目计为新增，重排或 metadata 变化不计新增，删除不抵扣，旧 Job 缺少该 additive 字段继续有效。`analysis_usage` 精确包含非负整数 `item_count/cache_hits/ai_calls/provider_attempts/fallbacks/skipped`，只用于成本与降级诊断，不包含 token 文本或原始内容。每个公开 source outcome 精确包含 `source_id/subscription_id/source_key/analysis_mode/status/fetched_count/issue`；issue 为 `null` 或精确的 `stage/code/message/retryable`，不得包含 source config。

@@ -1,4 +1,10 @@
+from datetime import datetime, timezone
+
 from src.models import Config
+from src.services.feed_run import RunIssue, SourceOutcome
+from src.services.job_queue import JobQueue
+from src.services.source_health import SourceHealthService
+from src.services.source_type_registry import validate_source_config
 from src.services.user_config_builder import build_user_config_data
 from src.storage.service_store import ServiceStore
 
@@ -93,13 +99,86 @@ def test_user_config_builder_merges_catalog_source_with_subscription_overrides(t
     assert rss.source_display_name == "AI Feed"
     assert rss.catalog_source_type == "rss"
     assert rss.keep_latest_item is True
+    assert rss.service_fetch_window_hours == 168
     assert data["sources"]["rss"][0]["analysis_mode"] == "personal_only"
     assert data["sources"]["rss"][0]["source_priority"] == 7
     assert data["sources"]["rss"][0]["source_display_name"] == "AI Feed"
     assert data["sources"]["rss"][0]["catalog_source_type"] == "rss"
     assert data["sources"]["rss"][0]["keep_latest_item"] is True
+    assert data["sources"]["rss"][0]["service_fetch_window_hours"] == 168
     assert data["sources"]["rss"][0]["token_env"] == "RSS_TOKEN"
     assert rss.enforce_public_network is False
+    assert "service_fetch_window_hours" not in config.model_dump(mode="json")["sources"]["rss"][0]
+
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=subscription_id["id"],
+        job_type="source_fetch",
+        payload={},
+    )
+    SourceHealthService(store).apply_outcomes(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        job_id=job["id"],
+        attempted_at=datetime.now(timezone.utc).isoformat(),
+        outcomes=(
+            SourceOutcome(
+                source_id=source_id,
+                subscription_id=subscription_id["id"],
+                source_key="rss:https://example.com/feed.xml",
+                analysis_mode="personal_only",
+                status="failed",
+                fetched_count=0,
+                issue=RunIssue(
+                    stage="fetch",
+                    code="TimeoutError",
+                    message="temporary timeout",
+                    retryable=True,
+                ),
+            ),
+        ),
+    )
+    after_failure = Config.model_validate(build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        base_config=_base_config(),
+    ))
+    assert after_failure.sources.rss[0].service_fetch_window_hours == 168
+
+    successful_job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        source_id=source_id,
+        subscription_id=subscription_id["id"],
+        job_type="source_fetch",
+        payload={},
+    )
+    SourceHealthService(store).apply_outcomes(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        job_id=successful_job["id"],
+        attempted_at=datetime.now(timezone.utc).isoformat(),
+        outcomes=(
+            SourceOutcome(
+                source_id=source_id,
+                subscription_id=subscription_id["id"],
+                source_key="rss:https://example.com/feed.xml",
+                analysis_mode="personal_only",
+                status="succeeded",
+                fetched_count=0,
+            ),
+        ),
+    )
+    refreshed = Config.model_validate(build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        base_config=_base_config(),
+    ))
+    assert refreshed.sources.rss[0].service_fetch_window_hours is None
 
 
 def test_user_config_builder_restricts_member_owned_rss_to_public_network(tmp_path, monkeypatch):
@@ -132,6 +211,44 @@ def test_user_config_builder_restricts_member_owned_rss_to_public_network(tmp_pa
     )
 
     assert data["sources"]["rss"][0]["enforce_public_network"] is True
+
+
+def test_user_config_builder_applies_30_day_window_to_managed_rsshub(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Bilibili RSSHub",
+        config=validate_source_config("rss", {
+            "provider": "rsshub",
+            "site": "bilibili",
+            "route_key": "user_video",
+            "params": {"uid": "39627524"},
+        }),
+    )
+    store.create_subscription(user_id=owner["id"], source_id=source_id)
+    base = _base_config()
+    base["filtering"]["rss_initial_fetch_window_hours"] = 720
+
+    data = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=base,
+    )
+
+    assert data["sources"]["rss"][0]["provider"] == "rsshub"
+    assert data["sources"]["rss"][0]["service_fetch_window_hours"] == 720
 
 
 def test_user_config_builder_adds_apify_subscription_secret_env(tmp_path, monkeypatch):

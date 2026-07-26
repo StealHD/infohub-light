@@ -175,6 +175,44 @@ describe('subscription model', () => {
     expect(resolveChannelSelection([], 'AI')).toBe('')
   })
 
+  it('pins collision-safe all and exception views ahead of real channels', () => {
+    const items = [
+      { id: 'healthy', channel: 'AI', status: 'healthy' },
+      { id: 'degraded', channel: '全部', status: 'degraded' },
+      { id: 'failing', channel: '工作/项目', status: 'failing' },
+      { id: 'unknown', channel: 'AI', status: 'unknown' },
+    ]
+    const groups = subscriptionModel.subscriptionViewGroups(
+      items,
+      (item) => item.channel,
+      (item) => item.status === 'degraded' || item.status === 'failing',
+      ['AI', '工作/项目', '全部'],
+    )
+
+    expect(groups.map((group) => [group.id, group.label, group.items.map((item) => item.id)])).toEqual([
+      ['all', '全部', ['healthy', 'degraded', 'failing', 'unknown']],
+      ['exceptions', '异常', ['degraded', 'failing']],
+      ['channel:AI', 'AI', ['healthy', 'unknown']],
+      ['channel:工作/项目', '工作/项目', ['failing']],
+      ['channel:全部', '全部', ['degraded']],
+    ])
+    expect(subscriptionModel.resolveViewSelection(groups, 'channel:工作/项目')).toBe('channel:工作/项目')
+    expect(subscriptionModel.resolveViewSelection(groups, 'channel:missing')).toBe('all')
+  })
+
+  it('keeps all and exception views visible when no subscription matches', () => {
+    const groups = subscriptionModel.subscriptionViewGroups(
+      [],
+      () => '其他',
+      () => false,
+    )
+
+    expect(groups.map((group) => [group.id, group.items.length])).toEqual([
+      ['all', 0],
+      ['exceptions', 0],
+    ])
+  })
+
   it('presents source and job enums as user-facing Chinese copy', () => {
     const queued: Job = { id: 'job-1', user_id: 'user-1', job_type: 'user_feed_refresh', status: 'queued', result: { item_count: 0 } }
     const failed: Job = { id: 'job-2', user_id: 'user-1', job_type: 'source_fetch', source_id: 'src-1', status: 'failed', error_message: '连接超时' }

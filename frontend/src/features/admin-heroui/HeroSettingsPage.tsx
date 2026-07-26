@@ -658,6 +658,7 @@ export function HeroSettingsPage() {
   const [secretDraft, setSecretDraft] = useState<SecretDraft>({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
   const [secretFormError, setSecretFormError] = useState('')
+  const [rssInitialFetchWindowOverride, setRssInitialFetchWindowOverride] = useState<string | null>(null)
   const ai = recordOf(config.data?.config.ai)
   const configuredAiProvider = String(ai.provider ?? 'gemini')
   const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
@@ -668,6 +669,8 @@ export function HeroSettingsPage() {
   }
   const aiDraft = aiOverride ?? configuredAiDraft
   const filtering = recordOf(config.data?.config.filtering)
+  const rssInitialFetchWindow = rssInitialFetchWindowOverride
+    ?? String(filtering.rss_initial_fetch_window_hours ?? 168)
   const rsshub = recordOf(config.data?.config.rsshub)
   const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
     (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
@@ -784,6 +787,7 @@ export function HeroSettingsPage() {
     configMutation.mutate({ action: 'set_filtering', payload: {
       ...filtering,
       time_window_hours: Number(data.get('time_window_hours')),
+      rss_initial_fetch_window_hours: Number(data.get('rss_initial_fetch_window_hours')),
       recent_item_limit: Number(data.get('recent_item_limit')),
     } })
   }
@@ -870,7 +874,24 @@ export function HeroSettingsPage() {
             <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_rsshub')}>{feedback.isPending('config-save', 'set_rsshub') ? '保存中…' : '保存 RSSHub 地址'}</Button>
           </form>
         </div>
-        <form className="grid gap-4" onSubmit={saveFiltering}><div className="grid gap-4 min-[720px]:grid-cols-2"><FormField name="time_window_hours" label="抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} /><FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} /></div><Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button></form>
+        <form className="grid gap-4" onSubmit={saveFiltering}>
+          <div className="grid gap-4 min-[720px]:grid-cols-3">
+            <FormField name="time_window_hours" label="日常抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} />
+            <HeroSelect
+              name="rss_initial_fetch_window_hours"
+              label="RSS 首次抓取窗口"
+              value={rssInitialFetchWindow}
+              onChange={setRssInitialFetchWindowOverride}
+              description="RSS 或 RSSHub 订阅在首次成功前使用该窗口；成功后恢复日常窗口。"
+              options={[
+                { id: '168', label: '7 天' },
+                { id: '720', label: '30 天' },
+              ]}
+            />
+            <FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} />
+          </div>
+          <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button>
+        </form>
         <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
       </AdminSection>
 

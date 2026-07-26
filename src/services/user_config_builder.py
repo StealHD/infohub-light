@@ -9,6 +9,7 @@ from ..models import Config
 from ..rsshub import is_managed_rsshub_config
 from ..storage.service_store import ServiceStore
 from ..tag_policy import normalize_channel, normalize_tags
+from .source_health import SourceHealthService
 
 
 def _workspace_apify_pool_enabled() -> bool:
@@ -103,6 +104,27 @@ def _record_with_network_policy(store: ServiceStore, record: dict[str, Any]) -> 
             ).fetchone()
             config["fetch_profile_details"] = avatar is None
             prepared["config"] = config
+    return prepared
+
+
+def _record_with_runtime_fetch_window(
+    store: ServiceStore,
+    record: dict[str, Any],
+    *,
+    rss_initial_fetch_window_hours: int,
+) -> dict[str, Any]:
+    """Attach a non-persistent first-success RSS window to one runtime record."""
+
+    prepared = _record_with_network_policy(store, record)
+    subscription_id = str(prepared.get("subscription_id") or "")
+    if prepared.get("type") != "rss" or not subscription_id:
+        return prepared
+    health = SourceHealthService(store).get_health(subscription_id)
+    if health and health.get("last_success_at"):
+        return prepared
+    config = deepcopy(prepared.get("config") or {})
+    config["service_fetch_window_hours"] = int(rss_initial_fetch_window_hours)
+    prepared["config"] = config
     return prepared
 
 
@@ -203,8 +225,19 @@ def build_user_config_data(
         workspace_id=workspace_id,
         user_id=user_id,
     )
+    filtering = data.get("filtering") if isinstance(data.get("filtering"), dict) else {}
+    rss_initial_fetch_window_hours = int(
+        filtering.get("rss_initial_fetch_window_hours", 168)
+    )
     for record in records:
-        _append_source(sources, _record_with_network_policy(store, record))
+        _append_source(
+            sources,
+            _record_with_runtime_fetch_window(
+                store,
+                record,
+                rss_initial_fetch_window_hours=rss_initial_fetch_window_hours,
+            ),
+        )
     return data
 
 

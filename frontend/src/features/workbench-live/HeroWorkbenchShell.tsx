@@ -338,14 +338,16 @@ function AgentPanelContent({
     <header className="flex h-[52px] min-w-0 items-center gap-2 overflow-hidden border-b border-separator px-4">
       <Icons.Sparkles className="shrink-0" size={17} aria-hidden="true" />
       <strong className="min-w-0 flex-1 truncate">OpenClaw 对话</strong>
-      <LoadingReveal
-        loading={configLoading}
-        label="正在检查 Agent 连接"
-        name="agent-status"
-        className="h-5 w-16 shrink-0"
-        skeleton={<CalmSkeleton className="h-5 w-16 rounded-lg" />}
-      ><Chip size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip></LoadingReveal>
-      {(chat.status === 'connected' || chat.status === 'reconnecting') && <Chip size="sm" color={chat.toolsStatus === 'available' ? 'success' : 'default'} variant="soft"><Chip.Label>{toolsStatusLabel[chat.toolsStatus]}</Chip.Label></Chip>}
+      <div data-agent-header-status className="flex shrink-0 items-center gap-2 self-center">
+        <LoadingReveal
+          loading={configLoading}
+          label="正在检查 Agent 连接"
+          name="agent-status"
+          className="h-5 w-16 shrink-0 [&_[data-content-layer]]:items-center [&_[data-content-layer]]:justify-center"
+          skeleton={<CalmSkeleton className="h-5 w-16 rounded-lg" />}
+        ><Chip className="self-center" size="sm" color={chat.status === 'connected' ? 'accent' : 'default'} variant="primary"><Chip.Label>{gatewayStatusLabel[chat.status]}</Chip.Label></Chip></LoadingReveal>
+        {(chat.status === 'connected' || chat.status === 'reconnecting') && <Chip className="self-center" size="sm" color={chat.toolsStatus === 'available' ? 'success' : 'default'} variant="soft"><Chip.Label>{toolsStatusLabel[chat.toolsStatus]}</Chip.Label></Chip>}
+      </div>
       <Button size="sm" variant="ghost" isIconOnly aria-label="关闭 Agent 面板" isDisabled={chat.isRunning} onPress={onClose}>
         <Icons.X size={17} aria-hidden="true" />
       </Button>

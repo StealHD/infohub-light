@@ -665,6 +665,7 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
             apify_coordinators.append(coordinator)
 
         async def execute(self, **_kwargs):
+            assert _kwargs["force_hours"] is None
             item = ContentItem(
                 id="rss:item:worker",
                 source_type=SourceType.RSS,

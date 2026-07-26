@@ -344,6 +344,14 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.queryByRole('button', { name: '展开信息概览' })).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+    const statusContainer = document.querySelector('[data-agent-header-status]') as HTMLElement
+    expect(statusContainer).toHaveClass('items-center', 'self-center')
+    const statusReveal = document.querySelector('[data-loading-reveal="agent-status"]') as HTMLElement
+    expect(statusReveal).toHaveClass(
+      '[&_[data-content-layer]]:items-center',
+      '[&_[data-content-layer]]:justify-center',
+    )
+    expect(statusReveal.querySelector('[data-slot="chip"]')).toHaveClass('self-center')
     expect(api.agentDelegations).toHaveBeenCalled()
   })
 

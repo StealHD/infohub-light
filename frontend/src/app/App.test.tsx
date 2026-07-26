@@ -384,13 +384,15 @@ describe('App routes', () => {
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'AI' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '全部', level: 2 })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: '当前频道订阅' })).toBeInTheDocument()
     const sourceCard = screen.getByText('覆盖频道来源').closest('[data-compact-source-row="subscription"]') as HTMLElement
+    expect(sourceCard.querySelector('[data-source-card-header]')).toHaveClass('items-center')
     const healthChip = sourceCard.querySelector('[data-source-health-chip][data-slot="chip"]')
     expect(healthChip).toHaveTextContent('正常')
     expect(healthChip).toHaveAttribute('aria-label', '健康状态：正常')
+    expect(healthChip).toHaveClass('self-center')
     const scheduleCard = document.querySelector('[data-feed-schedule]') as HTMLElement
     const scheduleSwitch = within(scheduleCard).getByRole('switch', { name: '全部订阅自动更新' })
     expect(scheduleSwitch.closest('[data-slot="switch"]')).toHaveTextContent('')
@@ -408,6 +410,57 @@ describe('App routes', () => {
     expect(api.feedSchedule).toHaveBeenCalled()
     expect(api.createSourceFetch).toHaveBeenCalledWith(source.id, subscription.id)
   }, 10_000)
+
+  it('optimistically toggles card notifications and rolls back a failed PATCH', async () => {
+    const browser = userEvent.setup()
+    const source = {
+      id: 'notification-source',
+      type: 'rss',
+      display_name: '通知回滚来源',
+      scope: 'private' as const,
+      owner_user_id: 'user-live',
+      default_channel: 'AI',
+      enabled: true,
+    }
+    const subscription = {
+      id: 'notification-subscription',
+      user_id: 'user-live',
+      source_id: source.id,
+      source_display_name: source.display_name,
+      source_type: source.type,
+      enabled: true,
+      analysis_mode: 'full' as const,
+      notify_on_new_items: false,
+    }
+    let rejectUpdate: (reason?: unknown) => void = () => undefined
+    const updateSubscription = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectUpdate = reject
+    }))
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 1, degraded: 0, failing: 0, unknown: 0, total: 1 }, items: [{ subscription_id: subscription.id, source_id: source.id, status: 'healthy', consecutive_failures: 0 }] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      updateSubscription,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    const notification = await screen.findByRole('switch', { name: '新内容通知：通知回滚来源' })
+    expect(notification).not.toBeChecked()
+    await browser.click(notification)
+    await waitFor(() => expect(updateSubscription).toHaveBeenCalledWith(subscription.id, { notify_on_new_items: true }))
+    expect(notification).toBeChecked()
+    expect(notification).toBeDisabled()
+
+    rejectUpdate(new Error('保存失败'))
+    await waitFor(() => {
+      expect(notification).not.toBeChecked()
+      expect(notification).toBeEnabled()
+    })
+    expect(await screen.findByText('通知回滚来源 通知设置保存失败')).toBeInTheDocument()
+  })
 
   it('keeps channel choices independent across tabs and falls back when filtering removes a channel', async () => {
     const browser = userEvent.setup()
@@ -439,7 +492,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: 'AI' })
+    await screen.findByRole('heading', { name: '全部', level: 2 })
     await browser.click(within(screen.getByRole('navigation', { name: '我的订阅频道' })).getByRole('button', { name: /工作\/项目/ }))
     expect(screen.getByRole('heading', { name: '工作/项目' })).toBeInTheDocument()
     expect(screen.getByText('项目来源')).toBeInTheDocument()
@@ -482,6 +535,14 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByText('Workspace Failing')
+    const subscriptionNavigation = screen.getByRole('navigation', { name: '我的订阅频道' })
+    expect(within(subscriptionNavigation).getByRole('button', { name: /^全部，/ })).toBeInTheDocument()
+    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^异常，/ }))
+    expect(screen.getByRole('heading', { name: '异常', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
+    expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
+    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^全部，/ }))
     await browser.click(screen.getAllByRole('button', { name: '筛选来源，已启用 0 项' })[0])
     const filterDialog = await screen.findByRole('dialog', { name: '筛选来源' })
     await browser.click(within(filterDialog).getByRole('button', { name: /来源类型/ }))
@@ -560,12 +621,9 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const browser = userEvent.setup()
-    await browser.click(await screen.findByRole('button', { name: '更多操作：Own Private' }))
-    expect(screen.getByRole('button', { name: '编辑 Own Private 来源' })).toBeInTheDocument()
-    await browser.keyboard('{Escape}')
+    expect(await screen.findByRole('button', { name: '编辑 Own Private 来源' })).toBeInTheDocument()
     for (const sourceName of ['Other Private', 'Workspace Shared', 'Public Shared']) {
-      expect(screen.queryByRole('button', { name: `更多操作：${sourceName}` })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: `编辑 ${sourceName} 来源` })).not.toBeInTheDocument()
     }
   })
 
@@ -587,7 +645,8 @@ describe('App routes', () => {
     expect(await screen.findByRole('button', { name: '查看 只读来源 订阅' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '立即获取 只读来源' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '新增来源' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '更多操作：只读来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编辑 只读来源 来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '分享 只读来源' })).not.toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
     expect(screen.getByRole('button', { name: '取消订阅 只读来源' })).toBeDisabled()
@@ -1057,6 +1116,44 @@ describe('App routes', () => {
     expect(screen.getByRole('textbox', { name: '环境变量名' })).toHaveValue('DEEPSEEK_API_KEY')
     expect(screen.getByLabelText('Key 值')).toHaveValue('')
   }, 15_000)
+
+  it('saves the RSS first-fetch window as an explicit 7 or 30 day choice', async () => {
+    const browser = userEvent.setup()
+    const configAction = vi.fn().mockResolvedValue({ ok: true })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-rss-window', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({
+        config: {
+          ai: {},
+          filtering: {
+            time_window_hours: 24,
+            rss_initial_fetch_window_hours: 168,
+            recent_item_limit: 20,
+          },
+        },
+        taxonomy: { channels: [], topics: [] },
+      }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      configAction,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
+    expect(initialWindow).toHaveTextContent('7 天')
+    await browser.click(initialWindow)
+    await browser.click(await screen.findByRole('option', { name: '30 天' }))
+    await browser.click(screen.getByRole('button', { name: '保存获取设置' }))
+
+    await waitFor(() => expect(configAction).toHaveBeenCalledWith(
+      'set_filtering',
+      expect.objectContaining({
+        time_window_hours: 24,
+        rss_initial_fetch_window_hours: 720,
+        recent_item_limit: 20,
+      }),
+    ))
+  })
 
   it('shows actionable local validation and network errors inside the key form', async () => {
     const browser = userEvent.setup()
@@ -1571,7 +1668,6 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('button', { name: '更多操作：Advanced RSS' }))
     await browser.click(await screen.findByRole('button', { name: '编辑 Advanced RSS 来源' }))
     const dialog = await screen.findByRole('dialog', { name: 'Advanced RSS · 来源设置' })
     expect(within(dialog).getByText('高级配置')).toBeVisible()
@@ -1651,7 +1747,6 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('button', { name: '更多操作：私人研究源' }))
     expect(screen.queryByRole('button', { name: '查看 私人研究源 引用人数' })).not.toBeInTheDocument()
     expect(sourceUsage).not.toHaveBeenCalled()
     await browser.click(await screen.findByRole('button', { name: '分享 私人研究源' }))
@@ -1688,6 +1783,8 @@ describe('App routes', () => {
     await browser.click(within(dialog).getByRole('button', { name: '保存订阅' }))
 
     await waitFor(() => expect(updateSubscription).toHaveBeenCalledWith(subscription.id, expect.objectContaining({ enabled: false, on_disable: 'save' })))
+    expect(updateSubscription.mock.calls[0]?.[1]).not.toHaveProperty('notify_on_new_items')
+    expect(within(dialog).queryByRole('switch', { name: /新内容通知/ })).not.toBeInTheDocument()
     expect(updateSourceSchedule).toHaveBeenCalledWith(subscription.id, expect.objectContaining({ enabled: false }))
   })
 

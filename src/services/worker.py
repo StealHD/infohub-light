@@ -269,9 +269,14 @@ def _run_user_feed_refresh(
                     job_id=job["id"],
                 )
             )
+        raw_force_hours = (job.get("payload_json") or {}).get("hours")
         run_result = asyncio.run(
             orchestrator.execute(
-                force_hours=int((job.get("payload_json") or {}).get("hours") or config.filtering.time_window_hours),
+                force_hours=(
+                    int(raw_force_hours)
+                    if raw_force_hours is not None
+                    else None
+                ),
                 enrich=False,
             )
         )
