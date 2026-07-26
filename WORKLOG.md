@@ -2956,3 +2956,9 @@
 - 结果：本地 AMD64 镜像 revision `c05e246544e4` 已上传并由 VPS `docker load`；API/Worker/RSSHub healthy、0 restart，公网 V5 bundle、401/403 边界、数据库 integrity/foreign keys 与 3/6/9 用户/来源/订阅计数通过；真实 OpenClaw 同 payload 自行解析 UID `39627524` 并调用 prepare 返回未应用 preview，未调用 apply，来源/订阅与 active Job 均未变化
 - 发布/回退：当前 release 为 `/opt/inteliscope/releases/v1.7.4-c05e246544e4`；切换前 `0600` 数据库与环境备份位于 `/opt/inteliscope/backups/pre-v1.7.4-c05e246544e4-20260725T182833Z`，旧 `v1.7.4-8de9ab4a8ca7` release/image 保留
 - 安全边界：未代用户回复确认短语；验收 proposal 保持 pending 并按 10 分钟合同自动到期，未触发来源抓取、scheduler、AI 分析、邮件、Webhook 或付费服务
+
+### 2026-07-26 11:41 Codex
+- 任务：将当前本地 `main` 推送到 GitHub `origin/main`
+- 执行验证：工作树推送前干净，GitHub CLI 登录为 `StealHD`，本地相对远端 ahead 16；`git push origin main` 成功把远端从 `5b8c8ec` 快进到 `713da20`
+- 结果：付费试点安全修复、自建 RSSHub/Bilibili 名称解析、Browser OpenClaw V5 修复及部署记录均进入 GitHub 主分支；本条工作日志随后单独提交并再次对齐远端
+- 安全边界：未创建分支、PR、Tag 或 GitHub Release，未修改 VPS、订阅、proposal、任务或运行数据
