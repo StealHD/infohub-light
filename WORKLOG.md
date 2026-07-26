@@ -3017,3 +3017,11 @@
 - 执行验证：集成树 `test_gate full` 22/22、0 failed/error、133.843 秒，`mapping_miss=false`；提交范围与当前已验收 UI 工作树逐文件哈希一致，未重复带入 RSS/后端主线文件
 - 结果：本地 `main` 同时保留订阅/RSS 改动与两轮 UI/OpenClaw 优化；原 `codex/ui-interaction-roadmap-impl-20260726` 工作树及其未提交内容保持不变
 - 安全边界：未推送 GitHub、未部署、未触发真实来源、AI、scheduler、通知或付费调用
+
+### 2026-07-27 00:04 Codex
+- 任务：将 UI 交互优化、OpenClaw 输入法修复与 Worker 健康探针修正发布到 GitHub `main` 和 `vps-tokyo`
+- 修改范围：本地构建并上传 revision-locked `linux/amd64` 镜像，先以生产数据库脱敏副本完成 staging，再切换 API/Worker release；同步部署状态与工作日志
+- 执行验证：本地 release gate 24/24；GitHub Test Gate 的 impact、backend、frontend 与 UI E2E 全部通过；生产 API/Worker/RSSHub healthy 且 0 restart，9 个页面 200，受保护 API/MCP 均 401，数据库 integrity 正常、active Job 为 0、切换后严重日志为 0
+- 结果：产品 revision `74c7b16d715b` 已发布，API 与 Worker 使用同一镜像 `sha256:8f19c5668e8b88104a6c58c10e730d8e6b97ff565520929f5dc2caa018d212b5`；Worker 探针 timeout 为 10 秒，legacy scheduler 保持停止
+- 发布/回退：当前 release 为 `/opt/inteliscope/releases/v1.7.4-74c7b16d715b`；切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.4-74c7b16d715b-20260726T160025Z`，旧 release/image 保留
+- 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未运行真实来源抓取、AI、完整 scheduler、通知或付费服务，部署 staging 与上传归档验收后已清理
