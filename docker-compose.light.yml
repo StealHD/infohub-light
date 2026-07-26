@@ -113,7 +113,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "uv run horizon-worker --healthcheck --worker-id $${HORIZON_WORKER_ID:-horizon-worker}"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 15s
 
