@@ -184,7 +184,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '后台不可用',
-        description: 'Worker 显示缺失或过期时，不要连续提交获取任务；先等待后台恢复或联系管理员，再从运行记录重试。',
+        description: 'Worker 显示缺失或过期时，不要连续提交获取任务；发布或重启后先等待约 30 秒让健康检查与心跳完成，仍未恢复时联系管理员，再从运行记录重试。',
       },
       {
         title: '工具未发现',

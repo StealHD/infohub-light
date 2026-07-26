@@ -113,6 +113,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "uv run horizon-worker --healthcheck --worker-id $${HORIZON_WORKER_ID:-horizon-worker}"]
       interval: 30s
+      # Importing the worker CLI can exceed 5s on the 2 GB production host.
       timeout: 10s
       retries: 3
       start_period: 15s
