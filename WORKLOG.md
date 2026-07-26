@@ -3010,3 +3010,10 @@
 - 执行验证：TypeScript、Lint（0 error）、UI 合同和生产构建通过；目标 Vitest 161 项、Playwright 24/24 与 6 张视觉基线通过，Axe serious/critical 为 0；`test_gate full` 22/22、0 failed/error、123.241 秒
 - 结果：输入法确认候选不再误发，桌面设置恢复单列，订阅与 Agent 高密度区域去除常驻状态文字和突兀红色操作；本地 API/Worker 重建后 healthy，根页面与 readiness 均返回 200
 - 安全边界：无新后端接口、数据库或 Gateway 持久化；保留工作树其他未提交改动，未提交、推送、部署或触发真实来源、AI、scheduler、通知及付费调用
+
+### 2026-07-26 20:47 Codex
+- 任务：将两轮 UI 交互优化与 OpenClaw 输入法修复合并到本地 `main`
+- 修改范围：以已包含订阅/RSS 首次窗口的最新 `main` 建立独立集成树，只提交 UI 净变化并保留两边追加型控制记录；功能提交 `d336320` 通过非快进合并生成 `c0f93cd`
+- 执行验证：集成树 `test_gate full` 22/22、0 failed/error、133.843 秒，`mapping_miss=false`；提交范围与当前已验收 UI 工作树逐文件哈希一致，未重复带入 RSS/后端主线文件
+- 结果：本地 `main` 同时保留订阅/RSS 改动与两轮 UI/OpenClaw 优化；原 `codex/ui-interaction-roadmap-impl-20260726` 工作树及其未提交内容保持不变
+- 安全边界：未推送 GitHub、未部署、未触发真实来源、AI、scheduler、通知或付费调用
