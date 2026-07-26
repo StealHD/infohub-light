@@ -26,16 +26,17 @@ import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContex
 import {
   canEditSource,
   canMutateSubscriptions,
+  channelViewGroupsByChannel,
   effectiveSubscriptionChannel,
-  groupSourcesByChannel,
   healthMatches,
   isPublicSubscriptionScope,
   presentJob,
-  resolveChannelSelection,
+  resolveViewSelection,
   sourceForSubscription,
   sourceScopesForUser,
   sourceTypeLabel,
   sourceUsesSecret,
+  subscriptionViewGroups,
   type HealthFilter,
 } from '../subscriptions/subscriptionModel'
 import { AdminPageHeader, HeroNotice, HeroSelect } from './HeroAdminControls'
@@ -127,13 +128,15 @@ export function HeroSubscriptionsPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [scopeFilter, setScopeFilter] = useState('all')
   const [healthFilter, setHealthFilter] = useState<HealthFilter>('all')
-  const [subscriptionChannel, setSubscriptionChannel] = useState('')
+  const [subscriptionChannel, setSubscriptionChannel] = useState('all')
   const [libraryChannel, setLibraryChannel] = useState('')
   const [editingSubscription, setEditingSubscription] = useState<{ source: CatalogSource; subscription: Subscription } | null>(null)
   const [editingSource, setEditingSource] = useState<CatalogSource | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createType, setCreateType] = useState('')
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
+  const editingSourceReturnFocus = useRef<HTMLElement | null>(null)
+  const shareSourceReturnFocus = useRef<HTMLElement | null>(null)
   const seenTerminalJobs = useRef(new Set<string>())
   const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string; token: ActionToken }>())
 
@@ -188,6 +191,41 @@ export function HeroSubscriptionsPage() {
     },
   })
   const retryJob = retryMutation.mutate
+  const notificationMutation = useMutation({
+    mutationFn: ({ subscription, enabled }: { source: CatalogSource; subscription: Subscription; enabled: boolean }) => (
+      api.updateSubscription(subscription.id, { notify_on_new_items: enabled })
+    ),
+    onMutate: async ({ subscription, enabled }) => {
+      const queryKey = queryKeys.subscriptions(user.id)
+      feedback.begin('subscription-notification', subscription.id)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<{ subscriptions: Subscription[] }>(queryKey)
+      queryClient.setQueryData<{ subscriptions: Subscription[] }>(queryKey, (current) => current ? ({
+        ...current,
+        subscriptions: current.subscriptions.map((item) => item.id === subscription.id
+          ? { ...item, notify_on_new_items: enabled }
+          : item),
+      }) : current)
+      return { previous }
+    },
+    onSuccess: (updated, { source, enabled }) => {
+      const queryKey = queryKeys.subscriptions(user.id)
+      queryClient.setQueryData<{ subscriptions: Subscription[] }>(queryKey, (current) => current ? ({
+        ...current,
+        subscriptions: current.subscriptions.map((item) => item.id === updated.id ? updated : item),
+      }) : current)
+      feedback.clear('subscription-notification', updated.id)
+      actionToast.success(`${source.display_name} 新内容通知已${enabled ? '开启' : '关闭'}`)
+      void queryClient.invalidateQueries({ queryKey })
+    },
+    onError: (caught, { source, subscription }, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.subscriptions(user.id), context.previous)
+      }
+      feedback.clear('subscription-notification', subscription.id)
+      actionToast.danger(`${source.display_name} 通知设置保存失败`, { description: mutationError(caught) })
+    },
+  })
   const fetchMutation = useMutation({
     mutationFn: async ({ source, subscription }: { source: CatalogSource; subscription: Subscription }) => {
       const schedule = await scheduleQuery.refetch()
@@ -246,6 +284,7 @@ export function HeroSubscriptionsPage() {
       return {
         ...entry,
         fetchLabel,
+        notificationPending: feedback.isPending('subscription-notification', entry.subscription.id),
         canEdit,
         canShare: editable && entry.source.scope === 'private' && entry.source.owner_user_id === user.id,
       }
@@ -263,10 +302,15 @@ export function HeroSubscriptionsPage() {
       canShare: editable && source.scope === 'private' && source.owner_user_id === user.id,
     }
   })
-  const subscriptionGroups = groupSourcesByChannel(subscriptionEntries, (entry) => entry.channel, taxonomy.channels)
-  const sourceGroups = groupSourcesByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
-  const activeSubscriptionChannel = resolveChannelSelection(subscriptionGroups, subscriptionChannel)
-  const activeLibraryChannel = resolveChannelSelection(sourceGroups, libraryChannel)
+  const subscriptionGroups = subscriptionViewGroups(
+    subscriptionEntries,
+    (entry) => entry.channel,
+    (entry) => entry.health?.status === 'degraded' || entry.health?.status === 'failing',
+    taxonomy.channels,
+  )
+  const sourceGroups = channelViewGroupsByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
+  const activeSubscriptionChannel = resolveViewSelection(subscriptionGroups, subscriptionChannel)
+  const activeLibraryChannel = resolveViewSelection(sourceGroups, libraryChannel)
   const activeDefinition = definitions.find((definition) => definition.type === (editingSource?.type || createType))
   const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || scheduleQuery.error || jobsQuery.error || configQuery.error
   const loading = sourcesQuery.isLoading || typesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
@@ -345,8 +389,14 @@ export function HeroSubscriptionsPage() {
     await invalidate()
   }
 
-  function beginShare(source: CatalogSource) {
+  function beginShare(source: CatalogSource, trigger: HTMLElement) {
+    shareSourceReturnFocus.current = trigger
     setShareSource(source)
+  }
+
+  function beginEditSource(source: CatalogSource, trigger: HTMLElement) {
+    editingSourceReturnFocus.current = trigger
+    setEditingSource(source)
   }
 
   function toggleJobContext(job: Job, title: string, sourceName: string | undefined, statusLabel: string, detail: string) {
@@ -394,8 +444,9 @@ export function HeroSubscriptionsPage() {
               editable={editable}
               schedule={<FeedScheduleControls schedule={scheduleQuery.data} editable={editable} pending={schedulePending} onUpdate={(patch) => scheduleMutation.mutate(patch)} />}
               onFetch={(entry) => fetchMutation.mutate({ source: entry.source, subscription: entry.subscription })}
+              onToggleNotification={(entry, enabled) => notificationMutation.mutate({ source: entry.source, subscription: entry.subscription, enabled })}
               onEditSubscription={(entry) => setEditingSubscription({ source: entry.source, subscription: entry.subscription })}
-              onEditSource={setEditingSource}
+              onEditSource={beginEditSource}
               onShare={beginShare}
             />}
       </Tabs.Panel>
@@ -424,7 +475,7 @@ export function HeroSubscriptionsPage() {
               onUnsubscribe={(entry) => {
                 if (entry.subscription) unsubscribeMutation.mutate({ source: entry.source, subscription: entry.subscription })
               }}
-              onEditSource={setEditingSource}
+              onEditSource={beginEditSource}
               onShare={beginShare}
             />}
       </Tabs.Panel>
@@ -472,9 +523,9 @@ export function HeroSubscriptionsPage() {
   </PageFrame>
 
   <HeroDialog isOpen={Boolean(editingSubscription)} onOpenChange={(open) => !open && setEditingSubscription(null)} title={editingSubscription ? `${editingSubscription.source.display_name} · 订阅设置` : '订阅设置'}>{editingSubscription && <SubscriptionForm {...editingSubscription} readonly={!editable} taxonomy={taxonomy} onDone={() => { void invalidate(); setEditingSubscription(null) }} onJob={createJob} />}</HeroDialog>
-  <HeroDialog isOpen={Boolean(editingSource)} onOpenChange={(open) => !open && setEditingSource(null)} title={editingSource ? `${editingSource.display_name} · 来源设置` : '来源设置'}>{editingSource && activeDefinition && <SourceForm definition={activeDefinition} source={editingSource} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="保存来源" onSubmit={async (payload) => { await api.updateSource(editingSource.id, payload); await invalidate(); setEditingSource(null); actionToast.success('来源设置已保存') }} />}</HeroDialog>
+  <HeroDialog isOpen={Boolean(editingSource)} onOpenChange={(open) => !open && setEditingSource(null)} returnFocusRef={editingSourceReturnFocus} title={editingSource ? `${editingSource.display_name} · 来源设置` : '来源设置'}>{editingSource && activeDefinition && <SourceForm definition={activeDefinition} source={editingSource} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="保存来源" onSubmit={async (payload) => { await api.updateSource(editingSource.id, payload); await invalidate(); setEditingSource(null); actionToast.success('来源设置已保存') }} />}</HeroDialog>
   <HeroDialog isOpen={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) setCreateType('') }} title="新增来源"><div className="grid gap-4"><HeroSelect label="来源类型" value={createType} onChange={setCreateType} options={[{ id: '', label: '请选择来源类型' }, ...definitions.map((definition: SourceTypeDefinition) => ({ id: definition.type, label: definition.label || definition.display_name || sourceTypeLabel(definition.type) }))]} />{activeDefinition && <SourceForm key={activeDefinition.type} definition={activeDefinition} secrets={secretsQuery.data?.secrets ?? []} allowSecret={isAdmin && sourceUsesSecret(activeDefinition)} scopes={sourceScopesForUser(user)} taxonomy={taxonomy} submitLabel="创建并订阅" onSubmit={async (payload) => { const created = await api.createSource(payload); try { const result = await api.subscribe(created.id); const reused = result.subscription.reused_item_count ?? 0; actionToast.success('来源已创建并订阅', { description: reused > 0 ? `已复用 ${reused} 条已有内容。` : undefined }) } catch (caught) { actionToast.danger('来源已创建，但订阅失败', { description: `${mutationError(caught)} 可在来源库中重试订阅。` }) } await invalidate(); setCreateOpen(false); setCreateType('') }} />}</div></HeroDialog>
-  <HeroDialog isOpen={Boolean(shareSource)} onOpenChange={(open) => !open && setShareSource(null)} title={shareSource ? `分享 ${shareSource.display_name}` : '分享来源'}>
+  <HeroDialog isOpen={Boolean(shareSource)} onOpenChange={(open) => !open && setShareSource(null)} returnFocusRef={shareSourceReturnFocus} title={shareSource ? `分享 ${shareSource.display_name}` : '分享来源'}>
     <div className="grid gap-4">
       <HeroNotice title="分享后管理权将发生变化" status="warning">来源订阅地址和管理权会转交给工作区超级用户与管理员。你之后取消订阅只影响自己，不会删除其他成员正在使用的来源。</HeroNotice>
       <p className="type-body text-muted">分享后将成为公共订阅，所有成员都可以发现并订阅。</p>

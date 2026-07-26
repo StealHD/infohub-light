@@ -6,8 +6,13 @@ const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员
 async function mockAdminApi(page: Page, authenticated = true) {
   let quotaRequests = 0
   let productSubscribed = false
+  let notificationEnabled = false
+  let rssInitialFetchWindowHours = 168
+  const filteringActions: Record<string, unknown>[] = []
   let quotaRefreshGate: Promise<void> | null = null
   let releaseQuotaRefresh: (() => void) | null = null
+  let sourceFetchGate: Promise<void> | null = null
+  let releaseSourceFetch: (() => void) | null = null
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
@@ -36,8 +41,13 @@ async function mockAdminApi(page: Page, authenticated = true) {
     else if (url.pathname === '/api/catalog/source-types') data = { source_types: [
       { type: 'rss', label: 'RSS/Atom', fields: [{ name: 'url', label: 'RSS 地址', input_type: 'url', required: true, default: '' }] },
     ] }
+    else if (url.pathname === '/api/me/subscriptions/subscription-1' && route.request().method() === 'PATCH') {
+      const payload = route.request().postDataJSON() as { notify_on_new_items?: boolean }
+      if (typeof payload.notify_on_new_items === 'boolean') notificationEnabled = payload.notify_on_new_items
+      data = { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } }
+    }
     else if (url.pathname === '/api/me/subscriptions') data = { subscriptions: [
-      { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
+      { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
       ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
     else if (url.pathname === '/api/me/source-health') data = {
@@ -68,6 +78,14 @@ async function mockAdminApi(page: Page, authenticated = true) {
       updated_at: null,
     }
     else if (url.pathname === '/api/me/notification-settings/test') data = { sent: true, channel: 'webhook' }
+    else if (url.pathname === '/api/jobs/source-fetch' && route.request().method() === 'POST') {
+      if (sourceFetchGate) {
+        await sourceFetchGate
+        sourceFetchGate = null
+        releaseSourceFetch = null
+      }
+      data = { id: 'job-source-pending', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'queued', created_at: '2026-07-17T08:10:00Z' }
+    }
     else if (url.pathname === '/api/jobs') data = { jobs: [{ id: 'job-1', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'succeeded', created_at: '2026-07-17T08:00:00Z', finished_at: '2026-07-17T08:00:02Z', result: { item_count: 7 } }] }
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
@@ -78,10 +96,18 @@ async function mockAdminApi(page: Page, authenticated = true) {
       max_active: 5,
       connections: [{ id: 'agent-1', name: '本机 OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'ih_mcp_v1_demo', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
+    else if (url.pathname === '/api/config/action' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { action?: string; payload?: Record<string, unknown> }
+      if (body.action === 'set_filtering' && body.payload) {
+        filteringActions.push(body.payload)
+        rssInitialFetchWindowHours = Number(body.payload.rss_initial_fetch_window_hours)
+      }
+      data = { saved: true }
+    }
     else if (url.pathname === '/api/config') data = {
       config: {
         ai: { enabled: true, provider: 'gemini', model: 'gemini-3.5-flash', api_key_env: 'GOOGLE_API_KEY', base_url: '', languages: 'zh', analysis_content_chars: 8000, analysis_comments_chars: 4000, summary_max_chars: 240, analysis_max_output_tokens: 800 },
-        filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, recent_item_limit: 200 },
+        filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, rss_initial_fetch_window_hours: rssInitialFetchWindowHours, recent_item_limit: 200 },
         tags: ['AI Agent'],
       },
       taxonomy: { channels: ['AI', '产品机会', '其他'], topics: ['AI Agent', 'Codex'] },
@@ -183,6 +209,13 @@ async function mockAdminApi(page: Page, authenticated = true) {
       })
     },
     releaseQuotaRefresh: () => releaseQuotaRefresh?.(),
+    filteringActions: () => filteringActions,
+    deferSourceFetch: () => {
+      sourceFetchGate ??= new Promise<void>((resolve) => {
+        releaseSourceFetch = resolve
+      })
+    },
+    releaseSourceFetch: () => releaseSourceFetch?.(),
   }
 }
 
@@ -201,7 +234,7 @@ async function expectHeroAdminPage(page: Page, heading: string, { agentAvailable
 
 test('production administration routes use the adaptive Quiet Studio page pattern at every acceptance viewport', async ({ page }) => {
   test.setTimeout(60_000)
-  await mockAdminApi(page)
+  const apiState = await mockAdminApi(page)
 
   await page.goto('/subscriptions')
   await expectHeroAdminPage(page, '订阅与来源', { agentAvailable: true })
@@ -234,6 +267,15 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
+  await expect(page.getByLabel('日常抓取窗口（小时）')).toHaveValue('24')
+  const initialRssWindow = page.getByRole('button', { name: /RSS 首次抓取窗口/ })
+  await expect(initialRssWindow).toContainText('7 天')
+  await initialRssWindow.click()
+  await expect(page.getByRole('option', { name: '7 天' })).toBeVisible()
+  await page.getByRole('option', { name: '30 天' }).click()
+  await expect(initialRssWindow).toContainText('30 天')
+  await page.getByRole('button', { name: '保存获取设置' }).click()
+  await expect.poll(() => apiState.filteringActions().at(-1)?.rss_initial_fetch_window_hours).toBe(720)
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
 
   await page.goto('/users')
@@ -429,7 +471,7 @@ test('subscription channels stay compact, actionable and accessible at every acc
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
   page.on('pageerror', (error) => consoleErrors.push(error.message))
-  await mockAdminApi(page)
+  const apiState = await mockAdminApi(page)
   await page.goto('/subscriptions')
 
   const viewportWidth = page.viewportSize()?.width ?? 0
@@ -458,6 +500,76 @@ test('subscription channels stay compact, actionable and accessible at every acc
   expect(switchBounds!.x).toBeGreaterThan(scheduleBounds!.x + scheduleBounds!.width / 2)
   expect(switchBounds!.y).toBeLessThan(selectBounds!.y)
   expect(Math.abs((selectBounds!.x + selectBounds!.width) - (scheduleBounds!.x + scheduleBounds!.width - 16))).toBeLessThanOrEqual(8)
+
+  await expect(page.getByRole('heading', { name: '全部', level: 2 })).toBeVisible()
+  if (testInfo.project.name === 'desktop') {
+    const subscriptionNavigation = page.getByRole('navigation', { name: '我的订阅频道' })
+    await expect(subscriptionNavigation.getByRole('button', { name: /^全部，/ })).toBeVisible()
+    await expect(subscriptionNavigation.getByRole('button', { name: /^异常，/ })).toBeVisible()
+    await subscriptionNavigation.getByRole('button', { name: /^异常，/ }).click()
+    await expect(page.getByRole('heading', { name: '异常', level: 2 })).toBeVisible()
+    await expect(page.getByText('当前没有异常来源')).toBeVisible()
+    await subscriptionNavigation.getByRole('button', { name: /^全部，/ }).click()
+  } else {
+    const viewSelector = page.locator('[data-compact-channel-controls]').getByRole('button', { name: /订阅视图/ })
+    await viewSelector.click()
+    await page.getByRole('option', { name: /异常 · 0/ }).click()
+    await expect(page.getByRole('heading', { name: '异常', level: 2 })).toBeVisible()
+    await expect(page.getByText('当前没有异常来源')).toBeVisible()
+    await viewSelector.click()
+    await page.getByRole('option', { name: /全部 · 1/ }).click()
+  }
+
+  const subscriptionCard = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })
+  const cardHeader = subscriptionCard.locator('[data-source-card-header]')
+  const healthChip = cardHeader.locator('[data-source-health-chip]')
+  const cardActions = cardHeader.locator('[data-source-card-actions]')
+  const [headerBounds, healthBounds, actionBounds] = await Promise.all([
+    cardHeader.boundingBox(),
+    healthChip.boundingBox(),
+    cardActions.boundingBox(),
+  ])
+  expect(headerBounds).not.toBeNull()
+  expect(healthBounds).not.toBeNull()
+  expect(actionBounds).not.toBeNull()
+  const headerCenter = headerBounds!.y + headerBounds!.height / 2
+  expect(Math.abs((healthBounds!.y + healthBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
+  expect(Math.abs((actionBounds!.y + actionBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
+
+  const editSource = subscriptionCard.getByRole('button', { name: '编辑 OpenAI Blog 来源' })
+  await expect(editSource).toBeVisible()
+  await expect(subscriptionCard.getByRole('button', { name: /更多操作/ })).toHaveCount(0)
+  await editSource.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'OpenAI Blog · 来源设置' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'OpenAI Blog · 来源设置' })).toHaveCount(0)
+  await expect(editSource).toBeFocused()
+
+  const notificationSwitch = subscriptionCard.getByRole('switch', { name: '新内容通知：OpenAI Blog' })
+  await notificationSwitch.focus()
+  await page.keyboard.press('Space')
+  await expect(notificationSwitch).toBeChecked()
+  await subscriptionCard.getByRole('button', { name: '配置 OpenAI Blog 订阅' }).click()
+  const subscriptionDialog = page.getByRole('dialog', { name: 'OpenAI Blog · 订阅设置' })
+  await expect(subscriptionDialog.getByRole('switch', { name: /新内容通知/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  const idleFetch = subscriptionCard.getByRole('button', { name: '立即获取 OpenAI Blog' })
+  const idleFetchBounds = await idleFetch.boundingBox()
+  apiState.deferSourceFetch()
+  await idleFetch.click()
+  const pendingFetch = subscriptionCard.getByRole('button', { name: '提交中 OpenAI Blog' })
+  await expect(pendingFetch).toBeDisabled()
+  await expect(pendingFetch).toHaveText('立即获取')
+  await expect(pendingFetch.locator('svg')).toHaveClass(/animate-spin/)
+  await expect(pendingFetch.locator('xpath=..')).toHaveAttribute('aria-busy', 'true')
+  const pendingFetchBounds = await pendingFetch.boundingBox()
+  expect(idleFetchBounds).not.toBeNull()
+  expect(pendingFetchBounds).not.toBeNull()
+  expect(Math.abs(pendingFetchBounds!.width - idleFetchBounds!.width)).toBeLessThanOrEqual(1)
+  apiState.releaseSourceFetch()
+  await expect(subscriptionCard.getByRole('button', { name: '已排队 OpenAI Blog' })).toBeDisabled()
 
   if (testInfo.project.name === 'mobile') {
     expect(Math.max(...tabWidths) - Math.min(...tabWidths)).toBeLessThanOrEqual(1)
@@ -515,8 +627,7 @@ test('subscription channels stay compact, actionable and accessible at every acc
     }
   }
 
-  const sourceHealthChip = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ }).locator('[data-source-health-chip][data-slot="chip"]')
-  await expect(sourceHealthChip).toHaveText('正常')
+  await expect(healthChip).toHaveText('正常')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
   await page.getByRole('tab', { name: '来源库' }).click()
@@ -532,15 +643,8 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(page.getByText('Product Notes 订阅成功', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '取消订阅 Product Notes' })).toBeVisible()
 
-  const moreActions = page.getByRole('button', { name: '更多操作：Product Notes' })
-  await moreActions.focus()
-  await page.keyboard.press('Enter')
-  const moreDialog = page.getByRole('dialog', { name: 'Product Notes 更多操作' })
-  await expect(moreDialog).toBeVisible()
-  expect(await moreDialog.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true)
-  await expect(moreDialog.getByRole('button', { name: '查看 Product Notes 引用人数' })).toHaveCount(0)
-  await expect(moreDialog.getByRole('button', { name: '编辑 Product Notes 来源' })).toBeVisible()
-  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '编辑 Product Notes 来源' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '更多操作：Product Notes' })).toHaveCount(0)
 
   await page.getByRole('tab', { name: '运行记录' }).click()
   const runCard = page.locator('[data-compact-job-card]').first()

@@ -59,8 +59,8 @@ function renderSubscriptionForm(subscription: Subscription) {
   return api
 }
 
-describe('SubscriptionForm notifications', () => {
-  it('clears and disables source notifications when analysis changes to personal only', async () => {
+describe('SubscriptionForm notification ownership', () => {
+  it('does not submit notification state when analysis changes to personal only', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
       id: 'subscription-1',
@@ -72,27 +72,20 @@ describe('SubscriptionForm notifications', () => {
       schedule: { enabled: false, interval_minutes: 360 },
     }
     const api = renderSubscriptionForm(subscription)
-    const notification = screen.getByRole('switch', { name: '从现在开始接收新内容通知' })
-    expect(notification).toBeChecked()
+    expect(screen.queryByRole('switch', { name: /新内容通知/ })).not.toBeInTheDocument()
 
     await browser.click(screen.getByRole('button', { name: /分析模式/ }))
     await browser.click(await screen.findByRole('option', { name: '仅收集' }))
 
-    expect(notification).not.toBeChecked()
-    expect(notification).toBeDisabled()
-    expect(screen.getByText(/“仅收集”内容不会推送/)).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '保存订阅' }))
 
-    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalledWith(
-      subscription.id,
-      expect.objectContaining({
-        analysis_mode: 'personal_only',
-        notify_on_new_items: false,
-      }),
-    ))
+    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalled())
+    const [, payload] = vi.mocked(api.updateSubscription).mock.calls[0]
+    expect(payload).toEqual(expect.objectContaining({ analysis_mode: 'personal_only' }))
+    expect(payload).not.toHaveProperty('notify_on_new_items')
   })
 
-  it('persists an enabled notification preference for full analysis', async () => {
+  it('does not overwrite a disabled card notification preference on save', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
       id: 'subscription-2',
@@ -105,19 +98,16 @@ describe('SubscriptionForm notifications', () => {
     }
     const api = renderSubscriptionForm(subscription)
 
-    await browser.click(screen.getByRole('switch', { name: '从现在开始接收新内容通知' }))
+    expect(screen.queryByRole('switch', { name: /新内容通知/ })).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '保存订阅' }))
 
-    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalledWith(
-      subscription.id,
-      expect.objectContaining({
-        analysis_mode: 'full',
-        notify_on_new_items: true,
-      }),
-    ))
+    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalled())
+    const [, payload] = vi.mocked(api.updateSubscription).mock.calls[0]
+    expect(payload).toEqual(expect.objectContaining({ analysis_mode: 'full' }))
+    expect(payload).not.toHaveProperty('notify_on_new_items')
   })
 
-  it('clears the notification preference when the subscription is disabled', async () => {
+  it('does not overwrite an enabled card notification preference when disabling the subscription', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
       id: 'subscription-3',
@@ -132,19 +122,11 @@ describe('SubscriptionForm notifications', () => {
 
     await browser.click(screen.getByRole('checkbox', { name: '启用订阅' }))
 
-    const notification = screen.getByRole('switch', { name: '从现在开始接收新内容通知' })
-    expect(notification).not.toBeChecked()
-    expect(notification).toBeDisabled()
-    expect(screen.getByText(/停用订阅会同时关闭通知/)).toBeInTheDocument()
-
     await browser.click(screen.getByRole('button', { name: '保存订阅' }))
 
-    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalledWith(
-      subscription.id,
-      expect.objectContaining({
-        enabled: false,
-        notify_on_new_items: false,
-      }),
-    ))
+    await waitFor(() => expect(api.updateSubscription).toHaveBeenCalled())
+    const [, payload] = vi.mocked(api.updateSubscription).mock.calls[0]
+    expect(payload).toEqual(expect.objectContaining({ enabled: false }))
+    expect(payload).not.toHaveProperty('notify_on_new_items')
   })
 })

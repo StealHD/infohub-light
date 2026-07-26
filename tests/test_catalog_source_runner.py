@@ -82,6 +82,7 @@ def test_build_catalog_source_config_data_uses_subscription_overrides(tmp_path, 
     assert rss[0]["tags"] == ["价格监控"]
     assert rss[0]["personal_tags"] == ["高定"]
     assert rss[0]["analysis_mode"] == "personal_only"
+    assert rss[0]["service_fetch_window_hours"] == 168
     assert data["sources"]["github"] == []
     assert data["sources"]["hackernews"]["enabled"] is False
 
@@ -154,6 +155,7 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
 
         async def execute(self, **kwargs):
             assert kwargs["enrich"] is False
+            assert kwargs["force_hours"] == 6
             item = ContentItem(
                 id="rss:item:runner",
                 source_type=SourceType.RSS,

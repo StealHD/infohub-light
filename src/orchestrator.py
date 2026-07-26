@@ -175,7 +175,10 @@ class HorizonOrchestrator:
                     ),
                 )
             else:
-                raw_items, source_outcomes = await self.fetch_service_sources(since)
+                raw_items, source_outcomes = await self.fetch_service_sources(
+                    since,
+                    allow_source_window_overrides=force_hours is None,
+                )
             fetch_issues = tuple(
                 outcome.issue
                 for outcome in source_outcomes
@@ -344,13 +347,28 @@ class HorizonOrchestrator:
     async def fetch_service_sources(
         self,
         since: datetime,
+        *,
+        allow_source_window_overrides: bool = True,
     ) -> tuple[list[ContentItem], tuple[SourceOutcome, ...]]:
         """Fetch service sources independently and retain their outcomes."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             specs = self._service_source_specs(client)
+            window_anchor = datetime.now(timezone.utc)
             results = await asyncio.gather(
                 *(
-                    self._fetch_service_source(label, scraper, source, since)
+                    self._fetch_service_source(
+                        label,
+                        scraper,
+                        source,
+                        (
+                            window_anchor - timedelta(
+                                hours=int(source.service_fetch_window_hours)
+                            )
+                            if allow_source_window_overrides
+                            and getattr(source, "service_fetch_window_hours", None)
+                            else since
+                        ),
+                    )
                     for label, scraper, source in specs
                 ),
                 return_exceptions=True,
@@ -501,7 +519,7 @@ class HorizonOrchestrator:
             raise
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
-        if force_hours:
+        if force_hours is not None:
             since = datetime.now(timezone.utc) - timedelta(hours=force_hours)
         else:
             hours = self.config.filtering.time_window_hours

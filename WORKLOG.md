@@ -2962,3 +2962,14 @@
 - 执行验证：工作树推送前干净，GitHub CLI 登录为 `StealHD`，本地相对远端 ahead 16；`git push origin main` 成功把远端从 `5b8c8ec` 快进到 `713da20`
 - 结果：付费试点安全修复、自建 RSSHub/Bilibili 名称解析、Browser OpenClaw V5 修复及部署记录均进入 GitHub 主分支；本条工作日志随后单独提交并再次对齐远端
 - 安全边界：未创建分支、PR、Tag 或 GitHub Release，未修改 VPS、订阅、proposal、任务或运行数据
+
+### 2026-07-26 17:58 Codex
+- 任务：微调订阅卡片、分类与 OpenClaw 状态对齐，并为首次 RSS/RSSHub 获取增加 7/30 天窗口
+- 修改范围：订阅卡片直达操作与通知开关、全部/异常视图、稳定获取状态、RSS 首次成功边界、配置接口、设置页、合同、手册、更新日志与回归测试
+- 执行验证：后端定向测试、前端 132/132、TypeScript、UI 合同、Lint（0 error）、三视口 Playwright 21/21、浏览器视觉抽查及 `test_gate full` 22/22 全部通过；`mapping_miss=false`
+- 安全边界：未触发真实来源、完整 scheduler、AI、付费供应商或通知流程；未提交、推送、部署或修改生产数据
+
+### 2026-07-26 18:54 Codex
+- 任务：启动 `codex/subscription-ui-rss-initial-window` 改动分支的本地容器
+- 结果：从隔离 worktree 无缓存构建分支镜像，复用原工作区运行配置与数据重建 API/Worker；`127.0.0.1:8080`、liveness、readiness 和分支 revision 均验证通过
+- 安全边界：未启动 scheduler、手动采集、AI、付费供应商或通知流程

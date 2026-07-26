@@ -4,7 +4,7 @@ from copy import deepcopy
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Literal
 from pydantic import BaseModel, HttpUrl, Field, field_validator, model_validator
 
 from .rsshub import (
@@ -131,6 +131,12 @@ class ServiceSourceConfig(BaseModel):
     catalog_source_type: Optional[str] = None
     analysis_mode: AnalysisMode = AnalysisMode.FULL
     source_priority: int = Field(default=0, ge=0, le=100)
+    service_fetch_window_hours: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=720,
+        exclude=True,
+    )
 
 
 class GitHubSourceConfig(ServiceSourceConfig):
@@ -533,7 +539,17 @@ class FilteringConfig(BaseModel):
     daily_push_limit: int = 10
     homepage_min_score: float = 6.0
     time_window_hours: int = 24
+    rss_initial_fetch_window_hours: Literal[168, 720] = 168
     recent_item_limit: int = 20
+
+    @field_validator("rss_initial_fetch_window_hours", mode="before")
+    @classmethod
+    def validate_rss_initial_fetch_window_hours(cls, value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                "rss_initial_fetch_window_hours must be the integer 168 or 720"
+            )
+        return value
 
 
 class PremiumAnalysisConfig(BaseModel):

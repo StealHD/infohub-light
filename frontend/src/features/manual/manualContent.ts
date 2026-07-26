@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-26',
-  change: 'v1.7.5：浏览器 OpenClaw 可直接发起并准确确认受控订阅',
+  change: 'v1.7.6：订阅卡片交互微调与 RSS 首次 7/30 天抓取窗口',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -69,7 +69,7 @@ export const manualSections: ManualSection[] = [
     steps: [
       {
         title: '按频道管理',
-        description: '“我的订阅”和“来源库”会分别记住当前频道。搜索覆盖全部来源，类型、健康状态和可见范围通过“筛选”下拉菜单设置；当前频道无结果时会自动显示首个有内容的频道，桌面频道标识在选中状态下仍保持清晰对比。',
+        description: '“我的订阅”固定提供“全部”和“异常”，默认显示全部；异常只收纳需关注与连续失败，不包含尚未抓取。“来源库”仍只按真实频道分类。搜索覆盖全部来源，类型、健康状态和可见范围通过“筛选”下拉菜单设置；当前订阅分组无结果时会回到“全部”，移动端选择器使用相同规则。',
       },
       {
         title: '公共与私人',
@@ -81,9 +81,13 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '只通知之后的新内容',
-        description: '先在设置页保存收件邮箱或 Webhook 并启用消息通知，再在订阅设置中开启“从现在开始接收新内容通知”。邮箱还要求管理员已启用工作区发件服务；服务暂停时保留你的选择，但不入队也不补发。首次快照、历史或复用内容、停用期间发现的内容都不会补推；personal_only 来源不参与通知。',
+        description: '先在设置页保存收件邮箱或 Webhook 并启用消息通知，再直接使用订阅卡片上的“新内容通知”开关；订阅设置弹窗不再重复该选项。邮箱还要求管理员已启用工作区发件服务；服务暂停时保留你的选择，但不入队也不补发。首次快照、历史或复用内容、停用期间发现的内容都不会补推；personal_only 来源不参与通知。',
         href: '/settings',
         linkLabel: '配置消息通知',
+      },
+      {
+        title: '直接操作与稳定获取状态',
+        description: '卡片右上角直接提供带说明的分享、编辑图标，并只显示当前权限允许的操作。“立即获取”在提交、排队和运行期间保持同一宽度与文字，只旋转图标并阻止重复点击；可在运行记录查看后续结果。',
       },
       {
         title: '排查失败',
@@ -149,7 +153,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的自建、反向代理前缀或第三方 RSSHub；自建公网实例可把 RSSHUB_ACCESS_KEY 写入 SecretStore，来源测试与 Worker 抓取只发送路由级 code，OpenClaw 不会看到或提交服务地址与密钥。更新项目后重新运行本地 OpenClaw 初始化会自动刷新旧 Skill 并重启 Gateway；请新建对话，使“按账号名称自行解析 UID”的规则生效。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
+        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的自建、反向代理前缀或第三方 RSSHub；自建公网实例可把 RSSHUB_ACCESS_KEY 写入 SecretStore，来源测试与 Worker 抓取只发送路由级 code，OpenClaw 不会看到或提交服务地址与密钥。可将“RSS 首次抓取窗口”设为 7 天或 30 天；新 RSS/RSSHub 订阅首次成功（即使零条）后会恢复“日常抓取窗口”，且不会扩大信息流留存。更新项目后重新运行本地 OpenClaw 初始化会自动刷新旧 Skill 并重启 Gateway；请新建对话，使“按账号名称自行解析 UID”的规则生效。收件邮箱或 Webhook 保存后只显示是否已配置，测试通知使用模拟内容，不抓取来源也不改变新内容起点；真实 Key 同样不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
       },

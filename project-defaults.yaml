@@ -111,6 +111,7 @@
       "workspace_rsshub_base_url_enabled": true,
       "managed_bilibili_subscription_enabled": true,
       "bilibili_user_name_resolution_enabled": true,
+      "rss_initial_fetch_window_enabled": true,
       "vps_private_rsshub_enabled": true
     },
     "service_limits": {
@@ -285,6 +286,8 @@
 
       ],
       "worker_retry_base_seconds": 30,
+      "rss_initial_fetch_window_hours": 168,
+      "rss_initial_fetch_window_allowed_hours": [168, 720],
       "rsshub_vps_memory_limit_mb": 640,
       "rsshub_vps_loopback_port": 1200,
       "rsshub_access_key_env": "RSSHUB_ACCESS_KEY",

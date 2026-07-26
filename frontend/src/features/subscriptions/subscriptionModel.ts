@@ -3,6 +3,13 @@ import { newItemCountOf } from '../jobs/jobModel'
 
 export type HealthFilter = SourceHealthStatus | 'all' | 'problem'
 
+export type ChannelViewGroup<T> = {
+  id: string
+  label: string
+  kind: 'view' | 'channel'
+  items: T[]
+}
+
 export const canMutateSubscriptions = (user: User) => user.role !== 'viewer'
 
 export const sourceUsesSecret = (definition: SourceTypeDefinition) => (
@@ -78,6 +85,40 @@ export function groupSourcesByChannel<T>(
     if (right.channel === '其他') return -1
     return left.channel.localeCompare(right.channel, 'zh-CN')
   })
+}
+
+export function channelViewGroupsByChannel<T>(
+  items: T[],
+  channelFor: (item: T) => string | null | undefined,
+  channelOrder: string[] = [],
+): ChannelViewGroup<T>[] {
+  return groupSourcesByChannel(items, channelFor, channelOrder).map((group) => ({
+    id: `channel:${group.channel}`,
+    label: group.channel,
+    kind: 'channel',
+    items: group.items,
+  }))
+}
+
+export function subscriptionViewGroups<T>(
+  items: T[],
+  channelFor: (item: T) => string | null | undefined,
+  isException: (item: T) => boolean,
+  channelOrder: string[] = [],
+): ChannelViewGroup<T>[] {
+  return [
+    { id: 'all', label: '全部', kind: 'view', items },
+    { id: 'exceptions', label: '异常', kind: 'view', items: items.filter(isException) },
+    ...channelViewGroupsByChannel(items, channelFor, channelOrder),
+  ]
+}
+
+export function resolveViewSelection<T>(
+  groups: Array<Pick<ChannelViewGroup<T>, 'id'>>,
+  preferredGroup: string,
+): string {
+  if (preferredGroup && groups.some((group) => group.id === preferredGroup)) return preferredGroup
+  return groups[0]?.id ?? ''
 }
 
 export function resolveChannelSelection<T>(

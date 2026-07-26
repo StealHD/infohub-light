@@ -14,7 +14,7 @@ from .user_config_builder import (
     _append_source,
     _disable_non_catalog_sources,
     _ensure_sources,
-    _record_with_network_policy,
+    _record_with_runtime_fetch_window,
 )
 from .feed_production import FeedProductionService, FeedRunFailed
 from .source_health import SourceHealthService
@@ -129,7 +129,17 @@ def build_catalog_source_config_data(
         source_id=source_id,
         subscription_id=subscription_id,
     )
-    _append_source(sources, _record_with_network_policy(store, record))
+    filtering = data.get("filtering") if isinstance(data.get("filtering"), dict) else {}
+    _append_source(
+        sources,
+        _record_with_runtime_fetch_window(
+            store,
+            record,
+            rss_initial_fetch_window_hours=int(
+                filtering.get("rss_initial_fetch_window_hours", 168)
+            ),
+        ),
+    )
     return data
 
 
@@ -163,6 +173,7 @@ def run_catalog_source_fetch(
         )
     )
     payload = job.get("payload_json") or {}
+    raw_force_hours = payload.get("hours")
     analysis_cache = UserAnalysisCache(
         store,
         workspace_id=job["workspace_id"],
@@ -205,7 +216,11 @@ def run_catalog_source_fetch(
             )
         run_result = asyncio.run(
             orchestrator.execute(
-                force_hours=int(payload.get("hours") or config.filtering.time_window_hours),
+                force_hours=(
+                    int(raw_force_hours)
+                    if raw_force_hours is not None
+                    else None
+                ),
                 enrich=False,
             )
         )
