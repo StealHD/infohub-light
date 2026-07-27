@@ -9,6 +9,9 @@ import type {
   CatalogSource,
   ConfigResponse,
   FeedHistory,
+  FeedHistoryParams,
+  FeedSearch,
+  FeedSearchParams,
   FeedSchedule,
   FeedSnapshot,
   FeedItem,
@@ -25,6 +28,10 @@ import type {
   SourceShareResult,
   SourceTypeDefinition,
   SourceUsage,
+  StorageArchives,
+  StorageOperation,
+  StoragePlan,
+  StorageSummary,
   Subscription,
   SubscriptionPatch,
   User,
@@ -53,7 +60,22 @@ export function createServiceApi(client: ApiClient) {
       signal,
     ),
     feedItem: (articleId: string, signal?: AbortSignal) => client.get<FeedItem>(resource('/api/feed/items', articleId), signal),
-    historyFeed: (signal?: AbortSignal) => client.get<FeedHistory>('/api/feed/history', signal),
+    historyFeed: (params: FeedHistoryParams = {}, signal?: AbortSignal) => {
+      const search = new URLSearchParams()
+      if (params.q?.trim()) search.set('q', params.q.trim())
+      if (params.sourceId?.trim()) search.set('source_id', params.sourceId.trim())
+      if (params.limit !== undefined) search.set('limit', String(params.limit))
+      if (params.offset !== undefined) search.set('offset', String(params.offset))
+      const suffix = search.toString()
+      return client.get<FeedHistory>(`/api/feed/history${suffix ? `?${suffix}` : ''}`, signal)
+    },
+    searchFeed: (params: FeedSearchParams, signal?: AbortSignal) => {
+      const search = new URLSearchParams({ q: params.q })
+      if (params.limit !== undefined) search.set('limit', String(params.limit))
+      if (params.cursor) search.set('cursor', params.cursor)
+      if (params.submitted) search.set('submitted', 'true')
+      return client.get<FeedSearch>(`/api/feed/search?${search.toString()}`, signal)
+    },
     sourceHealth: (signal?: AbortSignal) => client.get<SourceHealthResponse>('/api/me/source-health', signal),
     jobs: (signal?: AbortSignal) => client.get<ListResponse<Job, 'jobs'>>('/api/jobs?limit=100', signal),
     job: (jobId: string, signal?: AbortSignal) => client.get<Job>(resource('/api/jobs', jobId), signal),
@@ -126,6 +148,16 @@ export function createServiceApi(client: ApiClient) {
 
     config: (signal?: AbortSignal) => client.get<ConfigResponse>('/api/config', signal),
     configAction: (action: string, payload: Record<string, unknown>) => client.post<ConfigResponse>('/api/config/action', { action, payload }),
+    storageSummary: (signal?: AbortSignal) => client.get<StorageSummary>('/api/admin/storage/summary', signal),
+    storageArchives: (signal?: AbortSignal) => client.get<StorageArchives>('/api/admin/storage/archives', signal),
+    createStoragePlan: (operation: StorageOperation, payload: Record<string, unknown> = {}) => client.post<StoragePlan>(
+      '/api/admin/storage/plans',
+      { operation, payload },
+    ),
+    applyStoragePlan: (planId: string, confirmation = '') => client.post<StoragePlan>(
+      `${resource('/api/admin/storage/plans', planId)}/apply`,
+      { confirmation },
+    ),
     users: (signal?: AbortSignal) => client.get<ListResponse<User, 'users'>>('/api/users', signal),
     createUser: (payload: Record<string, unknown>) => client.post<User>('/api/users', payload),
     updateUser: (userId: string, patch: Record<string, unknown>) => client.patch<User>(resource('/api/users', userId), patch),

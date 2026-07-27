@@ -85,6 +85,8 @@
 68. 单 VPS RSSHub 与 Bilibili 受控订阅：官方固定摘要 `chromium-bundled` 只在 `vps-tokyo` 运行，本地经 HTTPS 鉴权前缀、VPS 经容器 DNS 共用；Owner/Admin 可切换自建或第三方 Base URL，catalog 使用与服务地址无关的语义 key，OpenClaw 只提交 allowlisted Bilibili UID。两条本地既有来源已原位迁移并保留订阅/周期；公网 403/route code、原始端口隔离、API/Worker/RSSHub 健康及本地构建上传发布已验收。本地初始化会对账并刷新旧 OpenClaw Skill；按名称自行解析 UID 的最终验收见第 69 项。Bilibili 对连续冷请求仍可能返回 `-352`，不以匿名 Cookie 承诺上游持续可用。
 69. Bilibili 名称解析与 OpenClaw 验收：Remote MCP 以固定官方端点和匿名内存 Cookie 提供最多五个公开账号候选，唯一精确同名才解析 UID；VPS revision `8de9ab4a8ca7` 已将“食贫道”解析为 `39627524`，自建 RSSHub 返回 30 条 XML 内容。全新 OpenClaw 会话无需 Chrome、远程调试或人工 UID 即生成 create preview，并在用户未回复准确确认短语时保持 catalog/source/subscription 零写入。
 70. Browser OpenClaw 直接订阅修复：V5 handoff 以是否附带记录区分 `context_readonly` 与 `direct`；文章/任务交接继续禁止写入，无附件的用户原话可进入既有 `prepare → preview → 准确确认 → apply` 订阅流程，浏览器不得代答确认短语，MCP scope、实时角色、写开关和 proposal 事务边界不变。revision `c05e246544e4` 已部署 VPS；真实同 payload 新会话自行解析“食贫道”并生成未应用 preview，来源/订阅计数保持不变。精确合同见 `API_CONTRACT.md`、`UI_CONTRACT.md` 和 D072。
+71. 稳定历史可达性与来源计数：`/api/feed/history` 改从用户稳定内容索引读取并支持来源/文本查询及显式分页，最新 Feed 仍排除；Source Health 区分最近抓取、当前可见与历史留存，订阅卡可直达来源历史。X/Instagram profile 只有超窗旧帖时成功返回零条且不制造 no-op snapshot；无数据库迁移或真实付费调用。精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D078。
+72. Feed 时间分层、全局搜索与安全存储治理：用户稳定内容以 `effective_at` 和上海自然日划分今天、近 7/14/30 天 Feed 与历史；Feed 搜索覆盖在线内容和冷归档元数据。Source Health 与订阅卡同步投影今日、窗口和历史计数。Feed Storage v3 与 content timeline v11 就绪后，Owner/Admin 可对固定保留策略执行预演式清理、90 日冷归档和恢复，只有 Owner 可二次确认永久删除已恢复归档；系统永不自动永久删除稳定内容。精确合同见 `API_CONTRACT.md`、`ARCHITECTURE_CONTRACT.md`、`UI_CONTRACT.md` 和 D079。
 
 当前仍需推进：
 
@@ -95,7 +97,7 @@
 5. X 已改用 Apify Secondary 和支持精确 `maxItems=1` 的 Actor；真实直连运行成功但本次返回 0 条。VPS Worker 按用户要求保持停止；只有再次明确授权后才允许启动，并只观察一个 30 分钟自然周期的任务、计费和 Feed 合并结果。
 6. 本地 AI 已预置 `deepseek-v4-flash`、`DEEPSEEK_API_KEY` 且保持 disabled；用户写入轮换 Key 后，只对一篇 captured article 运行一次省略 `temperature`、SDK/application retry 均关闭的 smoke，成功后才启用。既有 Gemini 安全分析可按同用户/同 input hash 复用，不得冒充 DeepSeek 结果或恢复 `reason`。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 连接仍失败，待网络出口可用时只做 1 条公开频道复验。
-8. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送、OPML、历史分页和数据库备份治理均不进入本期。
+8. 保持“信息获取 + Feed 留存”为唯一当前主线；Graph、Archive analytics、推荐、摘要推送和 OPML 均不进入本期。存储治理仅限固定策略、预演式清理和冷归档，不开放任意 SQL、原始路径删除、在线 `VACUUM` 或自动永久删除。
 9. VPS 当前运行 revision-locked API + Worker 与独立 RSSHub，Nginx Basic Auth 已移除且公网应用 owner 登录已验证；Feed storage v3 apply、rollout flag 开启和任何付费来源 canary 仍必须分别满足门禁并获得对应授权。Bilibili 连续冷路由被上游风控时不得高频重试，可在设置中临时切换第三方 RSSHub。
 10. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护；视觉变更必须先修改该唯一真源。
 11. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；已删除的 MUI 对照原型、真实数据 preview 和 `VITE_UI_EXPERIENCE` 分叉不得恢复。
@@ -144,13 +146,14 @@
 10. HeroUI 订阅/来源 workspace、按范围分组、中文运行记录、Worker 更新预检与共享导航账户区域；视觉规则只见 `UI_CONTRACT.md`。
 11. `test_gate` 映射观察期：保留全量覆盖，记录连续 10 个不同 CI 提交的 selector、`mapping_miss` 和日志/摘要一致性。
 12. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、12 个安全读/查询/诊断工具与 4 个受控订阅流程工具、浏览器直连用户 Gateway 的对话 UI 和本地 Skill；生产订阅写开关保持关闭，原始日志与 runtime 不进入 Agent 上下文。
+13. 用户稳定内容的上海自然日时间分层、全局内容搜索，以及仅面向 Owner/Admin 的预演式标准清理、冷归档与恢复。
 
 本阶段不做：
 
 1. 第三方 AIHub/AIHOT API 逆向或依赖。
 2. 私密群组、好友流、cookie、session、账号密码采集。
 3. 未确认的生产通知 rollout、邮件群发或 scheduler 启动；本期只实现当前用户显式开启的逐来源新内容通知。
-4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding 和复杂可视化。
+4. Archive analytics、Graph、个性化推荐、站内原文代理/预览、大规模 embedding、复杂可视化，以及任意 SQL/路径级存储管理。
 5. 多 workspace、商业计费、自助注册、应用内手动主题切换/强制主题选择或独立移动 App；HeroUI 生产体验只跟随操作系统明暗偏好，视觉规则只见 `UI_CONTRACT.md`。
 6. 个人摘要、推荐型/评分型推送，以及把 compatibility-only API 扩展为默认 UI 能力；逐来源新内容事件通知不属于该非目标。
 7. 服务器侧 Agent/LLM/Gateway 代理、客户间共享 OpenClaw、生产 Remote MCP 写入、OAuth、ClawHub 或模型密钥托管；浏览器直连用户自有 Gateway 只在独立开关下实现。
@@ -171,6 +174,7 @@
 10. 用目标测试覆盖每个兼容边界。
 11. 完成 `test_gate` 的 10 提交观察期；未达标前默认完成门禁保持 `full`，不得只凭本地 targeted 结果宣称完成。
 12. 稳定新内容通知的用户/订阅隔离、历史基线、outbox 幂等和失败不影响 Feed/Job 的边界；不得回调 legacy publisher。
+13. 稳定上海自然日时间分层、用户隔离全局搜索和 preview/apply 存储治理；任何归档失败必须零删除，任何永久销毁必须保持 Owner 二次确认。
 
 ## 6. 当前实现强约束
 1. 不得把外部系统原始字段扩散到业务层。

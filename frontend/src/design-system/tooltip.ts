@@ -22,3 +22,14 @@ export const topAnchoredTooltipProps = {
   containerPadding: 8,
   shouldFlip: true,
 }
+
+/**
+ * Compact workbench ViewBars sit at the top of their reading surface, so
+ * controls in that row explain themselves below the trigger.
+ */
+export const bottomAnchoredTooltipProps = {
+  placement: 'bottom' as const,
+  offset: 8,
+  containerPadding: 8,
+  shouldFlip: true,
+}

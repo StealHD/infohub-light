@@ -72,13 +72,14 @@ def _token(app):
 
 
 def _seed_feed(app, user):
+    generated_at = datetime.now(timezone.utc).isoformat()
     UserFeedStore(app.state.service_store).save_snapshot(
         workspace_id=user["workspace_id"],
         user_id=user["id"],
         job_id=None,
         payload={
             "schema_version": 2,
-            "generated_at": "2026-07-16T00:00:00+00:00",
+            "generated_at": generated_at,
             "items": [
                 {
                     "id": "article-1",
@@ -86,7 +87,7 @@ def _seed_feed(app, user):
                     "source": "Example",
                     "source_type": "rss",
                     "url": "https://example.com/article-1",
-                    "published_at": "2026-07-16T00:00:00+00:00",
+                    "published_at": generated_at,
                     "excerpt": "Read-only feed item",
                 }
             ],

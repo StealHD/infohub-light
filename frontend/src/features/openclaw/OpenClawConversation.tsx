@@ -4,6 +4,8 @@ import {
   anchoredTooltipProps,
   Button,
   Card,
+  ChatSource,
+  ChatSources,
   Form,
   Header,
   Icons,
@@ -11,6 +13,9 @@ import {
   Label,
   ListBox,
   Popover,
+  PromptInput,
+  PromptInputBody,
+  PromptInputToolbar,
   Select,
   StatusIndicator,
   TextArea,
@@ -38,14 +43,19 @@ type FormattedMessageTime = {
   dateTime: string
 }
 
-const contextTokenFormatter = new Intl.NumberFormat('zh-CN')
 const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * 7
+
+function formatTokenK(value: number): string {
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(value / 1000)}k`
+}
 
 export function OpenClawContextUsageIndicator({ usage }: {
   usage: OpenClawContextUsage | null
 }) {
   const progressValue = usage ? Math.min(100, usage.percent) : 0
-  const label = usage ? `上下文占用 ${usage.percent}%` : '上下文占用暂无可信用量'
+  const label = usage
+    ? `上下文占用 ${formatTokenK(usage.usedTokens)} / ${formatTokenK(usage.contextTokens)}，${usage.percent}%`
+    : '上下文占用暂无可信用量'
   return <Tooltip delay={250}>
     <TooltipTriggerButton
       aria-label={label}
@@ -79,7 +89,7 @@ export function OpenClawContextUsageIndicator({ usage }: {
     </TooltipTriggerButton>
     <Tooltip.Content placement="top" offset={8}>
       {usage
-        ? `${contextTokenFormatter.format(usage.usedTokens)} / ${contextTokenFormatter.format(usage.contextTokens)} · ${usage.percent}%`
+        ? `${formatTokenK(usage.usedTokens)} / ${formatTokenK(usage.contextTokens)} · ${usage.percent}%`
         : '暂无可信用量'}
     </Tooltip.Content>
   </Tooltip>
@@ -432,6 +442,14 @@ function contextLabel(item: AgentContextItem): string {
 
 function ContextRow({ item, onRemove }: { item: AgentContextItem; onRemove: () => void }) {
   const label = contextLabel(item)
+  if (item.resourceType !== 'job' && item.sourceUrl) {
+    return <div data-composer-context-item className="min-w-0">
+      <ChatSource
+        source={{ title: item.title, url: item.sourceUrl, sourceName: item.sourceName }}
+        onRemove={onRemove}
+      />
+    </div>
+  }
   return <div data-composer-context-item className="flex h-8 min-w-0 items-center gap-2 rounded-lg bg-default px-2">
     <span className="type-label min-w-0 flex-1 truncate" title={label}>{label}</span>
     <Button size="sm" variant="ghost" isIconOnly className="size-7 shrink-0" aria-label={`移除 ${label}`} onPress={onRemove}>
@@ -469,6 +487,12 @@ function formatContextWindow(value?: number): string {
   if (value >= 1_000_000) return `${Math.round(value / 100_000) / 10}M 上下文`
   if (value >= 1000) return `${Math.round(value / 1000)}k 上下文`
   return `${value} 上下文`
+}
+
+function formatModelThinking(model: OpenClawModelOption): string {
+  if (model.reasoning === false) return '不支持思考档位'
+  if (model.thinkingLevels?.length) return `思考：${model.thinkingLevels.map((option) => option.label).join('、')}`
+  return ''
 }
 
 const AUTO_THINKING_KEY = '__auto__'
@@ -519,7 +543,7 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
 
   return <div
     data-testid="openclaw-runtime-controls"
-    className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-0.5 overflow-hidden"
+    className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 overflow-hidden"
   >
     <OpenClawContextUsageIndicator usage={chat.contextUsage} />
 
@@ -535,7 +559,7 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
     >
       <Select.Trigger
         aria-label={`OpenClaw 模型：${modelLabel}`}
-        className={`type-control flex min-h-8 w-full min-w-0 max-w-full items-center gap-1 overflow-hidden rounded-lg border-0 bg-transparent px-1.5 shadow-none focus-visible:outline-2 focus-visible:outline-focus ${modelDisabled ? 'text-muted' : 'text-foreground hover:bg-default'}`}
+        className={`type-control flex min-h-8 w-full min-w-0 max-w-full items-center gap-1 overflow-hidden rounded-lg border-0 bg-default/80 px-2 shadow-none focus-visible:outline-2 focus-visible:outline-focus ${modelDisabled ? 'text-muted' : 'text-foreground hover:bg-default'}`}
       >
         <span className="min-w-0 truncate">{modelLabel}</span>
         <Select.Indicator><Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" /></Select.Indicator>
@@ -552,7 +576,9 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
             >
               <span className="min-w-0">
                 <span className="type-control block min-w-0 truncate">{model.name}</span>
-                {formatContextWindow(model.contextWindow) && <span className="type-meta block min-w-0 truncate text-muted">{formatContextWindow(model.contextWindow)}</span>}
+                {(formatContextWindow(model.contextWindow) || formatModelThinking(model)) && <span className="type-meta block min-w-0 truncate text-muted">
+                  {[formatContextWindow(model.contextWindow), formatModelThinking(model)].filter(Boolean).join(' · ')}
+                </span>}
               </span>
               <ListBox.ItemIndicator className="text-accent" />
             </ListBox.Item>)}
@@ -577,20 +603,25 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
         <Select.Trigger
           aria-label={`OpenClaw 思考程度：${thinkingLabel}`}
           aria-describedby={thinkingUnavailableReason ? thinkingDescriptionId : undefined}
-          className={`type-control flex min-h-8 shrink-0 items-center gap-1 rounded-lg border-0 bg-transparent px-1.5 shadow-none focus-visible:outline-2 focus-visible:outline-focus ${thinkingDisabled ? 'text-muted' : 'text-foreground hover:bg-default'}`}
+          className={`type-control flex min-h-8 shrink-0 items-center gap-1 rounded-lg border-0 bg-default/80 px-2 shadow-none focus-visible:outline-2 focus-visible:outline-focus ${thinkingDisabled ? 'text-muted' : 'text-foreground hover:bg-default'}`}
         >
           <span>{thinkingLabel}</span>
           <Select.Indicator><Icons.ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" /></Select.Indicator>
         </Select.Trigger>
         <Select.Popover placement="top end" offset={8} className="z-50 w-[min(220px,calc(100vw-24px))]">
-          <ListBox items={thinkingItems} aria-label="OpenClaw 思考程度">
-            {(option) => <ListBox.Item id={option.id} textValue={option.label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
-              <span className="min-w-0">
-                <span className="type-control block">{option.label}</span>
-                {option.description && <span className="type-meta block text-muted">{option.description}</span>}
-              </span>
-              <ListBox.ItemIndicator className="text-accent" />
-            </ListBox.Item>}
+          <ListBox aria-label="OpenClaw 思考程度">
+            <ListBox.Section id="thinking-options">
+              <Header className="type-label px-2 py-1.5 text-muted">
+                {currentModel ? `${currentModel.provider} · ${currentModel.name}` : '当前模型'}
+              </Header>
+              {thinkingItems.map((option) => <ListBox.Item key={option.id} id={option.id} textValue={option.label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_16px] items-center gap-2">
+                <span className="min-w-0">
+                  <span className="type-control block">{option.label}</span>
+                  {option.description && <span className="type-meta block text-muted">{option.description}</span>}
+                </span>
+                <ListBox.ItemIndicator className="text-accent" />
+              </ListBox.Item>)}
+            </ListBox.Section>
           </ListBox>
         </Select.Popover>
       </Select>
@@ -667,7 +698,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   return <>
     <div
       ref={scrollRef}
-      className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-[15px] pb-4 pt-[13px]"
+      className="quiet-scroll-region min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-[15px] pb-4 pt-[13px]"
       data-testid="agent-scroll-region"
       aria-live="polite"
       onScroll={(event) => {
@@ -696,6 +727,8 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       >
         {chat.messages.map((message, index) => {
           const traceAttached = attachTerminalTrace && index === chat.messages.length - 1
+          const contextSources = message.contextSources ?? []
+          const remainingContextCount = Math.max(0, (message.contextCount ?? 0) - contextSources.length)
           return <ConversationTurn
             key={message.id}
             role={message.role}
@@ -704,7 +737,12 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             status={message.status}
             hasNext={index < chat.messages.length - 1 || Boolean(chat.streamText) || showStandaloneTrace}
           >
-            {Boolean(message.contextCount) && <div className="type-label mt-1.5 text-muted">附带 {message.contextCount} 条信息</div>}
+            {Boolean(contextSources.length) && <ChatSources className="mt-2" label="本条消息引用的来源">
+              {contextSources.map((source, sourceIndex) => <ChatSource key={`${source.url}:${sourceIndex}`} source={source} compact />)}
+            </ChatSources>}
+            {Boolean(remainingContextCount) && <div className="type-label mt-1.5 text-muted">
+              另附 {remainingContextCount} 条任务信息
+            </div>}
             {message.status === 'aborted' && <div className="type-label mt-1.5 text-muted">已停止</div>}
             {message.status === 'failed' && message.role === 'user' && <div className="mt-1.5 flex flex-wrap gap-1">
               <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => void chat.retry(message.id)}>重试</Button>
@@ -735,39 +773,41 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       >有新回复 <Icons.ArrowDown size={14} aria-hidden="true" /></Button>}
       {chat.issue && <p role="alert" className="type-body mt-3 max-w-full break-words text-danger [overflow-wrap:anywhere]">{chat.issue.message}</p>}
     </div>
-    <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-x-hidden border-t border-separator p-3">
+    <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-hidden border-t border-separator p-3">
       {chat.status === 'reconnecting' && <div role="status" className="type-meta mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-warning/10 px-2 py-1.5 text-warning">
         <Icons.WifiOff size={14} className="shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">连接中断，正在重连{chat.reconnectAttempt > 0 ? ` · 第 ${chat.reconnectAttempt} 次` : ''}</span>
         <Button size="sm" variant="ghost" onPress={chat.retryConnection}>立即重试</Button>
       </div>}
       <ContextSummary value={value} />
-      <div data-testid="openclaw-composer" className="grid min-w-0 grid-rows-[minmax(44px,auto)_36px] gap-2 rounded-2xl border border-separator bg-surface-secondary p-2 shadow-sm focus-within:border-border">
-        <TextArea
-          fullWidth
-          variant="secondary"
-          className="type-body min-h-11 max-h-[120px] min-w-0 max-w-full resize-none overflow-y-auto [field-sizing:content] [overflow-wrap:anywhere]"
-          aria-label="发送给 OpenClaw 的问题"
-          value={value.draft.question}
-          maxLength={1200}
-          rows={1}
-          placeholder="分析文章，或询问来源和任务…"
-          onChange={(event) => value.setQuestion(event.target.value)}
-          onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              if (
-                composingRef.current
-                || event.nativeEvent.isComposing
-                || event.nativeEvent.keyCode === 229
-              ) return
-              event.preventDefault()
-              void send()
-            }
-          }}
-        />
-        <div data-testid="openclaw-composer-toolbar" className="grid min-w-0 grid-cols-[minmax(0,1fr)_36px] items-end gap-1.5 px-1 pb-0.5">
+      <PromptInput data-testid="openclaw-composer" className="grid grid-rows-[minmax(64px,auto)_36px] gap-2 p-2">
+        <PromptInputBody>
+          <TextArea
+            fullWidth
+            variant="secondary"
+            className="type-body min-h-16 max-h-[160px] min-w-0 max-w-full resize-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]"
+            aria-label="发送给 OpenClaw 的问题"
+            value={value.draft.question}
+            maxLength={1200}
+            rows={2}
+            placeholder="分析文章，或询问来源和任务…"
+            onChange={(event) => value.setQuestion(event.target.value)}
+            onCompositionStart={() => { composingRef.current = true }}
+            onCompositionEnd={() => { composingRef.current = false }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                if (
+                  composingRef.current
+                  || event.nativeEvent.isComposing
+                  || event.nativeEvent.keyCode === 229
+                ) return
+                event.preventDefault()
+                void send()
+              }
+            }}
+          />
+        </PromptInputBody>
+        <PromptInputToolbar data-testid="openclaw-composer-toolbar" className="grid grid-cols-[minmax(0,1fr)_36px] px-1 pb-0.5">
           <RuntimeControls chat={chat} />
           <Tooltip delay={250}>
             <TooltipTriggerButton
@@ -781,7 +821,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             </TooltipTriggerButton>
             <Tooltip.Content {...anchoredTooltipProps}>{chat.isRunning ? (chat.isStopping ? '正在停止…' : '停止生成') : '发送给 OpenClaw'}</Tooltip.Content>
           </Tooltip>
-        </div>
+        </PromptInputToolbar>
         {chat.runtimeIssue && <p role="status" className="type-label mt-1 max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">{chat.runtimeIssue}</p>}
         {chat.modelSwitchFallback && <Button
           size="sm"
@@ -790,7 +830,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
           isDisabled={chat.isRunning || chat.runtimeUpdating}
           onPress={() => void chat.switchToBlankConversation()}
         >新建空白对话并切换到 {chat.modelSwitchFallback.modelName}</Button>}
-      </div>
+      </PromptInput>
     </div>
   </>
 }

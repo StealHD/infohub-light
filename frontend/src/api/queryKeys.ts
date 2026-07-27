@@ -3,6 +3,18 @@ export type FeedQueryOptions = {
   unreadFirst: boolean
 }
 
+export type HistoryQueryOptions = {
+  q: string
+  sourceId: string
+  limit: number
+}
+
+export type SearchQueryOptions = {
+  q: string
+  limit: number
+  submitted: boolean
+}
+
 const userKey = (userId: string) => ['user', userId] as const
 
 export const queryKeys = {
@@ -11,7 +23,14 @@ export const queryKeys = {
   feed: (userId: string, options: FeedQueryOptions) => [
     ...userKey(userId), 'feed', options,
   ] as const,
-  history: (userId: string) => [...userKey(userId), 'history'] as const,
+  history: (userId: string, options: HistoryQueryOptions = { q: '', sourceId: '', limit: 50 }) => [
+    ...userKey(userId), 'history', options,
+  ] as const,
+  historyRoot: (userId: string) => [...userKey(userId), 'history'] as const,
+  search: (userId: string, options: SearchQueryOptions) => [
+    ...userKey(userId), 'search', options,
+  ] as const,
+  searchRoot: (userId: string) => [...userKey(userId), 'search'] as const,
   saved: (userId: string) => [...userKey(userId), 'saved'] as const,
   ignored: (userId: string) => [...userKey(userId), 'ignored'] as const,
   feedItem: (userId: string, articleId: string) => [...userKey(userId), 'feed-item', articleId] as const,
@@ -29,6 +48,8 @@ export const queryKeys = {
   ] as const,
   agentDelegations: (userId: string) => [...userKey(userId), 'agent-delegations'] as const,
   config: (userId: string) => [...userKey(userId), 'config'] as const,
+  storageSummary: (userId: string) => [...userKey(userId), 'storage-summary'] as const,
+  storageArchives: (userId: string) => [...userKey(userId), 'storage-archives'] as const,
   users: (userId: string) => [...userKey(userId), 'users'] as const,
   secrets: (userId: string) => [...userKey(userId), 'secrets'] as const,
   apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,

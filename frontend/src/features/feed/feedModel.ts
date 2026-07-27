@@ -55,7 +55,7 @@ export type FeedFilterOptions = {
 
 function itemSourceIds(item: FeedItem): string[] {
   return Array.from(new Set([
-    item.presentation?.source.id,
+    item.presentation?.source?.id,
     item.source_id,
     ...(item.source_ids ?? []),
   ].filter((value): value is string => Boolean(value))))
@@ -77,6 +77,7 @@ export function feedItemTimestamp(item: FeedItem): number | null {
 }
 
 export function isFeedItemToday(item: FeedItem, now = new Date()): boolean {
+  if (item.timeline_bucket) return item.timeline_bucket === 'today'
   const timestamp = feedItemTimestamp(item)
   if (timestamp === null) return false
   const value = new Date(timestamp)
@@ -94,22 +95,22 @@ function searchableText(item: FeedItem): string {
     item.channel,
     item.category,
     ...(item.topics ?? item.tags ?? []),
-    item.presentation?.source.name,
-    item.presentation?.author.name,
-    item.presentation?.content.excerpt,
-    item.presentation?.analysis.summary_zh,
-    ...(item.presentation?.taxonomy.topics ?? []),
-    ...(item.presentation?.taxonomy.entities ?? []),
+    item.presentation?.source?.name,
+    item.presentation?.author?.name,
+    item.presentation?.content?.excerpt,
+    item.presentation?.analysis?.summary_zh,
+    ...(item.presentation?.taxonomy?.topics ?? []),
+    ...(item.presentation?.taxonomy?.entities ?? []),
   ].filter(Boolean).join(' ').toLocaleLowerCase()
 }
 
 export function filterFeedItems(items: FeedItem[], filters: FeedFilterOptions): FeedItem[] {
   const query = filters.query.trim().toLocaleLowerCase()
   const filtered = items.filter((item) => {
-    const sourceId = item.presentation?.source.id || item.source_id || item.source
-    const channel = item.presentation?.taxonomy.channel || item.channel || item.category
-    const topics = item.presentation?.taxonomy.topics ?? item.topics ?? item.tags ?? []
-    const score = item.presentation?.analysis.score ?? item.score ?? 0
+    const sourceId = item.presentation?.source?.id || item.source_id || item.source
+    const channel = item.presentation?.taxonomy?.channel || item.channel || item.category
+    const topics = item.presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? []
+    const score = item.presentation?.analysis?.score ?? item.score ?? 0
     if (filters.dateScope === 'today' && !isFeedItemToday(item, filters.now)) return false
     if (filters.allowedSourceIds && !itemSourceIds(item).some((id) => filters.allowedSourceIds!.has(id))) return false
     if (query && !searchableText(item).includes(query)) return false

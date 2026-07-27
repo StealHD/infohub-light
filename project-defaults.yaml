@@ -287,6 +287,7 @@
       ],
       "worker_retry_base_seconds": 30,
       "rss_initial_fetch_window_hours": 168,
+      "feed_window_days": 7,
       "rss_initial_fetch_window_allowed_hours": [168, 720],
       "rsshub_vps_memory_limit_mb": 640,
       "rsshub_vps_loopback_port": 1200,

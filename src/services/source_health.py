@@ -8,7 +8,9 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from ..storage.service_store import ServiceStore
+from .content_timeline import DEFAULT_FEED_WINDOW_DAYS, feed_window
 from .feed_run import SourceOutcome
+from .user_content_store import UserContentStore
 
 
 MAX_ISSUE_MESSAGE_LENGTH = 240
@@ -167,8 +169,10 @@ class SourceHealthService:
         *,
         workspace_id: str,
         user_id: str,
+        feed_window_days: int = DEFAULT_FEED_WINDOW_DAYS,
     ) -> dict[str, Any]:
         """Return the sanitized health projection for one authenticated user."""
+        window = feed_window(feed_window_days)
         rows = self.store.connect().execute(
             """
             SELECT
@@ -212,6 +216,11 @@ class SourceHealthService:
             "failing": 0,
         }
         items: list[dict[str, Any]] = []
+        source_counts = UserContentStore(self.store).source_item_counts(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            window=window,
+        )
         for row in rows:
             status = str(row["status"] or "unknown")
             issue_values = (
@@ -240,6 +249,18 @@ class SourceHealthService:
                     "last_failure_at": row["last_failure_at"],
                     "consecutive_failures": int(row["consecutive_failures"] or 0),
                     "last_fetched_count": int(row["last_fetched_count"] or 0),
+                    "today_item_count": source_counts.get(
+                        str(row["source_id"]), {}
+                    ).get("today_item_count", 0),
+                    "feed_item_count": source_counts.get(
+                        str(row["source_id"]), {}
+                    ).get("feed_item_count", 0),
+                    "current_item_count": source_counts.get(
+                        str(row["source_id"]), {}
+                    ).get("current_item_count", 0),
+                    "history_item_count": source_counts.get(
+                        str(row["source_id"]), {}
+                    ).get("history_item_count", 0),
                     "last_issue": last_issue,
                     "last_job_id": row["last_job_id"],
                 }
@@ -251,6 +272,7 @@ class SourceHealthService:
             "scope": "user",
             "summary": summary,
             "items": items,
+            "window": window.as_dict(),
         }
 
     def apply_outcomes(

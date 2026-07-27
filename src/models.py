@@ -539,8 +539,18 @@ class FilteringConfig(BaseModel):
     daily_push_limit: int = 10
     homepage_min_score: float = 6.0
     time_window_hours: int = 24
+    feed_window_days: Literal[7, 14, 30] = 7
     rss_initial_fetch_window_hours: Literal[168, 720] = 168
     recent_item_limit: int = 20
+
+    @field_validator("feed_window_days", mode="before")
+    @classmethod
+    def validate_feed_window_days(cls, value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("feed_window_days must be the integer 7, 14, or 30")
+        if value not in {7, 14, 30}:
+            raise ValueError("feed_window_days must be the integer 7, 14, or 30")
+        return value
 
     @field_validator("rss_initial_fetch_window_hours", mode="before")
     @classmethod

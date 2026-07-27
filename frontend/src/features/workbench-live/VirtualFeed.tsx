@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
@@ -27,6 +27,10 @@ type VirtualFeedProps = {
   resetToTopKey?: string
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
+  trackNewItems?: boolean
+  showTimelineBucket?: boolean
+  feedWindowDays?: number
+  footer?: ReactNode
   expandedId?: string
   navigationTargetId?: string
   contextIds: string[]
@@ -103,6 +107,8 @@ function WorkbenchCard({
   detailLoading,
   detailError,
   readonly,
+  showTimelineBucket,
+  feedWindowDays,
   onToggleExpanded,
   onToggleSaved,
   onToggleContext,
@@ -119,6 +125,8 @@ function WorkbenchCard({
   detailLoading?: boolean
   detailError?: boolean
   readonly?: boolean
+  showTimelineBucket?: boolean
+  feedWindowDays?: number
   onToggleExpanded: () => void
   onToggleSaved: () => void
   onToggleContext: () => void
@@ -150,6 +158,13 @@ function WorkbenchCard({
     ? '仅获取到内容片段，打开原文查看完整内容。'
     : ''
   const detailsId = `card-details-${card.id}`
+  const timelineLabel = card.item.timeline_bucket === 'today'
+    ? '今天'
+    : card.item.timeline_bucket === 'feed'
+      ? `近${feedWindowDays ?? 7}天`
+      : card.item.timeline_bucket === 'history'
+        ? '历史'
+        : ''
   const classificationMetadata = <>
     <span>{card.formatLabel}</span>
     {imageCountLabel && <>
@@ -220,6 +235,7 @@ function WorkbenchCard({
         </Fragment>)}
         <span aria-hidden="true">·</span>
         <span>{relativeTime(card.publishedAt)}</span>
+        {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
       </span>
       {social
         ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
@@ -239,6 +255,7 @@ function WorkbenchCard({
         </Fragment>)}
         <span aria-hidden="true">·</span>
         <span>{relativeTime(card.publishedAt)}</span>
+        {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
       </span>
       {social
         ? <Card.Description ref={measurePrimary} className="type-body whitespace-pre-wrap text-foreground line-clamp-3">{socialText}</Card.Description>
@@ -388,8 +405,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const pendingNavigationFrame = useRef<number | undefined>(undefined)
   const resetToTopRequest = useRef<object | null>(null)
   const resetToTopFrame = useRef<number | undefined>(undefined)
-  const inlineScrollAnchor = useRef<number | null>(null)
-  const inlineAnchorTimer = useRef<number | undefined>(undefined)
+  const inlineScrollAnchor = useRef<ViewportAnchor | null>(null)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
   const [newItemCount, setNewItemCount] = useState(0)
@@ -486,7 +502,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     resetToTopRequest.current = null
     window.cancelAnimationFrame(resetToTopFrame.current ?? 0)
     resetToTopFrame.current = undefined
-    window.clearTimeout(inlineAnchorTimer.current)
     window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
   }, [])
 
@@ -575,14 +590,40 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }, [cardsSignature])
 
   useLayoutEffect(() => {
-    if (inlineScrollAnchor.current === null || !scrollRef.current) return
+    const anchor = inlineScrollAnchor.current
     const scroll = scrollRef.current
+    if (!anchor || !scroll) return
+
+    let remainingFrames = 120
+    let stableFrames = 0
     const restore = () => {
-      if (inlineScrollAnchor.current !== null) scroll.scrollTop = inlineScrollAnchor.current
+      if (inlineScrollAnchor.current !== anchor || remainingFrames <= 0) return
+      remainingFrames -= 1
+      const row = Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]'))
+        .find((element) => element.dataset.itemId === anchor.id)
+      const card = row?.querySelector<HTMLElement>('[data-testid="workbench-card"]')
+      if (!card) {
+        inlineAnchorFrame.current = window.requestAnimationFrame(restore)
+        return
+      }
+      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      const correction = currentOffset - anchor.offset
+      if (Math.abs(correction) > 0.5) {
+        stableFrames = 0
+        scroll.scrollTop += correction
+      } else stableFrames += 1
+      // Keep correcting through the card's reveal/measurement window. A few
+      // apparently stable frames are not enough when the production build
+      // commits detail content or media geometry just after the first paint.
+      if (stableFrames < 30) {
+        inlineAnchorFrame.current = window.requestAnimationFrame(restore)
+      } else {
+        inlineScrollAnchor.current = null
+        inlineAnchorFrame.current = undefined
+      }
     }
     restore()
-    const frame = window.requestAnimationFrame(restore)
-    return () => window.cancelAnimationFrame(frame)
+    return () => window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
   }, [props.cards, props.expandedId])
 
   useEffect(() => () => releaseNavigationOwnership(), [releaseNavigationOwnership])
@@ -653,6 +694,10 @@ export function VirtualFeed(props: VirtualFeedProps) {
     const addedCount = sourceItemIds.filter((id) => !previousSourceIds.current.has(id)).length
     previousSourceIds.current = new Set(sourceItemIds)
     requestedRefreshAnchor.current = null
+    if (props.trackNewItems === false) {
+      setNewItemCount(0)
+      return
+    }
     if (addedCount <= 0) return
     if (wasNearFreshEdge.current) {
       releaseNavigationOwnership()
@@ -660,7 +705,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       virtualizer.scrollToIndex(targetIndex, { align: freshEdge })
     }
     else setNewItemCount((count) => count + addedCount)
-  }, [freshEdge, props.cards.length, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
+  }, [freshEdge, props.cards.length, props.trackNewItems, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
 
   const virtualItems = virtualizer.getVirtualItems()
 
@@ -692,18 +737,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
   function toggleExpandedInline(id: string) {
     releaseNavigationOwnership()
-    inlineScrollAnchor.current = scrollRef.current?.scrollTop ?? null
-    const holdAnchor = () => {
-      const element = scrollRef.current
-      if (!element || inlineScrollAnchor.current === null) return
-      element.scrollTop = inlineScrollAnchor.current
-      inlineAnchorFrame.current = window.requestAnimationFrame(holdAnchor)
-    }
-    inlineAnchorFrame.current = window.requestAnimationFrame(holdAnchor)
-    inlineAnchorTimer.current = window.setTimeout(() => {
-      inlineScrollAnchor.current = null
-      window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
-    }, 1000)
+    inlineScrollAnchor.current = scrollRef.current ? readViewportAnchor(scrollRef.current) : null
     props.onToggleExpanded(id)
   }
 
@@ -777,6 +811,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
               detailLoading={card.id === props.expandedId && props.detailLoading}
               detailError={card.id === props.expandedId && props.detailError}
               readonly={props.readonly}
+              showTimelineBucket={props.showTimelineBucket}
+              feedWindowDays={props.feedWindowDays}
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
               onToggleContext={() => props.onToggleContext(card)}
@@ -787,6 +823,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
           </div>
         })}
       </div>
+      {props.footer && <div className="mx-auto w-full max-w-[var(--inteliscope-width-reading)] pb-4">{props.footer}</div>}
     </div>
     {newItemCount > 0 && <Button
       size="sm"

@@ -2,7 +2,7 @@ import { readBootstrapShellSnapshot, writeBootstrapShellRightRailWidth } from '.
 
 export type RightRailWidthPreferenceV1 = { width: number }
 
-export const RIGHT_RAIL_DEFAULT_WIDTH = 360
+export const RIGHT_RAIL_DEFAULT_WIDTH = 400
 export const RIGHT_RAIL_MIN_WIDTH = 320
 export const RIGHT_RAIL_MAX_WIDTH = 720
 export const WORKBENCH_FEED_MIN_WIDTH = 640

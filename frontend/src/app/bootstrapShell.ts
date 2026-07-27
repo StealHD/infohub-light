@@ -8,7 +8,7 @@ export type BootstrapShellSnapshot = {
   rightRailWidth: number
 }
 
-const DEFAULT_RIGHT_RAIL_WIDTH = 360
+const DEFAULT_RIGHT_RAIL_WIDTH = 400
 
 export function readBootstrapShellSnapshot(): BootstrapShellSnapshot | null {
   try {

@@ -28,6 +28,7 @@ OperationCategory = Literal[
     "agent",
     "job",
     "acquisition",
+    "storage",
 ]
 OperationOutcome = Literal[
     "ok",
@@ -56,6 +57,7 @@ OPERATION_CATEGORIES = frozenset(
         "agent",
         "job",
         "acquisition",
+        "storage",
     }
 )
 OPERATION_OUTCOMES = frozenset(

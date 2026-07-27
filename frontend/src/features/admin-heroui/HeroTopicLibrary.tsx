@@ -12,18 +12,24 @@ function normalizeTopics(values: string[]) {
   })
 }
 
-export function HeroTopicLibrary({ topics, pending, onSave }: { topics: string[]; pending: boolean; onSave: (topics: string[]) => void }) {
+export function HeroTopicLibrary({ topics, draft, pending, onDraftChange, onSave }: {
+  topics: string[]
+  draft: string[]
+  pending: boolean
+  onDraftChange: (topics: string[]) => void
+  onSave: (topics: string[]) => void
+}) {
   const source = useMemo(() => normalizeTopics(topics), [topics])
-  const [draft, setDraft] = useState(source)
+  const normalizedDraft = useMemo(() => normalizeTopics(draft), [draft])
   const [newTopic, setNewTopic] = useState('')
   const [search, setSearch] = useState('')
-  const dirty = JSON.stringify(draft) !== JSON.stringify(source)
-  const visible = draft.filter((topic) => topic.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const dirty = JSON.stringify(normalizedDraft) !== JSON.stringify(source)
+  const visible = normalizedDraft.filter((topic) => topic.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
 
   function add() {
-    const next = normalizeTopics([...draft, newTopic])
-    if (next.length === draft.length) return
-    setDraft(next)
+    const next = normalizeTopics([...normalizedDraft, newTopic])
+    if (next.length === normalizedDraft.length) return
+    onDraftChange(next)
     setNewTopic('')
   }
 
@@ -35,9 +41,9 @@ export function HeroTopicLibrary({ topics, pending, onSave }: { topics: string[]
       <TextField fullWidth value={search} onChange={setSearch}><Label>搜索主题</Label><Input /></TextField>
     </div>
     <div className="flex min-h-10 flex-wrap gap-2">
-      {visible.map((topic) => <RemovableTag key={topic} label={topic} disabled={pending} onRemove={() => setDraft((current) => current.filter((item) => item !== topic))} />)}
+      {visible.map((topic) => <RemovableTag key={topic} label={topic} disabled={pending} onRemove={() => onDraftChange(normalizedDraft.filter((item) => item !== topic))} />)}
       {!visible.length && <span className="type-body text-muted">没有匹配的主题。</span>}
     </div>
-    <div className="flex gap-2"><Button size="sm" isDisabled={!dirty || pending} onPress={() => onSave(draft)}>{pending ? '保存中…' : '保存更改'}</Button><Button size="sm" variant="ghost" isDisabled={!dirty || pending} onPress={() => setDraft(source)}>撤销更改</Button></div>
+    <div className="flex gap-2"><Button size="sm" isDisabled={!dirty || pending} onPress={() => onSave(normalizedDraft)}>{pending ? '保存中…' : '保存更改'}</Button><Button size="sm" variant="ghost" isDisabled={!dirty || pending} onPress={() => onDraftChange(source)}>撤销更改</Button></div>
   </div>
 }
