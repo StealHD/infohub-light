@@ -787,6 +787,10 @@ class ServiceStore:
                     CHECK(body_completeness IN ('captured', 'excerpt_only')),
                 analysis_input_hash TEXT NOT NULL DEFAULT '',
                 unresolved_reason TEXT,
+                effective_at TEXT NOT NULL DEFAULT '',
+                search_text TEXT NOT NULL DEFAULT '',
+                archive_batch_id TEXT,
+                archived_at TEXT,
                 first_seen_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -1075,6 +1079,50 @@ class ServiceStore:
                 last_run_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS storage_maintenance_plans (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                actor_user_id TEXT NOT NULL,
+                operation TEXT NOT NULL
+                    CHECK(operation IN ('cleanup', 'archive', 'restore', 'delete_archive')),
+                status TEXT NOT NULL DEFAULT 'previewed'
+                    CHECK(status IN ('previewed', 'applied', 'expired', 'failed')),
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                result_json TEXT NOT NULL DEFAULT '{}',
+                fingerprint TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                applied_at TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_storage_plans_workspace_created
+                ON storage_maintenance_plans(workspace_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS storage_archive_batches (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                created_by_user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'committed'
+                    CHECK(status IN ('committed', 'restored', 'failed', 'deleted')),
+                cutoff_at TEXT NOT NULL,
+                archive_path TEXT NOT NULL,
+                checksum TEXT NOT NULL,
+                item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+                media_count INTEGER NOT NULL DEFAULT 0 CHECK(media_count >= 0),
+                byte_size INTEGER NOT NULL DEFAULT 0 CHECK(byte_size >= 0),
+                manifest_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                committed_at TEXT NOT NULL,
+                restored_at TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_storage_archives_workspace_created
+                ON storage_archive_batches(workspace_id, created_at DESC);
             """
         )
         self._ensure_column("source_catalog", "source_key", "TEXT")
@@ -1171,6 +1219,35 @@ class ServiceStore:
         self._ensure_column(
             "user_content_items", "unresolved_reason", "TEXT"
         )
+        self._ensure_column(
+            "user_content_items", "effective_at", "TEXT NOT NULL DEFAULT ''"
+        )
+        self._ensure_column(
+            "user_content_items", "search_text", "TEXT NOT NULL DEFAULT ''"
+        )
+        self._ensure_column("user_content_items", "archive_batch_id", "TEXT")
+        self._ensure_column("user_content_items", "archived_at", "TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_content_items_user_effective
+            ON user_content_items(
+                workspace_id, user_id, effective_at DESC, article_id ASC
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS user_content_search USING fts5(
+                content_id UNINDEXED,
+                workspace_id UNINDEXED,
+                user_id UNINDEXED,
+                article_id UNINDEXED,
+                effective_at UNINDEXED,
+                search_text,
+                tokenize='trigram'
+            )
+            """
+        )
         has_feed_rows = bool(
             conn.execute("SELECT 1 FROM user_feed_snapshots LIMIT 1").fetchone()
         )
@@ -1233,6 +1310,20 @@ class ServiceStore:
         self.mark_apify_key_pool_v8_migrated(commit=False)
         self.mark_preferred_source_notifications_v9_migrated(commit=False)
         self.mark_workspace_email_transports_v10_migrated(commit=False)
+        timeline_v11_migrated = bool(
+            conn.execute("SELECT 1 FROM schema_migrations WHERE version = 11").fetchone()
+        )
+        has_unmigrated_timeline_rows = bool(
+            conn.execute(
+                """
+                SELECT 1 FROM user_content_items
+                WHERE effective_at = '' OR search_text = ''
+                LIMIT 1
+                """
+            ).fetchone()
+        )
+        if not has_unmigrated_timeline_rows and not timeline_v11_migrated:
+            self.mark_content_timeline_v11_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -1373,6 +1464,41 @@ class ServiceStore:
         )
         if commit:
             self.connect().commit()
+
+    def mark_content_timeline_v11_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR REPLACE INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (
+                11,
+                'content_timeline_v11',
+                'content-timeline-v11-effective-search-archive',
+                ?
+            )
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def content_timeline_v11_migration_required(self) -> bool:
+        migrated = self.connect().execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 11"
+        ).fetchone()
+        if migrated:
+            return False
+        return bool(
+            self.connect().execute(
+                """
+                SELECT 1 FROM user_content_items
+                WHERE effective_at = '' OR search_text = ''
+                LIMIT 1
+                """
+            ).fetchone()
+        )
 
     def _seed_apify_key_pools(self, *, commit: bool = True) -> None:
         """Idempotently seed workspace pools from existing Apify secret refs."""

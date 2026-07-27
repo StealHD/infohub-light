@@ -41,7 +41,12 @@ describe('Agent context draft', () => {
       userId: 'user-a',
       question: '提炼机会',
       items: [
-        { articleId: 'a', title: 'A' },
+        {
+          articleId: 'a',
+          title: 'A',
+          sourceName: 'Source A',
+          sourceUrl: 'https://example.com/a?utm_source=feed&token=secret&keep=yes#fragment',
+        },
         {
           articleId: 'job:job-1',
           resourceType: 'job' as const,
@@ -55,10 +60,10 @@ describe('Agent context draft', () => {
     }
     const prompt = buildAgentHandoffPrompt(draft)
 
-    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V5]')
+    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V6]')
     expect(prompt).toContain(INTELISCOPE_HANDOFF_MARKER)
     expect(prompt).toContain('问题：提炼机会')
-    expect(prompt).toContain('1. 调用 get_item，article_id="a"')
+    expect(prompt).toContain('1. 调用 get_item，article_id="a"；原文网址="https://example.com/a?keep=yes"')
     expect(prompt).toContain('2. 调用 diagnose_job，job_id="job-1"')
     expect(prompt).toContain('仅依据工具返回的持久化安全证据回答')
     expect(prompt).toContain('证据不足时明确说明未知信息')
@@ -68,7 +73,13 @@ describe('Agent context draft', () => {
     expect(prompt).not.toContain('来源一')
     expect(prompt).not.toContain('失败')
     expect(prompt).not.toContain('模型偏好')
-    expect(projectAgentHandoffDisplay(prompt)).toEqual({ displayText: '提炼机会', contextCount: 2 })
+    expect(prompt).not.toContain('secret')
+    expect(prompt).not.toContain('utm_source')
+    expect(projectAgentHandoffDisplay(prompt)).toEqual({
+      displayText: '提炼机会',
+      contextCount: 2,
+      sources: [{ title: 'A', sourceName: 'Source A', url: 'https://example.com/a?keep=yes' }],
+    })
     expect(buildAgentHandoffPrompt(draft)).toBe(prompt)
   })
 
@@ -119,6 +130,11 @@ describe('Agent context draft', () => {
   })
 
   it('projects legacy handoffs without exposing their internal instructions', () => {
+    const v5 = [
+      '[INTELISCOPE_HANDOFF_V5]',
+      '{"displayText":"最近一版交接","contextCount":1}',
+      'INTERNAL MCP get_item instructions',
+    ].join('\n')
     const v4 = [
       '[INTELISCOPE_HANDOFF_V4]',
       '{"displayText":"上一版交接","contextCount":1}',
@@ -137,6 +153,7 @@ describe('Agent context draft', () => {
       '1. 调用 get_item，article_id="internal-a"',
       '2. 调用 diagnose_job，job_id="internal-job"',
     ].join('\n')
+    expect(projectAgentHandoffDisplay(v5)).toEqual({ displayText: '最近一版交接', contextCount: 1 })
     expect(projectAgentHandoffDisplay(v4)).toEqual({ displayText: '上一版交接', contextCount: 1 })
     expect(projectAgentHandoffDisplay(v3)).toEqual({ displayText: '旧版交接', contextCount: 2 })
     expect(projectAgentHandoffDisplay(legacy)).toEqual({ displayText: '比较变化', contextCount: 2 })

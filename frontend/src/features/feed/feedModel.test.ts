@@ -125,7 +125,7 @@ describe('feed model', () => {
     }).map((value) => value.id)).toEqual(['match'])
   })
 
-  it('uses the browser-local day and falls back from missing publication to fetch time', () => {
+  it('uses the server timeline bucket and keeps a local fallback for legacy items', () => {
     const localNow = new Date(2026, 6, 21, 12, 0, 0)
     const today = item({ id: 'today', published_at: new Date(2026, 6, 21, 0, 5, 0).toISOString() })
     const fetchedToday = item({
@@ -135,11 +135,21 @@ describe('feed model', () => {
     })
     const yesterday = item({ id: 'yesterday', published_at: new Date(2026, 6, 20, 23, 59, 0).toISOString() })
     const unknown = item({ id: 'unknown', published_at: '', fetched_at: '' })
+    const serverToday = item({
+      id: 'server-today',
+      published_at: new Date(2026, 6, 20, 23, 59, 0).toISOString(),
+      timeline_bucket: 'today',
+    })
+    const serverFeed = item({
+      id: 'server-feed',
+      published_at: new Date(2026, 6, 21, 8, 0, 0).toISOString(),
+      timeline_bucket: 'feed',
+    })
 
     expect(isFeedItemToday(today, localNow)).toBe(true)
-    expect(filterFeedItems([today, fetchedToday, yesterday, unknown], {
+    expect(filterFeedItems([today, fetchedToday, yesterday, unknown, serverToday, serverFeed], {
       query: '', unreadFirst: false, dateScope: 'today', now: localNow,
-    }).map((value) => value.id)).toEqual(['today', 'fetched-today'])
+    }).map((value) => value.id)).toEqual(['today', 'fetched-today', 'server-today'])
   })
 
   it('filters with canonical presentation fields before legacy fallbacks', () => {
@@ -190,6 +200,23 @@ describe('feed model', () => {
     expect(filterFeedItems([canonical, legacy], {
       query: '', unreadFirst: false, allowedSourceIds: new Set(),
     })).toEqual([])
+  })
+
+  it('keeps legacy history items usable when timeline metadata is the only presentation section', () => {
+    const legacy = item({
+      id: 'legacy-history',
+      source_id: 'legacy-source',
+      source: 'Legacy Source',
+      presentation: {
+        timing: { effective_at: '2026-05-01T08:00:00Z' },
+      } as unknown as FeedItem['presentation'],
+    })
+
+    expect(filterFeedItems([legacy], {
+      query: 'codex',
+      unreadFirst: false,
+      sourceId: 'legacy-source',
+    })).toEqual([legacy])
   })
 
   it('uses the most concerning source health across duplicate provenance', () => {

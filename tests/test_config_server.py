@@ -2,6 +2,7 @@ import hashlib
 import json
 import socket
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -570,6 +571,86 @@ def test_apply_config_action_sets_topic_library_from_array_and_allows_empty():
 
     assert updated["tags"] == ["AI Agent", "RAG/MCP"]
     assert apply_config_action(updated, "set_tags", {"topics": []})["tags"] == []
+
+
+def test_apply_config_action_saves_core_settings_bundle_atomically():
+    config = _minimal_config()
+
+    updated = apply_config_action(
+        config,
+        "set_settings_bundle",
+        {
+            "ai": {
+                "enabled": False,
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "api_key_env": "DEEPSEEK_API_KEY",
+                "languages": "zh",
+            },
+            "rsshub": {"base_url": "https://rsshub.example.com/private/rsshub/"},
+            "filtering": {
+                "time_window_hours": 48,
+                "feed_window_days": 14,
+                "rss_initial_fetch_window_hours": 720,
+                "recent_item_limit": 40,
+            },
+            "topics": {"topics": ["AI Agent", "RAG/MCP"]},
+        },
+    )
+
+    assert updated["ai"]["provider"] == "deepseek"
+    assert updated["rsshub"]["base_url"] == "https://rsshub.example.com/private/rsshub"
+    assert updated["filtering"]["time_window_hours"] == 48
+    assert updated["filtering"]["feed_window_days"] == 14
+    assert updated["filtering"]["rss_initial_fetch_window_hours"] == 720
+    assert updated["tags"] == ["AI Agent", "RAG/MCP"]
+    assert config != updated
+
+
+def test_apply_config_action_rejects_invalid_settings_bundle_without_mutating_input():
+    config = _minimal_config()
+    original = deepcopy(config)
+
+    with pytest.raises(ValueError, match="rss_initial_fetch_window_hours"):
+        apply_config_action(
+            config,
+            "set_settings_bundle",
+            {
+                "ai": {
+                    "enabled": False,
+                    "provider": "deepseek",
+                    "model": "deepseek-v4-flash",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                    "languages": "zh",
+                },
+                "filtering": {"rss_initial_fetch_window_hours": 169},
+            },
+        )
+
+    assert config == original
+
+
+@pytest.mark.parametrize("value", [0, 8, 31, True, "7"])
+def test_apply_config_action_rejects_invalid_feed_window_days(value):
+    config = _minimal_config()
+    filtering = deepcopy(config["filtering"])
+    filtering["feed_window_days"] = value
+
+    with pytest.raises(ValueError, match="feed_window_days"):
+        apply_config_action(config, "set_filtering", filtering)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "至少需要一个配置分区"),
+        ({"unknown": {}}, "未知设置分区"),
+        ({"topics": []}, "topics 必须是 JSON object"),
+    ],
+)
+def test_apply_config_action_rejects_invalid_settings_bundle_shape(payload, message):
+    with pytest.raises(ValueError, match=message):
+        apply_config_action(_minimal_config(), "set_settings_bundle", payload)
 
 
 def test_apply_config_action_limits_topic_library_size_and_topic_length():

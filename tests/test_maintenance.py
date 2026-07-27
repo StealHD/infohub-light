@@ -298,7 +298,7 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_maintenance_keeps_saved_and_later_content_but_prunes_unpinned_media(
+def test_maintenance_preserves_stable_content_and_its_linked_media(
     tmp_path, monkeypatch
 ):
     from src.services.user_content_store import UserContentStore
@@ -343,14 +343,14 @@ def test_maintenance_keeps_saved_and_later_content_but_prunes_unpinned_media(
 
     result = MaintenanceService(store, feed_retention_days=30).run_if_due(now=now, force=True)
 
-    assert result["deleted"]["content_items"] == 1
-    assert result["deleted"]["media_assets"] == 1
+    assert result["deleted"]["content_items"] == 0
+    assert result["deleted"]["media_assets"] == 0
     assert {
         row["article_id"] for row in store.connect().execute(
             "SELECT article_id FROM user_content_items"
         ).fetchall()
-    } == {"saved-old", "later-old"}
-    assert not media_path.exists()
+    } == {"saved-old", "later-old", "ordinary-old"}
+    assert media_path.exists()
 
 
 def test_maintenance_unlinks_media_only_after_database_commit(
@@ -366,6 +366,11 @@ def test_maintenance_unlinks_media_only_after_database_commit(
         now=now,
         suffix="post-commit",
     )
+    store.connect().execute(
+        "DELETE FROM user_content_items WHERE article_id = ?",
+        (article_id,),
+    )
+    store.connect().commit()
     transaction_states = []
     original_unlink = Path.unlink
 
@@ -381,7 +386,7 @@ def test_maintenance_unlinks_media_only_after_database_commit(
             feed_retention_days=30,
         ).run_if_due(now=now, force=True)
 
-        assert result["deleted"]["content_items"] == 1
+        assert result["deleted"]["content_items"] == 0
         assert result["deleted"]["media_assets"] == 1
         assert transaction_states == [False]
         assert not media_path.exists()

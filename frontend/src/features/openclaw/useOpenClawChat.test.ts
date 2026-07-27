@@ -552,12 +552,13 @@ describe('useOpenClawChat', () => {
     const gatewayPrompt = buildAgentHandoffPrompt({
       userId: 'user-a',
       question: '只显示这个问题',
-      items: [{ articleId: 'internal-id', title: '标题' }],
+      items: [{ articleId: 'internal-id', title: '标题', sourceName: '来源', sourceUrl: 'https://example.com/story?utm_source=test' }],
     })
-    expect(gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V5]')
+    expect(gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V6]')
     expect(projectChatHistory({ messages: [{ id: 'user-1', role: 'user', text: gatewayPrompt }] })).toEqual([
       expect.objectContaining({
         id: 'user-1', role: 'user', text: '只显示这个问题', status: 'sent', contextCount: 1, origin: 'gateway',
+        contextSources: [{ title: '标题', sourceName: '来源', url: 'https://example.com/story' }],
       }),
     ])
   })
@@ -833,12 +834,18 @@ describe('useOpenClawChat', () => {
     await act(async () => { await result.current.setThinking('low') })
     expect(result.current.runtimeSelection.thinkingLevel).toBe('low')
 
-    const gatewayPrompt = buildAgentHandoffPrompt({ userId: 'user-a', question: '分析 article-1', items: [{ articleId: 'article-1', title: 'A' }] })
+    const contextItems = [{
+      articleId: 'article-1',
+      title: 'A',
+      sourceName: '来源 A',
+      sourceUrl: 'https://example.com/a?utm_source=feed&keep=yes',
+    }]
+    const gatewayPrompt = buildAgentHandoffPrompt({ userId: 'user-a', question: '分析 article-1', items: contextItems })
     await act(async () => {
       await result.current.send({
         displayText: '分析 article-1',
         gatewayPrompt,
-        contextItems: [{ articleId: 'article-1', title: 'A' }],
+        contextItems,
       })
     })
     expect(request).toHaveBeenCalledWith('chat.send', expect.objectContaining({
@@ -849,7 +856,13 @@ describe('useOpenClawChat', () => {
       idempotencyKey: expect.any(String),
       thinking: 'low',
     }))
-    expect(result.current.messages.at(-1)).toMatchObject({ role: 'user', text: '分析 article-1', contextCount: 1, status: 'sent' })
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: 'user',
+      text: '分析 article-1',
+      contextCount: 1,
+      contextSources: [{ title: 'A', sourceName: '来源 A', url: 'https://example.com/a?keep=yes' }],
+      status: 'sent',
+    })
 
     act(() => gatewayEvent?.({
       type: 'event',

@@ -43,8 +43,29 @@ const historyRouteItem = {
   id: 'history-route-item',
   title: '生产历史路由条目',
   url: 'https://example.com/history-route-item',
+  presentation: {
+    timing: { effective_at: '2026-06-01T08:00:00Z' },
+  } as unknown as typeof items[number]['presentation'],
   user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
 }
+const tsuchaHistoryItems = [
+  {
+    ...historyRouteItem,
+    id: 'tsucha-history-1',
+    title: 'tsucha_ri 历史内容一',
+    url: 'https://example.com/tsucha-history-1',
+    source: 'tsucha_ri',
+    source_id: 'source-tsucha',
+  },
+  {
+    ...historyRouteItem,
+    id: 'tsucha-history-2',
+    title: 'tsucha_ri 历史内容二',
+    url: 'https://example.com/tsucha-history-2',
+    source: 'tsucha_ri',
+    source_id: 'source-tsucha',
+  },
+]
 const socialRouteItem = {
   id: 'social:x:1',
   title: '@thsottiaux: Oops... I did it again. Enjoy reset usage limits for all paid users fo...',
@@ -210,7 +231,39 @@ test.beforeEach(async ({ page }) => {
         : items }
     }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
-    else if (url.pathname === '/api/feed/history') data = { items: [historyRouteItem] }
+    else if (url.pathname === '/api/feed/history') {
+      const sourceId = url.searchParams.get('source_id')
+      const offset = Number(url.searchParams.get('offset') || '0')
+      if (sourceId === 'source-tsucha') {
+        const pageItems = offset === 0 ? [tsuchaHistoryItems[0]] : [tsuchaHistoryItems[1]]
+        data = {
+          items: pageItems,
+          item_count: pageItems.length,
+          total_count: 2,
+          limit: 50,
+          offset,
+          has_more: offset === 0,
+          snapshots: [],
+          featured_items: [],
+        }
+      } else {
+        data = {
+          items: [historyRouteItem],
+          item_count: 1,
+          total_count: 1,
+          limit: 50,
+          offset: 0,
+          has_more: false,
+          snapshots: [],
+          featured_items: [],
+        }
+      }
+    }
+    else if (url.pathname === '/api/catalog/sources') data = {
+      sources: [
+        { id: 'source-tsucha', type: 'apify_social', display_name: 'tsucha_ri', scope: 'public', enabled: true },
+      ],
+    }
     else if (url.pathname === '/api/jobs/user-feed-refresh' && route.request().method() === 'POST') {
       feedUpdateRequests += 1
       feedbackRefreshRequested = true
@@ -265,7 +318,7 @@ test.beforeEach(async ({ page }) => {
       connections: [{ id: 'agent-1', name: 'OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'abc', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
     else if (url.pathname.startsWith('/api/feed/items/')) {
-      const item = [...items, rollingItem, savedRouteItem, historyRouteItem, socialRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
+      const item = [...items, rollingItem, savedRouteItem, historyRouteItem, ...tsuchaHistoryItems, socialRouteItem].find((candidate) => candidate.id === decodeURIComponent(url.pathname.split('/').at(-1) || ''))
       if (!item) {
         await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'not_found', message: 'not found' } }) })
         return
@@ -387,7 +440,7 @@ test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', 
 
   await expect(reload).toBeDisabled()
   await expect(reload).toHaveAttribute('aria-busy', 'true')
-  await expect(reload).toHaveText('重新载入')
+  await expect(reload.locator('svg')).toHaveCount(1)
   expectStableGeometry(await geometry(), before)
   const anchorPending = await topVisibleSnapshot(page)
   expect(anchorPending.name).toBe(anchorBefore.name)
@@ -399,13 +452,15 @@ test('manual Feed reload keeps ViewBar geometry stable while pending at 675px', 
   await expect(page.getByRole('article', { name: '实时条目 201' })).toBeVisible()
   await expect(reload).toBeEnabled()
   await expect(reload).not.toHaveAttribute('aria-busy')
-  await expect(reload).toHaveText('重新载入')
+  await expect(reload.locator('svg')).toHaveCount(1)
   expectStableGeometry(await geometry(), before)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 for (const viewport of [
+  { width: 320, height: 700 },
   { width: 390, height: 844 },
+  { width: 645, height: 762 },
   { width: 1024, height: 768 },
   { width: 1440, height: 900 },
 ]) {
@@ -429,6 +484,32 @@ for (const viewport of [
     expect(agentBox).not.toBeNull()
     expect(themeBox!.x).toBeLessThan(insightsBox!.x)
     expect(insightsBox!.x).toBeLessThan(agentBox!.x)
+
+    const viewBarTooltipCases: Array<{ trigger: Locator; text: string }> = [
+      { trigger: page.getByRole('button', { name: '排序依据：发布时间' }), text: '当前按发布时间；点击改为入库时间' },
+      { trigger: page.getByRole('button', { name: '排序顺序：最新优先' }), text: '当前最新优先；点击改为最旧优先' },
+      { trigger: page.getByRole('button', { name: '重新载入信息流数据' }), text: '重新载入本地信息流数据' },
+      { trigger: page.getByRole('button', { name: '获取新内容' }), text: '触发所有已启用订阅获取新内容' },
+    ]
+    if (viewport.width < 640) {
+      viewBarTooltipCases.unshift({ trigger: page.getByRole('button', { name: '搜索信息流' }), text: '搜索信息流' })
+    }
+    for (const { trigger, text } of viewBarTooltipCases) {
+      await trigger.hover()
+      const tooltip = page.getByRole('tooltip').filter({ hasText: text })
+      await expect(tooltip).toBeVisible()
+      const [triggerBounds, tooltipBounds] = await Promise.all([
+        trigger.boundingBox(),
+        tooltip.boundingBox(),
+      ])
+      expect(triggerBounds).not.toBeNull()
+      expect(tooltipBounds).not.toBeNull()
+      expect(tooltipBounds!.y - (triggerBounds!.y + triggerBounds!.height)).toBeGreaterThanOrEqual(2)
+      expect(tooltipBounds!.x).toBeGreaterThanOrEqual(7)
+      expect(tooltipBounds!.x + tooltipBounds!.width).toBeLessThanOrEqual(viewport.width - 7)
+      await page.mouse.move(1, 1)
+      await expect(tooltip).toBeHidden()
+    }
 
     const tooltipCases: Array<{ trigger: Locator; text: string }> = [
       { trigger: card.locator('[data-expand-trigger]'), text: '展开内容' },
@@ -644,10 +725,16 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(page.getByText('稍后读')).toHaveCount(0)
   expect(await page.locator('[data-testid="workbench-card"]').count()).toBeLessThanOrEqual(40)
   await expect(page.getByRole('navigation', { name: '信息流进度' })).toHaveCount(0)
-  const itemCount = page.getByText('200 条内容', { exact: true })
+  const itemCount = page.getByText('近7天 · 200 条', { exact: true })
   await expect(itemCount).toBeVisible()
   expect(await itemCount.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
-  await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '排序顺序：最新优先' })).toBeVisible()
+  if (testInfo.project.name === 'mobile') {
+    await expect(page.getByRole('button', { name: '搜索信息流' })).toBeVisible()
+    await expect(page.getByRole('searchbox', { name: '移动端搜索全部内容' })).toHaveCount(0)
+  } else {
+    await expect(page.getByRole('searchbox', { name: '搜索全部内容' })).toBeVisible()
+  }
   await expect(page.getByText('全部', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '重新载入信息流数据' })).toBeVisible()
   await expect(page.getByRole('button', { name: '获取新内容' })).toBeVisible()
@@ -679,12 +766,13 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await page.getByRole('button', { name: '展开 Agent 面板' }).click()
     agent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
     await expect(agent).toBeVisible()
+    await expect(insights).toBeVisible()
     const railSeparator = page.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })
-    await expect(railSeparator).toHaveAttribute('aria-valuenow', '360')
+    await expect(railSeparator).toHaveAttribute('aria-valuenow', '400')
     await railSeparator.focus()
     await page.keyboard.press('ArrowLeft')
-    await expect(railSeparator).toHaveAttribute('aria-valuenow', '384')
-    expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.right-rail.v1:e2e-user'))).toBe(JSON.stringify({ width: 384 }))
+    await expect(railSeparator).toHaveAttribute('aria-valuenow', '424')
+    expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.right-rail.v1:e2e-user'))).toBe(JSON.stringify({ width: 424 }))
     const quietCard = page.locator('[data-card-visual="quiet-studio"]').first()
     expect(await quietCard.evaluate((element) => getComputedStyle(element).borderRadius)).toBe('18px')
     expect(Math.round((await quietCard.boundingBox())?.width ?? 0)).toBeLessThanOrEqual(820)
@@ -692,7 +780,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     await expect(mobileNavigation).toBeHidden()
     expect(Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(72)
     expect((await shell.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(3)
-    await expect(agent.getByRole('button', { name: 'OpenClaw · 未配置' })).toBeVisible()
+    await expect(agent.getByText('未配置', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: '展开侧栏' }).click()
     await expect.poll(async () => Math.round((await desktopNavigation.boundingBox())?.width ?? 0)).toBe(232)
     expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.sidebar.v1:e2e-user'))).toBe('expanded')
@@ -775,7 +863,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
     agent = page.getByRole('dialog', { name: 'OpenClaw 上下文' })
     await expect(agent).toBeVisible()
     await expect(page.getByTestId('right-rail-drawer-backdrop')).toBeVisible()
-    await expect(agent.getByRole('button', { name: 'OpenClaw · 未配置' })).toBeVisible()
+    await expect(agent.getByText('未配置', { exact: true })).toBeVisible()
     await agent.evaluate(async (element) => Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined))))
     const openFeedBounds = await feedScroll.boundingBox()
     expect(feedBounds).not.toBeNull()
@@ -799,7 +887,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
       expect(Math.round(agentBounds?.width ?? 0)).toBe(390)
       expect(Math.round((agentBounds?.y ?? 0) + (agentBounds?.height ?? 0))).toBe(844)
     } else {
-      expect(Math.abs((agentBounds?.width ?? 0) - 360)).toBeLessThanOrEqual(1)
+      expect(Math.abs((agentBounds?.width ?? 0) - 400)).toBeLessThanOrEqual(1)
       expect(Math.round((agentBounds?.x ?? 0) + (agentBounds?.width ?? 0))).toBe(1024)
     }
     // The focused icon-only status owns a Tooltip, so Escape dismisses the
@@ -865,7 +953,7 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   await expect(agent.getByRole('button', { name: /模型偏好/ })).toHaveCount(0)
   await agent.getByRole('button', { name: '复制交接提示词' }).click()
   const handoff = await page.evaluate(() => navigator.clipboard.readText())
-  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V5]')
+  expect(handoff).toContain('[INTELISCOPE_HANDOFF_V6]')
   expect(handoff).toContain('调用 get_item')
   expect(handoff).not.toContain('模型偏好：')
 
@@ -904,19 +992,19 @@ test('Feed sort changes reset to the top', async ({ page }) => {
     element.dispatchEvent(new Event('scroll'))
   })
 
-  await page.getByRole('button', { name: '最新优先' }).click()
-  await expect(page.getByRole('button', { name: '最旧优先' })).toBeVisible()
+  await page.getByRole('button', { name: '排序顺序：最新优先' }).click()
+  await expect(page.getByRole('button', { name: '排序顺序：最旧优先' })).toBeVisible()
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
 
   await scroll.evaluate((element) => {
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2)
     element.dispatchEvent(new Event('scroll'))
   })
-  await page.getByRole('button', { name: /按(发布时间|入库时间)排序/ }).click()
+  await page.getByRole('button', { name: /排序依据：(发布时间|入库时间)/ }).click()
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
 
-  await page.getByRole('button', { name: '最旧优先' }).click()
-  await expect(page.getByRole('button', { name: '最新优先' })).toBeVisible()
+  await page.getByRole('button', { name: '排序顺序：最旧优先' }).click()
+  await expect(page.getByRole('button', { name: '排序顺序：最新优先' })).toBeVisible()
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(96)
 })
 
@@ -1017,6 +1105,22 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.getByRole('button', { name: '关闭信息概览' }).click()
   await expect(insights).toHaveCount(0)
 
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.getByRole('button', { name: '展开 Agent 面板' }).click()
+  const dockedAgent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
+  await expect(dockedAgent).toBeVisible()
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const manualInsights = page.locator('#feed-insights-surface')
+  await expect(manualInsights).toBeVisible()
+  await expect(shell).toHaveAttribute('data-insights-obstructs-feed', 'true')
+  await page.getByRole('button', { name: /切换到(白天|黑夜)模式/ }).click()
+  await expect(manualInsights).toBeVisible()
+  await page.getByRole('heading', { name: '信息流' }).click()
+  await expect(manualInsights).toHaveAttribute('aria-hidden', 'true')
+  await expect(manualInsights).toHaveCount(0)
+  await page.getByRole('button', { name: '收起 Agent 面板' }).click()
+  await expect(dockedAgent).toHaveCount(0)
+
   await page.setViewportSize({ width: 1024, height: 768 })
   await page.getByRole('button', { name: '展开信息概览' }).click()
   const narrowInsights = page.locator('#feed-insights-surface')
@@ -1037,9 +1141,30 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   expect(Math.abs(narrowReadingBounds!.x - (narrowMainBounds!.x + 12))).toBeLessThanOrEqual(1)
   expect(narrowReadingBounds!.x + narrowReadingBounds!.width).toBeGreaterThan(narrowInsightsBounds!.x)
   expect(Math.abs((narrowInsightsBounds!.x + narrowInsightsBounds!.width) - (narrowMainBounds!.x + narrowMainBounds!.width - 12))).toBeLessThanOrEqual(1)
-  await page.getByRole('heading', { name: '信息流' }).click()
 
+  await page.getByRole('button', { name: /切换到(白天|黑夜)模式/ }).click()
+  await expect(narrowInsights).toBeVisible()
+  await page.getByRole('button', { name: '展开 Agent 面板' }).click()
   await expect(narrowInsights).toHaveCount(0)
+  const agent = page.getByRole('dialog', { name: 'OpenClaw 上下文' })
+  await expect(agent).toBeVisible()
+  await agent.getByRole('button', { name: '关闭 Agent 面板' }).click()
+  await expect(agent).toBeHidden()
+
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const closingInsights = page.locator('#feed-insights-surface')
+  await expect(closingInsights).toBeVisible()
+  await page.getByRole('heading', { name: '信息流' }).click()
+  await expect(closingInsights).toHaveAttribute('aria-hidden', 'true')
+  expect(await closingInsights.evaluate((element) => element.inert)).toBe(true)
+  await expect(closingInsights).toHaveCount(0)
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: '展开信息概览' }).click()
+  const reducedMotionInsights = page.locator('#feed-insights-surface')
+  await expect(reducedMotionInsights).toBeVisible()
+  await page.getByRole('heading', { name: '信息流' }).click()
+  await expect(reducedMotionInsights).toHaveCount(0)
 })
 
 test('social cards and Agent context show source information once without exposing item IDs', async ({ page }, testInfo) => {
@@ -1108,7 +1233,7 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
   await page.goto('/feed?batch=1')
   await page.evaluate(() => document.fonts.ready)
   const feedScroll = page.getByTestId('workbench-feed-scroll')
-  await expect(page.getByLabel('已启用 2 项筛选')).toBeVisible()
+  await expect(page.getByRole('button', { name: '筛选信息流，已启用 2 项' })).toBeVisible()
   await feedScroll.evaluate((element) => {
     element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) * 0.1)
     element.dispatchEvent(new Event('scroll'))
@@ -1218,7 +1343,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
   await expect(page.getByRole('banner')).toHaveAttribute('data-header-visual', 'quiet-studio')
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '排序顺序：最新优先' })).toBeVisible()
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '重新载入信息流数据' })).toHaveCount(0)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '获取新内容' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: savedRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
@@ -1232,7 +1357,7 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page.getByRole('navigation', { name: '信息流进度' })).toHaveCount(0)
   await expect(page.getByTestId('workbench-feed-scroll')).toHaveAttribute('data-feed-visual', 'quiet-studio')
   await expect(page.locator('[data-card-visual="quiet-studio"]')).toHaveCount(1)
-  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '最新优先' })).toBeVisible()
+  await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '排序顺序：最新优先' })).toBeVisible()
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '重新载入信息流数据' })).toHaveCount(0)
   await expect(page.getByTestId('collection-view-bar').getByRole('button', { name: '获取新内容' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: historyRouteItem.title }).getByText('文章', { exact: true })).toBeVisible()
@@ -1244,6 +1369,42 @@ test('saved, history and legacy later are accepted by the production workbench r
   await expect(page).toHaveURL('/saved?item=saved-route-item')
   await expect(page.getByRole('heading', { name: '收藏', exact: true })).toBeVisible()
   await expect(page.getByRole('article', { name: savedRouteItem.title })).toBeVisible()
+})
+
+test('durable source history paginates without mobile overflow at 645 and 320 pixels', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project resizes through the two additional acceptance widths.')
+
+  for (const width of [645, 320]) {
+    await page.setViewportSize({ width, height: width === 645 ? 762 : 700 })
+    const query = `tsucha-${width}`
+    const firstRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url())
+      return url.pathname === '/api/feed/history' && url.searchParams.get('offset') === '0'
+    })
+    await page.goto(`/history?source_id=source-tsucha&q=${query}`)
+    const requestUrl = new URL((await firstRequest).url())
+    expect(requestUrl.searchParams.get('source_id')).toBe('source-tsucha')
+    expect(requestUrl.searchParams.get('q')).toBe(query)
+    expect(requestUrl.searchParams.get('limit')).toBe('50')
+
+    await expect(page.getByText('2 条内容', { exact: true })).toBeVisible()
+    await expect(page.getByText('来源：tsucha_ri', { exact: true })).toBeVisible()
+    await expect(page.getByRole('article', { name: tsuchaHistoryItems[0].title })).toBeVisible()
+    await expect(page.getByRole('article', { name: tsuchaHistoryItems[1].title })).toHaveCount(0)
+
+    const nextRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url())
+      return url.pathname === '/api/feed/history' && url.searchParams.get('offset') === '1'
+    })
+    await page.getByRole('button', { name: /加载更多/ }).click()
+    await nextRequest
+    await expect(page.getByRole('article', { name: tsuchaHistoryItems[1].title })).toBeVisible()
+    await expect(page.getByRole('button', { name: /加载更多/ })).toHaveCount(0)
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const accessibility = await new AxeBuilder({ page }).analyze()
+    expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+  }
 })
 
 test('content-route navigation keeps the same shell and a closed Agent panel', async ({ page }, testInfo) => {

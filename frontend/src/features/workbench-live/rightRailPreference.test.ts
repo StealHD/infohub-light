@@ -30,8 +30,8 @@ describe('right rail width preference', () => {
   it('persists independent account widths and rejects invalid values', () => {
     writeRightRailWidth('alpha', 480)
     expect(readRightRailWidth('alpha')).toBe(480)
-    expect(readRightRailWidth('beta')).toBe(360)
+    expect(readRightRailWidth('beta')).toBe(400)
     window.localStorage.setItem(rightRailWidthPreferenceKey('beta'), '{bad')
-    expect(readRightRailWidth('beta')).toBe(360)
+    expect(readRightRailWidth('beta')).toBe(400)
   })
 })

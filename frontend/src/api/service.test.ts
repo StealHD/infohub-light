@@ -15,6 +15,13 @@ describe('service api', () => {
     const api = createServiceApi(client)
 
     await api.latestFeed()
+    const historySignal = new AbortController().signal
+    await api.historyFeed({
+      q: 'tsucha ri',
+      sourceId: 'source/with space',
+      limit: 50,
+      offset: 100,
+    }, historySignal)
     await api.savedFeed()
     await api.feedItem('article/with space')
     await api.createFeedRefresh()
@@ -40,8 +47,16 @@ describe('service api', () => {
     await api.createAgentDelegation('Read Mac')
     await api.renameAgentDelegation('agent/1', 'Desktop')
     await api.revokeAgentDelegation('agent/1')
+    await api.storageSummary()
+    await api.storageArchives()
+    await api.createStoragePlan('restore', { batch_id: 'archive/1' })
+    await api.applyStoragePlan('plan/1', '永久删除归档 archive/1')
 
     expect(client.get).toHaveBeenCalledWith('/api/feed/latest', undefined)
+    expect(client.get).toHaveBeenCalledWith(
+      '/api/feed/history?q=tsucha+ri&source_id=source%2Fwith+space&limit=50&offset=100',
+      historySignal,
+    )
     expect(client.get).toHaveBeenCalledWith('/api/feed/saved?limit=200&offset=0', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/feed/items/article%2Fwith%20space', undefined)
     expect(client.post).toHaveBeenCalledWith('/api/jobs/user-feed-refresh', {
@@ -82,6 +97,15 @@ describe('service api', () => {
     })
     expect(client.patch).toHaveBeenCalledWith('/api/me/agent-delegations/agent%2F1', { name: 'Desktop' })
     expect(client.delete).toHaveBeenCalledWith('/api/me/agent-delegations/agent%2F1')
+    expect(client.get).toHaveBeenCalledWith('/api/admin/storage/summary', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/admin/storage/archives', undefined)
+    expect(client.post).toHaveBeenCalledWith('/api/admin/storage/plans', {
+      operation: 'restore',
+      payload: { batch_id: 'archive/1' },
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/admin/storage/plans/plan%2F1/apply', {
+      confirmation: '永久删除归档 archive/1',
+    })
   })
 
   it('keeps secret values write-only in create and rotate requests', async () => {

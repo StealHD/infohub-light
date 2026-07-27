@@ -11,9 +11,9 @@ from typing import Any
 
 from ..storage.article_store import ArticleStore
 from ..storage.service_store import ServiceStore
-from .user_item_state import UserItemStateStore
+from .content_timeline import DEFAULT_FEED_WINDOW_DAYS, feed_window
 from .user_feed_store import UserFeedStore
-from .user_content_store import service_public_item
+from .user_content_store import UserContentStore, service_public_item
 
 
 HISTORY_ITEM_LIMIT = 200
@@ -79,60 +79,116 @@ class FeedArchiveService:
         hide_dismissed: bool = False,
         unread_first: bool = False,
         saved_first: bool = False,
+        feed_window_days: int = DEFAULT_FEED_WINDOW_DAYS,
     ) -> dict[str, Any]:
         if self.store is not None and workspace_id and user_id:
+            window = feed_window(feed_window_days)
             snapshot = UserFeedStore(self.store).latest_snapshot(
                 workspace_id=workspace_id,
                 user_id=user_id,
             )
-            if snapshot:
-                payload = _sanitize_public_item_collections(
-                    deepcopy(snapshot["payload"])
-                )
-                payload["scope"] = "user"
-                payload["snapshot_id"] = snapshot["id"]
-                payload["item_count"] = snapshot["item_count"]
-                items = payload.get("items") if isinstance(payload.get("items"), list) else []
-                article_ids = [str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id")]
-                states = UserItemStateStore(self.store).get_states(
-                    workspace_id=workspace_id,
-                    user_id=user_id,
-                    article_ids=article_ids,
-                )
-                for item in items:
-                    if isinstance(item, dict) and item.get("id"):
-                        item["user_state"] = states.get(str(item["id"]))
-                if hide_dismissed:
-                    items[:] = [
-                        item
-                        for item in items
-                        if not ((item.get("user_state") or {}).get("dismissed"))
-                    ]
-                if unread_first:
-                    items.sort(key=lambda item: 1 if (item.get("user_state") or {}).get("is_read") else 0)
-                if saved_first:
-                    items.sort(key=lambda item: 0 if (item.get("user_state") or {}).get("is_saved") else 1)
-                payload["item_count"] = len(items)
-                payload["today_items"] = deepcopy(items)
-                payload["today_total_items"] = len(items)
-                return payload
-            return {
-                "items": [],
-                "channels": [],
-                "topics": [],
-                "generated_at": "",
-                "ai_enabled": False,
-                "scope": "user",
-                "degraded": True,
-                "reason": "no_user_snapshot",
+            payload = (
+                _sanitize_public_item_collections(deepcopy(snapshot["payload"]))
+                if snapshot
+                else {
+                    "schema_version": 2,
+                    "generated_at": "",
+                    "ai_enabled": False,
+                }
+            )
+            active_source_rows = self.store.connect().execute(
+                """
+                SELECT source_id
+                FROM user_subscriptions
+                WHERE user_id = ? AND enabled = 1
+                """,
+                (user_id,),
+            ).fetchall()
+            active_source_ids = {
+                str(row["source_id"]) for row in active_source_rows if row["source_id"]
             }
+            items = UserContentStore(self.store).feed_items(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                window=window,
+                active_source_ids=active_source_ids,
+            )
+            if hide_dismissed:
+                items[:] = [
+                    item
+                    for item in items
+                    if not ((item.get("user_state") or {}).get("dismissed"))
+                ]
+            if unread_first:
+                items.sort(
+                    key=lambda item: (
+                        1 if (item.get("user_state") or {}).get("is_read") else 0
+                    )
+                )
+            if saved_first:
+                items.sort(
+                    key=lambda item: (
+                        0 if (item.get("user_state") or {}).get("is_saved") else 1
+                    )
+                )
+
+            collection_ids = {
+                key: self._collection_item_ids(payload, key)
+                for key in ("featured", "daily_push", "personal")
+            }
+            if not collection_ids["featured"]:
+                collection_ids["featured"] = self._snapshot_featured_ids(payload)
+            item_by_id = {str(item["id"]): item for item in items if item.get("id")}
+            for key in ("featured", "daily_push", "personal"):
+                ids = collection_ids[key]
+                payload[f"{key}_items"] = [
+                    deepcopy(item_by_id[article_id])
+                    for article_id in ids
+                    if article_id in item_by_id
+                ]
+                payload[f"{key}_item_ids"] = [
+                    article_id for article_id in ids if article_id in item_by_id
+                ]
+            payload["items"] = items
+            payload["today_items"] = [
+                deepcopy(item)
+                for item in items
+                if item.get("timeline_bucket") == "today"
+            ]
+            payload["today_total_items"] = len(payload["today_items"])
+            payload["item_count"] = len(items)
+            payload["scope"] = "user"
+            payload["window"] = window.as_dict()
+            payload["channels"] = self._stable_item_values(items, "channel")
+            payload["topics"] = self._stable_item_values(items, "topics")
+            payload["sources"] = self._stable_item_values(items, "source")
+            if snapshot:
+                payload["snapshot_id"] = snapshot["id"]
+            elif not items:
+                payload["degraded"] = True
+                payload["reason"] = "no_user_snapshot"
+            else:
+                payload.pop("degraded", None)
+                payload.pop("reason", None)
+            return payload
         return self._read_site_json(
             "radar-data.json",
             {"items": [], "generated_at": "", "ai_enabled": False},
         )
 
-    def history_feed(self, *, workspace_id: str | None = None, user_id: str | None = None) -> dict[str, Any]:
+    def history_feed(
+        self,
+        *,
+        workspace_id: str | None = None,
+        user_id: str | None = None,
+        q: str | None = None,
+        source_id: str | None = None,
+        limit: int = HISTORY_ITEM_LIMIT,
+        offset: int = 0,
+        feed_window_days: int = DEFAULT_FEED_WINDOW_DAYS,
+    ) -> dict[str, Any]:
         if self.store is not None and workspace_id and user_id:
+            window = feed_window(feed_window_days)
             snapshots = UserFeedStore(self.store).recent_snapshots(
                 workspace_id=workspace_id,
                 user_id=user_id,
@@ -147,17 +203,7 @@ class FeedArchiveService:
                 }
                 for snapshot in snapshots
             ]
-            if not snapshots:
-                return {
-                    "schema_version": 2,
-                    "scope": "user",
-                    "snapshots": summaries,
-                    "items": [],
-                    "featured_items": [],
-                    "item_count": 0,
-                }
-
-            latest_payload = snapshots[0].get("payload")
+            latest_payload = snapshots[0].get("payload") if snapshots else {}
             if not isinstance(latest_payload, dict):
                 latest_payload = {}
             payload = {
@@ -165,39 +211,23 @@ class FeedArchiveService:
                 for key, value in latest_payload.items()
                 if key not in _HISTORY_ITEM_COLLECTION_KEYS
             }
-            latest_ids = {
-                str(item["id"])
-                for item in self._snapshot_items(latest_payload)
-                if item.get("id")
-            }
-            seen_ids: set[str] = set()
             featured_ids: set[str] = set()
-            items: list[dict[str, Any]] = []
-            for snapshot in snapshots[1:]:
+            for snapshot in snapshots:
                 historical_payload = snapshot.get("payload")
                 if not isinstance(historical_payload, dict):
                     continue
-                snapshot_featured_ids = self._snapshot_featured_ids(historical_payload)
-                for stored_item in self._snapshot_items(historical_payload):
-                    article_id = str(stored_item.get("id") or "")
-                    if not article_id or article_id in latest_ids or article_id in seen_ids:
-                        continue
-                    seen_ids.add(article_id)
-                    items.append(service_public_item(stored_item))
-                    if article_id in snapshot_featured_ids:
-                        featured_ids.add(article_id)
-                    if len(items) >= HISTORY_ITEM_LIMIT:
-                        break
-                if len(items) >= HISTORY_ITEM_LIMIT:
-                    break
+                featured_ids.update(self._snapshot_featured_ids(historical_payload))
 
-            states = UserItemStateStore(self.store).get_states(
+            result = UserContentStore(self.store).history_items(
                 workspace_id=workspace_id,
                 user_id=user_id,
-                article_ids=[str(item["id"]) for item in items],
+                window=window,
+                q=q,
+                source_id=source_id,
+                limit=limit,
+                offset=offset,
             )
-            for item in items:
-                item["user_state"] = states[str(item["id"])]
+            items = result["items"]
 
             filter_collections = {
                 "sources": self._stable_item_values(items, "source"),
@@ -207,6 +237,8 @@ class FeedArchiveService:
                 "topics": self._stable_item_values(items, "topics"),
                 "personal_tags": self._stable_item_values(items, "personal_tags"),
             }
+            if not snapshots and not items:
+                filter_collections = {}
             payload.update(
                 {
                     "schema_version": 2,
@@ -216,12 +248,54 @@ class FeedArchiveService:
                     "featured_items": [
                         item for item in items if str(item["id"]) in featured_ids
                     ],
-                    "item_count": len(items),
+                    "item_count": result["item_count"],
+                    "total_count": result["total_count"],
+                    "limit": result["limit"],
+                    "offset": result["offset"],
+                    "has_more": result["has_more"],
+                    "window": window.as_dict(),
                     **filter_collections,
                 }
             )
             return payload
         return self._read_site_json("history-data.json", {"items": []})
+
+    def search_feed(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        q: str,
+        limit: int = 50,
+        cursor: str | None = None,
+        feed_window_days: int = DEFAULT_FEED_WINDOW_DAYS,
+    ) -> dict[str, Any]:
+        if self.store is None:
+            return {
+                "schema_version": 1,
+                "scope": "user",
+                "items": [],
+                "item_count": 0,
+                "total_count": 0,
+                "has_more": False,
+                "next_cursor": None,
+                "window": feed_window(feed_window_days).as_dict(),
+            }
+        window = feed_window(feed_window_days)
+        result = UserContentStore(self.store).search_items(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            q=q,
+            window=window,
+            limit=limit,
+            cursor=cursor,
+        )
+        return {
+            "schema_version": 1,
+            "scope": "user",
+            **result,
+            "window": window.as_dict(),
+        }
 
     @staticmethod
     def _snapshot_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -245,6 +319,27 @@ class FeedArchiveService:
         if isinstance(stored_ids, list):
             featured_ids.update(str(article_id) for article_id in stored_ids if article_id)
         return featured_ids
+
+    @staticmethod
+    def _collection_item_ids(payload: dict[str, Any], prefix: str) -> list[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        values = payload.get(f"{prefix}_items")
+        if isinstance(values, list):
+            for value in values:
+                article_id = value.get("id") if isinstance(value, dict) else value
+                normalized = str(article_id or "")
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    ordered.append(normalized)
+        stored_ids = payload.get(f"{prefix}_item_ids")
+        if isinstance(stored_ids, list):
+            for article_id in stored_ids:
+                normalized = str(article_id or "")
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    ordered.append(normalized)
+        return ordered
 
     @staticmethod
     def _stable_item_values(items: list[dict[str, Any]], key: str) -> list[str]:

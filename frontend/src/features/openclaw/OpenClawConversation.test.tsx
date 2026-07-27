@@ -74,10 +74,10 @@ describe('OpenClaw conversation surface', () => {
       }}
     />)
 
-    const trigger = screen.getByRole('button', { name: '上下文占用 21%' })
+    const trigger = screen.getByRole('button', { name: '上下文占用 42k / 200k，21%' })
     expect(screen.getByRole('progressbar', { name: '上下文占用' })).toHaveAttribute('aria-valuenow', '21')
     await browser.hover(trigger)
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(/42[,.]?000 \/ 200[,.]?000 · 21%/u)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('42k / 200k · 21%')
     expect(screen.queryByText('openai/gpt-5.4')).not.toBeInTheDocument()
     expect(screen.queryByText('背景信息')).not.toBeInTheDocument()
   })
@@ -175,6 +175,35 @@ describe('OpenClaw conversation surface', () => {
     expect(request.displayText).not.toContain('article_id=')
   })
 
+  it('shows clickable Chat Sources before send and beneath the sent user message', async () => {
+    const browser = userEvent.setup()
+    const source = { title: '标题一', sourceName: '来源一', url: 'https://example.com/article-1' }
+    const value = contextValue({
+      items: [{ articleId: 'article-1', title: source.title, sourceName: source.sourceName, sourceUrl: source.url }],
+    })
+    const chat = chatController({
+      status: 'connected',
+      toolsStatus: 'available',
+      sessionKey: 'session-1',
+      messages: [{
+        id: 'message-1',
+        role: 'user',
+        text: '分析这个来源',
+        status: 'sent',
+        contextCount: 1,
+        contextSources: [source],
+      }],
+    })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+
+    const sourceLinks = screen.getAllByRole('link', { name: '打开来源：标题一' })
+    expect(sourceLinks).toHaveLength(2)
+    expect(sourceLinks.every((link) => link.getAttribute('href') === source.url)).toBe(true)
+    expect(screen.queryByText('附带 1 条信息')).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '移除来源：标题一' }))
+    expect(value.removeItem).toHaveBeenCalledWith('article-1')
+  })
+
   it('does not send while an IME composition is being confirmed', () => {
     const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
     const value = contextValue({ question: 'english' })
@@ -262,7 +291,7 @@ describe('OpenClaw conversation surface', () => {
       displayText: '创建食贫道的 Bilibili 订阅',
       contextItems: [],
     })
-    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V5]')
+    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V6]')
     expect(request.gatewayPrompt).toContain('"mode":"direct"')
     expect(request.gatewayPrompt).toContain('prepare → preview → exact confirmation → apply')
     expect(request.gatewayPrompt).not.toContain('不得执行任何写操作')
@@ -314,7 +343,14 @@ describe('OpenClaw conversation surface', () => {
       status: 'connected',
       sessionKey: 'session-1',
       models: [
-        { id: 'openai/gpt-5.4', name: 'GPT-5.4', provider: 'openai', contextWindow: 200_000, reasoning: true },
+        {
+          id: 'openai/gpt-5.4',
+          name: 'GPT-5.4',
+          provider: 'openai',
+          contextWindow: 200_000,
+          reasoning: true,
+          thinkingLevels: [{ id: 'low', label: '低' }, { id: 'high', label: '高' }],
+        },
         { id: 'local/quick', name: 'Quick', provider: 'local', contextWindow: 32_000, reasoning: false },
       ],
       thinkingOptions: [{ id: 'low', label: '低' }, { id: 'high', label: '高' }],
@@ -325,10 +361,12 @@ describe('OpenClaw conversation surface', () => {
 
     expect(screen.queryByRole('button', { name: /OpenClaw 运行设置/ })).not.toBeInTheDocument()
     const runtime = screen.getByTestId('openclaw-runtime-controls')
-    expect(runtime.firstElementChild).toBe(screen.getByRole('button', { name: '上下文占用 5%' }))
+    expect(runtime.firstElementChild).toBe(screen.getByRole('button', { name: '上下文占用 10k / 200k，5%' }))
     await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4' }))
     expect(screen.getByText('openai')).toBeInTheDocument()
     expect(screen.getByText('local')).toBeInTheDocument()
+    expect(screen.getByText('200k 上下文 · 思考：低、高')).toBeInTheDocument()
+    expect(screen.getByText('32k 上下文 · 不支持思考档位')).toBeInTheDocument()
     const selectedModel = screen.getByRole('option', { name: /GPT-5.4/ })
     expect(selectedModel).toHaveAttribute('aria-selected', 'true')
     expect(selectedModel.querySelector('[data-slot="list-box-item-indicator"][data-visible]')).toBeInTheDocument()
@@ -353,8 +391,8 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(44px,auto)_36px]', 'gap-2')
-    expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-11', 'max-h-[120px]', '[field-sizing:content]')
+    expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(64px,auto)_36px]', 'gap-2')
+    expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-16', 'max-h-[160px]', '[field-sizing:content]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
@@ -465,8 +503,9 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByTestId('agent-scroll-region')).toHaveClass('flex-1')
-    expect(screen.getByTestId('openclaw-composer-dock')).toHaveClass('shrink-0')
+    expect(screen.getByTestId('agent-scroll-region')).toHaveClass('flex-1', 'overflow-y-auto', 'overscroll-contain')
+    expect(screen.getByTestId('openclaw-composer-dock')).toHaveClass('shrink-0', 'overflow-hidden')
+    expect(screen.getByRole('textbox', { name: '发送给 OpenClaw 的问题' })).toHaveClass('overflow-y-auto', 'overscroll-y-contain')
   })
 
   it('uses the approved flat C2 timeline with inline local times and safe http links', () => {

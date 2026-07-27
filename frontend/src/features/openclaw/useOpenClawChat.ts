@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
+  agentSourceReferences,
   projectAgentHandoffDisplay,
+  sanitizeAgentSourceReferences,
+  sanitizeSourceUrl,
   type AgentContextItem,
+  type AgentSourceReference,
 } from '../workbench-live/agentContext'
 import { OpenClawCredentialVault } from './openclawCredentialVault'
 import { forgetOpenClawBrowser } from './openclawDevice'
@@ -58,6 +62,7 @@ export type OpenClawChatMessage = {
   text: string
   status?: 'pending' | 'sent' | 'failed' | 'aborted'
   contextCount?: number
+  contextSources?: AgentSourceReference[]
   sendSnapshot?: OpenClawSendSnapshot
   createdAt?: number
   origin?: 'local' | 'gateway'
@@ -210,10 +215,12 @@ function normalizedMessageText(value: string): string {
 }
 
 function messageSignature(message: OpenClawChatMessage): string {
+  const contextSources = sanitizeAgentSourceReferences(message.contextSources)
   return [
     message.role,
     normalizedMessageText(message.text),
     message.contextCount ?? 0,
+    contextSources.map((source) => source.url).join('\n'),
   ].join('\n')
 }
 
@@ -226,12 +233,14 @@ function messageMergeId(message: OpenClawChatMessage): string {
 
 function persistedMessage(message: OpenClawChatMessage): OpenClawChatMessage {
   const keepRetrySnapshot = (message.status === 'pending' || message.status === 'failed') && Boolean(message.sendSnapshot)
+  const contextSources = sanitizeAgentSourceReferences(message.contextSources)
   return {
     id: message.id,
     role: message.role,
     text: message.text,
     status: message.status,
     contextCount: message.contextCount,
+    ...(contextSources.length ? { contextSources } : {}),
     createdAt: message.createdAt,
     origin: message.origin,
     mergeId: message.mergeId || messageMergeId(message),
@@ -304,6 +313,7 @@ export function mergeOpenClawTranscript(
       text: preserveLocalQuestion ? existing.text : remote.text,
       createdAt: existing.createdAt ?? remote.createdAt,
       contextCount: existing.contextCount ?? remote.contextCount,
+      contextSources: existing.contextSources ?? remote.contextSources,
       origin: existing.origin ?? remote.origin,
       mergeId: existing.mergeId || remote.mergeId || remoteMergeId,
       clientTurnId: existing.clientTurnId ?? remote.clientTurnId,
@@ -425,6 +435,7 @@ export function projectChatHistory(value: unknown): OpenClawChatMessage[] {
       createdAt: messageCreatedAt(source),
       ...(clientTurnId ? { clientTurnId } : {}),
       ...(handoff ? { contextCount: handoff.contextCount } : {}),
+      ...(handoff?.sources?.length ? { contextSources: handoff.sources } : {}),
     }
     return [{ ...message, mergeId: messageMergeId(message) }]
   }))
@@ -1329,10 +1340,14 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     const gatewayPrompt = request.gatewayPrompt.trim()
     if (!displayText || !gatewayPrompt) return false
     const idempotencyKey = crypto.randomUUID()
+    const contextItems = request.contextItems.map((item) => {
+      const sourceUrl = sanitizeSourceUrl(item.sourceUrl)
+      return { ...item, sourceUrl: sourceUrl || undefined }
+    })
     const snapshot: OpenClawSendSnapshot = {
       displayText,
       gatewayPrompt,
-      contextItems: request.contextItems.map((item) => ({ ...item })),
+      contextItems,
       idempotencyKey,
       modelId: runtimeSelection.modelId,
       thinkingLevel: runtimeSelection.thinkingLevel,
@@ -1343,6 +1358,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       text: displayText,
       status: 'pending',
       contextCount: snapshot.contextItems.length,
+      contextSources: agentSourceReferences(snapshot.contextItems),
       sendSnapshot: snapshot,
       createdAt: Date.now(),
       origin: 'local',

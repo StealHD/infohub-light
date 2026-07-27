@@ -122,7 +122,7 @@ export function toWorkbenchCardModel(item: FeedItem): WorkbenchCardModel {
     sourceLabel,
     authorLabel,
     sourceAvatar: presentation?.source?.avatar_url,
-    publishedAt: presentation?.timing?.published_at || item.published_at,
+    publishedAt: presentation?.timing?.effective_at || presentation?.timing?.published_at || item.published_at,
     url: presentation?.links?.canonical_url || item.url,
     channel: presentation?.taxonomy?.channel || item.channel || item.category || '未分类频道',
     topics: presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? [],

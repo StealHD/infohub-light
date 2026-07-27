@@ -2,15 +2,38 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
+const privateHistoryItems = [1, 2].map((index) => ({
+  id: `private-history-${index}`,
+  title: `私人研究源历史内容 ${index}`,
+  url: `https://example.com/private-history-${index}`,
+  source: '私人研究源',
+  source_id: 'source-private',
+  source_type: 'rss',
+  summary_zh: '超过当前信息流窗口、仍保留在本地历史索引中的内容。',
+  published_at: `2026-07-${11 - index}T08:00:00Z`,
+  channel: 'AI',
+  topics: ['研究'],
+  user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
+}))
 
-async function mockAdminApi(page: Page, authenticated = true) {
+async function mockAdminApi(page: Page, authenticated = true, options: { includePrivateSource?: boolean } = {}) {
   let quotaRequests = 0
   let productSubscribed = false
   let notificationEnabled = false
+  let privateShared = false
+  const settingsActions: Array<{ action: string; payload: Record<string, unknown> }> = []
   let quotaRefreshGate: Promise<void> | null = null
   let releaseQuotaRefresh: (() => void) | null = null
   let sourceFetchGate: Promise<void> | null = null
   let releaseSourceFetch: (() => void) | null = null
+  const configResponse = {
+    config: {
+      ai: { enabled: true, provider: 'gemini', model: 'gemini-3.5-flash', api_key_env: 'GOOGLE_API_KEY', base_url: '', languages: 'zh', analysis_content_chars: 8000, analysis_comments_chars: 4000, summary_max_chars: 240, analysis_max_output_tokens: 800 },
+      filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, rss_initial_fetch_window_hours: 168, recent_item_limit: 200 },
+      tags: ['AI Agent'],
+    },
+    taxonomy: { channels: ['AI', '产品机会', '其他'], topics: ['AI Agent', 'Codex'] },
+  }
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
@@ -32,9 +55,17 @@ async function mockAdminApi(page: Page, authenticated = true) {
         },
       }
     }
+    else if (url.pathname === '/api/catalog/sources/source-private/share' && route.request().method() === 'POST') {
+      privateShared = true
+      data = {
+        source: { id: 'source-private', type: 'rss', display_name: '私人研究源', description: '仅本人维护', scope: 'public', owner_user_id: null, default_channel: 'AI', default_topics: ['研究'], enabled: true },
+        notice: '管理权已交给工作区管理员。',
+      }
+    }
     else if (url.pathname === '/api/catalog/sources') data = { sources: [
       { id: 'source-1', type: 'rss', display_name: 'OpenAI Blog', description: '官方产品与研究动态', scope: 'workspace', default_channel: 'AI', default_topics: ['Codex'], enabled: true },
       { id: 'source-2', type: 'rss', display_name: 'Product Notes', description: '产品机会观察', scope: 'public', default_channel: '产品机会', default_topics: ['产品'], enabled: true },
+      ...(options.includePrivateSource ? [{ id: 'source-private', type: 'rss', display_name: '私人研究源', description: '仅本人维护', scope: privateShared ? 'public' : 'private', owner_user_id: privateShared ? null : owner.id, default_channel: 'AI', default_topics: ['研究'], enabled: true }] : []),
     ] }
     else if (url.pathname === '/api/catalog/source-types') data = { source_types: [
       { type: 'rss', label: 'RSS/Atom', fields: [{ name: 'url', label: 'RSS 地址', input_type: 'url', required: true, default: '' }] },
@@ -46,13 +77,37 @@ async function mockAdminApi(page: Page, authenticated = true) {
     }
     else if (url.pathname === '/api/me/subscriptions') data = { subscriptions: [
       { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
+      ...(options.includePrivateSource ? [{ id: 'subscription-private', user_id: owner.id, source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 20, notify_on_new_items: false }] : []),
       ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
     else if (url.pathname === '/api/me/source-health') data = {
       schema_version: 1,
       scope: 'user',
-      summary: { total: 1, healthy: 1, degraded: 0, failing: 0, unknown: 0 },
-      items: [{ subscription_id: 'subscription-1', source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 7 }],
+      window: {
+        timezone: 'Asia/Shanghai',
+        feed_days: 7,
+        today_start: '2026-07-27T00:00:00+08:00',
+        feed_start: '2026-07-21T00:00:00+08:00',
+      },
+      summary: { total: options.includePrivateSource ? 2 : 1, healthy: options.includePrivateSource ? 2 : 1, degraded: 0, failing: 0, unknown: 0 },
+      items: [
+        { subscription_id: 'subscription-1', source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 7, today_item_count: 0, feed_item_count: 0, current_item_count: 0, history_item_count: 7 },
+        ...(options.includePrivateSource
+          ? [{ subscription_id: 'subscription-private', source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 2, today_item_count: 0, feed_item_count: 0, current_item_count: 0, history_item_count: 2 }]
+          : []),
+      ],
+    }
+    else if (url.pathname === '/api/feed/history') data = {
+      schema_version: 2,
+      scope: 'user',
+      items: url.searchParams.get('source_id') === 'source-private' ? privateHistoryItems : [],
+      featured_items: [],
+      item_count: url.searchParams.get('source_id') === 'source-private' ? 2 : 0,
+      total_count: url.searchParams.get('source_id') === 'source-private' ? 2 : 0,
+      limit: Number(url.searchParams.get('limit') || '50'),
+      offset: Number(url.searchParams.get('offset') || '0'),
+      has_more: false,
+      snapshots: [],
     }
     else if (url.pathname === '/api/me/feed-schedule') data = { schema_version: 1, enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440], worker_status: 'ready', next_run_at: '2026-07-17T12:00:00Z' }
     else if (url.pathname === '/api/feed/ignored') data = {
@@ -94,14 +149,20 @@ async function mockAdminApi(page: Page, authenticated = true) {
       max_active: 5,
       connections: [{ id: 'agent-1', name: '本机 OpenClaw', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'ih_mcp_v1_demo', created_at: '2026-07-01T00:00:00Z', expires_at: '2026-10-01T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' }],
     }
-    else if (url.pathname === '/api/config') data = {
-      config: {
-        ai: { enabled: true, provider: 'gemini', model: 'gemini-3.5-flash', api_key_env: 'GOOGLE_API_KEY', base_url: '', languages: 'zh', analysis_content_chars: 8000, analysis_comments_chars: 4000, summary_max_chars: 240, analysis_max_output_tokens: 800 },
-        filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, rss_initial_fetch_window_hours: 168, recent_item_limit: 200 },
-        tags: ['AI Agent'],
-      },
-      taxonomy: { channels: ['AI', '产品机会', '其他'], topics: ['AI Agent', 'Codex'] },
+    else if (url.pathname === '/api/admin/storage/summary') data = {
+      schema_version: 1,
+      policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
+      bytes: { database: 1024, media: 0, archives: 0 },
+      counts: { content_total: 0, content_online: 0, content_archived: 0, feed_snapshots: 0, source_snapshots: 0, media_assets: 0, archive_batches: 0 },
+      readiness: { feed_storage_v3: true, content_timeline_v11: true, ready: true },
+      last_cleanup_at: null,
     }
+    else if (url.pathname === '/api/admin/storage/archives') data = { schema_version: 1, archives: [] }
+    else if (url.pathname === '/api/config/action' && route.request().method() === 'POST') {
+      settingsActions.push(route.request().postDataJSON() as { action: string; payload: Record<string, unknown> })
+      data = configResponse
+    }
+    else if (url.pathname === '/api/config') data = configResponse
     else if (url.pathname === '/api/admin/secrets' && route.request().method() === 'POST') data = {
       id: 'secret-created',
       name: 'DeepSeek Primary',
@@ -193,6 +254,7 @@ async function mockAdminApi(page: Page, authenticated = true) {
   })
   return {
     quotaRequests: () => quotaRequests,
+    settingsActions: () => settingsActions,
     deferQuotaRefresh: () => {
       quotaRefreshGate ??= new Promise<void>((resolve) => {
         releaseQuotaRefresh = resolve
@@ -289,7 +351,7 @@ test('production administration routes use the adaptive Quiet Studio page patter
     await settingsRoute.hover()
     const settingsDirectory = page.getByRole('dialog', { name: '设置目录' })
     await expect(settingsDirectory).toBeVisible()
-    await expect(settingsDirectory.getByRole('link')).toHaveCount(6)
+    await expect(settingsDirectory.getByRole('link')).toHaveCount(7)
     await page.keyboard.press('Escape')
     await expect(settingsDirectory).toHaveCount(0)
     await expect(settingsRoute).toBeFocused()
@@ -304,6 +366,43 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expectHeroAdminPage(page, '操作手册')
   await expect(page.getByRole('heading', { name: '快速开始' })).toBeVisible()
   await expect(page.getByText(/每次产品代码合并都由 Test Gate 检查/)).toBeVisible()
+})
+
+test('settings saves all dirty core sections in one bundle request', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The atomic settings coordinator only needs one browser project.')
+  const apiState = await mockAdminApi(page)
+  await page.goto('/settings')
+
+  const initialWindow = page.getByRole('button', { name: /RSS 首次抓取窗口/ })
+  await initialWindow.click()
+  await page.getByRole('option', { name: '30 天' }).click()
+  const rsshub = page.getByRole('textbox', { name: 'RSSHub Base URL' })
+  await rsshub.fill('https://rsshub.example.com/private')
+
+  await expect(page.getByText(/2 项核心配置待保存/)).toBeVisible()
+  const bundleRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url())
+    return url.pathname === '/api/config/action' && request.method() === 'POST'
+  })
+  await page.getByRole('button', { name: '保存全部配置' }).click()
+  const request = await bundleRequest
+  expect(request.postDataJSON()).toEqual({
+    action: 'set_settings_bundle',
+    payload: {
+      rsshub: { base_url: 'https://rsshub.example.com/private' },
+      filtering: expect.objectContaining({
+        time_window_hours: 24,
+        rss_initial_fetch_window_hours: 720,
+        recent_item_limit: 200,
+      }),
+    },
+  })
+  await expect(page.getByText('全部配置已保存', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '保存全部配置' })).toHaveCount(0)
+  expect(apiState.settingsActions()).toHaveLength(1)
+
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('workspace email transport stays bounded at 390, 768 and 1440 pixels', async ({ page }) => {
@@ -555,18 +654,16 @@ test('subscription channels stay compact, actionable and accessible at every acc
   const subscriptionCard = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })
   const cardHeader = subscriptionCard.locator('[data-source-card-header]')
   const healthChip = cardHeader.locator('[data-source-health-chip]')
-  const editSource = cardHeader.getByRole('button', { name: '编辑来源：OpenAI Blog' })
-  const [headerBounds, healthBounds, actionBounds] = await Promise.all([
+  const editSource = subscriptionCard.getByRole('button', { name: '编辑来源：OpenAI Blog' })
+  const [headerBounds, healthBounds] = await Promise.all([
     cardHeader.boundingBox(),
     healthChip.boundingBox(),
-    editSource.boundingBox(),
   ])
   expect(headerBounds).not.toBeNull()
   expect(healthBounds).not.toBeNull()
-  expect(actionBounds).not.toBeNull()
   const headerCenter = headerBounds!.y + headerBounds!.height / 2
   expect(Math.abs((healthBounds!.y + healthBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
-  expect(Math.abs((actionBounds!.y + actionBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
+  expect(await editSource.evaluate((element) => element.closest('[data-source-card-controls]') !== null)).toBe(true)
   const healthyStatus = subscriptionCard.getByRole('button', { name: '正常' })
   await healthyStatus.hover()
   const healthTooltip = page.getByRole('tooltip')
@@ -737,10 +834,71 @@ test('subscription channels stay compact, actionable and accessible at every acc
   expect(consoleErrors).toEqual([])
 })
 
+test('public/private subscription views and direct share stay usable at 693, 645 and 320 pixels', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project resizes through the additional acceptance widths.')
+  await mockAdminApi(page, true, { includePrivateSource: true })
+  await page.setViewportSize({ width: 693, height: 762 })
+  await page.goto('/subscriptions')
+
+  const viewSelector = page.locator('[data-compact-channel-controls]').getByRole('button', { name: /订阅视图/ })
+  await viewSelector.click()
+  await expect(page.getByRole('option', { name: /公共订阅 · 1/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /私人订阅 · 1/ })).toBeVisible()
+  await page.getByRole('option', { name: /公共订阅 · 1/ }).click()
+  await expect(page.getByRole('heading', { name: '公共订阅', level: 2 })).toBeVisible()
+  await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeVisible()
+  await expect(page.getByRole('listitem', { name: /私人研究源 订阅来源/ })).toHaveCount(0)
+
+  await viewSelector.click()
+  await page.getByRole('option', { name: /私人订阅 · 1/ }).click()
+  await expect(page.getByRole('heading', { name: '私人订阅', level: 2 })).toBeVisible()
+  const privateCard = page.getByRole('listitem', { name: /私人研究源 订阅来源/ })
+  const share = privateCard.getByRole('button', { name: '分享来源：私人研究源' })
+  const history = privateCard.getByRole('link', { name: '查看 私人研究源 的 2 条历史内容' })
+  await expect(share).toBeVisible()
+  await expect(privateCard.locator('[data-source-counts]')).toHaveText(/今日\s*0\s*近7天\s*0\s*历史\s*2/)
+  await expect(privateCard.getByLabel('最近更新 尚未完成，上次抓取 2 条')).toBeVisible()
+  await expect(history).toHaveText('2')
+  await expect(history).toHaveAttribute('href', '/history?source_id=source-private')
+  await expect(privateCard.getByRole('button', { name: '更多操作：私人研究源' })).toHaveCount(0)
+
+  await page.setViewportSize({ width: 645, height: 762 })
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+  ).toBe(true)
+  await share.click()
+  const shareDialog = page.getByRole('dialog', { name: '分享 私人研究源' })
+  await expect(shareDialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(shareDialog).toHaveCount(0)
+  await expect(share).toBeFocused()
+
+  await page.setViewportSize({ width: 320, height: 700 })
+  await expect(privateCard).toBeVisible()
+  const cardBounds = await privateCard.boundingBox()
+  expect(cardBounds).not.toBeNull()
+  expect(cardBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(cardBounds!.x + cardBounds!.width).toBeLessThanOrEqual(320)
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+  ).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+
+  await history.click()
+  await expect(page).toHaveURL('/history?source_id=source-private')
+  await expect(page.getByText('来源：私人研究源', { exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: privateHistoryItems[0].title })).toBeVisible()
+  await expect(page.getByRole('article', { name: privateHistoryItems[1].title })).toBeVisible()
+})
+
 test('subscription semantic UI matches light and dark visual baselines at every acceptance viewport', async ({ page }) => {
   await mockAdminApi(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/subscriptions')
+  const sourceCard = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })
+  await expect(sourceCard.locator('[data-source-counts]')).toHaveText(/今日\s*0\s*近7天\s*0\s*历史\s*7/)
+  await expect(sourceCard.getByRole('button', { name: /立即获取 OpenAI Blog；上次抓取 7 条/ })).toBeVisible()
 
   for (const colorMode of ['light', 'dark'] as const) {
     await page.evaluate((mode) => {

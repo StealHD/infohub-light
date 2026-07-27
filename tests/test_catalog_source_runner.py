@@ -226,3 +226,74 @@ def test_run_catalog_source_fetch_saves_snapshot_and_returns_source_metadata(tmp
         "upstream_attempts": 0,
         "waits": 0,
     }
+
+
+def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
+    tmp_path,
+    monkeypatch,
+):
+    _write_config(tmp_path)
+    store, workspace, owner, source_id, subscription = _store_with_rss_source(
+        tmp_path,
+        monkeypatch,
+    )
+    run_index = 0
+
+    class EmptyOrchestrator:
+        def __init__(self, _config, _storage):
+            pass
+
+        def set_service_apify_coordinator(self, _coordinator):
+            pass
+
+        async def execute(self, **_kwargs):
+            nonlocal run_index
+            run_index += 1
+            now = datetime.now(timezone.utc).isoformat()
+            return FeedRunResult(
+                run_id=f"run_empty_{run_index}",
+                status="succeeded",
+                started_at=now,
+                finished_at=now,
+                items=(),
+                source_outcomes=(
+                    SourceOutcome(
+                        source_id=source_id,
+                        subscription_id=subscription["id"],
+                        source_key="rss:https://github.blog/feed/",
+                        analysis_mode="personal_only",
+                        status="succeeded",
+                        fetched_count=0,
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.HorizonOrchestrator",
+        EmptyOrchestrator,
+    )
+
+    results = []
+    for index in range(2):
+        job = JobQueue(store).create_job(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            source_id=source_id,
+            subscription_id=subscription["id"],
+            job_type="source_fetch",
+            payload={"hours": 6},
+        )
+        results.append(
+            run_catalog_source_fetch(
+                job,
+                data_dir=str(tmp_path),
+                store=store,
+            )
+        )
+
+    assert results[0]["fetched_count"] == 0
+    assert results[0]["new_item_count"] == 0
+    assert results[1]["fetched_count"] == 0
+    assert results[1]["new_item_count"] == 0
+    assert results[1]["snapshot_created"] is False
+    assert results[1]["snapshot_id"] == results[0]["snapshot_id"]

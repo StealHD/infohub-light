@@ -838,6 +838,29 @@ def apply_config_action(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """Apply one validated UI action to config data and return updated copy."""
+    if action == "set_settings_bundle":
+        action_by_section = {
+            "ai": "set_ai",
+            "rsshub": "set_rsshub",
+            "filtering": "set_filtering",
+            "topics": "set_tags",
+        }
+        if not payload:
+            raise ValueError("设置组合至少需要一个配置分区")
+        unknown_sections = sorted(set(payload) - set(action_by_section))
+        if unknown_sections:
+            raise ValueError(f"未知设置分区: {', '.join(unknown_sections)}")
+
+        bundled = deepcopy(data)
+        for section, section_action in action_by_section.items():
+            if section not in payload:
+                continue
+            section_payload = payload[section]
+            if not isinstance(section_payload, dict):
+                raise ValueError(f"{section} 必须是 JSON object")
+            bundled = apply_config_action(bundled, section_action, section_payload)
+        return bundled
+
     updated = migrate_config_tag_layers(deepcopy(data))
     sources = _ensure_sources(updated)
 
@@ -1087,6 +1110,12 @@ def apply_config_action(
         filtering["daily_push_limit"] = _number(payload, "daily_push_limit", default=10, minimum=1, maximum=50, integer=True)
         filtering["homepage_min_score"] = _number(payload, "homepage_min_score", default=6.0, minimum=0, maximum=10)
         filtering["time_window_hours"] = _number(payload, "time_window_hours", default=24, minimum=1, maximum=720, integer=True)
+        filtering["feed_window_days"] = _integer_choice(
+            payload,
+            "feed_window_days",
+            default=7,
+            allowed={7, 14, 30},
+        )
         filtering["rss_initial_fetch_window_hours"] = _integer_choice(
             payload,
             "rss_initial_fetch_window_hours",

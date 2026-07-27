@@ -1373,13 +1373,16 @@ def test_instagram_profile_details_fills_first_missing_avatar(monkeypatch):
     assert items[0].metadata["author_avatar_url"] == "https://cdn.example.com/profile.jpg"
 
 
-def test_apify_social_scraper_keeps_latest_profile_item_when_window_has_no_new_posts(monkeypatch):
+def test_apify_social_scraper_returns_empty_for_stale_instagram_profile(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "test-token")
     since = datetime.now(timezone.utc) - timedelta(hours=1)
     old_iso = (since - timedelta(days=10)).isoformat()
+    actor_starts = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal actor_starts
         if request.method == "POST":
+            actor_starts += 1
             return httpx.Response(200, json=_run_resp())
         if "/actor-runs/" in request.url.path:
             return httpx.Response(200, json=_status_resp())
@@ -1395,14 +1398,37 @@ def test_apify_social_scraper_keeps_latest_profile_item_when_window_has_no_new_p
             }])
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    config = _social_config(_sub("instagram", "profile", "tsucha_ri", fetch_limit=1))
+    config = _social_config(_sub(
+        "instagram",
+        "profile",
+        "tsucha_ri",
+        fetch_limit=1,
+        fetch_profile_details=True,
+    ))
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     items = asyncio.run(ApifySocialScraper(config, client).fetch(since))
     asyncio.run(client.aclose())
 
-    assert [item.id for item in items] == ["instagram:post:OLDTSUCHA"]
-    assert items[0].metadata["tags"] == ["行业动态"]
-    assert items[0].metadata["image_url"] == "https://cdn.example.com/old.jpg"
+    assert items == []
+    assert actor_starts == 1
+
+
+def test_apify_social_stale_fallback_is_limited_to_non_x_instagram_sources():
+    scraper = ApifySocialScraper
+
+    assert scraper._should_keep_latest_when_stale(_sub("x", "profile", "OpenAI")) is False
+    assert scraper._should_keep_latest_when_stale(
+        _sub("instagram", "profile", "tsucha_ri")
+    ) is False
+    assert scraper._should_keep_latest_when_stale(
+        _sub("facebook", "page", "https://facebook.com/openai")
+    ) is True
+    assert scraper._should_keep_latest_when_stale(
+        _sub("facebook", "group", "https://facebook.com/groups/openai")
+    ) is True
+    assert scraper._should_keep_latest_when_stale(
+        _sub("telegram", "channel", "https://t.me/openai")
+    ) is True
 
 
 def test_apify_social_scraper_builds_keyword_and_hashtag_inputs(monkeypatch):

@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { settingsSectionFromHash, settingsSectionsForRole } from './settingsSections'
 
 describe('settingsSections', () => {
-  it('shows six sections to administrators and four to members or viewers', () => {
-    expect(settingsSectionsForRole('owner')).toHaveLength(6)
-    expect(settingsSectionsForRole('admin')).toHaveLength(6)
+  it('shows seven sections to administrators and four to members or viewers', () => {
+    expect(settingsSectionsForRole('owner')).toHaveLength(7)
+    expect(settingsSectionsForRole('admin')).toHaveLength(7)
     expect(settingsSectionsForRole('member')).toHaveLength(4)
     expect(settingsSectionsForRole('viewer')).toHaveLength(4)
+    expect(settingsSectionFromHash('#settings-storage', 'admin')?.label).toBe('存储与归档')
+    expect(settingsSectionFromHash('#settings-storage', 'member')).toBeNull()
   })
 
   it('rejects an unknown or role-inaccessible settings hash', () => {

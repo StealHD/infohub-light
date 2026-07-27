@@ -64,24 +64,30 @@ function LegacyLaterRedirect() {
 function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const queryClient = useQueryClient()
   const location = useLocation()
-  const [collectionQueries, setCollectionQueries] = useState({ saved: '', history: '' })
+  const [contentQueries, setContentQueries] = useState({ feed: '', saved: '', history: '' })
   const previousUserId = useRef(user.id)
   const actionGuard = useMemo(() => new ActionGeneration(user.id), [user.id])
   const feedActivity = useFeedActivity(api, user, actionGuard)
   const canMutate = user.role !== 'viewer'
-  const collectionRoute = location.pathname === '/saved' ? 'saved' : location.pathname === '/history' ? 'history' : null
-  const query = collectionRoute ? collectionQueries[collectionRoute] : ''
+  const contentRoute = location.pathname === '/feed'
+    ? 'feed'
+    : location.pathname === '/saved'
+      ? 'saved'
+      : location.pathname === '/history'
+        ? 'history'
+        : null
+  const query = contentRoute ? contentQueries[contentRoute] : ''
   const setQuery = useCallback((value: string) => {
-    if (!collectionRoute) return
-    setCollectionQueries((current) => current[collectionRoute] === value
+    if (!contentRoute) return
+    setContentQueries((current) => current[contentRoute] === value
       ? current
-      : { ...current, [collectionRoute]: value })
-  }, [collectionRoute])
+      : { ...current, [contentRoute]: value })
+  }, [contentRoute])
 
   useLayoutEffect(() => {
     if (previousUserId.current !== user.id) {
       actionToast.clear()
-      setCollectionQueries({ saved: '', history: '' })
+      setContentQueries({ feed: '', saved: '', history: '' })
       void clearUserCache(queryClient, previousUserId.current)
     }
     previousUserId.current = user.id

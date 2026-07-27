@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import type { ApifyKeyPoolMember, SecretRef } from '../../api/types'
+import type {
+  ApifyKeyPoolMember,
+  SecretRef,
+  StorageOperation,
+  StoragePlan,
+} from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import {
@@ -57,6 +62,18 @@ type SecretDraft = {
   envName: string
   value: string
 }
+
+type CoreSettingsSection = 'ai' | 'rsshub' | 'filtering' | 'topics'
+type CoreSettingsBundle = Partial<Record<CoreSettingsSection, Record<string, unknown>>>
+type CoreSettingsSave = {
+  sections: CoreSettingsSection[]
+  payload: CoreSettingsBundle
+  revisions: Record<CoreSettingsSection, number>
+}
+
+const coreSettingsOrder: CoreSettingsSection[] = ['ai', 'rsshub', 'filtering', 'topics']
+const emptySecretDraft: SecretDraft = { name: '', kind: 'ai', provider: '', envName: '', value: '' }
+const sameSettingsPayload = (left: Record<string, unknown>, right: Record<string, unknown>) => JSON.stringify(left) === JSON.stringify(right)
 
 type SecretField = keyof SecretDraft
 type SecretFieldErrors = Partial<Record<SecretField, string>>
@@ -669,6 +686,239 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
   </Card>
 }
 
+const storageOperationLabels: Record<StorageOperation, string> = {
+  cleanup: '标准清理',
+  archive: '转入冷归档',
+  restore: '恢复归档',
+  delete_archive: '永久删除归档',
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: index ? 1 : 0 }).format(value / (1024 ** index))} ${units[index]}`
+}
+
+function StorageArchiveSettings() {
+  const { api, user } = useAppContext()
+  const queryClient = useQueryClient()
+  const [activePlan, setActivePlan] = useState<StoragePlan | null>(null)
+  const [confirmation, setConfirmation] = useState('')
+  const summary = useQuery({
+    queryKey: queryKeys.storageSummary(user.id),
+    queryFn: ({ signal }) => api.storageSummary(signal),
+  })
+  const archives = useQuery({
+    queryKey: queryKeys.storageArchives(user.id),
+    queryFn: ({ signal }) => api.storageArchives(signal),
+  })
+  const preview = useMutation({
+    mutationFn: ({ operation, payload = {} }: {
+      operation: StorageOperation
+      payload?: Record<string, unknown>
+    }) => api.createStoragePlan(operation, payload),
+    onSuccess: (plan) => {
+      setConfirmation('')
+      setActivePlan(plan)
+    },
+  })
+  const apply = useMutation({
+    mutationFn: ({ plan, confirmationText }: {
+      plan: StoragePlan
+      confirmationText: string
+    }) => api.applyStoragePlan(plan.id, confirmationText),
+    onSuccess: (plan) => {
+      setActivePlan(plan)
+      setConfirmation('')
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.storageSummary(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.storageArchives(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.historyRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.searchRoot(user.id) }),
+      ])
+      actionToast.success(`${storageOperationLabels[plan.operation]}已完成`)
+    },
+  })
+  const previewData = recordOf(activePlan?.payload.preview)
+  const previewCounts = recordOf(previewData.counts)
+  const requiredConfirmation = String(previewData.required_confirmation ?? '')
+  const cleanupCandidateCount = Object.values(previewCounts).reduce<number>(
+    (sum, value) => sum + Number(value || 0),
+    0,
+  )
+  const activePlanHasWork = activePlan?.operation === 'cleanup'
+    ? cleanupCandidateCount > 0
+    : activePlan?.operation === 'archive'
+      ? Number(previewData.item_count ?? 0) > 0
+      : true
+  const planPending = preview.isPending || apply.isPending
+  const planError = preview.isError
+    ? errorMessage(preview.error, '生成预演失败，请稍后重试。')
+    : apply.isError
+      ? errorMessage(apply.error, '执行计划失败，所有候选项均保持不变。')
+      : ''
+
+  function previewPlan(operation: StorageOperation, batchId?: string) {
+    preview.reset()
+    apply.reset()
+    setActivePlan(null)
+    setConfirmation('')
+    preview.mutate({
+      operation,
+      payload: batchId ? { batch_id: batchId } : {},
+    })
+  }
+
+  return <div className="grid gap-4">
+    {summary.isLoading
+      ? <LoadingState label="正在读取存储状态" rows={2} />
+      : summary.isError
+        ? <HeroNotice title="存储状态读取失败" status="warning">
+          <Button size="sm" variant="ghost" onPress={() => void summary.refetch()}>重试此区域</Button>
+        </HeroNotice>
+        : summary.data && <>
+          {!summary.data.readiness.ready && <HeroNotice title="迁移尚未完成" status="warning">
+            必须先完成 Feed Storage v3 与时间索引 v11 的带备份迁移，之后才能生成清理或归档计划。
+          </HeroNotice>}
+          <div className="grid gap-3 min-[560px]:grid-cols-2 min-[920px]:grid-cols-4">
+            <Card variant="secondary" className="p-4">
+              <Card.Description>稳定内容</Card.Description>
+              <Card.Title className="mt-1">{summary.data.counts.content_total} 条</Card.Title>
+              <p className="type-meta mt-1 text-muted">在线 {summary.data.counts.content_online} · 冷归档 {summary.data.counts.content_archived}</p>
+            </Card>
+            <Card variant="secondary" className="p-4">
+              <Card.Description>数据库</Card.Description>
+              <Card.Title className="mt-1">{formatBytes(summary.data.bytes.database)}</Card.Title>
+              <p className="type-meta mt-1 text-muted">Feed 快照 {summary.data.counts.feed_snapshots}</p>
+            </Card>
+            <Card variant="secondary" className="p-4">
+              <Card.Description>在线媒体</Card.Description>
+              <Card.Title className="mt-1">{formatBytes(summary.data.bytes.media)}</Card.Title>
+              <p className="type-meta mt-1 text-muted">{summary.data.counts.media_assets} 个资源</p>
+            </Card>
+            <Card variant="secondary" className="p-4">
+              <Card.Description>归档文件</Card.Description>
+              <Card.Title className="mt-1">{formatBytes(summary.data.bytes.archives)}</Card.Title>
+              <p className="type-meta mt-1 text-muted">{summary.data.counts.archive_batches} 个批次</p>
+            </Card>
+          </div>
+          <Card variant="transparent" className="p-4">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <Card.Title>安全治理</Card.Title>
+                <Card.Description className="mt-1">
+                  清理只处理紧凑快照、完成任务、缓存、使用记录和孤立媒体；正文与媒体满 {summary.data.policy.archive_after_days} 天后可转冷归档，永不自动永久删除。
+                </Card.Description>
+                <p className="type-meta mt-2 text-muted">最近清理：{formatDateTime(summary.data.last_cleanup_at)}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!summary.data.readiness.ready || planPending}
+                  onPress={() => previewPlan('cleanup')}
+                ><Icons.BrushCleaning size={15} aria-hidden="true" />预演标准清理</Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  isDisabled={!summary.data.readiness.ready || planPending}
+                  onPress={() => previewPlan('archive')}
+                ><Icons.Archive size={15} aria-hidden="true" />预演 90 日归档</Button>
+              </div>
+            </div>
+          </Card>
+        </>}
+
+    {preview.isPending && <LoadingState label="正在计算候选项，不会修改数据" rows={1} />}
+    {activePlan && activePlan.status === 'previewed' && <HeroNotice
+      title={`${storageOperationLabels[activePlan.operation]}预演`}
+      status={activePlan.operation === 'delete_archive' ? 'warning' : 'default'}
+      role="status"
+    >
+      <div className="grid gap-3">
+        {activePlan.operation === 'cleanup' && <p>
+          预计清理 {cleanupCandidateCount} 条轻量运行记录；稳定内容永久删除数为 0。
+        </p>}
+        {activePlan.operation === 'archive' && <p>
+          预计归档 {Number(previewData.item_count ?? 0)} 条内容、{Number(previewData.media_count ?? 0)} 个媒体文件。收藏、稍后读和待通知内容已排除。
+        </p>}
+        {activePlan.operation === 'restore' && <p>
+          将校验并恢复 {Number(previewData.item_count ?? 0)} 条内容、{Number(previewData.media_count ?? 0)} 个媒体文件。
+        </p>}
+        {activePlan.operation === 'delete_archive' && <>
+          <p>这是不可恢复的所有者操作。归档已先恢复到在线存储，预计释放 {formatBytes(Number(previewData.byte_size ?? 0))}。</p>
+          <TextField fullWidth value={confirmation} onChange={setConfirmation}>
+            <Label>输入确认文本</Label>
+            <Input placeholder={requiredConfirmation} />
+          </TextField>
+        </>}
+        <p className="type-meta text-muted">预演有效至 {formatDateTime(activePlan.expires_at)}；执行前会再次核对候选指纹。</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={activePlan.operation === 'delete_archive' ? 'danger' : 'primary'}
+            isDisabled={!activePlanHasWork || planPending || (activePlan.operation === 'delete_archive' && confirmation !== requiredConfirmation)}
+            onPress={() => apply.mutate({ plan: activePlan, confirmationText: confirmation })}
+          >{!activePlanHasWork ? '无需执行' : apply.isPending ? '执行中…' : `执行${storageOperationLabels[activePlan.operation]}`}</Button>
+          <Button size="sm" variant="ghost" isDisabled={planPending} onPress={() => {
+            setActivePlan(null)
+            setConfirmation('')
+          }}>取消</Button>
+        </div>
+      </div>
+    </HeroNotice>}
+    {activePlan?.status === 'applied' && <HeroNotice title={`${storageOperationLabels[activePlan.operation]}已完成`} status="success">
+      数据状态已刷新；完整结果已记录到审计计划。
+    </HeroNotice>}
+    {planError && <HeroNotice title="存储操作未完成" status="warning" role="alert">{planError}</HeroNotice>}
+
+    <Card variant="transparent" className="p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <Card.Title>冷归档批次</Card.Title>
+          <Card.Description className="mt-1">管理员可预演恢复；只有所有者可在恢复完成后预演永久删除。</Card.Description>
+        </div>
+        <Button size="sm" variant="ghost" isDisabled={archives.isFetching} onPress={() => void archives.refetch()}>
+          <Icons.RefreshCw size={14} className={archives.isFetching ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />
+          刷新
+        </Button>
+      </div>
+      {archives.isLoading && <div className="mt-4"><LoadingState label="正在读取归档批次" rows={2} /></div>}
+      {archives.isError && <div className="mt-4"><HeroNotice title="归档批次读取失败" status="warning" /></div>}
+      {!archives.isLoading && !archives.isError && !(archives.data?.archives.length) && <p className="type-meta mt-4 text-muted">尚无归档批次。</p>}
+      <div className="mt-4 grid gap-2">
+        {(archives.data?.archives ?? []).map((archive) => <div
+          key={archive.id}
+          className="flex flex-wrap items-center gap-3 rounded-xl border border-separator bg-surface-secondary p-3"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="type-control break-all">{archive.id}</p>
+            <p className="type-meta mt-1 text-muted">
+              {archive.item_count} 条 · {archive.media_count} 个媒体 · {formatBytes(archive.byte_size)} · {
+                archive.status === 'committed' ? '已归档' : archive.status === 'restored' ? '已恢复' : archive.status === 'deleted' ? '已永久删除' : '失败'
+              }
+            </p>
+          </div>
+          {archive.status === 'committed' && <Button
+            size="sm"
+            variant="secondary"
+            isDisabled={planPending}
+            onPress={() => previewPlan('restore', archive.id)}
+          ><Icons.RotateCcw size={14} aria-hidden="true" />预演恢复</Button>}
+          {archive.status === 'restored' && user.role === 'owner' && <Button
+            size="sm"
+            variant="danger"
+            isDisabled={planPending}
+            onPress={() => previewPlan('delete_archive', archive.id)}
+          ><Icons.Trash2 size={14} aria-hidden="true" />预演永久删除</Button>}
+        </div>)}
+      </div>
+    </Card>
+  </div>
+}
+
 export function HeroSettingsPage() {
   const { api, user } = useAppContext()
   const feedback = useActionFeedback()
@@ -680,14 +930,20 @@ export function HeroSettingsPage() {
   const ignored = useQuery({ queryKey: queryKeys.ignored(user.id), queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal) })
   const secrets = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: admin })
   const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
-  const [secretDraft, setSecretDraft] = useState<SecretDraft>({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
+  const [secretDraft, setSecretDraft] = useState<SecretDraft>(emptySecretDraft)
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
   const [secretFormError, setSecretFormError] = useState('')
   const [rssInitialFetchWindowOverride, setRssInitialFetchWindowOverride] = useState<string | null>(null)
+  const [feedWindowDaysOverride, setFeedWindowDaysOverride] = useState<string | null>(null)
+  const [topicsOverride, setTopicsOverride] = useState<string[] | null>(null)
+  const [dirtyCoreSections, setDirtyCoreSections] = useState<Set<CoreSettingsSection>>(() => new Set())
+  const coreRevisions = useRef<Record<CoreSettingsSection, number>>({ ai: 0, rsshub: 0, filtering: 0, topics: 0 })
+  const aiFormRef = useRef<HTMLFormElement>(null)
+  const rsshubFormRef = useRef<HTMLFormElement>(null)
+  const filteringFormRef = useRef<HTMLFormElement>(null)
   const [activeSection, setActiveSection] = useState<string>(
     () => settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about',
   )
-  const [settingsDirty, setSettingsDirty] = useState(false)
   const ai = recordOf(config.data?.config.ai)
   const configuredAiProvider = String(ai.provider ?? 'gemini')
   const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
@@ -700,11 +956,55 @@ export function HeroSettingsPage() {
   const filtering = recordOf(config.data?.config.filtering)
   const rssInitialFetchWindow = rssInitialFetchWindowOverride
     ?? String(filtering.rss_initial_fetch_window_hours ?? 168)
+  const feedWindowDays = feedWindowDaysOverride
+    ?? String(filtering.feed_window_days ?? 7)
   const rsshub = recordOf(config.data?.config.rsshub)
+  const configuredTopics = useMemo(() => {
+    const topics = config.data?.taxonomy?.topics ?? config.data?.config.tags ?? []
+    return Array.isArray(topics) ? topics.filter((topic): topic is string => typeof topic === 'string') : []
+  }, [config.data])
+  const topicsDraft = topicsOverride ?? configuredTopics
+  const aiDraftRef = useRef(aiDraft)
+  const topicsDraftRef = useRef(topicsDraft)
+  useLayoutEffect(() => {
+    aiDraftRef.current = aiDraft
+    topicsDraftRef.current = topicsDraft
+  }, [aiDraft, topicsDraft])
   const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
     (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
   )
   const sectionOptions = useMemo(() => settingsSectionsForRole(user.role), [user.role])
+  const secretDirty = Object.entries(secretDraft).some(([key, value]) => value !== emptySecretDraft[key as keyof SecretDraft])
+  const settingsDirty = dirtyCoreSections.size > 0 || secretDirty
+
+  function updateCoreSectionDirty(section: CoreSettingsSection, dirty: boolean) {
+    setDirtyCoreSections((current) => {
+      if (dirty === current.has(section)) return current
+      const next = new Set(current)
+      if (dirty) next.add(section)
+      else next.delete(section)
+      return next
+    })
+  }
+
+  function setCoreSectionDirty(section: CoreSettingsSection, dirty: boolean) {
+    coreRevisions.current[section] += 1
+    updateCoreSectionDirty(section, dirty)
+  }
+
+  function refreshCoreDirty(section: CoreSettingsSection) {
+    coreRevisions.current[section] += 1
+    window.requestAnimationFrame(() => {
+      try {
+        updateCoreSectionDirty(
+          section,
+          !sameSettingsPayload(payloadFor(section), configuredPayloadFor(section)),
+        )
+      } catch {
+        updateCoreSectionDirty(section, true)
+      }
+    })
+  }
 
   useEffect(() => {
     if (!settingsDirty) return
@@ -800,17 +1100,41 @@ export function HeroSettingsPage() {
   }
 
   const configMutation = useMutation({
-    mutationFn: ({ action, payload }: { action: string; payload: Record<string, unknown> }) => api.configAction(action, payload),
-    onMutate: ({ action }) => feedback.begin('config-save', action),
-    onSuccess: (_result, { action }) => {
-      feedback.clear('config-save', action)
-      setSettingsDirty(false)
-      actionToast.success('设置已保存')
-      void queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) })
+    mutationFn: ({ payload }: CoreSettingsSave) => api.configAction('set_settings_bundle', payload),
+    onMutate: () => feedback.begin('config-save', 'set_settings_bundle'),
+    onSuccess: (result, submitted) => {
+      feedback.clear('config-save', 'set_settings_bundle')
+      const savedWithoutNewerEdits = submitted.sections.filter(
+        (section) => coreRevisions.current[section] === submitted.revisions[section],
+      )
+      setDirtyCoreSections((current) => {
+        const next = new Set(current)
+        savedWithoutNewerEdits.forEach((section) => next.delete(section))
+        return next
+      })
+      if (savedWithoutNewerEdits.includes('ai')) setAiOverride(null)
+      if (savedWithoutNewerEdits.includes('filtering')) {
+        setRssInitialFetchWindowOverride(null)
+        setFeedWindowDaysOverride(null)
+      }
+      if (savedWithoutNewerEdits.includes('topics')) setTopicsOverride(null)
+      if (result?.config) queryClient.setQueryData(queryKeys.config(user.id), result)
+      actionToast.success(submitted.sections.length > 1 ? '全部配置已保存' : '设置已保存')
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }),
+        ...(submitted.sections.includes('filtering')
+          ? [
+              queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.historyRoot(user.id) }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.searchRoot(user.id) }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }),
+            ]
+          : []),
+      ])
     },
-    onError: (caught, { action }) => {
+    onError: (caught) => {
       const message = errorMessage(caught, '设置保存失败。')
-      feedback.clear('config-save', action)
+      feedback.clear('config-save', 'set_settings_bundle')
       actionToast.danger('设置保存失败', { description: message })
     },
   })
@@ -845,10 +1169,9 @@ export function HeroSettingsPage() {
     feedback.begin('secret-create', 'new')
     try {
       await api.createSecret(submitted)
-      setSecretDraft({ name: '', kind: 'ai', provider: '', envName: '', value: '' })
+      setSecretDraft(emptySecretDraft)
       setSecretFieldErrors({})
       setSecretFormError('')
-      setSettingsDirty(false)
       feedback.clear('secret-create', 'new')
       actionToast.success('Key 已安全保存')
       void Promise.all([
@@ -866,42 +1189,144 @@ export function HeroSettingsPage() {
   }
 
 
+  function aiPayload(): Record<string, unknown> {
+    if (!aiFormRef.current) throw new Error('AI 设置表单尚未加载')
+    const data = new FormData(aiFormRef.current)
+    const currentAiDraft = aiDraftRef.current
+    return {
+      enabled: data.has('enabled'), provider: currentAiDraft.provider, model: currentAiDraft.model, api_key_env: currentAiDraft.apiKeyEnv, base_url: inputValue(data, 'base_url'), languages: inputValue(data, 'languages') || 'zh',
+      analysis_content_chars: Number(data.get('analysis_content_chars')), analysis_comments_chars: Number(data.get('analysis_comments_chars')), summary_max_chars: Number(data.get('summary_max_chars')), analysis_max_output_tokens: Number(data.get('analysis_max_output_tokens')), enrichment_content_chars: Number(ai.enrichment_content_chars ?? 4000),
+    }
+  }
+
+  function filteringPayload(): Record<string, unknown> {
+    if (!filteringFormRef.current) throw new Error('获取设置表单尚未加载')
+    const data = new FormData(filteringFormRef.current)
+    return {
+      ...filtering,
+      time_window_hours: Number(data.get('time_window_hours')),
+      feed_window_days: Number(data.get('feed_window_days')),
+      rss_initial_fetch_window_hours: Number(data.get('rss_initial_fetch_window_hours')),
+      recent_item_limit: Number(data.get('recent_item_limit')),
+    }
+  }
+
+  function rsshubPayload(): Record<string, unknown> {
+    if (!rsshubFormRef.current) throw new Error('RSSHub 设置表单尚未加载')
+    return { base_url: inputValue(new FormData(rsshubFormRef.current), 'base_url') }
+  }
+
+  function reportSectionValidity(section: CoreSettingsSection): boolean {
+    const form = section === 'ai'
+      ? aiFormRef.current
+      : section === 'rsshub'
+        ? rsshubFormRef.current
+        : section === 'filtering'
+          ? filteringFormRef.current
+          : null
+    if (form && !form.checkValidity()) {
+      form.reportValidity()
+      form.querySelector<HTMLElement>(':invalid')?.focus()
+      return false
+    }
+    if (section === 'ai' && !aiDraft.apiKeyEnv.trim()) {
+      document.getElementById('settings-ai')?.scrollIntoView({ block: 'start' })
+      document.querySelector<HTMLElement>('[aria-label^="AI Key"]')?.focus()
+      actionToast.warning('AI Key 不能为空', { description: '请选择已配置的 AI Key 后再保存。' })
+      return false
+    }
+    return true
+  }
+
+  function payloadFor(section: CoreSettingsSection): Record<string, unknown> {
+    if (section === 'ai') return aiPayload()
+    if (section === 'rsshub') return rsshubPayload()
+    if (section === 'filtering') return filteringPayload()
+    return { topics: topicsDraftRef.current }
+  }
+
+  function configuredPayloadFor(section: CoreSettingsSection): Record<string, unknown> {
+    if (section === 'ai') {
+      return {
+        enabled: ai.enabled !== false,
+        provider: configuredAiDraft.provider,
+        model: configuredAiDraft.model,
+        api_key_env: configuredAiDraft.apiKeyEnv,
+        base_url: String(ai.base_url ?? '').trim(),
+        languages: Array.isArray(ai.languages) ? ai.languages.join(',').trim() || 'zh' : 'zh',
+        analysis_content_chars: Number(ai.analysis_content_chars ?? 1000),
+        analysis_comments_chars: Number(ai.analysis_comments_chars ?? 1500),
+        summary_max_chars: Number(ai.summary_max_chars ?? 200),
+        analysis_max_output_tokens: Number(ai.analysis_max_output_tokens ?? 800),
+        enrichment_content_chars: Number(ai.enrichment_content_chars ?? 4000),
+      }
+    }
+    if (section === 'rsshub') {
+      return { base_url: String(rsshub.base_url ?? 'http://rsshub:1200').trim() }
+    }
+    if (section === 'filtering') {
+      return {
+        ...filtering,
+        time_window_hours: Number(filtering.time_window_hours ?? 24),
+        feed_window_days: Number(filtering.feed_window_days ?? 7),
+        rss_initial_fetch_window_hours: Number(filtering.rss_initial_fetch_window_hours ?? 168),
+        recent_item_limit: Number(filtering.recent_item_limit ?? 20),
+      }
+    }
+    return { topics: configuredTopics }
+  }
+
+  function saveCoreSections(sections: CoreSettingsSection[]) {
+    if (configMutation.isPending) return
+    const orderedSections = coreSettingsOrder.filter((section) => sections.includes(section))
+    if (!orderedSections.length) return
+    for (const section of orderedSections) {
+      if (!reportSectionValidity(section)) return
+    }
+    const payload: CoreSettingsBundle = {}
+    for (const section of orderedSections) payload[section] = payloadFor(section)
+    configMutation.mutate({
+      sections: orderedSections,
+      payload,
+      revisions: { ...coreRevisions.current },
+    })
+  }
+
   function saveAi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    configMutation.mutate({ action: 'set_ai', payload: {
-      enabled: data.has('enabled'), provider: aiDraft.provider, model: aiDraft.model, api_key_env: aiDraft.apiKeyEnv, base_url: inputValue(data, 'base_url'), languages: inputValue(data, 'languages') || 'zh',
-      analysis_content_chars: Number(data.get('analysis_content_chars')), analysis_comments_chars: Number(data.get('analysis_comments_chars')), summary_max_chars: Number(data.get('summary_max_chars')), analysis_max_output_tokens: Number(data.get('analysis_max_output_tokens')), enrichment_content_chars: Number(ai.enrichment_content_chars ?? 4000),
-    } })
+    saveCoreSections(['ai'])
   }
 
   function saveFiltering(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    configMutation.mutate({ action: 'set_filtering', payload: {
-      ...filtering,
-      time_window_hours: Number(data.get('time_window_hours')),
-      rss_initial_fetch_window_hours: Number(data.get('rss_initial_fetch_window_hours')),
-      recent_item_limit: Number(data.get('recent_item_limit')),
-    } })
+    saveCoreSections(['filtering'])
   }
 
   function saveRsshub(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    configMutation.mutate({
-      action: 'set_rsshub',
-      payload: { base_url: inputValue(data, 'base_url') },
-    })
+    saveCoreSections(['rsshub'])
   }
 
   return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {settingsDirty && <div
       data-settings-dirty-notice
-      className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 ml-auto max-w-sm min-[768px]:bottom-4 min-[768px]:left-auto min-[768px]:right-4"
+      className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 ml-auto max-w-md min-[768px]:bottom-4 min-[768px]:left-auto min-[768px]:right-4"
     >
-      <HeroNotice title="有尚未保存的更改" status="warning" role="status">离开或刷新页面前，请先保存当前设置。</HeroNotice>
+      <HeroNotice title="有尚未保存的更改" status="warning" role="status">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="min-w-0 flex-1">
+            {dirtyCoreSections.size > 0
+              ? `${dirtyCoreSections.size} 项核心配置待保存${secretDirty ? '；Key 草稿仍需单独保存' : ''}。`
+              : 'Key 草稿需要通过密钥表单单独保存。'}
+          </span>
+          {dirtyCoreSections.size > 0 && <Button
+            size="sm"
+            isDisabled={configMutation.isPending}
+            onPress={() => saveCoreSections(coreSettingsOrder.filter((section) => dirtyCoreSections.has(section)))}
+          ><Icons.Save size={15} aria-hidden="true" />{configMutation.isPending ? '保存中…' : '保存全部配置'}</Button>}
+        </div>
+      </HeroNotice>
     </div>}
     <div data-mobile-settings-selector className="min-[768px]:pointer-fine:hidden">
       <HeroSelect label="设置区域" value={activeSection} onChange={jumpToSection} options={[...sectionOptions]} className="w-full" />
@@ -940,22 +1365,22 @@ export function HeroSettingsPage() {
               void secrets.refetch()
             }}>重试此区域</Button>
           </HeroNotice>
-          : <form className="mt-5 grid gap-4" onChange={() => setSettingsDirty(true)} onSubmit={saveAi}>
+          : <form ref={aiFormRef} className="mt-5 grid gap-4" onChange={() => refreshCoreDirty('ai')} onSubmit={saveAi}>
         <Checkbox name="enabled" defaultSelected={ai.enabled !== false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 分析</Checkbox.Content></Checkbox>
         <div className="grid gap-4 min-[720px]:grid-cols-3">
           <HeroSelect label="Provider" value={aiDraft.provider} onChange={(nextProvider) => {
             const defaults = aiDefaultsForProvider(nextProvider)
             const available = (secrets.data?.secrets ?? []).some((secret) => secret.kind === 'ai' && secret.env_name === defaults.apiKeyEnv)
             setAiOverride({ provider: nextProvider, model: defaults.model, apiKeyEnv: available ? defaults.apiKeyEnv : aiDraft.apiKeyEnv })
-            setSettingsDirty(true)
+            refreshCoreDirty('ai')
           }} options={[{ id: 'gemini', label: 'Gemini' }, { id: 'openai', label: 'OpenAI' }, { id: 'anthropic', label: 'Anthropic' }, { id: 'deepseek', label: 'DeepSeek' }]} />
           <TextField fullWidth value={aiDraft.model} onChange={(model) => {
             setAiOverride({ ...aiDraft, model })
-            setSettingsDirty(true)
+            refreshCoreDirty('ai')
           }} isRequired><Label>模型</Label><Input /></TextField>
           <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
             setAiOverride({ ...aiDraft, apiKeyEnv })
-            setSettingsDirty(true)
+            refreshCoreDirty('ai')
           }} options={[{ id: '', label: '请选择' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
           <FormField name="base_url" label="Base URL" type="url" defaultValue={String(ai.base_url ?? '')} />
           <FormField name="languages" label="输出语言" defaultValue={Array.isArray(ai.languages) ? ai.languages.join(',') : 'zh'} />
@@ -964,7 +1389,7 @@ export function HeroSettingsPage() {
           <FormField name="summary_max_chars" label="概括最多字符" type="number" min={100} max={500} defaultValue={Number(ai.summary_max_chars ?? 200)} />
           <FormField name="analysis_max_output_tokens" label="最大输出 Token" type="number" min={256} max={2048} defaultValue={Number(ai.analysis_max_output_tokens ?? 800)} />
         </div>
-        <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_ai')}><Icons.Save size={15} />{feedback.isPending('config-save', 'set_ai') ? '保存中…' : '保存 AI 设置'}</Button>
+        <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}><Icons.Save size={15} />{configMutation.isPending && configMutation.variables?.sections.includes('ai') ? '保存中…' : '保存 AI 设置'}</Button>
       </form>)}
     </AdminSection>
 
@@ -991,21 +1416,36 @@ export function HeroSettingsPage() {
             <p className="type-meta mt-1 text-muted">Bilibili 等受控路由统一使用此 Base URL，可填写自建、反向代理前缀或第三方 RSSHub。自建公网实例可通过 SecretStore 的 RSSHUB_ACCESS_KEY 启用访问控制；Worker 只发送路由级 code，OpenClaw 不接收地址或密钥。</p>
             <p className="type-meta mt-2 text-muted">RSSHub 访问密钥：{rsshubAccessKeySet ? '已配置' : '未配置（无鉴权第三方实例可留空）'}</p>
           </div>
-          <form className="grid gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end" onChange={() => setSettingsDirty(true)} onSubmit={saveRsshub}>
-            <FormField name="base_url" label="RSSHub Base URL" type="url" defaultValue={String(rsshub.base_url ?? 'http://rsshub:1200')} />
-            <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_rsshub')}>{feedback.isPending('config-save', 'set_rsshub') ? '保存中…' : '保存 RSSHub 地址'}</Button>
+          <form ref={rsshubFormRef} className="grid gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end" onChange={() => refreshCoreDirty('rsshub')} onSubmit={saveRsshub}>
+            <FormField name="base_url" label="RSSHub Base URL" type="url" defaultValue={String(rsshub.base_url ?? 'http://rsshub:1200')} required />
+            <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>{configMutation.isPending && configMutation.variables?.sections.includes('rsshub') ? '保存中…' : '保存 RSSHub 地址'}</Button>
           </form>
         </div>
-        <form className="grid gap-4" onChange={() => setSettingsDirty(true)} onSubmit={saveFiltering}>
-          <div className="grid gap-4 min-[720px]:grid-cols-3">
-            <FormField name="time_window_hours" label="日常抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} />
+        <form ref={filteringFormRef} className="grid gap-4" onChange={() => refreshCoreDirty('filtering')} onSubmit={saveFiltering}>
+          <div className="grid gap-4 min-[720px]:grid-cols-2 min-[1080px]:grid-cols-4">
+            <FormField name="time_window_hours" label="日常抓取窗口（小时）" type="number" min={1} max={720} defaultValue={Number(filtering.time_window_hours ?? 24)} required />
+            <HeroSelect
+              name="feed_window_days"
+              label="信息流活跃窗口"
+              value={feedWindowDays}
+              onChange={(value) => {
+                setFeedWindowDaysOverride(value)
+                refreshCoreDirty('filtering')
+              }}
+              description="按上海自然日划分 Feed 与历史；不改变抓取窗口，也不会删除内容。"
+              options={[
+                { id: '7', label: '近 7 天（默认）' },
+                { id: '14', label: '近 14 天' },
+                { id: '30', label: '近 30 天' },
+              ]}
+            />
             <HeroSelect
               name="rss_initial_fetch_window_hours"
               label="RSS 首次抓取窗口"
               value={rssInitialFetchWindow}
               onChange={(value) => {
                 setRssInitialFetchWindowOverride(value)
-                setSettingsDirty(true)
+                refreshCoreDirty('filtering')
               }}
               description="RSS 或 RSSHub 订阅在首次成功前使用该窗口；成功后恢复日常窗口。"
               options={[
@@ -1013,12 +1453,25 @@ export function HeroSettingsPage() {
                 { id: '720', label: '30 天' },
               ]}
             />
-            <FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} />
+            <FormField name="recent_item_limit" label="历史预览条数" type="number" min={1} max={200} defaultValue={Number(filtering.recent_item_limit ?? 20)} required />
           </div>
-          <Button className="w-fit" type="submit" isDisabled={feedback.isPending('config-save', 'set_filtering')}>{feedback.isPending('config-save', 'set_filtering') ? '保存中…' : '保存获取设置'}</Button>
+          <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>{configMutation.isPending && configMutation.variables?.sections.includes('filtering') ? '保存中…' : '保存获取设置'}</Button>
         </form>
-        <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary key={JSON.stringify(config.data?.taxonomy?.topics ?? config.data?.config.tags ?? [])} topics={(config.data?.taxonomy?.topics ?? (Array.isArray(config.data?.config.tags) ? config.data.config.tags : [])).filter((topic): topic is string => typeof topic === 'string')} pending={feedback.isPending('config-save', 'set_tags')} onSave={(topics) => configMutation.mutate({ action: 'set_tags', payload: { topics } })} /></div>
+        <div className="mt-6 border-t border-separator pt-5"><h3 className="type-control mb-4">阅读主题库</h3><HeroTopicLibrary
+          topics={configuredTopics}
+          draft={topicsDraft}
+          pending={configMutation.isPending}
+          onDraftChange={(topics) => {
+            setTopicsOverride(topics)
+            setCoreSectionDirty('topics', JSON.stringify(topics) !== JSON.stringify(configuredTopics))
+          }}
+          onSave={() => saveCoreSections(['topics'])}
+        /></div>
         </>}
+      </AdminSection>
+
+      <AdminSection id="settings-storage" title="存储与归档" description="预演工作区清理、90 日冷归档与恢复；所有操作均先核对候选指纹并记录审计。">
+        <StorageArchiveSettings />
       </AdminSection>
 
       <AdminSection id="settings-secrets" title="密钥" description="真实 Key 只写入 SecretStore，保存后永不回显。">
@@ -1027,7 +1480,7 @@ export function HeroSettingsPage() {
           : secrets.isError
             ? <HeroNotice title="密钥读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void secrets.refetch()}>重试此区域</Button></HeroNotice>
             : <>
-        <form className="grid gap-3 min-[760px]:grid-cols-5" noValidate onChange={() => setSettingsDirty(true)} onSubmit={createSecret}>
+        <form className="grid gap-3 min-[760px]:grid-cols-5" noValidate onSubmit={createSecret}>
           <TextField fullWidth value={secretDraft.name} onChange={(name) => {
             setSecretDraft((current) => ({ ...current, name }))
             clearSecretFieldError('name')
@@ -1037,7 +1490,6 @@ export function HeroSettingsPage() {
           <div>
             <HeroSelect label="Key 类型" value={secretDraft.kind} onChange={(kind) => {
               setSecretDraft((current) => ({ ...current, kind }))
-              setSettingsDirty(true)
               clearSecretFieldError('kind')
               clearSecretFieldError('provider')
             }} options={[{ id: 'ai', label: 'AI' }, { id: 'apify', label: 'Apify' }]} />

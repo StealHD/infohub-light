@@ -301,6 +301,7 @@ class SourceScheduleService:
             migration_required = (
                 self.store.feed_v2_migration_required()
                 or self.store.content_index_v4_migration_required()
+                or self.store.content_timeline_v11_migration_required()
             )
             for raw_row in rows:
                 schedule = self._schedule(raw_row)

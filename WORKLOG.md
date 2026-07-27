@@ -3025,3 +3025,57 @@
 - 结果：产品 revision `74c7b16d715b` 已发布，API 与 Worker 使用同一镜像 `sha256:8f19c5668e8b88104a6c58c10e730d8e6b97ff565520929f5dc2caa018d212b5`；Worker 探针 timeout 为 10 秒，legacy scheduler 保持停止
 - 发布/回退：当前 release 为 `/opt/inteliscope/releases/v1.7.4-74c7b16d715b`；切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.4-74c7b16d715b-20260726T160025Z`，旧 release/image 保留
 - 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未运行真实来源抓取、AI、完整 scheduler、通知或付费服务，部署 staging 与上传归档验收后已清理
+
+### 2026-07-27 02:52 Codex
+- 任务：在独立分支实施 OpenClaw 桌面后台运行、语义终态提醒、安全来源引用及 Feed/来源卡紧凑交互
+- 修改范围：Agent/Insights 响应式布局、V6 handoff 与浏览器 transcript、Prompt Input/Chat Source、模型和用量控件、Feed 搜索/图标工具栏、来源编辑控制行，以及 API/UI 合同、D076、手册、更新日志和回归测试
+- 执行验证：TypeScript、Lint（0 error）、UI 合同、176 项相关 Vitest 与新增响应式用例通过；生产 Workbench Playwright 1440/1024/390 为 3/3，Axe serious/critical 为 0；最终 `test_gate full` 22/22、0 failed/error、127.739 秒
+- 结果：桌面隐藏 Agent 不会中断运行，终态以非纯色点语义提醒；400 px Agent、64–160 px 输入、`k` 用量、安全来源链接和 Feed 搜索均完成，宽屏双面板共存且空间不足时 Insights 柔和退出
+- 控制面变更：`API_CONTRACT.md`、`UI_CONTRACT.md` 与 D076 升级为 V6 来源引用和新的桌面运行语义；无 Service API、数据库、Gateway RPC、MCP 权限或 Worker 行为变化
+- 安全边界：未连接或调用用户 OpenClaw、未触发真实来源、AI、scheduler、通知、付费服务、提交、推送或部署；原工作区未修改
+
+### 2026-07-27 08:07 Codex
+- 任务：核对 `127.0.0.1:8080` 本地容器是否已经运行 OpenClaw 响应式 Agent 新版本
+- 执行验证：API/Worker 均 healthy，但镜像 revision 为 `2b6d078ac3d4-dirty`；服务资源为 `index-DlHleLji.js` 且 bootstrap Agent 默认 360 px，新分支构建为 `index-DkK_8czX.js` 与 400 px
+- 结果：当前本地容器不是 `codex/openclaw-responsive-agent-ui` 版本；仅完成只读核对，未重建或重启容器
+
+### 2026-07-27 08:11 Codex
+- 任务：重建并启动 `codex/openclaw-responsive-agent-ui` 的本地容器
+- 执行验证：从隔离 Worktree 无缓存构建 revision `dd396e3bad2a-dirty`，复用原运行目录的 `.env`、`data` 与 `logs` 重建 API/Worker；两者均 healthy，liveness/readiness 通过，8080 已返回 `index-DkK_8czX.js`、`index-C7g7vUL8.css` 与 400 px Agent 默认宽度
+- 安全边界：仅重建并重启本地 Compose API/Worker；未启动 scheduler、真实来源抓取、AI、通知、付费调用或生产部署
+
+### 2026-07-27 11:27 Codex
+- 任务：完成 Agent/概览协调、OpenClaw 滚动所有权、设置原子总保存、订阅公共/私人分类与直接分享、ViewBar 向下提示
+- 修改范围：配置兼容 API、Workbench/OpenClaw/设置/订阅与设计系统、单元和 Playwright 回归、API/UI 合同、决策记录、手册与更新日志
+- 执行验证：Vitest 53 文件 461 项、目标 Playwright 与明暗视觉基线、TypeScript、UI 合同和 Lint（0 error）通过；最终 `test_gate full` 22/22、0 failed/error、142.248 秒；本地 `up-latest.sh` 重建后 liveness/readiness、Feed/订阅/设置浏览器验收通过
+- 结果：短输入滚轮不再串联，长输入只滚 textarea；1280 px Agent 下可手动查看遮挡概览并由工作台热区退出；核心草稿回到基线即清除假脏状态；本地资源为 `index-Brjbwxm6.js`
+- 控制面变更：新增 `set_settings_bundle` 原子兼容动作及对应设置、交互和订阅 UI 合同；原单项动作、权限与安全保存流程保持兼容
+- 安全边界：未保存浏览器测试草稿、未发送 OpenClaw 消息、未分享来源或改写配置；未启动 scheduler、真实来源抓取、AI、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 12:38 Codex
+- 任务：修复 `tsucha_ri` 旧内容不可达及订阅抓取数误导问题
+- 修改范围：稳定历史查询/分页与来源权限、完整 provenance 当前/历史计数、X/Instagram 旧帖空成功语义、订阅与历史前端、API/架构/UI 合同、D078、手册、更新日志和回归测试
+- 执行验证：后端定向 188 项、前端定向 94 项、TypeScript 与新增 Playwright 通过；`test_gate full` 22/22、0 failed/error、128.069 秒；本地 revision `dd396e3bad2a-dirty` 的 API/Worker healthy
+- 结果：本地 `tsucha_ri` 显示“上次抓取 2 条 · 当前 0 条 · 历史 2 条”，历史链接返回两条旧内容，服务端搜索与清除来源条件均经真实数据验证
+- 控制面变更：历史 API 新增 `q/source_id/limit/offset` 与分页元数据，Source Health 新增当前/历史计数；无数据库迁移
+- 安全边界：未触发真实 Apify、来源获取、AI、scheduler、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 14:20 Codex
+- 任务：规划管理员数据清理归档能力，并优化订阅卡片过长的计数信息
+- 只读结论：本地约 30.5 MB 数据中 Feed 快照与快照条目约占数据库 80%；131 个快照仍为旧存储格式且缺少 v3 迁移记录，现有维护任务因此未执行；全局抓取为每日一次，`r/codex` 占稳定历史约 73% 且每次上限为 25
+- 方案：先完成带备份的 v3 迁移、紧凑快照、每用户 20 个快照上限和来源限流，再分阶段增加存储概览、清理预演/异步执行、可检索冷归档/恢复与离线压缩；产品代码和运行数据均未修改
+- 安全边界：仅执行只读 SQLite、代码和合同检查；未运行迁移、清理、归档、抓取、AI、scheduler、通知、付费调用、容器重建、提交或部署
+
+### 2026-07-27 17:01 Codex
+- 任务：完成 Feed 上海自然日分层、全局搜索、订阅计数密度、设置总保存与管理员安全存储治理，并收口 Agent/信息概览及 OpenClaw 滚动交互
+- 修改范围：稳定内容时间/搜索索引与 API、Source Health、Feed/History/订阅/设置 UI、v3/v11 显式迁移、清理/归档/恢复预演接口、产品合同/手册/更新日志及回归测试
+- 执行验证：`test_gate full` 22/22、Vitest 464/464、完整 Playwright 及关键 645/693/320px 回归通过；本地 v3/v11 迁移后 integrity/foreign keys 正常，API/Worker healthy，真实浏览器 Feed/History/订阅/设置无控制台错误
+- 结果：本地 287 条稳定内容已按近 7 天与历史即时分层，`tsucha_ri` 显示今日 0、近7天 0、历史 2 并可达两条旧内容；存储中心显示 23 个紧凑 Feed 快照，revision `dd396e3bad2a-dirty` 运行于 8080
+- 安全边界：迁移前后保留 `0600` 数据库备份及原运行库副本；未触发真实来源、Apify、AI、scheduler、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 17:25 Codex
+- 任务：修复裸 `/history` 在完整本地历史数据上进入页面级错误边界
+- 根因：22 条旧稳定内容没有 `presentation`；时间投影为附加 `effective_at` 创建了仅含 `timing` 的半成品结构，前端筛选读取缺失的 `source.id` 时崩溃
+- 修改范围：稳定内容投影统一补齐规范展示结构，Feed 筛选与来源派生对旧缓存采用防御性嵌套访问，并增加后端、Vitest 与三视口 Playwright 回归
+- 执行验证：目标后端与 Vitest、三端 Playwright、TypeScript、Lint 通过；`test_gate full` 22/22；重建后 API/Worker healthy，真实 `/history` 显示 60 条且新页面控制台错误为 0
+- 安全边界：未修改稳定内容、时间索引或用户状态，数据库 integrity/foreign keys 正常；未触发来源抓取、Apify、AI、scheduler、通知、付费调用、提交、推送或生产部署

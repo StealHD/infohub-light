@@ -184,6 +184,22 @@ export function HeroSubscriptionsPage() {
   const configQuery = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal) })
   const secretsQuery = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: isAdmin })
 
+  useEffect(() => {
+    const todayStart = healthQuery.data?.window?.today_start
+    if (!todayStart) return
+    const nextShanghaiMidnight = Date.parse(todayStart) + 24 * 60 * 60 * 1000
+    if (!Number.isFinite(nextShanghaiMidnight)) return
+    const timer = window.setTimeout(() => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.historyRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.searchRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }),
+      ])
+    }, Math.max(0, nextShanghaiMidnight - Date.now() + 1_000))
+    return () => window.clearTimeout(timer)
+  }, [healthQuery.data?.window?.today_start, queryClient, user.id])
+
   const invalidate = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.sources(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.jobs(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.history(user.id) }),
   ])
@@ -341,6 +357,7 @@ export function HeroSubscriptionsPage() {
     subscriptionEntries,
     (entry) => entry.channel,
     (entry) => entry.health?.status === 'degraded' || entry.health?.status === 'failing',
+    (entry) => isPublicSubscriptionScope(entry.source.scope) ? 'public' : 'private',
     taxonomy.channels,
   )
   const sourceGroups = channelViewGroupsByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
@@ -494,6 +511,7 @@ export function HeroSubscriptionsPage() {
                 includeHealth: true,
               }}
               editable={editable}
+              feedWindowDays={healthQuery.data?.window?.feed_days ?? 7}
               schedule={<FeedScheduleControls
                 schedule={scheduleQuery.data}
                 editable={editable}

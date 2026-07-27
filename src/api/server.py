@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..logging_utils import configure_logging
 from ..services.feed_archive import FeedArchiveService
+from ..services.content_timeline import DEFAULT_FEED_WINDOW_DAYS
 from ..services.feed_schedule import (
     ALLOWED_INTERVALS,
     FeedScheduleService,
@@ -44,6 +45,10 @@ from ..services.apify_key_pool import (
     apify_key_pool_enabled,
 )
 from ..services.source_health import SourceHealthService
+from ..services.storage_governance import (
+    StorageGovernanceError,
+    StorageGovernanceService,
+)
 from ..services.source_schedule import (
     SOURCE_ALLOWED_INTERVALS,
     SourceScheduleService,
@@ -56,7 +61,7 @@ from ..services.subscription_mutation import (
 )
 from ..services.secret_store import SecretStore, SecretValueError
 from ..services.user_item_state import UserItemStateStore
-from ..services.user_content_store import UserContentStore
+from ..services.user_content_store import ContentSearchTimeoutError, UserContentStore
 from ..services.media_cache import MediaCacheService
 from ..services.preferred_source_notifications import (
     NotificationServiceError,
@@ -407,6 +412,19 @@ class ConfigActionRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class StoragePlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["cleanup", "archive", "restore", "delete_archive"]
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class StoragePlanApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: str = Field(default="", max_length=240)
+
+
 SOURCE_UPSERT_ACTIONS = {
     "upsert_rss": "rss",
     "upsert_github_release": "github_release",
@@ -468,6 +486,11 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("POST", "/api/admin/secrets"): ("secret", "create"),
     ("PUT", "/api/admin/secrets/{secret_id}/value"): ("secret", "rotate"),
     ("DELETE", "/api/admin/secrets/{secret_id}"): ("secret", "delete"),
+    ("POST", "/api/admin/storage/plans"): ("storage", "plan_preview"),
+    ("POST", "/api/admin/storage/plans/{plan_id}/apply"): (
+        "storage",
+        "plan_apply",
+    ),
     ("POST", "/api/catalog/import-config-sources"): ("source", "import"),
     ("POST", "/api/catalog/sources"): ("source", "create"),
     ("PATCH", "/api/catalog/sources/{source_id}"): ("source", "update"),
@@ -536,6 +559,7 @@ def create_app(
     queue = JobQueue(store)
     runtime_status = RuntimeStatusService(store)
     source_health = SourceHealthService(store)
+    storage_governance = StorageGovernanceService(store)
     secret_values = SecretStore(data_path)
     secret_quota = ApifySecretQuotaService()
     secret_values.load_into_environ()
@@ -1130,6 +1154,20 @@ def create_app(
         mark_operation_error(request, "invalid_request")
         return error_response(ApiError("invalid_request", str(exc), status_code=400))
 
+    @app.exception_handler(StorageGovernanceError)
+    async def _storage_governance_error_handler(
+        request: Request,
+        exc: StorageGovernanceError,
+    ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
+        return error_response(
+            ApiError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+            )
+        )
+
     @app.exception_handler(RequestValidationError)
     async def _request_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         mark_operation_error(request, "invalid_request")
@@ -1295,6 +1333,15 @@ def create_app(
         data = migrate_config_tag_layers(_read_json(config_path))
         config = validate_config_data(data)
         return data, config
+
+    def current_feed_window_days() -> int:
+        try:
+            _data, config = read_base_config()
+        except ApiError as exc:
+            if exc.code == "config_not_found":
+                return DEFAULT_FEED_WINDOW_DAYS
+            raise
+        return int(config.filtering.feed_window_days)
 
     def write_base_config(data: dict[str, Any]) -> None:
         validate_config_data(data)
@@ -1894,6 +1941,16 @@ def create_app(
                 status_code=503,
                 action="Stop services and run scripts/migrate_user_content_v4.py --apply.",
             )
+        if store.content_timeline_v11_migration_required():
+            raise ApiError(
+                "migration_required",
+                "content timeline v11 migration must be applied before feed reads or jobs can run",
+                status_code=503,
+                action=(
+                    "Stop services and run "
+                    "scripts/migrate_content_timeline_v11.py --apply."
+                ),
+            )
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -2152,6 +2209,74 @@ def create_app(
                     include_disabled=include_disabled,
                 )
             }
+        )
+
+    @app.get("/api/admin/storage/summary")
+    async def admin_storage_summary(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            await run_in_threadpool(
+                storage_governance.summary,
+                workspace_id=str(user["workspace_id"]),
+            )
+        )
+
+    @app.post("/api/admin/storage/plans")
+    async def admin_storage_plan_create(
+        payload: StoragePlanRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        plan = await run_in_threadpool(
+            storage_governance.create_plan,
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            actor_role=str(user["role"]),
+            operation=payload.operation,
+            payload=payload.payload,
+        )
+        request.state.operation_changed_fields = ["operation", "preview"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(plan)
+
+    @app.post("/api/admin/storage/plans/{plan_id}/apply")
+    async def admin_storage_plan_apply(
+        plan_id: str,
+        payload: StoragePlanApplyRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        plan = await run_in_threadpool(
+            storage_governance.apply_plan,
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            actor_role=str(user["role"]),
+            plan_id=plan_id,
+            confirmation=payload.confirmation,
+        )
+        request.state.operation_changed_fields = [
+            str(plan.get("operation") or "storage"),
+            "apply",
+        ]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(plan)
+
+    @app.get("/api/admin/storage/archives")
+    async def admin_storage_archives(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            await run_in_threadpool(
+                storage_governance.list_archives,
+                workspace_id=str(user["workspace_id"]),
+            )
         )
 
     @app.get("/api/admin/secrets")
@@ -2819,6 +2944,7 @@ def create_app(
             source_health.user_projection(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
+                feed_window_days=current_feed_window_days(),
             )
         )
 
@@ -3416,8 +3542,60 @@ def create_app(
                 hide_dismissed=hide_dismissed,
                 unread_first=unread_first,
                 saved_first=saved_first,
+                feed_window_days=current_feed_window_days(),
             )
         )
+
+    @app.get("/api/feed/search")
+    async def feed_search(
+        q: str,
+        limit: int = 50,
+        cursor: str | None = None,
+        submitted: bool = False,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        normalized_q = str(q or "").strip()
+        if not normalized_q or len(normalized_q) > 160:
+            raise ApiError(
+                "invalid_query",
+                "q must contain between 1 and 160 characters",
+                status_code=400,
+            )
+        if len(normalized_q) == 1 and not submitted:
+            raise ApiError(
+                "query_requires_submit",
+                "single-character searches must be submitted explicitly",
+                status_code=400,
+            )
+        if limit < 1 or limit > 50:
+            raise ApiError(
+                "invalid_limit",
+                "limit must be between 1 and 50",
+                status_code=400,
+            )
+        try:
+            result = feed_archive.search_feed(
+                workspace_id=user["workspace_id"],
+                user_id=user["id"],
+                q=normalized_q,
+                limit=limit,
+                cursor=str(cursor or "").strip() or None,
+                feed_window_days=current_feed_window_days(),
+            )
+        except ContentSearchTimeoutError as exc:
+            raise ApiError(
+                "search_timeout",
+                "content search exceeded the one-second budget",
+                status_code=503,
+                action="Retry the search or use a more specific keyword.",
+            ) from exc
+        except ValueError as exc:
+            raise ApiError(
+                "invalid_cursor",
+                str(exc),
+                status_code=400,
+            ) from exc
+        return ok(result)
 
     @app.get("/api/feed/saved")
     async def feed_saved(
@@ -3488,10 +3666,54 @@ def create_app(
     @app.get("/api/feed/history")
     async def feed_history(
         user_id: str | None = None,
+        q: str | None = None,
+        source_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         target = target_user_for_scope(user_id, user)
-        return ok(feed_archive.history_feed(workspace_id=target["workspace_id"], user_id=target["id"]))
+        normalized_q = str(q or "").strip()
+        if len(normalized_q) > 160:
+            raise ApiError(
+                "invalid_query",
+                "q must be at most 160 characters",
+                status_code=400,
+            )
+        if limit < 1 or limit > 200:
+            raise ApiError(
+                "invalid_limit",
+                "limit must be between 1 and 200",
+                status_code=400,
+            )
+        if offset < 0:
+            raise ApiError(
+                "invalid_offset",
+                "offset must be non-negative",
+                status_code=400,
+            )
+        normalized_source_id = str(source_id or "").strip() or None
+        if normalized_source_id:
+            visible_source_ids = {
+                str(source["id"])
+                for source in store.list_visible_sources(
+                    target,
+                    include_disabled=True,
+                )
+            }
+            if normalized_source_id not in visible_source_ids:
+                raise ApiError("not_found", "source not found", status_code=404)
+        return ok(
+            feed_archive.history_feed(
+                workspace_id=target["workspace_id"],
+                user_id=target["id"],
+                q=normalized_q or None,
+                source_id=normalized_source_id,
+                limit=limit,
+                offset=offset,
+                feed_window_days=current_feed_window_days(),
+            )
+        )
 
     @app.get("/api/archive/graph")
     async def archive_graph(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:

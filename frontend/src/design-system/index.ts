@@ -48,8 +48,16 @@ export { actionToast } from './actionToast'
 export { ThemeModeToggle } from './ThemeModeToggle'
 export { useThemePreference } from './themePreferenceContext'
 export { Tooltip } from './AnchoredTooltip'
-export { anchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
+export { anchoredTooltipProps, bottomAnchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
+export {
+  ChatSource,
+  ChatSources,
+  PromptInput,
+  PromptInputBody,
+  PromptInputToolbar,
+} from './chat'
+export type { ChatSourceData } from './chat'
 export {
   CalmSkeleton,
   CompactSelect,

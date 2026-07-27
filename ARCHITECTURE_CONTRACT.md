@@ -44,12 +44,17 @@ React 视觉系统、组件所有权、响应式布局和视觉验收以 `UI_CON
 Service UI 在小团体服务模式下必须先完成登录门禁，再加载用户 Feed 或控制台 API。未登录时只显示登录界面，不展示信息流、历史、订阅或配置内容。
 
 ### 3.5 Feed Retention Boundary
-多人 Service 的 latest/history 只使用 `ServiceStore + UserFeedStore` 中目标用户的 `user_feed_snapshots/user_feed_items`；history v2 的精确响应与留存算法以 `API_CONTRACT.md` 为唯一真源。该读取路径不得访问 `data/site/*.json`、`data/horizon.db`、`ArticleStore` 或 `articles_light`。
+多人 Service 的 latest/history/search 都以 `UserContentStore` 的目标用户 `user_content_items` 稳定索引为内容真源。`src/services/content_timeline.py` 独占上海自然日、`7/14/30` 天窗口、可信 `effective_at` 与 `today|feed|history` 归属；latest 投影当前窗口，history 投影严格早于窗口的数据，search 横跨在线与冷记录但不改变归属。`UserFeedStore` 继续保存采集结果 snapshot，只提供最近 20 份历史摘要、生成元数据和已保存 featured/daily/personal 成员证据，不再决定内容的 Feed/History 可达性。精确响应以 `API_CONTRACT.md` 为唯一真源；该读取路径不得访问 `data/site/*.json`、`data/horizon.db`、`ArticleStore` 或 `articles_light`。
 
-收藏、稍后读和按需详情使用 `user_content_items` 稳定索引，不依赖 item 仍存在于最新 snapshot。普通内容按 Feed retention 清理；`is_saved` 或 `is_later` 为真时内容和媒体持续保留。v4 只做 additive 表、旧 snapshot 摘要回填和 marker；有旧 feed item 且未回填时 readiness、schedule 与 Worker feed job 必须以 `migration_required` 停止，显式迁移先创建 UTC `0600` SQLite backup，再校验 integrity 与 foreign keys。
+稳定内容默认全部保留；普通自动 retention 只能删除紧凑 snapshot、任务、缓存、使用记录、过期 session/proposal 与孤立媒体，不得删除 `user_content_items`。收藏、稍后读和按需详情同样使用稳定索引，不依赖 item 仍存在于最新 snapshot。v4 负责稳定内容表，v11 负责 `effective_at/search_text` 与用户 FTS5 trigram 索引；任一显式迁移都必须先以 SQLite backup API 创建权限 `0600` 的独立副本，再校验 integrity 与 foreign keys。
 
 ### 3.5A Legacy Archive Compatibility Boundary
 `ArticleStore`、`data/horizon.db`、archive items/trends/facets/source-quality、feedback 表/API 和旧静态 history/graph 只为兼容保留，不是当前产品 UI 或后续建设目标。默认 Service UI 不依赖或调用这些接口；`/api/archive/graph` 固定返回 disabled 安全空响应。保留 compatibility surface 不得被解释为 Service Feed 的架构依赖。
+
+### 3.5B Storage Governance Boundary
+`src/services/storage_governance.py::StorageGovernanceService` 独占当前工作区的存储概览、两阶段候选计划、标准清理、90 天冷归档、恢复和归档永久删除。API 只负责 owner/admin 鉴权、请求 shape 与安全 envelope；入口层不得拼任意 SQL、接受原始路径、运行在线 `VACUUM` 或直接删除文件。每个计划绑定 actor/workspace、十分钟有效期和候选指纹；apply 在写事务内复算候选，变化即 fail closed。
+
+冷归档文件只可写入私有 `data/archives`，先完成临时 ZIP、manifest/NDJSON/媒体写入、计数与 checksum 校验，再原子落位并提交批次；只有提交成功后才能把在线正文/分析输入/媒体降为永久可搜索元数据，并通过 post-commit cleanup 移除媒体文件。restore 必须先复验批次、workspace、文件 SHA-256、媒体成员路径和每项 checksum，再幂等恢复数据库与媒体；失败时回滚数据库并移除本次新建文件。收藏、稍后读、当前 Feed、通知 pending/sending 和未提交归档始终受保护。系统永不自动永久删除归档；owner 的永久删除必须以已恢复批次、零冷引用、独立预演和精确确认短语为前置条件。
 
 ### 3.6 Tenant/User Boundary
 小团体 MVP 使用单 workspace。用户、角色、公共/私有 source catalog、订阅配置、job queue、usage event 和 secret ref 归 `src/storage/service_store.py` 管理。入口层不得直接拼 SQL 或绕过 `ServiceStore`/service helper 读写这些状态。
@@ -125,7 +130,7 @@ Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保
 
 Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为每个 `/api/*` 请求创建和关闭连接；鉴权读取与路由处理必须处于同一请求边界。请求结束仍存在事务时必须回滚并返回 `database_transaction_leak`，避免 macOS Docker bind mount 下长连接停留在旧 WAL 视图而误判 Worker heartbeat 或任务状态。`/api/health/live` 不访问数据库，也不受该边界阻塞。
 
-`user_feed_refresh` 的 `succeeded/partial` 结果必须把 schema-v2 payload 保存为当前用户 snapshot，并写入 `snapshot_id/item_count` 到 job result。snapshot、items 和 job 终态在同一短事务提交；过期 claim 无权提交。同一非空 job 最多一个 snapshot，同一 snapshot 内 article 唯一；terminal job 手动 retry 产生的新 run 原子替换该 job 的旧 snapshot 内容。`/api/feed/*` 只读取用户作用域 snapshot；compatibility-only archive 路由遵守上一节的 legacy 边界，不能反向成为 Feed 依赖。
+`user_feed_refresh` 的 `succeeded/partial` 结果必须把 schema-v2 payload 保存为当前用户 snapshot，同时 upsert 稳定内容并写入 `snapshot_id/item_count` 到 job result。snapshot、稳定 items 和 job 终态在同一短事务提交；过期 claim 无权提交。同一非空 job 最多一个 snapshot，同一 snapshot 内 article 唯一；terminal job 手动 retry 产生的新 run 原子替换该 job 的旧 snapshot 内容，但既有稳定 `effective_at` 不变。`/api/feed/latest|history|search` 只读取目标用户稳定索引并按 timeline 投影；compatibility-only archive 路由遵守上一节 legacy 边界，不能反向成为 Feed 依赖。
 
 `source_fetch` 带 `source_id` 时属于用户作用域精准抓取，不走旧 `source_type:index` 单源刷新路径。Worker 执行后必须通过 `UserFeedStore` 保存当前用户 snapshot，并在 job result 中返回 source 和 snapshot 元数据。
 
@@ -173,6 +178,8 @@ member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL us
 默认部署单元是独立 `horizon-api + horizon-worker`；用户 Feed schedule 内嵌在现有 Worker，不形成第三个默认进程或容器。旧 scheduler 永远位于显式 `scheduler` profile，也不参与 Service Feed 调度。旧 snapshot 到 Feed v2 的清空重建只能由 `scripts/migrate_user_feed_v2.py --apply` 在服务停止后显式执行，应用启动不得自动删除用户数据；未完成迁移时 readiness 和 Feed Worker 都必须拒绝继续。迁移工具已存在不表示真实数据库已执行迁移。
 
 Feed storage v3 使用 `scripts/migrate_feed_storage_v3.py --dry-run|--apply`。apply 前必须停止 Worker；工具以 SQLite backup API 创建 UTC 命名、权限 `0600` 的独立副本，additive 初始化/backfill content hash，执行 retention，并通过 `integrity_check` 与 `foreign_key_check` 后才记录 version 3。Worker maintenance 以持久化小时门禁执行相同 retention，且无论时间/数量阈值都保留每用户/每 acquisition key 最新必要记录。
+
+Content timeline v11 使用 `scripts/migrate_content_timeline_v11.py --dry-run|--apply`。apply 前同样停止 Worker并创建独立备份；迁移以首次入库时间作为缺失/非法/异常未来发布时间的稳定回退，回填用户隔离的 `effective_at/search_text`，重建 FTS5 索引并在 integrity/foreign-key 全部通过后记录 version 11。API readiness 与存储治理在存在待回填行时必须 fail closed，不得靠重新抓取修复时间边界。
 
 生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。Inteliscope production image 必须从干净、revision-locked commit 在本机以 `linux/amd64` 构建并验收，压缩归档经校验上传后只在 VPS 执行 `docker load`；禁止在 `vps-tokyo` 对本仓库执行 Docker build。RSSHub 作为单独的 VPS-only 容器加入生产 Compose 网络并只绑定 VPS loopback；VPS 项目使用容器 DNS，本地项目经现有 Nginx 的 HTTPS path prefix 复用同一实例，不使用 SSH tunnel，也不在本地启动第二套 RSSHub。公网入口必须启用 RSSHub `ACCESS_KEY`、关闭该 location 的 access log 并保持容器端口不直接暴露；固定摘要的 `chromium-bundled` 镜像必须显式使用已验证的容器内 Chromium 路径和 RSSHub 非随机 UA，匿名 Bilibili Cookie 只能通过受控刷新脚本写入 SecretStore。匿名参数不构成 Bilibili 可用性保证；连续冷路由出现上游 `-352` 时必须停止高频探测，等待上游窗口恢复或切换第三方实例显式降级。RSSHub 这类 pinned third-party runtime image 可以在 VPS 直接 pull。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；源码发布包必须来自同一干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
 

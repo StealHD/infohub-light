@@ -421,6 +421,7 @@ def run_worker_once(
         if (
             not store.feed_storage_v3_migration_required()
             and not store.content_index_v4_migration_required()
+            and not store.content_timeline_v11_migration_required()
         ):
             MaintenanceService(store).run_if_due()
         queue = JobQueue(store)
@@ -536,6 +537,8 @@ def run_worker_once(
                         raise MigrationRequiredError("user feed v2 migration is required before feed jobs can run")
                     if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_index_v4_migration_required():
                         raise MigrationRequiredError("user content v4 migration is required before feed jobs can run")
+                    if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_timeline_v11_migration_required():
+                        raise MigrationRequiredError("content timeline v11 migration is required before feed jobs can run")
                     result = _run_job(job, data_dir=data_dir, store=store)
                     if result.get("snapshot_id"):
                         conn = store.connect()

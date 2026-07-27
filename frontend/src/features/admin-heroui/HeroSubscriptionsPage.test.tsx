@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -120,7 +120,7 @@ describe('subscription source card notifications', () => {
       enabled: true,
     }, { fetchLabel: '获取中' })
 
-    const fetchButton = screen.getByRole('button', { name: '获取中 通知来源' })
+    const fetchButton = screen.getByRole('button', { name: /^获取中 通知来源；上次抓取 0 条；/ })
     expect(fetchButton).toHaveTextContent('立即获取')
     expect(fetchButton).toHaveClass('min-w-[104px]')
     expect(fetchButton.parentElement).toHaveAttribute('aria-busy', 'true')
@@ -128,7 +128,7 @@ describe('subscription source card notifications', () => {
     expect(fetchButton.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
   })
 
-  it('keeps edit direct and trims the More menu to sharing only', async () => {
+  it('keeps edit and share directly visible in the lower control row', async () => {
     const browser = userEvent.setup()
     const { onEditSource, onShare } = renderCard({
       id: 'subscription-5',
@@ -137,16 +137,45 @@ describe('subscription source card notifications', () => {
       enabled: true,
     }, { canEdit: true, canShare: true })
 
-    await browser.click(screen.getByRole('button', { name: '编辑来源：通知来源' }))
+    const editSource = screen.getByRole('button', { name: '编辑来源：通知来源' })
+    expect(editSource.closest('[data-source-card-header]')).toBeNull()
+    expect(editSource.closest('[data-source-card-controls]')).not.toBeNull()
+    await browser.click(editSource)
     expect(onEditSource).toHaveBeenCalledWith(source, expect.any(HTMLElement))
 
-    const trigger = screen.getByRole('button', { name: '更多操作：通知来源' })
-    expect(screen.queryByRole('button', { name: '分享来源' })).not.toBeInTheDocument()
-    await browser.click(trigger)
-    const dialog = screen.getByRole('dialog', { name: '通知来源 来源操作' })
-    expect(within(dialog).queryByRole('button', { name: '编辑来源' })).not.toBeInTheDocument()
-    await browser.click(within(dialog).getByRole('button', { name: '分享来源' }))
+    expect(screen.queryByRole('button', { name: '更多操作：通知来源' })).not.toBeInTheDocument()
+    const share = screen.getByRole('button', { name: '分享来源：通知来源' })
+    expect(share.closest('[data-source-card-controls]')).not.toBeNull()
+    await browser.click(share)
     expect(onShare).toHaveBeenCalledWith(source, expect.any(HTMLElement))
-    expect(screen.queryByRole('dialog', { name: '通知来源 来源操作' })).not.toBeInTheDocument()
+  })
+
+  it('shows today, feed-window and historical counts while keeping fetched count in metadata', () => {
+    renderCard({
+      id: 'subscription-counts',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+    }, {
+      health: {
+        subscription_id: 'subscription-counts',
+        source_id: source.id,
+        status: 'healthy',
+        consecutive_failures: 0,
+        last_fetched_count: 2,
+        today_item_count: 1,
+        feed_item_count: 4,
+        current_item_count: 4,
+        history_item_count: 2,
+      },
+    })
+
+    expect(document.querySelector('[data-source-counts]')).toHaveTextContent('今日1近7天4历史2')
+    expect(screen.getByLabelText('最近更新 尚未完成，上次抓取 2 条')).toBeInTheDocument()
+    expect(screen.queryByText('上次抓取 2 条')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看 通知来源 的 2 条历史内容' })).toHaveAttribute(
+      'href',
+      '/history?source_id=source-1',
+    )
   })
 })

@@ -195,7 +195,13 @@ class ApifySocialScraper(BaseScraper):
 
     @staticmethod
     def _should_keep_latest_when_stale(sub: ApifySocialSubscriptionConfig) -> bool:
-        return sub.kind in {"profile", "channel", "page", "group", "post"}
+        return (
+            sub.platform == ApifySocialPlatform.FACEBOOK
+            and sub.kind in {"page", "group", "post"}
+        ) or (
+            sub.platform == ApifySocialPlatform.TELEGRAM
+            and sub.kind == "channel"
+        )
 
     @staticmethod
     def _logical_run_id(sub: ApifySocialSubscriptionConfig) -> str | None:

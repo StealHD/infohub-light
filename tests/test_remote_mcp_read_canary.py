@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -85,13 +86,14 @@ def _seed_canary(app):
         user_id=owner["id"], source_id=source_id
     )
     article_id = "private-canary-article"
+    generated_at = datetime.now(timezone.utc).isoformat()
     UserFeedStore(store).save_snapshot(
         workspace_id=workspace["id"],
         user_id=owner["id"],
         job_id=None,
         payload={
             "schema_version": 2,
-            "generated_at": "2026-07-18T00:00:00+00:00",
+            "generated_at": generated_at,
             "items": [
                 {
                     "id": article_id,
@@ -99,7 +101,7 @@ def _seed_canary(app):
                     "source": "Private canary source",
                     "source_type": "rss",
                     "url": "https://example.com/private-canary-article",
-                    "published_at": "2026-07-18T00:00:00+00:00",
+                    "published_at": generated_at,
                     "summary": "Private canary body",
                     "channel": "AI",
                     "topics": ["MCP"],
