@@ -35,7 +35,7 @@ services:
       HORIZON_POLL_FETCH_HOURS: ${HORIZON_POLL_FETCH_HOURS:-2}
       HORIZON_LOG_LEVEL: ${HORIZON_LOG_LEVEL:-INFO}
       HORIZON_LOG_RETENTION_DAYS: ${HORIZON_LOG_RETENTION_DAYS:-30}
-    entrypoint: ["uv", "run", "horizon-scheduler"]
+    entrypoint: ["/app/.venv/bin/horizon-scheduler"]
 
   horizon-web:
     build: .
@@ -54,7 +54,7 @@ services:
       HORIZON_WEB_PORT: 8080
       HORIZON_LOG_LEVEL: ${HORIZON_LOG_LEVEL:-INFO}
       HORIZON_LOG_RETENTION_DAYS: ${HORIZON_LOG_RETENTION_DAYS:-30}
-    entrypoint: ["uv", "run", "horizon-web"]
+    entrypoint: ["/app/.venv/bin/horizon-web"]
     command: ["--host", "0.0.0.0", "--port", "8080"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=3).read(1)"]
@@ -68,7 +68,7 @@ services:
     build:
       context: .
       args:
-        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.8.0}
+        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.8.1}
         INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-unknown}
         INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-unknown}
     pull_policy: build
@@ -94,7 +94,7 @@ services:
       HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED: ${HORIZON_REMOTE_MCP_SUBSCRIPTION_WRITES_ENABLED:-false}
       HORIZON_OPENCLAW_CHAT_ENABLED: ${HORIZON_OPENCLAW_CHAT_ENABLED:-false}
       HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL: ${HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL:-ws://127.0.0.1:18789}
-    entrypoint: ["uv", "run", "horizon-api"]
+    entrypoint: ["/app/.venv/bin/horizon-api"]
     command: ["--host", "0.0.0.0", "--port", "8080"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health/ready', timeout=3).read(1)"]
@@ -108,7 +108,7 @@ services:
     build:
       context: .
       args:
-        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.8.0}
+        INTELISCOPE_VERSION: ${INTELISCOPE_VERSION:-1.8.1}
         INTELISCOPE_BUILD_REVISION: ${INTELISCOPE_BUILD_REVISION:-unknown}
         INTELISCOPE_BUILT_AT: ${INTELISCOPE_BUILT_AT:-unknown}
     pull_policy: build
@@ -130,9 +130,9 @@ services:
       HORIZON_MEMBER_RSS_HOST_ALLOWLIST: ${HORIZON_MEMBER_RSS_HOST_ALLOWLIST:-}
       HORIZON_SQLITE_JOURNAL_MODE: ${HORIZON_SQLITE_JOURNAL_MODE:-WAL}
       HORIZON_APIFY_KEY_POOL_ENABLED: ${HORIZON_APIFY_KEY_POOL_ENABLED:-false}
-    entrypoint: ["uv", "run", "horizon-worker"]
+    entrypoint: ["/app/.venv/bin/horizon-worker"]
     healthcheck:
-      test: ["CMD-SHELL", "uv run horizon-worker --healthcheck --worker-id $${HORIZON_WORKER_ID:-horizon-worker}"]
+      test: ["CMD-SHELL", "/app/.venv/bin/horizon-worker --healthcheck --worker-id $${HORIZON_WORKER_ID:-horizon-worker}"]
       interval: 30s
       timeout: 5s
       retries: 3

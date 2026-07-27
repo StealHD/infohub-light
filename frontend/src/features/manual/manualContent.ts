@@ -193,6 +193,10 @@ export const manualSections: ManualSection[] = [
         description: 'Worker 显示缺失或过期时，不要连续提交获取任务；发布或重启后先等待约 30 秒让健康检查与心跳完成，仍未恢复时联系管理员，再从运行记录重试。',
       },
       {
+        title: '发布不会临时下载依赖',
+        description: '正式镜像已经包含 API、Worker 与迁移需要的 Python 环境，容器启动直接使用镜像内可执行文件；发布门禁会在断网条件下检查入口。若运行日志出现解析或下载 Python 构建依赖，应停止切换并继续使用上一健康版本，而不是在 VPS 现场安装。',
+      },
+      {
         title: '工具未发现',
         description: 'Agent 标题栏会显示简短的 OpenClaw 连接、处理、重连或异常状态；面板隐藏时，页头 Agent 入口还会保留运行或待查看终态。工具可用性仍单独校验，未发现 Inteliscope 工具时会在对话区给出数据连接、授权范围和 Gateway 配置指引。',
       },

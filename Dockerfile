@@ -9,7 +9,7 @@ RUN npm run build
 # Use Python 3.11 slim image
 FROM python:3.11-slim
 
-ARG INTELISCOPE_VERSION=1.8.0
+ARG INTELISCOPE_VERSION=1.8.1
 ARG INTELISCOPE_BUILD_REVISION=unknown
 ARG INTELISCOPE_BUILT_AT=unknown
 
@@ -45,6 +45,6 @@ LABEL org.opencontainers.image.version=${INTELISCOPE_VERSION} \
       org.opencontainers.image.revision=${INTELISCOPE_BUILD_REVISION} \
       org.opencontainers.image.created=${INTELISCOPE_BUILT_AT}
 
-# Run the application
-ENTRYPOINT ["uv", "run", "horizon"]
+# Run the already-installed application without resolving dependencies at runtime.
+ENTRYPOINT ["/app/.venv/bin/horizon"]
 CMD []

@@ -26,7 +26,7 @@ services:
       HORIZON_LOG_RETENTION_DAYS: "30"
       HORIZON_AUTH_USER: ${HORIZON_AUTH_USER:-admin}
       HORIZON_AUTH_PASSWORD: ${HORIZON_AUTH_PASSWORD:?test-gate password is required}
-    entrypoint: ["uv", "run", "--no-sync", "horizon-api"]
+    entrypoint: ["/app/.venv/bin/horizon-api"]
     command: ["--host", "0.0.0.0", "--port", "8080"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health/ready', timeout=3).read(1)"]

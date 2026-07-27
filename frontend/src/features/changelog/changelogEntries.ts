@@ -32,6 +32,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '来源计数适配窗口', description: '订阅卡主行显示“今日 / 近N天 / 历史”，上次抓取数量移入更新时间和获取按钮说明；手机和中等宽度下自动重排。' },
           { title: '固定策略先预演再执行', description: 'Owner/Admin 可查看存储摘要并预演标准清理、90 日冷归档和恢复；候选变化会拒绝执行，归档校验失败不会删除在线数据。' },
           { title: '不会自动永久删除', description: '收藏、稍后读、当前 Feed 和待通知内容始终受保护；只有 Owner 能在归档已恢复且不再被引用后，用完整确认短语永久删除归档文件。' },
+          { title: '发布启动不再下载依赖', description: 'API、Worker、调度器和旧版 Web 直接使用镜像内已安装的虚拟环境；发布门禁会断网验证 API 与 Worker 入口，VPS 重启不再临时解析或下载 Python 构建依赖。' },
         ],
       },
       {

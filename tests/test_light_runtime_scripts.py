@@ -130,6 +130,8 @@ def test_production_image_excludes_runtime_data_and_uses_release_identity():
     assert "COPY data ./data" not in dockerfile
     assert "INTELISCOPE_BUILD_REVISION" in dockerfile
     assert "INTELISCOPE_BUILT_AT" in dockerfile
+    assert 'ENTRYPOINT ["/app/.venv/bin/horizon"]' in dockerfile
+    assert 'ENTRYPOINT ["uv", "run"' not in dockerfile
     assert "\ndata/\n" in dockerignore
     for forbidden in (
         "data/service.db",
@@ -153,6 +155,26 @@ def test_api_and_worker_share_one_versioned_service_image():
             assert "INTELISCOPE_BUILT_AT" in block
 
 
+def test_container_runtime_uses_preinstalled_venv_without_dependency_resolution():
+    expected_entrypoints = {
+        "horizon-web": "/app/.venv/bin/horizon-web",
+        "horizon-api": "/app/.venv/bin/horizon-api",
+        "horizon-worker": "/app/.venv/bin/horizon-worker",
+        "horizon-scheduler": "/app/.venv/bin/horizon-scheduler",
+    }
+
+    for filename in ("docker-compose.yml", "docker-compose.light.yml"):
+        compose = (ROOT / filename).read_text(encoding="utf-8")
+        services = _compose_service_blocks(compose)
+        assert '"uv", "run"' not in compose
+        for service_name, executable in expected_entrypoints.items():
+            assert f'entrypoint: ["{executable}"]' in services[service_name]
+        assert (
+            "/app/.venv/bin/horizon-worker --healthcheck"
+            in services["horizon-worker"]
+        )
+
+
 def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     script = (ROOT / "scripts" / "release_rc1.sh").read_text(encoding="utf-8")
 
@@ -163,6 +185,9 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert 'docker save "$image"' in script
     assert 'docker load -i "$image_archive"' in script
     assert '[[ "$loaded_arch" == amd64 ]]' in script
+    assert script.count("docker run --rm --network none") == 2
+    assert "--entrypoint /app/.venv/bin/horizon-api" in script
+    assert "--entrypoint /app/.venv/bin/horizon-worker" in script
     assert "docker compose -f docker-compose.light.yml build" not in script
     assert "vps-tokyo" in script
     assert "${INTELISCOPE_DEPLOY_BASE:-/opt/inteliscope}" in script
@@ -229,7 +254,8 @@ def test_test_gate_compose_is_isolated_api_only_without_runtime_dependency_sync(
     services = _compose_service_blocks(compose.split("\nnetworks:", 1)[0])
 
     assert set(services) == {"horizon-api"}
-    assert 'entrypoint: ["uv", "run", "--no-sync", "horizon-api"]' in compose
+    assert 'entrypoint: ["/app/.venv/bin/horizon-api"]' in compose
+    assert '"uv", "run"' not in compose
     assert "networks: [test-gate]" in compose
     assert "HORIZON_TEST_DATA_DIR" in compose
     assert "HORIZON_TEST_LOG_DIR" in compose
