@@ -3079,3 +3079,10 @@
 - 修改范围：稳定内容投影统一补齐规范展示结构，Feed 筛选与来源派生对旧缓存采用防御性嵌套访问，并增加后端、Vitest 与三视口 Playwright 回归
 - 执行验证：目标后端与 Vitest、三端 Playwright、TypeScript、Lint 通过；`test_gate full` 22/22；重建后 API/Worker healthy，真实 `/history` 显示 60 条且新页面控制台错误为 0
 - 安全边界：未修改稳定内容、时间索引或用户状态，数据库 integrity/foreign keys 正常；未触发来源抓取、Apify、AI、scheduler、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 20:19 Codex
+- 任务：将时间分层、全局搜索、存储治理及 OpenClaw/设置/订阅优化合入 `main`，发布 GitHub Release 并原子部署到 `vps-tokyo`
+- 发布修正：常规与 release Playwright 共用 1.5% 像素容差；容器改为直连镜像内 `.venv`，发布门禁断网验证 API/Worker，`v1.8.0` 未推广，生产补丁版为 `v1.8.1`（`9ec019dc7971`）
+- 执行验证：本机 release gate 24/24；GitHub main/tag Test Gate、Linux UI E2E 与 Tag Docker smoke 全通过；生产 API/Worker/RSSHub healthy、0 restart，9 个页面和公网 HTTPS 正常，数据库 integrity/foreign keys/迁移/索引、配置与 MCP 401、严重日志和运行时依赖下载均验证通过
+- 结果：当前 release 为 `/opt/inteliscope/releases/v1.8.1-9ec019dc7971`，镜像 `sha256:0818cb100a68c7d71761b4404259697e9e6d8ef2aa4500e0f65dc9b0ebf87153`；切换备份位于 `/opt/inteliscope/backups/pre-v1.8.1-9ec019dc7971-20260727T121452Z`，旧 release/image 与自动回滚备份保留
+- 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未触发真实来源、Apify、AI、scheduler、通知或付费调用，验收后仅清理可重建的上传归档与 staging 副本
