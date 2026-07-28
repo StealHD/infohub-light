@@ -124,6 +124,16 @@ async function topVisibleSnapshot(page: Page) {
   }, await feedScroll.elementHandle())
 }
 
+async function expectLocatorInside(inner: Locator, outer: Locator) {
+  const [innerBounds, outerBounds] = await Promise.all([inner.boundingBox(), outer.boundingBox()])
+  expect(innerBounds).not.toBeNull()
+  expect(outerBounds).not.toBeNull()
+  expect(innerBounds!.x).toBeGreaterThanOrEqual(outerBounds!.x - 1)
+  expect(innerBounds!.y).toBeGreaterThanOrEqual(outerBounds!.y - 1)
+  expect(innerBounds!.x + innerBounds!.width).toBeLessThanOrEqual(outerBounds!.x + outerBounds!.width + 1)
+  expect(innerBounds!.y + innerBounds!.height).toBeLessThanOrEqual(outerBounds!.y + outerBounds!.height + 1)
+}
+
 async function stableTopVisibleSnapshot(page: Page) {
   let previous = await topVisibleSnapshot(page)
   let stableFrames = 0
@@ -212,10 +222,14 @@ test.beforeEach(async ({ page }) => {
     const feedbackMode = new URL(page.url()).searchParams.has('toast-feedback')
     let data: unknown
     if (url.pathname.startsWith('/api/media/')) {
+      const portrait = url.pathname.endsWith('/social-one')
+      const landscape = url.pathname.endsWith('/social-two')
+      const width = portrait ? 2046 : landscape ? 1600 : 640
+      const height = portrait ? 2728 : landscape ? 900 : 480
       await route.fulfill({
         status: 200,
         contentType: 'image/svg+xml',
-        body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#29272f"/></svg>',
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#29272f"/></svg>`,
       })
       return
     }
@@ -1185,27 +1199,63 @@ test('social cards and Agent context show source information once without exposi
   await page.mouse.move(4, 4)
   await card.locator('[data-card-expand-zone="true"]').click()
   await expect(card.getByRole('button', { name: /收起 / })).toHaveAttribute('aria-expanded', 'true')
-  const gallery = card.getByLabel('2 张可查看图片')
-  await expect(gallery.getByRole('img')).toHaveCount(2)
-  expect(await gallery.getByRole('img').evaluateAll((images) => images.map((image) => getComputedStyle(image).objectFit))).toEqual(['contain', 'contain'])
+  const mediaPreview = card.getByLabel('图片预览，共 2 张可查看图片')
+  const firstImage = mediaPreview.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 4 张' })
+  await expect(mediaPreview.getByRole('img')).toHaveCount(1)
+  await expect(firstImage).toBeVisible()
+  expect(await mediaPreview.getByRole('img').evaluate((image) => getComputedStyle(image).objectFit)).toBe('contain')
+  const thumbnailBounds = await firstImage.boundingBox()
+  expect(thumbnailBounds).not.toBeNull()
+  expect(thumbnailBounds!.width).toBeLessThanOrEqual(513)
+  expect(Math.abs((thumbnailBounds!.width / thumbnailBounds!.height) - (4 / 3))).toBeLessThan(0.02)
   await expect(card.getByText('仅获取到内容片段，打开原文查看完整内容。', { exact: true })).toBeVisible()
 
-  const firstImage = gallery.getByRole('button', { name: '查看第 1 张图片，共 2 张' })
   const routeBeforePreview = page.url()
   await firstImage.click()
   const preview = page.getByRole('dialog', { name: /图片预览$/ })
   await expect(preview).toBeVisible()
   await expect(preview.getByRole('status')).toHaveText('1 / 2')
-  expect(await preview.getByRole('img').evaluate((image) => getComputedStyle(image).objectFit)).toBe('contain')
+  const stage = preview.getByTestId('media-viewer-stage')
+  const previewImage = preview.getByTestId('media-viewer-image')
+  await expect(stage).toBeVisible()
+  await expect(previewImage).toBeVisible()
+  expect(await previewImage.evaluate((image) => ({
+    naturalWidth: (image as HTMLImageElement).naturalWidth,
+    naturalHeight: (image as HTMLImageElement).naturalHeight,
+    objectFit: getComputedStyle(image).objectFit,
+  }))).toEqual({ naturalWidth: 2046, naturalHeight: 2728, objectFit: 'contain' })
+  await expectLocatorInside(previewImage, stage)
+  await expectLocatorInside(stage, preview)
+  const previewBounds = await preview.boundingBox()
+  const viewport = page.viewportSize()
+  expect(previewBounds).not.toBeNull()
+  expect(viewport).not.toBeNull()
+  expect(previewBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(previewBounds!.y).toBeGreaterThanOrEqual(0)
+  expect(previewBounds!.x + previewBounds!.width).toBeLessThanOrEqual(viewport!.width)
+  expect(previewBounds!.y + previewBounds!.height).toBeLessThanOrEqual(viewport!.height)
   for (const name of ['关闭图片预览', '上一张图片', '下一张图片']) {
     const bounds = await preview.getByRole('button', { name }).boundingBox()
     expect(bounds?.width ?? 0).toBeGreaterThanOrEqual(44)
     expect(bounds?.height ?? 0).toBeGreaterThanOrEqual(44)
   }
-  await preview.press('ArrowLeft')
+  const thumbnailGroup = preview.getByRole('group', { name: '图片缩略图' })
+  await expect(thumbnailGroup.getByRole('button')).toHaveCount(2)
+  await thumbnailGroup.getByRole('button', { name: '切换到第 2 张图片' }).click()
   await expect(preview.getByRole('status')).toHaveText('2 / 2')
-  await preview.press('ArrowRight')
+  await expect(preview.getByRole('img', { name: '社交图片二' })).toBeVisible()
+  expect(await previewImage.evaluate((image) => ({
+    naturalWidth: (image as HTMLImageElement).naturalWidth,
+    naturalHeight: (image as HTMLImageElement).naturalHeight,
+  }))).toEqual({ naturalWidth: 1600, naturalHeight: 900 })
+  await expectLocatorInside(previewImage, stage)
+  await preview.press('ArrowLeft')
   await expect(preview.getByRole('status')).toHaveText('1 / 2')
+  await preview.press('ArrowRight')
+  await expect(preview.getByRole('status')).toHaveText('2 / 2')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   await preview.press('Escape')
   await expect(preview).toHaveCount(0)
   await expect(firstImage).toBeFocused()

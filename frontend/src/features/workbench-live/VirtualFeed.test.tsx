@@ -68,6 +68,18 @@ function galleryItem(): FeedItem {
   return item
 }
 
+function singleImageItem(): FeedItem {
+  const item = galleryItem()
+  if (!item.presentation?.media) throw new Error('media fixture missing')
+  item.presentation.media = {
+    images: item.presentation.media.images.slice(0, 1),
+    count: 1,
+    total_image_count: 1,
+    truncated: false,
+  }
+  return item
+}
+
 describe('VirtualFeed', () => {
   it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
@@ -406,7 +418,7 @@ describe('VirtualFeed', () => {
     expect(await screen.findByRole('button', { name: '展开 信息 1' })).toBeInTheDocument()
   })
 
-  it('shows type, original image total, cached gallery and source-fragment notice', () => {
+  it('shows one representative thumbnail with the cached and original image counts', () => {
     const item = galleryItem()
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(item)]}
@@ -420,15 +432,27 @@ describe('VirtualFeed', () => {
 
     expect(screen.getByText('图集')).toBeInTheDocument()
     expect(screen.getByText('图片 2/8')).toBeInTheDocument()
-    const gallery = screen.getByLabelText('2 张可查看图片')
-    expect(gallery.querySelectorAll('img')).toHaveLength(2)
-    expect(within(gallery).getByRole('button', { name: '查看第 1 张图片，共 2 张' })).toHaveClass('aspect-[4/3]')
-    expect(within(gallery).getByRole('button', { name: '查看第 2 张图片，共 2 张' })).toHaveClass('aspect-[4/3]')
-    for (const image of within(gallery).getAllByRole('img')) {
-      expect(image).toHaveClass('object-contain', 'h-full')
-      expect(image).not.toHaveClass('object-cover')
-    }
+    const preview = screen.getByLabelText('图片预览，共 2 张可查看图片')
+    const trigger = within(preview).getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })
+    expect(trigger).toHaveClass('aspect-[4/3]', 'max-w-lg')
+    expect(preview.querySelectorAll('img')).toHaveLength(1)
+    expect(within(preview).getByRole('img', { name: '图片一' })).toHaveClass('object-contain', 'size-full')
+    expect(within(preview).queryByRole('img', { name: '图片二' })).not.toBeInTheDocument()
+    expect(within(preview).getByText('可看 2 / 共 8')).toBeInTheDocument()
     expect(screen.getByText('仅获取到内容片段，打开原文查看完整内容。')).toBeInTheDocument()
+  })
+
+  it('keeps the representative thumbnail inaccessible until the card is expanded', () => {
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(galleryItem())]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(screen.queryByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })).not.toBeInTheDocument()
   })
 
   it('previews cached images in one modal, loops with controls and keys, then restores thumbnail focus', async () => {
@@ -445,11 +469,13 @@ describe('VirtualFeed', () => {
     />)
     const scroll = screen.getByTestId('workbench-feed-scroll')
     Object.defineProperty(scroll, 'scrollTop', { configurable: true, writable: true, value: 180 })
-    const firstThumbnail = screen.getByRole('button', { name: '查看第 1 张图片，共 2 张' })
+    const firstThumbnail = screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })
 
     await user.click(firstThumbnail)
     const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
-    expect(within(dialog).getByRole('img', { name: '图片一' })).toHaveClass('object-contain')
+    const stage = within(dialog).getByTestId('media-viewer-stage')
+    expect(stage).toHaveClass('min-h-0', 'overflow-hidden')
+    expect(within(dialog).getByRole('img', { name: '图片一' })).toHaveClass('object-contain', 'size-full', 'min-h-0')
     expect(within(dialog).getByRole('status')).toHaveTextContent('1 / 2')
 
     await user.keyboard('{ArrowLeft}')
@@ -469,7 +495,7 @@ describe('VirtualFeed', () => {
 
   it('supports thumbnail navigation, touch swipe and a local broken-image retry', async () => {
     const user = userEvent.setup()
-    const view = render(<VirtualFeed
+    render(<VirtualFeed
       cards={[toWorkbenchCardModel(galleryItem())]}
       expandedId="social-x"
       contextIds={[]}
@@ -479,23 +505,42 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    await user.click(screen.getByRole('button', { name: '查看第 1 张图片，共 2 张' }))
+    await user.click(screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' }))
     const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
-    const thumbnails = within(dialog).getByLabelText('图片缩略图')
+    const thumbnails = within(dialog).getByRole('group', { name: '图片缩略图' })
     expect(within(thumbnails).getByRole('button', { name: '切换到第 1 张图片' })).toHaveAttribute('aria-current', 'true')
     await user.click(within(thumbnails).getByRole('button', { name: '切换到第 2 张图片' }))
     expect(within(dialog).getByRole('img', { name: '图片二' })).toBeInTheDocument()
 
-    const body = view.baseElement.querySelector<HTMLElement>('[data-slot="modal-body"]')
-    if (!body) throw new Error('image modal body was not rendered')
-    fireEvent.pointerDown(body, { pointerType: 'touch', pointerId: 1, clientX: 220 })
-    fireEvent.pointerUp(body, { pointerType: 'touch', pointerId: 1, clientX: 120 })
+    const stage = within(dialog).getByTestId('media-viewer-stage')
+    fireEvent.pointerDown(stage, { pointerType: 'touch', pointerId: 1, clientX: 220 })
+    fireEvent.pointerUp(stage, { pointerType: 'touch', pointerId: 1, clientX: 120 })
     expect(within(dialog).getByRole('img', { name: '图片一' })).toBeInTheDocument()
 
     fireEvent.error(within(dialog).getByRole('img', { name: '图片一' }))
     expect(within(dialog).getByRole('alert')).toHaveTextContent('图片加载失败')
     await user.click(within(dialog).getByRole('button', { name: '重试这张图片' }))
     expect(within(dialog).getByLabelText('正在加载图片')).toBeInTheDocument()
+  })
+
+  it('hides carousel-only controls when the viewer contains one image', async () => {
+    const user = userEvent.setup()
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(singleImageItem())]}
+      expandedId="social-x"
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    await user.click(screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，共 1 张' }))
+    const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
+    expect(within(dialog).getByRole('status')).toHaveTextContent('1 / 1')
+    expect(within(dialog).queryByRole('button', { name: '上一张图片' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: '下一张图片' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('group', { name: '图片缩略图' })).not.toBeInTheDocument()
   })
 
   it('dismisses the image preview with Escape and by clicking the backdrop', async () => {
@@ -509,7 +554,7 @@ describe('VirtualFeed', () => {
       onToggleContext={vi.fn()}
       onItemAction={vi.fn()}
     />)
-    const thumbnail = screen.getByRole('button', { name: '查看第 1 张图片，共 2 张' })
+    const thumbnail = screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })
 
     await user.click(thumbnail)
     expect(await screen.findByRole('dialog', { name: /图片预览$/ })).toBeInTheDocument()
