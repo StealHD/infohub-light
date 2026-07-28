@@ -3113,3 +3113,9 @@
 - 执行验证：目标 Vitest 33/33、UI 合同、TypeScript、Lint（0 error）、生产构建通过；1440×900、1024×768、390×844 媒体流程及 1440 密度 Playwright 4 passed/2 skipped；`test_gate full` 22/22、0 failed/error、167.189 秒
 - 结果：单图无后层、两图一层、三图及以上两层；点击收起缩略图不触发展开，Modal 关闭后恢复焦点与滚动锚；无图卡片不增加媒体布局或交互
 - 安全边界：未修改 API、数据库、媒体缓存、公开类型、版本号或依赖，未复制 HeroUI Pro 源码；尚未重建 8080，未触发来源、AI、scheduler、通知、付费调用、推送或生产部署
+
+### 2026-07-28 12:15 Codex
+- 任务：从目标集成 Worktree 重建本地 8080，并复验折叠堆叠缩略图与共享图片预览
+- 执行验证：`up-latest.sh` 解析源码根为目标 Worktree、运行时根为主 checkout，构建 revision `4dc409e3762a`；API/Worker 均 healthy，React 资源为 `index-DpwbosE_.js`
+- 浏览器验收：562×762 与 466×762 下缩略图各只有一张真实内容图和一层装饰面，4:3 `contain`、页脚零重叠且页面无横向溢出；Modal 主图、舞台和 Dialog 均在视口内，切图、44 px 控件、关闭回焦与滚动锚恢复通过，错误日志为 0；另抽查 466 px 下四张无图卡片均无紧凑媒体布局或空轨道
+- 安全边界：仅重建本地 API + Worker 并执行只读浏览器验收；未启动 scheduler、来源抓取、AI、通知或付费调用，未推送、合入 `main` 或部署生产
