@@ -135,6 +135,20 @@ async function expectLocatorInside(inner: Locator, outer: Locator) {
   }, { message: 'inner element should settle inside its container' }).toBe(true)
 }
 
+async function expectLocatorInsideViewport(locator: Locator, page: Page) {
+  await expect.poll(async () => {
+    const [bounds, viewport] = await Promise.all([
+      locator.boundingBox(),
+      Promise.resolve(page.viewportSize()),
+    ])
+    if (!bounds || !viewport) return false
+    return bounds.x >= 0
+      && bounds.y >= 0
+      && bounds.x + bounds.width <= viewport.width
+      && bounds.y + bounds.height <= viewport.height
+  }, { message: 'element should settle inside the viewport' }).toBe(true)
+}
+
 async function stableTopVisibleSnapshot(page: Page) {
   let previous = await topVisibleSnapshot(page)
   let stableFrames = 0
@@ -1038,8 +1052,10 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   }
 
   await expect(page).toHaveURL(/\/changelog(?:#month-2026-07)?$/)
+  await expect(page.locator('[data-documentation-menu-surface], [data-account-menu-surface]')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '更新日志', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '2026 年 7 月', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '全局与单源周期不再重复抓取' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '更新日志改为清晰时间线' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '更清晰的交互反馈' })).toBeVisible()
   const timeline = page.getByRole('list', { name: '2026 年 7 月更新记录' })
@@ -1053,10 +1069,12 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   await expect(previousEntry).not.toHaveAttribute('aria-current')
   await expect(currentEntry.locator('time[datetime="2026-07-28"]')).toBeVisible()
   const currentDetails = currentEntry.getByRole('list')
-  await expect(currentDetails.getByRole('listitem')).toHaveCount(3)
-  await expect(currentDetails.getByText('时间顺序更直观')).toBeVisible()
-  await expect(currentDetails.getByText('内容层级更清楚')).toBeVisible()
-  await expect(currentDetails.getByText('导航与可访问性保留')).toBeVisible()
+  await expect(currentDetails.getByRole('listitem')).toHaveCount(5)
+  await expect(currentDetails.getByText('默认跟随全局')).toBeVisible()
+  await expect(currentDetails.getByText('单源周期互斥')).toBeVisible()
+  await expect(currentDetails.getByText('切换不会丢周期')).toBeVisible()
+  await expect(currentDetails.getByText('局部刷新保留内容')).toBeVisible()
+  await expect(currentDetails.getByText('卡片信息更准确')).toBeVisible()
   await expect(entries.last().locator('[data-timeline-connector]')).toBeHidden()
   const firstConnectorBox = await currentEntry.locator('[data-timeline-connector]').boundingBox()
   const nextMarkerBox = await previousEntry.locator('[data-timeline-marker]').boundingBox()
@@ -1276,14 +1294,7 @@ test('social cards and Agent context show source information once without exposi
   }))).toEqual({ naturalWidth: 2046, naturalHeight: 2728, objectFit: 'contain' })
   await expectLocatorInside(previewImage, stage)
   await expectLocatorInside(stage, preview)
-  const previewBounds = await preview.boundingBox()
-  const viewport = page.viewportSize()
-  expect(previewBounds).not.toBeNull()
-  expect(viewport).not.toBeNull()
-  expect(previewBounds!.x).toBeGreaterThanOrEqual(0)
-  expect(previewBounds!.y).toBeGreaterThanOrEqual(0)
-  expect(previewBounds!.x + previewBounds!.width).toBeLessThanOrEqual(viewport!.width)
-  expect(previewBounds!.y + previewBounds!.height).toBeLessThanOrEqual(viewport!.height)
+  await expectLocatorInsideViewport(preview, page)
   for (const name of ['关闭图片预览', '上一张图片', '下一张图片']) {
     const bounds = await preview.getByRole('button', { name }).boundingBox()
     expect(bounds?.width ?? 0).toBeGreaterThanOrEqual(44)
