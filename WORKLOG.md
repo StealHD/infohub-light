@@ -3038,3 +3038,9 @@
 - 执行验证：无缓存构建 revision `e9dc8a10c8f5` 镜像，复用原工作区本地配置与数据启动 API；liveness、readiness 与根页面均返回 200，API 容器 healthy
 - 结果：页面运行于 `http://127.0.0.1:8080`；为避免继续执行到期来源计划，Worker 已停止，API 以不依赖 Worker 的 readiness 模式运行
 - 安全边界：未启动 scheduler、AI、推送或部署；Worker 初次启动时已领取并成功完成两个原有到期 `source_fetch`（一个 RSS、一个 Apify），随后立即停止；当前无 queued/running 任务且无通知投递记录
+
+### 2026-07-28 10:30 Codex
+- 任务：排查订阅页“全部订阅自动更新”显示后台服务不可用
+- 执行验证：浏览器复核订阅卡状态，API liveness/readiness、Compose 容器状态与前端 `worker_status` 映射一致
+- 结果：API 与数据库正常；根因是上一任务为阻止到期计划继续触发真实抓取而主动停止 Worker，Worker heartbeat 变为 `stale`，前端按合同显示“后台服务不可用”
+- 安全边界：仅只读诊断并记录结果，未重启 Worker、修改计划、创建任务、触发抓取、AI、通知或付费调用
