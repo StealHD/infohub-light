@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from src.services.youtube_channel import (
+    YOUTUBE_FEED_MAX_BYTES,
     YOUTUBE_RESOLVE_MAX_BYTES,
     YOUTUBE_RESOLVE_TIMEOUT_SECONDS,
     YouTubeChannelError,
@@ -81,6 +82,7 @@ def test_handle_resolution_uses_one_fixed_bounded_public_page_request(
     assert kwargs["timeout"] == YOUTUBE_RESOLVE_TIMEOUT_SECONDS
     assert kwargs["max_response_bytes"] == YOUTUBE_RESOLVE_MAX_BYTES
     assert kwargs["max_redirects"] == 0
+    assert kwargs["allow_partial_response"] is True
     assert kwargs["headers"]["Accept"].startswith("text/html")
 
 
@@ -183,3 +185,133 @@ def test_upstream_and_redirect_failures_are_stable_and_retryable():
         assert exc_info.value.status_code == 502
         assert exc_info.value.retryable is True
         assert "private" not in str(exc_info.value)
+
+
+def _atom(
+    *,
+    channel_id: str = CHANNEL_ID[2:],
+    title: str = "Verified Channel",
+    alternate_channel_id: str | None = None,
+) -> str:
+    public_id = alternate_channel_id or (
+        channel_id if channel_id.startswith("UC") else f"UC{channel_id}"
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+  <yt:channelId>{channel_id}</yt:channelId>
+  <title>{title}</title>
+  <link rel="alternate"
+        href="https://www.youtube.com/channel/{public_id}" />
+</feed>
+"""
+
+
+def test_verified_resolution_reads_official_atom_metadata_and_identity():
+    feed_response = httpx.Response(
+        200,
+        headers={"content-type": "application/atom+xml; charset=UTF-8"},
+        text=_atom(),
+        request=httpx.Request("GET", CANONICAL_URL),
+    )
+    fetcher = AsyncMock(return_value=feed_response)
+
+    result = asyncio.run(
+        YouTubeChannelResolver(fetcher=fetcher).resolve_verified(CHANNEL_ID)
+    )
+
+    assert result.channel_id == CHANNEL_ID
+    assert result.feed_url == CANONICAL_URL
+    assert result.display_name == "Verified Channel"
+    assert result.public_url == (
+        f"https://www.youtube.com/channel/{CHANNEL_ID}"
+    )
+    fetcher.assert_awaited_once()
+    assert fetcher.await_args.args == (CANONICAL_URL,)
+    assert fetcher.await_args.kwargs["max_response_bytes"] == YOUTUBE_FEED_MAX_BYTES
+    assert fetcher.await_args.kwargs["max_redirects"] == 0
+
+
+def test_handle_verified_resolution_uses_bounded_prefix_then_atom_feed():
+    page_url = "https://www.youtube.com/@Verified"
+    page = httpx.Response(
+        200,
+        headers={"content-type": "text/html"},
+        text=(
+            '<link rel="alternate" type="application/rss+xml" '
+            f'href="{CANONICAL_URL}">'
+        ),
+        extensions={"infohub_body_truncated": True},
+        request=httpx.Request("GET", page_url),
+    )
+    atom = httpx.Response(
+        200,
+        headers={"content-type": "application/atom+xml"},
+        text=_atom(),
+        request=httpx.Request("GET", CANONICAL_URL),
+    )
+    fetcher = AsyncMock(side_effect=[page, atom])
+
+    result = asyncio.run(
+        YouTubeChannelResolver(fetcher=fetcher).resolve_verified("@Verified")
+    )
+
+    assert result.channel_id == CHANNEL_ID
+    assert [call.args[0] for call in fetcher.await_args_list] == [
+        page_url,
+        CANONICAL_URL,
+    ]
+    assert (
+        fetcher.await_args_list[0].kwargs["allow_partial_response"] is True
+    )
+    assert "allow_partial_response" not in fetcher.await_args_list[1].kwargs
+
+
+def test_truncated_page_without_feed_is_retryable_but_complete_page_is_not_found():
+    page_url = "https://www.youtube.com/@NoLink"
+    for truncated, expected_code, retryable in (
+        (True, "youtube_channel_resolution_failed", True),
+        (False, "youtube_channel_not_found", False),
+    ):
+        fetcher = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text="<html><head></head></html>",
+                extensions={"infohub_body_truncated": truncated},
+                request=httpx.Request("GET", page_url),
+            )
+        )
+        with pytest.raises(YouTubeChannelError) as exc_info:
+            asyncio.run(
+                YouTubeChannelResolver(fetcher=fetcher).resolve("@NoLink")
+            )
+        assert exc_info.value.code == expected_code
+        assert exc_info.value.retryable is retryable
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "<not-xml",
+        _atom(channel_id=CHANNEL_ID, alternate_channel_id=CHANNEL_ID[:-1] + "x"),
+        _atom(channel_id=CHANNEL_ID[:-1] + "x"),
+    ],
+)
+def test_verified_feed_rejects_malformed_or_mismatched_identity(body):
+    fetcher = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/atom+xml"},
+            text=body,
+            request=httpx.Request("GET", CANONICAL_URL),
+        )
+    )
+
+    with pytest.raises(YouTubeChannelError) as exc_info:
+        asyncio.run(
+            YouTubeChannelResolver(fetcher=fetcher).resolve_verified(CHANNEL_ID)
+        )
+
+    assert exc_info.value.code == "youtube_channel_resolution_failed"
+    assert exc_info.value.retryable is True

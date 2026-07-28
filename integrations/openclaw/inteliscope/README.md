@@ -26,20 +26,20 @@ Use the Web-generated MCP URL and an environment-variable reference, never a cle
 
 ### Viewer/read-only connection
 
-For a viewer/read-only connection, expose exactly the twelve safe read, setup,
+For a viewer/read-only connection, expose exactly the thirteen safe read, setup,
 public-account lookup, discovery, and diagnosis tools. These tools can explain state but cannot prepare
 or apply a change:
 
 ```bash
-openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","search_bilibili_users","list_available_sources","diagnose_source","diagnose_job","query_operation_logs"]}}'
+openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","search_bilibili_users","resolve_source","list_available_sources","diagnose_source","diagnose_job","query_operation_logs"]}}'
 ```
 
 ### Subscription-management connection
 
-Only for a subscription-management connection created in Inteliscope Web, expose all sixteen tools:
+Only for a subscription-management connection created in Inteliscope Web, expose all seventeen tools:
 
 ```bash
-openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","search_bilibili_users","list_available_sources","prepare_create_subscription","prepare_update_subscription","prepare_delete_subscription","apply_subscription_change","diagnose_source","diagnose_job","query_operation_logs"]}}'
+openclaw mcp set inteliscope '{"url":"<MCP_URL>","transport":"streamable-http","connectTimeout":10,"timeout":30,"supportsParallelToolCalls":true,"headers":{"Authorization":"Bearer ${INTELISCOPE_MCP_TOKEN}"},"toolFilter":{"include":["get_my_feed","get_item","list_subscriptions","source_health","list_jobs","get_job","get_source_setup_guide","search_bilibili_users","resolve_source","list_available_sources","prepare_create_subscription","prepare_update_subscription","prepare_delete_subscription","apply_subscription_change","diagnose_source","diagnose_job","query_operation_logs"]}}'
 openclaw mcp doctor inteliscope --probe
 openclaw mcp status --verbose
 ```

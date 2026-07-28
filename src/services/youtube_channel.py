@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
 from urllib.parse import quote, unquote, urljoin, urlparse
+from xml.etree import ElementTree
 
 import httpx
 
@@ -21,6 +23,9 @@ from .source_type_registry import (
 YOUTUBE_PAGE_HOSTS = {"youtube.com", "www.youtube.com"}
 YOUTUBE_RESOLVE_TIMEOUT_SECONDS = 10.0
 YOUTUBE_RESOLVE_MAX_BYTES = 2_000_000
+YOUTUBE_FEED_MAX_BYTES = 512_000
+_ATOM_NAMESPACE = "http://www.w3.org/2005/Atom"
+_YOUTUBE_NAMESPACE = "http://www.youtube.com/xml/schemas/2015"
 _CHANNEL_TABS = {
     "about",
     "community",
@@ -124,6 +129,16 @@ class _RSSLinkParser(HTMLParser):
 Fetcher = Callable[..., Awaitable[httpx.Response]]
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedYouTubeChannel:
+    """Verified public metadata for one canonical YouTube channel feed."""
+
+    channel_id: str
+    feed_url: str
+    display_name: str
+    public_url: str
+
+
 class YouTubeChannelResolver:
     """Resolve accepted channel identities to one canonical public Atom URL."""
 
@@ -150,6 +165,14 @@ class YouTubeChannelResolver:
             raise _input_error(str(exc)) from exc
 
     async def resolve(self, value: str) -> str:
+        identity = self.normalize_locator(value)
+        if identity.startswith("https://"):
+            return identity
+        return await self._resolve_handle(identity.removeprefix("@"))
+
+    def normalize_locator(self, value: str) -> str:
+        """Validate one direct locator without performing a network request."""
+
         text = str(value or "").strip()
         if not text:
             raise _input_error("YouTube channel input is required")
@@ -166,7 +189,91 @@ class YouTubeChannelResolver:
         identity = self._handle_from_input(text)
         if identity.startswith("https://"):
             return identity
-        return await self._resolve_handle(identity)
+        return f"@{identity}"
+
+    async def resolve_verified(self, value: str) -> ResolvedYouTubeChannel:
+        """Resolve one accepted locator and verify its official Atom identity."""
+
+        feed_url = await self.resolve(value)
+        try:
+            response = await self.fetcher(
+                feed_url,
+                headers={
+                    "Accept": "application/atom+xml,application/xml,text/xml",
+                    "User-Agent": "InfoHub-Light/YouTube-channel-resolver",
+                },
+                timeout=YOUTUBE_RESOLVE_TIMEOUT_SECONDS,
+                max_redirects=0,
+                max_response_bytes=YOUTUBE_FEED_MAX_BYTES,
+            )
+        except (UnsafeNetworkTarget, httpx.HTTPError) as exc:
+            raise _upstream_error() from exc
+        if response.status_code == 404:
+            raise _not_found_error()
+        if response.status_code >= 400 or 300 <= response.status_code < 400:
+            raise _upstream_error()
+        content_type = response.headers.get("content-type", "")
+        if content_type and not any(
+            allowed in content_type.lower()
+            for allowed in ("application/atom+xml", "application/xml", "text/xml")
+        ):
+            raise _upstream_error()
+        try:
+            root = ElementTree.fromstring(response.content)
+        except (ElementTree.ParseError, UnicodeError, ValueError) as exc:
+            raise _upstream_error() from exc
+        if root.tag != f"{{{_ATOM_NAMESPACE}}}feed":
+            raise _upstream_error()
+
+        channel_ids = {
+            str(element.text or "").strip()
+            for element in root.findall(f"{{{_YOUTUBE_NAMESPACE}}}channelId")
+            if str(element.text or "").strip()
+        }
+        if len(channel_ids) != 1:
+            raise _upstream_error()
+        channel_identity = channel_ids.pop()
+        verified_feed_url = ""
+        channel_id = ""
+        for candidate in (channel_identity, f"UC{channel_identity}"):
+            try:
+                verified_feed_url = youtube_channel_feed_url(candidate)
+            except SourceConfigError:
+                continue
+            channel_id = candidate
+            break
+        if not verified_feed_url:
+            raise _upstream_error()
+        if verified_feed_url != feed_url:
+            raise _upstream_error()
+
+        title_element = root.find(f"{{{_ATOM_NAMESPACE}}}title")
+        display_name = str(
+            title_element.text if title_element is not None else ""
+        ).strip()
+        if not display_name:
+            raise _upstream_error()
+        public_urls: set[str] = set()
+        for link in root.findall(f"{{{_ATOM_NAMESPACE}}}link"):
+            if str(link.attrib.get("rel") or "alternate").lower() != "alternate":
+                continue
+            href = str(link.attrib.get("href") or "").strip()
+            if not href:
+                continue
+            try:
+                identity = self._handle_from_input(href)
+            except YouTubeChannelError:
+                continue
+            if identity == feed_url:
+                public_urls.add(f"https://www.youtube.com/channel/{channel_id}")
+        if len(public_urls) != 1:
+            raise _upstream_error()
+        return ResolvedYouTubeChannel(
+            channel_id=channel_id,
+            feed_url=feed_url,
+            display_name=display_name,
+            public_url=public_urls.pop(),
+        )
 
     def _handle_from_input(self, value: str) -> str:
         if value.startswith("@"):
@@ -234,6 +341,7 @@ class YouTubeChannelResolver:
                 timeout=YOUTUBE_RESOLVE_TIMEOUT_SECONDS,
                 max_redirects=0,
                 max_response_bytes=YOUTUBE_RESOLVE_MAX_BYTES,
+                allow_partial_response=True,
             )
         except (UnsafeNetworkTarget, httpx.HTTPError) as exc:
             raise _upstream_error() from exc
@@ -260,6 +368,8 @@ class YouTubeChannelResolver:
             except SourceConfigError:
                 continue
         if not feeds:
+            if response.extensions.get("infohub_body_truncated") is True:
+                raise _upstream_error()
             raise _not_found_error()
         if len(feeds) != 1:
             raise _upstream_error()

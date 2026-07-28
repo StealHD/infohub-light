@@ -66,3 +66,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "实现 registry 驱动的通用来源解析入口与短期 actor-bound 引用，首批让 OpenClaw 可按名称发现并验证 YouTube 官方频道后复用既有订阅预览与确认流程；Bilibili 流程和严格公网边界保持不变。",
+  "status": "completed",
+  "task_id": "2026-07-29-openclaw-youtube-name-resolution",
+  "unresolved": [],
+  "validation": [
+    "495 focused Python regressions passed",
+    "targeted frontend Vitest, UI contract, lint and typecheck passed",
+    "live @laogao page and official Atom identity verification passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "schema-v3 project controls and compact worklog validation passed",
+    "git diff --check"
+  ]
+}
+```

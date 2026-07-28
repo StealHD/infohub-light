@@ -46,6 +46,10 @@ AGENT_PROPOSAL_TTL_MINUTES = 10
 AGENT_PROPOSAL_MAX_PENDING = 10
 AGENT_PROPOSAL_PREPARE_EXPIRED_RETENTION_HOURS = 24
 AGENT_PROPOSAL_MAINTENANCE_RETENTION_DAYS = 30
+AGENT_SOURCE_RESOLUTION_TTL_MINUTES = 10
+AGENT_SOURCE_RESOLUTION_MAX_ACTIVE = 20
+AGENT_SOURCE_RESOLUTION_RETENTION_HOURS = 24
+AGENT_SOURCE_RESOLUTION_ENVELOPE_MAX_BYTES = 16_384
 _UNSET = object()
 
 _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
@@ -87,6 +91,14 @@ class AgentProposalAuthorizationError(ValueError):
 
 class AgentProposalExpiredTransitionError(ValueError):
     """An apply transition reached the authoritative expiry boundary."""
+
+
+class AgentSourceResolutionLimitError(ValueError):
+    """A delegation already owns the maximum number of active resolutions."""
+
+
+class AgentSourceResolutionAuthorizationError(ValueError):
+    """A source resolution no longer has an active readable principal."""
 
 
 def _now_iso() -> str:
@@ -483,6 +495,29 @@ class ServiceStore:
                 ON agent_change_proposals(delegation_id, status, expires_at);
             CREATE INDEX IF NOT EXISTS idx_agent_change_proposals_status_updated
                 ON agent_change_proposals(status, updated_at);
+
+            CREATE TABLE IF NOT EXISTS agent_source_resolutions (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                delegation_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                envelope_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(delegation_id) REFERENCES agent_delegations(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_source_resolutions_delegation_expires
+                ON agent_source_resolutions(delegation_id, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_agent_source_resolutions_actor_fingerprint
+                ON agent_source_resolutions(
+                    workspace_id, user_id, delegation_id,
+                    source_fingerprint, expires_at
+                );
 
             CREATE TABLE IF NOT EXISTS source_catalog (
                 id TEXT PRIMARY KEY,
@@ -1324,6 +1359,7 @@ class ServiceStore:
         )
         if not has_unmigrated_timeline_rows and not timeline_v11_migrated:
             self.mark_content_timeline_v11_migrated(commit=False)
+        self.mark_agent_source_resolutions_v12_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -1412,6 +1448,25 @@ class ServiceStore:
             """
             INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at)
             VALUES (7, 'agent_change_proposals_v7', 'agent-change-proposals-v7', ?)
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def mark_agent_source_resolutions_v12_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (
+                12,
+                'agent_source_resolutions_v12',
+                'agent-source-resolutions-v12',
+                ?
+            )
             """,
             (_now_iso(),),
         )
@@ -1864,6 +1919,16 @@ class ServiceStore:
         data["result_summary"] = _json_loads(
             data.pop("result_summary_json", None), None
         )
+        return data
+
+    @staticmethod
+    def _agent_source_resolution(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["envelope"] = _json_loads(data.pop("envelope_json", None), {})
         return data
 
     @staticmethod
@@ -2512,6 +2577,219 @@ class ServiceStore:
             "scopes": _safe_agent_delegation_scopes(row["scopes_json"]),
             "expires_at": row["expires_at"],
         }
+
+    def create_or_reuse_agent_source_resolution(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        delegation_id: str,
+        source_type: str,
+        source_fingerprint: str,
+        envelope: dict[str, Any],
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        """Persist one short-lived, actor-bound source envelope idempotently."""
+
+        normalized_type = str(source_type or "").strip()
+        normalized_fingerprint = str(source_fingerprint or "").strip().lower()
+        if not normalized_type or len(normalized_type) > 64:
+            raise ValueError("source resolution type is invalid")
+        if re.fullmatch(r"[0-9a-f]{64}", normalized_fingerprint) is None:
+            raise ValueError("source resolution fingerprint is invalid")
+        if not isinstance(envelope, dict):
+            raise ValueError("source resolution envelope must be an object")
+        _require_safe_proposal_data(envelope)
+        serialized_envelope = _json_dumps(envelope)
+        if (
+            len(serialized_envelope.encode("utf-8"))
+            > AGENT_SOURCE_RESOLUTION_ENVELOPE_MAX_BYTES
+        ):
+            raise ValueError("source resolution envelope is too large")
+
+        conn = self.connect()
+        started_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            authoritative_now = _authoritative_proposal_time()
+            now_iso = authoritative_now.isoformat()
+            principal = conn.execute(
+                """
+                SELECT delegation.scopes_json
+                FROM agent_delegations AS delegation
+                JOIN users ON users.id = delegation.user_id
+                WHERE delegation.id = ?
+                  AND delegation.workspace_id = ?
+                  AND delegation.user_id = ?
+                  AND delegation.revoked_at IS NULL
+                  AND delegation.expires_at > ?
+                  AND users.enabled = 1
+                  AND users.workspace_id = delegation.workspace_id
+                """,
+                (delegation_id, workspace_id, user_id, now_iso),
+            ).fetchone()
+            if (
+                principal is None
+                or AGENT_DELEGATION_READ_SCOPE
+                not in _safe_agent_delegation_scopes(principal["scopes_json"])
+            ):
+                raise AgentSourceResolutionAuthorizationError(
+                    "agent source resolution delegation is not authorized"
+                )
+
+            existing_row = conn.execute(
+                """
+                SELECT * FROM agent_source_resolutions
+                WHERE workspace_id = ?
+                  AND user_id = ?
+                  AND delegation_id = ?
+                  AND source_fingerprint = ?
+                  AND expires_at > ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (
+                    workspace_id,
+                    user_id,
+                    delegation_id,
+                    normalized_fingerprint,
+                    now_iso,
+                ),
+            ).fetchone()
+            existing = self._agent_source_resolution(existing_row)
+            if existing is not None:
+                if existing.get("source_type") != normalized_type:
+                    raise ValueError("source resolution fingerprint collision")
+                if existing.get("envelope") != envelope:
+                    conn.execute(
+                        """
+                        UPDATE agent_source_resolutions
+                        SET envelope_json = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (serialized_envelope, now_iso, existing["id"]),
+                    )
+                    existing_row = conn.execute(
+                        """
+                        SELECT * FROM agent_source_resolutions
+                        WHERE id = ?
+                        """,
+                        (existing["id"],),
+                    ).fetchone()
+                    existing = self._agent_source_resolution(existing_row)
+                if started_transaction:
+                    conn.commit()
+                if existing is None:
+                    raise LookupError("source resolution not found")
+                return existing
+
+            active_count = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) FROM agent_source_resolutions
+                    WHERE delegation_id = ? AND expires_at > ?
+                    """,
+                    (delegation_id, now_iso),
+                ).fetchone()[0]
+            )
+            if active_count >= AGENT_SOURCE_RESOLUTION_MAX_ACTIVE:
+                raise AgentSourceResolutionLimitError(
+                    "agent source resolution active limit reached"
+                )
+
+            resolution_id = _new_id("asr")
+            expires_iso = (
+                authoritative_now
+                + timedelta(minutes=AGENT_SOURCE_RESOLUTION_TTL_MINUTES)
+            ).isoformat()
+            conn.execute(
+                """
+                INSERT INTO agent_source_resolutions (
+                    id, workspace_id, user_id, delegation_id, source_type,
+                    source_fingerprint, envelope_json, created_at, expires_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    resolution_id,
+                    workspace_id,
+                    user_id,
+                    delegation_id,
+                    normalized_type,
+                    normalized_fingerprint,
+                    serialized_envelope,
+                    now_iso,
+                    expires_iso,
+                    now_iso,
+                ),
+            )
+            created_row = conn.execute(
+                "SELECT * FROM agent_source_resolutions WHERE id = ?",
+                (resolution_id,),
+            ).fetchone()
+            if started_transaction:
+                conn.commit()
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        created = self._agent_source_resolution(created_row)
+        if created is None:
+            raise LookupError("created source resolution not found")
+        return created
+
+    def get_agent_source_resolution_for_actor(
+        self,
+        resolution_id: str,
+        *,
+        workspace_id: str,
+        user_id: str,
+        delegation_id: str,
+    ) -> dict[str, Any] | None:
+        """Return a resolution only when all persisted actor bindings match."""
+
+        row = self.connect().execute(
+            """
+            SELECT * FROM agent_source_resolutions
+            WHERE id = ?
+              AND workspace_id = ?
+              AND user_id = ?
+              AND delegation_id = ?
+            """,
+            (resolution_id, workspace_id, user_id, delegation_id),
+        ).fetchone()
+        return self._agent_source_resolution(row)
+
+    def cleanup_agent_source_resolutions(
+        self,
+        *,
+        now: str,
+        delegation_id: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, int]:
+        current = _parse_proposal_time(now)
+        cutoff = (
+            current - timedelta(hours=AGENT_SOURCE_RESOLUTION_RETENTION_HOURS)
+        ).isoformat()
+        conn = self.connect()
+        started_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if started_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            sql = "DELETE FROM agent_source_resolutions WHERE expires_at < ?"
+            parameters: list[Any] = [cutoff]
+            if delegation_id is not None:
+                sql += " AND delegation_id = ?"
+                parameters.append(delegation_id)
+            deleted = conn.execute(sql, parameters).rowcount
+            if started_transaction:
+                conn.commit()
+        except Exception:
+            if started_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return {"deleted": max(int(deleted), 0)}
 
     def create_agent_change_proposal(
         self,

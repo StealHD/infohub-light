@@ -236,7 +236,7 @@ async def test_remote_mcp_uses_exact_path_static_bearer_and_transport_security(
 
 
 @pytest.mark.anyio
-async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_calls_reads(
+async def test_real_mcp_client_lists_seventeen_tools_with_exact_annotations_and_calls_reads(
     tmp_path, monkeypatch
 ):
     app = _app(tmp_path, monkeypatch)
@@ -293,11 +293,21 @@ async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_ca
                             {"subscription_id": subscription["id"]},
                         ),
                     ]
-                    await anyio.sleep(1.05)
-                    remaining_results.append(
+                    await anyio.sleep(2.05)
+                    remaining_results.extend(
+                        [
+                            await session.call_tool(
+                                "resolve_source",
+                                {
+                                    "source_type": "youtube",
+                                    "input": "老高和小茉",
+                                    "candidate_urls": [],
+                                },
+                            ),
                         await session.call_tool(
                             "diagnose_job", {"job_id": job["id"]}
-                        )
+                            ),
+                        ]
                     )
 
     assert [tool.name for tool in listed.tools] == [
@@ -309,6 +319,7 @@ async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_ca
         "get_job",
         "get_source_setup_guide",
         "search_bilibili_users",
+        "resolve_source",
         "list_available_sources",
         "prepare_create_subscription",
         "prepare_update_subscription",
@@ -339,6 +350,23 @@ async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_ca
         "minimum": 1,
         "maximum": 5,
     } == search_schema["properties"]["limit"]
+    resolve_schema = next(
+        tool.inputSchema
+        for tool in listed.tools
+        if tool.name == "resolve_source"
+    )
+    assert resolve_schema["properties"]["input"]["maxLength"] == 2048
+    candidate_schema = resolve_schema["properties"]["candidate_urls"]
+    candidate_array = next(
+        option
+        for option in candidate_schema["anyOf"]
+        if option.get("type") == "array"
+    )
+    assert candidate_array["maxItems"] == 5
+    assert resolve_schema["properties"]["limit"] | {
+        "minimum": 1,
+        "maximum": 5,
+    } == resolve_schema["properties"]["limit"]
     annotations = {tool.name: tool.annotations for tool in listed.tools}
     assert all(
         tool.inputSchema.get("additionalProperties") is False
@@ -365,6 +393,10 @@ async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_ca
     assert annotations["search_bilibili_users"].destructiveHint is False
     assert annotations["search_bilibili_users"].idempotentHint is True
     assert annotations["search_bilibili_users"].openWorldHint is True
+    assert annotations["resolve_source"].readOnlyHint is True
+    assert annotations["resolve_source"].destructiveHint is False
+    assert annotations["resolve_source"].idempotentHint is True
+    assert annotations["resolve_source"].openWorldHint is True
     for name in {
         "prepare_create_subscription",
         "prepare_update_subscription",
@@ -381,6 +413,12 @@ async def test_real_mcp_client_lists_sixteen_tools_with_exact_annotations_and_ca
     assert result.isError is False
     assert result.structuredContent["items"][0]["article_id"] == "article-1"
     assert all(call.isError is False for call in remaining_results)
+    assert next(
+        call
+        for call in remaining_results
+        if call.structuredContent
+        and call.structuredContent.get("status") == "discovery_required"
+    ).structuredContent["candidates"] == []
     assert _business_dump(app) == before
 
 

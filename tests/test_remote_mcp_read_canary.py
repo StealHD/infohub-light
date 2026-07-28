@@ -163,13 +163,14 @@ async def test_verify_canary_calls_safe_tools_checks_isolation_and_leaks_nothing
 
     assert result["ok"] is True
     assert result["mode"] == "verify"
-    assert result["tool_count"] == 16
+    assert result["tool_count"] == 17
     assert result["registered_tools"] == list(ALL_REMOTE_TOOLS)
     assert result["read_tools"] == {name: "ok" for name in SAFE_READ_TOOLS}
     assert result["isolation_checks"] == 3
     assert result["write_guard"] == "subscription_writes_disabled"
     assert result["latency_ms"]["sample_count"] == 11
     assert result["bilibili_lookup_latency_ms"]["sample_count"] == 1
+    assert result["source_resolution_latency_ms"]["sample_count"] == 1
     after_proposals = app.state.service_store.connect().execute(
         "SELECT COUNT(*) FROM agent_change_proposals"
     ).fetchone()[0]

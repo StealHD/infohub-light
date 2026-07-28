@@ -254,6 +254,10 @@ class MaintenanceService:
             maintenance=True,
             commit=False,
         )
+        resolution_cleanup = self.store.cleanup_agent_source_resolutions(
+            now=now.isoformat(),
+            commit=False,
+        )
         return {
             "feed_snapshots": len(feed_delete_ids),
             "source_snapshots": len(source_delete_ids),
@@ -264,4 +268,5 @@ class MaintenanceService:
             "jobs": max(int(jobs), 0),
             "sessions": max(int(sessions), 0),
             "agent_change_proposals": proposal_cleanup["deleted"],
+            "agent_source_resolutions": resolution_cleanup["deleted"],
         }

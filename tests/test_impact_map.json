@@ -64,11 +64,13 @@
         "src/services/*notification*.py",
         "src/rsshub.py",
         "src/services/source_type_registry.py",
+        "src/services/source_resolution.py",
         "src/services/subscription_mutation.py",
         "src/services/user_config_builder.py",
         "src/services/user_content_store.py",
         "src/services/user_item_state.py",
         "src/services/youtube_channel.py",
+        "tests/test_source_resolution.py",
         "tests/test_youtube_channel.py"
       ],
       "groups": ["python_api_store"]
@@ -78,6 +80,7 @@
       "globs": [
         "src/mcp/remote_*.py",
         "src/services/bilibili_user_search.py",
+        "src/services/source_resolution.py",
         "frontend/src/features/openclaw/**",
         "frontend/src/features/admin-heroui/HeroAgentsPage*",
         "scripts/remote_mcp_read_canary.py",
@@ -92,6 +95,7 @@
         "tests/test_bilibili_user_search.py",
         "tests/test_openclaw_skill.py",
         "tests/test_setup_openclaw_local.py",
+        "tests/test_source_resolution.py",
         "deploy/nginx/inteliscope-basic-auth.conf",
         "deploy/nginx/inteliscope-rate-limit.conf",
         "deploy/nginx-rsshub-location.conf"
@@ -259,6 +263,8 @@
       "tests/test_secret_api.py",
       "tests/test_secret_store.py",
       "tests/test_service_store.py",
+      "tests/test_source_resolution.py",
+      "tests/test_source_setup_guidance.py",
       "tests/test_source_type_registry.py",
       "tests/test_storage.py",
       "tests/test_user_config_builder.py",

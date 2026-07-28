@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, Callable, Literal, TypeVar
+from typing import Annotated, Any, Awaitable, Callable, Literal, NoReturn, TypeVar
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
@@ -44,6 +44,7 @@ from .remote_models import (
     PrepareCreateSubscriptionInput,
     PrepareDeleteSubscriptionInput,
     PrepareUpdateSubscriptionInput,
+    ResolveSourceInput,
     ScheduleInput,
     ScheduleUpdatesInput,
     SourceInput,
@@ -60,7 +61,8 @@ _Result = TypeVar("_Result")
 _AUDIT_VALUE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 _CREATE_SOURCE_SHAPE_HINT = (
     "invalid_request: source must use either "
-    "{mode: existing, source_id} or "
+    "{mode: existing, source_id}, "
+    "{mode: resolved, resolution_ref}, or "
     "{mode: private, type, display_name, config}"
 )
 
@@ -366,6 +368,156 @@ def create_remote_mcp(
         candidate = str(value or "")
         return candidate if _AUDIT_VALUE_RE.fullmatch(candidate) else "-"
 
+    @dataclass(slots=True)
+    class ToolCallState:
+        tool_name: str
+        delegation_id: str
+        request_id: str
+        started: float
+        outcome: str
+        logged_proposal_id: str
+        logged_action: str
+        actor: DelegatedActor | None = None
+
+    def begin_tool_call(
+        tool_name: str,
+        *,
+        audit_action: str,
+        audit_proposal_id: str,
+    ) -> tuple[ToolCallState, AccessToken | None]:
+        access = get_access_token()
+        return (
+            ToolCallState(
+                tool_name=tool_name,
+                delegation_id=str(
+                    access.token if access is not None else ""
+                ),
+                request_id=f"mcp_{uuid.uuid4().hex}",
+                started=time.perf_counter(),
+                outcome="ok",
+                logged_proposal_id=audit_value(audit_proposal_id),
+                logged_action=audit_value(audit_action),
+            ),
+            access,
+        )
+
+    def record_tool_result(state: ToolCallState, result: Any) -> None:
+        if not isinstance(result, dict):
+            return
+        state.logged_proposal_id = audit_value(
+            result.get("proposal_id") or state.logged_proposal_id
+        )
+        preview = result.get("preview")
+        result_summary = result.get("result")
+        result_action = (
+            preview.get("action") if isinstance(preview, dict) else None
+        ) or (
+            result_summary.get("action")
+            if isinstance(result_summary, dict)
+            else None
+        )
+        if result_action:
+            state.logged_action = audit_value(result_action)
+        if (
+            state.actor is not None
+            and state.tool_name == "apply_subscription_change"
+            and isinstance(result_summary, dict)
+            and result_action in {"created", "updated", "deleted"}
+        ):
+            safe_emit_operation_event(
+                category="subscription",
+                action=f"mcp_{result_action}",
+                outcome="succeeded",
+                workspace_id=state.actor.workspace_id,
+                actor_user_id=state.actor.user_id,
+                request_id=state.request_id,
+                source_id=result_summary.get("source_id"),
+                subscription_id=result_summary.get("subscription_id"),
+            )
+
+    def raise_tool_error(state: ToolCallState, exc: Exception) -> NoReturn:
+        if isinstance(exc, RemoteMCPNotFound):
+            state.outcome = "not_found"
+            raise ToolError("not_found") from None
+        if isinstance(exc, AgentProposalError):
+            state.outcome = audit_value(exc.code)
+            raise ToolError(state.outcome) from None
+        if isinstance(exc, SubscriptionMutationError):
+            state.outcome = audit_value(exc.code)
+            raise ToolError(state.outcome) from None
+        if isinstance(exc, SourceConfigError):
+            state.outcome = "invalid_request"
+            raise ToolError("invalid_request") from None
+        state.outcome = "internal_error"
+        raise ToolError(
+            f"internal_error request_id={state.request_id}"
+        ) from None
+
+    def finish_tool_call(state: ToolCallState) -> None:
+        elapsed_ms = int((time.perf_counter() - state.started) * 1000)
+        _LOGGER.info(
+            "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
+            "action=%s outcome=%s elapsed_ms=%s request_id=%s",
+            state.delegation_id,
+            state.tool_name,
+            state.logged_proposal_id,
+            state.logged_action,
+            state.outcome,
+            elapsed_ms,
+            state.request_id,
+        )
+        if state.actor is None:
+            return
+        operation_outcome = (
+            "succeeded"
+            if state.outcome == "ok"
+            else (
+                "denied"
+                if state.outcome
+                in {
+                    "unauthorized",
+                    "forbidden",
+                    "invalid_request",
+                    "write_scope_required",
+                    "rate_limited",
+                }
+                else "failed"
+            )
+        )
+        operation_level = (
+            "info"
+            if operation_outcome == "succeeded"
+            else ("warning" if operation_outcome == "denied" else "error")
+        )
+        safe_emit_operation_event(
+            category="agent",
+            action=f"mcp.{state.tool_name}",
+            outcome=operation_outcome,
+            level=operation_level,
+            workspace_id=state.actor.workspace_id,
+            actor_user_id=state.actor.user_id,
+            request_id=state.request_id,
+            error_code=None if state.outcome == "ok" else state.outcome,
+            duration_ms=elapsed_ms,
+        )
+
+    def operation_kwargs(
+        state: ToolCallState,
+        *,
+        actor_operation: bool,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        actor = state.actor
+        if actor is None:
+            raise RuntimeError("tool actor was not initialized")
+        if actor_operation:
+            return {"actor": actor, **kwargs}
+        return {
+            "workspace_id": actor.workspace_id,
+            "user_id": actor.user_id,
+            **kwargs,
+        }
+
     def run_tool(
         tool_name: str,
         operation: Callable[..., _Result],
@@ -375,124 +527,56 @@ def create_remote_mcp(
         audit_proposal_id: str = "-",
         **kwargs: Any,
     ) -> _Result:
-        access = get_access_token()
-        delegation_id = str(access.token if access is not None else "")
-        request_id = f"mcp_{uuid.uuid4().hex}"
-        started = time.perf_counter()
-        outcome = "ok"
-        logged_proposal_id = audit_value(audit_proposal_id)
-        logged_action = audit_value(audit_action)
-        actor: DelegatedActor | None = None
+        state, access = begin_tool_call(
+            tool_name,
+            audit_action=audit_action,
+            audit_proposal_id=audit_proposal_id,
+        )
         try:
-            actor = actor_from_access(access)
-            result = (
-                operation(actor=actor, **kwargs)
-                if actor_operation
-                else operation(
-                    workspace_id=actor.workspace_id,
-                    user_id=actor.user_id,
-                    **kwargs,
+            state.actor = actor_from_access(access)
+            result = operation(
+                **operation_kwargs(
+                    state,
+                    actor_operation=actor_operation,
+                    kwargs=kwargs,
                 )
             )
-            if isinstance(result, dict):
-                logged_proposal_id = audit_value(
-                    result.get("proposal_id") or logged_proposal_id
-                )
-                preview = result.get("preview")
-                result_summary = result.get("result")
-                result_action = (
-                    preview.get("action") if isinstance(preview, dict) else None
-                ) or (
-                    result_summary.get("action")
-                    if isinstance(result_summary, dict)
-                    else None
-                )
-                if result_action:
-                    logged_action = audit_value(result_action)
-                if (
-                    actor is not None
-                    and tool_name == "apply_subscription_change"
-                    and isinstance(result_summary, dict)
-                    and result_action in {"created", "updated", "deleted"}
-                ):
-                    safe_emit_operation_event(
-                        category="subscription",
-                        action=f"mcp_{result_action}",
-                        outcome="succeeded",
-                        workspace_id=actor.workspace_id,
-                        actor_user_id=actor.user_id,
-                        request_id=request_id,
-                        source_id=result_summary.get("source_id"),
-                        subscription_id=result_summary.get(
-                            "subscription_id"
-                        ),
-                    )
+            record_tool_result(state, result)
             return result
-        except RemoteMCPNotFound:
-            outcome = "not_found"
-            raise ToolError("not_found") from None
-        except AgentProposalError as exc:
-            outcome = audit_value(exc.code)
-            raise ToolError(outcome) from None
-        except SubscriptionMutationError as exc:
-            outcome = audit_value(exc.code)
-            raise ToolError(outcome) from None
-        except SourceConfigError:
-            outcome = "invalid_request"
-            raise ToolError("invalid_request") from None
-        except Exception:
-            outcome = "internal_error"
-            raise ToolError(f"internal_error request_id={request_id}") from None
+        except Exception as exc:
+            raise_tool_error(state, exc)
         finally:
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            _LOGGER.info(
-                "remote_mcp_call delegation_id=%s tool=%s proposal_id=%s "
-                "action=%s outcome=%s elapsed_ms=%s request_id=%s",
-                delegation_id,
-                tool_name,
-                logged_proposal_id,
-                logged_action,
-                outcome,
-                elapsed_ms,
-                request_id,
+            finish_tool_call(state)
+
+    async def run_async_tool(
+        tool_name: str,
+        operation: Callable[..., Awaitable[_Result]],
+        *,
+        actor_operation: bool = False,
+        audit_action: str = "-",
+        audit_proposal_id: str = "-",
+        **kwargs: Any,
+    ) -> _Result:
+        state, access = begin_tool_call(
+            tool_name,
+            audit_action=audit_action,
+            audit_proposal_id=audit_proposal_id,
+        )
+        try:
+            state.actor = actor_from_access(access)
+            result = await operation(
+                **operation_kwargs(
+                    state,
+                    actor_operation=actor_operation,
+                    kwargs=kwargs,
+                )
             )
-            if actor is not None:
-                operation_outcome = (
-                    "succeeded"
-                    if outcome == "ok"
-                    else (
-                        "denied"
-                        if outcome
-                        in {
-                            "unauthorized",
-                            "forbidden",
-                            "invalid_request",
-                            "write_scope_required",
-                            "rate_limited",
-                        }
-                        else "failed"
-                    )
-                )
-                operation_level = (
-                    "info"
-                    if operation_outcome == "succeeded"
-                    else (
-                        "warning"
-                        if operation_outcome == "denied"
-                        else "error"
-                    )
-                )
-                safe_emit_operation_event(
-                    category="agent",
-                    action=f"mcp.{tool_name}",
-                    outcome=operation_outcome,
-                    level=operation_level,
-                    workspace_id=actor.workspace_id,
-                    actor_user_id=actor.user_id,
-                    request_id=request_id,
-                    error_code=None if outcome == "ok" else outcome,
-                    duration_ms=elapsed_ms,
-                )
+            record_tool_result(state, result)
+            return result
+        except Exception as exc:
+            raise_tool_error(state, exc)
+        finally:
+            finish_tool_call(state)
 
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def get_my_feed(
@@ -562,17 +646,7 @@ def create_remote_mcp(
 
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def get_source_setup_guide(
-        source_type: Literal[
-            "rss",
-            "bilibili",
-            "telegram",
-            "github",
-            "reddit",
-            "twitter",
-            "website",
-            "youtube",
-            "apify",
-        ]
+        source_type: Annotated[str, Field(min_length=1, max_length=64)]
         | None = None,
         locale: Literal["zh-CN", "en"] = "zh-CN",
     ) -> dict[str, Any]:
@@ -599,19 +673,42 @@ def create_remote_mcp(
             limit=limit,
         )
 
+    @server.tool(
+        annotations=OPEN_WORLD_READ_ANNOTATIONS,
+        structured_output=True,
+    )
+    async def resolve_source(
+        source_type: Annotated[str, Field(min_length=1, max_length=64)],
+        input: Annotated[str, Field(min_length=1, max_length=2048)],
+        candidate_urls: Annotated[
+            list[
+                Annotated[str, Field(min_length=1, max_length=2048)]
+            ],
+            Field(max_length=5),
+        ]
+        | None = None,
+        limit: Annotated[int, Field(ge=1, le=5)] = 5,
+    ) -> dict[str, Any]:
+        """Verify public source candidates and mint bounded preparation refs."""
+
+        request = ResolveSourceInput(
+            source_type=source_type,
+            input=input,
+            candidate_urls=candidate_urls or [],
+            limit=limit,
+        )
+        payload = request.model_dump()
+        payload["input_value"] = payload.pop("input")
+        return await run_async_tool(
+            "resolve_source",
+            subscription_service.resolve_source,
+            actor_operation=True,
+            **payload,
+        )
+
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def list_available_sources(
-        source_type: Literal[
-            "rss",
-            "bilibili",
-            "telegram",
-            "github",
-            "reddit",
-            "twitter",
-            "website",
-            "youtube",
-            "apify",
-        ]
+        source_type: Annotated[str, Field(min_length=1, max_length=64)]
         | None = None,
         unsubscribed_only: bool = False,
     ) -> dict[str, Any]:
@@ -633,7 +730,8 @@ def create_remote_mcp(
         """Prepare, but do not apply, one subscription creation proposal.
 
         Source must be either ``{mode: existing, source_id}`` using an ID from
-        ``list_available_sources``, or
+        ``list_available_sources``, ``{mode: resolved, resolution_ref}`` using
+        a reference from ``resolve_source``, or
         ``{mode: private, type, display_name, config}``. Never use
         ``mode: create``, ``source_type``, or ``fields``.
         """

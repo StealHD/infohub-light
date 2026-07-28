@@ -30,6 +30,7 @@ ALL_REMOTE_TOOLS = (
     "get_job",
     "get_source_setup_guide",
     "search_bilibili_users",
+    "resolve_source",
     "list_available_sources",
     "prepare_create_subscription",
     "prepare_update_subscription",
@@ -48,6 +49,7 @@ SAFE_READ_TOOLS = (
     "get_job",
     "get_source_setup_guide",
     "search_bilibili_users",
+    "resolve_source",
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
@@ -163,6 +165,7 @@ async def _primary_checks(
     *,
     latencies: list[float],
     open_world_latencies: list[float],
+    source_resolution_latencies: list[float],
     read_status: dict[str, str],
 ) -> tuple[tuple[str, ...], str, str, str]:
     listed = await primary.list_tools()
@@ -238,9 +241,23 @@ async def _primary_checks(
         latencies=latencies,
     )
     read_status["diagnose_source"] = "ok"
-    # The contract has twelve read tools while the server keeps a burst of ten.
-    # Refill two tokens rather than weakening the production limit.
-    await anyio.sleep(2.05)
+    # The contract has thirteen read tools while the server keeps a burst of
+    # ten. Refill three tokens rather than weakening the production limit.
+    await anyio.sleep(3.05)
+    resolution = await _read_call(
+        primary,
+        "resolve_source",
+        {
+            "source_type": "youtube",
+            "input": "canary name requiring agent discovery",
+            "candidate_urls": [],
+            "limit": 5,
+        },
+        latencies=source_resolution_latencies,
+    )
+    if resolution.get("status") != "discovery_required":
+        raise CanaryFailure("source_resolution_contract_failed")
+    read_status["resolve_source"] = "ok"
     await _read_call(
         primary, "diagnose_job", {"job_id": job_id}, latencies=latencies
     )
@@ -301,6 +318,7 @@ async def verify_canary(
         raise CanaryFailure("missing_environment")
     latencies: list[float] = []
     open_world_latencies: list[float] = []
+    source_resolution_latencies: list[float] = []
     read_status = {name: "pending" for name in SAFE_READ_TOOLS}
     primary_failure: CanaryFailure | None = None
     primary_result: tuple[tuple[str, ...], str, str, str] | None = None
@@ -312,6 +330,7 @@ async def verify_canary(
                 primary,
                 latencies=latencies,
                 open_world_latencies=open_world_latencies,
+                source_resolution_latencies=source_resolution_latencies,
                 read_status=read_status,
             )
         except CanaryFailure as exc:
@@ -354,6 +373,13 @@ async def verify_canary(
         "bilibili_lookup_latency_ms": {
             "sample_count": len(open_world_latencies),
             "maximum": round(max(open_world_latencies, default=0.0), 3),
+        },
+        "source_resolution_latency_ms": {
+            "sample_count": len(source_resolution_latencies),
+            "maximum": round(
+                max(source_resolution_latencies, default=0.0),
+                3,
+            ),
         },
     }
 

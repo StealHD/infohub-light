@@ -13,6 +13,7 @@ TOOLS = {
     "get_job",
     "get_source_setup_guide",
     "search_bilibili_users",
+    "resolve_source",
     "list_available_sources",
     "prepare_create_subscription",
     "prepare_update_subscription",
@@ -31,6 +32,7 @@ READ_TOOLS = {
     "get_job",
     "get_source_setup_guide",
     "search_bilibili_users",
+    "resolve_source",
     "list_available_sources",
     "diagnose_source",
     "diagnose_job",
@@ -71,7 +73,17 @@ def test_openclaw_skill_has_required_files_frontmatter_and_mcp_dependency():
     assert "mcp.servers.inteliscope" in frontmatter
     assert all(
         trigger in frontmatter
-        for trigger in ("订阅", "B站", "Bilibili", "UP主", "search_bilibili_users")
+        for trigger in (
+            "订阅",
+            "B站",
+            "Bilibili",
+            "UP主",
+            "search_bilibili_users",
+            "YouTube",
+            "油管",
+            "频道",
+            "resolve_source",
+        )
     )
 
 
@@ -87,7 +99,7 @@ def test_openclaw_skill_uses_exactly_the_subscription_contract_tools_and_no_call
     )
     named_tools = set(re.findall(
         r"`(get_my_feed|get_item|list_subscriptions|source_health|list_jobs|get_job|"
-        r"get_source_setup_guide|search_bilibili_users|list_available_sources|prepare_create_subscription|"
+        r"get_source_setup_guide|search_bilibili_users|resolve_source|list_available_sources|prepare_create_subscription|"
         r"prepare_update_subscription|prepare_delete_subscription|"
         r"apply_subscription_change|diagnose_source|diagnose_job|"
         r"query_operation_logs)`",
@@ -168,7 +180,7 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     assert [
         (len(config["toolFilter"]["include"]), set(config["toolFilter"]["include"]))
         for config in configs
-    ] == [(12, READ_TOOLS), (16, TOOLS)]
+    ] == [(13, READ_TOOLS), (17, TOOLS)]
 
 
 def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch():
@@ -200,6 +212,7 @@ def test_skill_uses_exact_create_envelopes_and_routes_bilibili_through_rsshub():
     flattened = " ".join(combined.split())
 
     assert '"mode": "private"' in combined
+    assert '"mode":"resolved"' in flattened
     assert '"type": "reddit"' in combined
     assert '"display_name": "r/codex"' in combined
     assert '"subreddit": "codex"' in combined
@@ -233,3 +246,29 @@ def test_bilibili_name_subscription_never_routes_to_browser_or_shell():
     assert "never ask the user to enable remote debugging" in skill
     assert "Do not ask for a Bilibili UID before calling" in skill
     assert "`search_bilibili_users`" in skill
+
+
+def test_youtube_name_subscription_uses_agent_web_then_bounded_resolver():
+    combined = all_skill_text()
+    skill = _text("SKILL.md")
+
+    assert "YouTube" in combined and "油管" in combined
+    assert "name as sufficient discovery input" in skill
+    assert "`油管`, or `频道`" not in skill
+    assert "`web_search`" in combined
+    assert "site:youtube.com" in combined
+    assert "`resolve_source`" in combined
+    assert "www.youtube.com/@…" in combined
+    assert "www.youtube.com/channel/UC…" in combined
+    assert "不可信" in combined or "untrusted" in combined
+    assert "resolution_ref" in combined
+    for status in (
+        "resolved",
+        "ambiguous",
+        "discovery_required",
+        "not_found",
+        "unavailable",
+        "web_setup_required",
+    ):
+        assert status in combined
+    assert "not a channel ID or RSS URL" in combined or "not a channel ID" in combined

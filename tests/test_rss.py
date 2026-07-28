@@ -721,6 +721,73 @@ def test_public_fetch_rejects_response_body_over_two_megabytes() -> None:
         )
 
 
+def test_public_fetch_partial_mode_bounds_oversized_declared_body() -> None:
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-length": "100"},
+            content=b"0123456789" * 10,
+        )
+
+    response = asyncio.run(
+        network_policy.fetch_public_http(
+            "https://93.184.216.34/channel",
+            max_response_bytes=17,
+            allow_partial_response=True,
+            transport_factory=lambda: httpx.MockTransport(handler),
+        )
+    )
+
+    assert response.content == b"01234567890123456"
+    assert response.extensions["infohub_body_truncated"] is True
+    assert requests[0].headers["accept-encoding"] == "identity"
+
+
+def test_public_fetch_partial_mode_detects_stream_overflow_without_length() -> None:
+    class OversizedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"12345"
+            yield b"67890"
+
+        async def aclose(self) -> None:
+            return None
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=OversizedStream())
+
+    response = asyncio.run(
+        network_policy.fetch_public_http(
+            "https://93.184.216.34/channel",
+            max_response_bytes=7,
+            allow_partial_response=True,
+            transport_factory=lambda: httpx.MockTransport(handler),
+        )
+    )
+
+    assert response.content == b"1234567"
+    assert response.extensions["infohub_body_truncated"] is True
+
+
+def test_public_fetch_partial_mode_marks_complete_bounded_body() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"complete")
+
+    response = asyncio.run(
+        network_policy.fetch_public_http(
+            "https://93.184.216.34/channel",
+            max_response_bytes=20,
+            allow_partial_response=True,
+            transport_factory=lambda: httpx.MockTransport(handler),
+        )
+    )
+
+    assert response.content == b"complete"
+    assert response.extensions["infohub_body_truncated"] is False
+
+
 def test_public_fetch_rejects_compressed_body_before_automatic_decoding() -> None:
     requests = []
 

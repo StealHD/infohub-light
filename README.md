@@ -79,7 +79,7 @@ Nginx Basic Auth may be used as an additional outer gate, but it never replaces 
 
 ## Local OpenClaw assistant
 
-Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes twelve safe Feed, subscription, source guidance, bounded public Bilibili account lookup, health, job, diagnosis, and sanitized operation-event tools for that user. Subscription changes require a separately authorized connection and server flag.
+Remote MCP is disabled by default and does not run an Agent or model on the server. When enabled, every role can create a connection from `/agents`; the clear-text token is shown once. A read connection exposes thirteen safe Feed, subscription, source guidance, bounded public Bilibili account lookup, generic verified source resolution (initially YouTube), health, job, diagnosis, and sanitized operation-event tools for that user. Subscription changes require a separately authorized connection and server flag.
 
 Browser chat is a separate opt-in connection. The browser connects directly to the user's OpenClaw Gateway v4; Inteliscope never proxies the Gateway or stores its bootstrap token. Local development accepts only `ws://127.0.0.1` or `ws://localhost`, while a remote per-user Gateway must use `wss://`. Paired browser credentials are isolated by Inteliscope user and Gateway URL. Turning the chat flag off restores the copy-only handoff without affecting Remote MCP.
 

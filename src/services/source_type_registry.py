@@ -218,6 +218,19 @@ class AgentSourceTypeDefinition:
                     "how_to_find": field_copy["how_to_find"],
                 }
             )
+        if self.type == "youtube":
+            result["resolution"] = {
+                "supported": True,
+                "strategy": "agent_web",
+                "official_hosts": ["www.youtube.com"],
+                "locator_kinds": [
+                    "handle",
+                    "channel_url",
+                    "channel_id",
+                    "channel_feed",
+                ],
+                "max_candidates": 5,
+            }
         return result
 
 
@@ -969,20 +982,25 @@ _AGENT_GUIDE_METADATA: dict[str, dict[str, dict[str, Any]]] = {
         },
     ),
     "youtube": _guide_source(
-        "YouTube Feed",
-        "YouTube 订阅源",
-        "Add a public YouTube RSS feed URL.",
-        "添加公开的 YouTube RSS 订阅地址。",
+        "YouTube Channel",
+        "YouTube 频道",
+        "Follow a public YouTube channel by name, handle, channel page, ID, or feed.",
+        "按名称、@handle、频道主页、频道 ID 或 Feed 关注公开 YouTube 频道。",
         self_service=True,
         requires_web_setup=False,
         en_web_setup_note="Private or authenticated channels must be configured in Web.",
         zh_web_setup_note="私有或需授权的频道请在 Web 中配置。",
         fields={
             "url": _guide_field(
-                "YouTube feed URL", "YouTube 订阅地址", "Public YouTube RSS feed URL.", "公开 YouTube RSS 订阅地址。",
-                ("https://www.youtube.com/feeds/videos.xml?channel_id=...",), ("https://www.youtube.com/feeds/videos.xml?channel_id=...",),
-                ("https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv",), ("https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv",),
-                "Copy the public RSS feed URL for the channel.", "复制频道公开 RSS 订阅地址。",
+                "YouTube channel", "YouTube 频道", "Public YouTube channel locator.", "公开 YouTube 频道定位信息。",
+                ("@handle", "https://www.youtube.com/@handle", "UC channel ID", "canonical channel feed"), ("@handle", "https://www.youtube.com/@handle", "UC 频道 ID", "规范频道 Feed"),
+                ("@GoogleDevelopers", "https://www.youtube.com/@GoogleDevelopers"), ("@GoogleDevelopers", "https://www.youtube.com/@GoogleDevelopers"),
+                "For a channel name, use agent web discovery and pass official channel-page candidates to resolve_source.", "只有频道名称时，先由 Agent 网页搜索，再把官方频道主页候选交给 resolve_source 验证。",
+            ),
+            "keep_latest_item": _guide_field(
+                "Keep latest item", "保留最新内容", "Keep the newest dated video when the fetch window is empty.", "时间窗口内没有视频时保留最新的带日期视频。",
+                ("true or false",), ("true 或 false",), ("true",), ("true",),
+                "Leave enabled for channel subscriptions.", "频道订阅保持开启。",
             ),
         },
     ),
@@ -1045,7 +1063,22 @@ _AGENT_SOURCE_TYPES: tuple[AgentSourceTypeDefinition, ...] = (
         _AGENT_GUIDE_METADATA["twitter"],
     ),
     AgentSourceTypeDefinition("website", "rss", ("url",), _BY_TYPE["rss"].fields[:1], _AGENT_GUIDE_METADATA["website"]),
-    AgentSourceTypeDefinition("youtube", "rss", ("url",), _BY_TYPE["rss"].fields[:1], _AGENT_GUIDE_METADATA["youtube"]),
+    AgentSourceTypeDefinition(
+        "youtube",
+        "rss",
+        ("url",),
+        (
+            _BY_TYPE["rss"].fields[0],
+            _field(
+                "keep_latest_item",
+                "Keep latest item",
+                "boolean",
+                default=True,
+                help="Keep the newest dated video when the fetch window is empty.",
+            ),
+        ),
+        _AGENT_GUIDE_METADATA["youtube"],
+    ),
     AgentSourceTypeDefinition("apify", "apify_social", _BY_TYPE["apify_social"].required_fields, _BY_TYPE["apify_social"].fields[:3], _AGENT_GUIDE_METADATA["apify"]),
 )
 _AGENT_BY_TYPE = {item.type: item for item in _AGENT_SOURCE_TYPES}
@@ -1662,6 +1695,8 @@ def normalize_source_setup_input(
         raise SourceConfigError(_SOURCE_REQUIRES_WEB_SETUP_ERROR)
     _validate_agent_field_types(definition, raw)
     aliased = _normalize_agent_aliases(source_type, raw)
+    if source_type == "youtube":
+        aliased.setdefault("keep_latest_item", True)
     if source_type in {"rss", "website"} and isinstance(aliased.get("url"), str):
         _validate_public_network_literal(aliased["url"])
     normalized = validate_source_config(definition.catalog_source_type, aliased)

@@ -20,19 +20,14 @@ class ExistingSourceInput(RemoteMCPInputModel):
     source_id: str = Field(min_length=1, max_length=128)
 
 
+class ResolvedSourceInput(RemoteMCPInputModel):
+    mode: Literal["resolved"]
+    resolution_ref: str = Field(min_length=1, max_length=128)
+
+
 class PrivateSourceInput(RemoteMCPInputModel):
     mode: Literal["private"]
-    type: Literal[
-        "rss",
-        "bilibili",
-        "telegram",
-        "github",
-        "reddit",
-        "twitter",
-        "website",
-        "youtube",
-        "apify",
-    ]
+    type: str = Field(min_length=1, max_length=64)
     display_name: str = Field(min_length=1, max_length=120)
     config: dict[str, Any] = Field(default_factory=dict)
     description: str = Field(default="", max_length=500)
@@ -41,9 +36,18 @@ class PrivateSourceInput(RemoteMCPInputModel):
 
 
 SourceInput = Annotated[
-    ExistingSourceInput | PrivateSourceInput,
+    ExistingSourceInput | ResolvedSourceInput | PrivateSourceInput,
     Field(discriminator="mode"),
 ]
+
+
+class ResolveSourceInput(RemoteMCPInputModel):
+    source_type: str = Field(min_length=1, max_length=64)
+    input: str = Field(min_length=1, max_length=2048)
+    candidate_urls: list[
+        Annotated[str, Field(min_length=1, max_length=2048)]
+    ] = Field(default_factory=list, max_length=5)
+    limit: StrictInt = Field(default=5, ge=1, le=5)
 
 
 class SubscriptionInput(RemoteMCPInputModel):

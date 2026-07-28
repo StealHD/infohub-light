@@ -6,13 +6,18 @@ from pathlib import Path
 import pytest
 
 from scripts.setup_openclaw_local import (
+    FULL_TOOL_FILTER,
+    LEGACY_FULL_TOOL_FILTER,
+    LEGACY_READ_TOOL_FILTER,
     MANAGED_COMMENT,
+    READ_TOOL_FILTER,
     SetupError,
     compose_image_from_ps,
     default_origin,
     merge_allowed_origins,
     parse_gateway_status,
     skill_tree_matches,
+    standard_tool_filter_upgrade,
     update_env_text,
     validate_gateway_url,
     validate_origin,
@@ -163,4 +168,46 @@ def test_setup_refreshes_a_stale_installed_skill_and_restarts_gateway() -> None:
 
     assert '"refresh needed" if skill_present else "install needed"' in source
     assert 'install_command.append("--force")' in source
-    assert "elif origins_changed or skill_changed:" in source
+    assert (
+        "elif origins_changed or skill_changed or "
+        "mcp_filter_upgrade is not None:" in source
+    )
+
+
+@pytest.mark.parametrize(
+    ("legacy", "current"),
+    [
+        (LEGACY_READ_TOOL_FILTER, READ_TOOL_FILTER),
+        (LEGACY_FULL_TOOL_FILTER, FULL_TOOL_FILTER),
+    ],
+)
+def test_standard_tool_filter_upgrade_changes_only_known_legacy_sets(
+    legacy: tuple[str, ...],
+    current: tuple[str, ...],
+) -> None:
+    assert standard_tool_filter_upgrade(
+        {"toolFilter": {"include": list(legacy)}}
+    ) == (current, False)
+    assert standard_tool_filter_upgrade(
+        {"config": {"toolFilter": {"include": list(current)}}}
+    ) == (None, False)
+
+
+def test_standard_tool_filter_upgrade_preserves_custom_filter() -> None:
+    custom = ["get_my_feed", "list_subscriptions"]
+
+    assert standard_tool_filter_upgrade(
+        {"toolFilter": {"include": custom}}
+    ) == (None, True)
+    assert standard_tool_filter_upgrade(
+        {
+            "toolFilter": {
+                "include": list(LEGACY_READ_TOOL_FILTER),
+                "exclude": ["get_item"],
+            }
+        }
+    ) == (None, True)
+    assert standard_tool_filter_upgrade({"name": "inteliscope"}) == (
+        None,
+        False,
+    )

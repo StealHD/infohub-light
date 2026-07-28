@@ -119,6 +119,10 @@ export const manualSections: ManualSection[] = [
         description: '在浏览器 Agent 面板不附带文章或任务，直接告诉 OpenClaw 公开账号名称并要求订阅；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会进入订阅预览，同名或模糊结果必须先由你选择。核对预览后，另发一条与服务端返回内容完全一致的准确确认短语才会应用；浏览器和 OpenClaw 都不能代你生成或改写确认。附带文章或任务的交接始终只读。',
       },
       {
+        title: '按名称订阅 YouTube 频道',
+        description: '直接说“订阅 YouTube 的老高和小茉”即可；OpenClaw 会先搜索最多 5 个官方频道主页，再由 Inteliscope 验证频道页面与公开 Feed 是否属于同一频道，不再要求你手工提供频道 ID 或 RSS。只有一个结果时进入订阅预览；多个结果会先显示频道名称与官方主页供你选择。搜索结果属于不可信公开元数据，视频、播放列表、第三方网址和带凭据地址不会进入解析。最终仍须核对预览并另发服务端给出的准确确认短语。',
+      },
+      {
         title: '连接本地 Gateway',
         description: '浏览器直接连接用户自己的 OpenClaw Gateway。Inteliscope 不托管模型密钥，也不会把文章正文预先发送给模型。',
       },

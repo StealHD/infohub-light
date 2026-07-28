@@ -734,3 +734,12 @@
 - 决策内容：`project-controls.json` 成为 init-pro schema-v3 的机器可读 topic 映射与紧凑日志策略真源；活动 `PLAN.md` 只保留当前阶段、待办、范围和门禁，原 schema-v2 计划逐字归档。活动 `WORKLOG.md` 最多保留 20 条结构化记录，旧根日志与非规范历史日志以摘要命名逐字保存在 `archive/legacy-worklog/`。历史 Superpowers 计划/规格、SDD 报告、init-pro 报告和旧项目地图移入 `archive/project-history/`。
 - 原因：历史计划和执行日志已占用主要 Markdown 读取、搜索和上下文预算，但绝大多数下一轮开发只需要当前状态及任务相关代码。把活动控制面与只读历史分层，可以降低 agent 的默认读取成本，同时保留完整追溯证据。
 - 兼容/边界：不移动产品源码、测试、依赖、构建配置、运行数据或合同文件；除 schema 标记和为新 manifest 登记 `tests/test_impact_map.json` 一条映射外，不改写产品实现、测试逻辑或 API/架构/UI 合同正文。归档文件继续受 Git 管理，只有任务需要历史证据时才定向搜索；普通任务不得整份加载。迁移必须通过 schema-v3 校验、工作日志字节守恒、JSON 校验、`git diff --check` 和仓库完整 Test Gate。
+
+### D087 Agent 通用来源解析采用 registry adapter 与短期引用
+
+- 决策日期：2026-07-29
+- 当前状态：本地实现、真实 YouTube 解析烟测与完整 Test Gate 通过；未部署
+- 决策内容：Remote MCP 新增唯一通用读工具 `resolve_source`，由 `SourceResolutionService` 的 adapter registry 负责固定官方主机、locator 语法、规范身份验证和安全 planner envelope；新增媒体只增加 adapter，不增加 MCP 工具、source union 分支或每媒体 MCP。服务端不做开放式网页搜索，名称发现归 OpenClaw core `web_search`，首批只支持 YouTube；Bilibili 保留既有官方名称查询工具。
+- 引用与网络边界：唯一候选生成绑定 workspace、user、delegation 的十分钟 `resolution_ref`，每 delegation 最多二十个；prepare 才把同 actor 有效引用投影为既有 existing/private planner 输入。YouTube handle 页只在严格公网 DNS pinning 下读取最多 2 MB 前缀，随后完整验证不超过 512 KB 的官方 Atom；不允许 Fake-IP、RFC1918、loopback、任意 RSS 或 VPS 网络例外。
+- 原因：要求用户为自然语言频道名手工提供 channel ID/RSS 把可发现的公开身份推给了用户；为每个平台增加独立 MCP 又会让工具合同和 OpenClaw filter 无界增长。通用解析入口把开放搜索、固定端点验证和业务写入分离，同时保持候选 metadata 不可信、配置不外泄和双阶段确认。
+- 兼容/回退：既有 `private`/`existing` 创建合同、Web YouTube setup、RSS 存储、抓取、计划、通知和 Bilibili 流程不变；旧 12/16 标准 filter 仅在精确匹配时由 setup 脚本升级，自定义 filter 不改写。关闭新能力或移除 YouTube adapter 后，已有规范 RSS 订阅继续工作。

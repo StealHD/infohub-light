@@ -33,6 +33,41 @@ MANAGED_ENV_VALUES = (
 )
 MANAGED_COMMENT = "# OpenClaw local setup (managed by scripts/setup_openclaw_local.py)"
 ENV_ASSIGNMENT = re.compile(r"^\s*(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=")
+LEGACY_READ_TOOL_FILTER = (
+    "get_my_feed",
+    "get_item",
+    "list_subscriptions",
+    "source_health",
+    "list_jobs",
+    "get_job",
+    "get_source_setup_guide",
+    "search_bilibili_users",
+    "list_available_sources",
+    "diagnose_source",
+    "diagnose_job",
+    "query_operation_logs",
+)
+READ_TOOL_FILTER = (
+    *LEGACY_READ_TOOL_FILTER[:8],
+    "resolve_source",
+    *LEGACY_READ_TOOL_FILTER[8:],
+)
+LEGACY_FULL_TOOL_FILTER = (
+    *LEGACY_READ_TOOL_FILTER[:9],
+    "prepare_create_subscription",
+    "prepare_update_subscription",
+    "prepare_delete_subscription",
+    "apply_subscription_change",
+    *LEGACY_READ_TOOL_FILTER[9:],
+)
+FULL_TOOL_FILTER = (
+    *READ_TOOL_FILTER[:10],
+    "prepare_create_subscription",
+    "prepare_update_subscription",
+    "prepare_delete_subscription",
+    "apply_subscription_change",
+    *READ_TOOL_FILTER[10:],
+)
 
 
 class SetupError(RuntimeError):
@@ -263,6 +298,47 @@ def skill_tree_matches(source: Path, installed: Path) -> bool:
     return source_files is not None and source_files == installed_files
 
 
+def standard_tool_filter_upgrade(
+    payload: Any,
+) -> tuple[tuple[str, ...] | None, bool]:
+    """Upgrade only a byte-for-byte standard legacy Inteliscope filter.
+
+    The boolean reports a custom filter that must remain untouched.
+    """
+
+    if not isinstance(payload, dict):
+        return None, False
+    candidates = [payload]
+    for key in ("server", "config"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            candidates.append(nested)
+    include: Any = None
+    found = False
+    for candidate in candidates:
+        tool_filter = candidate.get("toolFilter")
+        if isinstance(tool_filter, dict) and "include" in tool_filter:
+            if set(tool_filter) != {"include"}:
+                return None, True
+            include = tool_filter.get("include")
+            found = True
+            break
+    if not found:
+        return None, False
+    if not isinstance(include, list) or not all(
+        isinstance(item, str) for item in include
+    ):
+        return None, True
+    current = tuple(include)
+    if current == LEGACY_READ_TOOL_FILTER:
+        return READ_TOOL_FILTER, False
+    if current == LEGACY_FULL_TOOL_FILTER:
+        return FULL_TOOL_FILTER, False
+    if current in {READ_TOOL_FILTER, FULL_TOOL_FILTER}:
+        return None, False
+    return None, True
+
+
 def _compose_file(root: Path) -> Path:
     light = root / "docker-compose.light.yml"
     standard = root / "docker-compose.yml"
@@ -372,6 +448,17 @@ def run_setup(args: argparse.Namespace) -> None:
     merged_origins = merge_allowed_origins(current_origins, origin)
     origins_changed = merged_origins != current_origins
 
+    mcp_filter_upgrade: tuple[str, ...] | None = None
+    custom_mcp_filter = False
+    mcp_show_result = runner.capture(
+        ["openclaw", "mcp", "show", "inteliscope", "--json"],
+        check=False,
+    )
+    if mcp_show_result.returncode == 0:
+        mcp_filter_upgrade, custom_mcp_filter = standard_tool_filter_upgrade(
+            _json_output(mcp_show_result, "Inteliscope MCP configuration")
+        )
+
     skill_dir: Path | None = None
     skill_present = False
     skill_current = False
@@ -400,6 +487,10 @@ def run_setup(args: argparse.Namespace) -> None:
     print(f"  Inteliscope: {origin}")
     print(f"  env update: {'needed' if env_changed else 'already configured'}")
     print(f"  Origin update: {'needed' if origins_changed else 'already configured'}")
+    if mcp_filter_upgrade is not None:
+        print("  MCP tool filter: standard filter upgrade needed")
+    elif custom_mcp_filter:
+        print("  MCP tool filter: custom filter preserved; add resolve_source manually")
     if not args.skip_skill:
         skill_status = (
             "current"
@@ -442,9 +533,21 @@ def run_setup(args: argparse.Namespace) -> None:
             install_command.append("--force")
         runner.execute(install_command)
 
+    if mcp_filter_upgrade is not None:
+        runner.execute(
+            [
+                "openclaw",
+                "mcp",
+                "tools",
+                "inteliscope",
+                "--include",
+                ",".join(mcp_filter_upgrade),
+            ]
+        )
+
     if not gateway.running:
         runner.execute(["openclaw", "gateway", "start"])
-    elif origins_changed or skill_changed:
+    elif origins_changed or skill_changed or mcp_filter_upgrade is not None:
         runner.execute(["openclaw", "gateway", "restart"])
     runner.execute(["openclaw", "gateway", "status", "--require-rpc", "--timeout", "10000"])
 

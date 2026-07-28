@@ -627,7 +627,12 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
     private_source = schema["$defs"]["PrivateSourceInput"]
     source_union = schema["properties"]["source"]
     assert source_union["discriminator"]["propertyName"] == "mode"
-    assert set(source_union["discriminator"]["mapping"]) == {"existing", "private"}
+    assert set(source_union["discriminator"]["mapping"]) == {
+        "existing",
+        "resolved",
+        "private",
+    }
+    assert "enum" not in private_source["properties"]["type"]
     assert private_source["additionalProperties"] is False
     assert set(private_source["properties"]) == {
         "mode",
@@ -700,7 +705,8 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
             "missing-mode-sensitive-value",
             (
                 "invalid_request: source must use either "
-                "{mode: existing, source_id} or "
+                "{mode: existing, source_id}, "
+                "{mode: resolved, resolution_ref}, or "
                 "{mode: private, type, display_name, config}"
             ),
         ),
@@ -714,7 +720,8 @@ async def test_tool_schemas_forbid_extra_identity_and_keep_config_as_only_open_c
             "invalid-discriminator-sensitive-value",
             (
                 "invalid_request: source must use either "
-                "{mode: existing, source_id} or "
+                "{mode: existing, source_id}, "
+                "{mode: resolved, resolution_ref}, or "
                 "{mode: private, type, display_name, config}"
             ),
         ),

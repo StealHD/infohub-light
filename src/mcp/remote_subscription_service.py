@@ -11,10 +11,15 @@ from ..services.agent_change_proposal import (
 )
 from ..services.bilibili_user_search import BilibiliUserSearchService
 from ..services.source_type_registry import (
+    SourceConfigError,
     catalog_source_matches_agent_type,
     get_source_setup_guide,
     project_catalog_source_public_summary,
     validate_agent_source_type,
+)
+from ..services.source_resolution import (
+    SourceResolutionError,
+    SourceResolutionService,
 )
 from ..services.subscription_mutation import (
     SubscriptionMutationError,
@@ -37,6 +42,7 @@ class RemoteMCPSubscriptionService:
         proposals: AgentChangeProposalService,
         secret_is_set: Callable[[str], bool],
         bilibili_user_search: BilibiliUserSearchService | None = None,
+        source_resolutions: SourceResolutionService | None = None,
     ) -> None:
         self.store = store
         self.mutations = mutations
@@ -45,6 +51,9 @@ class RemoteMCPSubscriptionService:
         self.secret_is_set = secret_is_set
         self.bilibili_user_search = (
             bilibili_user_search or BilibiliUserSearchService()
+        )
+        self.source_resolutions = source_resolutions or SourceResolutionService(
+            store
         )
 
     @staticmethod
@@ -173,6 +182,37 @@ class RemoteMCPSubscriptionService:
             raise invalid_error
         return result
 
+    async def resolve_source(
+        self,
+        *,
+        actor: DelegatedActor,
+        source_type: str,
+        input_value: str,
+        candidate_urls: list[str] | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        live_actor = self.proposals.require_read_actor(actor)
+        try:
+            return await self.source_resolutions.resolve(
+                actor=live_actor,
+                source_type=source_type,
+                input_value=input_value,
+                candidate_urls=candidate_urls,
+                limit=limit,
+            )
+        except SourceResolutionError as exc:
+            raise AgentProposalError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+            ) from None
+        except SourceConfigError:
+            raise AgentProposalError(
+                "invalid_request",
+                "source type is invalid",
+                status_code=400,
+            ) from None
+
     @staticmethod
     def _source_visible_to_actor(
         source: dict[str, Any], actor: DelegatedActor
@@ -210,6 +250,32 @@ class RemoteMCPSubscriptionService:
         schedule: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         live_actor = self.proposals.require_write_actor(actor)
+        if isinstance(source, dict) and source.get("mode") == "resolved":
+            if set(source) != {"mode", "resolution_ref"}:
+                raise AgentProposalError(
+                    "invalid_request",
+                    "resolved source requires only resolution_ref",
+                )
+            try:
+                source = self.source_resolutions.resolve_reference(
+                    actor=live_actor,
+                    resolution_ref=str(source.get("resolution_ref") or ""),
+                )
+            except SourceResolutionError as exc:
+                raise AgentProposalError(
+                    exc.code,
+                    str(exc),
+                    status_code=exc.status_code,
+                ) from None
+        if isinstance(source, dict) and source.get("mode") == "private":
+            try:
+                validate_agent_source_type(str(source.get("type") or ""))
+            except SourceConfigError:
+                raise AgentProposalError(
+                    "invalid_request",
+                    "source type is invalid",
+                    status_code=400,
+                ) from None
         self._require_existing_visible_source(live_actor, source)
         try:
             plan = self.mutations.plan_create(

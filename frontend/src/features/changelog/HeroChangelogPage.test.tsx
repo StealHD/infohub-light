@@ -44,6 +44,7 @@ describe('HeroChangelogPage', () => {
     renderChangelog('/changelog#month-2026-07')
 
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 7 月' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: 'OpenClaw 可按名称订阅 YouTube 频道' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '全局与单源周期不再重复抓取' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '更新日志改为清晰时间线' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '可直接订阅 YouTube 公开频道' })).toBeInTheDocument()
@@ -59,9 +60,12 @@ describe('HeroChangelogPage', () => {
     expect(entries.length).toBeGreaterThan(1)
     expect(entries[0]).toHaveAttribute('aria-current', 'true')
     expect(entries[1]).not.toHaveAttribute('aria-current')
-    expect(within(entries[0] as HTMLElement).getByText('默认跟随全局')).toBeVisible()
-    expect(within(entries[0] as HTMLElement).getByText('卡片信息更准确')).toBeVisible()
-    expect(within(entries[0] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
+    expect(within(entries[0] as HTMLElement).getByText('通用解析入口')).toBeVisible()
+    expect(within(entries[0] as HTMLElement).getByText('名称由 Agent 发现')).toBeVisible()
+    expect(within(entries[0] as HTMLElement).getByText('2026-07-29')).toHaveAttribute('datetime', '2026-07-29')
+    expect(within(entries[1] as HTMLElement).getByText('默认跟随全局')).toBeVisible()
+    expect(within(entries[1] as HTMLElement).getByText('卡片信息更准确')).toBeVisible()
+    expect(within(entries[1] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
   })
 
   it('keeps a plain changelog entry at the page introduction', async () => {

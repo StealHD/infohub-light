@@ -698,6 +698,22 @@ class StorageGovernanceService:
                     (workspace_id, job_cutoff),
                 ).fetchall()
             ],
+            "agent_source_resolutions": [
+                str(row["id"])
+                for row in conn.execute(
+                    """
+                    SELECT id FROM agent_source_resolutions
+                    WHERE workspace_id = ? AND expires_at < ?
+                    ORDER BY id
+                    """,
+                    (
+                        workspace_id,
+                        (
+                            now - timedelta(hours=24)
+                        ).isoformat(),
+                    ),
+                ).fetchall()
+            ],
             "orphan_media": orphan_media,
         }
 
@@ -747,6 +763,11 @@ class StorageGovernanceService:
                 "id",
                 candidates["agent_change_proposals"],
             )
+            self._delete_ids(
+                "agent_source_resolutions",
+                "id",
+                candidates["agent_source_resolutions"],
+            )
             self._delete_ids("media_assets", "id", candidates["orphan_media"])
             conn.execute(
                 """
@@ -787,6 +808,7 @@ class StorageGovernanceService:
             "fetch_jobs",
             "sessions",
             "agent_change_proposals",
+            "agent_source_resolutions",
             "media_assets",
         } or column not in {"id", "rowid"}:
             raise RuntimeError("unsafe storage cleanup target")

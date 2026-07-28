@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -201,6 +202,35 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
         name="Maintenance",
         access="subscriptions_write",
     )
+    resolution = store.create_or_reuse_agent_source_resolution(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        delegation_id=delegation["id"],
+        source_type="rss",
+        source_fingerprint=hashlib.sha256(
+            b"maintenance-resolution"
+        ).hexdigest(),
+        envelope={
+            "source": {
+                "mode": "existing",
+                "source_id": source_id,
+            }
+        },
+    )
+    resolution_expired_at = now - timedelta(hours=25)
+    conn.execute(
+        """
+        UPDATE agent_source_resolutions
+        SET created_at = ?, expires_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            (resolution_expired_at - timedelta(minutes=10)).isoformat(),
+            resolution_expired_at.isoformat(),
+            resolution_expired_at.isoformat(),
+            resolution["id"],
+        ),
+    )
     proposal_created_at = now - timedelta(days=31, minutes=10)
     store.create_agent_change_proposal(
         proposal_id="agp-maintenance-old",
@@ -275,6 +305,7 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
         "jobs": 1,
         "sessions": 1,
         "agent_change_proposals": 1,
+        "agent_source_resolutions": 1,
     }
     assert second == {"ran": False, "deleted": {}}
     assert {
@@ -287,6 +318,10 @@ def test_hourly_maintenance_prunes_retention_and_preserves_latest_records(
     }
     assert conn.execute(
         "SELECT 1 FROM user_feed_items WHERE id = 'feed-item-old'"
+    ).fetchone() is None
+    assert conn.execute(
+        "SELECT 1 FROM agent_source_resolutions WHERE id = ?",
+        (resolution["id"],),
     ).fetchone() is None
     assert {
         row["id"]

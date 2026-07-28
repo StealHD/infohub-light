@@ -101,6 +101,8 @@
       "product_documentation_merge_gate_enabled": true,
       "private_structured_logging_enabled": true,
       "openclaw_operation_log_query_enabled": true,
+      "agent_source_resolution_enabled": true,
+      "youtube_agent_name_resolution_enabled": true,
       "frontend_log_display_enabled": false,
       "workspace_rsshub_base_url_enabled": true,
       "managed_bilibili_subscription_enabled": true,
@@ -122,7 +124,10 @@
       "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14, "managed_logs": 30},
       "max_feed_snapshots_per_user": 100,
       "max_notification_items_per_delivery": 20,
-      "notification_test_cooldown_seconds": 60
+      "notification_test_cooldown_seconds": 60,
+      "agent_source_resolution_candidate_limit": 5,
+      "agent_source_resolution_ref_ttl_seconds": 600,
+      "agent_source_resolution_max_active_per_delegation": 20
     },
     "observability": {
       "log_level": "INFO",

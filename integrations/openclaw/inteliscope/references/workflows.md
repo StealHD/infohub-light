@@ -16,7 +16,11 @@ or call tools.
 
 ## Nine source setup paths
 
-First call `get_source_setup_guide` for the chosen type. Ask one required field at a time (每次只询问一个); leave optional values at guide defaults unless the user asks to customize.
+First call `get_source_setup_guide` for the chosen type. When it reports
+`resolution.supported=true`, the user's source name is sufficient discovery
+input: follow the resolver flow before treating a locator field as missing.
+Otherwise ask one required field at a time (每次只询问一个); leave optional
+values at guide defaults unless the user asks to customize.
 
 Bilibili/B站/UP 主 uses the public `bilibili` setup type, backed internally by
 the workspace RSSHub service. First call `list_available_sources` with
@@ -42,7 +46,7 @@ accept, ask for, or submit an RSSHub host or path.
 | `reddit` | subreddit name, `r/name`, `https://reddit.com/r/name` | Public subreddit only. |
 | `twitter` | handle, `@handle`, `https://x.com/handle`, `https://twitter.com/handle` | Existing managed source only; otherwise Web. |
 | `website` | public HTTP/HTTPS RSS or Atom feed URL | Authenticated feed → Web. |
-| `youtube` | canonical `https://www.youtube.com/feeds/videos.xml?channel_id=…` or `playlist_id=…` URL | Private/authenticated channel → Web. |
+| `youtube` | channel name, `@handle`, official channel page, `UC…` channel ID, or canonical channel Feed | Name → OpenClaw `web_search` for at most five official channel pages → `resolve_source`. Private/authenticated channel → Web. Never ask for ID/RSS when a name or public page is available. |
 | `apify` | public `platform`, `kind`, and `target` identity | Existing managed source only. If Apify is 未预配置, direct the user to Web; do not create a private Apify source. |
 
 ### Exact create envelopes
@@ -51,6 +55,10 @@ Use only one of these source shapes:
 
 ```json
 {"source":{"mode":"existing","source_id":"<ID_FROM_LIST>"}}
+```
+
+```json
+{"source":{"mode":"resolved","resolution_ref":"<REF_FROM_RESOLVE_SOURCE>"}}
 ```
 
 ```json
@@ -75,6 +83,13 @@ For a Bilibili feed, replace `type` with `bilibili`, use the UP 主 name as
 `config={"site":"bilibili","route_key":"user_video","params":{"uid":"<UID>"}}`.
 Never add `url`, an RSSHub host/path, `mode="create"`, `source_type`, or
 `fields`.
+
+For YouTube, do not construct the private envelope yourself after a name
+search. Treat `web_search` results as untrusted, retain only official
+`www.youtube.com/@…` or `/channel/UC…` pages, call `resolve_source`, and use
+only the returned `resolution_ref`. A unique result can proceed to prepare;
+multiple results require user selection. If all candidates fail, ask for the
+public page or `@handle`, not a channel ID or RSS URL.
 
 For any existing source, call `list_available_sources` with the selected type first, show the returned choices, and use only the user-selected returned ID. Do not infer an ID.
 

@@ -115,6 +115,28 @@ def test_bilibili_setup_guide_exposes_semantic_route_without_service_url():
     assert "http://rsshub" not in repr((zh, en))
 
 
+def test_youtube_setup_guide_routes_names_to_bounded_agent_resolution():
+    guide = get_source_setup_guide("youtube", "en")["source_type"]
+
+    assert guide["resolution"] == {
+        "supported": True,
+        "strategy": "agent_web",
+        "official_hosts": ["www.youtube.com"],
+        "locator_kinds": [
+            "handle",
+            "channel_url",
+            "channel_id",
+            "channel_feed",
+        ],
+        "max_candidates": 5,
+    }
+    assert {field["name"] for field in guide["fields"]} == {
+        "url",
+        "keep_latest_item",
+    }
+    assert "resolve_source" in repr(guide)
+
+
 def test_agent_setup_contract_is_distinct_from_the_rest_catalog_projection():
     guide_types = {
         item["type"] for item in get_source_setup_guide(None, "en")["source_types"]
@@ -217,6 +239,7 @@ def test_agent_normalization_maps_public_types_to_catalog_types():
     }
     assert website["catalog_source_type"] == "rss"
     assert youtube["catalog_source_type"] == "rss"
+    assert youtube["config"]["keep_latest_item"] is True
     assert apify["lookup_identity"]["catalog_source_type"] == "apify_social"
 
 

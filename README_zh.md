@@ -476,7 +476,7 @@ Horizon 支持通过多种方式发布和分发生成的日报：
 
 ## OpenClaw 本地助手
 
-Remote MCP 默认关闭，服务器不运行 Agent 或新模型。启用后，每个 `owner/admin/member/viewer` 都可在“助手连接”页创建自己的 90 天只读凭证，使用 12 个安全工具读取凭证所属用户的信息流、详情、订阅、来源指导、最多 5 个公开 Bilibili 账号名称/UID/主页候选、来源健康、任务、原因诊断和脱敏操作事件。订阅变更需要独立授权的连接与服务器写开关；原始日志、账号 Cookie 和 Bilibili 上游正文不会进入前端或 Agent 上下文。
+Remote MCP 默认关闭，服务器不运行 Agent 或新模型。启用后，每个 `owner/admin/member/viewer` 都可在“助手连接”页创建自己的 90 天只读凭证，使用 13 个安全工具读取凭证所属用户的信息流、详情、订阅、来源指导、最多 5 个公开 Bilibili 账号候选、通用的已验证来源解析（首批支持 YouTube）、来源健康、任务、原因诊断和脱敏操作事件。订阅变更需要独立授权的连接与服务器写开关；原始日志、账号 Cookie、规范 Feed 和来源内部配置不会进入前端或 Agent 上下文。
 
 站内对话是另一条独立、默认关闭的连接：浏览器直接连接用户自己的 OpenClaw Gateway v4，Inteliscope 不代理 Gateway，也不接收首次 Gateway token。配对后的浏览器凭证按 Inteliscope 用户和 Gateway URL 隔离；本地只允许 `ws://127.0.0.1` 或 `ws://localhost`，远程用户专属 Gateway 必须使用 `wss://`。关闭对话开关会立即恢复复制交接模式，不影响 Remote MCP。
 

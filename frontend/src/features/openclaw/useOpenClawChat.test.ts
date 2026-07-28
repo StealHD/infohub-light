@@ -119,6 +119,28 @@ describe('useOpenClawChat', () => {
     expect(projectOpenClawAgentEvent({
       type: 'event',
       event: 'agent',
+      payload: {
+        sessionKey: 'session-safe', runId: 'run-safe', seq: 5, stream: 'tool',
+        data: { phase: 'start', name: 'mcp__inteliscope__resolve_source', args: { candidate_urls: ['NEVER_RENDER'] } },
+      },
+    }, 'session-safe')).toEqual(expect.objectContaining({
+      toolKey: 'resolve_source',
+      toolLabel: '验证公开来源',
+    }))
+    expect(projectOpenClawAgentEvent({
+      type: 'event',
+      event: 'agent',
+      payload: {
+        sessionKey: 'session-safe', runId: 'run-safe', seq: 6, stream: 'tool',
+        data: { phase: 'start', name: 'web_search', result: 'NEVER_RENDER' },
+      },
+    }, 'session-safe')).toEqual(expect.objectContaining({
+      toolKey: 'web_search',
+      toolLabel: '搜索公开网页',
+    }))
+    expect(projectOpenClawAgentEvent({
+      type: 'event',
+      event: 'agent',
       payload: { sessionKey: 'other', runId: 'run-safe', seq: 5, stream: 'thinking', data: { text: 'private reasoning' } },
     }, 'session-safe')).toBeNull()
   })

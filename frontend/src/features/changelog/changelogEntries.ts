@@ -22,6 +22,18 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 7 月',
     entries: [
       {
+        date: '2026-07-29',
+        title: 'OpenClaw 可按名称订阅 YouTube 频道',
+        summary: '只说频道名称即可由 OpenClaw 搜索官方主页、由 Inteliscope 验证频道身份并生成原有安全订阅预览，不再要求手工查 ID 或 RSS。',
+        items: [
+          { title: '通用解析入口', description: 'Remote MCP 新增一个注册表驱动的来源解析工具；首个适配器支持 YouTube，后续媒体只需增加受控适配器，不需要继续增加媒体专用 MCP 工具。' },
+          { title: '名称由 Agent 发现', description: '只有名称时，OpenClaw 使用网页搜索收集最多 5 个官方 YouTube 频道主页；搜索结果视为不可信元数据，视频、播放列表、第三方和带凭据网址会在联网前被拒绝。' },
+          { title: '官方身份双重验证', description: '服务先从固定 YouTube 频道页有界读取 Feed 链接，再读取官方 Atom Feed 核对频道 ID、名称和主页；网络仍只允许公开地址，不放宽内网、loopback 或任意 RSS。' },
+          { title: '短期引用不泄露配置', description: '解析结果只返回频道名称、官方主页和 10 分钟有效的调用者绑定引用，不返回规范 Feed 或隐藏来源配置；已订阅频道不会生成重复创建引用。' },
+          { title: '确认边界保持不变', description: '引用只能生成原有 prepare 预览，业务表在 apply 前不会改变；仍需用户逐字发送确认短语，最终来源统一保存规范频道 Feed 并保留最新一条。' },
+        ],
+      },
+      {
         date: '2026-07-28',
         title: '全局与单源周期不再重复抓取',
         summary: '每个订阅默认跟随全局更新；启用单源独立周期后会自动退出全局任务，卡片也会显示真正生效的更新方式。',

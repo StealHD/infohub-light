@@ -203,6 +203,7 @@ async def _request_pinned_address(
     headers: dict[str, str] | None,
     timeout: float,
     max_response_bytes: int,
+    allow_partial_response: bool,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None,
     method: str = "GET",
     content: bytes | None = None,
@@ -231,6 +232,7 @@ async def _request_pinned_address(
             extensions={"sni_hostname": target.hostname},
         ) as response:
             content = bytearray()
+            body_truncated = False
             successful_response = (
                 response.status_code not in _REDIRECT_STATUSES
                 and response.status_code < 400
@@ -252,21 +254,32 @@ async def _request_pinned_address(
                     except ValueError:
                         declared_length = 0
                     if declared_length > max_response_bytes:
-                        raise UnsafeNetworkTarget(
-                            f"source response exceeded the {max_response_bytes}-byte limit"
-                        )
+                        if not allow_partial_response:
+                            raise UnsafeNetworkTarget(
+                                f"source response exceeded the {max_response_bytes}-byte limit"
+                            )
+                        body_truncated = True
                 async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
                     if len(content) + len(chunk) > max_response_bytes:
-                        raise UnsafeNetworkTarget(
-                            f"source response exceeded the {max_response_bytes}-byte limit"
-                        )
+                        if not allow_partial_response:
+                            raise UnsafeNetworkTarget(
+                                f"source response exceeded the {max_response_bytes}-byte limit"
+                            )
+                        remaining = max_response_bytes - len(content)
+                        if remaining > 0:
+                            content.extend(chunk[:remaining])
+                        body_truncated = True
+                        break
                     content.extend(chunk)
+            response_extensions = dict(response.extensions)
+            if allow_partial_response and read_response_body and successful_response:
+                response_extensions["infohub_body_truncated"] = body_truncated
             return httpx.Response(
                 status_code=response.status_code,
                 headers=response.headers,
                 content=bytes(content),
                 request=response.request,
-                extensions=dict(response.extensions),
+                extensions=response_extensions,
             )
 
 
@@ -277,6 +290,7 @@ async def _fetch_public_http(
     timeout: float,
     max_redirects: int,
     max_response_bytes: int,
+    allow_partial_response: bool,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None,
     synthetic_dns_host_suffixes: tuple[str, ...],
 ) -> httpx.Response:
@@ -297,6 +311,7 @@ async def _fetch_public_http(
                     headers=headers,
                     timeout=timeout,
                     max_response_bytes=max_response_bytes,
+                    allow_partial_response=allow_partial_response,
                     transport_factory=transport_factory,
                 )
                 break
@@ -324,16 +339,23 @@ async def fetch_public_http(
     timeout: float = 20.0,
     max_redirects: int = 5,
     max_response_bytes: int = MAX_PUBLIC_HTTP_RESPONSE_BYTES,
+    allow_partial_response: bool = False,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     synthetic_dns_host_suffixes: tuple[str, ...] = (),
 ) -> httpx.Response:
-    """Fetch a member-controlled URL while pinning every hop to vetted IPs."""
+    """Fetch a member-controlled URL while pinning every hop to vetted IPs.
+
+    ``allow_partial_response`` is an explicit metadata-discovery mode. It keeps
+    the same public-only target checks while returning at most the configured
+    byte cap and marking a truncated body in the response extensions.
+    """
     return await _fetch_public_http(
         url,
         headers=headers,
         timeout=timeout,
         max_redirects=max_redirects,
         max_response_bytes=max(1, int(max_response_bytes)),
+        allow_partial_response=allow_partial_response,
         transport_factory=transport_factory,
         synthetic_dns_host_suffixes=synthetic_dns_host_suffixes,
     )
@@ -364,6 +386,7 @@ async def post_public_http(
         headers=headers,
         timeout=timeout,
         max_response_bytes=max(1, int(max_response_bytes)),
+        allow_partial_response=False,
         transport_factory=transport_factory,
         method="POST",
         content=bytes(content),

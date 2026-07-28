@@ -168,6 +168,8 @@ const INTELISCOPE_TOOL_LABELS: Record<string, string> = {
   get_job: '读取任务详情',
   get_source_setup_guide: '读取来源配置指引',
   search_bilibili_users: '查找 Bilibili 账号',
+  resolve_source: '验证公开来源',
+  web_search: '搜索公开网页',
   list_available_sources: '查找可用来源',
   diagnose_source: '诊断来源',
   diagnose_job: '诊断任务',
