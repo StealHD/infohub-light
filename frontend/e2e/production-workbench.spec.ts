@@ -1194,24 +1194,41 @@ test('social cards and Agent context show source information once without exposi
   await expect(card.getByText('图集', { exact: true })).toBeVisible()
   await expect(card.getByText('图片 2/4', { exact: true })).toBeVisible()
   const expand = card.getByRole('button', { name: /展开 / })
+  const compactMedia = card.getByTestId('card-media-stack')
+  const compactFront = compactMedia.locator('[data-card-media-stack-front]')
+  const compactImage = compactMedia.locator('img')
+  const cardFooter = card.locator('[data-slot="card-footer"]')
+  await expect(compactMedia).toBeVisible()
+  await expect(compactMedia).toHaveAttribute('data-stack-depth', '2')
+  await expect(compactMedia.locator('[data-card-media-stack-layer]')).toHaveCount(2)
+  await expect(compactImage).toHaveCount(1)
+  await expect(card.getByTestId('card-media-preview')).toHaveCount(0)
+  expect(await compactImage.evaluate((image) => getComputedStyle(image).objectFit)).toBe('contain')
+  const [compactBounds, compactFrontBounds, footerBounds] = await Promise.all([
+    compactMedia.boundingBox(),
+    compactFront.boundingBox(),
+    cardFooter.boundingBox(),
+  ])
+  expect(compactBounds).not.toBeNull()
+  expect(compactFrontBounds).not.toBeNull()
+  expect(footerBounds).not.toBeNull()
+  expect(compactBounds!.width).toBeGreaterThanOrEqual(44)
+  expect(compactBounds!.height).toBeGreaterThanOrEqual(44)
+  expect(compactFrontBounds!.width).toBeGreaterThanOrEqual(71)
+  expect(compactFrontBounds!.width).toBeLessThanOrEqual(89)
+  expect(Math.abs((compactFrontBounds!.width / compactFrontBounds!.height) - (4 / 3))).toBeLessThan(0.02)
+  expect(compactBounds!.y + compactBounds!.height).toBeLessThanOrEqual(footerBounds!.y + 1)
+  await expectLocatorInside(compactMedia, card)
+
   await expand.hover()
   await expect(page.getByText('展开内容', { exact: true })).toBeVisible()
   await page.mouse.move(4, 4)
-  await card.locator('[data-card-expand-zone="true"]').click()
-  await expect(card.getByRole('button', { name: /收起 / })).toHaveAttribute('aria-expanded', 'true')
-  const mediaPreview = card.getByLabel('图片预览，共 2 张可查看图片')
-  const firstImage = mediaPreview.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 4 张' })
-  await expect(mediaPreview.getByRole('img')).toHaveCount(1)
-  await expect(firstImage).toBeVisible()
-  expect(await mediaPreview.getByRole('img').evaluate((image) => getComputedStyle(image).objectFit)).toBe('contain')
-  const thumbnailBounds = await firstImage.boundingBox()
-  expect(thumbnailBounds).not.toBeNull()
-  expect(thumbnailBounds!.width).toBeLessThanOrEqual(513)
-  expect(Math.abs((thumbnailBounds!.width / thumbnailBounds!.height) - (4 / 3))).toBeLessThan(0.02)
-  await expect(card.getByText('仅获取到内容片段，打开原文查看完整内容。', { exact: true })).toBeVisible()
+  await expect(expand).toHaveAttribute('aria-expanded', 'false')
 
   const routeBeforePreview = page.url()
-  await firstImage.click()
+  const scrollBeforePreview = await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollTop)
+  await compactMedia.click()
+  await expect(expand).toHaveAttribute('aria-expanded', 'false')
   const preview = page.getByRole('dialog', { name: /图片预览$/ })
   await expect(preview).toBeVisible()
   await expect(preview.getByRole('status')).toHaveText('1 / 2')
@@ -1258,8 +1275,23 @@ test('social cards and Agent context show source information once without exposi
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   await preview.press('Escape')
   await expect(preview).toHaveCount(0)
-  await expect(firstImage).toBeFocused()
+  await expect(compactMedia).toBeFocused()
   expect(page.url()).toBe(routeBeforePreview)
+  expect(await page.getByTestId('workbench-feed-scroll').evaluate((element) => element.scrollTop)).toBe(scrollBeforePreview)
+
+  await card.locator('[data-card-expand-zone="true"]').click()
+  await expect(card.getByRole('button', { name: /收起 / })).toHaveAttribute('aria-expanded', 'true')
+  await expect(compactMedia).toHaveCount(0)
+  const mediaPreview = card.getByLabel('图片预览，共 2 张可查看图片')
+  const firstImage = mediaPreview.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 4 张' })
+  await expect(mediaPreview.getByRole('img')).toHaveCount(1)
+  await expect(firstImage).toBeVisible()
+  expect(await mediaPreview.getByRole('img').evaluate((image) => getComputedStyle(image).objectFit)).toBe('contain')
+  const thumbnailBounds = await firstImage.boundingBox()
+  expect(thumbnailBounds).not.toBeNull()
+  expect(thumbnailBounds!.width).toBeLessThanOrEqual(513)
+  expect(Math.abs((thumbnailBounds!.width / thumbnailBounds!.height) - (4 / 3))).toBeLessThan(0.02)
+  await expect(card.getByText('仅获取到内容片段，打开原文查看完整内容。', { exact: true })).toBeVisible()
 
   await card.getByRole('button', { name: /加入 Agent 上下文/ }).click()
   await expect(card.getByRole('button', { name: /收起 / })).toHaveAttribute('aria-expanded', 'true')
@@ -1271,6 +1303,31 @@ test('social cards and Agent context show source information once without exposi
   await expect(agent.getByText('@thsottiaux', { exact: true })).toBeVisible()
   await expect(agent.getByText('Oops... I did it again. Enjoy reset usage limits for all paid users.', { exact: true })).toBeVisible()
   await expect(page.getByText(socialRouteItem.id, { exact: true })).toHaveCount(0)
+})
+
+test('desktop keeps at least four complete collapsed media cards in the Feed viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The 1440×900 density contract is desktop-specific.')
+  await page.goto('/feed')
+  await page.evaluate(() => document.fonts.ready)
+  const feedScroll = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByTestId('workbench-card').first()).toBeVisible()
+
+  const density = await feedScroll.evaluate((element) => {
+    const viewport = element.getBoundingClientRect()
+    const cards = Array.from(element.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
+    const complete = cards.filter((card) => {
+      const bounds = card.getBoundingClientRect()
+      return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom
+    })
+    return {
+      complete: complete.length,
+      compactMedia: complete.filter((card) => card.querySelector('[data-testid="card-media-stack"]')).length,
+    }
+  })
+
+  expect(density.complete).toBeGreaterThanOrEqual(4)
+  expect(density.compactMedia).toBe(density.complete)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('a filtered unread-first Feed restores an unmounted anchor with the rendered card index', async ({ page }) => {

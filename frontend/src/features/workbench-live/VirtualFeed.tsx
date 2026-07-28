@@ -161,6 +161,8 @@ function WorkbenchCard({
   const mediaPreviewBadge = card.mediaTruncated
     ? `可看 ${card.displayImageCount} / 共 ${card.totalImageCount}`
     : `共 ${card.displayImageCount} 张`
+  const mediaStackDepth = Math.min(Math.max(card.totalImageCount, card.displayImageCount) - 1, 2)
+  const showCompactMedia = !expanded && Boolean(mediaPreview)
   const incompleteMessage = card.bodyCompleteness === 'excerpt_only' || card.bodyTruncated || card.excerptTruncated
     ? '仅获取到内容片段，打开原文查看完整内容。'
     : ''
@@ -181,6 +183,27 @@ function WorkbenchCard({
     <MetaTag tone="accent">{card.channel}</MetaTag>
     {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
     {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
+  </>
+  const summaryContent = <>
+    <span aria-label="来源信息" className="type-meta mb-2 flex min-w-0 items-center gap-2 text-muted">
+      <AvatarRoot className="size-[25px] shrink-0">
+        {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
+        <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
+      </AvatarRoot>
+      {sourceParts.map((part, index) => <Fragment key={part}>
+        {index > 0 && <span aria-hidden="true">·</span>}
+        <span className="truncate">{part}</span>
+      </Fragment>)}
+      <span aria-hidden="true">·</span>
+      <span className="shrink-0">{relativeTime(card.publishedAt)}</span>
+      {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
+    </span>
+    {social
+      ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
+      : <>
+        <Card.Title ref={measurePrimary} className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
+        {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
+      </>}
   </>
 
   useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
@@ -223,54 +246,63 @@ function WorkbenchCard({
     className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
     onClick={handleCardClick}
   >
-    {canToggleExpansion ? <button
-      type="button"
-      className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-      aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
-      aria-controls={detailsId}
-      aria-expanded={expanded}
-      onClick={onToggleExpanded}
-    >
-      <span aria-label="来源信息" className="type-meta mb-2 flex items-center gap-2 text-muted">
-        <AvatarRoot className="size-[25px] shrink-0">
-          {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
-          <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </AvatarRoot>
-        {sourceParts.map((part, index) => <Fragment key={part}>
-          {index > 0 && <span aria-hidden="true">·</span>}
-          <span className="truncate">{part}</span>
-        </Fragment>)}
-        <span aria-hidden="true">·</span>
-        <span>{relativeTime(card.publishedAt)}</span>
-        {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
-      </span>
-      {social
-        ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
-        : <>
-          <Card.Title ref={measurePrimary} className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
-          {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
-        </>}
-    </button> : <div className="w-full px-[19px] pt-[18px] text-left">
-      <span aria-label="来源信息" className="type-meta mb-2 flex items-center gap-2 text-muted">
-        <AvatarRoot className="size-[25px] shrink-0">
-          {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
-          <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </AvatarRoot>
-        {sourceParts.map((part, index) => <Fragment key={part}>
-          {index > 0 && <span aria-hidden="true">·</span>}
-          <span className="truncate">{part}</span>
-        </Fragment>)}
-        <span aria-hidden="true">·</span>
-        <span>{relativeTime(card.publishedAt)}</span>
-        {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
-      </span>
-      {social
-        ? <Card.Description ref={measurePrimary} className="type-body whitespace-pre-wrap text-foreground line-clamp-3">{socialText}</Card.Description>
-        : <>
-          <Card.Title ref={measurePrimary} className="type-card-title line-clamp-2">{card.title}</Card.Title>
-          {card.summary && <Card.Description ref={measureSecondary} className="type-body mt-1.5 text-muted line-clamp-2">{card.summary}</Card.Description>}
-        </>}
-    </div>}
+    {canToggleExpansion
+      ? showCompactMedia && mediaPreview
+        ? <div
+          data-card-media-layout="compact"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-[19px] pt-[18px]"
+        >
+          <button
+            type="button"
+            className="min-w-0 cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            aria-label={`打开详情 ${cardLabel}`}
+            aria-controls={detailsId}
+            aria-expanded={false}
+            onClick={onToggleExpanded}
+          >{summaryContent}</button>
+          <button
+            type="button"
+            data-testid="card-media-stack"
+            data-stack-depth={mediaStackDepth}
+            aria-label={mediaPreviewActionLabel}
+            className="group/media relative block min-h-11 min-w-11 shrink-0 pb-[6px] pr-[6px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:scale-95 motion-reduce:transform-none"
+            onClick={(event) => onOpenMedia(0, event.currentTarget)}
+          >
+            {mediaStackDepth >= 2 && <span
+              aria-hidden="true"
+              data-card-media-stack-layer="back"
+              className="pointer-events-none absolute bottom-0 left-[6px] right-0 top-[6px] rounded-[var(--inteliscope-radius-control)] border border-separator bg-default/55"
+            />}
+            {mediaStackDepth >= 1 && <span
+              aria-hidden="true"
+              data-card-media-stack-layer="middle"
+              className="pointer-events-none absolute bottom-[3px] left-[3px] right-[3px] top-[3px] rounded-[var(--inteliscope-radius-control)] border border-separator bg-surface-tertiary"
+            />}
+            <span
+              aria-hidden="true"
+              data-card-media-stack-front
+              className="relative z-10 block aspect-[4/3] w-[clamp(72px,15vw,88px)] overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default transition-colors duration-[var(--inteliscope-motion-standard)] group-hover/media:border-border motion-reduce:transition-none"
+            >
+              <img
+                className="size-full object-contain"
+                src={mediaPreview.url}
+                alt=""
+                width={mediaPreview.width}
+                height={mediaPreview.height}
+                loading="lazy"
+              />
+            </span>
+          </button>
+        </div>
+        : <button
+          type="button"
+          className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
+          aria-controls={detailsId}
+          aria-expanded={expanded}
+          onClick={onToggleExpanded}
+        >{summaryContent}</button>
+      : <div className="w-full px-[19px] pt-[18px] text-left">{summaryContent}</div>}
 
     <div
       id={detailsId}
@@ -286,7 +318,7 @@ function WorkbenchCard({
         {!detailLoading && !social && card.detailBody && <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
           {card.detailBody}
         </div>}
-        {!detailLoading && mediaPreview && <div className="mt-3 flex justify-center" aria-label={`图片预览，共 ${card.displayImageCount} 张可查看图片`}>
+        {expanded && !detailLoading && mediaPreview && <div className="mt-3 flex justify-center" aria-label={`图片预览，共 ${card.displayImageCount} 张可查看图片`}>
           <button
             type="button"
             data-testid="card-media-preview"

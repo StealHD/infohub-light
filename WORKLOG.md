@@ -3106,3 +3106,10 @@
 - 修改范围：`up-latest.sh`、light Compose 运行挂载与默认端口、主机级并发锁、迁移 fail-closed、终态复验、30 项 Worktree/身份/失败路径回归、D081 与操作文档
 - 执行验证：定向 pytest 30/30、脚本与产品文档组合 35/35、Compose config、shell syntax、控制 JSON 与 diff check 通过；最终 `test_gate full` 22/22、0 failed/error、158.009 秒
 - 安全边界：未重建或替换当前 8080，未修改运行数据库，未启动 scheduler、来源抓取、AI、通知、付费调用，未推送、合并或部署
+
+### 2026-07-28 12:01 Codex
+- 任务：在媒体预览与 Worktree 重建流程的本地集成分支，为所有有图卡片增加收起态轻量堆叠代表缩略图
+- 修改范围：收起态以单张 72–88 px 的 4:3 `contain` 图片和最多两层语义装饰面直接打开共享预览；展开态与紧凑图互斥；同步 Vitest、三视口 Playwright、UI 合同、D082、操作手册和更新日志
+- 执行验证：目标 Vitest 33/33、UI 合同、TypeScript、Lint（0 error）、生产构建通过；1440×900、1024×768、390×844 媒体流程及 1440 密度 Playwright 4 passed/2 skipped；`test_gate full` 22/22、0 failed/error、167.189 秒
+- 结果：单图无后层、两图一层、三图及以上两层；点击收起缩略图不触发展开，Modal 关闭后恢复焦点与滚动锚；无图卡片不增加媒体布局或交互
+- 安全边界：未修改 API、数据库、媒体缓存、公开类型、版本号或依赖，未复制 HeroUI Pro 源码；尚未重建 8080，未触发来源、AI、scheduler、通知、付费调用、推送或生产部署

@@ -80,6 +80,29 @@ function singleImageItem(): FeedItem {
   return item
 }
 
+function twoImageItem(): FeedItem {
+  const item = galleryItem()
+  if (!item.presentation?.media) throw new Error('media fixture missing')
+  item.presentation.media = {
+    ...item.presentation.media,
+    total_image_count: 2,
+    truncated: false,
+  }
+  return item
+}
+
+function truncatedSingleImageItem(): FeedItem {
+  const item = galleryItem()
+  if (!item.presentation?.media) throw new Error('media fixture missing')
+  item.presentation.media = {
+    images: item.presentation.media.images.slice(0, 1),
+    count: 1,
+    total_image_count: 8,
+    truncated: true,
+  }
+  return item
+}
+
 describe('VirtualFeed', () => {
   it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
@@ -435,6 +458,7 @@ describe('VirtualFeed', () => {
     const preview = screen.getByLabelText('图片预览，共 2 张可查看图片')
     const trigger = within(preview).getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })
     expect(trigger).toHaveClass('aspect-[4/3]', 'max-w-lg')
+    expect(screen.queryByTestId('card-media-stack')).not.toBeInTheDocument()
     expect(preview.querySelectorAll('img')).toHaveLength(1)
     expect(within(preview).getByRole('img', { name: '图片一' })).toHaveClass('object-contain', 'size-full')
     expect(within(preview).queryByRole('img', { name: '图片二' })).not.toBeInTheDocument()
@@ -442,7 +466,7 @@ describe('VirtualFeed', () => {
     expect(screen.getByText('仅获取到内容片段，打开原文查看完整内容。')).toBeInTheDocument()
   })
 
-  it('keeps the representative thumbnail inaccessible until the card is expanded', () => {
+  it('shows one compact representative image with bounded decorative stack layers while collapsed', () => {
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(galleryItem())]}
       contextIds={[]}
@@ -452,15 +476,73 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    expect(screen.queryByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })).not.toBeInTheDocument()
+    const stack = screen.getByTestId('card-media-stack')
+    const details = screen.getByTestId('card-details-social-x')
+    expect(stack).toHaveAttribute('data-stack-depth', '2')
+    expect(stack).toHaveAccessibleName('打开图片预览，从第 1 张开始，可查看 2 张，共 8 张')
+    expect(stack.querySelectorAll('[data-card-media-stack-layer]')).toHaveLength(2)
+    expect(stack.querySelectorAll('img[src="/api/media/one"]')).toHaveLength(1)
+    expect(stack.querySelector('img')).toHaveAttribute('alt', '')
+    expect(stack.querySelector('img')).toHaveClass('object-contain', 'size-full')
+    expect(details.querySelector('img')).not.toBeInTheDocument()
   })
 
-  it('previews cached images in one modal, loops with controls and keys, then restores thumbnail focus', async () => {
+  it('uses zero, one or two decorative layers for one, two or three-plus original images', () => {
+    const view = render(<VirtualFeed
+      cards={[toWorkbenchCardModel(singleImageItem())]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    expect(screen.getByTestId('card-media-stack')).toHaveAttribute('data-stack-depth', '0')
+    expect(screen.getByTestId('card-media-stack').querySelectorAll('[data-card-media-stack-layer]')).toHaveLength(0)
+
+    view.rerender(<VirtualFeed
+      cards={[toWorkbenchCardModel(twoImageItem())]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByTestId('card-media-stack')).toHaveAttribute('data-stack-depth', '1')
+    expect(screen.getByTestId('card-media-stack').querySelectorAll('[data-card-media-stack-layer]')).toHaveLength(1)
+
+    view.rerender(<VirtualFeed
+      cards={[toWorkbenchCardModel(galleryItem())]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+    expect(screen.getByTestId('card-media-stack')).toHaveAttribute('data-stack-depth', '2')
+    expect(screen.getByTestId('card-media-stack').querySelectorAll('[data-card-media-stack-layer]')).toHaveLength(2)
+  })
+
+  it('does not add a compact media layout or trigger to a card without viewable images', () => {
+    render(<VirtualFeed
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const card = screen.getByRole('article', { name: '信息 1' })
+    expect(card.querySelector('[data-card-media-layout]')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('card-media-stack')).not.toBeInTheDocument()
+  })
+
+  it('opens the shared preview directly from a collapsed stack, then restores focus and scroll', async () => {
     const user = userEvent.setup()
     const onToggleExpanded = vi.fn()
     render(<VirtualFeed
       cards={[toWorkbenchCardModel(galleryItem())]}
-      expandedId="social-x"
       contextIds={[]}
       onToggleExpanded={onToggleExpanded}
       onToggleSaved={vi.fn()}
@@ -470,8 +552,11 @@ describe('VirtualFeed', () => {
     const scroll = screen.getByTestId('workbench-feed-scroll')
     Object.defineProperty(scroll, 'scrollTop', { configurable: true, writable: true, value: 180 })
     const firstThumbnail = screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 2 张，共 8 张' })
+    const expandButton = screen.getByRole('button', { name: /打开详情/ })
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
 
     await user.click(firstThumbnail)
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
     const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
     const stage = within(dialog).getByTestId('media-viewer-stage')
     expect(stage).toHaveClass('min-h-0', 'overflow-hidden')
@@ -523,11 +608,10 @@ describe('VirtualFeed', () => {
     expect(within(dialog).getByLabelText('正在加载图片')).toBeInTheDocument()
   })
 
-  it('hides carousel-only controls when the viewer contains one image', async () => {
+  it('keeps a truncated original stack while hiding carousel-only controls for one viewable image', async () => {
     const user = userEvent.setup()
     render(<VirtualFeed
-      cards={[toWorkbenchCardModel(singleImageItem())]}
-      expandedId="social-x"
+      cards={[toWorkbenchCardModel(truncatedSingleImageItem())]}
       contextIds={[]}
       onToggleExpanded={vi.fn()}
       onToggleSaved={vi.fn()}
@@ -535,7 +619,9 @@ describe('VirtualFeed', () => {
       onItemAction={vi.fn()}
     />)
 
-    await user.click(screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，共 1 张' }))
+    expect(screen.getByText('图片 1/8')).toBeInTheDocument()
+    expect(screen.getByTestId('card-media-stack')).toHaveAttribute('data-stack-depth', '2')
+    await user.click(screen.getByRole('button', { name: '打开图片预览，从第 1 张开始，可查看 1 张，共 8 张' }))
     const dialog = await screen.findByRole('dialog', { name: /图片预览$/ })
     expect(within(dialog).getByRole('status')).toHaveTextContent('1 / 1')
     expect(within(dialog).queryByRole('button', { name: '上一张图片' })).not.toBeInTheDocument()
