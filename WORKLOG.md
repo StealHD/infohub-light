@@ -3198,3 +3198,9 @@
 - 切换前检查：现有容器挂载主 checkout 的 `.env/data/logs`，活动任务为 0；全局计划启用 1 个、单源计划启用 3 个；数据库与 Worker readiness 均为 ready，未报告迁移要求
 - 执行范围：使用本 Worktree 的固定 `up-latest.sh` 构建最终分支 revision，继续复用主 checkout 运行数据并只重建 API/Worker
 - 安全边界：不启动 scheduler，不手动触发来源抓取、AI、通知或付费调用，不推送或部署生产
+
+### 2026-07-28 15:49 Codex
+- 任务：将单源周期覆盖修复合入本地 `main`，发布 Git 并部署到 `vps-tokyo`
+- 集成范围：在独立 main Worktree 非快进合并 `codex/source-schedule-global-fallback`，组合结果统一升级为 `v1.8.2`
+- 发布范围：执行正式 release gate，推送精确 main/tag；仅在本机构建并验证 revision-locked `linux/amd64` 镜像，上传后在 VPS 以 `docker load` 完成 staging 与生产切换
+- 安全边界：保留生产数据库、`.env`、日志、旧 release/image 与 `0600` 回退备份；VPS 不构建仓库，不启动 legacy scheduler，不主动触发来源、AI、通知或付费调用
