@@ -685,3 +685,11 @@
 - 决策内容：Feed、Saved 与 History 的展开卡片只显示第一张本地可查看图片，使用最大 512×384 的稳定 4:3 `contain` 舞台；其余图片仅在共享预览中切换。预览把有界主图舞台与缩略图栏分行排布，横图和竖图都完整收在 Dialog 与视口内；多图保留循环按钮、缩略图、方向键和触摸滑动，单图隐藏多余导航。
 - 原因：并排缩略格会让多图卡片显得僵硬并增加列表高度；原预览依赖底部留白和图片自身高度，桌面竖图可能超出可见舞台而只能看到头部。单张代表图降低卡片噪声，有界 `contain` 舞台则统一横竖图的完整查看行为。
 - 兼容/边界：继续只读取现有鉴权 `/api/media/*` 图片并保留上游/可查看计数、相邻预取、局部重试、焦点归还和 Feed 锚点；不修改 API、数据库、媒体缓存或公开类型。HeroUI Pro 仅作为交互结构参考，不复制其源码或增加 Pro 依赖。
+
+### D081 本地 Worktree 重建分离源码根与运行时根
+
+- 决策日期：2026-07-28
+- 当前状态：本地实现与定向回归完成；未部署
+- 决策内容：`scripts/up-latest.sh` 是本地 API + Worker 重建的唯一入口。源码、构建上下文、产品版本、revision 与本地镜像标签始终取自执行脚本的目标 Worktree；`.env`、`data` 与 `logs` 默认通过 Git common directory 解析到主 checkout，并以绝对路径传给 Compose，只有显式 `--runtime-root` 才切换运行时根。脚本把 build、recreate、revision/readiness、Worker ready、API/Worker health 与 React 资源校验收进一个完成边界，并以主机级 Compose project 互斥锁阻止不同 Worktree、clone 或 runtime root 并发替换同一套本地服务。
+- 原因：隔离 Worktree 不包含被 Git 忽略的真实运行配置和数据库，旧脚本却把脚本目录同时当作源码根和运行时根，导致端口回落、错误数据挂载和临时 Compose override；同时 `.env` 可以覆盖构建身份，build 与 up 分段执行又会把中间状态误当作完成。显式拆根与单一终态可让固定操作被脚本和测试表达，而不是每次由 Agent 重新推演。
+- 安全/兼容：默认仍只启动 API + Worker，不启动 scheduler、来源抓取、AI 或推送；本地默认端口统一为 8080。脚本启动前拒绝符号链接或缺失的 `.env/data`，不输出配置内容；`migration_required` 会先停止并确认 API/Worker 已停，对当前已知迁移给出显式、带备份的命令，未知迁移要求人工检查，普通重建绝不自动修改数据库。生产继续使用 revision-locked 的 `release_rc1.sh`，不复用本地启动器。

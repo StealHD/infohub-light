@@ -7,9 +7,9 @@ services:
     container_name: horizon-light-runner
     profiles: ["manual"]
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./.env:/app/.env:ro
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro
     environment:
       TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
       HORIZON_LOG_LEVEL: ${HORIZON_LOG_LEVEL:-INFO}
@@ -23,11 +23,11 @@ services:
     profiles: ["legacy-web"]
     restart: unless-stopped
     ports:
-      - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8081}:8080"
+      - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8080}:8080"
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./.env:/app/.env:ro
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro
     environment:
       TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
       HORIZON_WEB_PORT: 8080
@@ -54,11 +54,11 @@ services:
     container_name: horizon-light-api
     restart: unless-stopped
     ports:
-      - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8081}:8080"
+      - "${HORIZON_WEB_BIND:-127.0.0.1}:${HORIZON_WEB_PORT:-8080}:8080"
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./.env:/app/.env:ro
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro
     environment:
       TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
       HORIZON_WEB_PORT: 8080
@@ -94,9 +94,9 @@ services:
     container_name: horizon-light-worker
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./.env:/app/.env:ro
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro
     environment:
       TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
       HORIZON_WORKER_ID: ${HORIZON_WORKER_ID:-horizon-worker}
@@ -125,9 +125,9 @@ services:
     profiles: ["scheduler"]
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./.env:/app/.env:ro
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/data:/app/data
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/logs:/app/logs
+      - ${INTELISCOPE_RUNTIME_ROOT:-.}/.env:/app/.env:ro
     environment:
       TZ: ${HORIZON_TIMEZONE:-Asia/Shanghai}
       HORIZON_TIMEZONE: ${HORIZON_TIMEZONE:-Asia/Shanghai}

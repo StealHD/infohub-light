@@ -23,6 +23,16 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-28',
+        title: '本地任务分支重建流程已固定',
+        summary: '同一条命令现在会从任务 Worktree 构建代码、复用主 checkout 的运行数据，并完成整条本地服务验收。',
+        items: [
+          { title: '代码与运行数据不再混淆', description: '从隔离 Worktree 执行重建时，版本、revision 和镜像来自当前任务分支，配置、数据库与日志仍使用主 checkout 的本地运行目录。' },
+          { title: '完整可用才算完成', description: '镜像构建后会继续重建 API 与 Worker，并验证 revision、readiness、容器健康状态和实际前端资源；不会再把 build 成功误报为配置端口上的服务已启动。' },
+          { title: '迁移仍需显式确认', description: '检测到数据库迁移时会先确认 API 与 Worker 已停止；已识别迁移会给出带备份的操作，未知迁移要求人工检查，不会自动改写运行数据。' },
+        ],
+      },
+      {
+        date: '2026-07-28',
         title: '历史图片浏览更自然',
         summary: '展开卡片只保留一张代表缩略图，放大预览会在电脑与手机上完整容纳横图和竖图。',
         items: [

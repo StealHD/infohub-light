@@ -3099,3 +3099,10 @@
 - 执行验证：无缓存镜像 revision `bf3abfd8a7f3` 构建完成；API/Worker 均 healthy，liveness/readiness 与 Worker 状态为 ready，页面资源包含新的代表图入口和有界预览
 - 数据迁移：按 fail-closed 提示停止服务并执行 content timeline v11；288 条内容完成时间/搜索回填和索引，integrity 为 `ok`、foreign key 0，迁移前 `0600` 备份保留于本地数据目录
 - 安全边界：复用既有 `.env`、数据与日志，只重建本地 API/Worker；未启动 scheduler、抓取来源、调用 AI、发送通知、使用付费服务、推送或部署
+
+### 2026-07-28 11:17 Codex
+- 任务：复盘本分支容器启动流程反复走偏的原因，并把固定 Worktree 重建流程固化为单一命令
+- 根因：旧启动器混用源码根与运行时根，linked Worktree 缺少真实 `.env/data/logs`；构建身份可被运行配置覆盖，且 build、recreate 与最终验收没有一个原子完成边界
+- 修改范围：`up-latest.sh`、light Compose 运行挂载与默认端口、主机级并发锁、迁移 fail-closed、终态复验、30 项 Worktree/身份/失败路径回归、D081 与操作文档
+- 执行验证：定向 pytest 30/30、脚本与产品文档组合 35/35、Compose config、shell syntax、控制 JSON 与 diff check 通过；最终 `test_gate full` 22/22、0 failed/error、158.009 秒
+- 安全边界：未重建或替换当前 8080，未修改运行数据库，未启动 scheduler、来源抓取、AI、通知、付费调用，未推送、合并或部署
