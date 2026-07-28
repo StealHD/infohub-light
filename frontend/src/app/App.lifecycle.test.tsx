@@ -12,6 +12,15 @@ const chatLifecycle = vi.hoisted(() => ({
   disconnect: vi.fn(),
   mounts: 0,
   unmounts: 0,
+  running: true,
+  runTrace: null as null | {
+    runId: string
+    phase: 'completed'
+    status: 'completed'
+    startedAt: number
+    endedAt: number
+    activities: []
+  },
 }))
 
 vi.mock('../features/openclaw/useOpenClawChat', () => ({
@@ -29,12 +38,13 @@ vi.mock('../features/openclaw/useOpenClawChat', () => ({
       status: 'connected' as const,
       toolsStatus: 'available' as const,
       messages: [],
-      streamText: '仍在生成的回复',
+      streamText: chatLifecycle.running ? '仍在生成的回复' : '',
+      runTrace: chatLifecycle.runTrace,
       issue: null,
       runtimeIssue: null,
       modelSwitchFallback: null,
       sessionKey: 'session-live',
-      isRunning: true,
+      isRunning: chatLifecycle.running,
       isStopping: false,
       runtimeLoading: false,
       runtimeUpdating: false,
@@ -96,6 +106,8 @@ describe('authenticated route lifecycle', () => {
     chatLifecycle.disconnect.mockClear()
     chatLifecycle.mounts = 0
     chatLifecycle.unmounts = 0
+    chatLifecycle.running = true
+    chatLifecycle.runTrace = null
     window.localStorage.clear()
     window.sessionStorage.clear()
     useViewport(1440)
@@ -106,23 +118,38 @@ describe('authenticated route lifecycle', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={lifecycleApi()} /></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByText('仍在生成的回复')).toBeInTheDocument()
-    const shell = screen.getByTestId('live-workbench-shell')
+    const shell = await screen.findByTestId('live-workbench-shell')
     shell.dataset.lifecycleProbe = 'preserved'
-    const pinnedAgentToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
-    expect(pinnedAgentToggle).toBeDisabled()
-    await browser.click(pinnedAgentToggle)
+    const backgroundAgentToggle = await screen.findByRole('button', { name: '展开 Agent 面板，OpenClaw 正在处理' })
+    expect(backgroundAgentToggle).toBeEnabled()
+    await browser.click(backgroundAgentToggle)
+    expect(await screen.findByText('仍在生成的回复')).toBeInTheDocument()
+    const openAgentToggle = screen.getByRole('button', { name: '收起 Agent 面板' })
+    expect(openAgentToggle).toBeEnabled()
+    const agentRail = screen.getByRole('complementary', { name: 'OpenClaw 上下文' })
+    await browser.click(openAgentToggle)
+    expect(agentRail).toHaveAttribute('aria-hidden', 'true')
+    await waitFor(() => expect(screen.queryByText('仍在生成的回复')).not.toBeInTheDocument(), { timeout: 600 })
 
     const desktopNavigation = screen.getByRole('navigation', { name: '工作台导航' })
+    chatLifecycle.running = false
+    chatLifecycle.runTrace = {
+      runId: 'run-lifecycle',
+      phase: 'completed',
+      status: 'completed',
+      startedAt: 10,
+      endedAt: 20,
+      activities: [],
+    }
     await browser.click(within(desktopNavigation).getByRole('link', { name: '收藏' }))
     expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-lifecycle-probe', 'preserved')
-    expect(screen.getByRole('button', { name: '收起 Agent 面板' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /展开 Agent 面板/u })).toHaveAccessibleName('展开 Agent 面板，OpenClaw 已完成，结果待查看')
 
     await browser.click(within(desktopNavigation).getByRole('link', { name: '历史' }))
     expect(await screen.findByRole('heading', { name: '历史' })).toBeInTheDocument()
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-lifecycle-probe', 'preserved')
-    expect(screen.getByRole('button', { name: '收起 Agent 面板' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '展开 Agent 面板，OpenClaw 已完成，结果待查看' })).toBeEnabled()
 
     await waitFor(() => expect(chatLifecycle.mounts).toBe(1))
     expect(chatLifecycle.unmounts).toBe(0)

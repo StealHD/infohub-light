@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
@@ -27,6 +27,10 @@ type VirtualFeedProps = {
   resetToTopKey?: string
   cards: WorkbenchCardModel[]
   sourceItemIds?: string[]
+  trackNewItems?: boolean
+  showTimelineBucket?: boolean
+  feedWindowDays?: number
+  footer?: ReactNode
   expandedId?: string
   navigationTargetId?: string
   contextIds: string[]
@@ -103,6 +107,8 @@ function WorkbenchCard({
   detailLoading,
   detailError,
   readonly,
+  showTimelineBucket,
+  feedWindowDays,
   onToggleExpanded,
   onToggleSaved,
   onToggleContext,
@@ -119,6 +125,8 @@ function WorkbenchCard({
   detailLoading?: boolean
   detailError?: boolean
   readonly?: boolean
+  showTimelineBucket?: boolean
+  feedWindowDays?: number
   onToggleExpanded: () => void
   onToggleSaved: () => void
   onToggleContext: () => void
@@ -146,10 +154,26 @@ function WorkbenchCard({
       ? `${card.totalImageCount} 张图片 · 可查看 ${card.displayImageCount} 张`
       : `${card.totalImageCount} 张图片`
     : ''
+  const mediaPreview = card.mediaImages[0]
+  const mediaPreviewActionLabel = card.mediaTruncated
+    ? `打开图片预览，从第 1 张开始，可查看 ${card.displayImageCount} 张，共 ${card.totalImageCount} 张`
+    : `打开图片预览，从第 1 张开始，共 ${card.displayImageCount} 张`
+  const mediaPreviewBadge = card.mediaTruncated
+    ? `可看 ${card.displayImageCount} / 共 ${card.totalImageCount}`
+    : `共 ${card.displayImageCount} 张`
+  const mediaStackDepth = Math.min(Math.max(card.totalImageCount, card.displayImageCount) - 1, 2)
+  const showCompactMedia = !expanded && Boolean(mediaPreview)
   const incompleteMessage = card.bodyCompleteness === 'excerpt_only' || card.bodyTruncated || card.excerptTruncated
     ? '仅获取到内容片段，打开原文查看完整内容。'
     : ''
   const detailsId = `card-details-${card.id}`
+  const timelineLabel = card.item.timeline_bucket === 'today'
+    ? '今天'
+    : card.item.timeline_bucket === 'feed'
+      ? `近${feedWindowDays ?? 7}天`
+      : card.item.timeline_bucket === 'history'
+        ? '历史'
+        : ''
   const classificationMetadata = <>
     <span>{card.formatLabel}</span>
     {imageCountLabel && <>
@@ -159,6 +183,27 @@ function WorkbenchCard({
     <MetaTag tone="accent">{card.channel}</MetaTag>
     {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
     {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
+  </>
+  const summaryContent = <>
+    <span aria-label="来源信息" className="type-meta mb-2 flex min-w-0 items-center gap-2 text-muted">
+      <AvatarRoot className="size-[25px] shrink-0">
+        {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
+        <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
+      </AvatarRoot>
+      {sourceParts.map((part, index) => <Fragment key={part}>
+        {index > 0 && <span aria-hidden="true">·</span>}
+        <span className="truncate">{part}</span>
+      </Fragment>)}
+      <span aria-hidden="true">·</span>
+      <span className="shrink-0">{relativeTime(card.publishedAt)}</span>
+      {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
+    </span>
+    {social
+      ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
+      : <>
+        <Card.Title ref={measurePrimary} className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
+        {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
+      </>}
   </>
 
   useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), [])
@@ -201,52 +246,63 @@ function WorkbenchCard({
     className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
     onClick={handleCardClick}
   >
-    {canToggleExpansion ? <button
-      type="button"
-      className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-      aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
-      aria-controls={detailsId}
-      aria-expanded={expanded}
-      onClick={onToggleExpanded}
-    >
-      <span aria-label="来源信息" className="type-meta mb-2 flex items-center gap-2 text-muted">
-        <AvatarRoot className="size-[25px] shrink-0">
-          {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
-          <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </AvatarRoot>
-        {sourceParts.map((part, index) => <Fragment key={part}>
-          {index > 0 && <span aria-hidden="true">·</span>}
-          <span className="truncate">{part}</span>
-        </Fragment>)}
-        <span aria-hidden="true">·</span>
-        <span>{relativeTime(card.publishedAt)}</span>
-      </span>
-      {social
-        ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
-        : <>
-          <Card.Title ref={measurePrimary} className={`type-card-title ${expanded ? '' : 'line-clamp-2'}`}>{card.title}</Card.Title>
-          {card.summary && <Card.Description ref={measureSecondary} className={`type-body mt-1.5 text-muted ${expanded ? '' : 'line-clamp-2'}`}>{card.summary}</Card.Description>}
-        </>}
-    </button> : <div className="w-full px-[19px] pt-[18px] text-left">
-      <span aria-label="来源信息" className="type-meta mb-2 flex items-center gap-2 text-muted">
-        <AvatarRoot className="size-[25px] shrink-0">
-          {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
-          <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </AvatarRoot>
-        {sourceParts.map((part, index) => <Fragment key={part}>
-          {index > 0 && <span aria-hidden="true">·</span>}
-          <span className="truncate">{part}</span>
-        </Fragment>)}
-        <span aria-hidden="true">·</span>
-        <span>{relativeTime(card.publishedAt)}</span>
-      </span>
-      {social
-        ? <Card.Description ref={measurePrimary} className="type-body whitespace-pre-wrap text-foreground line-clamp-3">{socialText}</Card.Description>
-        : <>
-          <Card.Title ref={measurePrimary} className="type-card-title line-clamp-2">{card.title}</Card.Title>
-          {card.summary && <Card.Description ref={measureSecondary} className="type-body mt-1.5 text-muted line-clamp-2">{card.summary}</Card.Description>}
-        </>}
-    </div>}
+    {canToggleExpansion
+      ? showCompactMedia && mediaPreview
+        ? <div
+          data-card-media-layout="compact"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-[19px] pt-[18px]"
+        >
+          <button
+            type="button"
+            className="min-w-0 cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            aria-label={`打开详情 ${cardLabel}`}
+            aria-controls={detailsId}
+            aria-expanded={false}
+            onClick={onToggleExpanded}
+          >{summaryContent}</button>
+          <button
+            type="button"
+            data-testid="card-media-stack"
+            data-stack-depth={mediaStackDepth}
+            aria-label={mediaPreviewActionLabel}
+            className="group/media relative block min-h-11 min-w-11 shrink-0 pb-[6px] pr-[6px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:scale-95 motion-reduce:transform-none"
+            onClick={(event) => onOpenMedia(0, event.currentTarget)}
+          >
+            {mediaStackDepth >= 2 && <span
+              aria-hidden="true"
+              data-card-media-stack-layer="back"
+              className="pointer-events-none absolute bottom-0 left-[6px] right-0 top-[6px] rounded-[var(--inteliscope-radius-control)] border border-separator bg-default/55"
+            />}
+            {mediaStackDepth >= 1 && <span
+              aria-hidden="true"
+              data-card-media-stack-layer="middle"
+              className="pointer-events-none absolute bottom-[3px] left-[3px] right-[3px] top-[3px] rounded-[var(--inteliscope-radius-control)] border border-separator bg-surface-tertiary"
+            />}
+            <span
+              aria-hidden="true"
+              data-card-media-stack-front
+              className="relative z-10 block aspect-[4/3] w-[clamp(72px,15vw,88px)] overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default transition-colors duration-[var(--inteliscope-motion-standard)] group-hover/media:border-border motion-reduce:transition-none"
+            >
+              <img
+                className="size-full object-contain"
+                src={mediaPreview.url}
+                alt=""
+                width={mediaPreview.width}
+                height={mediaPreview.height}
+                loading="lazy"
+              />
+            </span>
+          </button>
+        </div>
+        : <button
+          type="button"
+          className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
+          aria-controls={detailsId}
+          aria-expanded={expanded}
+          onClick={onToggleExpanded}
+        >{summaryContent}</button>
+      : <div className="w-full px-[19px] pt-[18px] text-left">{summaryContent}</div>}
 
     <div
       id={detailsId}
@@ -262,23 +318,27 @@ function WorkbenchCard({
         {!detailLoading && !social && card.detailBody && <div className="type-prose border-t border-separator pb-1 pt-3 text-foreground whitespace-pre-wrap">
           {card.detailBody}
         </div>}
-        {!detailLoading && card.mediaImages.length > 0 && <div className={`mt-3 grid gap-2 ${card.mediaImages.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`} aria-label={`${card.displayImageCount} 张可查看图片`}>
-          {card.mediaImages.map((image, index) => <button
-            key={image.url}
+        {expanded && !detailLoading && mediaPreview && <div className="mt-3 flex justify-center" aria-label={`图片预览，共 ${card.displayImageCount} 张可查看图片`}>
+          <button
             type="button"
-            aria-label={`查看第 ${index + 1} 张图片，共 ${card.mediaImages.length} 张`}
-            className={`flex w-full items-center justify-center overflow-hidden rounded-xl bg-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${card.mediaImages.length > 1 ? 'aspect-[4/3]' : 'max-h-96'}`}
-            onClick={(event) => onOpenMedia(index, event.currentTarget)}
+            data-testid="card-media-preview"
+            aria-label={mediaPreviewActionLabel}
+            className="group/media relative flex aspect-[4/3] w-full max-w-lg items-center justify-center overflow-hidden rounded-xl bg-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            onClick={(event) => onOpenMedia(0, event.currentTarget)}
           >
             <img
-              className={`w-full object-contain ${card.mediaImages.length > 1 ? 'h-full' : 'max-h-96'}`}
-              src={image.url}
-              alt={image.alt || `${card.sourceLabel} 内容图片 ${index + 1}`}
-              width={image.width}
-              height={image.height}
+              className="size-full object-contain"
+              src={mediaPreview.url}
+              alt={mediaPreview.alt || `${card.sourceLabel} 内容图片 1`}
+              width={mediaPreview.width}
+              height={mediaPreview.height}
               loading="lazy"
             />
-          </button>)}
+            {(card.displayImageCount > 1 || card.mediaTruncated) && <span
+              aria-hidden="true"
+              className="type-control pointer-events-none absolute bottom-3 right-3 rounded-full bg-background/80 px-3 py-1.5 text-foreground shadow-sm"
+            >{mediaPreviewBadge}</span>}
+          </button>
         </div>}
         {!detailLoading && incompleteMessage && <p className="type-meta mt-2 text-muted">{incompleteMessage}</p>}
       </div>
@@ -388,8 +448,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const pendingNavigationFrame = useRef<number | undefined>(undefined)
   const resetToTopRequest = useRef<object | null>(null)
   const resetToTopFrame = useRef<number | undefined>(undefined)
-  const inlineScrollAnchor = useRef<number | null>(null)
-  const inlineAnchorTimer = useRef<number | undefined>(undefined)
+  const inlineScrollAnchor = useRef<ViewportAnchor | null>(null)
   const inlineAnchorFrame = useRef<number | undefined>(undefined)
   const didInitialScroll = useRef(false)
   const [newItemCount, setNewItemCount] = useState(0)
@@ -486,7 +545,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     resetToTopRequest.current = null
     window.cancelAnimationFrame(resetToTopFrame.current ?? 0)
     resetToTopFrame.current = undefined
-    window.clearTimeout(inlineAnchorTimer.current)
     window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
   }, [])
 
@@ -575,14 +633,40 @@ export function VirtualFeed(props: VirtualFeedProps) {
   }, [cardsSignature])
 
   useLayoutEffect(() => {
-    if (inlineScrollAnchor.current === null || !scrollRef.current) return
+    const anchor = inlineScrollAnchor.current
     const scroll = scrollRef.current
+    if (!anchor || !scroll) return
+
+    let remainingFrames = 120
+    let stableFrames = 0
     const restore = () => {
-      if (inlineScrollAnchor.current !== null) scroll.scrollTop = inlineScrollAnchor.current
+      if (inlineScrollAnchor.current !== anchor || remainingFrames <= 0) return
+      remainingFrames -= 1
+      const row = Array.from(scroll.querySelectorAll<HTMLElement>('[data-item-id]'))
+        .find((element) => element.dataset.itemId === anchor.id)
+      const card = row?.querySelector<HTMLElement>('[data-testid="workbench-card"]')
+      if (!card) {
+        inlineAnchorFrame.current = window.requestAnimationFrame(restore)
+        return
+      }
+      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      const correction = currentOffset - anchor.offset
+      if (Math.abs(correction) > 0.5) {
+        stableFrames = 0
+        scroll.scrollTop += correction
+      } else stableFrames += 1
+      // Keep correcting through the card's reveal/measurement window. A few
+      // apparently stable frames are not enough when the production build
+      // commits detail content or media geometry just after the first paint.
+      if (stableFrames < 30) {
+        inlineAnchorFrame.current = window.requestAnimationFrame(restore)
+      } else {
+        inlineScrollAnchor.current = null
+        inlineAnchorFrame.current = undefined
+      }
     }
     restore()
-    const frame = window.requestAnimationFrame(restore)
-    return () => window.cancelAnimationFrame(frame)
+    return () => window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
   }, [props.cards, props.expandedId])
 
   useEffect(() => () => releaseNavigationOwnership(), [releaseNavigationOwnership])
@@ -653,6 +737,10 @@ export function VirtualFeed(props: VirtualFeedProps) {
     const addedCount = sourceItemIds.filter((id) => !previousSourceIds.current.has(id)).length
     previousSourceIds.current = new Set(sourceItemIds)
     requestedRefreshAnchor.current = null
+    if (props.trackNewItems === false) {
+      setNewItemCount(0)
+      return
+    }
     if (addedCount <= 0) return
     if (wasNearFreshEdge.current) {
       releaseNavigationOwnership()
@@ -660,7 +748,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       virtualizer.scrollToIndex(targetIndex, { align: freshEdge })
     }
     else setNewItemCount((count) => count + addedCount)
-  }, [freshEdge, props.cards.length, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
+  }, [freshEdge, props.cards.length, props.trackNewItems, releaseNavigationOwnership, sourceItemIds, sourceSignature, virtualizer])
 
   const virtualItems = virtualizer.getVirtualItems()
 
@@ -692,18 +780,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
   function toggleExpandedInline(id: string) {
     releaseNavigationOwnership()
-    inlineScrollAnchor.current = scrollRef.current?.scrollTop ?? null
-    const holdAnchor = () => {
-      const element = scrollRef.current
-      if (!element || inlineScrollAnchor.current === null) return
-      element.scrollTop = inlineScrollAnchor.current
-      inlineAnchorFrame.current = window.requestAnimationFrame(holdAnchor)
-    }
-    inlineAnchorFrame.current = window.requestAnimationFrame(holdAnchor)
-    inlineAnchorTimer.current = window.setTimeout(() => {
-      inlineScrollAnchor.current = null
-      window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
-    }, 1000)
+    inlineScrollAnchor.current = scrollRef.current ? readViewportAnchor(scrollRef.current) : null
     props.onToggleExpanded(id)
   }
 
@@ -777,6 +854,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
               detailLoading={card.id === props.expandedId && props.detailLoading}
               detailError={card.id === props.expandedId && props.detailError}
               readonly={props.readonly}
+              showTimelineBucket={props.showTimelineBucket}
+              feedWindowDays={props.feedWindowDays}
               onToggleExpanded={() => toggleExpandedInline(card.id)}
               onToggleSaved={() => props.onToggleSaved(card.id, !card.userState.is_saved)}
               onToggleContext={() => props.onToggleContext(card)}
@@ -787,6 +866,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
           </div>
         })}
       </div>
+      {props.footer && <div className="mx-auto w-full max-w-[var(--inteliscope-width-reading)] pb-4">{props.footer}</div>}
     </div>
     {newItemCount > 0 && <Button
       size="sm"
@@ -804,7 +884,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开图片预览</Modal.Trigger>
       <Modal.Backdrop variant="opaque" isDismissable>
         <Modal.Container size="cover" placement="center" className="p-3 sm:w-full sm:p-6">
-          <Modal.Dialog className="h-full max-w-none overflow-hidden rounded-2xl bg-overlay p-0 text-foreground">
+          <Modal.Dialog className="h-full min-h-0 max-w-none overflow-hidden rounded-2xl bg-overlay p-0 text-foreground">
             <div className="relative flex h-full min-h-0 flex-col">
               <Modal.Header className="sr-only">
                 <Modal.Heading>{mediaViewer ? `${mediaViewer.cardLabel} 图片预览` : '图片预览'}</Modal.Heading>
@@ -813,82 +893,95 @@ export function VirtualFeed(props: VirtualFeedProps) {
                 aria-label="关闭图片预览"
                 className="z-20 size-11 rounded-full bg-background/80 text-foreground hover:bg-default"
               />
-              <Modal.Body
-                className="relative m-0 grid min-h-0 touch-pan-y place-items-center overflow-hidden bg-default/40 p-0 pb-20 text-foreground"
-                onPointerDown={(event) => {
-                  if (event.pointerType === 'mouse') return
-                  mediaSwipeStart.current = event.clientX
-                  event.currentTarget.setPointerCapture?.(event.pointerId)
-                }}
-                onPointerUp={(event) => {
-                  const start = mediaSwipeStart.current
-                  mediaSwipeStart.current = null
-                  if (start === null || mediaViewer?.images.length === 1) return
-                  const distance = event.clientX - start
-                  if (Math.abs(distance) >= 48) moveMediaViewer(distance > 0 ? -1 : 1)
-                }}
-                onPointerCancel={() => { mediaSwipeStart.current = null }}
-              >
-                {mediaLoading && !mediaError && <Skeleton aria-label="正在加载图片" className="absolute inset-[10%] rounded-2xl" />}
-                {activeMedia && <img
-                  key={`${activeMedia.url}:${mediaRetryKey}`}
-                  src={activeMedia.url}
-                  alt={activeMedia.alt || `${mediaViewer?.cardLabel || '内容'} 图片 ${(mediaViewer?.index ?? 0) + 1}`}
-                  className={`z-[1] max-h-full max-w-full object-contain transition-opacity motion-reduce:transition-none ${mediaLoading || mediaError ? 'opacity-0' : 'opacity-100'}`}
-                  width={activeMedia.width}
-                  height={activeMedia.height}
-                  onLoad={() => {
-                    setMediaLoading(false)
-                    setMediaError(false)
+              <Modal.Body className="relative m-0 grid min-h-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden p-0 text-foreground">
+                <div
+                  id="media-viewer-stage"
+                  data-testid="media-viewer-stage"
+                  className="relative grid min-h-0 min-w-0 touch-pan-y place-items-center overflow-hidden bg-default/40"
+                  onPointerDown={(event) => {
+                    if (event.pointerType === 'mouse' || (event.target instanceof Element && event.target.closest('button'))) return
+                    mediaSwipeStart.current = event.clientX
+                    event.currentTarget.setPointerCapture?.(event.pointerId)
                   }}
-                  onError={() => {
-                    setMediaLoading(false)
-                    setMediaError(true)
+                  onPointerUp={(event) => {
+                    const start = mediaSwipeStart.current
+                    mediaSwipeStart.current = null
+                    if (start === null || mediaViewer?.images.length === 1) return
+                    const distance = event.clientX - start
+                    if (Math.abs(distance) >= 48) moveMediaViewer(distance > 0 ? -1 : 1)
                   }}
-                />}
-                {mediaError && <div role="alert" className="z-[2] grid justify-items-center gap-3 rounded-2xl bg-background/90 p-5 text-center">
-                  <Icons.ImageOff size={28} className="text-muted" aria-hidden="true" />
-                  <p className="type-control">图片加载失败</p>
-                  <Button size="sm" variant="secondary" onPress={() => {
-                    setMediaError(false)
-                    setMediaLoading(true)
-                    setMediaRetryKey((value) => value + 1)
-                  }}>重试这张图片</Button>
-                </div>}
-                {mediaViewer && <p
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                  className="type-control absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-background/80 px-3 py-1.5 text-foreground"
-                >{mediaViewer.index + 1} / {mediaViewer.images.length}</p>}
-                {mediaViewer && mediaViewer.images.length > 1 && <>
-                  <Button
-                    isIconOnly
-                    variant="secondary"
-                    className="absolute left-3 z-10 size-11 rounded-full bg-background/80 text-foreground hover:bg-default sm:left-5"
-                    aria-label="上一张图片"
-                    onPress={() => moveMediaViewer(-1)}
-                  ><Icons.ChevronLeft size={22} aria-hidden="true" /></Button>
-                  <Button
-                    isIconOnly
-                    variant="secondary"
-                    className="absolute right-3 z-10 size-11 rounded-full bg-background/80 text-foreground hover:bg-default sm:right-5"
-                    aria-label="下一张图片"
-                    onPress={() => moveMediaViewer(1)}
-                  ><Icons.ChevronRight size={22} aria-hidden="true" /></Button>
-                  <div aria-label="图片缩略图" className="quiet-scroll-region absolute inset-x-14 bottom-3 z-10 flex justify-center gap-2 overflow-x-auto">
+                  onPointerCancel={() => { mediaSwipeStart.current = null }}
+                >
+                  {mediaLoading && !mediaError && <Skeleton aria-label="正在加载图片" className="absolute inset-[10%] rounded-2xl" />}
+                  {activeMedia && <img
+                    key={`${activeMedia.url}:${mediaRetryKey}`}
+                    data-testid="media-viewer-image"
+                    src={activeMedia.url}
+                    alt={activeMedia.alt || `${mediaViewer?.cardLabel || '内容'} 图片 ${(mediaViewer?.index ?? 0) + 1}`}
+                    className={`z-[1] block size-full min-h-0 min-w-0 object-contain transition-opacity motion-reduce:transition-none ${mediaLoading || mediaError ? 'opacity-0' : 'opacity-100'}`}
+                    width={activeMedia.width}
+                    height={activeMedia.height}
+                    onLoad={() => {
+                      setMediaLoading(false)
+                      setMediaError(false)
+                    }}
+                    onError={() => {
+                      setMediaLoading(false)
+                      setMediaError(true)
+                    }}
+                  />}
+                  {mediaError && <div role="alert" className="absolute left-1/2 top-1/2 z-[2] grid -translate-x-1/2 -translate-y-1/2 justify-items-center gap-3 rounded-2xl bg-background/90 p-5 text-center">
+                    <Icons.ImageOff size={28} className="text-muted" aria-hidden="true" />
+                    <p className="type-control">图片加载失败</p>
+                    <Button size="sm" variant="secondary" onPress={() => {
+                      setMediaError(false)
+                      setMediaLoading(true)
+                      setMediaRetryKey((value) => value + 1)
+                    }}>重试这张图片</Button>
+                  </div>}
+                  {mediaViewer && <p
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="type-control absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-background/80 px-3 py-1.5 text-foreground"
+                  >{mediaViewer.index + 1} / {mediaViewer.images.length}</p>}
+                  {mediaViewer && mediaViewer.images.length > 1 && <>
+                    <Button
+                      isIconOnly
+                      variant="secondary"
+                      className="absolute left-3 top-1/2 z-10 size-11 -translate-y-1/2 rounded-full bg-background/80 text-foreground hover:bg-default sm:left-5"
+                      aria-label="上一张图片"
+                      onPress={() => moveMediaViewer(-1)}
+                    ><Icons.ChevronLeft size={22} aria-hidden="true" /></Button>
+                    <Button
+                      isIconOnly
+                      variant="secondary"
+                      className="absolute right-3 top-1/2 z-10 size-11 -translate-y-1/2 rounded-full bg-background/80 text-foreground hover:bg-default sm:right-5"
+                      aria-label="下一张图片"
+                      onPress={() => moveMediaViewer(1)}
+                    ><Icons.ChevronRight size={22} aria-hidden="true" /></Button>
+                  </>}
+                </div>
+                {mediaViewer && mediaViewer.images.length > 1 && <div
+                  data-testid="media-viewer-thumbnails"
+                  role="group"
+                  aria-label="图片缩略图"
+                  className="quiet-scroll-region overflow-x-auto border-t border-separator bg-overlay px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3"
+                >
+                  <div className="flex w-max min-w-full justify-start gap-2 sm:justify-center">
                     {mediaViewer.images.map((image, index) => <button
                       key={image.url}
                       type="button"
                       aria-label={`切换到第 ${index + 1} 张图片`}
                       aria-current={index === mediaViewer.index ? 'true' : undefined}
-                      className={`size-12 shrink-0 overflow-hidden rounded-lg border-2 bg-background/80 focus-visible:outline-2 focus-visible:outline-focus ${index === mediaViewer.index ? 'border-accent' : 'border-transparent opacity-70 hover:opacity-100'}`}
+                      aria-controls="media-viewer-stage"
+                      className={`size-12 shrink-0 overflow-hidden rounded-lg border-2 bg-background/80 focus-visible:outline-2 focus-visible:outline-focus transition-[opacity,transform,box-shadow] motion-reduce:transition-none ${index === mediaViewer.index ? 'border-transparent shadow-[0_0_0_2px_var(--accent)]' : 'border-transparent opacity-70 hover:opacity-100 active:scale-95'}`}
                       onClick={() => setMediaViewer((current) => current ? { ...current, index } : current)}
                     >
                       <img src={image.url} alt="" className="size-full object-cover" loading="eager" />
                     </button>)}
                   </div>
-                </>}
+                </div>}
               </Modal.Body>
             </div>
           </Modal.Dialog>

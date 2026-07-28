@@ -50,6 +50,7 @@ API、Worker、legacy Scheduler 和 CLI 统一调用 `src/logging_utils.py::conf
 - Secret 引用创建/轮换/删除、Apify 池排序/排空、通知设置和邮件 transport 配置/测试。
 - Agent delegation 创建、重命名、吊销、删除及每次 MCP 调用结果。
 - Job 排队/去重、计划排队、领取、重试、取消和终态；来源获取与通知投递结果。
+- 存储治理计划的预演与 apply 结果使用 `category=storage`，只记录 operation、结果、稳定错误码和有界候选/处理计数；不得记录归档路径、确认短语、候选 ID、正文或 manifest。
 
 默认不记录普通 GET、Feed 浏览、已读/收藏/忽略等高频成功交互、Worker 空轮询和 heartbeat。它们只在未处理的服务端错误时进入 runtime 日志，不生成 operation event。
 

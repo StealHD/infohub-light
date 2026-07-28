@@ -61,12 +61,12 @@ class MaintenanceService:
         self.feed_retention_days = int(
             feed_retention_days
             if feed_retention_days is not None
-            else _env_int("HORIZON_FEED_SNAPSHOT_RETENTION_DAYS", 90)
+            else _env_int("HORIZON_FEED_SNAPSHOT_RETENTION_DAYS", 30)
         )
         self.max_feed_snapshots_per_user = int(
             max_feed_snapshots_per_user
             if max_feed_snapshots_per_user is not None
-            else _env_int("HORIZON_MAX_FEED_SNAPSHOTS_PER_USER", 100)
+            else _env_int("HORIZON_MAX_FEED_SNAPSHOTS_PER_USER", 20)
         )
         self.source_retention_days = int(
             source_retention_days
@@ -202,71 +202,31 @@ class MaintenanceService:
                 ((snapshot_id,) for snapshot_id in source_delete_ids),
             )
 
-        content_rows = conn.execute(
+        orphan_media_rows = conn.execute(
             """
-            SELECT content.id, content.workspace_id, content.user_id, content.article_id
-            FROM user_content_items AS content
-            WHERE content.last_seen_at < ?
+            SELECT media.id, media.local_path
+            FROM media_assets AS media
+            WHERE media.asset_kind = 'content_image'
+              AND media.user_id IS NOT NULL
+              AND media.article_id IS NOT NULL
               AND NOT EXISTS (
-                SELECT 1 FROM user_item_state AS state
-                WHERE state.workspace_id = content.workspace_id
-                  AND state.user_id = content.user_id
-                  AND state.article_id = content.article_id
-                  AND (state.is_saved = 1 OR state.is_later = 1)
+                SELECT 1
+                FROM user_content_items AS content
+                WHERE content.workspace_id = media.workspace_id
+                  AND content.user_id = media.user_id
+                  AND content.article_id = media.article_id
               )
-              AND NOT EXISTS (
-                SELECT 1 FROM user_feed_items AS feed_item
-                WHERE feed_item.workspace_id = content.workspace_id
-                  AND feed_item.user_id = content.user_id
-                  AND feed_item.article_id = content.article_id
-              )
-            """,
-            (feed_cutoff.isoformat(),),
+            """
         ).fetchall()
-        media_deleted = 0
         media_root = (Path(self.store.data_dir) / "media").resolve()
-        for content in content_rows:
-            media_rows = conn.execute(
-                """
-                SELECT id, local_path FROM media_assets
-                WHERE workspace_id = ? AND user_id = ? AND article_id = ?
-                  AND asset_kind = 'content_image'
-                """,
-                (
-                    content["workspace_id"],
-                    content["user_id"],
-                    content["article_id"],
-                ),
-            ).fetchall()
-            conn.execute(
-                """
-                DELETE FROM media_assets
-                WHERE workspace_id = ? AND user_id = ? AND article_id = ?
-                  AND asset_kind = 'content_image'
-                """,
-                (
-                    content["workspace_id"],
-                    content["user_id"],
-                    content["article_id"],
-                ),
-            )
-            media_deleted += len(media_rows)
-            for media in media_rows:
-                path = (Path(self.store.data_dir) / str(media["local_path"])).resolve()
-                if path.is_relative_to(media_root):
-                    media_cleanup.add(path)
-            conn.execute("DELETE FROM user_content_items WHERE id = ?", (content["id"],))
-            conn.execute(
-                """
-                DELETE FROM user_item_state
-                WHERE workspace_id = ? AND user_id = ? AND article_id = ?
-                  AND is_saved = 0 AND is_later = 0
-                """,
-                (
-                    content["workspace_id"],
-                    content["user_id"],
-                    content["article_id"],
-                ),
+        for media in orphan_media_rows:
+            path = (Path(self.store.data_dir) / str(media["local_path"])).resolve()
+            if path.is_relative_to(media_root):
+                media_cleanup.add(path)
+        if orphan_media_rows:
+            conn.executemany(
+                "DELETE FROM media_assets WHERE id = ?",
+                ((str(media["id"]),) for media in orphan_media_rows),
             )
 
         analysis = conn.execute(
@@ -297,8 +257,8 @@ class MaintenanceService:
         return {
             "feed_snapshots": len(feed_delete_ids),
             "source_snapshots": len(source_delete_ids),
-            "content_items": len(content_rows),
-            "media_assets": media_deleted,
+            "content_items": 0,
+            "media_assets": len(orphan_media_rows),
             "analysis_cache": max(int(analysis), 0),
             "usage_events": max(int(usage), 0),
             "jobs": max(int(jobs), 0),

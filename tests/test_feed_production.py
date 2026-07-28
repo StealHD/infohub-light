@@ -314,6 +314,12 @@ def test_profile_source_fetch_expires_item_beyond_global_window_when_empty(
     )
 
     assert latest["payload"]["items"] == []
+    assert latest["new_item_count"] == 0
+    assert latest["snapshot_created"] is False
+    assert latest["id"] == UserFeedStore(_store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )["id"]
 
 
 def test_profile_source_fetch_keeps_multiple_items_inside_global_window(

@@ -38,6 +38,21 @@ SAFE_DISABLED_GRAPH = {
 }
 
 
+def _days_ago(days: int) -> str:
+    return (
+        datetime.now(timezone.utc) - timedelta(days=days)
+    ).replace(microsecond=0).isoformat()
+
+
+def _assert_window(payload: dict, *, days: int = 7) -> None:
+    window = payload["window"]
+    assert window["timezone"] == "Asia/Shanghai"
+    assert window["feed_days"] == days
+    assert datetime.fromisoformat(window["feed_start"]) < datetime.fromisoformat(
+        window["today_start"]
+    ) <= datetime.fromisoformat(window["now"])
+
+
 def _minimal_config():
     return {
         "version": "1.0",
@@ -1474,6 +1489,7 @@ def test_api_catalog_permissions_and_subscription_flow(tmp_path, monkeypatch):
     )
     assert forbidden.status_code == 403
     assert forbidden.json()["error"]["code"] == "forbidden"
+    assert forbidden.json()["error"]["code"] == "forbidden"
 
     private_source = client.post(
         "/api/catalog/sources",
@@ -2370,7 +2386,10 @@ def test_api_jobs_feed_and_archive_facades(tmp_path, monkeypatch):
     assert latest_data["items"][0]["user_state"]["is_read"] is False
     assert latest_data["generated_at"] == "now"
     assert latest_data["scope"] == "user"
-    assert client.get("/api/feed/history").json()["data"] == {
+    history_data = client.get("/api/feed/history").json()["data"]
+    _assert_window(history_data)
+    history_data.pop("window")
+    assert history_data == {
         "generated_at": "now",
         "schema_version": 2,
         "snapshots": [
@@ -2385,6 +2404,10 @@ def test_api_jobs_feed_and_archive_facades(tmp_path, monkeypatch):
         "items": [],
         "featured_items": [],
         "item_count": 0,
+        "total_count": 0,
+        "limit": 200,
+        "offset": 0,
+        "has_more": False,
         "sources": [],
         "channels": [],
         "categories": [],
@@ -2544,23 +2567,60 @@ def test_feed_latest_returns_user_scoped_degraded_payload_without_snapshot(tmp_p
     history = client.get("/api/feed/history")
 
     assert latest.status_code == 200
-    assert latest.json()["data"] == {
+    latest_data = latest.json()["data"]
+    _assert_window(latest_data)
+    assert {
+        key: latest_data[key]
+        for key in (
+            "items",
+            "channels",
+            "topics",
+            "sources",
+            "generated_at",
+            "ai_enabled",
+            "scope",
+            "degraded",
+            "reason",
+            "item_count",
+            "today_total_items",
+        )
+    } == {
         "items": [],
         "channels": [],
         "topics": [],
+        "sources": [],
         "generated_at": "",
         "ai_enabled": False,
         "scope": "user",
         "degraded": True,
         "reason": "no_user_snapshot",
+        "item_count": 0,
+        "today_total_items": 0,
     }
-    assert history.json()["data"] == {
+    for key in (
+        "today_items",
+        "featured_items",
+        "featured_item_ids",
+        "daily_push_items",
+        "daily_push_item_ids",
+        "personal_items",
+        "personal_item_ids",
+    ):
+        assert latest_data[key] == []
+    history_data = history.json()["data"]
+    _assert_window(history_data)
+    history_data.pop("window")
+    assert history_data == {
         "schema_version": 2,
         "scope": "user",
         "snapshots": [],
         "items": [],
         "featured_items": [],
         "item_count": 0,
+        "total_count": 0,
+        "limit": 200,
+        "offset": 0,
+        "has_more": False,
     }
 
 
@@ -2576,13 +2636,15 @@ def test_feed_history_is_user_isolated_and_admin_can_query_member(tmp_path, monk
     workspace = store.get_default_workspace()
     owner = store.get_user_by_username("owner")
     feeds = UserFeedStore(store)
+    history_at = _days_ago(10)
+    current_at = _days_ago(1)
     for user, prefix in ((owner, "owner"), (member, "member")):
         feeds.save_snapshot(
             workspace_id=workspace["id"],
             user_id=user["id"],
             job_id=f"job_{prefix}_old",
             payload={
-                "generated_at": "2026-07-09T10:00:00+08:00",
+                "generated_at": history_at,
                 "items": [{"id": f"rss:item:{prefix}:history"}],
             },
         )
@@ -2591,7 +2653,7 @@ def test_feed_history_is_user_isolated_and_admin_can_query_member(tmp_path, monk
             user_id=user["id"],
             job_id=f"job_{prefix}_current",
             payload={
-                "generated_at": "2026-07-10T10:00:00+08:00",
+                "generated_at": current_at,
                 "items": [{"id": f"rss:item:{prefix}:current"}],
             },
         )
@@ -2619,7 +2681,202 @@ def test_feed_history_is_user_isolated_and_admin_can_query_member(tmp_path, monk
         for item in member_history.json()["data"]["items"]
     )
     assert forbidden.status_code == 403
-    assert forbidden.json()["error"]["code"] == "forbidden"
+
+
+def test_feed_history_validates_source_visibility_and_forwards_search_pagination(
+    tmp_path,
+    monkeypatch,
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    store = ServiceStore(data_dir)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="History API source",
+        config={"url": "https://example.com/history-api.xml"},
+        source_key="rss:https://example.com/history-api.xml",
+    )
+    feeds = UserFeedStore(store)
+    history_at = _days_ago(10)
+    current_at = _days_ago(1)
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_history_api_old",
+        payload={
+            "generated_at": history_at,
+            "items": [
+                {
+                    "id": "history-api-a",
+                    "title": "Searchable durable title",
+                    "source_id": source_id,
+                    "source_ids": [source_id],
+                },
+                {
+                    "id": "history-api-b",
+                    "title": "Searchable durable title two",
+                    "source_id": source_id,
+                    "source_ids": [source_id],
+                },
+            ],
+        },
+    )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_history_api_current",
+        payload={
+            "generated_at": current_at,
+            "items": [
+                {
+                    "id": "history-api-current",
+                    "title": "Searchable durable title current",
+                    "source_id": source_id,
+                    "source_ids": [source_id],
+                }
+            ],
+        },
+    )
+
+    page = client.get(
+        "/api/feed/history",
+        params={
+            "source_id": source_id,
+            "q": "searchable durable",
+            "limit": 1,
+            "offset": 1,
+        },
+    )
+    missing = client.get(
+        "/api/feed/history",
+        params={"source_id": "src_not_visible"},
+    )
+
+    assert page.status_code == 200
+    data = page.json()["data"]
+    assert data["total_count"] == 2
+    assert data["item_count"] == len(data["items"]) == 1
+    assert data["limit"] == 1
+    assert data["offset"] == 1
+    assert data["has_more"] is False
+    assert data["items"][0]["id"] in {"history-api-a", "history-api-b"}
+    assert missing.status_code == 404
+    assert client.get("/api/feed/history?limit=0").status_code == 400
+    assert client.get("/api/feed/history?offset=-1").status_code == 400
+
+
+def test_feed_search_spans_timeline_pages_and_remains_user_isolated(
+    tmp_path,
+    monkeypatch,
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    member = client.post(
+        "/api/users",
+        json={
+            "username": "search-member",
+            "password": "member-password",
+            "role": "member",
+        },
+    ).json()["data"]
+    store = ServiceStore(data_dir)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    feeds = UserFeedStore(store)
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_search_history",
+        payload={
+            "generated_at": _days_ago(10),
+            "items": [
+                {
+                    "id": "search-owner-history",
+                    "title": "Global needle 针 history",
+                }
+            ],
+        },
+    )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_search_current",
+        payload={
+            "generated_at": _days_ago(0),
+            "items": [
+                {
+                    "id": "search-owner-current",
+                    "title": "Global needle 针 current",
+                }
+            ],
+        },
+    )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        job_id="job_search_member",
+        payload={
+            "generated_at": _days_ago(10),
+            "items": [
+                {
+                    "id": "search-member-private",
+                    "title": "Global needle member only",
+                }
+            ],
+        },
+    )
+
+    first = client.get(
+        "/api/feed/search",
+        params={"q": "global needle", "limit": 1},
+    )
+    assert first.status_code == 200
+    first_data = first.json()["data"]
+    assert first_data["total_count"] == 2
+    assert first_data["has_more"] is True
+    assert first_data["items"][0]["id"] == "search-owner-current"
+    assert first_data["items"][0]["timeline_bucket"] == "today"
+    assert first_data["next_cursor"]
+    second = client.get(
+        "/api/feed/search",
+        params={
+            "q": "global needle",
+            "limit": 1,
+            "cursor": first_data["next_cursor"],
+        },
+    )
+    second_data = second.json()["data"]
+    assert second_data["items"][0]["id"] == "search-owner-history"
+    assert second_data["items"][0]["timeline_bucket"] == "history"
+    assert second_data["has_more"] is False
+    assert client.get("/api/feed/search", params={"q": "针"}).status_code == 400
+    submitted = client.get(
+        "/api/feed/search",
+        params={"q": "针", "submitted": "true"},
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["data"]["total_count"] == 2
+    assert client.get(
+        "/api/feed/search",
+        params={"q": "global needle", "cursor": "invalid"},
+    ).status_code == 400
+
+    client.post("/api/auth/logout")
+    _login_as(client, "search-member", "member-password")
+    member_data = client.get(
+        "/api/feed/search",
+        params={"q": "global needle"},
+    ).json()["data"]
+    assert [item["id"] for item in member_data["items"]] == [
+        "search-member-private"
+    ]
 
 
 def test_item_state_api_updates_visible_items_and_feed_returns_user_state(tmp_path, monkeypatch):
@@ -2638,7 +2895,7 @@ def test_item_state_api_updates_visible_items_and_feed_returns_user_state(tmp_pa
         user_id=owner["id"],
         job_id="job_owner",
         payload={
-            "generated_at": "2026-07-09T12:30:00+08:00",
+            "generated_at": _days_ago(1),
             "items": [{"id": "rss:item:1", "title": "Visible item"}],
         },
     )
@@ -2694,7 +2951,7 @@ def test_feed_latest_applies_current_user_state_filters_and_sorting(tmp_path, mo
     owner = store.get_user_by_username("owner")
     payload = {
         "schema_version": 2,
-        "generated_at": "2026-07-09T12:30:00+08:00",
+        "generated_at": _days_ago(0),
         "items": [
             {"id": "rss:item:read", "title": "Read item"},
             {"id": "rss:item:dismissed", "title": "Dismissed item"},
@@ -2746,11 +3003,31 @@ def test_feed_latest_applies_current_user_state_filters_and_sorting(tmp_path, mo
         for item in client.get(f"/api/feed/latest?user_id={member['id']}&hide_dismissed=true").json()["data"]["items"]
     ]
 
-    assert default_ids == ["rss:item:read", "rss:item:dismissed", "rss:item:saved", "rss:item:plain"]
-    assert hidden_ids == ["rss:item:read", "rss:item:saved", "rss:item:plain"]
-    assert unread_ids == ["rss:item:dismissed", "rss:item:saved", "rss:item:plain", "rss:item:read"]
-    assert saved_ids == ["rss:item:saved", "rss:item:read", "rss:item:dismissed", "rss:item:plain"]
-    assert member_ids == ["rss:item:read", "rss:item:dismissed", "rss:item:saved", "rss:item:plain"]
+    assert default_ids == [
+        "rss:item:dismissed",
+        "rss:item:plain",
+        "rss:item:read",
+        "rss:item:saved",
+    ]
+    assert hidden_ids == ["rss:item:plain", "rss:item:read", "rss:item:saved"]
+    assert unread_ids == [
+        "rss:item:dismissed",
+        "rss:item:plain",
+        "rss:item:saved",
+        "rss:item:read",
+    ]
+    assert saved_ids == [
+        "rss:item:saved",
+        "rss:item:dismissed",
+        "rss:item:plain",
+        "rss:item:read",
+    ]
+    assert member_ids == [
+        "rss:item:dismissed",
+        "rss:item:plain",
+        "rss:item:read",
+        "rss:item:saved",
+    ]
     assert default_feed["today_items"] == default_feed["items"]
     assert hidden_feed["today_items"] == hidden_feed["items"]
 
@@ -3247,6 +3524,57 @@ def test_api_config_projects_reddit_user_catalog_sources(tmp_path, monkeypatch):
     assert len(users) == 1
     assert users[0]["username"] == "spez"
     assert users[0]["source_id"] == source["id"]
+
+
+def test_config_action_saves_core_settings_bundle_with_one_persisted_result(tmp_path, monkeypatch):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _write_config(data_dir)
+    _login(client)
+
+    response = client.post(
+        "/api/config/action",
+        json={
+            "action": "set_settings_bundle",
+            "payload": {
+                "rsshub": {"base_url": "https://rsshub.example.com/private/"},
+                "filtering": {
+                    "time_window_hours": 48,
+                    "rss_initial_fetch_window_hours": 720,
+                    "recent_item_limit": 40,
+                },
+                "topics": {"topics": ["AI Agent", "RAG/MCP"]},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    persisted = json.loads((data_dir / "config.json").read_text(encoding="utf-8"))
+    assert persisted["rsshub"]["base_url"] == "https://rsshub.example.com/private"
+    assert persisted["filtering"]["time_window_hours"] == 48
+    assert persisted["filtering"]["rss_initial_fetch_window_hours"] == 720
+    assert persisted["tags"] == ["AI Agent", "RAG/MCP"]
+
+
+def test_config_action_rejects_invalid_bundle_without_partial_write(tmp_path, monkeypatch):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _write_config(data_dir)
+    _login(client)
+    config_path = data_dir / "config.json"
+    before = config_path.read_bytes()
+
+    response = client.post(
+        "/api/config/action",
+        json={
+            "action": "set_settings_bundle",
+            "payload": {
+                "rsshub": {"base_url": "https://rsshub.example.com/private/"},
+                "filtering": {"rss_initial_fetch_window_hours": 169},
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert config_path.read_bytes() == before
 
 
 def test_config_action_creates_public_catalog_source_and_subscription_for_admin(tmp_path, monkeypatch):

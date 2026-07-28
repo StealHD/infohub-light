@@ -171,6 +171,9 @@ export type FeedItem = {
   images?: string[]
   media_urls?: string[]
   image_url?: string
+  timeline_bucket?: 'today' | 'feed' | 'history'
+  storage_state?: 'online' | 'archived'
+  body_available?: boolean
   user_state?: UserItemState
   presentation?: FeedPresentation
 }
@@ -182,7 +185,7 @@ export type FeedPresentation = {
   version: 1 | 2
   source: { id: string; catalog_type: string; platform: string; name: string; avatar_url?: string }
   author: { name: string; kind: 'person' | 'account' | 'channel' | 'organization' | 'unknown' }
-  timing: { published_at: string; fetched_at: string }
+  timing: { published_at: string; fetched_at: string; effective_at?: string }
   links: { canonical_url: string; source_url: string }
   content: {
     title: string
@@ -268,6 +271,15 @@ export type FeedSnapshot = {
   ai_enabled?: boolean
   source_outcomes?: SourceOutcome[]
   issues?: RunIssue[]
+  window?: FeedWindow
+}
+
+export type FeedWindow = {
+  timezone: 'Asia/Shanghai'
+  feed_days: 7 | 14 | 30
+  today_start: string
+  feed_start: string
+  now: string
 }
 
 export type FeedHistory = {
@@ -276,7 +288,37 @@ export type FeedHistory = {
   items: FeedItem[]
   featured_items: FeedItem[]
   item_count: number
+  total_count: number
+  limit: number
+  offset: number
+  has_more: boolean
   snapshots: unknown[]
+  window?: FeedWindow
+}
+
+export type FeedHistoryParams = {
+  q?: string
+  sourceId?: string
+  limit?: number
+  offset?: number
+}
+
+export type FeedSearch = {
+  schema_version: 1
+  scope: 'user'
+  items: FeedItem[]
+  item_count: number
+  total_count: number
+  has_more: boolean
+  next_cursor: string | null
+  window: FeedWindow
+}
+
+export type FeedSearchParams = {
+  q: string
+  limit?: number
+  cursor?: string
+  submitted?: boolean
 }
 
 export type SavedFeed = {
@@ -302,6 +344,10 @@ export type SourceHealthItem = {
   last_success_at?: string | null
   consecutive_failures: number
   last_fetched_count?: number
+  today_item_count?: number
+  feed_item_count?: number
+  current_item_count?: number
+  history_item_count?: number
   last_issue?: RunIssue | null
   last_job_id?: string | null
 }
@@ -311,6 +357,7 @@ export type SourceHealthResponse = {
   scope: 'user'
   summary: Record<SourceHealthStatus | 'total', number>
   items: SourceHealthItem[]
+  window?: FeedWindow
 }
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled'
@@ -508,6 +555,79 @@ export type ConfigResponse = {
   config: Record<string, unknown>
   taxonomy?: TaxonomyOptions
   env_status?: Array<{ name?: string; set?: boolean; used_by?: string[]; configured?: boolean; label?: string }>
+}
+
+export type StorageSummary = {
+  schema_version: 1
+  policy: {
+    feed_snapshot_days: number
+    feed_snapshot_per_user: number
+    source_snapshot_days: number
+    completed_job_days: number
+    analysis_cache_days: number
+    usage_event_days: number
+    archive_after_days: number
+    automatic_permanent_delete: false
+  }
+  bytes: {
+    database: number
+    media: number
+    archives: number
+  }
+  counts: {
+    content_total: number
+    content_online: number
+    content_archived: number
+    feed_snapshots: number
+    source_snapshots: number
+    media_assets: number
+    archive_batches: number
+  }
+  readiness: {
+    feed_storage_v3: boolean
+    content_timeline_v11: boolean
+    ready: boolean
+  }
+  last_cleanup_at: string | null
+}
+
+export type StorageOperation = 'cleanup' | 'archive' | 'restore' | 'delete_archive'
+
+export type StoragePlan = {
+  id: string
+  actor_user_id: string
+  operation: StorageOperation
+  status: 'previewed' | 'applied' | 'expired' | 'failed'
+  payload: {
+    request: Record<string, unknown>
+    parameters: Record<string, unknown>
+    preview: Record<string, unknown>
+  }
+  result: Record<string, unknown>
+  fingerprint: string
+  expires_at: string
+  created_at: string
+  applied_at: string | null
+  updated_at: string
+}
+
+export type StorageArchive = {
+  id: string
+  status: 'committed' | 'restored' | 'failed' | 'deleted'
+  cutoff_at: string
+  checksum: string
+  item_count: number
+  media_count: number
+  byte_size: number
+  created_at: string
+  committed_at: string
+  restored_at: string | null
+  updated_at: string
+}
+
+export type StorageArchives = {
+  schema_version: 1
+  archives: StorageArchive[]
 }
 
 export type TaxonomyOptions = {

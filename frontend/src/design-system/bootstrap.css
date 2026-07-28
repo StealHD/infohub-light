@@ -4,7 +4,7 @@
   --inteliscope-bootstrap-surface-secondary: oklch(0.215 0.009 286);
   --inteliscope-bootstrap-separator: oklch(0.27 0.009 286);
   --inteliscope-bootstrap-muted: oklch(0.68 0.012 286);
-  --inteliscope-bootstrap-right-rail-width: 360px;
+  --inteliscope-bootstrap-right-rail-width: 400px;
   --inteliscope-bootstrap-loading-duration: 1400ms;
   --inteliscope-bootstrap-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
 }

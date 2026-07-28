@@ -234,9 +234,7 @@ docker compose run --rm horizon --hours 24
 docker compose run --rm horizon --hours 48
 ```
 
-`./scripts/up-latest.sh` 是本地推荐启动方式：默认执行
-`docker compose build --pull --no-cache`，再用
-`docker compose up -d --no-build --force-recreate --remove-orphans` 替换旧容器；只有 liveness 返回目标 revision 且 readiness 通过后，才清理本项目旧 dangling 镜像和 build cache。公网 RC 使用下文的分阶段发布脚本，不直接运行该本地脚本。
+`./scripts/up-latest.sh` 是本地推荐启动方式：从任务 Worktree 执行时，它构建该 Worktree，并通过 Git common directory 自动挂载主 checkout 的 `.env`、`data` 与 `logs`；只有明确切换另一套本地数据时才传 `--runtime-root <绝对路径>`，可用 `--dry-run` 在不调用 Docker 的情况下核对解析结果。完成条件和迁移安全规则以 [AGENTS.md 第 6 节](AGENTS.md#6-verification) 为准。公网 RC 使用下文的分阶段发布脚本，不直接运行该本地脚本。
 如果要加快构建，可设 `HORIZON_BUILD_NO_CACHE=false`；如果要更激进清理 build cache，
 可设 `HORIZON_PRUNE_BUILD_CACHE_UNTIL=0h`。
 

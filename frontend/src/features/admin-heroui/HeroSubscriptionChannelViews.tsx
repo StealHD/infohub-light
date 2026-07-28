@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 import type { CatalogSource, SourceHealthItem, SourceTypeDefinition, Subscription } from '../../api/types'
 import {
@@ -78,12 +79,6 @@ type ChannelLayoutProps<T> = {
   renderList: (items: T[]) => ReactNode
 }
 
-type SourceCardActionsProps = {
-  source: CatalogSource
-  canShare: boolean
-  onShare: (trigger: HTMLElement) => void
-}
-
 const healthOptions = [
   { id: 'all', label: '全部健康状态' },
   { id: 'healthy', label: '正常' },
@@ -109,7 +104,21 @@ const formatCompactTime = (value?: string | null) => {
 const intervalLabel = (minutes?: number) => {
   if (!minutes) return '周期未知'
   if (minutes < 60) return `每 ${minutes} 分钟`
+  if (minutes === 1440) return '每日'
   return `每 ${minutes / 60} 小时`
+}
+
+const formatUpdateTime = (value?: string | null) => {
+  if (!value) return '尚未完成'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '时间未知'
+  const now = new Date()
+  const isToday = parsed.getFullYear() === now.getFullYear()
+    && parsed.getMonth() === now.getMonth()
+    && parsed.getDate() === now.getDate()
+  return isToday
+    ? `今天 ${parsed.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    : formatCompactTime(value)
 }
 
 const sourceMark = (name: string) => {
@@ -217,40 +226,18 @@ function SourceEditAction({ source, onEditSource }: {
   </Tooltip>
 }
 
-function SourceCardActions({ source, canShare, onShare }: SourceCardActionsProps) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLDivElement>(null)
-  if (!canShare) return null
-
-  const runAction = (action: (trigger: HTMLElement) => void) => {
-    const trigger = triggerRef.current
-    if (!trigger) return
-    setOpen(false)
-    action(trigger)
-  }
-
-  return <div data-source-card-actions className="flex shrink-0 items-center self-center">
-    <Popover isOpen={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        ref={triggerRef}
-        aria-label={`更多操作：${source.display_name}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-transparent text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11"
-      >
-        <Icons.MoreHorizontal size={16} aria-hidden="true" />
-      </Popover.Trigger>
-      <Popover.Content placement="bottom end" offset={6} className="z-40 min-w-36 p-0">
-        <Popover.Dialog aria-label={`${source.display_name} 来源操作`} className="grid gap-1 p-1">
-          {canShare && <button
-            type="button"
-            className="type-control flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-default focus-visible:outline-2 focus-visible:outline-focus"
-            onClick={() => runAction(onShare)}
-          >
-            <Icons.Share2 size={14} aria-hidden="true" />分享来源
-          </button>}
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover>
-  </div>
+function SourceShareAction({ source, onShare }: {
+  source: CatalogSource
+  onShare: (trigger: HTMLElement) => void
+}) {
+  return <Tooltip delay={250}>
+    <TooltipTriggerButton
+      aria-label={`分享来源：${source.display_name}`}
+      className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground pointer-coarse:size-11"
+      onClick={(event) => onShare(event.currentTarget)}
+    ><Icons.Share2 size={15} aria-hidden="true" /></TooltipTriggerButton>
+    <Tooltip.Content {...topAnchoredTooltipProps}>分享来源</Tooltip.Content>
+  </Tooltip>
 }
 
 function notificationDisabledReason({
@@ -345,7 +332,7 @@ function ChannelRail<T>({ groups, selectedChannel, onSelectChannel, detail, sear
           onClick={() => onSelectChannel(group.id)}
         >
           <span aria-hidden="true" className={`grid size-8 place-items-center rounded-lg type-label ${selected ? 'bg-accent/15 text-foreground' : 'bg-default text-muted'}`}>
-            {group.id === 'all' ? '全' : group.id === 'exceptions' ? '异' : group.label === 'AI' ? 'AI' : Array.from(group.label)[0]}
+            {group.id === 'all' ? '全' : group.id === 'exceptions' ? '异' : group.id === 'scope:public' ? '公' : group.id === 'scope:private' ? '私' : group.label === 'AI' ? 'AI' : Array.from(group.label)[0]}
           </span>
           <span className="min-w-0">
             <span className="type-control block truncate">{group.label}</span>
@@ -438,9 +425,10 @@ function ChannelLayout<T>({
   </>
 }
 
-export function SubscriptionRows({ items, editable, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionRows({ items, editable, feedWindowDays = 7, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   items: SubscriptionViewEntry[]
   editable: boolean
+  feedWindowDays?: number
   onFetch: (entry: SubscriptionViewEntry) => void
   onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void
   onEditSubscription: (entry: SubscriptionViewEntry) => void
@@ -475,23 +463,40 @@ export function SubscriptionRows({ items, editable, onFetch, onToggleNotificatio
             <SourceIdentity source={source} detail={`${sourceTypeLabel(effectiveSourceType(source))} · ${sourceScopeLabel(source.scope)}`} />
           </div>
           <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
-          {entry.canEdit && <SourceEditAction
-            source={source}
-            onEditSource={(trigger) => onEditSource(source, trigger)}
-          />}
-          <SourceCardActions
-            source={source}
-            canShare={entry.canShare}
-            onShare={(trigger) => onShare(source, trigger)}
-          />
         </div>
-        <div className="mt-2 grid gap-2 border-t border-separator pt-2 min-[680px]:grid-cols-[minmax(0,1fr)_auto] min-[680px]:items-center">
-          <div className="type-meta flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted">
-            <span>{schedule?.enabled ? intervalLabel(schedule.interval_minutes) : '手动更新'}</span>
-            <span>{health?.last_fetched_count ?? 0} 条 · {formatCompactTime(latestAt)}</span>
-            {schedule?.enabled && <span>{schedule.next_run_at ? `下次 ${formatCompactTime(schedule.next_run_at)}` : '等待下次更新'}</span>}
+        <div className="mt-2 grid min-w-0 gap-2 border-t border-separator pt-2 min-[560px]:grid-cols-[minmax(0,1fr)_auto] min-[560px]:items-center">
+          <div className="grid min-w-0 gap-1.5 min-[680px]:flex min-[680px]:items-center min-[680px]:gap-3">
+            <dl data-source-counts className="grid min-w-0 grid-cols-3 gap-2 text-muted min-[560px]:flex min-[560px]:items-center min-[560px]:gap-3">
+              <div className="type-meta flex min-w-0 items-baseline justify-center gap-1 rounded-lg bg-default/45 px-2 py-1 min-[560px]:justify-start min-[560px]:bg-transparent min-[560px]:p-0">
+                <dt>今日</dt><dd className="type-label text-foreground">{health?.today_item_count ?? 0}</dd>
+              </div>
+              <div className="type-meta flex min-w-0 items-baseline justify-center gap-1 rounded-lg bg-default/45 px-2 py-1 min-[560px]:justify-start min-[560px]:bg-transparent min-[560px]:p-0">
+                <dt>近{feedWindowDays}天</dt><dd className="type-label text-foreground">{health?.feed_item_count ?? health?.current_item_count ?? 0}</dd>
+              </div>
+              <div className="type-meta flex min-w-0 items-baseline justify-center gap-1 rounded-lg bg-default/45 px-2 py-1 min-[560px]:justify-start min-[560px]:bg-transparent min-[560px]:p-0">
+                <dt>历史</dt>
+                <dd>{(health?.history_item_count ?? 0) > 0
+                  ? <Link
+                    to={`/history?source_id=${encodeURIComponent(source.id)}`}
+                    aria-label={`查看 ${source.display_name} 的 ${health?.history_item_count ?? 0} 条历史内容`}
+                    className="type-label rounded text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+                  >{health?.history_item_count ?? 0}</Link>
+                  : <span className="type-label text-foreground">0</span>}</dd>
+              </div>
+            </dl>
+            <div className="type-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted min-[680px]:flex-nowrap">
+              <span>{schedule?.enabled ? intervalLabel(schedule.interval_minutes) : '手动更新'}</span>
+              <span aria-hidden="true">·</span>
+              <time
+                dateTime={latestAt || undefined}
+                aria-label={`最近更新 ${formatUpdateTime(latestAt)}，上次抓取 ${health?.last_fetched_count ?? 0} 条`}
+                title={`上次抓取 ${health?.last_fetched_count ?? 0} 条`}
+                className="whitespace-nowrap"
+              >{formatUpdateTime(latestAt)}</time>
+              {schedule?.enabled && <span className="hidden whitespace-nowrap min-[860px]:inline">{schedule.next_run_at ? `下次 ${formatCompactTime(schedule.next_run_at)}` : '等待下次更新'}</span>}
+            </div>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+          <div data-source-card-controls className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <Tooltip delay={250}>
               <TooltipTriggerButton
                 role="switch"
@@ -518,6 +523,14 @@ export function SubscriptionRows({ items, editable, onFetch, onToggleNotificatio
                     : '新内容通知已关闭，点击开启'}
               </Tooltip.Content>
             </Tooltip>
+            {entry.canEdit && <SourceEditAction
+              source={source}
+              onEditSource={(trigger) => onEditSource(source, trigger)}
+            />}
+            {entry.canShare && <SourceShareAction
+              source={source}
+              onShare={(trigger) => onShare(source, trigger)}
+            />}
             <Tooltip delay={250}>
               <TooltipTriggerButton
                 aria-label={`${editable ? '配置' : '查看'} ${source.display_name} 订阅`}
@@ -526,18 +539,20 @@ export function SubscriptionRows({ items, editable, onFetch, onToggleNotificatio
               ><Icons.Settings2 size={15} aria-hidden="true" /></TooltipTriggerButton>
               <Tooltip.Content {...topAnchoredTooltipProps}>{editable ? '订阅设置' : '查看订阅'}</Tooltip.Content>
             </Tooltip>
-            {editable && <span className="inline-flex" aria-busy={fetchBusy || undefined}>
-              <Button
-                size="sm"
-                className="min-w-[104px] justify-center"
-                aria-label={`${entry.fetchLabel} ${source.display_name}`}
-                isDisabled={fetchBusy}
-                onPress={() => onFetch(entry)}
-              >
-                <Icons.RefreshCw className={fetchBusy ? 'animate-spin motion-reduce:animate-none' : ''} size={14} aria-hidden="true" />
-                立即获取
-              </Button>
-            </span>}
+            {editable && <Tooltip delay={250}>
+              <span className="inline-flex" aria-busy={fetchBusy || undefined}>
+                <TooltipTriggerButton
+                  className="type-control min-h-8 min-w-[104px] gap-1.5 rounded-xl bg-accent px-3 text-accent-foreground hover:bg-accent/90 pointer-coarse:min-h-11"
+                  aria-label={`${entry.fetchLabel} ${source.display_name}；上次抓取 ${health?.last_fetched_count ?? 0} 条；最近更新 ${formatUpdateTime(latestAt)}`}
+                  disabled={fetchBusy}
+                  onClick={() => onFetch(entry)}
+                >
+                  <Icons.RefreshCw className={fetchBusy ? 'animate-spin motion-reduce:animate-none' : ''} size={14} aria-hidden="true" />
+                  <span>立即获取</span>
+                </TooltipTriggerButton>
+              </span>
+              <Tooltip.Content {...topAnchoredTooltipProps}>上次抓取 {health?.last_fetched_count ?? 0} 条 · 最近更新 {formatUpdateTime(latestAt)}</Tooltip.Content>
+            </Tooltip>}
             {entry.notificationPending && <span className="sr-only" role="status">正在保存 {source.display_name} 的新内容通知设置</span>}
             {fetchBusy && <span className="sr-only" role="status">{entry.fetchLabel} {source.display_name}</span>}
           </div>
@@ -573,17 +588,16 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
           <MetaTag icon={source.scope === 'private' ? <Icons.Lock size={12} aria-hidden="true" /> : <Icons.Globe2 size={12} aria-hidden="true" />}>
             {sourceScopeLabel(source.scope)}
           </MetaTag>
+        </div>
+        <div data-source-card-controls className="mt-2 flex min-w-0 flex-wrap items-center justify-end gap-2 border-t border-separator pt-2">
           {entry.canEdit && <SourceEditAction
             source={source}
             onEditSource={(trigger) => onEditSource(source, trigger)}
           />}
-          <SourceCardActions
+          {entry.canShare && <SourceShareAction
             source={source}
-            canShare={entry.canShare}
             onShare={(trigger) => onShare(source, trigger)}
-          />
-        </div>
-        <div className="mt-2 flex min-w-0 flex-wrap items-center justify-end gap-2 border-t border-separator pt-2">
+          />}
           {entry.subscribed ? <Button
             size="sm"
             variant="ghost"
@@ -602,12 +616,13 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
   </div>
 }
 
-export function SubscriptionChannelView({ groups, selectedChannel, onSelectChannel, filters, editable, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionChannelView({ groups, selectedChannel, onSelectChannel, filters, editable, feedWindowDays = 7, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   groups: ChannelViewGroup<SubscriptionViewEntry>[]
   selectedChannel: string
   onSelectChannel: (channel: string) => void
   filters: FilterProps
   editable: boolean
+  feedWindowDays?: number
   schedule: ReactNode
   onFetch: (entry: SubscriptionViewEntry) => void
   onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void
@@ -637,11 +652,22 @@ export function SubscriptionChannelView({ groups, selectedChannel, onSelectChann
       return `${items.length} 个来源 · ${healthyCount} 个正常 · ${problemCount} 个需处理${unknownCount > 0 ? ` · ${unknownCount} 个待检查` : ''}`
     }}
     beforeList={schedule}
-    emptyTitle={(group) => group.id === 'exceptions' ? '当前没有异常来源' : '没有匹配的订阅'}
-    emptyDescription={(group) => group.id === 'exceptions' ? '需关注或连续失败的来源会出现在这里。' : '调整搜索或筛选，或前往来源库选择要关注的来源。'}
+    emptyTitle={(group) => group.id === 'exceptions'
+      ? '当前没有异常来源'
+      : group.id === 'scope:public'
+        ? '当前筛选条件下没有公共订阅'
+        : group.id === 'scope:private'
+          ? '当前筛选条件下没有私人订阅'
+          : '没有匹配的订阅'}
+    emptyDescription={(group) => group.id === 'exceptions'
+      ? '需关注或连续失败的来源会出现在这里。'
+      : group.id === 'scope:public' || group.id === 'scope:private'
+        ? '此视图会保留；调整搜索或筛选后可继续查看。'
+        : '调整搜索或筛选，或前往来源库选择要关注的来源。'}
     renderList={(items) => <SubscriptionRows
       items={items}
       editable={editable}
+      feedWindowDays={feedWindowDays}
       onFetch={onFetch}
       onToggleNotification={onToggleNotification}
       onEditSubscription={onEditSubscription}

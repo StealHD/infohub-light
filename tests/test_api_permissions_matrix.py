@@ -196,6 +196,7 @@ def test_global_config_actions_require_admin_role(tmp_path, monkeypatch):
         ("set_rsshub", {"base_url": "https://rsshub.example.com"}),
         ("set_filtering", {"ai_score_threshold": 8.0}),
         ("set_tags", {"tags": "Blocked Topic"}),
+        ("set_settings_bundle", {"topics": {"topics": ["Blocked Topic"]}}),
         ("set_personal_tags", {"personal_tags": "Blocked Personal Tag"}),
         ("set_webhook", {"enabled": False, "url_env": "WEBHOOK_URL"}),
         ("set_hackernews", {"enabled": True, "fetch_top_stories": 30, "min_score": 100}),

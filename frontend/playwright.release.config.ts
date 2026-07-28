@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { visualSnapshotExpect } from './playwright.visual'
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,6 +13,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: 'line',
+  expect: visualSnapshotExpect,
   use: {
     baseURL: 'http://127.0.0.1:4174',
     channel: process.env.PLAYWRIGHT_USE_BUNDLED_CHROMIUM === '1' ? undefined : 'chrome',

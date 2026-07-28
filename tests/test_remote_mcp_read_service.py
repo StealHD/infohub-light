@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -9,14 +10,24 @@ from src.services.user_item_state import UserItemStateStore
 from src.storage.service_store import ServiceStore
 
 
-def _item(article_id: str, title: str, *, body: str = "body") -> dict:
+def _item(
+    article_id: str,
+    title: str,
+    *,
+    body: str = "body",
+    published_at: str | None = None,
+    source_id: str = "source-internal",
+) -> dict:
+    resolved_published_at = published_at or datetime.now(timezone.utc).isoformat()
     return {
         "id": article_id,
         "title": title,
         "source": "Example Feed",
+        "source_id": source_id,
+        "source_ids": [source_id],
         "source_type": "rss",
         "url": f"https://example.com/{article_id}",
-        "published_at": "2026-07-15T12:00:00+00:00",
+        "published_at": resolved_published_at,
         "channel": "AI",
         "topics": ["Agent"],
         "metadata": {"secret": "must-not-leak"},
@@ -24,7 +35,7 @@ def _item(article_id: str, title: str, *, body: str = "body") -> dict:
         "presentation": {
             "version": 1,
             "source": {
-                "id": "source-internal",
+                "id": source_id,
                 "catalog_type": "rss",
                 "platform": "rss",
                 "name": "Example Feed",
@@ -32,8 +43,8 @@ def _item(article_id: str, title: str, *, body: str = "body") -> dict:
             },
             "author": {"name": "Author", "kind": "person"},
             "timing": {
-                "published_at": "2026-07-15T12:00:00+00:00",
-                "fetched_at": "2026-07-15T12:05:00+00:00",
+                "published_at": resolved_published_at,
+                "fetched_at": resolved_published_at,
             },
             "links": {
                 "canonical_url": f"https://example.com/{article_id}",
@@ -110,16 +121,24 @@ def _context(tmp_path, monkeypatch):
     store.create_subscription(user_id=member["id"], source_id=source_id)
 
     feed = UserFeedStore(store)
+    generated_at = datetime.now(timezone.utc)
+    historical_at = (generated_at - timedelta(days=10)).isoformat()
     feed.save_snapshot(
         workspace_id=workspace["id"],
         user_id=owner["id"],
         job_id=None,
         payload={
             "schema_version": 2,
-            "generated_at": "2026-07-15T00:00:00+00:00",
+            "generated_at": (generated_at - timedelta(minutes=1)).isoformat(),
             "items": [
-                _item("article-c", "Historical", body="historical body"),
-                _item("article-a", "Latest", body="X" * 100),
+                _item(
+                    "article-c",
+                    "Historical",
+                    body="historical body",
+                    published_at=historical_at,
+                    source_id=source_id,
+                ),
+                _item("article-a", "Latest", body="X" * 100, source_id=source_id),
             ],
         },
     )
@@ -129,10 +148,10 @@ def _context(tmp_path, monkeypatch):
         job_id=None,
         payload={
             "schema_version": 2,
-            "generated_at": "2026-07-16T00:00:00+00:00",
+            "generated_at": generated_at.isoformat(),
             "items": [
-                _item("article-a", "Latest", body="X" * 100),
-                _item("article-b", "Dismissed"),
+                _item("article-a", "Latest", body="X" * 100, source_id=source_id),
+                _item("article-b", "Dismissed", source_id=source_id),
             ],
         },
     )
@@ -142,8 +161,10 @@ def _context(tmp_path, monkeypatch):
         job_id=None,
         payload={
             "schema_version": 2,
-            "generated_at": "2026-07-16T00:00:00+00:00",
-            "items": [_item("member-only", "Member private item")],
+            "generated_at": generated_at.isoformat(),
+            "items": [
+                _item("member-only", "Member private item", source_id=source_id)
+            ],
         },
     )
     states = UserItemStateStore(store)

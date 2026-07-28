@@ -3026,12 +3026,80 @@
 - 发布/回退：当前 release 为 `/opt/inteliscope/releases/v1.7.4-74c7b16d715b`；切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.4-74c7b16d715b-20260726T160025Z`，旧 release/image 保留
 - 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未运行真实来源抓取、AI、完整 scheduler、通知或付费服务，部署 staging 与上传归档验收后已清理
 
+### 2026-07-27 02:52 Codex
+- 任务：在独立分支实施 OpenClaw 桌面后台运行、语义终态提醒、安全来源引用及 Feed/来源卡紧凑交互
+- 修改范围：Agent/Insights 响应式布局、V6 handoff 与浏览器 transcript、Prompt Input/Chat Source、模型和用量控件、Feed 搜索/图标工具栏、来源编辑控制行，以及 API/UI 合同、D076、手册、更新日志和回归测试
+- 执行验证：TypeScript、Lint（0 error）、UI 合同、176 项相关 Vitest 与新增响应式用例通过；生产 Workbench Playwright 1440/1024/390 为 3/3，Axe serious/critical 为 0；最终 `test_gate full` 22/22、0 failed/error、127.739 秒
+- 结果：桌面隐藏 Agent 不会中断运行，终态以非纯色点语义提醒；400 px Agent、64–160 px 输入、`k` 用量、安全来源链接和 Feed 搜索均完成，宽屏双面板共存且空间不足时 Insights 柔和退出
+- 控制面变更：`API_CONTRACT.md`、`UI_CONTRACT.md` 与 D076 升级为 V6 来源引用和新的桌面运行语义；无 Service API、数据库、Gateway RPC、MCP 权限或 Worker 行为变化
+- 安全边界：未连接或调用用户 OpenClaw、未触发真实来源、AI、scheduler、通知、付费服务、提交、推送或部署；原工作区未修改
+
+### 2026-07-27 08:07 Codex
+- 任务：核对 `127.0.0.1:8080` 本地容器是否已经运行 OpenClaw 响应式 Agent 新版本
+- 执行验证：API/Worker 均 healthy，但镜像 revision 为 `2b6d078ac3d4-dirty`；服务资源为 `index-DlHleLji.js` 且 bootstrap Agent 默认 360 px，新分支构建为 `index-DkK_8czX.js` 与 400 px
+- 结果：当前本地容器不是 `codex/openclaw-responsive-agent-ui` 版本；仅完成只读核对，未重建或重启容器
+
+### 2026-07-27 08:11 Codex
+- 任务：重建并启动 `codex/openclaw-responsive-agent-ui` 的本地容器
+- 执行验证：从隔离 Worktree 无缓存构建 revision `dd396e3bad2a-dirty`，复用原运行目录的 `.env`、`data` 与 `logs` 重建 API/Worker；两者均 healthy，liveness/readiness 通过，8080 已返回 `index-DkK_8czX.js`、`index-C7g7vUL8.css` 与 400 px Agent 默认宽度
+- 安全边界：仅重建并重启本地 Compose API/Worker；未启动 scheduler、真实来源抓取、AI、通知、付费调用或生产部署
+
+### 2026-07-27 11:27 Codex
+- 任务：完成 Agent/概览协调、OpenClaw 滚动所有权、设置原子总保存、订阅公共/私人分类与直接分享、ViewBar 向下提示
+- 修改范围：配置兼容 API、Workbench/OpenClaw/设置/订阅与设计系统、单元和 Playwright 回归、API/UI 合同、决策记录、手册与更新日志
+- 执行验证：Vitest 53 文件 461 项、目标 Playwright 与明暗视觉基线、TypeScript、UI 合同和 Lint（0 error）通过；最终 `test_gate full` 22/22、0 failed/error、142.248 秒；本地 `up-latest.sh` 重建后 liveness/readiness、Feed/订阅/设置浏览器验收通过
+- 结果：短输入滚轮不再串联，长输入只滚 textarea；1280 px Agent 下可手动查看遮挡概览并由工作台热区退出；核心草稿回到基线即清除假脏状态；本地资源为 `index-Brjbwxm6.js`
+- 控制面变更：新增 `set_settings_bundle` 原子兼容动作及对应设置、交互和订阅 UI 合同；原单项动作、权限与安全保存流程保持兼容
+- 安全边界：未保存浏览器测试草稿、未发送 OpenClaw 消息、未分享来源或改写配置；未启动 scheduler、真实来源抓取、AI、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 12:38 Codex
+- 任务：修复 `tsucha_ri` 旧内容不可达及订阅抓取数误导问题
+- 修改范围：稳定历史查询/分页与来源权限、完整 provenance 当前/历史计数、X/Instagram 旧帖空成功语义、订阅与历史前端、API/架构/UI 合同、D078、手册、更新日志和回归测试
+- 执行验证：后端定向 188 项、前端定向 94 项、TypeScript 与新增 Playwright 通过；`test_gate full` 22/22、0 failed/error、128.069 秒；本地 revision `dd396e3bad2a-dirty` 的 API/Worker healthy
+- 结果：本地 `tsucha_ri` 显示“上次抓取 2 条 · 当前 0 条 · 历史 2 条”，历史链接返回两条旧内容，服务端搜索与清除来源条件均经真实数据验证
+- 控制面变更：历史 API 新增 `q/source_id/limit/offset` 与分页元数据，Source Health 新增当前/历史计数；无数据库迁移
+- 安全边界：未触发真实 Apify、来源获取、AI、scheduler、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 14:20 Codex
+- 任务：规划管理员数据清理归档能力，并优化订阅卡片过长的计数信息
+- 只读结论：本地约 30.5 MB 数据中 Feed 快照与快照条目约占数据库 80%；131 个快照仍为旧存储格式且缺少 v3 迁移记录，现有维护任务因此未执行；全局抓取为每日一次，`r/codex` 占稳定历史约 73% 且每次上限为 25
+- 方案：先完成带备份的 v3 迁移、紧凑快照、每用户 20 个快照上限和来源限流，再分阶段增加存储概览、清理预演/异步执行、可检索冷归档/恢复与离线压缩；产品代码和运行数据均未修改
+- 安全边界：仅执行只读 SQLite、代码和合同检查；未运行迁移、清理、归档、抓取、AI、scheduler、通知、付费调用、容器重建、提交或部署
+
+### 2026-07-27 17:01 Codex
+- 任务：完成 Feed 上海自然日分层、全局搜索、订阅计数密度、设置总保存与管理员安全存储治理，并收口 Agent/信息概览及 OpenClaw 滚动交互
+- 修改范围：稳定内容时间/搜索索引与 API、Source Health、Feed/History/订阅/设置 UI、v3/v11 显式迁移、清理/归档/恢复预演接口、产品合同/手册/更新日志及回归测试
+- 执行验证：`test_gate full` 22/22、Vitest 464/464、完整 Playwright 及关键 645/693/320px 回归通过；本地 v3/v11 迁移后 integrity/foreign keys 正常，API/Worker healthy，真实浏览器 Feed/History/订阅/设置无控制台错误
+- 结果：本地 287 条稳定内容已按近 7 天与历史即时分层，`tsucha_ri` 显示今日 0、近7天 0、历史 2 并可达两条旧内容；存储中心显示 23 个紧凑 Feed 快照，revision `dd396e3bad2a-dirty` 运行于 8080
+- 安全边界：迁移前后保留 `0600` 数据库备份及原运行库副本；未触发真实来源、Apify、AI、scheduler、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 17:25 Codex
+- 任务：修复裸 `/history` 在完整本地历史数据上进入页面级错误边界
+- 根因：22 条旧稳定内容没有 `presentation`；时间投影为附加 `effective_at` 创建了仅含 `timing` 的半成品结构，前端筛选读取缺失的 `source.id` 时崩溃
+- 修改范围：稳定内容投影统一补齐规范展示结构，Feed 筛选与来源派生对旧缓存采用防御性嵌套访问，并增加后端、Vitest 与三视口 Playwright 回归
+- 执行验证：目标后端与 Vitest、三端 Playwright、TypeScript、Lint 通过；`test_gate full` 22/22；重建后 API/Worker healthy，真实 `/history` 显示 60 条且新页面控制台错误为 0
+- 安全边界：未修改稳定内容、时间索引或用户状态，数据库 integrity/foreign keys 正常；未触发来源抓取、Apify、AI、scheduler、通知、付费调用、提交、推送或生产部署
+
+### 2026-07-27 20:19 Codex
+- 任务：将时间分层、全局搜索、存储治理及 OpenClaw/设置/订阅优化合入 `main`，发布 GitHub Release 并原子部署到 `vps-tokyo`
+- 发布修正：常规与 release Playwright 共用 1.5% 像素容差；容器改为直连镜像内 `.venv`，发布门禁断网验证 API/Worker，`v1.8.0` 未推广，生产补丁版为 `v1.8.1`（`9ec019dc7971`）
+- 执行验证：本机 release gate 24/24；GitHub main/tag Test Gate、Linux UI E2E 与 Tag Docker smoke 全通过；生产 API/Worker/RSSHub healthy、0 restart，9 个页面和公网 HTTPS 正常，数据库 integrity/foreign keys/迁移/索引、配置与 MCP 401、严重日志和运行时依赖下载均验证通过
+- 结果：当前 release 为 `/opt/inteliscope/releases/v1.8.1-9ec019dc7971`，镜像 `sha256:0818cb100a68c7d71761b4404259697e9e6d8ef2aa4500e0f65dc9b0ebf87153`；切换备份位于 `/opt/inteliscope/backups/pre-v1.8.1-9ec019dc7971-20260727T121452Z`，旧 release/image 与自动回滚备份保留
+- 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未触发真实来源、Apify、AI、scheduler、通知或付费调用，验收后仅清理可重建的上传归档与 staging 副本
+
 ### 2026-07-28 10:13 Codex
 - 任务：在独立分支实现一等的 YouTube 公开频道订阅
 - 修改范围：频道输入解析与 RSS 规范化、来源类型投影和去重、Feed 展示标记、创建/编辑/筛选界面、API/UI 合同、默认能力、决策记录、手册、更新日志及回归测试
 - 执行验证：后端定向与 API/Remote MCP 回归、Vitest 47/47、TypeScript、Lint（0 error）、UI Gate、生产构建、三视口 Playwright 3/3 及有界官方频道上游 smoke 通过；本机合成 DNS 下应用请求按 SSRF 策略安全拒绝；最终 `test_gate full` 22/22、0 failed/error、131.883 秒
 - 结果：`youtube_channel` 作为 `rss` setup alias 保存规范 channel Feed，默认保留空窗口最近一条，并复用既有订阅、抓取、健康、计划与通知链路
 - 安全边界：handle 仅通过固定 YouTube 主机的一次 10 秒/2 MB/无重定向公开请求解析；未使用凭据、持久化 smoke 数据、运行 AI/完整 scheduler/付费服务，也未合并、推送或部署
+
+### 2026-07-28 10:22 Codex
+- 任务：在独立分支修复历史卡片多图展示僵硬与桌面竖图预览裁切
+- 修改范围：卡片改为单张 4:3 代表缩略图，共享预览改为有界主图舞台与独立缩略图栏；同步 Vitest、Playwright、UI 合同、D080、操作手册与更新日志
+- 执行验证：目标 Vitest 31/31、TypeScript、UI 合同、Lint（0 error）与生产构建通过；1440×900、1024×768、390×844 Playwright 3/3 且 Axe serious/critical 为 0；真实数据在 466×762 与 1440×900 完整显示；`test_gate full` 22/22、0 failed/error、207.235 秒
+- 结果：展开卡片只显示第一张本地可查看图片，多图在预览内循环切换；横竖图均完整收在 Dialog 与视口内，关闭后恢复焦点、URL 与阅读锚点
+- 安全边界：未修改 API、数据库、媒体缓存或公开类型，未复制或引入 HeroUI Pro 源码；未推送、合并、部署、重建 8080、抓取来源、调用 AI、scheduler、通知或付费服务
 
 ### 2026-07-28 10:23 Codex
 - 任务：启动 YouTube 频道订阅分支的本地容器供页面验收
@@ -3047,7 +3115,40 @@
 
 ### 2026-07-28 10:38 Codex
 - 任务：将 YouTube 频道订阅功能合入本地 `main`
-- 修改范围：从最新本地 `main` 建立独立集成 Worktree，以非快进方式合并 `codex/youtube-channel-subscriptions`，并同步 D076 的本地合并状态
+- 修改范围：从最新本地 `main` 建立独立集成 Worktree，以非快进方式合并 `codex/youtube-channel-subscriptions`，并同步 D083 的本地合并状态
 - 执行验证：首次门禁因新 Worktree 缺少 `eslint` 环境依赖停止；按锁文件安装依赖后，集成树 `test_gate full` 22/22、0 failed/error、207.427 秒，`mapping_miss=false`
 - 结果：经验证集成提交用于快进本地 `main`；YouTube setup alias、RSS 链路、前端、合同、手册、更新日志与完整回归一并保留
 - 安全边界：原 `codex/0727` 脏工作区与任务 Worktree 保持不变；未推送、部署、重建容器、重启 Worker 或触发抓取、AI、通知及付费调用
+
+### 2026-07-28 10:41 Codex
+- 任务：在本地 8080 启动 `codex/history-media-preview-fix` 容器
+- 执行验证：无缓存镜像 revision `bf3abfd8a7f3` 构建完成；API/Worker 均 healthy，liveness/readiness 与 Worker 状态为 ready，页面资源包含新的代表图入口和有界预览
+- 数据迁移：按 fail-closed 提示停止服务并执行 content timeline v11；288 条内容完成时间/搜索回填和索引，integrity 为 `ok`、foreign key 0，迁移前 `0600` 备份保留于本地数据目录
+- 安全边界：复用既有 `.env`、数据与日志，只重建本地 API/Worker；未启动 scheduler、抓取来源、调用 AI、发送通知、使用付费服务、推送或部署
+
+### 2026-07-28 11:17 Codex
+- 任务：复盘本分支容器启动流程反复走偏的原因，并把固定 Worktree 重建流程固化为单一命令
+- 根因：旧启动器混用源码根与运行时根，linked Worktree 缺少真实 `.env/data/logs`；构建身份可被运行配置覆盖，且 build、recreate 与最终验收没有一个原子完成边界
+- 修改范围：`up-latest.sh`、light Compose 运行挂载与默认端口、主机级并发锁、迁移 fail-closed、终态复验、30 项 Worktree/身份/失败路径回归、D081 与操作文档
+- 执行验证：定向 pytest 30/30、脚本与产品文档组合 35/35、Compose config、shell syntax、控制 JSON 与 diff check 通过；最终 `test_gate full` 22/22、0 failed/error、158.009 秒
+- 安全边界：未重建或替换当前 8080，未修改运行数据库，未启动 scheduler、来源抓取、AI、通知、付费调用，未推送、合并或部署
+
+### 2026-07-28 12:01 Codex
+- 任务：在媒体预览与 Worktree 重建流程的本地集成分支，为所有有图卡片增加收起态轻量堆叠代表缩略图
+- 修改范围：收起态以单张 72–88 px 的 4:3 `contain` 图片和最多两层语义装饰面直接打开共享预览；展开态与紧凑图互斥；同步 Vitest、三视口 Playwright、UI 合同、D082、操作手册和更新日志
+- 执行验证：目标 Vitest 33/33、UI 合同、TypeScript、Lint（0 error）、生产构建通过；1440×900、1024×768、390×844 媒体流程及 1440 密度 Playwright 4 passed/2 skipped；`test_gate full` 22/22、0 failed/error、167.189 秒
+- 结果：单图无后层、两图一层、三图及以上两层；点击收起缩略图不触发展开，Modal 关闭后恢复焦点与滚动锚；无图卡片不增加媒体布局或交互
+- 安全边界：未修改 API、数据库、媒体缓存、公开类型、版本号或依赖，未复制 HeroUI Pro 源码；尚未重建 8080，未触发来源、AI、scheduler、通知、付费调用、推送或生产部署
+
+### 2026-07-28 12:15 Codex
+- 任务：从目标集成 Worktree 重建本地 8080，并复验折叠堆叠缩略图与共享图片预览
+- 执行验证：`up-latest.sh` 解析源码根为目标 Worktree、运行时根为主 checkout，构建 revision `4dc409e3762a`；API/Worker 均 healthy，React 资源为 `index-DpwbosE_.js`
+- 浏览器验收：562×762 与 466×762 下缩略图各只有一张真实内容图和一层装饰面，4:3 `contain`、页脚零重叠且页面无横向溢出；Modal 主图、舞台和 Dialog 均在视口内，切图、44 px 控件、关闭回焦与滚动锚恢复通过，错误日志为 0；另抽查 466 px 下四张无图卡片均无紧凑媒体布局或空轨道
+- 安全边界：仅重建本地 API + Worker 并执行只读浏览器验收；未启动 scheduler、来源抓取、AI、通知或付费调用，未推送、合入 `main` 或部署生产
+
+### 2026-07-28 13:50 Codex
+- 任务：把 `codex/history-media-stack-thumbnail` 合入保留 YouTube 集成的本地 `main`
+- 合并处理：在独立 main Worktree 保留两侧代码，逐项合并 API、订阅 Playwright 与产品文档；既有 YouTube 决策顺延为 D083，并将图片舞台边界断言改为等待 Modal 动画稳定后再测量
+- 执行验证：后端 YouTube/API/运行脚本定向回归、前端 Vitest 81/81、TypeScript、UI 合同通过；组合 Playwright 8 passed/4 skipped；最终 `test_gate full` 22/22、0 failed/error、158.934 秒，`mapping_miss=false`
+- 结果：本地 `main` 同时包含远端 v1.8.1 主线、本地 YouTube 频道订阅、历史图片堆叠预览和 Worktree 8080 重建流程
+- 安全边界：原 `codex/0727` 脏 checkout 与各任务 Worktree 均未改写；未推送、部署、重建 8080 或触发来源、AI、scheduler、通知及付费调用

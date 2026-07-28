@@ -8,6 +8,9 @@ describe('query keys', () => {
     expect(queryKeys.feed('user-a', { hideDismissed: true, unreadFirst: false })).toEqual([
       'user', 'user-a', 'feed', { hideDismissed: true, unreadFirst: false },
     ])
+    expect(queryKeys.history('user-a', { q: 'needle', sourceId: 'source-1', limit: 50 })).toEqual([
+      'user', 'user-a', 'history', { q: 'needle', sourceId: 'source-1', limit: 50 },
+    ])
     expect(queryKeys.subscriptions('user-b')).toEqual(['user', 'user-b', 'subscriptions'])
     expect(queryKeys.jobs('user-b')).toEqual(['user', 'user-b', 'jobs'])
     expect(queryKeys.notificationSettings('user-b')).toEqual(['user', 'user-b', 'notification-settings'])
@@ -16,6 +19,8 @@ describe('query keys', () => {
     ])
     expect(queryKeys.agentDelegations('user-b')).toEqual(['user', 'user-b', 'agent-delegations'])
     expect(queryKeys.apifyKeyPool('user-a')).toEqual(['user', 'user-a', 'apify-key-pool'])
+    expect(queryKeys.storageSummary('user-a')).toEqual(['user', 'user-a', 'storage-summary'])
+    expect(queryKeys.storageArchives('user-a')).toEqual(['user', 'user-a', 'storage-archives'])
     expect(queryKeys.secretQuota('user-a', 'secret-1')).toEqual([
       'user', 'user-a', 'secret-quota', 'secret-1',
     ])

@@ -106,6 +106,12 @@ prepare_release() {
     echo "local release image revision mismatch: expected=$revision actual=$image_revision" >&2
     exit 1
   }
+  docker run --rm --network none \
+    --entrypoint /app/.venv/bin/horizon-api \
+    "$image" --help >/dev/null
+  docker run --rm --network none \
+    --entrypoint /app/.venv/bin/horizon-worker \
+    "$image" --help >/dev/null
   docker save "$image" | gzip -1 >"$image_archive"
   git -C "$ROOT_DIR" archive --format=tar.gz --output="$archive" HEAD
   scp "$archive" "$REMOTE_HOST:$remote_archive"

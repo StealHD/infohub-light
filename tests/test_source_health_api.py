@@ -9,6 +9,7 @@ from src.api.server import create_app
 from src.services.job_queue import JobQueue
 from src.services.runtime_status import RuntimeStatusService
 from src.services.source_health import SourceHealthService
+from src.services.user_feed_store import UserFeedStore
 from src.storage.service_store import ServiceStore
 
 
@@ -23,6 +24,10 @@ ITEM_KEYS = {
     "last_failure_at",
     "consecutive_failures",
     "last_fetched_count",
+    "today_item_count",
+    "feed_item_count",
+    "current_item_count",
+    "history_item_count",
     "last_issue",
     "last_job_id",
 }
@@ -34,6 +39,21 @@ EMPTY_SUMMARY = {
     "degraded": 0,
     "failing": 0,
 }
+
+
+def _days_ago(days: int) -> str:
+    return (
+        datetime.now(timezone.utc) - timedelta(days=days)
+    ).replace(microsecond=0).isoformat()
+
+
+def _assert_window(payload: dict, *, days: int = 7) -> None:
+    window = payload["window"]
+    assert window["timezone"] == "Asia/Shanghai"
+    assert window["feed_days"] == days
+    assert datetime.fromisoformat(window["feed_start"]) < datetime.fromisoformat(
+        window["today_start"]
+    ) <= datetime.fromisoformat(window["now"])
 
 
 def _store(tmp_path, monkeypatch) -> tuple[ServiceStore, dict, dict]:
@@ -206,12 +226,96 @@ def test_user_projection_without_subscriptions_has_exact_empty_shape(tmp_path, m
         user_id=owner["id"],
     )
 
+    _assert_window(projection)
+    projection.pop("window")
     assert projection == {
         "schema_version": 1,
         "scope": "user",
         "summary": EMPTY_SUMMARY,
         "items": [],
     }
+
+
+def test_user_projection_counts_current_and_history_by_full_source_provenance(
+    tmp_path,
+    monkeypatch,
+):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_a, _subscription_a = _source_subscription(
+        store,
+        workspace=workspace,
+        user=owner,
+        label="count-a",
+    )
+    source_b, _subscription_b = _source_subscription(
+        store,
+        workspace=workspace,
+        user=owner,
+        label="count-b",
+    )
+    feeds = UserFeedStore(store)
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_health_counts_old",
+        payload={
+            "generated_at": _days_ago(10),
+            "items": [
+                {
+                    "id": "history-shared",
+                    "source_id": source_a,
+                    "source_ids": [source_a, source_b, source_b],
+                }
+            ],
+        },
+    )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_health_counts_current",
+        payload={
+            "generated_at": _days_ago(1),
+            "items": [
+                {
+                    "id": "current-shared",
+                    "source_id": source_a,
+                    "source_ids": [source_a, source_b, source_b],
+                }
+            ],
+        },
+    )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_health_counts_today",
+        payload={
+            "generated_at": _days_ago(0),
+            "items": [
+                {
+                    "id": "today-shared",
+                    "source_id": source_a,
+                    "source_ids": [source_a, source_b, source_b],
+                }
+            ],
+        },
+    )
+
+    projection = SourceHealthService(store).user_projection(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )
+    counts = {
+        item["source_id"]: (
+            item["today_item_count"],
+            item["feed_item_count"],
+            item["current_item_count"],
+            item["history_item_count"],
+        )
+        for item in projection["items"]
+    }
+
+    assert counts[source_a] == (1, 2, 2, 1)
+    assert counts[source_b] == (1, 2, 2, 1)
 
 
 def test_user_projection_mixes_unknown_and_persisted_health_without_leaking_internal_fields(
@@ -327,6 +431,10 @@ def test_user_projection_mixes_unknown_and_persisted_health_without_leaking_inte
         "last_failure_at": None,
         "consecutive_failures": 0,
         "last_fetched_count": 0,
+        "today_item_count": 0,
+        "feed_item_count": 0,
+        "current_item_count": 0,
+        "history_item_count": 0,
         "last_issue": None,
         "last_job_id": None,
     }
@@ -466,7 +574,14 @@ def test_source_health_api_all_roles_read_only_their_own_projection_and_admin_ca
         assert response.status_code == 200
         assert response.json()["ok"] is True
         data = response.json()["data"]
-        assert set(data) == {"schema_version", "scope", "summary", "items"}
+        assert set(data) == {
+            "schema_version",
+            "scope",
+            "summary",
+            "items",
+            "window",
+        }
+        _assert_window(data)
         assert set(data["summary"]) == SUMMARY_KEYS
         assert [item["subscription_id"] for item in data["items"]] == [
             subscriptions[username]["id"]

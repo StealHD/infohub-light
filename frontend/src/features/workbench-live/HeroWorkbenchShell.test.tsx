@@ -403,12 +403,12 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
       '[&_[data-content-layer]]:justify-center',
     )
     expect(statusReveal.querySelector('[data-status-indicator]')).toHaveClass('self-center')
-    expect(statusReveal).toHaveTextContent('OpenClaw')
+    expect(statusReveal).toHaveTextContent('未配置')
     expect(statusContainer.querySelectorAll('[data-status-indicator]')).toHaveLength(1)
     expect(api.agentDelegations).toHaveBeenCalled()
   })
 
-  it('softly dismisses obstructing Insights from any ineffective shell click while preserving controls', async () => {
+  it('softly dismisses obstructing Insights when the fixed Agent rail leaves insufficient room', async () => {
     const originalRect = HTMLElement.prototype.getBoundingClientRect
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.tagName === 'MAIN') return { left: 72, right: 1264, top: 52, bottom: 900, width: 1192, height: 848, x: 72, y: 52, toJSON: () => ({}) }
@@ -425,18 +425,12 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(surface).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(surface).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'true'))
-    expect(surface).toHaveStyle({ left: '900px' })
-    const main = screen.getByText('content').closest('main')
-    expect(main?.style.getPropertyValue('--inteliscope-feed-reading-shift')).toBe('-174px')
-    expect(main).toHaveAttribute('data-feed-layout-motion', 'deliberate')
-    await browser.click(screen.getByRole('heading', { name: '信息流' }))
-    expect(surface).toHaveAttribute('data-insights-surface', 'closing')
+    await waitFor(() => expect(surface).toHaveAttribute('data-insights-surface', 'closing'))
     expect(surface).toHaveAttribute('aria-hidden', 'true')
     expect(surface).toHaveAttribute('inert')
     expect(surface).toHaveClass('quiet-surface-exit', 'pointer-events-none')
     await waitFor(() => expect(surface).not.toBeInTheDocument(), { timeout: 600 })
-    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'OpenClaw 上下文' })).toHaveClass('overflow-hidden', 'overscroll-none')
     vi.restoreAllMocks()
   })
 
@@ -457,6 +451,55 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(screen.getByText('content').closest('main')?.style.getPropertyValue('--inteliscope-feed-reading-shift')).toBe('-134px')
     await browser.click(screen.getByText('content'))
     expect(screen.getByRole('complementary', { name: '信息概览' })).toBeInTheDocument()
+    vi.restoreAllMocks()
+  })
+
+  it('uses the whole workbench non-interactive surface to dismiss obstructing manual Insights', async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === 'MAIN') return { left: 72, right: 1264, top: 52, bottom: 900, width: 1192, height: 848, x: 72, y: 52, toJSON: () => ({}) }
+      if (this.matches('[data-page-frame="reading"]')) return { left: 258, right: 1078, top: 60, bottom: 850, width: 820, height: 790, x: 258, y: 60, toJSON: () => ({}) }
+      if (this.getAttribute('aria-label') === '信息概览') return { left: 900, right: 1252, top: 60, bottom: 700, width: 352, height: 640, x: 900, y: 60, toJSON: () => ({}) }
+      return originalRect.call(this)
+    })
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'wide-dismiss-insights', username: 'wide-dismiss', role: 'member', enabled: true }} />)
+
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    const surface = screen.getByRole('complementary', { name: '信息概览' })
+    await waitFor(() => expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-insights-obstructs-feed', 'true'))
+    await browser.click(screen.getByRole('button', { name: '切换到白天模式' }))
+    expect(surface).toHaveAttribute('data-insights-surface', 'manual')
+    await browser.click(screen.getByRole('heading', { name: '信息流' }))
+    await waitFor(() => expect(surface).toHaveAttribute('data-insights-surface', 'closing'))
+    expect(surface).toHaveAttribute('inert')
+    await waitFor(() => expect(surface).not.toBeInTheDocument(), { timeout: 600 })
+    vi.restoreAllMocks()
+  })
+
+  it('softly dismisses Insights when a docked Agent becomes an overlay after resize', async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === 'MAIN') return { left: 72, right: 1376, top: 52, bottom: 900, width: 1304, height: 848, x: 72, y: 52, toJSON: () => ({}) }
+      if (this.matches('[data-page-frame="reading"]')) return { left: 314, right: 1134, top: 60, bottom: 850, width: 820, height: 790, x: 314, y: 60, toJSON: () => ({}) }
+      return originalRect.call(this)
+    })
+    const browser = userEvent.setup()
+    render(<Shell user={{ id: 'responsive-insights', username: 'responsive', role: 'member', enabled: true }} />)
+
+    await browser.click(screen.getByRole('button', { name: '展开信息概览' }))
+    await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
+    const surface = screen.getByRole('complementary', { name: '信息概览' })
+    await waitFor(() => expect(surface).toHaveAttribute('data-insights-surface', 'manual'))
+
+    useViewport(1024)
+    window.dispatchEvent(new Event('resize'))
+
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文' })).toBeInTheDocument())
+    await waitFor(() => expect(surface).toHaveAttribute('data-insights-surface', 'closing'))
+    expect(surface).toHaveAttribute('aria-hidden', 'true')
+    await waitFor(() => expect(surface).not.toBeInTheDocument(), { timeout: 600 })
     vi.restoreAllMocks()
   })
 
@@ -506,21 +549,21 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
 
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     const separator = screen.getByRole('separator', { name: '调整信息流和 Agent 面板宽度' })
-    expect(separator).toHaveAttribute('aria-valuenow', '360')
+    expect(separator).toHaveAttribute('aria-valuenow', '400')
     expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toMatchObject({
       userId: user.id,
       rightRail: 'agent',
-      rightRailWidth: 360,
+      rightRailWidth: 400,
     })
 
     separator.focus()
     await browser.keyboard('{ArrowLeft}')
-    expect(separator).toHaveAttribute('aria-valuenow', '384')
-    expect(window.localStorage.getItem(`inteliscope.ui.right-rail.v1:${user.id}`)).toBe(JSON.stringify({ width: 384 }))
-    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toMatchObject({ rightRailWidth: 384 })
+    expect(separator).toHaveAttribute('aria-valuenow', '424')
+    expect(window.localStorage.getItem(`inteliscope.ui.right-rail.v1:${user.id}`)).toBe(JSON.stringify({ width: 424 }))
+    expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.bootstrap-shell.v1') || 'null')).toMatchObject({ rightRailWidth: 424 })
 
     await browser.dblClick(separator)
-    expect(separator).toHaveAttribute('aria-valuenow', '360')
+    expect(separator).toHaveAttribute('aria-valuenow', '400')
   })
 
   it('restores a docked Agent rail without replaying its entrance animation', () => {
@@ -556,7 +599,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     expect(screen.getByTestId('live-workbench-shell')).toHaveAttribute('data-fixed-agent-rail', 'false')
     expect(screen.queryByRole('separator', { name: '调整信息流和 Agent 面板宽度' })).not.toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'OpenClaw 上下文' })).toHaveClass('overflow-hidden', 'overscroll-none')
   })
 
   it('keeps the insights card content-sized and expands distributions after three items', async () => {
@@ -751,10 +794,10 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(await screen.findByText('内容已失效')).toBeInTheDocument()
     expect(screen.queryByText(rawId)).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '移除失效内容' }))
-    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:context-missing') || '{}')).toMatchObject({ items: [] })
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v4:context-missing') || '{}')).toMatchObject({ items: [] })
   })
 
-  it('copies a v5 handoff without simulated model guidance or a network request', async () => {
+  it('copies a v6 handoff with a safe source reference and no network side effect', async () => {
     const browser = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
@@ -767,10 +810,14 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     await browser.click(screen.getByRole('button', { name: '展开 Agent 面板' }))
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V5]'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[INTELISCOPE_HANDOFF_V6]'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('原文网址="https://example.com/item-1"'))
     expect(writeText).toHaveBeenCalledWith(expect.not.stringContaining('模型偏好'))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('交接提示词已复制')
-    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v3:composer-copy') || '{}')).toMatchObject({ question: '分析机会' })
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v4:composer-copy') || '{}')).toMatchObject({
+      question: '分析机会',
+      items: [{ sourceUrl: 'https://example.com/item-1' }],
+    })
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
   })
@@ -787,6 +834,9 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     await browser.click(await screen.findByRole('button', { name: '复制交接提示词' }))
     expect(screen.getByRole('status', { name: '交接状态' })).toHaveTextContent('无法写入剪贴板，请手动复制')
     expect(screen.getByRole('textbox', { name: '交给 OpenClaw 的问题' })).toHaveValue('保留问题')
-    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v1:composer-error') || '{}')).toMatchObject({ itemIds: ['item-1'], modelPreference: 'fast' })
+    expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v4:composer-error') || '{}')).toMatchObject({
+      question: '保留问题',
+      items: [{ articleId: 'item-1', sourceUrl: 'https://example.com/item-1' }],
+    })
   })
 })

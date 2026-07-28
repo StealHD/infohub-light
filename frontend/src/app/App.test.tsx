@@ -53,6 +53,15 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
     subscribe: vi.fn().mockResolvedValue({ subscription: { reused_item_count: 0 } }),
     apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
+    storageSummary: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
+      bytes: { database: 1024, media: 0, archives: 0 },
+      counts: { content_total: 0, content_online: 0, content_archived: 0, feed_snapshots: 0, source_snapshots: 0, media_assets: 0, archive_batches: 0 },
+      readiness: { feed_storage_v3: true, content_timeline_v11: true, ready: true },
+      last_cleanup_at: null,
+    }),
+    storageArchives: vi.fn().mockResolvedValue({ schema_version: 1, archives: [] }),
     ...overrides,
   } as unknown as ServiceApi
 }
@@ -131,8 +140,8 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '信息流' }, { timeout: 5000 })).toBeInTheDocument()
-    const itemCount = await screen.findByText('1 条内容')
-    const orderControl = screen.getByRole('button', { name: '最新优先' })
+    const itemCount = await screen.findByText('近7天 · 1 条')
+    const orderControl = screen.getByRole('button', { name: '排序顺序：最新优先' })
     const reloadControl = screen.getByRole('button', { name: '重新载入信息流数据' })
     const updateControl = screen.getByRole('button', { name: '获取新内容' })
     const filterControl = screen.getByRole('button', { name: '筛选信息流' })
@@ -140,10 +149,11 @@ describe('App routes', () => {
     expect(itemCount).toHaveClass('whitespace-nowrap')
     expect(itemCount.closest('[data-loading-reveal="feed-count"]')).toHaveClass('min-w-16')
     expect(itemCount.closest('[data-loading-reveal="feed-count"]')).not.toHaveClass('w-16')
-    expect(orderControl).toHaveClass('type-control')
-    expect(reloadControl).toHaveClass('type-control')
-    expect(updateControl).toHaveClass('type-control')
-    expect(filterControl).toHaveClass('type-control')
+    expect(orderControl).toHaveClass('size-8')
+    expect(reloadControl).toHaveClass('size-8')
+    expect(updateControl).toHaveClass('size-8')
+    expect(filterControl).toHaveClass('size-8')
+    expect(screen.getByRole('searchbox', { name: '搜索全部内容' })).toBeInTheDocument()
     expect(screen.getByTestId('feed-view-bar')).toBeInTheDocument()
     expect(screen.queryByText('旧内容在上，最新内容在下 · 1 条')).not.toBeInTheDocument()
     expect(screen.queryByText('全部', { exact: true })).not.toBeInTheDocument()
@@ -153,7 +163,7 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
-  it('isolates collection search by route and never applies it invisibly to Feed', async () => {
+  it('isolates content search by route while keeping an empty Feed search visible', async () => {
     const browser = userEvent.setup()
     const savedItem = {
       ...basicFeedItem('saved-search-item', '收藏里的目标'),
@@ -171,17 +181,17 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/saved']}><DesignSystemProvider><AppRoutes api={api} /><NavigationProbe /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('article', { name: '收藏里的目标' })).toBeInTheDocument()
-    const savedSearch = screen.getByRole('searchbox', { name: '搜索信息流' })
+    const savedSearch = screen.getByRole('searchbox', { name: '搜索当前列表' })
     await browser.type(savedSearch, '只存在于收藏的关键词')
     expect(screen.queryByRole('article', { name: '收藏里的目标' })).not.toBeInTheDocument()
 
     await browser.click(screen.getByRole('button', { name: '测试前往信息流' }))
     expect(await screen.findByRole('article', { name: '信息流独立内容' })).toBeInTheDocument()
     expect(screen.queryByText('搜索：只存在于收藏的关键词')).not.toBeInTheDocument()
-    expect(screen.queryByRole('searchbox', { name: '搜索信息流' })).not.toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: '搜索全部内容' })).toHaveValue('')
 
     await browser.click(screen.getByRole('button', { name: '测试前往收藏' }))
-    expect(await screen.findByRole('searchbox', { name: '搜索信息流' })).toHaveValue('只存在于收藏的关键词')
+    expect(await screen.findByRole('searchbox', { name: '搜索当前列表' })).toHaveValue('只存在于收藏的关键词')
   })
 
   it('reloads Feed data without creating a background update job', async () => {
@@ -200,12 +210,10 @@ describe('App routes', () => {
 
     expect(await screen.findByRole('article', { name: '刷新前条目' })).toBeInTheDocument()
     const reload = screen.getByRole('button', { name: '重新载入信息流数据' })
-    expect(reload).toHaveTextContent('重新载入')
     expect(reload).not.toHaveAttribute('aria-busy')
     await browser.click(reload)
 
     expect(screen.getByRole('button', { name: '重新载入信息流数据' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '重新载入信息流数据' })).toHaveTextContent('重新载入')
     expect(screen.getByRole('button', { name: '重新载入信息流数据' })).toHaveAttribute('aria-busy', 'true')
     await browser.click(screen.getByRole('button', { name: '重新载入信息流数据' }))
     expect(latestFeed).toHaveBeenCalledTimes(2)
@@ -298,7 +306,7 @@ describe('App routes', () => {
         userId: 'user-live',
         sidebar: 'collapsed',
         rightRail: 'closed',
-        rightRailWidth: 360,
+        rightRailWidth: 400,
       })
     } finally {
       bootShell.remove()
@@ -335,7 +343,7 @@ describe('App routes', () => {
     expect(reveal?.querySelector('[data-content-layer]')).toHaveClass('inteliscope-content-reveal')
     fireEvent.animationEnd(reveal!.querySelector('[data-loading-layer]')!, { animationName: 'inteliscope-skeleton-exit' })
     await waitFor(() => expect(reveal?.querySelector('[data-loading-layer]')).not.toBeInTheDocument())
-    expect(screen.getByText('1 条内容')).toBeInTheDocument()
+    expect(screen.getByText('近7天 · 1 条')).toBeInTheDocument()
   })
 
   it('places collection search and sorting inside the shared Quiet Studio ViewBar', async () => {
@@ -349,8 +357,8 @@ describe('App routes', () => {
 
     await screen.findByRole('article', { name: '收藏条目' })
     const viewBar = screen.getByTestId('collection-view-bar')
-    expect(within(viewBar).getByPlaceholderText('搜索标题、来源或主题')).toBeInTheDocument()
-    expect(within(viewBar).getByRole('button', { name: '最新优先' })).toBeInTheDocument()
+    expect(within(viewBar).getByPlaceholderText('搜索当前列表')).toBeInTheDocument()
+    expect(within(viewBar).getByRole('button', { name: '排序顺序：最新优先' })).toBeInTheDocument()
     expect(within(viewBar).queryByRole('button', { name: '重新载入信息流数据' })).not.toBeInTheDocument()
     expect(within(viewBar).queryByRole('button', { name: '获取新内容' })).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '信息流进度' })).not.toBeInTheDocument()
@@ -422,8 +430,8 @@ describe('App routes', () => {
 
     await screen.findByRole('article', { name: '最新内容' })
     expect(screen.getAllByRole('article').map((article) => article.getAttribute('aria-label'))).toEqual(['最新内容', '较早内容'])
-    await userEvent.click(screen.getByRole('button', { name: '最新优先' }))
-    expect(screen.getByRole('button', { name: '最旧优先' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '排序顺序：最新优先' }))
+    expect(screen.getByRole('button', { name: '排序顺序：最旧优先' })).toBeInTheDocument()
     expect(JSON.parse(window.localStorage.getItem('inteliscope.ui.feed.v2:user-live') || '{}')).toMatchObject({ order: 'oldest' })
   })
 
@@ -435,7 +443,7 @@ describe('App routes', () => {
     try {
       render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-      expect(await screen.findByLabelText('已启用 2 项筛选')).toHaveTextContent('2')
+      expect(await screen.findByRole('button', { name: '筛选信息流，已启用 2 项' })).toHaveTextContent('2')
     } finally {
       window.localStorage.removeItem('inteliscope.ui.feed.v2:user-live')
     }
@@ -495,8 +503,8 @@ describe('App routes', () => {
     expect(sourceSearch).toHaveFocus()
     await userEvent.clear(sourceSearch)
     await userEvent.type(sourceSearch, '覆盖频道')
-    expect(screen.getByRole('button', { name: '立即获取 覆盖频道来源' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '立即获取 覆盖频道来源' }))
+    expect(screen.getByRole('button', { name: /^立即获取 覆盖频道来源；/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^立即获取 覆盖频道来源；/ }))
     expect(api.feedSchedule).toHaveBeenCalled()
     expect(api.createSourceFetch).toHaveBeenCalledWith(source.id, subscription.id)
   }, 10_000)
@@ -675,6 +683,13 @@ describe('App routes', () => {
     await screen.findByText('Workspace Failing')
     const subscriptionNavigation = screen.getByRole('navigation', { name: '我的订阅频道' })
     expect(within(subscriptionNavigation).getByRole('button', { name: /^全部，/ })).toBeInTheDocument()
+    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^公共订阅，/ }))
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
+    expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
+    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^私人订阅，/ }))
+    expect(screen.getByText('Private Healthy')).toBeInTheDocument()
+    expect(screen.queryByText('Workspace Failing')).not.toBeInTheDocument()
     await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^异常，/ }))
     expect(screen.getByRole('heading', { name: '异常', level: 2 })).toBeInTheDocument()
     expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
@@ -720,7 +735,7 @@ describe('App routes', () => {
     expect(within(card).queryByText(/原因：/)).not.toBeInTheDocument()
     expect(within(card).queryByText(rawMessage)).not.toBeInTheDocument()
     const latestAttempt = new Date('2026-07-18T03:00:00Z').toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    expect(card).toHaveTextContent(`0 条 · ${latestAttempt}`)
+    expect(card).toHaveTextContent(`今日0近7天0历史0手动更新·${latestAttempt}`)
 
     const trigger = within(card).getByRole('button', { name: '查看 连续失败 详情' })
     await browser.hover(trigger)
@@ -745,7 +760,6 @@ describe('App routes', () => {
   })
 
   it('shows source edit controls only for a member-owned private source', async () => {
-    const browser = userEvent.setup()
     const sources = [
       { id: 'matrix-own', type: 'rss', display_name: 'Own Private', scope: 'private' as const, owner_user_id: 'matrix-member', default_channel: 'AI', enabled: true },
       { id: 'matrix-other', type: 'rss', display_name: 'Other Private', scope: 'private' as const, owner_user_id: 'other-member', default_channel: 'AI', enabled: true },
@@ -761,15 +775,11 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('button', { name: '编辑来源：Own Private' })).toBeInTheDocument()
-    const ownMore = screen.getByRole('button', { name: '更多操作：Own Private' })
-    await browser.click(ownMore)
-    const ownActions = await screen.findByRole('dialog', { name: 'Own Private 来源操作' })
-    expect(within(ownActions).queryByRole('button', { name: '编辑来源' })).not.toBeInTheDocument()
-    expect(within(ownActions).getByRole('button', { name: '分享来源' })).toBeInTheDocument()
-    await browser.keyboard('{Escape}')
-    await waitFor(() => expect(ownMore).toHaveFocus())
+    expect(screen.getByRole('button', { name: '分享来源：Own Private' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更多操作：Own Private' })).not.toBeInTheDocument()
     for (const sourceName of ['Other Private', 'Workspace Shared', 'Public Shared']) {
       expect(screen.queryByRole('button', { name: `编辑来源：${sourceName}` })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: `分享来源：${sourceName}` })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: `更多操作：${sourceName}` })).not.toBeInTheDocument()
     }
   })
@@ -792,6 +802,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('button', { name: '查看 只读来源 订阅' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '立即获取 只读来源' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '新增来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '分享来源：只读来源' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '更多操作：只读来源' })).not.toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
@@ -846,7 +857,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('button', { name: '立即获取 阻塞来源' }))
+    await browser.click(await screen.findByRole('button', { name: /^立即获取 阻塞来源；/ }))
     const message = await screen.findByText('后台获取服务当前不可用，请稍后再试。')
     expect(message.closest('[data-slot="toast-region"]')).not.toBeNull()
     expect(message.closest('[data-page-frame]')).toBeNull()
@@ -873,12 +884,12 @@ describe('App routes', () => {
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('button', { name: '立即获取 生命周期来源' }))
-    expect(await screen.findByRole('button', { name: '已排队 生命周期来源' })).toBeDisabled()
+    await browser.click(await screen.findByRole('button', { name: /^立即获取 生命周期来源；/ }))
+    expect(await screen.findByRole('button', { name: /^已排队 生命周期来源；/ })).toBeDisabled()
     invalidate.mockClear()
 
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'running', started_at: '2026-07-17T01:00:01Z' }] }))
-    expect(await screen.findByRole('button', { name: '获取中 生命周期来源' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: /^获取中 生命周期来源；/ })).toBeDisabled()
     expect(invalidate).not.toHaveBeenCalled()
 
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4, new_item_count: 2 } }] }))
@@ -888,7 +899,7 @@ describe('App routes', () => {
     const completion = await screen.findByText('生命周期来源 获取完成')
     expect(completion.closest('[data-slot="toast-region"]')).not.toBeNull()
     expect(screen.getByText('新增 2 条，信息流已加载。')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '立即获取 生命周期来源' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: /^立即获取 生命周期来源；/ })).toBeEnabled()
     await waitFor(() => {
       const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
       expect(keys).toContain(JSON.stringify(queryKeys.sourceHealth('user-live')))
@@ -910,7 +921,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('button', { name: '立即获取 可关闭来源' }))
+    await browser.click(await screen.findByRole('button', { name: /^立即获取 可关闭来源；/ }))
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [terminal] }))
     expect(await screen.findByText('可关闭的抓取失败')).toBeInTheDocument()
     actionToast.clear()
@@ -939,12 +950,12 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('button', { name: '立即获取 终态来源' }))
+    await browser.click(await screen.findByRole('button', { name: /^立即获取 终态来源；/ }))
     act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status, error_message: errorMessage, retryable: status === 'failed', result: { debug_payload: 'never expose this terminal payload' } }] }))
     const terminalTitle = await screen.findByText(title)
     expect(terminalTitle.closest('[data-slot="toast-region"]')).not.toBeNull()
     expect(screen.getByText(description)).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '立即获取 终态来源' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: /^立即获取 终态来源；/ })).toBeEnabled()
     expect(screen.queryByText('never expose this terminal payload')).not.toBeInTheDocument()
   }, 10_000)
 
@@ -1236,6 +1247,54 @@ describe('App routes', () => {
     expect(document.activeElement).not.toBe(document.getElementById('settings-about'))
   })
 
+  it('previews storage cleanup before applying it from the owner settings area', async () => {
+    const browser = userEvent.setup()
+    const previewPlan = {
+      id: 'storage-plan-1',
+      actor_user_id: 'owner-storage',
+      operation: 'cleanup' as const,
+      status: 'previewed' as const,
+      payload: {
+        request: {},
+        parameters: { planned_at: '2026-07-27T04:00:00Z' },
+        preview: {
+          counts: { feed_snapshots: 2, jobs: 3 },
+          permanent_content_deletes: 0,
+        },
+      },
+      result: {},
+      fingerprint: 'safe-fingerprint',
+      expires_at: '2026-07-27T04:10:00Z',
+      created_at: '2026-07-27T04:00:00Z',
+      applied_at: null,
+      updated_at: '2026-07-27T04:00:00Z',
+    }
+    const createStoragePlan = vi.fn().mockResolvedValue(previewPlan)
+    const applyStoragePlan = vi.fn().mockResolvedValue({
+      ...previewPlan,
+      status: 'applied',
+      result: { operation: 'cleanup', content_items: 0 },
+      applied_at: '2026-07-27T04:01:00Z',
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-storage', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      createStoragePlan,
+      applyStoragePlan,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-storage']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '存储与归档' })).toBeInTheDocument()
+    await browser.click(await screen.findByRole('button', { name: '预演标准清理' }))
+    expect(createStoragePlan).toHaveBeenCalledWith('cleanup', {})
+    expect(await screen.findByText('预计清理 5 条轻量运行记录；稳定内容永久删除数为 0。')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '执行标准清理' }))
+    await waitFor(() => expect(applyStoragePlan).toHaveBeenCalledWith('storage-plan-1', ''))
+    expect(await screen.findByText('数据状态已刷新；完整结果已记录到审计计划。')).toBeInTheDocument()
+  })
+
   it('shows role-scoped live settings and clears only a failed secret value', async () => {
     const browser = userEvent.setup()
     const createSecret = vi.fn().mockRejectedValue(new ApiError(409, {
@@ -1308,6 +1367,7 @@ describe('App routes', () => {
       configAction,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries')
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
@@ -1315,23 +1375,52 @@ describe('App routes', () => {
     expect(screen.getByRole('button', { name: /设置区域/ })).toBeInTheDocument()
     expect(document.querySelector('[data-mobile-settings-selector]')).toHaveClass('min-[768px]:pointer-fine:hidden')
     expect(initialWindow).toHaveTextContent('7 天')
+    const outputLanguage = screen.getByRole('textbox', { name: '输出语言' })
+    await browser.clear(outputLanguage)
+    await browser.type(outputLanguage, 'zh-CN')
+    expect(await screen.findByText('有尚未保存的更改')).toBeInTheDocument()
+    await browser.clear(outputLanguage)
+    await browser.type(outputLanguage, 'zh')
+    await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
+
     await browser.click(initialWindow)
     await browser.click(await screen.findByRole('option', { name: '30 天' }))
     expect(screen.getByText('有尚未保存的更改')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: /RSS 首次抓取窗口/ }))
+    await browser.click(await screen.findByRole('option', { name: '7 天' }))
+    await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
+    await browser.click(screen.getByRole('button', { name: /RSS 首次抓取窗口/ }))
+    await browser.click(await screen.findByRole('option', { name: '30 天' }))
+    const rsshub = screen.getByRole('textbox', { name: 'RSSHub Base URL' })
+    await browser.clear(rsshub)
+    await browser.type(rsshub, 'https://rsshub.example.com/private')
+    expect(screen.getByText(/2 项核心配置待保存/)).toBeInTheDocument()
     const beforeUnload = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(beforeUnload)
     expect(beforeUnload.defaultPrevented).toBe(true)
-    await browser.click(screen.getByRole('button', { name: '保存获取设置' }))
+    await browser.click(screen.getByRole('button', { name: '保存全部配置' }))
 
     await waitFor(() => expect(configAction).toHaveBeenCalledWith(
-      'set_filtering',
+      'set_settings_bundle',
       expect.objectContaining({
-        time_window_hours: 24,
-        rss_initial_fetch_window_hours: 720,
-        recent_item_limit: 20,
+        filtering: expect.objectContaining({
+          time_window_hours: 24,
+          feed_window_days: 7,
+          rss_initial_fetch_window_hours: 720,
+          recent_item_limit: 20,
+        }),
+        rsshub: { base_url: 'https://rsshub.example.com/private' },
       }),
     ))
     await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
+    for (const key of [
+      queryKeys.feedRoot('owner-rss-window'),
+      queryKeys.historyRoot('owner-rss-window'),
+      queryKeys.searchRoot('owner-rss-window'),
+      queryKeys.sourceHealth('owner-rss-window'),
+    ]) {
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: key })
+    }
   })
 
   it('shows actionable local validation and network errors inside the key form', async () => {
@@ -1928,8 +2017,7 @@ describe('App routes', () => {
 
     expect(screen.queryByRole('button', { name: '查看 私人研究源 引用人数' })).not.toBeInTheDocument()
     expect(sourceUsage).not.toHaveBeenCalled()
-    await browser.click(await screen.findByRole('button', { name: '更多操作：私人研究源' }))
-    await browser.click(within(await screen.findByRole('dialog', { name: '私人研究源 来源操作' })).getByRole('button', { name: '分享来源' }))
+    await browser.click(await screen.findByRole('button', { name: '分享来源：私人研究源' }))
     const shareDialog = await screen.findByRole('dialog', { name: '分享 私人研究源' })
     expect(within(shareDialog).getByText('分享后管理权将发生变化')).toBeInTheDocument()
     expect(within(shareDialog).getByText(/取消订阅只影响自己/)).toBeInTheDocument()
@@ -2161,7 +2249,9 @@ describe('App routes', () => {
     expect(screen.getByRole('textbox', { name: '模型' })).toHaveValue('deepseek-v4-flash')
     expect(screen.getByLabelText('AI Key')).toHaveTextContent('DeepSeek Key')
     await browser.click(screen.getByRole('button', { name: '保存 AI 设置' }))
-    expect(configAction).toHaveBeenCalledWith('set_ai', expect.objectContaining({ provider: 'deepseek', model: 'deepseek-v4-flash', api_key_env: 'DEEPSEEK_API_KEY' }))
+    expect(configAction).toHaveBeenCalledWith('set_settings_bundle', {
+      ai: expect.objectContaining({ provider: 'deepseek', model: 'deepseek-v4-flash', api_key_env: 'DEEPSEEK_API_KEY' }),
+    })
   })
 
   it.each(['owner', 'admin'] as const)('lets a live %s change non-owner member roles while protecting owners', async (actorRole) => {
@@ -2267,7 +2357,8 @@ describe('App routes', () => {
     const toggle = await screen.findByRole('button', { name: '展开 Agent 面板' })
     await user.click(toggle)
     expect(await screen.findByRole('dialog', { name: 'OpenClaw 上下文' })).toBeInTheDocument()
-    expect(screen.getAllByText(/OpenClaw · 未配置/u)).toHaveLength(1)
+    expect(screen.getByText('OpenClaw 对话')).toBeInTheDocument()
+    expect(screen.getByText('未配置')).toBeInTheDocument()
   })
 
   it('temporarily inserts a deep-linked item returned by feedItem', async () => {
@@ -2542,7 +2633,75 @@ describe('App routes', () => {
 
     expect(await screen.findByRole('heading', { name: '历史' })).toBeInTheDocument()
     expect(await screen.findByRole('article', { name: '历史路由条目' })).toBeInTheDocument()
-    expect(historyFeed).toHaveBeenCalledWith(expect.any(AbortSignal))
+    expect(historyFeed).toHaveBeenCalledWith({
+      q: undefined,
+      sourceId: undefined,
+      limit: 50,
+      offset: 0,
+    }, expect.any(AbortSignal))
+    expect(latestFeed).not.toHaveBeenCalled()
+  })
+
+  it('loads durable history pages from a source deep link and keeps the source filter visible', async () => {
+    const browser = userEvent.setup()
+    const firstItem = basicFeedItem('history-source-first', 'tsucha 历史一')
+    const secondItem = basicFeedItem('history-source-second', 'tsucha 历史二')
+    const historyFeed = vi.fn().mockImplementation(async (params: { offset?: number }) => params.offset === 0
+      ? {
+        schema_version: 2,
+        scope: 'user',
+        items: [firstItem],
+        featured_items: [],
+        item_count: 1,
+        total_count: 2,
+        limit: 50,
+        offset: 0,
+        has_more: true,
+        snapshots: [],
+      }
+      : {
+        schema_version: 2,
+        scope: 'user',
+        items: [firstItem, secondItem],
+        featured_items: [],
+        item_count: 2,
+        total_count: 2,
+        limit: 50,
+        offset: 1,
+        has_more: false,
+        snapshots: [],
+      })
+    const latestFeed = vi.fn().mockResolvedValue({ schema_version: 2, items: [] })
+    const api = liveApi({
+      historyFeed,
+      latestFeed,
+      sources: vi.fn().mockResolvedValue({
+        sources: [{ id: 'source-tsucha', type: 'apify_social', display_name: 'tsucha_ri', scope: 'public', enabled: true }],
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/history?source_id=source-tsucha&q=tsucha']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('article', { name: 'tsucha 历史一' })).toBeInTheDocument()
+    expect(screen.getByText('2 条内容')).toBeInTheDocument()
+    expect(screen.getByText('来源：tsucha_ri')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: '搜索历史内容' })).toHaveValue('tsucha')
+    expect(historyFeed).toHaveBeenCalledWith({
+      q: 'tsucha',
+      sourceId: 'source-tsucha',
+      limit: 50,
+      offset: 0,
+    }, expect.any(AbortSignal))
+
+    await browser.click(screen.getByRole('button', { name: '加载更多（已显示 1/2）' }))
+    expect(await screen.findByRole('article', { name: 'tsucha 历史二' })).toBeInTheDocument()
+    expect(screen.getAllByRole('article')).toHaveLength(2)
+    expect(historyFeed).toHaveBeenLastCalledWith({
+      q: 'tsucha',
+      sourceId: 'source-tsucha',
+      limit: 50,
+      offset: 1,
+    }, expect.any(AbortSignal))
     expect(latestFeed).not.toHaveBeenCalled()
   })
 

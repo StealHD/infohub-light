@@ -104,11 +104,14 @@ export function subscriptionViewGroups<T>(
   items: T[],
   channelFor: (item: T) => string | null | undefined,
   isException: (item: T) => boolean,
+  visibilityFor: (item: T) => SubscriptionVisibility,
   channelOrder: string[] = [],
 ): ChannelViewGroup<T>[] {
   return [
     { id: 'all', label: '全部', kind: 'view', items },
     { id: 'exceptions', label: '异常', kind: 'view', items: items.filter(isException) },
+    { id: 'scope:public', label: '公共订阅', kind: 'view', items: items.filter((item) => visibilityFor(item) === 'public') },
+    { id: 'scope:private', label: '私人订阅', kind: 'view', items: items.filter((item) => visibilityFor(item) === 'private') },
     ...channelViewGroupsByChannel(items, channelFor, channelOrder),
   ]
 }

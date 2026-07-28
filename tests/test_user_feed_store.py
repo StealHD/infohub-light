@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import httpx
@@ -27,6 +27,21 @@ def _store_with_users(tmp_path, monkeypatch):
         role="member",
     )
     return store, workspace, owner, alice
+
+
+def _days_ago(days: int) -> str:
+    return (
+        datetime.now(timezone.utc) - timedelta(days=days)
+    ).replace(microsecond=0).isoformat()
+
+
+def _assert_window(payload: dict, *, days: int = 7) -> None:
+    window = payload["window"]
+    assert window["timezone"] == "Asia/Shanghai"
+    assert window["feed_days"] == days
+    assert datetime.fromisoformat(window["feed_start"]) < datetime.fromisoformat(
+        window["today_start"]
+    ) <= datetime.fromisoformat(window["now"])
 
 
 def _save_snapshots(feeds, *, workspace_id, user_id, payloads):
@@ -1101,22 +1116,33 @@ def test_history_feed_returns_empty_schema_then_single_snapshot_metadata(tmp_pat
     monkeypatch.setattr(FeedArchiveService, "_read_site_json", fail_global_read)
     monkeypatch.setattr("src.services.feed_archive.ArticleStore", FailArticleStore)
 
-    assert service.history_feed(workspace_id=workspace["id"], user_id=alice["id"]) == {
+    empty_history = service.history_feed(
+        workspace_id=workspace["id"],
+        user_id=alice["id"],
+    )
+    _assert_window(empty_history)
+    empty_history.pop("window")
+    assert empty_history == {
         "schema_version": 2,
         "scope": "user",
         "snapshots": [],
         "items": [],
         "featured_items": [],
         "item_count": 0,
+        "total_count": 0,
+        "limit": 200,
+        "offset": 0,
+        "has_more": False,
     }
 
+    current_at = _days_ago(1)
     snapshot = UserFeedStore(store).save_snapshot(
         workspace_id=workspace["id"],
         user_id=owner["id"],
         job_id="job_history_single",
         payload={
-            "generated_at": "2026-07-11T10:00:00+08:00",
-            "date": "2026-07-11",
+            "generated_at": current_at,
+            "date": "current",
             "ai_enabled": False,
             "thresholds": {"featured": 8.0},
             "channels": ["AI"],
@@ -1126,9 +1152,15 @@ def test_history_feed_returns_empty_schema_then_single_snapshot_metadata(tmp_pat
         },
     )
 
-    assert service.history_feed(workspace_id=workspace["id"], user_id=owner["id"]) == {
-        "generated_at": "2026-07-11T10:00:00+08:00",
-        "date": "2026-07-11",
+    owner_history = service.history_feed(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )
+    _assert_window(owner_history)
+    owner_history.pop("window")
+    assert owner_history == {
+        "generated_at": current_at,
+        "date": "current",
         "ai_enabled": False,
         "thresholds": {"featured": 8.0},
         "sources": [],
@@ -1142,7 +1174,7 @@ def test_history_feed_returns_empty_schema_then_single_snapshot_metadata(tmp_pat
         "snapshots": [
             {
                 "snapshot_id": snapshot["id"],
-                "generated_at": "2026-07-11T10:00:00+08:00",
+                "generated_at": current_at,
                 "item_count": 1,
                 "job_id": "job_history_single",
             }
@@ -1150,6 +1182,10 @@ def test_history_feed_returns_empty_schema_then_single_snapshot_metadata(tmp_pat
         "items": [],
         "featured_items": [],
         "item_count": 0,
+        "total_count": 0,
+        "limit": 200,
+        "offset": 0,
+        "has_more": False,
     }
 
 
@@ -1158,13 +1194,15 @@ def test_history_feed_rebuilds_filter_collections_from_final_history_items(
     monkeypatch,
 ):
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
+    history_at = _days_ago(10)
+    current_at = _days_ago(1)
     _save_snapshots(
         UserFeedStore(store),
         workspace_id=workspace["id"],
         user_id=owner["id"],
         payloads=[
             {
-                "generated_at": "2026-07-10T10:00:00+08:00",
+                "generated_at": history_at,
                 "items": [
                     {
                         "id": "history-b",
@@ -1187,8 +1225,8 @@ def test_history_feed_rebuilds_filter_collections_from_final_history_items(
                 ],
             },
             {
-                "generated_at": "2026-07-11T10:00:00+08:00",
-                "date": "2026-07-11",
+                "generated_at": current_at,
+                "date": "current",
                 "ai_enabled": True,
                 "thresholds": {"featured": 8.0},
                 "tag_library": ["Latest Tag A", "History Tag B", "History Tag C"],
@@ -1237,8 +1275,8 @@ def test_history_feed_rebuilds_filter_collections_from_final_history_items(
         "topics": ["History Topic B", "Shared Topic", "History Topic C"],
         "personal_tags": ["History Personal B", "History Personal C"],
     }
-    assert history["generated_at"] == "2026-07-11T10:00:00+08:00"
-    assert history["date"] == "2026-07-11"
+    assert history["generated_at"] == current_at
+    assert history["date"] == "current"
     assert history["ai_enabled"] is True
     assert history["thresholds"] == {"featured": 8.0}
     assert history["tag_library"] == [
@@ -1252,7 +1290,7 @@ def test_history_feed_rebuilds_filter_collections_from_final_history_items(
     ]
 
 
-def test_history_feed_treats_v2_empty_items_as_canonical(tmp_path, monkeypatch):
+def test_history_feed_uses_durable_index_when_v2_snapshot_payload_is_rewritten(tmp_path, monkeypatch):
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
     feeds = UserFeedStore(store)
     old_snapshot = feeds.save_snapshot(
@@ -1291,10 +1329,13 @@ def test_history_feed_treats_v2_empty_items_as_canonical(tmp_path, monkeypatch):
         user_id=owner["id"],
     )
 
-    assert history["items"] == []
+    assert [item["id"] for item in history["items"]] == ["placeholder"]
 
 
-def test_history_feed_legacy_missing_items_falls_back_to_today_items(tmp_path, monkeypatch):
+def test_history_feed_does_not_replace_durable_index_from_rewritten_legacy_snapshot(
+    tmp_path,
+    monkeypatch,
+):
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
     feeds = UserFeedStore(store)
     old_snapshot = feeds.save_snapshot(
@@ -1329,7 +1370,7 @@ def test_history_feed_legacy_missing_items_falls_back_to_today_items(tmp_path, m
         user_id=owner["id"],
     )
 
-    assert [item["id"] for item in history["items"]] == ["legacy-today-item"]
+    assert [item["id"] for item in history["items"]] == ["placeholder"]
 
 
 def test_history_feed_strips_remote_media_from_legacy_snapshots_without_rewriting_them(
@@ -1370,6 +1411,21 @@ def test_history_feed_strips_remote_media_from_legacy_snapshots_without_rewritin
         ],
     }
     _replace_snapshot_payload(store, old_snapshot["id"], legacy_payload)
+    store.connect().execute(
+        """
+        UPDATE user_content_items
+        SET article_id = ?, item_json = ?
+        WHERE workspace_id = ? AND user_id = ? AND article_id = ?
+        """,
+        (
+            "legacy-remote-media",
+            json.dumps(legacy_payload["items"][0]),
+            workspace["id"],
+            owner["id"],
+            "placeholder",
+        ),
+    )
+    store.connect().commit()
     feeds.save_snapshot(
         workspace_id=workspace["id"],
         user_id=owner["id"],
@@ -1403,26 +1459,29 @@ def test_history_feed_strips_remote_media_from_legacy_snapshots_without_rewritin
     assert remote_url in stored_payload
 
 
-def test_history_feed_excludes_latest_and_keeps_first_historical_version_in_stable_order(
+def test_history_feed_uses_effective_time_and_does_not_revive_repeated_items(
     tmp_path,
     monkeypatch,
 ):
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
     feeds = UserFeedStore(store)
+    oldest_at = _days_ago(12)
+    history_at = _days_ago(10)
+    current_at = _days_ago(1)
     snapshots = _save_snapshots(
         feeds,
         workspace_id=workspace["id"],
         user_id=owner["id"],
         payloads=[
             {
-                "generated_at": "2026-07-09T10:00:00+08:00",
+                "generated_at": oldest_at,
                 "items": [
                     {"id": "duplicate", "title": "Old duplicate"},
                     {"id": "old-only", "title": "Old only"},
                 ],
             },
             {
-                "generated_at": "2026-07-10T10:00:00+08:00",
+                "generated_at": history_at,
                 "items": [
                     {"id": "newer-only", "title": "Newer only"},
                     {"id": "duplicate", "title": "Newer duplicate"},
@@ -1430,8 +1489,8 @@ def test_history_feed_excludes_latest_and_keeps_first_historical_version_in_stab
                 ],
             },
             {
-                "generated_at": "2026-07-11T10:00:00+08:00",
-                "date": "2026-07-11",
+                "generated_at": current_at,
+                "date": "current",
                 "items": [
                     {"id": "still-current", "title": "Current version"},
                     {"id": "current-only", "title": "Current only"},
@@ -1447,17 +1506,24 @@ def test_history_feed_excludes_latest_and_keeps_first_historical_version_in_stab
 
     assert [item["id"] for item in history["items"]] == [
         "newer-only",
+        "still-current",
         "duplicate",
         "old-only",
     ]
-    assert history["items"][1]["title"] == "Newer duplicate"
+    assert next(
+        item for item in history["items"] if item["id"] == "duplicate"
+    )["title"] == "Newer duplicate"
+    assert next(
+        item for item in history["items"] if item["id"] == "still-current"
+    )["title"] == "Current version"
+    assert "current-only" not in {item["id"] for item in history["items"]}
     assert [entry["snapshot_id"] for entry in history["snapshots"]] == [
         snapshots[2]["id"],
         snapshots[1]["id"],
         snapshots[0]["id"],
     ]
-    assert history["date"] == "2026-07-11"
-    assert history["item_count"] == 3
+    assert history["date"] == "current"
+    assert history["item_count"] == 4
 
 
 def test_history_feed_uses_saved_featured_membership_order_and_current_user_state(
@@ -1516,17 +1582,19 @@ def test_history_feed_uses_saved_featured_membership_order_and_current_user_stat
 def test_history_feed_caps_items_at_200(tmp_path, monkeypatch):
     store, workspace, owner, _alice = _store_with_users(tmp_path, monkeypatch)
     feeds = UserFeedStore(store)
+    history_at = _days_ago(10)
+    current_at = _days_ago(1)
     _save_snapshots(
         feeds,
         workspace_id=workspace["id"],
         user_id=owner["id"],
         payloads=[
             {
-                "generated_at": "2026-07-10T10:00:00+08:00",
+                "generated_at": history_at,
                 "items": [{"id": f"old-{index:03d}"} for index in range(205)],
             },
             {
-                "generated_at": "2026-07-11T10:00:00+08:00",
+                "generated_at": current_at,
                 "items": [{"id": "current"}],
             },
         ],
@@ -1541,3 +1609,142 @@ def test_history_feed_caps_items_at_200(tmp_path, monkeypatch):
     assert len(history["items"]) == 200
     assert history["items"][0]["id"] == "old-000"
     assert history["items"][-1]["id"] == "old-199"
+    assert history["total_count"] == 205
+    assert history["has_more"] is True
+
+
+def test_history_feed_queries_durable_items_before_pagination_with_full_provenance(
+    tmp_path,
+    monkeypatch,
+):
+    store, workspace, owner, alice = _store_with_users(tmp_path, monkeypatch)
+    target_source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Target source",
+        config={"url": "https://example.com/target.xml"},
+        source_key="rss:https://example.com/target.xml",
+    )
+    donor_source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Donor source",
+        config={"url": "https://example.com/donor.xml"},
+        source_key="rss:https://example.com/donor.xml",
+    )
+    feeds = UserFeedStore(store)
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_durable_history_old",
+        payload={
+            "generated_at": "2026-07-01T00:00:00+00:00",
+            "items": [
+                {
+                    "id": "history-a",
+                    "title": "First durable result",
+                    "source": "Target source",
+                    "source_id": target_source_id,
+                    "source_ids": [target_source_id],
+                    "topics": ["Archive"],
+                },
+                {
+                    "id": "history-b",
+                    "title": "Second durable result",
+                    "source": "Donor source",
+                    "source_id": donor_source_id,
+                    "source_ids": [donor_source_id, target_source_id],
+                    "presentation": {
+                        "content": {"body_text": "Needle in durable body"},
+                        "author": {"name": "tsucha_ri"},
+                        "taxonomy": {"topics": ["Long tail"]},
+                    },
+                },
+            ],
+        },
+    )
+    for index in range(21):
+        feeds.save_snapshot(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            job_id=f"job_durable_history_marker_{index}",
+            payload={
+                "generated_at": f"2026-07-02T{index:02d}:00:00+00:00",
+                "items": [{"id": f"marker-{index:02d}", "title": f"Marker {index}"}],
+            },
+        )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_durable_history_latest",
+        payload={
+            "generated_at": _days_ago(1),
+            "items": [
+                {
+                    "id": "current-target",
+                    "source_id": target_source_id,
+                    "source_ids": [target_source_id],
+                }
+            ],
+        },
+    )
+    feeds.save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=alice["id"],
+        job_id="job_alice_durable_history",
+        payload={
+            "generated_at": "2026-07-01T00:00:00+00:00",
+            "items": [
+                {
+                    "id": "alice-private-history",
+                    "source_id": target_source_id,
+                    "source_ids": [target_source_id],
+                }
+            ],
+        },
+    )
+
+    service = FeedArchiveService(tmp_path, store=store)
+    first_page = service.history_feed(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=target_source_id,
+        limit=1,
+        offset=0,
+    )
+    second_page = service.history_feed(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=target_source_id,
+        limit=1,
+        offset=1,
+    )
+    searched = service.history_feed(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=target_source_id,
+        q="needle in durable",
+        limit=50,
+    )
+
+    assert len(first_page["snapshots"]) == 20
+    assert first_page["total_count"] == 2
+    assert first_page["item_count"] == len(first_page["items"]) == 1
+    assert first_page["has_more"] is True
+    assert second_page["total_count"] == 2
+    assert second_page["has_more"] is False
+    assert {
+        first_page["items"][0]["id"],
+        second_page["items"][0]["id"],
+    } == {"history-a", "history-b"}
+    assert [item["id"] for item in searched["items"]] == ["history-b"]
+    assert "current-target" not in {
+        item["id"] for item in first_page["items"] + second_page["items"]
+    }
+    assert "alice-private-history" not in {
+        item["id"] for item in first_page["items"] + second_page["items"]
+    }

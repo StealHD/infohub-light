@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
@@ -22,7 +22,7 @@ import {
   Tooltip,
   TooltipTriggerButton,
   ViewBar,
-  anchoredTooltipProps,
+  bottomAnchoredTooltipProps,
 } from '../../design-system'
 import { useAppContext } from '../../app/AppContext'
 import { filterFeedItems, sortWorkbenchItems } from '../feed/feedModel'
@@ -50,40 +50,127 @@ import {
 
 export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const { api, user, query, setQuery, activity, refresh, reloadFeed, beginAction, isActionCurrent } = useAppContext()
+  const queryClient = useQueryClient()
   const agent = useWorkbenchAgentContext()
   const location = useLocation()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
   const [collectionSearchOpen, setCollectionSearchOpen] = useState(false)
+  const [submittedSingleSearch, setSubmittedSingleSearch] = useState('')
   const reloadButtonRef = useRef<HTMLButtonElement>(null)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
   const selectedId = params.get('item') ?? undefined
+  const historySourceId = kind === 'history' ? params.get('source_id')?.trim() || '' : ''
+  const searchValue = kind === 'history' ? params.get('q') ?? '' : query
+  const debouncedHistoryQuery = useDebouncedValue(searchValue.trim(), 300)
+  const debouncedGlobalQuery = useDebouncedValue(searchValue.trim(), 300)
+  const normalizedSearchValue = searchValue.trim()
+  const globalSearchTerm = kind === 'feed'
+    ? debouncedGlobalQuery.length >= 2
+      ? debouncedGlobalQuery
+      : submittedSingleSearch === normalizedSearchValue
+        ? submittedSingleSearch
+        : ''
+    : ''
+  const globalSearchRequested = kind === 'feed' && Boolean(normalizedSearchValue)
+  const globalSearchActive = Boolean(globalSearchTerm)
+  const historyPageSize = 50
   const [initialNavigationTargetId] = useState(selectedId)
   const feedQuery = useQuery({
     queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => api.latestFeed(signal),
     enabled: kind === 'feed',
   })
+  const globalSearchQuery = useInfiniteQuery({
+    queryKey: queryKeys.search(user.id, {
+      q: globalSearchTerm,
+      limit: 50,
+      submitted: globalSearchTerm.length === 1,
+    }),
+    queryFn: ({ pageParam, signal }) => api.searchFeed({
+      q: globalSearchTerm,
+      limit: 50,
+      cursor: pageParam || undefined,
+      submitted: globalSearchTerm.length === 1,
+    }, signal),
+    initialPageParam: '',
+    getNextPageParam: (lastPage) => lastPage.has_more
+      ? lastPage.next_cursor || undefined
+      : undefined,
+    enabled: kind === 'feed' && globalSearchActive,
+    retry: false,
+  })
   const sourceCatalogQuery = useQuery({
     queryKey: queryKeys.sources(user.id),
     queryFn: ({ signal }) => api.sources(user.role === 'owner' || user.role === 'admin', signal),
-    enabled: kind === 'feed',
+    enabled: kind === 'feed' || (kind === 'history' && Boolean(historySourceId)),
   })
   const savedQuery = useQuery({ queryKey: queryKeys.saved(user.id), queryFn: ({ signal }) => api.savedFeed(200, 0, signal), enabled: kind === 'saved' })
-  const historyQuery = useQuery({ queryKey: queryKeys.history(user.id), queryFn: ({ signal }) => api.historyFeed(signal), enabled: kind === 'history' })
-  const sourceItems = useMemo(() => selectWorkbenchSourceItems(kind, {
+  const historyQuery = useInfiniteQuery({
+    queryKey: queryKeys.history(user.id, {
+      q: debouncedHistoryQuery,
+      sourceId: historySourceId,
+      limit: historyPageSize,
+    }),
+    queryFn: ({ pageParam, signal }) => api.historyFeed({
+      q: debouncedHistoryQuery || undefined,
+      sourceId: historySourceId || undefined,
+      limit: historyPageSize,
+      offset: pageParam,
+    }, signal),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.has_more
+      ? lastPage.offset + lastPage.items.length
+      : undefined,
+    enabled: kind === 'history',
+    retry: false,
+  })
+  const historyItems = useMemo(() => {
+    const seen = new Set<string>()
+    return (historyQuery.data?.pages ?? []).flatMap((page) => page.items).filter((item) => {
+      if (seen.has(item.id)) return false
+      seen.add(item.id)
+      return true
+    })
+  }, [historyQuery.data?.pages])
+  const globalSearchItems = useMemo(() => {
+    const seen = new Set<string>()
+    return (globalSearchQuery.data?.pages ?? []).flatMap((page) => page.items).filter((item) => {
+      if (seen.has(item.id)) return false
+      seen.add(item.id)
+      return true
+    })
+  }, [globalSearchQuery.data?.pages])
+  const sourceItems = useMemo(() => globalSearchRequested
+    ? globalSearchItems
+    : selectWorkbenchSourceItems(kind, {
     snapshot: feedQuery.data,
     saved: savedQuery.data,
-    history: historyQuery.data,
-  }), [feedQuery.data, historyQuery.data, kind, savedQuery.data])
+    history: kind === 'history'
+      ? {
+        schema_version: 2,
+        scope: 'user',
+        items: historyItems,
+        featured_items: [],
+        item_count: historyItems.length,
+        total_count: historyQuery.data?.pages[0]?.total_count ?? 0,
+        limit: historyPageSize,
+        offset: 0,
+        has_more: historyQuery.hasNextPage,
+        snapshots: historyQuery.data?.pages[0]?.snapshots ?? [],
+      }
+      : undefined,
+  }), [feedQuery.data, globalSearchItems, globalSearchRequested, historyItems, historyQuery.data?.pages, historyQuery.hasNextPage, kind, savedQuery.data])
   const sourceQuerySettled = kind === 'feed'
-    ? feedQuery.isSuccess && !feedQuery.isFetching
+    ? globalSearchRequested
+      ? (!globalSearchActive || globalSearchQuery.isSuccess) && !globalSearchQuery.isFetchingNextPage
+      : feedQuery.isSuccess && !feedQuery.isFetching
     : kind === 'saved'
       ? savedQuery.isSuccess && !savedQuery.isFetching
-      : historyQuery.isSuccess && !historyQuery.isFetching
+    : historyQuery.isSuccess && !historyQuery.isFetchingNextPage
   const selectedInSource = Boolean(selectedId && sourceItems.some((item) => item.id === selectedId))
   const detailQuery = useQuery({
     queryKey: queryKeys.feedItem(user.id, selectedId || ''),
@@ -136,10 +223,12 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
   const mergedItems = useMemo(() => mergeDeepLinkedItem(sourceItems, detailQuery.data), [detailQuery.data, sourceItems])
   const orderedItems = useMemo(
-    () => sortWorkbenchItems(mergedItems, preference.order, preference.sortBasis),
-    [mergedItems, preference.order, preference.sortBasis],
+    () => globalSearchRequested
+      ? mergedItems
+      : sortWorkbenchItems(mergedItems, preference.order, preference.sortBasis),
+    [globalSearchRequested, mergedItems, preference.order, preference.sortBasis],
   )
-  const sourceScopeRequested = kind === 'feed' && preference.subscriptionScope !== 'all'
+  const sourceScopeRequested = kind === 'feed' && !globalSearchRequested && preference.subscriptionScope !== 'all'
   const allowedSourceIds = useMemo(() => {
     if (!sourceScopeRequested || !sourceCatalogQuery.data) return undefined
     const visibility = preference.subscriptionScope === 'public' ? 'public' : 'private'
@@ -148,12 +237,15 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       .map((source) => source.id))
   }, [preference.subscriptionScope, sourceCatalogQuery.data, sourceScopeRequested])
   const filteredItems = useMemo(() => {
+    if (globalSearchRequested) {
+      return orderedItems.filter((item) => !item.user_state?.dismissed)
+    }
     const matching = filterFeedItems(
       orderedItems.filter((item) => !item.user_state?.dismissed),
       {
-        query,
+        query: kind === 'history' ? '' : query,
         unreadFirst: preference.unreadFirst,
-        sourceId: preference.source || undefined,
+        sourceId: kind === 'history' ? undefined : preference.source || undefined,
         channel: preference.channel || undefined,
         topic: preference.topic || undefined,
         dateScope: kind === 'feed' ? preference.dateScope : 'all',
@@ -165,45 +257,119 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     const matchingIds = new Set(matching.map((item) => item.id))
     const pinned = orderedItems.filter((item) => matchingIds.has(item.id) || item.id === selectedId)
     return filterFeedItems(pinned, { query: '', unreadFirst: preference.unreadFirst })
-  }, [allowedSourceIds, detailQuery.data, kind, localDayReference, orderedItems, preference, query, selectedId])
+  }, [allowedSourceIds, detailQuery.data, globalSearchRequested, kind, localDayReference, orderedItems, preference, query, selectedId])
   const cards = useMemo(() => filteredItems.map(toWorkbenchCardModel), [filteredItems])
   const sourceItemIds = useMemo(() => mergedItems.map((item) => item.id), [mergedItems])
   const sources = useMemo(() => Array.from(new Map(sourceItems.map((item) => {
-    const value = item.presentation?.source.id || item.source_id || item.source || ''
+    const value = item.presentation?.source?.id || item.source_id || item.source || ''
     return [value, item.presentation?.source?.name || item.source || item.source_type || value] as const
   }).filter(([value]) => Boolean(value))).entries()), [sourceItems])
   const channels = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.presentation?.taxonomy?.channel || item.channel || item.category).filter(Boolean) as string[])).sort(), [sourceItems])
   const topics = useMemo(() => Array.from(new Set(sourceItems.flatMap((item) => item.presentation?.taxonomy?.topics ?? item.topics ?? item.tags ?? []))).sort(), [sourceItems])
-  const loading = feedQuery.isLoading || savedQuery.isLoading || historyQuery.isLoading || (sourceScopeRequested && sourceCatalogQuery.isLoading)
-  const loadError = (feedQuery.data ? null : feedQuery.error) || savedQuery.error || historyQuery.error || (sourceScopeRequested ? sourceCatalogQuery.error : null)
+  const loading = (kind === 'feed'
+    ? globalSearchRequested
+      ? globalSearchActive && globalSearchQuery.isLoading
+      : feedQuery.isLoading
+    : false)
+    || savedQuery.isLoading
+    || historyQuery.isLoading
+    || (sourceScopeRequested && sourceCatalogQuery.isLoading)
+  const loadError = (kind === 'feed' && globalSearchRequested
+    ? globalSearchQuery.data ? null : globalSearchQuery.error
+    : feedQuery.data ? null : feedQuery.error)
+    || savedQuery.error
+    || (historyQuery.data ? null : historyQuery.error)
+    || (sourceScopeRequested ? sourceCatalogQuery.error : null)
   const collectionRoute = kind !== 'feed'
   const updating = activity.state === 'queued' || activity.state === 'running'
   const reloading = kind === 'feed' && feedQuery.isFetching
-  const activeFilterCount = [
+  const activeFilterCount = globalSearchRequested ? 0 : [
     preference.unreadFirst,
-    preference.source,
+    kind !== 'history' && preference.source,
     preference.channel,
     preference.topic,
     kind === 'feed' && preference.dateScope === 'today',
     kind === 'feed' && preference.subscriptionScope !== 'all',
   ].filter(Boolean).length
-  const collectionSearchVisible = collectionSearchOpen || Boolean(query)
-  const hasActiveConstraints = Boolean(query) || activeFilterCount > 0
+  const collectionSearchVisible = collectionSearchOpen || Boolean(searchValue)
+  const hasActiveConstraints = Boolean(searchValue) || Boolean(historySourceId) || activeFilterCount > 0
+  const historySourceName = sourceCatalogQuery.data?.sources.find((source) => source.id === historySourceId)?.display_name
+  const historyTotalCount = historyQuery.data?.pages[0]?.total_count ?? cards.length
+  const globalSearchTotalCount = globalSearchQuery.data?.pages[0]?.total_count ?? cards.length
+  const activeWindow = globalSearchQuery.data?.pages[0]?.window
+    ?? historyQuery.data?.pages[0]?.window
+    ?? feedQuery.data?.window
+  const feedWindowDays = activeWindow?.feed_days ?? 7
+  const countLabel = kind === 'feed'
+    ? globalSearchRequested
+      ? globalSearchActive
+        ? `全部内容搜索 · ${globalSearchTotalCount} 条`
+        : '全部内容搜索 · 按回车'
+      : `近${feedWindowDays}天 · ${cards.length} 条`
+    : `${kind === 'history' ? historyTotalCount : cards.length} 条内容`
   const activeFilterSummaries = [
-    ...(query ? [{ id: 'query', label: `搜索：${query}`, clear: () => setQuery('') }] : []),
+    ...(searchValue ? [{ id: 'query', label: `搜索：${searchValue}`, clear: () => setSearchValue('') }] : []),
+    ...(!globalSearchRequested ? [
+    ...(historySourceId ? [{
+      id: 'history-source',
+      label: `来源：${historySourceName ?? historySourceId}`,
+      clear: clearHistorySource,
+    }] : []),
     ...(preference.unreadFirst ? [{ id: 'unread', label: '未读优先', clear: () => updatePreference({ unreadFirst: false }) }] : []),
-    ...(preference.source ? [{ id: 'source', label: `来源：${sources.find(([id]) => id === preference.source)?.[1] ?? preference.source}`, clear: () => updatePreference({ source: '' }) }] : []),
+    ...(kind !== 'history' && preference.source ? [{ id: 'source', label: `来源：${sources.find(([id]) => id === preference.source)?.[1] ?? preference.source}`, clear: () => updatePreference({ source: '' }) }] : []),
     ...(preference.channel ? [{ id: 'channel', label: `频道：${preference.channel}`, clear: () => updatePreference({ channel: '' }) }] : []),
     ...(preference.topic ? [{ id: 'topic', label: `主题：${preference.topic}`, clear: () => updatePreference({ topic: '' }) }] : []),
     ...(kind === 'feed' && preference.dateScope === 'today' ? [{ id: 'date', label: '仅今天', clear: () => updatePreference({ dateScope: 'all' }) }] : []),
     ...(kind === 'feed' && preference.subscriptionScope !== 'all' ? [{ id: 'scope', label: preference.subscriptionScope === 'public' ? '公共订阅' : '私人订阅', clear: () => updatePreference({ subscriptionScope: 'all' }) }] : []),
+    ] : []),
   ]
+
+  useEffect(() => {
+    if (!activeWindow?.today_start) return
+    const nextShanghaiMidnight = Date.parse(activeWindow.today_start) + 24 * 60 * 60 * 1000
+    if (!Number.isFinite(nextShanghaiMidnight)) return
+    const timer = window.setTimeout(() => {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.historyRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.searchRoot(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourceHealth(user.id) }),
+      ])
+    }, Math.max(1_000, nextShanghaiMidnight - Date.now() + 250))
+    return () => window.clearTimeout(timer)
+  }, [activeWindow?.today_start, queryClient, user.id])
 
   function updatePreference(patch: Partial<FeedPreference>, scrollPolicy: 'preserve' | 'reset-top' = 'preserve') {
     const next = { ...preference, ...patch }
     if (scrollPolicy === 'preserve') window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
     setPreferenceState({ userId: user.id, value: next })
     writeFeedPreference(user.id, next)
+  }
+
+  function setSearchValue(value: string) {
+    if (kind === 'feed' && value.trim() !== submittedSingleSearch) {
+      setSubmittedSingleSearch('')
+    }
+    if (kind !== 'history') {
+      setQuery(value)
+      return
+    }
+    const next = new URLSearchParams(params)
+    if (value) next.set('q', value)
+    else next.delete('q')
+    setParams(next, { replace: true })
+  }
+
+  function submitSearch() {
+    if (kind === 'feed' && normalizedSearchValue.length === 1) {
+      setSubmittedSingleSearch(normalizedSearchValue)
+    }
+  }
+
+  function clearHistorySource() {
+    const next = new URLSearchParams(params)
+    next.delete('source_id')
+    setParams(next, { replace: true })
   }
 
   function toggleExpanded(id: string) {
@@ -231,6 +397,30 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     }
   }
 
+  const paginationQuery = globalSearchActive
+    ? globalSearchQuery
+    : kind === 'history'
+      ? historyQuery
+      : null
+  const paginationTotal = globalSearchActive ? globalSearchTotalCount : historyTotalCount
+  const paginationFooter = paginationQuery
+    && (paginationQuery.hasNextPage || paginationQuery.isFetchNextPageError)
+    ? <div className="flex flex-col items-center gap-2 pt-1">
+      {paginationQuery.isFetchNextPageError && <p role="alert" className="type-meta text-danger">更多内容加载失败，已加载内容仍可继续查看。</p>}
+      <Button
+        size="sm"
+        variant="secondary"
+        aria-busy={paginationQuery.isFetchingNextPage || undefined}
+        isDisabled={paginationQuery.isFetchingNextPage}
+        onPress={() => void paginationQuery.fetchNextPage()}
+      >
+        {paginationQuery.isFetchingNextPage
+          ? <><Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在加载</>
+          : paginationQuery.isFetchNextPageError ? '重试加载更多' : `加载更多（已显示 ${cards.length}/${paginationTotal}）`}
+      </Button>
+    </div>
+    : undefined
+
   return <section aria-label="信息流工作区" data-feed-blank-region className="flex h-full min-h-0 flex-col">
     <div className="shrink-0 bg-background/95 px-3 py-2 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md sm:px-5">
       <PageFrame width="reading">
@@ -242,80 +432,98 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           name="feed-count"
           className="mr-auto min-h-4 min-w-16 shrink-0"
           skeleton={<span data-feed-count-skeleton><CalmSkeleton className="h-4 w-16 rounded-md" /></span>}
-        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{cards.length} 条内容</span></LoadingReveal>
-        {collectionRoute && <div className={`${collectionSearchVisible ? 'flex' : 'hidden'} min-w-0 flex-1 sm:flex`}>
-          <SearchField aria-label="搜索信息流" value={query} onChange={setQuery} className="min-w-0 flex-1" fullWidth variant="secondary">
+        ><span className="type-control min-w-16 shrink-0 whitespace-nowrap text-muted">{countLabel}</span></LoadingReveal>
+        <div className="hidden min-w-0 flex-1 sm:flex">
+          <SearchField aria-label={kind === 'history' ? '搜索历史内容' : kind === 'feed' ? '搜索全部内容' : '搜索当前列表'} value={searchValue} onChange={setSearchValue} className="min-w-0 flex-1" fullWidth variant="secondary">
             <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
               <SearchField.SearchIcon><Icons.Search size={14} /></SearchField.SearchIcon>
-              <SearchField.Input className="type-control" placeholder="搜索标题、来源或主题" />
+              <SearchField.Input
+                className="type-control"
+                placeholder={kind === 'feed' ? '搜索全部内容' : kind === 'history' ? '搜索全部历史内容' : '搜索当前列表'}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submitSearch()
+                }}
+              />
               <SearchField.ClearButton aria-label="清除搜索" />
             </SearchField.Group>
           </SearchField>
-        </div>}
-        {collectionRoute && <Button
-          size="sm"
-          variant="ghost"
-          isIconOnly
-          className="sm:hidden"
-          aria-label={query ? '清除搜索' : collectionSearchOpen ? '收起搜索' : '搜索信息流'}
-          aria-expanded={collectionSearchVisible}
-          onPress={() => {
-            if (query) {
-              setQuery('')
-              setCollectionSearchOpen(false)
-              return
-            }
-            setCollectionSearchOpen((value) => !value)
-          }}
-        >{query ? <Icons.X size={14} aria-hidden="true" /> : <Icons.Search size={14} aria-hidden="true" />}</Button>}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="type-control"
-          aria-label={preference.sortBasis === 'ingested' ? '按入库时间排序' : '按发布时间排序'}
-          onPress={() => updatePreference({ sortBasis: preference.sortBasis === 'ingested' ? 'published' : 'ingested' }, 'reset-top')}
-        >{preference.sortBasis === 'ingested' ? <Icons.Database size={14} aria-hidden="true" /> : <Icons.Clock3 size={14} aria-hidden="true" />}
-          <span className="hidden min-[640px]:inline">{preference.sortBasis === 'ingested' ? '入库时间' : '发布时间'}</span>
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="type-control"
-          aria-label={preference.order === 'newest' ? '最新优先' : '最旧优先'}
-          onPress={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' }, 'reset-top')}
-        ><Icons.ArrowDownUp size={14} aria-hidden="true" />{preference.order === 'newest' ? '最新优先' : '最旧优先'}</Button>
+        </div>
+        <Tooltip delay={350}>
+          <TooltipTriggerButton
+            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground sm:hidden"
+            aria-label={searchValue ? '清除搜索' : collectionSearchOpen ? '收起搜索' : kind === 'history' ? '搜索历史内容' : '搜索信息流'}
+            aria-expanded={collectionSearchVisible}
+            onClick={() => {
+              if (searchValue) {
+                setSearchValue('')
+                setCollectionSearchOpen(false)
+                return
+              }
+              setCollectionSearchOpen((value) => !value)
+            }}
+          >{searchValue ? <Icons.X size={14} aria-hidden="true" /> : <Icons.Search size={14} aria-hidden="true" />}</TooltipTriggerButton>
+          <Tooltip.Content {...bottomAnchoredTooltipProps}>
+            {searchValue ? '清除搜索' : collectionSearchOpen ? '收起搜索' : kind === 'history' ? '搜索历史内容' : '搜索信息流'}
+          </Tooltip.Content>
+        </Tooltip>
+        <Tooltip delay={350}>
+          <TooltipTriggerButton
+            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+            aria-label={preference.sortBasis === 'ingested' ? '排序依据：入库时间' : '排序依据：发布时间'}
+            disabled={globalSearchRequested}
+            onClick={() => updatePreference({ sortBasis: preference.sortBasis === 'ingested' ? 'published' : 'ingested' }, 'reset-top')}
+          >{preference.sortBasis === 'ingested' ? <Icons.Database size={14} aria-hidden="true" /> : <Icons.Clock3 size={14} aria-hidden="true" />}</TooltipTriggerButton>
+          <Tooltip.Content {...bottomAnchoredTooltipProps}>
+            {globalSearchRequested ? '全部内容搜索固定按最新优先' : preference.sortBasis === 'ingested' ? '当前按入库时间；点击改为发布时间' : '当前按发布时间；点击改为入库时间'}
+          </Tooltip.Content>
+        </Tooltip>
+        <Tooltip delay={350}>
+          <TooltipTriggerButton
+            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+            aria-label={preference.order === 'newest' ? '排序顺序：最新优先' : '排序顺序：最旧优先'}
+            disabled={globalSearchRequested}
+            onClick={() => updatePreference({ order: preference.order === 'newest' ? 'oldest' : 'newest' }, 'reset-top')}
+          ><Icons.ArrowDownUp size={14} aria-hidden="true" /></TooltipTriggerButton>
+          <Tooltip.Content {...bottomAnchoredTooltipProps}>
+            {globalSearchRequested ? '全部内容搜索固定按最新优先' : preference.order === 'newest' ? '当前最新优先；点击改为最旧优先' : '当前最旧优先；点击改为最新优先'}
+          </Tooltip.Content>
+        </Tooltip>
         {!collectionRoute && <Tooltip delay={500}>
           <TooltipTriggerButton
             ref={reloadButtonRef}
-            className="type-control min-h-8 gap-1.5 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
             aria-label="重新载入信息流数据"
             aria-busy={reloading || undefined}
             disabled={reloading}
             onClick={() => void reloadFeedData()}
-          ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /><span className="hidden min-[560px]:inline">重新载入</span></TooltipTriggerButton>
-          <Tooltip.Content {...anchoredTooltipProps}>重新载入本地信息流数据</Tooltip.Content>
+          ><Icons.RefreshCw size={14} className={reloading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></TooltipTriggerButton>
+          <Tooltip.Content {...bottomAnchoredTooltipProps}>重新载入本地信息流数据</Tooltip.Content>
         </Tooltip>}
         {!collectionRoute && <Tooltip delay={500}>
           <TooltipTriggerButton
-            className="type-control min-h-8 gap-1.5 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
+            className="size-8 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground active:scale-95 motion-reduce:transform-none"
             aria-label="获取新内容"
             aria-busy={updating || undefined}
             disabled={updating || user.role === 'viewer'}
             onClick={updateFeed}
-          >{updating ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Download size={14} aria-hidden="true" />}<span className="hidden min-[560px]:inline">{updating ? '获取中' : '获取新内容'}</span></TooltipTriggerButton>
-          <Tooltip.Content {...anchoredTooltipProps}>{user.role === 'viewer' ? '只读账户不可获取新内容' : '触发所有已启用订阅获取新内容'}</Tooltip.Content>
+          >{updating ? <Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Icons.Download size={14} aria-hidden="true" />}</TooltipTriggerButton>
+          <Tooltip.Content {...bottomAnchoredTooltipProps}>{user.role === 'viewer' ? '只读账户不可获取新内容' : '触发所有已启用订阅获取新内容'}</Tooltip.Content>
         </Tooltip>}
         <Popover>
-          <Popover.Trigger aria-label="筛选信息流" className="type-control inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus">
-          <Icons.SlidersHorizontal size={15} aria-hidden="true" />筛选
-          {activeFilterCount > 0 && <span aria-label={`已启用 ${activeFilterCount} 项筛选`} className="type-micro rounded-md bg-accent/15 px-1.5 text-accent">{activeFilterCount}</span>}
+          <Popover.Trigger
+            aria-label={`筛选信息流${activeFilterCount > 0 ? `，已启用 ${activeFilterCount} 项` : ''}`}
+            title={activeFilterCount > 0 ? `筛选信息流 · 已启用 ${activeFilterCount} 项` : '筛选信息流'}
+            className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+          >
+          <Icons.SlidersHorizontal size={15} aria-hidden="true" />
+          {activeFilterCount > 0 && <span aria-hidden="true" className="type-micro absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-accent px-1 text-center text-accent-foreground">{activeFilterCount}</span>}
           </Popover.Trigger>
           <Popover.Content placement="bottom end" className="z-30 w-[min(340px,calc(100vw-24px))] p-0">
             <Popover.Dialog aria-label="信息流筛选" className="grid gap-3 p-4">
               <Popover.Heading className="type-page-title">信息流筛选</Popover.Heading>
               <Switch isSelected={preference.unreadFirst} onChange={(value) => updatePreference({ unreadFirst: value })}>未读优先</Switch>
               {!collectionRoute && <FilterSelect label="订阅范围" value={preference.subscriptionScope} onChange={(value) => updatePreference({ subscriptionScope: value === 'public' || value === 'private' ? value : 'all' })} options={[{ id: 'all', label: '全部订阅' }, { id: 'public', label: '公共订阅' }, { id: 'private', label: '私人订阅' }]} />}
-              <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />
+              {kind !== 'history' && <FilterSelect label="来源" value={preference.source} onChange={(value) => updatePreference({ source: value })} options={[{ id: '', label: '全部来源' }, ...sources.map(([id, label]) => ({ id, label }))]} />}
               <FilterSelect label="频道" value={preference.channel} onChange={(value) => updatePreference({ channel: value })} options={[{ id: '', label: '全部频道' }, ...channels.map((value) => ({ id: value, label: value }))]} />
               <FilterSelect label="主题" value={preference.topic} onChange={(value) => updatePreference({ topic: value })} options={[{ id: '', label: '全部主题' }, ...topics.map((value) => ({ id: value, label: value }))]} />
               <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })}>清除筛选</Button>
@@ -323,10 +531,27 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           </Popover.Content>
         </Popover>
         </ViewBar>
+        {collectionSearchVisible && <div className="mt-2 min-w-0 sm:hidden">
+          <SearchField aria-label={kind === 'history' ? '移动端搜索历史内容' : kind === 'feed' ? '移动端搜索全部内容' : '移动端搜索当前列表'} value={searchValue} onChange={setSearchValue} fullWidth variant="secondary">
+            <SearchField.Group>
+              <SearchField.SearchIcon><Icons.Search size={14} /></SearchField.SearchIcon>
+              <SearchField.Input
+                className="type-control"
+                placeholder={kind === 'feed' ? '搜索全部内容' : kind === 'history' ? '搜索全部历史内容' : '搜索当前列表'}
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submitSearch()
+                }}
+              />
+              <SearchField.ClearButton aria-label="清除搜索" />
+            </SearchField.Group>
+          </SearchField>
+        </div>}
         {activeFilterSummaries.length > 0 && <div aria-label="当前筛选条件" className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
           {activeFilterSummaries.map((filter) => <RemovableTag key={filter.id} label={filter.label} onRemove={filter.clear} />)}
           <Button size="sm" variant="ghost" onPress={() => {
-            setQuery('')
+            setSearchValue('')
+            if (historySourceId) clearHistorySource()
             updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })
           }}>清除全部</Button>
         </div>}
@@ -346,14 +571,18 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     {loadError ? <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>
       : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><EmptyState
         title={hasActiveConstraints
-          ? '没有符合当前条件的信息'
+          ? globalSearchRequested && !globalSearchActive
+            ? '按回车搜索单个字符'
+            : '没有符合当前条件的信息'
           : kind === 'saved'
             ? '还没有收藏'
             : kind === 'history'
               ? '还没有阅读记录'
               : '信息流还是空的'}
         description={hasActiveConstraints
-          ? '清除搜索或筛选后再试。'
+          ? globalSearchRequested && !globalSearchActive
+            ? '两个及以上字符会自动搜索；单个字符需明确提交，避免扫描过多内容。'
+            : '清除搜索或筛选后再试。'
           : kind === 'saved'
             ? '在信息流中收藏的内容会出现在这里。'
             : kind === 'history'
@@ -361,7 +590,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               : '先订阅来源，再获取一次新内容。'}
         actions={hasActiveConstraints
           ? <>
-            {query && <Button size="sm" variant="ghost" onPress={() => setQuery('')}>清除搜索</Button>}
+            {searchValue && <Button size="sm" variant="ghost" onPress={() => setSearchValue('')}>清除搜索</Button>}
+            {historySourceId && <Button size="sm" variant="ghost" onPress={clearHistorySource}>清除来源</Button>}
             {activeFilterCount > 0 && <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })}>清除筛选</Button>}
           </>
           : kind === 'feed'
@@ -373,9 +603,13 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       /></PageFrame>
       : <VirtualFeed
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
-      resetToTopKey={`${preference.sortBasis}:${preference.order}`}
+      resetToTopKey={`${preference.sortBasis}:${preference.order}:${debouncedHistoryQuery}:${historySourceId}`}
       cards={cards}
       sourceItemIds={sourceItemIds}
+      trackNewItems={kind !== 'history' && !globalSearchRequested}
+      showTimelineBucket={globalSearchActive}
+      feedWindowDays={feedWindowDays}
+      footer={paginationFooter}
       expandedId={selectedId}
       navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
       contextIds={agent.draft.items.map((item) => item.articleId)}
@@ -400,6 +634,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           articleId: card.id,
           title: card.displayKind === 'social' ? card.primaryText : card.title,
           sourceName: workbenchSourceLabels(card, true).join(' · ') || card.source,
+          sourceUrl: card.url,
           publishedAt: card.publishedAt,
         })
         if (!alreadySelected) agent.openComposer()
@@ -425,4 +660,13 @@ function FilterSelect({ label, value, options, onChange }: { label: string; valu
     <Select.Trigger><Select.Value /><Select.Indicator><Icons.ChevronDown size={15} /></Select.Indicator></Select.Trigger>
     <Select.Popover><ListBox items={options}>{(item) => <ListBox.Item id={item.id} textValue={item.label}>{item.label}</ListBox.Item>}</ListBox></Select.Popover>
   </Select>
+}
+
+function useDebouncedValue(value: string, delay: number) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay)
+    return () => window.clearTimeout(timer)
+  }, [delay, value])
+  return debounced
 }
