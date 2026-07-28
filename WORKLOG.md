@@ -30,3 +30,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-28",
+  "result": "从项目历史归档分支完成本地 8080 API 与 Worker 安全切换和运行态验收。",
+  "status": "completed",
+  "task_id": "2026-07-28-branch-container-smoke",
+  "unresolved": [],
+  "validation": [
+    "cutover preflight found zero active jobs and zero due automatic schedules",
+    "scripts/up-latest.sh completed with target revision",
+    "API and Worker healthy with worker_status ready and zero restarts",
+    "root Feed and served frontend asset returned HTTP 200",
+    "SQLite quick_check passed with no foreign-key findings"
+  ]
+}
+```
