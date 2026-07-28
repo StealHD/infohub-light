@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { CatalogSource, SourceHealthItem, SourceTypeDefinition, Subscription } from '../../api/types'
+import type { CatalogSource, FeedSchedule, SourceHealthItem, SourceTypeDefinition, Subscription } from '../../api/types'
 import {
   anchoredTooltipProps,
   Button,
@@ -104,8 +104,15 @@ const formatCompactTime = (value?: string | null) => {
 const intervalLabel = (minutes?: number) => {
   if (!minutes) return '周期未知'
   if (minutes < 60) return `每 ${minutes} 分钟`
-  if (minutes === 1440) return '每日'
   return `每 ${minutes / 60} 小时`
+}
+
+const formatClockTime = (value?: string | null) => {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
 const formatUpdateTime = (value?: string | null) => {
@@ -425,10 +432,11 @@ function ChannelLayout<T>({
   </>
 }
 
-export function SubscriptionRows({ items, editable, feedWindowDays = 7, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSchedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   items: SubscriptionViewEntry[]
   editable: boolean
   feedWindowDays?: number
+  globalSchedule?: FeedSchedule
   onFetch: (entry: SubscriptionViewEntry) => void
   onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void
   onEditSubscription: (entry: SubscriptionViewEntry) => void
@@ -439,6 +447,26 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, onFetch,
     {items.map((entry) => {
       const { source, subscription, health } = entry
       const schedule = subscription.schedule
+      const subscriptionActive = source.enabled && subscription.enabled
+      const usesSourceSchedule = subscriptionActive && Boolean(schedule?.enabled)
+      const effectiveNextRunAt = !subscriptionActive
+        ? null
+        : usesSourceSchedule
+          ? schedule?.next_run_at
+          : globalSchedule?.enabled
+            ? globalSchedule.next_run_at
+            : null
+      const nextRunTime = formatClockTime(effectiveNextRunAt)
+      const updateDetails = !subscriptionActive
+        ? ['更新：订阅已停用']
+        : usesSourceSchedule
+          ? ['更新：单源', intervalLabel(schedule?.interval_minutes)]
+          : globalSchedule?.enabled
+            ? ['更新：全局', intervalLabel(globalSchedule.interval_minutes)]
+            : globalSchedule
+              ? ['更新：跟随全局', '全局已关闭']
+              : ['更新：跟随全局']
+      if (nextRunTime) updateDetails.push(`下次 ${nextRunTime}`)
       const latestAt = health?.last_attempt_at || health?.last_success_at
       const fetchBusy = entry.fetchLabel !== '立即获取'
       const notificationDisabled = !editable
@@ -485,7 +513,10 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, onFetch,
               </div>
             </dl>
             <div className="type-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted min-[680px]:flex-nowrap">
-              <span>{schedule?.enabled ? intervalLabel(schedule.interval_minutes) : '手动更新'}</span>
+              {updateDetails.map((detail, index) => <span key={detail} className="whitespace-nowrap">
+                {index > 0 && <span className="mr-2" aria-hidden="true">·</span>}
+                {detail}
+              </span>)}
               <span aria-hidden="true">·</span>
               <time
                 dateTime={latestAt || undefined}
@@ -493,7 +524,6 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, onFetch,
                 title={`上次抓取 ${health?.last_fetched_count ?? 0} 条`}
                 className="whitespace-nowrap"
               >{formatUpdateTime(latestAt)}</time>
-              {schedule?.enabled && <span className="hidden whitespace-nowrap min-[860px]:inline">{schedule.next_run_at ? `下次 ${formatCompactTime(schedule.next_run_at)}` : '等待下次更新'}</span>}
             </div>
           </div>
           <div data-source-card-controls className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
@@ -616,13 +646,14 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
   </div>
 }
 
-export function SubscriptionChannelView({ groups, selectedChannel, onSelectChannel, filters, editable, feedWindowDays = 7, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+export function SubscriptionChannelView({ groups, selectedChannel, onSelectChannel, filters, editable, feedWindowDays = 7, globalSchedule, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   groups: ChannelViewGroup<SubscriptionViewEntry>[]
   selectedChannel: string
   onSelectChannel: (channel: string) => void
   filters: FilterProps
   editable: boolean
   feedWindowDays?: number
+  globalSchedule?: FeedSchedule
   schedule: ReactNode
   onFetch: (entry: SubscriptionViewEntry) => void
   onToggleNotification: (entry: SubscriptionViewEntry, enabled: boolean) => void
@@ -668,6 +699,7 @@ export function SubscriptionChannelView({ groups, selectedChannel, onSelectChann
       items={items}
       editable={editable}
       feedWindowDays={feedWindowDays}
+      globalSchedule={globalSchedule}
       onFetch={onFetch}
       onToggleNotification={onToggleNotification}
       onEditSubscription={onEditSubscription}

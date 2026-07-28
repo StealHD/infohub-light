@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { CatalogSource, Subscription } from '../../api/types'
+import type { CatalogSource, FeedSchedule, Subscription } from '../../api/types'
 import { DesignSystemProvider } from '../../design-system'
 import { SubscriptionRows } from './HeroSubscriptionChannelViews'
 
@@ -15,7 +15,11 @@ const source: CatalogSource = {
   enabled: true,
 }
 
-function renderCard(subscription: Subscription, overrides: Partial<Parameters<typeof SubscriptionRows>[0]['items'][number]> = {}) {
+function renderCard(
+  subscription: Subscription,
+  overrides: Partial<Parameters<typeof SubscriptionRows>[0]['items'][number]> = {},
+  globalSchedule?: FeedSchedule,
+) {
   const onToggleNotification = vi.fn()
   const onEditSource = vi.fn()
   const onShare = vi.fn()
@@ -31,6 +35,7 @@ function renderCard(subscription: Subscription, overrides: Partial<Parameters<ty
       ...overrides,
     }]}
     editable
+    globalSchedule={globalSchedule}
     onFetch={vi.fn()}
     onToggleNotification={onToggleNotification}
     onEditSubscription={vi.fn()}
@@ -41,6 +46,68 @@ function renderCard(subscription: Subscription, overrides: Partial<Parameters<ty
 }
 
 describe('subscription source card notifications', () => {
+  it('shows the effective global schedule for subscriptions without a source override', () => {
+    const nextRunAt = '2026-07-28T20:00:00+08:00'
+    const expectedTime = new Date(nextRunAt).toLocaleTimeString(
+      'zh-CN',
+      { hour: '2-digit', minute: '2-digit' },
+    )
+    renderCard({
+      id: 'subscription-global',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      schedule: { enabled: false, interval_minutes: 180 },
+    }, {}, {
+      enabled: true,
+      interval_minutes: 1440,
+      next_run_at: nextRunAt,
+    })
+
+    expect(screen.getByText('更新：全局')).toBeInTheDocument()
+    expect(screen.getByText('每 24 小时')).toBeInTheDocument()
+    expect(screen.getByText(`下次 ${expectedTime}`)).toBeInTheDocument()
+    expect(screen.queryByText('更新：单源')).not.toBeInTheDocument()
+  })
+
+  it('shows an enabled source schedule instead of the global schedule', () => {
+    renderCard({
+      id: 'subscription-source-schedule',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      schedule: {
+        enabled: true,
+        interval_minutes: 60,
+        next_run_at: '2026-07-28T18:30:00+08:00',
+      },
+    }, {}, {
+      enabled: true,
+      interval_minutes: 1440,
+      next_run_at: '2026-07-28T20:00:00+08:00',
+    })
+
+    expect(screen.getByText('更新：单源')).toBeInTheDocument()
+    expect(screen.getByText('每 1 小时')).toBeInTheDocument()
+    expect(screen.queryByText('更新：全局')).not.toBeInTheDocument()
+  })
+
+  it('makes the global-disabled fallback explicit', () => {
+    renderCard({
+      id: 'subscription-global-disabled',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      schedule: { enabled: false, interval_minutes: 60 },
+    }, {}, {
+      enabled: false,
+      interval_minutes: 360,
+    })
+
+    expect(screen.getByText('更新：跟随全局')).toBeInTheDocument()
+    expect(screen.getByText('全局已关闭')).toBeInTheDocument()
+  })
+
   it('labels a projected YouTube RSS row by its setup type', () => {
     renderCard({
       id: 'subscription-youtube',
@@ -125,6 +192,7 @@ describe('subscription source card notifications', () => {
     const notification = screen.getByRole('switch', { name: '新内容通知：通知来源' })
     expect(notification).not.toBeChecked()
     expect(notification).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByText('更新：订阅已停用')).toBeInTheDocument()
     await userEvent.click(notification)
     expect(onToggleNotification).not.toHaveBeenCalled()
   })

@@ -170,6 +170,7 @@ def test_source_schedule_enable_change_and_disable_time_semantics(tmp_path, monk
     assert enabled["next_run_at"] == first.isoformat()
     assert changed["next_run_at"] == (changed_at + timedelta(minutes=60)).isoformat()
     assert disabled["enabled"] is False
+    assert disabled["interval_minutes"] == 60
     assert disabled["next_run_at"] is None
 
 

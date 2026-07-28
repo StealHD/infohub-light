@@ -107,20 +107,16 @@ class FeedScheduleService:
         }
 
     def has_enabled_subscriptions(self, *, workspace_id: str, user_id: str) -> bool:
-        return bool(
-            self.store.connect().execute(
-                """
-                SELECT 1
-                FROM user_subscriptions us
-                JOIN source_catalog sc ON sc.id = us.source_id
-                WHERE us.user_id = ?
-                  AND sc.workspace_id = ?
-                  AND us.enabled = 1
-                  AND sc.enabled = 1
-                LIMIT 1
-                """,
-                (user_id, workspace_id),
-            ).fetchone()
+        return self.store.has_enabled_user_subscriptions(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+    def has_global_subscriptions(self, *, workspace_id: str, user_id: str) -> bool:
+        return self.store.has_enabled_user_subscriptions(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            global_schedule_only=True,
         )
 
     def update_user_schedule(
@@ -323,6 +319,18 @@ class FeedScheduleService:
                         reason="no_enabled_subscriptions",
                     )
                     self._append_skip(result, schedule, "no_enabled_subscriptions")
+                    continue
+                if not self.has_global_subscriptions(
+                    workspace_id=str(schedule["workspace_id"]),
+                    user_id=str(schedule["user_id"]),
+                ):
+                    self._record_skip(
+                        schedule,
+                        now=now_dt,
+                        next_run_at=interval_next,
+                        reason="no_global_subscriptions",
+                    )
+                    self._append_skip(result, schedule, "no_global_subscriptions")
                     continue
 
                 active_refresh = conn.execute(

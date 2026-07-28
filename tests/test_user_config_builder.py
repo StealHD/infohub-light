@@ -4,6 +4,7 @@ from src.models import Config
 from src.services.feed_run import RunIssue, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.source_health import SourceHealthService
+from src.services.source_schedule import SourceScheduleService
 from src.services.source_type_registry import validate_source_config
 from src.services.user_config_builder import build_user_config_data
 from src.storage.service_store import ServiceStore
@@ -459,3 +460,62 @@ def test_user_config_builder_disables_unsubscribed_global_hackernews(tmp_path, m
         "fetch_top_stories": 20,
         "min_score": 100,
     }
+
+
+def test_global_schedule_scope_excludes_only_enabled_source_schedules(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_ids = []
+    subscriptions = []
+    for suffix in ("global", "custom"):
+        source_id = store.create_source(
+            workspace_id=workspace["id"],
+            scope="private",
+            owner_user_id=owner["id"],
+            source_type="rss",
+            display_name=f"{suffix.title()} Feed",
+            config={
+                "name": f"{suffix.title()} Feed",
+                "url": f"https://example.com/{suffix}.xml",
+            },
+            source_key=f"rss:https://example.com/{suffix}.xml",
+        )
+        source_ids.append(source_id)
+        subscriptions.append(
+            store.create_subscription(user_id=owner["id"], source_id=source_id)
+        )
+    SourceScheduleService(store).update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=subscriptions[1]["id"],
+        enabled=True,
+        interval_minutes=60,
+        now=datetime(2026, 7, 28, tzinfo=timezone.utc),
+    )
+
+    all_sources = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=_base_config(),
+    )
+    global_sources = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=_base_config(),
+        schedule_scope="global",
+    )
+
+    assert {
+        source["source_id"] for source in all_sources["sources"]["rss"]
+    } == set(source_ids)
+    assert [
+        source["source_id"] for source in global_sources["sources"]["rss"]
+    ] == [source_ids[0]]

@@ -17,7 +17,7 @@ from ..logging_utils import configure_logging
 from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
 from ..storage.manager import StorageManager
 from ..ui.server import run_source_test
-from .feed_schedule import FeedScheduleService
+from .feed_schedule import FeedScheduleService, SCHEDULED_REFRESH_REASON
 from .job_queue import JobQueue
 from .job_eligibility import JobEligibilityService
 from .maintenance import MaintenanceService
@@ -223,11 +223,16 @@ def _run_user_feed_refresh(
 
     storage = StorageManager(data_dir=data_dir)
     base_config = storage.load_config()
+    scheduled_global_refresh = (
+        (job.get("payload_json") or {}).get("reason")
+        == SCHEDULED_REFRESH_REASON
+    )
     config = build_user_config(
         store=store,
         workspace_id=job["workspace_id"],
         user_id=job["user_id"],
         base_config=base_config,
+        schedule_scope="global" if scheduled_global_refresh else "all",
     )
     analysis_cache = UserAnalysisCache(
         store,
@@ -291,26 +296,28 @@ def _run_user_feed_refresh(
         items=list(run_result.items),
     )
     configured_source_ids = active_service_source_ids(config)
-    active_source_ids: set[str] | None = None
-    current_outcomes = run_result.source_outcomes
-    if configured_source_ids:
-        active_source_ids = configured_source_ids & _active_catalog_source_ids(
-            store,
-            workspace_id=job["workspace_id"],
-            user_id=job["user_id"],
-        )
-        current_outcomes = tuple(
-            outcome
-            for outcome in run_result.source_outcomes
-            if outcome.source_id in active_source_ids
-        )
+    all_active_source_ids = _active_catalog_source_ids(
+        store,
+        workspace_id=job["workspace_id"],
+        user_id=job["user_id"],
+    )
+    catalog_subscriptions = store.list_user_subscriptions(job["user_id"])
+    retained_source_ids = (
+        all_active_source_ids if catalog_subscriptions else None
+    )
+    attempted_source_ids = configured_source_ids & all_active_source_ids
+    current_outcomes = tuple(
+        outcome
+        for outcome in run_result.source_outcomes
+        if outcome.source_id in attempted_source_ids
+    )
     snapshot = FeedProductionService(store, config).save_run_result(
         workspace_id=job["workspace_id"],
         user_id=job["user_id"],
         job_id=job["id"],
         job_type="user_feed_refresh",
         result=run_result,
-        active_source_ids=active_source_ids,
+        active_source_ids=retained_source_ids,
         commit=False,
     )
     SourceHealthService(store).apply_outcomes(

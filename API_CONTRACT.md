@@ -197,15 +197,15 @@ capability / degrade：
 2. `GET /api/me/feed-schedule` 成功响应的 `data` 固定包含 `schema_version=1`、`enabled`、`interval_minutes`、`allowed_intervals=[60,180,360,720,1440]`、`next_run_at`、`last_evaluated_at`、`last_enqueued_at`、`last_skip_reason`、`last_job`、`active_job` 和 `worker_status=ready|missing|stale`。没有对应时间或 job 时为 `null`；job 对象沿用公开 job shape 且不得包含 `claim_token`。
 3. `PATCH /api/me/feed-schedule` 接受 `enabled` 和/或 `interval_minutes`；至少提供一个字段。周期只允许 `60/180/360/720/1440` 分钟，否则返回 `400 invalid_feed_schedule`。开启时没有有效订阅返回 `409 no_enabled_subscriptions`；viewer 返回 `403 forbidden`；未登录返回 `401 unauthorized`。
 4. 首次从关闭改为开启时 `next_run_at=now`，由下一个 Worker schedule tick 入队首次任务；已开启时修改周期改为 `now + 新周期`。关闭时 `next_run_at=null`，只取消尚在 queued 的 `reason=scheduled_service_refresh` 自动任务，running 任务继续完成。
-5. `last_job` 指向该计划最近创建或复用的刷新任务，可通过 `status/result_json` 展示产出条数及 `partial` 的 issue；`active_job` 是当前用户唯一 queued/running 全量刷新。`last_skip_reason` 至少可以为 `active_user_feed_refresh`、`active_source_fetch`、`user_disabled`、`user_read_only`、`no_enabled_subscriptions`、`quota_exceeded` 或 `migration_required`。用户被降级为 viewer 时计划必须关闭并取消仍 queued 的自动刷新；已 running 的任务继续按原 claim 完成，调度 tick 还必须防御性拒绝 viewer 入队。
+5. `last_job` 指向该计划最近创建或复用的刷新任务，可通过 `status/result_json` 展示产出条数及 `partial` 的 issue；`active_job` 是当前用户唯一 queued/running 全量刷新。`last_skip_reason` 至少可以为 `active_user_feed_refresh`、`active_source_fetch`、`user_disabled`、`user_read_only`、`no_enabled_subscriptions`、`no_global_subscriptions`、`quota_exceeded` 或 `migration_required`。用户被降级为 viewer 时计划必须关闭并取消仍 queued 的自动刷新；已 running 的任务继续按原 claim 完成，调度 tick 还必须防御性拒绝 viewer 入队。
 
 用户订阅级 source schedule 规则：
 
-1. 没有 `user_source_schedules` row 等同于 `enabled=false`、`interval_minutes=60`；GET 不隐式写库。允许周期固定为 `[30,60,180,360,720,1440]` 分钟。
+1. 没有 `user_source_schedules` row 等同于 `enabled=false`、`interval_minutes=60`；GET 不隐式写库。`enabled=false` 的产品语义是“跟随全局（默认）”，不是手动更新；`enabled=true` 才表示单源独立周期。允许周期固定为 `[30,60,180,360,720,1440]` 分钟。
 2. GET/PATCH 响应包含 `schema_version=1`、`subscription_id`、`source_id`、计划时间、`last_job`、`active_job` 和 `worker_status`；公开 job 不得包含 `claim_token`。
-3. 首次开启默认在下一个 Worker tick 运行；已开启时修改周期从当前时间重新计算。关闭计划会取消仍 queued 且 `reason=scheduled_source_fetch` 的任务，running 任务继续完成。停用订阅或把用户降级为 viewer 时必须同步关闭计划。
+3. 首次开启默认在下一个 Worker tick 运行；已开启时修改周期从当前时间重新计算。切回跟随全局时保留 `interval_minutes`，把 `next_run_at` 清空，并取消仍 queued 且 `reason=scheduled_source_fetch` 的任务；running 任务继续完成。未来再次开启单源独立周期时可复用该周期。停用订阅或把用户降级为 viewer 时必须同步关闭计划。
 4. Worker 每次 schedule tick 在 claim 普通任务前原子评估到期订阅。自动 job 固定为 `job_type=source_fetch`、`reason=scheduled_source_fetch`、`priority=-10`，沿用现有配额、claim token、Source Health 和 Feed v2 单源合并语义。
-5. 同一订阅最多一个 queued/running `source_fetch`；手动、自动和重复页面提交复用已有 active job。当前用户存在 active 全量刷新时延后 5 分钟；全量刷新成功参与该订阅后也推进其下一次单源计划，避免紧邻重复抓取。停用 catalog source 时，相关计划关闭并记录 `source_disabled`，仍 queued 的自动任务被取消。
+5. 同一订阅最多一个 queued/running `source_fetch`；手动、自动和重复页面提交复用已有 active job。当前用户存在 active 全量刷新时延后 5 分钟；只有手动全量刷新会包含单源独立周期来源，并在成功参与该订阅后推进其下一次单源计划，避免紧邻重复抓取。自动全局刷新不包含这些来源。停用 catalog source 时，相关计划关闭并记录 `source_disabled`，仍 queued 的自动任务被取消。
 6. 调度链路不得调用 legacy scheduler、`HorizonOrchestrator.run()` 或 `LegacyPublisher`，不得读取或写入全局静态 Feed、摘要、legacy 通知、Graph 或 Archive analytics。偏好来源通知只可由下述 Service outbox 在 Feed/Health/Job 提交后消费。
 
 用户偏好来源通知规则：
@@ -352,15 +352,16 @@ Source catalog 规则：
 14. schema-v2 snapshot、`user_feed_items` 和 job 终态必须在同一短事务提交；同一非空 `job_id` 最多生成一个 snapshot，同一 snapshot 内 `article_id` 唯一。
 15. `POST /api/jobs/user-feed-refresh` 的 data 增加 `deduplicated`。同一用户已有 queued/running 全量刷新时返回原 job 且 `deduplicated=true`；真正新建时为 false。手动、多标签页和自动刷新共同受同一原子去重约束。
 16. 手动全量刷新必须在同一个 `BEGIN IMMEDIATE` 事务中完成“查找/创建 active job、配额 admission、usage 记录”；只有真正新建 job 才计一次配额，配额失败同时回滚 job 和 usage。复用已有 active job 不重复计费，也不因当日配额后来耗尽而拒绝读取该 job。
-17. Worker 在 claim 普通 job 前按 `HORIZON_SCHEDULE_POLL_SECONDS` 检查到期计划，默认 30 秒。自动任务复用 `user_feed_refresh`，固定 `payload.reason=scheduled_service_refresh`、`priority=-10`，仍使用用户完整 `filtering.time_window_hours`，刷新周期不替代抓取窗口。
+17. Worker 在 claim 普通 job 前按 `HORIZON_SCHEDULE_POLL_SECONDS` 检查到期计划，默认 30 秒。自动任务复用 `user_feed_refresh`，固定 `payload.reason=scheduled_service_refresh`、`priority=-10`，只从 `user_source_schedules.enabled=false` 或缺 row 的有效订阅合成 Config；`enabled=true` 的单源独立周期来源必须排除。自动任务仍使用用户完整 `filtering.time_window_hours`，刷新周期不替代抓取窗口。手动“更新整个信息流”继续合成全部有效订阅。
 17A. 没有 `last_success_at` 健康记录的直接 RSS 与受控 RSSHub 订阅，生产 `source_fetch/user_feed_refresh` 按单来源使用 `filtering.rss_initial_fetch_window_hours`（只允许 `168|720`，缺省 `168`）；同一次混合刷新可因此具有不同来源窗口。抓到零条的成功 outcome 同样建立成功边界，之后恢复 `filtering.time_window_hours`；失败及中间重试保持首次窗口。Job payload 或调用方显式传入的 `hours` 始终覆盖首次窗口。单来源窗口只存在于 Worker 合成的内部运行配置，必须从持久化 config 与所有公共序列化中排除；该规则只改变上游采集范围，不改变 Feed 留存，也不需要数据库迁移。
-18. 到期检查、active job 去重、usage 记录和 schedule 推进必须处于同一 SQLite 写事务；两个连接竞争同一计划最多创建一个 job。重启或长时间离线只补一个任务并把下一次推进到 `now + interval`，不追赶全部漏跑周期。
-19. active `source_fetch` 或 migration 未完成时计划延后 5 分钟，避免 snapshot 竞争或热循环；disabled user、无有效订阅或配额耗尽时不入队并推进到下一周期。`partial/failed` 不关闭计划，后续仍按已计算的下一周期继续。
+18. 到期检查、active job 去重、usage 记录和 schedule 推进必须处于同一 SQLite 写事务；两个连接竞争同一计划最多创建一个 job。重启或长时间离线只补一个任务并把下一次推进到 `now + interval`，不追赶全部漏跑周期。全部有效来源均启用单源独立周期时，全局计划仍保持设置，但以 `no_global_subscriptions` 推进到下一周期且不创建 job；切换后遗留的 queued 自动全局任务在 claim 时以同一原因安全取消。
+19. active `source_fetch` 或 migration 未完成时计划延后 5 分钟，避免 snapshot 竞争或热循环；disabled user、无有效订阅、无跟随全局订阅或配额耗尽时不入队并推进到下一周期。`partial/failed` 不关闭计划，后续仍按已计算的下一周期继续。
 20. `user_feed_refresh` 的 `succeeded/partial` job `result_json` 必须包含 `run_id/run_status/item_count/new_item_count/source_outcomes/issues/analysis_usage`，并保留既有 `snapshot_id/snapshot_created`；`source_fetch` 的 `succeeded/partial` 结果同样包含 `new_item_count`。该字段是在 Feed 写事务内，以最终 canonical merge 与稳定 ID 去重后的 snapshot 相对紧邻上一份 snapshot 实际新增的唯一文章 ID 数：首份 snapshot 的全部唯一条目计为新增，重排或 metadata 变化不计新增，删除不抵扣，旧 Job 缺少该 additive 字段继续有效。`analysis_usage` 精确包含非负整数 `item_count/cache_hits/ai_calls/provider_attempts/fallbacks/skipped`，只用于成本与降级诊断，不包含 token 文本或原始内容。每个公开 source outcome 精确包含 `source_id/subscription_id/source_key/analysis_mode/status/fetched_count/issue`；issue 为 `null` 或精确的 `stage/code/message/retryable`，不得包含 source config。
 21. 结构化 refresh 最终 `failed` 且不生成 snapshot 时，`result_json` 仍保存同一诊断 shape，`run_status=failed`、`item_count=0`，同时保留 job 的 `failed/error_code/error_message`。可重试的中间 attempt 可以保存本次诊断，但不得提前更新 Source Health；只有 claim-guarded `fail_or_retry_job` 选定最终失败后才能原子提交健康与 job 终态。
 22. job result、Service snapshot 和 job error 中的 issue/source key 必须先使用与 Source Health 相同的单行、240 字符上限脱敏器，删除 URL userinfo/query、认证信息、secret、payload/config/stack/traceback；公共结果不得记录 source payload、真实密钥、带认证 URL 或堆栈。`fail_or_retry_job` 的可选结构化 result 不改变既有 worker/claim/lease guard 和退避决策。
 23. 停用/删除订阅、停用来源、停用用户或把用户降级为 viewer 时，相关 schedule shutdown、queued job 取消和 Feed reconciliation 必须在同一事务。失效任务终态为 `cancelled/error_code=job_invalidated`，并只附带有界 `invalidation_reason`。
-24. Worker 在 claim 后、每次网络调用前和 claim-guarded finalize 前复查统一 eligibility。调用前失效不得访问网络；调用中失效的结果不得更新 Feed 或 Source Health。
+24. Worker 在 claim 后、每次网络调用前和 claim-guarded finalize 前复查统一 eligibility。自动全局任务在 claim 时还必须存在至少一个有效的跟随全局订阅。调用前失效不得访问网络；调用中失效的结果不得更新 Feed 或 Source Health。
+24A. 自动全局刷新只用本次实际抓取来源的 outcome 更新 Source Health；Feed finalizer 的 active source 集合仍必须取当前用户全部有效订阅，使局部全局刷新保留单源独立周期来源的既有内容。手动全量继续以全部有效来源更新、合并并推进参与的单源计划。
 25. 默认未知异常不可重试。只重试显式 retryable source issue、连接/超时、HTTP 429 与 5xx；每个真实 scraper/provider/AI 网络调用（包括自动重试和人工 retry）均原子计量。
 26. `HORIZON_SHARED_ACQUISITION_ENABLED=true` 时，public/workspace source 在同 workspace、相同 acquisition key 与 freshness window 内最多一次上游获取；private source 按 user 隔离。key 覆盖 source/type、规范化网络配置、adapter contract、secret-ref identity/version 和抓取窗口，不包含频道、主题、标签、优先级等用户投影字段。
 27. shared acquisition 成功必须缓存零条结果；TTL 取相关启用计划最短周期并默认夹在 5..60 分钟、无计划回退 30 分钟。并发 loser 最多等待 5 秒且不计 attempt；stale lease 可恢复，失败退避最多 5 分钟。`source_test` 绕过成功缓存且不写 content pool，但仍受同源并发和成本 admission 约束。

@@ -10,6 +10,7 @@ from src.services.job_eligibility import JobIneligibleError
 from src.services.job_queue import JobQueue
 from src.services.secret_store import SecretStore
 from src.services.source_health import SourceHealthService
+from src.services.source_schedule import SourceScheduleService
 from src.services.user_feed_store import UserFeedStore
 from src.services.worker import _is_retryable_exception, run_worker_once
 from src.storage.service_store import ServiceStore
@@ -420,6 +421,57 @@ def test_worker_invalidates_claimed_source_fetch_before_network_when_subscriptio
     }
 
 
+def test_worker_cancels_stale_scheduled_global_refresh_when_no_source_follows_global(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Custom-only Feed",
+        config={"url": "https://example.com/custom-only.xml"},
+        source_key="rss:https://example.com/custom-only.xml",
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    SourceScheduleService(store).update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=subscription["id"],
+        enabled=True,
+        interval_minutes=60,
+        now=datetime.now(timezone.utc).replace(year=2036),
+    )
+    job, created = JobQueue(store).create_user_feed_refresh_if_absent(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        payload={"reason": "scheduled_service_refresh"},
+        priority=-10,
+    )
+    assert created is True
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="no-global-worker",
+    )
+
+    assert result["id"] == job["id"]
+    assert result["status"] == "cancelled"
+    assert result["error_code"] == "job_invalidated"
+    assert result["result_json"] == {
+        "invalidation_reason": "no_global_subscriptions"
+    }
+
+
 def test_worker_discards_source_fetch_result_invalidated_during_network(
     tmp_path, monkeypatch
 ):
@@ -704,6 +756,186 @@ def test_worker_user_feed_refresh_saves_user_snapshot(tmp_path, monkeypatch):
     assert latest["payload"]["schema_version"] == 2
     assert latest["payload"]["today_items"] == latest["payload"]["items"]
     assert not (tmp_path / "site" / "radar-data.json").exists()
+
+
+def test_scheduled_global_refresh_excludes_custom_sources_but_preserves_their_feed(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    (tmp_path / "config.json").write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "ai": {
+                    "enabled": False,
+                    "provider": "openai",
+                    "model": "gpt-4o-mini",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "sources": {
+                    "rss": [],
+                    "github": [],
+                    "hackernews": {"enabled": False},
+                },
+                "filtering": {"time_window_hours": 24},
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    sources: dict[str, tuple[str, dict]] = {}
+    for mode in ("global", "custom"):
+        source_id = store.create_source(
+            workspace_id=workspace["id"],
+            scope="private",
+            owner_user_id=owner["id"],
+            source_type="rss",
+            display_name=f"{mode.title()} Feed",
+            config={
+                "name": f"{mode.title()} Feed",
+                "url": f"https://example.com/{mode}.xml",
+            },
+            source_key=f"rss:https://example.com/{mode}.xml",
+        )
+        sources[mode] = (
+            source_id,
+            store.create_subscription(user_id=owner["id"], source_id=source_id),
+        )
+    custom_source_id, custom_subscription = sources["custom"]
+    custom_schedule = SourceScheduleService(
+        store
+    ).update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=custom_subscription["id"],
+        enabled=True,
+        interval_minutes=60,
+        now=datetime(2036, 7, 28, 10, 0, tzinfo=timezone.utc),
+    )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    UserFeedStore(store).save_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=None,
+        payload={
+            "schema_version": 2,
+            "generated_at": now_iso,
+            "items": [
+                {
+                    "id": "rss:item:custom-retained",
+                    "source_type": "rss",
+                    "source_id": custom_source_id,
+                    "subscription_id": custom_subscription["id"],
+                    "title": "Retained custom item",
+                    "url": "https://example.com/custom-retained",
+                    "published_at": now_iso,
+                }
+            ],
+        },
+    )
+    queue = JobQueue(store)
+    scheduled, created = queue.create_user_feed_refresh_if_absent(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        payload={"reason": "scheduled_service_refresh"},
+        priority=-10,
+    )
+    assert created is True
+    configured_runs: list[list[str]] = []
+
+    class FakeOrchestrator:
+        def __init__(self, config, _storage):
+            self.entries = list(config.sources.rss)
+            self.run_number = len(configured_runs) + 1
+            configured_runs.append(
+                [str(entry.source_id) for entry in self.entries]
+            )
+
+        async def execute(self, **_kwargs):
+            finished_at = datetime.now(timezone.utc).isoformat()
+            items = tuple(
+                ContentItem(
+                    id=f"rss:item:{entry.source_id}:{self.run_number}",
+                    source_type=SourceType.RSS,
+                    title=f"Fetched {entry.source_id}",
+                    url=f"https://example.com/items/{entry.source_id}",
+                    published_at=datetime.now(timezone.utc),
+                    metadata={
+                        "source_id": entry.source_id,
+                        "subscription_id": entry.subscription_id,
+                    },
+                )
+                for entry in self.entries
+            )
+            outcomes = tuple(
+                SourceOutcome(
+                    str(entry.source_id),
+                    str(entry.subscription_id),
+                    str(entry.source_key),
+                    "full",
+                    "succeeded",
+                    1,
+                )
+                for entry in self.entries
+            )
+            return FeedRunResult(
+                run_id=f"run_{self.run_number}",
+                status="succeeded",
+                started_at=finished_at,
+                finished_at=finished_at,
+                items=items,
+                source_outcomes=outcomes,
+            )
+
+    monkeypatch.setattr("src.orchestrator.HorizonOrchestrator", FakeOrchestrator)
+
+    scheduled_result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="scheduled-global-worker",
+    )
+    scheduled_snapshot = UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )
+
+    assert scheduled_result["id"] == scheduled["id"]
+    assert configured_runs == [[sources["global"][0]]]
+    assert {
+        item["id"] for item in scheduled_snapshot["payload"]["items"]
+    } == {
+        "rss:item:custom-retained",
+        f"rss:item:{sources['global'][0]}:1",
+    }
+    assert SourceHealthService(store).get_health(
+        custom_subscription["id"]
+    ) is None
+    assert SourceHealthService(store).get_health(
+        sources["global"][1]["id"]
+    ) is not None
+    assert store.get_source_schedule(custom_subscription["id"])[
+        "next_run_at"
+    ] == custom_schedule["next_run_at"]
+
+    manual, created = queue.create_user_feed_refresh_if_absent(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        payload={"reason": "manual"},
+    )
+    assert created is True
+    manual_result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="manual-full-worker",
+    )
+
+    assert manual_result["id"] == manual["id"]
+    assert set(configured_runs[1]) == {sources["global"][0], custom_source_id}
+    assert store.get_source_schedule(custom_subscription["id"])[
+        "last_job_id"
+    ] == manual["id"]
 
 
 def test_full_refresh_discards_source_disabled_during_run_before_feed_and_health(

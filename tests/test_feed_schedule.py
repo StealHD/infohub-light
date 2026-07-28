@@ -159,6 +159,81 @@ def test_enabling_schedule_requires_an_enabled_subscription(tmp_path, monkeypatc
     assert exc_info.value.code == "no_enabled_subscriptions"
 
 
+def test_due_global_schedule_stays_enabled_and_skips_when_all_sources_are_custom(
+    tmp_path, monkeypatch
+):
+    from src.services.source_schedule import SourceScheduleService
+
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    _source_id, subscription = _subscribe(store, workspace, owner)
+    now = datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
+    schedules = _schedule_service(store)
+    schedules.update_user_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        enabled=True,
+        interval_minutes=360,
+        now=now,
+    )
+    SourceScheduleService(store).update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=subscription["id"],
+        enabled=True,
+        interval_minutes=60,
+        now=now + timedelta(days=1),
+    )
+
+    result = schedules.enqueue_due(now=now)
+    schedule = schedules.get_user_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    )
+
+    assert result["enqueued"] == 0
+    assert result["skipped"] == 1
+    assert result["outcomes"][0]["reason"] == "no_global_subscriptions"
+    assert not _active_jobs(store, owner["id"])
+    assert schedule["enabled"] is True
+    assert schedule["last_skip_reason"] == "no_global_subscriptions"
+    assert schedule["next_run_at"] == (now + timedelta(minutes=360)).isoformat()
+
+
+def test_due_global_schedule_enqueues_when_any_source_follows_global(
+    tmp_path, monkeypatch
+):
+    from src.services.source_schedule import SourceScheduleService
+
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    _subscribe(store, workspace, owner, suffix="global")
+    _source_id, custom = _subscribe(store, workspace, owner, suffix="custom")
+    now = datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
+    schedules = _schedule_service(store)
+    schedules.update_user_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        enabled=True,
+        now=now,
+    )
+    SourceScheduleService(store).update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=custom["id"],
+        enabled=True,
+        interval_minutes=60,
+        now=now + timedelta(days=1),
+    )
+
+    result = schedules.enqueue_due(now=now)
+
+    assert result["enqueued"] == 1
+    jobs = _active_jobs(store, owner["id"])
+    assert len(jobs) == 1
+    assert store._job(jobs[0])["payload_json"] == {
+        "reason": "scheduled_service_refresh"
+    }
+
+
 def test_disabling_schedule_cancels_only_queued_scheduled_refresh(tmp_path, monkeypatch):
     store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
     _subscribe(store, workspace, owner)

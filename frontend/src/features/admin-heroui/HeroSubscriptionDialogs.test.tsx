@@ -180,6 +180,60 @@ describe('YouTube SourceForm', () => {
 })
 
 describe('SubscriptionForm notification ownership', () => {
+  it('defaults to global mode, reveals the source interval on demand, and preserves it when switching back', async () => {
+    const browser = userEvent.setup()
+    const subscription: Subscription = {
+      id: 'subscription-global-mode',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      analysis_mode: 'full',
+      schedule: { enabled: false, interval_minutes: 180 },
+    }
+    const api = renderSubscriptionForm(subscription)
+    const globalMode = screen.getByRole('radio', { name: '跟随全局（默认）' })
+    const sourceMode = screen.getByRole('radio', { name: '单源独立周期' })
+
+    expect(globalMode).toBeChecked()
+    expect(sourceMode).not.toBeChecked()
+    expect(screen.queryByRole('button', { name: /单源更新周期/ })).not.toBeInTheDocument()
+
+    await browser.click(sourceMode)
+    expect(sourceMode).toBeChecked()
+    expect(screen.getByRole('button', { name: /单源更新周期/ })).toHaveTextContent('每 3 小时')
+
+    await browser.click(globalMode)
+    expect(screen.queryByRole('button', { name: /单源更新周期/ })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.updateSourceSchedule).toHaveBeenCalledWith(
+      subscription.id,
+      { enabled: false, interval_minutes: 180 },
+    ))
+  })
+
+  it('projects an enabled source schedule as the independent mode', async () => {
+    const browser = userEvent.setup()
+    const subscription: Subscription = {
+      id: 'subscription-source-mode',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+      analysis_mode: 'full',
+      schedule: { enabled: true, interval_minutes: 60 },
+    }
+    const api = renderSubscriptionForm(subscription)
+
+    expect(screen.getByRole('radio', { name: '单源独立周期' })).toBeChecked()
+    expect(screen.getByRole('button', { name: /单源更新周期/ })).toHaveTextContent('每 1 小时')
+    await browser.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.updateSourceSchedule).toHaveBeenCalledWith(
+      subscription.id,
+      { enabled: true, interval_minutes: 60 },
+    ))
+  })
+
   it('does not render or submit notifications when analysis changes to personal only', async () => {
     const browser = userEvent.setup()
     const subscription: Subscription = {
