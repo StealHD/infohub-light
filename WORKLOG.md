@@ -3051,3 +3051,10 @@
 - 执行验证：首次门禁因新 Worktree 缺少 `eslint` 环境依赖停止；按锁文件安装依赖后，集成树 `test_gate full` 22/22、0 failed/error、207.427 秒，`mapping_miss=false`
 - 结果：经验证集成提交用于快进本地 `main`；YouTube setup alias、RSS 链路、前端、合同、手册、更新日志与完整回归一并保留
 - 安全边界：原 `codex/0727` 脏工作区与任务 Worktree 保持不变；未推送、部署、重建容器、重启 Worker 或触发抓取、AI、通知及付费调用
+
+### 2026-07-28 11:17 Codex
+- 任务：使用现有 HeroUI OSS 设计系统优化更新日志时间线 UI
+- 修改范围：新增语义化复合 Timeline，重构更新日志卡片、时间轴与响应式月份导航，修复无 Hash/单次滚动/多月份历史同步，更新 UI 合同、决策记录、手册、更新日志及回归测试
+- 执行验证：目标 Vitest 11/11、审查修复后 7/7，TypeScript、Lint（0 error）、UI Contract、生产构建、三视口 Playwright 4 passed/2 skipped（连接线几何、无横向溢出、Axe serious/critical 为零及桌面明暗主题）通过；最终 `test_gate full` 22/22、0 failed/error、147.733 秒
+- 结果：每个月份使用紧凑 `ol/li` 时间线，最新条目具有 current 语义，详情全部展开；桌面与窄屏月份导航、Hash 深链、前进后退及 Reduced Motion 行为保持可用
+- 安全边界：未引入 HeroUI Pro、依赖、授权或 Secret，未修改 API、路由、数据库或服务端，未合并、推送、部署或触发真实来源、AI、通知及付费调用

@@ -50,6 +50,17 @@ export { useThemePreference } from './themePreferenceContext'
 export { Tooltip } from './AnchoredTooltip'
 export { anchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
+export { Timeline } from './Timeline'
+export type {
+  TimelineConnectorProps,
+  TimelineContentProps,
+  TimelineDensity,
+  TimelineItemProps,
+  TimelineItemStatus,
+  TimelineMarkerProps,
+  TimelineProps,
+  TimelineRailProps,
+} from './Timeline'
 export {
   CalmSkeleton,
   CompactSelect,

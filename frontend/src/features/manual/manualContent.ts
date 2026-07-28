@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-28',
-  change: '新增公开 YouTube 频道订阅与安全 handle 解析',
+  change: '更新日志采用响应式版本时间线',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -155,7 +155,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '文档与发布',
-        description: '展开侧栏后，账户右侧的独立入口会向上打开“文档与发布”菜单，可选择操作手册、更新日志或 GitHub Release 发布页。',
+        description: '展开侧栏后，账户右侧的独立入口会向上打开“文档与发布”菜单，可选择操作手册、更新日志或 GitHub Release 发布页。更新日志按月份提供响应式导航，并以有序时间线完整展示日期、摘要和详细改动；月份链接可直接定位，所有详情默认展开。',
       },
       {
         title: '账户安全',

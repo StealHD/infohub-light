@@ -652,3 +652,11 @@
 - 解析与展示边界：channel ID 与规范 Feed 本地解析；handle 只允许固定 YouTube HTTPS 主机的一次 10 秒、2 MB、零重定向公共页面请求读取 RSS link，不使用 API Key、Cookie 或登录。频道 Feed 不过滤普通视频、Shorts、公开直播或回放；Presentation 以链接确定性标记 `platform=youtube`、`author.kind=channel`、`format=video`。
 - 原因：把 YouTube 增加为第九种持久化来源会复制 RSS 抓取、健康、计划、通知与去重链路并引入迁移；只把任意频道页当普通 RSS 又无法安全解析 handle、提供明确 UI 或保证同频道去重。setup alias 同时保持用户语义和既有运行链路。
 - 兼容/回退：不支持播放列表、私密频道、视频下载、字幕或评论。handle 上游失败要求重试或改用稳定 channel ID，失败不落库。移除 Web alias 与解析器后，已保存来源仍是可用的规范 RSS，不需要数据回滚。
+
+### D077 更新日志时间线由现有 HeroUI OSS 设计系统独立实现
+
+- 决策日期：2026-07-28
+- 当前状态：本地实现、定向回归、三视口无障碍验收与完整门禁完成；未合并、未推送
+- 决策内容：设计系统新增语义化复合 `Timeline`，固定以 `ol/li`、装饰性 Rail/Marker/Connector、current 状态和 start-axis 布局表达只读版本顺序。更新日志在每个月份内使用紧凑时间线与 HeroUI OSS secondary Card，所有日期、摘要和详细改动默认可见；月份 Hash、桌面右侧目录和窄屏横向选择器继续保留。
+- 原因：平铺文章只能靠大段留白和分隔线表达顺序，长中文版本记录难以快速扫描；公开 Timeline anatomy 恰好适合 release log，但项目不应为单页呈现引入付费包、授权下载和 CI 构建密钥。把最小语义结构放入现有设计系统，可以复用主题、排版、Reduced Motion 与受控导入边界。
+- 兼容/边界：这是依据公开信息架构编写的独立 OSS 实现，不复制或安装 HeroUI Pro 源码。无新依赖、API、路由、数据库、权限或运行配置；changelog 数据类型与全部既有中文条目不变。回退页面与设计系统导出即可恢复原平铺布局，不需要数据迁移。
