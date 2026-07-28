@@ -3210,3 +3210,9 @@
 - 清理范围：归档 3 个已完成关联任务；移除 7 个干净且已被 `main` 包含的 Worktree，并删除其分支及另外 10 个已合并本地分支
 - 执行验证：删除前逐项校验 Worktree 干净、分支为 `main` 祖先，删除过程未使用 `--force`；清理后 `git worktree list` 与本地分支清单复核通过
 - 安全边界：保留本地 `main`、当前脏检出、脏 OpenClaw Worktree、未合并 nginx Worktree、存在会话租约的 OpenClaw Worktree，以及全部未合并分支
+
+### 2026-07-28 16:47 Codex
+- 任务：按用户确认丢弃 `codex/openclaw-panel-model-menu`
+- 清理范围：归档原关联任务，强制移除包含 12 个未提交修改的 Worktree，并删除已被 `main` 包含的本地分支
+- 执行验证：删除前确认目标分支无会话租约且为 `main` 祖先；删除后路径、Worktree 注册和本地分支引用均不存在
+- 安全边界：仅丢弃用户明确指定的第 2 个脏 Worktree；未改动当前 `codex/0728` 的未提交修改及其他保留分支
