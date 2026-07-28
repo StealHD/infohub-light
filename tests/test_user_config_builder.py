@@ -213,6 +213,47 @@ def test_user_config_builder_restricts_member_owned_rss_to_public_network(tmp_pa
     assert data["sources"]["rss"][0]["enforce_public_network"] is True
 
 
+def test_existing_owner_youtube_rss_always_uses_public_network_policy(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Legacy YouTube RSS",
+        config=validate_source_config(
+            "rss",
+            {
+                "url": (
+                    "https://www.youtube.com/feeds/videos.xml?"
+                    "channel_id=UCabcdefghijklmnopqrstuv"
+                ),
+                "keep_latest_item": True,
+            },
+        ),
+        enforce_public_network=False,
+    )
+    store.create_subscription(user_id=owner["id"], source_id=source_id)
+
+    data = build_user_config_data(
+        store=store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        base_config=_base_config(),
+    )
+
+    assert data["sources"]["rss"][0]["enforce_public_network"] is True
+    assert data["sources"]["rss"][0]["keep_latest_item"] is True
+
+
 def test_user_config_builder_applies_30_day_window_to_managed_rsshub(
     tmp_path,
     monkeypatch,

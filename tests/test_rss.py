@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from src.models import RSSSourceConfig
 from src.scrapers.rss import RSSScraper
+from src.services.content_presentation import build_content_presentation
 from src.services import network_policy
 
 
@@ -99,6 +100,112 @@ def test_personal_rss_returns_all_in_window_items_and_marks_only_newest() -> Non
         ]
         == "time_window"
     )
+
+
+YOUTUBE_ATOM_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns:media="http://search.yahoo.com/mrss/">
+  <id>yt:channel:UCabcdefghijklmnopqrstuv</id>
+  <title>Example Channel</title>
+  <author><name>Example Channel</name></author>
+  <entry>
+    <id>yt:video:normal-video</id>
+    <yt:videoId>normal-video</yt:videoId>
+    <title>Normal video</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=normal-video"/>
+    <author><name>Example Channel</name></author>
+    <published>2026-07-27T12:00:00+00:00</published>
+    <media:group>
+      <media:content url="https://www.youtube.com/v/normal-video" type="video/mp4" medium="video"/>
+      <media:description>Normal description</media:description>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:short-video</id>
+    <yt:videoId>short-video</yt:videoId>
+    <title>Short video</title>
+    <link rel="alternate" href="https://www.youtube.com/shorts/short-video"/>
+    <author><name>Example Channel</name></author>
+    <published>2026-07-26T12:00:00+00:00</published>
+    <media:group>
+      <media:content url="https://www.youtube.com/v/short-video" type="video/mp4" medium="video"/>
+      <media:description>Short description</media:description>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:live-replay</id>
+    <yt:videoId>live-replay</yt:videoId>
+    <title>Public live replay</title>
+    <link rel="alternate" href="https://www.youtube.com/live/live-replay"/>
+    <author><name>Example Channel</name></author>
+    <published>2026-07-25T12:00:00+00:00</published>
+    <media:group>
+      <media:content url="https://www.youtube.com/v/live-replay" type="video/mp4" medium="video"/>
+      <media:description>Live replay description</media:description>
+    </media:group>
+  </entry>
+</feed>
+"""
+
+
+def _fetch_youtube_fixture(*, since: datetime, keep_latest_item: bool):
+    response = MagicMock()
+    response.text = YOUTUBE_ATOM_FEED
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+    source = RSSSourceConfig(
+        name="Example Channel",
+        url=(
+            "https://www.youtube.com/feeds/videos.xml?"
+            "channel_id=UCabcdefghijklmnopqrstuv"
+        ),
+        keep_latest_item=keep_latest_item,
+    )
+    return asyncio.run(RSSScraper([source], client).fetch(since))
+
+
+def test_youtube_atom_includes_video_shorts_and_public_live_replay():
+    first = _fetch_youtube_fixture(
+        since=datetime(2026, 7, 25, tzinfo=timezone.utc),
+        keep_latest_item=True,
+    )
+    second = _fetch_youtube_fixture(
+        since=datetime(2026, 7, 25, tzinfo=timezone.utc),
+        keep_latest_item=True,
+    )
+
+    assert [item.title for item in first] == [
+        "Normal video",
+        "Short video",
+        "Public live replay",
+    ]
+    assert [str(item.url) for item in first] == [
+        "https://www.youtube.com/watch?v=normal-video",
+        "https://www.youtube.com/shorts/short-video",
+        "https://www.youtube.com/live/live-replay",
+    ]
+    assert [item.id for item in first] == [item.id for item in second]
+    assert all(item.author == "Example Channel" for item in first)
+    assert first[0].published_at == datetime(
+        2026, 7, 27, 12, tzinfo=timezone.utc
+    )
+    for item in first:
+        presentation = build_content_presentation(item)
+        assert presentation["source"]["platform"] == "youtube"
+        assert presentation["author"]["kind"] == "channel"
+        assert presentation["content"]["format"] == "video"
+
+
+def test_youtube_initial_empty_window_keeps_only_latest_video():
+    items = _fetch_youtube_fixture(
+        since=datetime(2026, 7, 28, tzinfo=timezone.utc),
+        keep_latest_item=True,
+    )
+
+    assert [item.title for item in items] == ["Normal video"]
+    assert items[0].metadata["retention_policy"] == "latest_per_source"
 
 
 def test_rss_ids_are_deterministic() -> None:

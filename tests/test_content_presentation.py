@@ -210,6 +210,9 @@ def test_direct_media_and_source_rules_override_ai_format() -> None:
         )
         assert video["content"]["format"] == "video"
         assert video["content"]["format_origin"] == "deterministic"
+        if "youtube.com" in url:
+            assert video["source"]["platform"] == "youtube"
+            assert video["author"]["kind"] == "channel"
 
 
 def test_ai_format_is_reused_only_when_stronger_evidence_is_absent() -> None:
@@ -258,12 +261,29 @@ def test_release_discussion_and_legacy_snapshot_formats_are_compatible() -> None
             "media_urls": ["/api/media/one"],
         }
     )
+    legacy_youtube = complete_content_presentation(
+        {
+            "id": "rss:youtube:legacy",
+            "source_type": "rss",
+            "source": "Example Channel",
+            "author": "Example Channel",
+            "url": "https://www.youtube.com/watch?v=legacy",
+            "title": "Legacy video",
+            "presentation": {
+                "source": {"platform": "rss"},
+                "author": {"kind": "person"},
+            },
+        }
+    )
 
     assert release["content"]["format"] == "release"
     assert discussion["content"]["format"] == "discussion"
     assert legacy["content"]["format"] == "image"
     assert legacy["content"]["format_origin"] == "deterministic"
     assert legacy["media"]["total_image_count"] == 1
+    assert legacy_youtube["source"]["platform"] == "youtube"
+    assert legacy_youtube["author"]["kind"] == "channel"
+    assert legacy_youtube["content"]["format"] == "video"
 
 
 def test_feed_serializer_includes_presentation_and_keeps_raw_content_out() -> None:

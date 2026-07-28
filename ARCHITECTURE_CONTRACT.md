@@ -58,7 +58,7 @@ Service UI 在小团体服务模式下必须先完成登录门禁，再加载用
 用户 Feed item 的已读、收藏、稍后读和忽略状态归 `src/services/user_item_state.py` 管理。写入前必须用当前 snapshot 或 `user_content_items` 稳定索引校验当前用户可见边界；不可见 item 不得落行为数据。选中内容不产生隐式已读写入。旧 feedback 写入路径只兼容保留，不进入默认 UI，也不改变 Feed 过滤、排序或推荐。
 
 ### 3.6B Source Catalog Boundary
-`src/services/source_type_registry.py` 是 Service API source type 元数据、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`src/rsshub.py` 只拥有 workspace RSSHub Base URL、受控站点/route allowlist、语义 source key、runtime feed URL 与 route-scoped access code 解析；RSSHub 不得成为独立 catalog type。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action、Remote MCP 和 Worker 都必须复用这些边界，避免在路由、前端、Skill 或任务执行层散落 source 类型与 RSSHub path 规则。
+`src/services/source_type_registry.py` 是 Service API source type 元数据、Web setup alias、catalog config 校验、`source_key` 生成和 Worker payload 生成的唯一规则入口。`youtube_channel` 只是一等 Web setup alias，必须规范化并存储为 catalog `rss`；既有规范 YouTube channel RSS 由 registry 派生相同 setup type，不增加数据库 enum 或 scraper。`src/services/youtube_channel.py` 独占公开 channel ID/链接/handle 解析，只能从固定 YouTube 主机执行一次有界、无重定向的公共 HTML 读取；API、Worker 和前端不得自行解析 handle 或接受任意解析 URL。`src/rsshub.py` 只拥有 workspace RSSHub Base URL、受控站点/route allowlist、语义 source key、runtime feed URL 与 route-scoped access code 解析；RSSHub 不得成为独立 catalog type。`/api/catalog/sources`、`/api/catalog/import-config-sources`、配置页兼容 source action、Remote MCP 和 Worker 都必须复用这些边界，避免在路由、前端、Skill 或任务执行层散落 source 类型与 RSSHub path 规则。
 
 `source_catalog.source_key` 是同 workspace 内 source 的幂等身份键。旧 `data/config.json` source 导入、同一操作者的重复/并发 catalog 写入和后续 source 市场同步必须按 `source_key` 更新已有 source，不得制造重复公共源；另一用户拥有的 private source 不得因 key 碰撞被返回、接管或覆盖。Telegram 这类字段名复用的来源必须在 registry/API helper 中区分“源身份字段”和“Hub 分类字段”。
 

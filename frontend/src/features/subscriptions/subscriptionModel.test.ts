@@ -218,6 +218,12 @@ describe('subscription model', () => {
     const failed: Job = { id: 'job-2', user_id: 'user-1', job_type: 'source_fetch', source_id: 'src-1', status: 'failed', error_message: '连接超时' }
 
     expect(sourceTypeLabel('github_release')).toBe('GitHub 发布')
+    expect(sourceTypeLabel('youtube_channel')).toBe('YouTube 频道')
+    expect(subscriptionModel.effectiveSourceType({
+      ...source,
+      setup_type: 'youtube_channel',
+    })).toBe('youtube_channel')
+    expect(subscriptionModel.effectiveSourceType(source)).toBe('rss')
     expect(presentJob(queued, new Map())).toMatchObject({ title: '更新整个信息流', statusLabel: '等待后台处理', resultLabel: '尚未产生结果' })
     expect(presentJob(failed, new Map([['src-1', source]]))).toMatchObject({ title: '抓取单个来源', statusLabel: '失败', sourceName: 'RSS', detail: '连接超时' })
     expect(presentJob(queued, new Map())).not.toHaveProperty('job_type')

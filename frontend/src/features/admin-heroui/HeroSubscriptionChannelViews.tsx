@@ -16,6 +16,7 @@ import {
   topAnchoredTooltipProps,
 } from '../../design-system'
 import {
+  effectiveSourceType,
   presentSourceHealthIssue,
   presentSourceHealthStatus,
   sourceScopeLabel,
@@ -471,7 +472,7 @@ export function SubscriptionRows({ items, editable, onFetch, onToggleNotificatio
       >
         <div data-source-card-header className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1">
-            <SourceIdentity source={source} detail={`${sourceTypeLabel(source.type)} · ${sourceScopeLabel(source.scope)}`} />
+            <SourceIdentity source={source} detail={`${sourceTypeLabel(effectiveSourceType(source))} · ${sourceScopeLabel(source.scope)}`} />
           </div>
           <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
           {entry.canEdit && <SourceEditAction
@@ -567,7 +568,7 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
       >
         <div data-source-card-header className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1">
-            <SourceIdentity source={source} detail={`${sourceTypeLabel(source.type)} · ${source.description || '暂无说明'}`} />
+            <SourceIdentity source={source} detail={`${sourceTypeLabel(effectiveSourceType(source))} · ${source.description || '暂无说明'}`} />
           </div>
           <MetaTag icon={source.scope === 'private' ? <Icons.Lock size={12} aria-hidden="true" /> : <Icons.Globe2 size={12} aria-hidden="true" />}>
             {sourceScopeLabel(source.scope)}

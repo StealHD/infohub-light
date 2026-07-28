@@ -4,7 +4,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -236,6 +238,198 @@ def test_catalog_source_post_is_idempotent_by_workspace_source_key(tmp_path, mon
     sources = client.get("/api/catalog/sources").json()["data"]["sources"]
     matching = [source for source in sources if source["source_key"] == "rss:https://example.com/stable.xml"]
     assert len(matching) == 1
+
+
+def test_youtube_channel_setup_is_canonical_rss_and_idempotent(
+    tmp_path,
+    monkeypatch,
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    canonical = (
+        "https://www.youtube.com/feeds/videos.xml?"
+        f"channel_id={channel_id}"
+    )
+    payload = {
+        "type": "youtube_channel",
+        "display_name": "YouTube Channel",
+        "config": {"url": channel_id},
+    }
+
+    first = client.post("/api/catalog/sources", json=payload)
+    second = client.post(
+        "/api/catalog/sources",
+        json={
+            **payload,
+            "display_name": "Same Channel",
+            "config": {"url": f"https://youtube.com/channel/{channel_id}"},
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    source = second.json()["data"]
+    assert source["id"] == first.json()["data"]["id"]
+    assert source["type"] == "rss"
+    assert source["setup_type"] == "youtube_channel"
+    assert source["source_key"] == f"rss:{canonical}"
+    assert source["config"]["url"] == canonical
+    assert source["config"]["keep_latest_item"] is True
+    assert ServiceStore(data_dir).get_source(source["id"])[
+        "enforce_public_network"
+    ] is True
+
+    subscribed = client.post(
+        f"/api/catalog/sources/{source['id']}/subscribe"
+    )
+    assert subscribed.status_code == 200
+    assert client.get("/api/jobs").json()["data"]["jobs"] == []
+
+
+def test_existing_youtube_rss_projects_setup_type_without_migration(
+    tmp_path,
+    monkeypatch,
+):
+    client, _ = _client(tmp_path, monkeypatch)
+    _login(client)
+    canonical = (
+        "https://www.youtube.com/feeds/videos.xml?"
+        "channel_id=UCabcdefghijklmnopqrstuv"
+    )
+
+    existing = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "rss",
+            "display_name": "Existing RSS Row",
+            "config": {
+                "url": canonical.replace("www.youtube.com", "youtube.com")
+            },
+        },
+    )
+    alias = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "youtube_channel",
+            "display_name": "Existing RSS Row",
+            "config": {"url": "UCabcdefghijklmnopqrstuv"},
+        },
+    )
+
+    assert existing.status_code == 200
+    assert alias.status_code == 200
+    assert alias.json()["data"]["id"] == existing.json()["data"]["id"]
+    assert alias.json()["data"]["source_key"] == f"rss:{canonical}"
+    assert alias.json()["data"]["type"] == "rss"
+    assert alias.json()["data"]["setup_type"] == "youtube_channel"
+
+
+def test_youtube_handle_create_and_patch_use_bounded_resolver(
+    tmp_path,
+    monkeypatch,
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    canonical = (
+        "https://www.youtube.com/feeds/videos.xml?"
+        f"channel_id={channel_id}"
+    )
+    fetcher = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text=(
+                '<link rel="alternate" type="application/rss+xml" '
+                f'href="{canonical}">'
+            ),
+            request=httpx.Request(
+                "GET", "https://www.youtube.com/@GoogleDevelopers"
+            ),
+        )
+    )
+    client.app.state.youtube_channel_resolver.fetcher = fetcher
+
+    created = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "youtube_channel",
+            "display_name": "Google Developers",
+            "config": {"url": "@GoogleDevelopers"},
+        },
+    )
+    source = created.json()["data"]
+    patched = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={
+            "config": {
+                "url": "https://youtube.com/@GoogleDevelopers/videos",
+                "keep_latest_item": False,
+            }
+        },
+    )
+
+    assert created.status_code == 200
+    assert patched.status_code == 200
+    assert patched.json()["data"]["setup_type"] == "youtube_channel"
+    assert patched.json()["data"]["config"]["url"] == canonical
+    assert patched.json()["data"]["config"]["keep_latest_item"] is False
+    rejected_secret = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={"secret_env": "YOUTUBE_API_KEY"},
+    )
+    assert rejected_secret.status_code == 400
+    assert rejected_secret.json()["error"]["code"] == "invalid_source_config"
+    assert ServiceStore(data_dir).get_source(source["id"])["secret_env"] is None
+    assert fetcher.await_count == 2
+    assert all(
+        call.kwargs["max_redirects"] == 0
+        and call.kwargs["timeout"] == 10.0
+        and call.kwargs["max_response_bytes"] == 2_000_000
+        for call in fetcher.await_args_list
+    )
+
+
+def test_youtube_resolution_failures_do_not_persist_sources(
+    tmp_path,
+    monkeypatch,
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    fetcher = AsyncMock(
+        return_value=httpx.Response(
+            404,
+            text="unsafe upstream detail",
+            request=httpx.Request("GET", "https://www.youtube.com/@Missing"),
+        )
+    )
+    client.app.state.youtube_channel_resolver.fetcher = fetcher
+
+    missing = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "youtube_channel",
+            "display_name": "Missing",
+            "config": {"url": "@Missing"},
+        },
+    )
+    invalid = client.post(
+        "/api/catalog/sources",
+        json={
+            "type": "youtube_channel",
+            "display_name": "Video URL",
+            "config": {"url": "https://www.youtube.com/watch?v=example"},
+        },
+    )
+
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "youtube_channel_not_found"
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "invalid_source_config"
+    assert ServiceStore(data_dir).list_visible_sources(
+        client.get("/api/auth/status").json()["data"]["user"]
+    ) == []
 
 
 def test_private_source_share_reuses_content_and_keeps_subscribers_isolated(tmp_path, monkeypatch):
@@ -1518,7 +1712,12 @@ def test_catalog_source_types_endpoint_and_validated_source_writes(tmp_path, mon
     _login(client)
     source_types = client.get("/api/catalog/source-types")
     assert source_types.status_code == 200
-    assert "github_release" in {item["type"] for item in source_types.json()["data"]["source_types"]}
+    type_map = {
+        item["type"]: item
+        for item in source_types.json()["data"]["source_types"]
+    }
+    assert "github_release" in type_map
+    assert type_map["youtube_channel"]["catalog_source_type"] == "rss"
 
     invalid_config = client.post(
         "/api/catalog/sources",

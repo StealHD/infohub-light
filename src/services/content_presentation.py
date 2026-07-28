@@ -67,6 +67,14 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
+def _is_youtube_url(value: Any) -> bool:
+    try:
+        host = (urlparse(str(value or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in {"youtu.be", "youtube.com", "www.youtube.com"}
+
+
 def _isoformat(value: datetime | None) -> str:
     if value is None:
         return ""
@@ -234,11 +242,15 @@ def complete_content_presentation(item: dict[str, Any]) -> dict[str, Any]:
     source.setdefault("catalog_type", source_type)
     source.setdefault("platform", source_type)
     source.setdefault("name", str(item.get("source") or source_type))
+    if _is_youtube_url(item_url):
+        source["platform"] = "youtube"
 
     author = _section(presentation.get("author"))
     author.setdefault("name", str(item.get("author") or ""))
     if author.get("kind") not in _AUTHOR_KINDS:
         author["kind"] = "unknown"
+    if _is_youtube_url(item_url):
+        author["kind"] = "channel"
 
     timing = _section(presentation.get("timing"))
     timing.setdefault("published_at", str(item.get("published_at") or ""))
@@ -363,6 +375,8 @@ def _platform(item: ContentItem) -> str:
     platform = str(item.metadata.get("apify_platform") or "").strip().lower()
     if platform == "twitter":
         return "x"
+    if _is_youtube_url(item.url):
+        return "youtube"
     return platform or item.source_type.value
 
 
@@ -382,6 +396,8 @@ def _source_name(item: ContentItem) -> str:
 
 def _author_kind(item: ContentItem) -> str:
     catalog_type = str(item.metadata.get("catalog_source_type") or "")
+    if _is_youtube_url(item.url):
+        return "channel"
     if catalog_type == "telegram_channel" or item.source_type == SourceType.TELEGRAM:
         return "channel"
     if catalog_type in {"github_release", "github_user"}:

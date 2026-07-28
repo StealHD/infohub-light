@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-26',
-  change: 'v1.7.7：状态图标化、渐进危险操作、设置悬浮目录与 OpenClaw 输入法修复',
+  reviewedAt: '2026-07-28',
+  change: '新增公开 YouTube 频道订阅与安全 handle 解析',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -74,6 +74,10 @@ export const manualSections: ManualSection[] = [
       {
         title: '公共与私人',
         description: '公共订阅可被工作区成员发现，私人订阅只对创建者可见。旧的 workspace 来源会作为公共订阅显示。订阅共享来源时，只复用能够确认来源原始标题的历史内容，并按当前账户的频道、主题、个人标签和分析模式重新生成；缺少可信原始标题的旧内容不会预填，也不会继承其他成员的 AI 翻译标题、偏好、分析结果、阅读状态或内容图片。',
+      },
+      {
+        title: '订阅 YouTube 公开频道',
+        description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。普通视频、Shorts、公开直播及回放都沿用频道 Feed 收录；“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
       },
       {
         title: '全部订阅自动更新',

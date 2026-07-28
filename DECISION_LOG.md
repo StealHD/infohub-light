@@ -643,3 +643,12 @@
 - 输入边界：OpenClaw 编辑器在 composition ref、原生 `isComposing` 或 WebKit `keyCode=229` 任一成立时，把 Enter 只交给输入法确认且不发送；普通 Enter 仍单次发送，Shift+Enter 换行。不采用时间防抖，以免吞掉下一次真实提交。
 - 原因：常驻红色操作和文字状态在高密度卡片中抢占了正文注意力，设置页目录长期占宽，Tab 数量又把运行历史误表现成需要持续关注的徽标；同时中文输入法确认候选会经过 Enter，若只按键名判断就会在句子未完成时误发。
 - 兼容/边界：本决策明确替代 D074 中“状态必须常驻文字”和“来源分享/编辑同一 More”的呈现约定，不改变其安全事件投影。复用既有订阅、来源、任务、Agent delegation 与设备移除接口，不新增数据库、Service API、Gateway schema、权限或持久化；最近运行只陈述现有最多 100 条返回记录，不宣称全量历史。
+
+### D076 YouTube 频道作为 RSS 存储之上的一等 setup 类型
+
+- 决策日期：2026-07-28
+- 当前状态：本地实现与完整验证完成；未合并、未推送、未部署
+- 决策内容：Web 新增 `youtube_channel` setup alias，但数据库、Worker 和 scraper 继续使用 `type=rss` 与 `rss:<canonical-feed-url>`；规范 channel feed 的既有 RSS 行通过派生 `setup_type` 原位识别。公开 channel ID、频道链接、规范 Feed 与 handle 最终统一为 `https://www.youtube.com/feeds/videos.xml?channel_id=…`，默认 `keep_latest_item=true`。
+- 解析与展示边界：channel ID 与规范 Feed 本地解析；handle 只允许固定 YouTube HTTPS 主机的一次 10 秒、2 MB、零重定向公共页面请求读取 RSS link，不使用 API Key、Cookie 或登录。频道 Feed 不过滤普通视频、Shorts、公开直播或回放；Presentation 以链接确定性标记 `platform=youtube`、`author.kind=channel`、`format=video`。
+- 原因：把 YouTube 增加为第九种持久化来源会复制 RSS 抓取、健康、计划、通知与去重链路并引入迁移；只把任意频道页当普通 RSS 又无法安全解析 handle、提供明确 UI 或保证同频道去重。setup alias 同时保持用户语义和既有运行链路。
+- 兼容/回退：不支持播放列表、私密频道、视频下载、字幕或评论。handle 上游失败要求重试或改用稳定 channel ID，失败不落库。移除 Web alias 与解析器后，已保存来源仍是可用的规范 RSS，不需要数据回滚。

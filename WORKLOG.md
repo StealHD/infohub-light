@@ -3025,3 +3025,22 @@
 - 结果：产品 revision `74c7b16d715b` 已发布，API 与 Worker 使用同一镜像 `sha256:8f19c5668e8b88104a6c58c10e730d8e6b97ff565520929f5dc2caa018d212b5`；Worker 探针 timeout 为 10 秒，legacy scheduler 保持停止
 - 发布/回退：当前 release 为 `/opt/inteliscope/releases/v1.7.4-74c7b16d715b`；切换前 `0600` 备份位于 `/opt/inteliscope/backups/pre-v1.7.4-74c7b16d715b-20260726T160025Z`，旧 release/image 保留
 - 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未运行真实来源抓取、AI、完整 scheduler、通知或付费服务，部署 staging 与上传归档验收后已清理
+
+### 2026-07-28 10:13 Codex
+- 任务：在独立分支实现一等的 YouTube 公开频道订阅
+- 修改范围：频道输入解析与 RSS 规范化、来源类型投影和去重、Feed 展示标记、创建/编辑/筛选界面、API/UI 合同、默认能力、决策记录、手册、更新日志及回归测试
+- 执行验证：后端定向与 API/Remote MCP 回归、Vitest 47/47、TypeScript、Lint（0 error）、UI Gate、生产构建、三视口 Playwright 3/3 及有界官方频道上游 smoke 通过；本机合成 DNS 下应用请求按 SSRF 策略安全拒绝；最终 `test_gate full` 22/22、0 failed/error、131.883 秒
+- 结果：`youtube_channel` 作为 `rss` setup alias 保存规范 channel Feed，默认保留空窗口最近一条，并复用既有订阅、抓取、健康、计划与通知链路
+- 安全边界：handle 仅通过固定 YouTube 主机的一次 10 秒/2 MB/无重定向公开请求解析；未使用凭据、持久化 smoke 数据、运行 AI/完整 scheduler/付费服务，也未合并、推送或部署
+
+### 2026-07-28 10:23 Codex
+- 任务：启动 YouTube 频道订阅分支的本地容器供页面验收
+- 执行验证：无缓存构建 revision `e9dc8a10c8f5` 镜像，复用原工作区本地配置与数据启动 API；liveness、readiness 与根页面均返回 200，API 容器 healthy
+- 结果：页面运行于 `http://127.0.0.1:8080`；为避免继续执行到期来源计划，Worker 已停止，API 以不依赖 Worker 的 readiness 模式运行
+- 安全边界：未启动 scheduler、AI、推送或部署；Worker 初次启动时已领取并成功完成两个原有到期 `source_fetch`（一个 RSS、一个 Apify），随后立即停止；当前无 queued/running 任务且无通知投递记录
+
+### 2026-07-28 10:30 Codex
+- 任务：排查订阅页“全部订阅自动更新”显示后台服务不可用
+- 执行验证：浏览器复核订阅卡状态，API liveness/readiness、Compose 容器状态与前端 `worker_status` 映射一致
+- 结果：API 与数据库正常；根因是上一任务为阻止到期计划继续触发真实抓取而主动停止 Worker，Worker heartbeat 变为 `stale`，前端按合同显示“后台服务不可用”
+- 安全边界：仅只读诊断并记录结果，未重启 Worker、修改计划、创建任务、触发抓取、AI、通知或付费调用
