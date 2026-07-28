@@ -11,6 +11,9 @@ async function mockAdminApi(page: Page, authenticated = true) {
   let releaseQuotaRefresh: (() => void) | null = null
   let sourceFetchGate: Promise<void> | null = null
   let releaseSourceFetch: (() => void) | null = null
+  let youtubeCreated = false
+  let youtubeKeepLatest = true
+  const youtubeCreatePayloads: Array<Record<string, unknown>> = []
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const url = new URL(route.request().url())
     let data: unknown
@@ -32,12 +35,101 @@ async function mockAdminApi(page: Page, authenticated = true) {
         },
       }
     }
-    else if (url.pathname === '/api/catalog/sources') data = { sources: [
+    else if (url.pathname === '/api/catalog/sources' && route.request().method() === 'POST') {
+      const payload = route.request().postDataJSON() as Record<string, unknown>
+      youtubeCreatePayloads.push(payload)
+      const config = payload.config as Record<string, unknown>
+      if (config.url === '@Missing') {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            error: {
+              code: 'youtube_channel_not_found',
+              message: 'unsafe upstream detail',
+              retryable: false,
+            },
+          }),
+        })
+        return
+      }
+      youtubeCreated = true
+      youtubeKeepLatest = config.keep_latest_item !== false
+      data = {
+        id: 'source-youtube',
+        type: 'rss',
+        setup_type: 'youtube_channel',
+        display_name: String(payload.display_name || 'Google Developers'),
+        description: '',
+        scope: 'public',
+        default_channel: 'AI',
+        default_topics: [],
+        config: {
+          url: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv',
+          keep_latest_item: youtubeKeepLatest,
+        },
+        enabled: true,
+      }
+    }
+    else if (url.pathname === '/api/catalog/sources/source-youtube' && route.request().method() === 'PATCH') {
+      const payload = route.request().postDataJSON() as { config?: Record<string, unknown> }
+      youtubeKeepLatest = payload.config?.keep_latest_item !== false
+      data = {
+        id: 'source-youtube',
+        type: 'rss',
+        setup_type: 'youtube_channel',
+        display_name: 'Google Developers',
+        description: '',
+        scope: 'public',
+        default_channel: 'AI',
+        default_topics: [],
+        config: {
+          url: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv',
+          keep_latest_item: youtubeKeepLatest,
+        },
+        enabled: true,
+      }
+    }
+    else if (url.pathname === '/api/catalog/sources/source-youtube/subscribe' && route.request().method() === 'POST') {
+      data = {
+        subscription: {
+          id: 'subscription-youtube',
+          user_id: owner.id,
+          source_id: 'source-youtube',
+          source_display_name: 'Google Developers',
+          source_type: 'rss',
+          enabled: true,
+          analysis_mode: 'full',
+          priority: 0,
+        },
+      }
+    }
+    else if (url.pathname === '/api/catalog/sources' && route.request().method() === 'GET') data = { sources: [
       { id: 'source-1', type: 'rss', display_name: 'OpenAI Blog', description: '官方产品与研究动态', scope: 'workspace', default_channel: 'AI', default_topics: ['Codex'], enabled: true },
       { id: 'source-2', type: 'rss', display_name: 'Product Notes', description: '产品机会观察', scope: 'public', default_channel: '产品机会', default_topics: ['产品'], enabled: true },
+      ...(youtubeCreated ? [{
+        id: 'source-youtube',
+        type: 'rss',
+        setup_type: 'youtube_channel',
+        display_name: 'Google Developers',
+        description: '',
+        scope: 'public',
+        default_channel: 'AI',
+        default_topics: [],
+        config: {
+          url: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv',
+          keep_latest_item: youtubeKeepLatest,
+        },
+        enabled: true,
+      }] : []),
     ] }
     else if (url.pathname === '/api/catalog/source-types') data = { source_types: [
-      { type: 'rss', label: 'RSS/Atom', fields: [{ name: 'url', label: 'RSS 地址', input_type: 'url', required: true, default: '' }] },
+      { type: 'rss', catalog_source_type: 'rss', label: 'RSS/Atom', fields: [{ name: 'url', label: 'RSS 地址', input_type: 'url', required: true, default: '' }] },
+      { type: 'youtube_channel', catalog_source_type: 'rss', label: 'YouTube 频道', fields: [
+        { name: 'url', label: 'YouTube 频道地址或 @handle', input_type: 'text', required: true, default: null, help: '支持公开频道链接、@handle、频道 ID 或规范 Feed 地址。' },
+        { name: 'keep_latest_item', label: '保留最新内容', input_type: 'boolean', required: false, default: true, help: '时间窗口为空时仅保留最近一条。' },
+      ] },
     ] }
     else if (url.pathname === '/api/me/subscriptions/subscription-1' && route.request().method() === 'PATCH') {
       const payload = route.request().postDataJSON() as { notify_on_new_items?: boolean }
@@ -47,6 +139,7 @@ async function mockAdminApi(page: Page, authenticated = true) {
     else if (url.pathname === '/api/me/subscriptions') data = { subscriptions: [
       { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
       ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
+      ...(youtubeCreated ? [{ id: 'subscription-youtube', user_id: owner.id, source_id: 'source-youtube', source_display_name: 'Google Developers', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
     else if (url.pathname === '/api/me/source-health') data = {
       schema_version: 1,
@@ -205,6 +298,7 @@ async function mockAdminApi(page: Page, authenticated = true) {
       })
     },
     releaseSourceFetch: () => releaseSourceFetch?.(),
+    youtubeCreatePayloads: () => youtubeCreatePayloads,
   }
 }
 
@@ -735,6 +829,73 @@ test('subscription channels stay compact, actionable and accessible at every acc
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   expect(consoleErrors).toEqual([])
+})
+
+test('YouTube channel creation, errors, filtering and editing work at every acceptance viewport', async ({ page }) => {
+  const apiState = await mockAdminApi(page)
+  await page.goto('/subscriptions')
+
+  const addSource = page.getByRole('button', { name: '新增来源' })
+  await addSource.focus()
+  await page.keyboard.press('Enter')
+  const createDialog = page.getByRole('dialog', { name: '新增来源' })
+  await createDialog.getByRole('button', { name: '来源类型' }).click()
+  await page.getByRole('option', { name: 'YouTube 频道' }).click()
+
+  const latestItem = createDialog.getByRole('checkbox', { name: '保留最新内容' })
+  await expect(latestItem).toBeChecked()
+  await expect(createDialog.getByText(/时间窗口为空时仅保留最近一条/)).toBeVisible()
+  await expect(createDialog.getByText(/API Key|Cookie/)).toHaveCount(0)
+  await createDialog.getByRole('textbox', { name: '来源名称' }).fill('Google Developers')
+  const channelInput = createDialog.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' })
+  await channelInput.fill('@Missing')
+  await createDialog.getByRole('button', { name: '创建并订阅' }).click()
+  await expect(createDialog.getByText('未找到这个 YouTube 频道，请检查链接或改用频道 ID。')).toBeVisible()
+  await expect(createDialog.getByText('unsafe upstream detail')).toHaveCount(0)
+
+  await channelInput.fill('@GoogleDevelopers')
+  await createDialog.getByRole('button', { name: '创建并订阅' }).click()
+  await expect(createDialog).toHaveCount(0)
+  await expect(page.getByText('来源已创建并订阅', { exact: true })).toBeVisible()
+  expect(apiState.youtubeCreatePayloads()).toHaveLength(2)
+  expect(apiState.youtubeCreatePayloads()[1]).toMatchObject({
+    type: 'youtube_channel',
+    display_name: 'Google Developers',
+    config: {
+      url: '@GoogleDevelopers',
+      keep_latest_item: true,
+    },
+  })
+
+  const youtubeCard = page.getByRole('listitem', { name: /Google Developers 订阅来源/ })
+  await expect(youtubeCard).toBeVisible()
+  await expect(youtubeCard.getByText(/YouTube 频道/)).toBeVisible()
+
+  await page.getByRole('button', { name: /筛选来源，已启用 0 项/ }).click()
+  const filterDialog = page.getByRole('dialog', { name: '筛选来源' })
+  await filterDialog.getByRole('button', { name: '来源类型' }).click()
+  await page.getByRole('option', { name: 'YouTube 频道' }).click()
+  await filterDialog.getByRole('button', { name: '完成' }).click()
+  await expect(youtubeCard).toBeVisible()
+  await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toHaveCount(0)
+
+  await youtubeCard.getByRole('button', { name: '编辑来源：Google Developers' }).click()
+  const editDialog = page.getByRole('dialog', { name: 'Google Developers · 来源设置' })
+  await expect(editDialog.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' })).toHaveValue(
+    'https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv',
+  )
+  const editLatest = editDialog.getByRole('checkbox', { name: '保留最新内容' })
+  await expect(editLatest).toBeChecked()
+  await editLatest.focus()
+  await page.keyboard.press('Space')
+  await expect(editLatest).not.toBeChecked()
+  await editDialog.getByRole('button', { name: '保存来源' }).click()
+  await expect(editDialog).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('subscription semantic UI matches light and dark visual baselines at every acceptance viewport', async ({ page }) => {

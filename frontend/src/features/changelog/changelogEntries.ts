@@ -22,6 +22,18 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 7 月',
     entries: [
       {
+        date: '2026-07-28',
+        title: '可直接订阅 YouTube 公开频道',
+        summary: '频道链接、@handle、频道 ID 和规范 Feed 都会归一到同一来源，并继续复用现有订阅、获取、健康与通知流程。',
+        items: [
+          { title: '频道输入更灵活', description: '新增来源中提供“YouTube 频道”，支持公开频道链接、@handle、UC 开头的频道 ID 和规范 Feed 地址；不同写法不会重复创建同一频道。' },
+          { title: '公开视频完整收录', description: '普通视频、Shorts、公开直播与回放都按频道公开 Feed 进入信息流，并统一显示为 YouTube 频道视频。' },
+          { title: '首次只补一条', description: '默认开启“保留最新内容”；首次时间窗口为空时只保留最近一条，不会批量导入频道历史。' },
+          { title: '无密钥安全解析', description: 'handle 仅通过固定 YouTube 公共页面进行一次有界解析，不使用 API Key、Cookie 或登录状态；失败会在创建弹窗中给出可操作提示且不会保存半成品来源。' },
+          { title: '现有流程保持一致', description: '创建并订阅后不自动抓取；可继续使用“立即获取”、自动计划、来源健康和新内容通知。既有规范 YouTube RSS 会自动显示为 YouTube 频道。' },
+        ],
+      },
+      {
         date: '2026-07-26',
         title: '状态更安静，中文输入不再误发',
         summary: '高密度状态和卡片操作改为图标与渐进披露，设置目录移到桌面侧栏，并修复 OpenClaw 中文输入法确认候选时提前发送。',

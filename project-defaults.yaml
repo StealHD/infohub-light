@@ -164,6 +164,9 @@
         "apify_social",
         "hackernews"
       ],
+      "service_catalog_setup_aliases": {
+        "youtube_channel": "rss"
+      },
       "real_source_smoke_required": [
         "rss_github_blog",
         "hackernews_top",

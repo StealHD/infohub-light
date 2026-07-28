@@ -76,10 +76,16 @@ from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
     SourceConfigError,
-    list_source_types,
+    YOUTUBE_CHANNEL_SETUP_TYPE,
+    catalog_source_setup_type,
+    list_source_setup_types,
     source_key as build_source_key,
     validate_secret_env_name,
     validate_source_config,
+)
+from ..services.youtube_channel import (
+    YouTubeChannelError,
+    YouTubeChannelResolver,
 )
 from ..storage.service_store import (
     AGENT_DELEGATION_MAX_ACTIVE,
@@ -536,6 +542,7 @@ def create_app(
     queue = JobQueue(store)
     runtime_status = RuntimeStatusService(store)
     source_health = SourceHealthService(store)
+    youtube_channels = YouTubeChannelResolver()
     secret_values = SecretStore(data_path)
     secret_quota = ApifySecretQuotaService()
     secret_values.load_into_environ()
@@ -655,6 +662,10 @@ def create_app(
     def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         item = dict(source)
         item.pop("enforce_public_network", None)
+        item["setup_type"] = catalog_source_setup_type(
+            str(source.get("type") or ""),
+            source.get("config"),
+        )
         avatar = media_cache.avatar_for_source(
             workspace_id=str(source["workspace_id"]),
             source_id=str(source["id"]),
@@ -808,6 +819,7 @@ def create_app(
     app.state.preferred_source_notifications = preferred_source_notifications
     app.state.workspace_email_transport = workspace_email_transport
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
+    app.state.youtube_channel_resolver = youtube_channels
 
     @app.middleware("http")
     async def _remote_mcp_body_limit(request: Request, call_next):
@@ -1524,6 +1536,25 @@ def create_app(
             return normalized, build_source_key(source_type, normalized)
         except SourceConfigError as exc:
             raise ApiError("invalid_source_config", str(exc), status_code=400) from exc
+
+    async def resolve_catalog_source_config(
+        source_type: str,
+        config: dict[str, Any],
+    ) -> tuple[str, dict[str, Any], str]:
+        if source_type != YOUTUBE_CHANNEL_SETUP_TYPE:
+            normalized, key = validate_catalog_source_config(source_type, config)
+            return source_type, normalized, key
+        try:
+            normalized = await youtube_channels.resolve_config(config)
+        except YouTubeChannelError as exc:
+            raise ApiError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=exc.action,
+            ) from exc
+        return "rss", normalized, build_source_key("rss", normalized)
 
     def source_import_candidates(data: dict[str, Any]) -> list[dict[str, Any]]:
         sources = data.get("sources") or {}
@@ -2494,7 +2525,7 @@ def create_app(
 
     @app.get("/api/catalog/source-types")
     async def catalog_source_types(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-        return ok({"source_types": list_source_types()})
+        return ok({"source_types": list_source_setup_types()})
 
     @app.post("/api/catalog/import-config-sources")
     async def catalog_import_config_sources(
@@ -2525,14 +2556,30 @@ def create_app(
             raise ApiError("invalid_scope", "scope must be public, workspace, or private")
         if scope != "private" and not _is_admin(user):
             raise ApiError("forbidden", "only admins can create public or workspace sources", status_code=403)
-        normalized_config, key = validate_catalog_source_config(payload.type, payload.config)
+        if (
+            payload.type == YOUTUBE_CHANNEL_SETUP_TYPE
+            and payload.secret_env is not None
+        ):
+            raise ApiError(
+                "invalid_source_config",
+                "YouTube channel subscriptions do not accept credentials.",
+                status_code=400,
+            )
+        catalog_type, normalized_config, key = await resolve_catalog_source_config(
+            payload.type,
+            payload.config,
+        )
+        enforce_public_network = (
+            catalog_source_setup_type(catalog_type, normalized_config)
+            == YOUTUBE_CHANNEL_SETUP_TYPE
+        )
         try:
             source = upsert_catalog_source(
                 user=user,
                 workspace_id=user["workspace_id"],
                 scope=scope,
                 owner_user_id=user["id"],
-                source_type=payload.type,
+                source_type=catalog_type,
                 display_name=payload.display_name,
                 description=payload.description,
                 default_channel=payload.default_channel,
@@ -2540,6 +2587,7 @@ def create_app(
                 config=normalized_config,
                 source_key=key,
                 secret_env=_validate_secret_env(payload.secret_env),
+                enforce_public_network=enforce_public_network,
                 enabled=payload.enabled,
             )
         except SourceKeyConflictError as exc:
@@ -2577,6 +2625,20 @@ def create_app(
         if source["scope"] == "private" and source["owner_user_id"] != user["id"]:
             raise ApiError("forbidden", "cannot update another user's private source", status_code=403)
         provided = payload.model_fields_set
+        setup_type = catalog_source_setup_type(
+            str(source["type"]),
+            source.get("config"),
+        )
+        if (
+            "secret_env" in provided
+            and setup_type == YOUTUBE_CHANNEL_SETUP_TYPE
+            and payload.secret_env is not None
+        ):
+            raise ApiError(
+                "invalid_source_config",
+                "YouTube channel subscriptions do not accept credentials.",
+                status_code=400,
+            )
         updates: dict[str, Any] = {}
         if "display_name" in provided:
             updates["display_name"] = payload.display_name
@@ -2587,11 +2649,24 @@ def create_app(
         if "default_topics" in provided and payload.default_topics is not None:
             updates["default_topics"] = payload.default_topics
         if "config" in provided and payload.config is not None:
-            normalized_config, key = validate_catalog_source_config(
-                source["type"], payload.config
+            catalog_type, normalized_config, key = await resolve_catalog_source_config(
+                setup_type,
+                payload.config,
             )
+            if catalog_type != source["type"]:
+                raise ApiError(
+                    "invalid_source_config",
+                    "source storage type cannot be changed",
+                    status_code=400,
+                )
             updates["config"] = normalized_config
             updates["source_key"] = key
+            if (
+                source["type"] == "rss"
+                and catalog_source_setup_type(catalog_type, normalized_config)
+                == YOUTUBE_CHANNEL_SETUP_TYPE
+            ):
+                updates["enforce_public_network"] = True
         if "secret_env" in provided:
             updates["secret_env"] = _validate_secret_env(payload.secret_env)
         if "enabled" in provided:

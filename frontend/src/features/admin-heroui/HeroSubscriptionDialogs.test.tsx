@@ -3,11 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '../../api/client'
 import type { ServiceApi } from '../../api/service'
-import type { CatalogSource, Subscription } from '../../api/types'
+import type { CatalogSource, SourceTypeDefinition, Subscription } from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
+import { ActionFeedbackProvider } from '../../app/ActionFeedback'
 import { DesignSystemProvider } from '../../design-system'
-import { SubscriptionForm } from './HeroSubscriptionDialogs'
+import { SourceForm, SubscriptionForm } from './HeroSubscriptionDialogs'
 
 const source: CatalogSource = {
   id: 'source-1',
@@ -16,6 +18,31 @@ const source: CatalogSource = {
   scope: 'private',
   owner_user_id: 'user-1',
   enabled: true,
+}
+
+const youtubeDefinition: SourceTypeDefinition = {
+  type: 'youtube_channel',
+  catalog_source_type: 'rss',
+  label: 'YouTube 频道',
+  credential_mode: undefined,
+  fields: [
+    {
+      name: 'url',
+      label: 'YouTube 频道地址或 @handle',
+      input_type: 'text',
+      required: true,
+      default: null,
+      help: '支持公开频道链接、@handle、频道 ID 或规范 Feed 地址。',
+    },
+    {
+      name: 'keep_latest_item',
+      label: '保留最新内容',
+      input_type: 'boolean',
+      required: false,
+      default: true,
+      help: '时间窗口为空时仅保留最近一条。',
+    },
+  ],
 }
 
 function deferred<T>() {
@@ -71,6 +98,86 @@ function renderSubscriptionForm(subscription: Subscription, options: {
   </MemoryRouter>)
   return api
 }
+
+function renderYouTubeSourceForm(
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>,
+) {
+  render(<MemoryRouter>
+    <DesignSystemProvider>
+      <ActionFeedbackProvider userId="user-1">
+        <SourceForm
+          definition={youtubeDefinition}
+          secrets={[]}
+          allowSecret={false}
+          scopes={['private']}
+          taxonomy={{ channels: [], topics: [] }}
+          submitLabel="创建并订阅"
+          onSubmit={onSubmit}
+        />
+      </ActionFeedbackProvider>
+    </DesignSystemProvider>
+  </MemoryRouter>)
+}
+
+describe('YouTube SourceForm', () => {
+  it('submits the first-class setup type with the default latest-item policy', async () => {
+    const browser = userEvent.setup()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderYouTubeSourceForm(onSubmit)
+
+    expect(screen.getByRole('checkbox', { name: '保留最新内容' })).toBeChecked()
+    await browser.type(screen.getByRole('textbox', { name: '来源名称' }), 'Google Developers')
+    await browser.type(
+      screen.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' }),
+      '@GoogleDevelopers',
+    )
+    await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'youtube_channel',
+        scope: 'private',
+        display_name: 'Google Developers',
+        config: expect.objectContaining({
+          url: '@GoogleDevelopers',
+          keep_latest_item: true,
+        }),
+      }),
+    ))
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty('secret_env')
+  })
+
+  it('keeps a safe resolver error in the dialog and blocks replay while pending', async () => {
+    const browser = userEvent.setup()
+    const request = deferred<void>()
+    const onSubmit = vi.fn().mockReturnValueOnce(request.promise).mockRejectedValueOnce(
+      new ApiError(404, {
+        code: 'youtube_channel_not_found',
+        message: 'upstream detail',
+      }),
+    )
+    renderYouTubeSourceForm(onSubmit)
+    await browser.type(screen.getByRole('textbox', { name: '来源名称' }), 'Missing')
+    await browser.type(
+      screen.getByRole('textbox', { name: 'YouTube 频道地址或 @handle' }),
+      '@Missing',
+    )
+
+    const submit = screen.getByRole('button', { name: '创建并订阅' })
+    await browser.click(submit)
+    expect(submit).toBeDisabled()
+    await browser.click(submit)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    request.resolve()
+    await waitFor(() => expect(submit).toBeEnabled())
+
+    await browser.click(submit)
+    expect(await screen.findByText(
+      '未找到这个 YouTube 频道，请检查链接或改用频道 ID。',
+    )).toBeInTheDocument()
+    expect(screen.queryByText('upstream detail')).not.toBeInTheDocument()
+  })
+})
 
 describe('SubscriptionForm notification ownership', () => {
   it('does not render or submit notifications when analysis changes to personal only', async () => {

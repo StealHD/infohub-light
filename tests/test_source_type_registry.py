@@ -2,12 +2,22 @@ import pytest
 
 import src.services.source_type_registry as source_type_registry
 from src.services.source_type_registry import (
+    YOUTUBE_CHANNEL_SETUP_TYPE,
     SourceConfigError,
     build_source_payload,
+    catalog_source_setup_type,
+    list_source_setup_types,
     list_source_types,
+    self_service_agent_type_for_catalog,
     source_key,
     validate_secret_env_name,
     validate_source_config,
+)
+
+YOUTUBE_CHANNEL_ID = "UCabcdefghijklmnopqrstuv"
+YOUTUBE_CHANNEL_FEED = (
+    "https://www.youtube.com/feeds/videos.xml?"
+    f"channel_id={YOUTUBE_CHANNEL_ID}"
 )
 
 
@@ -60,6 +70,48 @@ def test_source_type_registry_lists_supported_types_and_templates():
     }
     assert by_type["rss"]["credential_mode"] == "none"
     assert by_type["apify_social"]["credential_mode"] == "source_secret"
+
+
+def test_web_setup_types_add_youtube_alias_without_changing_storage_enum():
+    storage_types = {item["type"] for item in list_source_types()}
+    setup_types = {
+        item["type"]: item for item in list_source_setup_types()
+    }
+
+    assert YOUTUBE_CHANNEL_SETUP_TYPE not in storage_types
+    youtube = setup_types[YOUTUBE_CHANNEL_SETUP_TYPE]
+    assert youtube["catalog_source_type"] == "rss"
+    assert youtube["label"] == "YouTube 频道"
+    assert youtube["credential_mode"] == "none"
+    fields = {field["name"]: field for field in youtube["fields"]}
+    assert fields["url"]["input_type"] == "text"
+    assert fields["keep_latest_item"]["default"] is True
+
+
+def test_youtube_channel_setup_projection_is_migration_free_and_agent_compatible():
+    channel_config = validate_source_config(
+        "rss",
+        {"url": YOUTUBE_CHANNEL_FEED, "keep_latest_item": True},
+    )
+    playlist_config = validate_source_config(
+        "rss",
+        {
+            "url": (
+                "https://www.youtube.com/feeds/videos.xml?"
+                "playlist_id=PLabcdefghijklmnopqrstuvwxyz012345"
+            )
+        },
+    )
+    ordinary_config = validate_source_config(
+        "rss", {"url": "https://example.com/feed.xml"}
+    )
+
+    assert catalog_source_setup_type("rss", channel_config) == "youtube_channel"
+    assert catalog_source_setup_type("rss", playlist_config) == "rss"
+    assert catalog_source_setup_type("rss", ordinary_config) == "rss"
+    assert self_service_agent_type_for_catalog("rss", channel_config) == "youtube"
+    assert self_service_agent_type_for_catalog("rss", playlist_config) == "youtube"
+    assert self_service_agent_type_for_catalog("rss", ordinary_config) == "rss"
 
 
 def test_source_type_registry_projects_workspace_apify_pool_mode(monkeypatch):

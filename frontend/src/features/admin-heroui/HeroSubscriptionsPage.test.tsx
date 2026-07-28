@@ -41,6 +41,23 @@ function renderCard(subscription: Subscription, overrides: Partial<Parameters<ty
 }
 
 describe('subscription source card notifications', () => {
+  it('labels a projected YouTube RSS row by its setup type', () => {
+    renderCard({
+      id: 'subscription-youtube',
+      user_id: 'user-1',
+      source_id: source.id,
+      enabled: true,
+    }, {
+      source: {
+        ...source,
+        type: 'rss',
+        setup_type: 'youtube_channel',
+      },
+    })
+
+    expect(screen.getByText(/YouTube 频道/)).toBeInTheDocument()
+  })
+
   it('shows the effective notification state as a card switch', async () => {
     const browser = userEvent.setup()
     const subscription = {

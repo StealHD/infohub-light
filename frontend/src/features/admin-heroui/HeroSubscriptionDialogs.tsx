@@ -35,6 +35,22 @@ function unique(values: string[]) {
   })
 }
 
+function sourceFormError(caught: unknown, sourceType: string): string {
+  if (caught instanceof SyntaxError) return '高级配置不是有效 JSON。'
+  if (!(caught instanceof ApiError)) return '来源保存失败。'
+  if (sourceType !== 'youtube_channel') return caught.message
+  if (caught.code === 'youtube_channel_not_found') {
+    return '未找到这个 YouTube 频道，请检查链接或改用频道 ID。'
+  }
+  if (caught.code === 'youtube_channel_resolution_failed') {
+    return '暂时无法解析 YouTube 频道，请稍后重试或改用频道 ID。'
+  }
+  if (caught.code === 'invalid_source_config') {
+    return '请输入公开的 YouTube 频道链接、@handle、频道 ID 或规范 Feed 地址。'
+  }
+  return caught.message
+}
+
 function TopicCombo({ label, options, values, onChange }: { label: string; options: string[]; values: string[]; onChange: (values: string[]) => void }) {
   const [input, setInput] = useState('')
   const active = new Set(options.map((topic) => topic.toLocaleLowerCase()))
@@ -124,7 +140,7 @@ export function SourceForm({ definition, source, secrets, allowSecret, scopes, t
       } }))
       feedback.succeed('source-save', entity)
     } catch (caught) {
-      const message = caught instanceof ApiError ? caught.message : caught instanceof SyntaxError ? '高级配置不是有效 JSON。' : '来源保存失败。'
+      const message = sourceFormError(caught, definition.type)
       setError(message); feedback.fail('source-save', entity, message)
     } finally { setPending(false) }
   }

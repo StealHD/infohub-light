@@ -54,6 +54,7 @@ _OPAQUE_CATALOG_DISPLAY_NAME = "Web-managed source"
 _OPAQUE_CATALOG_PUBLIC_TARGET = "web_setup_required"
 _SUPPORTED_REDDIT_SORTS = {"hot", "new", "top", "rising", "controversial"}
 _SUPPORTED_REDDIT_TIME_FILTERS = {"hour", "day", "week", "month", "year", "all"}
+YOUTUBE_CHANNEL_SETUP_TYPE = "youtube_channel"
 _APIFY_KINDS = {
     "x": {"profile", "keyword"},
     "instagram": {"profile", "hashtag"},
@@ -181,7 +182,7 @@ class AgentSourceTypeDefinition:
             "self_service": self_service,
             "requires_web_setup": bool(metadata["requires_web_setup"]),
         }
-        if self.type in {"rss", "website"}:
+        if self.type in {"rss", "website", "youtube"}:
             # Agent-created URLs must retain the public-network fetch path even
             # when the eventual source owner is an owner or administrator.
             policy["public_network_only"] = True
@@ -514,6 +515,36 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
 )
 
 _BY_TYPE = {item.type: item for item in _SOURCE_TYPES}
+
+_YOUTUBE_CHANNEL_SETUP_DEFINITION = SourceTypeDefinition(
+    type=YOUTUBE_CHANNEL_SETUP_TYPE,
+    label="YouTube 频道",
+    description="Public uploads from one YouTube channel through its Atom feed.",
+    required_fields=("url",),
+    template={
+        "url": "@GoogleDevelopers",
+        "keep_latest_item": True,
+    },
+    fields=(
+        _field(
+            "url",
+            "YouTube 频道地址或 @handle",
+            "text",
+            required=True,
+            help=(
+                "支持公开频道链接、@handle、UC 开头的频道 ID，"
+                "或规范 YouTube Feed 地址。"
+            ),
+        ),
+        _field(
+            "keep_latest_item",
+            "保留最新内容",
+            "boolean",
+            default=True,
+            help="时间窗口为空时仅保留频道最近一条公开视频。",
+        ),
+    ),
+)
 
 
 def _guide_locale(locale: str) -> str:
@@ -1037,6 +1068,21 @@ def list_source_types() -> list[dict[str, Any]]:
     return definitions
 
 
+def list_source_setup_types() -> list[dict[str, Any]]:
+    """Return Web setup choices while preserving catalog storage types."""
+
+    definitions = []
+    for definition in list_source_types():
+        item = dict(definition)
+        item["catalog_source_type"] = item["type"]
+        definitions.append(item)
+        if item["type"] == "rss":
+            youtube = _YOUTUBE_CHANNEL_SETUP_DEFINITION.as_dict()
+            youtube["catalog_source_type"] = "rss"
+            definitions.append(youtube)
+    return definitions
+
+
 def validate_agent_source_type(source_type: str) -> str:
     """Validate one of the registry-owned public Agent source types."""
 
@@ -1087,14 +1133,7 @@ def catalog_source_matches_agent_type(
             return False
         if is_managed_rsshub_config(config):
             return False
-        url = config.get("url")
-        if not isinstance(url, str):
-            return False
-        try:
-            normalize_source_setup_input("youtube", {"url": url})
-        except SourceConfigError:
-            return False
-        return True
+        return is_youtube_feed_config(config)
 
     def is_twitter_managed() -> bool:
         return bool(
@@ -1140,7 +1179,11 @@ def self_service_agent_type_for_catalog(
     """Return the reversible self-service Agent type for one catalog config."""
 
     if source_type == "rss":
-        return "bilibili" if is_managed_rsshub_config(config) else "rss"
+        if is_managed_rsshub_config(config):
+            return "bilibili"
+        if is_youtube_feed_config(config):
+            return "youtube"
+        return "rss"
     return {
         "github_release": "github",
         "reddit_subreddit": "reddit",
@@ -1345,6 +1388,38 @@ _YOUTUBE_PLAYLIST_ID_LENGTHS = {"PL": 34, "UU": 24, "LL": 24, "FL": 24}
 _YOUTUBE_URLSAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+def youtube_channel_feed_url(channel_id: str) -> str:
+    """Return the canonical public Atom feed URL for one YouTube channel ID."""
+
+    normalized_id = str(channel_id or "").strip()
+    if _YOUTUBE_CHANNEL_ID_RE.fullmatch(normalized_id) is None:
+        raise SourceConfigError("channel ID must start with UC and contain 24 characters")
+    return (
+        f"https://www.youtube.com{_YOUTUBE_FEED_PATH}?"
+        f"{urlencode({'channel_id': normalized_id})}"
+    )
+
+
+def normalize_youtube_channel_feed_url(value: str) -> str:
+    """Validate a channel-only YouTube feed and return its canonical URL."""
+
+    parsed = _safe_urlparse(str(value or "").strip())
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc.lower() not in _YOUTUBE_FEED_HOSTS
+        or parsed.path != _YOUTUBE_FEED_PATH
+        or parsed.params
+        or parsed.fragment
+        or len(pairs) != 1
+        or pairs[0][0] != "channel_id"
+    ):
+        raise SourceConfigError("url must be a public YouTube channel feed URL")
+    if _YOUTUBE_CHANNEL_ID_RE.fullmatch(pairs[0][1]) is None:
+        raise SourceConfigError("url must be a public YouTube channel feed URL")
+    return youtube_channel_feed_url(pairs[0][1])
+
+
 def _valid_youtube_playlist_id(value: str) -> bool:
     expected_length = _YOUTUBE_PLAYLIST_ID_LENGTHS.get(value[:2])
     return (
@@ -1369,16 +1444,54 @@ def _youtube_feed_url(value: str) -> str:
     ):
         raise SourceConfigError("url must be a public YouTube feed URL")
     identity_name, identity_value = pairs[0]
-    valid_identity = (
-        _YOUTUBE_CHANNEL_ID_RE.fullmatch(identity_value) is not None
-        if identity_name == "channel_id"
-        else _valid_youtube_playlist_id(identity_value)
-        if identity_name == "playlist_id"
-        else False
-    )
-    if not valid_identity:
+    if identity_name == "channel_id":
+        if _YOUTUBE_CHANNEL_ID_RE.fullmatch(identity_value) is None:
+            raise SourceConfigError("url must be a public YouTube feed URL")
+        return youtube_channel_feed_url(identity_value)
+    if identity_name != "playlist_id" or not _valid_youtube_playlist_id(
+        identity_value
+    ):
         raise SourceConfigError("url must be a public YouTube feed URL")
     return f"https://www.youtube.com{_YOUTUBE_FEED_PATH}?{urlencode(pairs)}"
+
+
+def is_youtube_feed_config(config: Any) -> bool:
+    """Return whether a direct RSS config is any supported YouTube feed."""
+
+    if not isinstance(config, dict) or is_managed_rsshub_config(config):
+        return False
+    url = config.get("url")
+    if not isinstance(url, str):
+        return False
+    try:
+        _youtube_feed_url(url)
+    except SourceConfigError:
+        return False
+    return True
+
+
+def is_youtube_channel_config(config: Any) -> bool:
+    """Return whether a direct RSS config is a canonical channel feed."""
+
+    if not isinstance(config, dict) or is_managed_rsshub_config(config):
+        return False
+    url = config.get("url")
+    if not isinstance(url, str):
+        return False
+    try:
+        normalize_youtube_channel_feed_url(url)
+    except SourceConfigError:
+        return False
+    return True
+
+
+def catalog_source_setup_type(source_type: str, config: Any) -> str:
+    """Project one storage type to the most specific Web setup type."""
+
+    normalized_type = str(source_type or "")
+    if normalized_type == "rss" and is_youtube_channel_config(config):
+        return YOUTUBE_CHANNEL_SETUP_TYPE
+    return normalized_type
 
 
 def _normalize_agent_aliases(source_type: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -1592,6 +1705,40 @@ def validate_normalized_source_setup(
         raise SourceConfigError(_UNSUPPORTED_SOURCE_TYPE_ERROR)
     if not isinstance(config, dict):
         raise SourceConfigError("config must be an object")
+    if source_type == "youtube":
+        allowed = {
+            "analysis_mode",
+            "category",
+            "channel",
+            "enabled",
+            "keep_latest_item",
+            "name",
+            "personal_tags",
+            "tags",
+            "topics",
+            "url",
+        }
+        if set(config) - allowed or _contains_secret_shape(config):
+            raise SourceConfigError(
+                "normalized source config does not match Agent contract"
+            )
+        normalized = validate_source_config("rss", config)
+        rebuilt = normalize_source_setup_input(
+            "youtube",
+            {"url": config.get("url")},
+        )
+        if (
+            normalized != config
+            or rebuilt["config"].get("url") != config.get("url")
+        ):
+            raise SourceConfigError(
+                "normalized source config does not match Agent contract"
+            )
+        return {
+            "catalog_source_type": definition.catalog_source_type,
+            "config": normalized,
+            "policy": definition.execution_policy(),
+        }
     if source_type == "rss":
         reverse_input = {
             key: config[key]
@@ -1997,6 +2144,11 @@ def source_key(source_type: str, config: dict[str, Any]) -> str:
     if source_type == "rss":
         if is_managed_rsshub_config(normalized):
             return rsshub_source_key(normalized)
+        if is_youtube_channel_config(normalized):
+            return (
+                "rss:"
+                + normalize_youtube_channel_feed_url(str(normalized["url"]))
+            )
         return f"rss:{normalized['url']}"
     if source_type == "github_release":
         return f"github_release:{normalized['owner'].lower()}/{normalized['repo'].lower()}"

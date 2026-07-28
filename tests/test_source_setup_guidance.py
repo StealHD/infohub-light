@@ -919,7 +919,7 @@ def test_self_service_normalization_returns_create_config_with_explicit_policy(
         "self_service": True,
         "requires_web_setup": False,
     }
-    if source_type in {"rss", "website"}:
+    if source_type in {"rss", "website", "youtube"}:
         expected_policy["public_network_only"] = True
     assert result["policy"] == expected_policy
 

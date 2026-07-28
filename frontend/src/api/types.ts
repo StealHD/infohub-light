@@ -367,6 +367,7 @@ export type CatalogField = {
 
 export type SourceTypeDefinition = {
   type: string
+  catalog_source_type?: string
   label?: string
   display_name?: string
   credential_mode?: 'source_secret' | 'workspace_apify_pool'
@@ -376,6 +377,7 @@ export type SourceTypeDefinition = {
 export type CatalogSource = {
   id: string
   type: string
+  setup_type?: string
   display_name: string
   description?: string
   scope: 'public' | 'workspace' | 'private'

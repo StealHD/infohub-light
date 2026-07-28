@@ -10,6 +10,7 @@ from ..rsshub import is_managed_rsshub_config
 from ..storage.service_store import ServiceStore
 from ..tag_policy import normalize_channel, normalize_tags
 from .source_health import SourceHealthService
+from .source_type_registry import is_youtube_channel_config
 
 
 def _workspace_apify_pool_enabled() -> bool:
@@ -83,6 +84,8 @@ def _record_with_network_policy(store: ServiceStore, record: dict[str, Any]) -> 
     if prepared.get("type") == "rss":
         if is_managed_rsshub_config(prepared.get("config")):
             prepared["enforce_public_network"] = False
+        elif is_youtube_channel_config(prepared.get("config")):
+            prepared["enforce_public_network"] = True
         else:
             owner = store.get_user(str(prepared.get("owner_user_id") or ""))
             prepared["enforce_public_network"] = bool(

@@ -66,7 +66,9 @@
         "src/services/subscription_mutation.py",
         "src/services/user_config_builder.py",
         "src/services/user_content_store.py",
-        "src/services/user_item_state.py"
+        "src/services/user_item_state.py",
+        "src/services/youtube_channel.py",
+        "tests/test_youtube_channel.py"
       ],
       "groups": ["python_api_store"]
     },
@@ -284,7 +286,8 @@
       "tests/test_email.py",
       "tests/test_logging_utils.py",
       "tests/test_operation_log.py",
-      "tests/test_webhook.py"
+      "tests/test_webhook.py",
+      "tests/test_youtube_channel.py"
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",

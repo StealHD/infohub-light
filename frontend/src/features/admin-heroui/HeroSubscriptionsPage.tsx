@@ -28,6 +28,7 @@ import {
   canEditSource,
   canMutateSubscriptions,
   channelViewGroupsByChannel,
+  effectiveSourceType,
   effectiveSubscriptionChannel,
   healthMatches,
   isPublicSubscriptionScope,
@@ -292,7 +293,7 @@ export function HeroSubscriptionsPage() {
   const sourceMap = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources])
   const healthMap = useMemo(() => new Map((healthQuery.data?.items ?? []).map((health) => [health.subscription_id, health])), [healthQuery.data])
   const normalized = search.trim().toLocaleLowerCase()
-  const matchesSource = (source: CatalogSource) => (typeFilter === 'all' || source.type === typeFilter) && (scopeFilter === 'all' || (scopeFilter === 'public' ? isPublicSubscriptionScope(source.scope) : source.scope === 'private')) && (!normalized || [source.display_name, source.description, source.default_channel, ...(source.default_topics ?? [])].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalized)))
+  const matchesSource = (source: CatalogSource) => (typeFilter === 'all' || effectiveSourceType(source) === typeFilter) && (scopeFilter === 'all' || (scopeFilter === 'public' ? isPublicSubscriptionScope(source.scope) : source.scope === 'private')) && (!normalized || [source.display_name, source.description, source.default_channel, ...(source.default_topics ?? [])].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalized)))
   const subscriptionEntries = subscriptions
     .filter((subscription) => healthMatches(healthMap.get(subscription.id), healthFilter))
     .map((subscription) => {
@@ -315,7 +316,7 @@ export function HeroSubscriptionsPage() {
           : activeJob?.status === 'queued' || phase === 'queued'
             ? '已排队'
             : '立即获取'
-      const canEdit = Boolean(definitions.find((definition) => definition.type === entry.source.type)) && canEditSource(user, entry.source)
+      const canEdit = Boolean(definitions.find((definition) => definition.type === effectiveSourceType(entry.source))) && canEditSource(user, entry.source)
       return {
         ...entry,
         fetchLabel,
@@ -346,7 +347,7 @@ export function HeroSubscriptionsPage() {
   const sourceGroups = channelViewGroupsByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
   const activeSubscriptionChannel = resolveViewSelection(subscriptionGroups, subscriptionChannel)
   const activeLibraryChannel = resolveViewSelection(sourceGroups, libraryChannel)
-  const activeDefinition = definitions.find((definition) => definition.type === (editingSource?.type || createType))
+  const activeDefinition = definitions.find((definition) => definition.type === (editingSource ? effectiveSourceType(editingSource) : createType))
   const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || configQuery.error
   const loading = sourcesQuery.isLoading || typesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
   const schedulePending = feedback.isPending('feed-schedule', 'global')

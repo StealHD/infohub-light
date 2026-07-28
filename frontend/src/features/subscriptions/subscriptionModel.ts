@@ -135,6 +135,7 @@ export function effectiveSubscriptionChannel(subscription: Subscription, source:
 
 const sourceTypeLabels: Record<string, string> = {
   rss: 'RSS / Atom',
+  youtube_channel: 'YouTube 频道',
   github_release: 'GitHub 发布',
   github_user: 'GitHub 动态',
   reddit_subreddit: 'Reddit 社区',
@@ -145,6 +146,10 @@ const sourceTypeLabels: Record<string, string> = {
 }
 
 export const sourceTypeLabel = (type: string): string => sourceTypeLabels[type] ?? '其他来源'
+
+export const effectiveSourceType = (
+  source: Pick<CatalogSource, 'type' | 'setup_type'>,
+): string => source.setup_type || source.type
 
 const jobTypeLabels: Record<string, string> = {
   user_feed_refresh: '更新整个信息流',
