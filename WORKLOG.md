@@ -3192,3 +3192,9 @@
 - UI 结果：全局摘要、来源卡实际周期/下次时间及全局关闭状态完成；桌面、平板、手机明暗快照更新，真实数据只读验收显示“覆盖 6 个订阅 · 3 个使用单源周期”
 - 执行验证：后端定向 73/73、前端目标 Vitest 105/105、Playwright 6/6、TypeScript、Lint（0 error）、生产构建通过；最终 `test_gate full` 22/22、0 failed/error、160.636 秒
 - 安全边界：无数据库迁移；未重建或修改 8080 容器，未启动 scheduler、真实来源抓取、AI、通知、付费调用，未推送或部署
+
+### 2026-07-28 15:32 Codex
+- 任务：从 `codex/source-schedule-global-fallback` 重建本地 8080 API 与 Worker
+- 切换前检查：现有容器挂载主 checkout 的 `.env/data/logs`，活动任务为 0；全局计划启用 1 个、单源计划启用 3 个；数据库与 Worker readiness 均为 ready，未报告迁移要求
+- 执行范围：使用本 Worktree 的固定 `up-latest.sh` 构建最终分支 revision，继续复用主 checkout 运行数据并只重建 API/Worker
+- 安全边界：不启动 scheduler，不手动触发来源抓取、AI、通知或付费调用，不推送或部署生产
