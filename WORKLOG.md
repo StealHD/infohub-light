@@ -3204,3 +3204,9 @@
 - 集成范围：在独立 main Worktree 非快进合并 `codex/source-schedule-global-fallback`，组合结果统一升级为 `v1.8.2`
 - 发布范围：执行正式 release gate，推送精确 main/tag；仅在本机构建并验证 revision-locked `linux/amd64` 镜像，上传后在 VPS 以 `docker load` 完成 staging 与生产切换
 - 安全边界：保留生产数据库、`.env`、日志、旧 release/image 与 `0600` 回退备份；VPS 不构建仓库，不启动 legacy scheduler，不主动触发来源、AI、通知或付费调用
+
+### 2026-07-28 16:40 Codex
+- 任务：清理本地已完成分支与 Worktree
+- 清理范围：归档 3 个已完成关联任务；移除 7 个干净且已被 `main` 包含的 Worktree，并删除其分支及另外 10 个已合并本地分支
+- 执行验证：删除前逐项校验 Worktree 干净、分支为 `main` 祖先，删除过程未使用 `--force`；清理后 `git worktree list` 与本地分支清单复核通过
+- 安全边界：保留本地 `main`、当前脏检出、脏 OpenClaw Worktree、未合并 nginx Worktree、存在会话租约的 OpenClaw Worktree，以及全部未合并分支
