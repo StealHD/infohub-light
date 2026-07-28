@@ -3086,3 +3086,16 @@
 - 执行验证：本机 release gate 24/24；GitHub main/tag Test Gate、Linux UI E2E 与 Tag Docker smoke 全通过；生产 API/Worker/RSSHub healthy、0 restart，9 个页面和公网 HTTPS 正常，数据库 integrity/foreign keys/迁移/索引、配置与 MCP 401、严重日志和运行时依赖下载均验证通过
 - 结果：当前 release 为 `/opt/inteliscope/releases/v1.8.1-9ec019dc7971`，镜像 `sha256:0818cb100a68c7d71761b4404259697e9e6d8ef2aa4500e0f65dc9b0ebf87153`；切换备份位于 `/opt/inteliscope/backups/pre-v1.8.1-9ec019dc7971-20260727T121452Z`，旧 release/image 与自动回滚备份保留
 - 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未触发真实来源、Apify、AI、scheduler、通知或付费调用，验收后仅清理可重建的上传归档与 staging 副本
+
+### 2026-07-28 10:22 Codex
+- 任务：在独立分支修复历史卡片多图展示僵硬与桌面竖图预览裁切
+- 修改范围：卡片改为单张 4:3 代表缩略图，共享预览改为有界主图舞台与独立缩略图栏；同步 Vitest、Playwright、UI 合同、D080、操作手册与更新日志
+- 执行验证：目标 Vitest 31/31、TypeScript、UI 合同、Lint（0 error）与生产构建通过；1440×900、1024×768、390×844 Playwright 3/3 且 Axe serious/critical 为 0；真实数据在 466×762 与 1440×900 完整显示；`test_gate full` 22/22、0 failed/error、207.235 秒
+- 结果：展开卡片只显示第一张本地可查看图片，多图在预览内循环切换；横竖图均完整收在 Dialog 与视口内，关闭后恢复焦点、URL 与阅读锚点
+- 安全边界：未修改 API、数据库、媒体缓存或公开类型，未复制或引入 HeroUI Pro 源码；未推送、合并、部署、重建 8080、抓取来源、调用 AI、scheduler、通知或付费服务
+
+### 2026-07-28 10:41 Codex
+- 任务：在本地 8080 启动 `codex/history-media-preview-fix` 容器
+- 执行验证：无缓存镜像 revision `bf3abfd8a7f3` 构建完成；API/Worker 均 healthy，liveness/readiness 与 Worker 状态为 ready，页面资源包含新的代表图入口和有界预览
+- 数据迁移：按 fail-closed 提示停止服务并执行 content timeline v11；288 条内容完成时间/搜索回填和索引，integrity 为 `ok`、foreign key 0，迁移前 `0600` 备份保留于本地数据目录
+- 安全边界：复用既有 `.env`、数据与日志，只重建本地 API/Worker；未启动 scheduler、抓取来源、调用 AI、发送通知、使用付费服务、推送或部署
