@@ -3032,3 +3032,9 @@
 - 执行验证：后端定向与 API/Remote MCP 回归、Vitest 47/47、TypeScript、Lint（0 error）、UI Gate、生产构建、三视口 Playwright 3/3 及有界官方频道上游 smoke 通过；本机合成 DNS 下应用请求按 SSRF 策略安全拒绝；最终 `test_gate full` 22/22、0 failed/error、131.883 秒
 - 结果：`youtube_channel` 作为 `rss` setup alias 保存规范 channel Feed，默认保留空窗口最近一条，并复用既有订阅、抓取、健康、计划与通知链路
 - 安全边界：handle 仅通过固定 YouTube 主机的一次 10 秒/2 MB/无重定向公开请求解析；未使用凭据、持久化 smoke 数据、运行 AI/完整 scheduler/付费服务，也未合并、推送或部署
+
+### 2026-07-28 10:23 Codex
+- 任务：启动 YouTube 频道订阅分支的本地容器供页面验收
+- 执行验证：无缓存构建 revision `e9dc8a10c8f5` 镜像，复用原工作区本地配置与数据启动 API；liveness、readiness 与根页面均返回 200，API 容器 healthy
+- 结果：页面运行于 `http://127.0.0.1:8080`；为避免继续执行到期来源计划，Worker 已停止，API 以不依赖 Worker 的 readiness 模式运行
+- 安全边界：未启动 scheduler、AI、推送或部署；Worker 初次启动时已领取并成功完成两个原有到期 `source_fetch`（一个 RSS、一个 Apify），随后立即停止；当前无 queued/running 任务且无通知投递记录
