@@ -1040,7 +1040,33 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   await expect(page).toHaveURL(/\/changelog(?:#month-2026-07)?$/)
   await expect(page.getByRole('heading', { name: '更新日志', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '2026 年 7 月', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '更新日志改为清晰时间线' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '更清晰的交互反馈' })).toBeVisible()
+  const timeline = page.getByRole('list', { name: '2026 年 7 月更新记录' })
+  const entries = timeline.locator(':scope > li')
+  const entryCount = await entries.count()
+  expect(entryCount).toBeGreaterThan(1)
+  const currentEntry = entries.first()
+  const previousEntry = entries.nth(1)
+  await expect(timeline).toBeVisible()
+  await expect(currentEntry).toHaveAttribute('aria-current', 'true')
+  await expect(previousEntry).not.toHaveAttribute('aria-current')
+  await expect(currentEntry.locator('time[datetime="2026-07-28"]')).toBeVisible()
+  const currentDetails = currentEntry.getByRole('list')
+  await expect(currentDetails.getByRole('listitem')).toHaveCount(3)
+  await expect(currentDetails.getByText('时间顺序更直观')).toBeVisible()
+  await expect(currentDetails.getByText('内容层级更清楚')).toBeVisible()
+  await expect(currentDetails.getByText('导航与可访问性保留')).toBeVisible()
+  await expect(entries.last().locator('[data-timeline-connector]')).toBeHidden()
+  const firstConnectorBox = await currentEntry.locator('[data-timeline-connector]').boundingBox()
+  const nextMarkerBox = await previousEntry.locator('[data-timeline-marker]').boundingBox()
+  expect(firstConnectorBox).not.toBeNull()
+  expect(nextMarkerBox).not.toBeNull()
+  if (firstConnectorBox && nextMarkerBox) {
+    const connectorEnd = firstConnectorBox.y + firstConnectorBox.height
+    expect(connectorEnd).toBeGreaterThanOrEqual(nextMarkerBox.y - 1)
+    expect(connectorEnd).toBeLessThanOrEqual(nextMarkerBox.y + nextMarkerBox.height + 1)
+  }
   if (testInfo.project.name === 'desktop') {
     await expect(page.getByRole('navigation', { name: '更新月份时间线', exact: true })).toBeVisible()
     await expect(page.getByRole('navigation', { name: '更新月份', exact: true })).toBeHidden()
@@ -1049,6 +1075,8 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
     await expect(page.getByRole('navigation', { name: '更新月份时间线', exact: true })).toBeHidden()
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('the production theme defaults to night and persists explicit day and night choices', async ({ page }, testInfo) => {
@@ -1057,13 +1085,16 @@ test('the production theme defaults to night and persists explicit day and night
   await page.goto('/changelog')
   const root = page.locator('html')
   const app = page.locator('[data-ui-system="heroui"]')
+  const timeline = page.getByRole('list', { name: '2026 年 7 月更新记录' })
   await expect(root).toHaveAttribute('data-theme', 'dark')
   await expect(app).toHaveAttribute('data-theme', 'dark')
+  await expect(timeline.locator(':scope > li').first()).toHaveAttribute('aria-current', 'true')
   const darkBackground = await app.evaluate((element) => getComputedStyle(element).backgroundColor)
 
   await page.getByRole('button', { name: '切换到白天模式' }).click()
   await expect(root).toHaveAttribute('data-theme', 'light')
   await expect(app).toHaveAttribute('data-theme', 'light')
+  await expect(timeline).toBeVisible()
   expect(await app.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(darkBackground)
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(root).toHaveAttribute('data-theme', 'light')
@@ -1075,6 +1106,7 @@ test('the production theme defaults to night and persists explicit day and night
   await page.getByRole('button', { name: '切换到黑夜模式' }).click()
   await expect(root).toHaveAttribute('data-theme', 'dark')
   await expect(app).toHaveAttribute('data-theme', 'dark')
+  await expect(timeline).toBeVisible()
 })
 
 test('Insights shifts the reading column before overlap and only obstructing layouts softly exit', async ({ page }, testInfo) => {

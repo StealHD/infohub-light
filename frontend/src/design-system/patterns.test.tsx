@@ -18,6 +18,7 @@ describe('Quiet Studio shared page patterns', () => {
       'LoadingState',
       'CalmSkeleton',
       'LoadingReveal',
+      'Timeline',
     ]) expect(designSystem).toHaveProperty(name)
   })
 

@@ -3152,3 +3152,29 @@
 - 执行验证：后端 YouTube/API/运行脚本定向回归、前端 Vitest 81/81、TypeScript、UI 合同通过；组合 Playwright 8 passed/4 skipped；最终 `test_gate full` 22/22、0 failed/error、158.934 秒，`mapping_miss=false`
 - 结果：本地 `main` 同时包含远端 v1.8.1 主线、本地 YouTube 频道订阅、历史图片堆叠预览和 Worktree 8080 重建流程
 - 安全边界：原 `codex/0727` 脏 checkout 与各任务 Worktree 均未改写；未推送、部署、重建 8080 或触发来源、AI、scheduler、通知及付费调用
+
+### 2026-07-28 11:17 Codex
+- 任务：使用现有 HeroUI OSS 设计系统优化更新日志时间线 UI
+- 修改范围：新增语义化复合 Timeline，重构更新日志卡片、时间轴与响应式月份导航，修复无 Hash/单次滚动/多月份历史同步，更新 UI 合同、决策记录、手册、更新日志及回归测试
+- 执行验证：目标 Vitest 11/11、审查修复后 7/7，TypeScript、Lint（0 error）、UI Contract、生产构建、三视口 Playwright 4 passed/2 skipped（连接线几何、无横向溢出、Axe serious/critical 为零及桌面明暗主题）通过；最终 `test_gate full` 22/22、0 failed/error、147.733 秒
+- 结果：每个月份使用紧凑 `ol/li` 时间线，最新条目具有 current 语义，详情全部展开；桌面与窄屏月份导航、Hash 深链、前进后退及 Reduced Motion 行为保持可用
+- 安全边界：未引入 HeroUI Pro、依赖、授权或 Secret，未修改 API、路由、数据库或服务端，未合并、推送、部署或触发真实来源、AI、通知及付费调用
+
+### 2026-07-28 11:30 Codex
+- 任务：启动更新日志时间线分支的本地容器供页面验收
+- 运行变更：从本分支 clean commit 构建独立镜像，以独立容器和命名卷在 `127.0.0.1:8081` 启动 React API/UI；现有 `8080` 分支容器保持不变
+- 执行验证：容器 healthy、0 restart，liveness revision 匹配，readiness database=`ready`、worker=`missing`，根页面与 `/changelog` 均返回 200，运行 bundle 包含“更新日志改为清晰时间线”
+- 安全边界：仅启动 API，未启动 Worker 或 scheduler；隔离 SQLite，不共享现有运行数据，并显式关闭 Remote MCP、OpenClaw、Apify、订阅写入，未触发抓取、AI、通知、付费调用或部署
+
+### 2026-07-28 11:53 Codex
+- 任务：按用户澄清改为使用原运行数据，将更新日志时间线分支全部重建到本地 `8080`
+- 运行变更：以本分支镜像原位替换 `horizon-light-api` 与 `horizon-light-worker`，继续挂载主工作区 `.env/data/logs`；删除误建的 `8081` 空库容器及两个隔离命名卷
+- 执行验证：API/Worker 同镜像、healthy、0 restart，liveness revision 匹配，readiness database/worker=`ready`；旧数据计数为用户 3、来源 9、订阅 9，SQLite quick check=`ok`，根页面与 `/changelog` 均返回 200
+- 安全边界：切换前后 active Job 均为 0，未启动独立 scheduler，未手动触发抓取、AI、通知、付费调用或部署；原运行数据未删除或迁移
+
+### 2026-07-28 13:52 Codex
+- 任务：固化“任务分支默认从本地 main 创建”的个人 Git 工作流
+- 修改范围：个人工作流规则明确无修饰 `main` 指向本地 `refs/heads/main`，远端 `main` 仅作为本地分支集成后的发布目标；项目仓库仅追加本工作日志
+- 执行验证：个人技能校验 21/21、个人规则与项目工作日志 `git diff --check` 通过
+- 结果：除非用户明确要求同步远端，今后创建任务分支前只记录并使用本地 `main` HEAD，不执行 fetch/pull/reset，也不从 `origin/main` 起分支
+- 安全边界：未访问或修改 Git 远端，未创建、切换、合并或推送分支，未变更本地容器和运行数据
