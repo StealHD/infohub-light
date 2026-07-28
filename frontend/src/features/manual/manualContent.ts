@@ -13,7 +13,7 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-27',
+  reviewedAt: '2026-07-28',
   change: 'v1.8.0：近 N 天信息流、全部内容搜索与安全存储治理',
 } as const
 

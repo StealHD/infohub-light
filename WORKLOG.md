@@ -3086,3 +3086,10 @@
 - 执行验证：本机 release gate 24/24；GitHub main/tag Test Gate、Linux UI E2E 与 Tag Docker smoke 全通过；生产 API/Worker/RSSHub healthy、0 restart，9 个页面和公网 HTTPS 正常，数据库 integrity/foreign keys/迁移/索引、配置与 MCP 401、严重日志和运行时依赖下载均验证通过
 - 结果：当前 release 为 `/opt/inteliscope/releases/v1.8.1-9ec019dc7971`，镜像 `sha256:0818cb100a68c7d71761b4404259697e9e6d8ef2aa4500e0f65dc9b0ebf87153`；切换备份位于 `/opt/inteliscope/backups/pre-v1.8.1-9ec019dc7971-20260727T121452Z`，旧 release/image 与自动回滚备份保留
 - 安全边界：生产镜像仅在本机构建并由 VPS `docker load`；未触发真实来源、Apify、AI、scheduler、通知或付费调用，验收后仅清理可重建的上传归档与 staging 副本
+
+### 2026-07-28 11:17 Codex
+- 任务：复盘本分支容器启动流程反复走偏的原因，并把固定 Worktree 重建流程固化为单一命令
+- 根因：旧启动器混用源码根与运行时根，linked Worktree 缺少真实 `.env/data/logs`；构建身份可被运行配置覆盖，且 build、recreate 与最终验收没有一个原子完成边界
+- 修改范围：`up-latest.sh`、light Compose 运行挂载与默认端口、主机级并发锁、迁移 fail-closed、终态复验、30 项 Worktree/身份/失败路径回归、D081 与操作文档
+- 执行验证：定向 pytest 30/30、脚本与产品文档组合 35/35、Compose config、shell syntax、控制 JSON 与 diff check 通过；最终 `test_gate full` 22/22、0 failed/error、158.009 秒
+- 安全边界：未重建或替换当前 8080，未修改运行数据库，未启动 scheduler、来源抓取、AI、通知、付费调用，未推送、合并或部署

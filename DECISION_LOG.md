@@ -677,3 +677,11 @@
 - 存储治理：Feed Storage v3 与 content timeline v11 是清理/归档前置门禁。标准清理只处理有界临时数据、完成任务、缓存、使用记录、过量 snapshot 和孤立媒体；稳定内容永不进入自动清理。超过 90 天的在线历史可写入带校验和的冷归档，只有归档文件写入、校验和数据库提交全部成功后才移除在线正文与媒体。标题、来源、链接、摘要、展示时间、搜索字段和批次事实永久保留。Owner/Admin 只能先预演再应用清理、归档和恢复；只有 Owner 可对已经恢复且不再被在线记录引用的归档执行准确短语二次确认删除。系统不提供任意 SQL、原始路径删除、在线 `VACUUM` 或自动永久删除。
 - 原因：snapshot 新鲜度、抓取结果数量和内容发布时间是不同事实；用最新 snapshot 或 `last_seen_at` 决定 Feed 会让低频旧帖不可达或反复回流。稳定时间索引可以在不抓取、不复制内容的情况下即时切换 7/14/30 天边界，并让来源计数、历史和搜索保持无重叠无遗漏。预演、候选指纹、迁移门禁与提交后文件清理把管理员日常治理限制在可核对范围，同时为后续迁移 PostgreSQL 保留明确的在线/冷数据边界。
 - 兼容/回退：`feed_window_days` 缺失按 7 天；`current_item_count` 保留并等于 `feed_item_count`。旧单项配置动作、24 小时日常抓取、168 小时 RSS 首次抓取、收藏/稍后读/通知保护和最近 20 份 snapshot 摘要继续兼容。v11 为带 `0600` 备份的显式迁移；未迁移数据库的 API、Worker 与计划任务 fail closed。关闭新前端入口或恢复 7 天配置不会删除稳定内容或修改 snapshot，也不得触发真实付费来源抓取。
+
+### D081 本地 Worktree 重建分离源码根与运行时根
+
+- 决策日期：2026-07-28
+- 当前状态：本地实现与定向回归完成；未部署
+- 决策内容：`scripts/up-latest.sh` 是本地 API + Worker 重建的唯一入口。源码、构建上下文、产品版本、revision 与本地镜像标签始终取自执行脚本的目标 Worktree；`.env`、`data` 与 `logs` 默认通过 Git common directory 解析到主 checkout，并以绝对路径传给 Compose，只有显式 `--runtime-root` 才切换运行时根。脚本把 build、recreate、revision/readiness、Worker ready、API/Worker health 与 React 资源校验收进一个完成边界，并以主机级 Compose project 互斥锁阻止不同 Worktree、clone 或 runtime root 并发替换同一套本地服务。
+- 原因：隔离 Worktree 不包含被 Git 忽略的真实运行配置和数据库，旧脚本却把脚本目录同时当作源码根和运行时根，导致端口回落、错误数据挂载和临时 Compose override；同时 `.env` 可以覆盖构建身份，build 与 up 分段执行又会把中间状态误当作完成。显式拆根与单一终态可让固定操作被脚本和测试表达，而不是每次由 Agent 重新推演。
+- 安全/兼容：默认仍只启动 API + Worker，不启动 scheduler、来源抓取、AI 或推送；本地默认端口统一为 8080。脚本启动前拒绝符号链接或缺失的 `.env/data`，不输出配置内容；`migration_required` 会先停止并确认 API/Worker 已停，对当前已知迁移给出显式、带备份的命令，未知迁移要求人工检查，普通重建绝不自动修改数据库。生产继续使用 revision-locked 的 `release_rc1.sh`，不复用本地启动器。
