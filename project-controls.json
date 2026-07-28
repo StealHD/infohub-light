@@ -1,0 +1,69 @@
+{
+  "init_pro": {
+    "profile": "backend",
+    "project_id": "inteliscope-infohub-light",
+    "schema": 3
+  },
+  "topics": {
+    "architecture": {
+      "kind": "file",
+      "managed": false,
+      "path": "ARCHITECTURE_CONTRACT.md",
+      "watch": []
+    },
+    "capabilities": {
+      "kind": "file",
+      "managed": false,
+      "path": "project-defaults.yaml",
+      "watch": []
+    },
+    "context": {
+      "kind": "file",
+      "managed": false,
+      "path": "CONTEXT_READ_RULES.md",
+      "watch": []
+    },
+    "decisions": {
+      "kind": "file",
+      "managed": false,
+      "path": "DECISION_LOG.md",
+      "watch": []
+    },
+    "instructions": {
+      "kind": "file",
+      "managed": false,
+      "path": "AGENTS.md",
+      "watch": []
+    },
+    "interface": {
+      "kind": "file",
+      "managed": false,
+      "path": "API_CONTRACT.md",
+      "watch": []
+    },
+    "observability": {
+      "kind": "file",
+      "managed": false,
+      "path": "docs/dev/observability-logging.md",
+      "watch": []
+    },
+    "phase": {
+      "kind": "file",
+      "managed": false,
+      "path": "PLAN.md",
+      "watch": []
+    },
+    "ui": {
+      "kind": "file",
+      "managed": false,
+      "path": "UI_CONTRACT.md",
+      "watch": []
+    }
+  },
+  "worklog": {
+    "archive_dir": "archive/worklog",
+    "max_active_entries": 20,
+    "mode": "compact",
+    "path": "WORKLOG.md"
+  }
+}

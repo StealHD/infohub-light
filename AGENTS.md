@@ -1,4 +1,4 @@
-<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=AGENTS.md -->
+<!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=AGENTS.md -->
 # Inteliscope InfoHub Light Agent Guide
 
 <!-- init-pro:section name=purpose -->
@@ -29,20 +29,22 @@ Current domain objects:
 ## 3. Control Files
 Current control plane files:
 
-1. `AGENTS.md`: highest-level project constraints, output format, worklog rule, and unique source-of-truth map.
-2. `PLAN.md`: current phase, implementation order, non-goals, and verification order.
-3. `API_CONTRACT.md`: Service Feed/retention API plus legacy CLI, static payload, archive, feedback, and Graph compatibility contracts.
-4. `ARCHITECTURE_CONTRACT.md`: module ownership and layering boundaries.
-5. `DECISION_LOG.md`: reasons for durable control-plane decisions.
-6. `CONTEXT_READ_RULES.md`: minimal context strategy and task-specific read expansion.
-7. `WORKLOG.md`: compact task execution record.
-8. `project-defaults.yaml`: editable control-plane defaults, capabilities, limits, and output behavior.
+1. `project-controls.json`: init-pro schema-v3 machine-readable topic map and compact worklog policy.
+2. `AGENTS.md`: highest-level project constraints, output format, worklog rule, and unique source-of-truth map.
+3. `PLAN.md`: current phase, implementation order, non-goals, and verification order.
+4. `API_CONTRACT.md`: Service Feed/retention API plus legacy CLI, static payload, archive, feedback, and Graph compatibility contracts.
+5. `ARCHITECTURE_CONTRACT.md`: module ownership and layering boundaries.
+6. `DECISION_LOG.md`: reasons for durable control-plane decisions.
+7. `CONTEXT_READ_RULES.md`: minimal context strategy and task-specific read expansion.
+8. `WORKLOG.md`: compact task execution record.
+9. `project-defaults.yaml`: editable capabilities, limits, and output behavior.
 
 ## 4. 控制文件唯一真源
 Use one authoritative file for each topic:
 
 | Topic | Source of truth |
 |---|---|
+| Machine-readable control topic mapping and worklog policy | `project-controls.json` |
 | Overall goal, hard constraints, output format | `AGENTS.md` |
 | Current phase, priorities, non-goals | `PLAN.md` |
 | Service API and legacy compatibility interfaces | `API_CONTRACT.md` |
@@ -85,7 +87,7 @@ For scraper work, read the target adapter under `src/scrapers/` and its matching
 - Selector ownership is `tests/test_impact_map.json`. Unmapped executable code, dependency manifests, and build configuration fail closed to full.
 - Gate logs stay under ignored `.test-results/<run-id>/` with private permissions. Read only the named failing log section when the bounded first-failure summary is insufficient.
 - Rebuild the local web service by running `./scripts/up-latest.sh` from the target task Worktree. The script must build that Worktree while resolving `.env`, `data`, and `logs` from the primary checkout through Git's common directory; use `--runtime-root ABSOLUTE_PATH` only for an intentional alternate runtime. Do not replace this with a temporary Compose override, runtime symlinks, or a build from the primary checkout. The command holds one host-local lock for the shared Compose project and containers. A rebuild is complete only after the target revision, API readiness with a ready Worker, both container health checks, and the served React asset all pass and the terminal state is rechecked; image build alone is never completion. Required database migrations remain explicit, backup-producing actions and must not be applied automatically.
-- Control-plane validation: this repository remains init-pro schema 2, while the installed validator requires a schema-v3 `project-controls.json`. Until an explicit control-plane migration, run `python3 -m json.tool project-defaults.yaml >/dev/null` and `git diff --check`; do not synthesize a manifest. After migration, use the validator's supported `--project-root . --format markdown` interface (stdout only unless a persistent report is explicitly requested).
+- Control-plane validation: this repository uses init-pro schema 3. Run `validate_project_controls.py --project-root . --format markdown`, `worklogctl.py validate --project-root .`, `python3 -m json.tool project-controls.json`, `python3 -m json.tool project-defaults.yaml`, and `git diff --check`. Keep validator output on stdout unless a persistent report is explicitly requested.
 
 <!-- init-pro:section name=ownership -->
 ## 7. 控制文件维护规则
@@ -100,13 +102,13 @@ Modify control files only when the 控制面发生变化, including:
 5. Context-read strategy changes.
 6. Current phase, non-goal, or hard-constraint changes.
 
-For ordinary fixes or tests with no control-plane change, update only `WORKLOG.md`.
+For ordinary fixes or tests with no control-plane change, append only one compact entry through `worklogctl.py`.
 
 <!-- init-pro:section name=worklog-policy -->
 ## 8. Worklog Rule
-Every agent task must append one concise entry to `WORKLOG.md` before final response.
+Every implementation task must append one concise entry through `worklogctl.py append` before final response. Do not edit compact entries manually.
 
-Use the template already present in `WORKLOG.md`. Keep entries short and do not paste large command output.
+Keep at most 20 active entries in `WORKLOG.md`; the tool rotates older compact entries into `archive/worklog/YYYY-MM.md`. The byte-preserved schema-v2 history under `archive/legacy-worklog/` is not part of default context and must only be searched when a task needs historical evidence.
 
 <!-- init-pro:section name=output-policy -->
 ## 9. 默认回复格式

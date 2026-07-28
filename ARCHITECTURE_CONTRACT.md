@@ -1,4 +1,4 @@
-<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=ARCHITECTURE_CONTRACT.md -->
+<!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=ARCHITECTURE_CONTRACT.md -->
 # Inteliscope InfoHub Light 架构合同
 
 ## 1. 文档目的

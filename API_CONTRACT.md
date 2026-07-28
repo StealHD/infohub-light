@@ -1,4 +1,4 @@
-<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=API_CONTRACT.md -->
+<!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=API_CONTRACT.md -->
 # Inteliscope InfoHub Light API / 接口合同
 
 <!-- init-pro:section name=interface -->

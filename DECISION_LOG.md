@@ -1,4 +1,4 @@
-<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=DECISION_LOG.md -->
+<!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=DECISION_LOG.md -->
 # Inteliscope InfoHub Light 决策记录
 
 ## 1. 文档目的
@@ -726,3 +726,11 @@
 - 决策内容：每个有效订阅只有“跟随全局（默认）”和“单源独立周期”两个互斥归属。自动 `scheduled_service_refresh` 只合成跟随全局来源；启用 `user_source_schedules.enabled` 的来源只由其单源计划自动抓取。手动更新整个信息流仍覆盖全部有效来源，并继续顺延其中已启用的单源计划。局部全局刷新只更新实际尝试来源的健康状态，但 finalizer 以全部有效订阅作为保留集合，避免移除单源来源已有内容。全部来源均为单源周期时，全局设置保留并记录 `no_global_subscriptions`，不创建空任务；遗留 queued 任务在 claim 时取消。
 - 原因：D012 的 additive 设计让高频来源获得独立新鲜度，但自动全局任务仍会再次包含同一来源，形成紧邻重复请求、重复费用和失败噪声；UI 又把 `enabled=false` 错写成“手动更新”，掩盖了它实际仍参与全局计划。明确唯一自动调度所有者可以在不改变手动兜底的前提下消除重叠。
 - 兼容/边界：继续复用现有 REST 路径、`user_source_schedules.enabled/interval_minutes`、Job 类型、队列互斥、配额与 snapshot 事务，不新增数据库迁移。`enabled=false` 现明确表示跟随全局，切换时保留周期值。此决策保留 D012 的 Worker、单源 finalizer、active-job 去重和手动全量后顺延规则，只替代其中“自动全量也包含单源周期来源”的重叠语义；不启动 scheduler、Worker 或真实来源。
+
+### D086 项目控制历史采用 schema-v3 映射与活动/归档分层
+
+- 决策日期：2026-07-28
+- 当前状态：本地实现，schema-v3 控制校验与完整 Test Gate 通过
+- 决策内容：`project-controls.json` 成为 init-pro schema-v3 的机器可读 topic 映射与紧凑日志策略真源；活动 `PLAN.md` 只保留当前阶段、待办、范围和门禁，原 schema-v2 计划逐字归档。活动 `WORKLOG.md` 最多保留 20 条结构化记录，旧根日志与非规范历史日志以摘要命名逐字保存在 `archive/legacy-worklog/`。历史 Superpowers 计划/规格、SDD 报告、init-pro 报告和旧项目地图移入 `archive/project-history/`。
+- 原因：历史计划和执行日志已占用主要 Markdown 读取、搜索和上下文预算，但绝大多数下一轮开发只需要当前状态及任务相关代码。把活动控制面与只读历史分层，可以降低 agent 的默认读取成本，同时保留完整追溯证据。
+- 兼容/边界：不移动产品源码、测试、依赖、构建配置、运行数据或合同文件；除 schema 标记和为新 manifest 登记 `tests/test_impact_map.json` 一条映射外，不改写产品实现、测试逻辑或 API/架构/UI 合同正文。归档文件继续受 Git 管理，只有任务需要历史证据时才定向搜索；普通任务不得整份加载。迁移必须通过 schema-v3 校验、工作日志字节守恒、JSON 校验、`git diff --check` 和仓库完整 Test Gate。

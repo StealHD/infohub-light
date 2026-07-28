@@ -1,4 +1,4 @@
-<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=CONTEXT_READ_RULES.md -->
+<!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=CONTEXT_READ_RULES.md -->
 # Inteliscope InfoHub Light 上下文读取规则
 
 ## 1. 文档目的
@@ -41,11 +41,10 @@
 1. `AGENTS.md`
 2. `ARCHITECTURE_CONTRACT.md`
 3. `DECISION_LOG.md`
-4. `docs/dev/project-map.md`
-5. `docs/dev/hub-taxonomy-real-run.md`
-6. `API_CONTRACT.md`
-7. 当前任务相关代码
-8. 当前任务相关测试
+4. `docs/dev/hub-taxonomy-real-run.md`
+5. `API_CONTRACT.md`
+6. 当前任务相关代码
+7. 当前任务相关测试
 
 ## 5. 默认不需要读取的文件
 以下内容默认不应读入上下文：
@@ -57,19 +56,17 @@
 5. `.env` / `.env.*`
 6. 本地 agent 设置文件
 7. `archive/**`
-8. `archive/worklog/**`
-9. `data/site/**`
-10. `data/*.db`
-11. `logs/**`
-12. `uv.lock`
-13. `INIT_PRO_VALIDATION.md`
-14. cached media
-15. generated summaries
-16. 历史 smoke report
-17. 不相关 Markdown
-18. 多数空壳包声明文件
+8. `data/site/**`
+9. `data/*.db`
+10. `logs/**`
+11. `uv.lock`
+12. cached media
+13. generated summaries
+14. 历史 smoke report
+15. 不相关 Markdown
+16. 多数空壳包声明文件
 
-如确实需要追溯历史，先用 `rg -n "关键词" archive/worklog` 搜索标题或小片段，不整文件读取归档。
+如确实需要追溯历史，先对 `archive/worklog`、`archive/legacy-worklog` 或 `archive/project-history` 中的目标子目录使用精确 `rg`，只读取命中片段，不整文件读取归档。
 
 ## 6. 任务类型最小读取集
 
@@ -84,7 +81,7 @@
 | Scraper / adapter | `PLAN.md`、`ARCHITECTURE_CONTRACT.md` adapter 边界、`src/models.py` 相关模型、目标 scraper、匹配测试 |
 | Docker / 部署 | `PLAN.md`、`project-defaults.yaml` runtime/verification 段、目标 compose/script、light runtime 测试 |
 | 测试修复 | 失败测试、被测代码、最小相关 fixture；不要先读全仓合同 |
-| 控制面变更 | `AGENTS.md`、`PLAN.md`、`CONTEXT_READ_RULES.md`、目标控制文件、`project-defaults.yaml` |
+| 控制面变更 | `project-controls.json`、目标 topic 的唯一真源；只有规则或理由变化时再读 `AGENTS.md` / `DECISION_LOG.md` |
 
 ## 7. 推荐读取策略
 ### 7.1 普通编码任务
@@ -209,4 +206,4 @@
 5. 新增额外 Markdown 设计文档。
 6. 读取 `.env` 或包含真实 token 的文件。
 7. 默认读取完整 `WORKLOG.md` 归档。
-8. 默认读取 `INIT_PRO_VALIDATION.md`；只在控制面校验失败时查看相关片段。
+8. 默认读取归档的 init-pro 报告；只在控制面校验失败且当前错误不足以定位时查看相关片段。

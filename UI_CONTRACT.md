@@ -1,4 +1,4 @@
-<!-- init-pro:control schema=2 profile=backend project=inteliscope-infohub-light file=UI_CONTRACT.md -->
+<!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=UI_CONTRACT.md -->
 # Inteliscope UI Contract
 
 ## 1. Authority
