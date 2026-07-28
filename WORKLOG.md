@@ -3178,3 +3178,10 @@
 - 执行验证：个人技能校验 21/21、个人规则与项目工作日志 `git diff --check` 通过
 - 结果：除非用户明确要求同步远端，今后创建任务分支前只记录并使用本地 `main` HEAD，不执行 fetch/pull/reset，也不从 `origin/main` 起分支
 - 安全边界：未访问或修改 Git 远端，未创建、切换、合并或推送分支，未变更本地容器和运行数据
+
+### 2026-07-28 14:05 Codex
+- 任务：把 `codex/changelog-heroui-timeline` 合入最新本地 `main`
+- 合并处理：从本地 `main@ed53817` 创建独立集成 Worktree，保留主线历史媒体、Worktree 运行修复和任务分支时间线；合并两侧 WORKLOG，组合手册 review，并将冲突的时间线决策编号顺延为 D084
+- 执行验证：合并结果 `test_gate full` 22/22、0 failed/error、163.601 秒，决策编号唯一且 `git diff --check` 通过
+- 结果：本地 `main` 同时包含历史媒体堆叠预览、稳定 Worktree 8080 重建和 HeroUI OSS 更新日志时间线
+- 安全边界：仅使用本地 `main`，未 fetch/pull/reset、未引用 `origin/main` 作为基线，未推送或部署；原 `codex/0727` 脏 checkout 保持不变
