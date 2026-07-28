@@ -3070,3 +3070,10 @@
 - 运行变更：以本分支镜像原位替换 `horizon-light-api` 与 `horizon-light-worker`，继续挂载主工作区 `.env/data/logs`；删除误建的 `8081` 空库容器及两个隔离命名卷
 - 执行验证：API/Worker 同镜像、healthy、0 restart，liveness revision 匹配，readiness database/worker=`ready`；旧数据计数为用户 3、来源 9、订阅 9，SQLite quick check=`ok`，根页面与 `/changelog` 均返回 200
 - 安全边界：切换前后 active Job 均为 0，未启动独立 scheduler，未手动触发抓取、AI、通知、付费调用或部署；原运行数据未删除或迁移
+
+### 2026-07-28 13:52 Codex
+- 任务：固化“任务分支默认从本地 main 创建”的个人 Git 工作流
+- 修改范围：个人工作流规则明确无修饰 `main` 指向本地 `refs/heads/main`，远端 `main` 仅作为本地分支集成后的发布目标；项目仓库仅追加本工作日志
+- 执行验证：个人技能校验 21/21、个人规则与项目工作日志 `git diff --check` 通过
+- 结果：除非用户明确要求同步远端，今后创建任务分支前只记录并使用本地 `main` HEAD，不执行 fetch/pull/reset，也不从 `origin/main` 起分支
+- 安全边界：未访问或修改 Git 远端，未创建、切换、合并或推送分支，未变更本地容器和运行数据
