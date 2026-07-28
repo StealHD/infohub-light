@@ -734,3 +734,11 @@
 - 决策内容：`project-controls.json` 成为 init-pro schema-v3 的机器可读 topic 映射与紧凑日志策略真源；活动 `PLAN.md` 只保留当前阶段、待办、范围和门禁，原 schema-v2 计划逐字归档。活动 `WORKLOG.md` 最多保留 20 条结构化记录，旧根日志与非规范历史日志以摘要命名逐字保存在 `archive/legacy-worklog/`。历史 Superpowers 计划/规格、SDD 报告、init-pro 报告和旧项目地图移入 `archive/project-history/`。
 - 原因：历史计划和执行日志已占用主要 Markdown 读取、搜索和上下文预算，但绝大多数下一轮开发只需要当前状态及任务相关代码。把活动控制面与只读历史分层，可以降低 agent 的默认读取成本，同时保留完整追溯证据。
 - 兼容/边界：不移动产品源码、测试、依赖、构建配置、运行数据或合同文件；除 schema 标记和为新 manifest 登记 `tests/test_impact_map.json` 一条映射外，不改写产品实现、测试逻辑或 API/架构/UI 合同正文。归档文件继续受 Git 管理，只有任务需要历史证据时才定向搜索；普通任务不得整份加载。迁移必须通过 schema-v3 校验、工作日志字节守恒、JSON 校验、`git diff --check` 和仓库完整 Test Gate。
+
+### D087 首批性能优化采用路由分包、轻量列表与兼容视图
+
+- 决策日期：2026-07-29
+- 当前状态：本地实现与定向回归完成；未重建、未部署、未迁移生产数据
+- 决策内容：登录、外壳、Feed、收藏和历史保持首屏主链路，订阅、Agent、设置、用户、手册和更新日志改为路由级动态加载；生产构建以实际 HTML 的入口和 module preload 合计计算 Brotli 体积，门禁为 250 KiB，并要求六个低频路由持续独立分包。React Query 按 Feed、集合、目录、设置、来源类型和 Job 的变化频率设置短时 stale policy，active Job 仍按原周期轮询。前端 Feed 使用 `view=canonical`，Job 列表使用 `view=summary&scope=me&limit=100&include_active=true` 保留原有最近记录范围，响应结构仅在展开时读取完整 Job。
+- 原因：原生产入口把全部低频页面打入同一约 1.23 MB 未压缩脚本，列表接口又重复传输 `today_items`、Job payload、完整结果与 response schema。先缩短首屏解析/执行链和高频列表载荷，比修改 HTTP 协议或大范围重写缓存更直接且风险更可控。
+- 兼容/边界：Feed 默认仍为 compat view，Job 列表默认仍为 full workspace view，Job detail、权限、排序、状态、手动刷新、深链定位与 active 轮询语义不变。compact snapshot 对新空库默认开启但仍受 v3 marker 硬门禁；现存未迁移数据库继续 storage v1，本任务不改生产数据库、不执行迁移、不重建 8080，也不涉及 HTTP/3、Service Worker、字体或真实来源。

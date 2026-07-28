@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import type {
   NotificationChannel,
   NotificationTestResult,
@@ -208,6 +209,7 @@ export function HeroNotificationSettings() {
   const settings = useQuery({
     queryKey: queryKeys.notificationSettings(user.id),
     queryFn: ({ signal }) => api.notificationSettings(signal),
+    staleTime: queryStaleTime.settings,
   })
 
   if (settings.isLoading) return <LoadingState label="正在读取消息通知设置" rows={1} />

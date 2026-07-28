@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-28',
-  change: '公开 YouTube 频道、近 N 天信息流、安全存储、卡片图片预览与响应式更新日志时间线',
+  reviewedAt: '2026-07-29',
+  change: '常用页面按需加载、运行记录轻量列表与响应结构按需读取',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -99,7 +99,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '复用运行记录',
-        description: '运行记录优先显示任务、状态、来源或结果以及创建和完成时间；Feed 获取结果显示去重后的实际新增数量，不把抓取量或整份信息流总量冒充新增。技术详情与响应结构默认折叠，可通过带箭头的独立按钮柔和展开。记录也可直接加入 Agent 上下文，OpenClaw 会通过只读任务诊断取得安全的原因、证据和建议，不会自动重试或修改任务；内部任务 ID 不会成为页面文案。',
+        description: '运行记录优先显示任务、状态、来源或结果以及创建和完成时间；Feed 获取结果显示去重后的实际新增数量，不把抓取量或整份信息流总量冒充新增。技术详情与响应结构默认折叠，响应结构只在首次展开时按需读取完整任务详情；可通过带箭头的独立按钮柔和展开。记录也可直接加入 Agent 上下文，OpenClaw 会通过只读任务诊断取得安全的原因、证据和建议，不会自动重试或修改任务；内部任务 ID 不会成为页面文案。',
       },
     ],
   },

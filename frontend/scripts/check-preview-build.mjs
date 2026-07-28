@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const buildRootOption = process.argv.indexOf('--build-root')
@@ -22,6 +23,15 @@ const forbidden = [
 const forbiddenPatterns = [
   { pattern: /\bMui(?:[A-Z][A-Za-z0-9]*)?-[A-Za-z0-9-]+\b/, label: 'MUI class marker' },
 ]
+const initialJavaScriptBrotliBudget = 250 * 1024
+const requiredLazyRouteChunks = [
+  'HeroAgentsPage',
+  'HeroChangelogPage',
+  'HeroManualPage',
+  'HeroSettingsPage',
+  'HeroSubscriptionsPage',
+  'HeroUsersPage',
+]
 const violations = []
 
 async function files(directory) {
@@ -35,7 +45,8 @@ async function files(directory) {
   return result
 }
 
-for (const file of await files(buildRoot)) {
+const buildFiles = await files(buildRoot)
+for (const file of buildFiles) {
   const source = await readFile(file, 'utf8')
   for (const marker of forbidden) {
     if (source.includes(marker)) violations.push(`${file}: 包含开发专用 HeroUI 标记 ${marker}`)
@@ -45,9 +56,45 @@ for (const file of await files(buildRoot)) {
   }
 }
 
+const indexPath = join(buildRoot, 'index.html')
+let initialJavaScriptBrotliBytes = null
+if (buildFiles.includes(indexPath)) {
+  const indexSource = await readFile(indexPath, 'utf8')
+  const initialJavaScriptReferences = [
+    ...new Set(
+      [...indexSource.matchAll(/(?:src|href)="(\/assets\/[^"]+\.js)"/g)]
+        .map((match) => match[1]),
+    ),
+  ]
+  initialJavaScriptBrotliBytes = 0
+  for (const reference of initialJavaScriptReferences) {
+    const source = await readFile(join(buildRoot, reference))
+    initialJavaScriptBrotliBytes += brotliCompressSync(source, {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+      },
+    }).byteLength
+  }
+  if (initialJavaScriptBrotliBytes > initialJavaScriptBrotliBudget) {
+    violations.push(
+      `${indexPath}: 首屏 JavaScript Brotli 体积 ${initialJavaScriptBrotliBytes} bytes 超过 ${initialJavaScriptBrotliBudget} bytes`,
+    )
+  }
+
+  const builtNames = buildFiles.map((file) => file.slice(buildRoot.length + 1))
+  for (const chunkName of requiredLazyRouteChunks) {
+    if (!builtNames.some((name) => name.startsWith(`assets/${chunkName}-`) && name.endsWith('.js'))) {
+      violations.push(`${buildRoot}: 缺少低频路由独立分包 ${chunkName}`)
+    }
+  }
+}
+
 if (violations.length) {
   console.error(`Production UI artifact check failed:\n${violations.map((value) => `- ${value}`).join('\n')}`)
   process.exitCode = 1
 } else {
-  console.log('Production UI artifact check passed.')
+  const sizeSummary = initialJavaScriptBrotliBytes === null
+    ? ''
+    : ` Initial JavaScript Brotli: ${initialJavaScriptBrotliBytes} bytes.`
+  console.log(`Production UI artifact check passed.${sizeSummary}`)
 }

@@ -915,6 +915,36 @@ def test_compact_feed_write_keeps_full_items_only_in_item_rows_and_dual_reads(
     assert loaded["storage_version"] == 2
 
 
+def test_new_empty_database_uses_compact_feed_storage_by_default(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED", raising=False)
+    store, workspace, owner, service = _service(tmp_path, monkeypatch)
+    snapshot = service.save_run_result(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job_compact_default",
+        job_type="user_feed_refresh",
+        result=_result(
+            "run_compact_default",
+            "succeeded",
+            (_item("compact-default", "src_compact", "sub_compact"),),
+            (_outcome("src_compact", "sub_compact"),),
+        ),
+        active_source_ids={"src_compact"},
+    )
+
+    row = store.connect().execute(
+        "SELECT storage_version, payload_json FROM user_feed_snapshots WHERE id = ?",
+        (snapshot["id"],),
+    ).fetchone()
+    payload = json.loads(row["payload_json"])
+
+    assert row["storage_version"] == 2
+    assert "items" not in payload
+    assert "today_items" not in payload
+
+
 def test_compact_feed_write_waits_for_storage_v3_migration(tmp_path, monkeypatch):
     store, workspace, owner, _feed_service = _service(tmp_path, monkeypatch)
     store.connect().execute("DELETE FROM schema_migrations WHERE version = 3")

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import type { User } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import { useActionFeedback } from '../../app/ActionFeedback'
@@ -123,7 +124,7 @@ export function HeroUsersPage() {
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
   const admin = canAdministerWorkspace(user)
-  const users = useQuery({ queryKey: queryKeys.users(user.id), queryFn: ({ signal }) => api.users(signal), enabled: admin })
+  const users = useQuery({ queryKey: queryKeys.users(user.id), queryFn: ({ signal }) => api.users(signal), enabled: admin, staleTime: queryStaleTime.settings })
   const [newUserRole, setNewUserRole] = useState('member')
   const [createError, setCreateError] = useState('')
   const [resetTarget, setResetTarget] = useState<User | null>(null)

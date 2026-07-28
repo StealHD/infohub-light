@@ -3555,16 +3555,57 @@ def create_app(
     async def jobs_list(
         status: str | None = None,
         limit: int = 50,
+        view: Literal["full", "summary"] = "full",
+        scope: Literal["workspace", "me"] = "workspace",
+        include_active: bool = False,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
+        scoped_user_id = (
+            user["id"]
+            if scope == "me" or not _is_admin(user)
+            else None
+        )
+        bounded_limit = max(1, min(int(limit), 200))
+        if view == "summary":
+            jobs = queue.list_job_summaries(
+                workspace_id=user["workspace_id"],
+                user_id=scoped_user_id,
+                status=status,
+                limit=bounded_limit,
+                include_active=include_active,
+            )
+            return ok({"jobs": jobs})
+        jobs = queue.list_jobs(
+            workspace_id=user["workspace_id"],
+            user_id=scoped_user_id,
+            status=status,
+            limit=bounded_limit,
+        )
+        if include_active and status is None:
+            active_jobs = [
+                *queue.list_jobs(
+                    workspace_id=user["workspace_id"],
+                    user_id=scoped_user_id,
+                    status="queued",
+                    limit=200,
+                ),
+                *queue.list_jobs(
+                    workspace_id=user["workspace_id"],
+                    user_id=scoped_user_id,
+                    status="running",
+                    limit=200,
+                ),
+            ]
+            jobs_by_id = {str(job["id"]): job for job in jobs}
+            jobs_by_id.update({str(job["id"]): job for job in active_jobs})
+            jobs = sorted(
+                jobs_by_id.values(),
+                key=lambda job: str(job.get("created_at") or ""),
+                reverse=True,
+            )
         return ok(
             {
-                "jobs": [_public_job(job) for job in queue.list_jobs(
-                    workspace_id=user["workspace_id"],
-                    user_id=None if _is_admin(user) else user["id"],
-                    status=status,
-                    limit=max(1, min(int(limit), 200)),
-                )]
+                "jobs": [_public_job(job) for job in jobs]
             }
         )
 
@@ -3607,19 +3648,21 @@ def create_app(
         hide_dismissed: bool = False,
         unread_first: bool = False,
         saved_first: bool = False,
+        view: Literal["compat", "canonical"] = "compat",
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         target = target_user_for_scope(user_id, user)
-        return ok(
-            feed_archive.latest_feed(
-                workspace_id=target["workspace_id"],
-                user_id=target["id"],
-                hide_dismissed=hide_dismissed,
-                unread_first=unread_first,
-                saved_first=saved_first,
-                feed_window_days=current_feed_window_days(),
-            )
+        payload = feed_archive.latest_feed(
+            workspace_id=target["workspace_id"],
+            user_id=target["id"],
+            hide_dismissed=hide_dismissed,
+            unread_first=unread_first,
+            saved_first=saved_first,
+            feed_window_days=current_feed_window_days(),
         )
+        if view == "canonical":
+            payload.pop("today_items", None)
+        return ok(payload)
 
     @app.get("/api/feed/search")
     async def feed_search(

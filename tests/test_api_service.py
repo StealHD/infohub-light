@@ -2177,6 +2177,92 @@ def test_health_runtime_and_job_api_never_expose_claim_token(tmp_path, monkeypat
     assert runtime.json()["data"]["worker_status"] == "ready"
 
 
+def test_job_summary_view_is_user_scoped_compact_and_backward_compatible(
+    tmp_path, monkeypatch
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    member = client.post(
+        "/api/users",
+        json={
+            "username": "summary-member",
+            "password": "member-password",
+            "role": "member",
+        },
+    ).json()["data"]
+    store = ServiceStore(data_dir)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    queue = JobQueue(store)
+    active = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_fetch",
+        payload={"private": "owner-active"},
+    )
+    terminal = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="user_feed_refresh",
+        payload={"private": "owner-terminal"},
+    )
+    queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        job_type="source_test",
+        payload={"private": "member"},
+    )
+    store.connect().execute(
+        "UPDATE fetch_jobs SET created_at = ? WHERE id = ?",
+        ("2026-07-01T00:00:00+00:00", active["id"]),
+    )
+    store.connect().execute(
+        """
+        UPDATE fetch_jobs
+        SET status = 'partial', result_json = ?, created_at = ?, finished_at = ?
+        WHERE id = ?
+        """,
+        (
+            json.dumps(
+                {
+                    "snapshot_created": True,
+                    "new_item_count": 3,
+                    "source_outcomes": [{"status": "failed"}],
+                    "response_schemas": [{"source_id": "private-schema"}],
+                }
+            ),
+            "2026-07-03T00:00:00+00:00",
+            "2026-07-03T00:01:00+00:00",
+            terminal["id"],
+        ),
+    )
+    store.connect().commit()
+
+    summary_response = client.get(
+        "/api/jobs?view=summary&scope=me&limit=1&include_active=true"
+    )
+    summary_jobs = summary_response.json()["data"]["jobs"]
+    full_jobs = client.get("/api/jobs").json()["data"]["jobs"]
+    detail = client.get(f"/api/jobs/{terminal['id']}").json()["data"]
+
+    assert summary_response.status_code == 200
+    assert [job["id"] for job in summary_jobs] == [terminal["id"], active["id"]]
+    assert all(job["user_id"] == owner["id"] for job in summary_jobs)
+    assert summary_jobs[0]["result"] == {
+        "snapshot_created": True,
+        "new_item_count": 3,
+        "failed_source_count": 1,
+    }
+    assert "payload_json" not in summary_jobs[0]
+    assert "result_json" not in summary_jobs[0]
+    assert any(job["user_id"] == member["id"] for job in full_jobs)
+    assert detail["payload_json"] == {"private": "owner-terminal"}
+    assert detail["result_json"]["response_schemas"] == [
+        {"source_id": "private-schema"}
+    ]
+
+
 def test_ops_runtime_aggregates_only_safe_acquisition_and_invalidation_counts(
     tmp_path, monkeypatch
 ):
@@ -2607,6 +2693,28 @@ def test_feed_latest_returns_user_scoped_degraded_payload_without_snapshot(tmp_p
         "personal_item_ids",
     ):
         assert latest_data[key] == []
+    canonical_data = client.get(
+        "/api/feed/latest?view=canonical"
+    ).json()["data"]
+    assert "today_items" not in canonical_data
+    assert {
+        key: value
+        for key, value in canonical_data.items()
+        if key != "window"
+    } == {
+        key: value
+        for key, value in latest_data.items()
+        if key not in {"today_items", "window"}
+    }
+    assert {
+        key: value
+        for key, value in canonical_data["window"].items()
+        if key != "now"
+    } == {
+        key: value
+        for key, value in latest_data["window"].items()
+        if key != "now"
+    }
     history_data = history.json()["data"]
     _assert_window(history_data)
     history_data.pop("window")

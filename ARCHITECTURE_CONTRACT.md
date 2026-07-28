@@ -35,7 +35,7 @@ Service AI cache 归 `src/services/user_analysis_cache.py` 所有，必须按 wo
 稳定详情归 `src/services/user_content_store.py` 所有：每次 Feed finalize 将规范列表 item 写入 `user_content_items`，再把抓取器已有正文清洗为最多 20,000 字的 captured body。详情投影升级为 Presentation v2；旧 snapshot 回填只能是 `excerpt_only`。`src/services/media_cache.py` 在 Worker 内经公共网络地址固定策略下载最多 6 张内容图和一个来源头像，验证真实图片类型、8 MiB 上限并原子落盘；第三方临时媒体 URL 不得进入 snapshot 或稳定索引，浏览器只能通过登录保护的 `/api/media/*` 访问。合成 DNS 例外仅允许 Instagram 既有 CDN 与精确后缀 `pbs.twimg.com`；头像身份忽略 query/fragment，身份变化即时验证候选，同身份最多每 24 小时复验 checksum，候选失败必须保留旧 ready 版本。
 
 ### 3.4 Service Frontend Boundary
-默认 Service UI 位于 `frontend/`，由 React + TypeScript 构建到独立 `src/ui/service_static` 产物，只通过 `/api/*` 消费数据；不得直接调用 scraper、AI client 或 storage，也不依赖 `data/site/*.json` 或 `data/config.json` 源列表的内部文件结构。阅读、收藏与历史只调用 `/api/feed/*`；条目提供站内查看已抓正文/图片、打开原文、显式已读/未读、复制摘要、收藏、稍后读和忽略，不提供网页全文代理/iframe、偏好 feedback 或 Graph。订阅控制台通过 catalog、subscriptions、jobs、schedule、source-health 和 users API 管理信息获取，并通过 subscription 字段逐源选择新内容通知；首页“获取新内容”创建 `user_feed_refresh`，不得退化为只重新 GET snapshot。设置页保留 `/api/config`、`/api/config/action` facade 管理全局非 source 配置，并通过用户作用域 notification settings API 管理 write-only 目的地和模拟发送测试；两者不得混用 legacy Webhook 状态。
+默认 Service UI 位于 `frontend/`，由 React + TypeScript 构建到独立 `src/ui/service_static` 产物，只通过 `/api/*` 消费数据；不得直接调用 scraper、AI client 或 storage，也不依赖 `data/site/*.json` 或 `data/config.json` 源列表的内部文件结构。登录、外壳、Feed、收藏与历史属于首屏主链路；订阅、Agent、设置、用户、手册与更新日志必须保持路由级动态加载，生产构建检查首屏 JavaScript Brotli 合计不超过 250 KiB。阅读、收藏与历史只调用 `/api/feed/*`；条目提供站内查看已抓正文/图片、打开原文、显式已读/未读、复制摘要、收藏、稍后读和忽略，不提供网页全文代理/iframe、偏好 feedback 或 Graph。订阅控制台通过 catalog、subscriptions、jobs、schedule、source-health 和 users API 管理信息获取，并通过 subscription 字段逐源选择新内容通知；首页“获取新内容”创建 `user_feed_refresh`，不得退化为只重新 GET snapshot。设置页保留 `/api/config`、`/api/config/action` facade 管理全局非 source 配置，并通过用户作用域 notification settings API 管理 write-only 目的地和模拟发送测试；两者不得混用 legacy Webhook 状态。
 
 React Query 的所有用户数据 key 必须包含当前 `user_id`；logout、401 或身份切换必须先取消旧请求并删除旧用户缓存。Vite 的 hashed `/assets/*` 可 immutable cache，`index.html` 必须 no-cache；BrowserRouter 深链接由 FastAPI 回退到 React index。`HORIZON_SERVICE_UI_VARIANT=legacy` 只作为一个发布周期的回滚入口，`src/ui/static` 继续服务 legacy CLI/horizon-web，不得重新成为默认 Service 数据路径。
 
@@ -84,7 +84,7 @@ Catalog `source_fetch` 的精准抓取路径归 `src/services/catalog_source_run
 
 `src/services/canonical_content.py` 是全量与增量 Feed 的共同 canonical identity/provenance merger；URL query 属于身份，最新 Feed article id 优先稳定复用。`UserFeedStore` 以有序公开内容 hash 判断版本：时间、job/run 诊断和 live user state 不参与；no-op 返回既有 snapshot 并显式 `snapshot_created=false`。
 
-compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数据库已完成 Feed storage v3 migration 时启用。storage v2 snapshot payload 保存 metadata、item id 顺序及集合成员 id，完整 item 只写 child rows；reader 必须同时支持 legacy full payload 和 compact payload。现存数据但未迁移时 writer 保持 storage v1、Worker maintenance 保持延后；真正无 v3 遗留数据的新空库可在 additive 初始化时自动记录 marker。迁移不得原地改写 legacy body，只能 backfill hash、执行 retention、记录 migration 并在 UTC backup 后校验 integrity/foreign keys。
+compact writer 只在 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数据库已完成 Feed storage v3 migration 时启用。代码与示例配置对新空库默认 true，但 marker 仍为硬门禁，现存未迁移数据库保持 storage v1，既有部署可显式设 false。storage v2 snapshot payload 保存 metadata、item id 顺序及集合成员 id，完整 item 只写 child rows；reader 必须同时支持 legacy full payload 和 compact payload。现存数据但未迁移时 Worker maintenance 保持延后；真正无 v3 遗留数据的新空库可在 additive 初始化时自动记录 marker。迁移不得原地改写 legacy body，只能 backfill hash、执行 retention、记录 migration 并在 UTC backup 后校验 integrity/foreign keys。
 
 ### 3.6F Local Agent / Remote MCP Boundary
 

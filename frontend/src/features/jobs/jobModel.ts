@@ -61,7 +61,12 @@ export function describeFeedJob(job: Job | undefined, workerStatus = 'ready', no
   const newItemCount = newItemCountOf(job)
   const snapshotCreated = result.snapshot_created === true
   const outcomes = Array.isArray(result.source_outcomes) ? result.source_outcomes as Array<{ status?: string }> : []
-  const failedCount = outcomes.filter((outcome) => outcome.status === 'failed').length
+  const failedSourceCount = result.failed_source_count
+  const failedCount = typeof failedSourceCount === 'number'
+    && Number.isInteger(failedSourceCount)
+    && failedSourceCount >= 0
+    ? failedSourceCount
+    : outcomes.filter((outcome) => outcome.status === 'failed').length
   if (job.status === 'partial') {
     const failureSummary = `${failedCount} 个来源失败。`
     const message = snapshotCreated

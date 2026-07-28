@@ -66,3 +66,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "完成首批无功能降级性能优化：低频路由动态分包、Feed canonical 视图、Job 轻量摘要与按需详情、分层查询缓存、Job 索引及新空库 compact snapshot 默认值；未重建或部署运行服务。",
+  "status": "completed",
+  "task_id": "2026-07-29-performance-first-batch",
+  "unresolved": [],
+  "validation": [
+    "frontend 483 tests passed",
+    "production build passed with 227646-byte initial JavaScript Brotli payload",
+    "targeted backend API, queue and Feed storage tests passed",
+    "python scripts/test_gate.py run --mode full",
+    "git diff --check"
+  ]
+}
+```

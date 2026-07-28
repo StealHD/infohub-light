@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ServiceApi } from '../../api/service'
 import type { FeedSnapshot, Job, User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import { describeFeedJob, feedJobNotice, latestFeedJob, pollingTimedOut, type FeedNotice } from './jobModel'
 import type { ActionGeneration, ActionToken } from '../../app/actionGeneration'
 
@@ -40,6 +41,7 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   const jobsQuery = useQuery({
     queryKey: queryKeys.jobs(user.id),
     queryFn: ({ signal }) => api.jobs(signal),
+    staleTime: queryStaleTime.jobs,
     refetchInterval: (query) => (query.state.data?.jobs ?? []).some((job) => (
       feedProducer(job, user.id)
       && activeJob(job)
@@ -50,6 +52,7 @@ export function useFeedActivity(api: ServiceApi, user: User, guard: ActionGenera
   const scheduleQuery = useQuery({
     queryKey: queryKeys.feedSchedule(user.id),
     queryFn: ({ signal }) => api.feedSchedule(signal),
+    staleTime: queryStaleTime.catalog,
   })
   const activity = describeFeedJob(currentJob, scheduleQuery.data?.worker_status ?? 'unknown')
 

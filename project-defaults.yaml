@@ -89,7 +89,7 @@
       "channel_grouped_subscription_ui_enabled": true,
       "topic_chip_manager_enabled": true,
       "shared_source_acquisition_enabled": false,
-      "compact_feed_snapshots_enabled": false,
+      "compact_feed_snapshots_enabled": true,
       "feed_storage_v3_migration_enabled": true,
       "hourly_service_retention_enabled": true,
       "canonical_feed_merge_enabled": true,
