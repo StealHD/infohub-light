@@ -3058,3 +3058,9 @@
 - 执行验证：目标 Vitest 11/11、审查修复后 7/7，TypeScript、Lint（0 error）、UI Contract、生产构建、三视口 Playwright 4 passed/2 skipped（连接线几何、无横向溢出、Axe serious/critical 为零及桌面明暗主题）通过；最终 `test_gate full` 22/22、0 failed/error、147.733 秒
 - 结果：每个月份使用紧凑 `ol/li` 时间线，最新条目具有 current 语义，详情全部展开；桌面与窄屏月份导航、Hash 深链、前进后退及 Reduced Motion 行为保持可用
 - 安全边界：未引入 HeroUI Pro、依赖、授权或 Secret，未修改 API、路由、数据库或服务端，未合并、推送、部署或触发真实来源、AI、通知及付费调用
+
+### 2026-07-28 11:30 Codex
+- 任务：启动更新日志时间线分支的本地容器供页面验收
+- 运行变更：从本分支 clean commit 构建独立镜像，以独立容器和命名卷在 `127.0.0.1:8081` 启动 React API/UI；现有 `8080` 分支容器保持不变
+- 执行验证：容器 healthy、0 restart，liveness revision 匹配，readiness database=`ready`、worker=`missing`，根页面与 `/changelog` 均返回 200，运行 bundle 包含“更新日志改为清晰时间线”
+- 安全边界：仅启动 API，未启动 Worker 或 scheduler；隔离 SQLite，不共享现有运行数据，并显式关闭 Remote MCP、OpenClaw、Apify、订阅写入，未触发抓取、AI、通知、付费调用或部署
