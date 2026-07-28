@@ -492,8 +492,11 @@ describe('App routes', () => {
     expect(healthChip).toHaveAttribute('aria-label', '健康状态：正常')
     expect(healthChip).toHaveClass('self-center')
     const scheduleCard = document.querySelector('[data-feed-schedule]') as HTMLElement
-    const scheduleSwitch = within(scheduleCard).getByRole('switch', { name: '全部订阅自动更新' })
+    const scheduleSwitch = within(scheduleCard).getByRole('switch', { name: '全局自动更新' })
     expect(scheduleSwitch.closest('[data-slot="switch"]')).toHaveTextContent('')
+    expect(within(scheduleCard).getByText('覆盖 1 个订阅')).toBeInTheDocument()
+    expect(sourceCard).toHaveTextContent('更新：全局')
+    expect(sourceCard).toHaveTextContent('每 1 小时')
     expect(within(scheduleCard).getByRole('button', { name: /更新周期/ })).toBeInTheDocument()
     expect(within(scheduleCard).queryByRole('button', { name: '管理自动更新' })).not.toBeInTheDocument()
     const channelRail = document.querySelector('[data-channel-rail]') as HTMLElement
@@ -528,9 +531,10 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByText('正在检查后台服务')).toBeInTheDocument()
+    expect(screen.getByText('当前没有跟随全局的订阅')).toBeInTheDocument()
     expect(screen.queryByText('后台服务不可用')).not.toBeInTheDocument()
     act(() => scheduleRequest.resolve({ enabled: true, interval_minutes: 60, worker_status: 'ready' }))
-    await waitFor(() => expect(screen.getByRole('switch', { name: '全部订阅自动更新' })).toBeChecked())
+    await waitFor(() => expect(screen.getByRole('switch', { name: '全局自动更新' })).toBeChecked())
     expect(screen.queryByText('正在检查后台服务')).not.toBeInTheDocument()
   })
 
@@ -713,7 +717,7 @@ describe('App routes', () => {
     await browser.click(within(filterDialog).getByRole('button', { name: /健康状态/ }))
     await browser.click(await screen.findByRole('option', { name: '正常' }))
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
-    expect(screen.getAllByText('全部订阅自动更新').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('全局自动更新').length).toBeGreaterThan(0)
   })
 
   it('keeps source failure details behind a status tooltip and dialog', async () => {
@@ -735,7 +739,7 @@ describe('App routes', () => {
     expect(within(card).queryByText(/原因：/)).not.toBeInTheDocument()
     expect(within(card).queryByText(rawMessage)).not.toBeInTheDocument()
     const latestAttempt = new Date('2026-07-18T03:00:00Z').toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    expect(card).toHaveTextContent(`今日0近7天0历史0手动更新·${latestAttempt}`)
+    expect(card).toHaveTextContent(`今日0近7天0历史0更新：全局·每 1 小时·${latestAttempt}`)
 
     const trigger = within(card).getByRole('button', { name: '查看 连续失败 详情' })
     await browser.hover(trigger)
@@ -857,6 +861,9 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
+    expect(await screen.findByText('已关闭 · 1 个订阅等待全局开启')).toBeInTheDocument()
+    expect(screen.getByText('更新：跟随全局')).toBeInTheDocument()
+    expect(screen.getByText('全局已关闭')).toBeInTheDocument()
     await browser.click(await screen.findByRole('button', { name: /^立即获取 阻塞来源；/ }))
     const message = await screen.findByText('后台获取服务当前不可用，请稍后再试。')
     expect(message.closest('[data-slot="toast-region"]')).not.toBeNull()
@@ -1042,8 +1049,8 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('switch', { name: '全部订阅自动更新' }))
-    const schedulePending = await screen.findByRole('switch', { name: '全部订阅自动更新' })
+    await browser.click(await screen.findByRole('switch', { name: '全局自动更新' }))
+    const schedulePending = await screen.findByRole('switch', { name: '全局自动更新' })
     expect(schedulePending).toBeDisabled()
     expect(screen.getByRole('button', { name: /更新周期/ })).toBeDisabled()
     fireEvent.click(schedulePending)
@@ -1095,11 +1102,11 @@ describe('App routes', () => {
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockReturnValue(invalidation.promise)
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const scheduleButton = await screen.findByRole('switch', { name: '全部订阅自动更新' })
+    const scheduleButton = await screen.findByRole('switch', { name: '全局自动更新' })
     expect(scheduleButton).toBeChecked()
     invalidate.mockClear()
     await browser.click(scheduleButton)
-    expect(await screen.findByRole('switch', { name: '全部订阅自动更新' })).toBeDisabled()
+    expect(await screen.findByRole('switch', { name: '全局自动更新' })).toBeDisabled()
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
     await browser.click(await screen.findByRole('button', { name: '取消订阅 刷新前已订阅' }))
     expect(await screen.findByRole('button', { name: '取消中 刷新前已订阅' })).toBeDisabled()
@@ -1119,7 +1126,7 @@ describe('App routes', () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(19))
 
     await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
-    const schedulePending = screen.getByRole('switch', { name: '全部订阅自动更新' })
+    const schedulePending = screen.getByRole('switch', { name: '全局自动更新' })
     expect(schedulePending).toBeDisabled()
     fireEvent.click(schedulePending)
     expect(api.updateFeedSchedule).toHaveBeenCalledOnce()
@@ -1146,7 +1153,7 @@ describe('App routes', () => {
     })
 
     await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
-    const refreshedSchedule = await screen.findByRole('switch', { name: '全部订阅自动更新' })
+    const refreshedSchedule = await screen.findByRole('switch', { name: '全局自动更新' })
     expect(refreshedSchedule).toBeEnabled()
     expect(refreshedSchedule).not.toBeChecked()
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
@@ -1173,7 +1180,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await browser.click(await screen.findByRole('switch', { name: '全部订阅自动更新' }))
+    await browser.click(await screen.findByRole('switch', { name: '全局自动更新' }))
     expect((await screen.findByText('计划保存失败')).closest('[data-slot="toast-region"]')).not.toBeNull()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))

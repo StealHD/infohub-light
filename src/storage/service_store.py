@@ -4255,9 +4255,11 @@ class ServiceStore:
                 sc.source_key,
                 sc.secret_env,
                 sc.enforce_public_network,
-                sc.enabled AS source_enabled
+                sc.enabled AS source_enabled,
+                COALESCE(uss.enabled, 0) AS source_schedule_enabled
             FROM user_subscriptions us
             JOIN source_catalog sc ON sc.id = us.source_id
+            LEFT JOIN user_source_schedules uss ON uss.subscription_id = us.id
             WHERE us.user_id = ?
               AND sc.workspace_id = ?
               AND us.enabled = 1
@@ -4272,12 +4274,45 @@ class ServiceStore:
             data["subscription_enabled"] = _bool(data["subscription_enabled"])
             data["notify_on_new_items"] = _bool(data["notify_on_new_items"])
             data["source_enabled"] = _bool(data["source_enabled"])
+            data["source_schedule_enabled"] = _bool(
+                data["source_schedule_enabled"]
+            )
             data["override_topics"] = _json_loads(data.pop("override_topics_json"), [])
             data["personal_tags"] = _json_loads(data.pop("personal_tags_json"), [])
             data["default_topics"] = _json_loads(data.pop("default_topics_json"), [])
             data["config"] = _json_loads(data.pop("config_json"), {})
             records.append(data)
         return records
+
+    def has_enabled_user_subscriptions(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        global_schedule_only: bool = False,
+    ) -> bool:
+        schedule_filter = (
+            "AND COALESCE(uss.enabled, 0) = 0"
+            if global_schedule_only
+            else ""
+        )
+        return bool(
+            self.connect().execute(
+                f"""
+                SELECT 1
+                FROM user_subscriptions us
+                JOIN source_catalog sc ON sc.id = us.source_id
+                LEFT JOIN user_source_schedules uss ON uss.subscription_id = us.id
+                WHERE us.user_id = ?
+                  AND sc.workspace_id = ?
+                  AND us.enabled = 1
+                  AND sc.enabled = 1
+                  {schedule_filter}
+                LIMIT 1
+                """,
+                (user_id, workspace_id),
+            ).fetchone()
+        )
 
     def list_user_subscriptions_with_sources(
         self,

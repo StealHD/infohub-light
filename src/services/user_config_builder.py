@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 from ..models import Config
 from ..rsshub import is_managed_rsshub_config
@@ -204,9 +204,12 @@ def build_user_config_data(
     workspace_id: str,
     user_id: str,
     base_config: dict[str, Any] | Config,
+    schedule_scope: Literal["all", "global"] = "all",
 ) -> dict[str, Any]:
     """Return a Config-compatible dict for one user's enabled subscriptions."""
 
+    if schedule_scope not in {"all", "global"}:
+        raise ValueError("schedule_scope must be 'all' or 'global'")
     if isinstance(base_config, Config):
         data = base_config.model_dump(mode="json")
     else:
@@ -233,6 +236,8 @@ def build_user_config_data(
         filtering.get("rss_initial_fetch_window_hours", 168)
     )
     for record in records:
+        if schedule_scope == "global" and record["source_schedule_enabled"]:
+            continue
         _append_source(
             sources,
             _record_with_runtime_fetch_window(
@@ -250,6 +255,7 @@ def build_user_config(
     workspace_id: str,
     user_id: str,
     base_config: dict[str, Any] | Config,
+    schedule_scope: Literal["all", "global"] = "all",
 ) -> Config:
     """Build and validate a Config for one user."""
 
@@ -259,5 +265,6 @@ def build_user_config(
             workspace_id=workspace_id,
             user_id=user_id,
             base_config=base_config,
+            schedule_scope=schedule_scope,
         )
     )

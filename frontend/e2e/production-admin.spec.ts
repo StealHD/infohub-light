@@ -165,11 +165,11 @@ async function mockAdminApi(page: Page, authenticated = true, options: { include
     else if (url.pathname === '/api/me/subscriptions/subscription-1' && route.request().method() === 'PATCH') {
       const payload = route.request().postDataJSON() as { notify_on_new_items?: boolean }
       if (typeof payload.notify_on_new_items === 'boolean') notificationEnabled = payload.notify_on_new_items
-      data = { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } }
+      data = { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: false, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } }
     }
     else if (url.pathname === '/api/me/subscriptions') data = { subscriptions: [
-      { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
-      ...(options.includePrivateSource ? [{ id: 'subscription-private', user_id: owner.id, source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 20, notify_on_new_items: false }] : []),
+      { id: 'subscription-1', user_id: owner.id, source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 80, notify_on_new_items: notificationEnabled, schedule: { enabled: false, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440] } },
+      ...(options.includePrivateSource ? [{ id: 'subscription-private', user_id: owner.id, source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 20, notify_on_new_items: false, schedule: { enabled: true, interval_minutes: 60, allowed_intervals: [30, 60, 180, 360, 720, 1440], next_run_at: '2026-07-17T10:30:00Z' } }] : []),
       ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
       ...(youtubeCreated ? [{ id: 'subscription-youtube', user_id: owner.id, source_id: 'source-youtube', source_display_name: 'Google Developers', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
@@ -710,10 +710,11 @@ test('subscription channels stay compact, actionable and accessible at every acc
   }
 
   const scheduleCard = page.locator('[data-feed-schedule]')
-  const scheduleSwitch = scheduleCard.getByRole('switch', { name: '全部订阅自动更新' })
+  const scheduleSwitch = scheduleCard.getByRole('switch', { name: '全局自动更新' })
   const scheduleSelect = scheduleCard.getByRole('button', { name: /更新周期/ })
   await expect(scheduleSwitch).toBeChecked()
   await expect(scheduleSelect).toBeVisible()
+  await expect(scheduleCard.getByText('覆盖 1 个订阅')).toBeVisible()
   await expect(scheduleCard.getByText('自动更新', { exact: true })).toHaveCount(0)
   await expect(scheduleCard.getByRole('button', { name: '管理自动更新' })).toHaveCount(0)
   const scheduleBounds = await scheduleCard.boundingBox()
@@ -746,6 +747,8 @@ test('subscription channels stay compact, actionable and accessible at every acc
   }
 
   const subscriptionCard = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })
+  await expect(subscriptionCard.getByText('更新：全局')).toBeVisible()
+  await expect(subscriptionCard.getByText('每 6 小时')).toBeVisible()
   const cardHeader = subscriptionCard.locator('[data-source-card-header]')
   const healthChip = cardHeader.locator('[data-source-health-chip]')
   const editSource = subscriptionCard.getByRole('button', { name: '编辑来源：OpenAI Blog' })
@@ -801,6 +804,14 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await subscriptionCard.getByRole('button', { name: '配置 OpenAI Blog 订阅' }).click()
   const subscriptionDialog = page.getByRole('dialog', { name: 'OpenAI Blog · 订阅设置' })
   await expect(subscriptionDialog.getByRole('switch', { name: /新内容通知/ })).toHaveCount(0)
+  const globalMode = subscriptionDialog.getByRole('radio', { name: '跟随全局（默认）' })
+  const sourceMode = subscriptionDialog.getByRole('radio', { name: '单源独立周期' })
+  await expect(globalMode).toBeChecked()
+  await expect(subscriptionDialog.getByRole('button', { name: /单源更新周期/ })).toHaveCount(0)
+  await sourceMode.focus()
+  await page.keyboard.press('Space')
+  await expect(sourceMode).toBeChecked()
+  await expect(subscriptionDialog.getByRole('button', { name: /单源更新周期/ })).toBeVisible()
   await page.keyboard.press('Escape')
 
   const idleFetch = subscriptionCard.getByRole('button', { name: '立即获取 OpenAI Blog' })
@@ -1001,6 +1012,9 @@ test('public/private subscription views and direct share stay usable at 693, 645
   await page.setViewportSize({ width: 693, height: 762 })
   await page.goto('/subscriptions')
 
+  await expect(page.locator('[data-feed-schedule]').getByText(
+    '覆盖 1 个订阅 · 1 个使用单源周期',
+  )).toBeVisible()
   const viewSelector = page.locator('[data-compact-channel-controls]').getByRole('button', { name: /订阅视图/ })
   await viewSelector.click()
   await expect(page.getByRole('option', { name: /公共订阅 · 1/ })).toBeVisible()

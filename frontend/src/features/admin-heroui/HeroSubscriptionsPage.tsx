@@ -68,8 +68,10 @@ const formatCompactTime = (value?: string | null) => {
 }
 
 
-function FeedScheduleControls({ schedule, editable, pending, loading, error, onRetry, onUpdate }: {
+function FeedScheduleControls({ schedule, globalSubscriptionCount, customSubscriptionCount, editable, pending, loading, error, onRetry, onUpdate }: {
   schedule?: FeedSchedule
+  globalSubscriptionCount: number
+  customSubscriptionCount: number
   editable: boolean
   pending: boolean
   loading: boolean
@@ -80,9 +82,16 @@ function FeedScheduleControls({ schedule, editable, pending, loading, error, onR
   const interval = schedule?.interval_minutes ?? 360
   const intervalOptions = (schedule?.allowed_intervals ?? [60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value < 60 ? `每 ${value} 分钟` : `每 ${value / 60} 小时` }))
   const controlsDisabled = !editable || pending || loading || error || !schedule
-  const scheduleStatus = schedule?.enabled
-    ? schedule.next_run_at ? `下次计划：${formatTime(schedule.next_run_at)}` : '等待下次计划'
-    : '已关闭'
+  const coverageSummary = globalSubscriptionCount === 0
+    ? '当前没有跟随全局的订阅'
+    : schedule?.enabled
+      ? `覆盖 ${globalSubscriptionCount} 个订阅${customSubscriptionCount > 0 ? ` · ${customSubscriptionCount} 个使用单源周期` : ''}`
+      : schedule
+        ? `已关闭 · ${globalSubscriptionCount} 个订阅等待全局开启`
+        : `${globalSubscriptionCount} 个订阅跟随全局`
+  const nextSchedule = schedule?.enabled && globalSubscriptionCount > 0
+    ? schedule.next_run_at ? `下次 ${formatTime(schedule.next_run_at)}` : '等待下次更新'
+    : null
   const serviceStatus = loading
     ? { label: '正在检查后台服务', tone: 'accent' as const, icon: <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> }
     : error
@@ -95,12 +104,12 @@ function FeedScheduleControls({ schedule, editable, pending, loading, error, onR
     <div className="grid min-w-0 gap-3">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div className="min-w-0">
-          <Card.Title>全部订阅自动更新</Card.Title>
-          <Card.Description className="mt-1 hidden min-[640px]:block">按设定周期从全部已启用订阅抓取、去重并更新信息流，不会修改频道或订阅设置。</Card.Description>
+          <Card.Title>全局自动更新</Card.Title>
+          <Card.Description className="mt-1 hidden min-[640px]:block">默认更新所有“跟随全局”的已启用订阅；单源独立周期不会重复抓取。</Card.Description>
         </div>
         <div className="justify-self-end">
           <Switch
-            aria-label="全部订阅自动更新"
+            aria-label="全局自动更新"
             aria-busy={pending}
             isSelected={schedule?.enabled ?? false}
             isDisabled={controlsDisabled}
@@ -116,7 +125,8 @@ function FeedScheduleControls({ schedule, editable, pending, loading, error, onR
       <div className="grid min-w-0 gap-3 min-[480px]:grid-cols-[minmax(0,1fr)_auto] min-[480px]:items-end">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <StatusIndicator iconOnly role="status" label={serviceStatus.label} tone={serviceStatus.tone} icon={serviceStatus.icon} />
-          {!loading && !error && schedule && <span className="type-body text-muted">{scheduleStatus}</span>}
+          <span className="type-body text-muted">{coverageSummary}</span>
+          {!loading && !error && nextSchedule && <span className="type-meta text-muted">{nextSchedule}</span>}
           {error && <Button size="sm" variant="ghost" onPress={onRetry}>重试</Button>}
         </div>
         <HeroSelect
@@ -304,9 +314,25 @@ export function HeroSubscriptionsPage() {
 
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data])
   const definitions = typesQuery.data?.source_types ?? []
-  const subscriptions = subscriptionsQuery.data?.subscriptions ?? []
+  const subscriptions = useMemo(
+    () => subscriptionsQuery.data?.subscriptions ?? [],
+    [subscriptionsQuery.data?.subscriptions],
+  )
   const taxonomy: TaxonomyOptions = configQuery.data?.taxonomy ?? { channels: [], topics: Array.isArray(configQuery.data?.config.tags) ? configQuery.data.config.tags.filter((topic): topic is string => typeof topic === 'string') : [] }
   const sourceMap = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources])
+  const scheduleCoverage = useMemo(() => subscriptions.reduce(
+    (counts, subscription) => {
+      const source = sourceForSubscription(
+        subscription,
+        sourceMap.get(subscription.source_id),
+      )
+      if (!subscription.enabled || !source.enabled) return counts
+      if (subscription.schedule?.enabled) counts.custom += 1
+      else counts.global += 1
+      return counts
+    },
+    { global: 0, custom: 0 },
+  ), [sourceMap, subscriptions])
   const healthMap = useMemo(() => new Map((healthQuery.data?.items ?? []).map((health) => [health.subscription_id, health])), [healthQuery.data])
   const normalized = search.trim().toLocaleLowerCase()
   const matchesSource = (source: CatalogSource) => (typeFilter === 'all' || effectiveSourceType(source) === typeFilter) && (scopeFilter === 'all' || (scopeFilter === 'public' ? isPublicSubscriptionScope(source.scope) : source.scope === 'private')) && (!normalized || [source.display_name, source.description, source.default_channel, ...(source.default_topics ?? [])].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalized)))
@@ -513,8 +539,11 @@ export function HeroSubscriptionsPage() {
               }}
               editable={editable}
               feedWindowDays={healthQuery.data?.window?.feed_days ?? 7}
+              globalSchedule={scheduleQuery.data}
               schedule={<FeedScheduleControls
                 schedule={scheduleQuery.data}
+                globalSubscriptionCount={scheduleCoverage.global}
+                customSubscriptionCount={scheduleCoverage.custom}
                 editable={editable}
                 pending={schedulePending}
                 loading={scheduleQuery.isLoading}

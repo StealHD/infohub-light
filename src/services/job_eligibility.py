@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..storage.service_store import ServiceStore
+from .feed_schedule import SCHEDULED_REFRESH_REASON
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,18 @@ class JobEligibilityService:
             source = self.store.get_source(source_id)
             if source is None or not source.get("enabled"):
                 return JobEligibilityDecision(False, "source_disabled")
+
+        if (
+            job.get("job_type") == "user_feed_refresh"
+            and (job.get("payload_json") or {}).get("reason")
+            == SCHEDULED_REFRESH_REASON
+            and not self.store.has_enabled_user_subscriptions(
+                workspace_id=str(job.get("workspace_id") or ""),
+                user_id=str(user["id"]),
+                global_schedule_only=True,
+            )
+        ):
+            return JobEligibilityDecision(False, "no_global_subscriptions")
 
         if job.get("job_type") != "source_fetch" or not source_id:
             return JobEligibilityDecision(True)

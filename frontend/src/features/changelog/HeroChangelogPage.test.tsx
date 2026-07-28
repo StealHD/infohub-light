@@ -44,6 +44,7 @@ describe('HeroChangelogPage', () => {
     renderChangelog('/changelog#month-2026-07')
 
     expect(screen.getByRole('heading', { level: 2, name: '2026 年 7 月' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: '全局与单源周期不再重复抓取' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '更新日志改为清晰时间线' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '可直接订阅 YouTube 公开频道' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 3, name: '操作手册与发布入口' })).toBeInTheDocument()
@@ -58,8 +59,8 @@ describe('HeroChangelogPage', () => {
     expect(entries.length).toBeGreaterThan(1)
     expect(entries[0]).toHaveAttribute('aria-current', 'true')
     expect(entries[1]).not.toHaveAttribute('aria-current')
-    expect(within(entries[0] as HTMLElement).getByText('时间顺序更直观')).toBeVisible()
-    expect(within(entries[0] as HTMLElement).getByText('导航与可访问性保留')).toBeVisible()
+    expect(within(entries[0] as HTMLElement).getByText('默认跟随全局')).toBeVisible()
+    expect(within(entries[0] as HTMLElement).getByText('卡片信息更准确')).toBeVisible()
     expect(within(entries[0] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
   })
 

@@ -17,6 +17,8 @@ import {
   Label,
   ListBox,
   Modal,
+  Radio,
+  RadioGroup,
   RemovableTag,
   TextArea,
   TextField,
@@ -208,6 +210,9 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
   const [topics, setTopics] = useState(subscription.override_topics ?? [])
   const [analysisMode, setAnalysisMode] = useState(subscription.analysis_mode ?? 'full')
   const [interval, setInterval] = useState(String(subscription.schedule?.interval_minutes ?? 360))
+  const [updateMode, setUpdateMode] = useState<'global' | 'source'>(
+    subscription.schedule?.enabled ? 'source' : 'global',
+  )
   const [enabled, setEnabled] = useState(subscription.enabled)
   const [disableDisposition, setDisableDisposition] = useState<SubscriptionDisableDisposition>('dismiss')
   const [confirmUnsubscribe, setConfirmUnsubscribe] = useState(false)
@@ -247,7 +252,10 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
         ...(subscription.enabled && !enabled ? { on_disable: disableDisposition } : {}),
       })
       if (!isActionCurrent(token)) return
-      await api.updateSourceSchedule(subscription.id, { enabled: enabled && form.has('source_schedule_enabled'), interval_minutes: Number(interval) })
+      await api.updateSourceSchedule(subscription.id, {
+        enabled: enabled && updateMode === 'source',
+        interval_minutes: Number(interval),
+      })
       if (!isActionCurrent(token)) return
       if (intent === 'test' || intent === 'fetch') await onJob(intent, source.id, subscription.id)
       if (isActionCurrent(token)) {
@@ -278,8 +286,38 @@ export function SubscriptionForm({ subscription, source, readonly, taxonomy, onD
           ]}
         />
       </div>}
-      <HeroSelect name="source_schedule_interval" label="单源自动获取" value={interval} onChange={setInterval} options={(subscription.schedule?.allowed_intervals ?? [30, 60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value === 30 ? '每 30 分钟' : `每 ${value / 60} 小时` }))} />
-      <Checkbox name="source_schedule_enabled" defaultSelected={subscription.schedule?.enabled ?? false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用单源周期</Checkbox.Content></Checkbox>
+      <div className="grid gap-1">
+        <span className="type-control text-foreground">自动更新方式</span>
+        <RadioGroup
+          aria-label="自动更新方式"
+          name="source_schedule_mode"
+          value={updateMode}
+          variant="secondary"
+          onChange={(value) => setUpdateMode(value as 'global' | 'source')}
+        >
+          <Radio value="global">
+            <Radio.Content>
+              <Radio.Control><Radio.Indicator /></Radio.Control>
+              <span>跟随全局（默认）</span>
+            </Radio.Content>
+            <Description>使用页面上方的全局自动更新周期。</Description>
+          </Radio>
+          <Radio value="source">
+            <Radio.Content>
+              <Radio.Control><Radio.Indicator /></Radio.Control>
+              <span>单源独立周期</span>
+            </Radio.Content>
+            <Description>不参与全局自动更新，按下方周期单独抓取。</Description>
+          </Radio>
+        </RadioGroup>
+      </div>
+      {updateMode === 'source' && <HeroSelect
+        name="source_schedule_interval"
+        label="单源更新周期"
+        value={interval}
+        onChange={setInterval}
+        options={(subscription.schedule?.allowed_intervals ?? [30, 60, 180, 360, 720, 1440]).map((value) => ({ id: String(value), label: value === 30 ? '每 30 分钟' : `每 ${value / 60} 小时` }))}
+      />}
     </Fieldset>
     {error && <HeroNotice title={error} />}
     {!readonly && <>
