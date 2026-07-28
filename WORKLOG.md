@@ -3064,3 +3064,9 @@
 - 运行变更：从本分支 clean commit 构建独立镜像，以独立容器和命名卷在 `127.0.0.1:8081` 启动 React API/UI；现有 `8080` 分支容器保持不变
 - 执行验证：容器 healthy、0 restart，liveness revision 匹配，readiness database=`ready`、worker=`missing`，根页面与 `/changelog` 均返回 200，运行 bundle 包含“更新日志改为清晰时间线”
 - 安全边界：仅启动 API，未启动 Worker 或 scheduler；隔离 SQLite，不共享现有运行数据，并显式关闭 Remote MCP、OpenClaw、Apify、订阅写入，未触发抓取、AI、通知、付费调用或部署
+
+### 2026-07-28 11:53 Codex
+- 任务：按用户澄清改为使用原运行数据，将更新日志时间线分支全部重建到本地 `8080`
+- 运行变更：以本分支镜像原位替换 `horizon-light-api` 与 `horizon-light-worker`，继续挂载主工作区 `.env/data/logs`；删除误建的 `8081` 空库容器及两个隔离命名卷
+- 执行验证：API/Worker 同镜像、healthy、0 restart，liveness revision 匹配，readiness database/worker=`ready`；旧数据计数为用户 3、来源 9、订阅 9，SQLite quick check=`ok`，根页面与 `/changelog` 均返回 200
+- 安全边界：切换前后 active Job 均为 0，未启动独立 scheduler，未手动触发抓取、AI、通知、付费调用或部署；原运行数据未删除或迁移
