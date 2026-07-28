@@ -3093,3 +3093,9 @@
 - 执行验证：目标 Vitest 31/31、TypeScript、UI 合同、Lint（0 error）与生产构建通过；1440×900、1024×768、390×844 Playwright 3/3 且 Axe serious/critical 为 0；真实数据在 466×762 与 1440×900 完整显示；`test_gate full` 22/22、0 failed/error、207.235 秒
 - 结果：展开卡片只显示第一张本地可查看图片，多图在预览内循环切换；横竖图均完整收在 Dialog 与视口内，关闭后恢复焦点、URL 与阅读锚点
 - 安全边界：未修改 API、数据库、媒体缓存或公开类型，未复制或引入 HeroUI Pro 源码；未推送、合并、部署、重建 8080、抓取来源、调用 AI、scheduler、通知或付费服务
+
+### 2026-07-28 10:41 Codex
+- 任务：在本地 8080 启动 `codex/history-media-preview-fix` 容器
+- 执行验证：无缓存镜像 revision `bf3abfd8a7f3` 构建完成；API/Worker 均 healthy，liveness/readiness 与 Worker 状态为 ready，页面资源包含新的代表图入口和有界预览
+- 数据迁移：按 fail-closed 提示停止服务并执行 content timeline v11；288 条内容完成时间/搜索回填和索引，integrity 为 `ok`、foreign key 0，迁移前 `0600` 备份保留于本地数据目录
+- 安全边界：复用既有 `.env`、数据与日志，只重建本地 API/Worker；未启动 scheduler、抓取来源、调用 AI、发送通知、使用付费服务、推送或部署
