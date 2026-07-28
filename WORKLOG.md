@@ -3044,3 +3044,10 @@
 - 执行验证：浏览器复核订阅卡状态，API liveness/readiness、Compose 容器状态与前端 `worker_status` 映射一致
 - 结果：API 与数据库正常；根因是上一任务为阻止到期计划继续触发真实抓取而主动停止 Worker，Worker heartbeat 变为 `stale`，前端按合同显示“后台服务不可用”
 - 安全边界：仅只读诊断并记录结果，未重启 Worker、修改计划、创建任务、触发抓取、AI、通知或付费调用
+
+### 2026-07-28 10:38 Codex
+- 任务：将 YouTube 频道订阅功能合入本地 `main`
+- 修改范围：从最新本地 `main` 建立独立集成 Worktree，以非快进方式合并 `codex/youtube-channel-subscriptions`，并同步 D076 的本地合并状态
+- 执行验证：首次门禁因新 Worktree 缺少 `eslint` 环境依赖停止；按锁文件安装依赖后，集成树 `test_gate full` 22/22、0 failed/error、207.427 秒，`mapping_miss=false`
+- 结果：经验证集成提交用于快进本地 `main`；YouTube setup alias、RSS 链路、前端、合同、手册、更新日志与完整回归一并保留
+- 安全边界：原 `codex/0727` 脏工作区与任务 Worktree 保持不变；未推送、部署、重建容器、重启 Worker 或触发抓取、AI、通知及付费调用

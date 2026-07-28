@@ -647,7 +647,7 @@
 ### D076 YouTube 频道作为 RSS 存储之上的一等 setup 类型
 
 - 决策日期：2026-07-28
-- 当前状态：本地实现与完整验证完成；未合并、未推送、未部署
+- 当前状态：已合入本地 `main` 并完成完整验证；未推送、未部署
 - 决策内容：Web 新增 `youtube_channel` setup alias，但数据库、Worker 和 scraper 继续使用 `type=rss` 与 `rss:<canonical-feed-url>`；规范 channel feed 的既有 RSS 行通过派生 `setup_type` 原位识别。公开 channel ID、频道链接、规范 Feed 与 handle 最终统一为 `https://www.youtube.com/feeds/videos.xml?channel_id=…`，默认 `keep_latest_item=true`。
 - 解析与展示边界：channel ID 与规范 Feed 本地解析；handle 只允许固定 YouTube HTTPS 主机的一次 10 秒、2 MB、零重定向公共页面请求读取 RSS link，不使用 API Key、Cookie 或登录。频道 Feed 不过滤普通视频、Shorts、公开直播或回放；Presentation 以链接确定性标记 `platform=youtube`、`author.kind=channel`、`format=video`。
 - 原因：把 YouTube 增加为第九种持久化来源会复制 RSS 抓取、健康、计划、通知与去重链路并引入迁移；只把任意频道页当普通 RSS 又无法安全解析 handle、提供明确 UI 或保证同频道去重。setup alias 同时保持用户语义和既有运行链路。
