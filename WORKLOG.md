@@ -340,3 +340,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "发布 v2.1.0 注释标签并将 main 快进至发布提交；使用本机构建的 linux/amd64 镜像完成 VPS v13 增量迁移与 API/Worker 切换，保留旧版和双重 0600 数据库回滚备份。",
+  "status": "completed",
+  "task_id": "2026-07-29-v2.1.0-production-rollout",
+  "unresolved": [
+    "未执行真实付费 Canary 或真实告警；Dami 保持 disabled 待两个 X 来源验证，Xquik 保持 open 等待自然任务恢复探测"
+  ],
+  "validation": [
+    "release Test Gate: 24/24 passed",
+    "v2.1.0 and main pushed atomically at c591c8d405dd",
+    "staging and production v13 migration integrity/foreign-key checks passed",
+    "VPS public live/ready serve v2.1.0 c591c8d405dd; API/Worker healthy with zero restarts",
+    "ScrapeBadger closed primary, Dami disabled, Xquik open; zero Actor attempts or alert deliveries during rollout",
+    "RSSHub remained healthy and scheduler remained stopped"
+  ]
+}
+```
