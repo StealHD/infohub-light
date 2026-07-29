@@ -321,3 +321,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "将包含触底文案与 Apify X/profile 三 Actor 主备的组合发布元数据升级为 2.1.0，准备创建 v2.1.0 注释标签并执行 revision-locked VPS 升级。",
+  "status": "completed",
+  "task_id": "2026-07-29-release-v2.1.0",
+  "unresolved": [],
+  "validation": [
+    "pyproject.toml and uv.lock versions set to 2.1.0",
+    "release source is a fast-forward descendant of origin/main a4d3f60",
+    "v2.1.0 is unused locally and remotely",
+    "VPS v2.0.0 API and Worker ready with zero active or due jobs",
+    "VPS database quick_check and foreign-key checks passed",
+    "python scripts/test_gate.py run --mode release: 24/24 passed"
+  ]
+}
+```
