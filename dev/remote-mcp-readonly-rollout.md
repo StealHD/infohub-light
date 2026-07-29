@@ -97,12 +97,14 @@ openclaw mcp doctor inteliscope --probe
 openclaw mcp status --verbose
 ```
 
-验收输出必须是 16 个服务端工具、12 个安全 read tools、3 个隔离检查和
+验收输出必须是 17 个服务端工具、13 个安全 read tools、3 个隔离检查和
 `subscription_writes_disabled`。再用真实 OpenClaw 对话询问“哪些订阅来源最近
 异常？”、“最近有哪些任务失败，原因是什么？”和“查看该任务最近 24 小时的
-安全诊断事件”，并要求“订阅 B 站 UP 主食贫道”；最后一项必须自行解析唯一
-精确名称 UID 并只生成订阅预览，不得要求手工提供 UID，也不得在未确认时
-apply。事件结果不得包含原始日志、路径或身份。
+安全诊断事件”，并分别要求“订阅 B 站 UP 主食贫道”和“订阅 YouTube 的老高
+和小茉”；前者必须自行解析唯一精确名称 UID，后者必须通过 OpenClaw 网页发现
+与 `resolve_source` 验证官方频道，两者都只生成订阅预览，不得要求手工提供
+UID、channel ID 或 RSS，也不得在未确认时 apply。事件结果不得包含原始日志、
+路径或身份。
 
 ## 3. Nginx 精确路由
 
