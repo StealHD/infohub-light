@@ -12,6 +12,7 @@ describe('query keys', () => {
       'user', 'user-a', 'history', { q: 'needle', sourceId: 'source-1', limit: 50 },
     ])
     expect(queryKeys.subscriptions('user-b')).toEqual(['user', 'user-b', 'subscriptions'])
+    expect(queryKeys.feedJobs('user-b')).toEqual(['user', 'user-b', 'feed-jobs'])
     expect(queryKeys.jobs('user-b')).toEqual(['user', 'user-b', 'jobs'])
     expect(queryKeys.notificationSettings('user-b')).toEqual(['user', 'user-b', 'notification-settings'])
     expect(queryKeys.notificationEmailTransport('user-b')).toEqual([

@@ -52,6 +52,7 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     }),
     refreshFeedEndMessages: vi.fn(),
     agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, connections: [], mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5 }),
+    feedJobs: vi.fn().mockResolvedValue({ jobs: [] }),
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
     notificationSettings: vi.fn().mockResolvedValue({
@@ -640,6 +641,126 @@ describe('App routes', () => {
     expect(screen.queryByText('正在检查后台服务')).not.toBeInTheDocument()
   })
 
+  it('ignores 100 historical feed-job terminals and keeps the full jobs query dormant', async () => {
+    const browser = userEvent.setup()
+    const historicalJobs = Array.from({ length: 100 }, (_, index): Job => ({
+      id: `historical-source-job-${index}`,
+      user_id: 'user-live',
+      job_type: 'source_fetch',
+      source_id: `historical-source-${index}`,
+      subscription_id: `historical-subscription-${index}`,
+      status: index % 2 === 0 ? 'succeeded' : 'failed',
+      created_at: `2026-07-16T${String(index % 24).padStart(2, '0')}:00:00Z`,
+      finished_at: `2026-07-16T${String(index % 24).padStart(2, '0')}:00:01Z`,
+      error_message: index % 2 === 0 ? undefined : '历史错误不应弹出',
+    }))
+    const feedJobs = vi.fn().mockResolvedValue({ jobs: historicalJobs })
+    const jobs = vi.fn().mockResolvedValue({ jobs: historicalJobs })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [] }),
+      sourceHealth: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        scope: 'user',
+        summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 },
+        items: [],
+      }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
+      feedJobs,
+      jobs,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '订阅与来源' })).toBeInTheDocument()
+    await waitFor(() => expect(feedJobs).toHaveBeenCalledOnce())
+    await act(async () => Promise.resolve())
+    expect(jobs).not.toHaveBeenCalled()
+    expect(api.latestFeed).not.toHaveBeenCalled()
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(screen.queryByText('历史错误不应弹出')).not.toBeInTheDocument()
+
+    await browser.click(await screen.findByRole('tab', { name: '运行记录' }))
+    await waitFor(() => expect(jobs).toHaveBeenCalledOnce())
+    await waitFor(() => expect(document.querySelectorAll('[data-compact-job-card]')).toHaveLength(100))
+  })
+
+  it('settles two same-batch source fetches with one canonical Feed reload and one global invalidation batch', async () => {
+    const browser = userEvent.setup()
+    const feedReload = deferred<{ schema_version: number; items: FeedItem[] }>()
+    const sources = [
+      { id: 'batch-source-a', type: 'rss', display_name: '批量来源 A', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true },
+      { id: 'batch-source-b', type: 'rss', display_name: '批量来源 B', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true },
+    ]
+    const subscriptions = sources.map((source, index) => ({
+      id: `batch-subscription-${index}`,
+      user_id: 'user-live',
+      source_id: source.id,
+      source_display_name: source.display_name,
+      source_type: source.type,
+      enabled: true,
+    }))
+    const queuedJobs = sources.map((source, index): Job => ({
+      id: `batch-job-${index}`,
+      user_id: 'user-live',
+      job_type: 'source_fetch',
+      source_id: source.id,
+      subscription_id: subscriptions[index].id,
+      status: 'queued',
+      created_at: `2026-07-17T01:00:0${index}Z`,
+    }))
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        scope: 'user',
+        summary: { healthy: 0, degraded: 0, failing: 0, unknown: 2, total: 2 },
+        items: [],
+      }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      createSourceFetch: vi.fn().mockImplementation((sourceId: string) => Promise.resolve(
+        queuedJobs.find((job) => job.source_id === sourceId),
+      )),
+      latestFeed: vi.fn().mockReturnValue(feedReload.promise),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    for (const source of sources) {
+      await browser.click(await screen.findByRole('button', { name: new RegExp(`^立即获取 ${source.display_name}；`) }))
+    }
+    await waitFor(() => expect(api.createSourceFetch).toHaveBeenCalledTimes(2))
+    invalidate.mockClear()
+
+    act(() => queryClient.setQueryData(queryKeys.feedJobs('user-live'), {
+      jobs: queuedJobs.map((job, index) => ({
+        ...job,
+        status: index === 0 ? 'succeeded' : 'partial',
+        finished_at: `2026-07-17T01:00:1${index}Z`,
+        result: { new_item_count: index + 1, snapshot_created: true },
+      })),
+    }))
+
+    await waitFor(() => expect(api.latestFeed).toHaveBeenCalledOnce())
+    const invalidatedKeys = () => invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
+    await waitFor(() => {
+      expect(invalidatedKeys().filter((key) => key === JSON.stringify(queryKeys.sourceHealth('user-live')))).toHaveLength(1)
+      expect(invalidatedKeys().filter((key) => key === JSON.stringify(queryKeys.historyRoot('user-live')))).toHaveLength(1)
+    })
+    expect(invalidatedKeys()).not.toContain(JSON.stringify(queryKeys.jobs('user-live')))
+
+    act(() => feedReload.resolve({ schema_version: 2, items: [basicFeedItem('batch-result', '批量结果')] }))
+    expect(await screen.findByText('批量来源 A 获取完成')).toBeInTheDocument()
+    expect(await screen.findByText('批量来源 B 部分完成')).toBeInTheDocument()
+    expect(screen.getAllByText(/批量来源 [AB] (获取完成|部分完成)/)).toHaveLength(2)
+  }, 10_000)
+
   it('optimistically toggles card notifications and rolls back a failed PATCH', async () => {
     const browser = userEvent.setup()
     const source = {
@@ -689,6 +810,66 @@ describe('App routes', () => {
       expect(notification).toBeEnabled()
     })
     expect(await screen.findByText('通知回滚来源 通知设置保存失败')).toBeInTheDocument()
+  })
+
+  it('preserves a custom source schedule when a notification PATCH omits schedule data', async () => {
+    const browser = userEvent.setup()
+    const source = {
+      id: 'notification-schedule-source',
+      type: 'rss',
+      display_name: '自定义周期来源',
+      scope: 'private' as const,
+      owner_user_id: 'user-live',
+      default_channel: 'AI',
+      enabled: true,
+    }
+    const schedule = {
+      enabled: true,
+      interval_minutes: 60,
+      allowed_intervals: [30, 60, 180, 360],
+      next_run_at: '2026-07-30T04:00:00Z',
+      worker_status: 'ready',
+    }
+    const subscription = {
+      id: 'notification-schedule-subscription',
+      user_id: 'user-live',
+      source_id: source.id,
+      source_display_name: source.display_name,
+      source_type: source.type,
+      enabled: true,
+      analysis_mode: 'full' as const,
+      notify_on_new_items: false,
+      schedule,
+    }
+    const updateSubscription = vi.fn().mockResolvedValue({
+      id: subscription.id,
+      user_id: subscription.user_id,
+      source_id: subscription.source_id,
+      source_display_name: subscription.source_display_name,
+      source_type: subscription.source_type,
+      enabled: subscription.enabled,
+      analysis_mode: subscription.analysis_mode,
+      notify_on_new_items: true,
+    })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [source] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 1, degraded: 0, failing: 0, unknown: 0, total: 1 }, items: [{ subscription_id: subscription.id, source_id: source.id, status: 'healthy', consecutive_failures: 0 }] }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
+      updateSubscription,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    const notification = await screen.findByRole('switch', { name: '新内容通知：自定义周期来源' })
+    await browser.click(notification)
+    await waitFor(() => expect(updateSubscription).toHaveBeenCalledWith(subscription.id, { notify_on_new_items: true }))
+    await waitFor(() => expect(notification).toBeEnabled())
+
+    expect(queryClient.getQueryData(queryKeys.subscriptions('user-live'))).toMatchObject({
+      subscriptions: [{ id: subscription.id, notify_on_new_items: true, schedule }],
+    })
   })
 
   it('keeps channel choices independent across tabs and falls back when filtering removes a channel', async () => {
@@ -998,11 +1179,11 @@ describe('App routes', () => {
     expect(await screen.findByRole('button', { name: /^已排队 生命周期来源；/ })).toBeDisabled()
     invalidate.mockClear()
 
-    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'running', started_at: '2026-07-17T01:00:01Z' }] }))
+    act(() => queryClient.setQueryData(queryKeys.feedJobs('user-live'), { jobs: [{ ...queued, status: 'running', started_at: '2026-07-17T01:00:01Z' }] }))
     expect(await screen.findByRole('button', { name: /^获取中 生命周期来源；/ })).toBeDisabled()
     expect(invalidate).not.toHaveBeenCalled()
 
-    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4, new_item_count: 2 } }] }))
+    act(() => queryClient.setQueryData(queryKeys.feedJobs('user-live'), { jobs: [{ ...queued, status: 'succeeded', started_at: '2026-07-17T01:00:01Z', finished_at: '2026-07-17T01:00:03Z', result: { item_count: 4, new_item_count: 2 } }] }))
     await waitFor(() => expect(api.latestFeed).toHaveBeenCalledOnce())
     expect(screen.queryByText('生命周期来源 获取完成')).not.toBeInTheDocument()
     act(() => feedReload.resolve({ schema_version: 2, items: [basicFeedItem('lifecycle-feed', '生命周期信息流条目')] }))
@@ -1013,8 +1194,8 @@ describe('App routes', () => {
     await waitFor(() => {
       const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
       expect(keys).toContain(JSON.stringify(queryKeys.sourceHealth('user-live')))
-      expect(keys).toContain(JSON.stringify(queryKeys.jobs('user-live')))
-      expect(keys).toContain(JSON.stringify(queryKeys.history('user-live')))
+      expect(keys).toContain(JSON.stringify(queryKeys.historyRoot('user-live')))
+      expect(keys).not.toContain(JSON.stringify(queryKeys.jobs('user-live')))
     })
   }, 10_000)
 
@@ -1026,19 +1207,19 @@ describe('App routes', () => {
     const terminal: Job = { ...queued, status: 'failed', finished_at: '2026-07-17T01:00:01Z', error_message: '可关闭的抓取失败' }
     const api = liveApi({
       sources: vi.fn().mockResolvedValue({ sources: [source] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }), sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }),
-      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), feedJobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: /^立即获取 可关闭来源；/ }))
-    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [terminal] }))
+    act(() => queryClient.setQueryData(queryKeys.feedJobs('user-live'), { jobs: [terminal] }))
     expect(await screen.findByText('可关闭的抓取失败')).toBeInTheDocument()
     actionToast.clear()
     await waitFor(() => expect(screen.queryByText('可关闭的抓取失败')).not.toBeInTheDocument())
 
     await act(async () => {
-      queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...terminal }] })
+      queryClient.setQueryData(queryKeys.feedJobs('user-live'), { jobs: [{ ...terminal }] })
       await Promise.resolve()
     })
     expect(screen.queryByText('可关闭的抓取失败')).not.toBeInTheDocument()
@@ -1055,13 +1236,13 @@ describe('App routes', () => {
     const queued: Job = { id: `terminal-job-${status}`, user_id: 'user-live', job_type: 'source_fetch', source_id: source.id, subscription_id: subscription.id, status: 'queued', created_at: '2026-07-17T01:00:00Z' }
     const api = liveApi({
       sources: vi.fn().mockResolvedValue({ sources: [source] }), sourceTypes: vi.fn().mockResolvedValue({ source_types: [{ type: 'rss', fields: [] }] }), subscriptions: vi.fn().mockResolvedValue({ subscriptions: [subscription] }),
-      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), jobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
+      sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 1, total: 1 }, items: [] }), config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }), feedJobs: vi.fn().mockResolvedValue({ jobs: [] }), createSourceFetch: vi.fn().mockResolvedValue(queued),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await browser.click(await screen.findByRole('button', { name: /^立即获取 终态来源；/ }))
-    act(() => queryClient.setQueryData(queryKeys.jobs('user-live'), { jobs: [{ ...queued, status, error_message: errorMessage, retryable: status === 'failed', result: { debug_payload: 'never expose this terminal payload' } }] }))
+    act(() => queryClient.setQueryData(queryKeys.feedJobs('user-live'), { jobs: [{ ...queued, status, error_message: errorMessage, retryable: status === 'failed', result: { debug_payload: 'never expose this terminal payload' } }] }))
     const terminalTitle = await screen.findByText(title)
     expect(terminalTitle.closest('[data-slot="toast-region"]')).not.toBeNull()
     expect(screen.getByText(description)).toBeInTheDocument()
@@ -1184,7 +1365,7 @@ describe('App routes', () => {
     expect(api.retryJob).toHaveBeenCalledOnce()
   })
 
-  it('keeps successful live mutations pending until refreshed server state is ready', async () => {
+  it('keeps catalog mutations pending for refreshed state while retry updates the job cache directly', async () => {
     const browser = userEvent.setup()
     const subscribedSource = { id: 'refresh-subscribed', type: 'rss', display_name: '刷新前已订阅', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
     const availableSource = { id: 'refresh-available', type: 'rss', display_name: '刷新前未订阅', scope: 'private' as const, owner_user_id: 'user-live', default_channel: 'AI', enabled: true }
@@ -1223,10 +1404,10 @@ describe('App routes', () => {
       scheduleRequest.resolve({})
       subscribeRequest.resolve({})
       unsubscribeRequest.resolve({})
-      retryRequest.resolve({})
+      retryRequest.resolve({ ...retryJob, status: 'queued', retryable: false })
       await Promise.resolve()
     })
-    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(19))
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(13))
 
     await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
     const schedulePending = screen.getByRole('switch', { name: '全局自动更新' })
@@ -1235,9 +1416,7 @@ describe('App routes', () => {
     expect(api.updateFeedSchedule).toHaveBeenCalledOnce()
 
     await browser.click(screen.getByRole('tab', { name: '运行记录' }))
-    const retryPending = screen.getByRole('button', { name: /重试中/ })
-    expect(retryPending).toBeDisabled()
-    fireEvent.click(retryPending)
+    expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
     expect(api.retryJob).toHaveBeenCalledOnce()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
@@ -2050,6 +2229,59 @@ describe('App routes', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Advanced RSS · 来源设置' })
     expect(within(dialog).getByText('高级配置')).toBeVisible()
     expect(dialog.querySelector('details')).not.toBeInTheDocument()
+  })
+
+  it('loads admin secrets only inside a source-secret dialog and keeps loading errors local', async () => {
+    const browser = userEvent.setup()
+    const firstSecretsRequest = deferred<{ secrets: [] }>()
+    const secrets = vi.fn()
+      .mockReturnValueOnce(firstSecretsRequest.promise)
+      .mockResolvedValue({ secrets: [] })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({
+        authenticated: true,
+        user: { id: 'owner-source-secrets', username: 'owner', role: 'owner', enabled: true },
+      }),
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({ source_types: [
+        { type: 'rss', label: 'RSS / Atom', fields: [] },
+        { type: 'apify_social', label: 'Apify 社交来源', credential_mode: 'source_secret', fields: [] },
+      ] }),
+      sourceHealth: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        scope: 'user',
+        summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 },
+        items: [],
+      }),
+      config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: [], topics: [] } }),
+      secrets,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: '订阅与来源' })
+    expect(secrets).not.toHaveBeenCalled()
+    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
+    expect(secrets).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: 'RSS / Atom' }))
+    expect(await screen.findByRole('textbox', { name: '来源名称' })).toBeInTheDocument()
+    expect(secrets).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: /来源类型/ }))
+    await browser.click(await screen.findByRole('option', { name: 'Apify 社交来源' }))
+    expect(await screen.findByRole('status', { name: '正在读取可用 Key' })).toBeInTheDocument()
+    expect(secrets).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('textbox', { name: '来源名称' })).not.toBeInTheDocument()
+
+    act(() => firstSecretsRequest.reject(new Error('secret registry unavailable')))
+    expect(await screen.findByText('可用 Key 读取失败')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: '新增来源' })
+    await browser.click(within(dialog).getByRole('button', { name: '重试' }))
+    expect(await within(dialog).findByRole('textbox', { name: '来源名称' })).toBeInTheDocument()
+    expect(secrets).toHaveBeenCalledTimes(2)
   })
 
   it('blocks incomplete required Apify options and submits their real registry metadata after selection', async () => {

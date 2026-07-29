@@ -471,6 +471,10 @@ def test_worker_heartbeats_track_lifecycle_and_fixed_freshness_threshold(tmp_pat
         "worker-a",
         now=started_at + timedelta(seconds=4 + WORKER_STALE_AFTER_SECONDS),
     )
+    statements = []
+    first.connect().set_trace_callback(statements.append)
+    availability = runtime.availability(now=started_at + timedelta(seconds=3))
+    first.connect().set_trace_callback(None)
 
     assert starting["started_at"] == started_at.isoformat()
     assert idle["state"] == "idle"
@@ -483,6 +487,18 @@ def test_worker_heartbeats_track_lifecycle_and_fixed_freshness_threshold(tmp_pat
     assert fresh["is_stale"] is False
     assert stale["is_stale"] is True
     assert runtime.list_workers(now=started_at + timedelta(seconds=3))[0]["worker_id"] == "worker-a"
+    assert availability == {
+        "worker_status": "stale",
+        "checked_at": (started_at + timedelta(seconds=3)).isoformat(),
+    }
+    assert len(
+        [
+            statement
+            for statement in statements
+            if "FROM worker_heartbeats" in statement
+        ]
+    ) == 1
+    assert all("fetch_jobs" not in statement for statement in statements)
 
 
 def test_worker_heartbeat_rejects_unknown_state(tmp_path, monkeypatch):

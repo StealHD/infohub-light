@@ -17,7 +17,10 @@ describe('service api', () => {
     await api.latestFeed()
     await api.feedEndMessages()
     await api.refreshFeedEndMessages()
+    await api.feedJobs()
     await api.jobs()
+    await api.subscriptions()
+    await api.feedSchedule()
     await api.job('job/1')
     const historySignal = new AbortController().signal
     await api.historyFeed({
@@ -68,7 +71,13 @@ describe('service api', () => {
     expect(client.get).toHaveBeenCalledWith('/api/feed/latest?view=canonical', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/feed/end-messages', undefined)
     expect(client.post).toHaveBeenCalledWith('/api/admin/feed-end-messages/refresh')
+    expect(client.get).toHaveBeenCalledWith(
+      '/api/jobs?view=summary&scope=me&limit=20&include_active=true&job_type=user_feed_refresh&job_type=source_fetch',
+      undefined,
+    )
     expect(client.get).toHaveBeenCalledWith('/api/jobs?view=summary&scope=me&limit=100&include_active=true', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/me/subscriptions?schedule_view=summary', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/me/feed-schedule?view=summary', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/jobs/job%2F1', undefined)
     expect(client.get).toHaveBeenCalledWith(
       '/api/feed/history?q=tsucha+ri&source_id=source%2Fwith+space&limit=50&offset=100',

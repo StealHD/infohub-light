@@ -19,8 +19,14 @@ const privateHistoryItems = [1, 2].map((index) => ({
 async function mockAdminApi(page: Page, authenticated = true, options: {
   includePrivateSource?: boolean
   includeXProfileSource?: boolean
+  historicalTerminalJobs?: number
 } = {}) {
+  const healthWindowStart = new Date().toISOString()
+  const healthFeedStart = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString()
   let quotaRequests = 0
+  let feedJobsRequests = 0
+  let allJobsRequests = 0
+  let sourceHealthRequests = 0
   let productSubscribed = false
   let notificationEnabled = false
   let privateShared = false
@@ -280,22 +286,25 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       ...(productSubscribed ? [{ id: 'subscription-2', user_id: owner.id, source_id: 'source-2', source_display_name: 'Product Notes', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
       ...(youtubeCreated ? [{ id: 'subscription-youtube', user_id: owner.id, source_id: 'source-youtube', source_display_name: 'Google Developers', source_type: 'rss', enabled: true, analysis_mode: 'full', priority: 0 }] : []),
     ] }
-    else if (url.pathname === '/api/me/source-health') data = {
-      schema_version: 1,
-      scope: 'user',
-      window: {
+    else if (url.pathname === '/api/me/source-health') {
+      sourceHealthRequests += 1
+      data = {
+        schema_version: 1,
+        scope: 'user',
+        window: {
         timezone: 'Asia/Shanghai',
         feed_days: 7,
-        today_start: '2026-07-27T00:00:00+08:00',
-        feed_start: '2026-07-21T00:00:00+08:00',
-      },
-      summary: { total: options.includePrivateSource ? 2 : 1, healthy: options.includePrivateSource ? 2 : 1, degraded: 0, failing: 0, unknown: 0 },
-      items: [
-        { subscription_id: 'subscription-1', source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 7, today_item_count: 0, feed_item_count: 0, current_item_count: 0, history_item_count: 7 },
-        ...(options.includePrivateSource
-          ? [{ subscription_id: 'subscription-private', source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 2, today_item_count: 0, feed_item_count: 0, current_item_count: 0, history_item_count: 2 }]
-          : []),
-      ],
+        today_start: healthWindowStart,
+        feed_start: healthFeedStart,
+        },
+        summary: { total: options.includePrivateSource ? 2 : 1, healthy: options.includePrivateSource ? 2 : 1, degraded: 0, failing: 0, unknown: 0 },
+        items: [
+          { subscription_id: 'subscription-1', source_id: 'source-1', source_display_name: 'OpenAI Blog', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 7, today_item_count: 0, feed_item_count: 0, current_item_count: 0, history_item_count: 7 },
+          ...(options.includePrivateSource
+            ? [{ subscription_id: 'subscription-private', source_id: 'source-private', source_display_name: '私人研究源', source_type: 'rss', status: 'healthy', consecutive_failures: 0, last_fetched_count: 2, today_item_count: 0, feed_item_count: 0, current_item_count: 0, history_item_count: 2 }]
+            : []),
+        ],
+      }
     }
     else if (url.pathname === '/api/feed/history') data = {
       schema_version: 2,
@@ -360,7 +369,31 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
         }],
       },
     }
-    else if (url.pathname === '/api/jobs') data = { jobs: [{ id: 'job-1', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'succeeded', created_at: '2026-07-17T08:00:00Z', finished_at: '2026-07-17T08:00:02Z', result: { item_count: 7 } }] }
+    else if (url.pathname === '/api/jobs') {
+      const requestedJobTypes = url.searchParams.getAll('job_type').sort()
+      const feedActivityRequest = (
+        url.searchParams.get('limit') === '20'
+        && requestedJobTypes.join(',') === 'source_fetch,user_feed_refresh'
+      )
+      if (feedActivityRequest) feedJobsRequests += 1
+      else allJobsRequests += 1
+      const terminalJobs = options.historicalTerminalJobs
+        ? Array.from({ length: options.historicalTerminalJobs }, (_, index) => ({
+          id: `historical-job-${index + 1}`,
+          user_id: owner.id,
+          job_type: 'source_fetch',
+          source_id: 'source-1',
+          subscription_id: 'subscription-1',
+          status: 'succeeded',
+          created_at: `2026-07-17T07:${String(59 - (index % 60)).padStart(2, '0')}:00Z`,
+          finished_at: `2026-07-17T08:${String(index % 60).padStart(2, '0')}:02Z`,
+          result: { item_count: index % 3 },
+        }))
+        : [{ id: 'job-1', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'succeeded', created_at: '2026-07-17T08:00:00Z', finished_at: '2026-07-17T08:00:02Z', result: { item_count: 7 } }]
+      data = {
+        jobs: terminalJobs.slice(0, Number(url.searchParams.get('limit') || terminalJobs.length)),
+      }
+    }
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
       mcp_url: 'https://example.test/mcp',
@@ -522,6 +555,11 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   })
   return {
     quotaRequests: () => quotaRequests,
+    requestCounts: () => ({
+      feedJobs: feedJobsRequests,
+      allJobs: allJobsRequests,
+      sourceHealth: sourceHealthRequests,
+    }),
     settingsActions: () => settingsActions,
     deferQuotaRefresh: () => {
       quotaRefreshGate ??= new Promise<void>((resolve) => {
@@ -905,6 +943,57 @@ test('successful Key creation uses a top overlay without moving settings content
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
+test('historical terminal jobs do not trigger subscription request storms or eager run-history loading', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'network request regression is covered once at the desktop viewport')
+  const failedApiRequests: string[] = []
+  page.on('requestfailed', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/')) {
+      failedApiRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`)
+    }
+  })
+  const apiState = await mockAdminApi(page, true, { historicalTerminalJobs: 100 })
+
+  await page.goto('/subscriptions')
+  await expect(page.getByRole('tablist', { name: '订阅与来源页面' })).toBeVisible()
+  await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeVisible()
+  await page.waitForTimeout(300)
+  const initialCounts = apiState.requestCounts()
+  expect(initialCounts.allJobs).toBe(0)
+  expect(initialCounts.feedJobs).toBeGreaterThanOrEqual(1)
+  expect(initialCounts.feedJobs).toBeLessThanOrEqual(2)
+  expect(initialCounts.sourceHealth).toBeGreaterThanOrEqual(1)
+  expect(initialCounts.sourceHealth).toBeLessThanOrEqual(2)
+  failedApiRequests.length = 0
+
+  await page.getByRole('tab', { name: '运行记录' }).click()
+  await expect(page.locator('[data-compact-job-card]').first()).toBeVisible()
+  await expect.poll(() => apiState.requestCounts()).toEqual({
+    feedJobs: initialCounts.feedJobs,
+    allJobs: 1,
+    sourceHealth: initialCounts.sourceHealth,
+  })
+  await page.waitForTimeout(300)
+  expect(apiState.requestCounts()).toEqual({
+    feedJobs: initialCounts.feedJobs,
+    allJobs: 1,
+    sourceHealth: initialCounts.sourceHealth,
+  })
+
+  await page.getByRole('link', { name: '助手连接', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '助手连接', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: '订阅', exact: true }).click()
+  await expect(page.getByRole('tablist', { name: '订阅与来源页面' })).toBeVisible()
+  await page.getByRole('tab', { name: '运行记录' }).click()
+  await expect(page.locator('[data-compact-job-card]').first()).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(apiState.requestCounts()).toEqual({
+    feedJobs: initialCounts.feedJobs,
+    allJobs: 1,
+    sourceHealth: initialCounts.sourceHealth,
+  })
+  expect(failedApiRequests).toEqual([])
 })
 
 test('subscription channels stay compact, actionable and accessible at every acceptance viewport', async ({ page }, testInfo) => {

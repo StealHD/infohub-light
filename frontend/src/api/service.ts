@@ -84,6 +84,10 @@ export function createServiceApi(client: ApiClient) {
       return client.get<FeedSearch>(`/api/feed/search?${search.toString()}`, signal)
     },
     sourceHealth: (signal?: AbortSignal) => client.get<SourceHealthResponse>('/api/me/source-health', signal),
+    feedJobs: (signal?: AbortSignal) => client.get<ListResponse<Job, 'jobs'>>(
+      '/api/jobs?view=summary&scope=me&limit=20&include_active=true&job_type=user_feed_refresh&job_type=source_fetch',
+      signal,
+    ),
     jobs: (signal?: AbortSignal) => client.get<ListResponse<Job, 'jobs'>>('/api/jobs?view=summary&scope=me&limit=100&include_active=true', signal),
     job: (jobId: string, signal?: AbortSignal) => client.get<Job>(resource('/api/jobs', jobId), signal),
     createFeedRefresh: () => client.post<Job>('/api/jobs/user-feed-refresh', {
@@ -112,7 +116,7 @@ export function createServiceApi(client: ApiClient) {
       signal,
     ),
     sourceTypes: (signal?: AbortSignal) => client.get<ListResponse<SourceTypeDefinition, 'source_types'>>('/api/catalog/source-types', signal),
-    subscriptions: (signal?: AbortSignal) => client.get<ListResponse<Subscription, 'subscriptions'>>('/api/me/subscriptions', signal),
+    subscriptions: (signal?: AbortSignal) => client.get<ListResponse<Subscription, 'subscriptions'>>('/api/me/subscriptions?schedule_view=summary', signal),
     subscribe: (sourceId: string) => client.post<{ subscription: Subscription }>(`${resource('/api/catalog/sources', sourceId)}/subscribe`),
     unsubscribe: (subscriptionId: string) => client.delete<{ deleted: boolean }>(resource('/api/me/subscriptions', subscriptionId)),
     updateSubscription: (subscriptionId: string, patch: SubscriptionPatch) => client.patch<Subscription>(resource('/api/me/subscriptions', subscriptionId), patch),
@@ -120,7 +124,7 @@ export function createServiceApi(client: ApiClient) {
     updateSource: (sourceId: string, patch: Record<string, unknown>) => client.patch<CatalogSource>(resource('/api/catalog/sources', sourceId), patch),
     sourceUsage: (sourceId: string, signal?: AbortSignal) => client.get<SourceUsage>(`${resource('/api/catalog/sources', sourceId)}/usage`, signal),
     shareSource: (sourceId: string, scope: 'workspace' | 'public') => client.post<SourceShareResult>(`${resource('/api/catalog/sources', sourceId)}/share`, { scope }),
-    feedSchedule: (signal?: AbortSignal) => client.get<FeedSchedule>('/api/me/feed-schedule', signal),
+    feedSchedule: (signal?: AbortSignal) => client.get<FeedSchedule>('/api/me/feed-schedule?view=summary', signal),
     updateFeedSchedule: (patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>('/api/me/feed-schedule', patch),
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
     notificationSettings: (signal?: AbortSignal) => client.get<UserNotificationSettings>('/api/me/notification-settings', signal),

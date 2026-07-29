@@ -140,6 +140,50 @@ class SourceScheduleService:
             "updated_at": None,
         }
 
+    def list_user_subscription_schedules(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        subscriptions: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """Load all persisted schedules once and fill defaults in memory."""
+        rows = self.store.connect().execute(
+            """
+            SELECT *
+            FROM user_source_schedules
+            WHERE workspace_id = ? AND user_id = ?
+            """,
+            (workspace_id, user_id),
+        ).fetchall()
+        rows_by_subscription_id = {
+            str(row["subscription_id"]): row for row in rows
+        }
+        schedules: dict[str, dict[str, Any]] = {}
+        for subscription in subscriptions:
+            subscription_id = str(subscription["id"])
+            source_id = str(subscription["source_id"])
+            row = rows_by_subscription_id.get(subscription_id)
+            if row is not None and str(row["source_id"]) == source_id:
+                schedules[subscription_id] = self._schedule(row)
+                continue
+            schedules[subscription_id] = {
+                "subscription_id": subscription_id,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "source_id": source_id,
+                "enabled": False,
+                "interval_minutes": DEFAULT_SOURCE_INTERVAL_MINUTES,
+                "next_run_at": None,
+                "last_evaluated_at": None,
+                "last_enqueued_at": None,
+                "last_job_id": None,
+                "last_skip_reason": None,
+                "created_at": None,
+                "updated_at": None,
+            }
+        return schedules
+
     def update_subscription_schedule(
         self,
         *,

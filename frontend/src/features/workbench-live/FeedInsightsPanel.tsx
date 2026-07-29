@@ -94,8 +94,8 @@ export function FeedInsightsPanel({
     staleTime: queryStaleTime.catalog,
   })
   const jobs = useQuery({
-    queryKey: queryKeys.jobs(userId),
-    queryFn: ({ signal }) => api.jobs(signal),
+    queryKey: queryKeys.feedJobs(userId),
+    queryFn: ({ signal }) => api.feedJobs(signal),
     enabled: open,
     staleTime: queryStaleTime.jobs,
   })
@@ -196,7 +196,7 @@ export function FeedInsightsPanel({
               : <strong className="type-control">{metric.value ?? '—'}</strong>}
           </button>)}
         </div>
-        <p className="type-label mt-2 text-muted">最近运行只统计最近加载的记录，最多 100 条。</p>
+        <p className="type-label mt-2 text-muted">最近运行只统计信息流相关记录，最多 20 条。</p>
       </section>
       {!insightsLoading && <>
         <Separator className="my-4" />

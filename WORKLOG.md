@@ -361,3 +361,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "拆分全局信息流任务观察与订阅页完整运行记录，历史终态任务仅建立基线；服务端对任务类型、计划摘要和订阅调度采用有界过滤与批量读取，消除订阅页自失效循环和 N+1。",
+  "status": "completed",
+  "task_id": "2026-07-30-subscription-network-storm",
+  "unresolved": [],
+  "validation": [
+    "python scripts/test_gate.py run --mode full: 22/22 passed after final P1 fix",
+    "frontend focused Vitest: 111 passed; schedule-preservation regression: 2 passed",
+    "production Playwright historical-terminal network regression passed",
+    "independent final review found no remaining P0/P1"
+  ]
+}
+```

@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -175,6 +175,33 @@ def ok(data: Any) -> dict[str, Any]:
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
     """Remove worker-internal lease credentials from API responses."""
     return {key: value for key, value in job.items() if key != "claim_token"}
+
+
+_JOB_TYPE_FILTER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
+_MAX_JOB_TYPE_FILTERS = 20
+
+
+def _bounded_job_type_filters(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    if len(values) > _MAX_JOB_TYPE_FILTERS:
+        raise ApiError(
+            "invalid_request",
+            f"at most {_MAX_JOB_TYPE_FILTERS} job_type filters are allowed",
+            status_code=400,
+        )
+    normalized: list[str] = []
+    for value in values:
+        job_type = str(value).strip()
+        if not _JOB_TYPE_FILTER_RE.fullmatch(job_type):
+            raise ApiError(
+                "invalid_request",
+                "job_type filters must be 1 to 64 safe characters",
+                status_code=400,
+            )
+        if job_type not in normalized:
+            normalized.append(job_type)
+    return normalized
 
 
 def error_response(exc: ApiError) -> JSONResponse:
@@ -1398,11 +1425,29 @@ def create_app(
             raise ApiError("not_found", "source not found", status_code=404)
         return source
 
-    def feed_schedule_response(user: dict[str, Any]) -> dict[str, Any]:
+    def feed_schedule_response(
+        user: dict[str, Any],
+        *,
+        view: Literal["full", "summary"] = "full",
+    ) -> dict[str, Any]:
         schedule = feed_schedules.get_user_schedule(
             workspace_id=user["workspace_id"],
             user_id=user["id"],
         )
+        availability = runtime_status.availability()
+        response = {
+            "schema_version": 1,
+            "enabled": bool(schedule["enabled"]),
+            "interval_minutes": int(schedule["interval_minutes"]),
+            "allowed_intervals": list(ALLOWED_INTERVALS),
+            "next_run_at": schedule.get("next_run_at"),
+            "last_evaluated_at": schedule.get("last_evaluated_at"),
+            "last_enqueued_at": schedule.get("last_enqueued_at"),
+            "last_skip_reason": schedule.get("last_skip_reason"),
+            "worker_status": availability["worker_status"],
+        }
+        if view == "summary":
+            return response
         last_job = queue.get_job(str(schedule.get("last_job_id") or ""))
         if last_job and (
             last_job.get("workspace_id") != user["workspace_id"]
@@ -1422,23 +1467,43 @@ def create_app(
             (user["workspace_id"], user["id"]),
         ).fetchone()
         active_job = store._job(active_row)
-        worker_status = runtime_status.summary(
-            workspace_id=user["workspace_id"],
-            user_id=user["id"],
-        )["worker_status"]
-        return {
+        response.update(
+            {
+                "last_job": _public_job(last_job) if last_job else None,
+                "active_job": _public_job(active_job) if active_job else None,
+            }
+        )
+        return response
+
+    def source_schedule_payload(
+        schedule: dict[str, Any],
+        *,
+        worker_status: str,
+        view: Literal["full", "summary"],
+        last_job: dict[str, Any] | None = None,
+        active_job: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response = {
             "schema_version": 1,
+            "subscription_id": str(schedule["subscription_id"]),
+            "source_id": schedule["source_id"],
             "enabled": bool(schedule["enabled"]),
             "interval_minutes": int(schedule["interval_minutes"]),
-            "allowed_intervals": list(ALLOWED_INTERVALS),
+            "allowed_intervals": list(SOURCE_ALLOWED_INTERVALS),
             "next_run_at": schedule.get("next_run_at"),
             "last_evaluated_at": schedule.get("last_evaluated_at"),
             "last_enqueued_at": schedule.get("last_enqueued_at"),
             "last_skip_reason": schedule.get("last_skip_reason"),
-            "last_job": _public_job(last_job) if last_job else None,
-            "active_job": _public_job(active_job) if active_job else None,
             "worker_status": worker_status,
         }
+        if view == "full":
+            response.update(
+                {
+                    "last_job": _public_job(last_job) if last_job else None,
+                    "active_job": _public_job(active_job) if active_job else None,
+                }
+            )
+        return response
 
     def source_schedule_response(
         user: dict[str, Any], subscription_id: str
@@ -1474,25 +1539,73 @@ def create_app(
             (user["workspace_id"], user["id"], subscription_id),
         ).fetchone()
         active_job = store._job(active_row)
-        worker_status = runtime_status.summary(
-            workspace_id=user["workspace_id"],
-            user_id=user["id"],
-        )["worker_status"]
-        return {
-            "schema_version": 1,
-            "subscription_id": subscription_id,
-            "source_id": schedule["source_id"],
-            "enabled": bool(schedule["enabled"]),
-            "interval_minutes": int(schedule["interval_minutes"]),
-            "allowed_intervals": list(SOURCE_ALLOWED_INTERVALS),
-            "next_run_at": schedule.get("next_run_at"),
-            "last_evaluated_at": schedule.get("last_evaluated_at"),
-            "last_enqueued_at": schedule.get("last_enqueued_at"),
-            "last_skip_reason": schedule.get("last_skip_reason"),
-            "last_job": _public_job(last_job) if last_job else None,
-            "active_job": _public_job(active_job) if active_job else None,
-            "worker_status": worker_status,
-        }
+        availability = runtime_status.availability()
+        return source_schedule_payload(
+            schedule,
+            worker_status=str(availability["worker_status"]),
+            view="full",
+            last_job=last_job,
+            active_job=active_job,
+        )
+
+    def bulk_source_schedule_jobs(
+        user: dict[str, Any],
+        schedules: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+        last_job_ids = sorted(
+            {
+                str(schedule["last_job_id"])
+                for schedule in schedules.values()
+                if schedule.get("last_job_id")
+            }
+        )
+        jobs_by_id: dict[str, dict[str, Any]] = {}
+        if last_job_ids:
+            placeholders = ", ".join("?" for _job_id in last_job_ids)
+            rows = store.connect().execute(
+                f"""
+                SELECT *
+                FROM fetch_jobs
+                WHERE workspace_id = ?
+                  AND user_id = ?
+                  AND id IN ({placeholders})
+                """,
+                [user["workspace_id"], user["id"], *last_job_ids],
+            ).fetchall()
+            for row in rows:
+                job = store._job(row)
+                if job is not None:
+                    jobs_by_id[str(job["id"])] = job
+
+        last_jobs_by_subscription: dict[str, dict[str, Any]] = {}
+        for subscription_id, schedule in schedules.items():
+            job = jobs_by_id.get(str(schedule.get("last_job_id") or ""))
+            if job is not None and str(job.get("subscription_id") or "") == str(
+                subscription_id
+            ):
+                last_jobs_by_subscription[subscription_id] = job
+
+        active_rows = store.connect().execute(
+            """
+            SELECT *
+            FROM fetch_jobs
+            WHERE workspace_id = ?
+              AND user_id = ?
+              AND job_type = 'source_fetch'
+              AND status IN ('queued', 'running')
+            ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at
+            """,
+            (user["workspace_id"], user["id"]),
+        ).fetchall()
+        active_jobs_by_subscription: dict[str, dict[str, Any]] = {}
+        for row in active_rows:
+            job = store._job(row)
+            if job is None:
+                continue
+            subscription_id = str(job.get("subscription_id") or "")
+            if subscription_id in schedules:
+                active_jobs_by_subscription.setdefault(subscription_id, job)
+        return last_jobs_by_subscription, active_jobs_by_subscription
 
     def read_base_config() -> tuple[dict[str, Any], Any]:
         config_path = data_path / "config.json"
@@ -2153,12 +2266,12 @@ def create_app(
                     "then restart horizon-api."
                 ),
             )
-        summary = runtime_status.summary(workspace_id=store.get_default_workspace()["id"])
+        availability = runtime_status.availability()
         require_worker = os.getenv("HORIZON_REQUIRE_WORKER_FOR_READINESS", "false").lower() == "true"
-        if require_worker and summary["worker_status"] != "ready":
+        if require_worker and availability["worker_status"] != "ready":
             raise ApiError(
                 "worker_unavailable",
-                f"worker status is {summary['worker_status']}",
+                f"worker status is {availability['worker_status']}",
                 status_code=503,
                 retryable=True,
                 action="Start or inspect horizon-worker.",
@@ -2167,8 +2280,8 @@ def create_app(
             {
                 "status": "ready",
                 "database": "ready",
-                "worker_status": summary["worker_status"],
-                "checked_at": summary["checked_at"],
+                "worker_status": availability["worker_status"],
+                "checked_at": availability["checked_at"],
             }
         )
 
@@ -3359,14 +3472,33 @@ def create_app(
         )
 
     @app.get("/api/me/subscriptions")
-    async def subscriptions_list(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    async def subscriptions_list(
+        schedule_view: Literal["full", "summary"] = "full",
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
         subscriptions = store.list_user_subscriptions(user["id"])
+        schedules = source_schedules.list_user_subscription_schedules(
+            workspace_id=user["workspace_id"],
+            user_id=user["id"],
+            subscriptions=subscriptions,
+        )
+        availability = runtime_status.availability()
+        last_jobs: dict[str, dict[str, Any]] = {}
+        active_jobs: dict[str, dict[str, Any]] = {}
+        if schedule_view == "full":
+            last_jobs, active_jobs = bulk_source_schedule_jobs(user, schedules)
         return ok(
             {
                 "subscriptions": [
                     {
                         **subscription,
-                        "schedule": source_schedule_response(user, subscription["id"]),
+                        "schedule": source_schedule_payload(
+                            schedules[str(subscription["id"])],
+                            worker_status=str(availability["worker_status"]),
+                            view=schedule_view,
+                            last_job=last_jobs.get(str(subscription["id"])),
+                            active_job=active_jobs.get(str(subscription["id"])),
+                        ),
                     }
                     for subscription in subscriptions
                 ]
@@ -3487,9 +3619,10 @@ def create_app(
 
     @app.get("/api/me/feed-schedule")
     async def feed_schedule_get(
+        view: Literal["full", "summary"] = "full",
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
-        return ok(feed_schedule_response(user))
+        return ok(feed_schedule_response(user, view=view))
 
     @app.patch("/api/me/feed-schedule")
     async def feed_schedule_patch(
@@ -4045,8 +4178,10 @@ def create_app(
         view: Literal["full", "summary"] = "full",
         scope: Literal["workspace", "me"] = "workspace",
         include_active: bool = False,
+        job_type: list[str] | None = Query(default=None),
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
+        job_types = _bounded_job_type_filters(job_type)
         scoped_user_id = (
             user["id"]
             if scope == "me" or not _is_admin(user)
@@ -4058,6 +4193,7 @@ def create_app(
                 workspace_id=user["workspace_id"],
                 user_id=scoped_user_id,
                 status=status,
+                job_types=job_types,
                 limit=bounded_limit,
                 include_active=include_active,
             )
@@ -4066,6 +4202,7 @@ def create_app(
             workspace_id=user["workspace_id"],
             user_id=scoped_user_id,
             status=status,
+            job_types=job_types,
             limit=bounded_limit,
         )
         if include_active and status is None:
@@ -4074,12 +4211,14 @@ def create_app(
                     workspace_id=user["workspace_id"],
                     user_id=scoped_user_id,
                     status="queued",
+                    job_types=job_types,
                     limit=200,
                 ),
                 *queue.list_jobs(
                     workspace_id=user["workspace_id"],
                     user_id=scoped_user_id,
                     status="running",
+                    job_types=job_types,
                     limit=200,
                 ),
             ]

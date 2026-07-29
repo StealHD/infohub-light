@@ -786,3 +786,12 @@
 - 费用与一致性：每 Run 预留 `$0.02`，每逻辑任务最多三个不同 Actor、累计 `$0.06`；有 Job 时稳定复用同一费用组，terminal successful Dataset 只允许 GET 重放。已启动、已结算或因 route generation 冲突作废的取消仍占用费用组并计入失败消费，只有可证明未 POST 的取消才可排除。六小时失败实际费用达到 `$0.08` 时暂停 X，准入同时为全局在途预留保留 headroom。X 只可使用全部可用 Key 在 60 秒内已知剩余额度扣除 `max($1, 20%)` 后的部分。一个 Worker Job 内的 X/profile Actor 调用串行；Actor route generation 进入共享获取指纹，只有携带最终 generation 证明的同次切换成功结果可以迁移 claim 并发布，管理员切换后的迟到结果仅结算费用。付费 Canary 必须逐次二次确认，并与自然调用做候选级双向互斥，不能通过通用 Job retry 重放。
 - 告警与安全：工作区告警独立于个人新内容通知，只允许 Owner/Admin 配置 email 或 HTTPS Webhook 单选渠道。事件采用首报、升级追加、恢复一次；明确临时失败最多三次，未知投递结果不重放。Webhook 复用公网 DNS/IP pinning、禁重定向与 SecretStore write-only 边界；邮箱复用已测试并启用的工作区 transport。告警失败不影响抓取，Token、远端 Run/Dataset、目标账号、原始错误和目的地均不进入 API、Feed 或日志。
 - 兼容/范围：schema v13 只做显式 additive 表/列迁移；已有数据库普通启动不自动安装，缺失版本时 readiness/Worker fail closed。旧 Key Pool、Instagram/Facebook/Telegram Apify、RSS/GitHub 等来源保持原路径。第一期不覆盖 X 关键词搜索、官方 X API、自助注册 Apify 账号、自动付费或 Apidojo 自动备用；真实 Canary 仍是需要 operator 单独授权的付费动作。
+
+### D093 高频任务观察与完整运行记录分离
+
+- 决策日期：2026-07-30
+- 当前状态：本地实现、完整门禁与独立复核完成；本地 8080 切换待提交后执行
+- 决策内容：D088 的全局 `limit=100` Job 查询拆为两个稳定用途。所有登录路由只共享当前用户最近 20 条 `user_feed_refresh/source_fetch` 摘要并继续观察跨页面 active 任务；订阅页“运行记录”只在页签激活时读取最近 100 条全部类型摘要，单条详情仍按需读取。终态 generation 使用 `job_id + status + finished_at`，首次响应只建立历史基线，只有本会话观察过 active 的任务才批量刷新 Feed、来源健康与完整历史根；订阅页本地发起任务只负责本地控件和 Toast，不再失效驱动自身的 Job 查询。
+- 服务端边界：`GET /api/jobs` 增加有界可重复 `job_type` 过滤；Feed schedule 与订阅内嵌 schedule 增加默认兼容的 summary 视图。订阅列表一次读取当前用户全部计划和 Worker availability，summary 不读 Job，full 以固定两次 Job 查询恢复旧 `last_job/active_job` shape。Worker availability 只读 heartbeat；运维 runtime 仍保留完整聚合。
+- 原因：订阅页此前会遍历最多 100 条历史终态 `source_fetch`，在确认是否由本页发起前逐条失效 Jobs、健康与历史；Jobs 又是该 effect 的输入，形成请求取消、自失效循环和明显卡顿。与此同时每条订阅都会重复解析完整 runtime 与 Job 结果，放大首屏数据库和传输成本。按用途拆分查询和批量读取可以保留跨页面完成感知，同时消除历史重放与 N+1。
+- 兼容/影响：REST 默认 full 视图、权限、排序、Job detail、PATCH 响应和计划写入语义不变；无数据库迁移，不启动 scheduler、真实来源、AI、通知或付费调用。信息概览的“最近运行”改为最多 20 条信息流相关任务；需要全部类型时进入“运行记录”。回退前端查询拆分与 additive 参数即可恢复旧读取路径，数据库和已有任务无需处理。

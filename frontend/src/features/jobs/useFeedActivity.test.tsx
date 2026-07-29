@@ -33,7 +33,7 @@ function setup(workerStatus: string, initialJobs: Job[] = []) {
     items: [{ id: 'latest-item', title: '最新条目' }],
   })
   const api = {
-    jobs: vi.fn().mockResolvedValue({ jobs: initialJobs }),
+    feedJobs: vi.fn().mockResolvedValue({ jobs: initialJobs }),
     feedSchedule,
     createFeedRefresh,
     latestFeed,
@@ -88,7 +88,7 @@ describe('useFeedActivity', () => {
     const hook = setup('ready', [queuedJob])
     await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
 
-    act(() => hook.client.setQueryData(['user', user.id, 'jobs'], { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: true },
@@ -101,13 +101,41 @@ describe('useFeedActivity', () => {
     expect(hook.latestFeed).toHaveBeenCalledOnce()
   })
 
+  it('observes a retried job id again when its terminal finished_at generation changes', async () => {
+    const hook = setup('ready', [queuedJob])
+    await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
+
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
+      ...queuedJob,
+      status: 'succeeded',
+      finished_at: '2026-07-14T06:00:01Z',
+      result: { item_count: 1, snapshot_created: true },
+    }] }))
+    await waitFor(() => expect(hook.latestFeed).toHaveBeenCalledTimes(1))
+
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
+      ...queuedJob,
+      status: 'queued',
+      created_at: '2026-07-14T06:05:00Z',
+    }] }))
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
+      ...queuedJob,
+      status: 'succeeded',
+      created_at: '2026-07-14T06:05:00Z',
+      finished_at: '2026-07-14T06:05:01Z',
+      result: { item_count: 2, snapshot_created: true },
+    }] }))
+
+    await waitFor(() => expect(hook.latestFeed).toHaveBeenCalledTimes(2))
+  })
+
   it('waits for the latest Feed read before publishing a full-refresh completion notice', async () => {
     const feed = deferred<{ schema_version: number; items: Array<{ id: string; title: string }> }>()
     const hook = setup('ready', [queuedJob])
     hook.latestFeed.mockReturnValueOnce(feed.promise)
     await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
 
-    act(() => hook.client.setQueryData(queryKeys.jobs(user.id), { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: true },
@@ -133,9 +161,9 @@ describe('useFeedActivity', () => {
       created_at: '2026-07-14T06:00:00Z',
     }
     const hook = setup('ready', [sourceJob])
-    await waitFor(() => expect(hook.client.getQueryData(queryKeys.jobs(user.id))).toBeDefined())
+    await waitFor(() => expect(hook.client.getQueryData(queryKeys.feedJobs(user.id))).toBeDefined())
 
-    act(() => hook.client.setQueryData(queryKeys.jobs(user.id), { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...sourceJob,
       status,
       result: { item_count: 5, snapshot_created: true },
@@ -156,9 +184,9 @@ describe('useFeedActivity', () => {
     }
     const hook = setup('ready', [sourceJob])
     hook.latestFeed.mockRejectedValueOnce(new Error('latest Feed unavailable'))
-    await waitFor(() => expect(hook.client.getQueryData(queryKeys.jobs(user.id))).toBeDefined())
+    await waitFor(() => expect(hook.client.getQueryData(queryKeys.feedJobs(user.id))).toBeDefined())
 
-    act(() => hook.client.setQueryData(queryKeys.jobs(user.id), { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...sourceJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: true },
@@ -181,15 +209,15 @@ describe('useFeedActivity', () => {
     }
     const hook = setup('ready', [sourceJob])
     const invalidate = vi.spyOn(hook.client, 'invalidateQueries')
-    await waitFor(() => expect(hook.client.getQueryData(queryKeys.jobs(user.id))).toBeDefined())
+    await waitFor(() => expect(hook.client.getQueryData(queryKeys.feedJobs(user.id))).toBeDefined())
 
-    act(() => hook.client.setQueryData(queryKeys.jobs(user.id), { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...sourceJob,
       status,
       error_message: status === 'failed' ? 'upstream unavailable' : undefined,
     }] }))
 
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.history(user.id) }))
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.historyRoot(user.id) }))
     expect(hook.latestFeed).not.toHaveBeenCalled()
     expect(hook.result.current.notice).toBeUndefined()
   })
@@ -198,14 +226,14 @@ describe('useFeedActivity', () => {
     const hook = setup('ready', [queuedJob])
     await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
 
-    act(() => hook.client.setQueryData(['user', user.id, 'jobs'], { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: true },
     }] }))
     await waitFor(() => expect(hook.result.current.notice?.key).toBe('job-1:succeeded'))
 
-    act(() => hook.client.setQueryData(['user', user.id, 'jobs'], { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       id: 'job-2',
       created_at: '2026-07-14T07:00:00Z',
@@ -219,7 +247,7 @@ describe('useFeedActivity', () => {
     const hook = setup('ready', [queuedJob])
     await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
 
-    act(() => hook.client.setQueryData(['user', user.id, 'jobs'], { jobs: [{
+    act(() => hook.client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: false },
@@ -232,7 +260,7 @@ describe('useFeedActivity', () => {
   it('does not carry a terminal notice into a replacement account', async () => {
     const replacement: User = { id: 'user-2', username: 'member', role: 'member', enabled: true }
     const api = {
-      jobs: vi.fn().mockResolvedValue({ jobs: [queuedJob] }),
+      feedJobs: vi.fn().mockResolvedValue({ jobs: [queuedJob] }),
       feedSchedule: vi.fn().mockResolvedValue(schedule('ready')),
       latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [] }),
     } as unknown as ServiceApi
@@ -248,7 +276,7 @@ describe('useFeedActivity', () => {
     )
     await waitFor(() => expect(hook.result.current.currentJob?.status).toBe('queued'))
 
-    act(() => client.setQueryData(['user', user.id, 'jobs'], { jobs: [{
+    act(() => client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: true },
@@ -263,7 +291,7 @@ describe('useFeedActivity', () => {
     const replacement: User = { id: 'user-2', username: 'member', role: 'member', enabled: true }
     const latestFeed = vi.fn().mockResolvedValue({ schema_version: 2, items: [] })
     const api = {
-      jobs: vi.fn().mockImplementation(() => Promise.resolve({ jobs: [queuedJob] })),
+      feedJobs: vi.fn().mockImplementation(() => Promise.resolve({ jobs: [queuedJob] })),
       feedSchedule: vi.fn().mockResolvedValue(schedule('ready')),
       latestFeed,
     } as unknown as ServiceApi
@@ -281,7 +309,7 @@ describe('useFeedActivity', () => {
 
     hook.rerender({ currentUser: replacement })
     await waitFor(() => expect(hook.result.current.currentJob).toBeUndefined())
-    act(() => client.setQueryData(queryKeys.jobs(user.id), { jobs: [{
+    act(() => client.setQueryData(queryKeys.feedJobs(user.id), { jobs: [{
       ...queuedJob,
       status: 'succeeded',
       result: { item_count: 5, snapshot_created: true },

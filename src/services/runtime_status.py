@@ -56,6 +56,34 @@ class RuntimeStatusService:
             for heartbeat in self.store.list_worker_heartbeats()
         ]
 
+    @staticmethod
+    def _availability_from_workers(
+        workers: list[dict[str, Any]],
+        *,
+        checked_at: datetime,
+    ) -> dict[str, Any]:
+        available = [
+            worker
+            for worker in workers
+            if not worker["is_stale"] and worker["state"] != "stopping"
+        ]
+        return {
+            "worker_status": (
+                "ready" if available else ("stale" if workers else "missing")
+            ),
+            "checked_at": checked_at.isoformat(),
+        }
+
+    def availability(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return worker availability without scanning jobs or schedule state."""
+        checked_at = _utc(now or datetime.now(timezone.utc))
+        workers = self.list_workers(now=checked_at)
+        return self._availability_from_workers(workers, checked_at=checked_at)
+
     def summary(
         self,
         *,
@@ -65,8 +93,10 @@ class RuntimeStatusService:
     ) -> dict[str, Any]:
         checked_at = _utc(now or datetime.now(timezone.utc))
         workers = self.list_workers(now=checked_at)
-        available = [worker for worker in workers if not worker["is_stale"] and worker["state"] != "stopping"]
-        worker_status = "ready" if available else ("stale" if workers else "missing")
+        availability = self._availability_from_workers(
+            workers,
+            checked_at=checked_at,
+        )
         where: list[str] = []
         params: list[Any] = []
         if workspace_id:
@@ -289,7 +319,7 @@ class RuntimeStatusService:
                     recent_source_failure_code_counts.get(code, 0) + 1
                 )
         return {
-            "worker_status": worker_status,
+            "worker_status": availability["worker_status"],
             "workers": workers,
             "job_counts": job_counts,
             "operational_counts": operational_counts,

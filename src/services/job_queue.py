@@ -310,6 +310,7 @@ class JobQueue:
         workspace_id: str,
         user_id: str | None = None,
         status: str | None = None,
+        job_types: list[str] | tuple[str, ...] | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         params: list[Any] = [workspace_id]
@@ -320,6 +321,16 @@ class JobQueue:
         if status:
             where.append("status = ?")
             params.append(status)
+        normalized_job_types = tuple(
+            dict.fromkeys(str(job_type) for job_type in (job_types or ()))
+        )
+        if normalized_job_types:
+            where.append(
+                "job_type IN ("
+                + ", ".join("?" for _job_type in normalized_job_types)
+                + ")"
+            )
+            params.extend(normalized_job_types)
         params.append(int(limit))
         rows = self.store.connect().execute(
             f"""
@@ -353,6 +364,10 @@ class JobQueue:
             )
             if key in job
         }
+        if isinstance(summary.get("error_code"), str):
+            summary["error_code"] = summary["error_code"][:64]
+        if isinstance(summary.get("error_message"), str):
+            summary["error_message"] = summary["error_message"][:240]
         compact_result: dict[str, Any] = {}
         message = job.get("summary_message")
         if isinstance(message, str):
@@ -378,6 +393,7 @@ class JobQueue:
         workspace_id: str,
         user_id: str | None = None,
         status: str | None = None,
+        job_types: list[str] | tuple[str, ...] | None = None,
         limit: int = 50,
         include_active: bool = False,
     ) -> list[dict[str, Any]]:
@@ -389,12 +405,24 @@ class JobQueue:
         if status:
             where.append("status = ?")
             params.append(status)
+        normalized_job_types = tuple(
+            dict.fromkeys(str(job_type) for job_type in (job_types or ()))
+        )
+        if normalized_job_types:
+            where.append(
+                "job_type IN ("
+                + ", ".join("?" for _job_type in normalized_job_types)
+                + ")"
+            )
+            params.extend(normalized_job_types)
         safe_result_json = (
             "CASE WHEN json_valid(result_json) THEN result_json END"
         )
         columns = f"""
             id, user_id, source_id, subscription_id, job_type, status,
-            error_code, error_message, created_at, started_at, finished_at,
+            substr(error_code, 1, 64) AS error_code,
+            substr(error_message, 1, 240) AS error_message,
+            created_at, started_at, finished_at,
             CASE
                 WHEN json_type({safe_result_json}, '$.message') = 'text'
                 THEN substr(json_extract({safe_result_json}, '$.message'), 1, 240)

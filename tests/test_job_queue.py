@@ -78,6 +78,8 @@ def test_job_queue_summary_omits_heavy_fields_and_keeps_active_jobs(
         UPDATE fetch_jobs
         SET status = 'partial',
             result_json = ?,
+            error_code = ?,
+            error_message = ?,
             created_at = '2026-07-02T00:00:00+00:00',
             finished_at = '2026-07-02T00:01:00+00:00'
         WHERE id = ?
@@ -95,6 +97,8 @@ def test_job_queue_summary_omits_heavy_fields_and_keeps_active_jobs(
                     "response_schemas": [{"source_id": "two", "private": "large"}],
                 }
             ),
+            "E" * 100,
+            "M" * 400,
             terminal["id"],
         ),
     )
@@ -114,11 +118,30 @@ def test_job_queue_summary_omits_heavy_fields_and_keeps_active_jobs(
         "new_item_count": 2,
         "failed_source_count": 1,
     }
+    assert summaries[0]["error_code"] == "E" * 64
+    assert summaries[0]["error_message"] == "M" * 240
     rendered = json.dumps(summaries)
     assert "payload_json" not in rendered
     assert "result_json" not in rendered
     assert "response_schemas" not in rendered
     assert "private" not in rendered
+
+    source_fetch_only = queue.list_job_summaries(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_types=["source_fetch"],
+        limit=1,
+        include_active=True,
+    )
+    feed_refresh_only = queue.list_job_summaries(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_types=["user_feed_refresh"],
+        limit=1,
+        include_active=True,
+    )
+    assert [job["id"] for job in source_fetch_only] == [active["id"]]
+    assert [job["id"] for job in feed_refresh_only] == [terminal["id"]]
 
     indexes = {
         str(row["name"])

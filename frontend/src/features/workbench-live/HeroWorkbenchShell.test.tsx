@@ -70,6 +70,7 @@ const api = {
   sourceHealth: vi.fn().mockResolvedValue({ items: [] }),
   sources: vi.fn().mockResolvedValue({ sources: [] }),
   subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+  feedJobs: vi.fn().mockResolvedValue({ jobs: [] }),
   jobs: vi.fn().mockResolvedValue({ jobs: [] }),
 } as unknown as ServiceApi
 
@@ -648,7 +649,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
       sources: vi.fn().mockResolvedValue({
         sources: [{ id: 'source-1' }, { id: 'source-2' }, { id: 'source-3' }],
       }),
-      jobs: vi.fn().mockResolvedValue({
+      feedJobs: vi.fn().mockResolvedValue({
         jobs: [
           { id: 'job-1', user_id: 'insights-stats' },
           { id: 'job-2', user_id: 'insights-stats' },
@@ -666,7 +667,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
     expect(within(statistics).getByRole('button', { name: '我的订阅 2，打开相关页面' })).toBeInTheDocument()
     expect(within(statistics).getByRole('button', { name: '来源库 3，打开相关页面' })).toBeInTheDocument()
     expect(within(statistics).getByRole('button', { name: '最近运行 2，打开相关页面' })).toBeInTheDocument()
-    expect(within(statistics).getByText('最近运行只统计最近加载的记录，最多 100 条。')).toBeInTheDocument()
+    expect(within(statistics).getByText('最近运行只统计信息流相关记录，最多 20 条。')).toBeInTheDocument()
     expect(serviceApi.sources).toHaveBeenCalledWith(true, expect.any(AbortSignal))
 
     await browser.click(within(statistics).getByRole('button', { name: '最近运行 2，打开相关页面' }))
@@ -679,7 +680,7 @@ describe('HeroWorkbenchShell Feed visual scope', () => {
       ...api,
       subscriptions: vi.fn().mockRejectedValue(new Error('subscriptions unavailable')),
       sources: vi.fn().mockResolvedValue({ sources: [{ id: 'source-1' }] }),
-      jobs: vi.fn().mockRejectedValue(new Error('jobs unavailable')),
+      feedJobs: vi.fn().mockRejectedValue(new Error('jobs unavailable')),
     } as unknown as ServiceApi
     render(<Shell
       user={{ id: 'insights-partial', username: 'partial', role: 'member', enabled: true }}

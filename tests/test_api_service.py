@@ -202,6 +202,43 @@ def test_api_request_transaction_boundary_releases_stale_sqlite_snapshot(
     assert ready.json()["data"]["worker_status"] == "ready"
 
 
+def test_readiness_uses_worker_availability_without_runtime_aggregates(
+    tmp_path,
+    monkeypatch,
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    store = client.app.state.service_store
+    statements = []
+    original_connect = store.connect
+
+    def traced_connect():
+        connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(store, "connect", traced_connect)
+    response = client.get("/api/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["worker_status"] == "missing"
+    assert (
+        sum(
+            "FROM WORKER_HEARTBEATS" in statement.upper()
+            for statement in statements
+        )
+        == 1
+    )
+    assert not any("FETCH_JOBS" in statement.upper() for statement in statements)
+    assert not any(
+        "FROM USER_FEED_SCHEDULES" in statement.upper()
+        for statement in statements
+    )
+    assert not any(
+        "FROM USER_SOURCE_SCHEDULES" in statement.upper()
+        for statement in statements
+    )
+
+
 def test_api_auth_users_and_error_envelope(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
 
@@ -2207,6 +2244,12 @@ def test_job_summary_view_is_user_scoped_compact_and_backward_compatible(
         job_type="user_feed_refresh",
         payload={"private": "owner-terminal"},
     )
+    excluded = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_test",
+        payload={"private": "owner-source-test"},
+    )
     queue.create_job(
         workspace_id=workspace["id"],
         user_id=member["id"],
@@ -2220,7 +2263,12 @@ def test_job_summary_view_is_user_scoped_compact_and_backward_compatible(
     store.connect().execute(
         """
         UPDATE fetch_jobs
-        SET status = 'partial', result_json = ?, created_at = ?, finished_at = ?
+        SET status = 'partial',
+            result_json = ?,
+            error_code = ?,
+            error_message = ?,
+            created_at = ?,
+            finished_at = ?
         WHERE id = ?
         """,
         (
@@ -2232,6 +2280,8 @@ def test_job_summary_view_is_user_scoped_compact_and_backward_compatible(
                     "response_schemas": [{"source_id": "private-schema"}],
                 }
             ),
+            "C" * 100,
+            "D" * 400,
             "2026-07-03T00:00:00+00:00",
             "2026-07-03T00:01:00+00:00",
             terminal["id"],
@@ -2241,26 +2291,47 @@ def test_job_summary_view_is_user_scoped_compact_and_backward_compatible(
 
     summary_response = client.get(
         "/api/jobs?view=summary&scope=me&limit=1&include_active=true"
+        "&job_type=user_feed_refresh&job_type=source_fetch"
     )
     summary_jobs = summary_response.json()["data"]["jobs"]
+    filtered_full_jobs = client.get(
+        "/api/jobs?scope=me&limit=1&include_active=true"
+        "&job_type=user_feed_refresh&job_type=source_fetch"
+    ).json()["data"]["jobs"]
     full_jobs = client.get("/api/jobs").json()["data"]["jobs"]
     detail = client.get(f"/api/jobs/{terminal['id']}").json()["data"]
+    too_many_filters = client.get(
+        "/api/jobs?"
+        + "&".join(f"job_type=type_{index}" for index in range(21))
+    )
+    unsafe_filter = client.get("/api/jobs?job_type=not%20safe")
 
     assert summary_response.status_code == 200
     assert [job["id"] for job in summary_jobs] == [terminal["id"], active["id"]]
+    assert [job["id"] for job in filtered_full_jobs] == [
+        terminal["id"],
+        active["id"],
+    ]
     assert all(job["user_id"] == owner["id"] for job in summary_jobs)
     assert summary_jobs[0]["result"] == {
         "snapshot_created": True,
         "new_item_count": 3,
         "failed_source_count": 1,
     }
+    assert summary_jobs[0]["error_code"] == "C" * 64
+    assert summary_jobs[0]["error_message"] == "D" * 240
     assert "payload_json" not in summary_jobs[0]
     assert "result_json" not in summary_jobs[0]
+    assert excluded["id"] not in {job["id"] for job in summary_jobs}
+    assert excluded["id"] in {job["id"] for job in full_jobs}
     assert any(job["user_id"] == member["id"] for job in full_jobs)
     assert detail["payload_json"] == {"private": "owner-terminal"}
     assert detail["result_json"]["response_schemas"] == [
         {"source_id": "private-schema"}
     ]
+    for rejected in (too_many_filters, unsafe_filter):
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "invalid_request"
 
 
 def test_ops_runtime_aggregates_only_safe_acquisition_and_invalidation_counts(
@@ -4339,6 +4410,17 @@ def test_feed_schedule_get_defaults_and_patch_round_trip(tmp_path, monkeypatch):
     _login(client)
 
     default_response = client.get("/api/me/feed-schedule")
+    statements = []
+    store = client.app.state.service_store
+    original_connect = store.connect
+
+    def traced_connect():
+        connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(store, "connect", traced_connect)
+    summary_response = client.get("/api/me/feed-schedule?view=summary")
     assert default_response.status_code == 200
     default_data = default_response.json()["data"]
     assert default_data == {
@@ -4354,6 +4436,21 @@ def test_feed_schedule_get_defaults_and_patch_round_trip(tmp_path, monkeypatch):
         "active_job": None,
         "worker_status": "missing",
     }
+    assert summary_response.status_code == 200
+    assert summary_response.json()["data"] == {
+        key: value
+        for key, value in default_data.items()
+        if key not in {"last_job", "active_job"}
+    }
+    assert len(summary_response.content) < 2048
+    assert not any("FETCH_JOBS" in statement.upper() for statement in statements)
+    assert (
+        sum(
+            "FROM WORKER_HEARTBEATS" in statement.upper()
+            for statement in statements
+        )
+        == 1
+    )
 
     empty = client.patch("/api/me/feed-schedule", json={})
     invalid = client.patch("/api/me/feed-schedule", json={"interval_minutes": 61})
@@ -4437,6 +4534,190 @@ def test_source_schedule_get_defaults_patch_round_trip_and_runtime_counts(
     assert runtime.status_code == 200
     assert runtime.json()["data"]["source_schedule_count"] == 1
     assert runtime.json()["data"]["overdue_source_schedule_count"] == 1
+
+
+def test_subscription_schedule_views_batch_queries_and_keep_user_scope(
+    tmp_path,
+    monkeypatch,
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    peer = client.post(
+        "/api/users",
+        json={
+            "username": "schedule-peer",
+            "password": "peer-password",
+            "role": "member",
+        },
+    ).json()["data"]
+    store = client.app.state.service_store
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    conn = store.connect()
+    conn.execute("BEGIN IMMEDIATE")
+    subscriptions = []
+    for index in range(100):
+        source_id = store.create_source(
+            workspace_id=workspace["id"],
+            scope="private",
+            owner_user_id=owner["id"],
+            source_type="rss",
+            display_name=f"Batched schedule {index}",
+            config={"url": f"https://example.com/batched-{index}.xml"},
+            commit=False,
+        )
+        subscriptions.append(
+            store.create_subscription(
+                user_id=owner["id"],
+                source_id=source_id,
+                commit=False,
+            )
+        )
+    peer_source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=peer["id"],
+        source_type="rss",
+        display_name="Peer schedule",
+        config={"url": "https://example.com/peer-schedule.xml"},
+        commit=False,
+    )
+    peer_subscription = store.create_subscription(
+        user_id=peer["id"],
+        source_id=peer_source_id,
+        commit=False,
+    )
+    conn.commit()
+
+    queue = JobQueue(store)
+    owner_job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=subscriptions[0]["source_id"],
+        subscription_id=subscriptions[0]["id"],
+        job_type="source_fetch",
+    )
+    peer_job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=peer["id"],
+        source_id=peer_subscription["source_id"],
+        subscription_id=peer_subscription["id"],
+        job_type="source_fetch",
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO user_source_schedules (
+            subscription_id, workspace_id, user_id, source_id,
+            enabled, interval_minutes, next_run_at,
+            last_evaluated_at, last_enqueued_at, last_job_id,
+            last_skip_reason, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 0, 60, NULL, NULL, NULL, ?, NULL, ?, ?)
+        """,
+        (
+            subscriptions[0]["id"],
+            workspace["id"],
+            owner["id"],
+            subscriptions[0]["source_id"],
+            owner_job["id"],
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO user_source_schedules (
+            subscription_id, workspace_id, user_id, source_id,
+            enabled, interval_minutes, next_run_at,
+            last_evaluated_at, last_enqueued_at, last_job_id,
+            last_skip_reason, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 0, 60, NULL, NULL, NULL, ?, NULL, ?, ?)
+        """,
+        (
+            peer_subscription["id"],
+            workspace["id"],
+            peer["id"],
+            peer_subscription["source_id"],
+            peer_job["id"],
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+
+    statements = []
+    original_connect = store.connect
+
+    def traced_connect():
+        connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(store, "connect", traced_connect)
+    summary_response = client.get("/api/me/subscriptions?schedule_view=summary")
+    summary_statements = list(statements)
+    statements.clear()
+    full_response = client.get("/api/me/subscriptions")
+    full_statements = list(statements)
+
+    assert summary_response.status_code == 200
+    summary_subscriptions = summary_response.json()["data"]["subscriptions"]
+    assert len(summary_subscriptions) == 100
+    assert all(
+        set(subscription["schedule"])
+        == {
+            "schema_version",
+            "subscription_id",
+            "source_id",
+            "enabled",
+            "interval_minutes",
+            "allowed_intervals",
+            "next_run_at",
+            "last_evaluated_at",
+            "last_enqueued_at",
+            "last_skip_reason",
+            "worker_status",
+        }
+        for subscription in summary_subscriptions
+    )
+    assert not any(
+        "FETCH_JOBS" in statement.upper() for statement in summary_statements
+    )
+    assert (
+        sum(
+            "FROM USER_SOURCE_SCHEDULES" in statement.upper()
+            for statement in summary_statements
+        )
+        == 1
+    )
+    assert (
+        sum(
+            "FROM WORKER_HEARTBEATS" in statement.upper()
+            for statement in summary_statements
+        )
+        == 1
+    )
+
+    assert full_response.status_code == 200
+    full_subscriptions = full_response.json()["data"]["subscriptions"]
+    assert len(full_subscriptions) == 100
+    full_by_id = {
+        subscription["id"]: subscription for subscription in full_subscriptions
+    }
+    first_schedule = full_by_id[subscriptions[0]["id"]]["schedule"]
+    assert first_schedule["last_job"]["id"] == owner_job["id"]
+    assert first_schedule["active_job"]["id"] == owner_job["id"]
+    assert peer_job["id"] not in full_response.text
+    assert (
+        sum("FROM FETCH_JOBS" in statement.upper() for statement in full_statements)
+        == 2
+    )
+
+    individual = client.get(
+        f"/api/me/subscriptions/{subscriptions[0]['id']}/schedule"
+    )
+    assert individual.status_code == 200
+    assert individual.json()["data"] == first_schedule
 
 
 def test_source_schedule_patch_preserves_omission_and_explicit_null_compatibility(

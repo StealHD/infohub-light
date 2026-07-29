@@ -40,6 +40,7 @@ export const queryKeys = {
   sourceUsage: (userId: string, sourceId: string) => [...userKey(userId), 'source-usage', sourceId] as const,
   sourceTypes: (userId: string) => [...userKey(userId), 'source-types'] as const,
   sourceHealth: (userId: string) => [...userKey(userId), 'source-health'] as const,
+  feedJobs: (userId: string) => [...userKey(userId), 'feed-jobs'] as const,
   jobs: (userId: string) => [...userKey(userId), 'jobs'] as const,
   job: (userId: string, jobId: string) => [...userKey(userId), 'job', jobId] as const,
   feedSchedule: (userId: string) => [...userKey(userId), 'feed-schedule'] as const,
