@@ -633,13 +633,14 @@ test('production administration routes use the adaptive Quiet Studio page patter
   expect(configurationMetrics.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true)
   expect(configurationMetrics.every(({ overflowX }) => overflowX === 'hidden')).toBe(true)
 
-  await page.goto('/settings')
+  await page.goto('/settings#settings-notifications')
   await expectHeroAdminPage(page, '设置')
   await expect(page.getByRole('heading', { name: '消息通知' })).toBeVisible()
   await expect(page.getByRole('button', { name: '发送测试通知' })).toBeDisabled()
   await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
+  await page.goto('/settings#settings-fetching')
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
   await expect(page.getByLabel('日常抓取窗口（小时）')).toHaveValue('24')
   const initialRssWindow = page.getByRole('button', { name: /RSS 首次抓取窗口/ })
@@ -676,10 +677,64 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByText(/每次产品代码合并都由 Test Gate 检查/)).toBeVisible()
 })
 
+test('settings landing defers hidden section requests and a direct hash loads only that section', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One real browser project is enough for request activation coverage.')
+  const requests: Array<{ method: string; pathname: string }> = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.pathname.startsWith('/api/')) {
+      requests.push({ method: request.method(), pathname: url.pathname })
+    }
+  })
+  await mockAdminApi(page)
+
+  await page.goto('/settings')
+  await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
+  await page.waitForTimeout(250)
+
+  const sectionQueryPaths = new Set([
+    '/api/config',
+    '/api/feed/end-messages',
+    '/api/feed/ignored',
+    '/api/me/notification-settings',
+    '/api/admin/notification-email-transport',
+    '/api/admin/storage/summary',
+    '/api/admin/storage/archives',
+    '/api/admin/secrets',
+    '/api/admin/apify-key-pool',
+    '/api/admin/apify-actor-routes/x/profile',
+    '/api/admin/apify-actor-alert-settings',
+    '/api/admin/apify-actor-alert-incidents',
+  ])
+  expect(requests.filter(({ method, pathname }) => (
+    method === 'GET'
+    && (sectionQueryPaths.has(pathname) || pathname.endsWith('/quota'))
+  ))).toEqual([])
+
+  const directHashStart = requests.length
+  await page.goto('/settings#settings-secrets')
+  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  const directHashRequests = requests.slice(directHashStart)
+    .filter(({ method }) => method === 'GET')
+    .map(({ pathname }) => pathname)
+  expect(directHashRequests.filter((pathname) => pathname === '/api/admin/secrets')).toHaveLength(1)
+  const poolRequestCount = directHashRequests.filter((pathname) => pathname === '/api/admin/apify-key-pool').length
+  expect(poolRequestCount).toBeGreaterThanOrEqual(1)
+  expect(poolRequestCount).toBeLessThanOrEqual(2)
+  expect(directHashRequests.filter((pathname) => pathname.endsWith('/quota'))).toHaveLength(1)
+  expect(directHashRequests.filter((pathname) => (
+    sectionQueryPaths.has(pathname)
+    && ![
+      '/api/admin/secrets',
+      '/api/admin/apify-key-pool',
+    ].includes(pathname)
+  ))).toEqual([])
+})
+
 test('settings saves all dirty core sections in one bundle request', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The atomic settings coordinator only needs one browser project.')
   const apiState = await mockAdminApi(page)
-  await page.goto('/settings')
+  await page.goto('/settings#settings-fetching')
 
   const initialWindow = page.getByRole('button', { name: /RSS 首次抓取窗口/ })
   await initialWindow.click()
@@ -722,7 +777,7 @@ test('workspace email transport stays bounded at 390, 768 and 1440 pixels', asyn
     { width: 1440, height: 900 },
   ]) {
     await page.setViewportSize(viewport)
-    await page.goto('/settings')
+    await page.goto('/settings#settings-notifications')
 
     await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
     await expect(page.getByRole('switch', { name: '未启用' })).toBeDisabled()
@@ -842,7 +897,7 @@ test('account and documentation menus open upward and expose manual, changelog, 
 
 test('settings key tables contain scrolling, quota, refresh and accessible modal behavior', async ({ page }) => {
   const apiState = await mockAdminApi(page)
-  await page.goto('/settings')
+  await page.goto('/settings#settings-secrets')
 
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
   const apifyTable = page.getByRole('grid', { name: 'Apify Key 池' })
@@ -886,13 +941,12 @@ test('settings key tables contain scrolling, quota, refresh and accessible modal
 test('successful Key creation uses a top overlay without moving settings content', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await mockAdminApi(page)
-  await page.goto('/settings')
+  await page.goto('/settings#settings-secrets')
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
   await page.evaluate(async () => {
     await document.fonts.ready
   })
   await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
-  await expect(page.getByText('暂无已忽略内容', { exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Key 名称' }).fill('DeepSeek Primary')
   await page.getByRole('textbox', { name: 'Key provider' }).fill('deepseek')

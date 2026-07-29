@@ -224,7 +224,7 @@ function ActorCandidateTable({
   </Table>
 }
 
-function ApifyActorRoutePanel() {
+function ApifyActorRoutePanel({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const canaryTriggerRefs = useRef(new Map<string, HTMLButtonElement>())
@@ -235,13 +235,14 @@ function ApifyActorRoutePanel() {
   const routeQuery = useQuery({
     queryKey: queryKeys.apifyActorXProfileRoute(user.id),
     queryFn: ({ signal }) => api.apifyActorXProfileRoute(signal),
+    enabled: queryEnabled,
     retry: false,
-    refetchInterval: APIFY_ACTOR_ROUTE_REFRESH_MS,
+    refetchInterval: queryEnabled ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
   })
   const canarySources = useQuery({
     queryKey: queryKeys.sources(user.id),
     queryFn: ({ signal }) => api.sources(false, signal),
-    enabled: Boolean(canaryCandidate),
+    enabled: queryEnabled && Boolean(canaryCandidate),
     staleTime: queryStaleTime.catalog,
     retry: false,
   })
@@ -716,15 +717,16 @@ export function ApifyActorAlertSettingsForm({
   </form>
 }
 
-function ApifyActorAlertSettingsPanel() {
+function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const settings = useQuery({
     queryKey: queryKeys.apifyActorAlertSettings(user.id),
     queryFn: ({ signal }) => api.apifyActorAlertSettings(signal),
+    enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
     retry: false,
-    refetchInterval: APIFY_ACTOR_ROUTE_REFRESH_MS,
+    refetchInterval: queryEnabled ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
   })
 
   if (settings.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
@@ -772,13 +774,14 @@ function incidentDeliveryLabel(status: string | null): string {
   return '等待发送'
 }
 
-function ApifyActorIncidentList() {
+function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const incidents = useQuery({
     queryKey: queryKeys.apifyActorAlertIncidents(user.id),
     queryFn: ({ signal }) => api.apifyActorAlertIncidents(signal),
+    enabled: queryEnabled,
     retry: false,
-    refetchInterval: APIFY_ACTOR_ROUTE_REFRESH_MS,
+    refetchInterval: queryEnabled ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
   })
 
   if (incidents.isPending) return <LoadingState label="正在读取 Actor 事件" rows={2} />
@@ -819,20 +822,20 @@ function ApifyActorIncidentList() {
   </ol>
 }
 
-export function HeroApifyActorRouteSettings() {
+export function HeroApifyActorRouteSettings({ queryEnabled = true }: { queryEnabled?: boolean }) {
   return <Card variant="secondary" className="min-w-0 max-w-full p-4">
-    <ApifyActorRoutePanel />
+    <ApifyActorRoutePanel queryEnabled={queryEnabled} />
     <div className="mt-6 border-t border-separator pt-5">
       <h3 className="type-page-title">故障告警</h3>
       <p className="type-meta mt-1 text-muted">工作区统一选择邮箱或 Webhook；与个人的新内容通知相互独立。</p>
-      <div className="mt-4"><ApifyActorAlertSettingsPanel /></div>
+      <div className="mt-4"><ApifyActorAlertSettingsPanel queryEnabled={queryEnabled} /></div>
     </div>
     <div className="mt-6 border-t border-separator pt-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="type-page-title">最近事件</h3>
         <span className="type-meta text-muted">最多显示 20 条</span>
       </div>
-      <div className="mt-3"><ApifyActorIncidentList /></div>
+      <div className="mt-3"><ApifyActorIncidentList queryEnabled={queryEnabled} /></div>
     </div>
   </Card>
 }

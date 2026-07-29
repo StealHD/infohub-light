@@ -203,16 +203,17 @@ export function NotificationSettingsForm({
   </form>
 }
 
-export function HeroNotificationSettings() {
+export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled?: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const settings = useQuery({
     queryKey: queryKeys.notificationSettings(user.id),
     queryFn: ({ signal }) => api.notificationSettings(signal),
+    enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
   })
 
-  if (settings.isLoading) return <LoadingState label="正在读取消息通知设置" rows={1} />
+  if (settings.isPending) return <LoadingState label="正在读取消息通知设置" rows={1} />
   if (settings.isError || !settings.data) return <HeroNotice title="消息通知设置读取失败，请刷新后重试。" />
 
   const cacheKey = [

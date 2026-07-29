@@ -1494,7 +1494,7 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '密钥' })
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
@@ -1534,6 +1534,161 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '关于 Inteliscope' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '密钥' })).not.toBeInTheDocument()
     expect(document.activeElement).not.toBe(document.getElementById('settings-about'))
+  })
+
+  it('keeps the settings landing section request-free and activates only the selected section', async () => {
+    const browser = userEvent.setup()
+    const config = vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } })
+    const secrets = vi.fn().mockResolvedValue({ secrets: [] })
+    const ignoredFeed = vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } })
+    const notificationSettings = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      enabled: true,
+      channel: 'webhook',
+      email_configured: false,
+      email_transport_ready: true,
+      webhook_configured: true,
+      last_test_status: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      updated_at: '2026-07-30T00:00:00Z',
+    })
+    const notificationEmailTransport = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      configured: false,
+      provider: null,
+      sender_email: null,
+      sender_name: 'Inteliscope',
+      region: null,
+      smtp_username: null,
+      enabled: false,
+      credential_configured: false,
+      generation: 0,
+      last_test_status: null,
+      last_test_generation: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      can_enable: false,
+      ready: false,
+      connection: null,
+      providers: [],
+      updated_at: null,
+    })
+    const hiddenQueries = {
+      config,
+      secrets,
+      ignoredFeed,
+      notificationSettings,
+      notificationEmailTransport,
+      apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
+      apifyActorXProfileRoute: vi.fn(),
+      apifyActorAlertSettings: vi.fn(),
+      apifyActorAlertIncidents: vi.fn(),
+      storageSummary: vi.fn(),
+      storageArchives: vi.fn(),
+      secretQuota: vi.fn(),
+      feedEndMessages: vi.fn(),
+    }
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-settings-lazy', username: 'owner', role: 'owner', enabled: true } }),
+      ...hiddenQueries,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '关于 Inteliscope' })).toBeInTheDocument()
+    await act(async () => Promise.resolve())
+    for (const query of Object.values(hiddenQueries)) expect(query).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+    await browser.click(await screen.findByRole('option', { name: '消息通知' }))
+    await waitFor(() => {
+      expect(notificationSettings).toHaveBeenCalledOnce()
+      expect(notificationEmailTransport).toHaveBeenCalledOnce()
+    })
+    expect(config).not.toHaveBeenCalled()
+    expect(secrets).not.toHaveBeenCalled()
+    expect(ignoredFeed).not.toHaveBeenCalled()
+    expect(hiddenQueries.apifyActorXProfileRoute).not.toHaveBeenCalled()
+    expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
+
+    const destination = screen.getByLabelText('Webhook 地址')
+    await browser.type(destination, 'https://example.invalid/preserved-draft')
+    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+    await browser.click(await screen.findByRole('option', { name: '关于 Inteliscope' }))
+    expect(destination).toHaveValue('https://example.invalid/preserved-draft')
+    await act(async () => Promise.resolve())
+    expect(notificationSettings).toHaveBeenCalledOnce()
+    expect(notificationEmailTransport).toHaveBeenCalledOnce()
+
+    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+    await browser.click(await screen.findByRole('option', { name: '消息通知' }))
+    expect(destination).toHaveValue('https://example.invalid/preserved-draft')
+    await act(async () => Promise.resolve())
+    expect(notificationSettings).toHaveBeenCalledOnce()
+    expect(notificationEmailTransport).toHaveBeenCalledOnce()
+  })
+
+  it('loads each Apify quota once on first Secrets entry and honors its five-minute cache', async () => {
+    const browser = userEvent.setup()
+    const apifyQuota = {
+      secret_id: 'apify-cached',
+      provider: 'apify',
+      currency: 'USD',
+      cycle_start_at: '2026-07-01T00:00:00.000Z',
+      cycle_end_at: '2026-07-31T23:59:59.999Z',
+      checked_at: '2026-07-30T00:00:00Z',
+      monthly_included_credits_usd: 5,
+      monthly_usage_usd: 1,
+      remaining_included_credits_usd: 4,
+      max_monthly_usage_usd: 10,
+      remaining_hard_limit_usd: 9,
+    }
+    const secrets = vi.fn().mockResolvedValue({ secrets: [
+      { id: 'apify-cached', name: 'Apify Cached', kind: 'apify', provider: 'apify', env_name: 'APIFY_CACHED', is_set: true, used_by: [] },
+      { id: 'ai-unsupported', name: 'AI Unsupported', kind: 'ai', provider: 'openai', env_name: 'OPENAI_API_KEY', is_set: true, used_by: [] },
+    ] })
+    const secretQuota = vi.fn().mockResolvedValue(apifyQuota)
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-quota-cache', username: 'owner', role: 'owner', enabled: true } }),
+      secrets,
+      secretQuota,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    let now = Date.parse('2026-07-30T00:00:00Z')
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('heading', { name: '关于 Inteliscope' })).toBeInTheDocument()
+      expect(secrets).not.toHaveBeenCalled()
+      expect(secretQuota).not.toHaveBeenCalled()
+
+      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+      await browser.click(await screen.findByRole('option', { name: '密钥' }))
+      expect(await screen.findByText('套餐剩余 $4.00')).toBeInTheDocument()
+      expect(secrets).toHaveBeenCalledOnce()
+      expect(secretQuota).toHaveBeenCalledOnce()
+      expect(secretQuota).toHaveBeenCalledWith('apify-cached')
+
+      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+      await browser.click(await screen.findByRole('option', { name: '关于 Inteliscope' }))
+      now += (5 * 60 * 1000) - 1
+      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+      await browser.click(await screen.findByRole('option', { name: '密钥' }))
+      await act(async () => Promise.resolve())
+      expect(secretQuota).toHaveBeenCalledOnce()
+
+      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+      await browser.click(await screen.findByRole('option', { name: '关于 Inteliscope' }))
+      now += 2
+      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+      await browser.click(await screen.findByRole('option', { name: '密钥' }))
+      await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(2))
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('previews storage cleanup before applying it from the owner settings area', async () => {
@@ -1602,7 +1757,7 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
@@ -1611,12 +1766,15 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
     expect(screen.getByText('RSSHub 访问密钥：已配置')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '密钥' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: '账户与成员' })).toHaveAttribute('href', '/users')
     expect(screen.queryByText('精选阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报条数')).not.toBeInTheDocument()
+
+    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
+    await browser.click(await screen.findByRole('option', { name: '密钥' }))
+    expect(await screen.findByRole('heading', { name: '密钥' })).toBeInTheDocument()
     expect(screen.getByRole('grid', { name: 'Apify Key 池' })).toBeInTheDocument()
     expect(screen.getByRole('grid', { name: '已配置 AI Key' })).toBeInTheDocument()
     expect(screen.getByText('尚未配置 Apify Key')).toBeInTheDocument()
@@ -1657,14 +1815,13 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries')
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
     expect(screen.queryByRole('navigation', { name: '设置目录' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /设置区域/ })).toBeInTheDocument()
+    const sectionSelector = await screen.findByRole('button', { name: /设置区域/ })
+    expect(sectionSelector).toBeInTheDocument()
     expect(document.querySelector('[data-mobile-settings-selector]')).toHaveClass('min-[768px]:pointer-fine:hidden')
-    expect(initialWindow).toHaveTextContent('7 天')
-    const outputLanguage = screen.getByRole('textbox', { name: '输出语言' })
+    const outputLanguage = await screen.findByRole('textbox', { name: '输出语言' })
     await browser.clear(outputLanguage)
     await browser.type(outputLanguage, 'zh-CN')
     expect(await screen.findByText('有尚未保存的更改')).toBeInTheDocument()
@@ -1672,6 +1829,10 @@ describe('App routes', () => {
     await browser.type(outputLanguage, 'zh')
     await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
 
+    await browser.click(sectionSelector)
+    await browser.click(await screen.findByRole('option', { name: '获取与主题' }))
+    const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
+    expect(initialWindow).toHaveTextContent('7 天')
     await browser.click(initialWindow)
     await browser.click(await screen.findByRole('option', { name: '30 天' }))
     expect(screen.getByText('有尚未保存的更改')).toBeInTheDocument()
@@ -1723,7 +1884,7 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '密钥' })
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'Invalid')
@@ -1800,7 +1961,7 @@ describe('App routes', () => {
       }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByText('Apify Key 池尚未启用')).toBeInTheDocument()
     const primaryRow = screen.getByRole('row', { name: /Legacy Primary/ })
@@ -1895,7 +2056,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const renderSettings = () => render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/settings']}>
+        <MemoryRouter initialEntries={['/settings#settings-secrets']}>
           <DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -1992,7 +2153,7 @@ describe('App routes', () => {
       secretQuota,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     const retry = await screen.findByRole('button', { name: '重试 Apify Retry 额度' })
     await browser.click(retry)
@@ -2091,7 +2252,7 @@ describe('App routes', () => {
       rotateSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const row = await screen.findByRole('row', { name: /Rotate Key/ })
     const trigger = within(row).getByRole('button', { name: '轮换 Rotate Key' })
@@ -2121,7 +2282,7 @@ describe('App routes', () => {
       deleteSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const row = await screen.findByRole('row', { name: /Unused Key/ })
     const trigger = within(row).getByRole('button', { name: '删除 Unused Key' })
@@ -2161,7 +2322,7 @@ describe('App routes', () => {
       deleteSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     const row = await screen.findByRole('row', { name: /Failed Key/ })
     await browser.click(within(row).getByRole('button', { name: '删除 Failed Key' }))
@@ -2407,7 +2568,7 @@ describe('App routes', () => {
       updateItemState,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ignored']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByText('被忽略的条目')).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '恢复' }))
@@ -2583,7 +2744,7 @@ describe('App routes', () => {
       configAction,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '助手与 AI' })
     await browser.click(await screen.findByRole('button', { name: /Provider/ }))

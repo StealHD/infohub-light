@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -245,7 +245,11 @@ function FormField({ label, name, defaultValue = '', type = 'text', min, max, re
   return <TextField fullWidth name={name} defaultValue={String(defaultValue)} isRequired={required}><Label>{label}</Label><Input type={type} min={min} max={max} /></TextField>
 }
 
-function SecretQuotaCell({ secret, userId }: { secret: SecretRef; userId: string }) {
+function SecretQuotaCell({ secret, userId, queryEnabled }: {
+  secret: SecretRef
+  userId: string
+  queryEnabled: boolean
+}) {
   const { api } = useAppContext()
   const supported = isApifySecret(secret)
   const [manualAction, setManualAction] = useState<'refresh' | 'retry' | null>(null)
@@ -254,7 +258,7 @@ function SecretQuotaCell({ secret, userId }: { secret: SecretRef; userId: string
     queryKey: queryKeys.secretQuota(userId, secret.id),
     // Keep one shared in-flight lookup across React StrictMode's development remount.
     queryFn: () => api.secretQuota(secret.id),
-    enabled: supported && secret.is_set,
+    enabled: queryEnabled && supported && secret.is_set,
     staleTime: secretQuotaStaleTime,
     retry: false,
     refetchOnWindowFocus: false,
@@ -473,9 +477,10 @@ function apifyPoolActionError(caught: unknown, fallback: string): string {
   return errorMessage(caught, fallback)
 }
 
-function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
+function ApifyKeyPoolTable({ secrets, userId, queryEnabled, onSecretChanged }: {
   secrets: SecretRef[]
   userId: string
+  queryEnabled: boolean
   onSecretChanged: (secretId: string, action: 'rotate' | 'delete') => void
 }) {
   const { api } = useAppContext()
@@ -483,9 +488,10 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
   const poolQuery = useQuery({
     queryKey: queryKeys.apifyKeyPool(userId),
     queryFn: ({ signal }) => api.apifyKeyPool(signal),
+    enabled: queryEnabled,
     retry: false,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) => query.state.data?.status === 'draining' ? 2_000 : false,
+    refetchInterval: (query) => queryEnabled && query.state.data?.status === 'draining' ? 2_000 : false,
   })
   const orderMutation = useMutation({
     mutationFn: ({ secretIds, expectedGeneration }: { secretIds: string[]; expectedGeneration: number }) => (
@@ -662,7 +668,7 @@ function ApifyKeyPoolTable({ secrets, userId, onSecretChanged }: {
                     </div>
                   </Table.Cell>
                   <Table.Cell><ApifyPoolStatusCell member={member} /></Table.Cell>
-                  <Table.Cell><SecretQuotaCell secret={secret} userId={userId} /></Table.Cell>
+                  <Table.Cell><SecretQuotaCell secret={secret} userId={userId} queryEnabled={queryEnabled} /></Table.Cell>
                   <Table.Cell>
                     <div className="flex min-w-64 flex-wrap gap-2">
                       <Button
@@ -720,7 +726,7 @@ function formatBytes(value: number): string {
   return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: index ? 1 : 0 }).format(value / (1024 ** index))} ${units[index]}`
 }
 
-function StorageArchiveSettings() {
+function StorageArchiveSettings({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const [activePlan, setActivePlan] = useState<StoragePlan | null>(null)
@@ -728,10 +734,12 @@ function StorageArchiveSettings() {
   const summary = useQuery({
     queryKey: queryKeys.storageSummary(user.id),
     queryFn: ({ signal }) => api.storageSummary(signal),
+    enabled: queryEnabled,
   })
   const archives = useQuery({
     queryKey: queryKeys.storageArchives(user.id),
     queryFn: ({ signal }) => api.storageArchives(signal),
+    enabled: queryEnabled,
   })
   const preview = useMutation({
     mutationFn: ({ operation, payload = {} }: {
@@ -792,7 +800,7 @@ function StorageArchiveSettings() {
   }
 
   return <div className="grid gap-4">
-    {summary.isLoading
+    {summary.isPending
       ? <LoadingState label="正在读取存储状态" rows={2} />
       : summary.isError
         ? <HeroNotice title="存储状态读取失败" status="warning">
@@ -905,9 +913,9 @@ function StorageArchiveSettings() {
           刷新
         </Button>
       </div>
-      {archives.isLoading && <div className="mt-4"><LoadingState label="正在读取归档批次" rows={2} /></div>}
+      {archives.isPending && <div className="mt-4"><LoadingState label="正在读取归档批次" rows={2} /></div>}
       {archives.isError && <div className="mt-4"><HeroNotice title="归档批次读取失败" status="warning" /></div>}
-      {!archives.isLoading && !archives.isError && !(archives.data?.archives.length) && <p className="type-meta mt-4 text-muted">尚无归档批次。</p>}
+      {!archives.isPending && !archives.isError && !(archives.data?.archives.length) && <p className="type-meta mt-4 text-muted">尚无归档批次。</p>}
       <div className="mt-4 grid gap-2">
         {(archives.data?.archives ?? []).map((archive) => <div
           key={archive.id}
@@ -946,19 +954,51 @@ export function HeroSettingsPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const admin = canAdministerWorkspace(user)
-  const config = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal), staleTime: queryStaleTime.settings })
+  const [activeSection, setActiveSection] = useState<string>(
+    () => settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about',
+  )
+  const [activatedSections, setActivatedSections] = useState<Set<string>>(
+    () => new Set([settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about']),
+  )
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const passiveSectionTrackingEnabled = useRef(false)
+  const configQueryEnabled = admin && (
+    activeSection === 'settings-ai'
+    || activeSection === 'settings-fetching'
+  )
+  const secretsQueryEnabled = admin && (
+    activeSection === 'settings-ai'
+    || activeSection === 'settings-secrets'
+  )
+  const config = useQuery({
+    queryKey: queryKeys.config(user.id),
+    queryFn: ({ signal }) => api.config(signal),
+    enabled: configQueryEnabled,
+    staleTime: queryStaleTime.settings,
+  })
   const feedEndMessagesStatus = useQuery({
     queryKey: queryKeys.feedEndMessages(user.id),
     queryFn: ({ signal }) => api.feedEndMessages(signal),
-    enabled: admin,
+    enabled: admin && activeSection === 'settings-ai',
     staleTime: queryStaleTime.settings,
     retry: false,
-    refetchInterval: (query) => ['pending', 'refreshing'].includes(
-      query.state.data?.status ?? '',
+    refetchInterval: (query) => (
+      activeSection === 'settings-ai'
+      && ['pending', 'refreshing'].includes(query.state.data?.status ?? '')
     ) ? 2_000 : false,
   })
-  const ignored = useQuery({ queryKey: queryKeys.ignored(user.id), queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal), staleTime: queryStaleTime.collection })
-  const secrets = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: admin })
+  const ignored = useQuery({
+    queryKey: queryKeys.ignored(user.id),
+    queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal),
+    enabled: activeSection === 'settings-ignored',
+    staleTime: queryStaleTime.collection,
+  })
+  const secrets = useQuery({
+    queryKey: queryKeys.secrets(user.id),
+    queryFn: ({ signal }) => api.secrets(signal),
+    enabled: secretsQueryEnabled,
+    staleTime: queryStaleTime.settings,
+  })
   const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
   const [feedEndRefreshDaysOverride, setFeedEndRefreshDaysOverride] = useState<string | null>(null)
   const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
@@ -981,9 +1021,6 @@ export function HeroSettingsPage() {
   const feedEndMessagesFormRef = useRef<HTMLFormElement>(null)
   const rsshubFormRef = useRef<HTMLFormElement>(null)
   const filteringFormRef = useRef<HTMLFormElement>(null)
-  const [activeSection, setActiveSection] = useState<string>(
-    () => settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about',
-  )
   const ai = recordOf(config.data?.config.ai)
   const configuredAiProvider = String(ai.provider ?? 'gemini')
   const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
@@ -1023,6 +1060,16 @@ export function HeroSettingsPage() {
   const sectionOptions = useMemo(() => settingsSectionsForRole(user.role), [user.role])
   const secretDirty = Object.entries(secretDraft).some(([key, value]) => value !== emptySecretDraft[key as keyof SecretDraft])
   const settingsDirty = dirtyCoreSections.size > 0 || secretDirty
+
+  const activateSection = useCallback((id: string) => {
+    setActiveSection(id)
+    setActivatedSections((current) => {
+      if (current.has(id)) return current
+      const next = new Set(current)
+      next.add(id)
+      return next
+    })
+  }, [])
 
   function updateCoreSectionDirty(section: CoreSettingsSection, dirty: boolean) {
     setDirtyCoreSections((current) => {
@@ -1066,8 +1113,9 @@ export function HeroSettingsPage() {
   useEffect(() => {
     const section = settingsSectionFromHash(location.hash, user.role)
     if (!section) return
+    passiveSectionTrackingEnabled.current = false
     const frame = window.requestAnimationFrame(() => {
-      setActiveSection(section.id)
+      activateSection(section.id)
       const target = document.getElementById(section.id)
       target?.scrollIntoView?.({
         block: 'start',
@@ -1076,7 +1124,33 @@ export function HeroSettingsPage() {
       target?.focus({ preventScroll: true })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [location.hash, user.role])
+  }, [activateSection, location.hash, user.role])
+
+  useEffect(() => {
+    const root = scrollContainerRef.current
+    if (!root) return
+    const enablePassiveTracking = () => {
+      passiveSectionTrackingEnabled.current = true
+    }
+    const enableForKeyboardScroll = (event: KeyboardEvent) => {
+      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
+        enablePassiveTracking()
+      }
+    }
+    const enableForScrollbar = (event: PointerEvent) => {
+      if (event.target === root) enablePassiveTracking()
+    }
+    root.addEventListener('wheel', enablePassiveTracking, { passive: true })
+    root.addEventListener('touchmove', enablePassiveTracking, { passive: true })
+    root.addEventListener('keydown', enableForKeyboardScroll)
+    root.addEventListener('pointerdown', enableForScrollbar)
+    return () => {
+      root.removeEventListener('wheel', enablePassiveTracking)
+      root.removeEventListener('touchmove', enablePassiveTracking)
+      root.removeEventListener('keydown', enableForKeyboardScroll)
+      root.removeEventListener('pointerdown', enableForScrollbar)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return
@@ -1085,25 +1159,28 @@ export function HeroSettingsPage() {
       .filter((target): target is HTMLElement => Boolean(target))
     if (!targets.length) return
     const observer = new IntersectionObserver((entries) => {
+      if (!passiveSectionTrackingEnabled.current) return
       const visible = entries
         .filter((entry) => entry.isIntersecting)
         .sort((left, right) => Math.abs(left.boundingClientRect.top) - Math.abs(right.boundingClientRect.top))
       const id = visible[0]?.target.id
       if (!id || id === activeSection) return
-      setActiveSection(id)
+      activateSection(id)
       const nextUrl = `${window.location.pathname}${window.location.search}#${id}`
       window.history.replaceState(window.history.state, '', nextUrl)
     }, {
+      root: scrollContainerRef.current,
       rootMargin: '-12% 0px -68% 0px',
       threshold: [0, 0.01, 0.5],
     })
     targets.forEach((target) => observer.observe(target))
     return () => observer.disconnect()
-  }, [activeSection, sectionOptions])
+  }, [activateSection, activeSection, sectionOptions])
 
   function jumpToSection(id: string) {
     if (!sectionOptions.some((section) => section.id === id)) return
-    setActiveSection(id)
+    passiveSectionTrackingEnabled.current = false
+    activateSection(id)
     if (location.hash === `#${id}`) {
       window.requestAnimationFrame(() => {
         const target = document.getElementById(id)
@@ -1402,7 +1479,7 @@ export function HeroSettingsPage() {
     saveCoreSections(['rsshub'])
   }
 
-  return <div className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+  return <div ref={scrollContainerRef} className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {settingsDirty && <div
       data-settings-dirty-notice
@@ -1429,7 +1506,7 @@ export function HeroSettingsPage() {
     <div className="grid min-w-0 gap-5">
 
     <AdminSection id="settings-about" title="关于 Inteliscope" description="查阅操作方法、产品变化和正式发布记录。">
-      <div className="flex flex-wrap gap-2">
+      {activatedSections.has('settings-about') && <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="secondary" onPress={() => navigate('/manual')}><Icons.BookOpen size={16} aria-hidden="true" />查看操作手册</Button>
         <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>
         <a
@@ -1438,20 +1515,23 @@ export function HeroSettingsPage() {
           rel="noopener noreferrer"
           className="type-control inline-flex min-h-8 items-center gap-2 rounded-xl border border-separator bg-surface-secondary px-3 text-foreground hover:bg-default focus-visible:outline-2 focus-visible:outline-focus"
         ><Icons.Rocket size={16} aria-hidden="true" />Release 发布页<Icons.ExternalLink size={13} aria-hidden="true" /></a>
-      </div>
-    </AdminSection>
-
-    <AdminSection id="settings-notifications" title="消息通知" description="选择当前账户的接收方式，并先发送一条安全的模拟通知进行验证。">
-      <HeroNotificationSettings />
-      {admin && <div className="mt-6 border-t border-separator pt-5">
-        <HeroEmailTransportSettings />
       </div>}
     </AdminSection>
 
+    <AdminSection id="settings-notifications" title="消息通知" description="选择当前账户的接收方式，并先发送一条安全的模拟通知进行验证。">
+      {activatedSections.has('settings-notifications') && <>
+        <HeroNotificationSettings queryEnabled={activeSection === 'settings-notifications'} />
+        {admin && <div className="mt-6 border-t border-separator pt-5">
+          <HeroEmailTransportSettings queryEnabled={activeSection === 'settings-notifications'} />
+        </div>}
+      </>}
+    </AdminSection>
+
     <AdminSection id="settings-ai" title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
+      {activatedSections.has('settings-ai') && <>
       <Button size="sm" variant="secondary" onPress={() => navigate('/agents')}><Icons.Bot size={16} />管理助手连接</Button>
       {!admin && <Card variant="transparent" className="mt-4 p-4"><Card.Title>工作区设置只读</Card.Title><Card.Description className="mt-1">全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。</Card.Description></Card>}
-      {admin && (config.isLoading || secrets.isLoading
+      {admin && (config.isPending || secrets.isPending
         ? <LoadingState label="正在读取 AI 设置" rows={2} />
         : config.isError || secrets.isError
           ? <HeroNotice title="AI 设置读取失败" status="warning">
@@ -1486,7 +1566,7 @@ export function HeroSettingsPage() {
         </div>
         <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}><Icons.Save size={15} />{configMutation.isPending && configMutation.variables?.sections.includes('ai') ? '保存中…' : '保存 AI 设置'}</Button>
       </form>)}
-      {admin && !config.isLoading && !config.isError && <div className="mt-6 border-t border-separator pt-5">
+      {admin && !config.isPending && !config.isError && <div className="mt-6 border-t border-separator pt-5">
         <div>
           <h3 className="type-control">信息流触底文案</h3>
           <p className="type-meta mt-1 text-muted">内置中文文案始终可用；独立开关启用后，Worker 只会在普通任务队列空闲时生成三个共享场景。每句可选一个克制 Emoji 或颜文字。</p>
@@ -1559,7 +1639,7 @@ export function HeroSettingsPage() {
         </form>
 
         <Card variant="transparent" className="mt-5 border border-separator p-4">
-          {feedEndMessagesStatus.isLoading
+          {feedEndMessagesStatus.isPending
             ? <LoadingState label="正在读取触底文案状态" rows={2} />
             : feedEndMessagesStatus.isError || !feedEndMessagesStatus.data
               ? <HeroNotice title="触底文案状态读取失败" status="warning">
@@ -1653,23 +1733,27 @@ export function HeroSettingsPage() {
               </>}
         </Card>
       </div>}
+      </>}
     </AdminSection>
 
     <AdminSection id="settings-ignored" title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
-      {ignored.isLoading && <LoadingState label="正在读取已忽略内容" rows={2} />}
+      {activatedSections.has('settings-ignored') && <>
+      {ignored.isPending && <LoadingState label="正在读取已忽略内容" rows={2} />}
       {ignored.isError && <HeroNotice title="已忽略内容读取失败" />}
-      {!ignored.isLoading && !ignored.isError && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
+      {!ignored.isPending && !ignored.isError && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
       <div className="grid gap-2">{(ignored.data?.items ?? []).map((item) => <Card key={item.id} variant="transparent" className="flex-row items-center gap-3 p-3">
         <div className="min-w-0 flex-1"><Card.Title className="truncate">{item.presentation?.content?.title || item.title || '无标题内容'}</Card.Title><Card.Description className="truncate">{item.presentation?.source?.name || item.source || '未知来源'}</Card.Description></div>
         <Button size="sm" variant="ghost" isDisabled={restoreMutation.isPending && restoreMutation.variables === item.id} onPress={() => restoreMutation.mutate(item.id)}>{restoreMutation.isPending && restoreMutation.variables === item.id ? '恢复中…' : '恢复'}</Button>
       </Card>)}</div>
+      </>}
     </AdminSection>
 
     {admin && <>
       <AdminSection id="settings-fetching" title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">
-        <HeroApifyActorRouteSettings />
+        {activatedSections.has('settings-fetching') && <>
+        <HeroApifyActorRouteSettings queryEnabled={activeSection === 'settings-fetching'} />
         <div className="mt-6 border-t border-separator pt-5">
-        {config.isLoading
+        {config.isPending
           ? <LoadingState label="正在读取获取与主题设置" rows={2} />
           : config.isError
             ? <HeroNotice title="获取与主题设置读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void config.refetch()}>重试此区域</Button></HeroNotice>
@@ -1733,14 +1817,15 @@ export function HeroSettingsPage() {
         /></div>
         </>}
         </div>
+        </>}
       </AdminSection>
 
       <AdminSection id="settings-storage" title="存储与归档" description="预演工作区清理、90 日冷归档与恢复；所有操作均先核对候选指纹并记录审计。">
-        <StorageArchiveSettings />
+        {activatedSections.has('settings-storage') && <StorageArchiveSettings queryEnabled={activeSection === 'settings-storage'} />}
       </AdminSection>
 
       <AdminSection id="settings-secrets" title="密钥" description="真实 Key 只写入 SecretStore，保存后永不回显。">
-        {secrets.isLoading
+        {activatedSections.has('settings-secrets') && (secrets.isPending
           ? <LoadingState label="正在读取密钥" rows={2} />
           : secrets.isError
             ? <HeroNotice title="密钥读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void secrets.refetch()}>重试此区域</Button></HeroNotice>
@@ -1785,6 +1870,7 @@ export function HeroSettingsPage() {
           <ApifyKeyPoolTable
             secrets={secrets.data?.secrets ?? []}
             userId={user.id}
+            queryEnabled={activeSection === 'settings-secrets'}
             onSecretChanged={secretChanged}
           />
         </div>
@@ -1820,7 +1906,7 @@ export function HeroSettingsPage() {
                           <p className="type-meta mt-1 text-muted">{presentation.usage}</p>
                         </div>
                       </Table.Cell>
-                      <Table.Cell><SecretQuotaCell secret={secret} userId={user.id} /></Table.Cell>
+                      <Table.Cell><SecretQuotaCell secret={secret} userId={user.id} queryEnabled={activeSection === 'settings-secrets'} /></Table.Cell>
                       <Table.Cell><SecretRowActions secret={secret} onChanged={secretChanged} /></Table.Cell>
                     </Table.Row>
                   }}
@@ -1829,7 +1915,7 @@ export function HeroSettingsPage() {
             </Table.ScrollContainer>
           </Table>
         </div>
-        </>}
+        </>)}
       </AdminSection>
 
     </>}

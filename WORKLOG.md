@@ -382,3 +382,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "设置页改为按当前分区启用查询与轮询，条目状态并发乐观更新按当前用户、Query 与字段隔离；同时启用严格协商 gzip、正确静态 MIME、favicon 与有界 SPA fallback。",
+  "status": "completed",
+  "task_id": "2026-07-30-network-performance-hardening",
+  "unresolved": [],
+  "validation": [
+    "frontend focused Vitest: 112 passed; optimistic concurrency regression: 9 passed",
+    "React service UI and operation logging regressions: 7 passed; TypeScript, ESLint and UI contract checks passed",
+    "independent final reviews found no remaining P0/P1/P2",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "python scripts/test_gate.py run --mode release: 24/24 passed"
+  ]
+}
+```

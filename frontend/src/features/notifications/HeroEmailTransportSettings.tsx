@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import type {
   NotificationEmailProvider,
   NotificationEmailTransport,
@@ -369,15 +370,17 @@ export function EmailTransportSettingsForm({
   </Card>
 }
 
-export function HeroEmailTransportSettings() {
+export function HeroEmailTransportSettings({ queryEnabled = true }: { queryEnabled?: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const transport = useQuery({
     queryKey: queryKeys.notificationEmailTransport(user.id),
     queryFn: ({ signal }) => api.notificationEmailTransport(signal),
+    enabled: queryEnabled,
+    staleTime: queryStaleTime.settings,
   })
 
-  if (transport.isLoading) return <LoadingState label="正在读取邮件发送服务" rows={2} />
+  if (transport.isPending) return <LoadingState label="正在读取邮件发送服务" rows={2} />
   if (transport.isError || !transport.data) {
     return <HeroNotice title="邮件发送服务读取失败，请刷新后重试。" />
   }

@@ -136,7 +136,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function renderFeature(apiOverrides: Partial<ServiceApi> = {}) {
+function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = true) {
   const api = {
     apifyActorXProfileRoute: vi.fn().mockResolvedValue(route()),
     reorderApifyActorXProfileRoute: vi.fn().mockResolvedValue(route({ generation: 8 })),
@@ -200,18 +200,23 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  render(<QueryClientProvider client={queryClient}>
+  const tree = (enabled: boolean) => <QueryClientProvider client={queryClient}>
     <MemoryRouter>
       <DesignSystemProvider>
         <Routes>
           <Route element={<Outlet context={context} />}>
-            <Route index element={<HeroApifyActorRouteSettings />} />
+            <Route index element={<HeroApifyActorRouteSettings queryEnabled={enabled} />} />
           </Route>
         </Routes>
       </DesignSystemProvider>
     </MemoryRouter>
-  </QueryClientProvider>)
-  return { api, queryClient }
+  </QueryClientProvider>
+  const view = render(tree(queryEnabled))
+  return {
+    api,
+    queryClient,
+    setQueryEnabled: (enabled: boolean) => view.rerender(tree(enabled)),
+  }
 }
 
 describe('HeroApifyActorRouteSettings', () => {
@@ -219,6 +224,37 @@ describe('HeroApifyActorRouteSettings', () => {
 
   it('refreshes route health on the specified 30-second interval', () => {
     expect(APIFY_ACTOR_ROUTE_REFRESH_MS).toBe(30_000)
+  })
+
+  it('starts queries only while its settings section is active and stops every poll after leaving', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api, setQueryEnabled } = renderFeature({}, false)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(APIFY_ACTOR_ROUTE_REFRESH_MS * 2)
+      })
+      expect(api.apifyActorXProfileRoute).not.toHaveBeenCalled()
+      expect(api.apifyActorAlertSettings).not.toHaveBeenCalled()
+      expect(api.apifyActorAlertIncidents).not.toHaveBeenCalled()
+
+      await act(async () => {
+        setQueryEnabled(true)
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(api.apifyActorXProfileRoute).toHaveBeenCalledOnce()
+      expect(api.apifyActorAlertSettings).toHaveBeenCalledOnce()
+      expect(api.apifyActorAlertIncidents).toHaveBeenCalledOnce()
+
+      await act(async () => {
+        setQueryEnabled(false)
+        await vi.advanceTimersByTimeAsync(APIFY_ACTOR_ROUTE_REFRESH_MS * 2)
+      })
+      expect(api.apifyActorXProfileRoute).toHaveBeenCalledOnce()
+      expect(api.apifyActorAlertSettings).toHaveBeenCalledOnce()
+      expect(api.apifyActorAlertIncidents).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders only safe route projections and submits one complete generation-checked order', async () => {

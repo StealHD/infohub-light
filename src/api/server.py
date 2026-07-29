@@ -13,6 +13,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import unquote
 
 import uvicorn
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
 from ..logging_utils import configure_logging
 from ..services.feed_archive import FeedArchiveService
@@ -147,6 +149,81 @@ def resolve_service_static_dir(
         return react_path
     _LOGGER.warning("React Service UI build is missing; falling back to legacy assets")
     return legacy_path
+
+
+def _normalize_frontend_path(frontend_path: str) -> str | None:
+    """Decode and validate a frontend path before routing or resolving files."""
+
+    if len(frontend_path) > 8192:
+        return None
+    decoded_path = frontend_path
+    for _ in range(16):
+        next_path = unquote(decoded_path)
+        if next_path == decoded_path:
+            break
+        decoded_path = next_path
+    else:
+        if unquote(decoded_path) != decoded_path:
+            return None
+    if (
+        "\x00" in decoded_path
+        or "\\" in decoded_path
+        or decoded_path.startswith("/")
+    ):
+        return None
+    if any(part in {".", ".."} for part in decoded_path.split("/")):
+        return None
+    return decoded_path
+
+
+def _accepts_gzip(accept_encoding: str) -> bool:
+    explicit: list[float] = []
+    wildcard: list[float] = []
+    for member in accept_encoding.split(","):
+        parts = [part.strip() for part in member.split(";")]
+        coding = parts[0].lower()
+        if coding not in {"gzip", "*"}:
+            continue
+        quality = 1.0
+        for parameter in parts[1:]:
+            name, separator, raw_value = parameter.partition("=")
+            if separator and name.strip().lower() == "q":
+                try:
+                    quality = float(raw_value.strip())
+                except ValueError:
+                    quality = 0.0
+                if not 0.0 <= quality <= 1.0:
+                    quality = 0.0
+                break
+        (explicit if coding == "gzip" else wildcard).append(quality)
+    if explicit:
+        return max(explicit) > 0.0
+    return bool(wildcard and max(wildcard) > 0.0)
+
+
+class NegotiatedGZipMiddleware(GZipMiddleware):
+    """Normalize Accept-Encoding so Starlette honors gzip q-values."""
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await super().__call__(scope, receive, send)
+            return
+        headers = list(scope.get("headers", []))
+        accept_encoding = ",".join(
+            value.decode("latin-1")
+            for name, value in headers
+            if name.lower() == b"accept-encoding"
+        )
+        responder = (
+            GZipResponder(
+                self.app,
+                self.minimum_size,
+                compresslevel=self.compresslevel,
+            )
+            if _accepts_gzip(accept_encoding)
+            else IdentityResponder(self.app, self.minimum_size)
+        )
+        await responder(scope, receive, send)
 
 
 class ApiError(Exception):
@@ -979,6 +1056,7 @@ def create_app(
             yield
 
     app = FastAPI(title="InfoHub Light Service API", lifespan=app_lifespan)
+    app.add_middleware(NegotiatedGZipMiddleware, minimum_size=1024, compresslevel=5)
     app.state.service_store = store
     app.state.subscription_mutations = subscription_mutations
     app.state.preferred_source_notifications = preferred_source_notifications
@@ -4578,22 +4656,44 @@ def create_app(
         target = target_user_for_scope(user_id, user)
         return ok({"sources": feed_archive.source_quality(user_id=target["id"])})
 
-    @app.api_route("/api/{_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    @app.api_route(
+        "/api",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def api_root_not_found() -> dict[str, Any]:
+        raise ApiError("not_found", "API endpoint not found", status_code=404)
+
+    @app.api_route(
+        "/api/{_path:path}",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    )
     async def api_not_found(_path: str) -> dict[str, Any]:
         raise ApiError("not_found", "API endpoint not found", status_code=404)
+
+    @app.api_route(
+        "/favicon.ico",
+        methods=["GET", "HEAD"],
+        include_in_schema=False,
+    )
+    async def legacy_favicon() -> Response:
+        return Response(
+            status_code=204,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     if remote_mcp is not None:
         app.add_route(
             "/mcp",
             remote_mcp.exact_path_app,
-            methods=["GET", "POST", "DELETE"],
+            methods=["GET", "HEAD", "POST", "DELETE"],
             name="remote-mcp",
             include_in_schema=False,
         )
     else:
         @app.api_route(
             "/mcp",
-            methods=["GET", "POST", "DELETE"],
+            methods=["GET", "HEAD", "POST", "DELETE"],
             include_in_schema=False,
         )
         async def remote_mcp_disabled() -> JSONResponse:
@@ -4604,7 +4704,7 @@ def create_app(
 
     @app.api_route(
         "/mcp/{_path:path}",
-        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         include_in_schema=False,
     )
     async def remote_mcp_non_exact_path(_path: str) -> JSONResponse:
@@ -4617,12 +4717,42 @@ def create_app(
         assets_path = static_path / "assets"
         if assets_path.exists():
             app.mount("/assets", StaticFiles(directory=str(assets_path)), name="service-assets")
-            index_path = static_path / "index.html"
+        index_path = static_path / "index.html"
+        if assets_path.exists() and index_path.exists():
+            static_root = static_path.resolve()
 
-            @app.get("/{frontend_path:path}", include_in_schema=False)
-            async def service_frontend(frontend_path: str) -> FileResponse:
-                del frontend_path
-                return FileResponse(index_path, media_type="text/html")
+            @app.api_route(
+                "/{frontend_path:path}",
+                methods=["GET", "HEAD"],
+                include_in_schema=False,
+            )
+            async def service_frontend(frontend_path: str) -> Response:
+                normalized_path = _normalize_frontend_path(frontend_path)
+                if normalized_path is None:
+                    return Response(status_code=404)
+
+                route_prefix = normalized_path.split("/", 1)[0]
+                if route_prefix in {"api", "mcp"}:
+                    return Response(status_code=404)
+
+                try:
+                    static_file = (static_root / normalized_path).resolve()
+                    static_file.relative_to(static_root)
+                except (OSError, RuntimeError, ValueError):
+                    return Response(status_code=404)
+
+                if static_file.is_file():
+                    return FileResponse(static_file)
+
+                final_segment = normalized_path.rstrip("/").rsplit("/", 1)[-1]
+                if "." in final_segment:
+                    return Response(status_code=404)
+
+                return FileResponse(
+                    index_path,
+                    media_type="text/html",
+                    headers={"Cache-Control": "no-cache"},
+                )
         else:
             app.mount("/", StaticFiles(directory=str(static_path), html=True), name="static")
 
