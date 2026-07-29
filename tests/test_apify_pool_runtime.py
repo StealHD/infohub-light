@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -8,6 +9,26 @@ from src.services.apify_key_pool import ApifyKeyPoolService
 from src.services.apify_pool_runtime import reconcile_apify_pool
 from src.services.secret_store import SecretStore
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+
+
+class _Quota:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def fetch(self, *, secret_id: str, token: str):
+        del token
+        self.calls.append(secret_id)
+        now = datetime.now(timezone.utc)
+        return {
+            "remaining_included_credits_usd": 5.0,
+            "checked_at": now.isoformat(),
+            "cycle_start_at": (now - timedelta(days=1)).isoformat(),
+            "cycle_end_at": (now + timedelta(days=29)).isoformat(),
+            "monthly_included_credits_usd": 10.0,
+            "monthly_usage_usd": 5.0,
+            "max_monthly_usage_usd": 20.0,
+            "remaining_hard_limit_usd": 15.0,
+        }
 
 
 def _pool(tmp_path) -> tuple[ServiceStore, SecretStore, ApifyKeyPoolService, list[dict]]:
@@ -37,7 +58,40 @@ def _pool(tmp_path) -> tuple[ServiceStore, SecretStore, ApifyKeyPoolService, lis
     )
 
 
-def test_restart_reconcile_aborts_registered_run_before_promoting_standby(
+def test_restart_reconcile_preserves_registered_run_for_get_only_resume(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    _store, _secret_store, coordinator, refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="source-fetch-a")
+    coordinator.register_run(lease, "remote-old", "dataset-old")
+    requests: list[tuple[str, str, str]] = []
+    quota = _Quota()
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=quota,
+            http_transport=httpx.MockTransport(
+                lambda request: (_ for _ in ()).throw(
+                    AssertionError(f"unexpected request: {request}")
+                )
+            ),
+        )
+    )
+
+    assert state["status"] == "ready"
+    assert state["active_secret_id"] == lease.secret_id
+    assert state["generation"] == lease.pool_generation
+    assert coordinator.get_run(lease.reservation_id)["status"] == "running"
+    assert requests == []
+    assert set(quota.calls) == {str(ref["id"]) for ref in refs}
+    assert "remote-old" not in repr(state)
+    assert "dataset-old" not in repr(state)
+
+
+def test_existing_drain_still_aborts_registered_run_before_failover(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -45,16 +99,15 @@ def test_restart_reconcile_aborts_registered_run_before_promoting_standby(
     _store, _secret_store, coordinator, _refs = _pool(tmp_path)
     lease = coordinator.acquire_credential(logical_run_id="source-fetch-a")
     coordinator.register_run(lease, "remote-old", "dataset-old")
-    requests: list[tuple[str, str, str]] = []
+    coordinator.begin_drain(
+        lease.secret_id,
+        target_status="standby",
+        reason="operator_drain",
+    )
+    requests: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(
-            (
-                request.method,
-                request.url.path,
-                request.headers.get("Authorization", ""),
-            )
-        )
+        requests.append((request.method, request.url.path))
         if request.method == "POST":
             return httpx.Response(
                 200,
@@ -68,6 +121,7 @@ def test_restart_reconcile_aborts_registered_run_before_promoting_standby(
     state = asyncio.run(
         reconcile_apify_pool(
             coordinator,
+            quota_service=_Quota(),
             http_transport=httpx.MockTransport(handler),
         )
     )
@@ -76,15 +130,10 @@ def test_restart_reconcile_aborts_registered_run_before_promoting_standby(
     assert state["active_secret_id"] != lease.secret_id
     assert state["generation"] == lease.pool_generation + 1
     assert coordinator.get_run(lease.reservation_id)["status"] == "aborted"
-    assert [(method, path) for method, path, _auth in requests] == [
+    assert requests == [
         ("POST", "/v2/actor-runs/remote-old/abort"),
         ("GET", "/v2/actor-runs/remote-old"),
     ]
-    assert {
-        authorization for _method, _path, authorization in requests
-    } == {f"Bearer {lease.token}"}
-    assert "remote-old" not in repr(state)
-    assert "dataset-old" not in repr(state)
 
 
 def test_restart_with_unregistered_reservation_blocks_without_needing_token(

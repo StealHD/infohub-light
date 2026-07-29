@@ -56,16 +56,6 @@ async def reconcile_apify_pool(
         )
         return coordinator.public_state(workspace_id)
 
-    if runs and state["status"] == "ready":
-        active_secret_id = state.get("active_secret_id")
-        if active_secret_id:
-            coordinator.begin_drain(
-                str(active_secret_id),
-                target_status="standby",
-                reason="apify_worker_restart_reconcile",
-            )
-            state = coordinator.public_state(workspace_id)
-
     if state["status"] == "draining":
         timeout = httpx.Timeout(10.0, connect=3.0)
         async with httpx.AsyncClient(
@@ -99,7 +89,7 @@ async def reconcile_apify_pool(
         state = coordinator.complete_drain_and_failover(workspace_id)
 
     quota = quota_service or ApifySecretQuotaService()
-    for secret_id in coordinator.recover_due_members(workspace_id):
+    for secret_id in coordinator.quota_refresh_candidates(workspace_id):
         candidate = coordinator.quota_candidate(secret_id)
         try:
             snapshot = await quota.fetch(

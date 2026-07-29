@@ -23,6 +23,19 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-29',
+        title: 'X 抓取可在三路 Actor 间安全切换',
+        summary: 'X 账号抓取只使用 Apify，并在低价 Actor 出现占位、故障或费用异常时串行切换；管理员可查看状态、费用、额度并选择邮件或 Webhook 告警。',
+        items: [
+          { title: '占位内容不会进入信息流', description: 'Demo、diagnostic、mock、付费墙和错误控制记录会在转换成帖子前被拦截；合法没有新帖仍算成功，不会误触发全局故障。' },
+          { title: '三路串行主备', description: '初始顺序为 ScrapeBadger、Dami、Xquik；同一任务不会并行竞速。跨两个此前健康账号的系统性异常才熔断 Actor，单账号异常只暂停该订阅。' },
+          { title: '恢复不额外花钱', description: '熔断后按 1、3、6、24 小时冷却，并复用自然任务探测；连续两次返回真实帖子才恢复，恢复后也不会自动抢回当前主路。' },
+          { title: '费用有硬保护', description: '每次 Run 上限 0.02 美元、单个逻辑任务最多三路共 0.06 美元；任务重试复用原费用组，已成功 Dataset 只读重放。六小时失败消费达到 0.08 美元会暂停 X，并为其他 Apify 来源保留至少 1 美元或 20% 额度。' },
+          { title: '状态与告警集中查看', description: '设置页显示三路健康、24 小时成功率和实际费用、冷却、额度及最近事故；运行告警采用首报、全挂升级和恢复各一次，可选工作区邮件或安全 HTTPS Webhook。' },
+          { title: '付费试跑必须逐次确认', description: '每次 Canary 都要选择已启用的 X 来源并二次确认，且不会与同候选的自然任务并发；失败任务不能从通用重试入口再次扣费。页面与接口都不会返回 Token、目标账号或远端 Run/Dataset。' },
+        ],
+      },
+      {
+        date: '2026-07-29',
         title: '信息流末尾有了明确提示',
         summary: '信息流、收藏、历史和搜索结果只在真实最后一页显示终点，并可由管理员选择是否让 AI 定期更新安全短句。',
         items: [

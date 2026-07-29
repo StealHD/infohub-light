@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.models import ContentItem, SourceType
+from src.services.apify_actor_route import ApifyActorRoutedList
 from src.services.source_acquisition import (
     AcquisitionBusyError,
     AcquisitionLeaseLostError,
@@ -236,6 +237,184 @@ def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(
         ).fetchone()[0]
         == 0
     )
+
+
+def test_apify_actor_route_generation_blocks_stale_publication(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Shared X",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "OpenAI",
+            "fetch_limit": 1,
+        },
+        source_key="apify:x:profile:openai-route-generation",
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    projection = SimpleNamespace(
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        source_key="apify:x:profile:openai-route-generation",
+        source_display_name="Shared X",
+        catalog_source_type="apify_social",
+        source_priority=0,
+        analysis_mode="full",
+        channel="AI",
+        category="AI",
+        topics=[],
+        tags=[],
+        personal_tags=[],
+    )
+    coordinator = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-apify-old-actor-route",
+    )
+    old_context = coordinator._context(projection, window_hours=24)
+
+    async def fetch_during_actor_switch():
+        store.connect().execute(
+            """
+            UPDATE apify_actor_routes
+            SET generation = generation + 1,
+                updated_at = '2026-07-29T00:00:00+00:00'
+            WHERE workspace_id = ? AND route_key = 'x/profile'
+            """,
+            (workspace["id"],),
+        )
+        store.connect().commit()
+        return [_content_item(suffix="apify-route")]
+
+    with pytest.raises(AcquisitionLeaseLostError):
+        asyncio.run(
+            coordinator.acquire(
+                source=projection,
+                provider="apify_social",
+                window_hours=24,
+                fetch=fetch_during_actor_switch,
+            )
+        )
+
+    new_context = coordinator._context(projection, window_hours=24)
+    assert (
+        new_context.actor_route_generation
+        != old_context.actor_route_generation
+    )
+    assert new_context.config_fingerprint != old_context.config_fingerprint
+    assert (
+        store.connect().execute(
+            "SELECT COUNT(*) FROM source_content_snapshots WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_apify_actor_route_generation_accepts_proven_backup_result(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Shared X",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "OpenAI",
+            "fetch_limit": 1,
+        },
+        source_key="apify:x:profile:openai-proven-generation",
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    projection = SimpleNamespace(
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        source_key="apify:x:profile:openai-proven-generation",
+        source_display_name="Shared X",
+        catalog_source_type="apify_social",
+        source_priority=0,
+        analysis_mode="full",
+        channel="AI",
+        category="AI",
+        topics=[],
+        tags=[],
+        personal_tags=[],
+    )
+    coordinator = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id="job-apify-proven-route",
+    )
+    old_context = coordinator._context(projection, window_hours=24)
+
+    async def fetch_from_backup():
+        store.connect().execute(
+            """
+            UPDATE apify_actor_routes
+            SET generation = generation + 1,
+                updated_at = '2026-07-29T00:00:00+00:00'
+            WHERE workspace_id = ? AND route_key = 'x/profile'
+            """,
+            (workspace["id"],),
+        )
+        store.connect().commit()
+        generation = store.connect().execute(
+            """
+            SELECT generation FROM apify_actor_routes
+            WHERE workspace_id = ? AND route_key = 'x/profile'
+            """,
+            (workspace["id"],),
+        ).fetchone()["generation"]
+        return ApifyActorRoutedList(
+            [_content_item(suffix="apify-proven-route")],
+            route_generation=int(generation),
+        )
+
+    items = asyncio.run(
+        coordinator.acquire(
+            source=projection,
+            provider="apify_social",
+            window_hours=24,
+            fetch=fetch_from_backup,
+        )
+    )
+
+    new_context = coordinator._context(projection, window_hours=24)
+    snapshot = store.connect().execute(
+        """
+        SELECT acquisition_key, config_fingerprint
+        FROM source_content_snapshots WHERE source_id = ?
+        """,
+        (source_id,),
+    ).fetchone()
+    assert [item.id for item in items] == [
+        _content_item(suffix="apify-proven-route").id
+    ]
+    assert new_context.actor_route_generation != old_context.actor_route_generation
+    assert snapshot["acquisition_key"] == new_context.acquisition_key
+    assert snapshot["config_fingerprint"] == new_context.config_fingerprint
 
 
 def test_public_source_reuses_fresh_acquisition_and_reprojects_per_user(

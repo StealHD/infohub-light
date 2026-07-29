@@ -44,6 +44,15 @@ describe('service api', () => {
     })
     await api.testNotificationEmailTransport('reader@example.com')
     await api.deleteNotificationEmailTransport()
+    await api.apifyActorAlertSettings()
+    await api.updateApifyActorAlertSettings({
+      enabled: true,
+      channel: 'webhook',
+      events: ['actor_switched', 'recovered'],
+      webhook_url: 'write-only-actor-webhook',
+    })
+    await api.testApifyActorAlertSettings()
+    await api.apifyActorAlertIncidents()
     await api.unsubscribe('sub/1')
     await api.sources(true)
     await api.agentDelegations()
@@ -92,6 +101,15 @@ describe('service api', () => {
       recipient_email: 'reader@example.com',
     })
     expect(client.delete).toHaveBeenCalledWith('/api/admin/notification-email-transport')
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings', undefined)
+    expect(client.patch).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings', {
+      enabled: true,
+      channel: 'webhook',
+      events: ['actor_switched', 'recovered'],
+      webhook_url: 'write-only-actor-webhook',
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings/test')
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-alert-incidents?limit=20', undefined)
     expect(client.delete).toHaveBeenCalledWith('/api/me/subscriptions/sub%2F1')
     expect(client.get).toHaveBeenCalledWith('/api/catalog/sources?include_disabled=true', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/me/agent-delegations', undefined)
@@ -132,6 +150,11 @@ describe('service api', () => {
     await api.apifyKeyPool()
     await api.reorderApifyKeyPool(['secret/1', 'secret-2'], 7)
     await api.drainApifyKey('secret/1')
+    await api.apifyActorXProfileRoute()
+    await api.reorderApifyActorXProfileRoute(['scrape/badger', 'dami'], 11)
+    await api.enableApifyActorXProfileCandidate('scrape/badger', 11)
+    await api.disableApifyActorXProfileCandidate('dami/studio', 12)
+    await api.canaryApifyActorXProfileCandidate('xquik/actor', 'source/1', 13, '确认付费试跑')
 
     expect(client.post).toHaveBeenCalledWith('/api/admin/secrets', expect.objectContaining({ value: 'write-only' }))
     expect(client.put).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/value', { value: 'new-value' })
@@ -142,5 +165,26 @@ describe('service api', () => {
       expected_generation: 7,
     })
     expect(client.post).toHaveBeenCalledWith('/api/admin/apify-key-pool/secret%2F1/drain')
+    expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-routes/x/profile', undefined)
+    expect(client.put).toHaveBeenCalledWith('/api/admin/apify-actor-routes/x/profile/order', {
+      candidate_ids: ['scrape/badger', 'dami'],
+      expected_generation: 11,
+    })
+    expect(client.post).toHaveBeenCalledWith(
+      '/api/admin/apify-actor-routes/x/profile/candidates/scrape%2Fbadger/enable',
+      { expected_generation: 11 },
+    )
+    expect(client.post).toHaveBeenCalledWith(
+      '/api/admin/apify-actor-routes/x/profile/candidates/dami%2Fstudio/disable',
+      { expected_generation: 12 },
+    )
+    expect(client.post).toHaveBeenCalledWith(
+      '/api/admin/apify-actor-routes/x/profile/candidates/xquik%2Factor/canary',
+      {
+        source_id: 'source/1',
+        expected_generation: 13,
+        confirmation: '确认付费试跑',
+      },
+    )
   })
 })

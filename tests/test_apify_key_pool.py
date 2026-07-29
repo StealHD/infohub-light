@@ -141,11 +141,11 @@ def test_schema_v8_seeds_referenced_apify_key_idempotently_without_token_values(
     )
 
     assert marker["name"] == "apify_key_pool_v8"
-    assert tables == {
+    assert {
         "apify_actor_runs",
         "apify_key_pool_members",
         "apify_key_pool_state",
-    }
+    } <= tables
     assert public["active_secret_id"] == second["id"]
     assert [member["secret_id"] for member in public["members"]] == [
         second["id"],
@@ -290,6 +290,40 @@ def test_standby_reorder_does_not_invalidate_active_key_run(
         )
         is False
     )
+
+
+def test_started_run_reconciliation_blocks_pool_and_preserves_terminal_dataset(
+    tmp_path,
+) -> None:
+    _store, _secrets, service, _refs = _pool(tmp_path, count=1)
+    lease = service.acquire_credential(logical_run_id="route-attempt")
+    service.register_run(
+        lease,
+        "remote-run",
+        "remote-dataset",
+        "route-attempt",
+    )
+    service.mark_run_terminal(lease, "remote-run", "SUCCEEDED")
+
+    service.block_run_reconciliation(
+        lease,
+        "apify_run_reconcile_required",
+    )
+
+    state = service.public_state(DEFAULT_WORKSPACE_ID)
+    run = service.get_run(lease.reservation_id)
+    assert state["status"] == "blocked"
+    assert state["blocked_reason"] == "apify_run_reconcile_required"
+    assert run["status"] == "succeeded"
+    assert run["dataset_id"] == "remote-dataset"
+    with pytest.raises(ApifyKeyPoolBlockedError):
+        service.acquire_credential(logical_run_id="must-not-repost")
+
+    service.complete_run_reconciliation(lease)
+
+    recovered = service.public_state(DEFAULT_WORKSPACE_ID)
+    assert recovered["status"] == "ready"
+    assert recovered["blocked_reason"] is None
 
 
 def test_concurrent_reservations_share_generation_and_drain_blocks_new_runs(
@@ -603,6 +637,66 @@ def test_secret_lifecycle_guards_active_key_and_removes_nonbusy_member(tmp_path)
     assert [member["secret_id"] for member in after_removal["members"]] == [active_id]
     assert store.delete_secret_ref(standby_id) is True
     assert service.remove_secret("secret_missing") is None
+
+
+def test_quota_refresh_candidates_include_every_incomplete_or_stale_usable_key(
+    tmp_path,
+) -> None:
+    store, _secrets, service, refs = _pool(tmp_path)
+    store.connect().execute(
+        """
+        UPDATE apify_key_pool_members
+        SET remaining_included_credits_usd = 5,
+            last_checked_at = ?, updated_at = ?
+        WHERE workspace_id = ? AND secret_id = ?
+        """,
+        (
+            FIXED_NOW.isoformat(),
+            FIXED_NOW.isoformat(),
+            DEFAULT_WORKSPACE_ID,
+            refs[0]["id"],
+        ),
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_key_pool_members
+        SET remaining_included_credits_usd = NULL,
+            last_checked_at = ?, updated_at = ?
+        WHERE workspace_id = ? AND secret_id = ?
+        """,
+        (
+            (FIXED_NOW + timedelta(seconds=61)).isoformat(),
+            FIXED_NOW.isoformat(),
+            DEFAULT_WORKSPACE_ID,
+            refs[1]["id"],
+        ),
+    )
+    store.connect().commit()
+
+    assert service.quota_refresh_candidates(
+        DEFAULT_WORKSPACE_ID,
+        now=FIXED_NOW,
+    ) == [refs[1]["id"]]
+
+    store.connect().execute(
+        """
+        UPDATE apify_key_pool_members
+        SET last_checked_at = ?
+        WHERE workspace_id = ? AND secret_id = ?
+        """,
+        (
+            (FIXED_NOW - timedelta(seconds=61)).isoformat(),
+            DEFAULT_WORKSPACE_ID,
+            refs[0]["id"],
+        ),
+    )
+    store.connect().commit()
+    assert set(
+        service.quota_refresh_candidates(
+            DEFAULT_WORKSPACE_ID,
+            now=FIXED_NOW,
+        )
+    ) == {refs[0]["id"], refs[1]["id"]}
 
 
 def test_pool_rollout_flag_defaults_false(monkeypatch) -> None:

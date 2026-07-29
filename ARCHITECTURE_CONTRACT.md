@@ -122,7 +122,17 @@ API 只接受服务端生成的 request ID；路由事件只使用模板路径�
 
 切换是 generation barrier，不是请求级 token retry：池先进入 `draining` 并停止所有新 reservation，再中止旧 generation 下全部已登记的非终态 Run，并仅在确认 `SUCCEEDED/FAILED/ABORTED/TIMED-OUT` 后增加 generation、激活下一备用并由逻辑抓取创建全新 Run。30 秒未确认时保持 `apify_key_drain_pending`；Actor POST 结果未知或重启发现未登记 reservation 时保持 `blocked` 并要求人工核对，禁止猜测 runId、复用 dataset 或盲目换 Key。每个逻辑抓取对同一 Key 最多一次，全部不可用时只有 Apify outcome 失败或延后，其他来源继续执行。
 
-额度快照最长使用 60 秒。只有 `remaining_included_credits_usd <= 0`、HTTP 402 或明确额度错误可标记 `depleted`，401/明确无效 Token 标记 `invalid`；普通 403、429、5xx 和网络错误不得污染整个 Key。周期恢复后的旧 Key经重新核验只追加到备用队尾，不抢占当前 active，也不恢复历史 Run。该能力由 `HORIZON_APIFY_KEY_POOL_ENABLED` 控制并默认关闭；关闭时 schema/状态可维护，但 Service 保留既有来源级凭证兼容路径。
+额度快照最长使用 60 秒；Worker 启动必须刷新 active/standby/draining 中缺失、过期或异常未来的全部快照，任一可用 Key 未取得完整新鲜余额时 paid route admission fail closed。只有 `remaining_included_credits_usd <= 0`、HTTP 402 或明确额度错误可标记 `depleted`，401/明确无效 Token 标记 `invalid`；普通 403、429、5xx 和网络错误不得污染整个 Key。周期恢复后的旧 Key经重新核验只追加到备用队尾，不抢占当前 active，也不恢复历史 Run。该能力由 `HORIZON_APIFY_KEY_POOL_ENABLED` 控制并默认关闭；关闭时 schema/状态可维护，但 Service 保留既有来源级凭证兼容路径。
+
+### 3.6I Apify X Actor Route Boundary
+
+`src/services/apify_actor_route.py::ApifyActorRouteService` 独占 `x/profile` 的候选顺序、`closed|open|half_open|disabled|probationary` 状态、路由 generation、目标健康、付费预留、实际费用账本与 `ready|degraded|exhausted|budget_blocked|blocked` 路由状态。`src/scrapers/apify_social.py` 只负责三个 Actor 的官方输入适配、结果映射和语义分类；placeholder、diagnostic、demo、mock、付费墙、错误控制行与严重合同漂移必须在生成 `ContentItem` 前拒绝。API、Worker、schedule、Orchestrator 与 catalog runner 只能调用路由服务，不得自行切 Actor 或把 Actor 故障转成 Key 轮换。
+
+一次逻辑 X/profile 获取按候选串行执行，每个 Worker Job 内多个 X/profile 来源也必须共享单并发锁，禁止付费竞速。有 `job_id` 时费用组稳定绑定 workspace/route/job/source；同一组已有 active attempt 时拒绝第二路并发，重试复用历史候选与预算。每 Run 固定预留 `$0.02`，同一逻辑任务最多三个不同候选且累计预留不超过 `$0.06`；已远端启动、已结算费用或因 route generation 冲突而作废的 cancelled attempt 仍占用原预留并进入失败消费，只有可证明未 POST 的取消才可排除。滚动六小时 Actor 失败的最终实际费用达到 `$0.08` 后进入 `budget_blocked`，准入还必须在同一写事务满足失败消费、全局在途预留和下一次 `$0.02` 合计不超过 `$0.08`。X 可分配额度只取全部可用 Key 的已知新鲜剩余额度减去 `max($1, 20%)`，未知额度不得被当作零或充足。401/402 只交由 3.6H Key Pool；429、Apify 5xx 和可确认未启动的 transport 失败先在同一 Actor 的安全读阶段重试；Actor POST 结果未知时 Key Pool 与 Actor route 都保持 blocked，禁止切源或重复 POST。
+
+Actor 全局熔断必须在十五分钟内至少两个不同、此前成功返回真实帖子的来源出现系统性语义异常；单来源连续异常只暂停该来源六小时。冷却按 1/3/6/24 小时递增，到期只把候选置为 half-open 并复用下一次自然任务；连续两次真实成功才恢复 closed，恢复候选不抢占当前 active。Dami 在成功 Canary 前保持 disabled；由至多两个当前已启用的不同 X/profile source 分别成功返回真实帖子后进入 48 小时 probation，真实帖子成功率达到 95% 才转正，零样本或低于门槛都自动禁用。Canary 强制最多一条结果且与自然 paid attempt 在同候选上双向互斥；这种临时 busy 不得污染候选健康或 route 状态。管理员完整排序是健康候选的选择优先级，reorder 必须能影响下一次选择，但不得中断已取得 lease 的调用。
+
+route generation 与 Key pool generation 都进入 shared acquisition fingerprint。正常抓取开始时取得 route generation；同一调用内发生合法切换时，成功结果必须携带路由服务签发的最终 generation 证明，coordinator 才可在一个事务中把旧 acquisition claim 迁移到新 key 并发布；没有证明、Key generation 同时变化、目标 generation 已有 owner 或 finalize 前再次变化时全部拒绝写缓存与 Feed。管理员或并发路由变化后的迟到结果只结算费用并终止 attempt，禁止更新候选/目标健康或签发新 generation 证明。Worker 在领取新 Job 前必须先对账 Key Run 与 Actor attempt；可安全恢复的已启动 Run 必须继续 poll/dataset/语义校验，已语义成功但 Job 未完成的 attempt 只 GET 重读原 Dataset，无法确认是否启动或缺少可验证 Dataset 时保持 blocked，不得靠 Job lease 过期重复 POST。
 
 ### 3.7 Secret Boundary
 Service DB 和 catalog 只保存环境变量名或 secret ref 元数据，不保存真实密钥或 Webhook URL。真实 AI/Apify 值与用户 write-only Webhook URL 由 `src/services/secret_store.py` 独占写入 Git/Docker 忽略的 `data/secrets.env`，必须原子替换且权限为 `0600`。API/Worker 可以热加载该文件，但 API、日志、job、Feed、outbox、DOM 和非管理员 source 投影不得返回真实值。Apify pool 表只引用 `secret_id/version` 和安全状态；活动、排空中或仍有非终态 Run 的成员不得轮换或删除，必须先走安全排空。`source_catalog.secret_env` 在池模式只保留回滚兼容，不参与读取、展示或新来源写入。
@@ -171,6 +181,12 @@ Service API 的 SQLite 访问使用 ContextVar 隔离的请求级连接，并为
 
 Webhook egress 只接受 SecretStore 当前保存的 credential-free HTTPS，并复用 `src/services/network_policy.py` 的公网解析和 IP pinning；它禁用环境代理、拒绝 redirect，以 bounded DNS、单地址单次 POST、5 秒 transport timeout 和 6 秒总 deadline 发送。请求只接受 identity encoding，响应正文不得读取或解压；非 identity 响应按已开始发送但结果未知处理。Service 邮箱只使用 schema v10 workspace transport 与其 SecretStore 凭据，不读取 `data/config.json.email` 或进程环境作为兜底。两种 transport 的上游正文、目的地和凭据均不得进入公开错误或日志。
 
+### 3.8D Apify Operational Alert Boundary
+
+`src/services/apify_actor_alerts.py::ApifyActorAlertService` 独占工作区 Actor 告警设置、incident、delivery outbox、首报/升级/恢复去重和提交后投递；`src/services/apify_actor_monitoring.py::ApifyActorAlertBridge` 只把已提交的路由、费用与额度状态转换成安全事件。告警与 3.8C 的个人新内容通知完全分离，但 email 必须复用同一个已测试并启用的 `WorkspaceEmailTransportService`，Webhook 必须复用相同的 HTTPS 公网解析、IP pinning、禁 redirect、无环境代理与有界响应策略。Webhook URL 只写入 SecretStore，SQLite 仅保存其确定性变量名和一致性摘要；告警邮箱地址按现有 write-only 收件地址边界保存在 SQLite。GET/incident/API/job/log/DOM 永不返回邮箱或 URL，两种目的地均不得进入投递 payload、错误或运行日志。
+
+同一 incident 首次打开只创建一次告警；持续相同状态只更新 `last_seen_at`，从 degraded 升级到全挂必须创建独立 critical incident，精确恢复只解决与该恢复事实对应的 open incident 并各发送一次 recovery。明确的临时投递失败最多技术重试三次；已开始发送但结果未知保持 `unknown` 且永不自动重放。测试告警使用独立 test 事件，不创建运行 incident、不调用 Actor。任何配置、stage、claim 或 transport 失败只更新告警安全状态，不得改变 Actor 路由、费用账本、抓取 Job 或 Feed 终态。
+
 ### 3.9 Config Compatibility Boundary
 `data/config.json` 暂时只承载 AI、过滤、workspace RSSHub Base URL、legacy Webhook、legacy SMTP transport metadata、标签库等兼容配置。多人 source 的权威状态从配置页迁移到 `source_catalog` 和 `user_subscriptions`；当前用户偏好来源通知位于 Service schema v9，工作区 Service 邮件 transport 位于 schema v10，真实值分别进入 SecretStore，不复用 legacy Webhook/SMTP 配置。RSSHub Base URL 是可切换的非密钥 runtime URL，可含安全 path prefix，但不得复制进 catalog config、MCP/Agent 输出或 Feed；可选 `RSSHUB_ACCESS_KEY` 只存在 SecretStore，Worker 只派生 route-scoped access code。VPS-only `RSSHUB_BILIBILI_ANONYMOUS_COOKIE` 也只能进入 SecretStore 和 RSSHub 容器环境，且必须由隔离的无 profile 浏览器 context 从公开页面生成，禁止复用账号 Cookie。兼容层可以把 service 状态投影成旧 `config.sources.*` 结构供静态 JS 渲染，但不得把真实密钥或同步抓取副作用带回 Web 请求。
 
@@ -184,6 +200,8 @@ member 控制的 direct catalog RSS URL 不得包含环境变量占位或 URL us
 Feed storage v3 使用 `scripts/migrate_feed_storage_v3.py --dry-run|--apply`。apply 前必须停止 Worker；工具以 SQLite backup API 创建 UTC 命名、权限 `0600` 的独立副本，additive 初始化/backfill content hash，执行 retention，并通过 `integrity_check` 与 `foreign_key_check` 后才记录 version 3。Worker maintenance 以持久化小时门禁执行相同 retention，且无论时间/数量阈值都保留每用户/每 acquisition key 最新必要记录。
 
 Content timeline v11 使用 `scripts/migrate_content_timeline_v11.py --dry-run|--apply`。apply 前同样停止 Worker并创建独立备份；迁移以首次入库时间作为缺失/非法/异常未来发布时间的稳定回退，回填用户隔离的 `effective_at/search_text`，重建 FTS5 索引并在 integrity/foreign-key 全部通过后记录 version 11。API readiness 与存储治理在存在待回填行时必须 fail closed，不得靠重新抓取修复时间边界。
+
+Apify Actor routing v13 使用 `scripts/migrate_apify_actor_routing_v13.py --dry-run|--apply`。已有数据库的普通 `ServiceStore.initialize()` 不得创建或标记 v13；版本缺失时 API readiness、Actor 管理接口与 Worker 在领取 Job 前统一返回 migration required。apply 前必须停止 API/Worker并跨过 Worker heartbeat 安全窗；工具以 SQLite backup API 生成 UTC `0600` 副本，additive 创建 route/candidate/attempt/target-health/alert setting/incident/delivery 表及 Run 费用列，幂等种入 ScrapeBadger closed、Dami disabled/canary_required、Xquik open，随后通过 `integrity_check` 与 `foreign_key_check` 才记录版本。迁移不得启动 Actor、发送告警、读取 Token 或改变非 X 来源。
 
 生产镜像不得包含 `.env`、`service.db*`、`data/config.json`、日志或备份；运行数据只能通过 VPS shared volume 注入。API 与 Worker 必须运行同一版本化镜像，liveness 暴露 revision。Inteliscope production image 必须从干净、revision-locked commit 在本机以 `linux/amd64` 构建并验收，压缩归档经校验上传后只在 VPS 执行 `docker load`；禁止在 `vps-tokyo` 对本仓库执行 Docker build。RSSHub 作为单独的 VPS-only 容器加入生产 Compose 网络并只绑定 VPS loopback；VPS 项目使用容器 DNS，本地项目经现有 Nginx 的 HTTPS path prefix 复用同一实例，不使用 SSH tunnel，也不在本地启动第二套 RSSHub。公网入口必须启用 RSSHub `ACCESS_KEY`、关闭该 location 的 access log 并保持容器端口不直接暴露；固定摘要的 `chromium-bundled` 镜像必须显式使用已验证的容器内 Chromium 路径和 RSSHub 非随机 UA，匿名 Bilibili Cookie 只能通过受控刷新脚本写入 SecretStore。匿名参数不构成 Bilibili 可用性保证；连续冷路由出现上游 `-352` 时必须停止高频探测，等待上游窗口恢复或切换第三方实例显式降级。RSSHub 这类 pinned third-party runtime image 可以在 VPS 直接 pull。RC1 数据迁移只能使用 SQLite backup API 生成独立副本，副本清除 session、heartbeat 和 active job 后再验证 Feed v2、integrity 与 foreign keys；源码发布包必须来自同一干净 commit 的 `git archive`，VPS 采用 API-only staging、显式 promote 和 Worker-first rollback。
 

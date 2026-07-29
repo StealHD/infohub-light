@@ -752,6 +752,208 @@ def test_full_refresh_cancels_participating_queued_scheduled_source_job(
     assert JobQueue(store).get_job(scheduled["id"])["status"] == "cancelled"
 
 
+def test_actor_route_gate_applies_only_to_apify_x_profile(
+    tmp_path,
+    monkeypatch,
+):
+    from src.services.apify_actor_route import ApifyActorScheduleGate
+    from src.services.source_schedule import SourceScheduleService
+
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner, _rss_id, rss_subscription = _subscribed_owner(
+        tmp_path,
+        monkeypatch,
+    )
+    subscriptions = [rss_subscription]
+    for platform, kind in (("x", "profile"), ("instagram", "profile")):
+        source_id = store.create_source(
+            workspace_id=workspace["id"],
+            scope="private",
+            owner_user_id=owner["id"],
+            source_type="apify_social",
+            display_name=f"{platform}-{kind}",
+            config={
+                "platform": platform,
+                "kind": kind,
+                "target": f"{platform}-target",
+            },
+        )
+        subscriptions.append(
+            store.create_subscription(
+                user_id=owner["id"],
+                source_id=source_id,
+            )
+        )
+    due = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
+    service = SourceScheduleService(store)
+    for subscription in subscriptions:
+        service.update_subscription_schedule(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            subscription_id=subscription["id"],
+            enabled=True,
+            interval_minutes=30,
+            now=due,
+        )
+
+    monkeypatch.setattr(
+        "src.services.source_schedule.ApifyKeyPoolService.schedule_gate",
+        lambda *_args, **_kwargs: {
+            "blocked": False,
+            "code": None,
+            "retry_at": None,
+        },
+    )
+    actor_gate_sources = []
+
+    class ActorRoute:
+        def schedule_gate(self, source_id=None):
+            actor_gate_sources.append(source_id)
+            return ApifyActorScheduleGate(
+                allowed=False,
+                status="exhausted",
+                retry_at=due + timedelta(hours=1),
+                error_code="apify_actor_route_exhausted",
+            )
+
+        def stage_pending_transitions(self):
+            return None
+
+    monkeypatch.setattr(
+        "src.services.source_schedule.build_apify_actor_route",
+        lambda *_args, **_kwargs: ActorRoute(),
+    )
+
+    result = service.enqueue_due(now=due)
+
+    x_source_id = subscriptions[1]["source_id"]
+    assert actor_gate_sources == [x_source_id]
+    assert result["enqueued"] == 2
+    assert result["skipped"] == 1
+    assert [
+        outcome["reason"]
+        for outcome in result["outcomes"]
+        if outcome["action"] == "skipped"
+    ] == ["apify_actor_route_exhausted"]
+
+
+def test_x_profile_schedule_releases_budget_incident_through_alert_bridge(
+    tmp_path,
+    monkeypatch,
+):
+    from src.services.apify_actor_alerts import ApifyActorAlertService
+    from src.services.source_schedule import SourceScheduleService
+
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner, _rss_id, _rss_subscription = _subscribed_owner(
+        tmp_path,
+        monkeypatch,
+    )
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="X profile",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "example",
+        },
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    quota_ref = store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=None,
+        name="Apify schedule quota",
+        env_name="APIFY_SCHEDULE_QUOTA_TOKEN",
+        kind="provider",
+        provider="apify",
+    )
+    store.initialize()
+    due = datetime.now(timezone.utc)
+    store.connect().execute(
+        """
+        UPDATE apify_key_pool_members
+        SET status = 'active',
+            remaining_included_credits_usd = 5,
+            last_checked_at = ?,
+            updated_at = ?
+        WHERE workspace_id = ? AND secret_id = ?
+        """,
+        (due.isoformat(), due.isoformat(), workspace["id"], quota_ref["id"]),
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_key_pool_state
+        SET status = 'ready',
+            active_secret_id = ?,
+            updated_at = ?
+        WHERE workspace_id = ?
+        """,
+        (quota_ref["id"], due.isoformat(), workspace["id"]),
+    )
+    store.connect().commit()
+    service = SourceScheduleService(store)
+    service.update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=subscription["id"],
+        enabled=True,
+        interval_minutes=30,
+        now=due,
+    )
+    monkeypatch.setattr(
+        "src.services.source_schedule.ApifyKeyPoolService.schedule_gate",
+        lambda *_args, **_kwargs: {
+            "blocked": False,
+            "code": None,
+            "retry_at": None,
+        },
+    )
+
+    alerts = ApifyActorAlertService(store, data_dir=tmp_path)
+    alerts.open_incident(
+        workspace_id=workspace["id"],
+        route_key="x/profile",
+        incident_key="budget_blocked",
+        event_type="budget_blocked",
+        severity="critical",
+        payload={"reason_code": "failed_spend_limit"},
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_routes
+        SET status = 'budget_blocked',
+            last_switch_reason = 'failed_spend_limit',
+            budget_blocked_until = ?
+        WHERE workspace_id = ? AND route_key = 'x/profile'
+        """,
+        (
+            (due - timedelta(minutes=1)).isoformat(),
+            workspace["id"],
+        ),
+    )
+    store.connect().commit()
+
+    result = service.enqueue_due(now=due)
+
+    assert result["enqueued"] == 1
+    incident = store.connect().execute(
+        """
+        SELECT status, resolved_at
+        FROM apify_actor_alert_incidents
+        WHERE workspace_id = ? AND incident_key = 'budget_blocked'
+        """,
+        (workspace["id"],),
+    ).fetchone()
+    assert dict(incident)["status"] == "resolved"
+    assert dict(incident)["resolved_at"] is not None
+
+
 def test_retrying_terminal_source_fetch_reuses_another_active_subscription_job(
     tmp_path, monkeypatch
 ):

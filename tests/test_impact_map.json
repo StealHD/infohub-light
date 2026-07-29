@@ -58,6 +58,9 @@
         "src/api/*.py",
         "src/storage/**/*.py",
         "src/storage/*.py",
+        "src/services/apify_actor_alerts.py",
+        "src/services/apify_actor_monitoring.py",
+        "src/services/apify_actor_route.py",
         "src/services/apify_key_pool.py",
         "src/services/secret_store.py",
         "src/services/agent_change_proposal.py",
@@ -70,6 +73,11 @@
         "src/services/user_content_store.py",
         "src/services/user_item_state.py",
         "src/services/youtube_channel.py",
+        "tests/test_apify_actor_alert_api.py",
+        "tests/test_apify_actor_alerts.py",
+        "tests/test_apify_actor_route.py",
+        "tests/test_apify_actor_route_api.py",
+        "tests/test_migrate_apify_actor_routing_v13.py",
         "tests/test_source_resolution.py",
         "tests/test_youtube_channel.py"
       ],
@@ -106,6 +114,9 @@
       "id": "queue/worker",
       "globs": [
         "src/services/feed_schedule.py",
+        "src/services/apify_actor_alerts.py",
+        "src/services/apify_actor_monitoring.py",
+        "src/services/apify_actor_route.py",
         "src/services/apify_pool_runtime.py",
         "src/services/job_eligibility.py",
         "src/services/job_queue.py",
@@ -142,6 +153,7 @@
       "id": "source acquisition",
       "globs": [
         "src/services/catalog_source_runner.py",
+        "src/services/apify_actor_route.py",
         "src/services/source_acquisition.py",
         "src/services/source_health.py",
         "src/services/source_update.py"
@@ -175,6 +187,7 @@
       "globs": [
         "scripts/*.py",
         "scripts/*.sh",
+        "tests/test_migrate_apify_actor_routing_v13.py",
         "tests/test_migrate_rsshub_sources.py"
       ],
       "groups": ["python_scripts"]
@@ -257,6 +270,10 @@
       "tests/test_api_operation_logging.py",
       "tests/test_api_permissions_matrix.py",
       "tests/test_api_service.py",
+      "tests/test_apify_actor_alert_api.py",
+      "tests/test_apify_actor_alerts.py",
+      "tests/test_apify_actor_route.py",
+      "tests/test_apify_actor_route_api.py",
       "tests/test_apify_key_pool.py",
       "tests/test_apify_key_pool_api.py",
       "tests/test_auth.py",
@@ -288,6 +305,7 @@
       "tests/test_remote_mcp_subscription_http.py",
       "tests/test_openclaw_skill.py",
       "tests/test_light_runtime_scripts.py",
+      "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_notification_email_transport.py",
       "tests/test_preferred_source_notifications.py",
@@ -299,6 +317,9 @@
     ],
     "python_queue_worker": [
       "tests/test_feed_schedule.py",
+      "tests/test_apify_actor_alert_api.py",
+      "tests/test_apify_actor_alerts.py",
+      "tests/test_apify_actor_route.py",
       "tests/test_apify_key_pool.py",
       "tests/test_apify_pool_runtime.py",
       "tests/test_job_queue.py",
@@ -330,6 +351,7 @@
     ],
     "python_source_acquisition": [
       "tests/test_catalog_source_runner.py",
+      "tests/test_apify_actor_route.py",
       "tests/test_apify_key_pool.py",
       "tests/test_source_acquisition.py",
       "tests/test_source_health.py",
@@ -369,6 +391,7 @@
       "tests/test_feed_storage_v3_migration.py",
       "tests/test_feed_v2_migration.py",
       "tests/test_light_runtime_scripts.py",
+      "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_prepare_service_deployment.py",
       "tests/test_remote_mcp_performance_script.py",

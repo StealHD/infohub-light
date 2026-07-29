@@ -90,6 +90,11 @@ class HorizonOrchestrator:
         self._service_attempt_meter: Any | None = None
         self._service_acquisition_coordinator: Any | None = None
         self._service_apify_coordinator: Any | None = None
+        self._service_apify_actor_route: Any | None = None
+        self._service_apify_actor_route_job_id: str | None = None
+        self._service_apify_forced_candidate_id: str | None = None
+        self._service_apify_forced_route_generation: int | None = None
+        self._service_apify_paid_canary = False
         self._last_analysis_usage = AnalysisUsage()
         self.console = Console()
         self.email_manager = EmailManager(config.email, console=self.console) if config.email else None
@@ -114,6 +119,23 @@ class HorizonOrchestrator:
     def set_service_apify_coordinator(self, coordinator: Any | None) -> None:
         """Attach the workspace Key-pool coordinator for Service Apify Runs."""
         self._service_apify_coordinator = coordinator
+
+    def set_service_apify_actor_route(
+        self,
+        route: Any | None,
+        *,
+        job_id: str | None = None,
+        candidate_id: str | None = None,
+        expected_generation: int | None = None,
+        paid_canary: bool = False,
+    ) -> None:
+        """Attach the independent X/profile Actor route to Service fetching."""
+
+        self._service_apify_actor_route = route
+        self._service_apify_actor_route_job_id = job_id
+        self._service_apify_forced_candidate_id = candidate_id
+        self._service_apify_forced_route_generation = expected_generation
+        self._service_apify_paid_canary = bool(paid_canary)
 
     def _service_acquisition_usage(self) -> AcquisitionUsage:
         metrics = getattr(self._service_acquisition_coordinator, "metrics", None)
@@ -336,6 +358,15 @@ class HorizonOrchestrator:
                             config,
                             client,
                             apify_coordinator=self._service_apify_coordinator,
+                            apify_actor_route=self._service_apify_actor_route,
+                            route_job_id=self._service_apify_actor_route_job_id,
+                            forced_candidate_id=(
+                                self._service_apify_forced_candidate_id
+                            ),
+                            forced_route_generation=(
+                                self._service_apify_forced_route_generation
+                            ),
+                            paid_canary=self._service_apify_paid_canary,
                         ),
                         source,
                     ))
@@ -343,6 +374,19 @@ class HorizonOrchestrator:
         for _label, scraper, _source in specs:
             scraper.strict_errors = True
         return specs
+
+    @staticmethod
+    def _is_x_profile_source(source: Any) -> bool:
+        platform = getattr(source, "platform", None)
+        kind = getattr(source, "kind", "profile")
+        if hasattr(platform, "value"):
+            platform = platform.value
+        if hasattr(kind, "value"):
+            kind = kind.value
+        return (
+            str(platform or "").strip().casefold() == "x"
+            and str(kind or "profile").strip().casefold() == "profile"
+        )
 
     async def fetch_service_sources(
         self,
@@ -354,21 +398,38 @@ class HorizonOrchestrator:
         async with httpx.AsyncClient(timeout=30.0) as client:
             specs = self._service_source_specs(client)
             window_anchor = datetime.now(timezone.utc)
+            x_profile_actor_lock = asyncio.Lock()
+
+            async def fetch_spec(
+                label: str,
+                scraper: Any,
+                source: Any,
+            ) -> list[ContentItem]:
+                source_since = (
+                    window_anchor
+                    - timedelta(hours=int(source.service_fetch_window_hours))
+                    if allow_source_window_overrides
+                    and getattr(source, "service_fetch_window_hours", None)
+                    else since
+                )
+                if self._is_x_profile_source(source):
+                    async with x_profile_actor_lock:
+                        return await self._fetch_service_source(
+                            label,
+                            scraper,
+                            source,
+                            source_since,
+                        )
+                return await self._fetch_service_source(
+                    label,
+                    scraper,
+                    source,
+                    source_since,
+                )
+
             results = await asyncio.gather(
                 *(
-                    self._fetch_service_source(
-                        label,
-                        scraper,
-                        source,
-                        (
-                            window_anchor - timedelta(
-                                hours=int(source.service_fetch_window_hours)
-                            )
-                            if allow_source_window_overrides
-                            and getattr(source, "service_fetch_window_hours", None)
-                            else since
-                        ),
-                    )
+                    fetch_spec(label, scraper, source)
                     for label, scraper, source in specs
                 ),
                 return_exceptions=True,

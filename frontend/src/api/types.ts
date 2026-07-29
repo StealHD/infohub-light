@@ -565,6 +565,120 @@ export type ApifyKeyPool = {
   members: ApifyKeyPoolMember[]
 }
 
+export type ApifyActorCandidateState =
+  | 'closed'
+  | 'open'
+  | 'half_open'
+  | 'disabled'
+  | 'probationary'
+
+export type ApifyActorRouteStatus =
+  | 'ready'
+  | 'degraded'
+  | 'exhausted'
+  | 'budget_blocked'
+  | 'blocked'
+
+export type ApifyActorRouteCandidate = {
+  id: string
+  position: number
+  display_name: string
+  actor_public_name: string
+  state: ApifyActorCandidateState
+  listed_price_usd_per_1000: number | null
+  paid_plan_listed_price_usd_per_1000?: number | null
+  last_charge_usd: number | null
+  avg_charge_24h_usd: number | null
+  success_rate_24h: number | null
+  last_success_at: string | null
+  last_failure_at: string | null
+  retry_at: string | null
+  last_error_code: string | null
+  can_enable: boolean
+  can_disable: boolean
+  can_canary: boolean
+}
+
+export type ApifyActorRoute = {
+  schema_version: 1
+  route: 'x/profile'
+  generation: number
+  status: ApifyActorRouteStatus
+  active_candidate_id: string | null
+  last_switch_reason: string | null
+  last_switch_at: string | null
+  retry_at: string | null
+  blocked_reason: string | null
+  quota: {
+    currency: 'USD'
+    total_remaining_usd: number | null
+    x_allocatable_usd: number | null
+    spend_24h_usd: number | null
+    estimated_days_remaining: number | null
+    as_of: string | null
+  }
+  limits: {
+    per_run_usd: number
+    per_job_usd: number
+    failed_spend_6h_usd: number
+  }
+  candidates: ApifyActorRouteCandidate[]
+}
+
+export type ApifyActorAlertEvent =
+  | 'actor_switched'
+  | 'route_exhausted'
+  | 'quota_low'
+  | 'budget_blocked'
+  | 'start_outcome_unknown'
+  | 'recovered'
+
+export type ApifyActorAlertSettings = {
+  schema_version: 1
+  enabled: boolean
+  channel: NotificationChannel
+  events: ApifyActorAlertEvent[]
+  email_configured: boolean
+  email_transport_ready: boolean
+  webhook_configured: boolean
+  last_test_status: string | null
+  last_tested_at: string | null
+  last_test_error_code: string | null
+  last_alert_status: string | null
+  last_alerted_at: string | null
+  last_alert_error_code: string | null
+  updated_at: string | null
+}
+
+export type ApifyActorAlertSettingsPatch = {
+  enabled?: boolean
+  channel?: NotificationChannel
+  events?: ApifyActorAlertEvent[]
+  email_address?: string | null
+  webhook_url?: string | null
+}
+
+export type ApifyActorAlertIncident = {
+  id: string
+  route: 'x/profile'
+  event_type: ApifyActorAlertEvent
+  severity: 'info' | 'warning' | 'critical'
+  status: 'open' | 'resolved'
+  actor_name: string | null
+  active_actor_name: string | null
+  reason_code: string | null
+  opened_at: string
+  last_seen_at: string
+  resolved_at: string | null
+  delivery_status: 'pending' | 'sending' | 'sent' | 'failed' | 'unknown' | 'skipped' | null
+  delivery_error_code: string | null
+}
+
+export type ApifyActorAlertIncidents = {
+  schema_version: 1
+  incidents: ApifyActorAlertIncident[]
+}
+
 export type ConfigResponse = {
   path?: string
   config: Record<string, unknown>

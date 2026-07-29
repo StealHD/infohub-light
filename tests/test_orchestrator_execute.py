@@ -1,6 +1,7 @@
 from dataclasses import FrozenInstanceError, fields
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -450,6 +451,57 @@ def test_fetch_service_sources_admits_attempt_before_adapter_network_call(
         ("admit", "hackernews", "src_hn"),
         ("fetch", "hackernews", "src_hn"),
     ]
+
+
+def test_fetch_service_sources_serializes_x_profile_actor_calls_per_job(
+    tmp_path,
+    monkeypatch,
+):
+    config = _config()
+    active = 0
+    max_active = 0
+
+    class MeteredActor:
+        async def fetch(self, _since):
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return []
+
+    def source(source_id):
+        return SimpleNamespace(
+            source_id=source_id,
+            subscription_id=f"sub_{source_id}",
+            source_key=f"apify:x:profile:{source_id}",
+            platform="x",
+            kind="profile",
+            analysis_mode="full",
+            source_priority=50,
+            service_fetch_window_hours=None,
+            catalog_source_type="apify_social",
+        )
+
+    orchestrator = HorizonOrchestrator(
+        config,
+        StorageManager(data_dir=str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_service_source_specs",
+        lambda _client: [
+            ("Apify:src_x_1", MeteredActor(), source("src_x_1")),
+            ("Apify:src_x_2", MeteredActor(), source("src_x_2")),
+        ],
+    )
+
+    _items, outcomes = asyncio.run(
+        orchestrator.fetch_service_sources(datetime.now(timezone.utc))
+    )
+
+    assert max_active == 1
+    assert [outcome.status for outcome in outcomes] == ["succeeded", "succeeded"]
 
 
 def test_orchestrator_shared_acquisition_reuses_upstream_but_projects_subscription(

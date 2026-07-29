@@ -54,6 +54,15 @@ export const queryKeys = {
   users: (userId: string) => [...userKey(userId), 'users'] as const,
   secrets: (userId: string) => [...userKey(userId), 'secrets'] as const,
   apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,
+  apifyActorXProfileRoute: (userId: string) => [
+    ...userKey(userId), 'apify-actor-route', 'x', 'profile',
+  ] as const,
+  apifyActorAlertSettings: (userId: string) => [
+    ...userKey(userId), 'apify-actor-alert-settings',
+  ] as const,
+  apifyActorAlertIncidents: (userId: string) => [
+    ...userKey(userId), 'apify-actor-alert-incidents',
+  ] as const,
   secretQuota: (userId: string, secretId: string) => [
     ...userKey(userId), 'secret-quota', secretId,
   ] as const,

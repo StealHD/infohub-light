@@ -65,8 +65,13 @@ class JobQueue:
         max_attempts: int = 3,
         delay_seconds: float = 0,
         retention_days: int | None = None,
+        commit: bool = True,
     ) -> dict[str, Any]:
         if job_type == "user_feed_refresh":
+            if not commit:
+                raise ValueError(
+                    "user_feed_refresh creation uses its own transaction boundary"
+                )
             job, _created = self.create_user_feed_refresh_if_absent(
                 workspace_id=workspace_id,
                 user_id=user_id,
@@ -108,7 +113,8 @@ class JobQueue:
                 now,
             ),
         )
-        self.store.connect().commit()
+        if commit:
+            self.store.connect().commit()
         job = self.get_job(job_id)
         if job is None:
             raise LookupError("created job not found")

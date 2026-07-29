@@ -25,6 +25,8 @@ from .source_acquisition import (
 from .user_analysis_cache import UserAnalysisCache
 from .usage_attempt_meter import UsageAttemptMeter
 from .apify_pool_runtime import apify_coordinator_for_workspace
+from .apify_key_pool import apify_key_pool_enabled
+from .apify_actor_monitoring import build_apify_actor_route
 
 
 def _reset_sources_for_single_source(data: dict[str, Any]) -> dict[str, Any]:
@@ -201,6 +203,18 @@ def run_catalog_source_fetch(
                     workspace_id=str(job["workspace_id"]),
                     data_dir=data_dir,
                 )
+            )
+        if (
+            apify_key_pool_enabled()
+            and hasattr(orchestrator, "set_service_apify_actor_route")
+        ):
+            orchestrator.set_service_apify_actor_route(
+                build_apify_actor_route(
+                    store,
+                    data_dir=data_dir,
+                    workspace_id=str(job["workspace_id"]),
+                ),
+                job_id=str(job["id"]),
             )
         if (
             shared_acquisition_enabled()

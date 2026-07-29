@@ -34,6 +34,7 @@ import {
   canAdministerWorkspace,
   secretPresentation,
 } from '../settings/settingsModel'
+import { HeroApifyActorRouteSettings } from '../apify-actors/HeroApifyActorRouteSettings'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { HeroEmailTransportSettings } from '../notifications/HeroEmailTransportSettings'
 import { HeroNotificationSettings } from '../notifications/HeroNotificationSettings'
@@ -1666,6 +1667,8 @@ export function HeroSettingsPage() {
 
     {admin && <>
       <AdminSection id="settings-fetching" title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">
+        <HeroApifyActorRouteSettings />
+        <div className="mt-6 border-t border-separator pt-5">
         {config.isLoading
           ? <LoadingState label="正在读取获取与主题设置" rows={2} />
           : config.isError
@@ -1729,6 +1732,7 @@ export function HeroSettingsPage() {
           onSave={() => saveCoreSections(['topics'])}
         /></div>
         </>}
+        </div>
       </AdminSection>
 
       <AdminSection id="settings-storage" title="存储与归档" description="预演工作区清理、90 日冷归档与恢复；所有操作均先核对候选指纹并记录审计。">

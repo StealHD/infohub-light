@@ -110,6 +110,7 @@ class _AcquisitionContext:
     config_fingerprint: str
     isolation_scope: str
     pool_generation: int | None
+    actor_route_generation: int | None
     source_id: str
     window_hours: int
 
@@ -378,9 +379,37 @@ class SourceAcquisitionCoordinator:
             self.metrics.upstream_attempts += 1
             try:
                 fetched = await fetch()
+                publication_context = context
+                if context.actor_route_generation is not None:
+                    refreshed_context = self._context(
+                        source,
+                        window_hours=max(int(window_hours), 1),
+                    )
+                    if (
+                        refreshed_context.actor_route_generation
+                        != context.actor_route_generation
+                    ):
+                        routed_generation = getattr(
+                            fetched,
+                            "_apify_actor_route_generation",
+                            None,
+                        )
+                        if (
+                            refreshed_context.pool_generation
+                            != context.pool_generation
+                            or not isinstance(routed_generation, int)
+                            or routed_generation
+                            != refreshed_context.actor_route_generation
+                        ):
+                            raise AcquisitionLeaseLostError(
+                                "Apify Actor route generation changed before "
+                                "cache publication"
+                            )
+                        publication_context = refreshed_context
                 neutral = self._neutral_items(fetched)
                 self._store_success(
-                    context,
+                    publication_context,
+                    claim_context=context,
                     claim_token=claim_token,
                     provider=provider,
                     items=neutral,
@@ -407,6 +436,7 @@ class SourceAcquisitionCoordinator:
             config_fingerprint=base_context.config_fingerprint,
             isolation_scope=base_context.isolation_scope,
             pool_generation=base_context.pool_generation,
+            actor_route_generation=base_context.actor_route_generation,
             source_id=base_context.source_id,
             window_hours=1,
         )
@@ -450,11 +480,36 @@ class SourceAcquisitionCoordinator:
             if pool_managed
             else None
         )
+        catalog_config = (
+            catalog.get("config")
+            if isinstance(catalog.get("config"), dict)
+            else {}
+        )
+        actor_route_managed = bool(
+            pool_managed
+            and str(catalog_config.get("platform") or "").casefold() == "x"
+            and str(catalog_config.get("kind") or "profile").casefold()
+            == "profile"
+        )
+        actor_route_generation: int | None = None
+        if actor_route_managed:
+            route_row = self.store.connect().execute(
+                """
+                SELECT generation
+                FROM apify_actor_routes
+                WHERE workspace_id = ? AND route_key = 'x/profile'
+                """,
+                (self.workspace_id,),
+            ).fetchone()
+            actor_route_generation = (
+                int(route_row["generation"]) if route_row is not None else None
+            )
         secret_identity: dict[str, Any] | None = None
         if pool_managed:
             secret_identity = {
                 "mode": "workspace_apify_pool",
                 "generation": pool_generation,
+                "actor_route_generation": actor_route_generation,
             }
         else:
             secret_env = str(catalog.get("secret_env") or "")
@@ -500,6 +555,7 @@ class SourceAcquisitionCoordinator:
             config_fingerprint=config_fingerprint,
             isolation_scope=isolation_scope,
             pool_generation=pool_generation,
+            actor_route_generation=actor_route_generation,
             source_id=source_id,
             window_hours=window_hours,
         )
@@ -713,6 +769,7 @@ class SourceAcquisitionCoordinator:
         self,
         context: _AcquisitionContext,
         *,
+        claim_context: _AcquisitionContext | None = None,
         claim_token: str,
         provider: str,
         items: list[ContentItem],
@@ -720,6 +777,7 @@ class SourceAcquisitionCoordinator:
         conn = self.store.connect()
         now = _utcnow()
         snapshot_id = f"acq_{uuid.uuid4().hex}"
+        original_context = claim_context or context
         try:
             conn.execute("BEGIN IMMEDIATE")
             if (
@@ -730,15 +788,64 @@ class SourceAcquisitionCoordinator:
                 raise AcquisitionLeaseLostError(
                     "Apify key pool generation changed before cache publication"
                 )
+            if context.actor_route_generation is not None:
+                route_row = conn.execute(
+                    """
+                    SELECT generation
+                    FROM apify_actor_routes
+                    WHERE workspace_id = ? AND route_key = 'x/profile'
+                    """,
+                    (self.workspace_id,),
+                ).fetchone()
+                current_route_generation = (
+                    int(route_row["generation"])
+                    if route_row is not None
+                    else None
+                )
+                if current_route_generation != context.actor_route_generation:
+                    raise AcquisitionLeaseLostError(
+                        "Apify Actor route generation changed before cache publication"
+                    )
             state = conn.execute(
                 """
                 SELECT claim_token FROM source_acquisition_states
                 WHERE acquisition_key = ?
                 """,
-                (context.acquisition_key,),
+                (original_context.acquisition_key,),
             ).fetchone()
             if state is None or state["claim_token"] != claim_token:
                 raise AcquisitionLeaseLostError("source acquisition lease was lost")
+            if original_context.acquisition_key != context.acquisition_key:
+                collision = conn.execute(
+                    """
+                    SELECT 1 FROM source_acquisition_states
+                    WHERE acquisition_key = ?
+                    """,
+                    (context.acquisition_key,),
+                ).fetchone()
+                if collision is not None:
+                    raise AcquisitionLeaseLostError(
+                        "new Actor route generation is already being acquired"
+                    )
+                cursor = conn.execute(
+                    """
+                    UPDATE source_acquisition_states
+                    SET acquisition_key = ?, config_fingerprint = ?,
+                        updated_at = ?
+                    WHERE acquisition_key = ? AND claim_token = ?
+                    """,
+                    (
+                        context.acquisition_key,
+                        context.config_fingerprint,
+                        now.isoformat(),
+                        original_context.acquisition_key,
+                        claim_token,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise AcquisitionLeaseLostError(
+                        "source acquisition lease was lost"
+                    )
             fresh_until = now + timedelta(
                 minutes=self._freshness_minutes(context.source_id)
             )

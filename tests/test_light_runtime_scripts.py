@@ -176,6 +176,9 @@ case "$url" in
       migration-v11)
         printf '{"ok":false,"error":{"code":"migration_required","message":"content timeline v11 migration must be applied"}}'
         ;;
+      migration-v13)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"Apify Actor routing v13 migration must be applied"}}'
+        ;;
       migration-v4)
         printf '{"ok":false,"error":{"code":"migration_required","message":"user content v4 migration must be applied"}}'
         ;;
@@ -418,6 +421,7 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
 def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path):
     primary, linked, _, revision = _create_linked_worktree_fixture(tmp_path)
     migration_cases = {
+        "migration-v13": "scripts/migrate_apify_actor_routing_v13.py",
         "migration-v11": "scripts/migrate_content_timeline_v11.py",
         "migration-v4": "scripts/migrate_user_content_v4.py",
         "migration-v2": "scripts/migrate_user_feed_v2.py",

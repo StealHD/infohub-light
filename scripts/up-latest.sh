@@ -229,7 +229,9 @@ for attempt in $(seq 1 90); do
       exit 1
     fi
     migration_script=""
-    if [[ "$ready_payload" == *"content timeline v11"* ]]; then
+    if [[ "$ready_payload" == *"Apify Actor routing v13"* ]]; then
+      migration_script="scripts/migrate_apify_actor_routing_v13.py"
+    elif [[ "$ready_payload" == *"content timeline v11"* ]]; then
       migration_script="scripts/migrate_content_timeline_v11.py"
     elif [[ "$ready_payload" == *"user content v4"* ]]; then
       migration_script="scripts/migrate_user_content_v4.py"

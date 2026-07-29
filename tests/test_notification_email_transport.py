@@ -408,6 +408,31 @@ def test_admin_authorization_is_rechecked_inside_mutation(
     ] is True
 
 
+def test_operational_alert_message_uses_bounded_safe_fields() -> None:
+    message = WorkspaceEmailTransportService._build_message(
+        transport={
+            "sender_name": "InfoHub",
+            "sender_email": "notice@example.com",
+        },
+        recipient="admin@example.com",
+        payload={
+            "kind": "operational_alert",
+            "event_type": "actor_switched",
+            "severity": "warning",
+            "route": "x/profile",
+            "status": "degraded",
+            "reason_code": "placeholder_record\r\nBcc: attacker@example.com",
+            "occurred_at": "2026-07-29T00:00:00+00:00",
+        },
+    )
+
+    assert "Apify" in str(message["Subject"])
+    assert "Bcc" not in message
+    body = message.get_body(preferencelist=("plain",)).get_content()
+    assert "x/profile" in body
+    assert "placeholder_record Bcc: attacker@example.com" in body
+
+
 def test_message_is_escaped_batched_to_twenty_and_unknown_is_not_definitive(
     email_context: dict[str, Any],
 ) -> None:

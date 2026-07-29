@@ -36,7 +36,46 @@ class ActorAdapterContract:
     max_total_charge_usd: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ApifySocialActorResult:
+    """One routed Actor result without leaking remote Apify identifiers."""
+
+    items: list[ContentItem]
+    semantic_outcome: str
+    actual_charge_usd: float | None = None
+    cost_final: bool = False
+
+
+class ApifySocialSemanticError(SourceFetchError):
+    """Safe semantic failure classified for the Actor router."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        failure_scope: str,
+        retryable: bool,
+        actual_charge_usd: float | None = None,
+        cost_final: bool = False,
+    ) -> None:
+        self.failure_scope = failure_scope
+        self.actual_charge_usd = actual_charge_usd
+        self.cost_final = cost_final
+        super().__init__(message, retryable=retryable, code=code)
+
+
 ACTOR_ADAPTER_REGISTRY = {
+    "scrape.badger/twitter-tweets-scraper": ActorAdapterContract(
+        platform=ApifySocialPlatform.X,
+        input_style="scrape_badger",
+        max_total_charge_usd=0.02,
+    ),
+    "dami_studio/tweet-scraper": ActorAdapterContract(
+        platform=ApifySocialPlatform.X,
+        input_style="dami",
+        max_total_charge_usd=0.02,
+    ),
     "xquik/x-tweet-scraper": ActorAdapterContract(
         platform=ApifySocialPlatform.X,
         input_style="xquik",
@@ -70,10 +109,20 @@ class ApifySocialScraper(BaseScraper):
         config: ApifySocialConfig,
         http_client: httpx.AsyncClient,
         apify_coordinator: ApifyRunCoordinator | None = None,
+        apify_actor_route: Any | None = None,
+        route_job_id: str | None = None,
+        forced_candidate_id: str | None = None,
+        forced_route_generation: int | None = None,
+        paid_canary: bool = False,
     ):
         super().__init__(config.model_dump(), http_client)
         self.social_config = config
         self.apify_coordinator = apify_coordinator
+        self.apify_actor_route = apify_actor_route
+        self.route_job_id = route_job_id
+        self.forced_candidate_id = forced_candidate_id
+        self.forced_route_generation = forced_route_generation
+        self.paid_canary = bool(paid_canary)
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
         if not self.social_config.enabled:
@@ -85,6 +134,12 @@ class ApifySocialScraper(BaseScraper):
 
         tasks = [self._fetch_subscription(sub, since) for sub in subscriptions]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        if len(results) == 1 and isinstance(results[0], list):
+            # Preserve the routed-list generation proof for the shared
+            # acquisition cache. It is an internal list attribute, not Feed
+            # metadata.
+            return results[0]
 
         items: list[ContentItem] = []
         for result in results:
@@ -99,11 +154,112 @@ class ApifySocialScraper(BaseScraper):
                 items.extend(result)
         return items
 
+    async def fetch_x_profile_with_actor(
+        self,
+        sub: ApifySocialSubscriptionConfig,
+        since: datetime,
+        *,
+        actor_id: str,
+        logical_run_id: str | None = None,
+        resume_run_id: str | None = None,
+    ) -> ApifySocialActorResult:
+        """Fetch one X profile through the Actor selected by the route service."""
+
+        if sub.platform != ApifySocialPlatform.X or sub.kind != "profile":
+            raise ValueError("Actor routing currently supports only x/profile")
+
+        apify = self._client_for_subscription(sub)
+        contract = self._actor_contract(actor_id, sub.platform)
+        if contract.platform != ApifySocialPlatform.X:
+            raise ValueError("Selected Actor is not an X adapter")
+        actor_input = self._actor_input(sub, actor_id=actor_id)
+        result = (
+            await apify.resume_actor_detailed(resume_run_id)
+            if resume_run_id
+            else await apify.run_actor_detailed(
+                actor_id,
+                actor_input,
+                max_total_charge_usd=contract.max_total_charge_usd,
+                logical_run_id=logical_run_id or self._logical_run_id(sub),
+            )
+        )
+        self.observe_upstream_response(result.items)
+        try:
+            candidate_rows, semantic_outcome = self._validated_x_rows(result.items)
+        except ApifySocialSemanticError as exc:
+            exc.actual_charge_usd = result.actual_charge_usd
+            exc.cost_final = result.cost_final
+            raise
+        items = self._parse_candidate_rows(candidate_rows, sub, since)
+        return ApifySocialActorResult(
+            items=items,
+            semantic_outcome=semantic_outcome,
+            actual_charge_usd=result.actual_charge_usd,
+            cost_final=result.cost_final,
+        )
+
+    def _client_for_subscription(
+        self,
+        sub: ApifySocialSubscriptionConfig,
+    ) -> ApifyClient:
+        token_records = (
+            self._token_records(sub.token_env)
+            if self.apify_coordinator is None
+            else None
+        )
+        if self.apify_coordinator is None and not token_records:
+            token_envs = ", ".join(self._token_env_names(sub.token_env))
+            raise SourceFetchError(
+                f"Apify token not found in env var(s): {token_envs}",
+                retryable=False,
+                code="apify_token_unavailable",
+            )
+        return ApifyClient(
+            tokens=token_records,
+            coordinator=self.apify_coordinator,
+            http_client=self.client,
+            timeout_seconds=self.social_config.timeout_seconds,
+        )
+
     async def _fetch_subscription(
         self,
         sub: ApifySocialSubscriptionConfig,
         since: datetime,
     ) -> list[ContentItem]:
+        if (
+            self.apify_actor_route is not None
+            and sub.platform == ApifySocialPlatform.X
+            and sub.kind == "profile"
+            and sub.source_id
+        ):
+            from ..services.apify_actor_route import (
+                ApifyActorInvocationResult,
+            )
+
+            async def invoke(lease: Any) -> ApifyActorInvocationResult[list[ContentItem]]:
+                result = await self.fetch_x_profile_with_actor(
+                    sub,
+                    since,
+                    actor_id=str(lease.actor_id),
+                    logical_run_id=str(lease.attempt_id),
+                    resume_run_id=getattr(lease, "resume_run_id", None),
+                )
+                return ApifyActorInvocationResult(
+                    value=result.items,
+                    semantic_outcome=result.semantic_outcome,
+                    actual_cost_usd=result.actual_charge_usd,
+                    cost_final=result.cost_final,
+                )
+
+            return await self.apify_actor_route.execute_x_profile(
+                str(sub.source_id),
+                invoke,
+                job_id=self.route_job_id,
+                candidate_id=self.forced_candidate_id,
+                expected_generation=self.forced_route_generation,
+                canary=self.paid_canary,
+            )
+
         token_records = (
             self._token_records(sub.token_env)
             if self.apify_coordinator is None
@@ -121,15 +277,10 @@ class ApifySocialScraper(BaseScraper):
                 )
             return []
 
-        apify = ApifyClient(
-            tokens=token_records,
-            coordinator=self.apify_coordinator,
-            http_client=self.client,
-            timeout_seconds=self.social_config.timeout_seconds,
-        )
+        apify = self._client_for_subscription(sub)
         actor_id = self._actor_id(sub.platform)
         contract = self._actor_contract(actor_id, sub.platform)
-        actor_input = self._actor_input(sub)
+        actor_input = self._actor_input(sub, actor_id=actor_id)
         rows = await apify.run_actor(
             actor_id,
             actor_input,
@@ -138,20 +289,26 @@ class ApifySocialScraper(BaseScraper):
         )
         self.observe_upstream_response(rows)
 
-        candidate_rows = [row for row in rows if self._is_content_candidate(row)]
-        if rows and not candidate_rows:
-            raise SourceFetchError(
-                "Apify actor returned placeholder records instead of social posts",
-                retryable=False,
-                code="apify_demo_mode",
-            )
-        items: list[ContentItem] = []
-        for row in candidate_rows:
-            parsed = self._parse_row(row, sub, since)
-            if parsed:
-                items.append(parsed)
-            if len(items) >= sub.fetch_limit:
-                break
+        if sub.platform == ApifySocialPlatform.X:
+            try:
+                candidate_rows, _semantic_outcome = self._validated_x_rows(rows)
+            except ApifySocialSemanticError as exc:
+                if exc.code != "apify_actor_placeholder":
+                    raise
+                raise SourceFetchError(
+                    "Apify actor returned placeholder records instead of social posts",
+                    retryable=False,
+                    code="apify_demo_mode",
+                ) from None
+        else:
+            candidate_rows = [row for row in rows if self._is_content_candidate(row)]
+            if rows and not candidate_rows:
+                raise SourceFetchError(
+                    "Apify actor returned placeholder records instead of social posts",
+                    retryable=False,
+                    code="apify_demo_mode",
+                )
+        items = self._parse_candidate_rows(candidate_rows, sub, since)
 
         if not items and candidate_rows and self._should_keep_latest_when_stale(sub):
             oldest_since = datetime.min.replace(tzinfo=timezone.utc)
@@ -243,6 +400,186 @@ class ApifySocialScraper(BaseScraper):
             "stats",
         }
 
+    def _validated_x_rows(
+        self,
+        rows: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Separate real posts from control/error rows before date filtering."""
+
+        if not rows:
+            # A raw empty Dataset is weaker than an explicit no-results record.
+            # The route correlates it across previously healthy accounts before
+            # deciding whether this is an Actor-wide zero-output failure.
+            return [], "suspicious_empty"
+
+        valid_rows = [row for row in rows if self._is_valid_x_post(row)]
+        if valid_rows:
+            return valid_rows, "valid_nonempty"
+
+        # Placeholder/paywall semantics take precedence over both account
+        # errors and no-results flags. Some Actors return demo rows shaped like
+        # either of those control records.
+        if any(self._is_placeholder_record(row) for row in rows):
+            raise ApifySocialSemanticError(
+                "Apify Actor returned placeholder records instead of X posts",
+                code="apify_actor_placeholder",
+                failure_scope="actor",
+                retryable=True,
+            )
+
+        error_codes = {
+            str(row.get("errorCode") or row.get("error_code") or "")
+            .strip()
+            .upper()
+            for row in rows
+        }
+        error_codes.discard("")
+        target_errors = {
+            "ACCOUNT_NOT_FOUND",
+            "NOT_FOUND",
+            "PRIVATE",
+            "PRIVATE_ACCOUNT",
+            "SUSPENDED",
+            "USER_NOT_FOUND",
+        }
+        if error_codes & target_errors:
+            raise ApifySocialSemanticError(
+                "The X profile is unavailable to the selected Actor",
+                code="apify_actor_target_unavailable",
+                failure_scope="target",
+                retryable=False,
+            )
+        if error_codes:
+            raise ApifySocialSemanticError(
+                "The selected Actor returned an execution error record",
+                code="apify_actor_error_record",
+                failure_scope="actor",
+                retryable=True,
+            )
+
+        if all(self._is_empty_result_record(row) for row in rows):
+            return [], "valid_empty"
+        raise ApifySocialSemanticError(
+            "Apify Actor output no longer matches the X post contract",
+            code="apify_actor_contract_mismatch",
+            failure_scope="actor",
+            retryable=True,
+        )
+
+    @classmethod
+    def _is_valid_x_post(cls, row: dict[str, Any]) -> bool:
+        # Control/error records occasionally mimic a tweet closely enough to
+        # contain an id, text, and timestamp.  Semantic flags must win over
+        # tweet-shaped fields or paid/demo placeholders can enter the Feed.
+        if (
+            cls._is_placeholder_record(row)
+            or cls._is_empty_result_record(row)
+            or str(row.get("errorCode") or row.get("error_code") or "").strip()
+        ):
+            return False
+        raw_id = row.get("id_str") or row.get("id")
+        raw_text = row.get("full_text") or row.get("fullText") or row.get("text")
+        return bool(
+            str(raw_id or "").strip()
+            and str(raw_text or "").strip()
+            and cls._first_datetime(
+                row,
+                ["created_at", "createdAt", "timestamp"],
+            )
+        )
+
+    @classmethod
+    def _is_placeholder_record(cls, row: dict[str, Any]) -> bool:
+        if any(
+            row.get(key)
+            for key in (
+                "demo",
+                "isDemo",
+                "is_demo",
+                "mock",
+                "isMock",
+                "is_mock",
+                "placeholder",
+                "paywall",
+                "paymentRequired",
+                "payment_required",
+            )
+        ):
+            return True
+        row_type = str(
+            row.get("resultType")
+            or row.get("result_type")
+            or row.get("type")
+            or row.get("recordType")
+            or row.get("record_type")
+            or ""
+        ).strip().lower()
+        if row_type in {
+            "diagnostic",
+            "diagnostics",
+            "mock",
+            "placeholder",
+            "run-report",
+            "run_report",
+            "receipt",
+            "stats",
+            "paywall",
+            "payment-required",
+            "payment_required",
+            "upgrade-required",
+            "upgrade_required",
+        }:
+            return True
+        control_text = " ".join(
+            str(row.get(key) or "")
+            for key in (
+                "error",
+                "message",
+                "notice",
+                "statusMessage",
+                "warning",
+                "status",
+            )
+        ).lower()
+        return any(
+            marker in control_text
+            for marker in (
+                "demo mode",
+                "placeholder",
+                "mock data",
+                "payment required",
+                "paid plan",
+                "upgrade your plan",
+            )
+        )
+
+    @staticmethod
+    def _is_empty_result_record(row: dict[str, Any]) -> bool:
+        if row.get("noResults") is True or row.get("no_results") is True:
+            return True
+        row_type = str(
+            row.get("resultType")
+            or row.get("result_type")
+            or row.get("type")
+            or ""
+        ).strip().lower()
+        return row_type in {"empty", "no-results", "no_results"}
+
+    def _parse_candidate_rows(
+        self,
+        candidate_rows: list[dict[str, Any]],
+        sub: ApifySocialSubscriptionConfig,
+        since: datetime,
+    ) -> list[ContentItem]:
+        items: list[ContentItem] = []
+        for row in candidate_rows:
+            parsed = self._parse_row(row, sub, since)
+            if parsed:
+                items.append(parsed)
+            if len(items) >= sub.fetch_limit:
+                break
+        return items
+
     def _token_env_names(self, token_env: Optional[str] = None) -> list[str]:
         if token_env:
             return [token_env]
@@ -262,32 +599,52 @@ class ApifySocialScraper(BaseScraper):
                 records.append((name, token))
         return records
 
-    def _actor_input(self, sub: ApifySocialSubscriptionConfig) -> dict[str, Any]:
+    def _actor_input(
+        self,
+        sub: ApifySocialSubscriptionConfig,
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
         platform = sub.platform
         if platform == ApifySocialPlatform.X:
-            contract = self._actor_contract(self._actor_id(platform), platform)
-            if contract.input_style in {"xquik", "apidojo"}:
+            selected_actor_id = actor_id or self._actor_id(platform)
+            contract = self._actor_contract(selected_actor_id, platform)
+            fetch_limit = 1 if self.paid_canary else sub.fetch_limit
+            if contract.input_style == "scrape_badger":
+                return {
+                    "mode": "Advanced Search",
+                    "query": (
+                        sub.target.strip()
+                        if sub.kind == "keyword"
+                        else f"from:{self._x_handle(sub.target)}"
+                    ),
+                    "query_type": "Latest",
+                    "max_results": fetch_limit,
+                }
+            if contract.input_style in {"xquik", "apidojo", "dami"}:
                 payload = (
                     {"searchTerms": [sub.target.strip()]}
                     if sub.kind == "keyword"
                     else {"twitterHandles": [self._x_handle(sub.target)]}
                 )
-                payload["maxItems"] = sub.fetch_limit
+                payload["maxItems"] = fetch_limit
                 if contract.input_style == "apidojo":
                     payload["sort"] = "Latest"
+                if contract.input_style == "dami":
+                    payload["includeReplies"] = False
                 return payload
             if sub.kind == "keyword":
                 return {
                     "source_mode": "search",
                     "search_query": sub.target.strip(),
                     "search_sort": "Latest",
-                    "max_items": sub.fetch_limit,
+                    "max_items": fetch_limit,
                 }
             return {
                 "source_mode": "profiles",
                 "profile_urls": [self._x_handle(sub.target)],
                 "search_sort": "Latest",
-                "max_items": sub.fetch_limit,
+                "max_items": fetch_limit,
             }
 
         if platform == ApifySocialPlatform.INSTAGRAM:
@@ -346,7 +703,8 @@ class ApifySocialScraper(BaseScraper):
         if not tweet_id:
             return None
 
-        user = row.get("user") or row.get("author") or {}
+        user_value = row.get("user") or row.get("author") or {}
+        user = user_value if isinstance(user_value, dict) else {}
         screen_name = (
             user.get("screen_name")
             or user.get("username")
@@ -354,10 +712,13 @@ class ApifySocialScraper(BaseScraper):
             or user.get("handle")
             or row.get("handle")
             or row.get("username")
+            or row.get("user_name")
             or self._x_handle(sub.target)
             or "unknown"
         )
-        author = user.get("name") or screen_name
+        author = user.get("name") or (
+            str(user_value).strip() if isinstance(user_value, str) else ""
+        ) or row.get("user_name") or screen_name
         text = unescape(
             (row.get("full_text") or row.get("fullText") or row.get("text") or "").strip()
         )

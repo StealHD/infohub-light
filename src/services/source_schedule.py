@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..storage.service_store import ServiceStore
+from .apify_actor_monitoring import build_apify_actor_route
 from .apify_key_pool import ApifyKeyPoolService, apify_key_pool_enabled
 from .job_queue import JobQueue
 from .quota import QuotaExceeded, QuotaService
@@ -92,6 +94,7 @@ class SourceScheduleService:
                 us.enabled AS subscription_enabled,
                 sc.workspace_id,
                 sc.type AS source_type,
+                sc.config_json AS source_config_json,
                 sc.enabled AS source_enabled,
                 u.enabled AS user_enabled,
                 u.role AS user_role
@@ -284,6 +287,7 @@ class SourceScheduleService:
         now_iso = now_dt.isoformat()
         conn = self.store.connect()
         owns_transaction = not conn.in_transaction
+        actor_routes: list[Any] = []
         try:
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
@@ -346,6 +350,29 @@ class SourceScheduleService:
                         retry_at = _parse_time(pool_gate.get("retry_at"))
                         if retry_at is not None and retry_at > now_dt:
                             interval_next = retry_at
+                    if (
+                        reason is None
+                        and self._is_x_profile_subscription(subscription)
+                    ):
+                        actor_route = build_apify_actor_route(
+                            self.store,
+                            data_dir=str(self.store.data_dir),
+                            workspace_id=str(schedule["workspace_id"]),
+                        )
+                        actor_routes.append(actor_route)
+                        actor_gate = actor_route.schedule_gate(
+                            str(subscription["source_id"])
+                        )
+                        if not actor_gate.allowed:
+                            reason = str(
+                                actor_gate.error_code
+                                or "apify_actor_route_exhausted"
+                            )
+                            if (
+                                actor_gate.retry_at is not None
+                                and actor_gate.retry_at > now_dt
+                            ):
+                                interval_next = actor_gate.retry_at
 
                 if reason is not None:
                     self._record_skip(
@@ -515,6 +542,8 @@ class SourceScheduleService:
                         "job_id": job["id"],
                     }
                 )
+            for actor_route in actor_routes:
+                actor_route.stage_pending_transitions()
             if owns_transaction:
                 conn.commit()
         except Exception:
@@ -522,6 +551,20 @@ class SourceScheduleService:
                 conn.rollback()
             raise
         return result
+
+    @staticmethod
+    def _is_x_profile_subscription(subscription: Any) -> bool:
+        try:
+            config = json.loads(str(subscription["source_config_json"] or "{}"))
+        except (KeyError, TypeError, json.JSONDecodeError):
+            return False
+        if not isinstance(config, dict):
+            return False
+        return (
+            str(config.get("platform") or "").strip().casefold() == "x"
+            and str(config.get("kind") or "profile").strip().casefold()
+            == "profile"
+        )
 
     def advance_after_full_refresh(
         self,

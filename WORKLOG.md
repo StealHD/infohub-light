@@ -295,3 +295,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "实现仅使用 Apify 的 X/profile 三 Actor 串行主备、占位语义拦截、稳定 Job 费用组与六小时费用熔断、多 Key 新鲜额度准入、GET-only 重启恢复、管理员状态页，以及邮件或 HTTPS Webhook 首报与恢复告警；新增显式备份校验的 v13 增量迁移。",
+  "status": "completed",
+  "task_id": "2026-07-29-apify-x-actor-failover-alerts",
+  "unresolved": [
+    "未触发真实付费 Canary 或真实告警测试；Dami 转正式备用仍需两个已启用 X 来源验证并观察 48 小时"
+  ],
+  "validation": [
+    "247 related backend regressions passed before final hardening",
+    "generation-conflict paid attempts remain bounded to 3 reservations / $0.06 while proven no-POST cancellations remain retryable",
+    "frontend typecheck and UI contract checks passed",
+    "frontend 501 tests and desktop/tablet/390px X Actor Playwright checks passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent final review found no remaining product P0/P1"
+  ]
+}
+```

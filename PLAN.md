@@ -15,19 +15,20 @@
 1. Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复和显式 reconcile 已完成。26 条历史内容为 24 条 captured、2 条 excerpt-only；旧 schema 空字符串占位已在 `0600` 备份后规范化，snapshot、Job、媒体和 AI usage 未变化。
 2. 公共源共享获取、既有部署数据库的 Feed storage v3 compact writer 和工作区 Apify Key 池 rollout flag 均保持关闭；新空库在自动记录 v3 marker 后默认使用 compact writer，未迁移数据库仍强制回退 storage v1。
 3. Apify Key 池 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；启用仍需停 Worker、核对远端 Run、备份数据库和有上限 canary。
-4. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
-5. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
-6. API、Worker、Scheduler 和 CLI 私有双流 JSONL、30 天保留、提交后关键事件及 OpenClaw 当前用户安全查询已完成本地验证；不包含日志 REST API、前端日志页或部署。
-7. 最近记录的 VPS 发布基线为 revision `74c7b16d715b` 的 API、Worker 与同机 RSSHub；执行任何运行操作前必须重新核对实际容器状态，legacy scheduler 继续保持关闭。
-8. 低 Token `test_gate` 仍处于 0/10 提交观察期，任务完成门禁保持 `python scripts/test_gate.py run --mode full`。
+4. X/profile 的 Apify 三 Actor 路由、schema v13 账本、语义占位拦截、费用熔断、管理员状态页与工作区告警已在本地实现；默认顺序为 ScrapeBadger、Dami、Xquik，真实付费 Canary 与 48 小时观察仍需 operator 单独确认。
+5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
+6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
+7. API、Worker、Scheduler 和 CLI 私有双流 JSONL、30 天保留、提交后关键事件及 OpenClaw 当前用户安全查询已完成本地验证；不包含日志 REST API、前端日志页或部署。
+8. 最近记录的 VPS 发布基线为 revision `74c7b16d715b` 的 API、Worker 与同机 RSSHub；执行任何运行操作前必须重新核对实际容器状态，legacy scheduler 继续保持关闭。
+9. 低 Token `test_gate` 仍处于 0/10 提交观察期，任务完成门禁保持 `python scripts/test_gate.py run --mode full`。
 
 当前推进顺序：
 
 1. 停止 API/Worker，对目标数据库再次 dry-run，使用 UTC `0600` backup 显式 apply Feed storage v3；验收 marker、hash backfill、integrity 和 foreign keys，并明确核对目标运行环境的 compact flag 后才允许既有部署打开 compact writer。
 2. 只对非付费公共源开启 shared acquisition，观察两个自然周期的 cache hit/miss、upstream attempt、Feed 用户隔离和 Source Health，通过后再扩大范围。
-3. 付费来源必须取得 operator 再次明确授权，并确认上游严格 `maxItems=1`，才能进入独立 canary。
+3. 付费来源必须取得 operator 再次明确授权，并确认上游严格单次有界输入，才能进入独立 canary；X/profile Canary 每次只能从管理员路由卡二次确认启动，terminal Job 不允许通用 retry。
 4. 开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前暂停 Worker、确认无 running Job、核对并终止未登记远端 Run、备份 Service 数据库，只执行一次有上限 canary；无法核对的启动结果保持 blocked。
-5. X 的 Apify Secondary Actor 支持精确 `maxItems=1`，最近真实直连返回 0 条。未经再次明确授权，不得启动 VPS Worker 或触发新的付费观察周期。
+5. X/profile 上线先迁移 schema v13，再分别对两个现有 X 来源执行一次 ScrapeBadger Canary；Dami 仅在各自 Canary 通过后进入 48 小时 probation，Xquik 保持 open 并只由自然任务探测。未经再次明确授权，不得触发这些付费调用。
 6. 用户写入 DeepSeek 轮换 Key 后，只对一篇 captured article 执行零 Token 模型预检和一次省略 `temperature`、SDK/application retry 均关闭的 completion smoke；成功后才启用。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 仍失败，网络出口恢复后只做 1 条公开频道复验。
 8. VPS 的 Feed storage v3 apply、rollout flag 开启和任何付费 canary 必须分别满足门禁并取得对应授权；Bilibili 冷路由受风控时不得高频重试。
@@ -45,7 +46,7 @@
 2. Hub taxonomy 与 legacy alias 的兼容迁移。
 3. 来源配置、抓取任务、可选 AI、Service UI、Feed snapshot 和稳定历史的字段合同。
 4. 任务队列、配额、Source Health、确定性优先级及明确的 capability/degrade 表达。
-5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池和受控长度概括。
+5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池、X/profile 三 Actor 路由与工作区运行告警，以及受控长度概括。
 6. React/HeroUI Service UI、用户作用域 Query cache、任务轮询、三视口与浏览器验收。
 7. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、安全读工具、受控订阅流程和浏览器直连用户 Gateway。
 8. 上海自然日内容分层、用户隔离全局搜索，以及 Owner/Admin 的预演式标准清理、冷归档与恢复。

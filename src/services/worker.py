@@ -23,6 +23,7 @@ from .job_queue import JobQueue
 from .job_eligibility import JobEligibilityService
 from .maintenance import MaintenanceService
 from .preferred_source_notifications import PreferredSourceNotificationService
+from .apify_actor_alerts import ApifyActorAlertService
 from .operation_log import safe_emit_operation_event
 from .source_type_registry import build_source_payload
 from .secret_store import SecretStore
@@ -36,6 +37,11 @@ from .media_cache import MediaCacheService
 from .apify_pool_runtime import (
     apify_coordinator_for_workspace,
     reconcile_all_apify_pools_sync,
+)
+from .apify_key_pool import apify_key_pool_enabled
+from .apify_actor_monitoring import (
+    build_apify_actor_route,
+    sync_apify_actor_quota_alert,
 )
 from ..storage.service_store import ServiceStore
 
@@ -76,6 +82,16 @@ def _cache_run_media(
 
 
 class MigrationRequiredError(RuntimeError):
+    retryable = False
+
+
+class PaidCanaryUnavailableError(RuntimeError):
+    code = "apify_actor_routing_disabled"
+    retryable = False
+
+
+class PaidCanaryAuthorizationError(RuntimeError):
+    code = "apify_actor_canary_unavailable"
     retryable = False
 
 
@@ -172,6 +188,15 @@ def _source_payload_from_catalog(
         source,
         rsshub_base_url=rsshub_base_url,
     )
+    # Job control metadata is never source configuration. Removing it before
+    # the runtime overlay prevents unknown catalog fields from impersonating a
+    # confirmed paid Canary.
+    for reserved_key in (
+        "reason",
+        "apify_actor_candidate_id",
+        "apify_actor_route_generation",
+    ):
+        canonical.pop(reserved_key, None)
     if source.get("type") == "rss":
         if managed_rsshub:
             canonical["enforce_public_network"] = False
@@ -185,7 +210,13 @@ def _source_payload_from_catalog(
     runtime_payload = {
         key: value
         for key, value in payload.items()
-        if key in {"hours", "reason"}
+        if key
+        in {
+            "hours",
+            "reason",
+            "apify_actor_candidate_id",
+            "apify_actor_route_generation",
+        }
     }
     return {**canonical, **runtime_payload}
 
@@ -262,6 +293,18 @@ def _run_user_feed_refresh(
                     workspace_id=str(job["workspace_id"]),
                     data_dir=data_dir,
                 )
+            )
+        if (
+            apify_key_pool_enabled()
+            and hasattr(orchestrator, "set_service_apify_actor_route")
+        ):
+            orchestrator.set_service_apify_actor_route(
+                build_apify_actor_route(
+                    store,
+                    data_dir=data_dir,
+                    workspace_id=str(job["workspace_id"]),
+                ),
+                job_id=str(job["id"]),
             )
         if (
             shared_acquisition_enabled()
@@ -349,6 +392,11 @@ def _run_user_feed_refresh(
 
 def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict[str, Any]:
     payload = _source_payload_from_catalog(job, store=store)
+    raw_job_payload = (
+        job.get("payload_json")
+        if isinstance(job.get("payload_json"), dict)
+        else {}
+    )
     job_type = job["job_type"]
 
     if job_type == "source_test":
@@ -360,6 +408,28 @@ def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict
         )
 
         def run_metered_test() -> dict[str, Any]:
+            is_paid_canary = (
+                raw_job_payload.get("reason") == "apify_actor_canary"
+            )
+            is_x_profile = (
+                str(payload.get("source_type") or "") == "apify_social"
+                and str(payload.get("platform") or "").casefold() == "x"
+                and str(payload.get("kind") or "profile").casefold()
+                == "profile"
+            )
+            if is_paid_canary and (
+                not apify_key_pool_enabled() or not is_x_profile
+            ):
+                raise PaidCanaryUnavailableError(
+                    "Paid Actor canary requires enabled X profile routing"
+                )
+            if is_paid_canary and (
+                int(job.get("max_attempts") or 0) != 1
+                or int(job.get("priority") or 0) != 100
+            ):
+                raise PaidCanaryAuthorizationError(
+                    "Paid Actor canary was not created by the confirmed canary action"
+                )
             meter.before_fetch_attempt(
                 provider=str(payload.get("source_type") or "unknown"),
                 source_id=str(job.get("source_id") or ""),
@@ -369,6 +439,54 @@ def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict
                 workspace_id=str(job["workspace_id"]),
                 data_dir=data_dir,
             )
+            actor_route = None
+            forced_candidate_id = None
+            forced_route_generation = None
+            paid_canary = False
+            if (
+                apify_key_pool_enabled()
+                and is_x_profile
+            ):
+                actor_route = build_apify_actor_route(
+                    store,
+                    data_dir=data_dir,
+                    workspace_id=str(job["workspace_id"]),
+                )
+                if is_paid_canary:
+                    actor = store.get_user(str(job["user_id"]))
+                    if (
+                        actor is None
+                        or not bool(actor.get("enabled"))
+                        or actor.get("role") not in {"owner", "admin"}
+                    ):
+                        raise PermissionError(
+                            "paid Actor canary requires an active administrator"
+                        )
+                    forced_candidate_id = str(
+                        raw_job_payload.get("apify_actor_candidate_id") or ""
+                    )
+                    raw_generation = raw_job_payload.get(
+                        "apify_actor_route_generation"
+                    )
+                    if not forced_candidate_id or not isinstance(
+                        raw_generation,
+                        int,
+                    ):
+                        raise ValueError(
+                            "paid Actor canary routing metadata is invalid"
+                        )
+                    forced_route_generation = int(raw_generation)
+                    paid_canary = True
+            if actor_route is not None:
+                return run_source_test(
+                    payload,
+                    apify_coordinator=apify_coordinator,
+                    apify_actor_route=actor_route,
+                    route_job_id=str(job["id"]),
+                    forced_candidate_id=forced_candidate_id,
+                    forced_route_generation=forced_route_generation,
+                    paid_canary=paid_canary,
+                )
             if apify_coordinator is not None:
                 return run_source_test(
                     payload,
@@ -418,18 +536,59 @@ def run_worker_once(
     job: dict[str, Any] | None = None
     try:
         store.initialize()
+        if store.apify_actor_routing_v13_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_routing_v13",
+            }
         SecretStore(data_dir).load_into_environ()
-        for outcome in reconcile_all_apify_pools_sync(store, data_dir=data_dir):
+        apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
+            store,
+            data_dir=data_dir,
+        )
+        for outcome in apify_reconcile_outcomes:
             if not outcome["ok"]:
                 logger.warning(
                     "Apify pool reconcile pending workspace_id=%s code=%s",
                     outcome["workspace_id"],
                     outcome["code"],
                 )
+            actor_route = build_apify_actor_route(
+                store,
+                data_dir=data_dir,
+                workspace_id=str(outcome["workspace_id"]),
+            )
+            route_reconcile = actor_route.reconcile_unfinished_attempts()
+            if route_reconcile["route_blocked"]:
+                logger.warning(
+                    "Apify Actor route reconcile blocked workspace_id=%s",
+                    outcome["workspace_id"],
+                )
+            try:
+                sync_apify_actor_quota_alert(
+                    store,
+                    data_dir=data_dir,
+                    workspace_id=str(outcome["workspace_id"]),
+                    route_state=actor_route.public_state(),
+                )
+            except Exception:
+                if store.connect().in_transaction:
+                    store.connect().rollback()
+                logger.warning(
+                    "Apify Actor quota alert sync failed workspace_id=%s",
+                    outcome["workspace_id"],
+                )
         if (
             not store.feed_storage_v3_migration_required()
             and not store.content_index_v4_migration_required()
             and not store.content_timeline_v11_migration_required()
+            and not store.apify_actor_routing_v13_migration_required()
         ):
             MaintenanceService(store).run_if_due()
         queue = JobQueue(store)
@@ -505,6 +664,11 @@ def run_worker_once(
             store,
             data_dir=data_dir,
         )
+        actor_alerts = ApifyActorAlertService(
+            store,
+            data_dir=data_dir,
+            email_transport=notifications.email_transport,
+        )
         try:
             notifications.dispatch_pending(limit=20)
         except Exception:
@@ -513,6 +677,12 @@ def run_worker_once(
             logger.warning(
                 "preferred-source notification backlog dispatch failed"
             )
+        try:
+            actor_alerts.dispatch_pending(limit=20)
+        except Exception:
+            if store.connect().in_transaction:
+                store.connect().rollback()
+            logger.warning("Apify Actor alert backlog dispatch failed")
         if store.get_worker_heartbeat(worker_id) is None:
             store.upsert_worker_heartbeat(worker_id, "starting")
         job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
@@ -740,6 +910,18 @@ def run_worker_once(
                         "succeeded": succeeded_deliveries,
                     },
                 )
+        try:
+            actor_alerts.dispatch_pending(
+                workspace_id=str(job["workspace_id"]),
+                limit=20,
+            )
+        except Exception:
+            if store.connect().in_transaction:
+                store.connect().rollback()
+            logger.warning(
+                "Apify Actor alert dispatch failed job_id=%s",
+                job.get("id"),
+            )
         result_payload = finalized.get("result_json") or {}
         final_status = str(finalized["status"])
         outcome_by_status = {

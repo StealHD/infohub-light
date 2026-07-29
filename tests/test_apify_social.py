@@ -7,12 +7,16 @@ import pytest
 
 from src.models import ApifySocialConfig, ApifySocialSubscriptionConfig, SourceType
 from src.scrapers.apify_client import (
+    ApifyActorRunResult,
     ApifyClient,
     ApifyClientError,
     ApifyCredentialFailureKind,
     ApifyCredentialLease,
 )
-from src.scrapers.apify_social import ApifySocialScraper
+from src.scrapers.apify_social import (
+    ApifySocialScraper,
+    ApifySocialSemanticError,
+)
 
 
 def _run_resp(run_id="run1", dataset_id="ds1"):
@@ -51,6 +55,351 @@ def _sub(platform, kind, target, **kwargs):
     }
     defaults.update(kwargs)
     return ApifySocialSubscriptionConfig(**defaults)
+
+
+def test_x_profile_actor_inputs_match_published_contracts():
+    scraper = ApifySocialScraper(
+        _social_config(_sub("x", "profile", "@openai", fetch_limit=7)),
+        httpx.AsyncClient(),
+    )
+    sub = scraper.social_config.subscriptions[0]
+
+    assert scraper._actor_input(
+        sub,
+        actor_id="scrape.badger/twitter-tweets-scraper",
+    ) == {
+        "mode": "Advanced Search",
+        "query": "from:openai",
+        "query_type": "Latest",
+        "max_results": 7,
+    }
+    assert scraper._actor_input(
+        sub,
+        actor_id="dami_studio/tweet-scraper",
+    ) == {
+        "twitterHandles": ["openai"],
+        "maxItems": 7,
+        "includeReplies": False,
+    }
+    assert scraper._actor_input(
+        sub,
+        actor_id="xquik/x-tweet-scraper",
+    ) == {
+        "twitterHandles": ["openai"],
+        "maxItems": 7,
+    }
+    asyncio.run(scraper.client.aclose())
+
+
+def test_paid_canary_caps_every_x_actor_contract_to_one_item():
+    scraper = ApifySocialScraper(
+        _social_config(_sub("x", "profile", "@openai", fetch_limit=50)),
+        httpx.AsyncClient(),
+        paid_canary=True,
+    )
+    sub = scraper.social_config.subscriptions[0]
+
+    assert scraper._actor_input(
+        sub,
+        actor_id="scrape.badger/twitter-tweets-scraper",
+    )["max_results"] == 1
+    assert scraper._actor_input(
+        sub,
+        actor_id="dami_studio/tweet-scraper",
+    )["maxItems"] == 1
+    assert scraper._actor_input(
+        sub,
+        actor_id="xquik/x-tweet-scraper",
+    )["maxItems"] == 1
+    asyncio.run(scraper.client.aclose())
+
+
+def test_routed_x_profile_rejects_dami_error_rows_with_charge(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "test-token")
+    scraper = ApifySocialScraper(
+        _social_config(_sub("x", "profile", "missing")),
+        httpx.AsyncClient(),
+    )
+
+    async def fake_run_actor_detailed(*_args, **_kwargs):
+        return ApifyActorRunResult(
+            items=[{"errorCode": "NOT_FOUND", "message": "not found"}],
+            actual_charge_usd=0.004,
+            cost_final=True,
+        )
+
+    monkeypatch.setattr(
+        ApifyClient,
+        "run_actor_detailed",
+        fake_run_actor_detailed,
+    )
+    with pytest.raises(ApifySocialSemanticError) as exc_info:
+        asyncio.run(
+            scraper.fetch_x_profile_with_actor(
+                scraper.social_config.subscriptions[0],
+                datetime.now(timezone.utc) - timedelta(hours=1),
+                actor_id="dami_studio/tweet-scraper",
+                logical_run_id="attempt-safe-id",
+            )
+        )
+    asyncio.run(scraper.client.aclose())
+
+    assert exc_info.value.code == "apify_actor_target_unavailable"
+    assert exc_info.value.failure_scope == "target"
+    assert exc_info.value.actual_charge_usd == 0.004
+    assert exc_info.value.cost_final is True
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {
+            "id": "tweet-shaped-demo",
+            "text": "looks real",
+            "createdAt": "2030-01-01T00:00:00Z",
+            "demo": True,
+            "errorCode": "PRIVATE",
+        },
+        {
+            "id": "tweet-shaped-paywall",
+            "text": "upgrade",
+            "createdAt": "2030-01-01T00:00:00Z",
+            "paymentRequired": True,
+        },
+        {"noResults": True, "demo": True},
+        {"noResults": True, "resultType": "diagnostic"},
+    ],
+)
+def test_x_semantic_validation_never_accepts_tweet_shaped_control_rows(row):
+    scraper = object.__new__(ApifySocialScraper)
+
+    with pytest.raises(ApifySocialSemanticError) as exc_info:
+        scraper._validated_x_rows([row])
+
+    assert exc_info.value.code == "apify_actor_placeholder"
+    assert exc_info.value.failure_scope == "actor"
+
+
+def test_x_semantic_validation_keeps_only_genuine_rows_from_mixed_dataset():
+    scraper = object.__new__(ApifySocialScraper)
+    genuine = {
+        "id": "real-post",
+        "text": "real",
+        "createdAt": "2030-01-01T00:00:00Z",
+    }
+    placeholder = {
+        "id": "fake-post",
+        "text": "demo",
+        "createdAt": "2030-01-01T00:00:00Z",
+        "resultType": "paywall",
+    }
+
+    rows, outcome = scraper._validated_x_rows([placeholder, genuine])
+
+    assert rows == [genuine]
+    assert outcome == "valid_nonempty"
+
+
+def test_x_semantic_validation_distinguishes_raw_empty_from_explicit_no_results():
+    scraper = object.__new__(ApifySocialScraper)
+
+    assert scraper._validated_x_rows([]) == ([], "suspicious_empty")
+    assert scraper._validated_x_rows([{"noResults": True}]) == (
+        [],
+        "valid_empty",
+    )
+
+
+def test_apify_client_detailed_result_captures_terminal_usage():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(
+                200,
+                json={"data": {"status": "SUCCEEDED", "usageTotalUsd": 0.006}},
+            )
+        if "/datasets/" in request.url.path:
+            return httpx.Response(200, json=[{"id": "tweet-1"}])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            token="test-token",
+            http_client=http_client,
+            poll_interval=0,
+        ).run_actor_detailed(
+            "actor/id",
+            {},
+            max_total_charge_usd=0.02,
+        )
+    )
+    asyncio.run(http_client.aclose())
+
+    assert result.items == [{"id": "tweet-1"}]
+    assert result.actual_charge_usd == 0.006
+    assert result.cost_final is True
+
+
+def test_apify_client_resumes_terminal_dataset_with_get_only():
+    lease = ApifyCredentialLease(
+        secret_id="secret-one",
+        secret_version=1,
+        pool_generation=1,
+        env_name="APIFY_TOKEN",
+        reservation_id="ledger-run",
+        token="token-one",
+    )
+
+    class _ResumeCoordinator:
+        completed = False
+
+        def lease_for_run(self, reservation_id):
+            assert reservation_id == "ledger-run"
+            return lease
+
+        def get_run(self, reservation_id):
+            assert reservation_id == "ledger-run"
+            return {
+                "id": "ledger-run",
+                "remote_run_id": "remote-run",
+                "dataset_id": "dataset-one",
+                "status": "succeeded",
+                "charge_actual_usd": 0.005,
+                "charge_final": 1,
+            }
+
+        def complete_run_reconciliation(self, completed_lease):
+            assert completed_lease == lease
+            self.completed = True
+
+    coordinator = _ResumeCoordinator()
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        assert request.headers["Authorization"] == "Bearer token-one"
+        return httpx.Response(200, json=[{"id": "tweet-one"}])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            coordinator=coordinator,
+            http_client=client,
+            retry_base_delay=0,
+        ).resume_actor_detailed("ledger-run")
+    )
+    asyncio.run(client.aclose())
+
+    assert result.items == [{"id": "tweet-one"}]
+    assert result.actual_charge_usd == 0.005
+    assert result.cost_final is True
+    assert requests == [("GET", "/v2/datasets/dataset-one/items")]
+    assert coordinator.completed is True
+
+
+def test_apify_client_resume_poll_parse_failure_stays_reconcilable():
+    lease = ApifyCredentialLease(
+        secret_id="secret-one",
+        secret_version=1,
+        pool_generation=1,
+        env_name="APIFY_TOKEN",
+        reservation_id="ledger-run",
+        token="token-one",
+    )
+
+    class _ResumeCoordinator:
+        blocked = False
+
+        def lease_for_run(self, _reservation_id):
+            return lease
+
+        def get_run(self, _reservation_id):
+            return {
+                "id": "ledger-run",
+                "remote_run_id": "remote-run",
+                "dataset_id": "dataset-one",
+                "status": "running",
+            }
+
+        def block_run_reconciliation(self, blocked_lease, _error_code):
+            assert blocked_lease == lease
+            self.blocked = True
+
+    coordinator = _ResumeCoordinator()
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        return httpx.Response(200, content=b"not-json")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(ApifyClientError) as raised:
+        asyncio.run(
+            ApifyClient(
+                coordinator=coordinator,
+                http_client=client,
+                poll_interval=0,
+                retry_base_delay=0,
+            ).resume_actor_detailed("ledger-run")
+        )
+    asyncio.run(client.aclose())
+
+    assert raised.value.code == "apify_run_reconcile_required"
+    assert requests == [("GET", "/v2/actor-runs/remote-run")]
+    assert coordinator.blocked is True
+
+
+def test_apify_client_invalid_poll_response_aborts_before_any_new_post():
+    requests = []
+    abort_polled = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal abort_polled
+        requests.append((request.method, request.url.path))
+        if request.method == "POST" and request.url.path.endswith("/abort"):
+            return httpx.Response(
+                200,
+                json={"data": {"status": "ABORTING"}},
+            )
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json=_run_resp("run-one", "dataset-one"),
+            )
+        if request.url.path.endswith("/run-one"):
+            if not abort_polled:
+                abort_polled = True
+                return httpx.Response(200, content=b"not-json")
+            return httpx.Response(
+                200,
+                json={"data": {"status": "ABORTED"}},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(ApifyClientError) as raised:
+        asyncio.run(
+            ApifyClient(
+                tokens=[
+                    ("APIFY_TOKEN", "token-one"),
+                    ("APIFY_TOKEN_2", "token-two"),
+                ],
+                http_client=client,
+                poll_interval=0,
+                retry_base_delay=0,
+            ).run_actor("actor/id", {})
+        )
+    asyncio.run(client.aclose())
+
+    assert raised.value.code == "apify_run_status_unavailable"
+    starts = [
+        request
+        for request in requests
+        if request[0] == "POST" and request[1].endswith("/actor~id/runs")
+    ]
+    assert starts == [("POST", "/v2/acts/actor~id/runs")]
 
 
 class _FakeDrainPendingError(RuntimeError):
@@ -176,6 +525,14 @@ class _FakeApifyCoordinator:
         self.blocked = True
         self.events.append(("start_unknown", lease.secret_id, error_code))
 
+    def block_run_reconciliation(
+        self,
+        lease,
+        error_code="apify_run_reconcile_required",
+    ):
+        self.blocked = True
+        self.events.append(("run_reconcile", lease.secret_id, error_code))
+
     def release_reservation(self, lease, error_code):
         self.events.append(("release", lease.secret_id, error_code))
         self.active_runs.pop(lease.reservation_id, None)
@@ -233,7 +590,7 @@ def test_apify_terminal_error_does_not_expose_remote_identifiers():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     try:
-        with pytest.raises(ValueError) as raised:
+        with pytest.raises(ApifyClientError) as raised:
             asyncio.run(
                 ApifyClient(
                     token="test-token",
@@ -244,6 +601,7 @@ def test_apify_terminal_error_does_not_expose_remote_identifiers():
     finally:
         asyncio.run(client.aclose())
 
+    assert raised.value.code == "apify_run_status_unavailable"
     assert remote_run_id not in str(raised.value)
     assert remote_dataset_id not in str(raised.value)
 
@@ -319,6 +677,70 @@ def test_apify_client_retries_rate_limit_before_succeeding():
     assert set(seen_auth) == {"Bearer test-token"}
 
 
+def test_apify_client_retries_idempotent_get_5xx_on_same_actor():
+    attempts = {"post": 0, "status": 0, "dataset": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            attempts["post"] += 1
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            attempts["status"] += 1
+            if attempts["status"] == 1:
+                return httpx.Response(503, json={"error": {"type": "temporary"}})
+            return httpx.Response(200, json=_status_resp())
+        if "/datasets/" in request.url.path:
+            attempts["dataset"] += 1
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            token="test-token",
+            http_client=client,
+            poll_interval=0,
+            retry_base_delay=0,
+        ).run_actor("actor/id", {})
+    )
+    asyncio.run(client.aclose())
+
+    assert result == []
+    assert attempts == {"post": 1, "status": 2, "dataset": 1}
+
+
+def test_apify_client_retries_idempotent_get_transport_on_same_actor():
+    attempts = {"post": 0, "status": 0, "dataset": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            attempts["post"] += 1
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            attempts["status"] += 1
+            return httpx.Response(200, json=_status_resp())
+        if "/datasets/" in request.url.path:
+            attempts["dataset"] += 1
+            if attempts["dataset"] == 1:
+                raise httpx.ReadTimeout("temporary", request=request)
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            token="test-token",
+            http_client=client,
+            poll_interval=0,
+            retry_base_delay=0,
+        ).run_actor("actor/id", {})
+    )
+    asyncio.run(client.aclose())
+
+    assert result == []
+    assert attempts == {"post": 1, "status": 1, "dataset": 2}
+
+
 def test_apify_client_rotates_to_next_token_on_quota_failure():
     seen_auth = []
 
@@ -358,7 +780,7 @@ def test_apify_client_rotates_to_next_token_on_quota_failure():
     ]
 
 
-def test_legacy_rotation_aborts_started_run_before_using_next_token():
+def test_legacy_poll_402_never_starts_a_second_paid_run():
     requests = []
     old_poll_count = 0
 
@@ -389,34 +811,27 @@ def test_legacy_rotation_aborts_started_run_before_using_next_token():
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = asyncio.run(
-        ApifyClient(
-            tokens=[
-                ("APIFY_TOKEN", "token-one"),
-                ("APIFY_TOKEN_2", "token-two"),
-            ],
-            http_client=client,
-            poll_interval=0,
-            retry_base_delay=0,
-        ).run_actor("actor/id", {})
-    )
+    with pytest.raises(ApifyClientError) as raised:
+        asyncio.run(
+            ApifyClient(
+                tokens=[
+                    ("APIFY_TOKEN", "token-one"),
+                    ("APIFY_TOKEN_2", "token-two"),
+                ],
+                http_client=client,
+                poll_interval=0,
+                retry_base_delay=0,
+            ).run_actor("actor/id", {})
+        )
     asyncio.run(client.aclose())
 
-    assert result == [{"id": "new"}]
-    abort_index = next(
-        index
-        for index, request in enumerate(requests)
-        if request[1].endswith("/run-old/abort")
-    )
-    new_start_index = next(
-        index
-        for index, request in enumerate(requests)
-        if request[0] == "POST" and request[2] == "Bearer token-two"
-    )
-    assert abort_index < new_start_index
-    assert {
-        auth for _method, path, auth, _params in requests if "run-old" in path
-    } == {"Bearer token-one"}
+    assert raised.value.code == "apify_run_reconcile_required"
+    assert [
+        auth
+        for method, path, auth, _params in requests
+        if method == "POST" and path.endswith("/actor~id/runs")
+    ] == ["Bearer token-one"]
+    assert not any(auth == "Bearer token-two" for _method, _path, auth, _params in requests)
 
 
 def test_apify_client_reports_all_token_failures():
@@ -482,6 +897,44 @@ def test_apify_client_does_not_rotate_on_ordinary_forbidden(error_type):
     assert seen_auth == ["Bearer token-one"]
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [
+        (404, "apify_actor_deleted"),
+        (410, "apify_actor_deleted"),
+        (409, "apify_actor_build_unavailable"),
+        (422, "apify_actor_build_unavailable"),
+    ],
+)
+def test_apify_client_classifies_missing_or_unbuildable_actor_without_body_leak(
+    status_code,
+    expected_code,
+):
+    private_body = "private-upstream-detail"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            json={"error": {"message": private_body}},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ApifyClientError) as raised:
+            asyncio.run(
+                ApifyClient(
+                    token="token-one",
+                    http_client=client,
+                    retry_base_delay=0,
+                ).run_actor("actor/id", {})
+            )
+    finally:
+        asyncio.run(client.aclose())
+
+    assert raised.value.code == expected_code
+    assert private_body not in str(raised.value)
+
+
 def test_apify_client_rotates_after_invalid_token_response():
     seen_auth = []
 
@@ -538,7 +991,7 @@ def test_apify_credential_lease_repr_hides_token():
     assert "secret-1" in repr(lease)
 
 
-def test_apify_pool_failure_aborts_with_pinned_token_before_failover():
+def test_apify_pool_poll_402_blocks_without_failover_or_second_post():
     coordinator = _FakeApifyCoordinator(
         ("secret-one", "token-one"),
         ("secret-two", "token-two"),
@@ -574,41 +1027,73 @@ def test_apify_pool_failure_aborts_with_pinned_token_before_failover():
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = asyncio.run(
-        ApifyClient(
-            coordinator=coordinator,
-            http_client=client,
-            poll_interval=0,
-            retry_base_delay=0,
-        ).run_actor("actor/id", {})
-    )
+    with pytest.raises(ApifyClientError) as raised:
+        asyncio.run(
+            ApifyClient(
+                coordinator=coordinator,
+                http_client=client,
+                poll_interval=0,
+                retry_base_delay=0,
+            ).run_actor("actor/id", {})
+        )
     asyncio.run(client.aclose())
 
-    assert result == [{"id": "from-new-key"}]
+    assert raised.value.code == "apify_run_reconcile_required"
+    assert coordinator.blocked is True
     assert (
-        "credential_failure",
+        "run_reconcile",
         "secret-one",
-        ApifyCredentialFailureKind.DEPLETED,
-        402,
-        "monthly-usage-limit-exceeded",
+        "apify_run_reconcile_required",
     ) in coordinator.events
-    old_run_auth = {
+    assert {
         auth
-        for _method, path, auth, _params in seen_requests
-        if "run-old" in path or path.endswith("/actor~id/runs") and auth.endswith("token-one")
-    }
-    assert old_run_auth == {"Bearer token-one"}
-    assert seen_requests.index(
-        (
-            "POST",
-            "/v2/actor-runs/run-old/abort",
-            "Bearer token-one",
-            {"gracefully": "false"},
-        )
-    ) < next(
-        index
-        for index, request in enumerate(seen_requests)
-        if request[0] == "POST" and request[2] == "Bearer token-two"
+        for method, path, auth, _params in seen_requests
+        if method == "POST" and path.endswith("/actor~id/runs")
+    } == {"Bearer token-one"}
+    assert not any(auth == "Bearer token-two" for _method, _path, auth, _params in seen_requests)
+
+
+def test_terminal_dataset_5xx_blocks_without_second_actor_post():
+    coordinator = _FakeApifyCoordinator(
+        ("secret-one", "token-one"),
+        ("secret-two", "token-two"),
+    )
+    attempts = {"post": 0, "dataset": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            attempts["post"] += 1
+            return httpx.Response(200, json=_run_resp("run-one", "dataset-one"))
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(200, json=_status_resp("SUCCEEDED"))
+        if "/datasets/" in request.url.path:
+            attempts["dataset"] += 1
+            return httpx.Response(
+                503,
+                json={"error": {"type": "temporarily-unavailable"}},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ApifyClientError) as raised:
+            asyncio.run(
+                ApifyClient(
+                    coordinator=coordinator,
+                    http_client=client,
+                    poll_interval=0,
+                    retry_base_delay=0,
+                ).run_actor("actor/id", {})
+            )
+    finally:
+        asyncio.run(client.aclose())
+
+    assert raised.value.code == "apify_run_reconcile_required"
+    assert raised.value.retryable is True
+    assert attempts == {"post": 1, "dataset": 3}
+    assert coordinator.blocked is True
+    assert not any(
+        event[0] == "credential_failure" for event in coordinator.events
     )
 
 
@@ -861,7 +1346,7 @@ def test_apify_pool_releases_pre_start_reservation_and_uses_new_generation():
     ) in coordinator.events
 
 
-def test_concurrent_pool_drain_restarts_every_aborted_run_on_new_key():
+def test_concurrent_started_runs_never_restart_on_new_key_after_poll_402():
     coordinator = _FakeApifyCoordinator(
         ("secret-one", "token-one"),
         ("secret-two", "token-two"),
@@ -902,6 +1387,8 @@ def test_concurrent_pool_drain_restarts_every_aborted_run_on_new_key():
                     402,
                     json={"error": {"type": "monthly-usage-limit-exceeded"}},
                 )
+            if run_id != "run-1" and coordinator.blocked:
+                statuses[run_id] = "SUCCEEDED"
             return httpx.Response(200, json=_status_resp(statuses[run_id]))
         if "/datasets/" in request.url.path:
             dataset_id = request.url.path.split("/")[-2]
@@ -924,14 +1411,16 @@ def test_concurrent_pool_drain_restarts_every_aborted_run_on_new_key():
             return await asyncio.gather(
                 clients[0].run_actor("actor/id", {}),
                 clients[1].run_actor("actor/id", {}),
+                return_exceptions=True,
             )
 
     results = asyncio.run(run_both())
 
-    assert sorted(item[0]["dataset"] for item in results) == [
-        "dataset-3",
-        "dataset-4",
-    ]
+    failures = [item for item in results if isinstance(item, Exception)]
+    successes = [item for item in results if isinstance(item, list)]
+    assert len(failures) == 1
+    assert getattr(failures[0], "code", None) == "apify_run_reconcile_required"
+    assert [item[0]["dataset"] for item in successes] == ["dataset-2"]
     starts = [
         auth
         for method, path, auth in requests
@@ -940,8 +1429,6 @@ def test_concurrent_pool_drain_restarts_every_aborted_run_on_new_key():
     assert starts == [
         "Bearer token-one",
         "Bearer token-one",
-        "Bearer token-two",
-        "Bearer token-two",
     ]
     for run_id in ("run-1", "run-2"):
         assert {
@@ -1140,7 +1627,12 @@ def test_x_actor_sends_exact_fetch_limit_to_upstream(
 
 @pytest.mark.parametrize(
     "actor_id",
-    ["xquik/x-tweet-scraper", "apidojo/twitter-scraper-lite"],
+    [
+        "scrape.badger/twitter-tweets-scraper",
+        "dami_studio/tweet-scraper",
+        "xquik/x-tweet-scraper",
+        "apidojo/twitter-scraper-lite",
+    ],
 )
 def test_x_actors_set_two_cent_run_charge_cap(monkeypatch, actor_id):
     monkeypatch.setenv("APIFY_TOKEN", "test-token")

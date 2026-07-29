@@ -16,6 +16,62 @@ from src.services.worker import _is_retryable_exception, run_worker_once
 from src.storage.service_store import ServiceStore
 
 
+def test_worker_reconciles_actor_attempts_after_key_pool_before_claiming(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+    workspace_id = "default"
+
+    def reconcile_keys(_store, *, data_dir):
+        events.append(("keys", data_dir))
+        return [{"workspace_id": workspace_id, "ok": True, "status": "ready"}]
+
+    class _Route:
+        def reconcile_unfinished_attempts(self):
+            events.append(("route", workspace_id))
+            return {
+                "cancelled": 1,
+                "blocked_attempts": 0,
+                "route_blocked": False,
+            }
+
+        def public_state(self):
+            return {
+                "quota": {
+                    "estimated_days_remaining": None,
+                }
+            }
+
+    monkeypatch.setattr(
+        "src.services.worker.reconcile_all_apify_pools_sync",
+        reconcile_keys,
+    )
+    monkeypatch.setattr(
+        "src.services.worker.build_apify_actor_route",
+        lambda _store, *, data_dir, workspace_id: _Route(),
+    )
+    monkeypatch.setattr(
+        "src.services.worker.sync_apify_actor_quota_alert",
+        lambda _store, *, data_dir, workspace_id, route_state: events.append(
+            ("quota", workspace_id)
+        ),
+    )
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="reconcile-worker",
+        enqueue_schedules=False,
+    )
+
+    assert result is None
+    assert events == [
+        ("keys", str(tmp_path)),
+        ("route", workspace_id),
+        ("quota", workspace_id),
+    ]
+
+
 def test_worker_source_test_job_builds_payload_from_catalog_source(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
@@ -276,8 +332,27 @@ def test_worker_source_test_uses_workspace_apify_pool_without_source_key_referen
     )
     calls = []
 
-    def fake_run_source_test(payload, *, apify_coordinator):
-        calls.append((payload, apify_coordinator))
+    def fake_run_source_test(
+        payload,
+        *,
+        apify_coordinator,
+        apify_actor_route,
+        route_job_id,
+        forced_candidate_id,
+        forced_route_generation,
+        paid_canary,
+    ):
+        calls.append(
+            (
+                payload,
+                apify_coordinator,
+                apify_actor_route,
+                route_job_id,
+                forced_candidate_id,
+                forced_route_generation,
+                paid_canary,
+            )
+        )
         return {"ok": True, "source_type": payload["source_type"]}
 
     monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
@@ -286,12 +361,192 @@ def test_worker_source_test_uses_workspace_apify_pool_without_source_key_referen
 
     assert result["status"] == "succeeded"
     assert len(calls) == 1
-    payload, coordinator = calls[0]
+    (
+        payload,
+        coordinator,
+        actor_route,
+        route_job_id,
+        forced_candidate_id,
+        forced_route_generation,
+        paid_canary,
+    ) = calls[0]
     assert coordinator.workspace_id == workspace["id"]
+    assert actor_route.workspace_id == workspace["id"]
+    assert route_job_id == result["id"]
+    assert forced_candidate_id is None
+    assert forced_route_generation is None
+    assert paid_canary is False
     assert coordinator.public_state(workspace["id"])["active_secret_id"] == secret["id"]
     assert "token_env" not in payload
     assert "secret_env" not in payload
     assert "private-workspace-token" not in repr(payload)
+
+
+def test_worker_paid_canary_fails_closed_when_actor_routing_is_disabled(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "false")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="OpenAI on X",
+        config={"platform": "x", "kind": "profile", "target": "openai"},
+        source_key="apify_social:x:profile:openai-canary-disabled",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        job_type="source_test",
+        payload={
+            "reason": "apify_actor_canary",
+            "apify_actor_candidate_id": "candidate-id",
+            "apify_actor_route_generation": 1,
+        },
+        max_attempts=1,
+    )
+    calls = []
+
+    def fake_run_source_test(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="canary-disabled-worker",
+        retry_base_seconds=0,
+    )
+
+    assert result["id"] == job["id"]
+    assert result["status"] == "failed"
+    assert result["error_code"] == "apify_actor_routing_disabled"
+    assert calls == []
+
+
+def test_worker_rejects_paid_canary_without_dedicated_job_limits(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="OpenAI on X",
+        config={"platform": "x", "kind": "profile", "target": "openai"},
+        source_key="apify_social:x:profile:openai-canary-bypass",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        job_type="source_test",
+        payload={
+            "reason": "apify_actor_canary",
+            "apify_actor_candidate_id": "candidate-id",
+            "apify_actor_route_generation": 1,
+        },
+        priority=100,
+        max_attempts=3,
+    )
+    calls = []
+
+    def fake_run_source_test(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="canary-bypass-worker",
+        retry_base_seconds=0,
+    )
+
+    assert result["id"] == job["id"]
+    assert result["status"] == "failed"
+    assert result["error_code"] == "apify_actor_canary_unavailable"
+    assert calls == []
+
+
+def test_worker_does_not_accept_canary_metadata_from_source_config(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Injected X source",
+        config={
+            "platform": "x",
+            "kind": "profile",
+            "target": "openai",
+            "reason": "apify_actor_canary",
+            "apify_actor_candidate_id": "injected-candidate",
+            "apify_actor_route_generation": 1,
+        },
+        source_key="apify_social:x:profile:injected-canary-config",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        job_type="source_test",
+        payload={},
+        priority=100,
+        max_attempts=1,
+    )
+    calls = []
+
+    def fake_run_source_test(payload, **kwargs):
+        calls.append((payload, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr("src.services.worker.run_source_test", fake_run_source_test)
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="canary-source-injection-worker",
+        retry_base_seconds=0,
+    )
+
+    assert result["id"] == job["id"]
+    assert result["status"] == "succeeded"
+    assert len(calls) == 1
+    payload, kwargs = calls[0]
+    assert "reason" not in payload
+    assert "apify_actor_candidate_id" not in payload
+    assert "apify_actor_route_generation" not in payload
+    assert kwargs["paid_canary"] is False
+    assert kwargs["forced_candidate_id"] is None
+    assert kwargs["forced_route_generation"] is None
 
 
 def test_worker_source_fetch_with_catalog_source_uses_catalog_runner(tmp_path, monkeypatch):

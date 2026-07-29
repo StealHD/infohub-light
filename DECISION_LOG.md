@@ -777,3 +777,12 @@
 - 决策内容：Owner/Admin 的触底文案状态卡不再将每个场景裁剪为前三条样例。三个场景默认只显示实际条数，并可分别展开带稳定序号的全部接口文案或再次隐藏；展开区域使用有界纵向滚动，长文案自然换行，设置页本身不因每场景最多 30 条而无限增高。
 - 原因：前三条样例无法让管理员核对实际投入随机选择的完整 AI 文案池，尤其无法发现后续条目的语气偏差或重复问题；完整可审阅列表才与可配置的 `list_count` 和生成状态相匹配。
 - 兼容/边界：只改变管理设置页的只读投影，不改变 API、缓存内容、生成数量、场景选择、随机算法、权限或刷新行为。
+
+### D092 X/profile 采用独立三 Actor 路由、费用熔断与工作区告警
+
+- 决策日期：2026-07-29
+- 当前状态：本地实现与定向回归完成；真实付费 Canary、48 小时观察与生产部署未执行
+- 决策内容：只在 Apify 内为 `x/profile` 建立 ScrapeBadger、Dami、Xquik 三候选路由；候选 Actor 与 Key Pool 分别负责“抓取实现是否健康”和“哪把 Token 有额度”。占位、Demo、付费墙、合同漂移和跨两个历史健康目标的系统性异常会阻止 Feed 写入并串行切换候选；单目标异常只暂停该来源，401/402 只交给 Key Pool，POST 启动结果未知则两层共同 blocked。候选以管理员顺序、健康状态和自然 half-open 探测选择，恢复不会抢回当前 active。
+- 费用与一致性：每 Run 预留 `$0.02`，每逻辑任务最多三个不同 Actor、累计 `$0.06`；有 Job 时稳定复用同一费用组，terminal successful Dataset 只允许 GET 重放。已启动、已结算或因 route generation 冲突作废的取消仍占用费用组并计入失败消费，只有可证明未 POST 的取消才可排除。六小时失败实际费用达到 `$0.08` 时暂停 X，准入同时为全局在途预留保留 headroom。X 只可使用全部可用 Key 在 60 秒内已知剩余额度扣除 `max($1, 20%)` 后的部分。一个 Worker Job 内的 X/profile Actor 调用串行；Actor route generation 进入共享获取指纹，只有携带最终 generation 证明的同次切换成功结果可以迁移 claim 并发布，管理员切换后的迟到结果仅结算费用。付费 Canary 必须逐次二次确认，并与自然调用做候选级双向互斥，不能通过通用 Job retry 重放。
+- 告警与安全：工作区告警独立于个人新内容通知，只允许 Owner/Admin 配置 email 或 HTTPS Webhook 单选渠道。事件采用首报、升级追加、恢复一次；明确临时失败最多三次，未知投递结果不重放。Webhook 复用公网 DNS/IP pinning、禁重定向与 SecretStore write-only 边界；邮箱复用已测试并启用的工作区 transport。告警失败不影响抓取，Token、远端 Run/Dataset、目标账号、原始错误和目的地均不进入 API、Feed 或日志。
+- 兼容/范围：schema v13 只做显式 additive 表/列迁移；已有数据库普通启动不自动安装，缺失版本时 readiness/Worker fail closed。旧 Key Pool、Instagram/Facebook/Telegram Apify、RSS/GitHub 等来源保持原路径。第一期不覆盖 X 关键词搜索、官方 X API、自助注册 Apify 账号、自动付费或 Apidojo 自动备用；真实 Canary 仍是需要 operator 单独授权的付费动作。

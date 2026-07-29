@@ -82,6 +82,9 @@
       "admin_secret_management_enabled": true,
       "local_secret_hot_reload_enabled": true,
       "apify_key_pool_enabled": false,
+      "apify_x_actor_routing_enabled": true,
+      "apify_actor_alerts_enabled": true,
+      "apify_actor_paid_canary_enabled": true,
       "bounded_item_summary_enabled": true,
       "feed_presentation_v1_enabled": true,
       "user_scoped_analysis_cache_enabled": true,
@@ -121,6 +124,22 @@
       "apify_quota_snapshot_max_age_seconds": 60,
       "apify_drain_timeout_seconds": 30,
       "apify_max_attempts_per_key_per_logical_run": 1,
+      "apify_actor_max_charge_per_run_usd": 0.02,
+      "apify_actor_max_reserved_per_job_usd": 0.06,
+      "apify_actor_failed_spend_window_hours": 6,
+      "apify_actor_failed_spend_limit_usd": 0.08,
+      "apify_actor_systemic_failure_targets": 2,
+      "apify_actor_systemic_failure_window_minutes": 15,
+      "apify_actor_target_pause_hours": 6,
+      "apify_actor_cooldown_hours": [1, 3, 6, 24],
+      "apify_actor_recovery_real_post_successes": 2,
+      "apify_actor_probation_hours": 48,
+      "apify_actor_probation_success_rate": 0.95,
+      "apify_actor_canary_max_items": 1,
+      "apify_actor_dami_canary_distinct_sources": 2,
+      "apify_x_quota_allocation_ratio": 0.8,
+      "apify_non_x_minimum_reserve_usd": 1.0,
+      "apify_actor_alert_delivery_max_attempts": 3,
       "shared_acquisition_ttl_minutes": {"min": 5, "max": 60, "fallback": 30},
       "retention_days": {"feed": 90, "source_content": 7, "analysis_cache": 30, "usage": 90, "jobs": 14, "managed_logs": 30},
       "max_feed_snapshots_per_user": 100,
@@ -236,6 +255,17 @@
         "facebook",
         "telegram_public"
       ],
+      "apify_x_profile_route": {
+        "candidate_order": [
+          "scrape.badger/twitter-tweets-scraper",
+          "dami_studio/tweet-scraper",
+          "xquik/x-tweet-scraper"
+        ],
+        "apidojo_automatic_fallback_enabled": false,
+        "official_x_api_enabled": false,
+        "paid_canary_confirmation": "确认付费试跑",
+        "keyword_search_enabled": false
+      },
       "managed_rsshub": {
         "catalog_type": "rss",
         "sites": {

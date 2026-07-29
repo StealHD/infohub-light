@@ -568,9 +568,15 @@ class ApifyKeyPoolService:
 
     def _quota_snapshot_stale(self, member: sqlite3.Row, now: datetime) -> bool:
         checked_at = _parse_time(member["last_checked_at"])
-        if checked_at is None:
+        if (
+            checked_at is None
+            or member["remaining_included_credits_usd"] is None
+        ):
             return True
-        return (now - checked_at).total_seconds() > self.quota_max_age_seconds
+        return (
+            abs((now - checked_at).total_seconds())
+            > self.quota_max_age_seconds
+        )
 
     def acquire_credential(
         self,
@@ -890,6 +896,107 @@ class ApifyKeyPoolService:
                 connection.rollback()
             raise
 
+    def block_run_reconciliation(
+        self,
+        lease: ApifyCredentialLease,
+        error_code: str = "apify_run_reconcile_required",
+    ) -> None:
+        """Block new paid starts while preserving a known terminal Run."""
+
+        connection = self.store.connect()
+        owns_transaction = not connection.in_transaction
+        now_iso = self._current_time().isoformat()
+        safe_code = _safe_error_code(error_code, "apify_run_reconcile_required")
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            run = self._run_for_lease(connection, lease)
+            next_status = (
+                str(run["status"])
+                if run["status"] in APIFY_RUN_TERMINAL_STATUSES
+                else "start_outcome_unknown"
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_runs
+                SET status = ?, last_error_code = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (next_status, safe_code, now_iso, run["id"]),
+            )
+            connection.execute(
+                """
+                UPDATE apify_key_pool_state
+                SET status = 'blocked', blocked_reason = ?, updated_at = ?
+                WHERE workspace_id = ?
+                """,
+                (safe_code, now_iso, run["workspace_id"]),
+            )
+            if owns_transaction:
+                connection.commit()
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
+
+    def complete_run_reconciliation(
+        self,
+        lease: ApifyCredentialLease,
+    ) -> None:
+        """Release a reconcile block after the durable Run result was consumed."""
+
+        connection = self.store.connect()
+        owns_transaction = not connection.in_transaction
+        now_iso = self._current_time().isoformat()
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            run = self._run_for_lease(connection, lease)
+            connection.execute(
+                """
+                UPDATE apify_actor_runs
+                SET last_error_code = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (now_iso, run["id"]),
+            )
+            pending = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM apify_actor_runs
+                WHERE workspace_id = ?
+                  AND (
+                      status = 'start_outcome_unknown'
+                      OR last_error_code = 'apify_run_reconcile_required'
+                  )
+                """,
+                (run["workspace_id"],),
+            ).fetchone()
+            state = self._state_row(connection, str(run["workspace_id"]))
+            if (
+                int(pending["count"] or 0) == 0
+                and state["status"] == "blocked"
+                and state["blocked_reason"] == "apify_run_reconcile_required"
+            ):
+                next_status = (
+                    "ready" if state["active_secret_id"] else "exhausted"
+                )
+                connection.execute(
+                    """
+                    UPDATE apify_key_pool_state
+                    SET generation = generation + 1, status = ?,
+                        blocked_reason = NULL, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (next_status, now_iso, run["workspace_id"]),
+                )
+            if owns_transaction:
+                connection.commit()
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
+
     def block_unregistered_reservations(
         self,
         workspace_id: str,
@@ -1009,6 +1116,62 @@ class ApifyKeyPoolService:
             raise
         if self.get_run(str(run["id"])) is None:
             raise LookupError("terminal Apify run not found")
+
+    def record_run_accounting(
+        self,
+        lease: ApifyCredentialLease,
+        *,
+        actual_cost_usd: float | None,
+        cost_final: bool,
+        reserved_cost_usd: float | None = None,
+    ) -> None:
+        """Persist bounded Actor charge metadata without exposing remote IDs.
+
+        Apify may omit usage while a run is non-terminal. A missing amount is
+        therefore allowed, but a final observation is still recorded so the
+        Actor router can distinguish an authoritative zero from an estimate.
+        """
+
+        actual = (
+            _safe_nonnegative_number(actual_cost_usd)
+            if actual_cost_usd is not None
+            else None
+        )
+        reserved = (
+            _safe_nonnegative_number(reserved_cost_usd)
+            if reserved_cost_usd is not None
+            else None
+        )
+        connection = self.store.connect()
+        owns_transaction = not connection.in_transaction
+        now_iso = self._current_time().isoformat()
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            run = self._run_for_lease(connection, lease)
+            connection.execute(
+                """
+                UPDATE apify_actor_runs
+                SET charge_reserved_usd = COALESCE(?, charge_reserved_usd),
+                    charge_actual_usd = ?,
+                    charge_final = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    reserved,
+                    actual,
+                    int(bool(cost_final)),
+                    now_iso,
+                    run["id"],
+                ),
+            )
+            if owns_transaction:
+                connection.commit()
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            raise
 
     def get_run(self, reservation_id: str) -> dict[str, Any] | None:
         row = self.store.connect().execute(
@@ -1714,6 +1877,39 @@ class ApifyKeyPoolService:
             (workspace_id, now_iso),
         ).fetchall()
         return [str(row["secret_id"]) for row in rows]
+
+    def quota_refresh_candidates(
+        self,
+        workspace_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """List every usable stale Key plus depleted Keys due for recheck."""
+
+        current = _utc(now or self._current_time())
+        rows = self.store.connect().execute(
+            """
+            SELECT *
+            FROM apify_key_pool_members
+            WHERE workspace_id = ?
+              AND status IN ('active', 'standby', 'draining', 'depleted')
+            ORDER BY position, secret_id
+            """,
+            (workspace_id,),
+        ).fetchall()
+        candidates: list[str] = []
+        for row in rows:
+            status = str(row["status"])
+            if status in {"active", "standby", "draining"}:
+                if self._quota_snapshot_stale(row, current):
+                    candidates.append(str(row["secret_id"]))
+                continue
+            retry_at = _parse_time(
+                row["blocked_until"] or row["cycle_end_at"]
+            )
+            if retry_at is not None and retry_at <= current:
+                candidates.append(str(row["secret_id"]))
+        return candidates
 
     def quota_candidate(self, secret_id: str) -> ApifyQuotaCandidate:
         """Resolve one due member's token without placing it in SQLite or repr."""

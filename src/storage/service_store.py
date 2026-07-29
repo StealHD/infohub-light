@@ -411,10 +411,45 @@ class ServiceStore:
                     if current is not connection
                 ]
 
-    def initialize(self) -> None:
+    def initialize(
+        self,
+        *,
+        prepare_apify_actor_routing_v13: bool = False,
+    ) -> None:
         conn = self.connect()
-        conn.executescript(
-            """
+        existing_schema = bool(
+            conn.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('workspaces', 'users', 'schema_migrations')
+                LIMIT 1
+                """
+            ).fetchone()
+        )
+        has_migration_table = bool(
+            conn.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'schema_migrations'
+                """
+            ).fetchone()
+        )
+        apify_actor_v13_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 13"
+            ).fetchone()
+        )
+        apify_actor_v13_upgrade_pending = bool(
+            existing_schema and not apify_actor_v13_migrated
+        )
+        install_apify_actor_v13 = bool(
+            not existing_schema
+            or apify_actor_v13_migrated
+            or prepare_apify_actor_routing_v13
+        )
+        schema_sql = """
             CREATE TABLE IF NOT EXISTS workspaces (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -1088,6 +1123,218 @@ class ServiceStore:
             CREATE INDEX IF NOT EXISTS idx_apify_actor_runs_secret_status
                 ON apify_actor_runs(workspace_id, secret_id, status);
 
+            -- APIFY_ACTOR_ROUTING_V13_BEGIN
+            CREATE TABLE IF NOT EXISTS apify_actor_routes (
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(generation >= 1),
+                status TEXT NOT NULL DEFAULT 'ready'
+                    CHECK(status IN (
+                        'ready', 'degraded', 'exhausted',
+                        'budget_blocked', 'blocked'
+                    )),
+                active_candidate_id TEXT,
+                last_switch_reason TEXT,
+                last_switch_at TEXT,
+                budget_blocked_until TEXT,
+                blocked_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, route_key),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_candidates (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                adapter_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                position INTEGER NOT NULL CHECK(position >= 0),
+                state TEXT NOT NULL
+                    CHECK(state IN (
+                        'closed', 'open', 'half_open',
+                        'disabled', 'probationary'
+                    )),
+                failure_level INTEGER NOT NULL DEFAULT 0
+                    CHECK(failure_level >= 0),
+                recovery_successes INTEGER NOT NULL DEFAULT 0
+                    CHECK(recovery_successes >= 0),
+                probe_claimed_at TEXT,
+                opened_at TEXT,
+                retry_at TEXT,
+                probation_started_at TEXT,
+                success_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(success_count >= 0),
+                failure_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(failure_count >= 0),
+                last_attempt_at TEXT,
+                last_success_at TEXT,
+                last_failure_at TEXT,
+                last_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, route_key, position),
+                UNIQUE(workspace_id, route_key, actor_id),
+                FOREIGN KEY(workspace_id, route_key)
+                    REFERENCES apify_actor_routes(workspace_id, route_key)
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_candidates_route_state
+                ON apify_actor_candidates(workspace_id, route_key, state, position);
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_candidates_recovery
+                ON apify_actor_candidates(workspace_id, route_key, retry_at);
+
+            CREATE TABLE IF NOT EXISTS apify_actor_attempts (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                route_generation INTEGER NOT NULL CHECK(route_generation >= 1),
+                candidate_id TEXT NOT NULL,
+                source_id TEXT,
+                job_id TEXT,
+                attempt_group_id TEXT NOT NULL,
+                attempt_index INTEGER NOT NULL CHECK(attempt_index BETWEEN 1 AND 3),
+                status TEXT NOT NULL
+                    CHECK(status IN (
+                        'reserved', 'running', 'succeeded', 'valid_empty',
+                        'actor_failed', 'target_failed',
+                        'start_outcome_unknown', 'cancelled'
+                    )),
+                semantic_outcome TEXT,
+                reserved_usd REAL NOT NULL DEFAULT 0.02
+                    CHECK(reserved_usd >= 0 AND reserved_usd <= 0.02),
+                actual_cost_usd REAL
+                    CHECK(actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                cost_final INTEGER NOT NULL DEFAULT 0 CHECK(cost_final IN (0, 1)),
+                last_error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                terminal_at TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id, route_key)
+                    REFERENCES apify_actor_routes(workspace_id, route_key)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(candidate_id)
+                    REFERENCES apify_actor_candidates(id) ON DELETE RESTRICT,
+                FOREIGN KEY(source_id)
+                    REFERENCES source_catalog(id) ON DELETE SET NULL,
+                FOREIGN KEY(job_id)
+                    REFERENCES fetch_jobs(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_attempts_group
+                ON apify_actor_attempts(
+                    workspace_id, route_key, attempt_group_id, attempt_index
+                );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_attempts_candidate_time
+                ON apify_actor_attempts(candidate_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_attempts_failed_cost
+                ON apify_actor_attempts(workspace_id, route_key, terminal_at)
+                WHERE status IN (
+                    'actor_failed', 'target_failed', 'start_outcome_unknown'
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_target_health (
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                had_valid_nonempty INTEGER NOT NULL DEFAULT 0
+                    CHECK(had_valid_nonempty IN (0, 1)),
+                consecutive_failures INTEGER NOT NULL DEFAULT 0
+                    CHECK(consecutive_failures >= 0),
+                last_semantic_outcome TEXT,
+                last_valid_at TEXT,
+                last_failure_at TEXT,
+                paused_until TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, route_key, candidate_id, source_id),
+                FOREIGN KEY(workspace_id, route_key)
+                    REFERENCES apify_actor_routes(workspace_id, route_key)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(candidate_id)
+                    REFERENCES apify_actor_candidates(id) ON DELETE CASCADE,
+                FOREIGN KEY(source_id)
+                    REFERENCES source_catalog(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_target_health_paused
+                ON apify_actor_target_health(
+                    workspace_id, route_key, source_id, paused_until
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_alert_settings (
+                workspace_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                channel TEXT NOT NULL DEFAULT 'webhook'
+                    CHECK(channel IN ('email', 'webhook')),
+                events_json TEXT NOT NULL DEFAULT '[]',
+                email_address TEXT,
+                webhook_env_name TEXT,
+                webhook_secret_digest TEXT,
+                generation INTEGER NOT NULL DEFAULT 1 CHECK(generation >= 1),
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN ('sent', 'failed')),
+                last_test_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_alert_incidents (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                incident_key TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                severity TEXT NOT NULL
+                    CHECK(severity IN ('info', 'warning', 'critical')),
+                status TEXT NOT NULL CHECK(status IN ('open', 'resolved')),
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                opened_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                resolved_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_alert_open_incident
+                ON apify_actor_alert_incidents(workspace_id, route_key, incident_key)
+                WHERE status = 'open';
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_alert_incidents_recent
+                ON apify_actor_alert_incidents(workspace_id, opened_at DESC);
+
+            CREATE TABLE IF NOT EXISTS apify_actor_alert_deliveries (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                incident_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                channel TEXT NOT NULL CHECK(channel IN ('email', 'webhook')),
+                settings_generation INTEGER NOT NULL CHECK(settings_generation >= 1),
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL
+                    CHECK(status IN ('pending', 'sending', 'succeeded', 'failed')),
+                attempts INTEGER NOT NULL DEFAULT 0
+                    CHECK(attempts BETWEEN 0 AND 3),
+                retry_at TEXT,
+                error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                sent_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(incident_id, event_type),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(incident_id)
+                    REFERENCES apify_actor_alert_incidents(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_alert_delivery_due
+                ON apify_actor_alert_deliveries(status, retry_at, created_at);
+            -- APIFY_ACTOR_ROUTING_V13_END
+
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
@@ -1191,7 +1438,17 @@ class ServiceStore:
             CREATE INDEX IF NOT EXISTS idx_storage_archives_workspace_created
                 ON storage_archive_batches(workspace_id, created_at DESC);
             """
-        )
+        if not install_apify_actor_v13:
+            before_v13, after_marker = schema_sql.split(
+                "-- APIFY_ACTOR_ROUTING_V13_BEGIN",
+                1,
+            )
+            _v13_sql, after_v13 = after_marker.split(
+                "-- APIFY_ACTOR_ROUTING_V13_END",
+                1,
+            )
+            schema_sql = before_v13 + after_v13
+        conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
             """
@@ -1213,6 +1470,22 @@ class ServiceStore:
         self._ensure_column("secret_refs", "kind", "TEXT NOT NULL DEFAULT 'ai'")
         self._ensure_column("secret_refs", "provider", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("secret_refs", "version", "INTEGER NOT NULL DEFAULT 1")
+        if install_apify_actor_v13:
+            self._ensure_column(
+                "apify_actor_runs",
+                "charge_reserved_usd",
+                "REAL NOT NULL DEFAULT 0",
+            )
+            self._ensure_column(
+                "apify_actor_runs",
+                "charge_actual_usd",
+                "REAL",
+            )
+            self._ensure_column(
+                "apify_actor_runs",
+                "charge_final",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
         self._ensure_column(
             "source_acquisition_states",
             "failure_count",
@@ -1392,6 +1665,10 @@ class ServiceStore:
         if not has_unmigrated_timeline_rows and not timeline_v11_migrated:
             self.mark_content_timeline_v11_migrated(commit=False)
         self.mark_agent_source_resolutions_v12_migrated(commit=False)
+        if install_apify_actor_v13:
+            self._seed_apify_actor_routes(commit=False)
+            if not apify_actor_v13_upgrade_pending:
+                self.mark_apify_actor_routing_v13_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -1504,6 +1781,32 @@ class ServiceStore:
         )
         if commit:
             self.connect().commit()
+
+    def mark_apify_actor_routing_v13_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (
+                13,
+                'apify_actor_routing_v13',
+                'apify-actor-routing-alerts-v13',
+                ?
+            )
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def apify_actor_routing_v13_migration_required(self) -> bool:
+        return not bool(
+            self.connect().execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 13"
+            ).fetchone()
+        )
 
     def mark_apify_key_pool_v8_migrated(self, *, commit: bool = True) -> None:
         self.connect().execute(
@@ -1788,6 +2091,108 @@ class ServiceStore:
                     WHERE workspace_id = ?
                     """,
                     ("exhausted" if member_exists else "empty", now, workspace_id),
+                )
+        if commit:
+            conn.commit()
+
+    def _seed_apify_actor_routes(self, *, commit: bool = True) -> None:
+        """Idempotently seed the Apify-only X profile route for each workspace."""
+
+        conn = self.connect()
+        now = _now_iso()
+        retry_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        seeds = (
+            (
+                "scrape_badger",
+                "scrape.badger/twitter-tweets-scraper",
+                "ScrapeBadger",
+                0,
+                "closed",
+            ),
+            (
+                "dami",
+                "dami_studio/tweet-scraper",
+                "Dami",
+                1,
+                "disabled",
+            ),
+            (
+                "xquik",
+                "xquik/x-tweet-scraper",
+                "Xquik",
+                2,
+                "open",
+            ),
+        )
+        for workspace_row in conn.execute(
+            "SELECT id FROM workspaces ORDER BY created_at, id"
+        ).fetchall():
+            workspace_id = str(workspace_row["id"])
+            candidate_ids = {
+                adapter_key: "apify-candidate-"
+                + hashlib.sha256(
+                    f"{workspace_id}:x/profile:{adapter_key}".encode("utf-8")
+                ).hexdigest()[:24]
+                for adapter_key, *_rest in seeds
+            }
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO apify_actor_routes (
+                    workspace_id, route_key, generation, status,
+                    active_candidate_id, last_switch_reason, last_switch_at,
+                    created_at, updated_at
+                ) VALUES (?, 'x/profile', 1, 'degraded', ?, 'initial_policy', ?, ?, ?)
+                """,
+                (
+                    workspace_id,
+                    candidate_ids["scrape_badger"],
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            for (
+                adapter_key,
+                actor_id,
+                display_name,
+                position,
+                state,
+            ) in seeds:
+                is_xquik = adapter_key == "xquik"
+                is_dami = adapter_key == "dami"
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO apify_actor_candidates (
+                        id, workspace_id, route_key, actor_id, adapter_key,
+                        display_name, position, state, failure_level,
+                        opened_at, retry_at, probation_started_at,
+                        last_failure_at, last_error_code, created_at, updated_at
+                    ) VALUES (
+                        ?, ?, 'x/profile', ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?
+                    )
+                    """,
+                    (
+                        candidate_ids[adapter_key],
+                        workspace_id,
+                        actor_id,
+                        adapter_key,
+                        display_name,
+                        position,
+                        state,
+                        1 if is_xquik else 0,
+                        now if is_xquik else None,
+                        retry_at if is_xquik else None,
+                        None,
+                        now if is_xquik else None,
+                        (
+                            "placeholder_record"
+                            if is_xquik
+                            else "canary_required" if is_dami else None
+                        ),
+                        now,
+                        now,
+                    ),
                 )
         if commit:
             conn.commit()
@@ -3369,13 +3774,28 @@ class ServiceStore:
                 """,
                 (error_code, now, workspace_id),
             )
+            actor_alerts_updated = conn.execute(
+                """
+                UPDATE apify_actor_alert_deliveries
+                SET status = 'failed',
+                    error_code = ?,
+                    updated_at = ?
+                WHERE workspace_id = ?
+                  AND channel = 'email'
+                  AND status = 'pending'
+                """,
+                (error_code, now, workspace_id),
+            )
             if owns_transaction:
                 conn.commit()
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
             raise
-        return max(int(updated.rowcount), 0)
+        return max(int(updated.rowcount), 0) + max(
+            int(actor_alerts_updated.rowcount),
+            0,
+        )
 
     def claim_workspace_email_transport_test_attempt(
         self,

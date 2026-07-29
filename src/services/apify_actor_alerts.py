@@ -1,0 +1,1794 @@
+"""Workspace-scoped operational alerts for the Apify X Actor route."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import math
+import os
+import re
+import threading
+import uuid
+from datetime import datetime, timedelta, timezone
+from email.utils import parseaddr
+from typing import Any, Coroutine
+from urllib.parse import urlsplit
+
+import httpx
+
+from ..storage.service_store import ServiceStore
+from .network_policy import UnsafeNetworkTarget, post_public_http
+from .notification_email_transport import (
+    EmailTransportError,
+    WorkspaceEmailTransportService,
+)
+from .secret_store import SecretStore
+
+
+UNSET = object()
+ALERT_EVENTS = (
+    "actor_switched",
+    "route_exhausted",
+    "quota_low",
+    "budget_blocked",
+    "start_outcome_unknown",
+    "recovered",
+)
+OPENING_ALERT_EVENTS = frozenset(ALERT_EVENTS[:-1])
+ALERT_SEVERITIES = frozenset({"info", "warning", "critical"})
+MAX_DELIVERY_ATTEMPTS = 3
+TEST_COOLDOWN_SECONDS = 60
+_RETRY_DELAYS_SECONDS = (60, 300)
+_SAFE_CODE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,63}$")
+_SAFE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class ApifyActorAlertError(RuntimeError):
+    """A bounded operational-alert error safe for an API envelope."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 400,
+        retryable: bool = False,
+        outcome_unknown: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.code = _safe_code(code, "apify_actor_alert_failed")
+        self.status_code = int(status_code)
+        self.retryable = bool(retryable)
+        self.outcome_unknown = bool(outcome_unknown)
+
+
+def _safe_code(value: Any, fallback: str) -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if _SAFE_CODE_RE.fullmatch(candidate) else fallback
+
+
+def _bounded_text(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if not isinstance(value, str) or not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(value: datetime | str | None = None) -> str:
+    if value is None:
+        parsed = _utc_now()
+    elif isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "alert timestamp must be ISO 8601",
+            ) from exc
+    if parsed.tzinfo is None:
+        raise ApifyActorAlertError(
+            "invalid_apify_actor_alert_settings",
+            "alert timestamp must include a timezone",
+        )
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_email(value: Any) -> str | None:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    if len(candidate) > 320 or any(marker in candidate for marker in ("\r", "\n", "\x00")):
+        raise ApifyActorAlertError(
+            "invalid_notification_destination",
+            "notification email address is invalid",
+        )
+    display_name, address = parseaddr(candidate)
+    if display_name or address != candidate or not _EMAIL_RE.fullmatch(address):
+        raise ApifyActorAlertError(
+            "invalid_notification_destination",
+            "notification email address is invalid",
+        )
+    return address
+
+
+def _validate_webhook_url(value: Any) -> str:
+    candidate = str(value or "").strip()
+    try:
+        parsed = urlsplit(candidate)
+        hostname = parsed.hostname
+        hostname_ascii = (
+            hostname.rstrip(".").encode("idna").decode("ascii")
+            if hostname
+            else ""
+        )
+        parsed.port
+    except (UnicodeError, ValueError):
+        parsed = None
+        hostname = None
+        hostname_ascii = ""
+    if (
+        len(candidate) > 4096
+        or any(marker in candidate for marker in ("\r", "\n", "\x00"))
+        or parsed is None
+        or parsed.scheme != "https"
+        or not hostname
+        or not hostname_ascii
+        or parsed.username is not None
+        or parsed.password is not None
+        or bool(parsed.fragment)
+    ):
+        raise ApifyActorAlertError(
+            "invalid_notification_destination",
+            "notification webhook must be a credential-free HTTPS URL",
+        )
+    return candidate
+
+
+def _normalize_events(value: Any, *, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    if value is None:
+        return default
+    if not isinstance(value, (list, tuple)):
+        raise ApifyActorAlertError(
+            "invalid_apify_actor_alert_settings",
+            "alert events must be a list",
+        )
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_event in value:
+        event = str(raw_event or "").strip()
+        if event not in ALERT_EVENTS or event in seen:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "alert events contain an unsupported or duplicate value",
+            )
+        seen.add(event)
+        normalized.append(event)
+    return tuple(event for event in ALERT_EVENTS if event in seen)
+
+
+def _public_delivery_status(value: Any) -> str | None:
+    status = str(value or "").strip().lower()
+    return {
+        "pending": "pending",
+        "sending": "unknown",
+        "succeeded": "sent",
+        "failed": "failed",
+    }.get(status)
+
+
+def _run_coroutine(coroutine: Coroutine[Any, Any, Any]) -> Any:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+
+    result: list[Any] = []
+    failure: list[BaseException] = []
+
+    def runner() -> None:
+        try:
+            result.append(asyncio.run(coroutine))
+        except BaseException as exc:  # forwarded to the calling request/thread
+            failure.append(exc)
+
+    thread = threading.Thread(
+        target=runner,
+        name="apify-alert-http",
+        daemon=True,
+    )
+    thread.start()
+    thread.join()
+    if failure:
+        raise failure[0]
+    return result[0] if result else None
+
+
+class ApifyActorAlertService:
+    """Persist incident transitions and deliver bounded workspace alerts."""
+
+    def __init__(
+        self,
+        store: ServiceStore,
+        *,
+        data_dir: str,
+        email_transport: WorkspaceEmailTransportService | None = None,
+    ) -> None:
+        self.store = store
+        self.secret_store = SecretStore(data_dir)
+        self.email_transport = email_transport or WorkspaceEmailTransportService(
+            store,
+            data_dir=data_dir,
+        )
+
+    @staticmethod
+    def webhook_env_name(*, workspace_id: str) -> str:
+        digest = hashlib.sha256(
+            str(workspace_id).encode("utf-8")
+        ).hexdigest()[:24].upper()
+        return f"HORIZON_APIFY_ALERT_WEBHOOK_{digest}"
+
+    def _settings_row(self, workspace_id: str) -> dict[str, Any] | None:
+        row = self.store.connect().execute(
+            """
+            SELECT *
+            FROM apify_actor_alert_settings
+            WHERE workspace_id = ?
+            """,
+            (workspace_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        settings = dict(row)
+        settings["enabled"] = bool(settings.get("enabled"))
+        settings["generation"] = max(0, int(settings.get("generation") or 0))
+        try:
+            raw_events = json.loads(str(settings.get("events_json") or "[]"))
+            settings["events"] = list(_normalize_events(raw_events))
+        except (TypeError, ValueError, ApifyActorAlertError):
+            settings["events"] = []
+        return settings
+
+    def _bound_webhook_secret(
+        self,
+        settings: dict[str, Any] | None,
+    ) -> str | None:
+        if settings is None:
+            return None
+        workspace_id = str(settings.get("workspace_id") or "")
+        env_name = str(settings.get("webhook_env_name") or "")
+        expected_digest = str(settings.get("webhook_secret_digest") or "")
+        expected_env = self.webhook_env_name(workspace_id=workspace_id)
+        if (
+            not workspace_id
+            or env_name != expected_env
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            return None
+        secret = self.secret_store.read().get(expected_env)
+        if not secret:
+            return None
+        actual_digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+        return (
+            secret
+            if hmac.compare_digest(actual_digest, expected_digest)
+            else None
+        )
+
+    def _last_delivery(self, workspace_id: str) -> dict[str, Any] | None:
+        row = self.store.connect().execute(
+            """
+            SELECT status, error_code, created_at, started_at, sent_at, updated_at
+            FROM apify_actor_alert_deliveries
+            WHERE workspace_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (workspace_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        delivery = dict(row)
+        delivery["status"] = _public_delivery_status(delivery.get("status"))
+        return delivery
+
+    def get_public_settings(self, *, workspace_id: str) -> dict[str, Any]:
+        settings = self._settings_row(workspace_id)
+        last_delivery = self._last_delivery(workspace_id)
+        if settings is None:
+            return {
+                "schema_version": 1,
+                "enabled": False,
+                "channel": "webhook",
+                "events": list(ALERT_EVENTS),
+                "email_configured": False,
+                "email_transport_ready": self.email_transport.is_ready(
+                    workspace_id=workspace_id
+                ),
+                "webhook_configured": False,
+                "last_test_status": None,
+                "last_tested_at": None,
+                "last_test_error_code": None,
+                "last_alert_status": (
+                    last_delivery.get("status") if last_delivery else None
+                ),
+                "last_alerted_at": self._last_alert_time(last_delivery),
+                "last_alert_error_code": (
+                    last_delivery.get("error_code") if last_delivery else None
+                ),
+                "updated_at": None,
+            }
+        channel = str(settings.get("channel") or "")
+        return {
+            "schema_version": 1,
+            "enabled": bool(settings.get("enabled"))
+            and channel in {"email", "webhook"},
+            "channel": channel if channel in {"email", "webhook"} else "webhook",
+            "events": list(settings.get("events") or []),
+            "email_configured": bool(settings.get("email_address")),
+            "email_transport_ready": self.email_transport.is_ready(
+                workspace_id=workspace_id
+            ),
+            "webhook_configured": bool(self._bound_webhook_secret(settings)),
+            "last_test_status": settings.get("last_test_status"),
+            "last_tested_at": settings.get("last_tested_at"),
+            "last_test_error_code": settings.get("last_test_error_code"),
+            "last_alert_status": (
+                last_delivery.get("status") if last_delivery else None
+            ),
+            "last_alerted_at": self._last_alert_time(last_delivery),
+            "last_alert_error_code": (
+                last_delivery.get("error_code") if last_delivery else None
+            ),
+            "updated_at": settings.get("updated_at"),
+        }
+
+    @staticmethod
+    def _last_alert_time(delivery: dict[str, Any] | None) -> str | None:
+        if delivery is None:
+            return None
+        return (
+            delivery.get("sent_at")
+            or delivery.get("started_at")
+            or delivery.get("updated_at")
+            or delivery.get("created_at")
+        )
+
+    def upsert_settings(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        enabled: Any = UNSET,
+        channel: Any = UNSET,
+        events: Any = UNSET,
+        email_address: Any = UNSET,
+        webhook_url: Any = UNSET,
+    ) -> dict[str, Any]:
+        conn = self.store.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "Apify Actor alert settings update requires no active transaction"
+            )
+        expected_env = self.webhook_env_name(workspace_id=workspace_id)
+        previous_secret = self.secret_store.read().get(expected_env)
+        secret_touched = False
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_admin(
+                workspace_id=workspace_id,
+                actor_user_id=actor_user_id,
+            )
+            current = self._settings_row(workspace_id)
+            target_enabled = self._target_enabled(current, enabled)
+            target_channel = self._target_channel(current, channel)
+            target_events = (
+                (
+                    tuple(current.get("events") or ())
+                    if current is not None
+                    else ALERT_EVENTS
+                )
+                if events is UNSET
+                else _normalize_events(events)
+            )
+            target_email = (
+                (current or {}).get("email_address")
+                if email_address is UNSET
+                else _normalize_email(email_address)
+            )
+
+            current_env = str((current or {}).get("webhook_env_name") or "")
+            target_env = current_env if current_env == expected_env else None
+            target_digest = (
+                str((current or {}).get("webhook_secret_digest") or "")
+                if target_env
+                else ""
+            ) or None
+            validated_webhook: str | None = None
+            if webhook_url is not UNSET:
+                if webhook_url is None or not str(webhook_url).strip():
+                    target_env = None
+                    target_digest = None
+                else:
+                    validated_webhook = _validate_webhook_url(webhook_url)
+                    target_env = expected_env
+                    target_digest = hashlib.sha256(
+                        validated_webhook.encode("utf-8")
+                    ).hexdigest()
+            elif current is None or not self._bound_webhook_secret(current):
+                target_env = None
+                target_digest = None
+
+            webhook_configured = bool(
+                target_env
+                and target_digest
+                and (
+                    validated_webhook
+                    if webhook_url is not UNSET
+                    else self._bound_webhook_secret(current)
+                )
+            )
+            if target_enabled and target_channel == "email":
+                if not target_email:
+                    raise ApifyActorAlertError(
+                        "notification_destination_required",
+                        "configure an alert email address before enabling email alerts",
+                        status_code=409,
+                    )
+                if not self.email_transport.is_ready(
+                    workspace_id=workspace_id
+                ):
+                    raise ApifyActorAlertError(
+                        "notification_channel_unavailable",
+                        "workspace email transport is not ready",
+                        status_code=409,
+                    )
+            if (
+                target_enabled
+                and target_channel == "webhook"
+                and not webhook_configured
+            ):
+                raise ApifyActorAlertError(
+                    "notification_destination_required",
+                    "configure an alert webhook before enabling webhook alerts",
+                    status_code=409,
+                )
+
+            current_generation = max(
+                0,
+                int((current or {}).get("generation") or 0),
+            )
+            material_changed = current is None or any(
+                (
+                    target_enabled != bool((current or {}).get("enabled")),
+                    target_channel
+                    != str((current or {}).get("channel") or "webhook"),
+                    target_events
+                    != (
+                        tuple(current.get("events") or ())
+                        if current is not None
+                        else ALERT_EVENTS
+                    ),
+                    target_email != (current or {}).get("email_address"),
+                    target_env != (current or {}).get("webhook_env_name"),
+                    target_digest
+                    != (current or {}).get("webhook_secret_digest"),
+                )
+            )
+            target_generation = current_generation + int(material_changed)
+            if webhook_url is not UNSET:
+                if validated_webhook is None:
+                    self.secret_store.delete(expected_env)
+                    os.environ.pop(expected_env, None)
+                else:
+                    self.secret_store.set(expected_env, validated_webhook)
+                secret_touched = True
+
+            now = _iso()
+            last_test_status = (current or {}).get("last_test_status")
+            last_test_generation = (current or {}).get(
+                "last_test_generation"
+            )
+            last_tested_at = (current or {}).get("last_tested_at")
+            last_test_error_code = (current or {}).get(
+                "last_test_error_code"
+            )
+            if material_changed:
+                last_test_status = None
+                last_test_generation = None
+                last_tested_at = None
+                last_test_error_code = None
+            conn.execute(
+                """
+                INSERT INTO apify_actor_alert_settings (
+                    workspace_id, enabled, channel, events_json, email_address,
+                    webhook_env_name, webhook_secret_digest, generation,
+                    last_test_status, last_test_generation,
+                    last_test_attempted_at, last_tested_at,
+                    last_test_error_code, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(workspace_id) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    channel = excluded.channel,
+                    events_json = excluded.events_json,
+                    email_address = excluded.email_address,
+                    webhook_env_name = excluded.webhook_env_name,
+                    webhook_secret_digest = excluded.webhook_secret_digest,
+                    generation = excluded.generation,
+                    last_test_status = excluded.last_test_status,
+                    last_test_generation = excluded.last_test_generation,
+                    last_test_attempted_at = excluded.last_test_attempted_at,
+                    last_tested_at = excluded.last_tested_at,
+                    last_test_error_code = excluded.last_test_error_code,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    workspace_id,
+                    1 if target_enabled else 0,
+                    target_channel,
+                    _json_dumps(list(target_events)),
+                    target_email,
+                    target_env,
+                    target_digest,
+                    target_generation,
+                    last_test_status,
+                    last_test_generation,
+                    (current or {}).get("last_test_attempted_at"),
+                    last_tested_at,
+                    last_test_error_code,
+                    (current or {}).get("created_at") or now,
+                    now,
+                ),
+            )
+            if material_changed:
+                conn.execute(
+                    """
+                    UPDATE apify_actor_alert_deliveries
+                    SET status = 'failed',
+                        error_code = 'notification_settings_changed',
+                        updated_at = ?
+                    WHERE workspace_id = ? AND status = 'pending'
+                    """,
+                    (now, workspace_id),
+                )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            if secret_touched:
+                if previous_secret is None:
+                    self.secret_store.delete(expected_env)
+                    os.environ.pop(expected_env, None)
+                else:
+                    self.secret_store.set(expected_env, previous_secret)
+            raise
+        return self.get_public_settings(workspace_id=workspace_id)
+
+    @staticmethod
+    def _target_enabled(
+        current: dict[str, Any] | None,
+        enabled: Any,
+    ) -> bool:
+        if enabled is UNSET:
+            return bool((current or {}).get("enabled"))
+        if not isinstance(enabled, bool):
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "enabled must be a boolean",
+            )
+        return enabled
+
+    @staticmethod
+    def _target_channel(
+        current: dict[str, Any] | None,
+        channel: Any,
+    ) -> str:
+        if channel is UNSET:
+            candidate = str((current or {}).get("channel") or "webhook")
+        elif channel is None:
+            candidate = ""
+        else:
+            candidate = str(channel).strip().lower()
+        if candidate not in {"email", "webhook"}:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "alert channel must be email or webhook",
+            )
+        return candidate
+
+    def open_incident(
+        self,
+        *,
+        workspace_id: str,
+        route_key: str,
+        incident_key: str,
+        event_type: str,
+        severity: str,
+        payload: dict[str, Any] | None = None,
+        opened_at: datetime | str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        route = self._safe_key(route_key, label="route")
+        condition = self._safe_key(incident_key, label="incident")
+        if event_type not in OPENING_ALERT_EVENTS:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_event",
+                "opening alert event is unsupported",
+            )
+        if severity not in ALERT_SEVERITIES:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_event",
+                "alert severity is unsupported",
+            )
+        event_at = _iso(opened_at)
+        safe_payload = self._safe_incident_details(payload)
+        conn = self.store.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        if not commit and not conn.in_transaction:
+            raise RuntimeError(
+                "non-committing incident creation requires an active transaction"
+            )
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            incident_id = f"aai_{uuid.uuid4().hex}"
+            inserted = conn.execute(
+                """
+                INSERT OR IGNORE INTO apify_actor_alert_incidents (
+                    id, workspace_id, route_key, incident_key, event_type,
+                    severity, status, payload_json, opened_at, last_seen_at,
+                    resolved_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL, ?, ?)
+                """,
+                (
+                    incident_id,
+                    workspace_id,
+                    route,
+                    condition,
+                    event_type,
+                    severity,
+                    _json_dumps(safe_payload),
+                    event_at,
+                    event_at,
+                    event_at,
+                    event_at,
+                ),
+            )
+            created = inserted.rowcount == 1
+            if not created:
+                row = conn.execute(
+                    """
+                    SELECT *
+                    FROM apify_actor_alert_incidents
+                    WHERE workspace_id = ?
+                      AND route_key = ?
+                      AND incident_key = ?
+                      AND status = 'open'
+                    """,
+                    (workspace_id, route, condition),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError(
+                        "open incident conflict did not resolve to a row"
+                    )
+                incident_id = str(row["id"])
+                previous_payload = _json_object(row["payload_json"])
+                merged_payload = {
+                    **previous_payload,
+                    **{
+                        key: value
+                        for key, value in safe_payload.items()
+                        if value not in {None, ""}
+                    },
+                }
+                conn.execute(
+                    """
+                    UPDATE apify_actor_alert_incidents
+                    SET last_seen_at = ?, payload_json = ?, updated_at = ?
+                    WHERE id = ? AND status = 'open'
+                    """,
+                    (
+                        event_at,
+                        _json_dumps(merged_payload),
+                        event_at,
+                        incident_id,
+                    ),
+                )
+            incident = self._incident_row(incident_id)
+            if incident is None:
+                raise RuntimeError("created incident could not be loaded")
+            delivery_staged = bool(
+                created
+                and self._stage_delivery(
+                    incident=incident,
+                    event_type=event_type,
+                    now=event_at,
+                )
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        incident = self._incident_row(incident_id)
+        if incident is None:
+            raise RuntimeError("incident disappeared after creation")
+        return {
+            "created": created,
+            "delivery_staged": delivery_staged,
+            "incident": self._public_incident(incident),
+        }
+
+    def resolve_incident(
+        self,
+        *,
+        workspace_id: str,
+        route_key: str,
+        incident_key: str,
+        payload: dict[str, Any] | None = None,
+        resolved_at: datetime | str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        route = self._safe_key(route_key, label="route")
+        condition = self._safe_key(incident_key, label="incident")
+        event_at = _iso(resolved_at)
+        conn = self.store.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        if not commit and not conn.in_transaction:
+            raise RuntimeError(
+                "non-committing incident resolution requires an active transaction"
+            )
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """
+                SELECT *
+                FROM apify_actor_alert_incidents
+                WHERE workspace_id = ?
+                  AND route_key = ?
+                  AND incident_key = ?
+                  AND status = 'open'
+                """,
+                (workspace_id, route, condition),
+            ).fetchone()
+            if row is None:
+                if owns_transaction:
+                    conn.commit()
+                return {
+                    "resolved": False,
+                    "delivery_staged": False,
+                    "incident": None,
+                }
+            incident_id = str(row["id"])
+            merged_payload = {
+                **_json_object(row["payload_json"]),
+                **self._safe_incident_details(payload),
+            }
+            updated = conn.execute(
+                """
+                UPDATE apify_actor_alert_incidents
+                SET status = 'resolved',
+                    payload_json = ?,
+                    resolved_at = ?,
+                    last_seen_at = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = 'open'
+                """,
+                (
+                    _json_dumps(merged_payload),
+                    event_at,
+                    event_at,
+                    event_at,
+                    incident_id,
+                ),
+            )
+            if updated.rowcount != 1:
+                if owns_transaction:
+                    conn.commit()
+                return {
+                    "resolved": False,
+                    "delivery_staged": False,
+                    "incident": None,
+                }
+            incident = self._incident_row(incident_id)
+            if incident is None:
+                raise RuntimeError("resolved incident could not be loaded")
+            opening_was_staged = bool(
+                conn.execute(
+                    """
+                    SELECT 1
+                    FROM apify_actor_alert_deliveries
+                    WHERE incident_id = ? AND event_type != 'recovered'
+                    LIMIT 1
+                    """,
+                    (incident_id,),
+                ).fetchone()
+            )
+            delivery_staged = bool(
+                opening_was_staged
+                and self._stage_delivery(
+                    incident=incident,
+                    event_type="recovered",
+                    now=event_at,
+                )
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        incident = self._incident_row(incident_id)
+        if incident is None:
+            raise RuntimeError("incident disappeared after resolution")
+        return {
+            "resolved": True,
+            "delivery_staged": delivery_staged,
+            "incident": self._public_incident(incident),
+        }
+
+    @staticmethod
+    def _safe_key(value: Any, *, label: str) -> str:
+        candidate = str(value or "").strip()
+        if not _SAFE_KEY_RE.fullmatch(candidate):
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_event",
+                f"{label} key is invalid",
+            )
+        return candidate
+
+    @staticmethod
+    def _safe_incident_details(
+        payload: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        source = payload if isinstance(payload, dict) else {}
+        reason_code = _safe_code(source.get("reason_code"), "")
+        return {
+            "actor_name": _bounded_text(source.get("actor_name"), 160),
+            "active_actor_name": _bounded_text(
+                source.get("active_actor_name"),
+                160,
+            ),
+            "reason_code": reason_code,
+        }
+
+    def _incident_row(self, incident_id: str) -> dict[str, Any] | None:
+        row = self.store.connect().execute(
+            """
+            SELECT *
+            FROM apify_actor_alert_incidents
+            WHERE id = ?
+            """,
+            (incident_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        incident = dict(row)
+        incident["payload"] = self._safe_incident_details(
+            _json_object(incident.pop("payload_json", None))
+        )
+        return incident
+
+    def _settings_can_deliver(
+        self,
+        settings: dict[str, Any] | None,
+        *,
+        event_type: str,
+    ) -> bool:
+        if (
+            settings is None
+            or not bool(settings.get("enabled"))
+            or event_type not in set(settings.get("events") or ())
+        ):
+            return False
+        channel = str(settings.get("channel") or "")
+        if channel == "email":
+            return bool(
+                settings.get("email_address")
+                and self.email_transport.is_ready(
+                    workspace_id=str(settings.get("workspace_id") or "")
+                )
+            )
+        if channel == "webhook":
+            return bool(self._bound_webhook_secret(settings))
+        return False
+
+    def _stage_delivery(
+        self,
+        *,
+        incident: dict[str, Any],
+        event_type: str,
+        now: str,
+    ) -> int:
+        settings = self._settings_row(str(incident["workspace_id"]))
+        if not self._settings_can_deliver(
+            settings,
+            event_type=event_type,
+        ):
+            return 0
+        assert settings is not None
+        payload = self._delivery_payload(
+            incident,
+            event_type=event_type,
+        )
+        inserted = self.store.connect().execute(
+            """
+            INSERT OR IGNORE INTO apify_actor_alert_deliveries (
+                id, workspace_id, incident_id, event_type, channel,
+                settings_generation, payload_json, status, attempts,
+                retry_at, error_code, created_at, started_at, sent_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?,
+                      NULL, NULL, ?)
+            """,
+            (
+                f"aad_{uuid.uuid4().hex}",
+                incident["workspace_id"],
+                incident["id"],
+                event_type,
+                settings["channel"],
+                settings["generation"],
+                _json_dumps(payload),
+                now,
+                now,
+            ),
+        )
+        return max(0, int(inserted.rowcount))
+
+    def _delivery_payload(
+        self,
+        incident: dict[str, Any],
+        *,
+        event_type: str,
+    ) -> dict[str, Any]:
+        details = self._safe_incident_details(incident.get("payload"))
+        resolved = event_type == "recovered"
+        payload = {
+            "schema_version": 1,
+            "incident_id": _bounded_text(incident.get("id"), 80),
+            "event_type": event_type,
+            "condition_event_type": _bounded_text(
+                incident.get("event_type"),
+                40,
+            ),
+            "severity": (
+                "info"
+                if resolved
+                else str(incident.get("severity") or "warning")
+            ),
+            "route": _bounded_text(incident.get("route_key"), 64),
+            "status": "resolved" if resolved else "open",
+            "actor_name": details["actor_name"],
+            "active_actor_name": details["active_actor_name"],
+            "reason_code": details["reason_code"],
+            "occurred_at": _bounded_text(incident.get("opened_at"), 80),
+            "resolved_at": (
+                _bounded_text(incident.get("resolved_at"), 80)
+                if resolved
+                else ""
+            ),
+        }
+        return self._sanitize_delivery_payload(payload)
+
+    @staticmethod
+    def _sanitize_delivery_payload(payload: Any) -> dict[str, Any]:
+        source = payload if isinstance(payload, dict) else {}
+        event_type = str(source.get("event_type") or "")
+        if event_type not in ALERT_EVENTS and event_type != "test":
+            event_type = ""
+        condition_event = str(source.get("condition_event_type") or "")
+        if condition_event not in OPENING_ALERT_EVENTS:
+            condition_event = ""
+        severity = str(source.get("severity") or "")
+        if severity not in ALERT_SEVERITIES:
+            severity = "warning"
+        status = str(source.get("status") or "")
+        if status not in {"open", "resolved", "test"}:
+            status = "open"
+        return {
+            "schema_version": 1,
+            "incident_id": _bounded_text(source.get("incident_id"), 80),
+            "event_type": event_type,
+            "condition_event_type": condition_event,
+            "severity": severity,
+            "route": _bounded_text(source.get("route"), 64),
+            "status": status,
+            "actor_name": _bounded_text(source.get("actor_name"), 160),
+            "active_actor_name": _bounded_text(
+                source.get("active_actor_name"),
+                160,
+            ),
+            "reason_code": _safe_code(source.get("reason_code"), ""),
+            "occurred_at": _bounded_text(source.get("occurred_at"), 80),
+            "resolved_at": _bounded_text(source.get("resolved_at"), 80),
+            "test": bool(source.get("test")),
+        }
+
+    def list_incidents(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        bounded_limit = max(1, min(int(limit), 100))
+        rows = self.store.connect().execute(
+            """
+            SELECT incident.*,
+                   (
+                       SELECT delivery.status
+                       FROM apify_actor_alert_deliveries AS delivery
+                       WHERE delivery.incident_id = incident.id
+                       ORDER BY delivery.created_at DESC, delivery.id DESC
+                       LIMIT 1
+                   ) AS delivery_status,
+                   (
+                       SELECT delivery.error_code
+                       FROM apify_actor_alert_deliveries AS delivery
+                       WHERE delivery.incident_id = incident.id
+                       ORDER BY delivery.created_at DESC, delivery.id DESC
+                       LIMIT 1
+                   ) AS delivery_error_code
+            FROM apify_actor_alert_incidents AS incident
+            WHERE incident.workspace_id = ?
+            ORDER BY incident.opened_at DESC, incident.id DESC
+            LIMIT ?
+            """,
+            (workspace_id, bounded_limit),
+        ).fetchall()
+        return [self._public_incident(dict(row)) for row in rows]
+
+    def _public_incident(
+        self,
+        incident: dict[str, Any],
+    ) -> dict[str, Any]:
+        details = self._safe_incident_details(
+            incident.get("payload")
+            or _json_object(incident.get("payload_json"))
+        )
+        event_type = str(incident.get("event_type") or "")
+        severity = str(incident.get("severity") or "")
+        status = str(incident.get("status") or "")
+        return {
+            "id": _bounded_text(incident.get("id"), 80),
+            "route": _bounded_text(incident.get("route_key"), 64),
+            "event_type": (
+                event_type if event_type in OPENING_ALERT_EVENTS else ""
+            ),
+            "severity": (
+                severity if severity in ALERT_SEVERITIES else "warning"
+            ),
+            "status": status if status in {"open", "resolved"} else "open",
+            "actor_name": details["actor_name"],
+            "active_actor_name": details["active_actor_name"],
+            "reason_code": details["reason_code"],
+            "opened_at": incident.get("opened_at"),
+            "last_seen_at": incident.get("last_seen_at"),
+            "resolved_at": incident.get("resolved_at"),
+            "delivery_status": _public_delivery_status(
+                incident.get("delivery_status")
+            ),
+            "delivery_error_code": (
+                _safe_code(incident.get("delivery_error_code"), "")
+                or None
+            ),
+        }
+
+    def dispatch_pending(
+        self,
+        *,
+        workspace_id: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, int]:
+        summary = {
+            "claimed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "retried": 0,
+            "unknown": 0,
+        }
+        bounded_limit = max(0, min(int(limit), 100))
+        while summary["claimed"] < bounded_limit:
+            claim = self._claim_next_delivery(workspace_id=workspace_id)
+            if claim is None:
+                break
+            summary["claimed"] += 1
+            if claim.get("preflight_failed"):
+                summary["failed"] += 1
+                continue
+            delivery = claim["delivery"]
+            settings = claim["settings"]
+            try:
+                self._send_payload(
+                    settings,
+                    delivery["payload"],
+                    test=False,
+                )
+            except ApifyActorAlertError as exc:
+                if exc.outcome_unknown:
+                    self._mark_delivery_unknown(
+                        str(delivery["id"]),
+                        error_code=exc.code,
+                    )
+                    summary["unknown"] += 1
+                    continue
+                if (
+                    exc.retryable
+                    and int(delivery["attempts"]) < MAX_DELIVERY_ATTEMPTS
+                ):
+                    self._retry_delivery(delivery, error_code=exc.code)
+                    summary["retried"] += 1
+                else:
+                    self._finish_delivery(
+                        str(delivery["id"]),
+                        succeeded=False,
+                        error_code=exc.code,
+                    )
+                    summary["failed"] += 1
+            except Exception:
+                # Once the call begins, an unclassified exception may mean the
+                # receiver accepted it. Keep ``sending`` and never replay.
+                self._mark_delivery_unknown(
+                    str(delivery["id"]),
+                    error_code="notification_delivery_outcome_unknown",
+                )
+                summary["unknown"] += 1
+            else:
+                self._finish_delivery(
+                    str(delivery["id"]),
+                    succeeded=True,
+                )
+                summary["succeeded"] += 1
+        return summary
+
+    def _claim_next_delivery(
+        self,
+        *,
+        workspace_id: str | None,
+    ) -> dict[str, Any] | None:
+        conn = self.store.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "Apify Actor alert dispatch requires no active transaction"
+            )
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            now = _iso()
+            workspace_clause = (
+                " AND workspace_id = ?" if workspace_id is not None else ""
+            )
+            parameters: tuple[Any, ...] = (
+                (now, workspace_id)
+                if workspace_id is not None
+                else (now,)
+            )
+            row = conn.execute(
+                f"""
+                SELECT *
+                FROM apify_actor_alert_deliveries
+                WHERE status = 'pending'
+                  AND (retry_at IS NULL OR retry_at <= ?)
+                  {workspace_clause}
+                ORDER BY created_at, id
+                LIMIT 1
+                """,
+                parameters,
+            ).fetchone()
+            if row is None:
+                conn.commit()
+                return None
+            delivery = dict(row)
+            delivery["payload"] = self._sanitize_delivery_payload(
+                _json_object(delivery.pop("payload_json", None))
+            )
+            settings = self._settings_row(str(delivery["workspace_id"]))
+            preflight_error = self._delivery_preflight_error(
+                delivery,
+                settings,
+            )
+            if preflight_error is not None:
+                conn.execute(
+                    """
+                    UPDATE apify_actor_alert_deliveries
+                    SET status = 'failed', error_code = ?, updated_at = ?
+                    WHERE id = ? AND status = 'pending'
+                    """,
+                    (preflight_error, now, delivery["id"]),
+                )
+                conn.commit()
+                return {
+                    "preflight_failed": True,
+                    "delivery": delivery,
+                    "settings": settings,
+                }
+            updated = conn.execute(
+                """
+                UPDATE apify_actor_alert_deliveries
+                SET status = 'sending',
+                    attempts = attempts + 1,
+                    started_at = ?,
+                    error_code = NULL,
+                    updated_at = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (now, now, delivery["id"]),
+            )
+            if updated.rowcount != 1:
+                conn.rollback()
+                return None
+            delivery["status"] = "sending"
+            delivery["attempts"] = int(delivery.get("attempts") or 0) + 1
+            delivery["started_at"] = now
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        assert settings is not None
+        return {
+            "preflight_failed": False,
+            "delivery": delivery,
+            "settings": settings,
+        }
+
+    def _delivery_preflight_error(
+        self,
+        delivery: dict[str, Any],
+        settings: dict[str, Any] | None,
+    ) -> str | None:
+        if settings is None or not bool(settings.get("enabled")):
+            return "notification_settings_changed"
+        if (
+            int(delivery.get("settings_generation") or 0)
+            != int(settings.get("generation") or 0)
+            or str(delivery.get("channel") or "")
+            != str(settings.get("channel") or "")
+            or str(delivery.get("event_type") or "")
+            not in set(settings.get("events") or ())
+        ):
+            return "notification_settings_changed"
+        payload = delivery.get("payload") or {}
+        if (
+            str(payload.get("event_type") or "")
+            != str(delivery.get("event_type") or "")
+            or not str(payload.get("route") or "")
+        ):
+            return "notification_payload_invalid"
+        channel = str(settings.get("channel") or "")
+        if channel == "webhook":
+            return (
+                None
+                if self._bound_webhook_secret(settings)
+                else "notification_destination_required"
+            )
+        if channel == "email":
+            if not settings.get("email_address"):
+                return "notification_destination_required"
+            if not self.email_transport.is_ready(
+                workspace_id=str(settings.get("workspace_id") or "")
+            ):
+                return "notification_channel_unavailable"
+            return None
+        return "notification_settings_changed"
+
+    def _retry_delivery(
+        self,
+        delivery: dict[str, Any],
+        *,
+        error_code: str,
+    ) -> None:
+        attempts = max(1, int(delivery.get("attempts") or 1))
+        delay_index = min(attempts - 1, len(_RETRY_DELAYS_SECONDS) - 1)
+        retry_at = _utc_now() + timedelta(
+            seconds=_RETRY_DELAYS_SECONDS[delay_index]
+        )
+        now = _iso()
+        updated = self.store.connect().execute(
+            """
+            UPDATE apify_actor_alert_deliveries
+            SET status = 'pending',
+                retry_at = ?,
+                error_code = ?,
+                updated_at = ?
+            WHERE id = ? AND status = 'sending'
+            """,
+            (
+                retry_at.isoformat(),
+                _safe_code(error_code, "notification_delivery_failed"),
+                now,
+                delivery["id"],
+            ),
+        )
+        self.store.connect().commit()
+        if updated.rowcount != 1:
+            raise RuntimeError("alert delivery is no longer sending")
+
+    def _finish_delivery(
+        self,
+        delivery_id: str,
+        *,
+        succeeded: bool,
+        error_code: str | None = None,
+    ) -> None:
+        now = _iso()
+        updated = self.store.connect().execute(
+            """
+            UPDATE apify_actor_alert_deliveries
+            SET status = ?,
+                retry_at = NULL,
+                error_code = ?,
+                sent_at = ?,
+                updated_at = ?
+            WHERE id = ? AND status = 'sending'
+            """,
+            (
+                "succeeded" if succeeded else "failed",
+                (
+                    None
+                    if succeeded
+                    else _safe_code(
+                        error_code,
+                        "notification_delivery_failed",
+                    )
+                ),
+                now if succeeded else None,
+                now,
+                delivery_id,
+            ),
+        )
+        self.store.connect().commit()
+        if updated.rowcount != 1:
+            raise RuntimeError("alert delivery is no longer sending")
+
+    def _mark_delivery_unknown(
+        self,
+        delivery_id: str,
+        *,
+        error_code: str,
+    ) -> None:
+        """Keep a started delivery non-replayable while exposing a safe state."""
+
+        now = _iso()
+        updated = self.store.connect().execute(
+            """
+            UPDATE apify_actor_alert_deliveries
+            SET error_code = ?, retry_at = NULL, updated_at = ?
+            WHERE id = ? AND status = 'sending'
+            """,
+            (
+                _safe_code(
+                    error_code,
+                    "notification_delivery_outcome_unknown",
+                ),
+                now,
+                delivery_id,
+            ),
+        )
+        self.store.connect().commit()
+        if updated.rowcount != 1:
+            raise RuntimeError("alert delivery is no longer sending")
+
+    def send_test(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        settings = self._claim_test_attempt(
+            workspace_id=workspace_id,
+            actor_user_id=actor_user_id,
+        )
+        payload = self._sanitize_delivery_payload(
+            {
+                "event_type": "test",
+                "severity": "info",
+                "route": "x/profile",
+                "status": "test",
+                "reason_code": "manual_test",
+                "occurred_at": _iso(),
+                "test": True,
+            }
+        )
+        try:
+            self._send_payload(settings, payload, test=True)
+        except ApifyActorAlertError as exc:
+            self._record_test_result(
+                workspace_id=workspace_id,
+                generation=int(settings["generation"]),
+                status="failed",
+                error_code=exc.code,
+            )
+            raise ApifyActorAlertError(
+                "apify_actor_alert_test_failed",
+                "Apify Actor alert test could not be delivered",
+                status_code=exc.status_code,
+                retryable=exc.retryable and not exc.outcome_unknown,
+                outcome_unknown=exc.outcome_unknown,
+            ) from exc
+        except Exception as exc:
+            self._record_test_result(
+                workspace_id=workspace_id,
+                generation=int(settings["generation"]),
+                status="failed",
+                error_code="notification_delivery_failed",
+            )
+            raise ApifyActorAlertError(
+                "apify_actor_alert_test_failed",
+                "Apify Actor alert test could not be delivered",
+                status_code=502,
+                outcome_unknown=True,
+            ) from exc
+        if not self._record_test_result(
+            workspace_id=workspace_id,
+            generation=int(settings["generation"]),
+            status="sent",
+        ):
+            raise ApifyActorAlertError(
+                "apify_actor_alert_test_failed",
+                "alert settings changed while the test was running",
+                status_code=409,
+                outcome_unknown=True,
+            )
+        return {
+            "sent": True,
+            "channel": str(settings["channel"]),
+        }
+
+    def _claim_test_attempt(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        conn = self.store.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "Apify Actor alert test requires no active transaction"
+            )
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_admin(
+                workspace_id=workspace_id,
+                actor_user_id=actor_user_id,
+            )
+            settings = self._settings_row(workspace_id)
+            if settings is None:
+                raise ApifyActorAlertError(
+                    "notification_destination_required",
+                    "configure Apify Actor alerts before sending a test",
+                    status_code=409,
+                )
+            channel = str(settings.get("channel") or "")
+            if channel == "webhook" and not self._bound_webhook_secret(
+                settings
+            ):
+                raise ApifyActorAlertError(
+                    "notification_destination_required",
+                    "configure an alert webhook before sending a test",
+                    status_code=409,
+                )
+            if channel == "email":
+                if not settings.get("email_address"):
+                    raise ApifyActorAlertError(
+                        "notification_destination_required",
+                        "configure an alert email address before sending a test",
+                        status_code=409,
+                    )
+                if not self.email_transport.is_ready(
+                    workspace_id=workspace_id
+                ):
+                    raise ApifyActorAlertError(
+                        "notification_channel_unavailable",
+                        "workspace email transport is not ready",
+                        status_code=409,
+                    )
+            if channel not in {"email", "webhook"}:
+                raise ApifyActorAlertError(
+                    "notification_channel_unavailable",
+                    "alert channel is unavailable",
+                    status_code=409,
+                )
+            now = _utc_now()
+            previous = _parse_time(settings.get("last_test_attempted_at"))
+            if (
+                previous is not None
+                and (now - previous).total_seconds() < TEST_COOLDOWN_SECONDS
+            ):
+                raise ApifyActorAlertError(
+                    "apify_actor_alert_test_rate_limited",
+                    "wait before sending another Apify Actor alert test",
+                    status_code=429,
+                    retryable=True,
+                )
+            attempted_at = now.isoformat()
+            conn.execute(
+                """
+                UPDATE apify_actor_alert_settings
+                SET last_test_attempted_at = ?, updated_at = ?
+                WHERE workspace_id = ?
+                """,
+                (attempted_at, attempted_at, workspace_id),
+            )
+            settings["last_test_attempted_at"] = attempted_at
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        return settings
+
+    def _record_test_result(
+        self,
+        *,
+        workspace_id: str,
+        generation: int,
+        status: str,
+        error_code: str | None = None,
+    ) -> bool:
+        if status not in {"sent", "failed"}:
+            raise ValueError("alert test status is invalid")
+        now = _iso()
+        updated = self.store.connect().execute(
+            """
+            UPDATE apify_actor_alert_settings
+            SET last_test_status = ?,
+                last_test_generation = ?,
+                last_tested_at = ?,
+                last_test_error_code = ?,
+                updated_at = ?
+            WHERE workspace_id = ? AND generation = ?
+            """,
+            (
+                status,
+                generation,
+                now,
+                (
+                    _safe_code(error_code, "notification_delivery_failed")
+                    if status == "failed"
+                    else None
+                ),
+                now,
+                workspace_id,
+                generation,
+            ),
+        )
+        self.store.connect().commit()
+        return updated.rowcount == 1
+
+    def _send_payload(
+        self,
+        settings: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        test: bool,
+    ) -> None:
+        safe_payload = self._sanitize_delivery_payload(payload)
+        channel = str(settings.get("channel") or "")
+        if channel == "webhook":
+            self._send_webhook(settings, safe_payload, test=test)
+            return
+        if channel == "email":
+            self._send_email(settings, safe_payload, test=test)
+            return
+        raise ApifyActorAlertError(
+            "notification_channel_unavailable",
+            "alert channel is unavailable",
+            status_code=409,
+        )
+
+    def _send_webhook(
+        self,
+        settings: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        test: bool,
+    ) -> None:
+        webhook_url = self._bound_webhook_secret(settings)
+        if not webhook_url:
+            raise ApifyActorAlertError(
+                "notification_destination_required",
+                "alert webhook is not configured",
+                status_code=409,
+            )
+        webhook_url = _validate_webhook_url(webhook_url)
+        event_name = (
+            "inteliscope.apify_actor.test"
+            if test
+            else (
+                "inteliscope.apify_actor.recovered"
+                if payload.get("event_type") == "recovered"
+                else "inteliscope.apify_actor.alert"
+            )
+        )
+        body = _json_dumps(
+            {
+                "event": event_name,
+                "data": {
+                    **payload,
+                    **({"test": True} if test else {}),
+                },
+            }
+        ).encode("utf-8")
+        try:
+            response = _run_coroutine(
+                asyncio.wait_for(
+                    post_public_http(
+                        webhook_url,
+                        content=body,
+                        headers={
+                            "Content-Type": "application/json; charset=utf-8"
+                        },
+                        timeout=5.0,
+                        max_response_bytes=64_000,
+                    ),
+                    timeout=6.0,
+                )
+            )
+        except UnsafeNetworkTarget as exc:
+            raise ApifyActorAlertError(
+                "notification_webhook_target_blocked",
+                "notification webhook must resolve only to the public network",
+                status_code=400,
+            ) from exc
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # No HTTP request was established, so a bounded retry cannot
+            # duplicate a receiver-side action.
+            raise ApifyActorAlertError(
+                "notification_webhook_unavailable",
+                "notification webhook is unavailable",
+                status_code=502,
+                retryable=True,
+            ) from exc
+        except Exception as exc:
+            raise ApifyActorAlertError(
+                "notification_webhook_unavailable",
+                "notification webhook is unavailable",
+                status_code=502,
+                outcome_unknown=True,
+            ) from exc
+        content_encoding = (
+            response.headers.get("content-encoding", "").strip().lower()
+        )
+        if content_encoding not in {"", "identity"}:
+            raise ApifyActorAlertError(
+                "notification_webhook_response_encoding_unsupported",
+                "notification webhook returned an unsupported content encoding",
+                status_code=502,
+                outcome_unknown=True,
+            )
+        status_code = int(response.status_code)
+        if 200 <= status_code < 300:
+            return
+        if status_code in {408, 425, 429} or status_code >= 500:
+            raise ApifyActorAlertError(
+                "notification_webhook_temporarily_rejected",
+                "notification webhook temporarily rejected the request",
+                status_code=502,
+                retryable=True,
+            )
+        raise ApifyActorAlertError(
+            "notification_webhook_rejected",
+            "notification webhook rejected the request",
+            status_code=502,
+        )
+
+    def _send_email(
+        self,
+        settings: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        test: bool,
+    ) -> None:
+        recipient = _normalize_email(settings.get("email_address"))
+        if not recipient:
+            raise ApifyActorAlertError(
+                "notification_destination_required",
+                "alert email address is not configured",
+                status_code=409,
+            )
+        title = (
+            "故障告警测试"
+            if test
+            else (
+                "X 抓取路由已恢复"
+                if payload.get("event_type") == "recovered"
+                else "X 抓取路由状态变化"
+            )
+        )
+        details = [
+            f"路由：{payload.get('route') or 'x/profile'}",
+            f"事件：{payload.get('event_type') or 'unknown'}",
+            f"状态：{payload.get('status') or 'unknown'}",
+        ]
+        if payload.get("actor_name"):
+            details.append(f"Actor：{payload['actor_name']}")
+        if payload.get("active_actor_name"):
+            details.append(f"当前 Actor：{payload['active_actor_name']}")
+        if payload.get("reason_code"):
+            details.append(f"原因：{payload['reason_code']}")
+        try:
+            self.email_transport.send_operational_alert(
+                workspace_id=str(settings.get("workspace_id") or ""),
+                recipient_email=recipient,
+                payload={
+                    **payload,
+                    "kind": (
+                        "operational_alert_test"
+                        if test
+                        else "operational_alert"
+                    ),
+                    "title": title,
+                    "summary": "\n".join(details),
+                },
+            )
+        except EmailTransportError as exc:
+            raise ApifyActorAlertError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                outcome_unknown=exc.outcome_unknown,
+            ) from exc
+
+    def _require_admin(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        actor = self.store.get_user(actor_user_id)
+        if (
+            actor is None
+            or not bool(actor.get("enabled"))
+            or str(actor.get("workspace_id")) != str(workspace_id)
+            or str(actor.get("role") or "") not in {"owner", "admin"}
+        ):
+            raise ApifyActorAlertError(
+                "forbidden",
+                "owner or admin role required",
+                status_code=403,
+            )
+        return actor

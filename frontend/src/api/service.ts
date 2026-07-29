@@ -5,6 +5,10 @@ import type {
   AgentDelegationAccess,
   AgentDelegationCreated,
   AgentDelegationsResponse,
+  ApifyActorAlertIncidents,
+  ApifyActorAlertSettings,
+  ApifyActorAlertSettingsPatch,
+  ApifyActorRoute,
   ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
@@ -180,6 +184,50 @@ export function createServiceApi(client: ApiClient) {
     ),
     drainApifyKey: (secretId: string) => client.post<ApifyKeyPool>(
       `${resource('/api/admin/apify-key-pool', secretId)}/drain`,
+    ),
+    apifyActorXProfileRoute: (signal?: AbortSignal) => client.get<ApifyActorRoute>(
+      '/api/admin/apify-actor-routes/x/profile',
+      signal,
+    ),
+    reorderApifyActorXProfileRoute: (candidateIds: string[], expectedGeneration: number) => client.put<ApifyActorRoute>(
+      '/api/admin/apify-actor-routes/x/profile/order',
+      { candidate_ids: candidateIds, expected_generation: expectedGeneration },
+    ),
+    enableApifyActorXProfileCandidate: (candidateId: string, expectedGeneration: number) => client.post<ApifyActorRoute>(
+      `${resource('/api/admin/apify-actor-routes/x/profile/candidates', candidateId)}/enable`,
+      { expected_generation: expectedGeneration },
+    ),
+    disableApifyActorXProfileCandidate: (candidateId: string, expectedGeneration: number) => client.post<ApifyActorRoute>(
+      `${resource('/api/admin/apify-actor-routes/x/profile/candidates', candidateId)}/disable`,
+      { expected_generation: expectedGeneration },
+    ),
+    canaryApifyActorXProfileCandidate: (
+      candidateId: string,
+      sourceId: string,
+      expectedGeneration: number,
+      confirmation: '确认付费试跑',
+    ) => client.post<ApifyActorRoute>(
+      `${resource('/api/admin/apify-actor-routes/x/profile/candidates', candidateId)}/canary`,
+      {
+        source_id: sourceId,
+        expected_generation: expectedGeneration,
+        confirmation,
+      },
+    ),
+    apifyActorAlertSettings: (signal?: AbortSignal) => client.get<ApifyActorAlertSettings>(
+      '/api/admin/apify-actor-alert-settings',
+      signal,
+    ),
+    updateApifyActorAlertSettings: (patch: ApifyActorAlertSettingsPatch) => client.patch<ApifyActorAlertSettings>(
+      '/api/admin/apify-actor-alert-settings',
+      patch,
+    ),
+    testApifyActorAlertSettings: () => client.post<NotificationTestResult>(
+      '/api/admin/apify-actor-alert-settings/test',
+    ),
+    apifyActorAlertIncidents: (signal?: AbortSignal) => client.get<ApifyActorAlertIncidents>(
+      '/api/admin/apify-actor-alert-incidents?limit=20',
+      signal,
     ),
     createSecret: (payload: { name: string; kind: string; provider: string; env_name: string; value: string }) => client.post<SecretRef>('/api/admin/secrets', payload),
     rotateSecret: (secretId: string, value: string) => client.put<SecretRef>(`${resource('/api/admin/secrets', secretId)}/value`, { value }),

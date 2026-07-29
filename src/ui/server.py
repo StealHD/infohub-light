@@ -468,6 +468,11 @@ async def _run_apify_social_source_test(
     payload: dict[str, Any],
     *,
     apify_coordinator: ApifyRunCoordinator | None = None,
+    apify_actor_route: Any | None = None,
+    route_job_id: str | None = None,
+    forced_candidate_id: str | None = None,
+    forced_route_generation: int | None = None,
+    paid_canary: bool = False,
 ) -> dict[str, Any]:
     platform = _apify_social_platform(payload)
     kind = _apify_social_kind(payload, platform)
@@ -498,6 +503,7 @@ async def _run_apify_social_source_test(
         actors[platform] = {"actor_id": actor_id}
 
     subscription = ApifySocialSubscriptionConfig(
+        source_id=str(payload.get("source_id") or "") or None,
         platform=platform,
         kind=kind,
         target=target,
@@ -522,6 +528,11 @@ async def _run_apify_social_source_test(
             config,
             client,
             apify_coordinator=apify_coordinator,
+            apify_actor_route=apify_actor_route,
+            route_job_id=route_job_id,
+            forced_candidate_id=forced_candidate_id,
+            forced_route_generation=forced_route_generation,
+            paid_canary=paid_canary,
         )
         items = await scraper.fetch(datetime.now(timezone.utc) - timedelta(days=3650))
 
@@ -549,6 +560,11 @@ def run_source_test(
     payload: dict[str, Any],
     *,
     apify_coordinator: ApifyRunCoordinator | None = None,
+    apify_actor_route: Any | None = None,
+    route_job_id: str | None = None,
+    forced_candidate_id: str | None = None,
+    forced_route_generation: int | None = None,
+    paid_canary: bool = False,
 ) -> dict[str, Any]:
     """Test one source definition without saving it or calling AI."""
     source_type = _text(payload, "source_type", "信源类型")
@@ -558,6 +574,11 @@ def run_source_test(
             _run_apify_social_source_test(
                 payload,
                 apify_coordinator=apify_coordinator,
+                apify_actor_route=apify_actor_route,
+                route_job_id=route_job_id,
+                forced_candidate_id=forced_candidate_id,
+                forced_route_generation=forced_route_generation,
+                paid_canary=paid_canary,
             )
         )
 

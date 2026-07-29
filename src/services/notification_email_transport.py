@@ -783,6 +783,30 @@ class WorkspaceEmailTransportService:
             require_enabled=True,
         )
 
+    def send_operational_alert(
+        self,
+        *,
+        workspace_id: str,
+        recipient_email: Any,
+        payload: dict[str, Any],
+    ) -> None:
+        """Send a workspace operational alert through the same safe transport."""
+
+        if payload.get("kind") not in {
+            "operational_alert",
+            "operational_alert_test",
+        }:
+            raise EmailTransportError(
+                "notification_delivery_failed",
+                "operational alert payload kind is invalid",
+                status_code=500,
+            )
+        self.send_notification(
+            workspace_id=workspace_id,
+            recipient_email=recipient_email,
+            payload=payload,
+        )
+
     def _send(
         self,
         *,
@@ -862,10 +886,14 @@ class WorkspaceEmailTransportService:
         recipient: str,
         payload: dict[str, Any],
     ) -> EmailMessage:
+        operational_delivery = payload.get("kind") in {
+            "operational_alert",
+            "operational_alert_test",
+        }
         test_delivery = payload.get("kind") == "test"
         raw_items = (
             [payload]
-            if test_delivery
+            if test_delivery or operational_delivery
             else list(payload.get("items") or [])[:MAX_EMAIL_ITEMS]
         )
         items = [item for item in raw_items if isinstance(item, dict)]
@@ -876,7 +904,16 @@ class WorkspaceEmailTransportService:
                 status_code=500,
             )
         message = EmailMessage()
-        if test_delivery:
+        if operational_delivery:
+            event_type = _bounded_header(
+                payload.get("event_type") or "test",
+                80,
+            )
+            status = _bounded_header(payload.get("status") or "notice", 80)
+            message["Subject"] = (
+                f"[Inteliscope] Apify 告警：{event_type}（{status}）"
+            )
+        elif test_delivery:
             item = items[0]
             source_name = _bounded_header(
                 item.get("source_name") or "Inteliscope",
@@ -901,10 +938,48 @@ class WorkspaceEmailTransportService:
         text_sections: list[str] = []
         html_sections: list[str] = []
         for index, item in enumerate(items, start=1):
-            source_name = str(item.get("source_name") or "Inteliscope")
-            title = str(item.get("title") or "新内容")
-            summary = str(item.get("summary") or "")
-            url = _safe_article_url(item.get("url"))
+            if operational_delivery:
+                source_name = "Apify Actor Router"
+                title = _bounded_header(
+                    item.get("event_type") or "operational_alert",
+                    80,
+                )
+                summary = "；".join(
+                    part
+                    for part in (
+                        f"级别：{_bounded_header(item.get('severity') or 'warning', 32)}",
+                        f"路由：{_bounded_header(item.get('route') or 'x/profile', 64)}",
+                        f"状态：{_bounded_header(item.get('status') or 'notice', 64)}",
+                        (
+                            f"原因：{_bounded_header(item.get('reason_code'), 96)}"
+                            if item.get("reason_code")
+                            else ""
+                        ),
+                        (
+                            f"Actor：{_bounded_header(item.get('actor_name'), 120)}"
+                            if item.get("actor_name")
+                            else ""
+                        ),
+                        (
+                            "当前 Actor："
+                            f"{_bounded_header(item.get('active_actor_name'), 120)}"
+                            if item.get("active_actor_name")
+                            else ""
+                        ),
+                        (
+                            f"时间：{_bounded_header(item.get('occurred_at'), 64)}"
+                            if item.get("occurred_at")
+                            else ""
+                        ),
+                    )
+                    if part
+                )
+                url = ""
+            else:
+                source_name = str(item.get("source_name") or "Inteliscope")
+                title = str(item.get("title") or "新内容")
+                summary = str(item.get("summary") or "")
+                url = _safe_article_url(item.get("url"))
             text_sections.append(
                 "\n".join(
                     part

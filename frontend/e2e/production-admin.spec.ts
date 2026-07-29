@@ -16,7 +16,10 @@ const privateHistoryItems = [1, 2].map((index) => ({
   user_state: { is_read: true, is_saved: false, is_later: false, dismissed: false },
 }))
 
-async function mockAdminApi(page: Page, authenticated = true, options: { includePrivateSource?: boolean } = {}) {
+async function mockAdminApi(page: Page, authenticated = true, options: {
+  includePrivateSource?: boolean
+  includeXProfileSource?: boolean
+} = {}) {
   let quotaRequests = 0
   let productSubscribed = false
   let notificationEnabled = false
@@ -29,6 +32,99 @@ async function mockAdminApi(page: Page, authenticated = true, options: { include
   let youtubeCreated = false
   let youtubeKeepLatest = true
   const youtubeCreatePayloads: Array<Record<string, unknown>> = []
+  const actorCanaryPayloads: Array<Record<string, unknown>> = []
+  let actorAlertSettings = {
+    schema_version: 1,
+    enabled: false,
+    channel: 'webhook',
+    events: ['actor_switched', 'route_exhausted', 'quota_low', 'budget_blocked', 'start_outcome_unknown', 'recovered'],
+    email_configured: false,
+    email_transport_ready: false,
+    webhook_configured: false,
+    last_test_status: null,
+    last_tested_at: null,
+    last_test_error_code: null,
+    last_alert_status: null,
+    last_alerted_at: null,
+    last_alert_error_code: null,
+    updated_at: null,
+  }
+  const actorRoute = {
+    schema_version: 1,
+    route: 'x/profile',
+    generation: 3,
+    status: 'ready',
+    active_candidate_id: 'scrape-badger',
+    last_switch_reason: 'placeholder_records',
+    last_switch_at: '2026-07-29T08:00:00Z',
+    retry_at: null,
+    blocked_reason: null,
+    quota: {
+      currency: 'USD',
+      total_remaining_usd: 5.06,
+      x_allocatable_usd: 4.05,
+      spend_24h_usd: 0.01,
+      estimated_days_remaining: 7,
+      as_of: '2026-07-29T08:00:00Z',
+    },
+    limits: { per_run_usd: 0.02, per_job_usd: 0.06, failed_spend_6h_usd: 0.08 },
+    candidates: [
+      {
+        id: 'scrape-badger',
+        position: 0,
+        display_name: 'ScrapeBadger',
+        actor_public_name: 'scrape.badger/twitter-tweets-scraper',
+        state: 'closed',
+        listed_price_usd_per_1000: 0.15,
+        last_charge_usd: 0.00015,
+        avg_charge_24h_usd: 0.0002,
+        success_rate_24h: 0.99,
+        last_success_at: '2026-07-29T08:00:00Z',
+        last_failure_at: null,
+        retry_at: null,
+        last_error_code: null,
+        can_enable: false,
+        can_disable: true,
+        can_canary: true,
+      },
+      {
+        id: 'dami',
+        position: 1,
+        display_name: 'Dami',
+        actor_public_name: 'dami_studio/tweet-scraper',
+        state: 'probationary',
+        listed_price_usd_per_1000: 0.3,
+        last_charge_usd: null,
+        avg_charge_24h_usd: null,
+        success_rate_24h: null,
+        last_success_at: null,
+        last_failure_at: null,
+        retry_at: null,
+        last_error_code: null,
+        can_enable: false,
+        can_disable: true,
+        can_canary: true,
+      },
+      {
+        id: 'xquik',
+        position: 2,
+        display_name: 'Xquik',
+        actor_public_name: 'xquik/x-tweet-scraper',
+        state: 'open',
+        listed_price_usd_per_1000: 15,
+        last_charge_usd: 0.015,
+        avg_charge_24h_usd: 0.015,
+        success_rate_24h: 0,
+        last_success_at: null,
+        last_failure_at: '2026-07-29T07:00:00Z',
+        retry_at: '2026-07-29T09:00:00Z',
+        last_error_code: 'placeholder_records',
+        can_enable: false,
+        can_disable: true,
+        can_canary: true,
+      },
+    ],
+  }
   const configResponse = {
     config: {
       ai: { enabled: true, provider: 'gemini', model: 'gemini-3.5-flash', api_key_env: 'GOOGLE_API_KEY', base_url: '', languages: 'zh', analysis_content_chars: 8000, analysis_comments_chars: 4000, summary_max_chars: 240, analysis_max_output_tokens: 800 },
@@ -138,6 +234,17 @@ async function mockAdminApi(page: Page, authenticated = true, options: { include
     else if (url.pathname === '/api/catalog/sources') data = { sources: [
       { id: 'source-1', type: 'rss', display_name: 'OpenAI Blog', description: '官方产品与研究动态', scope: 'workspace', default_channel: 'AI', default_topics: ['Codex'], enabled: true },
       { id: 'source-2', type: 'rss', display_name: 'Product Notes', description: '产品机会观察', scope: 'public', default_channel: '产品机会', default_topics: ['产品'], enabled: true },
+      ...(options.includeXProfileSource ? [{
+        id: 'source-x-profile',
+        type: 'apify_social',
+        display_name: 'X · @thsottiaux',
+        description: 'X Profile',
+        scope: 'workspace',
+        default_channel: '社交动态',
+        default_topics: [],
+        config: { platform: 'x', kind: 'profile', target: 'not-rendered-by-actor-settings' },
+        enabled: true,
+      }] : []),
       ...(options.includePrivateSource ? [{ id: 'source-private', type: 'rss', display_name: '私人研究源', description: '仅本人维护', scope: privateShared ? 'public' : 'private', owner_user_id: privateShared ? null : owner.id, default_channel: 'AI', default_topics: ['研究'], enabled: true }] : []),
       ...(youtubeCreated ? [{
         id: 'source-youtube',
@@ -317,6 +424,53 @@ async function mockAdminApi(page: Page, authenticated = true, options: { include
       ],
       updated_at: null,
     }
+    else if (url.pathname === '/api/admin/apify-actor-routes/x/profile/order' && route.request().method() === 'PUT') {
+      data = actorRoute
+    }
+    else if (
+      url.pathname.startsWith('/api/admin/apify-actor-routes/x/profile/candidates/')
+      && route.request().method() === 'POST'
+    ) {
+      if (url.pathname.endsWith('/canary')) {
+        actorCanaryPayloads.push(route.request().postDataJSON() as Record<string, unknown>)
+      }
+      data = actorRoute
+    }
+    else if (url.pathname === '/api/admin/apify-actor-routes/x/profile') data = actorRoute
+    else if (url.pathname === '/api/admin/apify-actor-alert-settings/test' && route.request().method() === 'POST') {
+      data = { sent: true, channel: actorAlertSettings.channel }
+    }
+    else if (url.pathname === '/api/admin/apify-actor-alert-settings' && route.request().method() === 'PATCH') {
+      const patch = route.request().postDataJSON() as Record<string, unknown>
+      actorAlertSettings = {
+        ...actorAlertSettings,
+        enabled: typeof patch.enabled === 'boolean' ? patch.enabled : actorAlertSettings.enabled,
+        channel: typeof patch.channel === 'string' ? patch.channel : actorAlertSettings.channel,
+        events: Array.isArray(patch.events) ? patch.events as string[] : actorAlertSettings.events,
+        email_configured: typeof patch.email_address === 'string' || actorAlertSettings.email_configured,
+        webhook_configured: typeof patch.webhook_url === 'string' || actorAlertSettings.webhook_configured,
+      }
+      data = actorAlertSettings
+    }
+    else if (url.pathname === '/api/admin/apify-actor-alert-settings') data = actorAlertSettings
+    else if (url.pathname === '/api/admin/apify-actor-alert-incidents') data = {
+      schema_version: 1,
+      incidents: [{
+        id: 'actor-incident-1',
+        route: 'x/profile',
+        event_type: 'actor_switched',
+        severity: 'warning',
+        status: 'open',
+        actor_name: 'Xquik',
+        active_actor_name: 'ScrapeBadger',
+        reason_code: 'placeholder_records',
+        opened_at: '2026-07-29T08:00:00Z',
+        last_seen_at: '2026-07-29T08:00:00Z',
+        resolved_at: null,
+        delivery_status: 'sent',
+        delivery_error_code: null,
+      }],
+    }
     else if (url.pathname === '/api/admin/apify-key-pool') data = {
       schema_version: 1,
       enabled: false,
@@ -382,6 +536,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: { include
     },
     releaseSourceFetch: () => releaseSourceFetch?.(),
     youtubeCreatePayloads: () => youtubeCreatePayloads,
+    actorCanaryPayloads: () => actorCanaryPayloads,
   }
 }
 
@@ -543,6 +698,47 @@ test('workspace email transport stays bounded at 390, 768 and 1440 pixels', asyn
     await expect(page.getByLabel('SES SMTP Password')).toHaveAttribute('type', 'password')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   }
+})
+
+test('X Actor failover and paid canary stay safe and bounded across settings layouts', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const apiState = await mockAdminApi(page, true, { includeXProfileSource: true })
+  await page.goto('/settings#settings-fetching')
+
+  await expect(page.getByText('X 抓取主备', { exact: true })).toBeVisible()
+  await expect(page.getByText('当前使用：ScrapeBadger')).toBeVisible()
+  await expect(page.getByRole('grid', { name: 'X 抓取主备 Actor' })).toBeVisible()
+  await expect(page.getByText('故障告警', { exact: true })).toBeVisible()
+  await expect(page.getByRole('switch', { name: '启用 Apify 运行告警' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+  const actorTableScroll = page.getByTestId('apify-actor-route-scroll')
+  expect(await actorTableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
+  if ((page.viewportSize()?.width ?? 0) <= 390) {
+    expect(await actorTableScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  }
+
+  const canaryTrigger = page.getByRole('button', { name: '付费试跑' }).first()
+  await canaryTrigger.click()
+  const dialog = page.getByRole('dialog', { name: '付费试跑 ScrapeBadger' })
+  await expect(dialog.getByRole('button', { name: '确认付费试跑' })).toBeDisabled()
+  await dialog.getByRole('button', { name: /试跑 X 来源/ }).click()
+  await page.getByRole('option', { name: 'X · @thsottiaux' }).click()
+  await dialog.getByRole('button', { name: '确认付费试跑' }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('[data-slot="modal-dialog"]')).toHaveCount(0)
+  await expect(canaryTrigger).toBeFocused()
+  expect(apiState.actorCanaryPayloads()).toEqual([{
+    source_id: 'source-x-profile',
+    expected_generation: 3,
+    confirmation: '确认付费试跑',
+  }])
+  expect(await page.locator('body').innerText()).not.toContain('not-rendered-by-actor-settings')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('account and documentation menus open upward and expose manual, changelog, and Release destinations', async ({ page }, testInfo) => {

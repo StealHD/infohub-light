@@ -48,6 +48,12 @@ from ..services.apify_key_pool import (
     ApifyKeyPoolService,
     apify_key_pool_enabled,
 )
+from ..services.apify_actor_route import (
+    ApifyActorRouteConflictError,
+    ApifyActorRouteError,
+    ApifyActorRouteService,
+)
+from ..services.apify_actor_monitoring import ApifyActorAlertBridge
 from ..services.source_health import SourceHealthService
 from ..services.storage_governance import (
     StorageGovernanceError,
@@ -70,6 +76,10 @@ from ..services.media_cache import MediaCacheService
 from ..services.preferred_source_notifications import (
     NotificationServiceError,
     PreferredSourceNotificationService,
+)
+from ..services.apify_actor_alerts import (
+    ApifyActorAlertError,
+    ApifyActorAlertService,
 )
 from ..services.operation_log import (
     OperationLogQueryService,
@@ -323,6 +333,46 @@ class ApifyKeyPoolOrderRequest(BaseModel):
     expected_generation: StrictInt = Field(ge=1)
 
 
+class ApifyActorRouteOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_ids: list[str]
+    expected_generation: StrictInt = Field(ge=1)
+
+
+class ApifyActorCandidateMutationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: StrictInt = Field(ge=1)
+
+
+class ApifyActorCanaryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1, max_length=128)
+    expected_generation: StrictInt = Field(ge=1)
+    confirmation: Literal["确认付费试跑"]
+
+
+class ApifyActorAlertSettingsPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool | None = None
+    channel: Literal["email", "webhook"] | None = None
+    events: list[
+        Literal[
+            "actor_switched",
+            "route_exhausted",
+            "quota_low",
+            "budget_blocked",
+            "start_outcome_unknown",
+            "recovered",
+        ]
+    ] | None = None
+    email_address: str | None = Field(default=None, max_length=320)
+    webhook_url: str | None = Field(default=None, max_length=4096)
+
+
 class SubscriptionRequest(BaseModel):
     source_id: str
     enabled: bool = True
@@ -497,6 +547,30 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "secret",
         "pool_drain",
     ),
+    ("PUT", "/api/admin/apify-actor-routes/x/profile/order"): (
+        "source",
+        "actor_route_reorder",
+    ),
+    (
+        "POST",
+        "/api/admin/apify-actor-routes/x/profile/candidates/{candidate_id}/enable",
+    ): ("source", "actor_route_enable"),
+    (
+        "POST",
+        "/api/admin/apify-actor-routes/x/profile/candidates/{candidate_id}/disable",
+    ): ("source", "actor_route_disable"),
+    (
+        "POST",
+        "/api/admin/apify-actor-routes/x/profile/candidates/{candidate_id}/canary",
+    ): ("job", "actor_canary_queue"),
+    ("PATCH", "/api/admin/apify-actor-alert-settings"): (
+        "notification",
+        "apify_alert_settings_update",
+    ),
+    ("POST", "/api/admin/apify-actor-alert-settings/test"): (
+        "notification",
+        "apify_alert_settings_test",
+    ),
     ("POST", "/api/admin/secrets"): ("secret", "create"),
     ("PUT", "/api/admin/secrets/{secret_id}/value"): ("secret", "rotate"),
     ("DELETE", "/api/admin/secrets/{secret_id}"): ("secret", "delete"),
@@ -585,7 +659,38 @@ def create_app(
     workspace_email_transport = (
         preferred_source_notifications.email_transport
     )
+    apify_actor_alerts = ApifyActorAlertService(
+        store,
+        data_dir=str(data_path),
+        email_transport=workspace_email_transport,
+    )
     apify_key_pool = ApifyKeyPoolService(store, secret_store=secret_values)
+
+    def require_apify_actor_routing_v13() -> None:
+        if store.apify_actor_routing_v13_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor routing v13 migration must be applied before X routing is used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_routing_v13.py --apply."
+                ),
+            )
+
+    def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
+        require_apify_actor_routing_v13()
+        bridge = ApifyActorAlertBridge(
+            store,
+            apify_actor_alerts,
+            workspace_id=str(workspace_id),
+        )
+        return ApifyActorRouteService(
+            store,
+            workspace_id=str(workspace_id),
+            transition_hook=bridge,
+            enforce_quota_admission=apify_key_pool_enabled(),
+        )
     quota = QuotaService(
         store,
         max_fetch_jobs_per_day=int(os.getenv("INFOHUB_MAX_FETCH_JOBS_PER_DAY", "100")),
@@ -851,6 +956,8 @@ def create_app(
     app.state.subscription_mutations = subscription_mutations
     app.state.preferred_source_notifications = preferred_source_notifications
     app.state.workspace_email_transport = workspace_email_transport
+    app.state.apify_actor_alerts = apify_actor_alerts
+    app.state.apify_actor_route_for = apify_actor_route_for
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
     app.state.youtube_channel_resolver = youtube_channels
 
@@ -1142,6 +1249,46 @@ def create_app(
                         if exc.status_code < 500
                         else "Review the provider credential and retry the test."
                     )
+                ),
+            )
+        )
+
+    @app.exception_handler(ApifyActorAlertError)
+    async def _apify_actor_alert_error_handler(
+        request: Request,
+        exc: ApifyActorAlertError,
+    ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=(
+                    "Wait at least 60 seconds before sending another test."
+                    if exc.code == "apify_actor_alert_test_rate_limited"
+                    else "Review the saved alert channel and retry."
+                ),
+            )
+        )
+
+    @app.exception_handler(ApifyActorRouteError)
+    async def _apify_actor_route_error_handler(
+        request: Request,
+        exc: ApifyActorRouteError,
+    ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=(
+                    "Reload the Actor route and retry."
+                    if isinstance(exc, ApifyActorRouteConflictError)
+                    else "Wait for the next recovery window or update the Actor route."
                 ),
             )
         )
@@ -1995,6 +2142,7 @@ def create_app(
                     "scripts/migrate_content_timeline_v11.py --apply."
                 ),
             )
+        require_apify_actor_routing_v13()
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -2470,6 +2618,307 @@ def create_app(
         except ApifyKeyPoolError as exc:
             raise pool_api_error(exc) from exc
         return ok(state)
+
+    @app.get("/api/admin/apify-actor-routes/x/profile")
+    async def admin_apify_actor_x_profile_route(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        route = apify_actor_route_for(str(user["workspace_id"]))
+        state = route.public_state()
+        response.headers["Cache-Control"] = "no-store"
+        return ok(state)
+
+    @app.put("/api/admin/apify-actor-routes/x/profile/order")
+    async def admin_apify_actor_x_profile_route_order(
+        payload: ApifyActorRouteOrderRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        try:
+            state = apify_actor_route_for(
+                str(user["workspace_id"])
+            ).reorder(
+                payload.candidate_ids,
+                expected_generation=int(payload.expected_generation),
+            )
+        except ValueError as exc:
+            raise ApiError(
+                "invalid_apify_actor_route",
+                "candidate_ids must contain every route candidate exactly once",
+                status_code=400,
+            ) from exc
+        request.state.operation_changed_fields = ["candidate_ids"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(state)
+
+    @app.post(
+        "/api/admin/apify-actor-routes/x/profile/candidates/{candidate_id}/enable"
+    )
+    async def admin_apify_actor_x_profile_candidate_enable(
+        candidate_id: str,
+        payload: ApifyActorCandidateMutationRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        try:
+            state = apify_actor_route_for(
+                str(user["workspace_id"])
+            ).enable(
+                candidate_id,
+                expected_generation=int(payload.expected_generation),
+            )
+        except LookupError as exc:
+            raise ApiError(
+                "not_found",
+                "Apify Actor candidate not found",
+                status_code=404,
+            ) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return ok(state)
+
+    @app.post(
+        "/api/admin/apify-actor-routes/x/profile/candidates/{candidate_id}/disable"
+    )
+    async def admin_apify_actor_x_profile_candidate_disable(
+        candidate_id: str,
+        payload: ApifyActorCandidateMutationRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        try:
+            state = apify_actor_route_for(
+                str(user["workspace_id"])
+            ).disable(
+                candidate_id,
+                expected_generation=int(payload.expected_generation),
+            )
+        except LookupError as exc:
+            raise ApiError(
+                "not_found",
+                "Apify Actor candidate not found",
+                status_code=404,
+            ) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return ok(state)
+
+    @app.post(
+        "/api/admin/apify-actor-routes/x/profile/candidates/{candidate_id}/canary"
+    )
+    async def admin_apify_actor_x_profile_candidate_canary(
+        candidate_id: str,
+        payload: ApifyActorCanaryRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        if not apify_key_pool_enabled():
+            raise ApiError(
+                "apify_actor_routing_disabled",
+                "Apify Actor routing is not enabled",
+                status_code=409,
+            )
+        route = apify_actor_route_for(str(user["workspace_id"]))
+        state = route.public_state()
+        if int(state["generation"]) != int(payload.expected_generation):
+            raise ApifyActorRouteConflictError()
+        candidate = next(
+            (
+                item
+                for item in state["candidates"]
+                if str(item["id"]) == candidate_id
+            ),
+            None,
+        )
+        if candidate is None:
+            raise ApiError(
+                "not_found",
+                "Apify Actor candidate not found",
+                status_code=404,
+            )
+        if not bool(candidate.get("can_canary")):
+            raise ApiError(
+                "apify_actor_canary_unavailable",
+                "the selected Actor cannot run a canary",
+                status_code=409,
+            )
+        source = store.get_source(payload.source_id)
+        source_config = (
+            source.get("config")
+            if source and isinstance(source.get("config"), dict)
+            else {}
+        )
+        if (
+            source is None
+            or str(source.get("workspace_id")) != str(user["workspace_id"])
+            or not bool(source.get("enabled"))
+            or source.get("type") != "apify_social"
+            or str(source_config.get("platform") or "").casefold() != "x"
+            or str(source_config.get("kind") or "profile").casefold()
+            != "profile"
+        ):
+            raise ApiError(
+                "apify_actor_canary_source_required",
+                "select an enabled X profile source in this workspace",
+                status_code=400,
+            )
+        connection = store.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            active_canary = connection.execute(
+                """
+                SELECT id
+                FROM fetch_jobs
+                WHERE workspace_id = ? AND job_type = 'source_test'
+                  AND status IN ('queued', 'running')
+                  AND json_extract(payload_json, '$.reason')
+                      = 'apify_actor_canary'
+                  AND json_extract(
+                      payload_json,
+                      '$.apify_actor_candidate_id'
+                  ) = ?
+                LIMIT 1
+                """,
+                (str(user["workspace_id"]), candidate_id),
+            ).fetchone()
+            active_attempt = connection.execute(
+                """
+                SELECT id
+                FROM apify_actor_attempts
+                WHERE workspace_id = ? AND route_key = 'x/profile'
+                  AND candidate_id = ?
+                  AND status IN ('reserved', 'running')
+                LIMIT 1
+                """,
+                (str(user["workspace_id"]), candidate_id),
+            ).fetchone()
+            if active_canary is not None or active_attempt is not None:
+                raise ApiError(
+                    "apify_actor_canary_active",
+                    "a paid canary is already active for this Actor",
+                    status_code=409,
+                )
+            quota.ensure_job_allowed(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+            )
+            queued = queue.create_job(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                source_id=str(source["id"]),
+                job_type="source_test",
+                payload={
+                    "reason": "apify_actor_canary",
+                    "apify_actor_candidate_id": candidate_id,
+                    "apify_actor_route_generation": int(
+                        payload.expected_generation
+                    ),
+                },
+                priority=100,
+                max_attempts=1,
+                retention_days=int(
+                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                ),
+                commit=False,
+            )
+            quota.record_job_usage(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                event_type="source_test",
+                commit=False,
+            )
+            connection.commit()
+        except Exception:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        request.state.operation_job_id = str(queued["id"])
+        request.state.operation_source_id = str(source["id"])
+        request.state.operation_outcome = "queued"
+        response.headers["Cache-Control"] = "no-store"
+        return ok(route.public_state())
+
+    @app.get("/api/admin/apify-actor-alert-settings")
+    async def admin_apify_actor_alert_settings(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_apify_actor_routing_v13()
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            apify_actor_alerts.get_public_settings(
+                workspace_id=str(user["workspace_id"])
+            )
+        )
+
+    @app.patch("/api/admin/apify-actor-alert-settings")
+    async def admin_apify_actor_alert_settings_patch(
+        payload: ApifyActorAlertSettingsPatchRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_apify_actor_routing_v13()
+        if not payload.model_fields_set:
+            raise ApiError(
+                "invalid_apify_actor_alert_settings",
+                "at least one alert setting is required",
+                status_code=400,
+            )
+        if any(
+            field in payload.model_fields_set and getattr(payload, field) is None
+            for field in ("enabled", "channel", "events")
+        ):
+            raise ApiError(
+                "invalid_apify_actor_alert_settings",
+                "enabled, channel, and events cannot be null",
+                status_code=400,
+            )
+        updates = {
+            field: getattr(payload, field)
+            for field in payload.model_fields_set
+        }
+        updated = apify_actor_alerts.upsert_settings(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            **updates,
+        )
+        request.state.operation_changed_fields = sorted(updates)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(updated)
+
+    @app.post("/api/admin/apify-actor-alert-settings/test")
+    async def admin_apify_actor_alert_settings_test(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_apify_actor_routing_v13()
+        result = await run_in_threadpool(
+            apify_actor_alerts.send_test,
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
+
+    @app.get("/api/admin/apify-actor-alert-incidents")
+    async def admin_apify_actor_alert_incidents(
+        response: Response,
+        limit: int = 20,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_apify_actor_routing_v13()
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "incidents": apify_actor_alerts.list_incidents(
+                    workspace_id=str(user["workspace_id"]),
+                    limit=max(1, min(int(limit), 100)),
+                ),
+            }
+        )
 
     @app.post("/api/admin/secrets")
     async def admin_secrets_create(
@@ -3327,6 +3776,20 @@ def create_app(
 
     def create_job(payload: JobCreateRequest, job_type: str, user: dict[str, Any]) -> dict[str, Any]:
         require_mutating_member(user)
+        reserved_canary_fields = {
+            "apify_actor_candidate_id",
+            "apify_actor_route_generation",
+        }
+        if (
+            payload.payload.get("reason") == "apify_actor_canary"
+            or reserved_canary_fields.intersection(payload.payload)
+        ):
+            raise ApiError(
+                "apify_actor_canary_unavailable",
+                "paid Actor canaries must be started from the confirmed canary action",
+                status_code=409,
+                action="Use the X Actor routing settings and confirm a paid canary.",
+            )
         if job_type in {"source_test", "source_fetch"} and not payload.source_id and not _is_admin(user):
             raise ApiError(
                 "forbidden",
@@ -3522,6 +3985,17 @@ def create_app(
         try:
             conn.execute("BEGIN IMMEDIATE")
             current = job_or_404(job_id, user)
+            payload = current.get("payload_json")
+            if (
+                isinstance(payload, dict)
+                and payload.get("reason") == "apify_actor_canary"
+            ):
+                raise ApiError(
+                    "job_not_retryable",
+                    "paid Actor canaries must be started from the canary action",
+                    status_code=409,
+                    action="Confirm a new paid canary from the X Actor routing settings.",
+                )
             eligibility = JobEligibilityService(store).evaluate(current)
             if not eligibility.allowed:
                 raise ApiError(
