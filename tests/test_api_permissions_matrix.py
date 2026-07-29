@@ -110,6 +110,7 @@ def test_anonymous_core_api_returns_unauthorized_envelope(tmp_path, monkeypatch)
         ("GET", "/api/me/subscriptions"),
         ("GET", "/api/jobs"),
         ("GET", "/api/feed/latest"),
+        ("GET", "/api/feed/end-messages"),
         ("GET", "/api/config"),
         ("GET", "/api/me/item-state?article_ids=rss:item:1"),
         ("GET", "/api/me/notification-settings"),
@@ -141,6 +142,7 @@ def test_viewer_is_read_only_across_core_service_api(tmp_path, monkeypatch):
         client.get("/api/me/subscriptions"),
         client.get("/api/jobs"),
         client.get("/api/feed/latest"),
+        client.get("/api/feed/end-messages"),
         client.get("/api/me/item-state?article_ids=rss:item:viewer"),
         client.get("/api/config"),
         client.get("/api/me/notification-settings"),
@@ -174,6 +176,7 @@ def test_viewer_is_read_only_across_core_service_api(tmp_path, monkeypatch):
             },
         ),
         client.post("/api/me/notification-settings/test"),
+        client.post("/api/admin/feed-end-messages/refresh"),
     ]
     for response in forbidden_requests:
         _assert_error(response, 403, "forbidden")
@@ -191,6 +194,16 @@ def test_global_config_actions_require_admin_role(tmp_path, monkeypatch):
                 "model": "gpt-4o-mini",
                 "api_key_env": "OPENAI_API_KEY",
                 "languages": "zh",
+            },
+        ),
+        (
+            "set_feed_end_messages",
+            {
+                "ai_generation_enabled": False,
+                "refresh_days": 7,
+                "style_preset": "restrained",
+                "style_prompt": "",
+                "list_count": 12,
             },
         ),
         ("set_rsshub", {"base_url": "https://rsshub.example.com"}),

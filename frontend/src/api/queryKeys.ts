@@ -23,6 +23,7 @@ export const queryKeys = {
   feed: (userId: string, options: FeedQueryOptions) => [
     ...userKey(userId), 'feed', options,
   ] as const,
+  feedEndMessages: (userId: string) => [...userKey(userId), 'feed-end-messages'] as const,
   history: (userId: string, options: HistoryQueryOptions = { q: '', sourceId: '', limit: 50 }) => [
     ...userKey(userId), 'history', options,
   ] as const,

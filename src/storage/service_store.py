@@ -894,6 +894,34 @@ class ServiceStore:
             CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_heartbeat_at
                 ON worker_heartbeats(heartbeat_at);
 
+            CREATE TABLE IF NOT EXISTS workspace_feed_end_messages (
+                workspace_id TEXT PRIMARY KEY,
+                messages_json TEXT NOT NULL DEFAULT '{}',
+                config_fingerprint TEXT NOT NULL DEFAULT '',
+                generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+                status TEXT NOT NULL DEFAULT 'empty'
+                    CHECK(status IN ('empty', 'pending', 'refreshing', 'ready', 'failed')),
+                requested_by_user_id TEXT,
+                force_refresh INTEGER NOT NULL DEFAULT 0
+                    CHECK(force_refresh IN (0, 1)),
+                claim_token TEXT,
+                claimed_by TEXT,
+                lease_expires_at TEXT,
+                last_attempt_at TEXT,
+                last_success_at TEXT,
+                next_refresh_at TEXT,
+                retry_at TEXT,
+                last_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(requested_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspace_feed_end_messages_due
+                ON workspace_feed_end_messages(
+                    status, force_refresh, retry_at, next_refresh_at, lease_expires_at
+                );
+
             CREATE TABLE IF NOT EXISTS user_item_state (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,

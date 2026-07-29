@@ -31,6 +31,8 @@ type VirtualFeedProps = {
   showTimelineBucket?: boolean
   feedWindowDays?: number
   footer?: ReactNode
+  terminal?: ReactNode
+  terminalKey?: string
   expandedId?: string
   navigationTargetId?: string
   contextIds: string[]
@@ -41,6 +43,7 @@ type VirtualFeedProps = {
   onToggleSaved: (id: string, saved: boolean) => void
   onToggleContext: (card: WorkbenchCardModel) => void
   onItemAction: (id: string, dismissed: boolean) => void
+  onTerminalReach?: () => void
 }
 
 const collapsedEstimate = WORKBENCH_COLLAPSED_ROW_PX
@@ -436,6 +439,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const sourceSignature = sourceItemIds.join('\u0000')
   const cardsSignature = props.cards.map((card) => card.id).join('\u0000')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<HTMLDivElement>(null)
+  const terminalVisible = useRef(false)
+  const onTerminalReachRef = useRef(props.onTerminalReach)
   const wasNearFreshEdge = useRef(true)
   const previousFreshEdge = useRef(freshEdge)
   const previousResetToTopKey = useRef(props.resetToTopKey)
@@ -459,6 +465,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const [mediaRetryKey, setMediaRetryKey] = useState(0)
   const mediaTriggerRef = useRef<HTMLButtonElement | null>(null)
   const mediaSwipeStart = useRef<number | null>(null)
+  const terminalEnabled = Boolean(props.terminal)
   const mediaViewerOpen = mediaViewer !== null
   const activeMediaUrl = mediaViewer?.images[mediaViewer.index]?.url
   const initialTargetIndex = props.navigationTargetId
@@ -500,6 +507,35 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const virtualizerRef = useRef(virtualizer)
   cardsRef.current = props.cards
   virtualizerRef.current = virtualizer
+  onTerminalReachRef.current = props.onTerminalReach
+
+  useEffect(() => {
+    terminalVisible.current = false
+    const terminal = terminalRef.current
+    const scroll = scrollRef.current
+    if (!terminalEnabled || !terminal || !scroll) return
+    const setVisibility = (visible: boolean) => {
+      if (visible && !terminalVisible.current) onTerminalReachRef.current?.()
+      terminalVisible.current = visible
+    }
+    if (typeof IntersectionObserver !== 'undefined') {
+      const observer = new IntersectionObserver(
+        (entries) => setVisibility(Boolean(entries[0]?.isIntersecting)),
+        { root: scroll, threshold: 0.01 },
+      )
+      observer.observe(terminal)
+      return () => observer.disconnect()
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const rootBounds = scroll.getBoundingClientRect()
+      const terminalBounds = terminal.getBoundingClientRect()
+      setVisibility(
+        terminalBounds.bottom >= rootBounds.top
+        && terminalBounds.top <= rootBounds.bottom,
+      )
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [props.terminalKey, terminalEnabled])
 
   useEffect(() => {
     if (!mediaViewerOpen) return
@@ -776,6 +812,14 @@ export function VirtualFeed(props: VirtualFeedProps) {
       }
     }
     viewportAnchor.current = readViewportAnchor(element)
+    if (typeof IntersectionObserver === 'undefined' && terminalRef.current) {
+      const rootBounds = element.getBoundingClientRect()
+      const terminalBounds = terminalRef.current.getBoundingClientRect()
+      const visible = terminalBounds.bottom >= rootBounds.top
+        && terminalBounds.top <= rootBounds.bottom
+      if (visible && !terminalVisible.current) onTerminalReachRef.current?.()
+      terminalVisible.current = visible
+    }
   }
 
   function toggleExpandedInline(id: string) {
@@ -867,6 +911,11 @@ export function VirtualFeed(props: VirtualFeedProps) {
         })}
       </div>
       {props.footer && <div className="mx-auto w-full max-w-[var(--inteliscope-width-reading)] pb-4">{props.footer}</div>}
+      {props.terminal && <div
+        ref={terminalRef}
+        data-testid="feed-end-sentinel"
+        className="mx-auto w-full max-w-[var(--inteliscope-width-reading)] pb-5"
+      >{props.terminal}</div>}
     </div>
     {newItemCount > 0 && <Button
       size="sm"

@@ -91,7 +91,8 @@ capability / degrade：
 6. `set_rsshub` 只接受 `payload.base_url`，保存为不含 userinfo、query 或 fragment 的 HTTP(S) Base URL；允许安全的反向代理 path prefix。该地址可指向工作区自建或第三方 RSSHub，但不进入 catalog source config、MCP guide/preview、Job result 或 Feed。可选主密钥只允许使用固定 SecretStore 环境变量 `RSSHUB_ACCESS_KEY`；`source_test` 与 Worker 抓取都按 RSSHub 的 `md5(route path + key)` 规则只发送 route-scoped `code`，配置/API/测试结果/日志不得保存或返回主密钥或派生 code。
 7. `set_filtering` 的 additive `payload.rss_initial_fetch_window_hours` 只接受严格整数 `168` 或 `720`，boolean、浮点数、字符串及其他整数均返回可读配置错误；缺失配置按 `168` 处理。`payload.feed_window_days` 只接受严格整数 `7/14/30`，缺失按 `7` 处理；它只控制工作区统一的 Feed/History 展示边界。既有 `filtering.time_window_hours` 继续表示 24 小时日常抓取窗口，RSS 首次抓取窗口与 Feed 展示窗口互不替代。
 8. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
-9. `set_settings_bundle` 只接受非空 `payload`，其可选顶层字段精确为 `ai`、`rsshub`、`filtering`、`topics`，并分别复用 `set_ai`、`set_rsshub`、`set_filtering`、`set_tags` 的载荷与校验。每个已提交分区必须是 JSON object；空载荷、未知分区或任一非法分区返回 400。服务端必须在配置副本上完成全部分区的校验和应用，全部成功后只写盘一次；任一分区失败时不得写入任何分区。权限与响应结构保持不变，原有单项动作继续兼容。
+9. `set_settings_bundle` 只接受非空 `payload`，其可选顶层字段精确为 `ai`、`feed_end_messages`、`rsshub`、`filtering`、`topics`，并分别复用 `set_ai`、`set_feed_end_messages`、`set_rsshub`、`set_filtering`、`set_tags` 的载荷与校验。每个已提交分区必须是 JSON object；空载荷、未知分区或任一非法分区返回 400。服务端必须在配置副本上完成全部分区的校验和应用，全部成功后只写盘一次；任一分区失败时不得写入任何分区。权限与响应结构保持不变，原有单项动作继续兼容。
+10. `set_feed_end_messages` 只接受 `ai_generation_enabled`、`refresh_days`、`style_preset`、`style_prompt`、`list_count`。缺省值依次为 `false`、`7`、`restrained`、空字符串和 `12`；`refresh_days` 只允许严格整数 `1/7/30`，`style_preset` 只允许 `restrained|warm|light_humor`，`style_prompt` trim 后最多 500 字且不得包含 NUL，`list_count` 只允许严格整数 `3..30`。该开关独立于全局 AI 开关；只有两者都开启时 Worker 才可生成。
 
 响应规则：
 
@@ -123,6 +124,8 @@ capability / degrade：
 12. `GET /api/feed/latest`, `GET /api/feed/history`, `GET /api/feed/search`：登录后访问目标用户的时间分层内容。`latest` 支持 `hide_dismissed=true`、`unread_first=true`、`saved_first=true`，并默认 `view=compat` 保留 `today_items`；`view=canonical` 仅省略可由 `items[].timeline_bucket` 推导的 `today_items`，其余字段与顺序不变。`history` 返回当前 Feed 窗口之前的 schema-v2 用户历史；`search` 检索当前用户 Feed、在线历史和冷归档元数据，精确语义见下文。
 12A. `GET /api/feed/saved?limit=200&offset=0` 按 `saved_at DESC` 返回当前用户稳定收藏；`GET /api/feed/ignored?limit=200&offset=0` 按 `dismissed_at DESC` 返回当前用户忽略集合；`GET /api/feed/items/{article_id}` 按需返回 Presentation v2 详情。三者只读 `user_content_items + user_item_state`，不得用另一用户或最近 snapshot 兜底。
 12B. `GET /api/media/{asset_id}` 登录后读取 Worker 已缓存的同源图片或头像。内容图片只允许所属用户读取；workspace/public 来源头像允许同 workspace 用户读取；private 来源头像只允许 owner 读取；越权和不存在统一返回 404。Feed、收藏和详情响应不得暴露上游临时媒体 URL，所有可展示图片 URL 必须是 `/api/media/*`。内容图片的稳定身份为 `workspace + user + article + asset_kind + checksum`；同内容的 CDN 域名或查询签名变化只更新远端线索并复用既有 ready asset，不得写重复本地文件。
+12C. `GET /api/feed/end-messages` 允许所有登录用户读取当前 workspace 的三个共享文案列表。`data` 精确包含 `schema_version=1/source/status/generation/generated_at/last_attempt_at/next_refresh_at/retry_at/last_error_code/scenes`；`source` 为 `builtin|ai`，`status` 为 `disabled|pending|refreshing|ready|degraded`，`scenes` 的键精确为 `empty/first_end/repeat_end`。时间字段允许 `null`，错误只返回安全 code，不返回模型正文、提示词、凭据或异常。响应使用 `Cache-Control: no-store`。
+12D. `POST /api/admin/feed-end-messages/refresh` 只允许 `owner/admin`，且只把当前 workspace 幂等标记为待刷新，不在请求内调用模型或创建普通 Job。全局 AI 或触底文案 AI 开关关闭时返回 `409 feed_end_messages_disabled`；成功返回与 GET 相同的状态 envelope 并使用 `Cache-Control: no-store`。
 13. `GET /api/me/item-state`, `PATCH /api/me/items/{article_id}/state`：当前产品使用的已读、收藏、稍后读和忽略状态接口。`POST /api/me/items/{article_id}/feedback` 与 feedback 表只为既有调用方兼容保留，默认 UI 不调用。
 14. `GET /api/archive/items`, `GET /api/archive/trends`, `GET /api/archive/facets`, `GET /api/archive/source-quality` 是 compatibility-only archive analytics；默认阅读 UI 和订阅 UI 均不调用，接口存在不等于当前产品能力或路线承诺。`GET /api/archive/graph` 同为兼容路由，但固定返回 disabled 安全空响应。
 15. `GET /api/config`, `POST /api/config/action`：配置页兼容 facade。读取时返回旧配置页可消费的 `config/env_status`，并附加 `taxonomy{channels,topics}`；source 列表由 `source_catalog + user_subscriptions` 合成，非 source 全局配置仍写 `data/config.json`。`set_tags` 的精确数组/空数组/兼容字符串语义及 `set_rsshub` 的 credential-free Base URL 语义见上文。
@@ -161,13 +164,14 @@ capability / degrade：
 14. `owner/admin/member/viewer` 都可以读取自己的 Source Health；`GET /api/me/source-health` 不提供跨用户代理，即使 `owner/admin` 附带 `user_id` 查询参数也仍只返回当前登录用户的数据。
 15. 密钥列表、创建、轮换、删除、额度查询、Apify Key 池读取/排序/排空以及 legacy catalog `secret_env` 选择只允许 `owner/admin`；`member/viewer` 均返回 `forbidden`。池模式下任何角色都不再得到 Apify 来源级 `secret_env`；非管理员其他 source 响应只给出 `secret_configured`，不得暴露环境变量名。
 16. `owner/admin/member/viewer` 都可创建、查看、重命名和吊销自己的 read Agent delegation，也可显式删除自己已吊销的单条记录；只有 `owner/admin/member` 可创建 subscription-write delegation，且受写开关约束。不存在把既有 read connection 提升为 write 的接口；不提供管理员代查、代管或跨用户删除接口。delegation 令牌始终只映射其创建者，即使创建者是 `owner/admin`，Remote MCP 也不得使用管理员跨用户读权限。禁用用户时必须在同一事务永久吊销其全部连接，重新启用不恢复旧令牌。
+17. 触底文案 GET 只返回 workspace 共享且不含用户内容的文案池，所有登录角色可读；立即刷新和触底文案配置只允许 `owner/admin`，`member/viewer` 返回 `forbidden`。
 
 错误 envelope 规则：
 
 1. 未登录返回 `unauthorized`，权限不足返回 `forbidden`，不可见或不存在资源返回 `not_found`。
 2. Pydantic/body/query 校验失败返回 `invalid_request`，HTTP status 使用 400。
 3. 不存在的 `/api/*` 路径返回 `not_found` envelope；不得返回 FastAPI 默认 `{"detail": ...}`。
-4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_subscription_notification`、`invalid_notification_settings`、`invalid_notification_destination`、`notification_destination_required`、`notification_channel_unavailable`、`notification_test_failed`、`notification_test_rate_limited`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`。工作区邮件服务另外区分 `invalid_email_transport_provider`、`invalid_email_transport_sender`、`invalid_email_transport_region`、`invalid_email_transport_username`、`email_transport_not_configured`、`email_transport_test_required`、`email_transport_test_rate_limited`、`email_transport_credential_unavailable`、`notification_email_authentication_failed`、`notification_email_recipient_rejected`、`notification_email_rejected` 与 `notification_email_unavailable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_forbidden`（422、不可重试且不切 Key）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。Apify 池管理/任务还区分 `apify_key_pool_managed`、`apify_key_busy`、`apify_key_pool_conflict`、`apify_key_drain_pending`、`apify_key_pool_exhausted`、`apify_key_pool_blocked`、`apify_key_rejected` 和 `apify_start_outcome_unknown`；公开 message 只描述安全状态和下一步，不得拼接上游正文、Token、runId 或 datasetId。Feed 搜索另有 `invalid_query`、`query_requires_submit`、`invalid_limit`、`invalid_cursor`（均 400）与可重试 `search_timeout`（503）。存储治理稳定错误为 `storage_operation_invalid`、`storage_plan_invalid|not_found|unavailable|expired|changed`、`storage_migration_required`、`storage_confirmation_required`、`storage_archive_required|not_found|invalid|corrupt|unavailable|not_restored|in_use|deleted` 和 `storage_restore_conflict`；公开 message 不得包含路径、SQL、确认短语、候选 ID、正文或归档 manifest。
+4. 核心错误码包括：`unauthorized`、`forbidden`、`not_found`、`invalid_request`、`invalid_source_config`、`invalid_feedback_type`、`invalid_feed_schedule`、`invalid_source_schedule`、`invalid_disable_disposition`、`invalid_subscription_notification`、`invalid_notification_settings`、`invalid_notification_destination`、`notification_destination_required`、`notification_channel_unavailable`、`notification_test_failed`、`notification_test_rate_limited`、`invalid_current_password`、`source_schedule_unavailable`、`no_enabled_subscriptions`、`quota_exceeded`、`job_not_cancelable`、`job_not_retryable`、`feed_end_messages_disabled`。工作区邮件服务另外区分 `invalid_email_transport_provider`、`invalid_email_transport_sender`、`invalid_email_transport_region`、`invalid_email_transport_username`、`email_transport_not_configured`、`email_transport_test_required`、`email_transport_test_rate_limited`、`email_transport_credential_unavailable`、`notification_email_authentication_failed`、`notification_email_recipient_rejected`、`notification_email_rejected` 与 `notification_email_unavailable`。密钥额度查询另外区分 `quota_not_supported`（400、不可重试）、`secret_not_configured`（409、不可重试）、`apify_quota_unauthorized`（422、不可重试）、`apify_quota_forbidden`（422、不可重试且不切 Key）、`apify_quota_rate_limited`（429、可重试）、`apify_quota_unavailable`（503、可重试）和 `apify_quota_invalid_response`（502，响应畸形时可重试、其他上游 4xx 时不可重试）。Apify 池管理/任务还区分 `apify_key_pool_managed`、`apify_key_busy`、`apify_key_pool_conflict`、`apify_key_drain_pending`、`apify_key_pool_exhausted`、`apify_key_pool_blocked`、`apify_key_rejected` 和 `apify_start_outcome_unknown`；公开 message 只描述安全状态和下一步，不得拼接上游正文、Token、runId 或 datasetId。Feed 搜索另有 `invalid_query`、`query_requires_submit`、`invalid_limit`、`invalid_cursor`（均 400）与可重试 `search_timeout`（503）。存储治理稳定错误为 `storage_operation_invalid`、`storage_plan_invalid|not_found|unavailable|expired|changed`、`storage_migration_required`、`storage_confirmation_required`、`storage_archive_required|not_found|invalid|corrupt|unavailable|not_restored|in_use|deleted` 和 `storage_restore_conflict`；公开 message 不得包含路径、SQL、确认短语、候选 ID、正文或归档 manifest。
 
 ## 5B. Remote MCP 合同
 
@@ -519,6 +523,7 @@ Feed retention / legacy archive compatibility 规则：
 5. Service Feed snapshot 以非空 `job_id` 为幂等键；重复 finalize 返回既有 snapshot，不得创建第二份。snapshot item 以 `article_id` 稳定去重。
 6. Source Health 以内部 `(subscription_id, job_id)` application ledger 保证 outcome 重放幂等；同一 job 的重复应用不重复累计失败。
 7. 偏好来源通知以 `(subscription_id, article_id)` outbox 唯一键抑制全量/单源/重试重放；测试通知是显式非幂等人工动作，但不会消费内容唯一键或移动基线。
+8. 触底文案立即刷新以 workspace 唯一状态行为幂等键；重复请求只保留同一个 pending/refreshing 状态。Worker 用 `BEGIN IMMEDIATE` 与原子 claim token/75 秒租约确保同一时刻最多一个执行者接管一个 workspace，过期租约才可重新抢占。
 
 ## 11. 后台任务合同
 异步、批量、定时、长耗时任务必须定义任务状态合同。
@@ -541,6 +546,14 @@ Feed retention / legacy archive compatibility 规则：
 3. Full-text 和 article graph 仅可由旧 CLI/scheduler publisher 在对应配置启用时运行；Service Worker 和默认 UI 不运行或消费它们。
 4. API、Worker、Scheduler 与 CLI 的 runtime/operation 日志写入 `logs/**`，UTC 每日轮转且默认保留 30 天；原始文件不进入 Agent 上下文，只有 5B 定义的当前用户脱敏结构化事件可由 OpenClaw 查询。
 5. 响应结构诊断只在 adapter 收到上游值时即时提取字段路径/类型，原始值随调用栈释放；Job 只保留有界双层摘要，Feed snapshot、稳定内容索引和媒体记录不得保存该诊断。
+
+### 11.1 信息流触底文案生成
+
+1. `workspace_feed_end_messages` 是幂等新增的 workspace 级 SQLite 缓存表，保存三个列表、非敏感配置指纹、generation、刷新状态、原子租约、最近尝试/成功/下次刷新/退避时间和安全错误码；不保存提示词、模型原文、用户内容或密钥。
+2. 始终存在内置中文列表。全局 AI 或独立生成开关关闭时，GET 必须忽略旧 AI 缓存并返回 `source=builtin,status=disabled`；重新开启后，配置变化、手动刷新、到期或首次缺少缓存均可进入 pending，后台生成期间仍可返回上次通过校验的 AI 列表。
+3. Worker 只有在普通任务队列无法 claim Job 时才检查触底文案；一次 idle 轮询最多 claim 一个 workspace、记录一个 workspace AI attempt，并发起至多一次 60 秒模型请求。该调用关闭 SDK 自动重试，不创建普通 Job，也不由 scheduler 驱动。
+4. 模型结果必须是只含 `empty/first_end/repeat_end` 的 JSON object；每个数组恰好等于配置条数，三个数组全局去重。每句必须为 trim 后 4–40 字的单行简体中文纯文本，禁止 HTML、Markdown、URL、Emoji、催促、羞辱、焦虑表达和虚假完成声明；自定义风格不得覆盖这些约束。
+5. 成功后 generation 原子加一并按 `refresh_days` 安排下次刷新。超时、配额、调用或输出校验失败只写安全错误码，保留上次成功列表；从未成功则回退内置列表。失败固定六小时后才可自动再试，手动刷新或配置指纹变化可提前触发。
 
 ## 12. Feed v2 显式迁移合同
 

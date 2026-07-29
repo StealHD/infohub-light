@@ -34,6 +34,23 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       schema_version: 2,
       items: [{ id: 'live-1', title: '真实 API 条目', url: 'https://example.com/live-1', published_at: '2026-07-17T02:00:00Z', user_state: { is_read: false, is_saved: false, is_later: false, dismissed: false } }],
     }),
+    feedEndMessages: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      source: 'builtin',
+      status: 'disabled',
+      generation: 0,
+      generated_at: null,
+      last_attempt_at: null,
+      next_refresh_at: null,
+      retry_at: null,
+      last_error_code: null,
+      scenes: {
+        empty: ['这里暂时很安静。'],
+        first_end: ['这一轮内容先到这里。'],
+        repeat_end: ['又到末尾了。'],
+      },
+    }),
+    refreshFeedEndMessages: vi.fn(),
     agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, connections: [], mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5 }),
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
@@ -161,6 +178,49 @@ describe('App routes', () => {
     expect(api.latestFeed).toHaveBeenCalled()
     expect(api.agentDelegations).toHaveBeenCalled()
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
+  })
+
+  it('supplements the deterministic empty state without replacing its guidance', async () => {
+    const api = liveApi({
+      latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [] }),
+      feedEndMessages: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        source: 'ai',
+        status: 'ready',
+        generation: 2,
+        generated_at: '2026-07-29T00:00:00Z',
+        last_attempt_at: '2026-07-29T00:00:00Z',
+        next_refresh_at: '2026-08-05T00:00:00Z',
+        retry_at: null,
+        last_error_code: null,
+        scenes: {
+          empty: ['空白也可以很从容。'],
+          first_end: ['这一轮先读到这里。'],
+          repeat_end: ['再次走到列表末尾。'],
+        },
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByText('信息流还是空的')).toBeInTheDocument()
+    expect(screen.getByText('先订阅来源，再获取一次新内容。')).toBeInTheDocument()
+    expect(await screen.findByTestId('feed-empty-message')).toHaveTextContent('空白也可以很从容。')
+  })
+
+  it('does not show empty copy while a single-character search waits for explicit submission', async () => {
+    const browser = userEvent.setup()
+    const api = liveApi({
+      latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [] }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByText('信息流还是空的')
+    await browser.type(screen.getByRole('searchbox', { name: '搜索全部内容' }), '单')
+
+    expect(await screen.findByText('按回车搜索单个字符')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('feed-empty-message')).not.toBeInTheDocument())
   })
 
   it('isolates content search by route while keeping an empty Feed search visible', async () => {
@@ -2263,6 +2323,86 @@ describe('App routes', () => {
     })
   })
 
+  it('saves feed-end copy settings and exposes generation status with a queued refresh', async () => {
+    const browser = userEvent.setup()
+    const configAction = vi.fn().mockResolvedValue({ config: { feed_end_messages: {} } })
+    const refreshFeedEndMessages = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      source: 'ai',
+      status: 'pending',
+      generation: 4,
+      generated_at: '2026-07-29T00:00:00Z',
+      last_attempt_at: '2026-07-29T00:00:00Z',
+      next_refresh_at: '2026-08-05T00:00:00Z',
+      retry_at: null,
+      last_error_code: null,
+      scenes: {
+        empty: ['空列表样例。'],
+        first_end: ['首次触底样例。'],
+        repeat_end: ['再次触底样例。'],
+      },
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-copy', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({
+        config: {
+          ai: { enabled: true, provider: 'openai', model: 'gpt-4o-mini', api_key_env: 'OPENAI_API_KEY' },
+          feed_end_messages: {
+            ai_generation_enabled: true,
+            refresh_days: 7,
+            style_preset: 'restrained',
+            style_prompt: '',
+            list_count: 12,
+          },
+          filtering: {},
+        },
+        taxonomy: { channels: [], topics: [] },
+      }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      users: vi.fn().mockResolvedValue({ users: [] }),
+      feedEndMessages: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        source: 'ai',
+        status: 'ready',
+        generation: 4,
+        generated_at: '2026-07-29T00:00:00Z',
+        last_attempt_at: '2026-07-29T00:00:00Z',
+        next_refresh_at: '2026-08-05T00:00:00Z',
+        retry_at: null,
+        last_error_code: null,
+        scenes: {
+          empty: ['空列表样例。'],
+          first_end: ['首次触底样例。'],
+          repeat_end: ['再次触底样例。'],
+        },
+      }),
+      configAction,
+      refreshFeedEndMessages,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByText('AI 文案可用')).toBeInTheDocument()
+    expect(screen.getByText('空列表样例。')).toBeInTheDocument()
+    expect(screen.getByText('首次触底样例。')).toBeInTheDocument()
+    expect(screen.getByText('再次触底样例。')).toBeInTheDocument()
+    await browser.type(screen.getByRole('textbox', { name: '自定义风格补充' }), '更像编辑部')
+    await browser.click(screen.getByRole('button', { name: '保存触底文案设置' }))
+    expect(configAction).toHaveBeenCalledWith('set_settings_bundle', {
+      feed_end_messages: {
+        ai_generation_enabled: true,
+        refresh_days: 7,
+        style_preset: 'restrained',
+        style_prompt: '更像编辑部',
+        list_count: 12,
+      },
+    })
+
+    await browser.click(screen.getByRole('button', { name: '立即刷新' }))
+    expect(refreshFeedEndMessages).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText('等待 Worker 刷新')).toBeInTheDocument()
+  })
+
   it.each(['owner', 'admin'] as const)('lets a live %s change non-owner member roles while protecting owners', async (actorRole) => {
     const browser = userEvent.setup()
     const workspaceOwner = { id: 'workspace-owner', username: 'workspace-owner', display_name: 'Workspace Owner', role: 'owner' as const, enabled: true }
@@ -2622,8 +2762,34 @@ describe('App routes', () => {
 
     expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
     expect(await screen.findByRole('article', { name: '收藏路由条目' })).toBeInTheDocument()
-    expect(savedFeed).toHaveBeenCalledWith(200, 0, expect.any(AbortSignal))
+    expect(savedFeed).toHaveBeenCalledWith(50, 0, expect.any(AbortSignal))
     expect(latestFeed).not.toHaveBeenCalled()
+  })
+
+  it('keeps saved pagination explicit and shows the terminal only on the true final page', async () => {
+    const browser = userEvent.setup()
+    const savedItems = Array.from({ length: 51 }, (_, index) => ({
+      ...basicFeedItem(`saved-page-${index}`, `分页收藏 ${index}`),
+      user_state: { is_read: false, is_saved: true, is_later: false, dismissed: false },
+    }))
+    const savedFeed = vi.fn().mockImplementation(async (limit: number, offset: number) => ({
+      schema_version: 1,
+      scope: 'user',
+      items: savedItems.slice(offset, offset + limit),
+      item_count: savedItems.length,
+      limit,
+      offset,
+    }))
+    const api = liveApi({ savedFeed } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/saved']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('button', { name: '加载更多（已显示 50/51）' })).toBeInTheDocument()
+    expect(screen.queryByText('收藏已全部显示')).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '加载更多（已显示 50/51）' }))
+
+    expect(await screen.findByText('收藏已全部显示')).toBeInTheDocument()
+    expect(savedFeed).toHaveBeenLastCalledWith(50, 50, expect.any(AbortSignal))
   })
 
   it('renders the history production route from historyFeed without falling through to latestFeed', async () => {
@@ -2701,6 +2867,7 @@ describe('App routes', () => {
       limit: 50,
       offset: 0,
     }, expect.any(AbortSignal))
+    expect(screen.queryByText('历史记录已全部显示')).not.toBeInTheDocument()
 
     await browser.click(screen.getByRole('button', { name: '加载更多（已显示 1/2）' }))
     expect(await screen.findByRole('article', { name: 'tsucha 历史二' })).toBeInTheDocument()
@@ -2711,6 +2878,7 @@ describe('App routes', () => {
       limit: 50,
       offset: 1,
     }, expect.any(AbortSignal))
+    expect(await screen.findByText('历史记录已全部显示')).toBeInTheDocument()
     expect(latestFeed).not.toHaveBeenCalled()
   })
 
@@ -2734,7 +2902,7 @@ describe('App routes', () => {
     expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
     expect(await screen.findByRole('article', { name: '稍后读迁移条目' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('当前位置')).toHaveTextContent('/saved?item=live-1'))
-    expect(savedFeed).toHaveBeenCalledWith(200, 0, expect.any(AbortSignal))
+    expect(savedFeed).toHaveBeenCalledWith(50, 0, expect.any(AbortSignal))
     expect(feedItem).toHaveBeenCalledWith('live-1', expect.any(AbortSignal))
   })
 

@@ -841,6 +841,7 @@ def apply_config_action(
     if action == "set_settings_bundle":
         action_by_section = {
             "ai": "set_ai",
+            "feed_end_messages": "set_feed_end_messages",
             "rsshub": "set_rsshub",
             "filtering": "set_filtering",
             "topics": "set_tags",
@@ -1181,6 +1182,56 @@ def apply_config_action(
             maximum=30000,
             integer=True,
         )
+
+    elif action == "set_feed_end_messages":
+        allowed_fields = {
+            "ai_generation_enabled",
+            "refresh_days",
+            "style_preset",
+            "style_prompt",
+            "list_count",
+        }
+        unknown_fields = sorted(set(payload) - allowed_fields)
+        if unknown_fields:
+            raise ValueError(
+                f"未知触底文案设置字段: {', '.join(unknown_fields)}"
+            )
+        generation_enabled = payload.get("ai_generation_enabled", False)
+        if not isinstance(generation_enabled, bool):
+            raise ValueError("ai_generation_enabled 必须是布尔值")
+        raw_style_preset = payload.get("style_preset", "restrained")
+        if not isinstance(raw_style_preset, str):
+            raise ValueError("style_preset 必须是字符串")
+        style_preset = raw_style_preset.strip() or "restrained"
+        if style_preset not in {"restrained", "warm", "light_humor"}:
+            raise ValueError(
+                "style_preset 必须是 restrained、warm 或 light_humor"
+            )
+        raw_style_prompt = payload.get("style_prompt", "")
+        if not isinstance(raw_style_prompt, str):
+            raise ValueError("style_prompt 必须是字符串")
+        style_prompt = raw_style_prompt.strip()
+        if len(style_prompt) > 500:
+            raise ValueError("style_prompt 不能超过 500 个字符")
+        if "\x00" in style_prompt:
+            raise ValueError("style_prompt 不能包含空字符")
+        list_count = payload.get("list_count", 12)
+        if isinstance(list_count, bool) or not isinstance(list_count, int):
+            raise ValueError("list_count 必须是整数")
+        if list_count < 3 or list_count > 30:
+            raise ValueError("list_count 必须在 3 到 30 之间")
+        updated["feed_end_messages"] = {
+            "ai_generation_enabled": generation_enabled,
+            "refresh_days": _integer_choice(
+                payload,
+                "refresh_days",
+                default=7,
+                allowed={1, 7, 30},
+            ),
+            "style_preset": style_preset,
+            "style_prompt": style_prompt,
+            "list_count": list_count,
+        }
 
     elif action == "set_tags":
         updated["tags"] = _topic_library(payload)

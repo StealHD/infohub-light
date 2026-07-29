@@ -25,4 +25,15 @@ describe('session cache isolation', () => {
     expect(window.sessionStorage.getItem('inteliscope.agent-context.v1:user-a')).toBeNull()
     expect(window.sessionStorage.getItem('inteliscope.agent-context.v1:user-b')).not.toBeNull()
   })
+
+  it('clears only the departing user feed-end tab session', async () => {
+    const queryClient = new QueryClient()
+    window.sessionStorage.setItem('inteliscope.feed-end-messages.v1.user-a', '{"endVisits":2}')
+    window.sessionStorage.setItem('inteliscope.feed-end-messages.v1.user-b', '{"endVisits":3}')
+
+    await clearUserCache(queryClient, 'user-a')
+
+    expect(window.sessionStorage.getItem('inteliscope.feed-end-messages.v1.user-a')).toBeNull()
+    expect(window.sessionStorage.getItem('inteliscope.feed-end-messages.v1.user-b')).not.toBeNull()
+  })
 })

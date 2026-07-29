@@ -45,5 +45,13 @@ export function patchItemStateInData(data: unknown, articleId: string, patch: Pa
       changed = true
     }
   }
+  if (Array.isArray(record.pages)) {
+    const originalPages = record.pages
+    const pages = originalPages.map((page) => patchItemStateInData(page, articleId, patch))
+    if (pages.some((page, index) => page !== originalPages[index])) {
+      next.pages = pages
+      changed = true
+    }
+  }
   return changed ? next : data
 }

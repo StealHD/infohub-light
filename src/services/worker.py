@@ -18,6 +18,7 @@ from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
 from ..storage.manager import StorageManager
 from ..ui.server import run_source_test
 from .feed_schedule import FeedScheduleService, SCHEDULED_REFRESH_REASON
+from .feed_end_messages import run_due_feed_end_messages_generation
 from .job_queue import JobQueue
 from .job_eligibility import JobEligibilityService
 from .maintenance import MaintenanceService
@@ -516,8 +517,21 @@ def run_worker_once(
             store.upsert_worker_heartbeat(worker_id, "starting")
         job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
         if not job:
-            store.upsert_worker_heartbeat(worker_id, "idle")
-            return None
+            generation_result = run_due_feed_end_messages_generation(
+                data_dir=data_dir,
+                store=store,
+                worker_id=worker_id,
+            )
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code=(
+                    generation_result.get("error_code")
+                    if generation_result and not generation_result.get("ok")
+                    else None
+                ),
+            )
+            return generation_result
         safe_emit_operation_event(
             category="job",
             action="claim",

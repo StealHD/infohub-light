@@ -15,6 +15,8 @@ describe('service api', () => {
     const api = createServiceApi(client)
 
     await api.latestFeed()
+    await api.feedEndMessages()
+    await api.refreshFeedEndMessages()
     await api.jobs()
     await api.job('job/1')
     const historySignal = new AbortController().signal
@@ -55,6 +57,8 @@ describe('service api', () => {
     await api.applyStoragePlan('plan/1', '永久删除归档 archive/1')
 
     expect(client.get).toHaveBeenCalledWith('/api/feed/latest?view=canonical', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/feed/end-messages', undefined)
+    expect(client.post).toHaveBeenCalledWith('/api/admin/feed-end-messages/refresh')
     expect(client.get).toHaveBeenCalledWith('/api/jobs?view=summary&scope=me&limit=100&include_active=true', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/jobs/job%2F1', undefined)
     expect(client.get).toHaveBeenCalledWith(

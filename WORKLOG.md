@@ -230,3 +230,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "实现信息流、收藏、历史与搜索的真实终页提示、三场景内置/AI 文案池、收藏 50 条分页，以及仅在普通队列空闲时执行的 workspace 级安全生成缓存；未调用真实模型、未重建或部署 8080。",
+  "status": "completed",
+  "task_id": "2026-07-29-feed-end-messages",
+  "unresolved": [],
+  "validation": [
+    "147 targeted Python regressions passed",
+    "frontend 494 tests passed",
+    "frontend typecheck, lint and UI contract checks passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "git diff --check"
+  ]
+}
+```

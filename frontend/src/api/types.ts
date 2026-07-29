@@ -321,6 +321,21 @@ export type FeedSearchParams = {
   submitted?: boolean
 }
 
+export type FeedEndMessageScene = 'empty' | 'first_end' | 'repeat_end'
+
+export type FeedEndMessages = {
+  schema_version: 1
+  source: 'builtin' | 'ai'
+  status: 'disabled' | 'pending' | 'refreshing' | 'ready' | 'degraded'
+  generation: number
+  generated_at: string | null
+  last_attempt_at: string | null
+  next_refresh_at: string | null
+  retry_at: string | null
+  last_error_code: string | null
+  scenes: Record<FeedEndMessageScene, string[]>
+}
+
 export type SavedFeed = {
   schema_version: 1
   scope: 'user'

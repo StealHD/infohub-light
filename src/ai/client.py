@@ -106,7 +106,13 @@ class AIClient(ABC):
 class AnthropicClient(AIClient):
     """Client for Anthropic Claude models."""
 
-    def __init__(self, config: AIConfig):
+    def __init__(
+        self,
+        config: AIConfig,
+        *,
+        max_retries: int | None = None,
+        timeout_seconds: float | None = None,
+    ):
         """Initialize Anthropic client.
 
         Args:
@@ -119,6 +125,10 @@ class AnthropicClient(AIClient):
         kwargs = {"api_key": api_key}
         if config.base_url:
             kwargs["base_url"] = config.base_url
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
+        if timeout_seconds is not None:
+            kwargs["timeout"] = timeout_seconds
 
         self.client = AsyncAnthropic(**kwargs)
         self.model = config.model
@@ -182,7 +192,14 @@ class OpenAIClient(AIClient):
     # Providers that need temperature clamped to (0, 1]
     _TEMP_CLAMP = {"minimax"}
 
-    def __init__(self, config: AIConfig):
+    def __init__(
+        self,
+        config: AIConfig,
+        *,
+        max_retries: int | None = None,
+        timeout_seconds: float | None = None,
+        allow_compatibility_fallback: bool = True,
+    ):
         """Initialize OpenAI-compatible client.
 
         Args:
@@ -199,12 +216,17 @@ class OpenAIClient(AIClient):
             kwargs["base_url"] = base_url
         if config.provider == AIProvider.XIAOMI:
             kwargs["default_headers"] = {"api-key": api_key}
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
+        if timeout_seconds is not None:
+            kwargs["timeout"] = timeout_seconds
 
         self.client = AsyncOpenAI(**kwargs)
         self.model = config.model
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
         self.provider = config.provider.value
+        self._allow_compatibility_fallback = allow_compatibility_fallback
         # Some newer models (e.g. Claude Opus 4.7 on Bedrock Converse) reject
         # `temperature`. We learn this on first 400 and stop sending it.
         self._supports_temperature = True
@@ -243,8 +265,10 @@ class OpenAIClient(AIClient):
                 include_temperature=self._supports_temperature,
             )
         except Exception as exc:
-            if self._supports_temperature and self._is_temperature_unsupported(
-                str(exc)
+            if (
+                self._supports_temperature
+                and getattr(self, "_allow_compatibility_fallback", True)
+                and self._is_temperature_unsupported(str(exc))
             ):
                 self._supports_temperature = False
                 response = await self._do_request(
@@ -314,7 +338,14 @@ class AzureOpenAIClient(AIClient):
     # so a best-effort guess can be wrong for custom deployment aliases.
     _MODELS_REQUIRING_MAX_COMPLETION_TOKENS = ("o1", "o3", "o4", "gpt-5")
 
-    def __init__(self, config: AIConfig):
+    def __init__(
+        self,
+        config: AIConfig,
+        *,
+        max_retries: int | None = None,
+        timeout_seconds: float | None = None,
+        allow_compatibility_fallback: bool = True,
+    ):
         """Initialize Azure OpenAI client.
 
         Args:
@@ -331,14 +362,22 @@ class AzureOpenAIClient(AIClient):
         if not config.api_version:
             raise ValueError("api_version is required for azure provider")
 
+        client_kwargs = {
+            "api_key": api_key,
+            "azure_endpoint": azure_endpoint,
+            "api_version": config.api_version,
+        }
+        if max_retries is not None:
+            client_kwargs["max_retries"] = max_retries
+        if timeout_seconds is not None:
+            client_kwargs["timeout"] = timeout_seconds
         self.client = AsyncAzureOpenAI(
-            api_key=api_key,
-            azure_endpoint=azure_endpoint,
-            api_version=config.api_version,
+            **client_kwargs,
         )
         self.model = config.model
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
+        self._allow_compatibility_fallback = allow_compatibility_fallback
         self._use_max_completion_tokens = any(
             config.model.startswith(prefix)
             for prefix in self._MODELS_REQUIRING_MAX_COMPLETION_TOKENS
@@ -375,7 +414,11 @@ class AzureOpenAIClient(AIClient):
             )
         except Exception as exc:
             fallback = self._token_fallback_mode(str(exc))
-            if fallback is None:
+            if fallback is None or not getattr(
+                self,
+                "_allow_compatibility_fallback",
+                True,
+            ):
                 raise
 
             self._use_max_completion_tokens = fallback
@@ -434,7 +477,13 @@ class AzureOpenAIClient(AIClient):
 class GeminiClient(AIClient):
     """Client for Google Gemini models."""
 
-    def __init__(self, config: AIConfig):
+    def __init__(
+        self,
+        config: AIConfig,
+        *,
+        max_retries: int | None = None,
+        timeout_seconds: float | None = None,
+    ):
         """Initialize Gemini client.
 
         Args:
@@ -444,7 +493,17 @@ class GeminiClient(AIClient):
 
         api_key = _resolve_api_key(config)
 
-        self.client = genai.Client(api_key=api_key)
+        client_kwargs = {"api_key": api_key}
+        if max_retries is not None or timeout_seconds is not None:
+            http_options: dict[str, object] = {}
+            if max_retries is not None:
+                http_options["retry_options"] = types.HttpRetryOptions(
+                    attempts=max_retries + 1
+                )
+            if timeout_seconds is not None:
+                http_options["timeout"] = int(timeout_seconds * 1000)
+            client_kwargs["http_options"] = types.HttpOptions(**http_options)
+        self.client = genai.Client(**client_kwargs)
         self.model = config.model
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
@@ -493,7 +552,12 @@ class GeminiClient(AIClient):
         return response.text
 
 
-def create_ai_client(config: AIConfig) -> AIClient:
+def create_ai_client(
+    config: AIConfig,
+    *,
+    single_attempt: bool = False,
+    timeout_seconds: float | None = None,
+) -> AIClient:
     """Factory function to create appropriate AI client.
 
     Args:
@@ -505,12 +569,27 @@ def create_ai_client(config: AIConfig) -> AIClient:
     Raises:
         ValueError: If provider is not supported
     """
+    max_retries = 0 if single_attempt else None
+    compatibility_fallback = not single_attempt
     if config.provider == AIProvider.ANTHROPIC:
-        return AnthropicClient(config)
+        return AnthropicClient(
+            config,
+            max_retries=max_retries,
+            timeout_seconds=timeout_seconds,
+        )
     elif config.provider == AIProvider.AZURE:
-        return AzureOpenAIClient(config)
+        return AzureOpenAIClient(
+            config,
+            max_retries=max_retries,
+            timeout_seconds=timeout_seconds,
+            allow_compatibility_fallback=compatibility_fallback,
+        )
     elif config.provider == AIProvider.GEMINI:
-        return GeminiClient(config)
+        return GeminiClient(
+            config,
+            max_retries=max_retries,
+            timeout_seconds=timeout_seconds,
+        )
     elif config.provider in {
         AIProvider.OPENAI,
         AIProvider.ALI,
@@ -520,6 +599,11 @@ def create_ai_client(config: AIConfig) -> AIClient:
         AIProvider.XIAOMI,
         AIProvider.OLLAMA,
     }:
-        return OpenAIClient(config)
+        return OpenAIClient(
+            config,
+            max_retries=max_retries,
+            timeout_seconds=timeout_seconds,
+            allow_compatibility_fallback=compatibility_fallback,
+        )
     else:
         raise ValueError(f"Unsupported AI provider: {config.provider}")

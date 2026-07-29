@@ -133,7 +133,8 @@
         "src/services/network_policy.py",
         "src/services/response_schema.py",
         "src/services/user_analysis_cache.py",
-        "src/services/user_feed_store.py"
+        "src/services/user_feed_store.py",
+        "tests/test_feed_end_messages.py"
       ],
       "groups": ["python_feed"]
     },

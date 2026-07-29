@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -104,6 +104,52 @@ function truncatedSingleImageItem(): FeedItem {
 }
 
 describe('VirtualFeed', () => {
+  it('fires the terminal sentinel only on visible entry and again after leaving', () => {
+    let emitVisibility: ((visible: boolean) => void) | undefined
+    class TestIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        emitVisibility = (visible) => callback(
+          [{ isIntersecting: visible } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        )
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return [] }
+      root = null
+      rootMargin = '0px'
+      thresholds = [0.01]
+    }
+    vi.stubGlobal('IntersectionObserver', TestIntersectionObserver)
+    const onTerminalReach = vi.fn()
+
+    try {
+      render(<VirtualFeed
+        cards={[toWorkbenchCardModel(makeItem(1))]}
+        terminal={<p>当前信息流已全部显示</p>}
+        terminalKey="feed"
+        contextIds={[]}
+        onToggleExpanded={vi.fn()}
+        onToggleSaved={vi.fn()}
+        onToggleContext={vi.fn()}
+        onItemAction={vi.fn()}
+        onTerminalReach={onTerminalReach}
+      />)
+
+      expect(screen.getByTestId('feed-end-sentinel')).toHaveTextContent('当前信息流已全部显示')
+      act(() => emitVisibility?.(true))
+      act(() => emitVisibility?.(true))
+      expect(onTerminalReach).toHaveBeenCalledTimes(1)
+
+      act(() => emitVisibility?.(false))
+      act(() => emitVisibility?.(true))
+      expect(onTerminalReach).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('keeps a 200-item collection bounded without rendering a progress rail', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => toWorkbenchCardModel(makeItem(index)))
     render(<VirtualFeed

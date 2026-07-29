@@ -39,4 +39,33 @@ describe('feed cache', () => {
     expect(nextDetail.user_state.is_saved).toBe(false)
     expect(nextSaved.items[0].user_state.is_saved).toBe(false)
   })
+
+  it('updates paginated collection pages without changing page parameters', () => {
+    const paginated = {
+      pages: [{
+        schema_version: 1,
+        scope: 'user',
+        items: [{
+          id: 'article-1',
+          title: 'Saved',
+          url: 'https://example.com/saved',
+          user_state: { is_read: false, is_saved: true, is_later: false, dismissed: false },
+        }],
+        item_count: 1,
+        limit: 50,
+        offset: 0,
+      }],
+      pageParams: [0],
+    }
+
+    const next = patchItemStateInData(
+      paginated,
+      'article-1',
+      { is_saved: false },
+    ) as typeof paginated
+
+    expect(next.pages[0].items[0].user_state.is_saved).toBe(false)
+    expect(next.pageParams).toEqual([0])
+    expect(paginated.pages[0].items[0].user_state.is_saved).toBe(true)
+  })
 })

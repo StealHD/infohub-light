@@ -103,6 +103,35 @@ class AIConfig(BaseModel):
     api_version: Optional[str] = None
 
 
+class FeedEndMessagesConfig(BaseModel):
+    """Workspace feed terminal copy and optional AI refresh policy."""
+
+    ai_generation_enabled: bool = False
+    refresh_days: Literal[1, 7, 30] = 7
+    style_preset: Literal["restrained", "warm", "light_humor"] = "restrained"
+    style_prompt: str = ""
+    list_count: int = Field(default=12, ge=3, le=30)
+
+    @field_validator("refresh_days", "list_count", mode="before")
+    @classmethod
+    def validate_integer_fields(cls, value: Any, info: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{info.field_name} must be an integer")
+        return value
+
+    @field_validator("style_prompt", mode="before")
+    @classmethod
+    def validate_style_prompt(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("style_prompt must be a string")
+        normalized = value.strip()
+        if len(normalized) > 500:
+            raise ValueError("style_prompt must contain at most 500 characters")
+        if "\x00" in normalized:
+            raise ValueError("style_prompt must not contain null characters")
+        return normalized
+
+
 class AnalysisMode(str, Enum):
     """How a source item should participate in AI analysis."""
 
@@ -598,6 +627,9 @@ class Config(BaseModel):
 
     version: str = "1.0"
     ai: AIConfig
+    feed_end_messages: FeedEndMessagesConfig = Field(
+        default_factory=FeedEndMessagesConfig
+    )
     rsshub: RSSHubConfig = Field(default_factory=RSSHubConfig)
     sources: SourcesConfig
     filtering: FilteringConfig

@@ -43,6 +43,7 @@
       "authenticated_action_feedback_enabled": true,
       "feed_snapshot_event_notification_enabled": true,
       "preferred_source_new_item_notifications_enabled": true,
+      "feed_end_messages_enabled": true,
       "workspace_email_transport_enabled": true,
       "feedback_product_enabled": false,
       "feedback_api_compat_enabled": true,
@@ -128,6 +129,31 @@
       "agent_source_resolution_candidate_limit": 5,
       "agent_source_resolution_ref_ttl_seconds": 600,
       "agent_source_resolution_max_active_per_delegation": 20
+    },
+    "feed_end_messages": {
+      "ai_generation_enabled": false,
+      "refresh_days": 7,
+      "allowed_refresh_days": [
+        1,
+        7,
+        30
+      ],
+      "style_preset": "restrained",
+      "allowed_style_presets": [
+        "restrained",
+        "warm",
+        "light_humor"
+      ],
+      "style_prompt_max_chars": 500,
+      "list_count": 12,
+      "list_count_min": 3,
+      "list_count_max": 30,
+      "message_min_chars": 4,
+      "message_max_chars": 40,
+      "generation_timeout_seconds": 60,
+      "generation_lease_seconds": 75,
+      "failure_retry_seconds": 21600,
+      "worker_queue_priority": "idle_only"
     },
     "observability": {
       "log_level": "INFO",

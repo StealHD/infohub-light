@@ -25,6 +25,10 @@ from starlette.concurrency import run_in_threadpool
 
 from ..logging_utils import configure_logging
 from ..services.feed_archive import FeedArchiveService
+from ..services.feed_end_messages import (
+    FeedEndMessagesDisabled,
+    FeedEndMessagesService,
+)
 from ..services.content_timeline import DEFAULT_FEED_WINDOW_DAYS
 from ..services.feed_schedule import (
     ALLOWED_INTERVALS,
@@ -470,6 +474,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "settings_test",
     ),
     ("POST", "/api/config/action"): ("source", "compat_config_action"),
+    ("POST", "/api/admin/feed-end-messages/refresh"): (
+        "job",
+        "feed_end_messages_refresh",
+    ),
     ("POST", "/api/users"): ("account", "member_create"),
     ("PATCH", "/api/users/{user_id}"): ("account", "member_update"),
     ("PATCH", "/api/admin/notification-email-transport"): (
@@ -596,6 +604,7 @@ def create_app(
     feed_schedules = FeedScheduleService(store, quota=quota)
     source_schedules = SourceScheduleService(store, quota=quota)
     feed_archive = FeedArchiveService(data_path, store=store)
+    feed_end_messages = FeedEndMessagesService(store)
     item_state = UserItemStateStore(store)
     user_content = UserContentStore(store)
     media_cache = MediaCacheService(store, data_dir=data_path)
@@ -1458,6 +1467,10 @@ def create_app(
         base_data, _base_config = read_base_config()
         data = build_config_data_for_user(base_data, user)
         config = validate_config_data(data)
+        data.setdefault(
+            "feed_end_messages",
+            config.feed_end_messages.model_dump(mode="json"),
+        )
         return {
             "path": str(data_path / "config.json"),
             "config": data,
@@ -3663,6 +3676,44 @@ def create_app(
         if view == "canonical":
             payload.pop("today_items", None)
         return ok(payload)
+
+    @app.get("/api/feed/end-messages")
+    async def feed_end_messages_get(
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        _data, config = read_base_config()
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            feed_end_messages.public_state(
+                workspace_id=user["workspace_id"],
+                config=config,
+            )
+        )
+
+    @app.post("/api/admin/feed-end-messages/refresh")
+    async def feed_end_messages_refresh(
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        _data, config = read_base_config()
+        try:
+            result = feed_end_messages.request_refresh(
+                workspace_id=user["workspace_id"],
+                requested_by_user_id=user["id"],
+                config=config,
+            )
+        except FeedEndMessagesDisabled as exc:
+            raise ApiError(
+                exc.code,
+                str(exc),
+                status_code=409,
+                action="Enable AI and feed end message generation before refreshing.",
+            ) from exc
+        request.state.operation_changed_fields = ["feed_end_messages.refresh"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
 
     @app.get("/api/feed/search")
     async def feed_search(

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -41,6 +41,11 @@ import { VirtualFeed } from './VirtualFeed'
 import { WorkbenchFeedSkeleton } from './WorkbenchLoadingState'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import {
+  builtinFeedEndMessages,
+  selectEmptyFeedMessage,
+  selectTerminalFeedMessage,
+} from './feedEndMessageSession'
+import {
   cleanLegacyModeSearch,
   mergeDeepLinkedItem,
   selectWorkbenchSourceItems,
@@ -59,6 +64,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const [preferenceState, setPreferenceState] = useState(() => ({ userId: user.id, value: readFeedPreference(user.id) }))
   const [collectionSearchOpen, setCollectionSearchOpen] = useState(false)
   const [submittedSingleSearch, setSubmittedSingleSearch] = useState('')
+  const [terminalEndMessage, setTerminalEndMessage] = useState<{ key: string; message: string } | null>(null)
   const reloadButtonRef = useRef<HTMLButtonElement>(null)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
@@ -79,6 +85,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const globalSearchRequested = kind === 'feed' && Boolean(normalizedSearchValue)
   const globalSearchActive = Boolean(globalSearchTerm)
   const historyPageSize = 50
+  const savedPageSize = 50
   const [initialNavigationTargetId] = useState(selectedId)
   const feedQuery = useQuery({
     queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }),
@@ -86,6 +93,12 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     enabled: kind === 'feed',
     staleTime: queryStaleTime.feed,
     refetchOnMount: selectedId ? 'always' : true,
+  })
+  const endMessagesQuery = useQuery({
+    queryKey: queryKeys.feedEndMessages(user.id),
+    queryFn: ({ signal }) => api.feedEndMessages(signal),
+    staleTime: queryStaleTime.settings,
+    retry: false,
   })
   const globalSearchQuery = useInfiniteQuery({
     queryKey: queryKeys.search(user.id, {
@@ -112,7 +125,18 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     enabled: kind === 'feed' || (kind === 'history' && Boolean(historySourceId)),
     staleTime: queryStaleTime.catalog,
   })
-  const savedQuery = useQuery({ queryKey: queryKeys.saved(user.id), queryFn: ({ signal }) => api.savedFeed(200, 0, signal), enabled: kind === 'saved', staleTime: queryStaleTime.collection })
+  const savedQuery = useInfiniteQuery({
+    queryKey: queryKeys.saved(user.id),
+    queryFn: ({ pageParam, signal }) => api.savedFeed(savedPageSize, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.items.length === 0) return undefined
+      const nextOffset = lastPage.offset + lastPage.items.length
+      return nextOffset < lastPage.item_count ? nextOffset : undefined
+    },
+    enabled: kind === 'saved',
+    staleTime: queryStaleTime.collection,
+  })
   const historyQuery = useInfiniteQuery({
     queryKey: queryKeys.history(user.id, {
       q: debouncedHistoryQuery,
@@ -141,6 +165,14 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       return true
     })
   }, [historyQuery.data?.pages])
+  const savedItems = useMemo(() => {
+    const seen = new Set<string>()
+    return (savedQuery.data?.pages ?? []).flatMap((page) => page.items).filter((item) => {
+      if (seen.has(item.id)) return false
+      seen.add(item.id)
+      return true
+    })
+  }, [savedQuery.data?.pages])
   const globalSearchItems = useMemo(() => {
     const seen = new Set<string>()
     return (globalSearchQuery.data?.pages ?? []).flatMap((page) => page.items).filter((item) => {
@@ -153,7 +185,16 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     ? globalSearchItems
     : selectWorkbenchSourceItems(kind, {
     snapshot: feedQuery.data,
-    saved: savedQuery.data,
+    saved: kind === 'saved'
+      ? {
+        schema_version: 1,
+        scope: 'user',
+        items: savedItems,
+        item_count: savedQuery.data?.pages[0]?.item_count ?? savedItems.length,
+        limit: savedPageSize,
+        offset: 0,
+      }
+      : undefined,
     history: kind === 'history'
       ? {
         schema_version: 2,
@@ -168,7 +209,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         snapshots: historyQuery.data?.pages[0]?.snapshots ?? [],
       }
       : undefined,
-  }), [feedQuery.data, globalSearchItems, globalSearchRequested, historyItems, historyQuery.data?.pages, historyQuery.hasNextPage, kind, savedQuery.data])
+  }), [feedQuery.data, globalSearchItems, globalSearchRequested, historyItems, historyQuery.data?.pages, historyQuery.hasNextPage, kind, savedItems, savedQuery.data?.pages])
   const sourceQuerySettled = kind === 'feed'
     ? globalSearchRequested
       ? (!globalSearchActive || globalSearchQuery.isSuccess) && !globalSearchQuery.isFetchingNextPage
@@ -282,7 +323,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const loadError = (kind === 'feed' && globalSearchRequested
     ? globalSearchQuery.data ? null : globalSearchQuery.error
     : feedQuery.data ? null : feedQuery.error)
-    || savedQuery.error
+    || (savedQuery.data ? null : savedQuery.error)
     || (historyQuery.data ? null : historyQuery.error)
     || (sourceScopeRequested ? sourceCatalogQuery.error : null)
   const collectionRoute = kind !== 'feed'
@@ -301,6 +342,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const historySourceName = sourceCatalogQuery.data?.sources.find((source) => source.id === historySourceId)?.display_name
   const historyTotalCount = historyQuery.data?.pages[0]?.total_count ?? cards.length
   const globalSearchTotalCount = globalSearchQuery.data?.pages[0]?.total_count ?? cards.length
+  const savedTotalCount = savedQuery.data?.pages[0]?.item_count ?? cards.length
   const activeWindow = globalSearchQuery.data?.pages[0]?.window
     ?? historyQuery.data?.pages[0]?.window
     ?? feedQuery.data?.window
@@ -311,7 +353,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         ? `全部内容搜索 · ${globalSearchTotalCount} 条`
         : '全部内容搜索 · 按回车'
       : `近${feedWindowDays}天 · ${cards.length} 条`
-    : `${kind === 'history' ? historyTotalCount : cards.length} 条内容`
+    : `${kind === 'history' ? historyTotalCount : savedTotalCount} 条内容`
   const activeFilterSummaries = [
     ...(searchValue ? [{ id: 'query', label: `搜索：${searchValue}`, clear: () => setSearchValue('') }] : []),
     ...(!globalSearchRequested ? [
@@ -404,10 +446,16 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
   const paginationQuery = globalSearchActive
     ? globalSearchQuery
+    : kind === 'saved'
+      ? savedQuery
     : kind === 'history'
       ? historyQuery
       : null
-  const paginationTotal = globalSearchActive ? globalSearchTotalCount : historyTotalCount
+  const paginationTotal = globalSearchActive
+    ? globalSearchTotalCount
+    : kind === 'saved'
+      ? savedTotalCount
+      : historyTotalCount
   const paginationFooter = paginationQuery
     && (paginationQuery.hasNextPage || paginationQuery.isFetchNextPageError)
     ? <div className="flex flex-col items-center gap-2 pt-1">
@@ -423,6 +471,51 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           ? <><Icons.LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在加载</>
           : paginationQuery.isFetchNextPageError ? '重试加载更多' : `加载更多（已显示 ${cards.length}/${paginationTotal}）`}
       </Button>
+    </div>
+    : undefined
+  const waitingForSingleCharacterSubmit = globalSearchRequested && !globalSearchActive
+  const hasUnloadedPages = Boolean(paginationQuery?.hasNextPage)
+  const terminalReady = sourceQuerySettled
+    && !loading
+    && !loadError
+    && !waitingForSingleCharacterSubmit
+    && !hasUnloadedPages
+    && !paginationQuery?.isFetching
+  const terminalContextKey = [
+    kind,
+    globalSearchTerm,
+    normalizedSearchValue,
+    historySourceId,
+    preference.source,
+    preference.channel,
+    preference.topic,
+    preference.dateScope,
+    preference.subscriptionScope,
+  ].join('|')
+  const endMessageScenes = endMessagesQuery.data?.scenes ?? builtinFeedEndMessages
+
+  const handleTerminalReach = useCallback(() => {
+    setTerminalEndMessage({
+      key: terminalContextKey,
+      message: selectTerminalFeedMessage(user.id, endMessageScenes).message,
+    })
+  }, [endMessageScenes, terminalContextKey, user.id])
+
+  const terminalLabel = globalSearchActive
+    ? '搜索结果已全部显示'
+    : kind === 'saved'
+      ? '收藏已全部显示'
+      : kind === 'history'
+        ? '历史记录已全部显示'
+        : '当前信息流已全部显示'
+  const terminalContent = terminalReady && cards.length > 0
+    ? <div
+      data-testid="feed-end-message"
+      role="status"
+      className="rounded-xl border border-separator bg-surface-secondary px-4 py-5 text-center"
+    >
+      <p className="type-control text-foreground">{terminalLabel}</p>
+      {terminalEndMessage?.key === terminalContextKey && <p className="type-meta mt-1 text-muted">{terminalEndMessage.message}</p>}
     </div>
     : undefined
 
@@ -574,7 +667,15 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       skeleton={<WorkbenchFeedSkeleton />}
     >
     {loadError ? <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>
-      : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><EmptyState
+      : cards.length === 0 && hasUnloadedPages ? <PageFrame width="reading" className="m-auto">
+        <div className="grid gap-3 text-center">
+          <p className="type-control text-foreground">已加载内容中没有符合条件的信息</p>
+          <p className="type-meta text-muted">仍有内容尚未加载，可以继续查看下一页。</p>
+          {paginationFooter}
+        </div>
+      </PageFrame>
+      : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><div>
+        <EmptyState
         title={hasActiveConstraints
           ? globalSearchRequested && !globalSearchActive
             ? '按回车搜索单个字符'
@@ -605,7 +706,13 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
               {user.role !== 'viewer' && <Button size="sm" onPress={updateFeed}>获取新内容</Button>}
             </>
             : <Button size="sm" onPress={() => navigate('/feed')}>返回信息流</Button>}
-      /></PageFrame>
+        />
+        {terminalReady && <EmptyFeedEndMessage
+          key={`${user.id}:${terminalContextKey}`}
+          userId={user.id}
+          messages={endMessageScenes.empty}
+        />}
+      </div></PageFrame>
       : <VirtualFeed
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       resetToTopKey={`${preference.sortBasis}:${preference.order}:${debouncedHistoryQuery}:${historySourceId}`}
@@ -615,12 +722,15 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       showTimelineBucket={globalSearchActive}
       feedWindowDays={feedWindowDays}
       footer={paginationFooter}
+      terminal={terminalContent}
+      terminalKey={terminalContextKey}
       expandedId={selectedId}
       navigationTargetId={deepLinkNotice ? undefined : initialNavigationTargetId}
       contextIds={agent.draft.items.map((item) => item.articleId)}
       detailLoading={detailQuery.isFetching}
       detailError={detailQuery.isError && selectedInSource}
       readonly={user.role === 'viewer'}
+      onTerminalReach={handleTerminalReach}
       onToggleExpanded={toggleExpanded}
       onToggleSaved={(id, saved) => {
         stateMutation.mutateItem(id, { is_saved: saved })
@@ -674,4 +784,10 @@ function useDebouncedValue(value: string, delay: number) {
     return () => window.clearTimeout(timer)
   }, [delay, value])
   return debounced
+}
+
+function EmptyFeedEndMessage({ userId, messages }: { userId: string; messages: string[] }) {
+  const [message] = useState(() => selectEmptyFeedMessage(userId, messages))
+  if (!message) return null
+  return <p data-testid="feed-empty-message" role="status" className="type-meta -mt-3 px-6 pb-6 text-center text-muted">{message}</p>
 }

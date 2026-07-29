@@ -10,6 +10,7 @@ import type {
   ConfigResponse,
   FeedHistory,
   FeedHistoryParams,
+  FeedEndMessages,
   FeedSearch,
   FeedSearchParams,
   FeedSchedule,
@@ -51,6 +52,8 @@ export function createServiceApi(client: ApiClient) {
     logout: () => client.post<AuthStatus>('/api/auth/logout'),
 
     latestFeed: (signal?: AbortSignal) => client.get<FeedSnapshot>('/api/feed/latest?view=canonical', signal),
+    feedEndMessages: (signal?: AbortSignal) => client.get<FeedEndMessages>('/api/feed/end-messages', signal),
+    refreshFeedEndMessages: () => client.post<FeedEndMessages>('/api/admin/feed-end-messages/refresh'),
     savedFeed: (limit = 200, offset = 0, signal?: AbortSignal) => client.get<SavedFeed>(
       `/api/feed/saved?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
       signal,

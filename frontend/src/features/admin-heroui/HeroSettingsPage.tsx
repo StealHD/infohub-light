@@ -64,7 +64,7 @@ type SecretDraft = {
   value: string
 }
 
-type CoreSettingsSection = 'ai' | 'rsshub' | 'filtering' | 'topics'
+type CoreSettingsSection = 'ai' | 'feed_end_messages' | 'rsshub' | 'filtering' | 'topics'
 type CoreSettingsBundle = Partial<Record<CoreSettingsSection, Record<string, unknown>>>
 type CoreSettingsSave = {
   sections: CoreSettingsSection[]
@@ -72,7 +72,7 @@ type CoreSettingsSave = {
   revisions: Record<CoreSettingsSection, number>
 }
 
-const coreSettingsOrder: CoreSettingsSection[] = ['ai', 'rsshub', 'filtering', 'topics']
+const coreSettingsOrder: CoreSettingsSection[] = ['ai', 'feed_end_messages', 'rsshub', 'filtering', 'topics']
 const emptySecretDraft: SecretDraft = { name: '', kind: 'ai', provider: '', envName: '', value: '' }
 const sameSettingsPayload = (left: Record<string, unknown>, right: Record<string, unknown>) => JSON.stringify(left) === JSON.stringify(right)
 
@@ -162,6 +162,23 @@ const poolStatusLabels: Record<string, string> = {
   blocked: '已阻塞，等待人工核对',
   exhausted: '所有 Key 额度均已用尽',
   disabled: '尚未启用',
+}
+
+const feedEndMessageStatusLabels: Record<string, string> = {
+  disabled: '使用内置文案',
+  pending: '等待 Worker 刷新',
+  refreshing: '正在后台生成',
+  ready: 'AI 文案可用',
+  degraded: '生成失败，保留安全回退',
+}
+
+const feedEndMessageErrorLabels: Record<string, string> = {
+  feed_end_messages_invalid_output: '模型输出未通过安全校验',
+  feed_end_messages_timeout: '模型请求超过 60 秒',
+  feed_end_messages_no_admin: '没有可归属生成用量的管理员',
+  quota_exceeded: '工作区今日 AI 尝试额度已用尽',
+  feed_end_messages_generation_failed: '模型请求失败',
+  feed_end_messages_lease_lost: '生成租约已失效',
 }
 
 const memberStatusPresentation: Record<ApifyKeyPoolMember['status'], {
@@ -928,9 +945,21 @@ export function HeroSettingsPage() {
   const location = useLocation()
   const admin = canAdministerWorkspace(user)
   const config = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal), staleTime: queryStaleTime.settings })
+  const feedEndMessagesStatus = useQuery({
+    queryKey: queryKeys.feedEndMessages(user.id),
+    queryFn: ({ signal }) => api.feedEndMessages(signal),
+    enabled: admin,
+    staleTime: queryStaleTime.settings,
+    retry: false,
+    refetchInterval: (query) => ['pending', 'refreshing'].includes(
+      query.state.data?.status ?? '',
+    ) ? 2_000 : false,
+  })
   const ignored = useQuery({ queryKey: queryKeys.ignored(user.id), queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal), staleTime: queryStaleTime.collection })
   const secrets = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: admin })
   const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
+  const [feedEndRefreshDaysOverride, setFeedEndRefreshDaysOverride] = useState<string | null>(null)
+  const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
   const [secretDraft, setSecretDraft] = useState<SecretDraft>(emptySecretDraft)
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
   const [secretFormError, setSecretFormError] = useState('')
@@ -938,8 +967,15 @@ export function HeroSettingsPage() {
   const [feedWindowDaysOverride, setFeedWindowDaysOverride] = useState<string | null>(null)
   const [topicsOverride, setTopicsOverride] = useState<string[] | null>(null)
   const [dirtyCoreSections, setDirtyCoreSections] = useState<Set<CoreSettingsSection>>(() => new Set())
-  const coreRevisions = useRef<Record<CoreSettingsSection, number>>({ ai: 0, rsshub: 0, filtering: 0, topics: 0 })
+  const coreRevisions = useRef<Record<CoreSettingsSection, number>>({
+    ai: 0,
+    feed_end_messages: 0,
+    rsshub: 0,
+    filtering: 0,
+    topics: 0,
+  })
   const aiFormRef = useRef<HTMLFormElement>(null)
+  const feedEndMessagesFormRef = useRef<HTMLFormElement>(null)
   const rsshubFormRef = useRef<HTMLFormElement>(null)
   const filteringFormRef = useRef<HTMLFormElement>(null)
   const [activeSection, setActiveSection] = useState<string>(
@@ -954,6 +990,13 @@ export function HeroSettingsPage() {
     apiKeyEnv: String(ai.api_key_env ?? ''),
   }
   const aiDraft = aiOverride ?? configuredAiDraft
+  const feedEndMessages = recordOf(config.data?.config.feed_end_messages)
+  const feedEndRefreshDays = feedEndRefreshDaysOverride
+    ?? String(feedEndMessages.refresh_days ?? 7)
+  const feedEndStyle = feedEndStyleOverride
+    ?? String(feedEndMessages.style_preset ?? 'restrained')
+  const savedFeedEndGenerationEnabled = ai.enabled !== false
+    && feedEndMessages.ai_generation_enabled === true
   const filtering = recordOf(config.data?.config.filtering)
   const rssInitialFetchWindow = rssInitialFetchWindowOverride
     ?? String(filtering.rss_initial_fetch_window_hours ?? 168)
@@ -1114,6 +1157,10 @@ export function HeroSettingsPage() {
         return next
       })
       if (savedWithoutNewerEdits.includes('ai')) setAiOverride(null)
+      if (savedWithoutNewerEdits.includes('feed_end_messages')) {
+        setFeedEndRefreshDaysOverride(null)
+        setFeedEndStyleOverride(null)
+      }
       if (savedWithoutNewerEdits.includes('filtering')) {
         setRssInitialFetchWindowOverride(null)
         setFeedWindowDaysOverride(null)
@@ -1123,6 +1170,9 @@ export function HeroSettingsPage() {
       actionToast.success(submitted.sections.length > 1 ? '全部配置已保存' : '设置已保存')
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }),
+        ...(submitted.sections.some((section) => section === 'ai' || section === 'feed_end_messages')
+          ? [queryClient.invalidateQueries({ queryKey: queryKeys.feedEndMessages(user.id) })]
+          : []),
         ...(submitted.sections.includes('filtering')
           ? [
               queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }),
@@ -1138,6 +1188,18 @@ export function HeroSettingsPage() {
       feedback.clear('config-save', 'set_settings_bundle')
       actionToast.danger('设置保存失败', { description: message })
     },
+  })
+  const feedEndMessagesRefreshMutation = useMutation({
+    mutationFn: () => api.refreshFeedEndMessages(),
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.feedEndMessages(user.id), result)
+      actionToast.success('已标记触底文案刷新', {
+        description: 'Worker 会在普通任务队列空闲后处理。',
+      })
+    },
+    onError: (caught) => actionToast.danger('触底文案刷新请求失败', {
+      description: errorMessage(caught, '请稍后重试。'),
+    }),
   })
   const restoreMutation = useMutation({
     mutationFn: (articleId: string) => api.updateItemState(articleId, { dismissed: false }),
@@ -1212,6 +1274,18 @@ export function HeroSettingsPage() {
     }
   }
 
+  function feedEndMessagesPayload(): Record<string, unknown> {
+    if (!feedEndMessagesFormRef.current) throw new Error('触底文案设置表单尚未加载')
+    const data = new FormData(feedEndMessagesFormRef.current)
+    return {
+      ai_generation_enabled: data.has('ai_generation_enabled'),
+      refresh_days: Number(data.get('refresh_days')),
+      style_preset: String(data.get('style_preset') || 'restrained'),
+      style_prompt: inputValue(data, 'style_prompt'),
+      list_count: Number(data.get('list_count')),
+    }
+  }
+
   function rsshubPayload(): Record<string, unknown> {
     if (!rsshubFormRef.current) throw new Error('RSSHub 设置表单尚未加载')
     return { base_url: inputValue(new FormData(rsshubFormRef.current), 'base_url') }
@@ -1220,6 +1294,8 @@ export function HeroSettingsPage() {
   function reportSectionValidity(section: CoreSettingsSection): boolean {
     const form = section === 'ai'
       ? aiFormRef.current
+      : section === 'feed_end_messages'
+        ? feedEndMessagesFormRef.current
       : section === 'rsshub'
         ? rsshubFormRef.current
         : section === 'filtering'
@@ -1241,6 +1317,7 @@ export function HeroSettingsPage() {
 
   function payloadFor(section: CoreSettingsSection): Record<string, unknown> {
     if (section === 'ai') return aiPayload()
+    if (section === 'feed_end_messages') return feedEndMessagesPayload()
     if (section === 'rsshub') return rsshubPayload()
     if (section === 'filtering') return filteringPayload()
     return { topics: topicsDraftRef.current }
@@ -1264,6 +1341,15 @@ export function HeroSettingsPage() {
     }
     if (section === 'rsshub') {
       return { base_url: String(rsshub.base_url ?? 'http://rsshub:1200').trim() }
+    }
+    if (section === 'feed_end_messages') {
+      return {
+        ai_generation_enabled: feedEndMessages.ai_generation_enabled === true,
+        refresh_days: Number(feedEndMessages.refresh_days ?? 7),
+        style_preset: String(feedEndMessages.style_preset ?? 'restrained'),
+        style_prompt: String(feedEndMessages.style_prompt ?? '').trim(),
+        list_count: Number(feedEndMessages.list_count ?? 12),
+      }
     }
     if (section === 'filtering') {
       return {
@@ -1296,6 +1382,11 @@ export function HeroSettingsPage() {
   function saveAi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     saveCoreSections(['ai'])
+  }
+
+  function saveFeedEndMessages(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    saveCoreSections(['feed_end_messages'])
   }
 
   function saveFiltering(event: FormEvent<HTMLFormElement>) {
@@ -1392,6 +1483,139 @@ export function HeroSettingsPage() {
         </div>
         <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}><Icons.Save size={15} />{configMutation.isPending && configMutation.variables?.sections.includes('ai') ? '保存中…' : '保存 AI 设置'}</Button>
       </form>)}
+      {admin && !config.isLoading && !config.isError && <div className="mt-6 border-t border-separator pt-5">
+        <div>
+          <h3 className="type-control">信息流触底文案</h3>
+          <p className="type-meta mt-1 text-muted">内置中文文案始终可用；独立开关启用后，Worker 只会在普通任务队列空闲时生成三个共享场景。</p>
+        </div>
+        <form
+          ref={feedEndMessagesFormRef}
+          className="mt-4 grid gap-4"
+          onChange={() => refreshCoreDirty('feed_end_messages')}
+          onSubmit={saveFeedEndMessages}
+        >
+          <Checkbox
+            name="ai_generation_enabled"
+            defaultSelected={feedEndMessages.ai_generation_enabled === true}
+          >
+            <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 定期生成触底文案</Checkbox.Content>
+          </Checkbox>
+          <div className="grid gap-4 min-[720px]:grid-cols-3">
+            <HeroSelect
+              name="refresh_days"
+              label="更新周期"
+              value={feedEndRefreshDays}
+              onChange={(value) => {
+                setFeedEndRefreshDaysOverride(value)
+                refreshCoreDirty('feed_end_messages')
+              }}
+              options={[
+                { id: '1', label: '每天' },
+                { id: '7', label: '每 7 天（默认）' },
+                { id: '30', label: '每 30 天' },
+              ]}
+            />
+            <HeroSelect
+              name="style_preset"
+              label="文案风格"
+              value={feedEndStyle}
+              onChange={(value) => {
+                setFeedEndStyleOverride(value)
+                refreshCoreDirty('feed_end_messages')
+              }}
+              options={[
+                { id: 'restrained', label: '克制（默认）' },
+                { id: 'warm', label: '温和' },
+                { id: 'light_humor', label: '轻幽默' },
+              ]}
+            />
+            <FormField
+              name="list_count"
+              label="每场景条数"
+              type="number"
+              min={3}
+              max={30}
+              defaultValue={Number(feedEndMessages.list_count ?? 12)}
+              required
+            />
+          </div>
+          <TextField
+            fullWidth
+            name="style_prompt"
+            defaultValue={String(feedEndMessages.style_prompt ?? '')}
+          >
+            <Label>自定义风格补充</Label>
+            <Input maxLength={500} placeholder="可留空，最多 500 字；不能覆盖安全约束" />
+          </TextField>
+          <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>
+            <Icons.Save size={15} aria-hidden="true" />
+            {configMutation.isPending && configMutation.variables?.sections.includes('feed_end_messages')
+              ? '保存中…'
+              : '保存触底文案设置'}
+          </Button>
+        </form>
+
+        <Card variant="transparent" className="mt-5 border border-separator p-4">
+          {feedEndMessagesStatus.isLoading
+            ? <LoadingState label="正在读取触底文案状态" rows={2} />
+            : feedEndMessagesStatus.isError || !feedEndMessagesStatus.data
+              ? <HeroNotice title="触底文案状态读取失败" status="warning">
+                <Button size="sm" variant="ghost" onPress={() => void feedEndMessagesStatus.refetch()}>重试状态读取</Button>
+              </HeroNotice>
+              : <>
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <Card.Title>{feedEndMessageStatusLabels[feedEndMessagesStatus.data.status] ?? '状态未知'}</Card.Title>
+                    <Card.Description className="mt-1">
+                      来源：{feedEndMessagesStatus.data.source === 'ai' ? 'AI 文案池' : '内置文案'}
+                      {' · '}generation {feedEndMessagesStatus.data.generation}
+                      {' · '}最近生成 {formatDateTime(feedEndMessagesStatus.data.generated_at)}
+                      {' · '}下次更新 {formatDateTime(feedEndMessagesStatus.data.next_refresh_at)}
+                    </Card.Description>
+                    {feedEndMessagesStatus.data.last_error_code && <p className="type-meta mt-2 text-warning">
+                      {feedEndMessageErrorLabels[feedEndMessagesStatus.data.last_error_code] ?? '生成未成功，已保留安全文案。'}
+                      {feedEndMessagesStatus.data.retry_at ? `；后台重试 ${formatDateTime(feedEndMessagesStatus.data.retry_at)}` : ''}
+                    </p>}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={
+                      !savedFeedEndGenerationEnabled
+                      || feedEndMessagesRefreshMutation.isPending
+                      || feedEndMessagesStatus.data.status === 'pending'
+                      || feedEndMessagesStatus.data.status === 'refreshing'
+                    }
+                    onPress={() => feedEndMessagesRefreshMutation.mutate()}
+                  >
+                    <Icons.RefreshCw
+                      size={14}
+                      className={feedEndMessagesRefreshMutation.isPending ? 'animate-spin motion-reduce:animate-none' : ''}
+                      aria-hidden="true"
+                    />
+                    {feedEndMessagesStatus.data.status === 'pending'
+                      ? '已等待刷新'
+                      : feedEndMessagesStatus.data.status === 'refreshing'
+                        ? '正在刷新'
+                        : '立即刷新'}
+                  </Button>
+                </div>
+                {!savedFeedEndGenerationEnabled && <p className="type-meta mt-3 text-muted">保存并启用全局 AI 与触底文案生成后，才可请求立即刷新。</p>}
+                <div className="mt-4 grid gap-3 min-[720px]:grid-cols-3">
+                  {([
+                    ['empty', '空列表'],
+                    ['first_end', '首次触底'],
+                    ['repeat_end', '多次触底'],
+                  ] as const).map(([scene, label]) => <div key={scene} className="rounded-xl bg-surface-secondary p-3">
+                    <p className="type-control">{label}</p>
+                    <ul className="mt-2 grid gap-1">
+                      {feedEndMessagesStatus.data.scenes[scene].slice(0, 3).map((message) => <li key={message} className="type-meta text-muted">{message}</li>)}
+                    </ul>
+                  </div>)}
+                </div>
+              </>}
+        </Card>
+      </div>}
     </AdminSection>
 
     <AdminSection id="settings-ignored" title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
