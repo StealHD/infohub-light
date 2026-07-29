@@ -90,3 +90,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "将已验证的 OpenClaw 通用来源解析与 YouTube 名称订阅提交组合到独立 main 集成结果，完整门禁通过后以纯快进方式合入本地 main；原 codex/0728-2 脏工作区保持不变。",
+  "status": "completed",
+  "task_id": "2026-07-29-openclaw-source-resolution-main-integration",
+  "unresolved": [],
+  "validation": [
+    "feature commit 1fe77fe is a direct descendant of main 1517855",
+    "git merge --ff-only completed without conflicts in isolated integration Worktree",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "project controls and compact worklog validation passed",
+    "final main ref and clean main Worktree verified"
+  ]
+}
+```
