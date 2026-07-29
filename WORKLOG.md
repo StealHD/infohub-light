@@ -187,3 +187,46 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "v2.0.0 已通过正式发布门禁并推送 main/tag；本地 AMD64 镜像已构建校验并上传，但 VPS 在隔离预发布容器启动时进入全协议握手失败，尚未切换生产版本。",
+  "status": "partial",
+  "task_id": "2026-07-29-v2.0.0-vps-rollout-attempt",
+  "unresolved": [
+    "从阿里云控制台重启 47.79.148.231 后检查 OOM、生产数据库和旧容器状态",
+    "启用或确认 2 GiB swap，清理隔离预发布容器后重新完成 staging、原子切换和公网验收"
+  ],
+  "validation": [
+    "python scripts/test_gate.py run --mode release: 24/24 passed",
+    "origin/main and annotated tag v2.0.0 resolve to 587ca29c878ebde6dc2faa9627c5174204e6285e",
+    "linux/amd64 image labels and CLI startup checks passed",
+    "VPS production .env/current were not changed before the disconnect",
+    "SSH, HTTP and TLS ports accept TCP but close during protocol handshakes"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "将精确发布 v2.0.0-587ca29c878e 安全部署到 vps-tokyo，生产 API/Worker 同镜像运行，并按用户要求启用 HORIZON_APIFY_KEY_POOL_ENABLED=true。",
+  "status": "completed",
+  "task_id": "2026-07-29-v2.0.0-vps-rollout-complete",
+  "unresolved": [
+    "未触发付费来源 canary；如需真实抓取，仍需单独确认 maxItems=1 与单次费用上限"
+  ],
+  "validation": [
+    "release gate 24/24 passed before tag and deploy",
+    "VPS staging and Key Pool=true reconcile completed with ready status",
+    "production API and Worker healthy with zero restarts and worker_status ready",
+    "public root and live returned HTTP 200 with version 2.0.0 revision 587ca29c878e",
+    "SQLite quick_check passed with zero foreign-key findings, active jobs and due schedules",
+    "two configured Apify keys had zero active or unregistered remote runs before and after cutover",
+    "0600 environment and SQLite backups retained under pre-v2.0.0-587ca29c878e-apify-pool backup directories"
+  ]
+}
+```
