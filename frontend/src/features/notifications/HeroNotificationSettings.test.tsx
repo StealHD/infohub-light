@@ -56,6 +56,8 @@ describe('NotificationSettingsForm', () => {
     expect(destination).toHaveAttribute('type', 'password')
     expect(destination).toHaveValue('')
     expect(screen.queryByDisplayValue(/Webhook 已配置/)).not.toBeInTheDocument()
+    expect(screen.getByText(/飞书\/Lark V2 仅支持未启用签名校验/)).toBeVisible()
+    expect(screen.getByText(/保存成功只表示配置已写入/)).toBeVisible()
 
     await browser.type(destination, 'https://example.invalid/hook')
     await browser.click(screen.getByRole('button', { name: '保存通知设置' }))

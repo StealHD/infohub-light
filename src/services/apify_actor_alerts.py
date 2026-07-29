@@ -44,6 +44,31 @@ _RETRY_DELAYS_SECONDS = (60, 300)
 _SAFE_CODE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,63}$")
 _SAFE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_FEISHU_WEBHOOK_HOSTS = frozenset(
+    {
+        "open.feishu.cn",
+        "open.larksuite.com",
+    }
+)
+_FEISHU_TEXT_LIMIT = 3_500
+_FEISHU_MARKUP_TRANSLATION = str.maketrans({"<": "＜", ">": "＞"})
+_FEISHU_WEBHOOK_PATH_RE = re.compile(
+    r"^/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$"
+)
+_ALERT_EVENT_LABELS = {
+    "actor_switched": "自动切换 Actor",
+    "route_exhausted": "三个 Actor 全部不可用",
+    "quota_low": "Apify 额度偏低",
+    "budget_blocked": "额度耗尽或费用熔断",
+    "start_outcome_unknown": "Actor 启动结果未知",
+    "recovered": "故障恢复",
+    "test": "测试",
+}
+_ALERT_SEVERITY_LABELS = {
+    "info": "信息",
+    "warning": "警告",
+    "critical": "严重",
+}
 
 
 class ApifyActorAlertError(RuntimeError):
@@ -75,6 +100,12 @@ def _bounded_text(value: Any, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _feishu_dynamic_text(value: Any, limit: int) -> str:
+    """Bound dynamic alert text and neutralize Feishu inline markup."""
+
+    return _bounded_text(value, limit).translate(_FEISHU_MARKUP_TRANSLATION)
 
 
 def _json_dumps(value: Any) -> str:
@@ -185,6 +216,100 @@ def _validate_webhook_url(value: Any) -> str:
             "notification webhook must be a credential-free HTTPS URL",
         )
     return candidate
+
+
+def _is_feishu_webhook_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        hostname = (parsed.hostname or "").rstrip(".")
+        hostname_ascii = hostname.encode("idna").decode("ascii").lower()
+        port = parsed.port
+    except (UnicodeError, ValueError):
+        return False
+    return bool(
+        parsed.scheme == "https"
+        and hostname_ascii in _FEISHU_WEBHOOK_HOSTS
+        and port in {None, 443}
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and _FEISHU_WEBHOOK_PATH_RE.fullmatch(parsed.path)
+    )
+
+
+def _bounded_multiline_text(lines: list[str], *, limit: int) -> str:
+    text = "\n".join(line for line in lines if line is not None)
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _apify_alert_feishu_body(
+    payload: dict[str, Any],
+    *,
+    test: bool,
+) -> dict[str, Any]:
+    event_type = _bounded_text(payload.get("event_type"), 64) or "unknown"
+    severity = _bounded_text(payload.get("severity"), 32) or "unknown"
+    title = (
+        "Inteliscope Apify 运行告警测试"
+        if test
+        else (
+            "Inteliscope Apify 恢复通知"
+            if event_type == "recovered"
+            else "Inteliscope Apify 运行告警"
+        )
+    )
+    lines = [
+        title,
+        (
+            "事件："
+            f"{_ALERT_EVENT_LABELS.get(event_type, _feishu_dynamic_text(event_type, 64))}"
+        ),
+        (
+            "级别："
+            f"{_ALERT_SEVERITY_LABELS.get(severity, _feishu_dynamic_text(severity, 32))}"
+        ),
+        f"路由：{_feishu_dynamic_text(payload.get('route'), 160) or 'x/profile'}",
+        f"状态：{_feishu_dynamic_text(payload.get('status'), 80) or 'unknown'}",
+    ]
+    condition_event_type = _bounded_text(
+        payload.get("condition_event_type"),
+        64,
+    )
+    if event_type == "recovered" and condition_event_type:
+        condition_label = _ALERT_EVENT_LABELS.get(
+            condition_event_type,
+            _feishu_dynamic_text(condition_event_type, 64),
+        )
+        lines.append(f"原告警：{condition_label}")
+    for label, field in (
+        ("Actor", "actor_name"),
+        ("当前 Actor", "active_actor_name"),
+        ("原因", "reason_code"),
+    ):
+        value = _feishu_dynamic_text(payload.get(field), 160)
+        if value:
+            lines.append(f"{label}：{value}")
+    occurred_at = _feishu_dynamic_text(payload.get("occurred_at"), 80)
+    if occurred_at:
+        occurred_label = "告警时间" if event_type == "recovered" else "时间"
+        lines.append(f"{occurred_label}：{occurred_at}")
+    resolved_at = _feishu_dynamic_text(payload.get("resolved_at"), 80)
+    if event_type == "recovered" and resolved_at:
+        lines.append(f"恢复时间：{resolved_at}")
+    if test:
+        lines.append("这是一条模拟告警，不会调用 Actor 或产生 Apify 费用。")
+    return {
+        "msg_type": "text",
+        "content": {
+            "text": _bounded_multiline_text(
+                lines,
+                limit=_FEISHU_TEXT_LIMIT,
+            )
+        },
+    }
 
 
 def _normalize_events(value: Any, *, default: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -1643,15 +1768,18 @@ class ApifyActorAlertService:
                 else "inteliscope.apify_actor.alert"
             )
         )
-        body = _json_dumps(
-            {
+        envelope = (
+            _apify_alert_feishu_body(payload, test=test)
+            if _is_feishu_webhook_url(webhook_url)
+            else {
                 "event": event_name,
                 "data": {
                     **payload,
                     **({"test": True} if test else {}),
                 },
             }
-        ).encode("utf-8")
+        )
+        body = _json_dumps(envelope).encode("utf-8")
         try:
             response = _run_coroutine(
                 asyncio.wait_for(

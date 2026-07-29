@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import httpx
@@ -442,6 +443,181 @@ def test_webhook_connect_failure_retries_but_read_failure_is_unknown(
         )
     assert read_error.value.retryable is False
     assert read_error.value.outcome_unknown is True
+
+
+@pytest.mark.parametrize(
+    ("webhook_host", "event_type", "test", "expected_title"),
+    (
+        (
+            "open.feishu.cn",
+            "actor_switched",
+            False,
+            "Inteliscope Apify 运行告警",
+        ),
+        (
+            "open.feishu.cn",
+            "recovered",
+            False,
+            "Inteliscope Apify 恢复通知",
+        ),
+        (
+            "open.larksuite.com",
+            "test",
+            True,
+            "Inteliscope Apify 运行告警测试",
+        ),
+        (
+            "open。feishu。cn",
+            "test",
+            True,
+            "Inteliscope Apify 运行告警测试",
+        ),
+    ),
+)
+def test_feishu_alert_webhook_emits_text_message(
+    tmp_path,
+    monkeypatch,
+    webhook_host,
+    event_type,
+    test,
+    expected_title,
+) -> None:
+    _store, service, admin_id, _email = _service(tmp_path)
+    _configure_webhook(
+        service,
+        admin_id,
+        url=(
+            f"https://{webhook_host}/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+    )
+    settings = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert settings is not None
+    requests: list[dict[str, object]] = []
+
+    async def capture_post(_url: str, **kwargs):
+        requests.append(
+            {
+                "headers": kwargs["headers"],
+                "body": json.loads(kwargs["content"].decode("utf-8")),
+            }
+        )
+        return httpx.Response(200)
+
+    monkeypatch.setattr(
+        "src.services.apify_actor_alerts.post_public_http",
+        capture_post,
+    )
+
+    service._send_webhook(
+        settings,
+        {
+            "event_type": event_type,
+            "condition_event_type": "actor_switched",
+            "severity": "warning",
+            "route": 'x/profile <at user_id="all">everyone</at>',
+            "status": "degraded",
+            "actor_name": "ScrapeBadger",
+            "active_actor_name": "Xquik",
+            "reason_code": "apify_actor_placeholder",
+            "occurred_at": "2026-07-29T13:50:46+00:00",
+            "resolved_at": "2026-07-29T14:50:46+00:00",
+        },
+        test=test,
+    )
+
+    assert len(requests) == 1
+    assert requests[0]["headers"] == {
+        "Content-Type": "application/json; charset=utf-8"
+    }
+    body = requests[0]["body"]
+    assert isinstance(body, dict)
+    assert body["msg_type"] == "text"
+    assert "event" not in body
+    text = body["content"]["text"]
+    assert expected_title in text
+    assert "ScrapeBadger" in text
+    assert "Xquik" in text
+    assert "apify_actor_placeholder" in text
+    assert '＜at user_id="all"＞everyone＜/at＞' in text
+    assert "<at" not in text
+    assert len(text) <= 3_500
+    if event_type == "recovered":
+        assert "原告警：自动切换 Actor" in text
+        assert "告警时间：2026-07-29T13:50:46+00:00" in text
+        assert "恢复时间：2026-07-29T14:50:46+00:00" in text
+    if test:
+        assert "这是一条模拟告警" in text
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://hooks.example.com/apify",
+        (
+            "https://open.feishu.cn.example.com/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+        (
+            "https://open.feishu.cn/open-apis/bot/hook/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+        (
+            "https://open.feishu.cn:8443/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+        "https://open.feishu.cn/open-apis/bot/v2/hook/",
+        (
+            "https://open.feishu.cn/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000/extra"
+        ),
+        (
+            "https://open.feishu.cn/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000?source=test"
+        ),
+    ),
+)
+def test_non_v2_feishu_alert_webhook_keeps_generic_envelope(
+    tmp_path,
+    monkeypatch,
+    url,
+) -> None:
+    _store, service, admin_id, _email = _service(tmp_path)
+    _configure_webhook(service, admin_id, url=url)
+    settings = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert settings is not None
+    requests: list[dict[str, object]] = []
+
+    async def capture_post(_url: str, **kwargs):
+        requests.append(json.loads(kwargs["content"].decode("utf-8")))
+        return httpx.Response(200)
+
+    monkeypatch.setattr(
+        "src.services.apify_actor_alerts.post_public_http",
+        capture_post,
+    )
+    service._send_webhook(
+        settings,
+        {
+            "event_type": "recovered",
+            "severity": "info",
+            "route": "x/profile",
+            "status": "ready",
+        },
+        test=False,
+    )
+
+    assert requests == [
+        {
+            "event": "inteliscope.apify_actor.recovered",
+            "data": {
+                "event_type": "recovered",
+                "severity": "info",
+                "route": "x/profile",
+                "status": "ready",
+            },
+        }
+    ]
 
 
 def test_email_alert_uses_dedicated_operational_payload(tmp_path) -> None:

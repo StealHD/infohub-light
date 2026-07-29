@@ -66,7 +66,7 @@ export function safeNotificationError(caught: unknown, fallback: string): string
 
 export function notificationTestLabel(status: string | null): string {
   if (!status) return '尚未发送测试通知'
-  if (status === 'succeeded' || status === 'success' || status === 'sent') return '最近一次测试发送成功'
+  if (status === 'succeeded' || status === 'success' || status === 'sent') return '最近一次测试请求已发送，请确认接收端'
   if (status === 'failed' || status === 'failure') return '最近一次测试发送失败'
   return '最近一次测试状态未知'
 }

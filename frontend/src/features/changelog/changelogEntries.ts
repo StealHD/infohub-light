@@ -23,6 +23,16 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-29',
+        title: '飞书 V2 Webhook 使用原生文本格式',
+        summary: '账户新内容通知和 Apify 运行告警会识别未启用签名校验的飞书/Lark V2 自定义机器人地址，并发送群机器人可接受的文本消息。',
+        items: [
+          { title: '修复机器人消息协议', description: '此前通用 event/data 请求可能被飞书以 HTTP 成功、业务拒绝的方式静默丢弃；现在测试、真实新内容和运行告警都使用 msg_type/text 结构。' },
+          { title: '通用 Webhook 保持兼容', description: '自建接收端和其他 HTTPS Webhook 继续收到原有结构化事件，不需要修改现有解析逻辑。' },
+          { title: '明确实际送达边界', description: '保存成功只表示配置已写入，测试请求完成后仍要在接收端确认；签名校验暂不支持，关键词与 IP 白名单也必须匹配。' },
+        ],
+      },
+      {
+        date: '2026-07-29',
         title: 'X 抓取可在三路 Actor 间安全切换',
         summary: 'X 账号抓取只使用 Apify，并在低价 Actor 出现占位、故障或费用异常时串行切换；管理员可查看状态、费用、额度并选择邮件或 Webhook 告警。',
         items: [

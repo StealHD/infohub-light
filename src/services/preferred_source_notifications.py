@@ -31,6 +31,17 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SAFE_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,63}$")
 _MAX_DELIVERIES_PER_TICK = 20
 _TEST_COOLDOWN_SECONDS = 60
+_FEISHU_WEBHOOK_HOSTS = frozenset(
+    {
+        "open.feishu.cn",
+        "open.larksuite.com",
+    }
+)
+_FEISHU_TEXT_LIMIT = 3_500
+_FEISHU_MARKUP_TRANSLATION = str.maketrans({"<": "＜", ">": "＞"})
+_FEISHU_WEBHOOK_PATH_RE = re.compile(
+    r"^/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$"
+)
 
 
 class NotificationServiceError(RuntimeError):
@@ -87,6 +98,12 @@ def _parse_time(value: Any) -> datetime | None:
 def _bounded_text(value: Any, limit: int) -> str:
     text = " ".join(str(value or "").split())
     return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _feishu_dynamic_text(value: Any, limit: int) -> str:
+    """Bound untrusted text and neutralize Feishu inline markup such as <at>."""
+
+    return _bounded_text(value, limit).translate(_FEISHU_MARKUP_TRANSLATION)
 
 
 def _safe_article_url(value: Any) -> str:
@@ -165,6 +182,104 @@ def _validate_webhook_url(value: Any) -> str:
             "notification webhook must be a credential-free HTTPS URL",
         )
     return candidate
+
+
+def _is_feishu_webhook_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        hostname = (parsed.hostname or "").rstrip(".")
+        hostname_ascii = hostname.encode("idna").decode("ascii").lower()
+        port = parsed.port
+    except (UnicodeError, ValueError):
+        return False
+    return bool(
+        parsed.scheme == "https"
+        and hostname_ascii in _FEISHU_WEBHOOK_HOSTS
+        and port in {None, 443}
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+        and _FEISHU_WEBHOOK_PATH_RE.fullmatch(parsed.path)
+    )
+
+
+def _bounded_multiline_text(lines: list[str], *, limit: int) -> str:
+    text = "\n".join(line for line in lines if line is not None)
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _preferred_source_feishu_body(payload: dict[str, Any]) -> dict[str, Any]:
+    test_delivery = payload.get("kind") == "test"
+    if test_delivery:
+        items = [payload]
+        lines = [
+            "Inteliscope 新内容通知测试",
+            "这是一条模拟消息，用于验证当前 Webhook。",
+        ]
+    else:
+        raw_items = payload.get("items")
+        items = (
+            [item for item in raw_items if isinstance(item, dict)]
+            if isinstance(raw_items, list)
+            else []
+        )[:_MAX_DELIVERIES_PER_TICK]
+        lines = [f"Inteliscope 新内容通知（{len(items)} 条）"]
+
+    item_count = len(items)
+    if item_count <= 1:
+        title_limit, source_limit, summary_limit = 300, 160, 600
+        published_limit, url_limit = 80, 1_000
+    elif item_count <= 5:
+        title_limit, source_limit, summary_limit = 120, 60, 100
+        published_limit, url_limit = 32, 200
+    elif item_count <= 10:
+        title_limit, source_limit, summary_limit = 80, 40, 0
+        published_limit, url_limit = 32, 120
+    else:
+        title_limit, source_limit, summary_limit = 90, 40, 0
+        published_limit, url_limit = 0, 0
+
+    for index, item in enumerate(items, start=1):
+        title = (
+            _feishu_dynamic_text(item.get("title"), title_limit)
+            or "未命名内容"
+        )
+        lines.extend(("", f"{index}. {title}"))
+        source_name = _feishu_dynamic_text(item.get("source_name"), source_limit)
+        if source_name:
+            lines.append(f"来源：{source_name}")
+        summary = (
+            _feishu_dynamic_text(item.get("summary"), summary_limit)
+            if summary_limit
+            else ""
+        )
+        if summary:
+            lines.append(f"摘要：{summary}")
+        published_at = (
+            _feishu_dynamic_text(item.get("published_at"), published_limit)
+            if published_limit
+            else ""
+        )
+        if published_at:
+            lines.append(f"发布时间：{published_at}")
+        article_url = _safe_article_url(item.get("url")) if url_limit else ""
+        if article_url:
+            lines.append(
+                f"链接：{_feishu_dynamic_text(article_url, url_limit)}"
+            )
+
+    return {
+        "msg_type": "text",
+        "content": {
+            "text": _bounded_multiline_text(
+                lines,
+                limit=_FEISHU_TEXT_LIMIT,
+            )
+        },
+    }
 
 
 def _run_coroutine(coroutine: Coroutine[Any, Any, Any]) -> Any:
@@ -1209,8 +1324,10 @@ class PreferredSourceNotificationService:
                 status_code=409,
             )
         webhook_url = _validate_webhook_url(webhook_url)
-        body = _json_dumps(
-            {
+        envelope = (
+            _preferred_source_feishu_body(payload)
+            if _is_feishu_webhook_url(webhook_url)
+            else {
                 "event": (
                     "inteliscope.preferred_source.test"
                     if payload.get("kind") == "test"
@@ -1227,7 +1344,8 @@ class PreferredSourceNotificationService:
                     }
                 ),
             }
-        ).encode("utf-8")
+        )
+        body = _json_dumps(envelope).encode("utf-8")
         try:
             response = _run_coroutine(
                 asyncio.wait_for(

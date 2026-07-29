@@ -361,3 +361,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "修复用户新内容通知与 Apify 运行告警对飞书/Lark V2 自定义机器人的投递格式；保留通用 Webhook 合同，并补齐文本标记中和、密集批次与恢复告警展示。",
+  "status": "completed",
+  "task_id": "2026-07-29-feishu-webhook-delivery",
+  "unresolved": [
+    "未重建或部署生产服务，未触发真实 Webhook；现有安全合同不读取 HTTP 2xx 响应正文，提供方业务拒绝仍是保留风险"
+  ],
+  "validation": [
+    "preferred-source and Apify notification regressions: 58 passed",
+    "frontend typecheck and changelog Vitest passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent review findings addressed",
+    "git diff --check"
+  ]
+}
+```

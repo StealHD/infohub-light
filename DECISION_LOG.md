@@ -786,3 +786,11 @@
 - 费用与一致性：每 Run 预留 `$0.02`，每逻辑任务最多三个不同 Actor、累计 `$0.06`；有 Job 时稳定复用同一费用组，terminal successful Dataset 只允许 GET 重放。已启动、已结算或因 route generation 冲突作废的取消仍占用费用组并计入失败消费，只有可证明未 POST 的取消才可排除。六小时失败实际费用达到 `$0.08` 时暂停 X，准入同时为全局在途预留保留 headroom。X 只可使用全部可用 Key 在 60 秒内已知剩余额度扣除 `max($1, 20%)` 后的部分。一个 Worker Job 内的 X/profile Actor 调用串行；Actor route generation 进入共享获取指纹，只有携带最终 generation 证明的同次切换成功结果可以迁移 claim 并发布，管理员切换后的迟到结果仅结算费用。付费 Canary 必须逐次二次确认，并与自然调用做候选级双向互斥，不能通过通用 Job retry 重放。
 - 告警与安全：工作区告警独立于个人新内容通知，只允许 Owner/Admin 配置 email 或 HTTPS Webhook 单选渠道。事件采用首报、升级追加、恢复一次；明确临时失败最多三次，未知投递结果不重放。Webhook 复用公网 DNS/IP pinning、禁重定向与 SecretStore write-only 边界；邮箱复用已测试并启用的工作区 transport。告警失败不影响抓取，Token、远端 Run/Dataset、目标账号、原始错误和目的地均不进入 API、Feed 或日志。
 - 兼容/范围：schema v13 只做显式 additive 表/列迁移；已有数据库普通启动不自动安装，缺失版本时 readiness/Worker fail closed。旧 Key Pool、Instagram/Facebook/Telegram Apify、RSS/GitHub 等来源保持原路径。第一期不覆盖 X 关键词搜索、官方 X API、自助注册 Apify 账号、自动付费或 Apidojo 自动备用；真实 Canary 仍是需要 operator 单独授权的付费动作。
+
+### D093 Service Webhook 对飞书/Lark 自定义机器人采用原生文本消息
+
+- 决策日期：2026-07-29
+- 当前状态：本地修复与定向回归完成；未重建、未部署、未触发真实 Webhook
+- 决策内容：用户偏好来源通知和 Apify 运行告警在发送前只对精确匹配 `open.feishu.cn|open.larksuite.com`、默认 HTTPS 端口与单段 `/open-apis/bot/v2/hook/{token}` 的 V2 自定义机器人地址自动生成 `msg_type=text/content.text`；普通 HTTPS Webhook 继续接收既有 `event/data` 通用事件。平台文本只由原 outbox 或告警 payload 中已经有界、脱敏且已中和 `<at>` 等内联标记的字段构造，总长度再次限制为 3500 字符；新内容密集批次会压缩次要字段，但必须保留每个被确认投递 article 的编号标题。
+- 原因：飞书自定义机器人不接受 Inteliscope 的通用事件 envelope，并可能用 HTTP 200 加业务错误正文拒绝消息；Service 安全策略又明确不读取响应正文，导致测试被记录为成功但群内没有消息。按官方机器人请求格式发送可以消除已确认的协议不匹配，同时不放宽响应正文、目的地或日志边界。
+- 兼容/边界：不新增设置字段、数据库迁移或外部探测；URL 仍只存在 SecretStore，DNS/IP pinning、禁重定向、identity encoding、单次 POST、超时和“不读取响应正文”全部不变。由于没有签名密钥配置入口，只支持未启用签名校验且关键词/IP 白名单已放行的 V2 自定义机器人；HTTP 成功与 `sent` 不等于提供方业务接受或群内展示，UI 必须提示人工确认。未识别平台及自建接收端保持原通用 JSON 合同；本修复不自动重放旧 delivery，也不主动调用真实 Webhook。

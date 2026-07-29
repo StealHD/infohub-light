@@ -1161,6 +1161,96 @@ def test_webhook_transport_emits_explicit_test_event(
     assert requests[0]["data"]["article_id"] == "notification-test"
 
 
+@pytest.mark.parametrize(
+    "webhook_host",
+    (
+        "open.feishu.cn",
+        "open.larksuite.com",
+        "OPEN.FEISHU.CN.",
+        "open。feishu。cn",
+    ),
+)
+def test_feishu_webhook_transport_emits_text_messages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    webhook_host: str,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    service = context["service"]
+    service.upsert_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        webhook_url=(
+            f"https://{webhook_host}/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+    )
+    settings = context["store"].get_user_notification_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+    )
+    assert settings is not None
+    requests: list[dict[str, Any]] = []
+
+    async def capture_post(_url: str, **kwargs: Any) -> SimpleNamespace:
+        requests.append(json.loads(kwargs["content"].decode("utf-8")))
+        return SimpleNamespace(status_code=200, headers={})
+
+    monkeypatch.setattr(notification_module, "post_public_http", capture_post)
+
+    service._send_webhook(
+        settings,
+        service._delivery_payload(
+            {
+                "title": "Inteliscope 推送测试",
+                "summary_zh": "这是一条模拟的新内容通知。",
+                "url": "https://example.com/notification-test",
+                "published_at": "2026-07-29T13:50:26+00:00",
+            },
+            article_id="notification-test",
+            source_name="Inteliscope",
+            test=True,
+        ),
+    )
+    items = [
+        {
+            "article_id": f"article-{index}",
+            "payload": {
+                "article_id": f"article-{index}",
+                "source_name": "OpenAI News",
+                "title": (
+                    'A new release <at user_id="all">everyone</at>'
+                    if index == 1
+                    else f"Release {index}"
+                ),
+                "summary": "Release notes are available. " + ("x" * 600),
+                "published_at": "2026-07-29T14:00:00+00:00",
+                "url": f"https://example.com/release/{index}",
+            },
+        }
+        for index in range(1, 21)
+    ]
+    service._send_webhook(
+        settings,
+        service._batch_delivery_payload(items),
+    )
+
+    assert len(requests) == 2
+    assert requests[0]["msg_type"] == "text"
+    assert "Inteliscope 新内容通知测试" in requests[0]["content"]["text"]
+    assert "这是一条模拟的新内容通知。" in requests[0]["content"]["text"]
+    assert "event" not in requests[0]
+    assert requests[1]["msg_type"] == "text"
+    text = requests[1]["content"]["text"]
+    assert "Inteliscope 新内容通知（20 条）" in text
+    assert "OpenAI News" in text
+    assert "A new release" in text
+    assert '＜at user_id="all"＞everyone＜/at＞' in text
+    assert "<at" not in text
+    assert "20. Release 20" in text
+    assert len(text) <= 3_500
+
+
 def test_email_transport_sends_one_message_containing_every_item(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

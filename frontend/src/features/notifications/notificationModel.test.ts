@@ -51,7 +51,7 @@ describe('notification model', () => {
 
   it('normalizes safe last-test labels without exposing backend detail', () => {
     expect(notificationTestLabel(null)).toBe('尚未发送测试通知')
-    expect(notificationTestLabel('succeeded')).toBe('最近一次测试发送成功')
+    expect(notificationTestLabel('succeeded')).toBe('最近一次测试请求已发送，请确认接收端')
     expect(notificationTestLabel('failed')).toBe('最近一次测试发送失败')
     expect(notificationTestLabel('provider-specific-detail')).toBe('最近一次测试状态未知')
   })

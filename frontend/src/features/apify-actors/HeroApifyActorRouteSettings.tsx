@@ -522,7 +522,7 @@ function ApifyActorRoutePanel() {
 
 function lastAlertLabel(status: string | null): string {
   if (!status) return '尚未发送运行告警'
-  if (status === 'sent' || status === 'succeeded' || status === 'success') return '最近一次运行告警发送成功'
+  if (status === 'sent' || status === 'succeeded' || status === 'success') return '最近一次运行告警请求已发送，请确认接收端'
   if (status === 'failed' || status === 'failure') return '最近一次运行告警发送失败'
   if (status === 'unknown') return '最近一次运行告警结果未知，不会自动重发'
   return '最近一次运行告警正在处理'
@@ -698,6 +698,9 @@ export function ApifyActorAlertSettingsForm({
       {fieldError && events.length === 0 && <p className="type-meta text-danger" role="alert">{fieldError}</p>}
     </fieldset>
     <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
+      {channel === 'webhook' && <p className="mb-1">
+        飞书/Lark V2 仅支持未启用签名校验的自定义机器人；机器人关键词和 IP 白名单也需放行。保存成功只表示配置已写入，测试后请以接收端实际出现为准。
+      </p>}
       <p>测试告警使用模拟内容，不会抓取 X、调用 Actor 或产生 Apify 费用。</p>
       <p className="type-meta mt-2">
         {notificationTestLabel(settings.last_test_status)} · {formatActorDateTime(settings.last_tested_at)}

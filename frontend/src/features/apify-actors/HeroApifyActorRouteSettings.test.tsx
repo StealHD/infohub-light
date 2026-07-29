@@ -296,7 +296,10 @@ describe('ApifyActorAlertSettingsForm', () => {
     const onSave = vi.fn().mockReturnValue(request.promise)
     render(<MemoryRouter><DesignSystemProvider>
       <ApifyActorAlertSettingsForm
-        settings={alertSettings()}
+        settings={alertSettings({
+          last_alert_status: 'sent',
+          last_alerted_at: '2026-07-29T13:50:46Z',
+        })}
         onSave={onSave}
         onTest={vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' })}
       />
@@ -304,6 +307,9 @@ describe('ApifyActorAlertSettingsForm', () => {
 
     const destination = screen.getByLabelText('告警 Webhook 地址')
     expect(destination).toHaveAttribute('type', 'password')
+    expect(screen.getByText(/飞书\/Lark V2 仅支持未启用签名校验/)).toBeVisible()
+    expect(screen.getByText(/保存成功只表示配置已写入/)).toBeVisible()
+    expect(screen.getByText(/最近一次运行告警请求已发送，请确认接收端/)).toBeVisible()
     await browser.type(destination, 'https://example.invalid/actor-alert')
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
 

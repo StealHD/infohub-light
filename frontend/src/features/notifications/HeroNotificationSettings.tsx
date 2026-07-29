@@ -189,6 +189,9 @@ export function NotificationSettingsForm({
       </TextField>
     </div>
     <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
+      {channel === 'webhook' && <p className="mb-1">
+        飞书/Lark V2 仅支持未启用签名校验的自定义机器人；机器人关键词和 IP 白名单也需放行。保存成功只表示配置已写入，测试后请以接收端实际出现为准。
+      </p>}
       <p>只推送开启后首次入库的新内容；已有历史、来源复用内容和停用期间内容不会补发。</p>
       <p className="mt-1">测试通知使用模拟内容，不会抓取来源，也不会改变新内容投递起点。</p>
       <p className="type-meta mt-2">{notificationTestLabel(settings.last_test_status)}{lastTestTime ? ` · ${lastTestTime}` : ''}</p>
