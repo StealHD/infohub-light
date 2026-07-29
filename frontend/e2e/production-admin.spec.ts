@@ -232,6 +232,27 @@ async function mockAdminApi(page: Page, authenticated = true, options: { include
       }
       data = { id: 'job-source-pending', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'queued', created_at: '2026-07-17T08:10:00Z' }
     }
+    else if (url.pathname === '/api/jobs/job-1') data = {
+      id: 'job-1',
+      user_id: owner.id,
+      job_type: 'source_fetch',
+      source_id: 'source-1',
+      subscription_id: 'subscription-1',
+      status: 'succeeded',
+      created_at: '2026-07-17T08:00:00Z',
+      finished_at: '2026-07-17T08:00:02Z',
+      payload: { source_id: 'source-1', subscription_id: 'subscription-1' },
+      result: {
+        item_count: 7,
+        response_schemas: [{
+          source_id: 'source-1',
+          catalog_type: 'rss',
+          capture_status: 'captured',
+          upstream: { root_type: 'object', fields: [], truncated: false },
+          normalized: { root_type: 'array', fields: [], truncated: false },
+        }],
+      },
+    }
     else if (url.pathname === '/api/jobs') data = { jobs: [{ id: 'job-1', user_id: owner.id, job_type: 'source_fetch', source_id: 'source-1', subscription_id: 'subscription-1', status: 'succeeded', created_at: '2026-07-17T08:00:00Z', finished_at: '2026-07-17T08:00:02Z', result: { item_count: 7 } }] }
     else if (url.pathname === '/api/me/agent-delegations') data = {
       enabled: true,
@@ -698,6 +719,7 @@ test('subscription channels stay compact, actionable and accessible at every acc
   page.on('pageerror', (error) => consoleErrors.push(error.message))
   const apiState = await mockAdminApi(page)
   await page.goto('/subscriptions')
+  await expect(page.getByRole('tablist', { name: '订阅与来源页面' })).toBeVisible()
 
   const viewportWidth = page.viewportSize()?.width ?? 0
   const tabWidths: number[] = []
@@ -1084,6 +1106,8 @@ test('subscription semantic UI matches light and dark visual baselines at every 
     }, colorMode)
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', colorMode)
+    await expect(sourceCard).toBeVisible()
+    await expect(sourceCard.locator('[data-source-counts]')).toHaveText(/今日\s*0\s*近7天\s*0\s*历史\s*7/)
     await page.evaluate(async () => {
       await document.fonts.ready
     })

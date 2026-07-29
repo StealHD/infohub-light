@@ -638,7 +638,7 @@ test('a hard refresh preserves shell geometry and reveals only loaded content', 
       body: JSON.stringify({ ok: true, data: { authenticated: true, user: { id: 'e2e-user', username: 'e2e', display_name: '验收用户', role: 'member', enabled: true } } }),
     })
   })
-  await page.route('**/api/feed/latest', async (route) => {
+  await page.route('**/api/feed/latest*', async (route) => {
     await feedGate
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { schema_version: 2, items: [items[0]] } }) })
   })
@@ -1055,6 +1055,8 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   await expect(page.locator('[data-documentation-menu-surface], [data-account-menu-surface]')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '更新日志', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '2026 年 7 月', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '常用页面打开更快，后台列表更轻' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'OpenClaw 可按名称订阅 YouTube 频道' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '全局与单源周期不再重复抓取' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '更新日志改为清晰时间线' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '更清晰的交互反馈' })).toBeVisible()
@@ -1067,14 +1069,14 @@ test('Changelog entry points expose the responsive month navigation', async ({ p
   await expect(timeline).toBeVisible()
   await expect(currentEntry).toHaveAttribute('aria-current', 'true')
   await expect(previousEntry).not.toHaveAttribute('aria-current')
-  await expect(currentEntry.locator('time[datetime="2026-07-28"]')).toBeVisible()
+  await expect(currentEntry.locator('time[datetime="2026-07-29"]')).toBeVisible()
   const currentDetails = currentEntry.getByRole('list')
   await expect(currentDetails.getByRole('listitem')).toHaveCount(5)
-  await expect(currentDetails.getByText('默认跟随全局')).toBeVisible()
-  await expect(currentDetails.getByText('单源周期互斥')).toBeVisible()
-  await expect(currentDetails.getByText('切换不会丢周期')).toBeVisible()
-  await expect(currentDetails.getByText('局部刷新保留内容')).toBeVisible()
-  await expect(currentDetails.getByText('卡片信息更准确')).toBeVisible()
+  await expect(currentDetails.getByText('低频页面按需加载')).toBeVisible()
+  await expect(currentDetails.getByText('首屏体积受门禁保护')).toBeVisible()
+  await expect(currentDetails.getByText('信息流减少重复字段')).toBeVisible()
+  await expect(currentDetails.getByText('运行记录先轻后详')).toBeVisible()
+  await expect(currentDetails.getByText('稳定数据减少重复请求')).toBeVisible()
   await expect(entries.last().locator('[data-timeline-connector]')).toBeHidden()
   const firstConnectorBox = await currentEntry.locator('[data-timeline-connector]').boundingBox()
   const nextMarkerBox = await previousEntry.locator('[data-timeline-marker]').boundingBox()
