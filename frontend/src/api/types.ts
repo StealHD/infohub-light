@@ -16,6 +16,24 @@ export type AuthStatus = {
 
 export type NotificationChannel = 'email' | 'webhook'
 
+export type WebhookProvider =
+  | 'generic_event'
+  | 'generic_text'
+  | 'feishu_lark_v2'
+  | 'wecom'
+  | 'dingtalk'
+  | 'slack'
+  | 'discord'
+
+export type WebhookProviderOption = {
+  provider: WebhookProvider
+  label: string
+  description: string
+  url_hint: string
+  signing: 'none' | 'optional'
+  verification_mode: 'http_status' | 'provider_response'
+}
+
 export type UserNotificationSettings = {
   schema_version: number
   enabled: boolean
@@ -23,7 +41,12 @@ export type UserNotificationSettings = {
   email_configured: boolean
   email_transport_ready: boolean
   webhook_configured: boolean
-  last_test_status: string | null
+  webhook_provider: WebhookProvider
+  webhook_provider_explicit: boolean
+  webhook_signing_secret_configured: boolean
+  webhook_verification_mode: 'http_status' | 'provider_response'
+  webhook_provider_options: WebhookProviderOption[]
+  last_test_status: 'sent' | 'failed' | 'unknown' | null
   last_tested_at: string | null
   last_test_error_code: string | null
   updated_at: string | null
@@ -34,11 +57,15 @@ export type UserNotificationSettingsPatch = {
   channel?: NotificationChannel
   email_address?: string | null
   webhook_url?: string | null
+  webhook_provider?: WebhookProvider
+  webhook_signing_secret?: string | null
 }
 
 export type NotificationTestResult = {
   sent: boolean
   channel: NotificationChannel
+  provider?: WebhookProvider
+  verification?: 'http_accepted' | 'provider_accepted'
 }
 
 export type NotificationEmailProvider = 'qq' | 'netease' | 'gmail' | 'resend' | 'amazon_ses'
@@ -634,14 +661,19 @@ export type ApifyActorAlertEvent =
   | 'recovered'
 
 export type ApifyActorAlertSettings = {
-  schema_version: 1
+  schema_version: 2
   enabled: boolean
   channel: NotificationChannel
   events: ApifyActorAlertEvent[]
   email_configured: boolean
   email_transport_ready: boolean
   webhook_configured: boolean
-  last_test_status: string | null
+  webhook_provider: WebhookProvider
+  webhook_provider_explicit: boolean
+  webhook_signing_secret_configured: boolean
+  webhook_verification_mode: 'http_status' | 'provider_response'
+  webhook_provider_options: WebhookProviderOption[]
+  last_test_status: 'sent' | 'failed' | 'unknown' | null
   last_tested_at: string | null
   last_test_error_code: string | null
   last_alert_status: string | null
@@ -656,6 +688,8 @@ export type ApifyActorAlertSettingsPatch = {
   events?: ApifyActorAlertEvent[]
   email_address?: string | null
   webhook_url?: string | null
+  webhook_provider?: WebhookProvider
+  webhook_signing_secret?: string | null
 }
 
 export type ApifyActorAlertIncident = {

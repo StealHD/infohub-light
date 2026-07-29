@@ -8,7 +8,7 @@ import os
 import socket
 import threading
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -22,6 +22,18 @@ _MAX_PUBLIC_HTTP_DNS_SECONDS = 5.0
 
 class UnsafeNetworkTarget(ValueError):
     """A source URL can reach a non-public network or contains unsafe data."""
+
+    retryable = False
+
+
+class NetworkResolutionError(UnsafeNetworkTarget):
+    """A public target could not be resolved before any request was sent."""
+
+    retryable = True
+
+
+class UnsafeNetworkResponse(ValueError):
+    """A non-idempotent request returned a response that cannot be trusted."""
 
     retryable = False
 
@@ -105,7 +117,9 @@ def resolve_public_http_url(
         try:
             resolved = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
         except OSError as exc:
-            raise UnsafeNetworkTarget("source hostname could not be resolved to a public network address") from exc
+            raise NetworkResolutionError(
+                "source hostname could not be resolved to a public network address"
+            ) from exc
         addresses = tuple(
             dict.fromkeys(
                 ipaddress.ip_address(str(entry[4][0]).split("%", 1)[0])
@@ -113,7 +127,9 @@ def resolve_public_http_url(
             )
         )
     if not addresses:
-        raise UnsafeNetworkTarget("source hostname could not be resolved to a public network address")
+        raise NetworkResolutionError(
+            "source hostname could not be resolved to a public network address"
+        )
     if not allow_private_host_allowlist or host.lower() not in allowlisted_hosts:
         non_public = tuple(address for address in addresses if not address.is_global)
         synthetic_dns_allowed = (
@@ -191,7 +207,7 @@ async def _resolve_public_http_url_daemon(
             ),
         )
     except TimeoutError as exc:
-        raise UnsafeNetworkTarget(
+        raise NetworkResolutionError(
             "source hostname resolution timed out"
         ) from exc
 
@@ -208,6 +224,7 @@ async def _request_pinned_address(
     method: str = "GET",
     content: bytes | None = None,
     read_response_body: bool = True,
+    response_error_type: type[ValueError] = UnsafeNetworkTarget,
 ) -> httpx.Response:
     request_headers = {
         key: value
@@ -244,7 +261,7 @@ async def _request_pinned_address(
                     .lower()
                 )
                 if content_encoding not in {"", "identity"}:
-                    raise UnsafeNetworkTarget(
+                    raise response_error_type(
                         "source response content encoding is not allowed"
                     )
                 content_length = response.headers.get("content-length")
@@ -255,14 +272,17 @@ async def _request_pinned_address(
                         declared_length = 0
                     if declared_length > max_response_bytes:
                         if not allow_partial_response:
-                            raise UnsafeNetworkTarget(
+                            raise response_error_type(
                                 f"source response exceeded the {max_response_bytes}-byte limit"
                             )
                         body_truncated = True
-                async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                chunk_size = min(64 * 1024, max_response_bytes + 1)
+                async for chunk in response.aiter_bytes(
+                    chunk_size=max(1, chunk_size)
+                ):
                     if len(content) + len(chunk) > max_response_bytes:
                         if not allow_partial_response:
-                            raise UnsafeNetworkTarget(
+                            raise response_error_type(
                                 f"source response exceeded the {max_response_bytes}-byte limit"
                             )
                         remaining = max_response_bytes - len(content)
@@ -369,9 +389,12 @@ async def post_public_http(
     timeout: float = 20.0,
     max_response_bytes: int = 64_000,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
+    response_body_mode: Literal["discard", "bounded"] = "discard",
 ) -> httpx.Response:
     """POST once to a public-only URL with DNS pinning and no redirects."""
 
+    if response_body_mode not in {"discard", "bounded"}:
+        raise ValueError("response_body_mode must be discard or bounded")
     target = await _resolve_public_http_url_daemon(
         url,
         timeout=timeout,
@@ -390,5 +413,6 @@ async def post_public_http(
         transport_factory=transport_factory,
         method="POST",
         content=bytes(content),
-        read_response_body=False,
+        read_response_body=response_body_mode == "bounded",
+        response_error_type=UnsafeNetworkResponse,
     )

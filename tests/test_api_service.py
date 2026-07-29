@@ -18,6 +18,9 @@ from src.services.job_queue import JobQueue
 from src.services.notification_email_transport import (
     WorkspaceEmailTransportService,
 )
+from src.services.preferred_source_notifications import (
+    NotificationServiceError,
+)
 from src.services.quota import QuotaService
 from src.services.secret_store import SecretStore
 from src.services.subscription_mutation import SubscriptionMutationService
@@ -3948,6 +3951,11 @@ def test_notification_settings_are_write_only_and_user_scoped(
         "email_configured",
         "email_transport_ready",
         "webhook_configured",
+        "webhook_provider",
+        "webhook_provider_explicit",
+        "webhook_signing_secret_configured",
+        "webhook_verification_mode",
+        "webhook_provider_options",
         "last_test_status",
         "last_tested_at",
         "last_test_error_code",
@@ -3957,11 +3965,16 @@ def test_notification_settings_are_write_only_and_user_scoped(
     default_response = client.get("/api/me/notification-settings")
     default_data = _assert_notification_destination_is_write_only(default_response)
     assert set(default_data) == projection_keys
-    assert default_data["schema_version"] == 1
+    assert default_data["schema_version"] == 2
     assert default_data["enabled"] is False
     assert default_data["email_configured"] is False
     assert default_data["email_transport_ready"] is True
     assert default_data["webhook_configured"] is False
+    assert default_data["webhook_provider"] == "generic_event"
+    assert default_data["webhook_provider_explicit"] is True
+    assert default_data["webhook_signing_secret_configured"] is False
+    assert default_data["webhook_verification_mode"] == "http_status"
+    assert len(default_data["webhook_provider_options"]) == 7
 
     owner_update = client.patch(
         "/api/me/notification-settings",
@@ -4026,6 +4039,70 @@ def test_notification_settings_are_write_only_and_user_scoped(
         email_address,
     )
     assert owner_after_member_update == owner_data
+
+
+def test_notification_provider_and_signing_secret_are_write_only(
+    tmp_path,
+    monkeypatch,
+):
+    client, data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+    webhook_url = (
+        "https://open.feishu.cn/open-apis/bot/v2/hook/"
+        "00000000-0000-0000-0000-000000000000"
+    )
+    signing_secret = "api-write-only-signing-secret"
+
+    response = client.patch(
+        "/api/me/notification-settings",
+        json={
+            "enabled": True,
+            "channel": "webhook",
+            "webhook_provider": "feishu_lark_v2",
+            "webhook_url": webhook_url,
+            "webhook_signing_secret": signing_secret,
+        },
+    )
+
+    data = _assert_notification_destination_is_write_only(
+        response,
+        webhook_url,
+        signing_secret,
+    )
+    assert data["schema_version"] == 2
+    assert data["webhook_provider"] == "feishu_lark_v2"
+    assert data["webhook_provider_explicit"] is True
+    assert data["webhook_signing_secret_configured"] is True
+    assert data["webhook_verification_mode"] == "provider_response"
+    assert "webhook_url" not in data
+    assert "webhook_signing_secret" not in data
+    assert signing_secret.encode() not in (
+        data_dir / "service.db"
+    ).read_bytes()
+
+    persisted = _assert_notification_destination_is_write_only(
+        client.get("/api/me/notification-settings"),
+        webhook_url,
+        signing_secret,
+    )
+    assert persisted == data
+
+    missing_url = client.patch(
+        "/api/me/notification-settings",
+        json={"webhook_provider": "slack"},
+    )
+    assert missing_url.status_code == 400
+    assert missing_url.json()["error"]["code"] == (
+        "webhook_url_required_for_provider_change"
+    )
+    null_provider = client.patch(
+        "/api/me/notification-settings",
+        json={"webhook_provider": None},
+    )
+    assert null_provider.status_code == 400
+    assert null_provider.json()["error"]["code"] == (
+        "invalid_notification_settings"
+    )
 
 
 def test_admin_email_transport_requires_test_and_never_returns_secret(
@@ -4266,11 +4343,47 @@ def test_notification_test_push_does_not_create_delivery_snapshot_or_job(
         "email_configured",
         "email_transport_ready",
         "webhook_configured",
+        "webhook_provider",
+        "webhook_provider_explicit",
+        "webhook_signing_secret_configured",
+        "webhook_verification_mode",
+        "webhook_provider_options",
         "last_test_status",
         "last_tested_at",
         "last_test_error_code",
         "updated_at",
     }
+
+
+def test_notification_test_unknown_response_forbids_blind_retry(
+    tmp_path,
+    monkeypatch,
+):
+    client, _data_dir = _client(tmp_path, monkeypatch)
+    _login(client)
+
+    def unknown_test(*, workspace_id, user_id):
+        del workspace_id, user_id
+        raise NotificationServiceError(
+            "notification_test_outcome_unknown",
+            "notification test outcome is unknown; do not retry",
+            status_code=502,
+            outcome_unknown=True,
+        )
+
+    monkeypatch.setattr(
+        client.app.state.preferred_source_notifications,
+        "send_test",
+        unknown_test,
+    )
+    response = client.post("/api/me/notification-settings/test")
+
+    assert response.status_code == 502
+    error = response.json()["error"]
+    assert error["code"] == "notification_test_outcome_unknown"
+    assert error["retryable"] is False
+    assert "Do not retry" in error["action"]
+    assert "receiver" in error["action"]
 
 
 def test_subscription_notification_preference_is_isolated_per_user(

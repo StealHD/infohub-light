@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 import httpx
@@ -12,6 +13,7 @@ from src.services.apify_actor_alerts import (
     ApifyActorAlertService,
 )
 from src.services.apify_actor_monitoring import ApifyActorAlertBridge
+from src.services.secret_store import SecretStore
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -101,6 +103,249 @@ def test_first_partial_alert_patch_defaults_every_event(tmp_path) -> None:
     assert state["enabled"] is False
     assert state["events"] == list(ALERT_EVENTS)
     assert state["webhook_configured"] is True
+
+
+def test_alert_provider_and_signing_rotation_is_write_only(tmp_path) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    _configure_webhook(service, admin_id)
+    before = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert before is not None
+    url = (
+        "https://oapi.dingtalk.com/robot/send"
+        "?access_token=00000000000000000000000000000000"
+    )
+    signing_secret = "write-only-dingtalk-secret"
+
+    public = service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        webhook_provider="dingtalk",
+        webhook_url=url,
+        webhook_signing_secret=signing_secret,
+    )
+
+    assert public["webhook_provider"] == "dingtalk"
+    assert public["webhook_provider_explicit"] is True
+    assert public["webhook_signing_secret_configured"] is True
+    assert public["webhook_verification_mode"] == "provider_response"
+    assert url not in repr(public)
+    assert signing_secret not in repr(public)
+    internal = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert internal is not None
+    assert internal["generation"] == int(before["generation"]) + 1
+    signing_env = service.webhook_signing_env_name(
+        workspace_id=DEFAULT_WORKSPACE_ID
+    )
+    secrets = SecretStore(tmp_path / "data").read()
+    assert secrets[signing_env] == signing_secret
+    assert signing_secret.encode() not in store.db_path.read_bytes()
+
+    cleared = service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        webhook_signing_secret=None,
+    )
+    assert cleared["webhook_signing_secret_configured"] is False
+    assert signing_env not in SecretStore(tmp_path / "data").read()
+
+    with pytest.raises(ApifyActorAlertError) as missing_url:
+        service.upsert_settings(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            actor_user_id=admin_id,
+            webhook_provider="slack",
+        )
+    assert (
+        missing_url.value.code
+        == "webhook_url_required_for_provider_change"
+    )
+
+
+def test_alert_signing_secret_tampering_fails_closed_at_stage_claim_and_send(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        enabled=True,
+        channel="webhook",
+        webhook_provider="dingtalk",
+        webhook_url=(
+            "https://oapi.dingtalk.com/robot/send"
+            "?access_token=00000000000000000000000000000000"
+        ),
+        webhook_signing_secret="configured-alert-signing-secret",
+    )
+    staged = service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="route_degraded",
+        event_type="actor_switched",
+        severity="warning",
+    )
+    assert staged["delivery_staged"] is True
+    settings = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert settings is not None
+    signing_env = str(settings["webhook_signing_env_name"])
+    SecretStore(tmp_path / "data").set(
+        signing_env,
+        "tampered-alert-signing-secret",
+    )
+    assert service.get_public_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID
+    )["webhook_signing_secret_configured"] is False
+    network_called = False
+
+    async def forbidden_post(*_args, **_kwargs) -> httpx.Response:
+        nonlocal network_called
+        network_called = True
+        pytest.fail("tampered alert signing secret reached the network")
+
+    monkeypatch.setattr(
+        "src.services.apify_actor_alerts.post_public_http",
+        forbidden_post,
+    )
+    assert service.dispatch_pending(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        limit=1,
+    ) == {
+        "claimed": 1,
+        "succeeded": 0,
+        "failed": 1,
+        "retried": 0,
+        "unknown": 0,
+    }
+    delivery = store.connect().execute(
+        """
+        SELECT status, error_code
+        FROM apify_actor_alert_deliveries
+        WHERE incident_id = ?
+        """,
+        (staged["incident"]["id"],),
+    ).fetchone()
+    assert tuple(delivery) == (
+        "failed",
+        "invalid_webhook_signing_secret",
+    )
+    unstaged = service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="route_exhausted",
+        event_type="route_exhausted",
+        severity="critical",
+    )
+    assert unstaged["delivery_staged"] is False
+
+    with pytest.raises(ApifyActorAlertError) as exc_info:
+        service._send_webhook(
+            settings,
+            {
+                "event_type": "test",
+                "severity": "info",
+                "route": "x/profile",
+                "status": "test",
+            },
+            test=True,
+        )
+    assert exc_info.value.code == "invalid_webhook_signing_secret"
+    assert exc_info.value.outcome_unknown is False
+    assert network_called is False
+
+
+def test_alert_secret_compensation_holds_database_write_lock(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    _configure_webhook(service, admin_id)
+    settings = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert settings is not None
+    env_name = str(settings["webhook_env_name"])
+    old_url = str(SecretStore(tmp_path / "data").read()[env_name])
+    store.connect().execute(
+        """
+        CREATE TRIGGER fail_apify_alert_setting_update
+        BEFORE UPDATE ON apify_actor_alert_settings
+        BEGIN
+            SELECT RAISE(ABORT, 'simulated database update failure');
+        END
+        """
+    )
+    store.connect().commit()
+    original_replace_many = service.secret_store.replace_many
+    replace_calls = 0
+    compensation_transaction_states: list[bool] = []
+
+    def tracked_replace_many(
+        updates: dict[str, str | None],
+    ) -> None:
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            compensation_transaction_states.append(
+                store.connect().in_transaction
+            )
+        original_replace_many(updates)
+
+    monkeypatch.setattr(
+        service.secret_store,
+        "replace_many",
+        tracked_replace_many,
+    )
+
+    with pytest.raises(
+        sqlite3.IntegrityError,
+        match="simulated database update failure",
+    ):
+        service.upsert_settings(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            actor_user_id=admin_id,
+            webhook_url="https://hooks.example.com/replacement",
+        )
+
+    assert compensation_transaction_states == [True]
+    assert SecretStore(tmp_path / "data").read()[env_name] == old_url
+
+
+def test_alert_status_is_not_reinterpreted_after_settings_generation_changes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _store, service, admin_id, _email = _service(tmp_path)
+    _configure_webhook(service, admin_id)
+    service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="route_degraded",
+        event_type="actor_switched",
+        severity="warning",
+    )
+    monkeypatch.setattr(
+        service,
+        "_send_payload",
+        lambda *_args, **_kwargs: None,
+    )
+    assert service.dispatch_pending(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        limit=1,
+    )["succeeded"] == 1
+    assert service.get_public_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID
+    )["last_alert_status"] == "sent"
+
+    updated = service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        webhook_provider="slack",
+        webhook_url=(
+            "https://hooks.slack.com/services/"
+            "T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+        ),
+    )
+
+    assert updated["webhook_verification_mode"] == "provider_response"
+    assert updated["last_alert_status"] is None
 
 
 def test_incident_first_report_and_recovery_are_each_staged_once(tmp_path) -> None:
@@ -445,6 +690,49 @@ def test_webhook_connect_failure_retries_but_read_failure_is_unknown(
     assert read_error.value.outcome_unknown is True
 
 
+def test_alert_send_test_reports_unknown_without_inviting_a_duplicate(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _store, service, admin_id, _email = _service(tmp_path)
+    _configure_webhook(service, admin_id)
+
+    def unknown_send(*_args, **_kwargs) -> None:
+        raise ApifyActorAlertError(
+            "notification_webhook_response_invalid",
+            "unsafe upstream body must stay private",
+            status_code=502,
+            retryable=True,
+            outcome_unknown=True,
+        )
+
+    monkeypatch.setattr(service, "_send_payload", unknown_send)
+    with pytest.raises(ApifyActorAlertError) as exc_info:
+        service.send_test(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            actor_user_id=admin_id,
+        )
+
+    assert (
+        exc_info.value.code
+        == "apify_actor_alert_test_outcome_unknown"
+    )
+    assert exc_info.value.retryable is False
+    assert exc_info.value.outcome_unknown is True
+    assert "unsafe upstream" not in str(exc_info.value)
+    internal = service._settings_row(DEFAULT_WORKSPACE_ID)
+    assert internal is not None
+    assert internal["last_test_status"] == "failed"
+    assert (
+        internal["last_test_error_code"]
+        == "notification_webhook_response_invalid"
+    )
+    public = service.get_public_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID
+    )
+    assert public["last_test_status"] == "unknown"
+
+
 @pytest.mark.parametrize(
     ("webhook_host", "event_type", "test", "expected_title"),
     (
@@ -502,7 +790,7 @@ def test_feishu_alert_webhook_emits_text_message(
                 "body": json.loads(kwargs["content"].decode("utf-8")),
             }
         )
-        return httpx.Response(200)
+        return httpx.Response(200, json={"code": 0})
 
     monkeypatch.setattr(
         "src.services.apify_actor_alerts.post_public_http",

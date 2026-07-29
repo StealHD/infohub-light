@@ -246,6 +246,19 @@ class NotificationSettingsPatchRequest(BaseModel):
     channel: Literal["email", "webhook"] | None = None
     email_address: str | None = Field(default=None, min_length=3, max_length=320)
     webhook_url: str | None = Field(default=None, min_length=8, max_length=4096)
+    webhook_provider: Literal[
+        "generic_event",
+        "generic_text",
+        "feishu_lark_v2",
+        "wecom",
+        "dingtalk",
+        "slack",
+        "discord",
+    ] | None = None
+    webhook_signing_secret: str | None = Field(
+        default=None,
+        max_length=4096,
+    )
 
 
 class NotificationEmailTransportPatchRequest(BaseModel):
@@ -371,6 +384,19 @@ class ApifyActorAlertSettingsPatchRequest(BaseModel):
     ] | None = None
     email_address: str | None = Field(default=None, max_length=320)
     webhook_url: str | None = Field(default=None, max_length=4096)
+    webhook_provider: Literal[
+        "generic_event",
+        "generic_text",
+        "feishu_lark_v2",
+        "wecom",
+        "dingtalk",
+        "slack",
+        "discord",
+    ] | None = None
+    webhook_signing_secret: str | None = Field(
+        default=None,
+        max_length=4096,
+    )
 
 
 class SubscriptionRequest(BaseModel):
@@ -675,6 +701,18 @@ def create_app(
                 action=(
                     "Stop API and Worker, then run "
                     "scripts/migrate_apify_actor_routing_v13.py --apply."
+                ),
+            )
+
+    def require_webhook_providers_v14() -> None:
+        if store.webhook_providers_v14_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Webhook providers v14 migration must be applied before notification delivery is used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_webhook_providers_v14.py --apply."
                 ),
             )
 
@@ -1218,12 +1256,17 @@ def create_app(
                 status_code=exc.status_code,
                 retryable=exc.retryable,
                 action=(
-                    "Wait at least 60 seconds before sending another test."
-                    if exc.code == "notification_test_rate_limited"
+                    "Do not retry this test; refresh settings and confirm the "
+                    "receiver before any manual action."
+                    if exc.outcome_unknown
                     else (
-                        "Review the saved notification channel and send another test."
-                        if exc.status_code < 500
-                        else "Retry later without changing the Feed or source job."
+                        "Wait at least 60 seconds before sending another test."
+                        if exc.code == "notification_test_rate_limited"
+                        else (
+                            "Review the saved notification channel and send another test."
+                            if exc.status_code < 500
+                            else "Retry later without changing the Feed or source job."
+                        )
                     )
                 ),
             )
@@ -1266,9 +1309,14 @@ def create_app(
                 status_code=exc.status_code,
                 retryable=exc.retryable,
                 action=(
-                    "Wait at least 60 seconds before sending another test."
-                    if exc.code == "apify_actor_alert_test_rate_limited"
-                    else "Review the saved alert channel and retry."
+                    "Do not retry this test; refresh settings and confirm the "
+                    "receiver before any manual action."
+                    if exc.outcome_unknown
+                    else (
+                        "Wait at least 60 seconds before sending another test."
+                        if exc.code == "apify_actor_alert_test_rate_limited"
+                        else "Review the saved alert channel and retry."
+                    )
                 ),
             )
         )
@@ -2143,6 +2191,7 @@ def create_app(
                 ),
             )
         require_apify_actor_routing_v13()
+        require_webhook_providers_v14()
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -2243,6 +2292,7 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
+        require_webhook_providers_v14()
         response.headers["Cache-Control"] = "no-store"
         return ok(
             preferred_source_notifications.get_public_settings(
@@ -2259,6 +2309,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
+        require_webhook_providers_v14()
         provided = payload.model_fields_set
         if not provided:
             raise ApiError(
@@ -2269,6 +2320,10 @@ def create_app(
         if (
             ("enabled" in provided and payload.enabled is None)
             or ("channel" in provided and payload.channel is None)
+            or (
+                "webhook_provider" in provided
+                and payload.webhook_provider is None
+            )
         ):
             raise ApiError(
                 "invalid_notification_settings",
@@ -2282,6 +2337,8 @@ def create_app(
                 "channel",
                 "email_address",
                 "webhook_url",
+                "webhook_provider",
+                "webhook_signing_secret",
             )
             if field in provided
         }
@@ -2300,6 +2357,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
+        require_webhook_providers_v14()
         result = await run_in_threadpool(
             preferred_source_notifications.send_test,
             workspace_id=user["workspace_id"],
@@ -2845,6 +2903,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
+        require_webhook_providers_v14()
         response.headers["Cache-Control"] = "no-store"
         return ok(
             apify_actor_alerts.get_public_settings(
@@ -2860,6 +2919,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
+        require_webhook_providers_v14()
         if not payload.model_fields_set:
             raise ApiError(
                 "invalid_apify_actor_alert_settings",
@@ -2868,7 +2928,12 @@ def create_app(
             )
         if any(
             field in payload.model_fields_set and getattr(payload, field) is None
-            for field in ("enabled", "channel", "events")
+            for field in (
+                "enabled",
+                "channel",
+                "events",
+                "webhook_provider",
+            )
         ):
             raise ApiError(
                 "invalid_apify_actor_alert_settings",
@@ -2894,6 +2959,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
+        require_webhook_providers_v14()
         result = await run_in_threadpool(
             apify_actor_alerts.send_test,
             workspace_id=str(user["workspace_id"]),

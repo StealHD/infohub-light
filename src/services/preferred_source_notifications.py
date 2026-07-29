@@ -17,7 +17,24 @@ from typing import Any, Coroutine
 from urllib.parse import urlsplit
 
 from ..storage.service_store import ServiceStore
-from .network_policy import UnsafeNetworkTarget, post_public_http
+from .network_policy import post_public_http
+from .notification_webhook_transport import (
+    DINGTALK,
+    FEISHU_LARK_V2,
+    GENERIC_EVENT,
+    LEGACY_AUTO,
+    WebhookConfigurationError,
+    WebhookDeliveryError,
+    WebhookSendResult,
+    normalize_stored_webhook_provider,
+    resolve_webhook_provider,
+    send_notification_webhook,
+    validate_signing_secret,
+    validate_webhook_url,
+    webhook_provider_options,
+    webhook_text_limit,
+    webhook_verification_mode,
+)
 from .notification_email_transport import (
     EmailTransportError,
     WorkspaceEmailTransportService,
@@ -31,17 +48,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SAFE_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,63}$")
 _MAX_DELIVERIES_PER_TICK = 20
 _TEST_COOLDOWN_SECONDS = 60
-_FEISHU_WEBHOOK_HOSTS = frozenset(
-    {
-        "open.feishu.cn",
-        "open.larksuite.com",
-    }
-)
 _FEISHU_TEXT_LIMIT = 3_500
 _FEISHU_MARKUP_TRANSLATION = str.maketrans({"<": "＜", ">": "＞"})
-_FEISHU_WEBHOOK_PATH_RE = re.compile(
-    r"^/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$"
-)
 
 
 class NotificationServiceError(RuntimeError):
@@ -149,61 +157,6 @@ def _normalize_email(value: Any) -> str | None:
     return address
 
 
-def _validate_webhook_url(value: Any) -> str:
-    candidate = str(value or "").strip()
-    try:
-        parsed = urlsplit(candidate)
-        hostname = parsed.hostname
-        hostname_ascii = (
-            hostname.rstrip(".").encode("idna").decode("ascii")
-            if hostname
-            else ""
-        )
-        parsed.port
-    except (UnicodeError, ValueError):
-        parsed = None
-        hostname = None
-        hostname_ascii = ""
-    if (
-        len(candidate) > 4096
-        or "\r" in candidate
-        or "\n" in candidate
-        or "\x00" in candidate
-        or parsed is None
-        or parsed.scheme != "https"
-        or not hostname
-        or not hostname_ascii
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.fragment
-    ):
-        raise NotificationServiceError(
-            "invalid_notification_destination",
-            "notification webhook must be a credential-free HTTPS URL",
-        )
-    return candidate
-
-
-def _is_feishu_webhook_url(value: str) -> bool:
-    try:
-        parsed = urlsplit(value)
-        hostname = (parsed.hostname or "").rstrip(".")
-        hostname_ascii = hostname.encode("idna").decode("ascii").lower()
-        port = parsed.port
-    except (UnicodeError, ValueError):
-        return False
-    return bool(
-        parsed.scheme == "https"
-        and hostname_ascii in _FEISHU_WEBHOOK_HOSTS
-        and port in {None, 443}
-        and parsed.username is None
-        and parsed.password is None
-        and not parsed.query
-        and not parsed.fragment
-        and _FEISHU_WEBHOOK_PATH_RE.fullmatch(parsed.path)
-    )
-
-
 def _bounded_multiline_text(lines: list[str], *, limit: int) -> str:
     text = "\n".join(line for line in lines if line is not None)
     if len(text) <= limit:
@@ -282,6 +235,43 @@ def _preferred_source_feishu_body(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _preferred_source_webhook_text(
+    payload: dict[str, Any],
+    *,
+    limit: int,
+) -> str:
+    rendered = str(
+        _preferred_source_feishu_body(payload)["content"]["text"]
+    )
+    if len(rendered) <= limit:
+        return rendered
+    if payload.get("kind") == "test":
+        return _bounded_text(rendered, limit)
+    raw_items = payload.get("items")
+    items = (
+        [item for item in raw_items if isinstance(item, dict)]
+        if isinstance(raw_items, list)
+        else []
+    )[:_MAX_DELIVERIES_PER_TICK]
+    header = f"Inteliscope 新内容通知（{len(items)} 条）"
+    prefix_budget = sum(len(f"\n{index}. ") for index in range(1, len(items) + 1))
+    title_budget = max(
+        8,
+        (limit - len(header) - prefix_budget) // max(1, len(items)),
+    )
+    lines = [header]
+    for index, item in enumerate(items, start=1):
+        title = (
+            _feishu_dynamic_text(
+                item.get("title"),
+                min(90, title_budget),
+            )
+            or "未命名内容"
+        )
+        lines.append(f"{index}. {title}")
+    return _bounded_multiline_text(lines, limit=limit)
+
+
 def _run_coroutine(coroutine: Coroutine[Any, Any, Any]) -> Any:
     """Run one transport coroutine from Worker or an async API thread safely."""
 
@@ -326,6 +316,17 @@ class PreferredSourceNotificationService:
         ).hexdigest()[:24].upper()
         return f"HORIZON_USER_WEBHOOK_{digest}"
 
+    @staticmethod
+    def webhook_signing_env_name(
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> str:
+        digest = hashlib.sha256(
+            f"{workspace_id}:{user_id}".encode("utf-8")
+        ).hexdigest()[:24].upper()
+        return f"HORIZON_USER_WEBHOOK_SIGNING_{digest}"
+
     def _bound_webhook_env_name(
         self,
         settings: dict[str, Any],
@@ -363,6 +364,59 @@ class PreferredSourceNotificationService:
             else None
         )
 
+    def _bound_webhook_signing_secret(
+        self,
+        settings: dict[str, Any],
+    ) -> str | None:
+        workspace_id = str(settings.get("workspace_id") or "")
+        user_id = str(settings.get("user_id") or "")
+        env_name = str(
+            settings.get("webhook_signing_env_name") or ""
+        )
+        expected_env = self.webhook_signing_env_name(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        expected_digest = str(
+            settings.get("webhook_signing_secret_digest") or ""
+        )
+        if (
+            not workspace_id
+            or not user_id
+            or env_name != expected_env
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            return None
+        secret = self.secret_store.read().get(expected_env)
+        if not secret:
+            return None
+        actual_digest = hashlib.sha256(
+            str(secret).encode("utf-8")
+        ).hexdigest()
+        return (
+            str(secret)
+            if hmac.compare_digest(actual_digest, expected_digest)
+            else None
+        )
+
+    @staticmethod
+    def _has_webhook_signing_metadata(
+        settings: dict[str, Any],
+    ) -> bool:
+        return (
+            settings.get("webhook_signing_env_name") is not None
+            or settings.get("webhook_signing_secret_digest") is not None
+        )
+
+    def _webhook_signing_binding_valid(
+        self,
+        settings: dict[str, Any],
+    ) -> bool:
+        return (
+            not self._has_webhook_signing_metadata(settings)
+            or self._bound_webhook_signing_secret(settings) is not None
+        )
+
     def get_public_settings(
         self,
         *,
@@ -375,7 +429,7 @@ class PreferredSourceNotificationService:
         )
         if settings is None:
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "enabled": False,
                 "channel": "webhook",
                 "email_configured": False,
@@ -383,21 +437,57 @@ class PreferredSourceNotificationService:
                     workspace_id=workspace_id
                 ),
                 "webhook_configured": False,
+                "webhook_provider": GENERIC_EVENT,
+                "webhook_provider_explicit": True,
+                "webhook_signing_secret_configured": False,
+                "webhook_verification_mode": "http_status",
+                "webhook_provider_options": webhook_provider_options(),
                 "last_test_status": None,
                 "last_tested_at": None,
                 "last_test_error_code": None,
                 "updated_at": None,
             }
+        webhook_url = self._bound_webhook_secret(settings) or ""
+        try:
+            stored_provider = normalize_stored_webhook_provider(
+                settings.get("webhook_provider")
+            )
+            effective_provider = resolve_webhook_provider(
+                stored_provider,
+                webhook_url,
+            )
+        except WebhookConfigurationError:
+            stored_provider = LEGACY_AUTO
+            effective_provider = GENERIC_EVENT
+        last_test_status = settings.get("last_test_status")
+        if (
+            last_test_status == "failed"
+            and settings.get("last_test_error_code")
+            in {
+                "notification_webhook_outcome_unknown",
+                "notification_webhook_response_invalid",
+            }
+        ):
+            last_test_status = "unknown"
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "enabled": bool(settings.get("enabled")),
             "channel": str(settings.get("channel") or "webhook"),
             "email_configured": bool(settings.get("email_address")),
             "email_transport_ready": self.email_transport.is_ready(
                 workspace_id=workspace_id
             ),
-            "webhook_configured": bool(self._bound_webhook_secret(settings)),
-            "last_test_status": settings.get("last_test_status"),
+            "webhook_configured": bool(webhook_url),
+            "webhook_provider": effective_provider,
+            "webhook_provider_explicit": stored_provider != LEGACY_AUTO,
+            "webhook_signing_secret_configured": bool(
+                self._bound_webhook_signing_secret(settings)
+            ),
+            "webhook_verification_mode": webhook_verification_mode(
+                effective_provider
+            ),
+            "webhook_provider_options": webhook_provider_options(),
+            "last_test_status": last_test_status,
             "last_tested_at": settings.get("last_tested_at"),
             "last_test_error_code": settings.get("last_test_error_code"),
             "updated_at": settings.get("updated_at"),
@@ -412,17 +502,16 @@ class PreferredSourceNotificationService:
         channel: Any = UNSET,
         email_address: Any = UNSET,
         webhook_url: Any = UNSET,
+        webhook_provider: Any = UNSET,
+        webhook_signing_secret: Any = UNSET,
     ) -> dict[str, Any]:
         conn = self.store.connect()
         if conn.in_transaction:
             raise RuntimeError(
                 "notification settings update requires no active transaction"
             )
-        previous_secret: str | None = None
-        current_env_name = ""
-        target_env_name: str | None = None
-        target_webhook_digest: str | None = None
-        secret_changed = False
+        previous_secrets: dict[str, str | None] = {}
+        secrets_written = False
         try:
             conn.execute("BEGIN IMMEDIATE")
             user = self.store.get_user(user_id)
@@ -462,52 +551,151 @@ class PreferredSourceNotificationService:
                 if email_address is UNSET
                 else _normalize_email(email_address)
             )
-            expected_env_name = self.webhook_env_name(
+            expected_url_env = self.webhook_env_name(
                 workspace_id=workspace_id,
                 user_id=user_id,
             )
-            stored_env_name = str(
+            expected_signing_env = self.webhook_signing_env_name(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            secret_values = self.secret_store.read()
+            stored_url_env = str(
                 (current or {}).get("webhook_env_name") or ""
             )
-            current_env_name = (
-                stored_env_name
-                if stored_env_name == expected_env_name
+            current_url_env = (
+                stored_url_env
+                if stored_url_env == expected_url_env
                 else ""
             )
-            target_env_name = current_env_name or None
-            target_webhook_digest = (
+            target_url_env = current_url_env or None
+            target_url_digest = (
                 str((current or {}).get("webhook_secret_digest") or "")
-                if current_env_name
+                if current_url_env
                 else None
             ) or None
-            secret_changed = webhook_url is not UNSET
-            validated_webhook_url: str | None = None
-            if secret_changed:
-                previous_secret = self.secret_store.read().get(
-                    expected_env_name
+            current_url = self._bound_webhook_secret(current or {})
+            current_provider = normalize_stored_webhook_provider(
+                (current or {}).get("webhook_provider")
+            )
+            if webhook_provider is UNSET:
+                target_provider = current_provider
+            else:
+                if webhook_provider is None:
+                    raise NotificationServiceError(
+                        "invalid_webhook_provider",
+                        "webhook provider cannot be null",
+                    )
+                target_provider = normalize_stored_webhook_provider(
+                    webhook_provider
                 )
+                if target_provider == LEGACY_AUTO:
+                    raise NotificationServiceError(
+                        "invalid_webhook_provider",
+                        "legacy_auto is not a selectable webhook provider",
+                    )
+            provider_changed = target_provider != current_provider
+            url_touched = webhook_url is not UNSET
+            if provider_changed and not url_touched:
+                raise NotificationServiceError(
+                    "webhook_url_required_for_provider_change",
+                    "re-enter the webhook URL when changing provider",
+                )
+            validated_url: str | None = current_url
+            if url_touched:
                 if webhook_url is None or not str(webhook_url).strip():
-                    target_env_name = None
-                    target_webhook_digest = None
+                    validated_url = None
+                    target_url_env = None
+                    target_url_digest = None
                 else:
-                    target_env_name = expected_env_name
-                    validated_webhook_url = _validate_webhook_url(webhook_url)
-                    target_webhook_digest = hashlib.sha256(
-                        validated_webhook_url.encode("utf-8")
+                    validated_url = validate_webhook_url(
+                        webhook_url,
+                        target_provider,
+                        legacy_compat=target_provider == LEGACY_AUTO,
+                    )
+                    target_url_env = expected_url_env
+                    target_url_digest = hashlib.sha256(
+                        validated_url.encode("utf-8")
                     ).hexdigest()
+            elif validated_url:
+                validate_webhook_url(
+                    validated_url,
+                    target_provider,
+                    legacy_compat=target_provider == LEGACY_AUTO,
+                )
 
-            webhook_configured = False
-            if secret_changed:
-                webhook_configured = bool(
-                    target_env_name
-                    and target_webhook_digest
-                    and webhook_url is not None
-                    and str(webhook_url).strip()
+            stored_signing_env = str(
+                (current or {}).get("webhook_signing_env_name") or ""
+            )
+            current_signing_env = (
+                stored_signing_env
+                if stored_signing_env == expected_signing_env
+                else ""
+            )
+            target_signing_env = current_signing_env or None
+            target_signing_digest = (
+                str(
+                    (current or {}).get(
+                        "webhook_signing_secret_digest"
+                    )
+                    or ""
                 )
-            elif current is not None:
-                webhook_configured = bool(
-                    self._bound_webhook_secret(current)
+                if current_signing_env
+                else None
+            ) or None
+            current_signing_secret = self._bound_webhook_signing_secret(
+                current or {}
+            )
+            signing_touched = webhook_signing_secret is not UNSET
+            validated_signing_secret: str | None = current_signing_secret
+            implicit_signing_clear = bool(
+                not signing_touched
+                and (
+                    provider_changed
+                    or (url_touched and validated_url is None)
                 )
+            )
+            if implicit_signing_clear:
+                validated_signing_secret = None
+                target_signing_env = None
+                target_signing_digest = None
+                signing_touched = True
+            if signing_touched and not implicit_signing_clear:
+                if (
+                    webhook_signing_secret is None
+                    or not str(webhook_signing_secret).strip()
+                ):
+                    validated_signing_secret = None
+                    target_signing_env = None
+                    target_signing_digest = None
+                else:
+                    if target_provider not in {
+                        FEISHU_LARK_V2,
+                        DINGTALK,
+                    }:
+                        raise NotificationServiceError(
+                            "webhook_signing_not_supported",
+                            "selected webhook provider does not support signing",
+                        )
+                    validated_signing_secret = validate_signing_secret(
+                        webhook_signing_secret
+                    )
+                    target_signing_env = expected_signing_env
+                    target_signing_digest = hashlib.sha256(
+                        validated_signing_secret.encode("utf-8")
+                    ).hexdigest()
+            if (
+                target_provider not in {FEISHU_LARK_V2, DINGTALK}
+                and target_signing_digest
+            ):
+                raise NotificationServiceError(
+                    "webhook_signing_not_supported",
+                    "selected webhook provider does not support signing",
+                )
+
+            webhook_configured = bool(
+                validated_url and target_url_env and target_url_digest
+            )
             if target_enabled and target_channel == "email" and not target_email:
                 raise NotificationServiceError(
                     "notification_destination_required",
@@ -537,15 +725,25 @@ class PreferredSourceNotificationService:
                     status_code=409,
                 )
 
-            if secret_changed:
-                if target_env_name is None:
-                    self.secret_store.delete(expected_env_name)
-                    os.environ.pop(expected_env_name, None)
-                else:
-                    self.secret_store.set(
-                        target_env_name,
-                        str(validated_webhook_url),
-                    )
+            secret_updates: dict[str, str | None] = {}
+            if url_touched:
+                secret_updates[expected_url_env] = validated_url
+            if signing_touched:
+                secret_updates[expected_signing_env] = (
+                    validated_signing_secret
+                )
+            if secret_updates:
+                previous_secrets = {
+                    name: secret_values.get(name)
+                    for name in secret_updates
+                }
+                self.secret_store.replace_many(secret_updates)
+                for name, value in secret_updates.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+                secrets_written = True
             store_updates: dict[str, Any] = {}
             if enabled is not UNSET:
                 store_updates["enabled"] = enabled
@@ -553,20 +751,38 @@ class PreferredSourceNotificationService:
                 store_updates["channel"] = target_channel
             if email_address is not UNSET:
                 store_updates["email_address"] = target_email
-            if secret_changed:
-                store_updates["webhook_env_name"] = target_env_name
+            if url_touched:
+                store_updates["webhook_env_name"] = target_url_env
                 store_updates["webhook_secret_digest"] = (
-                    target_webhook_digest
+                    target_url_digest
                 )
             elif (
-                stored_env_name
+                stored_url_env
                 and (
-                    not current_env_name
-                    or not target_webhook_digest
+                    not current_url_env
+                    or not target_url_digest
                 )
             ):
                 store_updates["webhook_env_name"] = None
                 store_updates["webhook_secret_digest"] = None
+            if webhook_provider is not UNSET:
+                store_updates["webhook_provider"] = target_provider
+            if signing_touched:
+                store_updates["webhook_signing_env_name"] = (
+                    target_signing_env
+                )
+                store_updates["webhook_signing_secret_digest"] = (
+                    target_signing_digest
+                )
+            elif (
+                stored_signing_env
+                and (
+                    not current_signing_env
+                    or not target_signing_digest
+                )
+            ):
+                store_updates["webhook_signing_env_name"] = None
+                store_updates["webhook_signing_secret_digest"] = None
             self.store.upsert_user_notification_settings(
                 workspace_id=workspace_id,
                 user_id=user_id,
@@ -575,22 +791,37 @@ class PreferredSourceNotificationService:
             )
             conn.commit()
         except Exception as exc:
-            if conn.in_transaction:
-                conn.rollback()
-            if secret_changed:
-                if previous_secret is not None:
-                    self.secret_store.set(
-                        expected_env_name,
-                        previous_secret,
-                    )
-                else:
-                    self.secret_store.delete(expected_env_name)
-                    os.environ.pop(expected_env_name, None)
+            compensation_error: Exception | None = None
+            try:
+                if secrets_written:
+                    # Keep the SQLite write lock until SecretStore has been
+                    # restored so a later successful PATCH cannot be
+                    # overwritten by this failed request's compensation.
+                    self.secret_store.replace_many(previous_secrets)
+                    for name, value in previous_secrets.items():
+                        if value is None:
+                            os.environ.pop(name, None)
+                        else:
+                            os.environ[name] = value
+            except Exception as restore_exc:
+                compensation_error = restore_exc
+            finally:
+                if conn.in_transaction:
+                    conn.rollback()
+            if compensation_error is not None:
+                raise RuntimeError(
+                    "notification SecretStore compensation failed"
+                ) from compensation_error
             if isinstance(exc, (LookupError, PermissionError)):
                 raise NotificationServiceError(
                     "notification_channel_unavailable",
                     "notification settings are unavailable for this account",
                     status_code=409,
+                ) from exc
+            if isinstance(exc, WebhookConfigurationError):
+                raise NotificationServiceError(
+                    exc.code,
+                    str(exc),
                 ) from exc
             if (
                 isinstance(exc, ValueError)
@@ -646,7 +877,10 @@ class PreferredSourceNotificationService:
             ):
                 return 0
         elif str(settings.get("channel") or "") == "webhook":
-            if not self._bound_webhook_secret(settings):
+            if (
+                not self._bound_webhook_secret(settings)
+                or not self._webhook_signing_binding_valid(settings)
+            ):
                 return 0
         else:
             return 0
@@ -852,6 +1086,15 @@ class PreferredSourceNotificationService:
                         "notification settings changed before delivery",
                         status_code=409,
                     )
+                if (
+                    str(settings.get("channel") or "") == "webhook"
+                    and not self._webhook_signing_binding_valid(settings)
+                ):
+                    raise NotificationServiceError(
+                        "invalid_webhook_signing_secret",
+                        "configured webhook signing secret is unavailable",
+                        status_code=409,
+                    )
                 account_enabled_at = _parse_time(
                     settings.get("notification_enabled_at")
                 )
@@ -1040,20 +1283,31 @@ class PreferredSourceNotificationService:
             source_name="Inteliscope",
             test=True,
         )
+        generation = int(settings.get("notification_generation") or 0)
         try:
-            self._send_payload(settings, payload)
+            send_result = self._send_payload(settings, payload)
         except NotificationServiceError as exc:
             self.store.record_user_notification_test(
                 workspace_id=workspace_id,
                 user_id=user_id,
                 status="failed",
+                generation=generation,
                 error_code=exc.code,
             )
             raise NotificationServiceError(
-                "notification_test_failed",
-                "notification test could not be delivered",
+                (
+                    "notification_test_outcome_unknown"
+                    if exc.outcome_unknown
+                    else "notification_test_failed"
+                ),
+                (
+                    "notification test outcome is unknown; do not retry"
+                    if exc.outcome_unknown
+                    else "notification test could not be delivered"
+                ),
                 status_code=exc.status_code,
-                retryable=exc.retryable,
+                retryable=exc.retryable and not exc.outcome_unknown,
+                outcome_unknown=exc.outcome_unknown,
             ) from exc
         except Exception as exc:
             error = NotificationServiceError(
@@ -1066,15 +1320,36 @@ class PreferredSourceNotificationService:
                 workspace_id=workspace_id,
                 user_id=user_id,
                 status="failed",
+                generation=generation,
                 error_code="notification_delivery_failed",
             )
             raise error from exc
-        self.store.record_user_notification_test(
+        recorded = self.store.record_user_notification_test(
             workspace_id=workspace_id,
             user_id=user_id,
             status="sent",
+            generation=generation,
         )
-        return {"sent": True, "channel": str(settings["channel"])}
+        if recorded is None:
+            raise NotificationServiceError(
+                "notification_test_outcome_unknown",
+                "notification settings changed while the test was running; "
+                "do not retry",
+                status_code=409,
+                outcome_unknown=True,
+            )
+        result: dict[str, Any] = {
+            "sent": True,
+            "channel": str(settings["channel"]),
+        }
+        if isinstance(send_result, WebhookSendResult):
+            result.update(
+                {
+                    "provider": send_result.provider,
+                    "verification": send_result.verification,
+                }
+            )
+        return result
 
     @staticmethod
     def _delivery_payload(
@@ -1298,14 +1573,13 @@ class PreferredSourceNotificationService:
         self,
         settings: dict[str, Any],
         payload: dict[str, Any],
-    ) -> None:
+    ) -> WebhookSendResult | None:
         channel = str(settings.get("channel") or "")
         if channel == "webhook":
-            self._send_webhook(settings, payload)
-            return
+            return self._send_webhook(settings, payload)
         if channel == "email":
             self._send_email(settings, payload)
-            return
+            return None
         raise NotificationServiceError(
             "invalid_notification_channel",
             "notification channel must be email or webhook",
@@ -1315,7 +1589,7 @@ class PreferredSourceNotificationService:
         self,
         settings: dict[str, Any],
         payload: dict[str, Any],
-    ) -> None:
+    ) -> WebhookSendResult:
         webhook_url = self._bound_webhook_secret(settings)
         if not webhook_url:
             raise NotificationServiceError(
@@ -1323,74 +1597,94 @@ class PreferredSourceNotificationService:
                 "notification webhook is not configured",
                 status_code=409,
             )
-        webhook_url = _validate_webhook_url(webhook_url)
-        envelope = (
-            _preferred_source_feishu_body(payload)
-            if _is_feishu_webhook_url(webhook_url)
+        signing_secret = self._bound_webhook_signing_secret(settings)
+        if (
+            self._has_webhook_signing_metadata(settings)
+            and signing_secret is None
+        ):
+            raise NotificationServiceError(
+                "invalid_webhook_signing_secret",
+                "configured webhook signing secret is unavailable",
+                status_code=409,
+            )
+        stored_provider = normalize_stored_webhook_provider(
+            settings.get("webhook_provider")
+        )
+        effective_provider = resolve_webhook_provider(
+            stored_provider,
+            webhook_url,
+        )
+        event = (
+            "inteliscope.preferred_source.test"
+            if payload.get("kind") == "test"
+            else "inteliscope.preferred_source.new_items"
+        )
+        data = (
+            {**payload, "test": True}
+            if payload.get("kind") == "test"
             else {
-                "event": (
-                    "inteliscope.preferred_source.test"
-                    if payload.get("kind") == "test"
-                    else "inteliscope.preferred_source.new_items"
-                ),
-                "data": (
-                    {**payload, "test": True}
-                    if payload.get("kind") == "test"
-                    else {
-                        "schema_version": 1,
-                        "items": list(payload.get("items") or [])[
-                            :_MAX_DELIVERIES_PER_TICK
-                        ],
-                    }
-                ),
+                "schema_version": 1,
+                "items": list(payload.get("items") or [])[
+                    :_MAX_DELIVERIES_PER_TICK
+                ],
             }
         )
-        body = _json_dumps(envelope).encode("utf-8")
+        text = _preferred_source_webhook_text(
+            payload,
+            limit=webhook_text_limit(effective_provider),
+        )
         try:
-            response = _run_coroutine(
+            result = _run_coroutine(
                 asyncio.wait_for(
-                    post_public_http(
-                        webhook_url,
-                        content=body,
-                        headers={
-                            "Content-Type": "application/json; charset=utf-8"
-                        },
+                    send_notification_webhook(
+                        provider=stored_provider,
+                        webhook_url=webhook_url,
+                        event=event,
+                        data=data,
+                        text=text,
+                        signing_secret=signing_secret,
                         timeout=5.0,
-                        max_response_bytes=64_000,
+                        post=post_public_http,
                     ),
                     timeout=6.0,
                 )
             )
-        except UnsafeNetworkTarget as exc:
+        except WebhookConfigurationError as exc:
             raise NotificationServiceError(
-                "notification_webhook_target_blocked",
-                "notification webhook must resolve only to the public network",
+                exc.code,
+                str(exc),
                 status_code=400,
+            ) from exc
+        except WebhookDeliveryError as exc:
+            raise NotificationServiceError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                outcome_unknown=exc.outcome_unknown,
+            ) from exc
+        except TimeoutError as exc:
+            raise NotificationServiceError(
+                "notification_webhook_outcome_unknown",
+                "notification webhook outcome is unknown",
+                status_code=502,
+                outcome_unknown=True,
             ) from exc
         except Exception as exc:
             raise NotificationServiceError(
-                "notification_webhook_unavailable",
-                "notification webhook is unavailable",
+                "notification_webhook_outcome_unknown",
+                "notification webhook outcome is unknown",
                 status_code=502,
-                retryable=True,
                 outcome_unknown=True,
             ) from exc
-        content_encoding = (
-            response.headers.get("content-encoding", "").strip().lower()
-        )
-        if content_encoding not in {"", "identity"}:
+        if not isinstance(result, WebhookSendResult):
             raise NotificationServiceError(
-                "notification_webhook_response_encoding_unsupported",
-                "notification webhook returned an unsupported content encoding",
+                "notification_webhook_outcome_unknown",
+                "notification webhook outcome is unknown",
                 status_code=502,
                 outcome_unknown=True,
             )
-        if not 200 <= int(response.status_code) < 300:
-            raise NotificationServiceError(
-                "notification_webhook_rejected",
-                "notification webhook rejected the request",
-                status_code=502,
-            )
+        return result
 
     def _send_email(
         self,

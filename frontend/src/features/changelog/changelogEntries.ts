@@ -22,6 +22,18 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 7 月',
     entries: [
       {
+        date: '2026-07-30',
+        title: 'Webhook 通知适配七类常用接收端',
+        summary: '个人新内容通知和 Apify 运行告警现在可显式选择通用事件、通用文本或五类平台机器人，并按接收端协议判断测试是否真正被接受。',
+        items: [
+          { title: '七类配置统一', description: '支持通用事件 JSON、通用文本 JSON、飞书/Lark V2、企业微信群机器人、钉钉、Slack/GovSlack 与 Discord；个人通知和工作区告警复用同一套类型、地址提示和验证规则。' },
+          { title: '平台业务响应可验证', description: '飞书、企业微信、钉钉、Slack 和 Discord 不再只看 HTTP 状态，而会校验各自的成功响应；测试结果会明确区分“平台已接受”和“通用请求已发送”。' },
+          { title: '飞书与钉钉支持签名', description: '机器人启用签名校验时可填写 write-only Secret；地址和签名提交后立即清空且永不回显，关闭签名会清除已保存的 Secret。通用类型仍是 URL-only，不增加 Bearer Token 或自定义请求头。' },
+          { title: '失败不会伪装成功', description: '响应超限、格式异常或传输结果无法确认时会立即刷新并显示结果未知，明确要求先核对接收端且不自动重发；保存成功只表示配置已写入，不再等同于消息已经送达。' },
+          { title: '旧配置平滑升级', description: '升级前的飞书地址继续按飞书格式发送，其他旧地址继续按通用事件发送；首次修改旧配置时需要显式选择类型并重新输入对应地址。' },
+        ],
+      },
+      {
         date: '2026-07-29',
         title: '飞书 V2 Webhook 使用原生文本格式',
         summary: '账户新内容通知和 Apify 运行告警会识别未启用签名校验的飞书/Lark V2 自定义机器人地址，并发送群机器人可接受的文本消息。',

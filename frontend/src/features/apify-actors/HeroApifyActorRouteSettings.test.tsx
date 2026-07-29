@@ -104,7 +104,7 @@ const route = (overrides: Partial<ApifyActorRoute> = {}): ApifyActorRoute => ({
 const alertSettings = (
   overrides: Partial<ApifyActorAlertSettings> = {},
 ): ApifyActorAlertSettings => ({
-  schema_version: 1,
+  schema_version: 2,
   enabled: true,
   channel: 'webhook',
   events: [
@@ -118,6 +118,68 @@ const alertSettings = (
   email_configured: false,
   email_transport_ready: true,
   webhook_configured: true,
+  webhook_provider: 'generic_event',
+  webhook_provider_explicit: true,
+  webhook_signing_secret_configured: false,
+  webhook_verification_mode: 'http_status',
+  webhook_provider_options: [
+    {
+      provider: 'generic_event',
+      label: '通用事件 JSON',
+      description: '发送 event/data，HTTP 2xx 仅表示接收端接受请求。',
+      url_hint: 'https://example.com/webhook',
+      signing: 'none',
+      verification_mode: 'http_status',
+    },
+    {
+      provider: 'generic_text',
+      label: '通用文本 JSON',
+      description: '发送 text，HTTP 2xx 仅表示接收端接受请求。',
+      url_hint: 'https://example.com/webhook',
+      signing: 'none',
+      verification_mode: 'http_status',
+    },
+    {
+      provider: 'feishu_lark_v2',
+      label: '飞书 / Lark V2',
+      description: '发送原生文本并校验平台业务响应，可选签名校验。',
+      url_hint: 'https://open.feishu.cn/open-apis/bot/v2/hook/…',
+      signing: 'optional',
+      verification_mode: 'provider_response',
+    },
+    {
+      provider: 'wecom',
+      label: '企业微信群机器人',
+      description: '发送原生文本并校验 errcode。',
+      url_hint: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…',
+      signing: 'none',
+      verification_mode: 'provider_response',
+    },
+    {
+      provider: 'dingtalk',
+      label: '钉钉自定义机器人',
+      description: '发送原生文本并校验 errcode，可选签名校验。',
+      url_hint: 'https://oapi.dingtalk.com/robot/send?access_token=…',
+      signing: 'optional',
+      verification_mode: 'provider_response',
+    },
+    {
+      provider: 'slack',
+      label: 'Slack / GovSlack',
+      description: '发送 Incoming Webhook 文本并校验 ok 响应。',
+      url_hint: 'https://hooks.slack.com/services/…/…/…',
+      signing: 'none',
+      verification_mode: 'provider_response',
+    },
+    {
+      provider: 'discord',
+      label: 'Discord Incoming Webhook',
+      description: '发送禁用 mentions 的文本并校验返回消息 ID。',
+      url_hint: 'https://discord.com/api/webhooks/…/…',
+      signing: 'none',
+      verification_mode: 'provider_response',
+    },
+  ],
   last_test_status: null,
   last_tested_at: null,
   last_test_error_code: null,
@@ -285,6 +347,35 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(document.body.textContent).not.toContain('unsafe-run')
     expect(document.body.textContent).not.toContain('unsafe-dataset')
   })
+
+  it('refreshes and shows persisted unknown status after an ambiguous alert test', async () => {
+    const browser = userEvent.setup()
+    const apifyActorAlertSettings = vi.fn()
+      .mockResolvedValueOnce(alertSettings())
+      .mockResolvedValue(alertSettings({
+        last_test_status: 'unknown',
+        last_tested_at: '2026-07-30T08:00:00Z',
+        last_test_error_code: 'notification_webhook_response_invalid',
+      }))
+    const testApifyActorAlertSettings = vi.fn().mockRejectedValue(new ApiError(502, {
+      code: 'apify_actor_alert_test_outcome_unknown',
+      message: 'raw upstream response must stay private',
+      retryable: false,
+    }))
+    const { api } = renderFeature({
+      apifyActorAlertSettings,
+      testApifyActorAlertSettings,
+    })
+
+    expect(await screen.findByText(/尚未发送测试通知/)).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '发送测试告警' }))
+
+    await waitFor(() => expect(apifyActorAlertSettings).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/最近一次测试结果未知，不会自动重发/)).toBeVisible()
+    expect(screen.getByText('测试告警结果未知，请勿重复发送；请先确认接收端。')).toBeVisible()
+    expect(api.testApifyActorAlertSettings).toHaveBeenCalledOnce()
+    expect(document.body.textContent).not.toContain('raw upstream')
+  })
 })
 
 describe('ApifyActorAlertSettingsForm', () => {
@@ -307,8 +398,8 @@ describe('ApifyActorAlertSettingsForm', () => {
 
     const destination = screen.getByLabelText('告警 Webhook 地址')
     expect(destination).toHaveAttribute('type', 'password')
-    expect(screen.getByText(/飞书\/Lark V2 仅支持未启用签名校验/)).toBeVisible()
-    expect(screen.getByText(/保存成功只表示配置已写入/)).toBeVisible()
+    expect(screen.getByText(/平台预设会校验业务响应/)).toBeVisible()
+    expect(screen.getByText(/保存成功仅表示配置已写入/)).toBeVisible()
     expect(screen.getByText(/最近一次运行告警请求已发送，请确认接收端/)).toBeVisible()
     await browser.type(destination, 'https://example.invalid/actor-alert')
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
@@ -318,6 +409,7 @@ describe('ApifyActorAlertSettingsForm', () => {
       channel: 'webhook',
       events: alertSettings().events,
       webhook_url: 'https://example.invalid/actor-alert',
+      webhook_provider: 'generic_event',
     })
     expect(destination).toHaveValue('')
     expect(document.body.textContent).not.toContain('https://example.invalid/actor-alert')
@@ -339,6 +431,8 @@ describe('ApifyActorAlertSettingsForm', () => {
       />
     </DesignSystemProvider></MemoryRouter>)
 
+    const destination = screen.getByLabelText('告警 Webhook 地址')
+    await browser.type(destination, 'https://secret.invalid/hook')
     for (const label of Object.values({
       switched: '自动切换 Actor',
       exhausted: '三个 Actor 全部不可用',
@@ -352,11 +446,48 @@ describe('ApifyActorAlertSettingsForm', () => {
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
     expect(onSave).not.toHaveBeenCalled()
     expect(await screen.findByText('启用运行告警时，请至少选择一种告警事件。')).toBeInTheDocument()
+    expect(destination).toHaveValue('')
+    expect(document.body.textContent).not.toContain('https://secret.invalid/hook')
 
     await browser.click(screen.getByRole('checkbox', { name: '自动切换 Actor' }))
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
     expect((await screen.findAllByText('Apify 运行告警设置保存失败，请稍后重试。')).length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toContain('secret.invalid')
     expect(document.body.textContent).not.toContain('never-render')
+  })
+
+  it('requires an active legacy Webhook to be upgraded before any alert edit', async () => {
+    const browser = userEvent.setup()
+    const onSave = vi.fn().mockResolvedValue(alertSettings({
+      events: alertSettings().events.filter((event) => event !== 'actor_switched'),
+      webhook_provider_explicit: true,
+    }))
+    render(<MemoryRouter><DesignSystemProvider>
+      <ApifyActorAlertSettingsForm
+        settings={alertSettings({ webhook_provider_explicit: false })}
+        onSave={onSave}
+        onTest={vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' })}
+      />
+    </DesignSystemProvider></MemoryRouter>)
+
+    await browser.click(screen.getByRole('checkbox', { name: '自动切换 Actor' }))
+    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
+
+    expect(onSave).not.toHaveBeenCalled()
+    expect(await screen.findByText('升级旧 Webhook 配置时，请选择类型并重新输入对应地址。')).toBeVisible()
+
+    await browser.type(
+      screen.getByLabelText('告警 Webhook 地址'),
+      'https://hooks.example.com/upgraded-alert',
+    )
+    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      enabled: true,
+      channel: 'webhook',
+      events: alertSettings().events.filter((event) => event !== 'actor_switched'),
+      webhook_url: 'https://hooks.example.com/upgraded-alert',
+      webhook_provider: 'generic_event',
+    }))
   })
 })

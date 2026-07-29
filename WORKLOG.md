@@ -385,3 +385,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "将个人新内容通知与 Apify 运行告警升级为七类共享 Webhook Provider Registry，补齐平台原生文本、飞书/钉钉可选签名、业务 ACK、4 KiB 安全响应、schema v14 显式迁移、write-only Secret 与 generation 门禁；未知测试结果禁止盲目重发，签名绑定异常全链路 fail closed。",
+  "status": "completed",
+  "task_id": "2026-07-30-universal-webhook-providers-v14",
+  "unresolved": [
+    "未重建 8080、未部署、未在运行数据库执行 v14 迁移，也未触发真实 Webhook；平台实际群内展示仍需部署后由 operator 验收"
+  ],
+  "validation": [
+    "backend/API targeted regressions: 123 passed",
+    "frontend typecheck and 5 files / 116 tests passed",
+    "signing metadata tamper probes fail closed before stage, claim and POST",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent final review found no remaining P0-P2",
+    "git diff --check and project-defaults JSON validation passed"
+  ]
+}
+```

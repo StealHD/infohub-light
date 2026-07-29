@@ -794,3 +794,11 @@
 - 决策内容：用户偏好来源通知和 Apify 运行告警在发送前只对精确匹配 `open.feishu.cn|open.larksuite.com`、默认 HTTPS 端口与单段 `/open-apis/bot/v2/hook/{token}` 的 V2 自定义机器人地址自动生成 `msg_type=text/content.text`；普通 HTTPS Webhook 继续接收既有 `event/data` 通用事件。平台文本只由原 outbox 或告警 payload 中已经有界、脱敏且已中和 `<at>` 等内联标记的字段构造，总长度再次限制为 3500 字符；新内容密集批次会压缩次要字段，但必须保留每个被确认投递 article 的编号标题。
 - 原因：飞书自定义机器人不接受 Inteliscope 的通用事件 envelope，并可能用 HTTP 200 加业务错误正文拒绝消息；Service 安全策略又明确不读取响应正文，导致测试被记录为成功但群内没有消息。按官方机器人请求格式发送可以消除已确认的协议不匹配，同时不放宽响应正文、目的地或日志边界。
 - 兼容/边界：不新增设置字段、数据库迁移或外部探测；URL 仍只存在 SecretStore，DNS/IP pinning、禁重定向、identity encoding、单次 POST、超时和“不读取响应正文”全部不变。由于没有签名密钥配置入口，只支持未启用签名校验且关键词/IP 白名单已放行的 V2 自定义机器人；HTTP 成功与 `sent` 不等于提供方业务接受或群内展示，UI 必须提示人工确认。未识别平台及自建接收端保持原通用 JSON 合同；本修复不自动重放旧 delivery，也不主动调用真实 Webhook。
+
+### D094 Service Webhook 采用七类显式 Provider Registry 与业务 ACK
+
+- 决策日期：2026-07-30
+- 当前状态：本地实现、定向回归、独立复审与完整 Test Gate 通过；未重建、未部署、未触发真实 Webhook
+- 决策内容：用户偏好来源通知和 Apify 运行告警共用七类显式 Provider：G1 `generic_event` 发送 `event/data`，G2 `generic_text` 发送 `text`，两者均为 URL-only 且只要求 HTTP 2xx；P1 飞书/Lark V2 发送原生文本、允许可选签名并校验 `code==0` 或 legacy `StatusCode==0`，P2 企业微信校验 `errcode==0`，P3 钉钉允许可选签名并校验 `errcode==0`，P4 Slack 要求 HTTP 200 且正文精确 `ok`，P5 Discord 禁用 mentions、强制 `wait=true` 并校验数字字符串消息 `id`。平台 URL 必须精确匹配官方 host/path/query；通用类型拒绝已知官方 Provider host。所有平台只发送 text，不发 cards 或 mentions；最多 20 条的新内容密集批次仍保留每个编号标题。
+- 安全与故障语义：URL 与可选签名只存在用途绑定的 SecretStore 变量，SQLite 保存 Provider、变量名、摘要与 generation。G1/G2 响应正文直接丢弃；P1-P5 仅有界读取 identity 响应最多 4096 bytes，用后即弃且永不进入 API、日志或持久状态。DNS/Connect/Pool 在发送前失败可重试，明确 4xx 或非零业务码安全失败；Write/Read、408/425/5xx、响应超限/畸形/压缩等已开始但不可验证结果标记 unknown，未知 delivery 不自动重放。保存成功只表示配置写入；测试分别报告 `http_accepted` 或 `provider_accepted`，都不承诺终端已经展示。手工测试结果未知时返回独立不可重试错误码，页面在成功与失败路径都刷新持久状态，并要求先核对接收端而不是再次发送。
+- 迁移与兼容：schema v14 在两张 Webhook setting 表增加 Provider/签名元数据和数据库约束，Provider、URL 或签名变化推进 generation 并清除旧测试状态。旧 row 和兼容旧客户端省略 Provider 的 URL-only PATCH（包括首次创建 setting）使用不可显式选择的 `legacy_auto`：精确飞书/Lark V2 URL 映射 P1，其余映射 G1；新 UI 修改兼容配置时必须显式选择 Provider 并重输 URL。v14 依赖 v13，必须停止 API/Worker、创建 SQLite `0600` backup，并在 row/trigger、integrity 与 foreign-key 全部通过后记录 marker；否则 readiness、相关 API 与 Worker fail closed。D094 取代 D093 中“只自动识别飞书、无签名入口、不读取任何响应正文、无需迁移”的部分；D093 的历史修复事实和不自动重放边界保留。
