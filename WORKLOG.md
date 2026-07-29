@@ -170,3 +170,20 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "将当前已验证 main 的发布元数据统一升级为 2.0.0，准备创建 v2.0.0 注释标签与 revision-locked VPS 发布。",
+  "status": "completed",
+  "task_id": "2026-07-29-release-v2.0.0",
+  "unresolved": [],
+  "validation": [
+    "pyproject.toml and uv.lock versions set to 2.0.0",
+    "release source starts from main bef041b",
+    "VPS v1.8.2 API and Worker healthy with zero active or due jobs",
+    "VPS database quick_check and foreign-key checks passed"
+  ]
+}
+```
