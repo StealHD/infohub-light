@@ -1486,7 +1486,7 @@ export function HeroSettingsPage() {
       {admin && !config.isLoading && !config.isError && <div className="mt-6 border-t border-separator pt-5">
         <div>
           <h3 className="type-control">信息流触底文案</h3>
-          <p className="type-meta mt-1 text-muted">内置中文文案始终可用；独立开关启用后，Worker 只会在普通任务队列空闲时生成三个共享场景。</p>
+          <p className="type-meta mt-1 text-muted">内置中文文案始终可用；独立开关启用后，Worker 只会在普通任务队列空闲时生成三个共享场景。每句可选一个克制 Emoji 或颜文字。</p>
         </div>
         <form
           ref={feedEndMessagesFormRef}

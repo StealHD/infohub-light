@@ -549,10 +549,10 @@ Feed retention / legacy archive compatibility 规则：
 
 ### 11.1 信息流触底文案生成
 
-1. `workspace_feed_end_messages` 是幂等新增的 workspace 级 SQLite 缓存表，保存三个列表、非敏感配置指纹、generation、刷新状态、原子租约、最近尝试/成功/下次刷新/退避时间和安全错误码；不保存提示词、模型原文、用户内容或密钥。
+1. `workspace_feed_end_messages` 是幂等新增的 workspace 级 SQLite 缓存表，保存三个列表、非敏感配置指纹、generation、刷新状态、原子租约、最近尝试/成功/下次刷新/退避时间和安全错误码；不保存提示词、模型原文、用户内容或密钥。指纹必须包含当前文案安全合同版本，因此 prompt、白名单或校验语义升级会把旧缓存标成待刷新而不需要数据库迁移。
 2. 始终存在内置中文列表。全局 AI 或独立生成开关关闭时，GET 必须忽略旧 AI 缓存并返回 `source=builtin,status=disabled`；重新开启后，配置变化、手动刷新、到期或首次缺少缓存均可进入 pending，后台生成期间仍可返回上次通过校验的 AI 列表。
 3. Worker 只有在普通任务队列无法 claim Job 时才检查触底文案；一次 idle 轮询最多 claim 一个 workspace、记录一个 workspace AI attempt，并发起至多一次 60 秒模型请求。该调用关闭 SDK 自动重试，不创建普通 Job，也不由 scheduler 驱动。
-4. 模型结果必须是只含 `empty/first_end/repeat_end` 的 JSON object；每个数组恰好等于配置条数，三个数组全局去重。每句必须为 trim 后 4–40 字的单行简体中文纯文本，禁止 HTML、Markdown、URL、Emoji、催促、羞辱、焦虑表达和虚假完成声明；自定义风格不得覆盖这些约束。
+4. 模型结果必须是只含 `empty/first_end/repeat_end` 的 JSON object；每个数组恰好等于配置条数，三个数组全局去重。每句必须为 trim 后 4–40 字的单行简体中文纯文本，禁止 HTML、Markdown、URL、催促、羞辱、焦虑表达和虚假完成声明。每句可选且最多带一个克制装饰，白名单为 `🙂/😊/🌿/☕/✨/📚/🍵/🌙/🫧/^_^/:)/:-)/(・ω・)/(´▽｀)/(｡･ω･｡)`；`☕` 的标准 emoji variation selector 视为同一装饰，其他 Emoji、颜文字或多个装饰均拒绝。自定义风格不得覆盖这些约束。
 5. 成功后 generation 原子加一并按 `refresh_days` 安排下次刷新。超时、配额、调用或输出校验失败只写安全错误码，保留上次成功列表；从未成功则回退内置列表。失败固定六小时后才可自动再试，手动刷新或配置指纹变化可提前触发。
 
 ## 12. Feed v2 显式迁移合同

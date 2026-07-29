@@ -9,7 +9,6 @@ import {
   actionToast,
   Button,
   CalmSkeleton,
-  EmptyState,
   Icons,
   ListBox,
   LoadingReveal,
@@ -338,7 +337,6 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     kind === 'feed' && preference.subscriptionScope !== 'all',
   ].filter(Boolean).length
   const collectionSearchVisible = collectionSearchOpen || Boolean(searchValue)
-  const hasActiveConstraints = Boolean(searchValue) || Boolean(historySourceId) || activeFilterCount > 0
   const historySourceName = sourceCatalogQuery.data?.sources.find((source) => source.id === historySourceId)?.display_name
   const historyTotalCount = historyQuery.data?.pages[0]?.total_count ?? cards.length
   const globalSearchTotalCount = globalSearchQuery.data?.pages[0]?.total_count ?? cards.length
@@ -509,14 +507,11 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         ? '历史记录已全部显示'
         : '当前信息流已全部显示'
   const terminalContent = terminalReady && cards.length > 0
-    ? <div
+    ? <FeedEndMessageLine
       data-testid="feed-end-message"
-      role="status"
-      className="rounded-xl border border-separator bg-surface-secondary px-4 py-5 text-center"
-    >
-      <p className="type-control text-foreground">{terminalLabel}</p>
-      {terminalEndMessage?.key === terminalContextKey && <p className="type-meta mt-1 text-muted">{terminalEndMessage.message}</p>}
-    </div>
+      label={terminalLabel}
+      message={terminalEndMessage?.key === terminalContextKey ? terminalEndMessage.message : ''}
+    />
     : undefined
 
   return <section aria-label="信息流工作区" data-feed-blank-region className="flex h-full min-h-0 flex-col">
@@ -674,45 +669,28 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           {paginationFooter}
         </div>
       </PageFrame>
-      : cards.length === 0 ? <PageFrame width="reading" className="m-auto"><div>
-        <EmptyState
-        title={hasActiveConstraints
-          ? globalSearchRequested && !globalSearchActive
-            ? '按回车搜索单个字符'
-            : '没有符合当前条件的信息'
-          : kind === 'saved'
-            ? '还没有收藏'
-            : kind === 'history'
-              ? '还没有阅读记录'
-              : '信息流还是空的'}
-        description={hasActiveConstraints
-          ? globalSearchRequested && !globalSearchActive
-            ? '两个及以上字符会自动搜索；单个字符需明确提交，避免扫描过多内容。'
-            : '清除搜索或筛选后再试。'
-          : kind === 'saved'
-            ? '在信息流中收藏的内容会出现在这里。'
-            : kind === 'history'
-              ? '打开过的内容会保留在这里。'
-              : '先订阅来源，再获取一次新内容。'}
-        actions={hasActiveConstraints
-          ? <>
-            {searchValue && <Button size="sm" variant="ghost" onPress={() => setSearchValue('')}>清除搜索</Button>}
-            {historySourceId && <Button size="sm" variant="ghost" onPress={clearHistorySource}>清除来源</Button>}
-            {activeFilterCount > 0 && <Button size="sm" variant="ghost" onPress={() => updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })}>清除筛选</Button>}
-          </>
-          : kind === 'feed'
-            ? <>
-              <Button size="sm" variant="ghost" onPress={() => navigate('/subscriptions')}>订阅来源</Button>
-              {user.role !== 'viewer' && <Button size="sm" onPress={updateFeed}>获取新内容</Button>}
-            </>
-            : <Button size="sm" onPress={() => navigate('/feed')}>返回信息流</Button>}
+      : cards.length === 0 && waitingForSingleCharacterSubmit ? <PageFrame width="reading" className="m-auto">
+        <FeedEndMessageLine
+          data-testid="feed-search-submit-message"
+          label="单字符搜索等待提交"
+          message="输入单个字符后按回车搜索"
         />
-        {terminalReady && <EmptyFeedEndMessage
+      </PageFrame>
+      : cards.length === 0 && terminalReady ? <PageFrame width="reading" className="m-auto">
+        <EmptyFeedEndMessage
           key={`${user.id}:${terminalContextKey}`}
           userId={user.id}
+          label={globalSearchActive
+            ? '搜索结果为空'
+            : kind === 'saved'
+              ? '收藏为空'
+              : kind === 'history'
+                ? '历史记录为空'
+                : '信息流为空'}
           messages={endMessageScenes.empty}
-        />}
-      </div></PageFrame>
+        />
+      </PageFrame>
+      : cards.length === 0 ? null
       : <VirtualFeed
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       resetToTopKey={`${preference.sortBasis}:${preference.order}:${debouncedHistoryQuery}:${historySourceId}`}
@@ -786,8 +764,36 @@ function useDebouncedValue(value: string, delay: number) {
   return debounced
 }
 
-function EmptyFeedEndMessage({ userId, messages }: { userId: string; messages: string[] }) {
+function EmptyFeedEndMessage({
+  userId,
+  label,
+  messages,
+}: {
+  userId: string
+  label: string
+  messages: string[]
+}) {
   const [message] = useState(() => selectEmptyFeedMessage(userId, messages))
   if (!message) return null
-  return <p data-testid="feed-empty-message" role="status" className="type-meta -mt-3 px-6 pb-6 text-center text-muted">{message}</p>
+  return <FeedEndMessageLine data-testid="feed-empty-message" label={label} message={message} />
+}
+
+function FeedEndMessageLine({
+  'data-testid': testId,
+  label,
+  message,
+}: {
+  'data-testid': string
+  label?: string
+  message: string
+}) {
+  return <p
+    data-testid={testId}
+    role={message ? 'status' : undefined}
+    className="type-meta flex max-w-full min-w-0 items-center justify-center gap-2 px-3 py-2 text-center text-muted"
+  >
+    {label && <span className="sr-only">{label}</span>}
+    <span aria-hidden="true" className="shrink-0">·</span>
+    {message && <span className="min-w-0 truncate">{message}</span>}
+  </p>
 }

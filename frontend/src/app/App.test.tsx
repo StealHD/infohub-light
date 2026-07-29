@@ -180,7 +180,7 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
-  it('supplements the deterministic empty state without replacing its guidance', async () => {
+  it('replaces the deterministic empty card with one lightweight empty message', async () => {
     const api = liveApi({
       latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [] }),
       feedEndMessages: vi.fn().mockResolvedValue({
@@ -203,9 +203,12 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByText('信息流还是空的')).toBeInTheDocument()
-    expect(screen.getByText('先订阅来源，再获取一次新内容。')).toBeInTheDocument()
-    expect(await screen.findByTestId('feed-empty-message')).toHaveTextContent('空白也可以很从容。')
+    const emptyMessage = await screen.findByTestId('feed-empty-message')
+    expect(emptyMessage).toHaveTextContent('信息流为空·空白也可以很从容。')
+    expect(within(emptyMessage).getByText('空白也可以很从容。')).toHaveClass('truncate')
+    expect(emptyMessage).not.toHaveClass('card', 'rounded-xl', 'border', 'bg-surface-secondary')
+    expect(screen.queryByText('信息流还是空的')).not.toBeInTheDocument()
+    expect(screen.queryByText('先订阅来源，再获取一次新内容。')).not.toBeInTheDocument()
   })
 
   it('does not show empty copy while a single-character search waits for explicit submission', async () => {
@@ -216,10 +219,10 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByText('信息流还是空的')
+    await screen.findByTestId('feed-empty-message')
     await browser.type(screen.getByRole('searchbox', { name: '搜索全部内容' }), '单')
 
-    expect(await screen.findByText('按回车搜索单个字符')).toBeInTheDocument()
+    expect(await screen.findByTestId('feed-search-submit-message')).toHaveTextContent('输入单个字符后按回车搜索')
     await waitFor(() => expect(screen.queryByTestId('feed-empty-message')).not.toBeInTheDocument())
   })
 
@@ -2766,6 +2769,43 @@ describe('App routes', () => {
     expect(latestFeed).not.toHaveBeenCalled()
   })
 
+  it('shows only the lightweight empty message for an empty saved collection', async () => {
+    const savedFeed = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      scope: 'user',
+      items: [],
+      item_count: 0,
+      limit: 50,
+      offset: 0,
+    })
+    const api = liveApi({
+      savedFeed,
+      feedEndMessages: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        source: 'builtin',
+        status: 'disabled',
+        generation: 0,
+        generated_at: null,
+        last_attempt_at: null,
+        next_refresh_at: null,
+        retry_at: null,
+        last_error_code: null,
+        scenes: {
+          empty: ['这里暂时很安静。🌿'],
+          first_end: ['这一轮先读到这里。☕'],
+          repeat_end: ['又到末尾了。^_^'],
+        },
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/saved']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByTestId('feed-empty-message')).toHaveTextContent('这里暂时很安静。🌿')
+    expect(screen.queryByText('还没有收藏')).not.toBeInTheDocument()
+    expect(screen.queryByText('在信息流中收藏的内容会出现在这里。')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '返回信息流' })).not.toBeInTheDocument()
+  })
+
   it('keeps saved pagination explicit and shows the terminal only on the true final page', async () => {
     const browser = userEvent.setup()
     const savedItems = Array.from({ length: 51 }, (_, index) => ({
@@ -2789,6 +2829,10 @@ describe('App routes', () => {
     await browser.click(screen.getByRole('button', { name: '加载更多（已显示 50/51）' }))
 
     expect(await screen.findByText('收藏已全部显示')).toBeInTheDocument()
+    const terminalMessage = screen.getByTestId('feed-end-message')
+    expect(within(terminalMessage).getByText('收藏已全部显示')).toHaveClass('sr-only')
+    expect(terminalMessage).toHaveTextContent('·')
+    expect(terminalMessage).not.toHaveClass('card', 'rounded-xl', 'border', 'bg-surface-secondary')
     expect(savedFeed).toHaveBeenLastCalledWith(50, 50, expect.any(AbortSignal))
   })
 

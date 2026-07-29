@@ -10,9 +10,12 @@ from src.ai.client import OpenAIClient, create_ai_client
 from src.models import Config
 from src.services.feed_end_messages import (
     BUILTIN_FEED_END_MESSAGES,
+    FEED_END_MESSAGE_CONTRACT_VERSION,
     FeedEndMessagesDisabled,
     FeedEndMessagesOutputError,
     FeedEndMessagesService,
+    feed_end_messages_config_fingerprint,
+    feed_end_messages_prompt,
     parse_feed_end_messages_response,
     run_due_feed_end_messages_generation,
     validate_feed_end_message_lists,
@@ -168,6 +171,17 @@ def test_feed_end_message_output_requires_exact_safe_unique_plain_text():
         json.dumps(messages, ensure_ascii=False),
         expected_count=3,
     ) == messages
+    decorated = _messages()
+    decorated["empty"][0] = "这里先休息一下🙂"
+    decorated["first_end"][0] = "这一轮先读到这里^_^"
+    assert validate_feed_end_message_lists(
+        decorated,
+        expected_count=3,
+    ) == decorated
+    system_prompt, user_prompt = feed_end_messages_prompt(_config())
+    assert "最多使用一个克制装饰" in system_prompt
+    assert "禁止其他 Emoji 或颜文字" in system_prompt
+    assert "替代空列表的原有说明" in user_prompt
 
     invalid_values = []
     missing_scene = _messages()
@@ -182,9 +196,16 @@ def test_feed_end_message_output_requires_exact_safe_unique_plain_text():
     markdown_list = _messages()
     markdown_list["empty"][0] = "- 这里没有内容"
     invalid_values.append(markdown_list)
-    emoji = _messages()
-    emoji["empty"][0] = "这里先休息一下🙂"
-    invalid_values.append(emoji)
+    unsupported_emoji = _messages()
+    unsupported_emoji["empty"][0] = "这里先休息一下🚀"
+    invalid_values.append(unsupported_emoji)
+    decoration_spam = _messages()
+    decoration_spam["empty"][0] = "这里先休息一下🙂✨"
+    invalid_values.append(decoration_spam)
+    visual_duplicate = _messages()
+    visual_duplicate["empty"][0] = "这里先休息一下☕"
+    visual_duplicate["empty"][1] = "这里先休息一下☕️"
+    invalid_values.append(visual_duplicate)
     url = _messages()
     url["empty"][0] = "去 https://example.com 看看"
     invalid_values.append(url)
@@ -207,6 +228,18 @@ def test_feed_end_message_output_requires_exact_safe_unique_plain_text():
             f"```json\n{json.dumps(messages, ensure_ascii=False)}\n```",
             expected_count=3,
         )
+
+
+def test_feed_end_message_fingerprint_includes_copy_contract_version(monkeypatch):
+    config = _config()
+    initial = feed_end_messages_config_fingerprint(config)
+
+    monkeypatch.setattr(
+        "src.services.feed_end_messages.FEED_END_MESSAGE_CONTRACT_VERSION",
+        FEED_END_MESSAGE_CONTRACT_VERSION + 1,
+    )
+
+    assert feed_end_messages_config_fingerprint(config) != initial
 
 
 def test_disabled_generation_uses_builtins_and_rejects_manual_refresh(

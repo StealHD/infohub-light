@@ -131,6 +131,7 @@
       "agent_source_resolution_max_active_per_delegation": 20
     },
     "feed_end_messages": {
+      "contract_version": 2,
       "ai_generation_enabled": false,
       "refresh_days": 7,
       "allowed_refresh_days": [
@@ -150,6 +151,24 @@
       "list_count_max": 30,
       "message_min_chars": 4,
       "message_max_chars": 40,
+      "max_decorations_per_message": 1,
+      "allowed_decorations": [
+        "🙂",
+        "😊",
+        "🌿",
+        "☕",
+        "✨",
+        "📚",
+        "🍵",
+        "🌙",
+        "🫧",
+        "^_^",
+        ":)",
+        ":-)",
+        "(・ω・)",
+        "(´▽｀)",
+        "(｡･ω･｡)"
+      ],
       "generation_timeout_seconds": 60,
       "generation_lease_seconds": 75,
       "failure_retry_seconds": 21600,

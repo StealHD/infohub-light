@@ -4,17 +4,17 @@ const storagePrefix = 'inteliscope.feed-end-messages.v1.'
 
 export const builtinFeedEndMessages: FeedEndMessages['scenes'] = {
   empty: [
-    '这里暂时很安静。',
+    '这里暂时很安静。🌿',
     '这一页目前没有可显示的内容。',
     '先留一点空白，换个条件再看看。',
   ],
   first_end: [
-    '这一轮内容先到这里。',
+    '这一轮内容先到这里。☕',
     '当前列表已经走到末尾。',
     '先停在这里，让信息沉淀一下。',
   ],
   repeat_end: [
-    '又到末尾了。',
+    '又到末尾了。^_^',
     '还是这里，当前列表没有更多内容。',
     '这次也到底了，先去别处看看。',
   ],

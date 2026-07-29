@@ -25,20 +25,39 @@ FEED_END_MESSAGE_SCENES = ("empty", "first_end", "repeat_end")
 FEED_END_MESSAGE_RETRY_HOURS = 6
 FEED_END_MESSAGE_TIMEOUT_SECONDS = 60
 FEED_END_MESSAGE_LEASE_SECONDS = 75
+FEED_END_MESSAGE_CONTRACT_VERSION = 2
+FEED_END_MESSAGE_DECORATIONS = (
+    "🙂",
+    "😊",
+    "🌿",
+    "☕️",
+    "☕",
+    "✨",
+    "📚",
+    "🍵",
+    "🌙",
+    "🫧",
+    "^_^",
+    ":)",
+    ":-)",
+    "(・ω・)",
+    "(´▽｀)",
+    "(｡･ω･｡)",
+)
 
 BUILTIN_FEED_END_MESSAGES: dict[str, list[str]] = {
     "empty": [
-        "这里暂时很安静。",
+        "这里暂时很安静。🌿",
         "这一页目前没有可显示的内容。",
         "先留一点空白，换个条件再看看。",
     ],
     "first_end": [
-        "这一轮内容先到这里。",
+        "这一轮内容先到这里。☕",
         "当前列表已经走到末尾。",
         "先停在这里，让信息沉淀一下。",
     ],
     "repeat_end": [
-        "又到末尾了。",
+        "又到末尾了。^_^",
         "还是这里，当前列表没有更多内容。",
         "这次也到底了，先去别处看看。",
     ],
@@ -52,6 +71,16 @@ _ALLOWED_MESSAGE_RE = re.compile(
 _URL_RE = re.compile(r"(?:https?://|www\.|[A-Za-z0-9-]+\.(?:com|cn|net|org)\b)", re.I)
 _MARKUP_RE = re.compile(r"[<>{}\[\]#*_~`|\\]")
 _MARKDOWN_PREFIX_RE = re.compile(r"^\s*[-+]\s")
+_DECORATION_RE = re.compile(
+    "|".join(
+        re.escape(decoration)
+        for decoration in sorted(
+            FEED_END_MESSAGE_DECORATIONS,
+            key=len,
+            reverse=True,
+        )
+    )
+)
 _TRADITIONAL_ONLY_RE = re.compile(
     r"[這裡還讓與為個們來時會後於過麼說開關現見頁條終餘讀]"
 )
@@ -105,6 +134,7 @@ def feed_end_messages_config_fingerprint(config: Config) -> str:
     """Hash only model identity and non-secret terminal-copy inputs."""
 
     payload = {
+        "contract_version": FEED_END_MESSAGE_CONTRACT_VERSION,
         "provider": config.ai.provider.value,
         "model": config.ai.model,
         "feed_end_messages": config.feed_end_messages.model_dump(mode="json"),
@@ -160,23 +190,28 @@ def validate_feed_end_message_lists(
                 raise FeedEndMessagesOutputError(
                     "messages must contain Simplified Chinese"
                 )
+            decorations = _DECORATION_RE.findall(message)
+            plain_message = _DECORATION_RE.sub("", message)
             if (
-                not _ALLOWED_MESSAGE_RE.fullmatch(message)
+                len(decorations) > 1
+                or not _ALLOWED_MESSAGE_RE.fullmatch(plain_message)
                 or _URL_RE.search(message)
-                or _MARKUP_RE.search(message)
+                or _MARKUP_RE.search(plain_message)
                 or _MARKDOWN_PREFIX_RE.search(message)
                 or _TRADITIONAL_ONLY_RE.search(message)
             ):
                 raise FeedEndMessagesOutputError(
-                    "messages must be Simplified Chinese plain text"
+                    "messages must be Simplified Chinese plain text with at most "
+                    "one supported decoration"
                 )
             if _UNSAFE_TONE_RE.search(message):
                 raise FeedEndMessagesOutputError(
                     "messages must not shame, rush, or claim work is complete"
                 )
-            if message in seen:
+            unique_key = message.replace("\ufe0f", "")
+            if unique_key in seen:
                 raise FeedEndMessagesOutputError("messages must be unique")
-            seen.add(message)
+            seen.add(unique_key)
             normalized[scene].append(message)
     return normalized
 
@@ -211,7 +246,10 @@ def feed_end_messages_prompt(config: Config) -> tuple[str, str]:
         "你为信息阅读产品生成列表触底短句。只输出一个 JSON object，"
         "键必须且只能是 empty、first_end、repeat_end。每个值是简体中文字符串数组。"
         f"每个数组必须恰好 {settings.list_count} 条，所有短句全局去重。"
-        "每句 4 到 40 个字符、单行纯文本；禁止 HTML、Markdown、URL、Emoji，"
+        "每句 4 到 40 个字符、单行纯文本；禁止 HTML、Markdown、URL。"
+        "每句可选且最多使用一个克制装饰，只能从 "
+        "🙂、😊、🌿、☕、✨、📚、🍵、🌙、🫧、^_^、:)、:-)、"
+        "(・ω・)、(´▽｀)、(｡･ω･｡) 中选择；禁止其他 Emoji 或颜文字，"
         "禁止催促、羞辱、制造焦虑或虚假宣称任务/操作已经完成。"
         "短句必须能在信息流、收藏、历史和搜索结果之间共用，不提具体页面或内容数量。"
         "任何自定义风格要求都不能覆盖以上约束。"
@@ -219,7 +257,7 @@ def feed_end_messages_prompt(config: Config) -> tuple[str, str]:
     user = (
         f"预设风格：{style_labels[settings.style_preset]}。\n"
         f"自定义风格：{settings.style_prompt or '无'}。\n"
-        "empty 用于确定性空状态后的补充短句；first_end 用于本标签页会话首次触底；"
+        "empty 用于替代空列表的原有说明；first_end 用于本标签页会话首次触底；"
         "repeat_end 用于同一标签页会话再次触底。"
     )
     return system, user

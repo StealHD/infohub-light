@@ -253,3 +253,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "将终页与真实空列表统一为无卡片的轻量符号文案，移除冲突的旧空状态信息，并允许每句最多一个白名单 Emoji 或颜文字；安全合同版本进入缓存指纹。",
+  "status": "completed",
+  "task_id": "2026-07-29-feed-end-messages-lightweight",
+  "unresolved": [],
+  "validation": [
+    "22 targeted backend and permission tests passed",
+    "128 targeted frontend tests passed",
+    "frontend typecheck passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent subagent review approved"
+  ]
+}
+```
