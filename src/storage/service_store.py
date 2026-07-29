@@ -593,6 +593,10 @@ class ServiceStore:
                 FOREIGN KEY(subscription_id) REFERENCES user_subscriptions(id) ON DELETE SET NULL
             );
             CREATE INDEX IF NOT EXISTS idx_fetch_jobs_status ON fetch_jobs(status, priority DESC, created_at);
+            CREATE INDEX IF NOT EXISTS idx_fetch_jobs_workspace_created
+                ON fetch_jobs(workspace_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_fetch_jobs_workspace_user_created
+                ON fetch_jobs(workspace_id, user_id, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS user_source_health (
                 subscription_id TEXT PRIMARY KEY,

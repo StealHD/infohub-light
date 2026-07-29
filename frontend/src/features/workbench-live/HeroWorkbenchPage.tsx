@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import {
   actionToast,
   Button,
@@ -83,6 +84,8 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => api.latestFeed(signal),
     enabled: kind === 'feed',
+    staleTime: queryStaleTime.feed,
+    refetchOnMount: selectedId ? 'always' : true,
   })
   const globalSearchQuery = useInfiniteQuery({
     queryKey: queryKeys.search(user.id, {
@@ -107,8 +110,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     queryKey: queryKeys.sources(user.id),
     queryFn: ({ signal }) => api.sources(user.role === 'owner' || user.role === 'admin', signal),
     enabled: kind === 'feed' || (kind === 'history' && Boolean(historySourceId)),
+    staleTime: queryStaleTime.catalog,
   })
-  const savedQuery = useQuery({ queryKey: queryKeys.saved(user.id), queryFn: ({ signal }) => api.savedFeed(200, 0, signal), enabled: kind === 'saved' })
+  const savedQuery = useQuery({ queryKey: queryKeys.saved(user.id), queryFn: ({ signal }) => api.savedFeed(200, 0, signal), enabled: kind === 'saved', staleTime: queryStaleTime.collection })
   const historyQuery = useInfiniteQuery({
     queryKey: queryKeys.history(user.id, {
       q: debouncedHistoryQuery,
@@ -127,6 +131,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
       : undefined,
     enabled: kind === 'history',
     retry: false,
+    staleTime: queryStaleTime.collection,
   })
   const historyItems = useMemo(() => {
     const seen = new Set<string>()

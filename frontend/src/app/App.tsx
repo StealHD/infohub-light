@@ -1,19 +1,13 @@
-import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
 import type { ServiceApi } from '../api/service'
 import type { AuthStatus, User } from '../api/types'
 import { queryKeys } from '../api/queryKeys'
-import { HeroAgentsPage } from '../features/admin-heroui/HeroAgentsPage'
 import { HeroLoginPage } from '../features/admin-heroui/HeroLoginPage'
-import { HeroSettingsPage } from '../features/admin-heroui/HeroSettingsPage'
-import { HeroSubscriptionsPage } from '../features/admin-heroui/HeroSubscriptionsPage'
-import { HeroUsersPage } from '../features/admin-heroui/HeroUsersPage'
-import { HeroChangelogPage } from '../features/changelog/HeroChangelogPage'
-import { actionToast } from '../design-system'
+import { LoadingState, actionToast } from '../design-system'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
-import { HeroManualPage } from '../features/manual/HeroManualPage'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
 import { clearUserCache } from './sessionCache'
@@ -22,6 +16,13 @@ import { ActionGeneration, type ActionToken } from './actionGeneration'
 import { ActionFeedbackProvider } from './ActionFeedback'
 import { clearBootstrapShellSnapshot, releaseBootstrapShell, writeBootstrapShellSnapshot } from './bootstrapShell'
 import { readSidebarPreference } from './sidebarPreference'
+
+const HeroAgentsPage = lazy(() => import('../features/admin-heroui/HeroAgentsPage').then((module) => ({ default: module.HeroAgentsPage })))
+const HeroSettingsPage = lazy(() => import('../features/admin-heroui/HeroSettingsPage').then((module) => ({ default: module.HeroSettingsPage })))
+const HeroSubscriptionsPage = lazy(() => import('../features/admin-heroui/HeroSubscriptionsPage').then((module) => ({ default: module.HeroSubscriptionsPage })))
+const HeroUsersPage = lazy(() => import('../features/admin-heroui/HeroUsersPage').then((module) => ({ default: module.HeroUsersPage })))
+const HeroChangelogPage = lazy(() => import('../features/changelog/HeroChangelogPage').then((module) => ({ default: module.HeroChangelogPage })))
+const HeroManualPage = lazy(() => import('../features/manual/HeroManualPage').then((module) => ({ default: module.HeroManualPage })))
 
 type AppErrorBoundaryProps = { children: ReactNode; surface?: 'app' | 'page' }
 type AppErrorBoundaryState = { failed: boolean }
@@ -59,6 +60,12 @@ function LegacyLaterRedirect() {
   const item = source.get('item')
   if (item) target.set('item', item)
   return <Navigate to={{ pathname: '/saved', search: target.toString() ? `?${target.toString()}` : '' }} replace />
+}
+
+function RouteLoadingState() {
+  return <main className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto p-4 min-[768px]:p-6" role="status">
+    <LoadingState label="正在加载页面" rows={3} />
+  </main>
 }
 
 function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
@@ -106,7 +113,9 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   }
 
   const outlet = <AppErrorBoundary key={location.pathname} surface="page">
-    <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+    <Suspense fallback={<RouteLoadingState />}>
+      <Outlet context={{ api, user, query, setQuery, activity: feedActivity.activity, refresh: canMutate ? feedActivity.refresh : () => undefined, reloadFeed: feedActivity.reloadFeed, beginAction: () => actionGuard.capture(), isActionCurrent: (token: ActionToken) => actionGuard.isCurrent(token) }} />
+    </Suspense>
   </AppErrorBoundary>
 
   return <ActionFeedbackProvider key={user.id} userId={user.id}>

@@ -327,6 +327,121 @@ class JobQueue:
         ).fetchall()
         return [job for row in rows if (job := self.store._job(row))]
 
+    @staticmethod
+    def _job_summary_row(row: Any) -> dict[str, Any]:
+        job = dict(row)
+        summary = {
+            key: job[key]
+            for key in (
+                "id",
+                "user_id",
+                "source_id",
+                "subscription_id",
+                "job_type",
+                "status",
+                "error_code",
+                "error_message",
+                "created_at",
+                "started_at",
+                "finished_at",
+            )
+            if key in job
+        }
+        compact_result: dict[str, Any] = {}
+        message = job.get("summary_message")
+        if isinstance(message, str):
+            compact_result["message"] = message
+        snapshot_created_type = job.get("summary_snapshot_created_type")
+        if snapshot_created_type in {"true", "false"}:
+            compact_result["snapshot_created"] = bool(
+                job.get("summary_snapshot_created")
+            )
+        new_item_count = job.get("summary_new_item_count")
+        if isinstance(new_item_count, int) and new_item_count >= 0:
+            compact_result["new_item_count"] = new_item_count
+        failed_source_count = job.get("summary_failed_source_count")
+        if isinstance(failed_source_count, int) and failed_source_count >= 0:
+            compact_result["failed_source_count"] = failed_source_count
+        if compact_result:
+            summary["result"] = compact_result
+        return summary
+
+    def list_job_summaries(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        include_active: bool = False,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [workspace_id]
+        where = ["workspace_id = ?"]
+        if user_id:
+            where.append("user_id = ?")
+            params.append(user_id)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        safe_result_json = (
+            "CASE WHEN json_valid(result_json) THEN result_json END"
+        )
+        columns = f"""
+            id, user_id, source_id, subscription_id, job_type, status,
+            error_code, error_message, created_at, started_at, finished_at,
+            CASE
+                WHEN json_type({safe_result_json}, '$.message') = 'text'
+                THEN substr(json_extract({safe_result_json}, '$.message'), 1, 240)
+            END AS summary_message,
+            json_type({safe_result_json}, '$.snapshot_created')
+                AS summary_snapshot_created_type,
+            json_extract({safe_result_json}, '$.snapshot_created')
+                AS summary_snapshot_created,
+            CASE
+                WHEN json_type({safe_result_json}, '$.new_item_count') = 'integer'
+                  AND json_extract({safe_result_json}, '$.new_item_count') >= 0
+                THEN json_extract({safe_result_json}, '$.new_item_count')
+            END AS summary_new_item_count,
+            CASE
+                WHEN json_type({safe_result_json}, '$.failed_source_count') = 'integer'
+                  AND json_extract({safe_result_json}, '$.failed_source_count') >= 0
+                THEN json_extract({safe_result_json}, '$.failed_source_count')
+                WHEN json_type({safe_result_json}, '$.source_outcomes') = 'array'
+                THEN (
+                    SELECT COUNT(*)
+                    FROM json_each({safe_result_json}, '$.source_outcomes')
+                    WHERE json_extract(value, '$.status') = 'failed'
+                )
+            END AS summary_failed_source_count
+        """
+        recent_rows = self.store.connect().execute(
+            f"""
+            SELECT {columns}
+            FROM fetch_jobs
+            WHERE {' AND '.join(where)}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            [*params, int(limit)],
+        ).fetchall()
+        rows_by_id = {str(row["id"]): row for row in recent_rows}
+        if include_active and status is None:
+            active_rows = self.store.connect().execute(
+                f"""
+                SELECT {columns}
+                FROM fetch_jobs
+                WHERE {' AND '.join(where)}
+                  AND status IN ('queued', 'running')
+                ORDER BY created_at DESC
+                LIMIT 200
+                """,
+                params,
+            ).fetchall()
+            rows_by_id.update({str(row["id"]): row for row in active_rows})
+        jobs = [self._job_summary_row(row) for row in rows_by_id.values()]
+        jobs.sort(key=lambda job: str(job.get("created_at") or ""), reverse=True)
+        return jobs
+
     def claim_next_job(self, *, worker_id: str, lease_seconds: float = 900) -> dict[str, Any] | None:
         conn = self.store.connect()
         now_dt = datetime.now(timezone.utc)

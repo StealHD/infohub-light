@@ -1,5 +1,11 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+
+import type { ServiceApi } from '../../api/service'
+import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import type { Job, ResponseSchemaField, ResponseSchemaSummary, SourceResponseSchema } from '../../api/types'
-import { MetaTag, StatusIndicator } from '../../design-system'
+import { Button, MetaTag, StatusIndicator } from '../../design-system'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 
 type SourceName = string | { display_name?: string }
@@ -12,10 +18,18 @@ function summary(value: unknown): ResponseSchemaSummary | null {
 }
 
 function schemas(job: Job): SourceResponseSchema[] {
-  const result = job.result ?? job.result_json
+  const result = [job.result, job.result_json].find((candidate) => (
+    record(candidate) && Array.isArray(candidate.response_schemas)
+  ))
   const candidates = record(result) ? result.response_schemas : undefined
   if (!Array.isArray(candidates)) return []
   return candidates.flatMap((candidate): SourceResponseSchema[] => !record(candidate) || typeof candidate.source_id !== 'string' ? [] : [{ source_id: candidate.source_id, catalog_type: typeof candidate.catalog_type === 'string' ? candidate.catalog_type : undefined, capture_status: typeof candidate.capture_status === 'string' ? candidate.capture_status : undefined, upstream: summary(candidate.upstream), normalized: summary(candidate.normalized), job_truncated: candidate.job_truncated === true }])
+}
+
+function hasSchemaPayload(job: Job): boolean {
+  return [job.result, job.result_json].some((result) => (
+    record(result) && Object.prototype.hasOwnProperty.call(result, 'response_schemas')
+  ))
 }
 
 const labels: Record<string, string> = { captured: '本次响应', empty: '空响应', cached: '复用缓存', unavailable: '未记录', truncated: '已截断' }
@@ -25,9 +39,21 @@ function SchemaTable({ title, schema }: { title: string; schema?: ResponseSchema
   return <section className="min-w-0"><h5 className="type-control">{title}</h5>{!schema ? <p className="type-body mt-2 text-foreground">本次运行未记录该结构。</p> : <><p className="type-meta mt-1 text-foreground">根类型：{schema.root_type}{schema.truncated ? ' · 已截断' : ''}</p>{schema.fields.length ? <div className="mt-2 max-h-72 overflow-auto"><table className="type-meta w-full table-fixed text-left"><thead><tr className="border-b border-separator"><th className="w-[72%] py-2">字段路径</th><th>类型</th></tr></thead><tbody>{schema.fields.map((field) => <tr key={`${field.path}:${field.type}`} className="border-b border-separator"><td className="overflow-wrap-anywhere py-2 font-mono">{field.path}</td><td>{field.type}</td></tr>)}</tbody></table></div> : <p className="type-body mt-2 text-foreground">没有可展示的字段。</p>}</>}</section>
 }
 
-export function HeroResponseSchemaDetails({ job, sourceNames, className = 'mt-3' }: { job: Job; sourceNames: ReadonlyMap<string, SourceName>; className?: string }) {
-  const values = schemas(job)
-  return <HeroSoftDisclosure label="响应结构" className={className}>{!values.length && <p className="type-body text-foreground">本次运行未记录响应结构。</p>}<div className="grid gap-4">{values.map((schema, index) => {
+export function HeroResponseSchemaDetails({ job, sourceNames, api, userId, className = 'mt-3' }: { job: Job; sourceNames: ReadonlyMap<string, SourceName>; api?: ServiceApi; userId?: string; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const embedded = hasSchemaPayload(job)
+  const detail = useQuery({
+    queryKey: queryKeys.job(userId || job.user_id, job.id),
+    queryFn: ({ signal }) => api!.job(job.id, signal),
+    enabled: open && Boolean(api && userId) && !embedded,
+    staleTime: queryStaleTime.jobDetail,
+    retry: false,
+  })
+  const values = schemas(detail.data ?? job)
+  return <HeroSoftDisclosure label="响应结构" className={className} onOpenChange={setOpen}>
+    {detail.isFetching && <p className="type-body text-foreground" role="status">正在读取响应结构…</p>}
+    {detail.isError && <p className="type-body text-foreground">响应结构读取失败。<Button size="sm" variant="ghost" className="ml-2" onPress={() => void detail.refetch()}>重试</Button></p>}
+    {!detail.isFetching && !detail.isError && !values.length && <p className="type-body text-foreground">本次运行未记录响应结构。</p>}<div className="grid gap-4">{values.map((schema, index) => {
     const source = sourceNames.get(schema.source_id)
     const name = typeof source === 'string' ? source : source?.display_name || schema.source_id
     const captureTone = schema.capture_status === 'captured'

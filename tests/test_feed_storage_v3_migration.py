@@ -13,7 +13,7 @@ from src.storage.service_store import ServiceStore
 def _legacy_v3_store(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
-    monkeypatch.delenv("HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED", raising=False)
+    monkeypatch.setenv("HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED", "false")
     store = ServiceStore(tmp_path)
     store.initialize()
     workspace = store.get_default_workspace()

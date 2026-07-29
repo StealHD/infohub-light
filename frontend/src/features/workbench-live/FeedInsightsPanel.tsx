@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import type { ServiceApi } from '../../api/service'
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import { Button, Icons, Separator, Skeleton } from '../../design-system'
 import type { FeedPreference } from '../feed/feedPreference'
 import { relativeTime } from '../feed/feedModel'
@@ -72,26 +73,31 @@ export function FeedInsightsPanel({
     queryKey: queryKeys.feed(userId, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => api.latestFeed(signal),
     enabled: open,
+    staleTime: queryStaleTime.feed,
   })
   const health = useQuery({
     queryKey: queryKeys.sourceHealth(userId),
     queryFn: ({ signal }) => api.sourceHealth(signal),
     enabled: open,
+    staleTime: queryStaleTime.catalog,
   })
   const sources = useQuery({
     queryKey: queryKeys.sources(userId),
     queryFn: ({ signal }) => api.sources(includeDisabledSources, signal),
     enabled: open,
+    staleTime: queryStaleTime.catalog,
   })
   const subscriptions = useQuery({
     queryKey: queryKeys.subscriptions(userId),
     queryFn: ({ signal }) => api.subscriptions(signal),
     enabled: open,
+    staleTime: queryStaleTime.catalog,
   })
   const jobs = useQuery({
     queryKey: queryKeys.jobs(userId),
     queryFn: ({ signal }) => api.jobs(signal),
     enabled: open,
+    staleTime: queryStaleTime.jobs,
   })
   const allowedSourceIds = useMemo(() => {
     if (preference.subscriptionScope === 'all') return undefined

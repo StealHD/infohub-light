@@ -50,7 +50,7 @@ export function createServiceApi(client: ApiClient) {
     login: (username: string, password: string) => client.post<AuthStatus>('/api/auth/login', { username, password }),
     logout: () => client.post<AuthStatus>('/api/auth/logout'),
 
-    latestFeed: (signal?: AbortSignal) => client.get<FeedSnapshot>('/api/feed/latest', signal),
+    latestFeed: (signal?: AbortSignal) => client.get<FeedSnapshot>('/api/feed/latest?view=canonical', signal),
     savedFeed: (limit = 200, offset = 0, signal?: AbortSignal) => client.get<SavedFeed>(
       `/api/feed/saved?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
       signal,
@@ -77,7 +77,7 @@ export function createServiceApi(client: ApiClient) {
       return client.get<FeedSearch>(`/api/feed/search?${search.toString()}`, signal)
     },
     sourceHealth: (signal?: AbortSignal) => client.get<SourceHealthResponse>('/api/me/source-health', signal),
-    jobs: (signal?: AbortSignal) => client.get<ListResponse<Job, 'jobs'>>('/api/jobs?limit=100', signal),
+    jobs: (signal?: AbortSignal) => client.get<ListResponse<Job, 'jobs'>>('/api/jobs?view=summary&scope=me&limit=100&include_active=true', signal),
     job: (jobId: string, signal?: AbortSignal) => client.get<Job>(resource('/api/jobs', jobId), signal),
     createFeedRefresh: () => client.post<Job>('/api/jobs/user-feed-refresh', {
       payload: { reason: 'manual_service_refresh' },

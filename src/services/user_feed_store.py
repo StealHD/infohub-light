@@ -372,7 +372,7 @@ def _neutral_reuse_item(
 
 
 def compact_feed_snapshots_enabled() -> bool:
-    return os.getenv("HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED", "false").strip().lower() in {
+    return os.getenv("HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED", "true").strip().lower() in {
         "1",
         "true",
         "yes",

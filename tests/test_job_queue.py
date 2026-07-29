@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from datetime import datetime, timedelta, timezone
 
@@ -44,6 +46,113 @@ def test_job_queue_claims_and_completes_job(tmp_path, monkeypatch):
     assert loaded["status"] == "succeeded"
     assert loaded["result_json"] == {"count": 1}
     assert loaded["locked_until"] is None
+
+
+def test_job_queue_summary_omits_heavy_fields_and_keeps_active_jobs(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    active = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_fetch",
+        payload={"large": "private"},
+    )
+    terminal = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="user_feed_refresh",
+        payload={"large": "private"},
+    )
+    store.connect().execute(
+        """
+        UPDATE fetch_jobs
+        SET created_at = '2026-07-01T00:00:00+00:00'
+        WHERE id = ?
+        """,
+        (active["id"],),
+    )
+    store.connect().execute(
+        """
+        UPDATE fetch_jobs
+        SET status = 'partial',
+            result_json = ?,
+            created_at = '2026-07-02T00:00:00+00:00',
+            finished_at = '2026-07-02T00:01:00+00:00'
+        WHERE id = ?
+        """,
+        (
+            json.dumps(
+                {
+                    "message": "safe summary",
+                    "snapshot_created": True,
+                    "new_item_count": 2,
+                    "source_outcomes": [
+                        {"source_id": "one", "status": "succeeded"},
+                        {"source_id": "two", "status": "failed"},
+                    ],
+                    "response_schemas": [{"source_id": "two", "private": "large"}],
+                }
+            ),
+            terminal["id"],
+        ),
+    )
+    store.connect().commit()
+
+    summaries = queue.list_job_summaries(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        limit=1,
+        include_active=True,
+    )
+
+    assert [job["id"] for job in summaries] == [terminal["id"], active["id"]]
+    assert summaries[0]["result"] == {
+        "message": "safe summary",
+        "snapshot_created": True,
+        "new_item_count": 2,
+        "failed_source_count": 1,
+    }
+    rendered = json.dumps(summaries)
+    assert "payload_json" not in rendered
+    assert "result_json" not in rendered
+    assert "response_schemas" not in rendered
+    assert "private" not in rendered
+
+    indexes = {
+        str(row["name"])
+        for row in store.connect().execute("PRAGMA index_list(fetch_jobs)").fetchall()
+    }
+    assert "idx_fetch_jobs_workspace_created" in indexes
+    assert "idx_fetch_jobs_workspace_user_created" in indexes
+    query_plan = store.connect().execute(
+        """
+        EXPLAIN QUERY PLAN
+        SELECT id FROM fetch_jobs
+        WHERE workspace_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 20
+        """,
+        (workspace["id"], owner["id"]),
+    ).fetchall()
+    assert any(
+        "idx_fetch_jobs_workspace_user_created" in str(row["detail"])
+        for row in query_plan
+    )
+
+    store.connect().execute(
+        "UPDATE fetch_jobs SET result_json = '{invalid' WHERE id = ?",
+        (terminal["id"],),
+    )
+    store.connect().commit()
+    invalid_result_summary = queue.list_job_summaries(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        limit=1,
+    )
+    assert invalid_result_summary[0]["id"] == terminal["id"]
+    assert "result" not in invalid_result_summary[0]
 
 
 def test_job_queue_retries_failed_job_until_max_attempts(tmp_path, monkeypatch):

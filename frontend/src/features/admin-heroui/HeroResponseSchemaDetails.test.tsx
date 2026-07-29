@@ -1,7 +1,9 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import type { ServiceApi } from '../../api/service'
 import type { Job } from '../../api/types'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 
@@ -17,7 +19,8 @@ describe('HeroResponseSchemaDetails', () => {
         { source_id: 'truncated', catalog_type: 'rss', capture_status: 'truncated', job_truncated: true, upstream: { root_type: 'object', truncated: true, fields: [{ path: 'items[].title', type: 'string', value: 'RAW_RESPONSE_SECRET' }] }, normalized: { root_type: 'array', fields: [{ path: '[].title', type: 'string', example: 'RAW_NORMALIZED_SECRET' }] } },
       ] },
     }
-    render(<HeroResponseSchemaDetails job={job} sourceNames={new Map([['empty', 'Empty API'], ['cached', 'Cached API'], ['unavailable', 'Unavailable API'], ['truncated', 'Truncated API']])} />)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><HeroResponseSchemaDetails job={job} sourceNames={new Map([['empty', 'Empty API'], ['cached', 'Cached API'], ['unavailable', 'Unavailable API'], ['truncated', 'Truncated API']])} /></QueryClientProvider>)
 
     const trigger = screen.getByRole('button', { name: '响应结构' })
     const disclosure = trigger.closest('[data-soft-disclosure="响应结构"]')
@@ -46,5 +49,36 @@ describe('HeroResponseSchemaDetails', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(content).toHaveAttribute('aria-hidden', 'true')
     expect(disclosure).toHaveAttribute('data-disclosure-state', 'closed')
+  })
+
+  it('loads the full job only after a compact summary disclosure opens', async () => {
+    const browser = userEvent.setup()
+    const summaryJob: Job = {
+      id: 'summary-job',
+      user_id: 'user-1',
+      job_type: 'source_fetch',
+      status: 'succeeded',
+      result: { new_item_count: 1 },
+    }
+    const job = vi.fn().mockResolvedValue({
+      ...summaryJob,
+      result_json: {
+        response_schemas: [{
+          source_id: 'source-1',
+          capture_status: 'captured',
+          upstream: { root_type: 'object', fields: [{ path: 'title', type: 'string' }] },
+          normalized: { root_type: 'array', fields: [] },
+        }],
+      },
+    })
+    const api = { job } as unknown as ServiceApi
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><HeroResponseSchemaDetails job={summaryJob} sourceNames={new Map([['source-1', 'Source One']])} api={api} userId="user-1" /></QueryClientProvider>)
+
+    expect(job).not.toHaveBeenCalled()
+    await browser.click(screen.getByRole('button', { name: '响应结构' }))
+    expect(await screen.findByText('Source One')).toBeInTheDocument()
+    expect(job).toHaveBeenCalledWith('summary-job', expect.any(AbortSignal))
+    expect(screen.getByText('title')).toBeInTheDocument()
   })
 })

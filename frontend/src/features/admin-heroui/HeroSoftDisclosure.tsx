@@ -6,10 +6,12 @@ export function HeroSoftDisclosure({
   label,
   children,
   className = '',
+  onOpenChange,
 }: {
   label: string
   children: ReactNode
   className?: string
+  onOpenChange?: (open: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
   const contentId = useId()
@@ -24,7 +26,11 @@ export function HeroSoftDisclosure({
       aria-expanded={open}
       aria-controls={contentId}
       className={`type-meta inline-flex min-h-7 items-center gap-1.5 rounded-lg px-2 transition-colors duration-200 hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus ${open ? 'bg-default text-foreground' : 'text-muted'}`}
-      onClick={() => setOpen((current) => !current)}
+      onClick={() => setOpen((current) => {
+        const next = !current
+        onOpenChange?.(next)
+        return next
+      })}
     >
       <Icons.ChevronRight
         size={14}

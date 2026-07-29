@@ -743,3 +743,11 @@
 - 引用与网络边界：唯一候选生成绑定 workspace、user、delegation 的十分钟 `resolution_ref`，每 delegation 最多二十个；prepare 才把同 actor 有效引用投影为既有 existing/private planner 输入。YouTube handle 页只在严格公网 DNS pinning 下读取最多 2 MB 前缀，随后完整验证不超过 512 KB 的官方 Atom；不允许 Fake-IP、RFC1918、loopback、任意 RSS 或 VPS 网络例外。
 - 原因：要求用户为自然语言频道名手工提供 channel ID/RSS 把可发现的公开身份推给了用户；为每个平台增加独立 MCP 又会让工具合同和 OpenClaw filter 无界增长。通用解析入口把开放搜索、固定端点验证和业务写入分离，同时保持候选 metadata 不可信、配置不外泄和双阶段确认。
 - 兼容/回退：既有 `private`/`existing` 创建合同、Web YouTube setup、RSS 存储、抓取、计划、通知和 Bilibili 流程不变；旧 12/16 标准 filter 仅在精确匹配时由 setup 脚本升级，自定义 filter 不改写。关闭新能力或移除 YouTube adapter 后，已有规范 RSS 订阅继续工作。
+
+### D088 首批性能优化采用路由分包、轻量列表与兼容视图
+
+- 决策日期：2026-07-29
+- 当前状态：本地实现与定向回归完成；未重建、未部署、未迁移生产数据
+- 决策内容：登录、外壳、Feed、收藏和历史保持首屏主链路，订阅、Agent、设置、用户、手册和更新日志改为路由级动态加载；生产构建以实际 HTML 的入口和 module preload 合计计算 Brotli 体积，门禁为 250 KiB，并要求六个低频路由持续独立分包。React Query 按 Feed、集合、目录、设置、来源类型和 Job 的变化频率设置短时 stale policy，active Job 仍按原周期轮询。前端 Feed 使用 `view=canonical`，Job 列表使用 `view=summary&scope=me&limit=100&include_active=true` 保留原有最近记录范围，响应结构仅在展开时读取完整 Job。
+- 原因：原生产入口把全部低频页面打入同一约 1.23 MB 未压缩脚本，列表接口又重复传输 `today_items`、Job payload、完整结果与 response schema。先缩短首屏解析/执行链和高频列表载荷，比修改 HTTP 协议或大范围重写缓存更直接且风险更可控。
+- 兼容/边界：Feed 默认仍为 compat view，Job 列表默认仍为 full workspace view，Job detail、权限、排序、状态、手动刷新、深链定位与 active 轮询语义不变。compact snapshot 对新空库默认开启但仍受 v3 marker 硬门禁；现存未迁移数据库继续 storage v1，本任务不改生产数据库、不执行迁移、不重建 8080，也不涉及 HTTP/3、Service Worker、字体或真实来源。

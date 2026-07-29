@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import type { CatalogSource, FeedSchedule, Job, SourceTypeDefinition, Subscription, TaxonomyOptions } from '../../api/types'
 import type { ActionToken } from '../../app/actionGeneration'
 import { useAppContext } from '../../app/AppContext'
@@ -186,13 +187,13 @@ export function HeroSubscriptionsPage() {
     setShareSource(null)
   }
 
-  const sourcesQuery = useQuery({ queryKey: queryKeys.sources(user.id), queryFn: ({ signal }) => api.sources(isAdmin, signal) })
-  const typesQuery = useQuery({ queryKey: queryKeys.sourceTypes(user.id), queryFn: ({ signal }) => api.sourceTypes(signal) })
-  const subscriptionsQuery = useQuery({ queryKey: queryKeys.subscriptions(user.id), queryFn: ({ signal }) => api.subscriptions(signal) })
-  const healthQuery = useQuery({ queryKey: queryKeys.sourceHealth(user.id), queryFn: ({ signal }) => api.sourceHealth(signal) })
-  const scheduleQuery = useQuery({ queryKey: queryKeys.feedSchedule(user.id), queryFn: ({ signal }) => api.feedSchedule(signal) })
-  const jobsQuery = useQuery({ queryKey: queryKeys.jobs(user.id), queryFn: ({ signal }) => api.jobs(signal), refetchInterval: (query) => query.state.data?.jobs.some((job) => job.user_id === user.id && ['queued', 'running'].includes(job.status)) ? 2000 : false })
-  const configQuery = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal) })
+  const sourcesQuery = useQuery({ queryKey: queryKeys.sources(user.id), queryFn: ({ signal }) => api.sources(isAdmin, signal), staleTime: queryStaleTime.catalog })
+  const typesQuery = useQuery({ queryKey: queryKeys.sourceTypes(user.id), queryFn: ({ signal }) => api.sourceTypes(signal), staleTime: queryStaleTime.sourceTypes })
+  const subscriptionsQuery = useQuery({ queryKey: queryKeys.subscriptions(user.id), queryFn: ({ signal }) => api.subscriptions(signal), staleTime: queryStaleTime.catalog })
+  const healthQuery = useQuery({ queryKey: queryKeys.sourceHealth(user.id), queryFn: ({ signal }) => api.sourceHealth(signal), staleTime: queryStaleTime.catalog })
+  const scheduleQuery = useQuery({ queryKey: queryKeys.feedSchedule(user.id), queryFn: ({ signal }) => api.feedSchedule(signal), staleTime: queryStaleTime.catalog })
+  const jobsQuery = useQuery({ queryKey: queryKeys.jobs(user.id), queryFn: ({ signal }) => api.jobs(signal), staleTime: queryStaleTime.jobs, refetchInterval: (query) => query.state.data?.jobs.some((job) => job.user_id === user.id && ['queued', 'running'].includes(job.status)) ? 2000 : false })
+  const configQuery = useQuery({ queryKey: queryKeys.config(user.id), queryFn: ({ signal }) => api.config(signal), staleTime: queryStaleTime.settings })
   const secretsQuery = useQuery({ queryKey: queryKeys.secrets(user.id), queryFn: ({ signal }) => api.secrets(signal), enabled: isAdmin })
 
   useEffect(() => {
@@ -243,6 +244,7 @@ export function HeroSubscriptionsPage() {
     mutationFn: (job: Job) => api.retryJob(job.id),
     onMutate: (job) => feedback.begin('retry-job', job.id),
     onSuccess: async (_result, job) => {
+      queryClient.removeQueries({ queryKey: queryKeys.job(user.id, job.id) })
       await invalidate()
       feedback.clear('retry-job', job.id)
       actionToast.success('重试任务已提交')
@@ -637,7 +639,7 @@ export function HeroSubscriptionsPage() {
             {extraDetail && <p className="type-meta mt-1 line-clamp-2 text-muted">{extraDetail}</p>}
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-separator pt-2">
               {isAdmin && <HeroSoftDisclosure label="技术详情"><pre className="type-meta whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify({ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }, null, 2)}</pre></HeroSoftDisclosure>}
-              {!['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} className="m-0" />}
+              {!['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} api={api} userId={user.id} className="m-0" />}
               {editable && job.retryable && <Button size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
             </div>
           </Card>

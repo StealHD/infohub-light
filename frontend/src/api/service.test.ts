@@ -15,6 +15,8 @@ describe('service api', () => {
     const api = createServiceApi(client)
 
     await api.latestFeed()
+    await api.jobs()
+    await api.job('job/1')
     const historySignal = new AbortController().signal
     await api.historyFeed({
       q: 'tsucha ri',
@@ -52,7 +54,9 @@ describe('service api', () => {
     await api.createStoragePlan('restore', { batch_id: 'archive/1' })
     await api.applyStoragePlan('plan/1', '永久删除归档 archive/1')
 
-    expect(client.get).toHaveBeenCalledWith('/api/feed/latest', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/feed/latest?view=canonical', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/jobs?view=summary&scope=me&limit=100&include_active=true', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/jobs/job%2F1', undefined)
     expect(client.get).toHaveBeenCalledWith(
       '/api/feed/history?q=tsucha+ri&source_id=source%2Fwith+space&limit=50&offset=100',
       historySignal,

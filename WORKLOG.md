@@ -71,6 +71,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "architecture",
+    "decisions",
+    "interface",
+    "phase"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "完成首批无功能降级性能优化：低频路由动态分包、Feed canonical 视图、Job 轻量摘要与按需详情、分层查询缓存、Job 索引及新空库 compact snapshot 默认值；未重建或部署运行服务。",
+  "status": "completed",
+  "task_id": "2026-07-29-performance-first-batch",
+  "unresolved": [],
+  "validation": [
+    "frontend 483 tests passed",
+    "production build passed with 227646-byte initial JavaScript Brotli payload",
+    "targeted backend API, queue and Feed storage tests passed",
+    "python scripts/test_gate.py run --mode full",
+    "git diff --check"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
     "capabilities",
     "decisions",
     "interface"
@@ -87,6 +110,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "python scripts/test_gate.py run --mode full: 22/22 passed",
     "schema-v3 project controls and compact worklog validation passed",
     "git diff --check"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-29",
+  "result": "从性能优化任务 Worktree 完成本地 8080 API 与 Worker 安全切换；复用主 checkout 运行数据，scheduler 保持停止。",
+  "status": "completed",
+  "task_id": "2026-07-29-performance-branch-local-cutover",
+  "unresolved": [],
+  "validation": [
+    "scripts/up-latest.sh completed from the task Worktree",
+    "API and Worker healthy with worker_status ready",
+    "canonical .env, data and logs mounts verified",
+    "zero active jobs and zero due automatic schedules",
+    "served entry and lazy route chunk returned HTTP 200",
+    "SQLite quick_check passed with no foreign-key findings"
   ]
 }
 ```

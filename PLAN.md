@@ -13,7 +13,7 @@
 当前基线：
 
 1. Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复和显式 reconcile 已完成。26 条历史内容为 24 条 captured、2 条 excerpt-only；旧 schema 空字符串占位已在 `0600` 备份后规范化，snapshot、Job、媒体和 AI usage 未变化。
-2. 公共源共享获取、Feed storage v3 compact writer 和工作区 Apify Key 池 rollout flag 均保持关闭。
+2. 公共源共享获取、既有部署数据库的 Feed storage v3 compact writer 和工作区 Apify Key 池 rollout flag 均保持关闭；新空库在自动记录 v3 marker 后默认使用 compact writer，未迁移数据库仍强制回退 storage v1。
 3. Apify Key 池 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；启用仍需停 Worker、核对远端 Run、备份数据库和有上限 canary。
 4. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
 5. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
@@ -23,7 +23,7 @@
 
 当前推进顺序：
 
-1. 停止 API/Worker，对目标数据库再次 dry-run，使用 UTC `0600` backup 显式 apply Feed storage v3；验收 marker、hash backfill、integrity 和 foreign keys 后才允许打开 compact writer。
+1. 停止 API/Worker，对目标数据库再次 dry-run，使用 UTC `0600` backup 显式 apply Feed storage v3；验收 marker、hash backfill、integrity 和 foreign keys，并明确核对目标运行环境的 compact flag 后才允许既有部署打开 compact writer。
 2. 只对非付费公共源开启 shared acquisition，观察两个自然周期的 cache hit/miss、upstream attempt、Feed 用户隔离和 Source Health，通过后再扩大范围。
 3. 付费来源必须取得 operator 再次明确授权，并确认上游严格 `maxItems=1`，才能进入独立 canary。
 4. 开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前暂停 Worker、确认无 running Job、核对并终止未登记远端 Run、备份 Service 数据库，只执行一次有上限 canary；无法核对的启动结果保持 blocked。

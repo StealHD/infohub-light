@@ -476,6 +476,7 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '订阅与来源' }, { timeout: 5000 })).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument())
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(3)
@@ -826,6 +827,7 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/agents']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '助手连接' })).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument())
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
     await browser.click(await screen.findByRole('button', { name: '创建连接' }))

@@ -6,6 +6,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import type { ServiceApi } from '../../api/service'
 import type { User } from '../../api/types'
 import { queryKeys } from '../../api/queryKeys'
+import { queryStaleTime } from '../../api/queryPolicy'
 import { readBootstrapShellRightRail, writeBootstrapShellRightRail } from '../../app/bootstrapShell'
 import { readSidebarPreference, writeSidebarPreference } from '../../app/sidebarPreference'
 import {
@@ -742,6 +743,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     queryKey: queryKeys.feed(props.user.id, { hideDismissed: false, unreadFirst: false }),
     queryFn: ({ signal }) => props.api.latestFeed(signal),
     enabled: feedRoute,
+    staleTime: queryStaleTime.feed,
   })
   const openclawChat = useOpenClawChat({
     enabled: agentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),

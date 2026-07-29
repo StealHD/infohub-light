@@ -23,6 +23,18 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-29',
+        title: '常用页面打开更快，后台列表更轻',
+        summary: '首屏不再携带低频管理页面，信息流和运行记录也减少重复传输，同时保持原有功能、权限和刷新语义。',
+        items: [
+          { title: '低频页面按需加载', description: '订阅、Agent、设置、用户、手册和更新日志改为进入对应路由时才加载；登录、信息流、收藏和历史继续保持直接可用。' },
+          { title: '首屏体积受门禁保护', description: '生产构建会校验六个低频路由仍为独立分包，并限制首屏 JavaScript 的 Brotli 合计体积，避免后续无意重新合并。' },
+          { title: '信息流减少重复字段', description: '新版页面使用 canonical Feed，只传一份带时间分层的文章列表；兼容接口继续保留原有 today_items，旧调用方不受影响。' },
+          { title: '运行记录先轻后详', description: '列表只读取展示所需的任务摘要，响应结构在展开时才读取完整详情；排队与运行中的任务仍保持原有实时轮询。' },
+          { title: '稳定数据减少重复请求', description: '来源类型、设置、目录、Feed 和任务分别使用适合自身变化速度的短时缓存；手动重新载入、获取内容、深链定位和失败重试仍会按原语义刷新。' },
+        ],
+      },
+      {
+        date: '2026-07-29',
         title: 'OpenClaw 可按名称订阅 YouTube 频道',
         summary: '只说频道名称即可由 OpenClaw 搜索官方主页、由 Inteliscope 验证频道身份并生成原有安全订阅预览，不再要求手工查 ID 或 RSS。',
         items: [
