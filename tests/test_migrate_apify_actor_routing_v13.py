@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -85,6 +89,39 @@ def test_apify_actor_routing_v13_backs_up_and_seeds_routes(tmp_path):
         ).fetchone()[0] == 0
     finally:
         connection.close()
+
+
+def test_apify_actor_routing_v13_cli_imports_its_own_checkout(tmp_path):
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "migrate_apify_actor_routing_v13.py"
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = ""
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--data-dir",
+            str(tmp_path / "data"),
+            "--backup-dir",
+            str(tmp_path / "backups"),
+            "--apply",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    result = json.loads(completed.stdout)
+    assert result["applied"] is True
+    assert result["migrated"] is True
+    assert result["route_count"] == 1
+    assert result["candidate_count"] == 3
 
 
 def test_existing_v12_database_requires_explicit_v13_apply(
