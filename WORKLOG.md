@@ -275,3 +275,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "将设置页三个触底文案场景从三条样例改为默认收起的完整列表；每组显示实际条数，可独立展开、隐藏，并在有界可聚焦区域内查看全部带序号文案。",
+  "status": "completed",
+  "task_id": "2026-07-29-feed-end-messages-full-lists",
+  "unresolved": [],
+  "validation": [
+    "frontend App route tests: 90 passed",
+    "frontend typecheck and UI contract checks passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent subagent review findings addressed"
+  ]
+}
+```

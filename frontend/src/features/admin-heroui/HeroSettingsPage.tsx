@@ -65,6 +65,7 @@ type SecretDraft = {
 }
 
 type CoreSettingsSection = 'ai' | 'feed_end_messages' | 'rsshub' | 'filtering' | 'topics'
+type FeedEndMessageScene = 'empty' | 'first_end' | 'repeat_end'
 type CoreSettingsBundle = Partial<Record<CoreSettingsSection, Record<string, unknown>>>
 type CoreSettingsSave = {
   sections: CoreSettingsSection[]
@@ -960,6 +961,7 @@ export function HeroSettingsPage() {
   const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
   const [feedEndRefreshDaysOverride, setFeedEndRefreshDaysOverride] = useState<string | null>(null)
   const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
+  const [expandedFeedEndScenes, setExpandedFeedEndScenes] = useState<Set<FeedEndMessageScene>>(() => new Set())
   const [secretDraft, setSecretDraft] = useState<SecretDraft>(emptySecretDraft)
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
   const [secretFormError, setSecretFormError] = useState('')
@@ -1606,12 +1608,46 @@ export function HeroSettingsPage() {
                     ['empty', '空列表'],
                     ['first_end', '首次触底'],
                     ['repeat_end', '多次触底'],
-                  ] as const).map(([scene, label]) => <div key={scene} className="rounded-xl bg-surface-secondary p-3">
-                    <p className="type-control">{label}</p>
-                    <ul className="mt-2 grid gap-1">
-                      {feedEndMessagesStatus.data.scenes[scene].slice(0, 3).map((message) => <li key={message} className="type-meta text-muted">{message}</li>)}
-                    </ul>
-                  </div>)}
+                  ] as const).map(([scene, label]) => {
+                    const messages = feedEndMessagesStatus.data.scenes[scene]
+                    const expanded = expandedFeedEndScenes.has(scene)
+                    const listId = `feed-end-messages-${scene}`
+                    return <div key={scene} className="min-w-0 rounded-xl bg-surface-secondary p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="type-control">{label}</p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <span className="type-meta text-muted">{messages.length} 条</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-controls={listId}
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? '隐藏' : '展开'}${label}完整文案列表`}
+                            onPress={() => setExpandedFeedEndScenes((current) => {
+                              const next = new Set(current)
+                              if (next.has(scene)) next.delete(scene)
+                              else next.add(scene)
+                              return next
+                            })}
+                          >
+                            {expanded ? '隐藏' : '展开'}
+                          </Button>
+                        </div>
+                      </div>
+                      <ol
+                        id={listId}
+                        aria-label={`${label}完整文案列表`}
+                        className={`${expanded ? 'grid' : 'hidden'} mt-2 max-h-72 gap-1.5 overflow-y-auto rounded-lg pr-1 focus-visible:outline-2 focus-visible:outline-focus`}
+                        hidden={!expanded}
+                        tabIndex={0}
+                      >
+                        {messages.map((message, index) => <li key={message} className="type-meta flex min-w-0 gap-2 text-muted">
+                          <span className="w-5 shrink-0 text-right tabular-nums" aria-hidden="true">{index + 1}.</span>
+                          <span className="min-w-0 break-words">{message}</span>
+                        </li>)}
+                      </ol>
+                    </div>
+                  })}
                 </div>
               </>}
         </Card>

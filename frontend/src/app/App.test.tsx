@@ -2374,7 +2374,7 @@ describe('App routes', () => {
         retry_at: null,
         last_error_code: null,
         scenes: {
-          empty: ['空列表样例。'],
+          empty: ['空列表样例一。', '空列表样例二。', '空列表样例三。', '空列表完整列表第四条。'],
           first_end: ['首次触底样例。'],
           repeat_end: ['再次触底样例。'],
         },
@@ -2386,9 +2386,17 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByText('AI 文案可用')).toBeInTheDocument()
-    expect(screen.getByText('空列表样例。')).toBeInTheDocument()
-    expect(screen.getByText('首次触底样例。')).toBeInTheDocument()
-    expect(screen.getByText('再次触底样例。')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: '空列表完整文案列表' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '展开空列表完整文案列表' }))
+    const emptyMessageList = screen.getByRole('list', { name: '空列表完整文案列表' })
+    expect(within(emptyMessageList).getAllByRole('listitem')).toHaveLength(4)
+    expect(within(emptyMessageList).getByText('空列表完整列表第四条。')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '隐藏空列表完整文案列表' }))
+    expect(screen.queryByRole('list', { name: '空列表完整文案列表' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '展开首次触底完整文案列表' }))
+    expect(within(screen.getByRole('list', { name: '首次触底完整文案列表' })).getByText('首次触底样例。')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '展开多次触底完整文案列表' }))
+    expect(within(screen.getByRole('list', { name: '多次触底完整文案列表' })).getByText('再次触底样例。')).toBeInTheDocument()
     await browser.type(screen.getByRole('textbox', { name: '自定义风格补充' }), '更像编辑部')
     await browser.click(screen.getByRole('button', { name: '保存触底文案设置' }))
     expect(configAction).toHaveBeenCalledWith('set_settings_bundle', {
