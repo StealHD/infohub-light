@@ -150,3 +150,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface"
+  ],
+  "recorded_on": "2026-07-29",
+  "result": "将已验证的首批性能优化与当前 main 的 OpenClaw 来源解析组合到独立集成结果；保留双方更新日志和控制面语义，完整门禁通过。",
+  "status": "completed",
+  "task_id": "2026-07-29-performance-first-batch-main-integration",
+  "unresolved": [],
+  "validation": [
+    "merge commit 7327d7a combines main 83ce4ff and performance b12724f",
+    "changelog conflict regression: 5/5 passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "project controls and compact worklog validation passed"
+  ]
+}
+```
