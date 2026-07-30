@@ -5,6 +5,7 @@ import json
 from fastapi.testclient import TestClient
 
 from src.api.server import create_app
+from src.services.apify_actor_alerts import ApifyActorAlertError
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -72,6 +73,12 @@ def test_apify_actor_alert_settings_are_admin_only_and_write_only(
     assert initial.headers["cache-control"] == "no-store"
     initial_data = initial.json()["data"]
     assert initial_data["enabled"] is False
+    assert initial_data["schema_version"] == 2
+    assert initial_data["webhook_provider"] == "generic_event"
+    assert initial_data["webhook_provider_explicit"] is True
+    assert initial_data["webhook_signing_secret_configured"] is False
+    assert initial_data["webhook_verification_mode"] == "http_status"
+    assert len(initial_data["webhook_provider_options"]) == 7
     assert initial_data["events"] == [
         "actor_switched",
         "route_exhausted",
@@ -101,6 +108,40 @@ def test_apify_actor_alert_settings_are_admin_only_and_write_only(
     assert webhook not in updated.text
     assert "write-only-secret" not in updated.text
     assert webhook.encode() not in store.db_path.read_bytes()
+
+    dingtalk_webhook = (
+        "https://oapi.dingtalk.com/robot/send"
+        "?access_token=00000000000000000000000000000000"
+    )
+    signing_secret = "apify-api-write-only-signing-secret"
+    provider_update = client.patch(
+        "/api/admin/apify-actor-alert-settings",
+        json={
+            "webhook_provider": "dingtalk",
+            "webhook_url": dingtalk_webhook,
+            "webhook_signing_secret": signing_secret,
+        },
+    )
+    assert provider_update.status_code == 200, provider_update.text
+    provider_data = provider_update.json()["data"]
+    assert provider_data["webhook_provider"] == "dingtalk"
+    assert provider_data["webhook_provider_explicit"] is True
+    assert provider_data["webhook_signing_secret_configured"] is True
+    assert provider_data["webhook_verification_mode"] == (
+        "provider_response"
+    )
+    assert dingtalk_webhook not in provider_update.text
+    assert signing_secret not in provider_update.text
+    assert signing_secret.encode() not in store.db_path.read_bytes()
+
+    missing_url = client.patch(
+        "/api/admin/apify-actor-alert-settings",
+        json={"webhook_provider": "slack"},
+    )
+    assert missing_url.status_code == 400
+    assert missing_url.json()["error"]["code"] == (
+        "webhook_url_required_for_provider_change"
+    )
 
     invalid = client.patch(
         "/api/admin/apify-actor-alert-settings",
@@ -197,3 +238,39 @@ def test_apify_actor_alert_test_endpoint_has_no_apify_side_effect(
         "SELECT COUNT(*) FROM apify_actor_runs"
     ).fetchone()[0]
     assert after_runs == before_runs
+
+
+def test_apify_actor_alert_test_unknown_response_forbids_blind_retry(
+    tmp_path,
+    monkeypatch,
+):
+    client, _store = _client(tmp_path, monkeypatch)
+    _login(client)
+
+    def unknown_test(*, workspace_id, actor_user_id):
+        del workspace_id, actor_user_id
+        raise ApifyActorAlertError(
+            "apify_actor_alert_test_outcome_unknown",
+            "alert test outcome is unknown; do not retry",
+            status_code=502,
+            outcome_unknown=True,
+        )
+
+    monkeypatch.setattr(
+        client.app.state.apify_actor_alerts,
+        "send_test",
+        unknown_test,
+    )
+    response = client.post(
+        "/api/admin/apify-actor-alert-settings/test"
+    )
+
+    assert response.status_code == 502
+    error = response.json()["error"]
+    assert (
+        error["code"]
+        == "apify_actor_alert_test_outcome_unknown"
+    )
+    assert error["retryable"] is False
+    assert "Do not retry" in error["action"]
+    assert "receiver" in error["action"]

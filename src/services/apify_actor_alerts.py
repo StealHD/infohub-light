@@ -14,15 +14,29 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
 from typing import Any, Coroutine
-from urllib.parse import urlsplit
-
-import httpx
 
 from ..storage.service_store import ServiceStore
-from .network_policy import UnsafeNetworkTarget, post_public_http
+from .network_policy import post_public_http
 from .notification_email_transport import (
     EmailTransportError,
     WorkspaceEmailTransportService,
+)
+from .notification_webhook_transport import (
+    DINGTALK,
+    FEISHU_LARK_V2,
+    GENERIC_EVENT,
+    LEGACY_AUTO,
+    WebhookConfigurationError,
+    WebhookDeliveryError,
+    WebhookSendResult,
+    normalize_stored_webhook_provider,
+    resolve_webhook_provider,
+    send_notification_webhook,
+    validate_signing_secret,
+    validate_webhook_url,
+    webhook_provider_options,
+    webhook_text_limit,
+    webhook_verification_mode,
 )
 from .secret_store import SecretStore
 
@@ -44,6 +58,22 @@ _RETRY_DELAYS_SECONDS = (60, 300)
 _SAFE_CODE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,63}$")
 _SAFE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_FEISHU_TEXT_LIMIT = 3_500
+_FEISHU_MARKUP_TRANSLATION = str.maketrans({"<": "＜", ">": "＞"})
+_ALERT_EVENT_LABELS = {
+    "actor_switched": "自动切换 Actor",
+    "route_exhausted": "三个 Actor 全部不可用",
+    "quota_low": "Apify 额度偏低",
+    "budget_blocked": "额度耗尽或费用熔断",
+    "start_outcome_unknown": "Actor 启动结果未知",
+    "recovered": "故障恢复",
+    "test": "测试",
+}
+_ALERT_SEVERITY_LABELS = {
+    "info": "信息",
+    "warning": "警告",
+    "critical": "严重",
+}
 
 
 class ApifyActorAlertError(RuntimeError):
@@ -75,6 +105,12 @@ def _bounded_text(value: Any, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _feishu_dynamic_text(value: Any, limit: int) -> str:
+    """Bound dynamic alert text and neutralize Feishu inline markup."""
+
+    return _bounded_text(value, limit).translate(_FEISHU_MARKUP_TRANSLATION)
 
 
 def _json_dumps(value: Any) -> str:
@@ -154,37 +190,78 @@ def _normalize_email(value: Any) -> str | None:
     return address
 
 
-def _validate_webhook_url(value: Any) -> str:
-    candidate = str(value or "").strip()
-    try:
-        parsed = urlsplit(candidate)
-        hostname = parsed.hostname
-        hostname_ascii = (
-            hostname.rstrip(".").encode("idna").decode("ascii")
-            if hostname
-            else ""
+def _bounded_multiline_text(lines: list[str], *, limit: int) -> str:
+    text = "\n".join(line for line in lines if line is not None)
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _apify_alert_feishu_body(
+    payload: dict[str, Any],
+    *,
+    test: bool,
+) -> dict[str, Any]:
+    event_type = _bounded_text(payload.get("event_type"), 64) or "unknown"
+    severity = _bounded_text(payload.get("severity"), 32) or "unknown"
+    title = (
+        "Inteliscope Apify 运行告警测试"
+        if test
+        else (
+            "Inteliscope Apify 恢复通知"
+            if event_type == "recovered"
+            else "Inteliscope Apify 运行告警"
         )
-        parsed.port
-    except (UnicodeError, ValueError):
-        parsed = None
-        hostname = None
-        hostname_ascii = ""
-    if (
-        len(candidate) > 4096
-        or any(marker in candidate for marker in ("\r", "\n", "\x00"))
-        or parsed is None
-        or parsed.scheme != "https"
-        or not hostname
-        or not hostname_ascii
-        or parsed.username is not None
-        or parsed.password is not None
-        or bool(parsed.fragment)
+    )
+    lines = [
+        title,
+        (
+            "事件："
+            f"{_ALERT_EVENT_LABELS.get(event_type, _feishu_dynamic_text(event_type, 64))}"
+        ),
+        (
+            "级别："
+            f"{_ALERT_SEVERITY_LABELS.get(severity, _feishu_dynamic_text(severity, 32))}"
+        ),
+        f"路由：{_feishu_dynamic_text(payload.get('route'), 160) or 'x/profile'}",
+        f"状态：{_feishu_dynamic_text(payload.get('status'), 80) or 'unknown'}",
+    ]
+    condition_event_type = _bounded_text(
+        payload.get("condition_event_type"),
+        64,
+    )
+    if event_type == "recovered" and condition_event_type:
+        condition_label = _ALERT_EVENT_LABELS.get(
+            condition_event_type,
+            _feishu_dynamic_text(condition_event_type, 64),
+        )
+        lines.append(f"原告警：{condition_label}")
+    for label, field in (
+        ("Actor", "actor_name"),
+        ("当前 Actor", "active_actor_name"),
+        ("原因", "reason_code"),
     ):
-        raise ApifyActorAlertError(
-            "invalid_notification_destination",
-            "notification webhook must be a credential-free HTTPS URL",
-        )
-    return candidate
+        value = _feishu_dynamic_text(payload.get(field), 160)
+        if value:
+            lines.append(f"{label}：{value}")
+    occurred_at = _feishu_dynamic_text(payload.get("occurred_at"), 80)
+    if occurred_at:
+        occurred_label = "告警时间" if event_type == "recovered" else "时间"
+        lines.append(f"{occurred_label}：{occurred_at}")
+    resolved_at = _feishu_dynamic_text(payload.get("resolved_at"), 80)
+    if event_type == "recovered" and resolved_at:
+        lines.append(f"恢复时间：{resolved_at}")
+    if test:
+        lines.append("这是一条模拟告警，不会调用 Actor 或产生 Apify 费用。")
+    return {
+        "msg_type": "text",
+        "content": {
+            "text": _bounded_multiline_text(
+                lines,
+                limit=_FEISHU_TEXT_LIMIT,
+            )
+        },
+    }
 
 
 def _normalize_events(value: Any, *, default: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -270,6 +347,13 @@ class ApifyActorAlertService:
         ).hexdigest()[:24].upper()
         return f"HORIZON_APIFY_ALERT_WEBHOOK_{digest}"
 
+    @staticmethod
+    def webhook_signing_env_name(*, workspace_id: str) -> str:
+        digest = hashlib.sha256(
+            str(workspace_id).encode("utf-8")
+        ).hexdigest()[:24].upper()
+        return f"HORIZON_APIFY_ALERT_WEBHOOK_SIGNING_{digest}"
+
     def _settings_row(self, workspace_id: str) -> dict[str, Any] | None:
         row = self.store.connect().execute(
             """
@@ -317,10 +401,66 @@ class ApifyActorAlertService:
             else None
         )
 
+    def _bound_webhook_signing_secret(
+        self,
+        settings: dict[str, Any] | None,
+    ) -> str | None:
+        if settings is None:
+            return None
+        workspace_id = str(settings.get("workspace_id") or "")
+        env_name = str(
+            settings.get("webhook_signing_env_name") or ""
+        )
+        expected_digest = str(
+            settings.get("webhook_signing_secret_digest") or ""
+        )
+        expected_env = self.webhook_signing_env_name(
+            workspace_id=workspace_id
+        )
+        if (
+            not workspace_id
+            or env_name != expected_env
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            return None
+        secret = self.secret_store.read().get(expected_env)
+        if not secret:
+            return None
+        actual_digest = hashlib.sha256(
+            secret.encode("utf-8")
+        ).hexdigest()
+        return (
+            secret
+            if hmac.compare_digest(actual_digest, expected_digest)
+            else None
+        )
+
+    @staticmethod
+    def _has_webhook_signing_metadata(
+        settings: dict[str, Any] | None,
+    ) -> bool:
+        return bool(
+            settings is not None
+            and (
+                settings.get("webhook_signing_env_name") is not None
+                or settings.get("webhook_signing_secret_digest") is not None
+            )
+        )
+
+    def _webhook_signing_binding_valid(
+        self,
+        settings: dict[str, Any] | None,
+    ) -> bool:
+        return (
+            not self._has_webhook_signing_metadata(settings)
+            or self._bound_webhook_signing_secret(settings) is not None
+        )
+
     def _last_delivery(self, workspace_id: str) -> dict[str, Any] | None:
         row = self.store.connect().execute(
             """
-            SELECT status, error_code, created_at, started_at, sent_at, updated_at
+            SELECT channel, settings_generation, status, error_code,
+                   created_at, started_at, sent_at, updated_at
             FROM apify_actor_alert_deliveries
             WHERE workspace_id = ?
             ORDER BY created_at DESC, id DESC
@@ -337,9 +477,16 @@ class ApifyActorAlertService:
     def get_public_settings(self, *, workspace_id: str) -> dict[str, Any]:
         settings = self._settings_row(workspace_id)
         last_delivery = self._last_delivery(workspace_id)
+        if (
+            settings is None
+            or last_delivery is None
+            or int(last_delivery.get("settings_generation") or 0)
+            != int(settings.get("generation") or 0)
+        ):
+            last_delivery = None
         if settings is None:
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "enabled": False,
                 "channel": "webhook",
                 "events": list(ALERT_EVENTS),
@@ -348,6 +495,11 @@ class ApifyActorAlertService:
                     workspace_id=workspace_id
                 ),
                 "webhook_configured": False,
+                "webhook_provider": GENERIC_EVENT,
+                "webhook_provider_explicit": True,
+                "webhook_signing_secret_configured": False,
+                "webhook_verification_mode": "http_status",
+                "webhook_provider_options": webhook_provider_options(),
                 "last_test_status": None,
                 "last_tested_at": None,
                 "last_test_error_code": None,
@@ -361,8 +513,30 @@ class ApifyActorAlertService:
                 "updated_at": None,
             }
         channel = str(settings.get("channel") or "")
+        webhook_url = self._bound_webhook_secret(settings) or ""
+        try:
+            stored_provider = normalize_stored_webhook_provider(
+                settings.get("webhook_provider")
+            )
+            effective_provider = resolve_webhook_provider(
+                stored_provider,
+                webhook_url,
+            )
+        except WebhookConfigurationError:
+            stored_provider = LEGACY_AUTO
+            effective_provider = GENERIC_EVENT
+        last_test_status = settings.get("last_test_status")
+        if (
+            last_test_status == "failed"
+            and settings.get("last_test_error_code")
+            in {
+                "notification_webhook_outcome_unknown",
+                "notification_webhook_response_invalid",
+            }
+        ):
+            last_test_status = "unknown"
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "enabled": bool(settings.get("enabled"))
             and channel in {"email", "webhook"},
             "channel": channel if channel in {"email", "webhook"} else "webhook",
@@ -371,8 +545,17 @@ class ApifyActorAlertService:
             "email_transport_ready": self.email_transport.is_ready(
                 workspace_id=workspace_id
             ),
-            "webhook_configured": bool(self._bound_webhook_secret(settings)),
-            "last_test_status": settings.get("last_test_status"),
+            "webhook_configured": bool(webhook_url),
+            "webhook_provider": effective_provider,
+            "webhook_provider_explicit": stored_provider != LEGACY_AUTO,
+            "webhook_signing_secret_configured": bool(
+                self._bound_webhook_signing_secret(settings)
+            ),
+            "webhook_verification_mode": webhook_verification_mode(
+                effective_provider
+            ),
+            "webhook_provider_options": webhook_provider_options(),
+            "last_test_status": last_test_status,
             "last_tested_at": settings.get("last_tested_at"),
             "last_test_error_code": settings.get("last_test_error_code"),
             "last_alert_status": (
@@ -406,15 +589,22 @@ class ApifyActorAlertService:
         events: Any = UNSET,
         email_address: Any = UNSET,
         webhook_url: Any = UNSET,
+        webhook_provider: Any = UNSET,
+        webhook_signing_secret: Any = UNSET,
     ) -> dict[str, Any]:
         conn = self.store.connect()
         if conn.in_transaction:
             raise RuntimeError(
                 "Apify Actor alert settings update requires no active transaction"
             )
-        expected_env = self.webhook_env_name(workspace_id=workspace_id)
-        previous_secret = self.secret_store.read().get(expected_env)
-        secret_touched = False
+        expected_url_env = self.webhook_env_name(
+            workspace_id=workspace_id
+        )
+        expected_signing_env = self.webhook_signing_env_name(
+            workspace_id=workspace_id
+        )
+        previous_secrets: dict[str, str | None] = {}
+        secrets_written = False
         try:
             conn.execute("BEGIN IMMEDIATE")
             self._require_admin(
@@ -439,36 +629,145 @@ class ApifyActorAlertService:
                 else _normalize_email(email_address)
             )
 
-            current_env = str((current or {}).get("webhook_env_name") or "")
-            target_env = current_env if current_env == expected_env else None
-            target_digest = (
+            secret_values = self.secret_store.read()
+            current_url_env = str(
+                (current or {}).get("webhook_env_name") or ""
+            )
+            target_url_env = (
+                current_url_env
+                if current_url_env == expected_url_env
+                else None
+            )
+            target_url_digest = (
                 str((current or {}).get("webhook_secret_digest") or "")
-                if target_env
+                if target_url_env
                 else ""
             ) or None
-            validated_webhook: str | None = None
-            if webhook_url is not UNSET:
+            current_url = self._bound_webhook_secret(current)
+            current_provider = normalize_stored_webhook_provider(
+                (current or {}).get("webhook_provider")
+            )
+            if webhook_provider is UNSET:
+                target_provider = current_provider
+            else:
+                if webhook_provider is None:
+                    raise ApifyActorAlertError(
+                        "invalid_webhook_provider",
+                        "webhook provider cannot be null",
+                    )
+                target_provider = normalize_stored_webhook_provider(
+                    webhook_provider
+                )
+                if target_provider == LEGACY_AUTO:
+                    raise ApifyActorAlertError(
+                        "invalid_webhook_provider",
+                        "legacy_auto is not a selectable webhook provider",
+                    )
+            provider_changed = target_provider != current_provider
+            url_touched = webhook_url is not UNSET
+            if provider_changed and not url_touched:
+                raise ApifyActorAlertError(
+                    "webhook_url_required_for_provider_change",
+                    "re-enter the webhook URL when changing provider",
+                )
+            validated_webhook: str | None = current_url
+            if url_touched:
                 if webhook_url is None or not str(webhook_url).strip():
-                    target_env = None
-                    target_digest = None
+                    validated_webhook = None
+                    target_url_env = None
+                    target_url_digest = None
                 else:
-                    validated_webhook = _validate_webhook_url(webhook_url)
-                    target_env = expected_env
-                    target_digest = hashlib.sha256(
+                    validated_webhook = validate_webhook_url(
+                        webhook_url,
+                        target_provider,
+                        legacy_compat=target_provider == LEGACY_AUTO,
+                    )
+                    target_url_env = expected_url_env
+                    target_url_digest = hashlib.sha256(
                         validated_webhook.encode("utf-8")
                     ).hexdigest()
-            elif current is None or not self._bound_webhook_secret(current):
-                target_env = None
-                target_digest = None
+            elif validated_webhook:
+                validate_webhook_url(
+                    validated_webhook,
+                    target_provider,
+                    legacy_compat=target_provider == LEGACY_AUTO,
+                )
+            else:
+                target_url_env = None
+                target_url_digest = None
+
+            current_signing_env = str(
+                (current or {}).get("webhook_signing_env_name") or ""
+            )
+            target_signing_env = (
+                current_signing_env
+                if current_signing_env == expected_signing_env
+                else None
+            )
+            target_signing_digest = (
+                str(
+                    (current or {}).get(
+                        "webhook_signing_secret_digest"
+                    )
+                    or ""
+                )
+                if target_signing_env
+                else ""
+            ) or None
+            current_signing_secret = self._bound_webhook_signing_secret(
+                current
+            )
+            signing_touched = webhook_signing_secret is not UNSET
+            validated_signing_secret: str | None = current_signing_secret
+            implicit_signing_clear = bool(
+                not signing_touched
+                and (
+                    provider_changed
+                    or (url_touched and validated_webhook is None)
+                )
+            )
+            if implicit_signing_clear:
+                validated_signing_secret = None
+                target_signing_env = None
+                target_signing_digest = None
+                signing_touched = True
+            if signing_touched and not implicit_signing_clear:
+                if (
+                    webhook_signing_secret is None
+                    or not str(webhook_signing_secret).strip()
+                ):
+                    validated_signing_secret = None
+                    target_signing_env = None
+                    target_signing_digest = None
+                else:
+                    if target_provider not in {
+                        FEISHU_LARK_V2,
+                        DINGTALK,
+                    }:
+                        raise ApifyActorAlertError(
+                            "webhook_signing_not_supported",
+                            "selected webhook provider does not support signing",
+                        )
+                    validated_signing_secret = validate_signing_secret(
+                        webhook_signing_secret
+                    )
+                    target_signing_env = expected_signing_env
+                    target_signing_digest = hashlib.sha256(
+                        validated_signing_secret.encode("utf-8")
+                    ).hexdigest()
+            if (
+                target_provider not in {FEISHU_LARK_V2, DINGTALK}
+                and target_signing_digest
+            ):
+                raise ApifyActorAlertError(
+                    "webhook_signing_not_supported",
+                    "selected webhook provider does not support signing",
+                )
 
             webhook_configured = bool(
-                target_env
-                and target_digest
-                and (
-                    validated_webhook
-                    if webhook_url is not UNSET
-                    else self._bound_webhook_secret(current)
-                )
+                target_url_env
+                and target_url_digest
+                and validated_webhook
             )
             if target_enabled and target_channel == "email":
                 if not target_email:
@@ -512,19 +811,43 @@ class ApifyActorAlertService:
                         else ALERT_EVENTS
                     ),
                     target_email != (current or {}).get("email_address"),
-                    target_env != (current or {}).get("webhook_env_name"),
-                    target_digest
+                    target_url_env
+                    != (current or {}).get("webhook_env_name"),
+                    target_url_digest
                     != (current or {}).get("webhook_secret_digest"),
+                    target_provider
+                    != str(
+                        (current or {}).get("webhook_provider")
+                        or LEGACY_AUTO
+                    ),
+                    target_signing_env
+                    != (current or {}).get("webhook_signing_env_name"),
+                    target_signing_digest
+                    != (current or {}).get(
+                        "webhook_signing_secret_digest"
+                    ),
                 )
             )
             target_generation = current_generation + int(material_changed)
-            if webhook_url is not UNSET:
-                if validated_webhook is None:
-                    self.secret_store.delete(expected_env)
-                    os.environ.pop(expected_env, None)
-                else:
-                    self.secret_store.set(expected_env, validated_webhook)
-                secret_touched = True
+            secret_updates: dict[str, str | None] = {}
+            if url_touched:
+                secret_updates[expected_url_env] = validated_webhook
+            if signing_touched:
+                secret_updates[expected_signing_env] = (
+                    validated_signing_secret
+                )
+            if secret_updates:
+                previous_secrets = {
+                    name: secret_values.get(name)
+                    for name in secret_updates
+                }
+                self.secret_store.replace_many(secret_updates)
+                for name, value in secret_updates.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+                secrets_written = True
 
             now = _iso()
             last_test_status = (current or {}).get("last_test_status")
@@ -544,11 +867,15 @@ class ApifyActorAlertService:
                 """
                 INSERT INTO apify_actor_alert_settings (
                     workspace_id, enabled, channel, events_json, email_address,
-                    webhook_env_name, webhook_secret_digest, generation,
+                    webhook_env_name, webhook_secret_digest,
+                    webhook_provider, webhook_signing_env_name,
+                    webhook_signing_secret_digest, generation,
                     last_test_status, last_test_generation,
                     last_test_attempted_at, last_tested_at,
                     last_test_error_code, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(workspace_id) DO UPDATE SET
                     enabled = excluded.enabled,
                     channel = excluded.channel,
@@ -556,6 +883,11 @@ class ApifyActorAlertService:
                     email_address = excluded.email_address,
                     webhook_env_name = excluded.webhook_env_name,
                     webhook_secret_digest = excluded.webhook_secret_digest,
+                    webhook_provider = excluded.webhook_provider,
+                    webhook_signing_env_name =
+                        excluded.webhook_signing_env_name,
+                    webhook_signing_secret_digest =
+                        excluded.webhook_signing_secret_digest,
                     generation = excluded.generation,
                     last_test_status = excluded.last_test_status,
                     last_test_generation = excluded.last_test_generation,
@@ -570,8 +902,11 @@ class ApifyActorAlertService:
                     target_channel,
                     _json_dumps(list(target_events)),
                     target_email,
-                    target_env,
-                    target_digest,
+                    target_url_env,
+                    target_url_digest,
+                    target_provider,
+                    target_signing_env,
+                    target_signing_digest,
                     target_generation,
                     last_test_status,
                     last_test_generation,
@@ -594,15 +929,33 @@ class ApifyActorAlertService:
                     (now, workspace_id),
                 )
             conn.commit()
-        except Exception:
-            if conn.in_transaction:
-                conn.rollback()
-            if secret_touched:
-                if previous_secret is None:
-                    self.secret_store.delete(expected_env)
-                    os.environ.pop(expected_env, None)
-                else:
-                    self.secret_store.set(expected_env, previous_secret)
+        except Exception as exc:
+            compensation_error: Exception | None = None
+            try:
+                if secrets_written:
+                    # Keep the SQLite write lock until SecretStore has been
+                    # restored so a later successful PATCH cannot be
+                    # overwritten by this failed request's compensation.
+                    self.secret_store.replace_many(previous_secrets)
+                    for name, value in previous_secrets.items():
+                        if value is None:
+                            os.environ.pop(name, None)
+                        else:
+                            os.environ[name] = value
+            except Exception as restore_exc:
+                compensation_error = restore_exc
+            finally:
+                if conn.in_transaction:
+                    conn.rollback()
+            if compensation_error is not None:
+                raise RuntimeError(
+                    "Apify alert SecretStore compensation failed"
+                ) from compensation_error
+            if isinstance(exc, WebhookConfigurationError):
+                raise ApifyActorAlertError(
+                    exc.code,
+                    str(exc),
+                ) from exc
             raise
         return self.get_public_settings(workspace_id=workspace_id)
 
@@ -934,7 +1287,10 @@ class ApifyActorAlertService:
                 )
             )
         if channel == "webhook":
-            return bool(self._bound_webhook_secret(settings))
+            return bool(
+                self._bound_webhook_secret(settings)
+                and self._webhook_signing_binding_valid(settings)
+            )
         return False
 
     def _stage_delivery(
@@ -1299,11 +1655,11 @@ class ApifyActorAlertService:
             return "notification_payload_invalid"
         channel = str(settings.get("channel") or "")
         if channel == "webhook":
-            return (
-                None
-                if self._bound_webhook_secret(settings)
-                else "notification_destination_required"
-            )
+            if not self._bound_webhook_secret(settings):
+                return "notification_destination_required"
+            if not self._webhook_signing_binding_valid(settings):
+                return "invalid_webhook_signing_secret"
+            return None
         if channel == "email":
             if not settings.get("email_address"):
                 return "notification_destination_required"
@@ -1433,7 +1789,11 @@ class ApifyActorAlertService:
             }
         )
         try:
-            self._send_payload(settings, payload, test=True)
+            send_result = self._send_payload(
+                settings,
+                payload,
+                test=True,
+            )
         except ApifyActorAlertError as exc:
             self._record_test_result(
                 workspace_id=workspace_id,
@@ -1442,8 +1802,16 @@ class ApifyActorAlertService:
                 error_code=exc.code,
             )
             raise ApifyActorAlertError(
-                "apify_actor_alert_test_failed",
-                "Apify Actor alert test could not be delivered",
+                (
+                    "apify_actor_alert_test_outcome_unknown"
+                    if exc.outcome_unknown
+                    else "apify_actor_alert_test_failed"
+                ),
+                (
+                    "Apify Actor alert test outcome is unknown; do not retry"
+                    if exc.outcome_unknown
+                    else "Apify Actor alert test could not be delivered"
+                ),
                 status_code=exc.status_code,
                 retryable=exc.retryable and not exc.outcome_unknown,
                 outcome_unknown=exc.outcome_unknown,
@@ -1456,8 +1824,8 @@ class ApifyActorAlertService:
                 error_code="notification_delivery_failed",
             )
             raise ApifyActorAlertError(
-                "apify_actor_alert_test_failed",
-                "Apify Actor alert test could not be delivered",
+                "apify_actor_alert_test_outcome_unknown",
+                "Apify Actor alert test outcome is unknown; do not retry",
                 status_code=502,
                 outcome_unknown=True,
             ) from exc
@@ -1467,15 +1835,24 @@ class ApifyActorAlertService:
             status="sent",
         ):
             raise ApifyActorAlertError(
-                "apify_actor_alert_test_failed",
-                "alert settings changed while the test was running",
+                "apify_actor_alert_test_outcome_unknown",
+                "alert settings changed while the test was running; "
+                "do not retry",
                 status_code=409,
                 outcome_unknown=True,
             )
-        return {
+        result: dict[str, Any] = {
             "sent": True,
             "channel": str(settings["channel"]),
         }
+        if isinstance(send_result, WebhookSendResult):
+            result.update(
+                {
+                    "provider": send_result.provider,
+                    "verification": send_result.verification,
+                }
+            )
+        return result
 
     def _claim_test_attempt(
         self,
@@ -1508,6 +1885,15 @@ class ApifyActorAlertService:
                 raise ApifyActorAlertError(
                     "notification_destination_required",
                     "configure an alert webhook before sending a test",
+                    status_code=409,
+                )
+            if (
+                channel == "webhook"
+                and not self._webhook_signing_binding_valid(settings)
+            ):
+                raise ApifyActorAlertError(
+                    "invalid_webhook_signing_secret",
+                    "configured alert webhook signing secret is unavailable",
                     status_code=409,
                 )
             if channel == "email":
@@ -1604,15 +1990,18 @@ class ApifyActorAlertService:
         payload: dict[str, Any],
         *,
         test: bool,
-    ) -> None:
+    ) -> WebhookSendResult | None:
         safe_payload = self._sanitize_delivery_payload(payload)
         channel = str(settings.get("channel") or "")
         if channel == "webhook":
-            self._send_webhook(settings, safe_payload, test=test)
-            return
+            return self._send_webhook(
+                settings,
+                safe_payload,
+                test=test,
+            )
         if channel == "email":
             self._send_email(settings, safe_payload, test=test)
-            return
+            return None
         raise ApifyActorAlertError(
             "notification_channel_unavailable",
             "alert channel is unavailable",
@@ -1625,7 +2014,7 @@ class ApifyActorAlertService:
         payload: dict[str, Any],
         *,
         test: bool,
-    ) -> None:
+    ) -> WebhookSendResult:
         webhook_url = self._bound_webhook_secret(settings)
         if not webhook_url:
             raise ApifyActorAlertError(
@@ -1633,7 +2022,23 @@ class ApifyActorAlertService:
                 "alert webhook is not configured",
                 status_code=409,
             )
-        webhook_url = _validate_webhook_url(webhook_url)
+        signing_secret = self._bound_webhook_signing_secret(settings)
+        if (
+            self._has_webhook_signing_metadata(settings)
+            and signing_secret is None
+        ):
+            raise ApifyActorAlertError(
+                "invalid_webhook_signing_secret",
+                "configured alert webhook signing secret is unavailable",
+                status_code=409,
+            )
+        stored_provider = normalize_stored_webhook_provider(
+            settings.get("webhook_provider")
+        )
+        effective_provider = resolve_webhook_provider(
+            stored_provider,
+            webhook_url,
+        )
         event_name = (
             "inteliscope.apify_actor.test"
             if test
@@ -1643,77 +2048,69 @@ class ApifyActorAlertService:
                 else "inteliscope.apify_actor.alert"
             )
         )
-        body = _json_dumps(
-            {
-                "event": event_name,
-                "data": {
-                    **payload,
-                    **({"test": True} if test else {}),
-                },
-            }
-        ).encode("utf-8")
+        data = {
+            **payload,
+            **({"test": True} if test else {}),
+        }
+        text = _bounded_text(
+            _apify_alert_feishu_body(
+                payload,
+                test=test,
+            )["content"]["text"],
+            webhook_text_limit(effective_provider),
+        )
         try:
-            response = _run_coroutine(
+            result = _run_coroutine(
                 asyncio.wait_for(
-                    post_public_http(
-                        webhook_url,
-                        content=body,
-                        headers={
-                            "Content-Type": "application/json; charset=utf-8"
-                        },
+                    send_notification_webhook(
+                        provider=stored_provider,
+                        webhook_url=webhook_url,
+                        event=event_name,
+                        data=data,
+                        text=text,
+                        signing_secret=signing_secret,
                         timeout=5.0,
-                        max_response_bytes=64_000,
+                        post=post_public_http,
                     ),
                     timeout=6.0,
                 )
             )
-        except UnsafeNetworkTarget as exc:
+        except WebhookConfigurationError as exc:
             raise ApifyActorAlertError(
-                "notification_webhook_target_blocked",
-                "notification webhook must resolve only to the public network",
+                exc.code,
+                str(exc),
                 status_code=400,
             ) from exc
-        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-            # No HTTP request was established, so a bounded retry cannot
-            # duplicate a receiver-side action.
+        except WebhookDeliveryError as exc:
             raise ApifyActorAlertError(
-                "notification_webhook_unavailable",
-                "notification webhook is unavailable",
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                outcome_unknown=exc.outcome_unknown,
+            ) from exc
+        except TimeoutError as exc:
+            raise ApifyActorAlertError(
+                "notification_webhook_outcome_unknown",
+                "notification webhook outcome is unknown",
                 status_code=502,
-                retryable=True,
+                outcome_unknown=True,
             ) from exc
         except Exception as exc:
             raise ApifyActorAlertError(
-                "notification_webhook_unavailable",
-                "notification webhook is unavailable",
+                "notification_webhook_outcome_unknown",
+                "notification webhook outcome is unknown",
                 status_code=502,
                 outcome_unknown=True,
             ) from exc
-        content_encoding = (
-            response.headers.get("content-encoding", "").strip().lower()
-        )
-        if content_encoding not in {"", "identity"}:
+        if not isinstance(result, WebhookSendResult):
             raise ApifyActorAlertError(
-                "notification_webhook_response_encoding_unsupported",
-                "notification webhook returned an unsupported content encoding",
+                "notification_webhook_outcome_unknown",
+                "notification webhook outcome is unknown",
                 status_code=502,
                 outcome_unknown=True,
             )
-        status_code = int(response.status_code)
-        if 200 <= status_code < 300:
-            return
-        if status_code in {408, 425, 429} or status_code >= 500:
-            raise ApifyActorAlertError(
-                "notification_webhook_temporarily_rejected",
-                "notification webhook temporarily rejected the request",
-                status_code=502,
-                retryable=True,
-            )
-        raise ApifyActorAlertError(
-            "notification_webhook_rejected",
-            "notification webhook rejected the request",
-            status_code=502,
-        )
+        return result
 
     def _send_email(
         self,

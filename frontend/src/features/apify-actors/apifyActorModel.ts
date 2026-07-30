@@ -93,9 +93,15 @@ const actorErrorLabels: Record<string, string> = {
   apify_actor_routing_disabled: 'Apify Actor 路由当前未启用。',
   invalid_apify_actor_alert_settings: '告警设置无效，请检查后重试。',
   invalid_notification_destination: '接收地址格式无效，请检查后重试。',
+  invalid_webhook_provider: 'Webhook 类型无效，请重新选择。',
+  invalid_webhook_url_for_provider: 'Webhook 地址与所选类型不匹配。',
+  webhook_url_required_for_provider_change: '更换 Webhook 类型时，请重新输入对应地址。',
+  invalid_webhook_signing_secret: '签名 Secret 格式无效，请重新输入。',
+  webhook_signing_not_supported: '所选 Webhook 类型不支持签名校验。',
   notification_destination_required: '当前告警方式还没有配置接收地址。',
   notification_channel_unavailable: '当前告警方式暂不可用，请检查邮件服务或改用 Webhook。',
   apify_actor_alert_test_failed: '测试告警发送失败，请检查接收端后重试。',
+  apify_actor_alert_test_outcome_unknown: '测试告警结果未知，请勿重复发送；请先确认接收端。',
   apify_actor_alert_test_rate_limited: '测试告警发送过于频繁，请稍后再试。',
 }
 

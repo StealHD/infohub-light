@@ -16,6 +16,7 @@
 2. 公共源共享获取、既有部署数据库的 Feed storage v3 compact writer 和工作区 Apify Key 池 rollout flag 均保持关闭；新空库在自动记录 v3 marker 后默认使用 compact writer，未迁移数据库仍强制回退 storage v1。
 3. Apify Key 池 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；启用仍需停 Worker、核对远端 Run、备份数据库和有上限 canary。
 4. X/profile 的 Apify 三 Actor 路由、schema v13 账本、语义占位拦截、费用熔断、管理员状态页与工作区告警已在本地实现；默认顺序为 ScrapeBadger、Dami、Xquik，真实付费 Canary 与 48 小时观察仍需 operator 单独确认。
+4A. 个人新内容通知与 Apify 运行告警的七类 Webhook Provider Registry、平台业务 ACK、飞书/钉钉可选签名和 schema v14 显式门禁已在本地实现并通过完整 Test Gate；未迁移数据库必须保持 API readiness 与 Worker fail closed，真实 Webhook 验收和部署均未执行。
 5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
 6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
 7. API、Worker、Scheduler 和 CLI 私有双流 JSONL、30 天保留、提交后关键事件及 OpenClaw 当前用户安全查询已完成本地验证；不包含日志 REST API、前端日志页或部署。
@@ -29,6 +30,7 @@
 3. 付费来源必须取得 operator 再次明确授权，并确认上游严格单次有界输入，才能进入独立 canary；X/profile Canary 每次只能从管理员路由卡二次确认启动，terminal Job 不允许通用 retry。
 4. 开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前暂停 Worker、确认无 running Job、核对并终止未登记远端 Run、备份 Service 数据库，只执行一次有上限 canary；无法核对的启动结果保持 blocked。
 5. X/profile 上线先迁移 schema v13，再分别对两个现有 X 来源执行一次 ScrapeBadger Canary；Dami 仅在各自 Canary 通过后进入 48 小时 probation，Xquik 保持 open 并只由自然任务探测。未经再次明确授权，不得触发这些付费调用。
+5A. 部署包含 Webhook Registry 的 revision 前必须先完成 schema v13，停止 API/Worker并跨过 heartbeat 安全窗，再对目标数据库执行 Webhook providers v14 dry-run、`0600` backup 与 apply；只有两表约束、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移与发布不得触发真实 Webhook。
 6. 用户写入 DeepSeek 轮换 Key 后，只对一篇 captured article 执行零 Token 模型预检和一次省略 `temperature`、SDK/application retry 均关闭的 completion smoke；成功后才启用。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 仍失败，网络出口恢复后只做 1 条公开频道复验。
 8. VPS 的 Feed storage v3 apply、rollout flag 开启和任何付费 canary 必须分别满足门禁并取得对应授权；Bilibili 冷路由受风控时不得高频重试。

@@ -12,6 +12,7 @@ import type {
   CatalogSource,
   NotificationChannel,
   NotificationTestResult,
+  WebhookProvider,
 } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import {
@@ -37,6 +38,7 @@ import {
   notificationDestinationError,
   notificationTestLabel,
 } from '../notifications/notificationModel'
+import { WebhookProviderFields } from '../notifications/WebhookProviderFields'
 import {
   APIFY_ACTOR_ROUTE_REFRESH_MS,
   actorAlertEventLabels,
@@ -521,9 +523,17 @@ function ApifyActorRoutePanel({ queryEnabled }: { queryEnabled: boolean }) {
   </>
 }
 
-function lastAlertLabel(status: string | null): string {
+function lastAlertLabel(
+  status: string | null,
+  channel: NotificationChannel,
+  verificationMode: 'http_status' | 'provider_response',
+): string {
   if (!status) return '尚未发送运行告警'
-  if (status === 'sent' || status === 'succeeded' || status === 'success') return '最近一次运行告警发送成功'
+  if (status === 'sent' || status === 'succeeded' || status === 'success') {
+    if (channel === 'email') return '最近一次运行告警邮件已发送'
+    if (verificationMode === 'provider_response') return '最近一次运行告警已获平台接受'
+    return '最近一次运行告警请求已发送，请确认接收端'
+  }
   if (status === 'failed' || status === 'failure') return '最近一次运行告警发送失败'
   if (status === 'unknown') return '最近一次运行告警结果未知，不会自动重发'
   return '最近一次运行告警正在处理'
@@ -542,17 +552,35 @@ export function ApifyActorAlertSettingsForm({
   const [channel, setChannel] = useState<NotificationChannel>(settings.channel)
   const [events, setEvents] = useState<ApifyActorAlertEvent[]>(settings.events)
   const [destination, setDestination] = useState('')
+  const [webhookProvider, setWebhookProvider] = useState<WebhookProvider>(settings.webhook_provider)
+  const [providerTouched, setProviderTouched] = useState(false)
+  const [signingEnabled, setSigningEnabled] = useState(settings.webhook_signing_secret_configured)
+  const [signingSecret, setSigningSecret] = useState('')
   const [fieldError, setFieldError] = useState('')
+  const [signingError, setSigningError] = useState('')
   const [requestError, setRequestError] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const configured = notificationChannelConfigured(settings, channel)
+  const webhookConfigured = settings.webhook_configured
+    && webhookProvider === settings.webhook_provider
+    && !providerTouched
+  const signingConfigured = settings.webhook_signing_secret_configured
+    && webhookProvider === settings.webhook_provider
+    && !providerTouched
+  const configured = channel === 'webhook'
+    ? webhookConfigured
+    : notificationChannelConfigured(settings, channel)
   const persistedConfigured = notificationChannelConfigured(settings, settings.channel)
   const eventsDirty = [...events].sort().join(':') !== [...settings.events].sort().join(':')
   const dirty = enabled !== settings.enabled
     || channel !== settings.channel
     || eventsDirty
     || Boolean(destination.trim())
+    || (channel === 'webhook' && (
+      providerTouched
+      || signingEnabled !== settings.webhook_signing_secret_configured
+      || Boolean(signingSecret.trim())
+    ))
   const emailUnavailable = channel === 'email' && !settings.email_transport_ready
   const persistedEmailUnavailable = settings.channel === 'email' && !settings.email_transport_ready
   const testReady = persistedConfigured && !persistedEmailUnavailable && !dirty && !saving && !testing
@@ -561,7 +589,11 @@ export function ApifyActorAlertSettingsForm({
     event.preventDefault()
     if (saving || testing) return
     const submittedDestination = destination.trim()
+    const submittedSigningSecret = signingSecret.trim()
+    setDestination('')
+    setSigningSecret('')
     setFieldError('')
+    setSigningError('')
     setRequestError('')
     if (enabled && events.length === 0) {
       setFieldError('启用运行告警时，请至少选择一种告警事件。')
@@ -569,6 +601,18 @@ export function ApifyActorAlertSettingsForm({
     }
     if (enabled && emailUnavailable) {
       setRequestError('工作区邮件发送服务尚未就绪，暂不能启用邮箱告警。Webhook 不受影响。')
+      return
+    }
+    if (
+      channel === 'webhook'
+      && !settings.webhook_provider_explicit
+      && !submittedDestination
+    ) {
+      setFieldError('升级旧 Webhook 配置时，请选择类型并重新输入对应地址。')
+      return
+    }
+    if (channel === 'webhook' && providerTouched && !submittedDestination) {
+      setFieldError('选择或更换 Webhook 类型时，请重新输入对应地址。')
       return
     }
     const validationError = notificationDestinationError({
@@ -581,10 +625,18 @@ export function ApifyActorAlertSettingsForm({
       setFieldError(validationError)
       return
     }
-    setDestination('')
+    if (
+      channel === 'webhook'
+      && signingEnabled
+      && !signingConfigured
+      && !submittedSigningSecret
+    ) {
+      setSigningError('启用签名校验时需要填写签名 Secret。')
+      return
+    }
     setSaving(true)
     try {
-      await onSave({
+      const updated = await onSave({
         enabled,
         channel,
         events,
@@ -593,7 +645,21 @@ export function ApifyActorAlertSettingsForm({
             ? { email_address: submittedDestination }
             : { webhook_url: submittedDestination }
           : {}),
+        ...(channel === 'webhook' && (providerTouched || submittedDestination)
+          ? { webhook_provider: webhookProvider }
+          : {}),
+        ...(channel === 'webhook' && submittedSigningSecret
+          ? { webhook_signing_secret: submittedSigningSecret }
+          : {}),
+        ...(channel === 'webhook'
+          && !signingEnabled
+          && settings.webhook_signing_secret_configured
+          ? { webhook_signing_secret: null }
+          : {}),
       })
+      setWebhookProvider(updated.webhook_provider)
+      setProviderTouched(false)
+      setSigningEnabled(updated.webhook_signing_secret_configured)
       actionToast.success('Apify 运行告警设置已保存')
     } catch (caught) {
       const message = safeActorActionError(caught, 'Apify 运行告警设置保存失败，请稍后重试。')
@@ -609,8 +675,21 @@ export function ApifyActorAlertSettingsForm({
     setTesting(true)
     setRequestError('')
     try {
-      await onTest()
-      actionToast.success('测试运行告警已发送', { description: '请检查当前告警方式的接收端。' })
+      const result = await onTest()
+      if (result.channel === 'email') {
+        actionToast.success('测试运行告警邮件已发送', {
+          description: '请检查当前告警收件邮箱。',
+        })
+        return
+      }
+      actionToast.success(
+        result.verification === 'provider_accepted' ? '平台已接受测试运行告警' : '测试运行告警请求已发送',
+        {
+          description: result.verification === 'provider_accepted'
+            ? '平台业务响应已通过，请确认接收端实际展示。'
+            : '接收端已返回 HTTP 成功状态，请确认实际处理。',
+        },
+      )
     } catch (caught) {
       const message = safeActorActionError(caught, '测试运行告警发送失败，请稍后重试。')
       setRequestError(message)
@@ -620,7 +699,7 @@ export function ApifyActorAlertSettingsForm({
     }
   }
 
-  return <form className="grid gap-4" onSubmit={save}>
+  return <form className="grid gap-4" noValidate onSubmit={save}>
     {!settings.email_transport_ready && <HeroNotice
       title={settings.enabled && settings.channel === 'email' ? '邮箱告警已暂停' : '邮件发送服务尚未就绪'}
       status="warning"
@@ -647,7 +726,12 @@ export function ApifyActorAlertSettingsForm({
         onChange={(value) => {
           setChannel(value as NotificationChannel)
           setDestination('')
+          setWebhookProvider(settings.webhook_provider)
+          setProviderTouched(false)
+          setSigningEnabled(settings.webhook_signing_secret_configured)
+          setSigningSecret('')
           setFieldError('')
+          setSigningError('')
           setRequestError('')
         }}
         options={[
@@ -655,7 +739,7 @@ export function ApifyActorAlertSettingsForm({
           { id: 'webhook', label: 'Webhook' },
         ]}
       />
-      <TextField
+      {channel === 'email' && <TextField
         fullWidth
         value={destination}
         onChange={(value) => {
@@ -666,17 +750,61 @@ export function ApifyActorAlertSettingsForm({
         isInvalid={Boolean(fieldError) && events.length > 0}
         isRequired={enabled && !configured}
       >
-        <Label>{channel === 'email' ? '告警收件邮箱' : '告警 Webhook 地址'}</Label>
+        <Label>告警收件邮箱</Label>
         <Input
-          type={channel === 'email' ? 'email' : 'password'}
-          autoComplete={channel === 'email' ? 'email' : 'new-password'}
-          placeholder={configured ? '留空保持当前配置' : channel === 'email' ? 'name@example.com' : '输入 HTTPS 地址'}
+          type="email"
+          autoComplete="email"
+          placeholder={configured ? '留空保持当前配置' : 'name@example.com'}
         />
         <Description>
           {configured ? '已配置；真实接收地址不会回显，留空不会覆盖。' : '尚未配置当前告警方式。'}
         </Description>
         {fieldError && events.length > 0 && <FieldError>{fieldError}</FieldError>}
-      </TextField>
+      </TextField>}
+      {channel === 'webhook' && <WebhookProviderFields
+        idPrefix="apify-alert-webhook"
+        provider={webhookProvider}
+        options={settings.webhook_provider_options}
+        destination={destination}
+        configured={configured}
+        providerExplicit={settings.webhook_provider_explicit}
+        signingEnabled={signingEnabled}
+        signingSecret={signingSecret}
+        signingConfigured={signingConfigured}
+        destinationRequired={enabled && !configured}
+        destinationLabel="告警 Webhook 地址"
+        fieldError={events.length > 0 ? fieldError : ''}
+        signingError={signingError}
+        onProviderChange={(provider) => {
+          setWebhookProvider(provider)
+          setProviderTouched(provider !== settings.webhook_provider || !settings.webhook_provider_explicit)
+          setDestination('')
+          setSigningEnabled(false)
+          setSigningSecret('')
+          setFieldError('')
+          setSigningError('')
+          setRequestError('')
+        }}
+        onDestinationChange={(value) => {
+          setDestination(value)
+          setFieldError('')
+          setRequestError('')
+        }}
+        onSigningEnabledChange={(value) => {
+          setSigningEnabled(value)
+          if (!settings.webhook_provider_explicit) {
+            setProviderTouched(true)
+          }
+          setSigningSecret('')
+          setSigningError('')
+          setRequestError('')
+        }}
+        onSigningSecretChange={(value) => {
+          setSigningSecret(value)
+          setSigningError('')
+          setRequestError('')
+        }}
+      />}
     </div>
     <fieldset className="grid gap-3" aria-describedby="apify-actor-alert-events-help">
       <legend className="type-control">告警事件</legend>
@@ -699,12 +827,22 @@ export function ApifyActorAlertSettingsForm({
       {fieldError && events.length === 0 && <p className="type-meta text-danger" role="alert">{fieldError}</p>}
     </fieldset>
     <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
+      {channel === 'webhook' && <p className="mb-1">
+        平台预设会校验业务响应；通用类型只确认 HTTP 2xx。保存成功仅表示配置已写入，测试后仍请确认接收端实际展示。
+      </p>}
       <p>测试告警使用模拟内容，不会抓取 X、调用 Actor 或产生 Apify 费用。</p>
       <p className="type-meta mt-2">
-        {notificationTestLabel(settings.last_test_status)} · {formatActorDateTime(settings.last_tested_at)}
+        {notificationTestLabel(settings.last_test_status, {
+          channel: settings.channel,
+          verificationMode: settings.webhook_verification_mode,
+        })} · {formatActorDateTime(settings.last_tested_at)}
       </p>
       <p className="type-meta mt-1">
-        {lastAlertLabel(settings.last_alert_status)} · {formatActorDateTime(settings.last_alerted_at)}
+        {lastAlertLabel(
+          settings.last_alert_status,
+          settings.channel,
+          settings.webhook_verification_mode,
+        )} · {formatActorDateTime(settings.last_alerted_at)}
       </p>
     </div>
     {requestError && <HeroNotice title={requestError} />}
@@ -741,6 +879,9 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
     settings.data.email_configured,
     settings.data.email_transport_ready,
     settings.data.webhook_configured,
+    settings.data.webhook_provider,
+    settings.data.webhook_provider_explicit,
+    settings.data.webhook_signing_secret_configured,
     settings.data.last_tested_at,
     settings.data.last_alerted_at,
   ].join(':')
@@ -752,9 +893,11 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
   }
 
   async function test() {
-    const result = await api.testApifyActorAlertSettings()
-    await queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorAlertSettings(user.id) })
-    return result
+    try {
+      return await api.testApifyActorAlertSettings()
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorAlertSettings(user.id) })
+    }
   }
 
   return <ApifyActorAlertSettingsForm

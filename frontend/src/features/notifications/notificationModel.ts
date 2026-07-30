@@ -42,8 +42,14 @@ const notificationErrorLabels: Record<string, string> = {
   invalid_notification_channel: '通知方式无效，请重新选择。',
   notification_destination_required: '当前通知方式还没有配置接收地址。',
   invalid_notification_destination: '接收地址格式无效，请检查后重试。',
+  invalid_webhook_provider: 'Webhook 类型无效，请重新选择。',
+  invalid_webhook_url_for_provider: 'Webhook 地址与所选类型不匹配。',
+  webhook_url_required_for_provider_change: '更换 Webhook 类型时，请重新输入对应地址。',
+  invalid_webhook_signing_secret: '签名 Secret 格式无效，请重新输入。',
+  webhook_signing_not_supported: '所选 Webhook 类型不支持签名校验。',
   notification_channel_unavailable: '当前通知方式暂不可用，请联系管理员。',
   notification_test_failed: '测试通知发送失败，请检查接收端后重试。',
+  notification_test_outcome_unknown: '测试通知结果未知，请勿重复发送；请先确认接收端。',
   notification_test_rate_limited: '测试通知发送过于频繁，请稍后再试。',
   invalid_email_transport_provider: '邮件服务商无效，请重新选择。',
   invalid_email_transport_sender: '发件邮箱与所选服务商不匹配。',
@@ -64,9 +70,20 @@ export function safeNotificationError(caught: unknown, fallback: string): string
   return fallback
 }
 
-export function notificationTestLabel(status: string | null): string {
+export function notificationTestLabel(
+  status: string | null,
+  context?: {
+    channel: NotificationChannel
+    verificationMode: 'http_status' | 'provider_response'
+  },
+): string {
   if (!status) return '尚未发送测试通知'
-  if (status === 'succeeded' || status === 'success' || status === 'sent') return '最近一次测试发送成功'
+  if (status === 'succeeded' || status === 'success' || status === 'sent') {
+    if (context?.channel === 'email') return '最近一次测试邮件已发送，请确认收件箱'
+    if (context?.verificationMode === 'provider_response') return '最近一次测试已获平台接受，请确认接收端'
+    return '最近一次测试请求已发送，请确认接收端'
+  }
   if (status === 'failed' || status === 'failure') return '最近一次测试发送失败'
+  if (status === 'unknown') return '最近一次测试结果未知，不会自动重发'
   return '最近一次测试状态未知'
 }

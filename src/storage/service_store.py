@@ -51,6 +51,24 @@ AGENT_SOURCE_RESOLUTION_MAX_ACTIVE = 20
 AGENT_SOURCE_RESOLUTION_RETENTION_HOURS = 24
 AGENT_SOURCE_RESOLUTION_ENVELOPE_MAX_BYTES = 16_384
 _UNSET = object()
+WEBHOOK_PROVIDERS = {
+    "legacy_auto",
+    "generic_event",
+    "generic_text",
+    "feishu_lark_v2",
+    "wecom",
+    "dingtalk",
+    "slack",
+    "discord",
+}
+WEBHOOK_PROVIDER_TRIGGER_NAMES = {
+    f"trg_{table}_webhook_v14_{operation}"
+    for table in (
+        "user_notification_settings",
+        "apify_actor_alert_settings",
+    )
+    for operation in ("insert", "update")
+}
 
 _PROPOSAL_PROHIBITED_CONTENT_KEYS = {
     "article_body",
@@ -415,6 +433,7 @@ class ServiceStore:
         self,
         *,
         prepare_apify_actor_routing_v13: bool = False,
+        prepare_webhook_providers_v14: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -448,6 +467,25 @@ class ServiceStore:
             not existing_schema
             or apify_actor_v13_migrated
             or prepare_apify_actor_routing_v13
+        )
+        webhook_providers_v14_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 14"
+            ).fetchone()
+        )
+        webhook_providers_v14_upgrade_pending = bool(
+            existing_schema and not webhook_providers_v14_migrated
+        )
+        install_webhook_providers_v14 = bool(
+            not existing_schema
+            or (
+                apify_actor_v13_migrated
+                and (
+                    webhook_providers_v14_migrated
+                    or prepare_webhook_providers_v14
+                )
+            )
         )
         schema_sql = """
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -724,6 +762,14 @@ class ServiceStore:
                 email_address TEXT,
                 webhook_env_name TEXT,
                 webhook_secret_digest TEXT,
+                webhook_provider TEXT NOT NULL DEFAULT 'legacy_auto'
+                    CHECK(webhook_provider IN (
+                        'legacy_auto', 'generic_event', 'generic_text',
+                        'feishu_lark_v2', 'wecom', 'dingtalk', 'slack',
+                        'discord'
+                    )),
+                webhook_signing_env_name TEXT,
+                webhook_signing_secret_digest TEXT,
                 notification_enabled_at TEXT,
                 notification_generation INTEGER NOT NULL DEFAULT 0,
                 last_test_status TEXT
@@ -734,7 +780,17 @@ class ServiceStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                CHECK(
+                    (
+                        webhook_signing_env_name IS NULL
+                        AND webhook_signing_secret_digest IS NULL
+                    )
+                    OR (
+                        webhook_signing_env_name IS NOT NULL
+                        AND webhook_signing_secret_digest IS NOT NULL
+                    )
+                )
             );
             CREATE INDEX IF NOT EXISTS idx_user_notification_settings_workspace
                 ON user_notification_settings(workspace_id, user_id);
@@ -1273,6 +1329,14 @@ class ServiceStore:
                 email_address TEXT,
                 webhook_env_name TEXT,
                 webhook_secret_digest TEXT,
+                webhook_provider TEXT NOT NULL DEFAULT 'legacy_auto'
+                    CHECK(webhook_provider IN (
+                        'legacy_auto', 'generic_event', 'generic_text',
+                        'feishu_lark_v2', 'wecom', 'dingtalk', 'slack',
+                        'discord'
+                    )),
+                webhook_signing_env_name TEXT,
+                webhook_signing_secret_digest TEXT,
                 generation INTEGER NOT NULL DEFAULT 1 CHECK(generation >= 1),
                 last_test_status TEXT
                     CHECK(last_test_status IS NULL OR last_test_status IN ('sent', 'failed')),
@@ -1282,7 +1346,17 @@ class ServiceStore:
                 last_test_error_code TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+                CHECK(
+                    (
+                        webhook_signing_env_name IS NULL
+                        AND webhook_signing_secret_digest IS NULL
+                    )
+                    OR (
+                        webhook_signing_env_name IS NOT NULL
+                        AND webhook_signing_secret_digest IS NOT NULL
+                    )
+                )
             );
 
             CREATE TABLE IF NOT EXISTS apify_actor_alert_incidents (
@@ -1533,6 +1607,27 @@ class ServiceStore:
             "last_test_attempted_at",
             "TEXT",
         )
+        if install_webhook_providers_v14:
+            for table in (
+                "user_notification_settings",
+                "apify_actor_alert_settings",
+            ):
+                self._ensure_column(
+                    table,
+                    "webhook_provider",
+                    "TEXT NOT NULL DEFAULT 'legacy_auto'",
+                )
+                self._ensure_column(
+                    table,
+                    "webhook_signing_env_name",
+                    "TEXT",
+                )
+                self._ensure_column(
+                    table,
+                    "webhook_signing_secret_digest",
+                    "TEXT",
+                )
+            self._ensure_webhook_provider_triggers()
         self._ensure_column(
             "preferred_source_notification_deliveries",
             "account_notification_generation",
@@ -1669,6 +1764,11 @@ class ServiceStore:
             self._seed_apify_actor_routes(commit=False)
             if not apify_actor_v13_upgrade_pending:
                 self.mark_apify_actor_routing_v13_migrated(commit=False)
+        if (
+            install_webhook_providers_v14
+            and not webhook_providers_v14_upgrade_pending
+        ):
+            self.mark_webhook_providers_v14_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -1807,6 +1907,88 @@ class ServiceStore:
                 "SELECT 1 FROM schema_migrations WHERE version = 13"
             ).fetchone()
         )
+
+    def mark_webhook_providers_v14_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (
+                14,
+                'webhook_providers_v14',
+                'webhook-provider-presets-v14',
+                ?
+            )
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def webhook_providers_v14_migration_required(self) -> bool:
+        conn = self.connect()
+        if not conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 14"
+        ).fetchone():
+            return True
+        required_columns = {
+            "webhook_provider",
+            "webhook_signing_env_name",
+            "webhook_signing_secret_digest",
+        }
+        providers = ",".join("?" for _value in WEBHOOK_PROVIDERS)
+        for table in (
+            "user_notification_settings",
+            "apify_actor_alert_settings",
+        ):
+            columns = {
+                str(row["name"])
+                for row in conn.execute(
+                    f"PRAGMA table_info({table})"
+                ).fetchall()
+            }
+            if not required_columns <= columns:
+                return True
+            invalid = conn.execute(
+                f"""
+                SELECT 1 FROM {table}
+                WHERE webhook_provider NOT IN ({providers})
+                   OR (
+                        (webhook_signing_env_name IS NULL)
+                        != (webhook_signing_secret_digest IS NULL)
+                   )
+                   OR (
+                        webhook_signing_env_name IS NOT NULL
+                        AND webhook_provider NOT IN (
+                            'feishu_lark_v2', 'dingtalk'
+                        )
+                   )
+                   OR (
+                        webhook_signing_secret_digest IS NOT NULL
+                        AND (
+                            length(webhook_signing_secret_digest) != 64
+                            OR webhook_signing_secret_digest
+                                GLOB '*[^0-9a-f]*'
+                        )
+                   )
+                LIMIT 1
+                """,
+                tuple(sorted(WEBHOOK_PROVIDERS)),
+            ).fetchone()
+            if invalid:
+                return True
+        installed_triggers = {
+            str(row["name"])
+            for row in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'trigger'
+                """
+            ).fetchall()
+        }
+        return not WEBHOOK_PROVIDER_TRIGGER_NAMES <= installed_triggers
 
     def mark_apify_key_pool_v8_migrated(self, *, commit: bool = True) -> None:
         self.connect().execute(
@@ -2257,6 +2439,59 @@ class ServiceStore:
         }
         if column not in existing:
             self.connect().execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _ensure_webhook_provider_triggers(self) -> None:
+        """Keep migrated and newly-created settings tables equally strict."""
+
+        conn = self.connect()
+        providers = ", ".join(
+            f"'{provider}'" for provider in sorted(WEBHOOK_PROVIDERS)
+        )
+        for table in (
+            "user_notification_settings",
+            "apify_actor_alert_settings",
+        ):
+            for operation in ("INSERT", "UPDATE"):
+                trigger_name = (
+                    f"trg_{table}_webhook_v14_{operation.lower()}"
+                )
+                conn.execute(
+                    f"""
+                    CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                    BEFORE {operation} ON {table}
+                    FOR EACH ROW
+                    WHEN
+                        NEW.webhook_provider NOT IN ({providers})
+                        OR (
+                            (NEW.webhook_signing_env_name IS NULL)
+                            != (
+                                NEW.webhook_signing_secret_digest IS NULL
+                            )
+                        )
+                        OR (
+                            NEW.webhook_signing_env_name IS NOT NULL
+                            AND NEW.webhook_provider NOT IN (
+                                'feishu_lark_v2', 'dingtalk'
+                            )
+                        )
+                        OR (
+                            NEW.webhook_signing_secret_digest IS NOT NULL
+                            AND (
+                                length(
+                                    NEW.webhook_signing_secret_digest
+                                ) != 64
+                                OR NEW.webhook_signing_secret_digest
+                                    GLOB '*[^0-9a-f]*'
+                            )
+                        )
+                    BEGIN
+                        SELECT RAISE(
+                            ABORT,
+                            'invalid webhook provider settings'
+                        );
+                    END
+                    """
+                )
 
     def _bootstrap_default_workspace(self) -> None:
         now = _now_iso()
@@ -3991,6 +4226,9 @@ class ServiceStore:
         email_address: Any = _UNSET,
         webhook_env_name: Any = _UNSET,
         webhook_secret_digest: Any = _UNSET,
+        webhook_provider: Any = _UNSET,
+        webhook_signing_env_name: Any = _UNSET,
+        webhook_signing_secret_digest: Any = _UNSET,
         commit: bool = True,
     ) -> dict[str, Any]:
         conn = self.connect()
@@ -4040,6 +4278,23 @@ class ServiceStore:
                 if webhook_secret_digest is _UNSET
                 else webhook_secret_digest
             )
+            target_webhook_provider = str(
+                (current or {}).get("webhook_provider") or "legacy_auto"
+                if webhook_provider is _UNSET
+                else webhook_provider
+            ).strip().lower()
+            if target_webhook_provider not in WEBHOOK_PROVIDERS:
+                raise ValueError("webhook provider is not supported")
+            target_signing_env = (
+                (current or {}).get("webhook_signing_env_name")
+                if webhook_signing_env_name is _UNSET
+                else webhook_signing_env_name
+            )
+            target_signing_digest = (
+                (current or {}).get("webhook_signing_secret_digest")
+                if webhook_signing_secret_digest is _UNSET
+                else webhook_signing_secret_digest
+            )
             if bool(str(target_webhook_env or "").strip()) != bool(
                 str(target_webhook_digest or "").strip()
             ):
@@ -4052,6 +4307,27 @@ class ServiceStore:
             ):
                 raise ValueError(
                     "webhook destination digest must be a SHA-256 value"
+                )
+            if bool(str(target_signing_env or "").strip()) != bool(
+                str(target_signing_digest or "").strip()
+            ):
+                raise ValueError(
+                    "webhook signing environment and digest must be configured together"
+                )
+            if target_signing_digest and not re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(target_signing_digest),
+            ):
+                raise ValueError(
+                    "webhook signing digest must be a SHA-256 value"
+                )
+            if (
+                target_signing_digest
+                and target_webhook_provider
+                not in {"feishu_lark_v2", "dingtalk"}
+            ):
+                raise ValueError(
+                    "selected webhook provider does not support signing"
                 )
             if (
                 target_enabled
@@ -4079,19 +4355,63 @@ class ServiceStore:
             notification_generation = int(
                 (current or {}).get("notification_generation") or 0
             )
+            material_changed = current is not None and any(
+                (
+                    target_channel
+                    != str((current or {}).get("channel") or "webhook"),
+                    target_email != (current or {}).get("email_address"),
+                    target_webhook_env
+                    != (current or {}).get("webhook_env_name"),
+                    target_webhook_digest
+                    != (current or {}).get("webhook_secret_digest"),
+                    target_webhook_provider
+                    != str(
+                        (current or {}).get("webhook_provider")
+                        or "legacy_auto"
+                    ),
+                    target_signing_env
+                    != (current or {}).get("webhook_signing_env_name"),
+                    target_signing_digest
+                    != (current or {}).get(
+                        "webhook_signing_secret_digest"
+                    ),
+                )
+            )
+            generation_changed = bool(
+                material_changed
+                or (
+                    target_enabled
+                    and not bool((current or {}).get("enabled"))
+                )
+            )
+            if generation_changed:
+                notification_generation += 1
             if not target_enabled:
                 notification_enabled_at = None
             elif not bool((current or {}).get("enabled")):
                 notification_enabled_at = now
-                notification_generation += 1
+            last_test_status = (current or {}).get("last_test_status")
+            last_tested_at = (current or {}).get("last_tested_at")
+            last_test_error_code = (current or {}).get(
+                "last_test_error_code"
+            )
+            if material_changed:
+                last_test_status = None
+                last_tested_at = None
+                last_test_error_code = None
             conn.execute(
                 """
                 INSERT INTO user_notification_settings (
                     user_id, workspace_id, enabled, channel, email_address,
                     webhook_env_name, webhook_secret_digest,
+                    webhook_provider, webhook_signing_env_name,
+                    webhook_signing_secret_digest,
                     notification_enabled_at, notification_generation,
+                    last_test_status, last_tested_at, last_test_error_code,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(user_id) DO UPDATE SET
                     workspace_id = excluded.workspace_id,
                     enabled = excluded.enabled,
@@ -4099,8 +4419,16 @@ class ServiceStore:
                     email_address = excluded.email_address,
                     webhook_env_name = excluded.webhook_env_name,
                     webhook_secret_digest = excluded.webhook_secret_digest,
+                    webhook_provider = excluded.webhook_provider,
+                    webhook_signing_env_name =
+                        excluded.webhook_signing_env_name,
+                    webhook_signing_secret_digest =
+                        excluded.webhook_signing_secret_digest,
                     notification_enabled_at = excluded.notification_enabled_at,
                     notification_generation = excluded.notification_generation,
+                    last_test_status = excluded.last_test_status,
+                    last_tested_at = excluded.last_tested_at,
+                    last_test_error_code = excluded.last_test_error_code,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -4111,8 +4439,14 @@ class ServiceStore:
                     target_email,
                     target_webhook_env,
                     target_webhook_digest,
+                    target_webhook_provider,
+                    target_signing_env,
+                    target_signing_digest,
                     notification_enabled_at,
                     notification_generation,
+                    last_test_status,
+                    last_tested_at,
+                    last_test_error_code,
                     now,
                     now,
                 ),
@@ -4137,10 +4471,11 @@ class ServiceStore:
         workspace_id: str,
         user_id: str,
         status: str,
+        generation: int | None = None,
         error_code: str | None = None,
         tested_at: str | None = None,
         commit: bool = True,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         if status not in {"sent", "failed"}:
             raise ValueError("notification test status must be sent or failed")
         conn = self.connect()
@@ -4163,6 +4498,7 @@ class ServiceStore:
                     last_test_error_code = ?,
                     updated_at = ?
                 WHERE workspace_id = ? AND user_id = ?
+                  AND (? IS NULL OR notification_generation = ?)
                 """,
                 (
                     status,
@@ -4171,10 +4507,14 @@ class ServiceStore:
                     now,
                     workspace_id,
                     user_id,
+                    generation,
+                    generation,
                 ),
             )
             if updated_row.rowcount != 1:
-                raise LookupError("notification settings not found")
+                if owns_transaction:
+                    conn.commit()
+                return None
             updated = self.get_user_notification_settings(
                 workspace_id=workspace_id,
                 user_id=user_id,

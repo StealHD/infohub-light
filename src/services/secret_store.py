@@ -71,18 +71,29 @@ class SecretStore:
         return {"env_name": name, "is_set": bool(values.get(name) or os.getenv(name))}
 
     def set(self, env_name: str, value: str) -> None:
-        name = self.validate_env_name(env_name)
-        secret = self.validate_value(value)
-        with self._lock:
-            values = self.read()
-            values[name] = secret
-            self._write(values)
+        self.replace_many({env_name: value})
 
     def delete(self, env_name: str) -> None:
-        name = self.validate_env_name(env_name)
+        self.replace_many({env_name: None})
+
+    def replace_many(self, updates: dict[str, str | None]) -> None:
+        """Atomically set or remove several values in one file replacement."""
+
+        normalized: dict[str, str | None] = {}
+        for raw_name, raw_value in updates.items():
+            name = self.validate_env_name(raw_name)
+            normalized[name] = (
+                None
+                if raw_value is None
+                else self.validate_value(raw_value)
+            )
         with self._lock:
             values = self.read()
-            values.pop(name, None)
+            for name, secret in normalized.items():
+                if secret is None:
+                    values.pop(name, None)
+                else:
+                    values[name] = secret
             self._write(values)
 
     def load_into_environ(self) -> set[str]:

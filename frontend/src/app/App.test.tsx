@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/client'
 import { queryKeys } from '../api/queryKeys'
 import type { ServiceApi } from '../api/service'
-import type { FeedItem, Job } from '../api/types'
+import type { FeedItem, Job, WebhookProviderOption } from '../api/types'
 import { actionToast, DesignSystemProvider } from '../design-system'
 import { validateRegistryFields } from '../features/admin-heroui/sourceFormValidation'
 import { AppRoutes } from './App'
@@ -25,6 +25,18 @@ function NavigationProbe() {
     <button type="button" onClick={() => navigate('/saved')}>测试前往收藏</button>
     <button type="button" onClick={() => navigate('/history')}>测试前往历史</button>
   </div>
+}
+
+function webhookProviderOptions(): WebhookProviderOption[] {
+  return [
+    { provider: 'generic_event', label: '通用事件 JSON', description: 'event/data', url_hint: 'https://example.com/webhook', signing: 'none', verification_mode: 'http_status' },
+    { provider: 'generic_text', label: '通用文本 JSON', description: 'text', url_hint: 'https://example.com/webhook', signing: 'none', verification_mode: 'http_status' },
+    { provider: 'feishu_lark_v2', label: '飞书 / Lark V2', description: '平台文本', url_hint: 'https://open.feishu.cn/open-apis/bot/v2/hook/…', signing: 'optional', verification_mode: 'provider_response' },
+    { provider: 'wecom', label: '企业微信群机器人', description: '平台文本', url_hint: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…', signing: 'none', verification_mode: 'provider_response' },
+    { provider: 'dingtalk', label: '钉钉自定义机器人', description: '平台文本', url_hint: 'https://oapi.dingtalk.com/robot/send?access_token=…', signing: 'optional', verification_mode: 'provider_response' },
+    { provider: 'slack', label: 'Slack / GovSlack', description: '平台文本', url_hint: 'https://hooks.slack.com/services/…/…/…', signing: 'none', verification_mode: 'provider_response' },
+    { provider: 'discord', label: 'Discord Incoming Webhook', description: '平台文本', url_hint: 'https://discord.com/api/webhooks/…/…', signing: 'none', verification_mode: 'provider_response' },
+  ]
 }
 
 function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
@@ -56,12 +68,17 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
     notificationSettings: vi.fn().mockResolvedValue({
-      schema_version: 1,
+      schema_version: 2,
       enabled: false,
       channel: 'email',
       email_configured: false,
       email_transport_ready: false,
       webhook_configured: false,
+      webhook_provider: 'generic_event',
+      webhook_provider_explicit: true,
+      webhook_signing_secret_configured: false,
+      webhook_verification_mode: 'http_status',
+      webhook_provider_options: webhookProviderOptions(),
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -93,13 +110,18 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       candidates: [],
     }),
     apifyActorAlertSettings: vi.fn().mockResolvedValue({
-      schema_version: 1,
+      schema_version: 2,
       enabled: false,
       channel: 'webhook',
       events: ['actor_switched', 'route_exhausted', 'quota_low', 'budget_blocked', 'start_outcome_unknown', 'recovered'],
       email_configured: false,
       email_transport_ready: false,
       webhook_configured: false,
+      webhook_provider: 'generic_event',
+      webhook_provider_explicit: true,
+      webhook_signing_secret_configured: false,
+      webhook_verification_mode: 'http_status',
+      webhook_provider_options: webhookProviderOptions(),
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -1542,12 +1564,17 @@ describe('App routes', () => {
     const secrets = vi.fn().mockResolvedValue({ secrets: [] })
     const ignoredFeed = vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } })
     const notificationSettings = vi.fn().mockResolvedValue({
-      schema_version: 1,
+      schema_version: 2,
       enabled: true,
       channel: 'webhook',
       email_configured: false,
       email_transport_ready: true,
       webhook_configured: true,
+      webhook_provider: 'generic_event',
+      webhook_provider_explicit: true,
+      webhook_signing_secret_configured: false,
+      webhook_verification_mode: 'http_status',
+      webhook_provider_options: webhookProviderOptions(),
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -1612,6 +1639,12 @@ describe('App routes', () => {
     expect(hiddenQueries.apifyActorXProfileRoute).not.toHaveBeenCalled()
     expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
 
+    const provider = screen.getByRole('button', { name: /Webhook 类型/ })
+    expect(provider).toHaveTextContent('通用事件 JSON')
+    await browser.click(provider)
+    expect(await screen.findAllByRole('option')).toHaveLength(7)
+    await browser.keyboard('{Escape}')
+
     const destination = screen.getByLabelText('Webhook 地址')
     await browser.type(destination, 'https://example.invalid/preserved-draft')
     await browser.click(screen.getByRole('button', { name: /设置区域/ }))
@@ -1623,6 +1656,7 @@ describe('App routes', () => {
 
     await browser.click(screen.getByRole('button', { name: /设置区域/ }))
     await browser.click(await screen.findByRole('option', { name: '消息通知' }))
+    expect(screen.getByRole('button', { name: /Webhook 类型/ })).toHaveTextContent('通用事件 JSON')
     expect(destination).toHaveValue('https://example.invalid/preserved-draft')
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()

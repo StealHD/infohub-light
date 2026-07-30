@@ -4,50 +4,6 @@
 
 Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not logged.
 
-```json
-{
-  "control_topics": [
-    "architecture",
-    "capabilities",
-    "context",
-    "decisions",
-    "instructions",
-    "interface",
-    "phase",
-    "ui"
-  ],
-  "recorded_on": "2026-07-28",
-  "result": "完成 init-pro schema-v3 控制迁移，将旧计划、工作日志和低频历史报告逐字归档，并保留全部产品源码、测试、依赖、构建与运行必需文件原位。",
-  "status": "completed",
-  "task_id": "2026-07-28-project-history-archive-v3",
-  "unresolved": [],
-  "validation": [
-    "schema-v3 project controls structural validation passed",
-    "compact worklog validation passed",
-    "legacy worklog and plan SHA-256 byte conservation verified",
-    "python scripts/test_gate.py run --mode full",
-    "git diff --check"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-07-28",
-  "result": "从项目历史归档分支完成本地 8080 API 与 Worker 安全切换和运行态验收。",
-  "status": "completed",
-  "task_id": "2026-07-28-branch-container-smoke",
-  "unresolved": [],
-  "validation": [
-    "cutover preflight found zero active jobs and zero due automatic schedules",
-    "scripts/up-latest.sh completed with target revision",
-    "API and Worker healthy with worker_status ready and zero restarts",
-    "root Feed and served frontend asset returned HTTP 200",
-    "SQLite quick_check passed with no foreign-key findings"
-  ]
-}
-```
 
 ```json
 {
@@ -369,6 +325,56 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "ui"
   ],
+  "recorded_on": "2026-07-29",
+  "result": "修复用户新内容通知与 Apify 运行告警对飞书/Lark V2 自定义机器人的投递格式；保留通用 Webhook 合同，并补齐文本标记中和、密集批次与恢复告警展示。",
+  "status": "completed",
+  "task_id": "2026-07-29-feishu-webhook-delivery",
+  "unresolved": [
+    "未重建或部署生产服务，未触发真实 Webhook；现有安全合同不读取 HTTP 2xx 响应正文，提供方业务拒绝仍是保留风险"
+  ],
+  "validation": [
+    "preferred-source and Apify notification regressions: 58 passed",
+    "frontend typecheck and changelog Vitest passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent review findings addressed",
+    "git diff --check"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "将个人新内容通知与 Apify 运行告警升级为七类共享 Webhook Provider Registry，补齐平台原生文本、飞书/钉钉可选签名、业务 ACK、4 KiB 安全响应、schema v14 显式迁移、write-only Secret 与 generation 门禁；未知测试结果禁止盲目重发，签名绑定异常全链路 fail closed。",
+  "status": "completed",
+  "task_id": "2026-07-30-universal-webhook-providers-v14",
+  "unresolved": [
+    "未重建 8080、未部署、未在运行数据库执行 v14 迁移，也未触发真实 Webhook；平台实际群内展示仍需部署后由 operator 验收"
+  ],
+  "validation": [
+    "backend/API targeted regressions: 123 passed",
+    "frontend typecheck and 5 files / 116 tests passed",
+    "signing metadata tamper probes fail closed before stage, claim and POST",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "independent final review found no remaining P0-P2",
+    "git diff --check and project-defaults JSON validation passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
   "recorded_on": "2026-07-30",
   "result": "拆分全局信息流任务观察与订阅页完整运行记录，历史终态任务仅建立基线；服务端对任务类型、计划摘要和订阅调度采用有界过滤与批量读取，消除订阅页自失效循环和 N+1。",
   "status": "completed",
@@ -401,6 +407,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "independent final reviews found no remaining P0/P1/P2",
     "python scripts/test_gate.py run --mode full: 22/22 passed",
     "python scripts/test_gate.py run --mode release: 24/24 passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "将七类 Webhook Provider 与飞书投递修复直接合入包含请求风暴和传输性能修复的本地 main；解决控制文档冲突并保留 v2.1.0 发布元数据。",
+  "status": "completed",
+  "task_id": "2026-07-30-universal-webhook-main-integration",
+  "unresolved": [
+    "未推送远端、未重建 8080、未执行 v14 运行库迁移，也未触发真实 Webhook"
+  ],
+  "validation": [
+    "combined main python scripts/test_gate.py run --mode full: 22/22 passed",
+    "API/Webhook/Worker/migration/SecretStore/queue/schedule regressions: 319 passed",
+    "merge conflict resolutions preserve both branch histories with no unmerged entries or conflict markers",
+    "pyproject.toml and uv.lock remain at 2.1.0"
   ]
 }
 ```

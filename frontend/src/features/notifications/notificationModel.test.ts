@@ -47,12 +47,25 @@ describe('notification model', () => {
       code: 'notification_test_rate_limited',
       message: 'internal cooldown detail',
     }), '测试通知发送失败，请稍后重试。')).toBe('测试通知发送过于频繁，请稍后再试。')
+    expect(safeNotificationError(new ApiError(502, {
+      code: 'notification_test_outcome_unknown',
+      message: 'raw upstream response must stay private',
+    }), '测试通知发送失败，请稍后重试。')).toBe('测试通知结果未知，请勿重复发送；请先确认接收端。')
   })
 
   it('normalizes safe last-test labels without exposing backend detail', () => {
     expect(notificationTestLabel(null)).toBe('尚未发送测试通知')
-    expect(notificationTestLabel('succeeded')).toBe('最近一次测试发送成功')
+    expect(notificationTestLabel('succeeded')).toBe('最近一次测试请求已发送，请确认接收端')
+    expect(notificationTestLabel('sent', {
+      channel: 'email',
+      verificationMode: 'http_status',
+    })).toBe('最近一次测试邮件已发送，请确认收件箱')
+    expect(notificationTestLabel('sent', {
+      channel: 'webhook',
+      verificationMode: 'provider_response',
+    })).toBe('最近一次测试已获平台接受，请确认接收端')
     expect(notificationTestLabel('failed')).toBe('最近一次测试发送失败')
+    expect(notificationTestLabel('unknown')).toBe('最近一次测试结果未知，不会自动重发')
     expect(notificationTestLabel('provider-specific-detail')).toBe('最近一次测试状态未知')
   })
 })

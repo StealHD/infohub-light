@@ -464,6 +464,11 @@ def test_settings_projection_is_value_free_and_webhook_is_secret_only(
         "email_configured",
         "email_transport_ready",
         "webhook_configured",
+        "webhook_provider",
+        "webhook_provider_explicit",
+        "webhook_signing_secret_configured",
+        "webhook_verification_mode",
+        "webhook_provider_options",
         "last_test_status",
         "last_tested_at",
         "last_test_error_code",
@@ -474,12 +479,19 @@ def test_settings_projection_is_value_free_and_webhook_is_secret_only(
         "webhook_url",
         "webhook_env_name",
         "webhook_secret_digest",
+        "webhook_signing_env_name",
+        "webhook_signing_secret_digest",
         "notification_enabled_at",
         "notification_generation",
         "last_test_attempted_at",
         "created_at",
     }.isdisjoint(public)
     assert public["webhook_configured"] is True
+    assert public["webhook_provider"] == "generic_event"
+    assert public["webhook_provider_explicit"] is False
+    assert public["webhook_signing_secret_configured"] is False
+    assert public["webhook_verification_mode"] == "http_status"
+    assert len(public["webhook_provider_options"]) == 7
 
     internal = store.get_user_notification_settings(
         workspace_id=workspace_id,
@@ -601,6 +613,134 @@ def test_deleted_webhook_secret_never_falls_back_to_process_environment(
     assert stored is not None
     assert stored["last_test_error_code"] == "notification_destination_required"
     assert network_called is False
+
+
+def test_provider_and_signing_rotation_is_write_only_and_invalidates_test(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    store = context["store"]
+    service = context["service"]
+    workspace_id = context["workspace"]["id"]
+    user_id = context["user"]["id"]
+    before = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert before is not None
+    store.record_user_notification_test(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        status="sent",
+    )
+    webhook_url = (
+        "https://open.feishu.cn/open-apis/bot/v2/hook/"
+        "00000000-0000-0000-0000-000000000000"
+    )
+    signing_secret = "write-only-signing-secret"
+
+    public = service.upsert_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        webhook_provider="feishu_lark_v2",
+        webhook_url=webhook_url,
+        webhook_signing_secret=signing_secret,
+    )
+
+    assert public["webhook_provider"] == "feishu_lark_v2"
+    assert public["webhook_provider_explicit"] is True
+    assert public["webhook_signing_secret_configured"] is True
+    assert public["webhook_verification_mode"] == "provider_response"
+    assert public["last_test_status"] is None
+    assert webhook_url not in repr(public)
+    assert signing_secret not in repr(public)
+    internal = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert internal is not None
+    assert internal["notification_generation"] == (
+        int(before["notification_generation"]) + 1
+    )
+    signing_env = service.webhook_signing_env_name(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    secrets = SecretStore(tmp_path).read()
+    assert secrets[signing_env] == signing_secret
+    assert signing_secret.encode() not in store.db_path.read_bytes()
+
+    generation = int(internal["notification_generation"])
+    cleared = service.upsert_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        webhook_signing_secret=None,
+    )
+    assert cleared["webhook_signing_secret_configured"] is False
+    after_clear = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert after_clear is not None
+    assert after_clear["notification_generation"] == generation + 1
+    assert signing_env not in SecretStore(tmp_path).read()
+
+    with pytest.raises(NotificationServiceError) as missing_url:
+        service.upsert_settings(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            webhook_provider="slack",
+        )
+    assert (
+        missing_url.value.code
+        == "webhook_url_required_for_provider_change"
+    )
+    assert (
+        service.get_public_settings(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )["webhook_provider"]
+        == "feishu_lark_v2"
+    )
+
+
+def test_provider_change_bumps_generation_while_notifications_are_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    service = context["service"]
+    store = context["store"]
+    workspace_id = context["workspace"]["id"]
+    user_id = context["user"]["id"]
+    service.upsert_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        enabled=False,
+    )
+    disabled = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert disabled is not None
+
+    service.upsert_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        webhook_provider="generic_text",
+        webhook_url="https://notify.example.test/text",
+    )
+
+    changed = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert changed is not None
+    assert changed["enabled"] is False
+    assert changed["notification_generation"] == (
+        int(disabled["notification_generation"]) + 1
+    )
 
 
 def test_explicit_clear_removes_an_unreferenced_webhook_secret(
@@ -754,6 +894,26 @@ def test_settings_secret_is_restored_when_database_update_fails(
     assert before is not None
     env_name = str(before["webhook_env_name"])
     old_url = str(SecretStore(tmp_path).read()[env_name])
+    original_replace_many = service.secret_store.replace_many
+    replace_calls = 0
+    compensation_transaction_states: list[bool] = []
+
+    def tracked_replace_many(
+        updates: dict[str, str | None],
+    ) -> None:
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            compensation_transaction_states.append(
+                store.connect().in_transaction
+            )
+        original_replace_many(updates)
+
+    monkeypatch.setattr(
+        service.secret_store,
+        "replace_many",
+        tracked_replace_many,
+    )
 
     monkeypatch.setattr(
         store,
@@ -770,6 +930,7 @@ def test_settings_secret_is_restored_when_database_update_fails(
             webhook_url="https://hooks.example.com/replacement",
         )
 
+    assert compensation_transaction_states == [True]
     assert SecretStore(tmp_path).read()[env_name] == old_url
     verification_store = ServiceStore(tmp_path)
     stored = verification_store.get_user_notification_settings(
@@ -1152,13 +1313,108 @@ def test_webhook_transport_emits_explicit_test_event(
     assert context["service"].send_test(
         workspace_id=context["workspace"]["id"],
         user_id=context["user"]["id"],
-    ) == {"sent": True, "channel": "webhook"}
+    ) == {
+        "sent": True,
+        "channel": "webhook",
+        "provider": "generic_event",
+        "verification": "http_accepted",
+    }
 
     assert len(requests) == 1
     assert requests[0]["event"] == "inteliscope.preferred_source.test"
     assert requests[0]["data"]["test"] is True
     assert requests[0]["data"]["kind"] == "test"
     assert requests[0]["data"]["article_id"] == "notification-test"
+
+
+@pytest.mark.parametrize(
+    "webhook_host",
+    (
+        "open.feishu.cn",
+        "open.larksuite.com",
+        "OPEN.FEISHU.CN.",
+        "open。feishu。cn",
+    ),
+)
+def test_feishu_webhook_transport_emits_text_messages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    webhook_host: str,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    service = context["service"]
+    service.upsert_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        webhook_url=(
+            f"https://{webhook_host}/open-apis/bot/v2/hook/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+    )
+    settings = context["store"].get_user_notification_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+    )
+    assert settings is not None
+    requests: list[dict[str, Any]] = []
+
+    async def capture_post(_url: str, **kwargs: Any) -> httpx.Response:
+        requests.append(json.loads(kwargs["content"].decode("utf-8")))
+        return httpx.Response(200, json={"code": 0})
+
+    monkeypatch.setattr(notification_module, "post_public_http", capture_post)
+
+    service._send_webhook(
+        settings,
+        service._delivery_payload(
+            {
+                "title": "Inteliscope 推送测试",
+                "summary_zh": "这是一条模拟的新内容通知。",
+                "url": "https://example.com/notification-test",
+                "published_at": "2026-07-29T13:50:26+00:00",
+            },
+            article_id="notification-test",
+            source_name="Inteliscope",
+            test=True,
+        ),
+    )
+    items = [
+        {
+            "article_id": f"article-{index}",
+            "payload": {
+                "article_id": f"article-{index}",
+                "source_name": "OpenAI News",
+                "title": (
+                    'A new release <at user_id="all">everyone</at>'
+                    if index == 1
+                    else f"Release {index}"
+                ),
+                "summary": "Release notes are available. " + ("x" * 600),
+                "published_at": "2026-07-29T14:00:00+00:00",
+                "url": f"https://example.com/release/{index}",
+            },
+        }
+        for index in range(1, 21)
+    ]
+    service._send_webhook(
+        settings,
+        service._batch_delivery_payload(items),
+    )
+
+    assert len(requests) == 2
+    assert requests[0]["msg_type"] == "text"
+    assert "Inteliscope 新内容通知测试" in requests[0]["content"]["text"]
+    assert "这是一条模拟的新内容通知。" in requests[0]["content"]["text"]
+    assert "event" not in requests[0]
+    assert requests[1]["msg_type"] == "text"
+    text = requests[1]["content"]["text"]
+    assert "Inteliscope 新内容通知（20 条）" in text
+    assert "OpenAI News" in text
+    assert "A new release" in text
+    assert '＜at user_id="all"＞everyone＜/at＞' in text
+    assert "<at" not in text
+    assert "20. Release 20" in text
+    assert len(text) <= 3_500
 
 
 def test_email_transport_sends_one_message_containing_every_item(
@@ -1770,7 +2026,7 @@ def test_ambiguous_delivery_outcome_stays_sending_and_is_never_replayed(
     assert send_calls == 1
 
 
-def test_non_identity_webhook_response_stays_sending_and_is_not_replayed(
+def test_generic_webhook_accepts_non_identity_response_without_reading_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1820,14 +2076,14 @@ def test_non_identity_webhook_response_stays_sending_and_is_not_replayed(
 
     assert service.dispatch_pending(job_id=current_job["id"]) == {
         "claimed": 1,
-        "succeeded": 0,
+        "succeeded": 1,
         "failed": 0,
     }
     delivery = store.list_preferred_source_notification_deliveries(
         workspace_id=context["workspace"]["id"],
         user_id=context["user"]["id"],
     )[0]
-    assert delivery["status"] == "sending"
+    assert delivery["status"] == "succeeded"
     assert delivery["attempts"] == 1
     assert delivery["error_code"] is None
     assert post_calls == 1
@@ -2087,6 +2343,115 @@ def test_webhook_secret_tampering_is_revalidated_before_network_call(
     assert network_called is False
 
 
+def test_webhook_signing_secret_tampering_fails_closed_at_stage_claim_and_send(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    store = context["store"]
+    service = context["service"]
+    workspace_id = context["workspace"]["id"]
+    user_id = context["user"]["id"]
+    service.upsert_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        webhook_provider="dingtalk",
+        webhook_url=(
+            "https://oapi.dingtalk.com/robot/send"
+            "?access_token=00000000000000000000000000000000"
+        ),
+        webhook_signing_secret="configured-signing-secret",
+    )
+    settings = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert settings is not None
+
+    baseline_job = _job(context)
+    baseline = _save_snapshot(
+        context,
+        baseline_job,
+        [_item(context, "baseline")],
+        generated_at="2026-07-24T00:01:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=baseline_job,
+        snapshot_id=baseline["id"],
+        snapshot_created=True,
+    ) == 0
+    store.connect().commit()
+    current_job = _job(context)
+    current = _save_snapshot(
+        context,
+        current_job,
+        [_item(context, "baseline"), _item(context, "pending-before-tamper")],
+        generated_at="2026-07-24T00:02:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=current_job,
+        snapshot_id=current["id"],
+        snapshot_created=True,
+    ) == 1
+    store.connect().commit()
+    signing_env = str(settings["webhook_signing_env_name"])
+    SecretStore(tmp_path).set(signing_env, "tampered-signing-secret")
+    next_job = _job(context)
+    next_snapshot = _save_snapshot(
+        context,
+        next_job,
+        [
+            _item(context, "baseline"),
+            _item(context, "pending-before-tamper"),
+            _item(context, "must-not-stage"),
+        ],
+        generated_at="2026-07-24T00:03:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=next_job,
+        snapshot_id=next_snapshot["id"],
+        snapshot_created=True,
+    ) == 0
+    store.connect().commit()
+    assert _count(store, "preferred_source_notification_deliveries") == 1
+
+    network_called = False
+
+    async def forbidden_post(*_args: Any, **_kwargs: Any) -> httpx.Response:
+        nonlocal network_called
+        network_called = True
+        pytest.fail("tampered signing secret reached the network transport")
+
+    monkeypatch.setattr(notification_module, "post_public_http", forbidden_post)
+    assert service.dispatch_pending(job_id=current_job["id"]) == {
+        "claimed": 1,
+        "succeeded": 0,
+        "failed": 1,
+    }
+    delivery = store.list_preferred_source_notification_deliveries(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )[0]
+    assert delivery["status"] == "failed"
+    assert delivery["error_code"] == "invalid_webhook_signing_secret"
+    payload = service._delivery_payload(
+        {
+            "title": "Tampered signing test",
+            "published_at": NEW_PUBLISHED_AT,
+            "url": "https://example.com/safe-article",
+        },
+        article_id="tampered-signing-test",
+        source_name="Inteliscope",
+        test=True,
+    )
+    with pytest.raises(NotificationServiceError) as exc_info:
+        service._send_webhook(settings, payload)
+
+    assert exc_info.value.code == "invalid_webhook_signing_secret"
+    assert exc_info.value.outcome_unknown is False
+    assert network_called is False
+
+
 def test_send_test_is_atomic_rate_limited_and_does_not_touch_feed_or_outbox(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2210,6 +2575,56 @@ def test_send_test_hides_internal_delivery_failure_code(
             "user_feed_snapshots",
         )
     } == before
+
+
+def test_send_test_reports_unknown_without_inviting_a_duplicate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    store = context["store"]
+    service = context["service"]
+    workspace_id = context["workspace"]["id"]
+    user_id = context["user"]["id"]
+
+    def unknown_send(
+        _settings: dict[str, Any],
+        _payload: dict[str, Any],
+    ) -> None:
+        raise NotificationServiceError(
+            "notification_webhook_response_invalid",
+            "unsafe upstream body must stay private",
+            status_code=502,
+            retryable=True,
+            outcome_unknown=True,
+        )
+
+    monkeypatch.setattr(service, "_send_payload", unknown_send)
+    with pytest.raises(NotificationServiceError) as exc_info:
+        service.send_test(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+    assert exc_info.value.code == "notification_test_outcome_unknown"
+    assert exc_info.value.retryable is False
+    assert exc_info.value.outcome_unknown is True
+    assert "unsafe upstream" not in str(exc_info.value)
+    stored = store.get_user_notification_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert stored is not None
+    assert stored["last_test_status"] == "failed"
+    assert (
+        stored["last_test_error_code"]
+        == "notification_webhook_response_invalid"
+    )
+    public = service.get_public_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    assert public["last_test_status"] == "unknown"
 
 
 @pytest.mark.parametrize(
