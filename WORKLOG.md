@@ -33,27 +33,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-07-29",
-  "result": "v2.0.0 已通过正式发布门禁并推送 main/tag；本地 AMD64 镜像已构建校验并上传，但 VPS 在隔离预发布容器启动时进入全协议握手失败，尚未切换生产版本。",
-  "status": "partial",
-  "task_id": "2026-07-29-v2.0.0-vps-rollout-attempt",
-  "unresolved": [
-    "从阿里云控制台重启 47.79.148.231 后检查 OOM、生产数据库和旧容器状态",
-    "启用或确认 2 GiB swap，清理隔离预发布容器后重新完成 staging、原子切换和公网验收"
-  ],
-  "validation": [
-    "python scripts/test_gate.py run --mode release: 24/24 passed",
-    "origin/main and annotated tag v2.0.0 resolve to 587ca29c878ebde6dc2faa9627c5174204e6285e",
-    "linux/amd64 image labels and CLI startup checks passed",
-    "VPS production .env/current were not changed before the disconnect",
-    "SSH, HTTP and TLS ports accept TCP but close during protocol handshakes"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-07-29",
   "result": "将精确发布 v2.0.0-587ca29c878e 安全部署到 vps-tokyo，生产 API/Worker 同镜像运行，并按用户要求启用 HORIZON_APIFY_KEY_POOL_ENABLED=true。",
   "status": "completed",
   "task_id": "2026-07-29-v2.0.0-vps-rollout-complete",
@@ -437,6 +416,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "frontend typecheck/lint/UI contract/Vitest/build passed; 58 files and 530 tests",
     "python scripts/test_gate.py run --mode full: 22/22 passed",
     "public diagnostics and React rendering expose only authenticated /api/media paths"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "发布 v2.1.2 来源头像版本：本地与 VPS 使用本机构建的精确 linux/amd64 镜像切换到 3c408ed4f240，并对生产库 dry-run 后仅回填免费来源头像；两条 B 站与两个 GitHub 来源已可通过登录保护媒体接口展示当前头像。",
+  "status": "completed",
+  "task_id": "2026-07-30-v2.1.2-source-avatar-production-rollout",
+  "unresolved": [
+    "Apple Developer News、OpenAI News 未发现可验证的 RSS 图标，老高 YouTube RSS favicon 抓取失败；这些来源继续使用稳定的平台标识/来源简称，不影响 Feed",
+    "未额外调用付费 Actor、AI、通知或 scheduler；普通 RSS 头像保持 best-effort"
+  ],
+  "validation": [
+    "release Test Gate: 24/24 passed for product revision 3c408ed4f240",
+    "v2.1.2 annotated tag and origin/main pushed atomically",
+    "local 8080 and VPS report version 2.1.2 revision 3c408ed4f240; API/Worker healthy and ready with zero restarts",
+    "pre-cutover active jobs, due schedules and active notifications were zero; schema v14 integrity and foreign keys passed; scheduler stayed stopped",
+    "VPS API-only staging passed before cutover; environment and database backups are mode 0600; v2.1.1 rollback release remains available",
+    "free-only backfill stored 食贫道、超Carry的柴西、Clash Verge Rev and Claude Code Releases; authenticated catalog/media smoke returned four local /api/media assets with image HTTP 200",
+    "public rb.jiefs.top live/ready and avatar changelog asset passed; recent API/Worker error counts were zero"
   ]
 }
 ```
