@@ -467,3 +467,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "将日志故障排查分支 codex/observability-troubleshooting-v212 无冲突快进合入本地 main；保留独立任务分支与工作树，未推送远端或部署 VPS。",
+  "status": "completed",
+  "task_id": "2026-07-30-merge-observability-into-local-main",
+  "unresolved": [
+    "本地 main 尚未推送 origin/main"
+  ],
+  "validation": [
+    "main fast-forwarded from fa78e52627fc to 0681480a59cb",
+    "python scripts/test_gate.py run --mode full: 23/23 passed on merged main",
+    "observability contract, control JSON, diff checks, backend, frontend and Compose validation all passed"
+  ]
+}
+```
