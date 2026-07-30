@@ -27,6 +27,8 @@ _CHAT_USERNAME_RE = re.compile(
 _NUMERIC_CHAT_ID_RE = re.compile(r"^-?[1-9][0-9]{0,18}$")
 _ACK_LIMIT_BYTES = 32_768
 _MESSAGE_LIMIT_CHARACTERS = 4_096
+_MIN_SIGNED_64 = -(2**63)
+_MAX_SIGNED_64 = (2**63) - 1
 
 
 class TelegramConfigurationError(ValueError):
@@ -81,7 +83,9 @@ def normalize_telegram_chat_id(value: Any) -> str:
 
     candidate = str(value or "").strip()
     if _NUMERIC_CHAT_ID_RE.fullmatch(candidate):
-        return candidate
+        numeric_id = int(candidate)
+        if _MIN_SIGNED_64 <= numeric_id <= _MAX_SIGNED_64:
+            return candidate
     if _CHAT_USERNAME_RE.fullmatch(candidate):
         return candidate.lower()
     raise TelegramConfigurationError(

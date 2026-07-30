@@ -81,6 +81,12 @@ def test_normalizers_return_canonical_safe_values() -> None:
         f" {NUMERIC_CHAT_ID} "
     ) == NUMERIC_CHAT_ID
     assert normalize_telegram_chat_id(
+        "-9223372036854775808"
+    ) == "-9223372036854775808"
+    assert normalize_telegram_chat_id(
+        "9223372036854775807"
+    ) == "9223372036854775807"
+    assert normalize_telegram_chat_id(
         " @Example_Channel "
     ) == USERNAME_CHAT_ID
 
@@ -118,6 +124,9 @@ def test_invalid_bot_tokens_are_rejected_without_echo(
         "@bad-name",
         "https://t.me/example_channel",
         "-100123456789012345678",
+        "-9223372036854775809",
+        "9223372036854775808",
+        "9999999999999999999",
     ),
 )
 def test_invalid_chat_ids_are_rejected_without_echo(
