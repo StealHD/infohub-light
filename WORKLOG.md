@@ -447,3 +447,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "将本地 8080 的 API 与 Worker 从来源头像版本切换到日志故障排查分支提交 2cc63a0eb765；继续使用主工作区的 .env、data 与 logs，scheduler 保持未启动。",
+  "status": "completed",
+  "task_id": "2026-07-30-observability-local-8080-cutover",
+  "unresolved": [
+    "日志故障排查分支仍未合入 main、推送或部署到 VPS"
+  ],
+  "validation": [
+    "cutover preflight found zero queued/running jobs, zero due source/feed schedules and zero enabled notifications; SQLite integrity and foreign keys passed",
+    "./scripts/up-latest.sh completed for revision 2cc63a0eb765",
+    "API and Worker are healthy with zero restarts; readiness reports worker_status=ready and logging_status=ready",
+    "runtime mounts use the canonical main checkout .env, data and logs; scheduler is not running",
+    "served frontend asset contains the workspace diagnostics marker"
+  ]
+}
+```
