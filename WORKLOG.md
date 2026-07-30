@@ -485,3 +485,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "发布 v2.1.3 日志故障排查版本：同步项目与锁文件版本，创建指向已验证发布提交的 annotated tag，并将本地 main 与标签原子推送到 GitHub；按要求未连接或部署 VPS。",
+  "status": "completed",
+  "task_id": "2026-07-30-publish-v2.1.3-observability",
+  "unresolved": [
+    "v2.1.3 尚未部署 VPS；本次明确不执行部署"
+  ],
+  "validation": [
+    "project and lock metadata both report version 2.1.3",
+    "VITEST_MAX_WORKERS=2 release Test Gate: 25/25 passed, including Playwright and isolated API-only Docker smoke",
+    "annotated tag v2.1.3 points to release commit 410fac3c28b6",
+    "origin/main and refs/tags/v2.1.3 were pushed atomically without force"
+  ]
+}
+```
