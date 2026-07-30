@@ -104,9 +104,46 @@ const route = (overrides: Partial<ApifyActorRoute> = {}): ApifyActorRoute => ({
 const alertSettings = (
   overrides: Partial<ApifyActorAlertSettings> = {},
 ): ApifyActorAlertSettings => ({
-  schema_version: 2,
+  schema_version: 3,
   enabled: true,
+  channels: ['webhook'],
   channel: 'webhook',
+  channel_states: {
+    email: {
+      enabled: false,
+      configured: false,
+      available: true,
+      generation: 1,
+      enabled_at: null,
+      last_test_status: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+    },
+    webhook: {
+      enabled: true,
+      configured: true,
+      available: true,
+      generation: 2,
+      enabled_at: '2026-07-30T00:00:00Z',
+      last_test_status: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      provider: 'generic_event',
+      provider_explicit: true,
+      signing_secret_configured: false,
+      verification_mode: 'http_status',
+    },
+    telegram: {
+      enabled: false,
+      configured: false,
+      available: true,
+      generation: 1,
+      enabled_at: null,
+      last_test_status: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+    },
+  },
   events: [
     'actor_switched',
     'route_exhausted',
@@ -180,6 +217,8 @@ const alertSettings = (
       verification_mode: 'provider_response',
     },
   ],
+  telegram_configured: false,
+  telegram_transport_ready: true,
   last_test_status: null,
   last_tested_at: null,
   last_test_error_code: null,
@@ -209,7 +248,7 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     updateApifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     testApifyActorAlertSettings: vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' }),
     apifyActorAlertIncidents: vi.fn().mockResolvedValue({
-      schema_version: 1,
+      schema_version: 2,
       incidents: [{
         id: 'incident-1',
         route: 'x/profile',
@@ -222,6 +261,7 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
         opened_at: '2026-07-29T08:00:00Z',
         last_seen_at: '2026-07-29T08:00:00Z',
         resolved_at: null,
+        deliveries: [],
         delivery_status: 'sent',
         delivery_error_code: null,
       }],
@@ -389,9 +429,15 @@ describe('HeroApifyActorRouteSettings', () => {
     const apifyActorAlertSettings = vi.fn()
       .mockResolvedValueOnce(alertSettings())
       .mockResolvedValue(alertSettings({
-        last_test_status: 'unknown',
-        last_tested_at: '2026-07-30T08:00:00Z',
-        last_test_error_code: 'notification_webhook_response_invalid',
+        channel_states: {
+          ...alertSettings().channel_states,
+          webhook: {
+            ...alertSettings().channel_states.webhook,
+            last_test_status: 'unknown',
+            last_tested_at: '2026-07-30T08:00:00Z',
+            last_test_error_code: 'notification_webhook_response_invalid',
+          },
+        },
       }))
     const testApifyActorAlertSettings = vi.fn().mockRejectedValue(new ApiError(502, {
       code: 'apify_actor_alert_test_outcome_unknown',
@@ -403,13 +449,13 @@ describe('HeroApifyActorRouteSettings', () => {
       testApifyActorAlertSettings,
     })
 
-    expect(await screen.findByText(/尚未发送测试通知/)).toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '发送测试告警' }))
+    expect((await screen.findAllByText(/尚未发送测试通知/)).length).toBe(3)
+    await browser.click(screen.getByRole('button', { name: '发送Webhook测试' }))
 
     await waitFor(() => expect(apifyActorAlertSettings).toHaveBeenCalledTimes(2))
     expect(await screen.findByText(/最近一次测试结果未知，不会自动重发/)).toBeVisible()
     expect(screen.getByText('测试告警结果未知，请勿重复发送；请先确认接收端。')).toBeVisible()
-    expect(api.testApifyActorAlertSettings).toHaveBeenCalledOnce()
+    expect(api.testApifyActorAlertSettings).toHaveBeenCalledWith('webhook')
     expect(document.body.textContent).not.toContain('raw upstream')
   })
 })
@@ -434,15 +480,13 @@ describe('ApifyActorAlertSettingsForm', () => {
 
     const destination = screen.getByLabelText('告警 Webhook 地址')
     expect(destination).toHaveAttribute('type', 'password')
-    expect(screen.getByText(/平台预设会校验业务响应/)).toBeVisible()
-    expect(screen.getByText(/保存成功仅表示配置已写入/)).toBeVisible()
     expect(screen.getByText(/最近一次运行告警请求已发送，请确认接收端/)).toBeVisible()
     await browser.type(destination, 'https://example.invalid/actor-alert')
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
 
     expect(onSave).toHaveBeenCalledWith({
       enabled: true,
-      channel: 'webhook',
+      channels: ['webhook'],
       events: alertSettings().events,
       webhook_url: 'https://example.invalid/actor-alert',
       webhook_provider: 'generic_event',
@@ -492,38 +536,32 @@ describe('ApifyActorAlertSettingsForm', () => {
     expect(document.body.textContent).not.toContain('never-render')
   })
 
-  it('requires an active legacy Webhook to be upgraded before any alert edit', async () => {
+  it('adds Telegram without discarding a configured Webhook and clears the Chat ID immediately', async () => {
     const browser = userEvent.setup()
-    const onSave = vi.fn().mockResolvedValue(alertSettings({
-      events: alertSettings().events.filter((event) => event !== 'actor_switched'),
-      webhook_provider_explicit: true,
-    }))
+    const request = deferred<ApifyActorAlertSettings>()
+    const onSave = vi.fn().mockReturnValue(request.promise)
     render(<MemoryRouter><DesignSystemProvider>
       <ApifyActorAlertSettingsForm
-        settings={alertSettings({ webhook_provider_explicit: false })}
+        settings={alertSettings()}
         onSave={onSave}
         onTest={vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' })}
       />
     </DesignSystemProvider></MemoryRouter>)
 
-    await browser.click(screen.getByRole('checkbox', { name: '自动切换 Actor' }))
+    await browser.click(screen.getByRole('checkbox', { name: '启用Telegram渠道' }))
+    const chatId = screen.getByLabelText('告警 Chat ID')
+    expect(chatId).toHaveAttribute('type', 'password')
+    await browser.type(chatId, '@apify_alerts')
     await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
 
-    expect(onSave).not.toHaveBeenCalled()
-    expect(await screen.findByText('升级旧 Webhook 配置时，请选择类型并重新输入对应地址。')).toBeVisible()
-
-    await browser.type(
-      screen.getByLabelText('告警 Webhook 地址'),
-      'https://hooks.example.com/upgraded-alert',
-    )
-    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
-
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+    expect(onSave).toHaveBeenCalledWith({
       enabled: true,
-      channel: 'webhook',
-      events: alertSettings().events.filter((event) => event !== 'actor_switched'),
-      webhook_url: 'https://hooks.example.com/upgraded-alert',
-      webhook_provider: 'generic_event',
-    }))
+      channels: ['webhook', 'telegram'],
+      events: alertSettings().events,
+      telegram_chat_id: '@apify_alerts',
+    })
+    expect(chatId).toHaveValue('')
+    expect(document.body.textContent).not.toContain('@apify_alerts')
+    await act(async () => request.resolve(alertSettings()))
   })
 })

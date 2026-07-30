@@ -21,24 +21,22 @@ import {
   Card,
   Checkbox,
   Description,
-  FieldError,
   Icons,
-  Input,
-  Label,
   LoadingState,
   Modal,
   StatusIndicator,
   Switch,
   Table,
-  TextField,
 } from '../../design-system'
 import { HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
 import {
-  notificationChannelConfigured,
   notificationDestinationError,
-  notificationTestLabel,
 } from '../notifications/notificationModel'
-import { WebhookProviderFields } from '../notifications/WebhookProviderFields'
+import {
+  NotificationChannelCards,
+  type NotificationDestinationDrafts,
+  type NotificationDestinationErrors,
+} from '../notifications/NotificationChannelCards'
 import {
   APIFY_ACTOR_ROUTE_REFRESH_MS,
   actorAlertEventLabels,
@@ -531,12 +529,23 @@ function lastAlertLabel(
   if (!status) return '尚未发送运行告警'
   if (status === 'sent' || status === 'succeeded' || status === 'success') {
     if (channel === 'email') return '最近一次运行告警邮件已发送'
+    if (channel === 'telegram') return '最近一次 Telegram 运行告警已发送'
     if (verificationMode === 'provider_response') return '最近一次运行告警已获平台接受'
     return '最近一次运行告警请求已发送，请确认接收端'
   }
   if (status === 'failed' || status === 'failure') return '最近一次运行告警发送失败'
   if (status === 'unknown') return '最近一次运行告警结果未知，不会自动重发'
   return '最近一次运行告警正在处理'
+}
+
+const emptyAlertDestinations = (): NotificationDestinationDrafts => ({
+  email: '',
+  webhook: '',
+  telegram: '',
+})
+
+function sameAlertChannels(left: NotificationChannel[], right: NotificationChannel[]): boolean {
+  return left.length === right.length && left.every((channel, index) => channel === right[index])
 }
 
 export function ApifyActorAlertSettingsForm({
@@ -546,120 +555,133 @@ export function ApifyActorAlertSettingsForm({
 }: {
   settings: ApifyActorAlertSettings
   onSave: (patch: ApifyActorAlertSettingsPatch) => Promise<ApifyActorAlertSettings>
-  onTest: () => Promise<NotificationTestResult>
+  onTest: (channel: NotificationChannel) => Promise<NotificationTestResult>
 }) {
+  const webhookState = settings.channel_states.webhook
   const [enabled, setEnabled] = useState(settings.enabled)
-  const [channel, setChannel] = useState<NotificationChannel>(settings.channel)
+  const [channels, setChannels] = useState<NotificationChannel[]>(settings.channels)
   const [events, setEvents] = useState<ApifyActorAlertEvent[]>(settings.events)
-  const [destination, setDestination] = useState('')
-  const [webhookProvider, setWebhookProvider] = useState<WebhookProvider>(settings.webhook_provider)
+  const [destinations, setDestinations] = useState<NotificationDestinationDrafts>(emptyAlertDestinations)
+  const [webhookProvider, setWebhookProvider] = useState<WebhookProvider>(webhookState.provider)
   const [providerTouched, setProviderTouched] = useState(false)
-  const [signingEnabled, setSigningEnabled] = useState(settings.webhook_signing_secret_configured)
+  const [signingEnabled, setSigningEnabled] = useState(webhookState.signing_secret_configured)
   const [signingSecret, setSigningSecret] = useState('')
-  const [fieldError, setFieldError] = useState('')
-  const [signingError, setSigningError] = useState('')
+  const [errors, setErrors] = useState<NotificationDestinationErrors>({})
+  const [eventError, setEventError] = useState('')
   const [requestError, setRequestError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const webhookConfigured = settings.webhook_configured
-    && webhookProvider === settings.webhook_provider
-    && !providerTouched
-  const signingConfigured = settings.webhook_signing_secret_configured
-    && webhookProvider === settings.webhook_provider
-    && !providerTouched
-  const configured = channel === 'webhook'
-    ? webhookConfigured
-    : notificationChannelConfigured(settings, channel)
-  const persistedConfigured = notificationChannelConfigured(settings, settings.channel)
+  const [testingChannel, setTestingChannel] = useState<NotificationChannel | null>(null)
   const eventsDirty = [...events].sort().join(':') !== [...settings.events].sort().join(':')
+  const signingDirty = signingEnabled !== webhookState.signing_secret_configured
+    || Boolean(signingSecret.trim())
   const dirty = enabled !== settings.enabled
-    || channel !== settings.channel
+    || !sameAlertChannels(channels, settings.channels)
     || eventsDirty
-    || Boolean(destination.trim())
-    || (channel === 'webhook' && (
-      providerTouched
-      || signingEnabled !== settings.webhook_signing_secret_configured
-      || Boolean(signingSecret.trim())
-    ))
-  const emailUnavailable = channel === 'email' && !settings.email_transport_ready
-  const persistedEmailUnavailable = settings.channel === 'email' && !settings.email_transport_ready
-  const testReady = persistedConfigured && !persistedEmailUnavailable && !dirty && !saving && !testing
+    || Object.values(destinations).some((value) => Boolean(value.trim()))
+    || providerTouched
+    || signingDirty
+  const busy = saving || testingChannel !== null
+
+  function channelDirty(channel: NotificationChannel): boolean {
+    if (channels.includes(channel) !== settings.channel_states[channel].enabled) return true
+    if (destinations[channel].trim()) return true
+    return channel === 'webhook' && (providerTouched || signingDirty)
+  }
+
+  function setDestination(channel: NotificationChannel, value: string) {
+    setDestinations((current) => ({ ...current, [channel]: value }))
+    setErrors((current) => ({ ...current, [channel]: undefined }))
+    setRequestError('')
+  }
+
+  function toggleChannel(channel: NotificationChannel, selected: boolean) {
+    setChannels((current) => selected
+      ? current.includes(channel) ? current : [...current, channel]
+      : current.filter((item) => item !== channel))
+    setErrors((current) => ({ ...current, [channel]: undefined }))
+    setRequestError('')
+  }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (saving || testing) return
-    const submittedDestination = destination.trim()
+    if (busy) return
+    const submittedDestinations = {
+      email: destinations.email.trim(),
+      webhook: destinations.webhook.trim(),
+      telegram: destinations.telegram.trim(),
+    }
     const submittedSigningSecret = signingSecret.trim()
-    setDestination('')
+    setDestinations(emptyAlertDestinations())
     setSigningSecret('')
-    setFieldError('')
-    setSigningError('')
+    setErrors({})
+    setEventError('')
     setRequestError('')
     if (enabled && events.length === 0) {
-      setFieldError('启用运行告警时，请至少选择一种告警事件。')
+      setEventError('启用运行告警时，请至少选择一种告警事件。')
       return
     }
-    if (enabled && emailUnavailable) {
-      setRequestError('工作区邮件发送服务尚未就绪，暂不能启用邮箱告警。Webhook 不受影响。')
+    if (enabled && channels.length === 0) {
+      setRequestError('启用 Apify 运行告警时，请至少选择一种告警渠道。')
       return
+    }
+    const nextErrors: NotificationDestinationErrors = {}
+    for (const channel of ['email', 'webhook', 'telegram'] as const) {
+      const configured = channel === 'webhook'
+        ? webhookState.configured
+          && webhookProvider === webhookState.provider
+          && !providerTouched
+        : settings.channel_states[channel].configured
+      if (channels.includes(channel) || submittedDestinations[channel]) {
+        const error = notificationDestinationError({
+          channel,
+          destination: submittedDestinations[channel],
+          configured,
+          enabled: channels.includes(channel),
+        })
+        if (error) nextErrors[channel] = error
+      }
     }
     if (
-      channel === 'webhook'
-      && !settings.webhook_provider_explicit
-      && !submittedDestination
+      channels.includes('webhook')
+      && !webhookState.provider_explicit
+      && (providerTouched || submittedDestinations.webhook)
+      && !submittedDestinations.webhook
     ) {
-      setFieldError('升级旧 Webhook 配置时，请选择类型并重新输入对应地址。')
-      return
+      nextErrors.webhook = '升级旧 Webhook 配置时，请选择类型并重新输入对应地址。'
     }
-    if (channel === 'webhook' && providerTouched && !submittedDestination) {
-      setFieldError('选择或更换 Webhook 类型时，请重新输入对应地址。')
-      return
+    if (providerTouched && !submittedDestinations.webhook) {
+      nextErrors.webhook = '选择或更换 Webhook 类型时，请重新输入对应地址。'
     }
-    const validationError = notificationDestinationError({
-      channel,
-      destination: submittedDestination,
-      configured,
-      enabled,
-    })
-    if (validationError) {
-      setFieldError(validationError)
-      return
-    }
+    const signingConfigured = webhookState.signing_secret_configured
+      && webhookProvider === webhookState.provider
+      && !providerTouched
     if (
-      channel === 'webhook'
-      && signingEnabled
+      signingEnabled
       && !signingConfigured
       && !submittedSigningSecret
     ) {
-      setSigningError('启用签名校验时需要填写签名 Secret。')
+      nextErrors.signing = '启用签名校验时需要填写签名 Secret。'
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors)
       return
     }
     setSaving(true)
     try {
-      const updated = await onSave({
+      await onSave({
         enabled,
-        channel,
+        channels,
         events,
-        ...(submittedDestination
-          ? channel === 'email'
-            ? { email_address: submittedDestination }
-            : { webhook_url: submittedDestination }
-          : {}),
-        ...(channel === 'webhook' && (providerTouched || submittedDestination)
-          ? { webhook_provider: webhookProvider }
-          : {}),
-        ...(channel === 'webhook' && submittedSigningSecret
-          ? { webhook_signing_secret: submittedSigningSecret }
-          : {}),
-        ...(channel === 'webhook'
-          && !signingEnabled
-          && settings.webhook_signing_secret_configured
+        ...(submittedDestinations.email ? { email_address: submittedDestinations.email } : {}),
+        ...(submittedDestinations.webhook ? { webhook_url: submittedDestinations.webhook } : {}),
+        ...(submittedDestinations.telegram ? { telegram_chat_id: submittedDestinations.telegram } : {}),
+        ...(providerTouched || submittedDestinations.webhook ? { webhook_provider: webhookProvider } : {}),
+        ...(submittedSigningSecret ? { webhook_signing_secret: submittedSigningSecret } : {}),
+        ...(!signingEnabled
+          && webhookState.signing_secret_configured
           ? { webhook_signing_secret: null }
           : {}),
       })
-      setWebhookProvider(updated.webhook_provider)
-      setProviderTouched(false)
-      setSigningEnabled(updated.webhook_signing_secret_configured)
       actionToast.success('Apify 运行告警设置已保存')
     } catch (caught) {
       const message = safeActorActionError(caught, 'Apify 运行告警设置保存失败，请稍后重试。')
@@ -670,142 +692,92 @@ export function ApifyActorAlertSettingsForm({
     }
   }
 
-  async function sendTest() {
-    if (!testReady) return
-    setTesting(true)
+  async function sendTest(channel: NotificationChannel) {
+    if (busy || channelDirty(channel)) return
+    setTestingChannel(channel)
     setRequestError('')
     try {
-      const result = await onTest()
+      const result = await onTest(channel)
       if (result.channel === 'email') {
         actionToast.success('测试运行告警邮件已发送', {
           description: '请检查当前告警收件邮箱。',
         })
-        return
+      } else if (result.channel === 'telegram') {
+        actionToast.success('Telegram 测试运行告警已发送', {
+          description: '请检查当前告警目标会话。',
+        })
+      } else {
+        actionToast.success(
+          result.verification === 'provider_accepted' ? '平台已接受测试运行告警' : '测试运行告警请求已发送',
+          {
+            description: result.verification === 'provider_accepted'
+              ? '平台业务响应已通过，请确认接收端实际展示。'
+              : '接收端已返回 HTTP 成功状态，请确认实际处理。',
+          },
+        )
       }
-      actionToast.success(
-        result.verification === 'provider_accepted' ? '平台已接受测试运行告警' : '测试运行告警请求已发送',
-        {
-          description: result.verification === 'provider_accepted'
-            ? '平台业务响应已通过，请确认接收端实际展示。'
-            : '接收端已返回 HTTP 成功状态，请确认实际处理。',
-        },
-      )
     } catch (caught) {
       const message = safeActorActionError(caught, '测试运行告警发送失败，请稍后重试。')
       setRequestError(message)
       actionToast.danger('测试运行告警发送失败', { description: message })
     } finally {
-      setTesting(false)
+      setTestingChannel(null)
     }
   }
 
-  return <form className="grid gap-4" noValidate onSubmit={save}>
-    {!settings.email_transport_ready && <HeroNotice
-      title={settings.enabled && settings.channel === 'email' ? '邮箱告警已暂停' : '邮件发送服务尚未就绪'}
-      status="warning"
-      role="status"
-    >
-      邮件暂停期间不会补发；Webhook 不受影响。可前往
-      {' '}<a className="type-control text-accent underline" href="#settings-notifications">消息通知</a>
-      {' '}配置工作区邮件服务。
-    </HeroNotice>}
+  return <form className="grid min-w-0 gap-4" noValidate onSubmit={save}>
     <div className="grid gap-1">
-      <Switch isSelected={enabled} isDisabled={emailUnavailable && !settings.enabled} onChange={(value) => {
+      <Switch isSelected={enabled} onChange={(value) => {
         setEnabled(value)
-        setFieldError('')
+        setEventError('')
         setRequestError('')
       }}>
         <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>启用 Apify 运行告警</Switch.Content>
       </Switch>
-      <Description>只报告 Actor 切换、额度、费用保护和恢复，不发送抓取目标或运行标识。</Description>
+      <Description>只报告 Actor 切换、额度、费用保护和恢复；可同时选择多个渠道。</Description>
     </div>
-    <div className="grid gap-4 min-[720px]:grid-cols-2">
-      <HeroSelect
-        label="告警方式"
-        value={channel}
-        onChange={(value) => {
-          setChannel(value as NotificationChannel)
-          setDestination('')
-          setWebhookProvider(settings.webhook_provider)
-          setProviderTouched(false)
-          setSigningEnabled(settings.webhook_signing_secret_configured)
-          setSigningSecret('')
-          setFieldError('')
-          setSigningError('')
-          setRequestError('')
-        }}
-        options={[
-          { id: 'email', label: '邮箱' },
-          { id: 'webhook', label: 'Webhook' },
-        ]}
-      />
-      {channel === 'email' && <TextField
-        fullWidth
-        value={destination}
-        onChange={(value) => {
-          setDestination(value)
-          setFieldError('')
-          setRequestError('')
-        }}
-        isInvalid={Boolean(fieldError) && events.length > 0}
-        isRequired={enabled && !configured}
-      >
-        <Label>告警收件邮箱</Label>
-        <Input
-          type="email"
-          autoComplete="email"
-          placeholder={configured ? '留空保持当前配置' : 'name@example.com'}
-        />
-        <Description>
-          {configured ? '已配置；真实接收地址不会回显，留空不会覆盖。' : '尚未配置当前告警方式。'}
-        </Description>
-        {fieldError && events.length > 0 && <FieldError>{fieldError}</FieldError>}
-      </TextField>}
-      {channel === 'webhook' && <WebhookProviderFields
-        idPrefix="apify-alert-webhook"
-        provider={webhookProvider}
-        options={settings.webhook_provider_options}
-        destination={destination}
-        configured={configured}
-        providerExplicit={settings.webhook_provider_explicit}
-        signingEnabled={signingEnabled}
-        signingSecret={signingSecret}
-        signingConfigured={signingConfigured}
-        destinationRequired={enabled && !configured}
-        destinationLabel="告警 Webhook 地址"
-        fieldError={events.length > 0 ? fieldError : ''}
-        signingError={signingError}
-        onProviderChange={(provider) => {
-          setWebhookProvider(provider)
-          setProviderTouched(provider !== settings.webhook_provider || !settings.webhook_provider_explicit)
-          setDestination('')
-          setSigningEnabled(false)
-          setSigningSecret('')
-          setFieldError('')
-          setSigningError('')
-          setRequestError('')
-        }}
-        onDestinationChange={(value) => {
-          setDestination(value)
-          setFieldError('')
-          setRequestError('')
-        }}
-        onSigningEnabledChange={(value) => {
-          setSigningEnabled(value)
-          if (!settings.webhook_provider_explicit) {
-            setProviderTouched(true)
-          }
-          setSigningSecret('')
-          setSigningError('')
-          setRequestError('')
-        }}
-        onSigningSecretChange={(value) => {
-          setSigningSecret(value)
-          setSigningError('')
-          setRequestError('')
-        }}
-      />}
-    </div>
+
+    <NotificationChannelCards
+      idPrefix="apify-alert"
+      settings={settings}
+      selectedChannels={channels}
+      destinations={destinations}
+      webhookProvider={webhookProvider}
+      providerTouched={providerTouched}
+      signingEnabled={signingEnabled}
+      signingSecret={signingSecret}
+      errors={errors}
+      readOnly={false}
+      busy={busy}
+      testingChannel={testingChannel}
+      channelDirty={channelDirty}
+      destinationNoun="告警"
+      onChannelChange={toggleChannel}
+      onDestinationChange={setDestination}
+      onProviderChange={(provider) => {
+        setWebhookProvider(provider)
+        setProviderTouched(provider !== webhookState.provider || !webhookState.provider_explicit)
+        setDestinations((current) => ({ ...current, webhook: '' }))
+        setSigningEnabled(false)
+        setSigningSecret('')
+        setErrors((current) => ({ ...current, webhook: undefined, signing: undefined }))
+        setRequestError('')
+      }}
+      onSigningEnabledChange={(value) => {
+        setSigningEnabled(value)
+        if (!webhookState.provider_explicit) setProviderTouched(true)
+        setSigningSecret('')
+        setErrors((current) => ({ ...current, signing: undefined }))
+        setRequestError('')
+      }}
+      onSigningSecretChange={(value) => {
+        setSigningSecret(value)
+        setErrors((current) => ({ ...current, signing: undefined }))
+        setRequestError('')
+      }}
+      onTest={(channel) => void sendTest(channel)}
+    />
+
     <fieldset className="grid gap-3" aria-describedby="apify-actor-alert-events-help">
       <legend className="type-control">告警事件</legend>
       <div className="grid gap-3 min-[720px]:grid-cols-2">
@@ -816,7 +788,7 @@ export function ApifyActorAlertSettingsForm({
             setEvents((current) => selected
               ? [...current, event]
               : current.filter((item) => item !== event))
-            setFieldError('')
+            setEventError('')
             setRequestError('')
           }}
         >
@@ -824,19 +796,11 @@ export function ApifyActorAlertSettingsForm({
         </Checkbox>)}
       </div>
       <Description id="apify-actor-alert-events-help">同一故障只首报一次；状态恢复后再发送一条恢复通知。</Description>
-      {fieldError && events.length === 0 && <p className="type-meta text-danger" role="alert">{fieldError}</p>}
+      {eventError && <p className="type-meta text-danger" role="alert">{eventError}</p>}
     </fieldset>
     <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
-      {channel === 'webhook' && <p className="mb-1">
-        平台预设会校验业务响应；通用类型只确认 HTTP 2xx。保存成功仅表示配置已写入，测试后仍请确认接收端实际展示。
-      </p>}
-      <p>测试告警使用模拟内容，不会抓取 X、调用 Actor 或产生 Apify 费用。</p>
-      <p className="type-meta mt-2">
-        {notificationTestLabel(settings.last_test_status, {
-          channel: settings.channel,
-          verificationMode: settings.webhook_verification_mode,
-        })} · {formatActorDateTime(settings.last_tested_at)}
-      </p>
+      <p>每个渠道独立配置、测试与投递；一个渠道暂停或失败不会阻断其他渠道或抓取任务。</p>
+      <p className="mt-1">测试告警使用模拟内容，不会抓取 X、调用 Actor 或产生 Apify 费用。</p>
       <p className="type-meta mt-1">
         {lastAlertLabel(
           settings.last_alert_status,
@@ -847,10 +811,7 @@ export function ApifyActorAlertSettingsForm({
     </div>
     {requestError && <HeroNotice title={requestError} />}
     <div className="flex flex-wrap gap-2">
-      <Button type="submit" isDisabled={saving || testing || !dirty}>{saving ? '保存中…' : '保存运行告警'}</Button>
-      <Button type="button" variant="secondary" isDisabled={!testReady} onPress={() => void sendTest()}>
-        {testing ? '发送中…' : '发送测试告警'}
-      </Button>
+      <Button type="submit" isDisabled={busy || !dirty}>{saving ? '保存中…' : '保存运行告警'}</Button>
     </div>
   </form>
 }
@@ -874,15 +835,15 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
 
   const cacheKey = [
     settings.data.enabled,
-    settings.data.channel,
+    settings.data.channels.join(':'),
     settings.data.events.join(':'),
-    settings.data.email_configured,
-    settings.data.email_transport_ready,
-    settings.data.webhook_configured,
-    settings.data.webhook_provider,
-    settings.data.webhook_provider_explicit,
-    settings.data.webhook_signing_secret_configured,
-    settings.data.last_tested_at,
+    ...(['email', 'webhook', 'telegram'] as const).flatMap((channel) => {
+      const state = settings.data.channel_states[channel]
+      return [state.enabled, state.configured, state.available, state.generation, state.last_tested_at]
+    }),
+    settings.data.channel_states.webhook.provider,
+    settings.data.channel_states.webhook.provider_explicit,
+    settings.data.channel_states.webhook.signing_secret_configured,
     settings.data.last_alerted_at,
   ].join(':')
 
@@ -892,9 +853,9 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
     return updated
   }
 
-  async function test() {
+  async function test(channel: NotificationChannel) {
     try {
-      return await api.testApifyActorAlertSettings()
+      return await api.testApifyActorAlertSettings(channel)
     } finally {
       await queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorAlertSettings(user.id) })
     }
@@ -913,6 +874,7 @@ function incidentDeliveryLabel(status: string | null): string {
   if (status === 'sent') return '已发送'
   if (status === 'failed') return '发送失败'
   if (status === 'unknown') return '结果未知，不自动重发'
+  if (status === 'partial') return '部分渠道发送失败'
   if (status === 'skipped') return '已按设置跳过'
   return '等待发送'
 }
@@ -961,6 +923,15 @@ function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean }) {
         {incident.resolved_at && <> · <time dateTime={incident.resolved_at}>恢复于 {formatActorDateTime(incident.resolved_at)}</time></>}
         {' · '}{incidentDeliveryLabel(incident.delivery_status)}
       </p>
+      {(incident.deliveries ?? []).length > 0 && <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1" aria-label="逐渠道投递状态">
+        {(incident.deliveries ?? []).map((delivery) => <li
+          key={`${delivery.event_type}:${delivery.channel}`}
+          className="type-meta text-muted"
+        >
+          {delivery.channel === 'email' ? '邮箱' : delivery.channel === 'webhook' ? 'Webhook' : 'Telegram'}
+          {' · '}{incidentDeliveryLabel(delivery.status)}
+        </li>)}
+      </ul>}
     </li>)}
   </ol>
 }
@@ -970,7 +941,7 @@ export function HeroApifyActorRouteSettings({ queryEnabled = true }: { queryEnab
     <ApifyActorRoutePanel queryEnabled={queryEnabled} />
     <div className="mt-6 border-t border-separator pt-5">
       <h3 className="type-page-title">故障告警</h3>
-      <p className="type-meta mt-1 text-muted">工作区统一选择邮箱或 Webhook；与个人的新内容通知相互独立。</p>
+      <p className="type-meta mt-1 text-muted">邮箱、Webhook、Telegram 可同时启用；与个人的新内容通知相互独立。</p>
       <div className="mt-4"><ApifyActorAlertSettingsPanel queryEnabled={queryEnabled} /></div>
     </div>
     <div className="mt-6 border-t border-separator pt-5">

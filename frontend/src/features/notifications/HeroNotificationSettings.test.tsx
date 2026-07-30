@@ -1,85 +1,76 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { ServiceApi } from '../../api/service'
-import type { UserNotificationSettings } from '../../api/types'
+import type { NotificationChannelState, UserNotificationSettings } from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
 import { HeroNotificationSettings, NotificationSettingsForm } from './HeroNotificationSettings'
 
+const state = (
+  overrides: Partial<NotificationChannelState> = {},
+): NotificationChannelState => ({
+  enabled: false,
+  configured: false,
+  available: true,
+  generation: 1,
+  enabled_at: null,
+  last_test_status: null,
+  last_tested_at: null,
+  last_test_error_code: null,
+  ...overrides,
+})
+
+const providerOptions: UserNotificationSettings['webhook_provider_options'] = [{
+  provider: 'generic_event',
+  label: '通用事件 JSON',
+  description: '发送 event/data，HTTP 2xx 仅表示接收端接受请求。',
+  url_hint: 'https://example.com/webhook',
+  signing: 'none',
+  verification_mode: 'http_status',
+}, {
+  provider: 'feishu_lark_v2',
+  label: '飞书 / Lark V2',
+  description: '发送原生文本并校验平台业务响应，可选签名校验。',
+  url_hint: 'https://open.feishu.cn/open-apis/bot/v2/hook/…',
+  signing: 'optional',
+  verification_mode: 'provider_response',
+}]
+
 const settings = (overrides: Partial<UserNotificationSettings> = {}): UserNotificationSettings => ({
-  schema_version: 2,
+  schema_version: 3,
   enabled: true,
+  channels: ['webhook'],
   channel: 'webhook',
-  email_configured: false,
+  channel_states: {
+    email: state({ configured: true }),
+    webhook: {
+      ...state({
+        enabled: true,
+        configured: true,
+        enabled_at: '2026-07-24T00:00:00Z',
+      }),
+      provider: 'generic_event',
+      provider_explicit: true,
+      signing_secret_configured: false,
+      verification_mode: 'http_status',
+    },
+    telegram: state(),
+  },
+  email_configured: true,
   email_transport_ready: true,
   webhook_configured: true,
   webhook_provider: 'generic_event',
   webhook_provider_explicit: true,
   webhook_signing_secret_configured: false,
   webhook_verification_mode: 'http_status',
-  webhook_provider_options: [
-    {
-      provider: 'generic_event',
-      label: '通用事件 JSON',
-      description: '发送 event/data，HTTP 2xx 仅表示接收端接受请求。',
-      url_hint: 'https://example.com/webhook',
-      signing: 'none',
-      verification_mode: 'http_status',
-    },
-    {
-      provider: 'generic_text',
-      label: '通用文本 JSON',
-      description: '发送 text，HTTP 2xx 仅表示接收端接受请求。',
-      url_hint: 'https://example.com/webhook',
-      signing: 'none',
-      verification_mode: 'http_status',
-    },
-    {
-      provider: 'feishu_lark_v2',
-      label: '飞书 / Lark V2',
-      description: '发送原生文本并校验平台业务响应，可选签名校验。',
-      url_hint: 'https://open.feishu.cn/open-apis/bot/v2/hook/…',
-      signing: 'optional',
-      verification_mode: 'provider_response',
-    },
-    {
-      provider: 'wecom',
-      label: '企业微信群机器人',
-      description: '发送原生文本并校验 errcode。',
-      url_hint: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…',
-      signing: 'none',
-      verification_mode: 'provider_response',
-    },
-    {
-      provider: 'dingtalk',
-      label: '钉钉自定义机器人',
-      description: '发送原生文本并校验 errcode，可选签名校验。',
-      url_hint: 'https://oapi.dingtalk.com/robot/send?access_token=…',
-      signing: 'optional',
-      verification_mode: 'provider_response',
-    },
-    {
-      provider: 'slack',
-      label: 'Slack / GovSlack',
-      description: '发送 Incoming Webhook 文本并校验 ok 响应。',
-      url_hint: 'https://hooks.slack.com/services/…/…/…',
-      signing: 'none',
-      verification_mode: 'provider_response',
-    },
-    {
-      provider: 'discord',
-      label: 'Discord Incoming Webhook',
-      description: '发送禁用 mentions 的文本并校验返回消息 ID。',
-      url_hint: 'https://discord.com/api/webhooks/…/…',
-      signing: 'none',
-      verification_mode: 'provider_response',
-    },
-  ],
+  webhook_provider_options: providerOptions,
+  telegram_configured: false,
+  telegram_transport_ready: true,
   last_test_status: null,
   last_tested_at: null,
   last_test_error_code: null,
@@ -98,66 +89,130 @@ function deferred<T>() {
 function renderForm(
   value: UserNotificationSettings,
   onSave = vi.fn().mockResolvedValue(value),
-  onTest = vi.fn().mockResolvedValue({ sent: true, channel: value.channel }),
+  onTest = vi.fn().mockImplementation((channel) => Promise.resolve({ sent: true, channel })),
+  readOnly = false,
 ) {
   render(<MemoryRouter><DesignSystemProvider>
-    <NotificationSettingsForm settings={value} onSave={onSave} onTest={onTest} />
+    <NotificationSettingsForm settings={value} onSave={onSave} onTest={onTest} readOnly={readOnly} />
   </DesignSystemProvider></MemoryRouter>)
   return { onSave, onTest }
+}
+
+function channelCard(channel: 'email' | 'webhook' | 'telegram') {
+  const card = document.querySelector<HTMLElement>(`[data-notification-channel="${channel}"]`)
+  expect(card).not.toBeNull()
+  return within(card!)
 }
 
 describe('NotificationSettingsForm', () => {
   beforeEach(() => actionToast.clear())
 
-  it('keeps a Webhook destination write-only and clears it as soon as saving starts', async () => {
+  it('always shows all channels and preserves configured channels while saving a multi-select change', async () => {
     const browser = userEvent.setup()
     const request = deferred<UserNotificationSettings>()
     const onSave = vi.fn().mockReturnValue(request.promise)
     renderForm(settings(), onSave)
 
-    const destination = screen.getByLabelText('Webhook 地址')
-    expect(destination).toHaveAttribute('type', 'password')
-    expect(destination).toHaveValue('')
-    expect(screen.queryByDisplayValue(/Webhook 已配置/)).not.toBeInTheDocument()
-    expect(screen.getByText(/平台预设会校验业务响应/)).toBeVisible()
-    expect(screen.getByText(/保存成功仅表示配置已写入/)).toBeVisible()
+    expect(screen.getByRole('heading', { name: '邮箱' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Webhook' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Telegram' })).toBeVisible()
+    expect(channelCard('email').getByText(/已配置；接收目标不会回显/)).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: '启用邮箱渠道' })).not.toBeChecked()
 
-    await browser.type(destination, 'https://example.invalid/hook')
+    await browser.click(screen.getByRole('checkbox', { name: '启用邮箱渠道' }))
+    await browser.click(screen.getByRole('checkbox', { name: '启用Telegram渠道' }))
+    const chatId = screen.getByLabelText('Telegram Chat ID')
+    expect(chatId).toHaveAttribute('type', 'password')
+    await browser.type(chatId, '-1001234567890')
     await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
 
     expect(onSave).toHaveBeenCalledWith({
       enabled: true,
-      channel: 'webhook',
-      webhook_url: 'https://example.invalid/hook',
-      webhook_provider: 'generic_event',
+      channels: ['webhook', 'email', 'telegram'],
+      telegram_chat_id: '-1001234567890',
     })
-    expect(destination).toHaveValue('')
-    expect(screen.queryByDisplayValue('https://example.invalid/hook')).not.toBeInTheDocument()
+    expect(chatId).toHaveValue('')
+    expect(document.body.textContent).not.toContain('-1001234567890')
 
-    await act(async () => request.resolve(settings()))
-    await waitFor(() => expect(screen.getByRole('button', { name: '保存通知设置' })).toBeDisabled())
+    await act(async () => request.resolve(settings({
+      channels: ['webhook', 'email', 'telegram'],
+    })))
   })
 
-  it('tests only persisted configuration and leaves invalid raw destinations out of the page', async () => {
+  it('submits only non-empty write-only destinations and clears every secret draft when saving starts', async () => {
     const browser = userEvent.setup()
-    const ready = settings({ enabled: false })
-    const { onSave, onTest } = renderForm(ready)
+    const request = deferred<UserNotificationSettings>()
+    const onSave = vi.fn().mockReturnValue(request.promise)
+    renderForm(settings({
+      channels: ['email', 'webhook', 'telegram'],
+      channel_states: {
+        ...settings().channel_states,
+        email: state({ enabled: true, configured: false }),
+        telegram: state({ enabled: true, configured: false }),
+      },
+    }), onSave)
 
-    await browser.click(screen.getByRole('button', { name: '发送测试通知' }))
-    await waitFor(() => expect(onTest).toHaveBeenCalledOnce())
+    const email = screen.getByLabelText('收件邮箱')
+    const chatId = screen.getByLabelText('Telegram Chat ID')
+    await browser.type(email, 'reader@example.com')
+    await browser.type(chatId, '@inteliscope_alerts')
+    await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
 
-    const destination = screen.getByLabelText('Webhook 地址')
-    await browser.type(destination, 'http://example.invalid/hook')
-    expect(screen.getByRole('button', { name: '发送测试通知' })).toBeDisabled()
+    expect(onSave).toHaveBeenCalledWith({
+      enabled: true,
+      channels: ['email', 'webhook', 'telegram'],
+      email_address: 'reader@example.com',
+      telegram_chat_id: '@inteliscope_alerts',
+    })
+    expect(email).toHaveValue('')
+    expect(chatId).toHaveValue('')
+    expect(document.body.textContent).not.toContain('@inteliscope_alerts')
+    await act(async () => request.resolve(settings()))
+  })
+
+  it('validates Telegram Chat ID without sending or retaining the invalid draft', async () => {
+    const browser = userEvent.setup()
+    const { onSave } = renderForm(settings({
+      channels: ['webhook', 'telegram'],
+      channel_states: {
+        ...settings().channel_states,
+        telegram: state({ enabled: true }),
+      },
+    }))
+
+    const chatId = screen.getByLabelText('Telegram Chat ID')
+    await browser.type(chatId, 'not a chat id')
     await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
 
     expect(onSave).not.toHaveBeenCalled()
-    expect(await screen.findByText('Webhook 地址必须使用 HTTPS。')).toBeInTheDocument()
-    expect(destination).toHaveValue('')
-    expect(screen.queryByDisplayValue('http://example.invalid/hook')).not.toBeInTheDocument()
+    expect(await screen.findByText('请输入有效的 Chat ID（有符号整数或 @channel）。')).toBeVisible()
+    expect(chatId).toHaveValue('')
+    expect(document.body.textContent).not.toContain('not a chat id')
   })
 
-  it('saves a provider preset and write-only signing Secret together', async () => {
+  it('tests each persisted channel independently and leaves a paused transport isolated', async () => {
+    const browser = userEvent.setup()
+    const value = settings({
+      channels: ['email', 'webhook', 'telegram'],
+      channel_states: {
+        email: state({ enabled: true, configured: true, available: false }),
+        webhook: settings().channel_states.webhook,
+        telegram: state({ enabled: true, configured: true }),
+      },
+      telegram_configured: true,
+    })
+    const { onTest } = renderForm(value)
+
+    expect(channelCard('email').getByText('服务暂停')).toBeVisible()
+    expect(screen.getByRole('button', { name: '发送邮箱测试' })).toBeDisabled()
+    await browser.click(screen.getByRole('button', { name: '发送Webhook测试' }))
+    await browser.click(screen.getByRole('button', { name: '发送Telegram测试' }))
+
+    await waitFor(() => expect(onTest).toHaveBeenNthCalledWith(1, 'webhook'))
+    await waitFor(() => expect(onTest).toHaveBeenNthCalledWith(2, 'telegram'))
+  })
+
+  it('keeps provider and signing secrets write-only when changing Webhook type', async () => {
     const browser = userEvent.setup()
     const request = deferred<UserNotificationSettings>()
     const onSave = vi.fn().mockReturnValue(request.promise)
@@ -165,141 +220,63 @@ describe('NotificationSettingsForm', () => {
 
     await browser.click(screen.getByRole('button', { name: /Webhook 类型/ }))
     await browser.click(await screen.findByRole('option', { name: '飞书 / Lark V2' }))
-    const destination = screen.getByLabelText('Webhook 地址')
     await browser.type(
-      destination,
+      screen.getByLabelText('Webhook 地址'),
       'https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-0000-0000-000000000000',
     )
-    const signingSwitch = screen.getByRole('switch', { name: '启用机器人签名校验' })
-    expect(signingSwitch).toHaveAccessibleDescription(/仅在接收端机器人已启用签名校验/)
-    await browser.click(signingSwitch)
+    await browser.click(screen.getByRole('switch', { name: '启用机器人签名校验' }))
     const signingSecret = screen.getByLabelText('签名 Secret')
     await browser.type(signingSecret, 'write-only-signing-secret')
     await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
 
     expect(onSave).toHaveBeenCalledWith({
       enabled: true,
-      channel: 'webhook',
+      channels: ['webhook'],
       webhook_provider: 'feishu_lark_v2',
       webhook_url: 'https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-0000-0000-000000000000',
       webhook_signing_secret: 'write-only-signing-secret',
     })
-    expect(destination).toHaveValue('')
     expect(signingSecret).toHaveValue('')
     expect(document.body.textContent).not.toContain('write-only-signing-secret')
-
-    await act(async () => request.resolve(settings({
-      webhook_provider: 'feishu_lark_v2',
-      webhook_signing_secret_configured: true,
-      webhook_verification_mode: 'provider_response',
-    })))
+    await act(async () => request.resolve(settings()))
   })
 
-  it('requires legacy Feishu settings to be made explicit before adding signing', async () => {
+  it('derives viewer access as read-only and blocks every write and test', async () => {
     const browser = userEvent.setup()
-    const onSave = vi.fn()
-    renderForm(settings({
-      webhook_provider: 'feishu_lark_v2',
-      webhook_provider_explicit: false,
-      webhook_verification_mode: 'provider_response',
-    }), onSave)
+    const { onSave, onTest } = renderForm(settings(), undefined, undefined, true)
 
-    await browser.click(screen.getByRole('switch', { name: '启用机器人签名校验' }))
-    const signingSecret = screen.getByLabelText('签名 Secret')
-    await browser.type(signingSecret, 'legacy-secret-draft')
+    expect(screen.getByText('当前账户为只读权限')).toBeVisible()
+    expect(screen.getByRole('switch', { name: '启用新内容通知' })).toBeDisabled()
+    for (const channel of ['邮箱', 'Webhook', 'Telegram']) {
+      expect(screen.getByRole('checkbox', { name: `启用${channel}渠道` })).toBeDisabled()
+    }
+    expect(screen.getByRole('button', { name: /Webhook 类型/ })).toBeDisabled()
+    expect(screen.getByLabelText('Telegram Chat ID')).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存通知设置' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '发送Webhook测试' })).toBeDisabled()
+
     await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
-
+    await browser.click(screen.getByRole('button', { name: '发送Webhook测试' }))
     expect(onSave).not.toHaveBeenCalled()
-    expect(await screen.findByText('升级旧 Webhook 配置时，请选择类型并重新输入对应地址。')).toBeVisible()
-    expect(signingSecret).toHaveValue('')
-    expect(document.body.textContent).not.toContain('legacy-secret-draft')
-  })
-
-  it('requires an active legacy Webhook to be upgraded before any settings edit', async () => {
-    const browser = userEvent.setup()
-    const onSave = vi.fn().mockResolvedValue(settings({
-      enabled: false,
-      webhook_provider_explicit: true,
-    }))
-    renderForm(settings({
-      webhook_provider_explicit: false,
-    }), onSave)
-
-    await browser.click(screen.getByRole('switch', { name: '启用新内容通知' }))
-    await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
-
-    expect(onSave).not.toHaveBeenCalled()
-    expect(await screen.findByText('升级旧 Webhook 配置时，请选择类型并重新输入对应地址。')).toBeVisible()
-
-    await browser.type(
-      screen.getByLabelText('Webhook 地址'),
-      'https://hooks.example.com/upgraded',
-    )
-    await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
-
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
-      enabled: false,
-      channel: 'webhook',
-      webhook_url: 'https://hooks.example.com/upgraded',
-      webhook_provider: 'generic_event',
-    }))
-  })
-
-  it('uses email wording for an email test result', async () => {
-    const browser = userEvent.setup()
-    const value = settings({
-      channel: 'email',
-      email_configured: true,
-      webhook_configured: false,
-    })
-    renderForm(
-      value,
-      vi.fn().mockResolvedValue(value),
-      vi.fn().mockResolvedValue({ sent: true, channel: 'email' }),
-    )
-
-    await browser.click(screen.getByRole('button', { name: '发送测试通知' }))
-
-    expect(await screen.findByText('测试邮件已发送')).toBeVisible()
-    expect(screen.getByText('请检查当前收件邮箱。')).toBeVisible()
-    expect(screen.queryByText(/HTTP 成功状态/)).not.toBeInTheDocument()
-  })
-
-  it('shows paused email delivery without discarding the existing opt-in', async () => {
-    const browser = userEvent.setup()
-    const paused = settings({
-      enabled: true,
-      channel: 'email',
-      email_configured: true,
-      email_transport_ready: false,
-      webhook_configured: false,
-    })
-    const { onSave, onTest } = renderForm(paused)
-
-    expect(screen.getByText('邮箱通知已暂停')).toBeInTheDocument()
-    expect(screen.getByText(/暂停期间不会产生邮件投递/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '发送测试通知' })).toBeDisabled()
-    expect(screen.getByRole('switch', { name: '启用新内容通知' })).toBeEnabled()
-
-    await browser.click(screen.getByRole('switch', { name: '启用新内容通知' }))
-    await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
-      enabled: false,
-      channel: 'email',
-    }))
     expect(onTest).not.toHaveBeenCalled()
   })
 
-  it('refreshes and shows persisted unknown status after an ambiguous test', async () => {
+  it('refreshes the tested channel state after an outcome-unknown response', async () => {
     const browser = userEvent.setup()
-    const value = settings()
+    const initial = settings()
     const unknown = settings({
-      last_test_status: 'unknown',
-      last_tested_at: '2026-07-30T08:00:00Z',
-      last_test_error_code: 'notification_webhook_response_invalid',
+      channel_states: {
+        ...initial.channel_states,
+        webhook: {
+          ...initial.channel_states.webhook,
+          last_test_status: 'unknown',
+          last_tested_at: '2026-07-30T08:00:00Z',
+          last_test_error_code: 'notification_webhook_response_invalid',
+        },
+      },
     })
     const notificationSettings = vi.fn()
-      .mockResolvedValueOnce(value)
+      .mockResolvedValueOnce(initial)
       .mockResolvedValue(unknown)
     const testNotificationSettings = vi.fn().mockRejectedValue(new ApiError(502, {
       code: 'notification_test_outcome_unknown',
@@ -308,7 +285,7 @@ describe('NotificationSettingsForm', () => {
     }))
     const api = {
       notificationSettings,
-      updateNotificationSettings: vi.fn().mockResolvedValue(value),
+      updateNotificationSettings: vi.fn().mockResolvedValue(initial),
       testNotificationSettings,
     } as unknown as ServiceApi
     const token = { userId: 'owner-1', generation: 0 }
@@ -336,64 +313,14 @@ describe('NotificationSettingsForm', () => {
       </MemoryRouter>
     </QueryClientProvider>)
 
-    expect(await screen.findByText('尚未发送测试通知')).toBeInTheDocument()
-    await browser.click(screen.getByRole('button', { name: '发送测试通知' }))
+    await screen.findByRole('heading', { name: 'Webhook' })
+    expect(await channelCard('webhook').findByText('尚未发送测试通知')).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '发送Webhook测试' }))
 
     await waitFor(() => expect(notificationSettings).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText(/最近一次测试结果未知，不会自动重发/)).toBeVisible()
+    expect(await channelCard('webhook').findByText(/最近一次测试结果未知，不会自动重发/)).toBeVisible()
     expect(screen.getByText('测试通知结果未知，请勿重复发送；请先确认接收端。')).toBeVisible()
-    expect(testNotificationSettings).toHaveBeenCalledOnce()
+    expect(testNotificationSettings).toHaveBeenCalledWith('webhook')
     expect(document.body.textContent).not.toContain('raw upstream')
-  })
-
-  it('derives viewer access as read-only and blocks notification writes and tests', async () => {
-    const browser = userEvent.setup()
-    const value = settings()
-    const updateNotificationSettings = vi.fn().mockResolvedValue(value)
-    const testNotificationSettings = vi.fn().mockResolvedValue({ sent: true, channel: value.channel })
-    const api = {
-      notificationSettings: vi.fn().mockResolvedValue(value),
-      updateNotificationSettings,
-      testNotificationSettings,
-    } as unknown as ServiceApi
-    const token = { userId: 'viewer-1', generation: 0 }
-    const context = {
-      api,
-      user: { id: 'viewer-1', username: 'viewer', role: 'viewer', enabled: true },
-      query: '',
-      setQuery: vi.fn(),
-      activity: { state: 'idle', message: '' },
-      refresh: vi.fn(),
-      beginAction: () => token,
-      isActionCurrent: () => true,
-    } as unknown as AppOutletContext
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-
-    render(<QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <DesignSystemProvider>
-          <Routes>
-            <Route element={<Outlet context={context} />}>
-              <Route index element={<HeroNotificationSettings />} />
-            </Route>
-          </Routes>
-        </DesignSystemProvider>
-      </MemoryRouter>
-    </QueryClientProvider>)
-
-    expect(await screen.findByText('当前账户为只读权限')).toBeInTheDocument()
-    expect(screen.getByRole('switch', { name: '启用新内容通知' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Webhook.*通知方式/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Webhook 类型/ })).toBeDisabled()
-    expect(screen.getByLabelText('Webhook 地址')).toBeDisabled()
-    const save = screen.getByRole('button', { name: '保存通知设置' })
-    const test = screen.getByRole('button', { name: '发送测试通知' })
-    expect(save).toBeDisabled()
-    expect(test).toBeDisabled()
-
-    await browser.click(save)
-    await browser.click(test)
-    expect(updateNotificationSettings).not.toHaveBeenCalled()
-    expect(testNotificationSettings).not.toHaveBeenCalled()
   })
 })

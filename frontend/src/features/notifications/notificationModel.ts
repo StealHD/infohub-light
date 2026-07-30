@@ -1,11 +1,22 @@
 import { ApiError } from '../../api/client'
-import type { NotificationChannel, UserNotificationSettings } from '../../api/types'
+import type {
+  NotificationChannel,
+  NotificationChannelStates,
+  NotificationChannelTestStatus,
+} from '../../api/types'
 
 export function notificationChannelConfigured(
-  settings: Pick<UserNotificationSettings, 'email_configured' | 'webhook_configured'>,
+  settings: { channel_states: NotificationChannelStates },
   channel: NotificationChannel,
 ): boolean {
-  return channel === 'email' ? settings.email_configured : settings.webhook_configured
+  return settings.channel_states[channel].configured
+}
+
+export function notificationChannelAvailable(
+  settings: { channel_states: NotificationChannelStates },
+  channel: NotificationChannel,
+): boolean {
+  return settings.channel_states[channel].available
 }
 
 export function notificationDestinationError({
@@ -24,11 +35,22 @@ export function notificationDestinationError({
     return enabled && !configured
       ? channel === 'email'
         ? '启用邮件通知前，请填写收件邮箱。'
-        : '启用 Webhook 通知前，请填写 Webhook 地址。'
+        : channel === 'webhook'
+          ? '启用 Webhook 通知前，请填写 Webhook 地址。'
+          : '启用 Telegram 通知前，请填写 Chat ID。'
       : ''
   }
   if (channel === 'email') {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? '' : '请输入有效的收件邮箱。'
+  }
+  if (channel === 'telegram') {
+    const usernameChatId = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(value)
+    const numericChatId = /^-?[1-9]\d{0,18}$/.test(value)
+      && BigInt(value) >= -(2n ** 63n)
+      && BigInt(value) <= (2n ** 63n) - 1n
+    return usernameChatId || numericChatId
+      ? ''
+      : '请输入有效的 Chat ID（有符号整数或 @channel）。'
   }
   try {
     const parsed = new URL(value)
@@ -62,6 +84,20 @@ const notificationErrorLabels: Record<string, string> = {
   notification_email_recipient_rejected: '邮箱服务拒绝测试收件人，请检查地址。',
   notification_email_rejected: '邮箱服务拒绝邮件，请检查发件地址和账号验证状态。',
   notification_email_unavailable: '暂时无法连接邮箱服务，请稍后重试。',
+  invalid_telegram_bot_token: 'Telegram Bot Token 格式无效，请重新输入。',
+  invalid_telegram_chat_id: 'Telegram Chat ID 无效，请输入有符号整数或 @channel。',
+  telegram_transport_test_required: '请先使用当前配置成功发送 Telegram 测试消息。',
+  telegram_transport_test_rate_limited: 'Telegram 测试消息发送过于频繁，请稍后再试。',
+  telegram_transport_token_unavailable: 'Bot Token 缺失或已变化，请重新保存。',
+  telegram_transport_not_configured: '请先保存 Telegram Bot Token。',
+  telegram_transport_changed: 'Telegram Bot 配置已变化，请重新发送测试消息。',
+  notification_telegram_authentication_failed: 'Telegram 拒绝 Bot Token，请检查配置。',
+  notification_telegram_destination_rejected: 'Telegram 拒绝目标会话，请确认 Bot 已加入并有发送权限。',
+  notification_telegram_provider_rejected: 'Telegram 拒绝消息，请检查目标会话和 Bot 权限。',
+  notification_telegram_rate_limited: 'Telegram 发送过于频繁，请稍后再试。',
+  notification_telegram_response_invalid: 'Telegram 返回无法验证，结果未知；请先检查目标会话。',
+  notification_telegram_unavailable: 'Telegram 服务暂时不可用，请稍后重试。',
+  notification_telegram_outcome_unknown: 'Telegram 发送结果未知，不会自动重发；请先检查目标会话。',
 }
 
 export function safeNotificationError(caught: unknown, fallback: string): string {
@@ -71,7 +107,7 @@ export function safeNotificationError(caught: unknown, fallback: string): string
 }
 
 export function notificationTestLabel(
-  status: string | null,
+  status: NotificationChannelTestStatus | string,
   context?: {
     channel: NotificationChannel
     verificationMode: 'http_status' | 'provider_response'
@@ -80,6 +116,7 @@ export function notificationTestLabel(
   if (!status) return '尚未发送测试通知'
   if (status === 'succeeded' || status === 'success' || status === 'sent') {
     if (context?.channel === 'email') return '最近一次测试邮件已发送，请确认收件箱'
+    if (context?.channel === 'telegram') return '最近一次 Telegram 测试消息已发送，请确认目标会话'
     if (context?.verificationMode === 'provider_response') return '最近一次测试已获平台接受，请确认接收端'
     return '最近一次测试请求已发送，请确认接收端'
   }

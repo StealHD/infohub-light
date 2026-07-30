@@ -52,7 +52,7 @@ export function WebhookProviderFields({
   const selected = safeOptions.find((option) => option.provider === provider)
   const supportsSigning = selected?.signing === 'optional'
 
-  return <fieldset className="grid gap-4 min-[720px]:col-span-2" aria-describedby={`${idPrefix}-help`}>
+  return <fieldset className="grid min-w-0 gap-4" aria-describedby={`${idPrefix}-help`}>
     <legend className="type-control">Webhook 接收端</legend>
     {!providerExplicit && configured && <HeroNotice
       title="这是升级前保存的 Webhook 配置"
@@ -61,7 +61,7 @@ export function WebhookProviderFields({
     >
       当前仍按兼容模式发送。下次修改时，请选择类型并重新输入 Webhook 地址。
     </HeroNotice>}
-    <div className="grid gap-4 min-[720px]:grid-cols-2">
+    <div className="grid min-w-0 gap-4">
       <HeroSelect
         label="Webhook 类型"
         value={provider}
@@ -94,7 +94,7 @@ export function WebhookProviderFields({
         {fieldError && <FieldError>{fieldError}</FieldError>}
       </TextField>
     </div>
-    {supportsSigning && <div className="grid gap-3 min-[720px]:grid-cols-2">
+    {supportsSigning && <div className="grid min-w-0 gap-3">
       <div className="grid content-start gap-1">
         <Switch
           isSelected={signingEnabled}

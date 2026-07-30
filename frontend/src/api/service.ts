@@ -25,6 +25,10 @@ import type {
   NotificationEmailTransport,
   NotificationEmailTransportPatch,
   NotificationEmailTransportTestResult,
+  NotificationChannel,
+  NotificationTelegramTransport,
+  NotificationTelegramTransportPatch,
+  NotificationTelegramTransportTestResult,
   NotificationTestResult,
   SecretQuota,
   SecretRef,
@@ -129,7 +133,10 @@ export function createServiceApi(client: ApiClient) {
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
     notificationSettings: (signal?: AbortSignal) => client.get<UserNotificationSettings>('/api/me/notification-settings', signal),
     updateNotificationSettings: (patch: UserNotificationSettingsPatch) => client.patch<UserNotificationSettings>('/api/me/notification-settings', patch),
-    testNotificationSettings: () => client.post<NotificationTestResult>('/api/me/notification-settings/test'),
+    testNotificationSettings: (channel?: NotificationChannel) => client.post<NotificationTestResult>(
+      '/api/me/notification-settings/test',
+      channel ? { channel } : undefined,
+    ),
     notificationEmailTransport: (signal?: AbortSignal) => client.get<NotificationEmailTransport>(
       '/api/admin/notification-email-transport',
       signal,
@@ -144,6 +151,21 @@ export function createServiceApi(client: ApiClient) {
     ),
     deleteNotificationEmailTransport: () => client.delete<{ deleted: boolean }>(
       '/api/admin/notification-email-transport',
+    ),
+    notificationTelegramTransport: (signal?: AbortSignal) => client.get<NotificationTelegramTransport>(
+      '/api/admin/notification-telegram-transport',
+      signal,
+    ),
+    updateNotificationTelegramTransport: (patch: NotificationTelegramTransportPatch) => client.patch<NotificationTelegramTransport>(
+      '/api/admin/notification-telegram-transport',
+      patch,
+    ),
+    testNotificationTelegramTransport: (chatId: string) => client.post<NotificationTelegramTransportTestResult>(
+      '/api/admin/notification-telegram-transport/test',
+      { chat_id: chatId },
+    ),
+    deleteNotificationTelegramTransport: () => client.delete<{ deleted: boolean }>(
+      '/api/admin/notification-telegram-transport',
     ),
 
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
@@ -230,8 +252,9 @@ export function createServiceApi(client: ApiClient) {
       '/api/admin/apify-actor-alert-settings',
       patch,
     ),
-    testApifyActorAlertSettings: () => client.post<NotificationTestResult>(
+    testApifyActorAlertSettings: (channel?: NotificationChannel) => client.post<NotificationTestResult>(
       '/api/admin/apify-actor-alert-settings/test',
+      channel ? { channel } : undefined,
     ),
     apifyActorAlertIncidents: (signal?: AbortSignal) => client.get<ApifyActorAlertIncidents>(
       '/api/admin/apify-actor-alert-incidents?limit=20',

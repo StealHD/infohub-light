@@ -48,6 +48,9 @@ export const queryKeys = {
   notificationEmailTransport: (userId: string) => [
     ...userKey(userId), 'notification-email-transport',
   ] as const,
+  notificationTelegramTransport: (userId: string) => [
+    ...userKey(userId), 'notification-telegram-transport',
+  ] as const,
   agentDelegations: (userId: string) => [...userKey(userId), 'agent-delegations'] as const,
   config: (userId: string) => [...userKey(userId), 'config'] as const,
   storageSummary: (userId: string) => [...userKey(userId), 'storage-summary'] as const,

@@ -2,6 +2,49 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
+const notificationWebhookProviders = [{
+  provider: 'generic_event',
+  label: '通用事件 JSON',
+  description: 'event/data',
+  url_hint: 'https://example.com/webhook',
+  signing: 'none',
+  verification_mode: 'http_status',
+}]
+
+function notificationChannelStates({
+  selected = 'webhook',
+  emailAvailable = false,
+  webhookConfigured = false,
+  telegramAvailable = false,
+}: {
+  selected?: 'email' | 'webhook' | 'telegram'
+  emailAvailable?: boolean
+  webhookConfigured?: boolean
+  telegramAvailable?: boolean
+} = {}) {
+  const base = {
+    generation: 1,
+    enabled_at: null,
+    last_test_status: null,
+    last_tested_at: null,
+    last_test_error_code: null,
+  }
+  return {
+    email: { ...base, enabled: selected === 'email', configured: false, available: emailAvailable },
+    webhook: {
+      ...base,
+      enabled: selected === 'webhook',
+      configured: webhookConfigured,
+      available: true,
+      provider: 'generic_event',
+      provider_explicit: true,
+      signing_secret_configured: false,
+      verification_mode: 'http_status',
+    },
+    telegram: { ...base, enabled: selected === 'telegram', configured: false, available: telegramAvailable },
+  }
+}
+
 const privateHistoryItems = [1, 2].map((index) => ({
   id: `private-history-${index}`,
   title: `私人研究源历史内容 ${index}`,
@@ -40,13 +83,22 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   const youtubeCreatePayloads: Array<Record<string, unknown>> = []
   const actorCanaryPayloads: Array<Record<string, unknown>> = []
   let actorAlertSettings = {
-    schema_version: 1,
+    schema_version: 3,
     enabled: false,
+    channels: ['webhook'],
     channel: 'webhook',
+    channel_states: notificationChannelStates(),
     events: ['actor_switched', 'route_exhausted', 'quota_low', 'budget_blocked', 'start_outcome_unknown', 'recovered'],
     email_configured: false,
     email_transport_ready: false,
     webhook_configured: false,
+    webhook_provider: 'generic_event',
+    webhook_provider_explicit: true,
+    webhook_signing_secret_configured: false,
+    webhook_verification_mode: 'http_status',
+    webhook_provider_options: notificationWebhookProviders,
+    telegram_configured: false,
+    telegram_transport_ready: false,
     last_test_status: null,
     last_tested_at: null,
     last_test_error_code: null,
@@ -328,18 +380,30 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       offset: 0,
     }
     else if (url.pathname === '/api/me/notification-settings') data = {
-      schema_version: 1,
+      schema_version: 3,
       enabled: false,
+      channels: ['webhook'],
       channel: 'webhook',
+      channel_states: notificationChannelStates(),
       email_configured: false,
       email_transport_ready: false,
       webhook_configured: false,
+      webhook_provider: 'generic_event',
+      webhook_provider_explicit: true,
+      webhook_signing_secret_configured: false,
+      webhook_verification_mode: 'http_status',
+      webhook_provider_options: notificationWebhookProviders,
+      telegram_configured: false,
+      telegram_transport_ready: false,
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
       updated_at: null,
     }
-    else if (url.pathname === '/api/me/notification-settings/test') data = { sent: true, channel: 'webhook' }
+    else if (url.pathname === '/api/me/notification-settings/test') {
+      const payload = route.request().postDataJSON() as { channel?: string }
+      data = { sent: true, channel: payload.channel ?? 'webhook' }
+    }
     else if (url.pathname === '/api/jobs/source-fetch' && route.request().method() === 'POST') {
       if (sourceFetchGate) {
         await sourceFetchGate
@@ -457,6 +521,24 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       ],
       updated_at: null,
     }
+    else if (url.pathname === '/api/admin/notification-telegram-transport/test') data = {
+      sent: true,
+      generation: 1,
+    }
+    else if (url.pathname === '/api/admin/notification-telegram-transport') data = {
+      schema_version: 1,
+      configured: false,
+      enabled: false,
+      token_configured: false,
+      generation: 0,
+      last_test_status: null,
+      last_test_generation: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      can_enable: false,
+      ready: false,
+      updated_at: null,
+    }
     else if (url.pathname === '/api/admin/apify-actor-routes/x/profile/order' && route.request().method() === 'PUT') {
       data = actorRoute
     }
@@ -471,14 +553,15 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
     }
     else if (url.pathname === '/api/admin/apify-actor-routes/x/profile') data = actorRoute
     else if (url.pathname === '/api/admin/apify-actor-alert-settings/test' && route.request().method() === 'POST') {
-      data = { sent: true, channel: actorAlertSettings.channel }
+      const payload = route.request().postDataJSON() as { channel?: string }
+      data = { sent: true, channel: payload.channel ?? actorAlertSettings.channel }
     }
     else if (url.pathname === '/api/admin/apify-actor-alert-settings' && route.request().method() === 'PATCH') {
       const patch = route.request().postDataJSON() as Record<string, unknown>
       actorAlertSettings = {
         ...actorAlertSettings,
         enabled: typeof patch.enabled === 'boolean' ? patch.enabled : actorAlertSettings.enabled,
-        channel: typeof patch.channel === 'string' ? patch.channel : actorAlertSettings.channel,
+        channels: Array.isArray(patch.channels) ? patch.channels as string[] : actorAlertSettings.channels,
         events: Array.isArray(patch.events) ? patch.events as string[] : actorAlertSettings.events,
         email_configured: typeof patch.email_address === 'string' || actorAlertSettings.email_configured,
         webhook_configured: typeof patch.webhook_url === 'string' || actorAlertSettings.webhook_configured,
@@ -487,7 +570,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
     }
     else if (url.pathname === '/api/admin/apify-actor-alert-settings') data = actorAlertSettings
     else if (url.pathname === '/api/admin/apify-actor-alert-incidents') data = {
-      schema_version: 1,
+      schema_version: 2,
       incidents: [{
         id: 'actor-incident-1',
         route: 'x/profile',
@@ -500,6 +583,16 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
         opened_at: '2026-07-29T08:00:00Z',
         last_seen_at: '2026-07-29T08:00:00Z',
         resolved_at: null,
+        deliveries: [{
+          event_type: 'actor_switched',
+          channel: 'webhook',
+          status: 'sent',
+          error_code: null,
+          created_at: '2026-07-29T08:00:01Z',
+          started_at: '2026-07-29T08:00:01Z',
+          sent_at: '2026-07-29T08:00:02Z',
+          updated_at: '2026-07-29T08:00:02Z',
+        }],
         delivery_status: 'sent',
         delivery_error_code: null,
       }],
@@ -636,9 +729,14 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await page.goto('/settings#settings-notifications')
   await expectHeroAdminPage(page, '设置')
   await expect(page.getByRole('heading', { name: '消息通知' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '发送测试通知' })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: '邮箱' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Webhook' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Telegram', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送Webhook测试' })).toBeDisabled()
   await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
+  await expect(page.getByText('Telegram Bot 服务', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送 Telegram 测试' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
   await page.goto('/settings#settings-fetching')
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
@@ -698,6 +796,7 @@ test('settings landing defers hidden section requests and a direct hash loads on
     '/api/feed/ignored',
     '/api/me/notification-settings',
     '/api/admin/notification-email-transport',
+    '/api/admin/notification-telegram-transport',
     '/api/admin/storage/summary',
     '/api/admin/storage/archives',
     '/api/admin/secrets',
@@ -741,7 +840,7 @@ test('settings sections reveal naturally in both scroll directions without using
   await expect(scrollRegion).toBeVisible()
   await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
   await expect(sectionSelector).toContainText('关于 Inteliscope')
-  await expect(page.getByRole('button', { name: '发送测试通知' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '发送Webhook测试' })).toHaveCount(0)
 
   const revealSection = async (id: string, label: string, content: Locator) => {
     await page.locator(`#${id}`).scrollIntoViewIfNeeded()
@@ -761,7 +860,7 @@ test('settings sections reveal naturally in both scroll directions without using
   await revealSection(
     'settings-notifications',
     '消息通知',
-    page.getByRole('button', { name: '发送测试通知' }),
+    page.getByRole('button', { name: '发送Webhook测试' }),
   )
   await revealSection(
     'settings-ai',
@@ -836,7 +935,7 @@ test('settings saves all dirty core sections in one bundle request', async ({ pa
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
-test('workspace email transport stays bounded at 390, 768 and 1440 pixels', async ({ page }) => {
+test('workspace email and Telegram transports stay bounded at 390, 768 and 1440 pixels', async ({ page }) => {
   await mockAdminApi(page)
 
   for (const viewport of [
@@ -848,8 +947,13 @@ test('workspace email transport stays bounded at 390, 768 and 1440 pixels', asyn
     await page.goto('/settings#settings-notifications')
 
     await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
-    await expect(page.getByRole('switch', { name: '未启用' })).toBeDisabled()
+    await expect(page.getByRole('switch', { name: '未启用', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
+    await expect(page.getByText('Telegram Bot 服务', { exact: true })).toBeVisible()
+    await expect(page.getByRole('switch', { name: 'Telegram 未启用' })).toBeDisabled()
+    await expect(page.getByLabel('Bot Token')).toHaveAttribute('type', 'password')
+    await expect(page.getByLabel('一次性测试 Chat ID')).toHaveAttribute('type', 'password')
+    await expect(page.getByRole('button', { name: '发送 Telegram 测试' })).toBeDisabled()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
     await page.getByRole('button', { name: /邮件服务商/ }).click()
