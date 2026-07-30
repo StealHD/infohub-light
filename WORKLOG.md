@@ -458,3 +458,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "将设置页七分区自然滚动修复快进合入本地 main，并把包含通用 Webhook、网络稳定性与设置滚动修复的组合版本升级为 2.1.1，准备精确标签与 revision-locked VPS 发布。",
+  "status": "completed",
+  "task_id": "2026-07-30-release-v2.1.1",
+  "unresolved": [
+    "v2.1.1 尚待 release 门禁、Tag/远端推送和 VPS 分阶段发布验证"
+  ],
+  "validation": [
+    "settings fix e5bb150 fast-forwarded into clean local main",
+    "v2.1.1 is unused locally and remotely",
+    "manual and changelog changes from the accepted settings task are present"
+  ]
+}
+```
