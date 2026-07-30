@@ -30,6 +30,7 @@ _MANAGED_FILE_RE = re.compile(
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"(?i)\b("
     r"authorization|password|passwd|token|api[_-]?key|secret|credential|"
+    r"chat(?:_id)?|bot_token|"
     r"webhook(?:_url)?|email(?:_address|_destination)?|recipient|destination|"
     r"confirmation(?:_text|_phrase)?|confirm(?:_text|_phrase)?|"
     r"article_id|display_name|personal_tags?|label|env(?:ironment)?(?:_name|_var)?"

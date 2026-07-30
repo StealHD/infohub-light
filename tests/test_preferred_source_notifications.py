@@ -6,7 +6,7 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -98,6 +98,14 @@ def _notification_context(
         WHERE id = ?
         """,
         (WATERMARK, subscription["id"]),
+    )
+    store.connect().execute(
+        """
+        UPDATE user_notification_channels
+        SET enabled_at = ?
+        WHERE workspace_id = ? AND user_id = ? AND channel = 'webhook'
+        """,
+        (WATERMARK, workspace["id"], user["id"]),
     )
     store.connect().commit()
     return {
@@ -460,7 +468,9 @@ def test_settings_projection_is_value_free_and_webhook_is_secret_only(
     assert set(public) == {
         "schema_version",
         "enabled",
+        "channels",
         "channel",
+        "channel_states",
         "email_configured",
         "email_transport_ready",
         "webhook_configured",
@@ -469,6 +479,8 @@ def test_settings_projection_is_value_free_and_webhook_is_secret_only(
         "webhook_signing_secret_configured",
         "webhook_verification_mode",
         "webhook_provider_options",
+        "telegram_configured",
+        "telegram_transport_ready",
         "last_test_status",
         "last_tested_at",
         "last_test_error_code",
@@ -629,6 +641,12 @@ def test_provider_and_signing_rotation_is_write_only_and_invalidates_test(
         user_id=user_id,
     )
     assert before is not None
+    before_webhook = store.get_user_notification_channel(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        channel="webhook",
+    )
+    assert before_webhook is not None
     store.record_user_notification_test(
         workspace_id=workspace_id,
         user_id=user_id,
@@ -660,8 +678,17 @@ def test_provider_and_signing_rotation_is_write_only_and_invalidates_test(
         user_id=user_id,
     )
     assert internal is not None
-    assert internal["notification_generation"] == (
-        int(before["notification_generation"]) + 1
+    assert internal["notification_generation"] == int(
+        before["notification_generation"]
+    )
+    changed_webhook = store.get_user_notification_channel(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        channel="webhook",
+    )
+    assert changed_webhook is not None
+    assert changed_webhook["generation"] == (
+        int(before_webhook["generation"]) + 1
     )
     signing_env = service.webhook_signing_env_name(
         workspace_id=workspace_id,
@@ -683,7 +710,16 @@ def test_provider_and_signing_rotation_is_write_only_and_invalidates_test(
         user_id=user_id,
     )
     assert after_clear is not None
-    assert after_clear["notification_generation"] == generation + 1
+    assert after_clear["notification_generation"] == generation
+    cleared_webhook = store.get_user_notification_channel(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        channel="webhook",
+    )
+    assert cleared_webhook is not None
+    assert cleared_webhook["generation"] == (
+        int(changed_webhook["generation"]) + 1
+    )
     assert signing_env not in SecretStore(tmp_path).read()
 
     with pytest.raises(NotificationServiceError) as missing_url:
@@ -724,6 +760,12 @@ def test_provider_change_bumps_generation_while_notifications_are_disabled(
         user_id=user_id,
     )
     assert disabled is not None
+    disabled_webhook = store.get_user_notification_channel(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        channel="webhook",
+    )
+    assert disabled_webhook is not None
 
     service.upsert_settings(
         workspace_id=workspace_id,
@@ -738,8 +780,17 @@ def test_provider_change_bumps_generation_while_notifications_are_disabled(
     )
     assert changed is not None
     assert changed["enabled"] is False
-    assert changed["notification_generation"] == (
-        int(disabled["notification_generation"]) + 1
+    assert changed["notification_generation"] == int(
+        disabled["notification_generation"]
+    )
+    changed_webhook = store.get_user_notification_channel(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        channel="webhook",
+    )
+    assert changed_webhook is not None
+    assert changed_webhook["generation"] == (
+        int(disabled_webhook["generation"]) + 1
     )
 
 
@@ -1623,7 +1674,22 @@ def test_paused_email_transport_skips_outbox_and_does_not_backfill(
         [
             _item(context, "baseline"),
             _item(context, "paused"),
-            _item(context, "strictly-new"),
+            _item(
+                context,
+                "strictly-new",
+                published_at=(
+                    datetime.fromisoformat(
+                        str(
+                            store.get_user_notification_channel(
+                                workspace_id=context["workspace"]["id"],
+                                user_id=context["user"]["id"],
+                                channel="email",
+                            )["enabled_at"]
+                        )
+                    )
+                    + timedelta(seconds=1)
+                ).isoformat(),
+            ),
         ],
         generated_at="2026-07-24T00:03:00+00:00",
     )
@@ -2737,3 +2803,332 @@ def test_worker_notification_stage_failure_does_not_fail_feed_job(
     assert snapshot_row is not None
     assert _count(verification_store, "preferred_source_notification_deliveries") == 0
     verification_store.close()
+
+
+class _ReadyChannelTransport:
+    def is_ready(self, *, workspace_id: str) -> bool:
+        return bool(workspace_id)
+
+
+def _configure_three_notification_channels(
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    service = context["service"]
+    service.email_transport = _ReadyChannelTransport()
+    service.telegram_transport = _ReadyChannelTransport()
+    public = service.upsert_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        channels=["email", "webhook", "telegram"],
+        email_address="reader@example.com",
+        telegram_chat_id="-1001234567890",
+    )
+    context["store"].connect().execute(
+        """
+        UPDATE user_notification_channels
+        SET enabled_at = ?
+        WHERE workspace_id = ? AND user_id = ?
+        """,
+        (
+            WATERMARK,
+            context["workspace"]["id"],
+            context["user"]["id"],
+        ),
+    )
+    context["store"].connect().commit()
+    return public
+
+
+def test_three_channels_stage_dispatch_and_isolate_one_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    store = context["store"]
+    service = context["service"]
+    public = _configure_three_notification_channels(context)
+    assert public["channels"] == ["email", "webhook", "telegram"]
+    assert "-1001234567890" not in repr(public)
+    assert b"-1001234567890" not in store.db_path.read_bytes()
+
+    baseline_job = _job(context)
+    baseline = _save_snapshot(
+        context,
+        baseline_job,
+        [_item(context, "baseline")],
+        generated_at="2026-07-24T00:01:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=baseline_job,
+        snapshot_id=baseline["id"],
+        snapshot_created=True,
+    ) == 0
+    store.connect().commit()
+    current_job = _job(context)
+    current = _save_snapshot(
+        context,
+        current_job,
+        [_item(context, "baseline"), _item(context, "three-way")],
+        generated_at="2026-07-24T00:02:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=current_job,
+        snapshot_id=current["id"],
+        snapshot_created=True,
+    ) == 3
+    store.connect().commit()
+
+    attempted: list[str] = []
+
+    def fake_send(settings: dict[str, Any], _payload: dict[str, Any]):
+        channel = str(settings["channel"])
+        attempted.append(channel)
+        if channel == "webhook":
+            raise NotificationServiceError(
+                "simulated_webhook_failure",
+                "simulated",
+                status_code=502,
+            )
+        return None
+
+    monkeypatch.setattr(service, "_send_payload", fake_send)
+    summary = service.dispatch_pending(job_id=current_job["id"])
+    assert summary == {"claimed": 3, "succeeded": 2, "failed": 1}
+    assert set(attempted) == {"email", "webhook", "telegram"}
+    statuses = {
+        str(row["channel"]): str(row["status"])
+        for row in store.connect().execute(
+            """
+            SELECT channel, status
+            FROM preferred_source_notification_deliveries
+            WHERE job_id = ?
+            """,
+            (current_job["id"],),
+        ).fetchall()
+    }
+    assert statuses == {
+        "email": "succeeded",
+        "webhook": "failed",
+        "telegram": "succeeded",
+    }
+
+
+def test_channel_change_preserves_other_config_pending_and_sending(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    store = context["store"]
+    service = context["service"]
+    _configure_three_notification_channels(context)
+    before = {
+        row["channel"]: row
+        for row in store.list_user_notification_channels(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["user"]["id"],
+        )
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    for channel, status in (
+        ("email", "sending"),
+        ("webhook", "pending"),
+        ("telegram", "pending"),
+    ):
+        store.connect().execute(
+            """
+            INSERT INTO preferred_source_notification_deliveries (
+                id, workspace_id, user_id, subscription_id, source_id,
+                snapshot_id, job_id, article_id, channel, payload_json,
+                status, attempts, account_notification_generation,
+                channel_notification_generation,
+                subscription_notification_generation, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, 0, 1, ?, 1, ?, ?)
+            """,
+            (
+                f"delivery-{channel}",
+                context["workspace"]["id"],
+                context["user"]["id"],
+                context["subscription_id"],
+                context["source_id"],
+                f"snapshot-{channel}",
+                "job-channel-change",
+                f"article-{channel}",
+                channel,
+                status,
+                int(before[channel]["generation"]),
+                now,
+                now,
+            ),
+        )
+    store.connect().commit()
+
+    public = service.upsert_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        email_address="new-reader@example.com",
+    )
+    after = {
+        row["channel"]: row
+        for row in store.list_user_notification_channels(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["user"]["id"],
+        )
+    }
+    assert after["email"]["generation"] == before["email"]["generation"] + 1
+    assert after["webhook"]["generation"] == before["webhook"]["generation"]
+    assert after["telegram"]["generation"] == before["telegram"]["generation"]
+    assert public["webhook_configured"] is True
+    assert public["telegram_configured"] is True
+    statuses = {
+        row["channel"]: row["status"]
+        for row in store.connect().execute(
+            """
+            SELECT channel, status
+            FROM preferred_source_notification_deliveries
+            WHERE job_id = 'job-channel-change'
+            """
+        ).fetchall()
+    }
+    assert statuses == {
+        "email": "sending",
+        "webhook": "pending",
+        "telegram": "pending",
+    }
+
+
+def test_global_resume_does_not_backfill_items_seen_while_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    service = context["service"]
+    store = context["store"]
+    baseline_job = _job(context)
+    baseline = _save_snapshot(
+        context,
+        baseline_job,
+        [_item(context, "baseline")],
+        generated_at="2026-07-24T00:01:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=baseline_job,
+        snapshot_id=baseline["id"],
+        snapshot_created=True,
+    ) == 0
+    store.connect().commit()
+    service.upsert_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        enabled=False,
+    )
+    missed_job = _job(context)
+    missed = _save_snapshot(
+        context,
+        missed_job,
+        [_item(context, "baseline"), _item(context, "missed")],
+        generated_at="2026-07-24T00:02:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=missed_job,
+        snapshot_id=missed["id"],
+        snapshot_created=True,
+    ) == 0
+    store.connect().commit()
+    service.upsert_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        enabled=True,
+    )
+    settings = store.get_user_notification_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+    )
+    assert settings is not None
+    resumed_at = datetime.fromisoformat(
+        str(settings["notification_enabled_at"])
+    )
+    current_job = _job(context)
+    current = _save_snapshot(
+        context,
+        current_job,
+        [
+            _item(context, "baseline"),
+            _item(
+                context,
+                "missed",
+                published_at=(resumed_at - timedelta(seconds=1)).isoformat(),
+            ),
+            _item(
+                context,
+                "strictly-new",
+                published_at=(resumed_at + timedelta(seconds=1)).isoformat(),
+            ),
+        ],
+        generated_at="2026-07-24T00:03:00+00:00",
+    )
+    assert service.stage_for_job(
+        job=current_job,
+        snapshot_id=current["id"],
+        snapshot_created=True,
+    ) == 1
+
+
+def test_notification_test_cooldown_is_per_channel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    service = context["service"]
+    _configure_three_notification_channels(context)
+    monkeypatch.setattr(
+        service,
+        "_send_payload",
+        lambda _settings, _payload: None,
+    )
+    assert service.send_test(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        channel="telegram",
+    )["sent"] is True
+    assert service.send_test(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+        channel="email",
+    )["sent"] is True
+    with pytest.raises(NotificationServiceError) as limited:
+        service.send_test(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["user"]["id"],
+            channel="telegram",
+        )
+    assert limited.value.code == "notification_test_rate_limited"
+
+
+def test_unclassified_notification_test_error_is_unknown_and_not_retryable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    service = context["service"]
+
+    def fail_after_send(
+        _settings: dict[str, Any],
+        _payload: dict[str, Any],
+    ) -> None:
+        raise RuntimeError("unclassified post-send failure")
+
+    monkeypatch.setattr(service, "_send_payload", fail_after_send)
+    with pytest.raises(NotificationServiceError) as unknown:
+        service.send_test(
+            workspace_id=context["workspace"]["id"],
+            user_id=context["user"]["id"],
+            channel="webhook",
+        )
+    assert unknown.value.code == "notification_test_outcome_unknown"
+    assert unknown.value.outcome_unknown is True
+    assert unknown.value.retryable is False
+    public = service.get_public_settings(
+        workspace_id=context["workspace"]["id"],
+        user_id=context["user"]["id"],
+    )
+    assert public["channel_states"]["webhook"]["last_test_status"] == "unknown"

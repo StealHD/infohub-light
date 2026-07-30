@@ -336,7 +336,9 @@ def test_redact_log_text_removes_destinations_and_common_secret_shapes():
         "authorization=Bearer opaque-value-123 "
         "password=hunter2 token=ih_mcp_v1_abcdefghi "
         "key sk-abcdefghij email dev@example.com url https://example.com/path?q=1 "
-        "article_id=private-article HORIZON_AUTH_PASSWORD"
+        "article_id=private-article chat_id=-1001234567890 "
+        "bot_token=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi "
+        "HORIZON_AUTH_PASSWORD"
     )
     for secret in (
         "opaque-value-123",
@@ -346,6 +348,8 @@ def test_redact_log_text_removes_destinations_and_common_secret_shapes():
         "dev@example.com",
         "https://example.com/path?q=1",
         "private-article",
+        "-1001234567890",
+        "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
         "HORIZON_AUTH_PASSWORD",
     ):
         assert secret not in rendered

@@ -110,6 +110,11 @@ def test_alert_provider_and_signing_rotation_is_write_only(tmp_path) -> None:
     _configure_webhook(service, admin_id)
     before = service._settings_row(DEFAULT_WORKSPACE_ID)
     assert before is not None
+    before_webhook = store.get_apify_actor_alert_channel(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        channel="webhook",
+    )
+    assert before_webhook is not None
     url = (
         "https://oapi.dingtalk.com/robot/send"
         "?access_token=00000000000000000000000000000000"
@@ -132,7 +137,15 @@ def test_alert_provider_and_signing_rotation_is_write_only(tmp_path) -> None:
     assert signing_secret not in repr(public)
     internal = service._settings_row(DEFAULT_WORKSPACE_ID)
     assert internal is not None
-    assert internal["generation"] == int(before["generation"]) + 1
+    assert internal["generation"] == int(before["generation"])
+    changed_webhook = store.get_apify_actor_alert_channel(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        channel="webhook",
+    )
+    assert changed_webhook is not None
+    assert changed_webhook["generation"] == (
+        int(before_webhook["generation"]) + 1
+    )
     signing_env = service.webhook_signing_env_name(
         workspace_id=DEFAULT_WORKSPACE_ID
     )
@@ -940,3 +953,202 @@ def test_email_alert_uses_dedicated_operational_payload(tmp_path) -> None:
     assert isinstance(payload, dict)
     assert payload["kind"] == "operational_alert"
     assert payload["active_actor_name"] == "Dami"
+
+
+class _ReadyTelegramTransport:
+    def is_ready(self, *, workspace_id: str) -> bool:
+        return workspace_id == DEFAULT_WORKSPACE_ID
+
+
+def _configure_three_alert_channels(
+    store: ServiceStore,
+    service: ApifyActorAlertService,
+    admin_id: str,
+) -> dict[str, object]:
+    service.telegram_transport = _ReadyTelegramTransport()
+    public = service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        enabled=True,
+        channels=["email", "webhook", "telegram"],
+        email_address="ops@example.com",
+        webhook_url="https://hooks.example.com/apify",
+        telegram_chat_id="@inteliscope_alerts",
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_alert_settings
+        SET notification_enabled_at = '2020-01-01T00:00:00+00:00'
+        WHERE workspace_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID,),
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_alert_channels
+        SET enabled_at = '2020-01-01T00:00:00+00:00'
+        WHERE workspace_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID,),
+    )
+    store.connect().commit()
+    return public
+
+
+def test_three_alert_channels_fan_out_and_isolate_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    public = _configure_three_alert_channels(
+        store,
+        service,
+        admin_id,
+    )
+    assert public["channels"] == ["email", "webhook", "telegram"]
+    assert "@inteliscope_alerts" not in repr(public)
+    assert b"@inteliscope_alerts" not in store.db_path.read_bytes()
+    opened = service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="three-channel",
+        event_type="actor_switched",
+        severity="warning",
+    )
+    assert opened["delivery_staged"] is True
+    assert {
+        delivery["channel"]
+        for delivery in opened["incident"]["deliveries"]
+    } == {"email", "webhook", "telegram"}
+
+    attempted: list[str] = []
+
+    def fake_send(
+        settings: dict[str, object],
+        _payload: dict[str, object],
+        *,
+        test: bool,
+    ):
+        assert test is False
+        channel = str(settings["channel"])
+        attempted.append(channel)
+        if channel == "webhook":
+            raise ApifyActorAlertError(
+                "simulated_webhook_failure",
+                "simulated",
+                status_code=502,
+            )
+        return None
+
+    monkeypatch.setattr(service, "_send_payload", fake_send)
+    summary = service.dispatch_pending(
+        workspace_id=DEFAULT_WORKSPACE_ID
+    )
+    assert summary == {
+        "claimed": 3,
+        "succeeded": 2,
+        "failed": 1,
+        "retried": 0,
+        "unknown": 0,
+    }
+    assert set(attempted) == {"email", "webhook", "telegram"}
+    incident = service.list_incidents(
+        workspace_id=DEFAULT_WORKSPACE_ID
+    )[0]
+    statuses = {
+        delivery["channel"]: delivery["status"]
+        for delivery in incident["deliveries"]
+    }
+    assert statuses == {
+        "email": "sent",
+        "webhook": "failed",
+        "telegram": "sent",
+    }
+
+
+def test_alert_channel_generation_cooldown_and_sending_are_independent(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    _configure_three_alert_channels(store, service, admin_id)
+    before = {
+        row["channel"]: row
+        for row in store.list_apify_actor_alert_channels(
+            workspace_id=DEFAULT_WORKSPACE_ID
+        )
+    }
+    opened = service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="channel-generation",
+        event_type="route_exhausted",
+        severity="critical",
+    )
+    incident_id = opened["incident"]["id"]
+    store.connect().execute(
+        """
+        UPDATE apify_actor_alert_deliveries
+        SET status = 'sending'
+        WHERE incident_id = ? AND channel = 'telegram'
+        """,
+        (incident_id,),
+    )
+    store.connect().commit()
+
+    public = service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        telegram_chat_id="-1009876543210",
+    )
+    after = {
+        row["channel"]: row
+        for row in store.list_apify_actor_alert_channels(
+            workspace_id=DEFAULT_WORKSPACE_ID
+        )
+    }
+    assert after["telegram"]["generation"] == (
+        before["telegram"]["generation"] + 1
+    )
+    assert after["email"]["generation"] == before["email"]["generation"]
+    assert after["webhook"]["generation"] == before["webhook"]["generation"]
+    assert "-1009876543210" not in repr(public)
+    delivery_states = {
+        row["channel"]: row["status"]
+        for row in store.connect().execute(
+            """
+            SELECT channel, status
+            FROM apify_actor_alert_deliveries
+            WHERE incident_id = ?
+            """,
+            (incident_id,),
+        ).fetchall()
+    }
+    assert delivery_states == {
+        "email": "pending",
+        "webhook": "pending",
+        "telegram": "sending",
+    }
+
+    monkeypatch.setattr(
+        service,
+        "_send_payload",
+        lambda _settings, _payload, *, test: None,
+    )
+    assert service.send_test(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        channel="telegram",
+    )["sent"] is True
+    assert service.send_test(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        channel="email",
+    )["sent"] is True
+    with pytest.raises(ApifyActorAlertError) as limited:
+        service.send_test(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            actor_user_id=admin_id,
+            channel="telegram",
+        )
+    assert limited.value.code == "apify_actor_alert_test_rate_limited"

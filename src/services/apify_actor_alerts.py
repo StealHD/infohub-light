@@ -15,11 +15,16 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
 from typing import Any, Coroutine
 
-from ..storage.service_store import ServiceStore
+from ..storage.service_store import NOTIFICATION_CHANNELS, ServiceStore
 from .network_policy import post_public_http
 from .notification_email_transport import (
     EmailTransportError,
     WorkspaceEmailTransportService,
+)
+from .notification_telegram_transport import (
+    TelegramConfigurationError,
+    TelegramSendResult,
+    normalize_telegram_chat_id,
 )
 from .notification_webhook_transport import (
     DINGTALK,
@@ -39,6 +44,10 @@ from .notification_webhook_transport import (
     webhook_verification_mode,
 )
 from .secret_store import SecretStore
+from .workspace_telegram_transport import (
+    TelegramTransportServiceError,
+    WorkspaceTelegramTransportService,
+)
 
 
 UNSET = object()
@@ -286,6 +295,26 @@ def _normalize_events(value: Any, *, default: tuple[str, ...] = ()) -> tuple[str
     return tuple(event for event in ALERT_EVENTS if event in seen)
 
 
+def _normalize_channels(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        raise ApifyActorAlertError(
+            "invalid_apify_actor_alert_settings",
+            "alert channels must be a list",
+        )
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_channel in value:
+        channel = str(raw_channel or "").strip().lower()
+        if channel not in NOTIFICATION_CHANNELS or channel in seen:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "alert channels contain an unsupported or duplicate value",
+            )
+        normalized.append(channel)
+        seen.add(channel)
+    return normalized
+
+
 def _public_delivery_status(value: Any) -> str | None:
     status = str(value or "").strip().lower()
     return {
@@ -332,12 +361,20 @@ class ApifyActorAlertService:
         *,
         data_dir: str,
         email_transport: WorkspaceEmailTransportService | None = None,
+        telegram_transport: WorkspaceTelegramTransportService | None = None,
     ) -> None:
         self.store = store
         self.secret_store = SecretStore(data_dir)
         self.email_transport = email_transport or WorkspaceEmailTransportService(
             store,
             data_dir=data_dir,
+        )
+        self.telegram_transport = (
+            telegram_transport
+            or WorkspaceTelegramTransportService(
+                store,
+                data_dir=data_dir,
+            )
         )
 
     @staticmethod
@@ -353,6 +390,45 @@ class ApifyActorAlertService:
             str(workspace_id).encode("utf-8")
         ).hexdigest()[:24].upper()
         return f"HORIZON_APIFY_ALERT_WEBHOOK_SIGNING_{digest}"
+
+    @staticmethod
+    def telegram_chat_env_name(*, workspace_id: str) -> str:
+        digest = hashlib.sha256(
+            str(workspace_id).encode("utf-8")
+        ).hexdigest()[:24].upper()
+        return f"HORIZON_APIFY_ALERT_TELEGRAM_CHAT_{digest}"
+
+    def _bound_telegram_chat_id(
+        self,
+        channel_state: dict[str, Any] | None,
+    ) -> str | None:
+        if channel_state is None:
+            return None
+        workspace_id = str(channel_state.get("workspace_id") or "")
+        expected_env = self.telegram_chat_env_name(
+            workspace_id=workspace_id
+        )
+        env_name = str(channel_state.get("destination_env_name") or "")
+        expected_digest = str(
+            channel_state.get("destination_secret_digest") or ""
+        )
+        if (
+            not workspace_id
+            or env_name != expected_env
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            return None
+        secret = self.secret_store.read().get(expected_env)
+        if not secret:
+            return None
+        actual_digest = hashlib.sha256(
+            str(secret).encode("utf-8")
+        ).hexdigest()
+        return (
+            str(secret)
+            if hmac.compare_digest(actual_digest, expected_digest)
+            else None
+        )
 
     def _settings_row(self, workspace_id: str) -> dict[str, Any] | None:
         row = self.store.connect().execute(
@@ -459,7 +535,8 @@ class ApifyActorAlertService:
     def _last_delivery(self, workspace_id: str) -> dict[str, Any] | None:
         row = self.store.connect().execute(
             """
-            SELECT channel, settings_generation, status, error_code,
+            SELECT channel, settings_generation, channel_generation,
+                   status, error_code,
                    created_at, started_at, sent_at, updated_at
             FROM apify_actor_alert_deliveries
             WHERE workspace_id = ?
@@ -476,75 +553,136 @@ class ApifyActorAlertService:
 
     def get_public_settings(self, *, workspace_id: str) -> dict[str, Any]:
         settings = self._settings_row(workspace_id)
+        channel_rows = self.store.list_apify_actor_alert_channels(
+            workspace_id=workspace_id
+        )
+        rows_by_channel = {
+            str(row["channel"]): row for row in channel_rows
+        }
         last_delivery = self._last_delivery(workspace_id)
-        if (
-            settings is None
-            or last_delivery is None
-            or int(last_delivery.get("settings_generation") or 0)
-            != int(settings.get("generation") or 0)
-        ):
-            last_delivery = None
-        if settings is None:
-            return {
-                "schema_version": 2,
-                "enabled": False,
-                "channel": "webhook",
-                "events": list(ALERT_EVENTS),
-                "email_configured": False,
-                "email_transport_ready": self.email_transport.is_ready(
-                    workspace_id=workspace_id
-                ),
-                "webhook_configured": False,
-                "webhook_provider": GENERIC_EVENT,
-                "webhook_provider_explicit": True,
-                "webhook_signing_secret_configured": False,
-                "webhook_verification_mode": "http_status",
-                "webhook_provider_options": webhook_provider_options(),
-                "last_test_status": None,
-                "last_tested_at": None,
-                "last_test_error_code": None,
-                "last_alert_status": (
-                    last_delivery.get("status") if last_delivery else None
-                ),
-                "last_alerted_at": self._last_alert_time(last_delivery),
-                "last_alert_error_code": (
-                    last_delivery.get("error_code") if last_delivery else None
-                ),
-                "updated_at": None,
-            }
-        channel = str(settings.get("channel") or "")
+        if last_delivery is not None:
+            delivery_channel = str(last_delivery.get("channel") or "")
+            current_channel = rows_by_channel.get(delivery_channel)
+            if (
+                settings is None
+                or current_channel is None
+                or int(last_delivery.get("settings_generation") or 0)
+                != int(settings.get("generation") or 0)
+                or int(last_delivery.get("channel_generation") or 0)
+                != int(current_channel.get("generation") or 0)
+            ):
+                last_delivery = None
         webhook_url = self._bound_webhook_secret(settings) or ""
-        try:
-            stored_provider = normalize_stored_webhook_provider(
-                settings.get("webhook_provider")
-            )
-            effective_provider = resolve_webhook_provider(
-                stored_provider,
-                webhook_url,
-            )
-        except WebhookConfigurationError:
-            stored_provider = LEGACY_AUTO
+        if settings is None:
+            stored_provider = GENERIC_EVENT
             effective_provider = GENERIC_EVENT
-        last_test_status = settings.get("last_test_status")
-        if (
-            last_test_status == "failed"
-            and settings.get("last_test_error_code")
-            in {
-                "notification_webhook_outcome_unknown",
-                "notification_webhook_response_invalid",
+        else:
+            try:
+                stored_provider = normalize_stored_webhook_provider(
+                    settings.get("webhook_provider")
+                )
+                effective_provider = resolve_webhook_provider(
+                    stored_provider,
+                    webhook_url,
+                )
+            except WebhookConfigurationError:
+                stored_provider = LEGACY_AUTO
+                effective_provider = GENERIC_EVENT
+        email_ready = self.email_transport.is_ready(
+            workspace_id=workspace_id
+        )
+        telegram_ready = self.telegram_transport.is_ready(
+            workspace_id=workspace_id
+        )
+        channel_states: dict[str, dict[str, Any]] = {}
+        for channel_name in NOTIFICATION_CHANNELS:
+            row = rows_by_channel.get(channel_name)
+            last_test_status = (row or {}).get("last_test_status")
+            last_test_error = (row or {}).get(
+                "last_test_error_code"
+            )
+            if (
+                last_test_status == "failed"
+                and last_test_error
+                in {
+                    "notification_webhook_outcome_unknown",
+                    "notification_webhook_response_invalid",
+                    "notification_telegram_outcome_unknown",
+                    "notification_telegram_response_invalid",
+                    "notification_delivery_outcome_unknown",
+                }
+            ):
+                last_test_status = "unknown"
+            if channel_name == "email":
+                configured = bool(
+                    (settings or {}).get("email_address")
+                )
+                available = bool(configured and email_ready)
+            elif channel_name == "webhook":
+                configured = bool(webhook_url)
+                available = bool(
+                    webhook_url
+                    and self._webhook_signing_binding_valid(settings)
+                )
+            else:
+                configured = bool(
+                    self._bound_telegram_chat_id(row)
+                )
+                available = bool(configured and telegram_ready)
+            state: dict[str, Any] = {
+                "enabled": bool((row or {}).get("enabled")),
+                "configured": configured,
+                "available": available,
+                "generation": int((row or {}).get("generation") or 0),
+                "enabled_at": (row or {}).get("enabled_at"),
+                "last_test_status": last_test_status,
+                "last_tested_at": (row or {}).get("last_tested_at"),
+                "last_test_error_code": last_test_error,
             }
-        ):
-            last_test_status = "unknown"
+            if channel_name == "webhook":
+                state.update(
+                    {
+                        "provider": effective_provider,
+                        "provider_explicit": stored_provider
+                        != LEGACY_AUTO,
+                        "signing_secret_configured": bool(
+                            self._bound_webhook_signing_secret(settings)
+                        ),
+                        "verification_mode": webhook_verification_mode(
+                            effective_provider
+                        ),
+                    }
+                )
+            channel_states[channel_name] = state
+        active_channels = [
+            str(row["channel"])
+            for row in channel_rows
+            if bool(row.get("enabled"))
+        ]
+        fallback_channel = str(
+            (settings or {}).get("channel") or "webhook"
+        )
+        primary_channel = (
+            active_channels[0]
+            if active_channels
+            else (
+                fallback_channel
+                if fallback_channel in NOTIFICATION_CHANNELS
+                else "webhook"
+            )
+        )
+        primary_state = channel_states[primary_channel]
         return {
-            "schema_version": 2,
-            "enabled": bool(settings.get("enabled"))
-            and channel in {"email", "webhook"},
-            "channel": channel if channel in {"email", "webhook"} else "webhook",
-            "events": list(settings.get("events") or []),
-            "email_configured": bool(settings.get("email_address")),
-            "email_transport_ready": self.email_transport.is_ready(
-                workspace_id=workspace_id
+            "schema_version": 3,
+            "enabled": bool((settings or {}).get("enabled")),
+            "channels": active_channels,
+            "channel": primary_channel,
+            "channel_states": channel_states,
+            "events": list(
+                (settings or {}).get("events") or ALERT_EVENTS
             ),
+            "email_configured": channel_states["email"]["configured"],
+            "email_transport_ready": email_ready,
             "webhook_configured": bool(webhook_url),
             "webhook_provider": effective_provider,
             "webhook_provider_explicit": stored_provider != LEGACY_AUTO,
@@ -555,9 +693,15 @@ class ApifyActorAlertService:
                 effective_provider
             ),
             "webhook_provider_options": webhook_provider_options(),
-            "last_test_status": last_test_status,
-            "last_tested_at": settings.get("last_tested_at"),
-            "last_test_error_code": settings.get("last_test_error_code"),
+            "telegram_configured": channel_states["telegram"][
+                "configured"
+            ],
+            "telegram_transport_ready": telegram_ready,
+            "last_test_status": primary_state["last_test_status"],
+            "last_tested_at": primary_state["last_tested_at"],
+            "last_test_error_code": primary_state[
+                "last_test_error_code"
+            ],
             "last_alert_status": (
                 last_delivery.get("status") if last_delivery else None
             ),
@@ -565,7 +709,7 @@ class ApifyActorAlertService:
             "last_alert_error_code": (
                 last_delivery.get("error_code") if last_delivery else None
             ),
-            "updated_at": settings.get("updated_at"),
+            "updated_at": (settings or {}).get("updated_at"),
         }
 
     @staticmethod
@@ -586,12 +730,19 @@ class ApifyActorAlertService:
         actor_user_id: str,
         enabled: Any = UNSET,
         channel: Any = UNSET,
+        channels: Any = UNSET,
         events: Any = UNSET,
         email_address: Any = UNSET,
         webhook_url: Any = UNSET,
         webhook_provider: Any = UNSET,
         webhook_signing_secret: Any = UNSET,
+        telegram_chat_id: Any = UNSET,
     ) -> dict[str, Any]:
+        if channel is not UNSET and channels is not UNSET:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "channel and channels are mutually exclusive",
+            )
         conn = self.store.connect()
         if conn.in_transaction:
             raise RuntimeError(
@@ -612,8 +763,36 @@ class ApifyActorAlertService:
                 actor_user_id=actor_user_id,
             )
             current = self._settings_row(workspace_id)
+            current_channel_rows = (
+                self.store.list_apify_actor_alert_channels(
+                    workspace_id=workspace_id
+                )
+            )
+            current_channels_by_name = {
+                str(row["channel"]): row
+                for row in current_channel_rows
+            }
+            current_active_channels = [
+                str(row["channel"])
+                for row in current_channel_rows
+                if bool(row.get("enabled"))
+            ]
             target_enabled = self._target_enabled(current, enabled)
-            target_channel = self._target_channel(current, channel)
+            if channels is not UNSET:
+                target_channels = _normalize_channels(channels)
+            elif channel is not UNSET:
+                target_channels = [
+                    self._target_channel(current, channel)
+                ]
+            else:
+                target_channels = list(current_active_channels)
+            target_channel = (
+                target_channels[0]
+                if target_channels
+                else str((current or {}).get("channel") or "webhook")
+            ).strip().lower()
+            if target_channel not in NOTIFICATION_CHANNELS:
+                target_channel = "webhook"
             target_events = (
                 (
                     tuple(current.get("events") or ())
@@ -769,24 +948,62 @@ class ApifyActorAlertService:
                 and target_url_digest
                 and validated_webhook
             )
-            if target_enabled and target_channel == "email":
-                if not target_email:
-                    raise ApifyActorAlertError(
-                        "notification_destination_required",
-                        "configure an alert email address before enabling email alerts",
-                        status_code=409,
+
+            telegram_row = current_channels_by_name.get("telegram")
+            expected_telegram_env = self.telegram_chat_env_name(
+                workspace_id=workspace_id
+            )
+            stored_telegram_env = str(
+                (telegram_row or {}).get("destination_env_name") or ""
+            )
+            current_telegram_env = (
+                stored_telegram_env
+                if stored_telegram_env == expected_telegram_env
+                else ""
+            )
+            current_telegram_chat_id = self._bound_telegram_chat_id(
+                telegram_row
+            )
+            telegram_touched = telegram_chat_id is not UNSET
+            validated_telegram_chat_id = current_telegram_chat_id
+            if telegram_touched:
+                try:
+                    validated_telegram_chat_id = (
+                        None
+                        if telegram_chat_id is None
+                        or not str(telegram_chat_id).strip()
+                        else normalize_telegram_chat_id(
+                            telegram_chat_id
+                        )
                     )
-                if not self.email_transport.is_ready(
-                    workspace_id=workspace_id
-                ):
+                except TelegramConfigurationError as exc:
                     raise ApifyActorAlertError(
-                        "notification_channel_unavailable",
-                        "workspace email transport is not ready",
-                        status_code=409,
-                    )
+                        exc.code,
+                        str(exc),
+                    ) from exc
+            target_telegram_env = (
+                expected_telegram_env
+                if validated_telegram_chat_id
+                else None
+            )
+            target_telegram_digest = (
+                hashlib.sha256(
+                    validated_telegram_chat_id.encode("utf-8")
+                ).hexdigest()
+                if validated_telegram_chat_id
+                else None
+            )
+
+            selected = set(target_channels)
+            if target_enabled and "email" in selected and not target_email:
+                raise ApifyActorAlertError(
+                    "notification_destination_required",
+                    "configure an alert email address before enabling email alerts",
+                    status_code=409,
+                )
             if (
                 target_enabled
-                and target_channel == "webhook"
+                and "webhook" in selected
                 and not webhook_configured
             ):
                 raise ApifyActorAlertError(
@@ -794,47 +1011,43 @@ class ApifyActorAlertService:
                     "configure an alert webhook before enabling webhook alerts",
                     status_code=409,
                 )
+            if (
+                target_enabled
+                and "telegram" in selected
+                and not validated_telegram_chat_id
+            ):
+                raise ApifyActorAlertError(
+                    "notification_destination_required",
+                    "configure an alert Telegram Chat ID before enabling Telegram alerts",
+                    status_code=409,
+                )
 
             current_generation = max(
                 0,
                 int((current or {}).get("generation") or 0),
             )
-            material_changed = current is None or any(
+            global_changed = current is None or any(
                 (
                     target_enabled != bool((current or {}).get("enabled")),
-                    target_channel
-                    != str((current or {}).get("channel") or "webhook"),
                     target_events
                     != (
                         tuple(current.get("events") or ())
                         if current is not None
                         else ALERT_EVENTS
                     ),
-                    target_email != (current or {}).get("email_address"),
-                    target_url_env
-                    != (current or {}).get("webhook_env_name"),
-                    target_url_digest
-                    != (current or {}).get("webhook_secret_digest"),
-                    target_provider
-                    != str(
-                        (current or {}).get("webhook_provider")
-                        or LEGACY_AUTO
-                    ),
-                    target_signing_env
-                    != (current or {}).get("webhook_signing_env_name"),
-                    target_signing_digest
-                    != (current or {}).get(
-                        "webhook_signing_secret_digest"
-                    ),
                 )
             )
-            target_generation = current_generation + int(material_changed)
+            target_generation = current_generation + int(global_changed)
             secret_updates: dict[str, str | None] = {}
             if url_touched:
                 secret_updates[expected_url_env] = validated_webhook
             if signing_touched:
                 secret_updates[expected_signing_env] = (
                     validated_signing_secret
+                )
+            if telegram_touched:
+                secret_updates[expected_telegram_env] = (
+                    validated_telegram_chat_id
                 )
             if secret_updates:
                 previous_secrets = {
@@ -850,31 +1063,29 @@ class ApifyActorAlertService:
                 secrets_written = True
 
             now = _iso()
-            last_test_status = (current or {}).get("last_test_status")
-            last_test_generation = (current or {}).get(
-                "last_test_generation"
+            notification_enabled_at = (current or {}).get(
+                "notification_enabled_at"
             )
-            last_tested_at = (current or {}).get("last_tested_at")
-            last_test_error_code = (current or {}).get(
-                "last_test_error_code"
-            )
-            if material_changed:
-                last_test_status = None
-                last_test_generation = None
-                last_tested_at = None
-                last_test_error_code = None
+            if not target_enabled:
+                notification_enabled_at = None
+            elif (
+                not bool((current or {}).get("enabled"))
+                or notification_enabled_at is None
+            ):
+                notification_enabled_at = now
             conn.execute(
                 """
                 INSERT INTO apify_actor_alert_settings (
                     workspace_id, enabled, channel, events_json, email_address,
                     webhook_env_name, webhook_secret_digest,
                     webhook_provider, webhook_signing_env_name,
-                    webhook_signing_secret_digest, generation,
+                    webhook_signing_secret_digest, notification_enabled_at,
+                    generation,
                     last_test_status, last_test_generation,
                     last_test_attempted_at, last_tested_at,
                     last_test_error_code, created_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(workspace_id) DO UPDATE SET
                     enabled = excluded.enabled,
@@ -888,6 +1099,8 @@ class ApifyActorAlertService:
                         excluded.webhook_signing_env_name,
                     webhook_signing_secret_digest =
                         excluded.webhook_signing_secret_digest,
+                    notification_enabled_at =
+                        excluded.notification_enabled_at,
                     generation = excluded.generation,
                     last_test_status = excluded.last_test_status,
                     last_test_generation = excluded.last_test_generation,
@@ -907,17 +1120,143 @@ class ApifyActorAlertService:
                     target_provider,
                     target_signing_env,
                     target_signing_digest,
+                    notification_enabled_at,
                     target_generation,
-                    last_test_status,
-                    last_test_generation,
+                    (current or {}).get("last_test_status"),
+                    (current or {}).get("last_test_generation"),
                     (current or {}).get("last_test_attempted_at"),
-                    last_tested_at,
-                    last_test_error_code,
+                    (current or {}).get("last_tested_at"),
+                    (current or {}).get("last_test_error_code"),
                     (current or {}).get("created_at") or now,
                     now,
                 ),
             )
-            if material_changed:
+
+            changed_channel_names: set[str] = set()
+            channel_specific_changes = {
+                "email": (
+                    target_email
+                    != (current or {}).get("email_address")
+                ),
+                "webhook": any(
+                    (
+                        target_url_env
+                        != (current or {}).get("webhook_env_name"),
+                        target_url_digest
+                        != (current or {}).get(
+                            "webhook_secret_digest"
+                        ),
+                        target_provider
+                        != str(
+                            (current or {}).get("webhook_provider")
+                            or LEGACY_AUTO
+                        ),
+                        target_signing_env
+                        != (current or {}).get(
+                            "webhook_signing_env_name"
+                        ),
+                        target_signing_digest
+                        != (current or {}).get(
+                            "webhook_signing_secret_digest"
+                        ),
+                    )
+                ),
+                "telegram": (
+                    target_telegram_env
+                    != (telegram_row or {}).get(
+                        "destination_env_name"
+                    )
+                    or target_telegram_digest
+                    != (telegram_row or {}).get(
+                        "destination_secret_digest"
+                    )
+                ),
+            }
+            for position, channel_name in enumerate(
+                NOTIFICATION_CHANNELS
+            ):
+                existing_channel = current_channels_by_name.get(
+                    channel_name
+                )
+                channel_enabled = channel_name in selected
+                enabled_changed = channel_enabled != bool(
+                    (existing_channel or {}).get("enabled")
+                )
+                material_changed = bool(
+                    existing_channel is None
+                    or enabled_changed
+                    or channel_specific_changes[channel_name]
+                )
+                generation = int(
+                    (existing_channel or {}).get("generation") or 0
+                )
+                if material_changed:
+                    generation += 1
+                    changed_channel_names.add(channel_name)
+                enabled_at = (existing_channel or {}).get("enabled_at")
+                if not channel_enabled:
+                    enabled_at = None
+                elif enabled_changed or enabled_at is None:
+                    enabled_at = now
+                ordered_position = (
+                    target_channels.index(channel_name)
+                    if channel_name in selected
+                    else len(target_channels) + position
+                )
+                reset_test = material_changed
+                self.store.upsert_apify_actor_alert_channel(
+                    workspace_id=workspace_id,
+                    channel=channel_name,
+                    position=ordered_position,
+                    enabled=channel_enabled,
+                    enabled_at=enabled_at,
+                    generation=generation,
+                    destination_env_name=(
+                        target_telegram_env
+                        if channel_name == "telegram"
+                        else None
+                    ),
+                    destination_secret_digest=(
+                        target_telegram_digest
+                        if channel_name == "telegram"
+                        else None
+                    ),
+                    last_test_status=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_test_status"
+                        )
+                    ),
+                    last_test_generation=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_test_generation"
+                        )
+                    ),
+                    last_test_attempted_at=(
+                        (existing_channel or {}).get(
+                            "last_test_attempted_at"
+                        )
+                    ),
+                    last_tested_at=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_tested_at"
+                        )
+                    ),
+                    last_test_error_code=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_test_error_code"
+                        )
+                    ),
+                    commit=False,
+                )
+            if global_changed:
                 conn.execute(
                     """
                     UPDATE apify_actor_alert_deliveries
@@ -928,6 +1267,20 @@ class ApifyActorAlertService:
                     """,
                     (now, workspace_id),
                 )
+            else:
+                for changed_channel in changed_channel_names:
+                    conn.execute(
+                        """
+                        UPDATE apify_actor_alert_deliveries
+                        SET status = 'failed',
+                            retry_at = NULL,
+                            error_code = 'notification_settings_changed',
+                            updated_at = ?
+                        WHERE workspace_id = ? AND channel = ?
+                          AND status = 'pending'
+                        """,
+                        (now, workspace_id, changed_channel),
+                    )
             conn.commit()
         except Exception as exc:
             compensation_error: Exception | None = None
@@ -951,7 +1304,10 @@ class ApifyActorAlertService:
                 raise RuntimeError(
                     "Apify alert SecretStore compensation failed"
                 ) from compensation_error
-            if isinstance(exc, WebhookConfigurationError):
+            if isinstance(
+                exc,
+                (WebhookConfigurationError, TelegramConfigurationError),
+            ):
                 raise ApifyActorAlertError(
                     exc.code,
                     str(exc),
@@ -984,10 +1340,10 @@ class ApifyActorAlertService:
             candidate = ""
         else:
             candidate = str(channel).strip().lower()
-        if candidate not in {"email", "webhook"}:
+        if candidate not in NOTIFICATION_CHANNELS:
             raise ApifyActorAlertError(
                 "invalid_apify_actor_alert_settings",
-                "alert channel must be email or webhook",
+                "alert channel must be email, webhook, or telegram",
             )
         return candidate
 
@@ -1266,30 +1622,54 @@ class ApifyActorAlertService:
         )
         return incident
 
-    def _settings_can_deliver(
+    def _channel_can_deliver(
         self,
         settings: dict[str, Any] | None,
+        channel_state: dict[str, Any] | None,
         *,
         event_type: str,
+        event_at: datetime,
     ) -> bool:
         if (
             settings is None
+            or channel_state is None
             or not bool(settings.get("enabled"))
+            or not bool(channel_state.get("enabled"))
             or event_type not in set(settings.get("events") or ())
         ):
             return False
-        channel = str(settings.get("channel") or "")
+        global_enabled_at = _parse_time(
+            settings.get("notification_enabled_at")
+        )
+        channel_enabled_at = _parse_time(
+            channel_state.get("enabled_at")
+        )
+        if (
+            global_enabled_at is None
+            or channel_enabled_at is None
+            or event_at <= max(global_enabled_at, channel_enabled_at)
+        ):
+            return False
+        workspace_id = str(settings.get("workspace_id") or "")
+        channel = str(channel_state.get("channel") or "")
         if channel == "email":
             return bool(
                 settings.get("email_address")
                 and self.email_transport.is_ready(
-                    workspace_id=str(settings.get("workspace_id") or "")
+                    workspace_id=workspace_id
                 )
             )
         if channel == "webhook":
             return bool(
                 self._bound_webhook_secret(settings)
                 and self._webhook_signing_binding_valid(settings)
+            )
+        if channel == "telegram":
+            return bool(
+                self._bound_telegram_chat_id(channel_state)
+                and self.telegram_transport.is_ready(
+                    workspace_id=workspace_id
+                )
             )
         return False
 
@@ -1300,40 +1680,56 @@ class ApifyActorAlertService:
         event_type: str,
         now: str,
     ) -> int:
-        settings = self._settings_row(str(incident["workspace_id"]))
-        if not self._settings_can_deliver(
-            settings,
-            event_type=event_type,
-        ):
+        workspace_id = str(incident["workspace_id"])
+        settings = self._settings_row(workspace_id)
+        if settings is None:
             return 0
-        assert settings is not None
+        event_at = _parse_time(now)
+        if event_at is None:
+            return 0
+        channel_rows = self.store.list_apify_actor_alert_channels(
+            workspace_id=workspace_id
+        )
         payload = self._delivery_payload(
             incident,
             event_type=event_type,
         )
-        inserted = self.store.connect().execute(
-            """
-            INSERT OR IGNORE INTO apify_actor_alert_deliveries (
-                id, workspace_id, incident_id, event_type, channel,
-                settings_generation, payload_json, status, attempts,
-                retry_at, error_code, created_at, started_at, sent_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?,
-                      NULL, NULL, ?)
-            """,
-            (
-                f"aad_{uuid.uuid4().hex}",
-                incident["workspace_id"],
-                incident["id"],
-                event_type,
-                settings["channel"],
-                settings["generation"],
-                _json_dumps(payload),
-                now,
-                now,
-            ),
-        )
-        return max(0, int(inserted.rowcount))
+        staged = 0
+        for channel_state in channel_rows:
+            if not self._channel_can_deliver(
+                settings,
+                channel_state,
+                event_type=event_type,
+                event_at=event_at,
+            ):
+                continue
+            inserted = self.store.connect().execute(
+                """
+                INSERT OR IGNORE INTO apify_actor_alert_deliveries (
+                    id, workspace_id, incident_id, event_type, channel,
+                    settings_generation, channel_generation,
+                    payload_json, status, attempts, retry_at, error_code,
+                    created_at, started_at, sent_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?,
+                    NULL, NULL, ?
+                )
+                """,
+                (
+                    f"aad_{uuid.uuid4().hex}",
+                    workspace_id,
+                    incident["id"],
+                    event_type,
+                    str(channel_state["channel"]),
+                    settings["generation"],
+                    int(channel_state.get("generation") or 0),
+                    _json_dumps(payload),
+                    now,
+                    now,
+                ),
+            )
+            staged += max(0, int(inserted.rowcount))
+        return staged
 
     def _delivery_payload(
         self,
@@ -1361,7 +1757,14 @@ class ApifyActorAlertService:
             "actor_name": details["actor_name"],
             "active_actor_name": details["active_actor_name"],
             "reason_code": details["reason_code"],
-            "occurred_at": _bounded_text(incident.get("opened_at"), 80),
+            "occurred_at": _bounded_text(
+                (
+                    incident.get("resolved_at")
+                    if resolved
+                    else incident.get("opened_at")
+                ),
+                80,
+            ),
             "resolved_at": (
                 _bounded_text(incident.get("resolved_at"), 80)
                 if resolved
@@ -1413,29 +1816,54 @@ class ApifyActorAlertService:
         bounded_limit = max(1, min(int(limit), 100))
         rows = self.store.connect().execute(
             """
-            SELECT incident.*,
-                   (
-                       SELECT delivery.status
-                       FROM apify_actor_alert_deliveries AS delivery
-                       WHERE delivery.incident_id = incident.id
-                       ORDER BY delivery.created_at DESC, delivery.id DESC
-                       LIMIT 1
-                   ) AS delivery_status,
-                   (
-                       SELECT delivery.error_code
-                       FROM apify_actor_alert_deliveries AS delivery
-                       WHERE delivery.incident_id = incident.id
-                       ORDER BY delivery.created_at DESC, delivery.id DESC
-                       LIMIT 1
-                   ) AS delivery_error_code
-            FROM apify_actor_alert_incidents AS incident
-            WHERE incident.workspace_id = ?
-            ORDER BY incident.opened_at DESC, incident.id DESC
+            SELECT *
+            FROM apify_actor_alert_incidents
+            WHERE workspace_id = ?
+            ORDER BY opened_at DESC, id DESC
             LIMIT ?
             """,
             (workspace_id, bounded_limit),
         ).fetchall()
         return [self._public_incident(dict(row)) for row in rows]
+
+    def _public_incident_deliveries(
+        self,
+        *,
+        incident_id: str,
+    ) -> list[dict[str, Any]]:
+        rows = self.store.connect().execute(
+            """
+            SELECT id, event_type, channel, status, error_code,
+                   created_at, started_at, sent_at, updated_at
+            FROM apify_actor_alert_deliveries
+            WHERE incident_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (incident_id,),
+        ).fetchall()
+        return [
+            {
+                "event_type": (
+                    str(row["event_type"])
+                    if str(row["event_type"]) in ALERT_EVENTS
+                    else ""
+                ),
+                "channel": (
+                    str(row["channel"])
+                    if str(row["channel"]) in NOTIFICATION_CHANNELS
+                    else ""
+                ),
+                "status": _public_delivery_status(row["status"]),
+                "error_code": (
+                    _safe_code(row["error_code"], "") or None
+                ),
+                "created_at": row["created_at"],
+                "started_at": row["started_at"],
+                "sent_at": row["sent_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
 
     def _public_incident(
         self,
@@ -1448,7 +1876,12 @@ class ApifyActorAlertService:
         event_type = str(incident.get("event_type") or "")
         severity = str(incident.get("severity") or "")
         status = str(incident.get("status") or "")
+        deliveries = self._public_incident_deliveries(
+            incident_id=str(incident.get("id") or "")
+        )
+        latest_delivery = deliveries[0] if deliveries else None
         return {
+            "schema_version": 2,
             "id": _bounded_text(incident.get("id"), 80),
             "route": _bounded_text(incident.get("route_key"), 64),
             "event_type": (
@@ -1464,12 +1897,16 @@ class ApifyActorAlertService:
             "opened_at": incident.get("opened_at"),
             "last_seen_at": incident.get("last_seen_at"),
             "resolved_at": incident.get("resolved_at"),
-            "delivery_status": _public_delivery_status(
-                incident.get("delivery_status")
+            "deliveries": deliveries,
+            "delivery_status": (
+                latest_delivery.get("status")
+                if latest_delivery is not None
+                else None
             ),
             "delivery_error_code": (
-                _safe_code(incident.get("delivery_error_code"), "")
-                or None
+                latest_delivery.get("error_code")
+                if latest_delivery is not None
+                else None
             ),
         }
 
@@ -1581,9 +2018,14 @@ class ApifyActorAlertService:
                 _json_object(delivery.pop("payload_json", None))
             )
             settings = self._settings_row(str(delivery["workspace_id"]))
+            channel_state = self.store.get_apify_actor_alert_channel(
+                workspace_id=str(delivery["workspace_id"]),
+                channel=str(delivery.get("channel") or ""),
+            )
             preflight_error = self._delivery_preflight_error(
                 delivery,
                 settings,
+                channel_state,
             )
             if preflight_error is not None:
                 conn.execute(
@@ -1624,24 +2066,37 @@ class ApifyActorAlertService:
                 conn.rollback()
             raise
         assert settings is not None
+        assert channel_state is not None
         return {
             "preflight_failed": False,
             "delivery": delivery,
-            "settings": settings,
+            "settings": {
+                **settings,
+                "channel": str(delivery["channel"]),
+                "_channel_state": channel_state,
+            },
         }
 
     def _delivery_preflight_error(
         self,
         delivery: dict[str, Any],
         settings: dict[str, Any] | None,
+        channel_state: dict[str, Any] | None,
     ) -> str | None:
-        if settings is None or not bool(settings.get("enabled")):
+        if (
+            settings is None
+            or channel_state is None
+            or not bool(settings.get("enabled"))
+            or not bool(channel_state.get("enabled"))
+        ):
             return "notification_settings_changed"
         if (
             int(delivery.get("settings_generation") or 0)
             != int(settings.get("generation") or 0)
+            or int(delivery.get("channel_generation") or 0)
+            != int(channel_state.get("generation") or 0)
             or str(delivery.get("channel") or "")
-            != str(settings.get("channel") or "")
+            != str(channel_state.get("channel") or "")
             or str(delivery.get("event_type") or "")
             not in set(settings.get("events") or ())
         ):
@@ -1653,7 +2108,26 @@ class ApifyActorAlertService:
             or not str(payload.get("route") or "")
         ):
             return "notification_payload_invalid"
-        channel = str(settings.get("channel") or "")
+        global_enabled_at = _parse_time(
+            settings.get("notification_enabled_at")
+        )
+        channel_enabled_at = _parse_time(
+            channel_state.get("enabled_at")
+        )
+        occurred_at = _parse_time(payload.get("occurred_at"))
+        created_at = _parse_time(delivery.get("created_at"))
+        if (
+            global_enabled_at is None
+            or channel_enabled_at is None
+            or occurred_at is None
+            or created_at is None
+            or occurred_at
+            <= max(global_enabled_at, channel_enabled_at)
+            or created_at
+            <= max(global_enabled_at, channel_enabled_at)
+        ):
+            return "notification_delivery_stale"
+        channel = str(channel_state.get("channel") or "")
         if channel == "webhook":
             if not self._bound_webhook_secret(settings):
                 return "notification_destination_required"
@@ -1664,6 +2138,14 @@ class ApifyActorAlertService:
             if not settings.get("email_address"):
                 return "notification_destination_required"
             if not self.email_transport.is_ready(
+                workspace_id=str(settings.get("workspace_id") or "")
+            ):
+                return "notification_channel_unavailable"
+            return None
+        if channel == "telegram":
+            if not self._bound_telegram_chat_id(channel_state):
+                return "notification_destination_required"
+            if not self.telegram_transport.is_ready(
                 workspace_id=str(settings.get("workspace_id") or "")
             ):
                 return "notification_channel_unavailable"
@@ -1772,10 +2254,23 @@ class ApifyActorAlertService:
         *,
         workspace_id: str,
         actor_user_id: str,
+        channel: str | None = None,
     ) -> dict[str, Any]:
+        target_channel = str(
+            channel
+            or self.get_public_settings(
+                workspace_id=workspace_id
+            )["channel"]
+        ).strip().lower()
+        if target_channel not in NOTIFICATION_CHANNELS:
+            raise ApifyActorAlertError(
+                "invalid_apify_actor_alert_settings",
+                "alert channel must be email, webhook, or telegram",
+            )
         settings = self._claim_test_attempt(
             workspace_id=workspace_id,
             actor_user_id=actor_user_id,
+            channel=target_channel,
         )
         payload = self._sanitize_delivery_payload(
             {
@@ -1797,7 +2292,10 @@ class ApifyActorAlertService:
         except ApifyActorAlertError as exc:
             self._record_test_result(
                 workspace_id=workspace_id,
-                generation=int(settings["generation"]),
+                channel=target_channel,
+                generation=int(
+                    settings["_channel_state"]["generation"]
+                ),
                 status="failed",
                 error_code=exc.code,
             )
@@ -1819,9 +2317,12 @@ class ApifyActorAlertService:
         except Exception as exc:
             self._record_test_result(
                 workspace_id=workspace_id,
-                generation=int(settings["generation"]),
+                channel=target_channel,
+                generation=int(
+                    settings["_channel_state"]["generation"]
+                ),
                 status="failed",
-                error_code="notification_delivery_failed",
+                error_code="notification_delivery_outcome_unknown",
             )
             raise ApifyActorAlertError(
                 "apify_actor_alert_test_outcome_unknown",
@@ -1831,7 +2332,10 @@ class ApifyActorAlertService:
             ) from exc
         if not self._record_test_result(
             workspace_id=workspace_id,
-            generation=int(settings["generation"]),
+            channel=target_channel,
+            generation=int(
+                settings["_channel_state"]["generation"]
+            ),
             status="sent",
         ):
             raise ApifyActorAlertError(
@@ -1852,6 +2356,13 @@ class ApifyActorAlertService:
                     "verification": send_result.verification,
                 }
             )
+        elif isinstance(send_result, TelegramSendResult):
+            result.update(
+                {
+                    "message_id": send_result.message_id,
+                    "verification": send_result.verification,
+                }
+            )
         return result
 
     def _claim_test_attempt(
@@ -1859,6 +2370,7 @@ class ApifyActorAlertService:
         *,
         workspace_id: str,
         actor_user_id: str,
+        channel: str,
     ) -> dict[str, Any]:
         conn = self.store.connect()
         if conn.in_transaction:
@@ -1878,7 +2390,16 @@ class ApifyActorAlertService:
                     "configure Apify Actor alerts before sending a test",
                     status_code=409,
                 )
-            channel = str(settings.get("channel") or "")
+            channel_state = self.store.get_apify_actor_alert_channel(
+                workspace_id=workspace_id,
+                channel=channel,
+            )
+            if channel_state is None:
+                raise ApifyActorAlertError(
+                    "notification_destination_required",
+                    "configure the alert channel before sending a test",
+                    status_code=409,
+                )
             if channel == "webhook" and not self._bound_webhook_secret(
                 settings
             ):
@@ -1911,14 +2432,31 @@ class ApifyActorAlertService:
                         "workspace email transport is not ready",
                         status_code=409,
                     )
-            if channel not in {"email", "webhook"}:
+            if channel == "telegram":
+                if not self._bound_telegram_chat_id(channel_state):
+                    raise ApifyActorAlertError(
+                        "notification_destination_required",
+                        "configure an alert Telegram Chat ID before sending a test",
+                        status_code=409,
+                    )
+                if not self.telegram_transport.is_ready(
+                    workspace_id=workspace_id
+                ):
+                    raise ApifyActorAlertError(
+                        "notification_channel_unavailable",
+                        "workspace Telegram transport is not ready",
+                        status_code=409,
+                    )
+            if channel not in NOTIFICATION_CHANNELS:
                 raise ApifyActorAlertError(
                     "notification_channel_unavailable",
                     "alert channel is unavailable",
                     status_code=409,
                 )
             now = _utc_now()
-            previous = _parse_time(settings.get("last_test_attempted_at"))
+            previous = _parse_time(
+                channel_state.get("last_test_attempted_at")
+            )
             if (
                 previous is not None
                 and (now - previous).total_seconds() < TEST_COOLDOWN_SECONDS
@@ -1932,24 +2470,43 @@ class ApifyActorAlertService:
             attempted_at = now.isoformat()
             conn.execute(
                 """
-                UPDATE apify_actor_alert_settings
+                UPDATE apify_actor_alert_channels
                 SET last_test_attempted_at = ?, updated_at = ?
-                WHERE workspace_id = ?
+                WHERE workspace_id = ? AND channel = ?
                 """,
-                (attempted_at, attempted_at, workspace_id),
+                (
+                    attempted_at,
+                    attempted_at,
+                    workspace_id,
+                    channel,
+                ),
             )
-            settings["last_test_attempted_at"] = attempted_at
+            if str(settings.get("channel") or "") == channel:
+                conn.execute(
+                    """
+                    UPDATE apify_actor_alert_settings
+                    SET last_test_attempted_at = ?, updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (attempted_at, attempted_at, workspace_id),
+                )
+            channel_state["last_test_attempted_at"] = attempted_at
             conn.commit()
         except Exception:
             if conn.in_transaction:
                 conn.rollback()
             raise
-        return settings
+        return {
+            **settings,
+            "channel": channel,
+            "_channel_state": channel_state,
+        }
 
     def _record_test_result(
         self,
         *,
         workspace_id: str,
+        channel: str,
         generation: int,
         status: str,
         error_code: str | None = None,
@@ -1957,31 +2514,66 @@ class ApifyActorAlertService:
         if status not in {"sent", "failed"}:
             raise ValueError("alert test status is invalid")
         now = _iso()
-        updated = self.store.connect().execute(
-            """
-            UPDATE apify_actor_alert_settings
-            SET last_test_status = ?,
-                last_test_generation = ?,
-                last_tested_at = ?,
-                last_test_error_code = ?,
-                updated_at = ?
-            WHERE workspace_id = ? AND generation = ?
-            """,
-            (
-                status,
-                generation,
-                now,
-                (
-                    _safe_code(error_code, "notification_delivery_failed")
-                    if status == "failed"
-                    else None
-                ),
-                now,
-                workspace_id,
-                generation,
-            ),
+        safe_error = (
+            _safe_code(error_code, "notification_delivery_failed")
+            if status == "failed"
+            else None
         )
-        self.store.connect().commit()
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            updated = conn.execute(
+                """
+                UPDATE apify_actor_alert_channels
+                SET last_test_status = ?,
+                    last_test_generation = ?,
+                    last_tested_at = ?,
+                    last_test_error_code = ?,
+                    updated_at = ?
+                WHERE workspace_id = ? AND channel = ?
+                  AND generation = ?
+                """,
+                (
+                    status,
+                    generation,
+                    now,
+                    safe_error,
+                    now,
+                    workspace_id,
+                    channel,
+                    generation,
+                ),
+            )
+            settings = self._settings_row(workspace_id)
+            if (
+                updated.rowcount == 1
+                and settings is not None
+                and str(settings.get("channel") or "") == channel
+            ):
+                conn.execute(
+                    """
+                    UPDATE apify_actor_alert_settings
+                    SET last_test_status = ?,
+                        last_test_generation = ?,
+                        last_tested_at = ?,
+                        last_test_error_code = ?,
+                        updated_at = ?
+                    WHERE workspace_id = ?
+                    """,
+                    (
+                        status,
+                        generation,
+                        now,
+                        safe_error,
+                        now,
+                        workspace_id,
+                    ),
+                )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
         return updated.rowcount == 1
 
     def _send_payload(
@@ -1990,7 +2582,7 @@ class ApifyActorAlertService:
         payload: dict[str, Any],
         *,
         test: bool,
-    ) -> WebhookSendResult | None:
+    ) -> WebhookSendResult | TelegramSendResult | None:
         safe_payload = self._sanitize_delivery_payload(payload)
         channel = str(settings.get("channel") or "")
         if channel == "webhook":
@@ -2002,6 +2594,12 @@ class ApifyActorAlertService:
         if channel == "email":
             self._send_email(settings, safe_payload, test=test)
             return None
+        if channel == "telegram":
+            return self._send_telegram(
+                settings,
+                safe_payload,
+                test=test,
+            )
         raise ApifyActorAlertError(
             "notification_channel_unavailable",
             "alert channel is unavailable",
@@ -2111,6 +2709,73 @@ class ApifyActorAlertService:
                 outcome_unknown=True,
             )
         return result
+
+    def _send_telegram(
+        self,
+        settings: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        test: bool,
+    ) -> TelegramSendResult:
+        channel_state = settings.get("_channel_state")
+        if not isinstance(channel_state, dict):
+            channel_state = self.store.get_apify_actor_alert_channel(
+                workspace_id=str(settings.get("workspace_id") or ""),
+                channel="telegram",
+            )
+        chat_id = self._bound_telegram_chat_id(channel_state)
+        if not chat_id:
+            raise ApifyActorAlertError(
+                "notification_destination_required",
+                "alert Telegram Chat ID is not configured",
+                status_code=409,
+            )
+        text = _bounded_multiline_text(
+            [
+                (
+                    "Inteliscope Apify 运行告警测试"
+                    if test
+                    else (
+                        "Inteliscope Apify 恢复通知"
+                        if payload.get("event_type") == "recovered"
+                        else "Inteliscope Apify 运行告警"
+                    )
+                ),
+                f"路由：{payload.get('route') or 'x/profile'}",
+                f"事件：{payload.get('event_type') or 'unknown'}",
+                f"状态：{payload.get('status') or 'unknown'}",
+                (
+                    f"Actor：{payload['actor_name']}"
+                    if payload.get("actor_name")
+                    else ""
+                ),
+                (
+                    f"当前 Actor：{payload['active_actor_name']}"
+                    if payload.get("active_actor_name")
+                    else ""
+                ),
+                (
+                    f"原因：{payload['reason_code']}"
+                    if payload.get("reason_code")
+                    else ""
+                ),
+            ],
+            limit=4096,
+        )
+        try:
+            return self.telegram_transport.send_message(
+                workspace_id=str(settings.get("workspace_id") or ""),
+                chat_id=chat_id,
+                text=text,
+            )
+        except TelegramTransportServiceError as exc:
+            raise ApifyActorAlertError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                outcome_unknown=exc.outcome_unknown,
+            ) from exc
 
     def _send_email(
         self,

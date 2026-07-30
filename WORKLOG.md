@@ -522,3 +522,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "完成个人新内容通知与 Apify 运行告警的邮箱、Webhook、Telegram 三渠道独立配置、分路水位/generation、批量投递与故障隔离，并新增工作区共享 Telegram Bot Transport、write-only Chat ID/Token、v15 存储 readiness 和 Worker fail-closed。",
+  "status": "completed",
+  "task_id": "2026-07-30-telegram-multichannel-notification-backend",
+  "unresolved": [
+    "本任务分支待集成分支合并后执行仓库 full Test Gate；未调用真实 Telegram、邮件、Webhook、Apify，未推送、未重建 8080"
+  ],
+  "validation": [
+    "186 targeted Pytest cases passed for Telegram transport, personal notifications, Apify alerts, email transport, logging, observability contract and Worker",
+    "observability contract passed; Python AST, impact-map JSON and git diff checks passed",
+    "business regressions cover three-channel stage/dispatch, per-channel failure isolation/generation/cooldown, write-only secrets, pending-versus-sending safety and no-backfill watermarks"
+  ]
+}
+```

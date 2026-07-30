@@ -433,6 +433,11 @@ class WorkspaceEmailTransportService:
             current = self.store.get_workspace_email_transport(
                 workspace_id=workspace_id
             )
+            current_ready = bool(
+                current
+                and current.get("enabled")
+                and self._can_enable(current)
+            )
             target_provider = str(
                 (current or {}).get("provider")
                 if provider is UNSET
@@ -584,6 +589,10 @@ class WorkspaceEmailTransportService:
                     "test the current email transport before enabling it",
                     status_code=409,
                 )
+            future_ready = bool(
+                target_enabled
+                and self._can_enable(future_transport)
+            )
 
             self.store.upsert_workspace_email_transport(
                 workspace_id=workspace_id,
@@ -615,6 +624,12 @@ class WorkspaceEmailTransportService:
             if changed_generation or disabled_now:
                 self.store.invalidate_pending_email_deliveries(
                     workspace_id=workspace_id,
+                    commit=False,
+                )
+            if future_ready and not current_ready:
+                self.store.advance_notification_channel_watermarks(
+                    workspace_id=workspace_id,
+                    channel="email",
                     commit=False,
                 )
             conn.commit()
