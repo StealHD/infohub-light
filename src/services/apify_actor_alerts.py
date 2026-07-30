@@ -1546,23 +1546,33 @@ class ApifyActorAlertService:
             incident = self._incident_row(incident_id)
             if incident is None:
                 raise RuntimeError("resolved incident could not be loaded")
-            opening_was_staged = bool(
-                conn.execute(
+            opening_channels = {
+                str(opening["channel"])
+                for opening in conn.execute(
                     """
-                    SELECT 1
-                    FROM apify_actor_alert_deliveries
-                    WHERE incident_id = ? AND event_type != 'recovered'
-                    LIMIT 1
+                    SELECT DISTINCT delivery.channel
+                    FROM apify_actor_alert_deliveries AS delivery
+                    JOIN apify_actor_alert_settings AS settings
+                      ON settings.workspace_id = delivery.workspace_id
+                    JOIN apify_actor_alert_channels AS channel_state
+                      ON channel_state.workspace_id = delivery.workspace_id
+                     AND channel_state.channel = delivery.channel
+                    WHERE delivery.incident_id = ?
+                      AND delivery.event_type != 'recovered'
+                      AND delivery.settings_generation = settings.generation
+                      AND delivery.channel_generation =
+                          channel_state.generation
                     """,
                     (incident_id,),
-                ).fetchone()
-            )
+                ).fetchall()
+            }
             delivery_staged = bool(
-                opening_was_staged
+                opening_channels
                 and self._stage_delivery(
                     incident=incident,
                     event_type="recovered",
                     now=event_at,
+                    allowed_channels=opening_channels,
                 )
             )
             if owns_transaction:
@@ -1679,6 +1689,7 @@ class ApifyActorAlertService:
         incident: dict[str, Any],
         event_type: str,
         now: str,
+        allowed_channels: set[str] | None = None,
     ) -> int:
         workspace_id = str(incident["workspace_id"])
         settings = self._settings_row(workspace_id)
@@ -1696,6 +1707,12 @@ class ApifyActorAlertService:
         )
         staged = 0
         for channel_state in channel_rows:
+            channel_name = str(channel_state.get("channel") or "")
+            if (
+                allowed_channels is not None
+                and channel_name not in allowed_channels
+            ):
+                continue
             if not self._channel_can_deliver(
                 settings,
                 channel_state,
@@ -1720,7 +1737,7 @@ class ApifyActorAlertService:
                     workspace_id,
                     incident["id"],
                     event_type,
-                    str(channel_state["channel"]),
+                    channel_name,
                     settings["generation"],
                     int(channel_state.get("generation") or 0),
                     _json_dumps(payload),

@@ -851,8 +851,8 @@
 ### D100 Telegram 采用工作区共享 Transport 与逐渠道独立投递
 
 - 决策日期：2026-07-30
-- 当前状态：本地实现与完整门禁验证中；未迁移、未重建、未部署、未调用真实 Telegram/邮件/Webhook
+- 当前状态：本地独立分支实现完成，专项验证与 full Test Gate 已通过；未迁移、未重建、未部署、未调用真实 Telegram/邮件/Webhook
 - 决策内容：个人新内容通知和 Apify 运行告警从标量 `channel` 升级为有序 `channels[]`，允许 Email、Webhook、Telegram 同时配置和任意多选；总开关继续存在，每个渠道独立保存配置、可用性、generation、启用水位、测试冷却和测试结果。旧 GET 的 `channel` 与顶层状态继续作为确定性主渠道投影，旧 PATCH 发送标量时保持“单渠道”语义，并与新 `channels` 互斥。设置页始终显示三张渠道卡，保存或切换一个渠道不得隐藏、覆盖或清空其他渠道。
-- Telegram 与秘密边界：Bot Token 是 workspace 唯一 Transport 凭据，只允许 Owner/Admin 保存、测试、启停和删除；个人通知与 Apify 告警分别保存自己的 write-only Chat ID。Token、Chat ID、Webhook 目的地及签名都只写入用途绑定的 SecretStore，SQLite 只保存确定性引用、SHA-256 摘要和非秘密状态，API、DOM、Toast、Job、outbox 与日志均不得回显。Telegram 只调用固定 `api.telegram.org` 的 `sendMessage`，发送不含 `parse_mode` 的 1..4096 字符纯文本与 `link_preview_options.is_disabled=true`；成功必须验证 `ok=true`、message ID 和目标会话。
+- Telegram 与秘密边界：Bot Token 是 workspace 唯一 Transport 凭据，只允许 Owner/Admin 保存、测试、启停和删除；个人通知与 Apify 告警分别保存自己的 write-only Chat ID。Token、Chat ID、Webhook 目的地及签名都只写入用途绑定的 SecretStore，SQLite 只保存确定性引用、SHA-256 摘要和非秘密状态，API、DOM、Toast、Job、outbox 与日志均不得回显。Telegram 只调用固定 `api.telegram.org` 的 `sendMessage`，发送不含 `parse_mode` 的 1..4096 字符纯文本与 `link_preview_options.is_disabled=true`；成功必须验证 `ok=true`、message ID 和目标会话。Service 不调用 `getUpdates` 建立站内会话审批名单，管理员必须只把共享 Bot 加入获准会话；个人 Chat ID 的可投递范围由 Bot 在 Telegram 中已有的成员与发言权限限定。
 - 一致性与失败语义：新内容 delivery 以 `(subscription_id, article_id, channel)` 唯一，按用户、Job、渠道批量领取；Apify 告警以 `(incident_id, event_type, channel)` 唯一，incident schema v2 增加逐渠道结果。总开关、渠道与订阅三层 generation/水位共同阻止旧 epoch 投递；新开渠道、恢复 Transport 或恢复总开关都不补发历史。渠道修改、暂停或失败只使该渠道 pending 失效，不能阻断其他渠道、抓取任务或 Feed。能证明 POST 尚未开始的失败才可安全重试；POST 已开始后的 timeout、5xx 或畸形响应一律 unknown 且不自动重放。
 - 迁移与兼容：schema v15 依赖 v14，显式停止 API/Worker、拒绝活动 Worker、创建 UTC `0600` backup、重建逐渠道设置与 delivery 约束，并校验迁移前后计数、schema、integrity 与 foreign keys 后安装 marker。旧库保留全部 Email/Webhook 配置与投递历史，只把原活动渠道迁为 enabled，Telegram 初始未配置；普通启动不自动迁移，缺 marker/约束时 readiness 和 Worker fail closed。D100 取代 D061、D092 与 D094 中“任一时刻只启用一个 Email/Webhook 渠道”的部分；其订阅 opt-in、incident 生命周期、Webhook Provider/ACK、安全出站与 unknown 不重放边界继续保留。

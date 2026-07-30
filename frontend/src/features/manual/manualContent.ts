@@ -199,7 +199,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '管理员配置邮件与 Telegram 服务',
-        description: 'Owner/Admin 可并列配置“邮件发送服务”和“Telegram Bot 服务”。邮件选择 QQ、网易、Gmail、Resend 或 Amazon SES，并依次“保存配置 → 发送测试邮件 → 启用”；Telegram 保存 Bot Token 后同样先向一次性测试 Chat ID 发送测试，再启用当前 generation。凭据、Bot Token 与测试目的地提交后立即清空且不会回显，修改后必须重新测试。暂停或删除一种 Transport 只影响对应渠道，普通成员只填写自己的收件邮箱或 Telegram Chat ID。',
+        description: 'Owner/Admin 可并列配置“邮件发送服务”和“Telegram Bot 服务”。邮件选择 QQ、网易、Gmail、Resend 或 Amazon SES，并依次“保存配置 → 发送测试邮件 → 启用”；Telegram 保存 Bot Token 后同样先向一次性测试 Chat ID 发送测试，再启用当前 generation。凭据、Bot Token 与测试目的地提交后立即清空且不会回显，修改后必须重新测试。暂停或删除一种 Transport 只影响对应渠道，普通成员只填写自己的收件邮箱或 Telegram Chat ID。管理员应只把共享 Bot 加入获准会话；个人 Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定，并不是站内新增的会话审批名单。',
         href: '/settings',
         linkLabel: '配置通知发送服务',
       },

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -1064,6 +1065,42 @@ def test_three_alert_channels_fan_out_and_isolate_failure(
         "webhook": "failed",
         "telegram": "sent",
     }
+
+
+def test_recovery_only_fans_out_to_channels_with_current_opening(
+    tmp_path,
+) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    _configure_three_alert_channels(store, service, admin_id)
+    service.telegram_transport = SimpleNamespace(
+        is_ready=lambda **_kwargs: False
+    )
+
+    opened = service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="channel-scoped-recovery",
+        event_type="actor_switched",
+        severity="warning",
+    )
+    assert {
+        delivery["channel"]
+        for delivery in opened["incident"]["deliveries"]
+    } == {"email", "webhook"}
+
+    service.telegram_transport = _ReadyTelegramTransport()
+    recovered = service.resolve_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="channel-scoped-recovery",
+    )
+    assert recovered["delivery_staged"] is True
+    recovery_channels = {
+        delivery["channel"]
+        for delivery in recovered["incident"]["deliveries"]
+        if delivery["event_type"] == "recovered"
+    }
+    assert recovery_channels == {"email", "webhook"}
 
 
 def test_alert_channel_generation_cooldown_and_sending_are_independent(

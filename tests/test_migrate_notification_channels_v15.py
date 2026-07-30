@@ -652,6 +652,41 @@ def test_v15_dry_run_does_not_create_database(tmp_path) -> None:
     assert not (tmp_path / "data" / "service.db").exists()
 
 
+def test_v15_backup_is_private_during_copy_and_removes_partial_file(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    backup_dir = tmp_path / "backups"
+    real_connect = sqlite3.connect
+
+    class FailingSource:
+        def backup(self, _destination) -> None:
+            backup_files = list(backup_dir.glob("*.db"))
+            assert len(backup_files) == 1
+            assert os.stat(backup_dir).st_mode & 0o777 == 0o700
+            assert os.stat(backup_files[0]).st_mode & 0o777 == 0o600
+            raise sqlite3.DatabaseError("simulated interrupted backup")
+
+        def close(self) -> None:
+            return None
+
+    def connect(path, *args, **kwargs):
+        if str(path).startswith("file:"):
+            return FailingSource()
+        return real_connect(path, *args, **kwargs)
+
+    monkeypatch.setattr(migration_module.sqlite3, "connect", connect)
+    with pytest.raises(
+        sqlite3.DatabaseError,
+        match="simulated interrupted backup",
+    ):
+        migration_module._backup_database(
+            tmp_path / "service.db",
+            backup_dir,
+        )
+    assert list(backup_dir.iterdir()) == []
+
+
 def test_v15_preserves_settings_and_history_and_installs_constraints(
     tmp_path,
 ) -> None:
@@ -999,6 +1034,14 @@ def test_v15_marker_rejects_partial_unique_index(
         assert int(index_row[4]) == 1
     finally:
         check.close()
+
+    reopened = ServiceStore(data_dir)
+    reopened.initialize()
+    assert (
+        reopened.multichannel_notifications_v15_migration_required()
+        is True
+    )
+    reopened.close()
 
     dry_run = migrate_notification_channels_v15(
         data_dir=data_dir,

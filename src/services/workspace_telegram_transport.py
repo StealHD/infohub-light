@@ -359,7 +359,13 @@ class WorkspaceTelegramTransportService:
         actor_user_id: str,
         chat_id: Any,
     ) -> dict[str, Any]:
-        normalized_chat_id = normalize_telegram_chat_id(chat_id)
+        try:
+            normalized_chat_id = normalize_telegram_chat_id(chat_id)
+        except TelegramConfigurationError as exc:
+            raise TelegramTransportServiceError(
+                exc.code,
+                str(exc),
+            ) from exc
         attempt = (
             self.store.claim_workspace_telegram_transport_test_attempt(
                 workspace_id=workspace_id,

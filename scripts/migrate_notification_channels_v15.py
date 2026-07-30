@@ -307,16 +307,29 @@ def _inspect(db_path: Path) -> dict[str, Any]:
 
 
 def _backup_database(db_path: Path, backup_dir: Path) -> Path:
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(backup_dir, 0o700)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     target = backup_dir / f"service-notification-channels-v15-{stamp}.db"
-    source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    destination = sqlite3.connect(target)
+    descriptor = os.open(
+        target,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+        0o600,
+    )
+    os.close(descriptor)
     try:
-        source.backup(destination)
-    finally:
-        source.close()
-        destination.close()
+        source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            destination = sqlite3.connect(target)
+            try:
+                source.backup(destination)
+            finally:
+                destination.close()
+        finally:
+            source.close()
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
     os.chmod(target, 0o600)
     return target
 

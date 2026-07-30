@@ -104,6 +104,10 @@ describe('notification model', () => {
       code: 'notification_test_outcome_unknown',
       message: 'raw upstream response must stay private',
     }), '测试通知发送失败，请稍后重试。')).toBe('测试通知结果未知，请勿重复发送；请先确认接收端。')
+    expect(safeNotificationError(new ApiError(409, {
+      code: 'telegram_transport_token_unavailable',
+      message: 'private binding detail',
+    }), '测试通知发送失败，请稍后重试。')).toBe('Bot Token 缺失或已变化，请重新保存。')
   })
 
   it('normalizes safe last-test labels without exposing backend detail', () => {

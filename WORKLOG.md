@@ -8,51 +8,8 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-07-30",
-  "result": "从本地 main 创建独立分支，修复设置页全部七个分区只显示标题的问题；滚轮、触摸、键盘和滚动条会按相邻顺序自然挂载正文，显式目录与选择器仍用于快速跳转，同时保留按当前分区启用请求、缓存和草稿的性能边界。",
-  "status": "completed",
-  "task_id": "2026-07-30-settings-natural-scroll-reveal",
-  "unresolved": [
-    "未合入 main、未推送远端，也未触发真实来源、AI、通知、Webhook 或付费调用"
-  ],
-  "validation": [
-    "settings App Vitest: 97 passed; changelog Vitest: 5 passed",
-    "mobile Playwright touch and reverse-scroll regression passed",
-    "TypeScript, ESLint (0 errors), UI contract and git diff checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "local 8080 browser verified all seven sections reveal in order, reverse scroll updates the previous section, and console errors are empty"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "migration"
-  ],
-  "recorded_on": "2026-07-30",
-  "result": "修复 v15 迁移对历史 v14 ALTER 列序的错误假设，并使完成标记校验拒绝 partial 或非约束来源的唯一索引。",
-  "status": "completed",
-  "task_id": "2026-07-30-telegram-v15-migration-followup",
-  "unresolved": [
-    "本修复仍需随多渠道后端与原 API/v15 提交进入集成分支"
-  ],
-  "validation": [
-    "真实 v13 schema 经 v14 ALTER 再迁移 v15 的链路通过并保留全部时间戳与配置",
-    "partial unique index marker 反例被 fail-closed 拒绝",
-    "v14/v15 migration tests: 14 passed; py_compile and git diff checks passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "api_contract",
-    "migration",
+    "architecture",
+    "interface",
     "observability"
   ],
   "recorded_on": "2026-07-30",
@@ -90,161 +47,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "实现信息流、收藏、历史与搜索的真实终页提示、三场景内置/AI 文案池、收藏 50 条分页，以及仅在普通队列空闲时执行的 workspace 级安全生成缓存；未调用真实模型、未重建或部署 8080。",
-  "status": "completed",
-  "task_id": "2026-07-29-feed-end-messages",
-  "unresolved": [],
-  "validation": [
-    "147 targeted Python regressions passed",
-    "frontend 494 tests passed",
-    "frontend typecheck, lint and UI contract checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "git diff --check"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "将终页与真实空列表统一为无卡片的轻量符号文案，移除冲突的旧空状态信息，并允许每句最多一个白名单 Emoji 或颜文字；安全合同版本进入缓存指纹。",
-  "status": "completed",
-  "task_id": "2026-07-29-feed-end-messages-lightweight",
-  "unresolved": [],
-  "validation": [
-    "22 targeted backend and permission tests passed",
-    "128 targeted frontend tests passed",
-    "frontend typecheck passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent subagent review approved"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "将设置页三个触底文案场景从三条样例改为默认收起的完整列表；每组显示实际条数，可独立展开、隐藏，并在有界可聚焦区域内查看全部带序号文案。",
-  "status": "completed",
-  "task_id": "2026-07-29-feed-end-messages-full-lists",
-  "unresolved": [],
-  "validation": [
-    "frontend App route tests: 90 passed",
-    "frontend typecheck and UI contract checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent subagent review findings addressed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "实现仅使用 Apify 的 X/profile 三 Actor 串行主备、占位语义拦截、稳定 Job 费用组与六小时费用熔断、多 Key 新鲜额度准入、GET-only 重启恢复、管理员状态页，以及邮件或 HTTPS Webhook 首报与恢复告警；新增显式备份校验的 v13 增量迁移。",
-  "status": "completed",
-  "task_id": "2026-07-29-apify-x-actor-failover-alerts",
-  "unresolved": [
-    "未触发真实付费 Canary 或真实告警测试；Dami 转正式备用仍需两个已启用 X 来源验证并观察 48 小时"
-  ],
-  "validation": [
-    "247 related backend regressions passed before final hardening",
-    "generation-conflict paid attempts remain bounded to 3 reservations / $0.06 while proven no-POST cancellations remain retryable",
-    "frontend typecheck and UI contract checks passed",
-    "frontend 501 tests and desktop/tablet/390px X Actor Playwright checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent final review found no remaining product P0/P1"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-07-29",
-  "result": "将包含触底文案与 Apify X/profile 三 Actor 主备的组合发布元数据升级为 2.1.0，准备创建 v2.1.0 注释标签并执行 revision-locked VPS 升级。",
-  "status": "completed",
-  "task_id": "2026-07-29-release-v2.1.0",
-  "unresolved": [],
-  "validation": [
-    "pyproject.toml and uv.lock versions set to 2.1.0",
-    "release source is a fast-forward descendant of origin/main a4d3f60",
-    "v2.1.0 is unused locally and remotely",
-    "VPS v2.0.0 API and Worker ready with zero active or due jobs",
-    "VPS database quick_check and foreign-key checks passed",
-    "python scripts/test_gate.py run --mode release: 24/24 passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-07-29",
-  "result": "发布 v2.1.0 注释标签并将 main 快进至发布提交；使用本机构建的 linux/amd64 镜像完成 VPS v13 增量迁移与 API/Worker 切换，保留旧版和双重 0600 数据库回滚备份。",
-  "status": "completed",
-  "task_id": "2026-07-29-v2.1.0-production-rollout",
-  "unresolved": [
-    "未执行真实付费 Canary 或真实告警；Dami 保持 disabled 待两个 X 来源验证，Xquik 保持 open 等待自然任务恢复探测"
-  ],
-  "validation": [
-    "release Test Gate: 24/24 passed",
-    "v2.1.0 and main pushed atomically at c591c8d405dd",
-    "staging and production v13 migration integrity/foreign-key checks passed",
-    "VPS public live/ready serve v2.1.0 c591c8d405dd; API/Worker healthy with zero restarts",
-    "ScrapeBadger closed primary, Dami disabled, Xquik open; zero Actor attempts or alert deliveries during rollout",
-    "RSSHub remained healthy and scheduler remained stopped"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "修复用户新内容通知与 Apify 运行告警对飞书/Lark V2 自定义机器人的投递格式；保留通用 Webhook 合同，并补齐文本标记中和、密集批次与恢复告警展示。",
-  "status": "completed",
-  "task_id": "2026-07-29-feishu-webhook-delivery",
-  "unresolved": [
-    "未重建或部署生产服务，未触发真实 Webhook；现有安全合同不读取 HTTP 2xx 响应正文，提供方业务拒绝仍是保留风险"
-  ],
-  "validation": [
-    "preferred-source and Apify notification regressions: 58 passed",
-    "frontend typecheck and changelog Vitest passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent review findings addressed",
-    "git diff --check"
-  ]
-}
-```
 
 ```json
 {
@@ -605,6 +407,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "TypeScript typecheck, ESLint, UI contract check and production build passed",
     "selected Playwright production settings checks: 7 passed and 2 conditionally skipped; 390/768/1440 overflow and serious/critical Axe checks passed",
     "git diff --check passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "在独立集成分支完成邮箱、Webhook、Telegram 多渠道个人通知与 Apify 告警：共享 Telegram Bot Transport、独立 write-only Chat ID、逐渠道 generation/水位/测试/故障隔离、schema v3/v2 API、v15 显式迁移及三张常驻渠道卡均已组合验证。",
+  "status": "completed",
+  "task_id": "2026-07-30-telegram-multichannel-notifications-integration",
+  "unresolved": [
+    "按任务约束未合入 main、未推送、未重建 8080，也未调用真实 Telegram、邮件、Webhook 或 Apify"
+  ],
+  "validation": [
+    "Telegram transport unit tests: 39 passed; combined backend/API/migration targeted regressions passed",
+    "frontend full Vitest: 59 files and 533 tests; TypeScript, ESLint, UI contract and production build passed",
+    "target Playwright: 6 passed across desktop/tablet/mobile, including Axe and 390/768/1440 overflow checks",
+    "python scripts/test_gate.py run --mode full: 23/23 passed"
   ]
 }
 ```

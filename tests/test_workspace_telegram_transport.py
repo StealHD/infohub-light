@@ -59,6 +59,13 @@ def test_workspace_telegram_transport_is_write_only_tested_and_admin_owned(
     assert saved["enabled"] is False
     assert BOT_TOKEN not in repr(saved)
     assert BOT_TOKEN.encode() not in store.db_path.read_bytes()
+    with pytest.raises(TelegramTransportServiceError) as invalid_chat:
+        service.send_test(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            actor_user_id=admin["id"],
+            chat_id="not a chat",
+        )
+    assert invalid_chat.value.code == "invalid_telegram_chat_id"
 
     async def fake_send(
         bot_token: str,

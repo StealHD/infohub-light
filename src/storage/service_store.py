@@ -535,7 +535,8 @@ class ServiceStore:
         install_multichannel_notifications_v15 = bool(
             not existing_schema
             or (
-                webhook_providers_v14_migrated
+                apify_actor_v13_migrated
+                and webhook_providers_v14_migrated
                 and (
                     multichannel_notifications_v15_migrated
                     or prepare_multichannel_notifications_v15
@@ -2315,14 +2316,18 @@ class ServiceStore:
             if not required_columns <= columns:
                 return True
 
-        def unique_constraints(table: str) -> set[tuple[str, ...]]:
+        def unique_constraints(
+            table: str,
+        ) -> tuple[set[tuple[str, ...]], bool]:
             constraints: set[tuple[str, ...]] = set()
+            invalid_index = False
             for index in conn.execute(
                 f"PRAGMA index_list({table})"
             ).fetchall():
-                if not bool(index["unique"]) or str(
-                    index["origin"]
-                ) == "pk":
+                if not bool(index["unique"]):
+                    continue
+                origin = str(index["origin"])
+                if origin == "pk":
                     continue
                 columns = tuple(
                     str(column["name"])
@@ -2334,7 +2339,9 @@ class ServiceStore:
                     )
                 )
                 constraints.add(columns)
-            return constraints
+                if bool(index["partial"]) or origin != "u":
+                    invalid_index = True
+            return constraints, invalid_index
 
         required_unique_constraints = {
             "preferred_source_notification_deliveries": {
@@ -2345,7 +2352,8 @@ class ServiceStore:
             },
         }
         for table, expected in required_unique_constraints.items():
-            if unique_constraints(table) != expected:
+            actual, invalid_index = unique_constraints(table)
+            if invalid_index or actual != expected:
                 return True
 
         expected_primary_keys = {
