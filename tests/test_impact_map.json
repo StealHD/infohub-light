@@ -41,12 +41,15 @@
       "id": "observability logging",
       "globs": [
         "src/logging_utils.py",
+        "src/observability_context.py",
         "src/main.py",
         "src/services/email.py",
         "src/services/operation_log.py",
         "src/services/webhook.py",
+        "scripts/check_observability_contract.py",
         "tests/test_api_operation_logging.py",
         "tests/test_logging_utils.py",
+        "tests/test_observability_contract.py",
         "tests/test_operation_log.py"
       ],
       "groups": ["python_api_store"]
@@ -312,6 +315,7 @@
       "tests/test_preferred_source_notifications.py",
       "tests/test_email.py",
       "tests/test_logging_utils.py",
+      "tests/test_observability_contract.py",
       "tests/test_operation_log.py",
       "tests/test_webhook.py",
       "tests/test_youtube_channel.py"

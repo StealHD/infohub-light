@@ -19,7 +19,7 @@
 4A. 个人新内容通知与 Apify 运行告警的七类 Webhook Provider Registry、平台业务 ACK、飞书/钉钉可选签名和 schema v14 显式门禁已在本地实现并通过完整 Test Gate；未迁移数据库必须保持 API readiness 与 Worker fail closed，真实 Webhook 验收和部署均未执行。
 5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
 6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
-7. API、Worker、Scheduler 和 CLI 私有双流 JSONL、30 天保留、提交后关键事件及 OpenClaw 当前用户安全查询已完成本地验证；不包含日志 REST API、前端日志页或部署。
+7. API、Worker、Scheduler 和 CLI 私有双流 JSONL 已完成故障排查加固：请求/Job/source/subscription/stage 可串联，未知 API 异常返回安全 request ID，Worker 覆盖边界、租约恢复、逐来源和通知终态，readiness 独立披露 sink 降级；OpenClaw 缺省只查本人，Owner/Admin 可在新连接上显式授权有界工作区诊断。静态日志合同已进入全部 Test Gate scope；不包含日志 REST API、前端日志页、自动修复或部署。
 8. 最近记录的 VPS 发布基线为 revision `74c7b16d715b` 的 API、Worker 与同机 RSSHub；执行任何运行操作前必须重新核对实际容器状态，legacy scheduler 继续保持关闭。
 9. 低 Token `test_gate` 仍处于 0/10 提交观察期，任务完成门禁保持 `python scripts/test_gate.py run --mode full`。
 
@@ -36,6 +36,7 @@
 8. VPS 的 Feed storage v3 apply、rollout flag 开启和任何付费 canary 必须分别满足门禁并取得对应授权；Bilibili 冷路由受风控时不得高频重试。
 9. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护。
 10. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；不得恢复已删除的 MUI 对照原型、真实数据 preview 或 `VITE_UI_EXPERIENCE` 分叉。
+11. 现有并行开发分支不做原地强改；由单一 integration owner 依次合入最新日志基线。每个分支一旦触及新增写路由、Job 类型或受保护运行路径，必须修复 observability contract 报错，并在组合结果上重跑 full；正式发布再跑 release。
 
 兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 可继续保留；兼容接口存在不等于当前产品能力或后续建设承诺。
 
@@ -88,9 +89,9 @@
 ## 6. 验证顺序
 
 1. 日常迭代先运行任务相关测试；可用 `snapshot` 和 `plan` 查看影响映射。
-2. 观察期内任务完成、PR/main 和合并前统一运行 `python scripts/test_gate.py run --mode full`。
+2. 观察期内任务完成、PR/main 和合并前统一运行 `python scripts/test_gate.py run --mode full`；targeted/full/release 的每个 scope 都先执行 `scripts/check_observability_contract.py`。
 3. UI 相关 CI 追加 Playwright；正式发布运行 `python scripts/test_gate.py run --mode release`，其中 Docker smoke 只启动隔离 API。
-4. 完整日志只保存在 `.test-results/<run-id>/`；先读限长摘要，仅在诊断需要时读取指定失败片段。
+4. 完整日志只保存在 `.test-results/<run-id>/` 的脱敏 `0600` 文件；不得保留具名 raw 临时日志。先读限长摘要，仅在诊断需要时读取指定失败片段。
 5. 任何 test gate 都不得启动真实来源、AI、Worker 或 scheduler。
 6. 控制面变更同时运行 schema-v3 项目校验、紧凑工作日志校验、JSON 校验和 `git diff --check`。
 

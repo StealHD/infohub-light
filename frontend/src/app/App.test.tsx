@@ -1123,7 +1123,7 @@ describe('App routes', () => {
     const api = liveApi({
       agentDelegations: vi.fn().mockResolvedValue({ enabled: true, subscription_writes_enabled: false, mcp_url: '/mcp', openclaw_chat: { enabled: false, default_gateway_url: 'ws://127.0.0.1:18789', protocol_version: 4, target_version: '2026.7.1' }, token_ttl_days: 90, max_active: 5, connections: [] }),
       createAgentDelegation: vi.fn().mockResolvedValue({
-        connection: { id: 'agent-new', name: 'Desk Mac', client_type: 'openclaw', access: 'read', scopes: ['inteliscope:read'], token_prefix: 'ih_new', created_at: '2026-07-17T00:00:00Z', expires_at: '2026-10-17T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' },
+        connection: { id: 'agent-new', name: 'Desk Mac', client_type: 'openclaw', access: 'read', diagnostics_scope: 'self', scopes: ['inteliscope:read'], token_prefix: 'ih_new', created_at: '2026-07-17T00:00:00Z', expires_at: '2026-10-17T00:00:00Z', last_used_at: null, revoked_at: null, status: 'active' },
         token: 'ih_mcp_one_time_live',
       }),
     } as Partial<ServiceApi>)

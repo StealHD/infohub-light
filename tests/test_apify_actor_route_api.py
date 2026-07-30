@@ -304,15 +304,18 @@ def test_paid_canary_requires_confirmation_and_only_queues_one_job(
         raise RuntimeError("usage write failed")
 
     monkeypatch.setattr(QuotaService, "record_job_usage", fail_usage)
-    with pytest.raises(RuntimeError, match="usage write failed"):
-        client.post(
-            endpoint,
-            json={
-                "source_id": source_id,
-                "expected_generation": route["generation"],
-                "confirmation": "确认付费试跑",
-            },
-        )
+    failed = client.post(
+        endpoint,
+        json={
+            "source_id": source_id,
+            "expected_generation": route["generation"],
+            "confirmation": "确认付费试跑",
+        },
+    )
+    assert failed.status_code == 500
+    assert failed.json()["error"]["code"] == "internal_error"
+    assert failed.headers["X-Request-ID"].startswith("req_")
+    assert "usage write failed" not in failed.text
     assert store.connect().execute(
         "SELECT COUNT(*) FROM fetch_jobs"
     ).fetchone()[0] == job_count

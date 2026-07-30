@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 from typing import List, Optional
 import httpx
 from tenacity import (
@@ -31,6 +32,7 @@ from ..tag_policy import (
 
 DEFAULT_THROTTLE_SEC = 0.0
 DEFAULT_FEATURED_THRESHOLD = 7.5
+logger = logging.getLogger(__name__)
 
 
 def _retryable_ai_exception(exc: BaseException) -> bool:
@@ -196,8 +198,14 @@ class ContentAnalyzer:
                                 model=self._analysis_model(),
                                 prompt_version=prompt_version,
                             )
-                except Exception as e:
-                    print(f"Error analyzing item {item.id}: {e}")
+                except Exception as exc:
+                    logger.exception(
+                        "content analysis failed; fallback applied",
+                        extra={
+                            "stage": "analysis",
+                            "error_code": type(exc).__name__,
+                        },
+                    )
                     item.ai_score = 0.0
                     item.ai_reason = None
                     item.ai_summary = item.title
@@ -346,7 +354,13 @@ class ContentAnalyzer:
         # Parse JSON response with robust fallback
         result = self._parse_json_response(response)
         if result is None:
-            print(f"Warning: could not parse analysis response for {item.id}, using defaults")
+            logger.warning(
+                "content analysis response was invalid; fallback applied",
+                extra={
+                    "stage": "analysis",
+                    "error_code": "invalid_ai_response",
+                },
+            )
             item.ai_score = 0.0
             item.ai_reason = None
             item.ai_summary = item.title

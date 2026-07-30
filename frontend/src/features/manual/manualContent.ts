@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-30',
-  change: '来源头像独立采集、免费回填与稳定展示',
+  change: '故障日志串联、工作区诊断授权与自动开发门禁',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -123,6 +123,10 @@ export const manualSections: ManualSection[] = [
         linkLabel: '打开助手连接',
       },
       {
+        title: '选择故障诊断范围',
+        description: '所有新连接默认只读取与当前账户相关的脱敏诊断事件。Owner/Admin 在创建连接时可以显式打开“允许读取工作区故障诊断”，用于排查成员触发的同一后台故障；Member/Viewer 看不到该选项。已有连接不会自动获得权限，也不能通过重命名升级；需要时应新建连接，角色被降级后工作区诊断会立即失效。',
+      },
+      {
         title: '按名称订阅 B 站 UP 主',
         description: '在浏览器 Agent 面板不附带文章或任务，直接告诉 OpenClaw 公开账号名称并要求订阅；它会通过 Inteliscope MCP 的固定 Bilibili 官方查询取得最多 5 个名称、UID 和主页候选，不需要启用 Chrome、浏览器远程调试或手工搜索。唯一精确同名会进入订阅预览，同名或模糊结果必须先由你选择。核对预览后，另发一条与服务端返回内容完全一致的准确确认短语才会应用；浏览器和 OpenClaw 都不能代你生成或改写确认。附带文章或任务的交接始终只读。',
       },
@@ -148,7 +152,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '查询安全诊断事件',
-        description: '明确要求排障时，OpenClaw 可以按最近时间或任务、来源、订阅、请求关联读取当前账户的脱敏操作事件。即使是管理员连接也只能读取与自己相关的事件；诊断日志里的路径、身份、文章内容、URL、凭据和堆栈不会进入页面或 Agent 上下文。',
+        description: '明确要求排障时，OpenClaw 可以按最近时间或任务、来源、订阅、请求关联读取脱敏操作事件。普通连接只查当前账户；显式授权的 Owner/Admin 连接可查工作区，但必须提供关联 ID，或只查看 warning/error，不能拉取全工作区普通明细。查询本身会留下安全审计且始终只读，不会自动重试、取消或修改任务；路径、身份、文章内容、URL、凭据、原始错误和堆栈不会进入页面或 Agent 上下文。',
       },
       {
         title: '断开与移除',

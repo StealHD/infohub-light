@@ -137,6 +137,20 @@ def test_browser_job_handoff_uses_safe_diagnosis_without_job_mutation():
     assert "never retry, cancel, modify" in workflows
 
 
+def test_workspace_diagnostics_are_explicit_bounded_and_read_only():
+    combined = all_skill_text()
+
+    assert 'scope="self"' in combined
+    assert 'scope="workspace"' in combined
+    assert "diagnostics_scope_required" in combined
+    assert "diagnostics_filter_required" in combined
+    assert "minimum_level" in combined
+    assert "existing connections are never upgraded" in combined
+    assert "role downgrade" in combined
+    assert "read-only" in combined
+    assert "another user's business data" in combined
+
+
 def test_skill_requires_preview_confirmation_and_never_collects_secrets():
     combined = all_skill_text().lower()
     assert "每次只询问一个" in combined

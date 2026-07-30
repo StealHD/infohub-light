@@ -3,7 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import type { AgentDelegation, AgentDelegationAccess } from '../../api/types'
+import type {
+  AgentDelegation,
+  AgentDelegationAccess,
+  AgentDelegationDiagnosticsScope,
+} from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import {
   actionToast,
@@ -20,6 +24,7 @@ import {
   Popover,
   Separator,
   StatusIndicator,
+  Switch,
   TextField,
   Tooltip,
   TooltipTriggerButton,
@@ -346,6 +351,7 @@ export function HeroAgentsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createAccess, setCreateAccess] = useState<AgentDelegationAccess>('read')
+  const [createDiagnosticsScope, setCreateDiagnosticsScope] = useState<AgentDelegationDiagnosticsScope>('self')
   const [createPending, setCreatePending] = useState(false)
   const [oneTimeCredential, setOneTimeCredential] = useState<{ token: string; access: AgentDelegationAccess } | null>(null)
   const [renameTarget, setRenameTarget] = useState<AgentDelegation | null>(null)
@@ -390,6 +396,7 @@ export function HeroAgentsPage() {
   function openCreateDialog() {
     setCreateName('')
     setCreateAccess('read')
+    setCreateDiagnosticsScope('self')
     setCreateError('')
     setCreateOpen(true)
   }
@@ -398,10 +405,15 @@ export function HeroAgentsPage() {
     if (!createName.trim()) return
     setCreatePending(true)
     try {
-      const result = await api.createAgentDelegation(createName.trim(), createAccess)
+      const result = await api.createAgentDelegation(
+        createName.trim(),
+        createAccess,
+        createDiagnosticsScope,
+      )
       setCreateOpen(false)
       setCreateName('')
       setCreateAccess('read')
+      setCreateDiagnosticsScope('self')
       setOneTimeCredential({ token: result.token, access: result.connection.access ?? createAccess })
       setCreateError('')
       refresh()
@@ -511,7 +523,7 @@ export function HeroAgentsPage() {
           const status = statusLabel(connection)
           return <Card key={connection.id} variant="secondary" className="p-4">
             <div className="flex flex-col gap-3 min-[640px]:flex-row min-[640px]:items-center">
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><StatusIndicator iconOnly label={status.label} tone={status.tone} icon={status.icon} /><span className="type-meta inline-flex items-center gap-1 text-muted"><Icons.LockKeyhole size={12} aria-hidden="true" />{accessLabel(connection.access)}</span></div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
+              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Card.Title className="truncate">{connection.name}</Card.Title><StatusIndicator iconOnly label={status.label} tone={status.tone} icon={status.icon} /><span className="type-meta inline-flex items-center gap-1 text-muted"><Icons.LockKeyhole size={12} aria-hidden="true" />{accessLabel(connection.access)}</span>{connection.diagnostics_scope === 'workspace' && <span className="type-meta text-muted">工作区诊断</span>}</div><Card.Description className="mt-1">{connection.last_used_at ? `最近使用 ${dateTime(connection.last_used_at)}` : '从未使用'} · 到期 {dateTime(connection.expires_at)} · {connection.token_prefix}…</Card.Description></div>
               <ConnectionCardActions
                 connection={connection}
                 open={openConnectionMenuId === connection.id}
@@ -562,6 +574,16 @@ export function HeroAgentsPage() {
               ...(user.role === 'viewer' ? [] : [{ id: 'subscriptions_write', label: '可管理订阅', isDisabled: !query.data.subscription_writes_enabled }]),
             ]}
           />
+          {(user.role === 'owner' || user.role === 'admin') && <Switch
+            isSelected={createDiagnosticsScope === 'workspace'}
+            onChange={(selected) => setCreateDiagnosticsScope(selected ? 'workspace' : 'self')}
+          >
+            <Switch.Content>
+              <Switch.Control><Switch.Thumb /></Switch.Control>
+              允许读取工作区故障诊断
+            </Switch.Content>
+          </Switch>}
+          {(user.role === 'owner' || user.role === 'admin') && <p className="type-meta text-muted">仅影响这次新建的令牌；旧令牌不会自动获得权限。工作区查询必须指定请求、任务、来源或订阅 ID，或者只查询 warning/error。</p>}
           {user.role !== 'viewer' && !query.data.subscription_writes_enabled && <p className="type-body text-muted">管理员尚未启用订阅管理连接；你仍可创建只读连接。</p>}
           <p className="type-body text-muted">只读连接可读取并诊断信息流、订阅、来源健康和任务，也可查看来源配置指导。可管理订阅连接还可准备并确认私有来源和订阅变更，但不能管理密钥、共享来源、任务、Feed 条目状态或刷新操作。</p>
           {createError && <HeroNotice title={createError} />}

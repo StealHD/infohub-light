@@ -538,6 +538,140 @@ async def test_query_operation_logs_is_strictly_current_user_scoped_for_all_role
 
 
 @pytest.mark.anyio
+async def test_workspace_operation_logs_require_explicit_admin_delegation_and_filter(
+    tmp_path,
+    monkeypatch,
+):
+    app = _app(tmp_path, monkeypatch)
+    store = app.state.service_store
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    admin = store.create_user(
+        workspace_id=workspace["id"],
+        username="workspace-admin",
+        password="admin-password",
+        role="admin",
+    )
+    member = store.create_user(
+        workspace_id=workspace["id"],
+        username="workspace-member",
+        password="member-password",
+        role="member",
+    )
+    owner_old_token = store.create_agent_delegation(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        name="Old owner token",
+    )[1]
+    admin_workspace_token = store.create_agent_delegation(
+        workspace_id=workspace["id"],
+        user_id=admin["id"],
+        name="Explicit workspace diagnostics",
+        diagnostics_scope="workspace",
+    )[1]
+    member_token = store.create_agent_delegation(
+        workspace_id=workspace["id"],
+        user_id=member["id"],
+        name="Member token",
+    )[1]
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    log_dir.joinpath("operations-api.jsonl").write_text(
+        "".join(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "event_id": f"evt_workspace_{index}",
+                    "timestamp": now,
+                    "level": "warning",
+                    "service": "api",
+                    "category": "request",
+                    "action": "unhandled_error",
+                    "outcome": "failed",
+                    "workspace_id": workspace["id"],
+                    "actor_user_id": user["id"],
+                    "request_id": f"req_workspace_{index}",
+                    "error_code": "internal_error",
+                    "stage": "request",
+                    "error_fingerprint": f"err_workspace_{index}",
+                }
+            )
+            + "\n"
+            for index, user in enumerate((owner, member), start=1)
+        ),
+        encoding="utf-8",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async def call(token, arguments):
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://127.0.0.1:8080",
+            headers={"Authorization": f"Bearer {token}"},
+        ) as client:
+            async with streamable_http_client(
+                "http://127.0.0.1:8080/mcp",
+                http_client=client,
+                terminate_on_close=False,
+            ) as (read_stream, write_stream, _get_session_id):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    return await session.call_tool(
+                        "query_operation_logs",
+                        arguments,
+                    )
+
+    async with app.router.lifespan_context(app):
+        old_owner = await call(
+            owner_old_token,
+            {"scope": "workspace", "minimum_level": "warning"},
+        )
+        member_denied = await call(
+            member_token,
+            {"scope": "workspace", "minimum_level": "warning"},
+        )
+        broad_denied = await call(
+            admin_workspace_token,
+            {"scope": "workspace"},
+        )
+        workspace_result = await call(
+            admin_workspace_token,
+            {"scope": "workspace", "minimum_level": "warning"},
+        )
+        store.update_user(admin["id"], role="member")
+        downgraded = await call(
+            admin_workspace_token,
+            {"scope": "workspace", "minimum_level": "warning"},
+        )
+
+    assert old_owner.isError is True
+    assert "diagnostics_scope_required" in old_owner.content[0].text
+    assert member_denied.isError is True
+    assert "diagnostics_scope_required" in member_denied.content[0].text
+    assert broad_denied.isError is True
+    assert "diagnostics_filter_required" in broad_denied.content[0].text
+    assert workspace_result.isError is False
+    payload = workspace_result.structuredContent
+    assert payload["scope"] == "workspace"
+    assert {event["event_id"] for event in payload["events"]} == {
+        "evt_workspace_1",
+        "evt_workspace_2",
+    }
+    assert all(
+        event["stage"] == "request"
+        and event["error_fingerprint"].startswith("err_workspace_")
+        for event in payload["events"]
+    )
+    serialized = json.dumps(payload)
+    assert owner["id"] not in serialized
+    assert member["id"] not in serialized
+    assert workspace["id"] not in serialized
+    assert downgraded.isError is True
+    assert "diagnostics_scope_required" in downgraded.content[0].text
+
+
+@pytest.mark.anyio
 async def test_remote_mcp_masks_internal_errors_with_a_request_id(
     tmp_path,
     monkeypatch,

@@ -837,3 +837,13 @@
 - 身份与成本边界：Bilibili 回退只能从固定官方搜索中选择与 catalog UID 精确相等的 `upic`；GitHub 从已验证 owner/user 构造候选，Reddit about 必须匹配目标 identity，通用 RSS 只做 512 KB Feed/主页元数据和 favicon 探测。来源头像最大 2 MiB、复验间隔 24 小时，候选失败保留旧 ready 版本。Apify profile 只能复用本次已经付费取得的响应，不为头像启动附加 Actor；一次性回填默认 dry-run 且 apply 必须显式 `--free-only`。
 - 原因：本地 Bilibili 头像来自 7 月 21 日旧 RSSHub Feed image 与当时保留的内容条目，VPS 后建来源没有迁移该 asset，且 `keep_latest_item=false` 时即使 Feed 带 image 也可能选中 0 条；RSSHub 的 Bilibili `-352`、503 或超时又使条目耦合路径更不稳定。运行挂载和 `/api/media` 权限链本身正常，X/Instagram 已缓存头像也证明故障不在静态文件服务。
 - 兼容/影响：不修改 source identity、`keep_latest_item`、Feed snapshot 建立条件、Source Health、通知、AI、scheduler 或付费调用合同；公开 API 不暴露上游头像 URL，只沿用 `avatar_url` 的本地媒体形态。无需数据库迁移，回退代码后既有 ready 头像与内容仍可读取。
+
+### D099 故障排查采用可串联日志、显式工作区诊断与硬合同门禁
+
+- 决策日期：2026-07-30
+- 当前状态：本地实现；集成前必须通过完整与发布门禁，未部署
+- 决策内容：API、MCP 和 Worker 共用只含安全标识的关联上下文，以 request、Job、source、subscription、stage 和稳定异常指纹串联一次故障。未知 API 异常统一返回带 request ID 的安全 500；Worker 固定记录 claim 前边界、资格检查、执行、终态持久化、lease 恢复、失效取消、逐来源获取、头像与通知结果。managed runtime/operation handler 必须确认每次 write/flush，并把最近 sink 状态以 additive `logging_status` 投影到 readiness；日志降级不得回滚已提交业务结果。
+- 授权边界：OpenClaw operation 查询缺省为 `self`。只有实时 `owner/admin` 在创建新 connection 时显式选择 workspace diagnostics，才增加独立 diagnostic scope；既有 token 不迁移、不通过 PATCH 提权，角色降级立即失效。工作区查询必须带 request/Job/source/subscription ID，或限定 warning/error，并为每次查询留下安全审计；结果仍不含身份、业务对象、原始消息、路径、URL、内容、凭据或堆栈，也不执行修复、重试或其他写入。
+- 执行门禁：`scripts/check_observability_contract.py` 由 targeted/full/release 的每个 Test Gate scope 先行执行，阻止未映射 FastAPI 写路由、未声明 Worker Job 类型、受保护生产路径 `print`/独立日志配置、未收口 Uvicorn 和缺失关键 Worker 事件。Test Gate 持久化失败输出复用运行时脱敏器，只保留私有 `0600` 日志，不保留具名 raw 临时文件。并行分支可继续隔离开发，但只能由单一 integration owner 合到包含该门禁的最新基线，并在组合结果上修复合同失败后重新验证。
+- 原因：原双流 JSONL 能留下局部记录，却不能保证所有新增写接口和 Job 自动纳入，也无法区分“业务成功但日志实际写失败”；OpenClaw self-only 又不足以让管理员排查其他成员触发的同一后台故障。把关联、sink 健康、显式最小授权与静态失败门禁放在一起，才能让问题可定位且后续并行开发不会静默绕过。
+- 兼容/边界：不新增数据库迁移、日志 REST API、前端日志列表、服务器侧 Agent、自动修复或原始日志外发。普通 MCP 数据工具和确定性 Source/Job 诊断继续严格用户隔离；workspace 例外只适用于脱敏 operation events。D099 替代此前 D065 中“Owner/Admin 永远没有跨用户 operation event 例外”与“日志写入只有 best-effort、无可观测 sink 状态”的部分，其余私有权限、保留、脱敏和提交后事件边界不变。

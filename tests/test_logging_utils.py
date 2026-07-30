@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import stat
@@ -8,11 +9,19 @@ import pytest
 
 from src.logging_utils import (
     configure_logging,
+    logging_health_status,
     log_retention_days,
     prune_managed_logs,
     redact_log_text,
 )
-from src.services.operation_log import emit_operation_event
+from src.observability_context import (
+    begin_observability_context,
+    reset_observability_context,
+)
+from src.services.operation_log import (
+    emit_operation_event,
+    safe_emit_operation_event,
+)
 
 
 def _close_managed_handlers() -> None:
@@ -170,6 +179,85 @@ def test_runtime_exception_keeps_safe_frames_without_exception_text(tmp_path):
     assert event["exception"]["type"] == "RuntimeError"
     assert event["exception"]["frames"][-1]["file"] == "test_logging_utils.py"
     assert "line" in event["exception"]["frames"][-1]
+
+
+def test_runtime_context_is_isolated_across_concurrent_tasks(tmp_path):
+    paths = configure_logging(tmp_path / "logs", service="worker")
+
+    async def write_one(request_id, job_id):
+        token = begin_observability_context(
+            request_id=request_id,
+            job_id=job_id,
+            stage="execute",
+        )
+        try:
+            await asyncio.sleep(0)
+            logging.getLogger("context-test").info("context-%s", job_id)
+        finally:
+            reset_observability_context(token)
+
+    async def write_both():
+        await asyncio.gather(
+            write_one("req_one", "job_one"),
+            write_one("req_two", "job_two"),
+        )
+
+    asyncio.run(write_both())
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    events = {
+        event["message"]: event
+        for event in (
+            json.loads(line)
+            for line in paths["runtime"].read_text(
+                encoding="utf-8"
+            ).splitlines()
+        )
+    }
+    assert events["context-job_one"]["request_id"] == "req_one"
+    assert events["context-job_one"]["job_id"] == "job_one"
+    assert events["context-job_one"]["stage"] == "execute"
+    assert events["context-job_two"]["request_id"] == "req_two"
+    assert events["context-job_two"]["job_id"] == "job_two"
+
+
+def test_operation_sink_failure_is_truthful_and_degrades_health(tmp_path):
+    configure_logging(tmp_path / "logs", service="api")
+    operation_handler = next(
+        handler
+        for handler in logging.getLogger("inteliscope.operations").handlers
+        if getattr(handler, "channel", None) == "operations"
+    )
+
+    class FailingStream:
+        def write(self, _value):
+            raise OSError("simulated disk failure")
+
+        def flush(self):
+            return None
+
+        def close(self):
+            return None
+
+    operation_handler.stream.close()
+    operation_handler.stream = FailingStream()
+
+    assert (
+        safe_emit_operation_event(
+            category="job",
+            action="claim",
+            outcome="running",
+            workspace_id="workspace_1",
+            subject_user_id="user_1",
+            job_id="job_1",
+        )
+        is False
+    )
+    health = logging_health_status()
+    assert health["status"] == "degraded"
+    assert health["channels"]["operations"]["status"] == "degraded"
+    assert health["channels"]["operations"]["last_failure"] is not None
 
 
 @pytest.mark.parametrize("value", ["", "0", "366", "1.5", "thirty", True])

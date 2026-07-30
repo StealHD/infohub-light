@@ -75,6 +75,7 @@
 | 普通代码小改 | `PLAN.md` 当前阶段摘要、`project-defaults.yaml` 相关段落、目标代码、目标测试 |
 | API / CLI / payload | `PLAN.md`、`API_CONTRACT.md` 相关章节、API/CLI 入口、对应 service、接口测试 |
 | Worker / job queue | `PLAN.md`、`project-defaults.yaml` cost/job 段、`src/services/worker.py` 或 `src/services/job_queue.py`、对应测试 |
+| 日志 / 故障排查 | `PLAN.md`、`docs/dev/observability-logging.md`、目标 API/Worker/MCP/transport 文件、`scripts/check_observability_contract.py`、对应测试 |
 | Storage / migration | `PLAN.md`、`ARCHITECTURE_CONTRACT.md` archive/storage 边界、目标 storage 文件、对应测试 |
 | React UI | `UI_CONTRACT.md`、目标 `frontend/src/*` 文件、匹配的 Vitest/Playwright 测试 |
 | Legacy 静态 UI | `PLAN.md`、`project-defaults.yaml` output 段、目标 `src/ui/static/*` 文件、`tests/test_static_reading_ui.py` |
@@ -179,6 +180,18 @@
 6. 匹配测试
 
 不要默认读取其他 adapter。
+
+### 7.10 API / Worker / MCP 可观测性任务
+
+修改 FastAPI 写路由、Worker Job 类型或生命周期、Remote MCP 诊断、通知 transport、来源头像运行路径、日志配置或 Test Gate 时，默认读取：
+
+1. `docs/dev/observability-logging.md`
+2. 目标生产文件与对应测试
+3. `scripts/check_observability_contract.py`
+4. `tests/test_observability_contract.py`
+5. `tests/test_impact_map.json`
+
+新增写路由必须进入 mutation operation map；新增 Worker Job 类型必须进入 trace policy。不要通过降低 checker 覆盖范围、删除关键事件要求或恢复具名 raw 日志来让门禁通过。普通业务代码不需要读取原始 `logs/**`；只有拿到 request/Job/source/subscription ID 后，才按最小服务与时间片段扩展读取。
 
 ## 8. 搜索和命令策略
 

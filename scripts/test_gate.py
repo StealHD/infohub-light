@@ -12,13 +12,20 @@ import secrets
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, TextIO
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from src.logging_utils import redact_log_text
 
 
 SNAPSHOT_VERSION = 1
@@ -329,8 +336,24 @@ def _spec(
 def _control_specs(root: Path) -> list[CommandSpec]:
     python = _python(root)
     return [
-        _spec("control_json", [python, "-m", "json.tool", "project-defaults.yaml"], root),
-        _spec("diff_check", ["git", "diff", "--check"], root),
+        _spec(
+            "observability_contract",
+            [python, "scripts/check_observability_contract.py"],
+            root,
+            domain="control",
+        ),
+        _spec(
+            "control_json",
+            [python, "-m", "json.tool", "project-defaults.yaml"],
+            root,
+            domain="control",
+        ),
+        _spec(
+            "diff_check",
+            ["git", "diff", "--check"],
+            root,
+            domain="control",
+        ),
     ]
 
 
@@ -582,14 +605,11 @@ def build_command_specs(
             seen.add(spec.command_id)
     if scope == "all":
         return deduplicated
-    allowed_domains = {scope}
-    if scope in {"backend", "frontend"}:
-        allowed_domains.add("control")
+    allowed_domains = {scope, "control"}
     return [
         spec
         for spec in deduplicated
         if spec.domain in allowed_domains
-        or (spec.command_id in {"control_json", "diff_check"} and scope in {"backend", "frontend"})
     ]
 
 
@@ -608,24 +628,24 @@ def _sensitive_values(environment: dict[str, str]) -> list[str]:
 def _redact(text: str, sensitive_values: list[str]) -> str:
     for value in sensitive_values:
         text = text.replace(value, "[REDACTED]")
-    return re.sub(
+    text = re.sub(
         r"(?i)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)\s*[:=]\s*[^\s,;]+",
         r"\1=[REDACTED]",
         text,
     )
+    return redact_log_text(text)
 
 
-def _sanitize_log(raw_path: Path, log_path: Path, sensitive_values: list[str]) -> None:
+def _sanitize_log(
+    source: TextIO,
+    log_path: Path,
+    sensitive_values: list[str],
+) -> None:
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with raw_path.open("r", encoding="utf-8", errors="replace") as source, os.fdopen(
-            descriptor, "w", encoding="utf-8"
-        ) as target:
-            for line in source:
-                target.write(_redact(line, sensitive_values))
-    finally:
-        raw_path.unlink(missing_ok=True)
-        os.chmod(log_path, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+        for line in source:
+            target.write(_redact(line, sensitive_values))
+    os.chmod(log_path, 0o600)
 
 
 _UNCLOSED_SQLITE_CONNECTION_WARNING = re.compile(
@@ -643,7 +663,12 @@ def _unclosed_sqlite_connection_warnings(log_path: Path) -> int:
     return count
 
 
-def _failure_details(spec: CommandSpec, exit_code: int, log_path: Path) -> dict[str, Any]:
+def _failure_details(
+    spec: CommandSpec,
+    exit_code: int,
+    log_path: Path,
+    sensitive_values: list[str],
+) -> dict[str, Any]:
     last_lines: deque[str] = deque(maxlen=80)
     failure_id: str | None = None
     pattern = re.compile(
@@ -659,7 +684,7 @@ def _failure_details(spec: CommandSpec, exit_code: int, log_path: Path) -> dict[
     if len(encoded) > 7000:
         excerpt = encoded[-7000:].decode("utf-8", errors="ignore")
     return {
-        "command": shlex.join(spec.argv),
+        "command": _redact(shlex.join(spec.argv), sensitive_values),
         "command_id": spec.command_id,
         "duration": 0.0,
         "exit_code": exit_code,
@@ -748,17 +773,19 @@ def execute_specs(
             log_dir.mkdir(parents=True, exist_ok=True)
             log_dir.chmod(0o700)
         command_started = time.monotonic()
-        raw_path = run_dir / f"{index:02d}-{spec.command_id}.raw"
         log_path = run_dir / f"{index:02d}-{spec.command_id}.log"
         environment = dict(os.environ)
         if spec.env:
             environment.update(spec.env)
         sensitive_values = _sensitive_values(environment)
-        descriptor = os.open(raw_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         exit_code = 2
         missing_executable = False
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        with tempfile.TemporaryFile(
+            mode="w+",
+            encoding="utf-8",
+            errors="replace",
+        ) as handle:
+            try:
                 handle.write(f"$ {shlex.join(spec.argv)}\n")
                 handle.flush()
                 try:
@@ -774,8 +801,10 @@ def execute_specs(
                 except FileNotFoundError as exc:
                     missing_executable = True
                     handle.write(f"environment error: executable not found: {exc.filename}\n")
-        finally:
-            _sanitize_log(raw_path, log_path, sensitive_values)
+            finally:
+                handle.flush()
+                handle.seek(0)
+                _sanitize_log(handle, log_path, sensitive_values)
         for generated_report in run_dir.glob("*.json"):
             try:
                 report_text = generated_report.read_text(encoding="utf-8")
@@ -794,7 +823,7 @@ def execute_specs(
         unclosed_sqlite_connection_warnings += command_sqlite_warnings
         command_result = {
             "command_id": spec.command_id,
-            "command": shlex.join(spec.argv),
+            "command": _redact(shlex.join(spec.argv), sensitive_values),
             "duration": elapsed,
             "exit_code": exit_code,
             "log_path": _display_path(root, log_path),
@@ -810,7 +839,12 @@ def execute_specs(
         else:
             failed += 1
             result["status"] = "failed"
-        result["first_failure"] = _failure_details(spec, exit_code, log_path)
+        result["first_failure"] = _failure_details(
+            spec,
+            exit_code,
+            log_path,
+            sensitive_values,
+        )
         result["first_failure"]["duration"] = elapsed
         break
 

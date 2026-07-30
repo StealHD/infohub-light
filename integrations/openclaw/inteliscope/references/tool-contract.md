@@ -20,9 +20,9 @@ The MCP identity fixes caller scope. Never add identity fields, credentials, raw
 | `apply_subscription_change` | proposal ID and exact confirmation phrase | The only change call. Claim success only from its successful result. |
 | `diagnose_source` | user-selected subscription ID | Explain bounded persisted evidence; does not repair. |
 | `diagnose_job` | user-selected job ID | Explain bounded persisted evidence; does not retry/cancel. |
-| `query_operation_logs` | 1..720 hour window, optional category/outcome/level and safe event IDs, limit 1..100 | Read newest-first, caller-scoped sanitized operation events only. Never exposes raw messages, paths, identities, credentials, content, URLs, or stacks. |
+| `query_operation_logs` | `scope=self|workspace`, 1..720 hour window, optional category/outcome/level and safe event IDs, limit 1..100 | `self` is the default. `workspace` requires an explicitly granted Owner/Admin connection plus an event ID filter or `minimum_level=warning|error`; it remains read-only and audited. Returns newest-first sanitized events only, never raw messages, paths, identities, credentials, content, URLs, or stacks. |
 
-`not_found` can mean absent or outside the current scope: do not try alternate identities. For rate limiting, reduce repeated calls. For `internal_error`, report only the returned request ID. A stale, expired, consumed, or confirmation-mismatch proposal must be prepared again; never reuse it.
+`not_found` can mean absent or outside the current scope: do not try alternate identities. `diagnostics_scope_required` means the current connection cannot use workspace diagnostics; do not claim it can be upgraded in place. `diagnostics_filter_required` means retry only with a known request/job/source/subscription ID or a warning/error minimum level. For rate limiting, reduce repeated calls. For `internal_error`, report only the returned request ID. A stale, expired, consumed, or confirmation-mismatch proposal must be prepared again; never reuse it.
 
 A read-only connection exposes the thirteen read, setup, public-account lookup, discovery, and diagnosis tools above. A subscription-management connection adds only the four `prepare_*`/`apply_subscription_change` tools; diagnosis never requires write access.
 

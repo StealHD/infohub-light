@@ -8,16 +8,30 @@ import os
 import re
 import stat
 import uuid
-from contextvars import ContextVar, Token
-from dataclasses import dataclass, replace
+from contextvars import Token
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
-from ..logging_utils import OPERATION_LOGGER_NAME
+from ..logging_utils import (
+    OPERATION_LOGGER_NAME,
+    new_operation_write_acknowledgement,
+    operation_write_acknowledged,
+)
+from ..observability_context import (
+    ObservabilityContext,
+    begin_observability_context,
+    current_observability_context,
+    optional_observability_value,
+    reset_observability_context,
+    safe_observability_stage,
+    safe_observability_value,
+    update_observability_context,
+)
 
 
 OperationCategory = Literal[
+    "request",
     "auth",
     "account",
     "source",
@@ -47,6 +61,7 @@ OperationLevel = Literal["info", "warning", "error"]
 
 OPERATION_CATEGORIES = frozenset(
     {
+        "request",
         "auth",
         "account",
         "source",
@@ -93,54 +108,31 @@ _OPERATION_FILE_RE = re.compile(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class OperationContext:
-    request_id: str | None = None
-    workspace_id: str | None = None
-    actor_user_id: str | None = None
+def begin_request_context(request_id: str) -> Token[ObservabilityContext]:
+    return begin_observability_context(request_id=request_id)
 
 
-_CONTEXT: ContextVar[OperationContext] = ContextVar(
-    "inteliscope_operation_context",
-    default=OperationContext(),
-)
-
-
-def begin_request_context(request_id: str) -> Token[OperationContext]:
-    return _CONTEXT.set(OperationContext(request_id=_safe_value(request_id, "request_id")))
-
-
-def end_request_context(token: Token[OperationContext]) -> None:
-    _CONTEXT.reset(token)
+def end_request_context(token: Token[ObservabilityContext]) -> None:
+    reset_observability_context(token)
 
 
 def bind_operation_actor(*, workspace_id: str, user_id: str) -> None:
-    context = _CONTEXT.get()
-    _CONTEXT.set(
-        replace(
-            context,
-            workspace_id=_safe_value(workspace_id, "workspace_id"),
-            actor_user_id=_safe_value(user_id, "actor_user_id"),
-        )
+    update_observability_context(
+        workspace_id=workspace_id,
+        actor_user_id=user_id,
     )
 
 
 def current_request_id() -> str | None:
-    return _CONTEXT.get().request_id
+    return current_observability_context().request_id
 
 
 def _safe_value(value: Any, field: str) -> str:
-    candidate = str(value or "")
-    if (
-        not _SAFE_VALUE_RE.fullmatch(candidate)
-        or _FORBIDDEN_IDENTIFIER_RE.fullmatch(candidate)
-    ):
-        raise ValueError(f"{field} must be a bounded opaque identifier")
-    return candidate
+    return safe_observability_value(value, field)
 
 
 def _optional_safe_value(value: Any, field: str) -> str | None:
-    return None if value in {None, ""} else _safe_value(value, field)
+    return optional_observability_value(value, field)
 
 
 def _utc_iso(value: datetime | None = None) -> str:
@@ -177,7 +169,9 @@ def emit_operation_event(
     job_id: str | None = None,
     source_id: str | None = None,
     subscription_id: str | None = None,
+    stage: str | None = None,
     error_code: str | None = None,
+    error_fingerprint: str | None = None,
     duration_ms: int | None = None,
     changed_fields: list[str] | tuple[str, ...] | None = None,
     counts: dict[str, int] | None = None,
@@ -195,7 +189,7 @@ def emit_operation_event(
         raise ValueError("operation level is invalid")
     if not _SAFE_ACTION_RE.fullmatch(action):
         raise ValueError("operation action is invalid")
-    context = _CONTEXT.get()
+    context = current_observability_context()
     resolved_workspace = workspace_id or context.workspace_id
     resolved_actor = actor_user_id or context.actor_user_id
     resolved_request = request_id or context.request_id
@@ -217,11 +211,15 @@ def emit_operation_event(
         "source_id": source_id,
         "subscription_id": subscription_id,
         "error_code": error_code,
+        "error_fingerprint": error_fingerprint,
     }
     for field, value in optional_ids.items():
         safe = _optional_safe_value(value, field)
         if safe is not None:
             event[field] = safe
+    resolved_stage = stage or context.stage
+    if resolved_stage is not None:
+        event["stage"] = safe_observability_stage(resolved_stage)
     if duration_ms is not None:
         if isinstance(duration_ms, bool) or not 0 <= int(duration_ms) <= 86_400_000:
             raise ValueError("duration_ms is invalid")
@@ -256,13 +254,14 @@ def emit_operation_event(
         event["route"] = route
     if method is not None:
         normalized_method = str(method).upper()
-        if normalized_method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        if normalized_method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError("operation method is invalid")
         event["method"] = normalized_method
     if status_code is not None:
         if isinstance(status_code, bool) or not 100 <= int(status_code) <= 599:
             raise ValueError("status_code is invalid")
         event["status_code"] = int(status_code)
+    acknowledgement = new_operation_write_acknowledgement()
     _LOGGER.log(
         OPERATION_LEVELS[level],
         "operation_event %s.%s outcome=%s event_id=%s",
@@ -270,8 +269,13 @@ def emit_operation_event(
         action,
         outcome,
         event["event_id"],
-        extra={"operation_event": event},
+        extra={
+            "operation_event": event,
+            "_inteliscope_operation_write_ack": acknowledgement,
+        },
     )
+    if not operation_write_acknowledged(acknowledgement):
+        raise OSError("structured operation event was not durably written")
     return event
 
 
@@ -355,6 +359,7 @@ def _safe_public_event(
         "source_id",
         "subscription_id",
         "error_code",
+        "error_fingerprint",
     ):
         value = event.get(field)
         if value is not None:
@@ -365,6 +370,14 @@ def _safe_public_event(
             ):
                 return None
             public[field] = candidate
+    stage = event.get("stage")
+    if stage is not None:
+        if not isinstance(stage, str):
+            return None
+        try:
+            public["stage"] = safe_observability_stage(stage)
+        except ValueError:
+            return None
     duration_ms = event.get("duration_ms")
     if duration_ms is not None:
         if (
@@ -409,7 +422,7 @@ def _safe_public_event(
         public["route"] = route
     method = event.get("method")
     if method is not None:
-        if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             return None
         public["method"] = method
     status_code = event.get("status_code")
@@ -441,6 +454,7 @@ class OperationLogQueryService:
         *,
         workspace_id: str,
         user_id: str,
+        scope: Literal["self", "workspace"] = "self",
         lookback_hours: int = 24,
         category: OperationCategory | None = None,
         outcome: OperationOutcome | None = None,
@@ -454,6 +468,8 @@ class OperationLogQueryService:
     ) -> dict[str, Any]:
         workspace_id = _safe_value(workspace_id, "workspace_id")
         user_id = _safe_value(user_id, "user_id")
+        if scope not in {"self", "workspace"}:
+            raise ValueError("operation log scope is invalid")
         if isinstance(lookback_hours, bool) or not 1 <= int(lookback_hours) <= 720:
             raise ValueError("lookback_hours must be between 1 and 720")
         if isinstance(limit, bool) or not 1 <= int(limit) <= 100:
@@ -484,6 +500,7 @@ class OperationLogQueryService:
         }
         if not self.log_dir.exists():
             return {
+                "scope": scope,
                 "availability": "empty",
                 "events": [],
                 "window": window,
@@ -503,6 +520,7 @@ class OperationLogQueryService:
             files.sort(key=lambda candidate: candidate.stat().st_mtime, reverse=True)
         except OSError:
             return {
+                "scope": scope,
                 "availability": "unavailable",
                 "events": [],
                 "window": window,
@@ -529,9 +547,11 @@ class OperationLogQueryService:
                     timestamp = _parse_timestamp(event.get("timestamp"))
                     if timestamp is None or not cutoff <= timestamp <= current:
                         continue
+                    if event.get("workspace_id") != workspace_id:
+                        continue
                     if (
-                        event.get("workspace_id") != workspace_id
-                        or user_id
+                        scope == "self"
+                        and user_id
                         not in {
                             event.get("actor_user_id"),
                             event.get("subject_user_id"),
@@ -572,6 +592,7 @@ class OperationLogQueryService:
                     break
         except OSError:
             return {
+                "scope": scope,
                 "availability": "unavailable",
                 "events": [],
                 "window": window,
@@ -583,6 +604,7 @@ class OperationLogQueryService:
         if len(matches) > int(limit):
             truncated = True
         return {
+            "scope": scope,
             "availability": "available" if selected else "empty",
             "events": selected,
             "window": window,

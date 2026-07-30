@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import os
 import re
 import sys
+import threading
+import time
 import traceback
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
+
+from .observability_context import current_observability_context
 
 
 OPERATION_LOGGER_NAME = "inteliscope.operations"
@@ -68,7 +74,9 @@ _OPERATION_ALLOWED_FIELDS = _OPERATION_REQUIRED_FIELDS | {
     "job_id",
     "source_id",
     "subscription_id",
+    "stage",
     "error_code",
+    "error_fingerprint",
     "duration_ms",
     "changed_fields",
     "counts",
@@ -76,6 +84,29 @@ _OPERATION_ALLOWED_FIELDS = _OPERATION_REQUIRED_FIELDS | {
     "method",
     "status_code",
 }
+_LOG_WRITE_LOCK = threading.Lock()
+_LOG_WRITE_STATE: dict[str, dict[str, Any]] = {
+    "runtime": {
+        "configured": False,
+        "healthy": False,
+        "last_success": None,
+        "last_failure": None,
+    },
+    "operations": {
+        "configured": False,
+        "healthy": False,
+        "last_success": None,
+        "last_failure": None,
+    },
+}
+_LAST_FALLBACK_AT = 0.0
+
+
+@dataclass(slots=True)
+class _WriteAcknowledgement:
+    channel: str
+    attempted: bool = False
+    succeeded: bool = False
 
 
 def _utc_iso(timestamp: float | None = None) -> str:
@@ -85,6 +116,107 @@ def _utc_iso(timestamp: float | None = None) -> str:
         else datetime.now(timezone.utc)
     )
     return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def error_fingerprint(
+    exc_info: tuple[type[BaseException], BaseException, Any] | None = None,
+) -> str:
+    """Build a stable, value-free fingerprint for one exception location."""
+
+    resolved = exc_info or sys.exc_info()
+    exception_type, _exception, tb = resolved
+    type_name = getattr(exception_type, "__name__", "Exception")
+    frames = traceback.extract_tb(tb)[-8:] if tb is not None else []
+    revision = os.getenv("INTELISCOPE_BUILD_REVISION", "unknown")
+    material = "|".join(
+        [
+            revision,
+            type_name,
+            *(
+                f"{Path(frame.filename).name}:{frame.name}:{int(frame.lineno)}"
+                for frame in frames
+            ),
+        ]
+    )
+    return f"err_{hashlib.sha256(material.encode('utf-8')).hexdigest()[:20]}"
+
+
+def _mark_log_write(channel: str, *, healthy: bool) -> None:
+    timestamp = _utc_iso()
+    with _LOG_WRITE_LOCK:
+        state = _LOG_WRITE_STATE[channel]
+        state["configured"] = True
+        state["healthy"] = healthy
+        state["last_success" if healthy else "last_failure"] = timestamp
+
+
+def _reset_log_write_health() -> None:
+    with _LOG_WRITE_LOCK:
+        for state in _LOG_WRITE_STATE.values():
+            state.update(
+                {
+                    "configured": False,
+                    "healthy": False,
+                    "last_success": None,
+                    "last_failure": None,
+                }
+            )
+
+
+def logging_health_status() -> dict[str, Any]:
+    """Return bounded logging sink health without exposing paths or errors."""
+
+    with _LOG_WRITE_LOCK:
+        channels = {
+            channel: {
+                "status": (
+                    "ready"
+                    if state["configured"] and state["healthy"]
+                    else "degraded"
+                ),
+                "last_success": state["last_success"],
+                "last_failure": state["last_failure"],
+            }
+            for channel, state in _LOG_WRITE_STATE.items()
+        }
+    return {
+        "status": (
+            "ready"
+            if all(channel["status"] == "ready" for channel in channels.values())
+            else "degraded"
+        ),
+        "channels": channels,
+    }
+
+
+def operation_write_acknowledged(acknowledgement: Any) -> bool:
+    return bool(
+        isinstance(acknowledgement, _WriteAcknowledgement)
+        and acknowledgement.attempted
+        and acknowledgement.succeeded
+    )
+
+
+def new_operation_write_acknowledgement() -> _WriteAcknowledgement:
+    return _WriteAcknowledgement(channel="operations")
+
+
+def _emit_safe_fallback(channel: str) -> None:
+    global _LAST_FALLBACK_AT
+    current = time.monotonic()
+    if current - _LAST_FALLBACK_AT < 60:
+        return
+    _LAST_FALLBACK_AT = current
+    try:
+        os.write(
+            2,
+            (
+                "inteliscope managed log write failed "
+                f"channel={channel}\n"
+            ).encode("ascii"),
+        )
+    except OSError:
+        pass
 
 
 def redact_log_text(value: Any) -> str:
@@ -204,7 +336,11 @@ class _PrivateTimedRotatingFileHandler(TimedRotatingFileHandler):
         filename: str | Path,
         *,
         retention_days: int,
+        channel: str,
     ) -> None:
+        if channel not in _LOG_WRITE_STATE:
+            raise ValueError("managed log channel is invalid")
+        self.channel = channel
         self.retention_days = log_retention_days(retention_days)
         super().__init__(
             str(filename),
@@ -243,6 +379,40 @@ class _PrivateTimedRotatingFileHandler(TimedRotatingFileHandler):
                 os.chmod(candidate, 0o600)
         prune_managed_logs(base.parent, self.retention_days)
 
+    def emit(self, record: logging.LogRecord) -> None:
+        acknowledgement = getattr(
+            record, "_inteliscope_operation_write_ack", None
+        )
+        if (
+            isinstance(acknowledgement, _WriteAcknowledgement)
+            and acknowledgement.channel == self.channel
+        ):
+            acknowledgement.attempted = True
+        try:
+            if self.shouldRollover(record):
+                self.doRollover()
+            message = self.format(record)
+            stream = self.stream
+            if stream is None:
+                stream = self.stream = self._open()
+            stream.write(message + self.terminator)
+            self.flush()
+        except Exception:
+            _mark_log_write(self.channel, healthy=False)
+            if (
+                isinstance(acknowledgement, _WriteAcknowledgement)
+                and acknowledgement.channel == self.channel
+            ):
+                acknowledgement.succeeded = False
+            _emit_safe_fallback(self.channel)
+        else:
+            _mark_log_write(self.channel, healthy=True)
+            if (
+                isinstance(acknowledgement, _WriteAcknowledgement)
+                and acknowledgement.channel == self.channel
+            ):
+                acknowledgement.succeeded = True
+
 
 class _RedactingTextFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -266,6 +436,7 @@ class _RuntimeJsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         message = redact_log_text(record.getMessage())
+        context = current_observability_context()
         payload: dict[str, Any] = {
             "schema_version": 1,
             "timestamp": _utc_iso(record.created),
@@ -274,6 +445,17 @@ class _RuntimeJsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": message,
         }
+        for field in (
+            "request_id",
+            "job_id",
+            "source_id",
+            "subscription_id",
+            "stage",
+            "error_code",
+        ):
+            value = getattr(record, field, None) or getattr(context, field)
+            if value is not None:
+                payload[field] = value
         if record.exc_info:
             exception_type, _exception, tb = record.exc_info
             frames = traceback.extract_tb(tb)[-32:]
@@ -290,6 +472,7 @@ class _RuntimeJsonFormatter(logging.Formatter):
                     for frame in frames
                 ],
             }
+            payload["error_fingerprint"] = error_fingerprint(record.exc_info)
         return json.dumps(
             payload,
             ensure_ascii=False,
@@ -346,6 +529,7 @@ def configure_logging(
 
     if service not in _SERVICES:
         raise ValueError("logging service is invalid")
+    _reset_log_write_health()
     resolved_retention = log_retention_days(retention_days)
     resolved_level = _log_level(level)
     directory = _prepare_log_directory(log_dir)
@@ -363,6 +547,7 @@ def configure_logging(
     runtime_handler = _PrivateTimedRotatingFileHandler(
         runtime_path,
         retention_days=resolved_retention,
+        channel="runtime",
     )
     runtime_handler.setLevel(resolved_level)
     runtime_handler.setFormatter(_RuntimeJsonFormatter(service=service))
@@ -387,10 +572,13 @@ def configure_logging(
     operation_handler = _PrivateTimedRotatingFileHandler(
         operation_path,
         retention_days=resolved_retention,
+        channel="operations",
     )
     operation_handler.setLevel(logging.INFO)
     operation_handler.setFormatter(_OperationJsonFormatter(service=service))
     operation_logger.addHandler(operation_handler)
+    _mark_log_write("runtime", healthy=True)
+    _mark_log_write("operations", healthy=True)
 
     return {
         "directory": directory,

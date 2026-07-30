@@ -61,6 +61,7 @@ describe('service api', () => {
     await api.agentDelegations()
     await api.createAgentDelegation('My Mac', 'subscriptions_write')
     await api.createAgentDelegation('Read Mac')
+    await api.createAgentDelegation('Workspace Mac', 'read', 'workspace')
     await api.renameAgentDelegation('agent/1', 'Desktop')
     await api.revokeAgentDelegation('agent/1')
     await api.storageSummary()
@@ -125,10 +126,17 @@ describe('service api', () => {
     expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {
       name: 'My Mac',
       access: 'subscriptions_write',
+      diagnostics_scope: 'self',
     })
     expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {
       name: 'Read Mac',
       access: 'read',
+      diagnostics_scope: 'self',
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/me/agent-delegations', {
+      name: 'Workspace Mac',
+      access: 'read',
+      diagnostics_scope: 'workspace',
     })
     expect(client.patch).toHaveBeenCalledWith('/api/me/agent-delegations/agent%2F1', { name: 'Desktop' })
     expect(client.delete).toHaveBeenCalledWith('/api/me/agent-delegations/agent%2F1')

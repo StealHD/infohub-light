@@ -125,13 +125,19 @@ export type NotificationEmailTransportTestResult = {
 
 export type AgentDelegationAccess = 'read' | 'subscriptions_write'
 
-export type AgentDelegationScope = 'inteliscope:read' | 'inteliscope:subscriptions:write'
+export type AgentDelegationDiagnosticsScope = 'self' | 'workspace'
+
+export type AgentDelegationScope =
+  | 'inteliscope:read'
+  | 'inteliscope:subscriptions:write'
+  | 'inteliscope:diagnostics:read'
 
 export type AgentDelegation = {
   id: string
   name: string
   client_type: 'openclaw'
   access: AgentDelegationAccess
+  diagnostics_scope: AgentDelegationDiagnosticsScope
   scopes: AgentDelegationScope[]
   token_prefix: string
   created_at: string

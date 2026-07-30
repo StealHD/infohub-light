@@ -147,9 +147,13 @@ export function createServiceApi(client: ApiClient) {
     ),
 
     agentDelegations: (signal?: AbortSignal) => client.get<AgentDelegationsResponse>('/api/me/agent-delegations', signal),
-    createAgentDelegation: (name: string, access: AgentDelegationAccess = 'read') => client.post<AgentDelegationCreated>(
+    createAgentDelegation: (
+      name: string,
+      access: AgentDelegationAccess = 'read',
+      diagnosticsScope: 'self' | 'workspace' = 'self',
+    ) => client.post<AgentDelegationCreated>(
       '/api/me/agent-delegations',
-      { name, access },
+      { name, access, diagnostics_scope: diagnosticsScope },
     ),
     renameAgentDelegation: (delegationId: string, name: string) => client.patch<AgentDelegation>(resource('/api/me/agent-delegations', delegationId), { name }),
     revokeAgentDelegation: (delegationId: string) => client.delete<{ revoked: boolean }>(resource('/api/me/agent-delegations', delegationId)),

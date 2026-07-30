@@ -89,6 +89,7 @@ def test_agent_delegation_api_supports_rename_revoke_and_explicit_record_delete(
     assert payload["token"].startswith("ih_mcp_v1_")
     assert payload["connection"]["name"] == "My Mac"
     assert payload["connection"]["access"] == "read"
+    assert payload["connection"]["diagnostics_scope"] == "self"
     assert payload["connection"]["scopes"] == ["inteliscope:read"]
     connection_id = payload["connection"]["id"]
 
@@ -262,6 +263,50 @@ def test_write_delegation_requires_independent_feature_flag(tmp_path, monkeypatc
     assert enabled_client.get("/api/me/agent-delegations").json()["data"][
         "subscription_writes_enabled"
     ] is True
+
+
+def test_workspace_diagnostics_delegation_requires_explicit_admin_choice(
+    tmp_path,
+    monkeypatch,
+):
+    client = _client(tmp_path, monkeypatch, enabled=True)
+    _login(client)
+    store = client.app.state.service_store
+    workspace = store.get_default_workspace()
+    member = store.create_user(
+        workspace_id=workspace["id"],
+        username="diagnostics-member",
+        password="member-password",
+        role="member",
+    )
+
+    owner_connection = client.post(
+        "/api/me/agent-delegations",
+        json={
+            "name": "Workspace diagnostics",
+            "diagnostics_scope": "workspace",
+        },
+    )
+    client.post("/api/auth/logout")
+    _login(client, "diagnostics-member", "member-password")
+    member_connection = client.post(
+        "/api/me/agent-delegations",
+        json={
+            "name": "Forbidden diagnostics",
+            "diagnostics_scope": "workspace",
+        },
+    )
+
+    assert owner_connection.status_code == 201
+    connection = owner_connection.json()["data"]["connection"]
+    assert connection["diagnostics_scope"] == "workspace"
+    assert connection["scopes"] == [
+        "inteliscope:read",
+        "inteliscope:diagnostics:read",
+    ]
+    assert member_connection.status_code == 403
+    assert member_connection.json()["error"]["code"] == "forbidden"
+    assert store.list_agent_delegations(member["id"]) == []
 
 
 @pytest.mark.parametrize("subscription_writes_enabled", [False, True])

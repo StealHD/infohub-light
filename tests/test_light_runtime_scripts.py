@@ -955,6 +955,10 @@ def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     assert "--mode release --scope smoke" in workflow
     assert "needs.impact.outputs.ui_impacted == 'true'" in workflow
     assert "retention-days: 7" in workflow
+    assert workflow.count("include-hidden-files: true") == 4
+    assert workflow.count("if-no-files-found: error") == 4
+    assert "frontend/test-results/**/*" in workflow
+    assert "frontend/playwright-report/**/*" in workflow
     assert "service_real_source_smoke" not in workflow
     assert "horizon-worker" not in workflow
 

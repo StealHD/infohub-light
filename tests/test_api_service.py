@@ -1300,11 +1300,13 @@ def test_source_update_rolls_back_when_health_reset_fails(tmp_path, monkeypatch)
     )
     store.connect().commit()
 
-    with pytest.raises(Exception, match="health reset blocked"):
-        client.patch(
-            f"/api/catalog/sources/{source['id']}",
-            json={"config": {"url": "https://example.com/atomic-new.xml"}},
-        )
+    failed = client.patch(
+        f"/api/catalog/sources/{source['id']}",
+        json={"config": {"url": "https://example.com/atomic-new.xml"}},
+    )
+    assert failed.status_code == 500
+    assert failed.json()["error"]["code"] == "internal_error"
+    assert failed.headers["X-Request-ID"].startswith("req_")
 
     reloaded = store.get_source(source["id"])
     assert reloaded["config"]["url"] == "https://example.com/atomic-old.xml"
@@ -2034,8 +2036,10 @@ def test_job_retry_rolls_back_requeue_when_usage_write_fails(tmp_path, monkeypat
         raise RuntimeError("forced usage write failure")
 
     monkeypatch.setattr(QuotaService, "record_job_usage", fail_usage)
-    with pytest.raises(RuntimeError, match="forced usage write failure"):
-        client.post(f"/api/jobs/{job['id']}/retry")
+    failed = client.post(f"/api/jobs/{job['id']}/retry")
+    assert failed.status_code == 500
+    assert failed.json()["error"]["code"] == "internal_error"
+    assert failed.headers["X-Request-ID"].startswith("req_")
 
     store = ServiceStore(data_dir)
     store.initialize()

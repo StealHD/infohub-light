@@ -781,28 +781,78 @@ class JobQueue:
             raise LookupError("job not found after lease extension")
         return updated
 
-    def requeue_stale_running_jobs(self, now: datetime | None = None) -> int:
+    def recover_stale_running_jobs(
+        self,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Recover expired claims and return safe post-commit event descriptors."""
+
         now_dt = now or datetime.now(timezone.utc)
         now_iso = now_dt.isoformat()
-        cur = self.store.connect().execute(
-            """
-            UPDATE fetch_jobs
-            SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
-                worker_id = NULL,
-                claim_token = NULL,
-                locked_until = NULL,
-                error_code = 'lease_expired',
-                error_message = 'Worker lease expired before completion',
-                finished_at = CASE WHEN attempts >= max_attempts THEN ? ELSE finished_at END,
-                updated_at = ?
-            WHERE status = 'running'
-              AND locked_until IS NOT NULL
-              AND locked_until < ?
-            """,
-            (now_iso, now_iso, now_iso),
-        )
-        self.store.connect().commit()
-        return cur.rowcount
+        conn = self.store.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                """
+                SELECT id, workspace_id, user_id, source_id,
+                       subscription_id, attempts, max_attempts
+                FROM fetch_jobs
+                WHERE status = 'running'
+                  AND locked_until IS NOT NULL
+                  AND locked_until < ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (now_iso,),
+            ).fetchall()
+            conn.execute(
+                """
+                UPDATE fetch_jobs
+                SET status = CASE
+                        WHEN attempts >= max_attempts THEN 'failed'
+                        ELSE 'queued'
+                    END,
+                    worker_id = NULL,
+                    claim_token = NULL,
+                    locked_until = NULL,
+                    error_code = 'lease_expired',
+                    error_message = 'Worker lease expired before completion',
+                    finished_at = CASE
+                        WHEN attempts >= max_attempts THEN ?
+                        ELSE finished_at
+                    END,
+                    updated_at = ?
+                WHERE status = 'running'
+                  AND locked_until IS NOT NULL
+                  AND locked_until < ?
+                """,
+                (now_iso, now_iso, now_iso),
+            )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        return [
+            {
+                "job_id": str(row["id"]),
+                "workspace_id": str(row["workspace_id"]),
+                "user_id": str(row["user_id"]),
+                "source_id": row["source_id"],
+                "subscription_id": row["subscription_id"],
+                "attempts": int(row["attempts"]),
+                "status": (
+                    "failed"
+                    if int(row["attempts"]) >= int(row["max_attempts"])
+                    else "queued"
+                ),
+            }
+            for row in rows
+        ]
+
+    def requeue_stale_running_jobs(self, now: datetime | None = None) -> int:
+        """Compatibility count wrapper for the structured recovery API."""
+
+        return len(self.recover_stale_running_jobs(now=now))
 
     def cancel_job(self, job_id: str, *, user_id: str | None = None) -> dict[str, Any]:
         now = _now_iso()

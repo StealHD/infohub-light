@@ -13,7 +13,12 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-from ..logging_utils import configure_logging
+from ..logging_utils import configure_logging, error_fingerprint
+from ..observability_context import (
+    begin_observability_context,
+    reset_observability_context,
+    update_observability_context,
+)
 from ..rsshub import DEFAULT_RSSHUB_BASE_URL, is_managed_rsshub_config
 from ..storage.manager import StorageManager
 from ..ui.server import run_source_test
@@ -49,6 +54,13 @@ from ..storage.service_store import ServiceStore
 
 logger = logging.getLogger(__name__)
 _SAFE_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_]{1,96}$")
+_SAFE_STAGE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
+WORKER_JOB_TRACE_POLICY = {
+    "source_test": "aggregate_acquisition",
+    "source_fetch": "per_source_acquisition",
+    "user_feed_refresh": "per_source_acquisition",
+    "content_repair": "job_lifecycle_only",
+}
 
 
 def _exception_code(exc: Exception) -> str:
@@ -56,6 +68,94 @@ def _exception_code(exc: Exception) -> str:
 
     candidate = str(getattr(exc, "code", "") or "").strip()
     return candidate if _SAFE_ERROR_CODE_RE.fullmatch(candidate) else type(exc).__name__
+
+
+def _safe_machine_code(value: Any, fallback: str) -> str:
+    candidate = str(value or "").strip()
+    return (
+        candidate
+        if _SAFE_ERROR_CODE_RE.fullmatch(candidate)
+        else fallback
+    )
+
+
+def _emit_source_outcome_events(
+    job: dict[str, Any],
+    result_payload: dict[str, Any],
+    *,
+    failure_fingerprint: str | None = None,
+) -> None:
+    outcomes = result_payload.get("source_outcomes")
+    if not isinstance(outcomes, list):
+        return
+    for outcome in outcomes:
+        if not isinstance(outcome, dict):
+            continue
+        status = str(outcome.get("status") or "")
+        source_id = outcome.get("source_id")
+        if status not in {"succeeded", "failed"} or not source_id:
+            continue
+        issue = (
+            outcome.get("issue")
+            if isinstance(outcome.get("issue"), dict)
+            else {}
+        )
+        raw_stage = str(issue.get("stage") or "")
+        stage = (
+            raw_stage
+            if _SAFE_STAGE_RE.fullmatch(raw_stage)
+            else "acquisition"
+        )
+        error_code = (
+            _safe_machine_code(issue.get("code"), "source_failed")
+            if status == "failed"
+            else None
+        )
+        fetched_count = outcome.get("fetched_count")
+        safe_emit_operation_event(
+            category="acquisition",
+            action="source_result",
+            outcome=status,
+            level="error" if status == "failed" else "info",
+            workspace_id=str(job["workspace_id"]),
+            subject_user_id=str(job["user_id"]),
+            job_id=str(job["id"]),
+            source_id=str(source_id),
+            subscription_id=outcome.get("subscription_id"),
+            stage=stage,
+            error_code=error_code,
+            error_fingerprint=(
+                failure_fingerprint if status == "failed" else None
+            ),
+            counts={
+                "items": (
+                    max(int(fetched_count), 0)
+                    if isinstance(fetched_count, int)
+                    and not isinstance(fetched_count, bool)
+                    else 0
+                )
+            },
+        )
+
+
+def _emit_job_invalidation(
+    job: dict[str, Any],
+    *,
+    reason: str,
+) -> None:
+    safe_emit_operation_event(
+        category="job",
+        action="invalidate",
+        outcome="cancelled",
+        level="warning",
+        workspace_id=str(job["workspace_id"]),
+        subject_user_id=str(job["user_id"]),
+        job_id=str(job["id"]),
+        source_id=job.get("source_id"),
+        subscription_id=job.get("subscription_id"),
+        stage="eligibility",
+        error_code=_safe_machine_code(reason, "job_invalidated"),
+    )
 
 
 def _cache_run_media(
@@ -598,8 +698,11 @@ def run_worker_once(
     started_at = time.monotonic()
     store = ServiceStore(data_dir)
     job: dict[str, Any] | None = None
+    failure_fingerprint: str | None = None
+    context_token = begin_observability_context(stage="startup")
     try:
         store.initialize()
+        update_observability_context(stage="migration_check")
         if store.apify_actor_routing_v13_migration_required():
             store.upsert_worker_heartbeat(
                 worker_id,
@@ -623,6 +726,7 @@ def run_worker_once(
                 "migration": "webhook_providers_v14",
             }
         SecretStore(data_dir).load_into_environ()
+        update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
             store,
             data_dir=data_dir,
@@ -666,6 +770,7 @@ def run_worker_once(
             and not store.apify_actor_routing_v13_migration_required()
             and not store.webhook_providers_v14_migration_required()
         ):
+            update_observability_context(stage="maintenance")
             MaintenanceService(store).run_if_due()
         queue = JobQueue(store)
         lease = float(lease_seconds if lease_seconds is not None else os.getenv("HORIZON_WORKER_LEASE_SECONDS", "900"))
@@ -674,9 +779,27 @@ def run_worker_once(
             if retry_base_seconds is not None
             else os.getenv("HORIZON_WORKER_RETRY_BASE_SECONDS", "30")
         )
-        queue.requeue_stale_running_jobs()
+        update_observability_context(stage="lease_recovery")
+        recovered_jobs = queue.recover_stale_running_jobs()
+        for recovered in recovered_jobs:
+            recovery_failed = recovered["status"] == "failed"
+            safe_emit_operation_event(
+                category="job",
+                action="lease_recovery",
+                outcome="failed" if recovery_failed else "retried",
+                level="error" if recovery_failed else "warning",
+                workspace_id=str(recovered["workspace_id"]),
+                subject_user_id=str(recovered["user_id"]),
+                job_id=str(recovered["job_id"]),
+                source_id=recovered.get("source_id"),
+                subscription_id=recovered.get("subscription_id"),
+                stage="lease_recovery",
+                error_code="lease_expired",
+                counts={"attempts": int(recovered["attempts"])},
+            )
         queue.prune_terminal_jobs()
         if enqueue_schedules:
+            update_observability_context(stage="schedule_enqueue")
             feed_enqueue_result = FeedScheduleService(store).enqueue_due()
             source_enqueue_result = SourceScheduleService(store).enqueue_due()
             for outcome in feed_enqueue_result["outcomes"]:
@@ -746,6 +869,7 @@ def run_worker_once(
             email_transport=notifications.email_transport,
         )
         try:
+            update_observability_context(stage="notification_backlog")
             notifications.dispatch_pending(limit=20)
         except Exception:
             if store.connect().in_transaction:
@@ -761,6 +885,7 @@ def run_worker_once(
             logger.warning("Apify Actor alert backlog dispatch failed")
         if store.get_worker_heartbeat(worker_id) is None:
             store.upsert_worker_heartbeat(worker_id, "starting")
+        update_observability_context(stage="claim")
         job = queue.claim_next_job(worker_id=worker_id, lease_seconds=lease)
         if not job:
             generation_result = run_due_feed_end_messages_generation(
@@ -778,6 +903,14 @@ def run_worker_once(
                 ),
             )
             return generation_result
+        update_observability_context(
+            workspace_id=str(job["workspace_id"]),
+            actor_user_id=str(job["user_id"]),
+            job_id=str(job["id"]),
+            source_id=job.get("source_id"),
+            subscription_id=job.get("subscription_id"),
+            stage="claim",
+        )
         safe_emit_operation_event(
             category="job",
             action="claim",
@@ -787,19 +920,26 @@ def run_worker_once(
             job_id=str(job["id"]),
             source_id=job.get("source_id"),
             subscription_id=job.get("subscription_id"),
+            stage="claim",
             counts={"attempts": int(job.get("attempts") or 0)},
         )
         with _LeaseHeartbeat(data_dir=data_dir, job=job, lease_seconds=lease):
+            update_observability_context(stage="eligibility")
             eligibility = JobEligibilityService(store).evaluate(job)
             if not eligibility.allowed:
+                invalidation_reason = str(
+                    eligibility.reason or "job_invalidated"
+                )
                 finalized = queue.cancel_claimed_job(
                     job["id"],
-                    reason=str(eligibility.reason or "job_invalidated"),
+                    reason=invalidation_reason,
                     worker_id=worker_id,
                     claim_token=job["claim_token"],
                 )
+                _emit_job_invalidation(job, reason=invalidation_reason)
             else:
                 try:
+                    update_observability_context(stage="execute")
                     if job["job_type"] in {"source_fetch", "user_feed_refresh"} and store.feed_v2_migration_required():
                         raise MigrationRequiredError("user feed v2 migration is required before feed jobs can run")
                     if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_index_v4_migration_required():
@@ -847,17 +987,37 @@ def run_worker_once(
                     from .source_health import SourceHealthService
                     from .source_health import sanitize_issue_message
 
+                    failure_fingerprint = error_fingerprint()
+                    error_code = _exception_code(exc)
+                    update_observability_context(
+                        stage="execute",
+                        error_code=error_code,
+                    )
+                    logger.exception(
+                        "job execution failed job_id=%s job_type=%s",
+                        job["id"],
+                        job["job_type"],
+                        extra={
+                            "stage": "execute",
+                            "error_code": error_code,
+                        },
+                    )
                     conn = store.connect()
                     conn.rollback()
                     eligibility = JobEligibilityService(store).evaluate(job)
                     if not eligibility.allowed:
+                        invalidation_reason = str(
+                            eligibility.reason or "job_invalidated"
+                        )
                         finalized = queue.cancel_claimed_job(
                             job["id"],
-                            reason=str(
-                                eligibility.reason or "job_invalidated"
-                            ),
+                            reason=invalidation_reason,
                             worker_id=worker_id,
                             claim_token=job["claim_token"],
+                        )
+                        _emit_job_invalidation(
+                            job,
+                            reason=invalidation_reason,
                         )
                     else:
                         try:
@@ -869,7 +1029,7 @@ def run_worker_once(
                             )
                             finalized = queue.fail_or_retry_job(
                                 job["id"],
-                                error_code=_exception_code(exc),
+                                error_code=error_code,
                                 error_message=sanitize_issue_message(str(exc)),
                                 retryable=_is_retryable_exception(exc),
                                 retry_base_seconds=retry_base,
@@ -916,14 +1076,22 @@ def run_worker_once(
                                 conn.rollback()
                             raise
                 else:
+                    update_observability_context(stage="finalize")
                     eligibility = JobEligibilityService(store).evaluate(job)
                     if not eligibility.allowed:
                         store.connect().rollback()
+                        invalidation_reason = str(
+                            eligibility.reason or "job_invalidated"
+                        )
                         finalized = queue.cancel_claimed_job(
                             job["id"],
-                            reason=str(eligibility.reason or "job_invalidated"),
+                            reason=invalidation_reason,
                             worker_id=worker_id,
                             claim_token=job["claim_token"],
+                        )
+                        _emit_job_invalidation(
+                            job,
+                            reason=invalidation_reason,
                         )
                     else:
                         job_status = str(result.pop("_job_status", "succeeded"))
@@ -934,6 +1102,7 @@ def run_worker_once(
                             worker_id=worker_id,
                             claim_token=job["claim_token"],
                         )
+        update_observability_context(stage="notification_dispatch")
         try:
             delivery_summary = notifications.dispatch_pending(job_id=str(job["id"]))
         except Exception as exc:
@@ -1018,6 +1187,10 @@ def run_worker_once(
         final_counts = {"attempts": int(finalized.get("attempts") or 0)}
         if isinstance(result_payload.get("item_count"), int):
             final_counts["items"] = max(int(result_payload["item_count"]), 0)
+        update_observability_context(
+            stage="finish",
+            error_code=str(finalized.get("error_code") or ""),
+        )
         safe_emit_operation_event(
             category="job",
             action="finish",
@@ -1028,9 +1201,20 @@ def run_worker_once(
             job_id=str(job["id"]),
             source_id=job.get("source_id"),
             subscription_id=job.get("subscription_id"),
+            stage="finish",
             error_code=finalized.get("error_code"),
+            error_fingerprint=(
+                failure_fingerprint
+                if final_outcome in {"failed", "retried"}
+                else None
+            ),
             duration_ms=duration_ms,
             counts=final_counts,
+        )
+        _emit_source_outcome_events(
+            job,
+            result_payload,
+            failure_fingerprint=failure_fingerprint,
         )
         if job["job_type"] in {
             "source_test",
@@ -1049,7 +1233,13 @@ def run_worker_once(
                 job_id=str(job["id"]),
                 source_id=job.get("source_id"),
                 subscription_id=job.get("subscription_id"),
+                stage="acquisition",
                 error_code=finalized.get("error_code"),
+                error_fingerprint=(
+                    failure_fingerprint
+                    if final_outcome in {"failed", "retried"}
+                    else None
+                ),
                 duration_ms=duration_ms,
                 counts=final_counts,
             )
@@ -1062,12 +1252,22 @@ def run_worker_once(
         )
         return finalized
     except Exception as exc:
+        boundary_fingerprint = error_fingerprint()
+        boundary_error_code = _exception_code(exc)
+        update_observability_context(
+            stage="worker_boundary",
+            error_code=boundary_error_code,
+        )
         if job is not None:
             logger.exception(
                 "job_id=%s job_type=%s duration_ms=%d status=error",
                 job["id"],
                 job["job_type"],
                 int((time.monotonic() - started_at) * 1000),
+                extra={
+                    "stage": "worker_boundary",
+                    "error_code": boundary_error_code,
+                },
             )
             safe_emit_operation_event(
                 category="job",
@@ -1079,12 +1279,36 @@ def run_worker_once(
                 job_id=str(job["id"]),
                 source_id=job.get("source_id"),
                 subscription_id=job.get("subscription_id"),
-                error_code=_exception_code(exc),
+                stage="worker_boundary",
+                error_code=boundary_error_code,
+                error_fingerprint=boundary_fingerprint,
                 duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
+        else:
+            logger.exception(
+                "worker pre-claim boundary failed duration_ms=%d",
+                int((time.monotonic() - started_at) * 1000),
+                extra={
+                    "stage": "worker_boundary",
+                    "error_code": boundary_error_code,
+                },
+            )
+            safe_emit_operation_event(
+                category="job",
+                action="worker_boundary",
+                outcome="failed",
+                level="error",
+                stage="worker_boundary",
+                error_code=boundary_error_code,
+                error_fingerprint=boundary_fingerprint,
+                duration_ms=int(
+                    (time.monotonic() - started_at) * 1000
+                ),
             )
         raise
     finally:
         store.close()
+        reset_observability_context(context_token)
 
 
 def main() -> None:

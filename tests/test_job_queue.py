@@ -258,6 +258,55 @@ def test_job_queue_requeues_stale_running_jobs(tmp_path, monkeypatch):
     assert loaded["error_code"] == "lease_expired"
 
 
+def test_job_queue_returns_safe_descriptors_after_stale_recovery(
+    tmp_path,
+    monkeypatch,
+):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Recovery Feed",
+        config={"url": "https://example.com/recovery.xml"},
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_fetch",
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        payload={"source_type": "rss"},
+    )
+    claimed = queue.claim_next_job(worker_id="worker-1", lease_seconds=1)
+    past = datetime.now(timezone.utc) - timedelta(seconds=5)
+    store.connect().execute(
+        "UPDATE fetch_jobs SET locked_until = ? WHERE id = ?",
+        (past.isoformat(), claimed["id"]),
+    )
+    store.connect().commit()
+
+    recovered = queue.recover_stale_running_jobs()
+
+    assert recovered == [
+        {
+            "job_id": job["id"],
+            "workspace_id": workspace["id"],
+            "user_id": owner["id"],
+            "source_id": source_id,
+            "subscription_id": subscription["id"],
+            "attempts": 1,
+            "status": "queued",
+        }
+    ]
+
+
 def test_job_queue_cancel_retry_and_prune_terminal_jobs(tmp_path, monkeypatch):
     store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
     queue = JobQueue(store)

@@ -92,6 +92,7 @@ def test_agent_delegation_secret_is_returned_once_and_only_its_hash_is_stored(
         "name": "My Mac",
         "client_type": "openclaw",
         "access": "read",
+        "diagnostics_scope": "self",
         "scopes": ["inteliscope:read"],
         "token_prefix": token[:18],
         "created_at": "2026-07-16T00:00:00+00:00",
@@ -330,6 +331,57 @@ def test_delegation_access_maps_to_canonical_scopes_without_upgrading_old_rows(
         "inteliscope:read",
         "inteliscope:subscriptions:write",
     ]
+
+
+def test_workspace_diagnostics_scope_is_explicit_and_admin_only(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    member = store.create_user(
+        workspace_id=workspace["id"],
+        username="member-diagnostics",
+        password="member-password",
+        role="member",
+    )
+
+    legacy, legacy_token = store.create_agent_delegation(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        name="Existing owner connection",
+    )
+    workspace_connection, workspace_token = store.create_agent_delegation(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        name="Workspace diagnostics",
+        diagnostics_scope="workspace",
+    )
+
+    assert legacy["diagnostics_scope"] == "self"
+    assert store.authenticate_agent_delegation(legacy_token)["scopes"] == [
+        "inteliscope:read"
+    ]
+    assert workspace_connection["diagnostics_scope"] == "workspace"
+    assert workspace_connection["scopes"] == [
+        "inteliscope:read",
+        "inteliscope:diagnostics:read",
+    ]
+    assert store.authenticate_agent_delegation(workspace_token)["scopes"] == [
+        "inteliscope:read",
+        "inteliscope:diagnostics:read",
+    ]
+    with pytest.raises(PermissionError, match="owner or admin"):
+        store.create_agent_delegation(
+            workspace_id=workspace["id"],
+            user_id=member["id"],
+            name="Forbidden diagnostics",
+            diagnostics_scope="workspace",
+        )
 
 
 def test_delegation_access_rejects_unknown_values(tmp_path, monkeypatch):

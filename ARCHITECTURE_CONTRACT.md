@@ -100,21 +100,23 @@ OpenClaw 的模型、对话、推理和 Skill 运行在每位用户自己的电�
 
 `agent_source_resolutions` 是 schema v12 的短期、actor-bound planner envelope 表；只保存 registry 已验证的 existing/private 输入、安全指纹和到期时间，envelope 内的规范 Feed/config 只供服务端 planner 使用且任何解析工具都不得回传。引用绑定 workspace、user 和 delegation，十分钟到期、每 delegation 最多二十个有效值，并由 maintenance 与 storage governance 清理。`prepare_create_subscription` 只能把同 actor 的有效引用投影回既有 mutation planner；跨 actor、隐藏来源、过期或损坏引用必须 fail closed。
 
-Remote MCP 的 17 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。
+Remote MCP 的 17 个工具与 `src/mcp/server.py` 的本地 stdio/legacy MCP 实现物理分离。legacy 抓取、AI、配置、Webhook 和任何直接写工具不得注册到 Remote MCP。delegation 认证直接生成当前用户主体，不经管理员代理权限；所有业务 object lookup 都在该主体内完成。读操作要求 read scope；prepare/apply 以固定顺序检查 write flag、write scope 和实时角色，viewer 永远只读。唯一工作区诊断例外只存在于 `query_operation_logs`：新 connection 必须由实时 `owner/admin` 显式持有 diagnostic scope，查询还必须带关联 ID 或 warning/error 门槛；既有连接不升级，角色降级立即失效。
 
 `SubscriptionMutationService` 是 REST 与 Remote MCP 的唯一 subscription/source/schedule 业务 mutation owner；Remote MCP 不复制 REST 写逻辑。`AgentChangeProposalService` 只拥有短期密封 proposal 的授权、指纹和 lifecycle：prepare 在自己的短事务持久化 preview/确认 hash，apply 在 `BEGIN IMMEDIATE` 内重验实时主体与 mutation 先决条件，并与业务 mutation 原子提交。proposal record 只保存安全 snapshot、preview、指纹和结果摘要；cleanup 是 commit 后 best-effort，绝不把已提交业务变化伪装成失败。
 
-`RemoteMCPDiagnostics` 只读取用户范围内持久化的 Source Health、schedule、safe Job projection、匿名 Worker readiness 和 `secret_configured`；它不执行修复、重试、取消、网络访问或写入。`OperationLogQueryService` 只读私有 operation JSONL，并在文件解析后再次执行 workspace + 当前 actor/subject 隔离与输出白名单。二者的分类、脱敏和 unknown/unavailable 退化属于服务端合同，而不是 Skill 推理。Remote MCP adapter 保持无 session、无调用方身份参数、无服务器侧 Agent 状态；`last_used_at` 的有界 touch 和 proposal/audit 行是显式例外，不构成会话状态。
+`RemoteMCPDiagnostics` 只读取用户范围内持久化的 Source Health、schedule、safe Job projection、匿名 Worker readiness 和 `secret_configured`；它不执行修复、重试、取消、网络访问或写入。`OperationLogQueryService` 只读私有 operation JSONL，先强制 workspace 隔离；self scope 再执行当前 actor/subject 隔离，经过显式授权的 workspace scope 只移除该身份条件，仍使用同一输出白名单。二者的分类、脱敏和 unknown/unavailable 退化属于服务端合同，而不是 Skill 推理。Remote MCP adapter 保持无 session、无调用方身份参数、无服务器侧 Agent 状态；`last_used_at` 的有界 touch 和 proposal/audit 行是显式例外，不构成会话状态。
 
 Gateway bootstrap token 只存在于 React 表单 state；API、React Query、URL、Web storage 和日志均不得接收。浏览器配对后只把 non-exportable Ed25519 CryptoKey、exact `operator.read + operator.write` device token 和 session key保存在 IndexedDB，key 必须包含当前 Inteliscope user 与规范化 Gateway URL。页面登出清空内存消息并断开 socket；忘记设备同时删除 IndexedDB 凭证。MCP delegation token 与 Gateway token 是两套独立凭证，任何 UI、日志或配置都不得混名或互相复用。
 
 ### 3.6G Observability Logging Boundary
 
-`src/logging_utils.py` 是 API、Worker、legacy Scheduler 和 CLI 的唯一进程日志配置边界；它分别创建 `runtime-<service>.jsonl` 与 `operations-<service>.jsonl`，使用 UTC 每日轮转、私有目录/文件权限及只匹配系统文件名的保留清理。运行日志必须先格式化再统一脱敏；业务模块不得自行建立日志文件 handler、记录 query/body 或把任意业务对象序列化到日志。
+`src/logging_utils.py` 是 API、Worker、legacy Scheduler 和 CLI 的唯一进程日志配置边界；它分别创建 `runtime-<service>.jsonl` 与 `operations-<service>.jsonl`，使用 UTC 每日轮转、私有目录/文件权限及只匹配系统文件名的保留清理。运行日志必须先格式化再统一脱敏；业务模块不得自行建立日志文件 handler、记录 query/body、使用生产 `print` 或把任意业务对象序列化到日志。Uvicorn 只复用该边界，不建立自己的 access/error handler。
 
-`src/services/operation_log.py` 独占 schema-v1 operation event 构造、request ContextVar、严格标识符/枚举校验、白名单查询和最多 20,000 行的反向读取。workspace/actor/subject 只存在于文件内用于隔离；MCP 投影必须移除身份、文件、message、stack、URL、config/payload、文章内容和凭据。符号链接、损坏/未完成行和不可读目录必须安全退化，查询不新增数据库表、REST API 或前端状态。
+`src/observability_context.py` 独占跨 API/MCP/Worker 的安全 `ContextVar` 生命周期；`src/services/operation_log.py` 独占 schema-v1 operation event 构造、严格标识符/枚举校验、白名单查询和最多 20,000 行的反向读取。workspace/actor/subject 只存在于文件内用于隔离；MCP 投影必须移除身份、文件、message、stack、URL、config/payload、文章内容和凭据。符号链接、损坏/未完成行和不可读目录必须安全退化，查询不新增数据库表、REST API 或前端状态。
 
-API 只接受服务端生成的 request ID；路由事件只使用模板路径。成功事件由最外层请求边界在业务事务已经提交且 transaction guard 通过后写入；回滚、事务泄漏与未处理异常只能写失败。Worker 的 claim、finalize、来源获取和通知事件也只能在各自持久状态提交后写入。普通 GET、Feed 浏览、item-state 高频成功、空轮询和 heartbeat 不生成 operation event；结构化日志失败为 best-effort，不得改变业务事务或公开响应。
+API 只接受服务端生成的 request ID；路由事件只使用模板路径。成功事件由最外层请求边界在业务事务已经提交且 transaction guard 通过后写入；回滚、事务泄漏与未处理异常只能写失败。未知异常由统一边界转换成带 request ID 的安全 500。Worker 的 claim、eligibility、execute、finalize、finish、pre-claim boundary、lease recovery、invalidation、逐来源获取、头像和通知事件只能在对应持久状态明确后写入；Job 类型必须先注册 trace policy。普通 GET、Feed 浏览、空轮询和 heartbeat 不生成成功 operation event；所有 API 写路由都必须映射 mutation operation。
+
+managed handler 每次 emit 都必须确认 write/flush 结果，并把 runtime/operation sink 健康投影到 readiness 的 additive `logging_status`；日志降级不得改变已提交业务结果。`scripts/check_observability_contract.py` 是上述架构的静态执行门禁，并由 targeted/full/release 每个 Test Gate scope 先行调用；Test Gate 持久化输出必须复用运行时脱敏器且不得保留具名 raw 临时日志。
 
 详细字段、敏感值禁令、事件矩阵和排障流程以 `docs/dev/observability-logging.md` 为唯一真源。
 

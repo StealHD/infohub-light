@@ -1,11 +1,11 @@
 import json
 import logging
 
-import pytest
 from fastapi.testclient import TestClient
 
 from src.api.server import create_app
 from src.logging_utils import configure_logging
+from src.services.operation_log import safe_emit_operation_event
 
 
 def _flush_managed_handlers() -> None:
@@ -180,7 +180,56 @@ def test_api_transaction_leak_rolls_back_and_never_logs_success(
         _close_managed_handlers()
 
 
-def test_unhandled_read_error_only_writes_runtime_diagnostics(
+def test_readiness_reports_logging_degradation_without_hiding_api_health(
+    tmp_path,
+    monkeypatch,
+):
+    app, _log_dir = _app(tmp_path, monkeypatch)
+    operation_handler = next(
+        handler
+        for handler in logging.getLogger("inteliscope.operations").handlers
+        if getattr(handler, "channel", None) == "operations"
+    )
+
+    class FailingStream:
+        def write(self, _value):
+            raise OSError("simulated disk failure")
+
+        def flush(self):
+            return None
+
+        def close(self):
+            return None
+
+    try:
+        with TestClient(app) as client:
+            ready = client.get("/api/health/ready")
+            assert ready.status_code == 200
+            assert ready.json()["data"]["logging_status"] == "ready"
+
+            operation_handler.stream.close()
+            operation_handler.stream = FailingStream()
+            assert (
+                safe_emit_operation_event(
+                    category="job",
+                    action="claim",
+                    outcome="running",
+                    workspace_id="workspace_1",
+                    subject_user_id="user_1",
+                    job_id="job_1",
+                )
+                is False
+            )
+            degraded = client.get("/api/health/ready")
+
+        assert degraded.status_code == 200
+        assert degraded.json()["data"]["status"] == "ready"
+        assert degraded.json()["data"]["logging_status"] == "degraded"
+    finally:
+        _close_managed_handlers()
+
+
+def test_unhandled_read_error_returns_request_id_and_safe_operation_event(
     tmp_path,
     monkeypatch,
 ):
@@ -201,15 +250,32 @@ def test_unhandled_read_error_only_writes_runtime_diagnostics(
                 "PreferredSourceNotificationService.get_public_settings",
                 fail_read,
             )
-            with pytest.raises(RuntimeError, match="safe-read-failure"):
-                client.get("/api/me/notification-settings?private=query")
+            failed = client.get(
+                "/api/me/notification-settings?private=query"
+            )
 
-        assert [event["action"] for event in _events(log_dir)] == ["login"]
+        assert failed.status_code == 500
+        assert failed.headers["X-Request-ID"].startswith("req_")
+        assert failed.json()["error"]["code"] == "internal_error"
+        events = _events(log_dir)
+        assert [event["action"] for event in events] == [
+            "login",
+            "unhandled_error",
+        ]
+        failure = events[-1]
+        assert failure["category"] == "request"
+        assert failure["request_id"] == failed.headers["X-Request-ID"]
+        assert failure["route"] == "/api/me/notification-settings"
+        assert failure["method"] == "GET"
+        assert failure["stage"] == "request"
+        assert failure["error_code"] == "internal_error"
+        assert failure["error_fingerprint"].startswith("err_")
         runtime = log_dir.joinpath("runtime-api.jsonl").read_text(
             encoding="utf-8"
         )
         assert "api_request_failed" in runtime
         assert "/api/me/notification-settings" in runtime
         assert "?private=query" not in runtime
+        assert "safe-read-failure" not in runtime
     finally:
         _close_managed_handlers()

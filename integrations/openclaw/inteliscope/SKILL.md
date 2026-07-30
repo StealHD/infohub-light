@@ -31,7 +31,7 @@ Use the configured Inteliscope MCP connection only for its current caller. Read 
 
 ## Core routing
 
-1. Use the narrowest list tool first. For Feed content, call `get_item` only for user-selected entries or when the body is necessary; avoid N+1 detail calls. Use `query_operation_logs` only for an explicit troubleshooting request or after a bounded diagnosis needs the related safe event trail; never request raw files.
+1. Use the narrowest list tool first. For Feed content, call `get_item` only for user-selected entries or when the body is necessary; avoid N+1 detail calls. Use `query_operation_logs` only for an explicit troubleshooting request or after a bounded diagnosis needs the related safe event trail; default to `scope="self"` and never request raw files. Use `scope="workspace"` only for an explicit workspace troubleshooting request on a connection already granted that access, and always add an event ID filter or `minimum_level="warning"|"error"`. A workspace diagnostic remains read-only and never authorizes another user's business data or an automatic repair.
    When analysis needs more stored body text, follow `next_body_offset` for at most
    three total `get_item` calls and at most 20,000 characters. Stop immediately
    when `body_has_more=false`.

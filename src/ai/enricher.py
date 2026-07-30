@@ -7,6 +7,7 @@ For items that pass the score threshold, this module:
 
 import asyncio
 import json
+import logging
 import re
 import sys
 import os
@@ -22,6 +23,9 @@ from .prompts import (
 )
 from .utils import parse_json_response
 from ..models import ContentItem
+
+
+logger = logging.getLogger(__name__)
 
 
 class ContentEnricher:
@@ -49,8 +53,14 @@ class ContentEnricher:
             async with semaphore:
                 try:
                     await self._enrich_item(item)
-                except Exception as e:
-                    print(f"Error enriching item {item.id}: {e}, falling back to translation")
+                except Exception as exc:
+                    logger.exception(
+                        "content enrichment failed; translation fallback applied",
+                        extra={
+                            "stage": "enrichment",
+                            "error_code": type(exc).__name__,
+                        },
+                    )
                     await self._translate_item(item)
             progress.advance(progress_task)
 
@@ -198,7 +208,13 @@ class ContentEnricher:
         if result is None:
             # Gracefully degrade: fall back to a lightweight translation
             # instead of dropping the item untranslated.
-            print(f"Warning: could not parse enrichment response for {item.id}, falling back to translation")
+            logger.warning(
+                "content enrichment response was invalid; translation fallback applied",
+                extra={
+                    "stage": "enrichment",
+                    "error_code": "invalid_ai_response",
+                },
+            )
             await self._translate_item(item)
             return
 

@@ -36,6 +36,7 @@ WORKER_STATES = {"starting", "idle", "running", "stopping"}
 SQLITE_JOURNAL_MODES = {"WAL", "DELETE"}
 AGENT_DELEGATION_READ_SCOPE = "inteliscope:read"
 AGENT_DELEGATION_WRITE_SCOPE = "inteliscope:subscriptions:write"
+AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE = "inteliscope:diagnostics:read"
 AGENT_DELEGATION_SCOPE = AGENT_DELEGATION_READ_SCOPE
 AGENT_DELEGATION_TTL_DAYS = 90
 AGENT_DELEGATION_MAX_ACTIVE = 5
@@ -146,12 +147,22 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
         return fallback
 
 
-def _scopes_for_access(access: str) -> list[str]:
+def _scopes_for_access(
+    access: str,
+    *,
+    diagnostics_scope: str = "self",
+) -> list[str]:
     if access == "read":
-        return [AGENT_DELEGATION_READ_SCOPE]
-    if access == "subscriptions_write":
-        return [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
-    raise ValueError("access must be read or subscriptions_write")
+        scopes = [AGENT_DELEGATION_READ_SCOPE]
+    elif access == "subscriptions_write":
+        scopes = [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
+    else:
+        raise ValueError("access must be read or subscriptions_write")
+    if diagnostics_scope == "workspace":
+        scopes.append(AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE)
+    elif diagnostics_scope != "self":
+        raise ValueError("diagnostics_scope must be self or workspace")
+    return scopes
 
 
 def _bounded_agent_delegation_scopes_json(value: Any) -> list[str] | None:
@@ -199,17 +210,39 @@ def _safe_agent_delegation_scopes(scopes_json: Any) -> list[str]:
     ):
         return []
     scopes = set(raw_scopes)
-    if scopes == {AGENT_DELEGATION_READ_SCOPE}:
-        return [AGENT_DELEGATION_READ_SCOPE]
-    if scopes == {AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE}:
-        return [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]
-    return []
+    allowed = {
+        AGENT_DELEGATION_READ_SCOPE,
+        AGENT_DELEGATION_WRITE_SCOPE,
+        AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE,
+    }
+    if (
+        AGENT_DELEGATION_READ_SCOPE not in scopes
+        or not scopes.issubset(allowed)
+    ):
+        return []
+    return [
+        scope
+        for scope in (
+            AGENT_DELEGATION_READ_SCOPE,
+            AGENT_DELEGATION_WRITE_SCOPE,
+            AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE,
+        )
+        if scope in scopes
+    ]
 
 
 def _access_for_scopes(scopes: list[str]) -> str:
-    if scopes == [AGENT_DELEGATION_READ_SCOPE, AGENT_DELEGATION_WRITE_SCOPE]:
+    if AGENT_DELEGATION_WRITE_SCOPE in scopes:
         return "subscriptions_write"
     return "read"
+
+
+def _diagnostics_scope_for_scopes(scopes: list[str]) -> str:
+    return (
+        "workspace"
+        if AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE in scopes
+        else "self"
+    )
 
 
 def _proposal_classification_copies(value: str) -> tuple[str, ...] | None:
@@ -2567,6 +2600,7 @@ class ServiceStore:
             "name": row["name"],
             "client_type": row["client_type"],
             "access": _access_for_scopes(scopes),
+            "diagnostics_scope": _diagnostics_scope_for_scopes(scopes),
             "scopes": scopes,
             "token_prefix": row["token_prefix"],
             "created_at": row["created_at"],
@@ -2994,8 +3028,12 @@ class ServiceStore:
         user_id: str,
         name: str,
         access: str = "read",
+        diagnostics_scope: str = "self",
     ) -> tuple[dict[str, Any], str]:
-        scopes = _scopes_for_access(access)
+        scopes = _scopes_for_access(
+            access,
+            diagnostics_scope=diagnostics_scope,
+        )
         delegation_name = str(name or "").strip()
         if not delegation_name:
             raise ValueError("name is required")
@@ -3020,6 +3058,13 @@ class ServiceStore:
                 or user["workspace_id"] != workspace_id
             ):
                 raise LookupError("enabled user not found")
+            if (
+                diagnostics_scope == "workspace"
+                and user["role"] not in {"owner", "admin"}
+            ):
+                raise PermissionError(
+                    "workspace diagnostics require owner or admin role"
+                )
             active_count = conn.execute(
                 """
                 SELECT COUNT(*)

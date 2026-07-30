@@ -1,4 +1,5 @@
 import json
+import shutil
 import stat
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from scripts.test_gate import (
     _reconcile_mapping_miss,
     _prepare_release_smoke_data,
 )
+from scripts.check_observability_contract import PROTECTED_RUNTIME_FILES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -250,6 +252,12 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
             assert "-W" in spec.argv
             assert "default::ResourceWarning" in spec.argv
     assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
+    assert all(
+        "observability_contract" in {
+            spec.command_id for spec in specs
+        }
+        for specs in (targeted, full, release)
+    )
     assert "release_playwright" in release_by_id
     assert release_by_id["release_playwright"].argv == ("npm", "run", "e2e:release")
     smoke = release_by_id["release_api_docker_smoke"]
@@ -317,7 +325,10 @@ def test_execute_specs_writes_private_redacted_logs_and_bounded_failure_summary(
                 sys.executable,
                 "-c",
                 "import os; print('FAILED tests/test_demo.py::test_secret'); "
-                "print(os.environ['DEMO_API_TOKEN']); raise SystemExit(7)",
+                "print(os.environ['DEMO_API_TOKEN']); "
+                "print('authorization=Bearer private-token'); "
+                "print('https://private.example/path person@example.com'); "
+                "raise SystemExit(7)",
             ),
             cwd=tmp_path,
             env={"DEMO_API_TOKEN": secret},
@@ -351,13 +362,20 @@ def test_execute_specs_writes_private_redacted_logs_and_bounded_failure_summary(
     assert secret not in json.dumps(result)
     assert secret not in summary
     assert "[REDACTED]" in summary
+    assert "private-token" not in summary
+    assert "private.example" not in summary
+    assert "person@example.com" not in summary
     assert len(summary.encode("utf-8")) <= 8192
     for relative in result["log_paths"]:
         path = ROOT / relative if not Path(relative).is_absolute() else Path(relative)
         if not path.exists():
             path = result_root / "unit-failure" / Path(relative).name
         assert secret not in path.read_text(encoding="utf-8")
+        assert "private-token" not in path.read_text(encoding="utf-8")
+        assert "private.example" not in path.read_text(encoding="utf-8")
+        assert "person@example.com" not in path.read_text(encoding="utf-8")
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert list((result_root / "unit-failure").glob("*.raw")) == []
     result_path = result_root / "unit-failure" / "result.json"
     assert result_path.exists()
     assert stat.S_IMODE(result_path.stat().st_mode) == 0o600
@@ -495,6 +513,13 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     (repo / "project-defaults.yaml").write_text("{}\n", encoding="utf-8")
     (repo / "WORKLOG.md").write_text("before\n", encoding="utf-8")
+    for relative in (
+        *PROTECTED_RUNTIME_FILES,
+        "scripts/check_observability_contract.py",
+    ):
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     snapshot = tmp_path / "snapshot.json"
     plan_output = tmp_path / "plan.json"

@@ -25,7 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.gzip import GZipMiddleware, GZipResponder, IdentityResponder
 
-from ..logging_utils import configure_logging
+from ..logging_utils import (
+    configure_logging,
+    error_fingerprint,
+    logging_health_status,
+)
 from ..services.feed_archive import FeedArchiveService
 from ..services.feed_end_messages import (
     FeedEndMessagesDisabled,
@@ -568,6 +572,7 @@ class AgentDelegationRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=80)
     access: Literal["read", "subscriptions_write"] = "read"
+    diagnostics_scope: Literal["self", "workspace"] = "self"
 
     @field_validator("name")
     @classmethod
@@ -748,6 +753,14 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ("DELETE", "/api/me/subscriptions/{subscription_id}"): (
         "subscription",
         "delete",
+    ),
+    ("PATCH", "/api/me/items/{article_id}/state"): (
+        "account",
+        "item_state_update",
+    ),
+    ("POST", "/api/me/items/{article_id}/feedback"): (
+        "account",
+        "item_feedback",
     ),
     ("POST", "/api/jobs/source-test"): ("job", "source_test_queue"),
     ("POST", "/api/jobs/source-fetch"): ("job", "source_fetch_queue"),
@@ -1179,11 +1192,16 @@ def create_app(
         except Exception:
             route = request.scope.get("route")
             route_template = getattr(route, "path", None)
+            fingerprint = error_fingerprint()
             _LOGGER.exception(
                 "api_request_failed method=%s route=%s request_id=%s",
                 request.method,
                 route_template if isinstance(route_template, str) else "-",
                 request_id,
+                extra={
+                    "stage": "request",
+                    "error_code": "internal_error",
+                },
             )
             operation = (
                 MUTATION_OPERATION_ROUTES.get((request.method, route_template))
@@ -1219,6 +1237,8 @@ def create_app(
                         getattr(request.state, "operation_error_code", None)
                         or "internal_error"
                     ),
+                    error_fingerprint=fingerprint,
+                    stage="request",
                     duration_ms=int((time.perf_counter() - started) * 1000),
                     route=route_template,
                     method=(
@@ -1228,7 +1248,53 @@ def create_app(
                     ),
                     status_code=500,
                 )
-            raise
+            else:
+                safe_emit_operation_event(
+                    category="request",
+                    action="unhandled_error",
+                    outcome="failed",
+                    level="error",
+                    workspace_id=getattr(
+                        request.state, "operation_workspace_id", None
+                    ),
+                    actor_user_id=getattr(
+                        request.state, "operation_actor_user_id", None
+                    ),
+                    error_code="internal_error",
+                    error_fingerprint=fingerprint,
+                    stage="request",
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                    route=(
+                        route_template
+                        if isinstance(route_template, str)
+                        else None
+                    ),
+                    method=(
+                        request.method
+                        if request.method
+                        in {"GET", "POST", "PUT", "PATCH", "DELETE"}
+                        else None
+                    ),
+                    status_code=500,
+                )
+            response = error_response(
+                ApiError(
+                    "internal_error",
+                    "request failed unexpectedly",
+                    status_code=500,
+                    retryable=True,
+                    action=(
+                        "Retry with the returned request ID and inspect "
+                        "the private diagnostics."
+                    ),
+                )
+            )
+            if (
+                request.url.path.startswith("/api/")
+                or request.url.path == "/mcp"
+            ):
+                response.headers["X-Request-ID"] = request_id
+            return response
         else:
             if request.url.path.startswith("/api/") or request.url.path == "/mcp":
                 response.headers["X-Request-ID"] = request_id
@@ -2394,6 +2460,7 @@ def create_app(
                 ),
             )
         availability = runtime_status.availability()
+        logging_status = logging_health_status()["status"]
         require_worker = os.getenv("HORIZON_REQUIRE_WORKER_FOR_READINESS", "false").lower() == "true"
         if require_worker and availability["worker_status"] != "ready":
             raise ApiError(
@@ -2408,6 +2475,7 @@ def create_app(
                 "status": "ready",
                 "database": "ready",
                 "worker_status": availability["worker_status"],
+                "logging_status": logging_status,
                 "checked_at": availability["checked_at"],
             }
         )
@@ -3694,13 +3762,29 @@ def create_app(
                     status_code=409,
                     action="Ask an administrator to enable subscription writes.",
                 )
+        if (
+            payload.diagnostics_scope == "workspace"
+            and user.get("role") not in {"owner", "admin"}
+        ):
+            raise ApiError(
+                "forbidden",
+                "workspace diagnostics require owner or admin role",
+                status_code=403,
+            )
         try:
             connection, token = store.create_agent_delegation(
                 workspace_id=user["workspace_id"],
                 user_id=user["id"],
                 name=payload.name,
                 access=payload.access,
+                diagnostics_scope=payload.diagnostics_scope,
             )
+        except PermissionError as exc:
+            raise ApiError(
+                "forbidden",
+                "workspace diagnostics require owner or admin role",
+                status_code=403,
+            ) from exc
         except AgentDelegationLimitError as exc:
             raise ApiError(
                 "agent_delegation_limit",
@@ -4836,7 +4920,13 @@ def main() -> None:
     load_dotenv()
     configure_logging(log_dir=args.log_dir, service="api")
     app = create_app(data_dir=args.data_dir, log_dir=args.log_dir)
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_config=None,
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":

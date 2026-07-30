@@ -30,6 +30,14 @@ const viewer: User = {
   enabled: true,
 }
 
+const owner: User = {
+  ...member,
+  id: 'owner-1',
+  username: 'owner',
+  display_name: '所有者',
+  role: 'owner',
+}
+
 const readTools = [
   'get_my_feed', 'get_item', 'list_subscriptions', 'source_health', 'list_jobs', 'get_job',
   'get_source_setup_guide', 'search_bilibili_users', 'resolve_source', 'list_available_sources', 'diagnose_source', 'diagnose_job',
@@ -55,6 +63,7 @@ const listing: AgentDelegationsResponse = {
     name: 'Office Mac',
     client_type: 'openclaw',
     access: 'read',
+    diagnostics_scope: 'self',
     scopes: ['inteliscope:read'],
     token_prefix: 'ih_mcp_v1_abcd1234',
     created_at: '2026-07-16T00:00:00Z',
@@ -212,7 +221,7 @@ describe('HeroAgentsPage delegation access', () => {
     await browser.click(screen.getByRole('option', { name: '可管理订阅' }))
     await browser.click(within(dialog).getByRole('button', { name: '生成一次性令牌' }))
 
-    expect(api.createAgentDelegation).toHaveBeenCalledWith('Write Mac', 'subscriptions_write')
+    expect(api.createAgentDelegation).toHaveBeenCalledWith('Write Mac', 'subscriptions_write', 'self')
     const tokenDialog = await screen.findByRole('dialog', { name: '保存一次性 MCP token' })
     const configuration = within(tokenDialog).getByLabelText('OpenClaw 配置命令').textContent || ''
     expect(includedTools(configuration)).toEqual(writeTools)
@@ -225,6 +234,32 @@ describe('HeroAgentsPage delegation access', () => {
 
     const configuration = (await screen.findByLabelText('OpenClaw 配置命令')).textContent || ''
     expect(includedTools(configuration)).toEqual(readTools)
+  })
+
+  it('lets an owner explicitly grant workspace diagnostics to only the new token', async () => {
+    const browser = userEvent.setup()
+    const { api } = renderPage(listing, owner)
+
+    await browser.click(await screen.findByRole('button', { name: '创建连接' }))
+    const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
+    await browser.type(
+      within(dialog).getByRole('textbox', { name: '连接名称' }),
+      'Diagnostics Mac',
+    )
+    const diagnostics = within(dialog).getByRole('switch', {
+      name: '允许读取工作区故障诊断',
+    })
+    expect(diagnostics).not.toBeChecked()
+    await browser.click(diagnostics)
+    await browser.click(
+      within(dialog).getByRole('button', { name: '生成一次性令牌' }),
+    )
+
+    expect(api.createAgentDelegation).toHaveBeenCalledWith(
+      'Diagnostics Mac',
+      'read',
+      'workspace',
+    )
   })
 
   it('exposes diagnostics only in the generated config without a log UI', async () => {
@@ -268,6 +303,11 @@ describe('HeroAgentsPage delegation access', () => {
     const dialog = screen.getByRole('dialog', { name: '创建助手连接' })
     await browser.click(within(dialog).getByRole('button', { name: /访问权限/ }))
     expect(screen.queryByRole('option', { name: '可管理订阅' })).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('switch', {
+        name: '允许读取工作区故障诊断',
+      }),
+    ).not.toBeInTheDocument()
   })
 
   it('disables subscription-management access and explains the server flag', async () => {
@@ -340,7 +380,7 @@ describe('HeroAgentsPage delegation access', () => {
     expect(screen.queryByText('ih_mcp_v1_one_time_secret')).not.toBeInTheDocument()
     expect(JSON.stringify(client.getQueryData(queryKeys.agentDelegations(member.id)))).not.toContain('ih_mcp_v1_one_time_secret')
     expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain('ih_mcp_v1_one_time_secret')
-    expect(api.createAgentDelegation).toHaveBeenCalledWith('Personal Mac', 'read')
+    expect(api.createAgentDelegation).toHaveBeenCalledWith('Personal Mac', 'read', 'self')
   })
 
   it('supports rename, revoke, refresh and connection creation limits', async () => {

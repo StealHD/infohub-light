@@ -31,28 +31,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-07-29",
-  "result": "将精确发布 v2.0.0-587ca29c878e 安全部署到 vps-tokyo，生产 API/Worker 同镜像运行，并按用户要求启用 HORIZON_APIFY_KEY_POOL_ENABLED=true。",
-  "status": "completed",
-  "task_id": "2026-07-29-v2.0.0-vps-rollout-complete",
-  "unresolved": [
-    "未触发付费来源 canary；如需真实抓取，仍需单独确认 maxItems=1 与单次费用上限"
-  ],
-  "validation": [
-    "release gate 24/24 passed before tag and deploy",
-    "VPS staging and Key Pool=true reconcile completed with ready status",
-    "production API and Worker healthy with zero restarts and worker_status ready",
-    "public root and live returned HTTP 200 with version 2.0.0 revision 587ca29c878e",
-    "SQLite quick_check passed with zero foreign-key findings, active jobs and due schedules",
-    "two configured Apify keys had zero active or unregistered remote runs before and after cutover",
-    "0600 environment and SQLite backups retained under pre-v2.0.0-587ca29c878e-apify-pool backup directories"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "capabilities",
     "decisions",
@@ -439,6 +417,33 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "VPS API-only staging passed before cutover; environment and database backups are mode 0600; v2.1.1 rollback release remains available",
     "free-only backfill stored 食贫道、超Carry的柴西、Clash Verge Rev and Claude Code Releases; authenticated catalog/media smoke returned four local /api/media assets with image HTTP 200",
     "public rb.jiefs.top live/ready and avatar changelog asset passed; recent API/Worker error counts were zero"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "从最新 v2.1.2 基线在隔离分支完成故障排查日志加固：API、MCP 与 Worker 使用安全关联上下文，日志 sink 健康可见，未知 500 可按 request ID 排查；Owner/Admin 可为新 OpenClaw 连接显式授予有界工作区诊断，后续写路由与 Job 类型由硬合同自动拦截。",
+  "status": "completed",
+  "task_id": "2026-07-30-observability-troubleshooting-v212",
+  "unresolved": [
+    "隔离分支尚未合入 main、重建本机 8080 或部署；原并行开发工作区保持不变",
+    "full/release 各记录 1133 条既有 SQLite connection ResourceWarning，未导致门禁失败且不属于本次日志改动，建议单独治理"
+  ],
+  "validation": [
+    "affected backend, Worker, OpenClaw and Test Gate regressions passed",
+    "frontend full Vitest: 58 files and 531 tests passed; typecheck passed",
+    "python scripts/test_gate.py run --mode full: 23/23 passed",
+    "python scripts/test_gate.py run --mode release: 25/25 passed including Playwright and isolated API-only Docker smoke",
+    "project controls structural validation passed; project-defaults JSON and git diff checks passed"
   ]
 }
 ```

@@ -119,7 +119,11 @@ For “最近有哪些任务失败并说明原因”, call `list_jobs` with `sta
 
 When an Inteliscope Browser handoff already provides a selected `job_id`, call `diagnose_job` directly for that selected run. Base the answer only on its bounded persisted safe evidence. If evidence is insufficient, state what remains unknown; never retry, cancel, modify, or otherwise write to the job.
 
-For an explicit “查看诊断事件/操作记录” request, or when the bounded source/job diagnosis needs a timeline, call `query_operation_logs` with the narrowest available `job_id`, `source_id`, `subscription_id`, or `request_id` and the shortest useful window. Start with `limit=50`; do not page repeatedly without asking. Treat `availability=unavailable` as a stable service limitation and `truncated=true` as incomplete evidence. Never claim access to raw logs, filenames, paths, identities, article content, URLs, credentials, or stacks, and never use an empty cross-scope result as evidence that an object exists.
+For an explicit “查看诊断事件/操作记录” request, or when the bounded source/job diagnosis needs a timeline, call `query_operation_logs` with `scope="self"`, the narrowest available `job_id`, `source_id`, `subscription_id`, or `request_id`, and the shortest useful window. Start with `limit=50`; do not page repeatedly without asking.
+
+Use `scope="workspace"` only when the user explicitly asks for workspace-wide troubleshooting and the connection was explicitly created for that access. Always include a known request/job/source/subscription ID; if none exists, use only `minimum_level="warning"` or `"error"`, never a broad workspace info query. On `diagnostics_scope_required`, explain that an Owner/Admin must create a new explicitly authorized connection in Web if they want this access; the current connection cannot be upgraded in place. On `diagnostics_filter_required`, narrow the same query instead of removing safeguards. A workspace result is still sanitized evidence, not permission to read another user's Feed, source, subscription, job body, or identity.
+
+Treat `availability=unavailable` as a stable service limitation and `truncated=true` as incomplete evidence. Never claim access to raw logs, filenames, paths, identities, article content, URLs, credentials, or stacks, never retry/cancel/modify a job while diagnosing it, and never use an empty cross-scope result as evidence that an object exists.
 
 ## Content and secret safety
 

@@ -36,7 +36,11 @@ from ..services.subscription_mutation import (
     SubscriptionMutationError,
     SubscriptionMutationService,
 )
-from ..storage.service_store import AGENT_DELEGATION_READ_SCOPE, ServiceStore
+from ..storage.service_store import (
+    AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE,
+    AGENT_DELEGATION_READ_SCOPE,
+    ServiceStore,
+)
 from .remote_config import RemoteMCPSettings
 from .remote_diagnostics import RemoteMCPDiagnostics
 from .remote_models import (
@@ -364,6 +368,49 @@ def create_remote_mcp(
             scopes=tuple(str(scope) for scope in scopes),
         )
 
+    def query_operation_logs_for_actor(
+        *,
+        actor: DelegatedActor,
+        scope: Literal["self", "workspace"],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if scope == "workspace":
+            if (
+                actor.role not in {"owner", "admin"}
+                or AGENT_DELEGATION_DIAGNOSTICS_READ_SCOPE
+                not in actor.scopes
+            ):
+                raise AgentProposalError(
+                    "diagnostics_scope_required",
+                    "workspace diagnostics require an explicitly delegated "
+                    "owner or admin connection",
+                    status_code=403,
+                )
+            if (
+                kwargs.get("minimum_level") == "info"
+                and not any(
+                    kwargs.get(field)
+                    for field in (
+                        "job_id",
+                        "source_id",
+                        "subscription_id",
+                        "request_id",
+                    )
+                )
+            ):
+                raise AgentProposalError(
+                    "diagnostics_filter_required",
+                    "workspace diagnostics require an identifier filter "
+                    "or warning/error minimum level",
+                    status_code=400,
+                )
+        return operation_logs.query(
+            workspace_id=actor.workspace_id,
+            user_id=actor.user_id,
+            scope=scope,
+            **kwargs,
+        )
+
     def audit_value(value: Any) -> str:
         candidate = str(value or "")
         return candidate if _AUDIT_VALUE_RE.fullmatch(candidate) else "-"
@@ -479,6 +526,8 @@ def create_remote_mcp(
                     "forbidden",
                     "invalid_request",
                     "write_scope_required",
+                    "diagnostics_scope_required",
+                    "diagnostics_filter_required",
                     "rate_limited",
                 }
                 else "failed"
@@ -497,6 +546,12 @@ def create_remote_mcp(
             workspace_id=state.actor.workspace_id,
             actor_user_id=state.actor.user_id,
             request_id=state.request_id,
+            stage=(
+                "workspace_diagnostics"
+                if state.tool_name == "query_operation_logs"
+                and state.logged_action == "diagnostics_workspace"
+                else None
+            ),
             error_code=None if state.outcome == "ok" else state.outcome,
             duration_ms=elapsed_ms,
         )
@@ -835,8 +890,10 @@ def create_remote_mcp(
 
     @server.tool(annotations=READ_ANNOTATIONS, structured_output=True)
     def query_operation_logs(
+        scope: Literal["self", "workspace"] = "self",
         lookback_hours: Annotated[int, Field(ge=1, le=720)] = 24,
         category: Literal[
+            "request",
             "auth",
             "account",
             "source",
@@ -847,6 +904,7 @@ def create_remote_mcp(
             "agent",
             "job",
             "acquisition",
+            "storage",
         ]
         | None = None,
         outcome: Literal[
@@ -872,10 +930,17 @@ def create_remote_mcp(
         request_id: Annotated[str | None, Field(min_length=1, max_length=128)] = None,
         limit: Annotated[int, Field(ge=1, le=100)] = 50,
     ) -> dict[str, Any]:
-        """Query current-user structured events without raw log access."""
+        """Query safe structured events; workspace scope needs an explicit grant."""
         return run_tool(
             "query_operation_logs",
-            operation_logs.query,
+            query_operation_logs_for_actor,
+            actor_operation=True,
+            audit_action=(
+                "diagnostics_workspace"
+                if scope == "workspace"
+                else "diagnostics_self"
+            ),
+            scope=scope,
             lookback_hours=lookback_hours,
             category=category,
             outcome=outcome,

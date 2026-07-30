@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 
 import httpx
+import pytest
 
 from src.models import ContentItem, SourceType
 from src.services.feed_run import (
@@ -19,6 +20,38 @@ from src.services.source_schedule import SourceScheduleService
 from src.services.user_feed_store import UserFeedStore
 from src.services.worker import _is_retryable_exception, run_worker_once
 from src.storage.service_store import ServiceStore
+
+
+def test_worker_preclaim_failure_emits_safe_boundary_event(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    operation_events = []
+
+    def fail_initialize(_store):
+        raise RuntimeError("private initialization detail")
+
+    monkeypatch.setattr(ServiceStore, "initialize", fail_initialize)
+    monkeypatch.setattr(
+        "src.services.worker.safe_emit_operation_event",
+        lambda **event: operation_events.append(event) or True,
+    )
+    caplog.set_level("ERROR", logger="src.services.worker")
+
+    with pytest.raises(RuntimeError, match="private initialization detail"):
+        run_worker_once(
+            data_dir=str(tmp_path),
+            worker_id="preclaim-worker",
+        )
+
+    assert len(operation_events) == 1
+    assert operation_events[0]["action"] == "worker_boundary"
+    assert operation_events[0]["stage"] == "worker_boundary"
+    assert operation_events[0]["error_code"] == "RuntimeError"
+    assert operation_events[0]["error_fingerprint"].startswith("err_")
+    assert "workspace_id" not in operation_events[0]
+    assert "pre-claim boundary failed" in caplog.records[-1].getMessage()
 
 
 def test_worker_reconciles_actor_attempts_after_key_pool_before_claiming(
@@ -75,6 +108,71 @@ def test_worker_reconciles_actor_attempts_after_key_pool_before_claiming(
         ("route", workspace_id),
         ("quota", workspace_id),
     ]
+
+
+def test_worker_emits_lease_recovery_before_reclaiming_job(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Recovered Feed",
+        config={"url": "https://example.com/recovered.xml"},
+    )
+    queue = JobQueue(store)
+    job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        job_type="source_test",
+        payload={},
+    )
+    claimed = queue.claim_next_job(worker_id="stale-worker", lease_seconds=1)
+    store.connect().execute(
+        "UPDATE fetch_jobs SET locked_until = ? WHERE id = ?",
+        (
+            datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat(),
+            claimed["id"],
+        ),
+    )
+    store.connect().commit()
+    events = []
+    monkeypatch.setattr(
+        "src.services.worker.run_source_test",
+        lambda _payload: {"ok": True, "source_type": "rss"},
+    )
+    monkeypatch.setattr(
+        "src.services.worker.safe_emit_operation_event",
+        lambda **event: events.append(event) or True,
+    )
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="replacement-worker",
+        enqueue_schedules=False,
+    )
+
+    assert result["id"] == job["id"]
+    lifecycle = [
+        (event["action"], event["outcome"])
+        for event in events
+        if event.get("job_id") == job["id"]
+        and event["category"] == "job"
+    ]
+    assert lifecycle[:2] == [
+        ("lease_recovery", "retried"),
+        ("claim", "running"),
+    ]
+    assert lifecycle[-1] == ("finish", "succeeded")
 
 
 def test_worker_source_test_job_builds_payload_from_catalog_source(tmp_path, monkeypatch, caplog):
@@ -1359,7 +1457,12 @@ def test_worker_partial_feed_run_persists_snapshot_and_terminal_partial(tmp_path
                 issues=(issue,),
             )
 
+    operation_events = []
     monkeypatch.setattr("src.orchestrator.HorizonOrchestrator", FakeOrchestrator)
+    monkeypatch.setattr(
+        "src.services.worker.safe_emit_operation_event",
+        lambda **event: operation_events.append(event) or True,
+    )
 
     result = run_worker_once(data_dir=str(tmp_path), worker_id="worker-partial")
     latest = UserFeedStore(store).latest_snapshot(workspace_id=workspace["id"], user_id=owner["id"])
@@ -1372,6 +1475,24 @@ def test_worker_partial_feed_run_persists_snapshot_and_terminal_partial(tmp_path
     assert result["result_json"]["new_item_count"] == 1
     assert len(result["result_json"]["source_outcomes"]) == 2
     assert result["result_json"]["source_outcomes"][1]["issue"] == result["result_json"]["issues"][0]
+    source_events = [
+        event
+        for event in operation_events
+        if event["action"] == "source_result"
+    ]
+    assert [
+        (
+            event["source_id"],
+            event["outcome"],
+            event.get("error_code"),
+            event["counts"]["items"],
+        )
+        for event in source_events
+    ] == [
+        ("src_ok", "succeeded", None, 1),
+        ("src_bad", "failed", "TimeoutError", 0),
+    ]
+    assert source_events[1]["stage"] == "fetch"
     serialized = str(result["result_json"])
     for secret in ("alice", "pass", "url-secret", "bearer-secret", "key-secret"):
         assert secret not in serialized

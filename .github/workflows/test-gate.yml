@@ -88,6 +88,8 @@ jobs:
           path: |
             .test-results/**/*.log
             .test-results/**/result.json
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
 
   frontend-full:
@@ -124,6 +126,8 @@ jobs:
           path: |
             .test-results/**/*.log
             .test-results/**/result.json
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
 
   ui-e2e:
@@ -163,6 +167,10 @@ jobs:
           path: |
             .test-results/**/*.log
             .test-results/**/result.json
+            frontend/test-results/**/*
+            frontend/playwright-report/**/*
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
 
   release-smoke:
@@ -197,4 +205,6 @@ jobs:
             .test-results/**/result.json
             .test-results/**/service-api-smoke-latest.json
             .test-results/**/service-stack-smoke.json
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
