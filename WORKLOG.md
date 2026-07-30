@@ -476,3 +476,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "修复 v2.1.1 首轮 release Playwright 暴露的设置深链误激活，并将更新日志端到端断言同步至 7 月 30 日最新条目；独立复跑确认移动端 Feed 锚点失败为非稳定波动。",
+  "status": "completed",
+  "task_id": "2026-07-30-release-v2.1.1-gate-fix",
+  "unresolved": [
+    "v2.1.1 仍待完整 release 门禁、Tag/推送和 VPS 发布"
+  ],
+  "validation": [
+    "TypeScript passed; App Vitest 97/97 passed",
+    "settings direct-hash Playwright 1/1 passed",
+    "desktop/tablet/mobile changelog and Feed anchor Playwright 6/6 passed"
+  ]
+}
+```

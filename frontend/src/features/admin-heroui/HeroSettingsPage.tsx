@@ -967,6 +967,7 @@ export function HeroSettingsPage() {
   const scrollActivationPendingRef = useRef(false)
   const lastScrollTopRef = useRef(0)
   const lastTouchYRef = useRef<number | null>(null)
+  const explicitSectionNavigationRef = useRef(Boolean(settingsSectionFromHash(location.hash, user.role)))
   const configQueryEnabled = admin && (
     activeSection === 'settings-ai'
     || activeSection === 'settings-fetching'
@@ -1150,6 +1151,7 @@ export function HeroSettingsPage() {
   useEffect(() => {
     const section = settingsSectionFromHash(location.hash, user.role)
     if (!section) return
+    explicitSectionNavigationRef.current = true
     const frame = window.requestAnimationFrame(() => {
       activateSection(section.id)
       const target = document.getElementById(section.id)
@@ -1193,6 +1195,7 @@ export function HeroSettingsPage() {
       const nextScrollTop = root.scrollTop
       const delta = nextScrollTop - lastScrollTopRef.current
       lastScrollTopRef.current = nextScrollTop
+      if (explicitSectionNavigationRef.current) return
       if (Math.abs(delta) < 1) return
       scheduleAdjacentSectionActivation(delta > 0 ? 1 : -1)
     }
@@ -1200,10 +1203,12 @@ export function HeroSettingsPage() {
       if (Math.abs(event.deltaY) < 1) return
       const direction = event.deltaY > 0 ? 1 : -1
       if (nestedScrollConsumes(event.target, direction)) return
+      explicitSectionNavigationRef.current = false
       scheduleAdjacentSectionActivation(direction)
     }
     const rememberTouch = (event: TouchEvent) => {
       lastTouchYRef.current = event.touches[0]?.clientY ?? null
+      explicitSectionNavigationRef.current = false
     }
     const activateFromTouch = (event: TouchEvent) => {
       const currentY = event.touches[0]?.clientY
@@ -1219,9 +1224,17 @@ export function HeroSettingsPage() {
     const enableForKeyboardScroll = (event: KeyboardEvent) => {
       if (keyboardTargetOwnsNavigation(event.target)) return
       if (['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey)) {
+        explicitSectionNavigationRef.current = false
         scheduleAdjacentSectionActivation(1)
       } else if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) {
+        explicitSectionNavigationRef.current = false
         scheduleAdjacentSectionActivation(-1)
+      }
+    }
+    const enableForScrollbarDrag = (event: PointerEvent) => {
+      const rootRect = root.getBoundingClientRect()
+      if (event.clientX >= rootRect.right - 20) {
+        explicitSectionNavigationRef.current = false
       }
     }
     root.addEventListener('scroll', activateFromScroll, { passive: true })
@@ -1229,12 +1242,14 @@ export function HeroSettingsPage() {
     root.addEventListener('touchstart', rememberTouch, { passive: true })
     root.addEventListener('touchmove', activateFromTouch, { passive: true })
     root.addEventListener('keydown', enableForKeyboardScroll)
+    root.addEventListener('pointerdown', enableForScrollbarDrag, { passive: true })
     return () => {
       root.removeEventListener('scroll', activateFromScroll)
       root.removeEventListener('wheel', activateFromWheel)
       root.removeEventListener('touchstart', rememberTouch)
       root.removeEventListener('touchmove', activateFromTouch)
       root.removeEventListener('keydown', enableForKeyboardScroll)
+      root.removeEventListener('pointerdown', enableForScrollbarDrag)
     }
   }, [scheduleAdjacentSectionActivation])
 
