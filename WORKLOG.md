@@ -517,3 +517,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "清理 9 个已合入 main、工作区干净且无活动进程占用的历史 Worktree 及对应本地分支，并执行 Git Worktree prune，按清理前统计释放约 3.7 GB。",
+  "status": "completed",
+  "task_id": "2026-07-30-clean-merged-worktrees",
+  "unresolved": [
+    "保留 59 项未提交修改的 codex/0728-2 根工作区，以及 diagnose-x-thsottiaux、logging-flow-review、rsshub-proxy-feasibility 三个尚未合入的 Worktree"
+  ],
+  "validation": [
+    "all nine target paths and local branch refs are absent after cleanup",
+    "remaining Worktree registry contains five valid entries with no prunable records",
+    "filesystem reports 25 GiB available after cleanup"
+  ]
+}
+```
