@@ -36,7 +36,8 @@ describe('service api', () => {
     await api.updateFeedSchedule({ enabled: true, interval_minutes: 360 })
     await api.updateSourceSchedule('sub/1', { enabled: true, interval_minutes: 30 })
     await api.notificationSettings()
-    await api.updateNotificationSettings({ enabled: true, channel: 'webhook', webhook_url: 'write-only' })
+    await api.updateNotificationSettings({ enabled: true, channels: ['email', 'webhook', 'telegram'], webhook_url: 'write-only' })
+    await api.testNotificationSettings('telegram')
     await api.testNotificationSettings()
     await api.notificationEmailTransport()
     await api.updateNotificationEmailTransport({
@@ -47,13 +48,20 @@ describe('service api', () => {
     })
     await api.testNotificationEmailTransport('reader@example.com')
     await api.deleteNotificationEmailTransport()
+    await api.notificationTelegramTransport()
+    await api.updateNotificationTelegramTransport({
+      bot_token: 'write-only-telegram-token',
+    })
+    await api.testNotificationTelegramTransport('@test_channel')
+    await api.deleteNotificationTelegramTransport()
     await api.apifyActorAlertSettings()
     await api.updateApifyActorAlertSettings({
       enabled: true,
-      channel: 'webhook',
+      channels: ['email', 'webhook', 'telegram'],
       events: ['actor_switched', 'recovered'],
       webhook_url: 'write-only-actor-webhook',
     })
+    await api.testApifyActorAlertSettings('webhook')
     await api.testApifyActorAlertSettings()
     await api.apifyActorAlertIncidents()
     await api.unsubscribe('sub/1')
@@ -96,10 +104,11 @@ describe('service api', () => {
     expect(client.get).toHaveBeenCalledWith('/api/me/notification-settings', undefined)
     expect(client.patch).toHaveBeenCalledWith('/api/me/notification-settings', {
       enabled: true,
-      channel: 'webhook',
+      channels: ['email', 'webhook', 'telegram'],
       webhook_url: 'write-only',
     })
-    expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test')
+    expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test', { channel: 'telegram' })
+    expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/admin/notification-email-transport', undefined)
     expect(client.patch).toHaveBeenCalledWith('/api/admin/notification-email-transport', {
       provider: 'qq',
@@ -111,14 +120,23 @@ describe('service api', () => {
       recipient_email: 'reader@example.com',
     })
     expect(client.delete).toHaveBeenCalledWith('/api/admin/notification-email-transport')
+    expect(client.get).toHaveBeenCalledWith('/api/admin/notification-telegram-transport', undefined)
+    expect(client.patch).toHaveBeenCalledWith('/api/admin/notification-telegram-transport', {
+      bot_token: 'write-only-telegram-token',
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/admin/notification-telegram-transport/test', {
+      chat_id: '@test_channel',
+    })
+    expect(client.delete).toHaveBeenCalledWith('/api/admin/notification-telegram-transport')
     expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings', undefined)
     expect(client.patch).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings', {
       enabled: true,
-      channel: 'webhook',
+      channels: ['email', 'webhook', 'telegram'],
       events: ['actor_switched', 'recovered'],
       webhook_url: 'write-only-actor-webhook',
     })
-    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings/test')
+    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings/test', { channel: 'webhook' })
+    expect(client.post).toHaveBeenCalledWith('/api/admin/apify-actor-alert-settings/test', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/admin/apify-actor-alert-incidents?limit=20', undefined)
     expect(client.delete).toHaveBeenCalledWith('/api/me/subscriptions/sub%2F1')
     expect(client.get).toHaveBeenCalledWith('/api/catalog/sources?include_disabled=true', undefined)

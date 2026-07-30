@@ -544,3 +544,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "在独立前端分支完成邮箱、Webhook、Telegram 多渠道通知与 Apify 告警界面：三张渠道卡始终可见且独立配置、测试和展示状态，并新增工作区 Telegram Bot 服务的只写 Token、一次性 Chat ID、测试后启用与确认删除流程。",
+  "status": "completed",
+  "task_id": "2026-07-30-telegram-multichannel-frontend",
+  "unresolved": [
+    "前端提交待合入 Telegram 多渠道集成分支；未推送、未重建 8080，也未调用真实通知服务"
+  ],
+  "validation": [
+    "frontend full Vitest: 59 files and 533 tests passed, including signed int64 Telegram Chat ID bounds",
+    "final focused notification/API Vitest: 6 files and 27 tests passed",
+    "TypeScript typecheck, ESLint, UI contract check and production build passed",
+    "selected Playwright production settings checks: 7 passed and 2 conditionally skipped; 390/768/1440 overflow and serious/critical Axe checks passed",
+    "git diff --check passed"
+  ]
+}
+```

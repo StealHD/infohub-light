@@ -403,9 +403,14 @@ export function HeroEmailTransportSettings({ queryEnabled = true }: { queryEnabl
       queryKeys.notificationEmailTransport(user.id),
       updated,
     )
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.notificationSettings(user.id),
-    })
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notificationSettings(user.id),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.apifyActorAlertSettings(user.id),
+      }),
+    ])
     return updated
   }
 
@@ -425,6 +430,9 @@ export function HeroEmailTransportSettings({ queryEnabled = true }: { queryEnabl
       }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.notificationSettings(user.id),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.apifyActorAlertSettings(user.id),
       }),
     ])
   }

@@ -18,6 +18,9 @@ describe('query keys', () => {
     expect(queryKeys.notificationEmailTransport('user-b')).toEqual([
       'user', 'user-b', 'notification-email-transport',
     ])
+    expect(queryKeys.notificationTelegramTransport('user-b')).toEqual([
+      'user', 'user-b', 'notification-telegram-transport',
+    ])
     expect(queryKeys.agentDelegations('user-b')).toEqual(['user', 'user-b', 'agent-delegations'])
     expect(queryKeys.apifyKeyPool('user-a')).toEqual(['user', 'user-a', 'apify-key-pool'])
     expect(queryKeys.storageSummary('user-a')).toEqual(['user', 'user-a', 'storage-summary'])
@@ -33,6 +36,9 @@ describe('query keys', () => {
     )
     expect(queryKeys.notificationEmailTransport('user-b')).not.toEqual(
       queryKeys.notificationEmailTransport('user-a'),
+    )
+    expect(queryKeys.notificationTelegramTransport('user-b')).not.toEqual(
+      queryKeys.notificationTelegramTransport('user-a'),
     )
   })
 })

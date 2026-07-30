@@ -14,7 +14,7 @@ export type AuthStatus = {
   user: User | null
 }
 
-export type NotificationChannel = 'email' | 'webhook'
+export type NotificationChannel = 'email' | 'webhook' | 'telegram'
 
 export type WebhookProvider =
   | 'generic_event'
@@ -34,10 +34,38 @@ export type WebhookProviderOption = {
   verification_mode: 'http_status' | 'provider_response'
 }
 
-export type UserNotificationSettings = {
-  schema_version: number
+export type NotificationChannelTestStatus = 'sent' | 'failed' | 'unknown' | null
+
+export type NotificationChannelState = {
   enabled: boolean
+  configured: boolean
+  available: boolean
+  generation: number
+  enabled_at: string | null
+  last_test_status: NotificationChannelTestStatus
+  last_tested_at: string | null
+  last_test_error_code: string | null
+}
+
+export type NotificationWebhookChannelState = NotificationChannelState & {
+  provider: WebhookProvider
+  provider_explicit: boolean
+  signing_secret_configured: boolean
+  verification_mode: 'http_status' | 'provider_response'
+}
+
+export type NotificationChannelStates = {
+  email: NotificationChannelState
+  webhook: NotificationWebhookChannelState
+  telegram: NotificationChannelState
+}
+
+export type UserNotificationSettings = {
+  schema_version: 3
+  enabled: boolean
+  channels: NotificationChannel[]
   channel: NotificationChannel
+  channel_states: NotificationChannelStates
   email_configured: boolean
   email_transport_ready: boolean
   webhook_configured: boolean
@@ -46,7 +74,9 @@ export type UserNotificationSettings = {
   webhook_signing_secret_configured: boolean
   webhook_verification_mode: 'http_status' | 'provider_response'
   webhook_provider_options: WebhookProviderOption[]
-  last_test_status: 'sent' | 'failed' | 'unknown' | null
+  telegram_configured: boolean
+  telegram_transport_ready: boolean
+  last_test_status: NotificationChannelTestStatus
   last_tested_at: string | null
   last_test_error_code: string | null
   updated_at: string | null
@@ -54,11 +84,13 @@ export type UserNotificationSettings = {
 
 export type UserNotificationSettingsPatch = {
   enabled?: boolean
+  channels?: NotificationChannel[]
   channel?: NotificationChannel
   email_address?: string | null
   webhook_url?: string | null
   webhook_provider?: WebhookProvider
   webhook_signing_secret?: string | null
+  telegram_chat_id?: string | null
 }
 
 export type NotificationTestResult = {
@@ -119,6 +151,31 @@ export type NotificationEmailTransportPatch = {
 }
 
 export type NotificationEmailTransportTestResult = {
+  sent: boolean
+  generation: number
+}
+
+export type NotificationTelegramTransport = {
+  schema_version: 1
+  configured: boolean
+  enabled: boolean
+  token_configured: boolean
+  generation: number
+  last_test_status: NotificationChannelTestStatus
+  last_test_generation: number | null
+  last_tested_at: string | null
+  last_test_error_code: string | null
+  can_enable: boolean
+  ready: boolean
+  updated_at: string | null
+}
+
+export type NotificationTelegramTransportPatch = {
+  bot_token?: string | null
+  enabled?: boolean
+}
+
+export type NotificationTelegramTransportTestResult = {
   sent: boolean
   generation: number
 }
@@ -667,9 +724,11 @@ export type ApifyActorAlertEvent =
   | 'recovered'
 
 export type ApifyActorAlertSettings = {
-  schema_version: 2
+  schema_version: 3
   enabled: boolean
+  channels: NotificationChannel[]
   channel: NotificationChannel
+  channel_states: NotificationChannelStates
   events: ApifyActorAlertEvent[]
   email_configured: boolean
   email_transport_ready: boolean
@@ -679,7 +738,9 @@ export type ApifyActorAlertSettings = {
   webhook_signing_secret_configured: boolean
   webhook_verification_mode: 'http_status' | 'provider_response'
   webhook_provider_options: WebhookProviderOption[]
-  last_test_status: 'sent' | 'failed' | 'unknown' | null
+  telegram_configured: boolean
+  telegram_transport_ready: boolean
+  last_test_status: NotificationChannelTestStatus
   last_tested_at: string | null
   last_test_error_code: string | null
   last_alert_status: string | null
@@ -690,12 +751,35 @@ export type ApifyActorAlertSettings = {
 
 export type ApifyActorAlertSettingsPatch = {
   enabled?: boolean
+  channels?: NotificationChannel[]
   channel?: NotificationChannel
   events?: ApifyActorAlertEvent[]
   email_address?: string | null
   webhook_url?: string | null
   webhook_provider?: WebhookProvider
   webhook_signing_secret?: string | null
+  telegram_chat_id?: string | null
+}
+
+export type ApifyActorAlertDeliveryStatus =
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'unknown'
+  | 'partial'
+  | 'skipped'
+  | null
+
+export type ApifyActorAlertDelivery = {
+  event_type: ApifyActorAlertEvent | ''
+  channel: NotificationChannel
+  status: ApifyActorAlertDeliveryStatus
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  sent_at: string | null
+  updated_at: string
 }
 
 export type ApifyActorAlertIncident = {
@@ -710,12 +794,13 @@ export type ApifyActorAlertIncident = {
   opened_at: string
   last_seen_at: string
   resolved_at: string | null
-  delivery_status: 'pending' | 'sending' | 'sent' | 'failed' | 'unknown' | 'skipped' | null
+  deliveries: ApifyActorAlertDelivery[]
+  delivery_status: ApifyActorAlertDeliveryStatus
   delivery_error_code: string | null
 }
 
 export type ApifyActorAlertIncidents = {
-  schema_version: 1
+  schema_version: 2
   incidents: ApifyActorAlertIncident[]
 }
 

@@ -39,6 +39,71 @@ function webhookProviderOptions(): WebhookProviderOption[] {
   ]
 }
 
+function notificationChannelStates({
+  selected = 'webhook',
+  emailConfigured = false,
+  emailAvailable = true,
+  webhookConfigured = false,
+  telegramConfigured = false,
+  telegramAvailable = true,
+}: {
+  selected?: 'email' | 'webhook' | 'telegram'
+  emailConfigured?: boolean
+  emailAvailable?: boolean
+  webhookConfigured?: boolean
+  telegramConfigured?: boolean
+  telegramAvailable?: boolean
+} = {}) {
+  const base = {
+    generation: 1,
+    enabled_at: null,
+    last_test_status: null,
+    last_tested_at: null,
+    last_test_error_code: null,
+  }
+  return {
+    email: {
+      ...base,
+      enabled: selected === 'email',
+      configured: emailConfigured,
+      available: emailAvailable,
+    },
+    webhook: {
+      ...base,
+      enabled: selected === 'webhook',
+      configured: webhookConfigured,
+      available: true,
+      provider: 'generic_event' as const,
+      provider_explicit: true,
+      signing_secret_configured: false,
+      verification_mode: 'http_status' as const,
+    },
+    telegram: {
+      ...base,
+      enabled: selected === 'telegram',
+      configured: telegramConfigured,
+      available: telegramAvailable,
+    },
+  }
+}
+
+function emptyTelegramTransport() {
+  return {
+    schema_version: 1 as const,
+    configured: false,
+    enabled: false,
+    token_configured: false,
+    generation: 0,
+    last_test_status: null,
+    last_test_generation: null,
+    last_tested_at: null,
+    last_test_error_code: null,
+    can_enable: false,
+    ready: false,
+    updated_at: null,
+  }
+}
+
 function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
   return {
     authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'user-live', username: 'live', role: 'member', enabled: true } }),
@@ -68,9 +133,15 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
     notificationSettings: vi.fn().mockResolvedValue({
-      schema_version: 2,
+      schema_version: 3,
       enabled: false,
+      channels: ['email'],
       channel: 'email',
+      channel_states: notificationChannelStates({
+        selected: 'email',
+        emailAvailable: false,
+        telegramAvailable: false,
+      }),
       email_configured: false,
       email_transport_ready: false,
       webhook_configured: false,
@@ -79,6 +150,8 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       webhook_signing_secret_configured: false,
       webhook_verification_mode: 'http_status',
       webhook_provider_options: webhookProviderOptions(),
+      telegram_configured: false,
+      telegram_transport_ready: false,
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -110,9 +183,15 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       candidates: [],
     }),
     apifyActorAlertSettings: vi.fn().mockResolvedValue({
-      schema_version: 2,
+      schema_version: 3,
       enabled: false,
+      channels: ['webhook'],
       channel: 'webhook',
+      channel_states: notificationChannelStates({
+        webhookConfigured: false,
+        emailAvailable: false,
+        telegramAvailable: false,
+      }),
       events: ['actor_switched', 'route_exhausted', 'quota_low', 'budget_blocked', 'start_outcome_unknown', 'recovered'],
       email_configured: false,
       email_transport_ready: false,
@@ -122,6 +201,8 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       webhook_signing_secret_configured: false,
       webhook_verification_mode: 'http_status',
       webhook_provider_options: webhookProviderOptions(),
+      telegram_configured: false,
+      telegram_transport_ready: false,
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -131,6 +212,7 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       updated_at: null,
     }),
     apifyActorAlertIncidents: vi.fn().mockResolvedValue({ schema_version: 1, incidents: [] }),
+    notificationTelegramTransport: vi.fn().mockResolvedValue(emptyTelegramTransport()),
     storageSummary: vi.fn().mockResolvedValue({
       schema_version: 1,
       policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
@@ -1564,9 +1646,11 @@ describe('App routes', () => {
     const secrets = vi.fn().mockResolvedValue({ secrets: [] })
     const ignoredFeed = vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } })
     const notificationSettings = vi.fn().mockResolvedValue({
-      schema_version: 2,
+      schema_version: 3,
       enabled: true,
+      channels: ['webhook'],
       channel: 'webhook',
+      channel_states: notificationChannelStates({ webhookConfigured: true }),
       email_configured: false,
       email_transport_ready: true,
       webhook_configured: true,
@@ -1575,6 +1659,8 @@ describe('App routes', () => {
       webhook_signing_secret_configured: false,
       webhook_verification_mode: 'http_status',
       webhook_provider_options: webhookProviderOptions(),
+      telegram_configured: false,
+      telegram_transport_ready: true,
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -1601,12 +1687,14 @@ describe('App routes', () => {
       providers: [],
       updated_at: null,
     })
+    const notificationTelegramTransport = vi.fn().mockResolvedValue(emptyTelegramTransport())
     const hiddenQueries = {
       config,
       secrets,
       ignoredFeed,
       notificationSettings,
       notificationEmailTransport,
+      notificationTelegramTransport,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
       apifyActorXProfileRoute: vi.fn(),
       apifyActorAlertSettings: vi.fn(),
@@ -1632,6 +1720,7 @@ describe('App routes', () => {
     await waitFor(() => {
       expect(notificationSettings).toHaveBeenCalledOnce()
       expect(notificationEmailTransport).toHaveBeenCalledOnce()
+      expect(notificationTelegramTransport).toHaveBeenCalledOnce()
     })
     expect(config).not.toHaveBeenCalled()
     expect(secrets).not.toHaveBeenCalled()
@@ -1653,6 +1742,7 @@ describe('App routes', () => {
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
+    expect(notificationTelegramTransport).toHaveBeenCalledOnce()
 
     await browser.click(screen.getByRole('button', { name: /设置区域/ }))
     await browser.click(await screen.findByRole('option', { name: '消息通知' }))
@@ -1661,6 +1751,7 @@ describe('App routes', () => {
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
+    expect(notificationTelegramTransport).toHaveBeenCalledOnce()
   })
 
   it('naturally activates every settings section in order while scrolling without using the section selector', async () => {
@@ -1674,9 +1765,15 @@ describe('App routes', () => {
       pagination: { limit: 200, offset: 0, count: 0, total: 0 },
     })
     const notificationSettings = vi.fn().mockResolvedValue({
-      schema_version: 2,
+      schema_version: 3,
       enabled: false,
+      channels: ['webhook'],
       channel: 'webhook',
+      channel_states: notificationChannelStates({
+        webhookConfigured: false,
+        emailAvailable: false,
+        telegramAvailable: false,
+      }),
       email_configured: false,
       email_transport_ready: false,
       webhook_configured: false,
@@ -1685,6 +1782,8 @@ describe('App routes', () => {
       webhook_signing_secret_configured: false,
       webhook_verification_mode: 'http_status',
       webhook_provider_options: webhookProviderOptions(),
+      telegram_configured: false,
+      telegram_transport_ready: false,
       last_test_status: null,
       last_tested_at: null,
       last_test_error_code: null,
@@ -1711,6 +1810,7 @@ describe('App routes', () => {
       providers: [],
       updated_at: null,
     })
+    const notificationTelegramTransport = vi.fn().mockResolvedValue(emptyTelegramTransport())
     const storageSummary = vi.fn().mockResolvedValue({
       schema_version: 1,
       policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
@@ -1727,6 +1827,7 @@ describe('App routes', () => {
       ignoredFeed,
       notificationSettings,
       notificationEmailTransport,
+      notificationTelegramTransport,
       storageSummary,
       storageArchives,
     } as Partial<ServiceApi>)
@@ -1759,16 +1860,18 @@ describe('App routes', () => {
     }
 
     expect(notificationSettings).not.toHaveBeenCalled()
+    expect(notificationTelegramTransport).not.toHaveBeenCalled()
     expect(config).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
     expect(storageSummary).not.toHaveBeenCalled()
     expect(secrets).not.toHaveBeenCalled()
 
     await revealNextSection('消息通知', () => {
-      expect(screen.getByRole('button', { name: '发送测试通知' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '发送Webhook测试' })).toBeInTheDocument()
     })
     expect(notificationSettings).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
+    expect(notificationTelegramTransport).toHaveBeenCalledOnce()
 
     await revealNextSection('助手与 AI', () => {
       expect(screen.getByRole('button', { name: '保存 AI 设置' })).toBeInTheDocument()

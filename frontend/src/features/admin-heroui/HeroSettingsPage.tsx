@@ -38,6 +38,7 @@ import { HeroApifyActorRouteSettings } from '../apify-actors/HeroApifyActorRoute
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { HeroEmailTransportSettings } from '../notifications/HeroEmailTransportSettings'
 import { HeroNotificationSettings } from '../notifications/HeroNotificationSettings'
+import { HeroTelegramTransportSettings } from '../notifications/HeroTelegramTransportSettings'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
 import { settingsSectionFromHash, settingsSectionsForRole } from './settingsSections'
@@ -1603,7 +1604,10 @@ export function HeroSettingsPage() {
       {activatedSections.has('settings-notifications') && <>
         <HeroNotificationSettings queryEnabled={activeSection === 'settings-notifications'} />
         {admin && <div className="mt-6 border-t border-separator pt-5">
-          <HeroEmailTransportSettings queryEnabled={activeSection === 'settings-notifications'} />
+          <div className="grid min-w-0 gap-4 min-[1100px]:grid-cols-2">
+            <HeroEmailTransportSettings queryEnabled={activeSection === 'settings-notifications'} />
+            <HeroTelegramTransportSettings queryEnabled={activeSection === 'settings-notifications'} />
+          </div>
         </div>}
       </>}
     </AdminSection>
