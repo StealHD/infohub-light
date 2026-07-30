@@ -1728,6 +1728,45 @@ def test_xquik_maps_author_avatar_and_rejects_demo_only_dataset(monkeypatch):
     assert getattr(exc_info.value, "code", None) == "apify_demo_mode"
 
 
+def test_x_flat_avatar_is_observed_before_publication_window_filter():
+    client = httpx.AsyncClient()
+    sub = _sub(
+        "x",
+        "profile",
+        "thsottiaux",
+        source_id="src_x_flat_avatar",
+    )
+    scraper = ApifySocialScraper(_social_config(sub), client)
+    old = datetime.now(timezone.utc) - timedelta(days=5)
+
+    items = scraper._parse_candidate_rows(
+        [
+            {
+                "id": "2099999999999999999",
+                "text": "Old valid post",
+                "created_at": old.isoformat(),
+                "user_screen_name": "thsottiaux",
+                "user_profile_image_url": "https://pbs.twimg.com/profile.jpg",
+            }
+        ],
+        sub,
+        datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    asyncio.run(client.aclose())
+
+    assert items == []
+    assert [
+        (hint.source_id, hint.origin, hint.remote_url)
+        for hint in scraper.source_avatar_hints
+    ] == [
+        (
+            "src_x_flat_avatar",
+            "apify_x_profile",
+            "https://pbs.twimg.com/profile.jpg",
+        )
+    ]
+
+
 def test_apify_social_scraper_reads_token_envs_and_maps_instagram_media(monkeypatch):
     monkeypatch.delenv("APIFY_TOKEN", raising=False)
     monkeypatch.setenv("APIFY_TOKEN_2", "backup-token")

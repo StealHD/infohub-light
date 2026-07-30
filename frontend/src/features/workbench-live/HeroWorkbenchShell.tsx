@@ -19,7 +19,6 @@ import {
   actionToast,
   anchoredTooltipProps,
   AvatarFallback,
-  AvatarImage,
   AvatarRoot,
   Button,
   CalmSkeleton,
@@ -67,6 +66,7 @@ import {
   writeRightRailWidth,
 } from './rightRailPreference'
 import { settingsSectionsForRole } from '../admin-heroui/settingsSections'
+import { SourceAvatar } from '../source-avatar/SourceAvatar'
 
 export type RightRailMode = 'closed' | 'agent'
 export type InsightsSurfaceState = 'closed' | 'auto' | 'manual' | 'closing'
@@ -669,10 +669,12 @@ function AgentPanelContent({
             const removeLabel = card?.authorLabel || card?.sourceLabel || item.sourceName || primaryText || '所选内容'
             const avatarLabel = card?.source || item.sourceName || primaryText
             return <Card key={id} data-agent-context-item variant="secondary" className="h-9 min-w-0 flex-row items-center gap-2 px-2 py-1">
-              <AvatarRoot className="size-6 shrink-0">
-                {card?.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
-                <AvatarFallback>{avatarLabel.slice(0, 1).toUpperCase()}</AvatarFallback>
-              </AvatarRoot>
+              <SourceAvatar
+                name={avatarLabel}
+                avatarUrl={card?.sourceAvatar}
+                platform={card?.platformLabel}
+                className="size-6 shrink-0"
+              />
               <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap">
                 <span className="type-meta flex min-w-0 shrink-0 items-center gap-1.5 text-muted">
                   {sourceLabels.map((label, labelIndex) => <Fragment key={label}>

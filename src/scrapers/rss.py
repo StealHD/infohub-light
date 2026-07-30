@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Callable, List
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import httpx
 import feedparser
 
@@ -108,7 +108,21 @@ class RSSScraper(BaseScraper):
             self.observe_upstream_response(
                 {"feed": dict(feed.feed), "entries": [dict(entry) for entry in feed.entries]}
             )
-            feed_icon_url = self._feed_icon_url(feed.feed)
+            feed_icon_url = self._feed_icon_url(feed.feed, feed_url)
+            self.observe_source_avatar(
+                source_id=source.source_id,
+                remote_url=feed_icon_url,
+                origin="rss_feed_icon",
+            )
+            self.observe_source_avatar(
+                source_id=source.source_id,
+                remote_url=urljoin(
+                    feed_url,
+                    str(feed.feed.get("link") or "").strip(),
+                ),
+                origin="rss_feed_homepage",
+                kind="page",
+            )
 
             dated_entries = []
             for entry in feed.entries:
@@ -271,7 +285,7 @@ class RSSScraper(BaseScraper):
         return ""
 
     @staticmethod
-    def _feed_icon_url(feed: dict) -> str:
+    def _feed_icon_url(feed: dict, base_url: str = "") -> str:
         image = feed.get("image") if isinstance(feed.get("image"), dict) else {}
         for value in (
             image.get("href"),
@@ -279,7 +293,7 @@ class RSSScraper(BaseScraper):
             feed.get("icon"),
             feed.get("logo"),
         ):
-            url = str(value or "").strip()
+            url = urljoin(base_url, str(value or "").strip())
             if url.startswith(("https://", "http://")):
                 return url
         return ""

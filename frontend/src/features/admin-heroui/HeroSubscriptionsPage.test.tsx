@@ -15,6 +15,20 @@ const source: CatalogSource = {
   enabled: true,
 }
 
+class LoadedImage extends EventTarget {
+  complete = true
+  naturalWidth = 32
+  private value = ''
+
+  get src() {
+    return this.value
+  }
+
+  set src(value: string) {
+    this.value = value
+  }
+}
+
 function renderCard(
   subscription: Subscription,
   overrides: Partial<Parameters<typeof SubscriptionRows>[0]['items'][number]> = {},
@@ -123,6 +137,30 @@ describe('subscription source card notifications', () => {
     })
 
     expect(screen.getByText(/YouTube 频道/)).toBeInTheDocument()
+  })
+
+  it('renders the current protected source avatar on the subscription card', async () => {
+    vi.stubGlobal('Image', LoadedImage)
+    try {
+      renderCard({
+        id: 'subscription-avatar',
+        user_id: 'user-1',
+        source_id: source.id,
+        enabled: true,
+      }, {
+        source: {
+          ...source,
+          avatar_url: '/api/media/med_source_avatar',
+        },
+      })
+
+      expect(await screen.findByRole('img', { name: '通知来源' })).toHaveAttribute(
+        'src',
+        '/api/media/med_source_avatar',
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('shows the effective notification state as a card switch', async () => {

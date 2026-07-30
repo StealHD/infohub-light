@@ -548,6 +548,37 @@ class UserContentStore:
             if str(value or "").strip()
         }
 
+    def _apply_current_source_avatars(
+        self,
+        *,
+        workspace_id: str,
+        items: list[dict[str, Any]],
+    ) -> None:
+        item_sources: list[tuple[dict[str, Any], str]] = []
+        source_ids: set[str] = set()
+        for item in items:
+            presentation = item.get("presentation")
+            if not isinstance(presentation, dict):
+                continue
+            source = presentation.get("source")
+            if not isinstance(source, dict):
+                continue
+            source_id = str(source.get("id") or item.get("source_id") or "").strip()
+            if not source_id:
+                source["avatar_url"] = ""
+                continue
+            source_ids.add(source_id)
+            item_sources.append((source, source_id))
+        urls = MediaCacheService(
+            self.store,
+            data_dir=self.store.data_dir,
+        ).avatar_urls_for_sources(
+            workspace_id=workspace_id,
+            source_ids=source_ids,
+        )
+        for source, source_id in item_sources:
+            source["avatar_url"] = urls.get(source_id, "")
+
     @staticmethod
     def _history_search_text(item: dict[str, Any], row: Any) -> str:
         presentation = item.get("presentation")
@@ -710,6 +741,10 @@ class UserContentStore:
             article_id = str(item["id"])
             item["user_state"] = states[article_id]
             items.append(item)
+        self._apply_current_source_avatars(
+            workspace_id=workspace_id,
+            items=items,
+        )
         return {
             "items": items,
             "item_count": len(items),
@@ -793,6 +828,10 @@ class UserContentStore:
         )
         for item in projected:
             item["user_state"] = states[str(item["id"])]
+        self._apply_current_source_avatars(
+            workspace_id=workspace_id,
+            items=projected,
+        )
         return projected
 
     def source_item_counts(
@@ -1061,6 +1100,10 @@ class UserContentStore:
         )
         for item in items:
             item["user_state"] = states[str(item["id"])]
+        self._apply_current_source_avatars(
+            workspace_id=workspace_id,
+            items=items,
+        )
         next_cursor = None
         if has_more and items:
             last = items[-1]
@@ -1211,6 +1254,10 @@ class UserContentStore:
             article_id = str(row["article_id"])
             item["user_state"] = states[article_id]
             items.append(item)
+        self._apply_current_source_avatars(
+            workspace_id=workspace_id,
+            items=items,
+        )
         return {
             "schema_version": 1,
             "scope": "user",
@@ -1270,6 +1317,10 @@ class UserContentStore:
             article_id = str(row["article_id"])
             item["user_state"] = states[article_id]
             items.append(item)
+        self._apply_current_source_avatars(
+            workspace_id=workspace_id,
+            items=items,
+        )
         return {
             "schema_version": 1,
             "scope": "user",
@@ -1298,8 +1349,8 @@ class UserContentStore:
         source = presentation.get("source")
         if not isinstance(source, dict):
             source = {}
-        avatar_url = str(source.get("avatar_url") or "")
-        if not avatar_url and stored.get("source_id"):
+        avatar_url = ""
+        if stored.get("source_id"):
             avatar = MediaCacheService(
                 self.store, data_dir=self.store.data_dir
             ).avatar_for_source(

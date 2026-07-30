@@ -3396,6 +3396,10 @@ def test_media_api_and_catalog_avatar_enforce_user_and_source_scope(tmp_path, mo
         display_name="Private avatar source",
         config={"url": "https://example.com/private-avatar.xml"},
     )
+    store.create_subscription(
+        user_id=owner["id"],
+        source_id=workspace_source_id,
+    )
     media_dir = data_dir / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
     (media_dir / "workspace.png").write_bytes(b"\x89PNG\r\n\x1a\nworkspace")
@@ -3454,10 +3458,43 @@ def test_media_api_and_catalog_avatar_enforce_user_and_source_scope(tmp_path, mo
             ),
         )
     store.connect().commit()
+    item_time = datetime.now(timezone.utc).isoformat()
+    UserFeedStore(store).save_snapshot(
+        workspace_id=owner["workspace_id"],
+        user_id=owner["id"],
+        job_id="job_avatar_projection",
+        payload={
+            "generated_at": item_time,
+            "items": [
+                {
+                    "id": "rss:avatar:projection",
+                    "source_id": workspace_source_id,
+                    "title": "Avatar projection",
+                    "url": "https://example.com/avatar-projection",
+                    "published_at": item_time,
+                    "presentation": {
+                        "version": 1,
+                        "source": {
+                            "id": workspace_source_id,
+                            "name": "Avatar source",
+                            "avatar_url": "/api/media/med_stale",
+                        },
+                    },
+                }
+            ],
+        },
+    )
 
     sources = client.get("/api/catalog/sources").json()["data"]["sources"]
     workspace_source = next(item for item in sources if item["id"] == workspace_source_id)
     assert workspace_source["avatar_url"] == "/api/media/med_workspace"
+    latest = client.get("/api/feed/latest").json()["data"]
+    projected = next(
+        item for item in latest["items"] if item["id"] == "rss:avatar:projection"
+    )
+    assert projected["presentation"]["source"]["avatar_url"] == (
+        "/api/media/med_workspace"
+    )
     assert client.get("/api/media/med_workspace").status_code == 200
     assert client.get("/api/media/med_content").status_code == 200
 

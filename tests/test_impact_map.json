@@ -143,6 +143,7 @@
         "src/services/media_cache.py",
         "src/services/network_policy.py",
         "src/services/response_schema.py",
+        "src/services/source_avatar.py",
         "src/services/user_analysis_cache.py",
         "src/services/user_feed_store.py",
         "tests/test_feed_end_messages.py"
@@ -342,6 +343,7 @@
       "tests/test_media_cache_unit.py",
       "tests/test_multi_user_feed_e2e.py",
       "tests/test_response_schema.py",
+      "tests/test_source_avatar.py",
       "tests/test_source_presentation_adapters.py",
       "tests/test_user_analysis_cache.py",
       "tests/test_user_content_v4_migration.py",
@@ -388,6 +390,7 @@
     ],
     "python_scripts": [
       "tests/test_bootstrap_local_sources.py",
+      "tests/test_backfill_source_avatars.py",
       "tests/test_feed_storage_v3_migration.py",
       "tests/test_feed_v2_migration.py",
       "tests/test_light_runtime_scripts.py",

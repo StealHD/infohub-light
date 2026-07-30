@@ -447,6 +447,11 @@ class HorizonOrchestrator:
                 or label.split(":", 1)[0].strip().lower()
             )
             upstream_schema = getattr(scraper, "upstream_response_schema", None)
+            avatar_hints = tuple(
+                hint
+                for hint in getattr(scraper, "source_avatar_hints", ())
+                if hint.source_id == source_id
+            )
             origin_for = getattr(self._service_acquisition_coordinator, "origin_for", None)
             acquisition_origin = origin_for(source_id) if callable(origin_for) else None
             if isinstance(result, Exception):
@@ -469,6 +474,7 @@ class HorizonOrchestrator:
                         capture_status="captured" if upstream_schema else "unavailable",
                         upstream_schema=upstream_schema,
                         normalized_schema=extract_response_schema([]),
+                        avatar_hints=avatar_hints,
                     )
                 )
                 continue
@@ -499,6 +505,7 @@ class HorizonOrchestrator:
                     normalized_schema=extract_response_schema(
                         [item.model_dump(mode="json") for item in fetched]
                     ),
+                    avatar_hints=avatar_hints,
                 )
             )
         return items, tuple(outcomes)

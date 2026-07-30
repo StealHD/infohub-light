@@ -13,6 +13,16 @@ SourceStatus = Literal["succeeded", "failed"]
 
 
 @dataclass(frozen=True, slots=True)
+class SourceAvatarHint:
+    """Internal source-level media evidence omitted from public diagnostics."""
+
+    source_id: str
+    remote_url: str = field(repr=False)
+    origin: str
+    kind: Literal["image", "page"] = "image"
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisUsage:
     """Token-saving execution counts safe to expose in job diagnostics."""
 
@@ -77,6 +87,10 @@ class SourceOutcome:
     capture_status: Literal["captured", "empty", "cached", "unavailable"] = "unavailable"
     upstream_schema: dict[str, Any] | None = None
     normalized_schema: dict[str, Any] | None = None
+    avatar_hints: tuple[SourceAvatarHint, ...] = field(
+        default=(),
+        repr=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)

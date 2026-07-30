@@ -4950,6 +4950,24 @@ class ServiceStore:
         ).fetchone()
         return self._source(row)
 
+    def list_workspace_sources(
+        self,
+        *,
+        workspace_id: str,
+        include_disabled: bool = False,
+    ) -> list[dict[str, Any]]:
+        rows = self.connect().execute(
+            """
+            SELECT *
+            FROM source_catalog
+            WHERE workspace_id = ?
+              AND (? = 1 OR enabled = 1)
+            ORDER BY display_name, id
+            """,
+            (workspace_id, 1 if include_disabled else 0),
+        ).fetchall()
+        return [source for row in rows if (source := self._source(row))]
+
     def list_visible_sources(
         self,
         user: dict[str, Any],

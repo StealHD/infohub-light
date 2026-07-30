@@ -34,6 +34,7 @@ from .source_acquisition import (
 )
 from .usage_attempt_meter import UsageAttemptMeter
 from .media_cache import MediaCacheService
+from .source_avatar import SourceAvatarService
 from .apify_pool_runtime import (
     apify_coordinator_for_workspace,
     reconcile_all_apify_pools_sync,
@@ -78,6 +79,63 @@ def _cache_run_media(
         logger.warning(
             "media cache failed job_id=%s; content finalization will continue",
             job.get("id"),
+        )
+
+
+def _cache_run_source_avatars(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+    result: Any,
+) -> None:
+    """Persist source-level avatar evidence without changing the Feed outcome."""
+
+    try:
+        refreshes = SourceAvatarService(
+            store,
+            data_dir=data_dir,
+        ).refresh_run_result(
+            workspace_id=str(job["workspace_id"]),
+            result=result,
+        )
+    except Exception:
+        if store.connect().in_transaction:
+            store.connect().rollback()
+        logger.warning(
+            "source avatar cache failed job_id=%s; feed finalization will continue",
+            job.get("id"),
+        )
+        return
+    for refresh in refreshes:
+        event_outcome = {
+            "stored": "succeeded",
+            "unchanged": "skipped",
+            "candidate_missing": "skipped",
+            "kept_previous": "partial",
+            "failed": "failed",
+            "identity_mismatch": "denied",
+        }.get(refresh.status, "unavailable")
+        safe_emit_operation_event(
+            category="source",
+            action="avatar_cache",
+            outcome=event_outcome,
+            level=(
+                "warning"
+                if refresh.status
+                in {"kept_previous", "failed", "identity_mismatch"}
+                else "info"
+            ),
+            workspace_id=str(job["workspace_id"]),
+            subject_user_id=str(job["user_id"]),
+            job_id=str(job["id"]),
+            source_id=refresh.source_id,
+            error_code=(
+                refresh.status
+                if refresh.status
+                not in {"stored", "unchanged", "candidate_missing"}
+                else None
+            ),
         )
 
 
@@ -331,6 +389,12 @@ def _run_user_feed_refresh(
         )
     finally:
         analysis_cache.close()
+    _cache_run_source_avatars(
+        job,
+        data_dir=data_dir,
+        store=store,
+        result=run_result,
+    )
     if run_result.status == "failed":
         raise FeedRunFailed(run_result)
     _cache_run_media(

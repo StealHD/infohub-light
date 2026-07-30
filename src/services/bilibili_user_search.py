@@ -10,6 +10,7 @@ import unicodedata
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Callable
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -86,6 +87,28 @@ def _positive_uid(value: Any) -> str | None:
     ):
         return None
     return candidate
+
+
+def _avatar_url(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if raw.startswith("//"):
+        raw = f"https:{raw}"
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        return None
+    hostname = (parsed.hostname or "").lower()
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not hostname.endswith(".hdslb.com")
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in {None, 443}
+        or not parsed.path.startswith("/bfs/face/")
+    ):
+        return None
+    return urlunsplit(("https", hostname, parsed.path, parsed.query, ""))
 
 
 class BilibiliUserSearchService:
@@ -206,6 +229,7 @@ class BilibiliUserSearchService:
                     "name": name,
                     "profile_url": f"https://space.bilibili.com/{uid}",
                     "exact_name_match": name.casefold() == normalized_query,
+                    "_avatar_url": _avatar_url(row.get("upic")),
                 }
             )
 
@@ -246,27 +270,13 @@ class BilibiliUserSearchService:
             "error_code": None,
         }
 
-    def search(self, *, query: str, limit: int = 5) -> dict[str, Any]:
-        normalized_query = _normalize_query(query)
-        if isinstance(limit, bool) or not isinstance(limit, int):
-            raise ValueError("limit must be an integer")
-        if not 1 <= limit <= MAX_BILIBILI_CANDIDATES:
-            raise ValueError("limit is outside the supported range")
-
+    def _search_internal(self, normalized_query: str) -> dict[str, Any]:
         cache_key = normalized_query.casefold()
         now = self._clock()
         with self._cache_lock:
             cached = self._cache.get(cache_key)
             if cached is not None and cached.expires_at > now:
-                result = copy.deepcopy(cached.result)
-                cached_returned = int(result["returned"])
-                result["candidates"] = result["candidates"][:limit]
-                result["returned"] = len(result["candidates"])
-                result["truncated"] = bool(
-                    result["truncated"]
-                    or cached_returned > result["returned"]
-                )
-                return result
+                return copy.deepcopy(cached.result)
 
         result = self._request(normalized_query, MAX_BILIBILI_CANDIDATES)
         ttl = 300.0 if result["availability"] != "unavailable" else 30.0
@@ -275,10 +285,45 @@ class BilibiliUserSearchService:
                 expires_at=now + ttl,
                 result=copy.deepcopy(result),
             )
-        fetched_returned = int(result["returned"])
-        result["candidates"] = result["candidates"][:limit]
-        result["returned"] = len(result["candidates"])
-        result["truncated"] = bool(
-            result["truncated"] or fetched_returned > result["returned"]
-        )
         return result
+
+    @staticmethod
+    def _public_result(result: dict[str, Any], limit: int) -> dict[str, Any]:
+        projected = copy.deepcopy(result)
+        fetched_returned = int(projected["returned"])
+        projected["candidates"] = projected["candidates"][:limit]
+        for candidate in projected["candidates"]:
+            if isinstance(candidate, dict):
+                candidate.pop("_avatar_url", None)
+        projected["returned"] = len(projected["candidates"])
+        projected["truncated"] = bool(
+            projected["truncated"] or fetched_returned > projected["returned"]
+        )
+        return projected
+
+    def search(self, *, query: str, limit: int = 5) -> dict[str, Any]:
+        normalized_query = _normalize_query(query)
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("limit must be an integer")
+        if not 1 <= limit <= MAX_BILIBILI_CANDIDATES:
+            raise ValueError("limit is outside the supported range")
+        return self._public_result(
+            self._search_internal(normalized_query),
+            limit,
+        )
+
+    def avatar_for_uid(self, *, query: str, uid: str) -> str | None:
+        """Return one internal face candidate only after exact UID matching."""
+
+        normalized_query = _normalize_query(query)
+        expected_uid = _positive_uid(uid)
+        if expected_uid is None:
+            raise ValueError("uid must be a positive Bilibili UID")
+        result = self._search_internal(normalized_query)
+        for candidate in result.get("candidates", []):
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("uid") == expected_uid
+            ):
+                return str(candidate.get("_avatar_url") or "") or None
+        return None

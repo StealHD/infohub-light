@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from copy import deepcopy
 from typing import Any
 
@@ -27,6 +28,11 @@ from .usage_attempt_meter import UsageAttemptMeter
 from .apify_pool_runtime import apify_coordinator_for_workspace
 from .apify_key_pool import apify_key_pool_enabled
 from .apify_actor_monitoring import build_apify_actor_route
+from .operation_log import safe_emit_operation_event
+from .source_avatar import SourceAvatarService
+
+
+logger = logging.getLogger(__name__)
 
 
 def _reset_sources_for_single_source(data: dict[str, Any]) -> dict[str, Any]:
@@ -240,6 +246,54 @@ def run_catalog_source_fetch(
         )
     finally:
         analysis_cache.close()
+    try:
+        avatar_refreshes = SourceAvatarService(
+            store,
+            data_dir=data_dir,
+        ).refresh_run_result(
+            workspace_id=str(job["workspace_id"]),
+            result=run_result,
+        )
+    except Exception:
+        if store.connect().in_transaction:
+            store.connect().rollback()
+        avatar_refreshes = []
+        logger.warning(
+            "source avatar cache failed job_id=%s; feed finalization will continue",
+            job.get("id"),
+        )
+    for refresh in avatar_refreshes:
+        safe_emit_operation_event(
+            category="source",
+            action="avatar_cache",
+            outcome=(
+                "succeeded"
+                if refresh.status == "stored"
+                else "skipped"
+                if refresh.status in {"unchanged", "candidate_missing"}
+                else "partial"
+                if refresh.status == "kept_previous"
+                else "denied"
+                if refresh.status == "identity_mismatch"
+                else "failed"
+            ),
+            level=(
+                "warning"
+                if refresh.status
+                in {"kept_previous", "failed", "identity_mismatch"}
+                else "info"
+            ),
+            workspace_id=str(job["workspace_id"]),
+            subject_user_id=str(job["user_id"]),
+            job_id=str(job["id"]),
+            source_id=refresh.source_id,
+            error_code=(
+                refresh.status
+                if refresh.status
+                not in {"stored", "unchanged", "candidate_missing"}
+                else None
+            ),
+        )
     if run_result.status == "failed":
         raise FeedRunFailed(run_result)
     from .media_cache import MediaCacheService

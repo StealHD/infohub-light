@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import datetime
 from typing import List, Optional
+from urllib.parse import quote
 import httpx
 
 from .base import BaseScraper
@@ -82,6 +83,11 @@ class GitHubScraper(BaseScraper):
             List[ContentItem]: Event content items
         """
         username = source.username or ""
+        self.observe_source_avatar(
+            source_id=source.source_id,
+            remote_url=f"https://github.com/{quote(username, safe='')}.png?size=128",
+            origin="github_user",
+        )
         url = f"{self.base_url}/users/{username}/events/public"
         items = []
 
@@ -196,6 +202,11 @@ class GitHubScraper(BaseScraper):
         """
         owner = source.owner or ""
         repo = source.repo or ""
+        self.observe_source_avatar(
+            source_id=source.source_id,
+            remote_url=f"https://github.com/{quote(owner, safe='')}.png?size=128",
+            origin="github_owner",
+        )
         url = f"{self.base_url}/repos/{owner}/{repo}/releases"
         items = []
 

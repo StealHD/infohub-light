@@ -23,6 +23,16 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-30',
+        title: '来源头像不再依赖新内容',
+        summary: '来源账号即使本次没有新条目，也可独立取得、验证并缓存头像；订阅卡、信息流和 Agent 上下文会统一使用当前版本。',
+        items: [
+          { title: '零条目也能保留头像', description: 'RSS Feed 和社交账号响应会在时间窗口筛选前提取来源头像，Worker 在保存 Feed 前独立缓存，不再依赖“保留最新内容”制造一条内容记录。' },
+          { title: 'B 站与免费来源有安全回退', description: 'B 站只接受与已保存 UID 精确匹配的公开搜索头像；GitHub、Reddit 和普通 RSS 可使用有界的免费账号信息或 favicon。回填不会调用 AI、通知、计划任务或付费 Actor。' },
+          { title: '所有入口显示当前头像', description: '来源库、订阅、信息卡和 Agent 上下文只展示登录保护的本地图片；旧信息流会在读取时换成当前头像，缺失或加载失败则显示平台标识或来源简称。' },
+        ],
+      },
+      {
+        date: '2026-07-30',
         title: '设置分区随滚动自然加载',
         summary: '设置页的全部分区会在顺着页面阅读时依次显示正文，不再只留下标题卡片或要求返回区域选择器。',
         items: [

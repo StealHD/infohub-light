@@ -6,6 +6,7 @@ from typing import Any, List
 import httpx
 
 from ..models import ContentItem
+from ..services.feed_run import SourceAvatarHint
 from ..services.response_schema import extract_response_schema, merge_response_schemas
 from ..services.source_acquisition import target_subscription_projection
 
@@ -39,6 +40,7 @@ class BaseScraper(ABC):
         self.client = http_client
         self.strict_errors = False
         self._upstream_response_schemas: list[dict[str, Any]] = []
+        self._source_avatar_hints: list[SourceAvatarHint] = []
 
     def observe_upstream_response(self, value: Any) -> None:
         """Retain only a bounded structural summary of a transient response."""
@@ -50,6 +52,39 @@ class BaseScraper(ABC):
         if not self._upstream_response_schemas:
             return None
         return merge_response_schemas(self._upstream_response_schemas)
+
+    def observe_source_avatar(
+        self,
+        *,
+        source_id: Any,
+        remote_url: Any,
+        origin: str,
+        kind: str = "image",
+    ) -> None:
+        """Record bounded source media independently of selected content items."""
+
+        normalized_source_id = str(source_id or "").strip()
+        normalized_url = str(remote_url or "").strip()
+        normalized_origin = str(origin or "").strip()
+        if (
+            not normalized_source_id
+            or not normalized_origin
+            or kind not in {"image", "page"}
+            or not normalized_url.startswith(("https://", "http://"))
+        ):
+            return
+        hint = SourceAvatarHint(
+            source_id=normalized_source_id,
+            remote_url=normalized_url,
+            origin=normalized_origin[:64],
+            kind=kind,
+        )
+        if hint not in self._source_avatar_hints:
+            self._source_avatar_hints.append(hint)
+
+    @property
+    def source_avatar_hints(self) -> tuple[SourceAvatarHint, ...]:
+        return tuple(self._source_avatar_hints)
 
     @abstractmethod
     async def fetch(self, since: datetime) -> List[ContentItem]:

@@ -25,6 +25,7 @@ import {
   type ChannelViewGroup,
   type HealthFilter,
 } from '../subscriptions/subscriptionModel'
+import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import { HeroSelect } from './HeroAdminControls'
 
 export type FetchLabel = '提交中' | '已排队' | '获取中' | '立即获取'
@@ -128,16 +129,14 @@ const formatUpdateTime = (value?: string | null) => {
     : formatCompactTime(value)
 }
 
-const sourceMark = (name: string) => {
-  const normalized = name.trim().replace(/^[@#]/, '')
-  return Array.from(normalized || '?').slice(0, 2).join('').toLocaleUpperCase()
-}
-
 function SourceIdentity({ source, detail }: { source: CatalogSource; detail: string }) {
   return <div className="flex min-w-0 items-center gap-3">
-    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent/10 type-label text-accent">
-      {sourceMark(source.display_name)}
-    </span>
+    <SourceAvatar
+      name={source.display_name}
+      avatarUrl={source.avatar_url}
+      platform={source.setup_type || source.type}
+      className="size-9 shrink-0 rounded-xl bg-accent/10 type-label text-accent"
+    />
     <span className="min-w-0">
       <span className="type-control block truncate text-foreground">{source.display_name}</span>
       <span className="type-meta mt-0.5 block truncate text-muted">{detail}</span>

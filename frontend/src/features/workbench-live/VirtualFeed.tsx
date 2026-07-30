@@ -2,9 +2,6 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, ty
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import {
-  AvatarFallback,
-  AvatarImage,
-  AvatarRoot,
   Button,
   Card,
   Icons,
@@ -17,6 +14,7 @@ import {
   topAnchoredTooltipProps,
 } from '../../design-system'
 import { relativeTime, safeExternalUrl } from '../feed/feedModel'
+import { SourceAvatar } from '../source-avatar/SourceAvatar'
 import { workbenchSourceLabels, type WorkbenchCardModel } from './workbenchModel'
 import { clampPendingNavigation, type PendingNavigation } from './workbenchNavigation'
 import { workbenchRefreshRequestEvent } from './workbenchRefresh'
@@ -189,10 +187,12 @@ function WorkbenchCard({
   </>
   const summaryContent = <>
     <span aria-label="来源信息" className="type-meta mb-2 flex min-w-0 items-center gap-2 text-muted">
-      <AvatarRoot className="size-[25px] shrink-0">
-        {card.sourceAvatar && <AvatarImage src={card.sourceAvatar} alt={card.source} />}
-        <AvatarFallback>{card.source.slice(0, 1).toUpperCase()}</AvatarFallback>
-      </AvatarRoot>
+      <SourceAvatar
+        name={card.source}
+        avatarUrl={card.sourceAvatar}
+        platform={card.platformLabel}
+        className="size-[25px] shrink-0"
+      />
       {sourceParts.map((part, index) => <Fragment key={part}>
         {index > 0 && <span aria-hidden="true">·</span>}
         <span className="truncate">{part}</span>

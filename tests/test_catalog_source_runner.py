@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from src.models import ContentItem, SourceType
-from src.services.feed_run import FeedRunResult, SourceOutcome
+from src.services.feed_run import FeedRunResult, SourceAvatarHint, SourceOutcome
 from src.services.job_queue import JobQueue
 from src.services.catalog_source_runner import (
     build_catalog_source_config_data,
@@ -238,6 +238,15 @@ def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
         monkeypatch,
     )
     run_index = 0
+    avatar_runs = []
+
+    class AvatarService:
+        def __init__(self, _store, *, data_dir):
+            assert data_dir == str(tmp_path)
+
+        def refresh_run_result(self, *, workspace_id, result):
+            avatar_runs.append((workspace_id, result))
+            return []
 
     class EmptyOrchestrator:
         def __init__(self, _config, _storage):
@@ -264,6 +273,13 @@ def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
                         analysis_mode="personal_only",
                         status="succeeded",
                         fetched_count=0,
+                        avatar_hints=(
+                            SourceAvatarHint(
+                                source_id=source_id,
+                                remote_url="https://example.com/avatar.png",
+                                origin="rss_feed_icon",
+                            ),
+                        ),
                     ),
                 ),
             )
@@ -271,6 +287,10 @@ def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
     monkeypatch.setattr(
         "src.services.catalog_source_runner.HorizonOrchestrator",
         EmptyOrchestrator,
+    )
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.SourceAvatarService",
+        AvatarService,
     )
 
     results = []
@@ -297,3 +317,6 @@ def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
     assert results[1]["new_item_count"] == 0
     assert results[1]["snapshot_created"] is False
     assert results[1]["snapshot_id"] == results[0]["snapshot_id"]
+    assert len(avatar_runs) == 2
+    assert all(workspace_id == workspace["id"] for workspace_id, _ in avatar_runs)
+    assert all(result.items == () for _, result in avatar_runs)

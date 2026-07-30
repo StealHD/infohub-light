@@ -63,6 +63,45 @@ def test_rss_default_does_not_backfill_items_before_window() -> None:
     assert items == []
 
 
+def test_rss_observes_feed_avatar_even_when_no_item_survives_window() -> None:
+    response = MagicMock()
+    response.text = """
+    <rss version="2.0"><channel>
+      <title>Source identity</title>
+      <link>https://example.com/source</link>
+      <image><url>/avatar.png</url><title>Source</title>
+        <link>https://example.com/source</link></image>
+      <item><guid>old</guid><title>Old</title>
+        <link>https://example.com/old</link>
+        <pubDate>Thu, 02 Jul 2026 09:00:00 GMT</pubDate>
+      </item>
+    </channel></rss>
+    """
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+    source = RSSSourceConfig(
+        name="Source identity",
+        url="https://example.com/feed.xml",
+        source_id="src_rss_avatar",
+        keep_latest_item=False,
+    )
+    scraper = RSSScraper([source], client)
+
+    items = asyncio.run(
+        scraper.fetch(datetime(2026, 7, 15, tzinfo=timezone.utc))
+    )
+
+    assert items == []
+    assert [
+        (hint.kind, hint.origin, hint.remote_url)
+        for hint in scraper.source_avatar_hints
+    ] == [
+        ("image", "rss_feed_icon", "https://example.com/avatar.png"),
+        ("page", "rss_feed_homepage", "https://example.com/source"),
+    ]
+
+
 def test_personal_rss_backfills_only_newest_dated_item_when_window_is_empty() -> None:
     items = _fetch_selection_feed(
         [

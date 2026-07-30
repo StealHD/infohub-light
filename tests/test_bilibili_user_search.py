@@ -110,6 +110,43 @@ def test_search_bootstraps_anonymous_cookie_and_resolves_one_exact_name():
     assert "videos" not in serialized
 
 
+def test_avatar_lookup_matches_uid_and_keeps_remote_url_out_of_public_result():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == BILIBILI_HOME_URL:
+            return httpx.Response(200)
+        return httpx.Response(
+            200,
+            json=_search_payload(
+                [
+                    {
+                        "mid": 39627524,
+                        "uname": "食贫道",
+                        "upic": "//i0.hdslb.com/bfs/face/avatar.jpg",
+                    },
+                    {
+                        "mid": 383578614,
+                        "uname": "超Carry的柴西",
+                        "upic": "https://evil.example/avatar.jpg",
+                    },
+                ]
+            ),
+        )
+
+    service = BilibiliUserSearchService(
+        transport=httpx.MockTransport(handler)
+    )
+
+    public = service.search(query="食贫道")
+
+    assert "hdslb" not in json.dumps(public)
+    assert service.avatar_for_uid(
+        query="食贫道",
+        uid="39627524",
+    ) == "https://i0.hdslb.com/bfs/face/avatar.jpg"
+    assert service.avatar_for_uid(query="食贫道", uid="383578614") is None
+    assert service.avatar_for_uid(query="食贫道", uid="1") is None
+
+
 def test_search_never_resolves_ambiguous_exact_names_and_honors_limit():
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == BILIBILI_HOME_URL:

@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 import httpx
 
 from src.models import ContentItem, SourceType
-from src.services.feed_run import FeedRunResult, RunIssue, SourceOutcome
+from src.services.feed_run import (
+    FeedRunResult,
+    RunIssue,
+    SourceAvatarHint,
+    SourceOutcome,
+)
 from src.services.job_eligibility import JobIneligibleError
 from src.services.job_queue import JobQueue
 from src.services.secret_store import SecretStore
@@ -1403,6 +1408,15 @@ def test_worker_all_sources_failed_does_not_create_snapshot(tmp_path, monkeypatc
         "blocked https://alice:pass@example.com/feed?token=failed-secret stack=Traceback-private",
         False,
     )
+    avatar_runs = []
+
+    class AvatarService:
+        def __init__(self, _store, *, data_dir):
+            assert data_dir == str(tmp_path)
+
+        def refresh_run_result(self, *, workspace_id, result):
+            avatar_runs.append((workspace_id, result))
+            return []
 
     class FakeOrchestrator:
         def __init__(self, _config, _storage):
@@ -1415,12 +1429,28 @@ def test_worker_all_sources_failed_does_not_create_snapshot(tmp_path, monkeypatc
                 started_at=datetime.now(timezone.utc).isoformat(),
                 finished_at=datetime.now(timezone.utc).isoformat(),
                 source_outcomes=(
-                    SourceOutcome("src_bad", None, "rss:bad", "full", "failed", 0, issue),
+                    SourceOutcome(
+                        "src_bad",
+                        None,
+                        "rss:bad",
+                        "full",
+                        "failed",
+                        0,
+                        issue,
+                        avatar_hints=(
+                            SourceAvatarHint(
+                                source_id="src_bad",
+                                remote_url="https://example.com/avatar.png",
+                                origin="rss_feed_icon",
+                            ),
+                        ),
+                    ),
                 ),
                 issues=(issue,),
             )
 
     monkeypatch.setattr("src.orchestrator.HorizonOrchestrator", FakeOrchestrator)
+    monkeypatch.setattr("src.services.worker.SourceAvatarService", AvatarService)
 
     result = run_worker_once(data_dir=str(tmp_path), worker_id="worker-failed")
 
@@ -1432,6 +1462,12 @@ def test_worker_all_sources_failed_does_not_create_snapshot(tmp_path, monkeypatc
     assert "new_item_count" not in result["result_json"]
     assert len(result["result_json"]["source_outcomes"]) == 1
     assert len(result["result_json"]["issues"]) == 1
+    assert len(avatar_runs) == 1
+    assert avatar_runs[0][0] == workspace["id"]
+    assert avatar_runs[0][1].items == ()
+    assert avatar_runs[0][1].source_outcomes[0].avatar_hints[0].origin == (
+        "rss_feed_icon"
+    )
     serialized = str(
         {
             "result": result["result_json"],

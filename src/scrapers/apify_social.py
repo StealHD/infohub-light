@@ -573,12 +573,77 @@ class ApifySocialScraper(BaseScraper):
     ) -> list[ContentItem]:
         items: list[ContentItem] = []
         for row in candidate_rows:
+            self._observe_candidate_avatar(row, sub)
             parsed = self._parse_row(row, sub, since)
             if parsed:
                 items.append(parsed)
             if len(items) >= sub.fetch_limit:
                 break
         return items
+
+    def _observe_candidate_avatar(
+        self,
+        row: dict[str, Any],
+        sub: ApifySocialSubscriptionConfig,
+    ) -> None:
+        """Capture profile identity before publication-window filtering."""
+
+        if not sub.source_id or sub.kind != "profile":
+            return
+        if sub.platform == ApifySocialPlatform.X:
+            user_value = row.get("user") or row.get("author") or {}
+            user = user_value if isinstance(user_value, dict) else {}
+            observed_handle = str(
+                user.get("screen_name")
+                or user.get("username")
+                or user.get("userName")
+                or user.get("handle")
+                or row.get("user_screen_name")
+                or row.get("user_username")
+                or row.get("screen_name")
+                or row.get("handle")
+                or row.get("username")
+                or ""
+            ).strip().lstrip("@").casefold()
+            expected_handle = self._x_handle(sub.target).casefold()
+            if observed_handle and observed_handle != expected_handle:
+                return
+            self.observe_source_avatar(
+                source_id=sub.source_id,
+                remote_url=(
+                    user.get("profilePicture")
+                    or user.get("profileImageUrl")
+                    or user.get("profile_image_url_https")
+                    or row.get("user_profile_image_url")
+                    or row.get("profile_image_url_https")
+                ),
+                origin="apify_x_profile",
+            )
+            return
+        if sub.platform == ApifySocialPlatform.INSTAGRAM:
+            owner = row.get("owner") if isinstance(row.get("owner"), dict) else {}
+            observed_username = str(
+                row.get("ownerUsername")
+                or row.get("username")
+                or owner.get("username")
+                or ""
+            ).strip().lstrip("@").casefold()
+            expected_username = self._instagram_author_from_target(
+                sub.target
+            ).casefold()
+            if observed_username and observed_username != expected_username:
+                return
+            self.observe_source_avatar(
+                source_id=sub.source_id,
+                remote_url=(
+                    row.get("profilePicUrl")
+                    or row.get("profilePicture")
+                    or row.get("profile_pic_url")
+                    or owner.get("profilePicUrl")
+                    or owner.get("profilePicture")
+                ),
+                origin="apify_instagram_profile",
+            )
 
     def _token_env_names(self, token_env: Optional[str] = None) -> list[str]:
         if token_env:
@@ -729,6 +794,8 @@ class ApifySocialScraper(BaseScraper):
             user.get("profilePicture")
             or user.get("profileImageUrl")
             or user.get("profile_image_url_https")
+            or row.get("user_profile_image_url")
+            or row.get("profile_image_url_https")
             or ""
         ).strip()
         media = self._x_media_inventory(row)
@@ -829,6 +896,7 @@ class ApifySocialScraper(BaseScraper):
         avatar_url = str(
             row.get("profilePicUrl")
             or row.get("profilePicture")
+            or row.get("profile_pic_url")
             or owner.get("profilePicUrl")
             or owner.get("profilePicture")
             or ""

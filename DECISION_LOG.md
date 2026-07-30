@@ -828,3 +828,12 @@
 - 决策内容：保留 D096 的“首次激活后挂载、仅当前分区启用查询”边界，但不再依赖先发生输入事件、再等待 IntersectionObserver 恰好重新回调。设置滚动容器直接处理 scroll、wheel、touch 与键盘方向；相邻分区卡片进入视口时每次只激活一个，折叠卡片暂时让页面无可滚动空间时，向下滚动意图也会先激活下一个可见分区。被动激活继续 replace hash，显式 hash、目录和移动端 Select 仍可快速跳转；显式深链造成的程序化滚动和布局变化不视为用户滚动，直到后续真实滚轮、触摸、滚动键或滚动条操作才恢复相邻激活。
 - 原因：七个分区只有当前 hash 的正文会挂载；折叠后的多个标题卡可能同时落在视口内，而原监听只把输入标记为“允许追踪”，不会立即重新计算已相交卡片，导致消息通知、助手与 AI、已忽略内容、获取与主题、存储与归档和密钥都可能只显示标题说明。用户需要沿页面自然阅读，而不是返回顶部选择分区或点击标题。
 - 兼容/边界：不恢复全设置页 eager 请求，不增加卡片点击合同，不改变 API、权限、缓存、草稿、轮询、额度或保存语义；每次布局稳定前最多激活一个相邻分区，避免一次滚动启动全部管理查询。无数据库迁移，不触发真实来源、AI、通知、Webhook 或付费调用。
+
+### D098 来源头像与内容条目选择解耦
+
+- 决策日期：2026-07-30
+- 当前状态：本地实现与定向回归完成；免费生产回填和 VPS 发布待验证
+- 决策内容：scraper 在内容时间窗口与 `keep_latest_item` 选择之前记录内部 `SourceAvatarHint`，Worker 和单源 runner 在 Feed finalization 之前独立缓存来源头像；最终 0 条内容、失败候选或旧 snapshot 均不再决定头像是否存在。所有内容集合读取时按 `source_id` 投影当前 ready `/api/media/*`，前端的订阅、Feed 与 Agent 上下文共用头像组件，并以平台标识或来源简称稳定降级。
+- 身份与成本边界：Bilibili 回退只能从固定官方搜索中选择与 catalog UID 精确相等的 `upic`；GitHub 从已验证 owner/user 构造候选，Reddit about 必须匹配目标 identity，通用 RSS 只做 512 KB Feed/主页元数据和 favicon 探测。来源头像最大 2 MiB、复验间隔 24 小时，候选失败保留旧 ready 版本。Apify profile 只能复用本次已经付费取得的响应，不为头像启动附加 Actor；一次性回填默认 dry-run 且 apply 必须显式 `--free-only`。
+- 原因：本地 Bilibili 头像来自 7 月 21 日旧 RSSHub Feed image 与当时保留的内容条目，VPS 后建来源没有迁移该 asset，且 `keep_latest_item=false` 时即使 Feed 带 image 也可能选中 0 条；RSSHub 的 Bilibili `-352`、503 或超时又使条目耦合路径更不稳定。运行挂载和 `/api/media` 权限链本身正常，X/Instagram 已缓存头像也证明故障不在静态文件服务。
+- 兼容/影响：不修改 source identity、`keep_latest_item`、Feed snapshot 建立条件、Source Health、通知、AI、scheduler 或付费调用合同；公开 API 不暴露上游头像 URL，只沿用 `avatar_url` 的本地媒体形态。无需数据库迁移，回退代码后既有 ready 头像与内容仍可读取。

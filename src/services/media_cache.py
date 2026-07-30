@@ -19,11 +19,14 @@ from .network_policy import fetch_public_http
 
 MAX_IMAGES_PER_ITEM = 6
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_SOURCE_AVATAR_BYTES = 2 * 1024 * 1024
 INSTAGRAM_MEDIA_HOST_SUFFIXES = ("cdninstagram.com", "fbcdn.net")
 X_MEDIA_HOST_SUFFIXES = ("pbs.twimg.com",)
+GITHUB_MEDIA_HOST_SUFFIXES = ("github.com", "githubusercontent.com")
 TRUSTED_MEDIA_HOST_SUFFIXES = (
     *INSTAGRAM_MEDIA_HOST_SUFFIXES,
     *X_MEDIA_HOST_SUFFIXES,
+    *GITHUB_MEDIA_HOST_SUFFIXES,
 )
 SOURCE_AVATAR_RECHECK_AFTER = timedelta(hours=24)
 
@@ -83,7 +86,11 @@ def _remote_identity(url: str) -> str:
     return urlunsplit((parsed.scheme.lower(), authority, parsed.path, "", ""))
 
 
-def _detected_image_type(data: bytes) -> tuple[str, str] | None:
+def _detected_image_type(
+    data: bytes,
+    *,
+    allow_icon: bool = False,
+) -> tuple[str, str] | None:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png", ".png"
     if data.startswith(b"\xff\xd8\xff"):
@@ -92,6 +99,8 @@ def _detected_image_type(data: bytes) -> tuple[str, str] | None:
         return "image/gif", ".gif"
     if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
         return "image/webp", ".webp"
+    if allow_icon and data.startswith(b"\x00\x00\x01\x00"):
+        return "image/x-icon", ".ico"
     return None
 
 
@@ -108,7 +117,7 @@ class MediaCacheService:
         self.store = store
         self.data_dir = Path(data_dir)
         self.media_dir = self.data_dir / "media"
-        self._fetch_image = fetch_image or self._download
+        self._fetch_image = fetch_image
 
     def cache_items(
         self,
@@ -120,6 +129,67 @@ class MediaCacheService:
         for item in items:
             self._cache_item(workspace_id=workspace_id, user_id=user_id, item=item)
         self.store.connect().commit()
+
+    def cache_source_avatar_candidates(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        remote_urls: list[str] | tuple[str, ...],
+    ) -> dict[str, str]:
+        """Cache ordered source-level candidates without requiring a content item."""
+
+        source = self.store.get_source(source_id)
+        if source is None or str(source.get("workspace_id") or "") != workspace_id:
+            return {"status": "identity_mismatch", "asset_id": ""}
+        candidates = self._unique_urls(list(remote_urls))
+        current = self.avatar_for_source(
+            workspace_id=workspace_id,
+            source_id=source_id,
+        )
+        if not candidates:
+            return {
+                "status": "unchanged" if current else "candidate_missing",
+                "asset_id": str((current or {}).get("id") or ""),
+            }
+        for remote_url in candidates:
+            previous = current
+            previous_identity = _remote_identity(
+                str((previous or {}).get("remote_url") or "")
+            )
+            candidate_identity = _remote_identity(remote_url)
+            previous_updated_at = str((previous or {}).get("updated_at") or "")
+            refreshed = self._refresh_source_avatar(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                remote_url=remote_url,
+                alt=str(source.get("display_name") or "来源头像"),
+                visibility_scope=str(source.get("scope") or "private"),
+                current=previous,
+            )
+            if refreshed is None:
+                continue
+            current = refreshed
+            refreshed_id = str(refreshed.get("id") or "")
+            if previous is None or refreshed_id != str(previous.get("id") or ""):
+                self.store.connect().commit()
+                return {"status": "stored", "asset_id": refreshed_id}
+            refreshed_updated_at = str(refreshed.get("updated_at") or "")
+            if (
+                candidate_identity
+                and candidate_identity == previous_identity
+                and (
+                    self._avatar_is_recent(previous)
+                    or refreshed_updated_at != previous_updated_at
+                )
+            ):
+                self.store.connect().commit()
+                return {"status": "unchanged", "asset_id": refreshed_id}
+        self.store.connect().commit()
+        return {
+            "status": "kept_previous" if current else "failed",
+            "asset_id": str((current or {}).get("id") or ""),
+        }
 
     def _cache_item(self, *, workspace_id: str, user_id: str, item: ContentItem) -> None:
         metadata = item.metadata
@@ -227,7 +297,11 @@ class MediaCacheService:
         ):
             return current
 
-        prepared = self._prepare_image(remote_url)
+        prepared = self._prepare_image(
+            remote_url,
+            max_bytes=MAX_SOURCE_AVATAR_BYTES,
+            allow_icon=True,
+        )
         if prepared is None:
             return current
         data, mime_type, suffix, checksum = prepared
@@ -313,14 +387,26 @@ class MediaCacheService:
             checksum=checksum,
         )
 
-    def _prepare_image(self, remote_url: str) -> tuple[bytes, str, str, str] | None:
+    def _prepare_image(
+        self,
+        remote_url: str,
+        *,
+        max_bytes: int = MAX_IMAGE_BYTES,
+        allow_icon: bool = False,
+    ) -> tuple[bytes, str, str, str] | None:
         try:
-            data, _declared_mime = self._fetch_image(remote_url)
+            if self._fetch_image is None:
+                data, _declared_mime = self._download(
+                    remote_url,
+                    max_bytes=max_bytes,
+                )
+            else:
+                data, _declared_mime = self._fetch_image(remote_url)
         except Exception:
             return None
-        if not data or len(data) > MAX_IMAGE_BYTES:
+        if not data or len(data) > max_bytes:
             return None
-        detected = _detected_image_type(data)
+        detected = _detected_image_type(data, allow_icon=allow_icon)
         if detected is None:
             return None
         mime_type, suffix = detected
@@ -422,13 +508,18 @@ class MediaCacheService:
             if path.is_relative_to(media_root):
                 path.unlink(missing_ok=True)
 
-    def _download(self, url: str) -> tuple[bytes, str]:
+    def _download(
+        self,
+        url: str,
+        *,
+        max_bytes: int = MAX_IMAGE_BYTES,
+    ) -> tuple[bytes, str]:
         response = asyncio.run(
             fetch_public_http(
                 url,
                 headers={"Accept": "image/*"},
                 timeout=15.0,
-                max_response_bytes=MAX_IMAGE_BYTES,
+                max_response_bytes=max_bytes,
                 synthetic_dns_host_suffixes=TRUSTED_MEDIA_HOST_SUFFIXES,
             )
         )
@@ -453,6 +544,39 @@ class MediaCacheService:
             (workspace_id, source_id),
         ).fetchone()
         return dict(row) if row is not None else None
+
+    def avatar_urls_for_sources(
+        self,
+        *,
+        workspace_id: str,
+        source_ids: set[str],
+    ) -> dict[str, str]:
+        """Return current protected avatar URLs without per-item queries."""
+
+        normalized = sorted(
+            {str(source_id).strip() for source_id in source_ids if source_id}
+        )
+        if not normalized:
+            return {}
+        placeholders = ",".join("?" for _value in normalized)
+        rows = self.store.connect().execute(
+            f"""
+            SELECT id, source_id
+            FROM media_assets
+            WHERE workspace_id = ?
+              AND source_id IN ({placeholders})
+              AND asset_kind = 'source_avatar'
+              AND status = 'ready'
+            ORDER BY source_id, created_at DESC, id DESC
+            """,
+            (workspace_id, *normalized),
+        ).fetchall()
+        urls: dict[str, str] = {}
+        for row in rows:
+            source_id = str(row["source_id"] or "")
+            if source_id and source_id not in urls:
+                urls[source_id] = f"/api/media/{row['id']}"
+        return urls
 
     def invalidate_source_avatar(
         self,
