@@ -48,3 +48,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-28",
+  "result": "确认发布与精确本地回滚点后，将已验证的项目历史归档分支纯快进合入本地 main。",
+  "status": "completed",
+  "task_id": "2026-07-28-project-history-main-integration",
+  "unresolved": [],
+  "validation": [
+    "remote v1.8.2 annotated tag resolved to the published release commit",
+    "local pre-integration protection tag resolved to the exact previous main commit",
+    "git merge --ff-only completed without conflicts",
+    "python scripts/test_gate.py run --mode full",
+    "final main revision container readiness and health verification"
+  ]
+}
+```

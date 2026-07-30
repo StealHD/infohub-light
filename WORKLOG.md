@@ -7,24 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-07-28",
-  "result": "确认发布与精确本地回滚点后，将已验证的项目历史归档分支纯快进合入本地 main。",
-  "status": "completed",
-  "task_id": "2026-07-28-project-history-main-integration",
-  "unresolved": [],
-  "validation": [
-    "remote v1.8.2 annotated tag resolved to the published release commit",
-    "local pre-integration protection tag resolved to the exact previous main commit",
-    "git merge --ff-only completed without conflicts",
-    "python scripts/test_gate.py run --mode full",
-    "final main revision container readiness and health verification"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "architecture",
     "decisions",
@@ -431,6 +413,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "API/Webhook/Worker/migration/SecretStore/queue/schedule regressions: 319 passed",
     "merge conflict resolutions preserve both branch histories with no unmerged entries or conflict markers",
     "pyproject.toml and uv.lock remain at 2.1.0"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "使用仓库 up-latest 固定流程将本地 main 的七类 Webhook 版本切换到 canonical 8080 runtime；显式完成 schema v14 备份迁移，并仅重建 API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-07-30-local-main-webhook-rebuild",
+  "unresolved": [
+    "未触发真实 Webhook；3 个已启用单源计划保持原配置，scheduler 继续停止"
+  ],
+  "validation": [
+    "preflight found zero active jobs, due schedules, and pending/sending notification deliveries",
+    "v14 backup is mode 0600; schema marker present; integrity_check ok and foreign-key findings zero",
+    "scripts/up-latest.sh completed with API and Worker healthy and worker_status ready",
+    "live revision matched target main and served HeroSettings chunk contained the Webhook receiver UI"
   ]
 }
 ```
