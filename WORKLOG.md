@@ -28,6 +28,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-30",
+  "result": "在独立任务分支新增 Telegram Bot API 低层传输：固定公共 HTTPS 端点、纯文本与关闭链接预览、4096 字符上限、目标 ACK 校验，以及不会自动重放的安全结果未知语义。",
+  "status": "completed",
+  "task_id": "2026-07-30-telegram-notification-transport-core",
+  "unresolved": [
+    "尚未合入多渠道通知集成分支；未使用真实 Bot Token、Chat ID 或执行真实 Telegram 外呼"
+  ],
+  "validation": [
+    "Telegram transport unit tests: 36 passed",
+    "test impact map JSON validation passed",
+    "git diff --check passed"
+  ]
+}
+```
+
 
 ```json
 {

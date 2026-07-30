@@ -312,6 +312,7 @@
       "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_notification_email_transport.py",
+      "tests/test_notification_telegram_transport.py",
       "tests/test_preferred_source_notifications.py",
       "tests/test_email.py",
       "tests/test_logging_utils.py",
@@ -335,6 +336,7 @@
       "tests/test_worker.py",
       "tests/test_content_repair_v5.py",
       "tests/test_notification_email_transport.py",
+      "tests/test_notification_telegram_transport.py",
       "tests/test_preferred_source_notifications.py"
     ],
     "python_feed": [
