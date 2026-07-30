@@ -10,8 +10,15 @@ import scripts.migrate_notification_channels_v15 as migration_module
 from scripts.migrate_notification_channels_v15 import (
     migrate_notification_channels_v15,
 )
+from scripts.migrate_webhook_providers_v14 import (
+    migrate_webhook_providers_v14,
+)
 from src.api.server import create_app
-from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
+from src.storage.service_store import (
+    DEFAULT_WORKSPACE_ID,
+    ServiceStore,
+    WEBHOOK_PROVIDER_TRIGGER_NAMES,
+)
 
 
 NOW = "2026-07-30T00:00:00+00:00"
@@ -238,6 +245,395 @@ def _create_v14_fixture(data_dir) -> tuple[str, str, str]:
     return str(user["id"]), str(subscription["id"]), source_id
 
 
+def _downgrade_notification_schema_to_v13(data_dir) -> None:
+    """Recreate the notification tables exactly as v13 stored them."""
+
+    connection = sqlite3.connect(data_dir / "service.db")
+    try:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("BEGIN IMMEDIATE")
+        for trigger in WEBHOOK_PROVIDER_TRIGGER_NAMES:
+            connection.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+        for table in (
+            "user_notification_channels",
+            "workspace_telegram_transports",
+            "apify_actor_alert_channels",
+        ):
+            connection.execute(f"DROP TABLE IF EXISTS {table}")
+
+        connection.execute(
+            """
+            ALTER TABLE user_notification_settings
+            RENAME TO user_notification_settings_newer
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE user_notification_settings (
+                user_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0
+                    CHECK(enabled IN (0, 1)),
+                channel TEXT NOT NULL DEFAULT 'webhook'
+                    CHECK(channel IN ('email', 'webhook')),
+                email_address TEXT,
+                webhook_env_name TEXT,
+                webhook_secret_digest TEXT,
+                notification_enabled_at TEXT,
+                notification_generation INTEGER NOT NULL DEFAULT 0,
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN (
+                        'sent', 'failed'
+                    )),
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id)
+                    REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO user_notification_settings (
+                user_id, workspace_id, enabled, channel, email_address,
+                webhook_env_name, webhook_secret_digest,
+                notification_enabled_at, notification_generation,
+                last_test_status, last_test_attempted_at, last_tested_at,
+                last_test_error_code, created_at, updated_at
+            )
+            SELECT
+                user_id, workspace_id, enabled, channel, email_address,
+                webhook_env_name, webhook_secret_digest,
+                notification_enabled_at, notification_generation,
+                last_test_status, last_test_attempted_at, last_tested_at,
+                last_test_error_code, created_at, updated_at
+            FROM user_notification_settings_newer
+            """
+        )
+        connection.execute(
+            "DROP TABLE user_notification_settings_newer"
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_user_notification_settings_workspace
+            ON user_notification_settings(workspace_id, user_id)
+            """
+        )
+
+        connection.execute(
+            """
+            ALTER TABLE apify_actor_alert_settings
+            RENAME TO apify_actor_alert_settings_newer
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE apify_actor_alert_settings (
+                workspace_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0
+                    CHECK(enabled IN (0, 1)),
+                channel TEXT NOT NULL DEFAULT 'webhook'
+                    CHECK(channel IN ('email', 'webhook')),
+                events_json TEXT NOT NULL DEFAULT '[]',
+                email_address TEXT,
+                webhook_env_name TEXT,
+                webhook_secret_digest TEXT,
+                generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(generation >= 1),
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN (
+                        'sent', 'failed'
+                    )),
+                last_test_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO apify_actor_alert_settings (
+                workspace_id, enabled, channel, events_json, email_address,
+                webhook_env_name, webhook_secret_digest, generation,
+                last_test_status, last_test_generation,
+                last_test_attempted_at, last_tested_at,
+                last_test_error_code, created_at, updated_at
+            )
+            SELECT
+                workspace_id, enabled, channel, events_json, email_address,
+                webhook_env_name, webhook_secret_digest, generation,
+                last_test_status, last_test_generation,
+                last_test_attempted_at, last_tested_at,
+                last_test_error_code, created_at, updated_at
+            FROM apify_actor_alert_settings_newer
+            """
+        )
+        connection.execute(
+            "DROP TABLE apify_actor_alert_settings_newer"
+        )
+
+        connection.execute(
+            """
+            ALTER TABLE preferred_source_notification_deliveries
+            RENAME TO preferred_source_notification_deliveries_newer
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE preferred_source_notification_deliveries (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                subscription_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                snapshot_id TEXT NOT NULL,
+                job_id TEXT NOT NULL,
+                article_id TEXT NOT NULL,
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook')),
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN (
+                        'pending', 'sending', 'succeeded', 'failed'
+                    )),
+                attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+                account_notification_generation INTEGER NOT NULL DEFAULT 0,
+                subscription_notification_generation INTEGER
+                    NOT NULL DEFAULT 0,
+                error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                sent_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(subscription_id, article_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id)
+                    REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(subscription_id)
+                    REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+                FOREIGN KEY(source_id)
+                    REFERENCES source_catalog(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO preferred_source_notification_deliveries (
+                id, workspace_id, user_id, subscription_id, source_id,
+                snapshot_id, job_id, article_id, channel, payload_json,
+                status, attempts, account_notification_generation,
+                subscription_notification_generation, error_code,
+                created_at, started_at, sent_at, updated_at
+            )
+            SELECT
+                id, workspace_id, user_id, subscription_id, source_id,
+                snapshot_id, job_id, article_id, channel, payload_json,
+                status, attempts, account_notification_generation,
+                subscription_notification_generation, error_code,
+                created_at, started_at, sent_at, updated_at
+            FROM preferred_source_notification_deliveries_newer
+            """
+        )
+        connection.execute(
+            "DROP TABLE preferred_source_notification_deliveries_newer"
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_preferred_source_notifications_pending
+            ON preferred_source_notification_deliveries(
+                status, created_at, id
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_preferred_source_notifications_job
+            ON preferred_source_notification_deliveries(
+                job_id, status, created_at
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            ALTER TABLE apify_actor_alert_deliveries
+            RENAME TO apify_actor_alert_deliveries_newer
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE apify_actor_alert_deliveries (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                incident_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook')),
+                settings_generation INTEGER NOT NULL
+                    CHECK(settings_generation >= 1),
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL
+                    CHECK(status IN (
+                        'pending', 'sending', 'succeeded', 'failed'
+                    )),
+                attempts INTEGER NOT NULL DEFAULT 0
+                    CHECK(attempts BETWEEN 0 AND 3),
+                retry_at TEXT,
+                error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                sent_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(incident_id, event_type),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(incident_id)
+                    REFERENCES apify_actor_alert_incidents(id)
+                    ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO apify_actor_alert_deliveries (
+                id, workspace_id, incident_id, event_type, channel,
+                settings_generation, payload_json, status, attempts,
+                retry_at, error_code, created_at, started_at, sent_at,
+                updated_at
+            )
+            SELECT
+                id, workspace_id, incident_id, event_type, channel,
+                settings_generation, payload_json, status, attempts,
+                retry_at, error_code, created_at, started_at, sent_at,
+                updated_at
+            FROM apify_actor_alert_deliveries_newer
+            """
+        )
+        connection.execute(
+            "DROP TABLE apify_actor_alert_deliveries_newer"
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_apify_actor_alert_delivery_due
+            ON apify_actor_alert_deliveries(status, retry_at, created_at)
+            """
+        )
+
+        connection.execute(
+            "DELETE FROM schema_migrations WHERE version IN (14, 15)"
+        )
+        assert connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 13"
+        ).fetchone()
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
+        assert connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall() == []
+    finally:
+        connection.close()
+
+
+def _replace_delivery_constraint_with_partial_index(data_dir) -> None:
+    connection = sqlite3.connect(data_dir / "service.db")
+    try:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        table_sql = str(
+            connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table'
+                  AND name = 'preferred_source_notification_deliveries'
+                """
+            ).fetchone()[0]
+        )
+        unique_clause = (
+            "UNIQUE(subscription_id, article_id, channel),"
+        )
+        assert unique_clause in table_sql
+        table_header = next(
+            header
+            for header in (
+                (
+                    "CREATE TABLE "
+                    '"preferred_source_notification_deliveries"'
+                ),
+                (
+                    "CREATE TABLE "
+                    "preferred_source_notification_deliveries"
+                ),
+            )
+            if header in table_sql
+        )
+        replacement_sql = table_sql.replace(
+            table_header,
+            (
+                "CREATE TABLE "
+                "preferred_source_notification_deliveries_partial"
+            ),
+            1,
+        ).replace(unique_clause, "", 1)
+        connection.execute(replacement_sql)
+        connection.execute(
+            """
+            INSERT INTO preferred_source_notification_deliveries_partial
+            SELECT * FROM preferred_source_notification_deliveries
+            """
+        )
+        connection.execute(
+            "DROP TABLE preferred_source_notification_deliveries"
+        )
+        connection.execute(
+            """
+            ALTER TABLE preferred_source_notification_deliveries_partial
+            RENAME TO preferred_source_notification_deliveries
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX idx_preferred_delivery_partial_unique
+            ON preferred_source_notification_deliveries(
+                subscription_id, article_id, channel
+            )
+            WHERE channel = 'email'
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_preferred_source_notifications_pending
+            ON preferred_source_notification_deliveries(
+                status, created_at, id
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_preferred_source_notifications_job
+            ON preferred_source_notification_deliveries(
+                job_id, status, created_at
+            )
+            """
+        )
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
+        assert connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall() == []
+    finally:
+        connection.close()
+
+
 def test_v15_dry_run_does_not_create_database(tmp_path) -> None:
     result = migrate_notification_channels_v15(
         data_dir=tmp_path / "data",
@@ -403,6 +799,103 @@ def test_v15_preserves_settings_and_history_and_installs_constraints(
     assert repeated["schema_ready"] is True
 
 
+def test_v13_v14_v15_chain_maps_columns_by_name(
+    tmp_path,
+) -> None:
+    data_dir = tmp_path / "data"
+    user_id, _subscription_id, _source_id = _create_v14_fixture(
+        data_dir
+    )
+    _downgrade_notification_schema_to_v13(data_dir)
+
+    before = sqlite3.connect(data_dir / "service.db")
+    try:
+        v13_columns = [
+            str(row[1])
+            for row in before.execute(
+                "PRAGMA table_info(user_notification_settings)"
+            ).fetchall()
+        ]
+        assert "webhook_provider" not in v13_columns
+        original_timestamps = before.execute(
+            """
+            SELECT created_at, updated_at
+            FROM user_notification_settings
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        assert original_timestamps is not None
+    finally:
+        before.close()
+
+    v14_result = migrate_webhook_providers_v14(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "backups-v14",
+        apply=True,
+    )
+    assert v14_result["applied"] is True
+    after_v14 = sqlite3.connect(data_dir / "service.db")
+    try:
+        v14_user_columns = [
+            str(row[1])
+            for row in after_v14.execute(
+                "PRAGMA table_info(user_notification_settings)"
+            ).fetchall()
+        ]
+        v14_apify_columns = [
+            str(row[1])
+            for row in after_v14.execute(
+                "PRAGMA table_info(apify_actor_alert_settings)"
+            ).fetchall()
+        ]
+        appended_columns = [
+            "webhook_provider",
+            "webhook_signing_env_name",
+            "webhook_signing_secret_digest",
+        ]
+        assert v14_user_columns[-3:] == appended_columns
+        assert v14_apify_columns[-3:] == appended_columns
+        assert v14_user_columns.index("created_at") < (
+            v14_user_columns.index("webhook_provider")
+        )
+    finally:
+        after_v14.close()
+
+    v15_result = migrate_notification_channels_v15(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "backups-v15",
+        apply=True,
+    )
+    assert v15_result["applied"] is True
+    assert v15_result["integrity_check"] == "ok"
+    migrated = sqlite3.connect(data_dir / "service.db")
+    try:
+        migrated_row = migrated.execute(
+            """
+            SELECT
+                email_address, webhook_env_name, webhook_secret_digest,
+                webhook_provider, created_at, updated_at
+            FROM user_notification_settings
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        assert migrated_row == (
+            "notify@example.invalid",
+            "HORIZON_TEST_WEBHOOK",
+            "a" * 64,
+            "legacy_auto",
+            original_timestamps[0],
+            original_timestamps[1],
+        )
+        assert migrated.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall() == []
+    finally:
+        migrated.close()
+
+
 def test_v15_requires_v14_and_stopped_workers(tmp_path) -> None:
     missing_v14_dir = tmp_path / "missing-v14"
     store = ServiceStore(missing_v14_dir)
@@ -473,6 +966,54 @@ def test_v15_marker_with_missing_constraints_is_not_treated_as_complete(
             apply=True,
         )
     assert not (tmp_path / "backups").exists()
+
+
+def test_v15_marker_rejects_partial_unique_index(
+    tmp_path,
+) -> None:
+    data_dir = tmp_path / "partial-index"
+    _create_v14_fixture(data_dir)
+    migrated = migrate_notification_channels_v15(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "initial-backups",
+        apply=True,
+    )
+    assert migrated["schema_ready"] is True
+    _replace_delivery_constraint_with_partial_index(data_dir)
+
+    check = sqlite3.connect(data_dir / "service.db")
+    try:
+        index_row = next(
+            row
+            for row in check.execute(
+                """
+                PRAGMA index_list(
+                    preferred_source_notification_deliveries
+                )
+                """
+            ).fetchall()
+            if str(row[1]) == "idx_preferred_delivery_partial_unique"
+        )
+        assert int(index_row[2]) == 1
+        assert str(index_row[3]) == "c"
+        assert int(index_row[4]) == 1
+    finally:
+        check.close()
+
+    dry_run = migrate_notification_channels_v15(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "rejected-backups",
+        apply=False,
+    )
+    assert dry_run["migrated"] is True
+    assert dry_run["schema_ready"] is False
+    with pytest.raises(RuntimeError, match="marker exists"):
+        migrate_notification_channels_v15(
+            data_dir=data_dir,
+            backup_dir=tmp_path / "rejected-backups",
+            apply=True,
+        )
+    assert not (tmp_path / "rejected-backups").exists()
 
 
 def test_v15_validation_failure_restores_database(

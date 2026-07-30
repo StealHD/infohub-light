@@ -73,7 +73,14 @@ def _has_unique_columns(
     for index_row in connection.execute(
         f"PRAGMA index_list({table})"
     ).fetchall():
-        if not bool(index_row[2]):
+        unique = bool(index_row[2])
+        origin = str(index_row[3])
+        partial = bool(index_row[4])
+        if (
+            not unique
+            or partial
+            or origin not in {"u", "pk"}
+        ):
             continue
         columns = tuple(
             str(row[2])
@@ -595,8 +602,22 @@ def _rebuild_user_settings(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
-        INSERT INTO user_notification_settings_v15
-        SELECT * FROM user_notification_settings
+        INSERT INTO user_notification_settings_v15 (
+            user_id, workspace_id, enabled, channel, email_address,
+            webhook_env_name, webhook_secret_digest, webhook_provider,
+            webhook_signing_env_name, webhook_signing_secret_digest,
+            notification_enabled_at, notification_generation,
+            last_test_status, last_test_attempted_at, last_tested_at,
+            last_test_error_code, created_at, updated_at
+        )
+        SELECT
+            user_id, workspace_id, enabled, channel, email_address,
+            webhook_env_name, webhook_secret_digest, webhook_provider,
+            webhook_signing_env_name, webhook_signing_secret_digest,
+            notification_enabled_at, notification_generation,
+            last_test_status, last_test_attempted_at, last_tested_at,
+            last_test_error_code, created_at, updated_at
+        FROM user_notification_settings
         """
     )
     connection.execute("DROP TABLE user_notification_settings")

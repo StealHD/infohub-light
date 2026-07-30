@@ -31,6 +31,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
+    "migration"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "修复 v15 迁移对历史 v14 ALTER 列序的错误假设，并使完成标记校验拒绝 partial 或非约束来源的唯一索引。",
+  "status": "completed",
+  "task_id": "2026-07-30-telegram-v15-migration-followup",
+  "unresolved": [
+    "本修复仍需随多渠道后端与原 API/v15 提交进入集成分支"
+  ],
+  "validation": [
+    "真实 v13 schema 经 v14 ALTER 再迁移 v15 的链路通过并保留全部时间戳与配置",
+    "partial unique index marker 反例被 fail-closed 拒绝",
+    "v14/v15 migration tests: 14 passed; py_compile and git diff checks passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
     "api_contract",
     "migration",
     "observability"
