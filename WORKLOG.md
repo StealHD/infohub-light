@@ -7,30 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "interface",
-    "observability"
-  ],
-  "recorded_on": "2026-07-30",
-  "result": "完成 Telegram 多渠道通知的 schema v3/v2 API 接线、Owner/Admin Transport 管理接口、显式 v15 SQLite 迁移、readiness/up-latest fail-closed 与安全操作日志覆盖。",
-  "status": "completed",
-  "task_id": "2026-07-30-telegram-multichannel-api-migration",
-  "unresolved": [
-    "本提交依赖多渠道 Store/Service 与工作区 Telegram Transport 分支合并后集成",
-    "未合并、未推送、未重建 8080，未调用真实通知服务"
-  ],
-  "validation": [
-    "组合分支 migration/API 专项 9/9 passed",
-    "组合分支 API、Apify 与操作日志回归 101/101 passed",
-    "运行脚本、observability contract 与操作日志专项 40/40 passed",
-    "py_compile、test impact JSON 与 git diff --check passed"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-07-30",
   "result": "在独立任务分支新增 Telegram Bot API 低层传输：固定公共 HTTPS 端点、纯文本与关闭链接预览、4096 字符上限、目标 ACK 校验，以及不会自动重放的安全结果未知语义。",
@@ -431,6 +407,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "frontend full Vitest: 59 files and 533 tests; TypeScript, ESLint, UI contract and production build passed",
     "target Playwright: 6 passed across desktop/tablet/mobile, including Axe and 390/768/1440 overflow checks",
     "python scripts/test_gate.py run --mode full: 23/23 passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-31",
+  "result": "将 Telegram 多渠道通知集成分支切换到本地 8080：安全停止 API/Worker，完成通知渠道 v15 显式迁移与私有备份，并重建启动目标版本的 API/Worker；scheduler 未启动。",
+  "status": "completed",
+  "task_id": "2026-07-31-start-telegram-multichannel-containers",
+  "unresolved": [],
+  "validation": [
+    "runtime migration v15 applied; backup mode 0600; integrity_check ok and foreign-key check clean",
+    "API and Worker run inteliscope-service:local-07767dc9c50e and report healthy",
+    "live revision is 07767dc9c50e; readiness reports database ready and worker_status ready",
+    "served frontend asset index-BLvBqdcN.js contains Telegram; canonical runtime data/logs/.env mounts verified; scheduler absent"
   ]
 }
 ```
