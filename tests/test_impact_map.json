@@ -85,6 +85,8 @@
         "tests/test_apify_actor_route_api.py",
         "tests/test_migrate_apify_actor_routing_v13.py",
         "tests/test_workspace_telegram_transport.py",
+        "tests/test_migrate_notification_channels_v15.py",
+        "tests/test_notification_multichannel_api.py",
         "tests/test_source_resolution.py",
         "tests/test_youtube_channel.py"
       ],
@@ -197,6 +199,7 @@
         "scripts/*.py",
         "scripts/*.sh",
         "tests/test_migrate_apify_actor_routing_v13.py",
+        "tests/test_migrate_notification_channels_v15.py",
         "tests/test_migrate_rsshub_sources.py"
       ],
       "groups": ["python_scripts"]
@@ -315,7 +318,9 @@
       "tests/test_openclaw_skill.py",
       "tests/test_light_runtime_scripts.py",
       "tests/test_migrate_apify_actor_routing_v13.py",
+      "tests/test_migrate_notification_channels_v15.py",
       "tests/test_migrate_rsshub_sources.py",
+      "tests/test_notification_multichannel_api.py",
       "tests/test_notification_email_transport.py",
       "tests/test_notification_telegram_transport.py",
       "tests/test_workspace_telegram_transport.py",
@@ -408,6 +413,7 @@
       "tests/test_feed_v2_migration.py",
       "tests/test_light_runtime_scripts.py",
       "tests/test_migrate_apify_actor_routing_v13.py",
+      "tests/test_migrate_notification_channels_v15.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_prepare_service_deployment.py",
       "tests/test_remote_mcp_performance_script.py",

@@ -229,6 +229,60 @@ def test_readiness_reports_logging_degradation_without_hiding_api_health(
         _close_managed_handlers()
 
 
+def test_telegram_transport_write_logs_only_safe_changed_fields(
+    tmp_path,
+    monkeypatch,
+):
+    app, log_dir = _app(tmp_path, monkeypatch)
+    token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+    try:
+        with TestClient(app) as client:
+            login = client.post(
+                "/api/auth/login",
+                json={
+                    "username": "owner",
+                    "password": "secret-password",
+                },
+            )
+            assert login.status_code == 200
+            monkeypatch.setattr(
+                app.state.workspace_telegram_transport,
+                "upsert",
+                lambda **_kwargs: {
+                    "schema_version": 1,
+                    "configured": True,
+                    "token_configured": True,
+                    "enabled": False,
+                    "generation": 1,
+                    "ready": False,
+                },
+            )
+            changed = client.patch(
+                "/api/admin/notification-telegram-transport",
+                json={"bot_token": token},
+            )
+
+        assert changed.status_code == 200
+        events = [
+            event
+            for event in _events(log_dir)
+            if event["action"] == "telegram_transport_update"
+        ]
+        assert len(events) == 1
+        assert events[0]["outcome"] == "succeeded"
+        assert events[0]["changed_fields"] == ["bot_token"]
+        combined = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                log_dir / "runtime-api.jsonl",
+                log_dir / "operations-api.jsonl",
+            )
+        )
+        assert token not in combined
+    finally:
+        _close_managed_handlers()
+
+
 def test_unhandled_read_error_returns_request_id_and_safe_operation_event(
     tmp_path,
     monkeypatch,

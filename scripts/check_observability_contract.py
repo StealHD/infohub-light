@@ -26,6 +26,7 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/operation_log.py",
     "src/services/preferred_source_notifications.py",
     "src/services/source_avatar.py",
+    "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
     "src/services/workspace_telegram_transport.py",
 )
