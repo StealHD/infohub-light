@@ -33,8 +33,8 @@ API、Worker、legacy Scheduler 和 CLI 统一调用 `src/logging_utils.py::conf
 
 任何日志都不得接收或拼接以下值：
 
-- 密码、Token、Authorization、API Key、Secret、确认短语或其他凭据。
-- Webhook/邮箱目的地、URL、source config、请求 payload、环境变量名。
+- 密码、Token（含 Telegram Bot Token）、Authorization、API Key、Secret、确认短语或其他凭据。
+- Webhook/邮箱/Telegram Chat ID 目的地、URL、source config、请求 payload、环境变量名。
 - 个人标签、展示名、文章 ID、标题、正文、摘要或媒体内容。
 - 上游请求/响应正文、原始错误消息、远端账号资料或堆栈投影。
 

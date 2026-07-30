@@ -16,7 +16,7 @@ from email.utils import parseaddr
 from typing import Any, Coroutine
 from urllib.parse import urlsplit
 
-from ..storage.service_store import ServiceStore
+from ..storage.service_store import NOTIFICATION_CHANNELS, ServiceStore
 from .network_policy import post_public_http
 from .notification_webhook_transport import (
     DINGTALK,
@@ -39,7 +39,16 @@ from .notification_email_transport import (
     EmailTransportError,
     WorkspaceEmailTransportService,
 )
+from .notification_telegram_transport import (
+    TelegramConfigurationError,
+    TelegramSendResult,
+    normalize_telegram_chat_id,
+)
 from .secret_store import SecretStore
+from .workspace_telegram_transport import (
+    TelegramTransportServiceError,
+    WorkspaceTelegramTransportService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -155,6 +164,26 @@ def _normalize_email(value: Any) -> str | None:
             "notification email address is invalid",
         )
     return address
+
+
+def _normalize_channels(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        raise NotificationServiceError(
+            "invalid_notification_channels",
+            "notification channels must be a list",
+        )
+    channels: list[str] = []
+    seen: set[str] = set()
+    for raw_channel in value:
+        channel = str(raw_channel or "").strip().lower()
+        if channel not in NOTIFICATION_CHANNELS or channel in seen:
+            raise NotificationServiceError(
+                "invalid_notification_channels",
+                "notification channels contain an unsupported or duplicate value",
+            )
+        seen.add(channel)
+        channels.append(channel)
+    return channels
 
 
 def _bounded_multiline_text(lines: list[str], *, limit: int) -> str:
@@ -308,6 +337,10 @@ class PreferredSourceNotificationService:
             store,
             data_dir=data_dir,
         )
+        self.telegram_transport = WorkspaceTelegramTransportService(
+            store,
+            data_dir=data_dir,
+        )
 
     @staticmethod
     def webhook_env_name(*, workspace_id: str, user_id: str) -> str:
@@ -326,6 +359,52 @@ class PreferredSourceNotificationService:
             f"{workspace_id}:{user_id}".encode("utf-8")
         ).hexdigest()[:24].upper()
         return f"HORIZON_USER_WEBHOOK_SIGNING_{digest}"
+
+    @staticmethod
+    def telegram_chat_env_name(
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> str:
+        digest = hashlib.sha256(
+            f"{workspace_id}:{user_id}".encode("utf-8")
+        ).hexdigest()[:24].upper()
+        return f"HORIZON_USER_TELEGRAM_CHAT_{digest}"
+
+    def _bound_telegram_chat_id(
+        self,
+        channel_state: dict[str, Any] | None,
+    ) -> str | None:
+        if channel_state is None:
+            return None
+        workspace_id = str(channel_state.get("workspace_id") or "")
+        user_id = str(channel_state.get("user_id") or "")
+        expected_env = self.telegram_chat_env_name(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        env_name = str(channel_state.get("destination_env_name") or "")
+        expected_digest = str(
+            channel_state.get("destination_secret_digest") or ""
+        )
+        if (
+            not workspace_id
+            or not user_id
+            or env_name != expected_env
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            return None
+        value = self.secret_store.read().get(expected_env)
+        if not value:
+            return None
+        actual_digest = hashlib.sha256(
+            str(value).encode("utf-8")
+        ).hexdigest()
+        return (
+            str(value)
+            if hmac.compare_digest(actual_digest, expected_digest)
+            else None
+        )
 
     def _bound_webhook_env_name(
         self,
@@ -427,70 +506,143 @@ class PreferredSourceNotificationService:
             workspace_id=workspace_id,
             user_id=user_id,
         )
+        channel_rows = self.store.list_user_notification_channels(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        rows_by_channel = {
+            str(row["channel"]): row for row in channel_rows
+        }
+        webhook_url = (
+            self._bound_webhook_secret(settings or {}) or ""
+        )
         if settings is None:
-            return {
-                "schema_version": 2,
-                "enabled": False,
-                "channel": "webhook",
-                "email_configured": False,
-                "email_transport_ready": self.email_transport.is_ready(
-                    workspace_id=workspace_id
-                ),
-                "webhook_configured": False,
-                "webhook_provider": GENERIC_EVENT,
-                "webhook_provider_explicit": True,
-                "webhook_signing_secret_configured": False,
-                "webhook_verification_mode": "http_status",
-                "webhook_provider_options": webhook_provider_options(),
-                "last_test_status": None,
-                "last_tested_at": None,
-                "last_test_error_code": None,
-                "updated_at": None,
-            }
-        webhook_url = self._bound_webhook_secret(settings) or ""
-        try:
-            stored_provider = normalize_stored_webhook_provider(
-                settings.get("webhook_provider")
-            )
-            effective_provider = resolve_webhook_provider(
-                stored_provider,
-                webhook_url,
-            )
-        except WebhookConfigurationError:
-            stored_provider = LEGACY_AUTO
+            stored_provider = GENERIC_EVENT
             effective_provider = GENERIC_EVENT
-        last_test_status = settings.get("last_test_status")
-        if (
-            last_test_status == "failed"
-            and settings.get("last_test_error_code")
-            in {
-                "notification_webhook_outcome_unknown",
-                "notification_webhook_response_invalid",
+        else:
+            try:
+                stored_provider = normalize_stored_webhook_provider(
+                    settings.get("webhook_provider")
+                )
+                effective_provider = resolve_webhook_provider(
+                    stored_provider,
+                    webhook_url,
+                )
+            except WebhookConfigurationError:
+                stored_provider = LEGACY_AUTO
+                effective_provider = GENERIC_EVENT
+        email_ready = self.email_transport.is_ready(
+            workspace_id=workspace_id
+        )
+        telegram_ready = self.telegram_transport.is_ready(
+            workspace_id=workspace_id
+        )
+        channel_states: dict[str, dict[str, Any]] = {}
+        for channel in NOTIFICATION_CHANNELS:
+            row = rows_by_channel.get(channel)
+            test_status = (row or {}).get("last_test_status")
+            error_code = (row or {}).get("last_test_error_code")
+            if (
+                test_status == "failed"
+                and error_code
+                in {
+                    "notification_webhook_outcome_unknown",
+                    "notification_webhook_response_invalid",
+                    "notification_telegram_outcome_unknown",
+                    "notification_telegram_response_invalid",
+                    "notification_delivery_outcome_unknown",
+                }
+            ):
+                test_status = "unknown"
+            if channel == "email":
+                configured = bool((settings or {}).get("email_address"))
+                available = bool(configured and email_ready)
+            elif channel == "webhook":
+                configured = bool(webhook_url)
+                available = bool(
+                    webhook_url
+                    and self._webhook_signing_binding_valid(
+                        settings or {}
+                    )
+                )
+            else:
+                configured = bool(
+                    self._bound_telegram_chat_id(row)
+                )
+                available = bool(configured and telegram_ready)
+            state: dict[str, Any] = {
+                "enabled": bool((row or {}).get("enabled")),
+                "configured": configured,
+                "available": available,
+                "generation": int((row or {}).get("generation") or 0),
+                "enabled_at": (row or {}).get("enabled_at"),
+                "last_test_status": test_status,
+                "last_tested_at": (row or {}).get("last_tested_at"),
+                "last_test_error_code": error_code,
             }
-        ):
-            last_test_status = "unknown"
+            if channel == "webhook":
+                state.update(
+                    {
+                        "provider": effective_provider,
+                        "provider_explicit": stored_provider
+                        != LEGACY_AUTO,
+                        "signing_secret_configured": bool(
+                            self._bound_webhook_signing_secret(
+                                settings or {}
+                            )
+                        ),
+                        "verification_mode": webhook_verification_mode(
+                            effective_provider
+                        ),
+                    }
+                )
+            channel_states[channel] = state
+        active_channels = [
+            str(row["channel"])
+            for row in channel_rows
+            if bool(row.get("enabled"))
+        ]
+        fallback_channel = str(
+            (settings or {}).get("channel") or "webhook"
+        )
+        primary_channel = (
+            active_channels[0]
+            if active_channels
+            else (
+                fallback_channel
+                if fallback_channel in NOTIFICATION_CHANNELS
+                else "webhook"
+            )
+        )
+        primary_state = channel_states[primary_channel]
         return {
-            "schema_version": 2,
-            "enabled": bool(settings.get("enabled")),
-            "channel": str(settings.get("channel") or "webhook"),
-            "email_configured": bool(settings.get("email_address")),
-            "email_transport_ready": self.email_transport.is_ready(
-                workspace_id=workspace_id
-            ),
+            "schema_version": 3,
+            "enabled": bool((settings or {}).get("enabled")),
+            "channels": active_channels,
+            "channel": primary_channel,
+            "channel_states": channel_states,
+            "email_configured": channel_states["email"]["configured"],
+            "email_transport_ready": email_ready,
             "webhook_configured": bool(webhook_url),
             "webhook_provider": effective_provider,
             "webhook_provider_explicit": stored_provider != LEGACY_AUTO,
             "webhook_signing_secret_configured": bool(
-                self._bound_webhook_signing_secret(settings)
+                self._bound_webhook_signing_secret(settings or {})
             ),
             "webhook_verification_mode": webhook_verification_mode(
                 effective_provider
             ),
             "webhook_provider_options": webhook_provider_options(),
-            "last_test_status": last_test_status,
-            "last_tested_at": settings.get("last_tested_at"),
-            "last_test_error_code": settings.get("last_test_error_code"),
-            "updated_at": settings.get("updated_at"),
+            "telegram_configured": channel_states["telegram"][
+                "configured"
+            ],
+            "telegram_transport_ready": telegram_ready,
+            "last_test_status": primary_state["last_test_status"],
+            "last_tested_at": primary_state["last_tested_at"],
+            "last_test_error_code": primary_state[
+                "last_test_error_code"
+            ],
+            "updated_at": (settings or {}).get("updated_at"),
         }
 
     def upsert_settings(
@@ -500,11 +652,18 @@ class PreferredSourceNotificationService:
         user_id: str,
         enabled: Any = UNSET,
         channel: Any = UNSET,
+        channels: Any = UNSET,
         email_address: Any = UNSET,
         webhook_url: Any = UNSET,
         webhook_provider: Any = UNSET,
         webhook_signing_secret: Any = UNSET,
+        telegram_chat_id: Any = UNSET,
     ) -> dict[str, Any]:
+        if channel is not UNSET and channels is not UNSET:
+            raise NotificationServiceError(
+                "invalid_notification_settings",
+                "channel and channels are mutually exclusive",
+            )
         conn = self.store.connect()
         if conn.in_transaction:
             raise RuntimeError(
@@ -531,20 +690,43 @@ class PreferredSourceNotificationService:
                 workspace_id=workspace_id,
                 user_id=user_id,
             )
+            current_channel_rows = (
+                self.store.list_user_notification_channels(
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
+            )
+            current_channels_by_name = {
+                str(row["channel"]): row
+                for row in current_channel_rows
+            }
+            current_active_channels = [
+                str(row["channel"])
+                for row in current_channel_rows
+                if bool(row.get("enabled"))
+            ]
             target_enabled = bool(
                 (current or {}).get("enabled", False)
                 if enabled is UNSET or enabled is None
                 else enabled
             )
-            target_channel = str(
-                (current or {}).get("channel") or "webhook"
-                if channel is UNSET or channel is None
-                else channel
+            if channels is not UNSET:
+                target_channels = _normalize_channels(channels)
+            elif channel is not UNSET:
+                target_channels = [
+                    str(channel or "").strip().lower()
+                ]
+            else:
+                target_channels = list(current_active_channels)
+            target_channel = (
+                target_channels[0]
+                if target_channels
+                else str((current or {}).get("channel") or "webhook")
             ).strip().lower()
-            if target_channel not in {"email", "webhook"}:
+            if target_channel not in NOTIFICATION_CHANNELS:
                 raise NotificationServiceError(
                     "invalid_notification_channel",
-                    "notification channel must be email or webhook",
+                    "notification channel must be email, webhook, or telegram",
                 )
             target_email = (
                 (current or {}).get("email_address")
@@ -693,10 +875,54 @@ class PreferredSourceNotificationService:
                     "selected webhook provider does not support signing",
                 )
 
+            telegram_row = current_channels_by_name.get("telegram")
+            expected_telegram_env = self.telegram_chat_env_name(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+            stored_telegram_env = str(
+                (telegram_row or {}).get("destination_env_name") or ""
+            )
+            current_telegram_env = (
+                stored_telegram_env
+                if stored_telegram_env == expected_telegram_env
+                else ""
+            )
+            current_telegram_chat_id = self._bound_telegram_chat_id(
+                telegram_row
+            )
+            telegram_touched = telegram_chat_id is not UNSET
+            validated_telegram_chat_id = current_telegram_chat_id
+            if telegram_touched:
+                try:
+                    validated_telegram_chat_id = (
+                        None
+                        if telegram_chat_id is None
+                        or not str(telegram_chat_id).strip()
+                        else normalize_telegram_chat_id(telegram_chat_id)
+                    )
+                except TelegramConfigurationError as exc:
+                    raise NotificationServiceError(
+                        exc.code,
+                        str(exc),
+                    ) from exc
+            target_telegram_env = (
+                expected_telegram_env
+                if validated_telegram_chat_id
+                else None
+            )
+            target_telegram_digest = (
+                hashlib.sha256(
+                    validated_telegram_chat_id.encode("utf-8")
+                ).hexdigest()
+                if validated_telegram_chat_id
+                else None
+            )
             webhook_configured = bool(
                 validated_url and target_url_env and target_url_digest
             )
-            if target_enabled and target_channel == "email" and not target_email:
+            selected = set(target_channels)
+            if target_enabled and "email" in selected and not target_email:
                 raise NotificationServiceError(
                     "notification_destination_required",
                     "configure a notification email address before enabling email delivery",
@@ -704,24 +930,22 @@ class PreferredSourceNotificationService:
                 )
             if (
                 target_enabled
-                and target_channel == "email"
-                and not self.email_transport.is_ready(
-                    workspace_id=workspace_id
-                )
-            ):
-                raise NotificationServiceError(
-                    "notification_channel_unavailable",
-                    "workspace email transport is not ready",
-                    status_code=409,
-                )
-            if (
-                target_enabled
-                and target_channel == "webhook"
+                and "webhook" in selected
                 and not webhook_configured
             ):
                 raise NotificationServiceError(
                     "notification_destination_required",
                     "configure a webhook before enabling webhook delivery",
+                    status_code=409,
+                )
+            if (
+                target_enabled
+                and "telegram" in selected
+                and not validated_telegram_chat_id
+            ):
+                raise NotificationServiceError(
+                    "notification_destination_required",
+                    "configure a Telegram Chat ID before enabling Telegram delivery",
                     status_code=409,
                 )
 
@@ -731,6 +955,10 @@ class PreferredSourceNotificationService:
             if signing_touched:
                 secret_updates[expected_signing_env] = (
                     validated_signing_secret
+                )
+            if telegram_touched:
+                secret_updates[expected_telegram_env] = (
+                    validated_telegram_chat_id
                 )
             if secret_updates:
                 previous_secrets = {
@@ -747,7 +975,7 @@ class PreferredSourceNotificationService:
             store_updates: dict[str, Any] = {}
             if enabled is not UNSET:
                 store_updates["enabled"] = enabled
-            if channel is not UNSET:
+            if channel is not UNSET or channels is not UNSET:
                 store_updates["channel"] = target_channel
             if email_address is not UNSET:
                 store_updates["email_address"] = target_email
@@ -789,6 +1017,126 @@ class PreferredSourceNotificationService:
                 commit=False,
                 **store_updates,
             )
+            now = datetime.now(timezone.utc).isoformat()
+            changed_channel_names: set[str] = set()
+            channel_specific_changes = {
+                "email": email_address is not UNSET,
+                "webhook": bool(
+                    url_touched
+                    or webhook_provider is not UNSET
+                    or signing_touched
+                ),
+                "telegram": telegram_touched
+                or bool(
+                    stored_telegram_env
+                    and not current_telegram_env
+                ),
+            }
+            for position, channel_name in enumerate(
+                NOTIFICATION_CHANNELS
+            ):
+                existing_channel = current_channels_by_name.get(
+                    channel_name
+                )
+                channel_enabled = channel_name in selected
+                enabled_changed = channel_enabled != bool(
+                    (existing_channel or {}).get("enabled")
+                )
+                material_changed = bool(
+                    existing_channel is None
+                    or enabled_changed
+                    or channel_specific_changes[channel_name]
+                )
+                generation = int(
+                    (existing_channel or {}).get("generation") or 0
+                )
+                if material_changed:
+                    generation += 1
+                    changed_channel_names.add(channel_name)
+                enabled_at = (existing_channel or {}).get("enabled_at")
+                if not channel_enabled:
+                    enabled_at = None
+                elif enabled_changed or enabled_at is None:
+                    enabled_at = now
+                ordered_position = (
+                    target_channels.index(channel_name)
+                    if channel_name in selected
+                    else len(target_channels) + position
+                )
+                destination_env_name = (
+                    target_telegram_env
+                    if channel_name == "telegram"
+                    else None
+                )
+                destination_secret_digest = (
+                    target_telegram_digest
+                    if channel_name == "telegram"
+                    else None
+                )
+                reset_test = material_changed
+                self.store.upsert_user_notification_channel(
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    channel=channel_name,
+                    position=ordered_position,
+                    enabled=channel_enabled,
+                    enabled_at=enabled_at,
+                    generation=generation,
+                    destination_env_name=destination_env_name,
+                    destination_secret_digest=destination_secret_digest,
+                    last_test_status=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_test_status"
+                        )
+                    ),
+                    last_test_generation=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_test_generation"
+                        )
+                    ),
+                    last_test_attempted_at=(
+                        (existing_channel or {}).get(
+                            "last_test_attempted_at"
+                        )
+                    ),
+                    last_tested_at=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_tested_at"
+                        )
+                    ),
+                    last_test_error_code=(
+                        None
+                        if reset_test
+                        else (existing_channel or {}).get(
+                            "last_test_error_code"
+                        )
+                    ),
+                    commit=False,
+                )
+            for changed_channel in changed_channel_names:
+                conn.execute(
+                    """
+                    UPDATE preferred_source_notification_deliveries
+                    SET status = 'failed',
+                        error_code = 'notification_settings_changed',
+                        updated_at = ?
+                    WHERE workspace_id = ? AND user_id = ?
+                      AND channel = ?
+                      AND status = 'pending'
+                    """,
+                    (
+                        now,
+                        workspace_id,
+                        user_id,
+                        changed_channel,
+                    ),
+                )
             conn.commit()
         except Exception as exc:
             compensation_error: Exception | None = None
@@ -868,21 +1216,44 @@ class PreferredSourceNotificationService:
         account_generation = int(
             settings.get("notification_generation") or 0
         )
-        if str(settings.get("channel") or "") == "email":
-            if (
-                not settings.get("email_address")
-                or not self.email_transport.is_ready(
-                    workspace_id=workspace_id
+        channel_rows = self.store.list_user_notification_channels(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        active_channels: list[dict[str, Any]] = []
+        for channel_state in channel_rows:
+            if not bool(channel_state.get("enabled")):
+                continue
+            channel_name = str(channel_state.get("channel") or "")
+            channel_enabled_at = _parse_time(
+                channel_state.get("enabled_at")
+            )
+            if channel_enabled_at is None:
+                continue
+            if channel_name == "email":
+                available = bool(
+                    settings.get("email_address")
+                    and self.email_transport.is_ready(
+                        workspace_id=workspace_id
+                    )
                 )
-            ):
-                return 0
-        elif str(settings.get("channel") or "") == "webhook":
-            if (
-                not self._bound_webhook_secret(settings)
-                or not self._webhook_signing_binding_valid(settings)
-            ):
-                return 0
-        else:
+            elif channel_name == "webhook":
+                available = bool(
+                    self._bound_webhook_secret(settings)
+                    and self._webhook_signing_binding_valid(settings)
+                )
+            elif channel_name == "telegram":
+                available = bool(
+                    self._bound_telegram_chat_id(channel_state)
+                    and self.telegram_transport.is_ready(
+                        workspace_id=workspace_id
+                    )
+                )
+            else:
+                available = False
+            if available:
+                active_channels.append(channel_state)
+        if not active_channels:
             return 0
 
         snapshot = conn.execute(
@@ -985,9 +1356,6 @@ class PreferredSourceNotificationService:
                 )
                 if subscription_generation is None:
                     continue
-                enabled_at = max(account_enabled_at, subscription_enabled_at)
-                if published_at <= enabled_at:
-                    continue
                 source_id = str(subscription.get("source_id") or "")
                 if not source_id:
                     continue
@@ -1002,37 +1370,53 @@ class PreferredSourceNotificationService:
                     source_name=str(source.get("display_name") or ""),
                     test=False,
                 )
-                inserted = conn.execute(
-                    """
-                    INSERT OR IGNORE INTO preferred_source_notification_deliveries (
-                        id, workspace_id, user_id, subscription_id, source_id,
-                        snapshot_id, job_id, article_id, channel, payload_json,
-                        status, attempts, account_notification_generation,
-                        subscription_notification_generation,
-                        created_at, updated_at
-                    ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        'pending', 0, ?, ?, ?, ?
+                for channel_state in active_channels:
+                    channel_enabled_at = _parse_time(
+                        channel_state.get("enabled_at")
                     )
-                    """,
-                    (
-                        _new_id(),
-                        workspace_id,
-                        user_id,
-                        subscription_id,
-                        source_id,
-                        snapshot_id,
-                        str(job["id"]),
-                        article_id,
-                        str(settings["channel"]),
-                        _json_dumps(payload),
-                        account_generation,
-                        subscription_generation,
-                        now,
-                        now,
-                    ),
-                )
-                staged += max(int(inserted.rowcount), 0)
+                    if channel_enabled_at is None:
+                        continue
+                    enabled_at = max(
+                        account_enabled_at,
+                        channel_enabled_at,
+                        subscription_enabled_at,
+                    )
+                    if published_at <= enabled_at:
+                        continue
+                    inserted = conn.execute(
+                        """
+                        INSERT OR IGNORE INTO preferred_source_notification_deliveries (
+                            id, workspace_id, user_id, subscription_id,
+                            source_id, snapshot_id, job_id, article_id,
+                            channel, payload_json, status, attempts,
+                            account_notification_generation,
+                            channel_notification_generation,
+                            subscription_notification_generation,
+                            created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            'pending', 0, ?, ?, ?, ?, ?
+                        )
+                        """,
+                        (
+                            _new_id(),
+                            workspace_id,
+                            user_id,
+                            subscription_id,
+                            source_id,
+                            snapshot_id,
+                            str(job["id"]),
+                            article_id,
+                            str(channel_state["channel"]),
+                            _json_dumps(payload),
+                            account_generation,
+                            int(channel_state.get("generation") or 0),
+                            subscription_generation,
+                            now,
+                            now,
+                        ),
+                    )
+                    staged += max(int(inserted.rowcount), 0)
         return staged
 
     def dispatch_pending(
@@ -1076,10 +1460,16 @@ class PreferredSourceNotificationService:
                     workspace_id=str(first["workspace_id"]),
                     user_id=str(first["user_id"]),
                 )
+                channel_state = self.store.get_user_notification_channel(
+                    workspace_id=str(first["workspace_id"]),
+                    user_id=str(first["user_id"]),
+                    channel=str(first["channel"]),
+                )
                 if (
                     settings is None
                     or not bool(settings.get("enabled"))
-                    or str(settings.get("channel")) != str(first["channel"])
+                    or channel_state is None
+                    or not bool(channel_state.get("enabled"))
                 ):
                     raise NotificationServiceError(
                         "notification_settings_changed",
@@ -1087,7 +1477,7 @@ class PreferredSourceNotificationService:
                         status_code=409,
                     )
                 if (
-                    str(settings.get("channel") or "") == "webhook"
+                    str(first.get("channel") or "") == "webhook"
                     and not self._webhook_signing_binding_valid(settings)
                 ):
                     raise NotificationServiceError(
@@ -1101,7 +1491,13 @@ class PreferredSourceNotificationService:
                 account_generation = int(
                     settings.get("notification_generation") or 0
                 )
-                if account_enabled_at is None:
+                channel_enabled_at = _parse_time(
+                    channel_state.get("enabled_at")
+                )
+                channel_generation = int(
+                    channel_state.get("generation") or 0
+                )
+                if account_enabled_at is None or channel_enabled_at is None:
                     raise NotificationServiceError(
                         "notification_settings_changed",
                         "notification settings changed before delivery",
@@ -1147,6 +1543,13 @@ class PreferredSourceNotificationService:
                         != account_generation
                         or int(
                             delivery.get(
+                                "channel_notification_generation"
+                            )
+                            or 0
+                        )
+                        != channel_generation
+                        or int(
+                            delivery.get(
                                 "subscription_notification_generation"
                             )
                             or 0
@@ -1170,6 +1573,7 @@ class PreferredSourceNotificationService:
                         continue
                     current_watermark = max(
                         account_enabled_at,
+                        channel_enabled_at,
                         subscription_enabled_at,
                     )
                     if (
@@ -1197,10 +1601,14 @@ class PreferredSourceNotificationService:
                     )
                     summary["failed"] += len(stale_ids)
                 if not active_deliveries:
-                    break
+                    continue
                 send_started = True
                 self._send_payload(
-                    settings,
+                    {
+                        **settings,
+                        "channel": str(first["channel"]),
+                        "_channel_state": channel_state,
+                    },
                     self._batch_delivery_payload(active_deliveries),
                 )
             except NotificationServiceError as exc:
@@ -1232,7 +1640,6 @@ class PreferredSourceNotificationService:
                 ]
                 self._finish_deliveries(active_ids, succeeded=True)
                 summary["succeeded"] += len(active_ids)
-            break
         return summary
 
     def send_test(
@@ -1240,6 +1647,7 @@ class PreferredSourceNotificationService:
         *,
         workspace_id: str,
         user_id: str,
+        channel: str | None = None,
     ) -> dict[str, Any]:
         """Send fixed sample content without changing outbox or Feed cursors."""
 
@@ -1253,9 +1661,22 @@ class PreferredSourceNotificationService:
                 "configure notification settings before sending a test",
                 status_code=409,
             )
+        target_channel = str(
+            channel
+            or self.get_public_settings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )["channel"]
+        ).strip().lower()
+        if target_channel not in NOTIFICATION_CHANNELS:
+            raise NotificationServiceError(
+                "invalid_notification_channel",
+                "notification channel must be email, webhook, or telegram",
+            )
         attempt = self.store.claim_user_notification_test_attempt(
             workspace_id=workspace_id,
             user_id=user_id,
+            channel=target_channel,
             cooldown_seconds=_TEST_COOLDOWN_SECONDS,
         )
         if attempt.get("reason") == "user_disabled":
@@ -1283,13 +1704,15 @@ class PreferredSourceNotificationService:
             source_name="Inteliscope",
             test=True,
         )
-        generation = int(settings.get("notification_generation") or 0)
+        channel_state = settings.get("_channel_state") or {}
+        generation = int(channel_state.get("generation") or 0)
         try:
             send_result = self._send_payload(settings, payload)
         except NotificationServiceError as exc:
             self.store.record_user_notification_test(
                 workspace_id=workspace_id,
                 user_id=user_id,
+                channel=target_channel,
                 status="failed",
                 generation=generation,
                 error_code=exc.code,
@@ -1311,22 +1734,24 @@ class PreferredSourceNotificationService:
             ) from exc
         except Exception as exc:
             error = NotificationServiceError(
-                "notification_test_failed",
-                "notification test could not be delivered",
+                "notification_test_outcome_unknown",
+                "notification test outcome is unknown; do not retry",
                 status_code=502,
-                retryable=True,
+                outcome_unknown=True,
             )
             self.store.record_user_notification_test(
                 workspace_id=workspace_id,
                 user_id=user_id,
+                channel=target_channel,
                 status="failed",
                 generation=generation,
-                error_code="notification_delivery_failed",
+                error_code="notification_delivery_outcome_unknown",
             )
             raise error from exc
         recorded = self.store.record_user_notification_test(
             workspace_id=workspace_id,
             user_id=user_id,
+            channel=target_channel,
             status="sent",
             generation=generation,
         )
@@ -1340,12 +1765,19 @@ class PreferredSourceNotificationService:
             )
         result: dict[str, Any] = {
             "sent": True,
-            "channel": str(settings["channel"]),
+            "channel": target_channel,
         }
         if isinstance(send_result, WebhookSendResult):
             result.update(
                 {
                     "provider": send_result.provider,
+                    "verification": send_result.verification,
+                }
+            )
+        elif isinstance(send_result, TelegramSendResult):
+            result.update(
+                {
+                    "message_id": send_result.message_id,
                     "verification": send_result.verification,
                 }
             )
@@ -1573,17 +2005,57 @@ class PreferredSourceNotificationService:
         self,
         settings: dict[str, Any],
         payload: dict[str, Any],
-    ) -> WebhookSendResult | None:
+    ) -> WebhookSendResult | TelegramSendResult | None:
         channel = str(settings.get("channel") or "")
         if channel == "webhook":
             return self._send_webhook(settings, payload)
         if channel == "email":
             self._send_email(settings, payload)
             return None
+        if channel == "telegram":
+            return self._send_telegram(settings, payload)
         raise NotificationServiceError(
             "invalid_notification_channel",
-            "notification channel must be email or webhook",
+            "notification channel must be email, webhook, or telegram",
         )
+
+    def _send_telegram(
+        self,
+        settings: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> TelegramSendResult:
+        channel_state = settings.get("_channel_state")
+        if not isinstance(channel_state, dict):
+            channel_state = self.store.get_user_notification_channel(
+                workspace_id=str(settings.get("workspace_id") or ""),
+                user_id=str(settings.get("user_id") or ""),
+                channel="telegram",
+            )
+        chat_id = self._bound_telegram_chat_id(channel_state)
+        if not chat_id:
+            raise NotificationServiceError(
+                "notification_destination_required",
+                "Telegram Chat ID is not configured",
+                status_code=409,
+            )
+        text = _preferred_source_webhook_text(
+            payload,
+            limit=4096,
+        )
+        try:
+            return self.telegram_transport.send_message(
+                workspace_id=str(settings.get("workspace_id") or ""),
+                chat_id=chat_id,
+                text=text,
+            )
+        except TelegramTransportServiceError as exc:
+            raise NotificationServiceError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                outcome_unknown=exc.outcome_unknown,
+            ) from exc
 
     def _send_webhook(
         self,

@@ -62,6 +62,8 @@ WEBHOOK_PROVIDERS = {
     "slack",
     "discord",
 }
+NOTIFICATION_CHANNELS = ("email", "webhook", "telegram")
+NOTIFICATION_CHANNEL_SET = frozenset(NOTIFICATION_CHANNELS)
 WEBHOOK_PROVIDER_TRIGGER_NAMES = {
     f"trg_{table}_webhook_v14_{operation}"
     for table in (
@@ -467,6 +469,7 @@ class ServiceStore:
         *,
         prepare_apify_actor_routing_v13: bool = False,
         prepare_webhook_providers_v14: bool = False,
+        prepare_multichannel_notifications_v15: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -517,6 +520,25 @@ class ServiceStore:
                 and (
                     webhook_providers_v14_migrated
                     or prepare_webhook_providers_v14
+                )
+            )
+        )
+        multichannel_notifications_v15_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 15"
+            ).fetchone()
+        )
+        multichannel_notifications_v15_upgrade_pending = bool(
+            existing_schema and not multichannel_notifications_v15_migrated
+        )
+        install_multichannel_notifications_v15 = bool(
+            not existing_schema
+            or (
+                webhook_providers_v14_migrated
+                and (
+                    multichannel_notifications_v15_migrated
+                    or prepare_multichannel_notifications_v15
                 )
             )
         )
@@ -791,7 +813,7 @@ class ServiceStore:
                 workspace_id TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
                 channel TEXT NOT NULL DEFAULT 'webhook'
-                    CHECK(channel IN ('email', 'webhook')),
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
                 email_address TEXT,
                 webhook_env_name TEXT,
                 webhook_secret_digest TEXT,
@@ -912,19 +934,21 @@ class ServiceStore:
                 snapshot_id TEXT NOT NULL,
                 job_id TEXT NOT NULL,
                 article_id TEXT NOT NULL,
-                channel TEXT NOT NULL CHECK(channel IN ('email', 'webhook')),
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
                 payload_json TEXT NOT NULL DEFAULT '{}',
                 status TEXT NOT NULL DEFAULT 'pending'
                     CHECK(status IN ('pending', 'sending', 'succeeded', 'failed')),
                 attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
                 account_notification_generation INTEGER NOT NULL DEFAULT 0,
+                channel_notification_generation INTEGER NOT NULL DEFAULT 0,
                 subscription_notification_generation INTEGER NOT NULL DEFAULT 0,
                 error_code TEXT,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 sent_at TEXT,
                 updated_at TEXT NOT NULL,
-                UNIQUE(subscription_id, article_id),
+                UNIQUE(subscription_id, article_id, channel),
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
@@ -1357,7 +1381,7 @@ class ServiceStore:
                 workspace_id TEXT PRIMARY KEY,
                 enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
                 channel TEXT NOT NULL DEFAULT 'webhook'
-                    CHECK(channel IN ('email', 'webhook')),
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
                 events_json TEXT NOT NULL DEFAULT '[]',
                 email_address TEXT,
                 webhook_env_name TEXT,
@@ -1371,6 +1395,7 @@ class ServiceStore:
                 webhook_signing_env_name TEXT,
                 webhook_signing_secret_digest TEXT,
                 generation INTEGER NOT NULL DEFAULT 1 CHECK(generation >= 1),
+                notification_enabled_at TEXT,
                 last_test_status TEXT
                     CHECK(last_test_status IS NULL OR last_test_status IN ('sent', 'failed')),
                 last_test_generation INTEGER,
@@ -1420,8 +1445,11 @@ class ServiceStore:
                 workspace_id TEXT NOT NULL,
                 incident_id TEXT NOT NULL,
                 event_type TEXT NOT NULL,
-                channel TEXT NOT NULL CHECK(channel IN ('email', 'webhook')),
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
                 settings_generation INTEGER NOT NULL CHECK(settings_generation >= 1),
+                channel_generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(channel_generation >= 1),
                 payload_json TEXT NOT NULL,
                 status TEXT NOT NULL
                     CHECK(status IN ('pending', 'sending', 'succeeded', 'failed')),
@@ -1433,7 +1461,7 @@ class ServiceStore:
                 started_at TEXT,
                 sent_at TEXT,
                 updated_at TEXT NOT NULL,
-                UNIQUE(incident_id, event_type),
+                UNIQUE(incident_id, event_type, channel),
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
                 FOREIGN KEY(incident_id)
                     REFERENCES apify_actor_alert_incidents(id) ON DELETE CASCADE
@@ -1441,6 +1469,99 @@ class ServiceStore:
             CREATE INDEX IF NOT EXISTS idx_apify_actor_alert_delivery_due
                 ON apify_actor_alert_deliveries(status, retry_at, created_at);
             -- APIFY_ACTOR_ROUTING_V13_END
+
+            -- MULTICHANNEL_NOTIFICATIONS_V15_BEGIN
+            CREATE TABLE IF NOT EXISTS user_notification_channels (
+                user_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
+                position INTEGER NOT NULL DEFAULT 0 CHECK(position >= 0),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                enabled_at TEXT,
+                generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+                destination_env_name TEXT,
+                destination_secret_digest TEXT,
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN (
+                        'sent', 'failed'
+                    )),
+                last_test_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(user_id, channel),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                CHECK(
+                    (destination_env_name IS NULL)
+                    = (destination_secret_digest IS NULL)
+                )
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_notification_channels_workspace
+                ON user_notification_channels(
+                    workspace_id, user_id, enabled, position
+                );
+
+            CREATE TABLE IF NOT EXISTS workspace_telegram_transports (
+                workspace_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                token_env_name TEXT,
+                token_secret_digest TEXT,
+                generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN (
+                        'sent', 'failed'
+                    )),
+                last_test_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                CHECK(
+                    (token_env_name IS NULL) = (token_secret_digest IS NULL)
+                ),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_alert_channels (
+                workspace_id TEXT NOT NULL,
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
+                position INTEGER NOT NULL DEFAULT 0 CHECK(position >= 0),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                enabled_at TEXT,
+                generation INTEGER NOT NULL DEFAULT 1 CHECK(generation >= 1),
+                destination_env_name TEXT,
+                destination_secret_digest TEXT,
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN (
+                        'sent', 'failed'
+                    )),
+                last_test_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, channel),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                CHECK(
+                    (destination_env_name IS NULL)
+                    = (destination_secret_digest IS NULL)
+                )
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_alert_channels_enabled
+                ON apify_actor_alert_channels(
+                    workspace_id, enabled, position
+                );
+            -- MULTICHANNEL_NOTIFICATIONS_V15_END
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -1555,6 +1676,16 @@ class ServiceStore:
                 1,
             )
             schema_sql = before_v13 + after_v13
+        if not install_multichannel_notifications_v15:
+            before_v15, after_marker = schema_sql.split(
+                "-- MULTICHANNEL_NOTIFICATIONS_V15_BEGIN",
+                1,
+            )
+            _v15_sql, after_v15 = after_marker.split(
+                "-- MULTICHANNEL_NOTIFICATIONS_V15_END",
+                1,
+            )
+            schema_sql = before_v15 + after_v15
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -1666,6 +1797,22 @@ class ServiceStore:
             "account_notification_generation",
             "INTEGER NOT NULL DEFAULT 0",
         )
+        if install_multichannel_notifications_v15:
+            self._ensure_column(
+                "preferred_source_notification_deliveries",
+                "channel_notification_generation",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+            self._ensure_column(
+                "apify_actor_alert_settings",
+                "notification_enabled_at",
+                "TEXT",
+            )
+            self._ensure_column(
+                "apify_actor_alert_deliveries",
+                "channel_generation",
+                "INTEGER NOT NULL DEFAULT 1",
+            )
         self._ensure_column(
             "preferred_source_notification_deliveries",
             "subscription_notification_generation",
@@ -1802,6 +1949,11 @@ class ServiceStore:
             and not webhook_providers_v14_upgrade_pending
         ):
             self.mark_webhook_providers_v14_migrated(commit=False)
+        if (
+            install_multichannel_notifications_v15
+            and not multichannel_notifications_v15_upgrade_pending
+        ):
+            self.mark_multichannel_notifications_v15_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -2104,6 +2256,214 @@ class ServiceStore:
                 """
             ).fetchone()
         )
+
+    def mark_multichannel_notifications_v15_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR REPLACE INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (
+                15,
+                'multichannel_notifications_v15',
+                'telegram-multichannel-notifications-v15',
+                ?
+            )
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def multichannel_notifications_v15_migration_required(self) -> bool:
+        conn = self.connect()
+        if not conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 15"
+        ).fetchone():
+            return True
+        required_tables = {
+            "user_notification_channels",
+            "workspace_telegram_transports",
+            "apify_actor_alert_channels",
+        }
+        installed_tables = {
+            str(row["name"])
+            for row in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                """
+            ).fetchall()
+        }
+        if not required_tables <= installed_tables:
+            return True
+        required_delivery_columns = {
+            "preferred_source_notification_deliveries": {
+                "channel_notification_generation"
+            },
+            "apify_actor_alert_deliveries": {"channel_generation"},
+            "apify_actor_alert_settings": {"notification_enabled_at"},
+        }
+        for table, required_columns in required_delivery_columns.items():
+            columns = {
+                str(row["name"])
+                for row in conn.execute(
+                    f"PRAGMA table_info({table})"
+                ).fetchall()
+            }
+            if not required_columns <= columns:
+                return True
+
+        def unique_constraints(table: str) -> set[tuple[str, ...]]:
+            constraints: set[tuple[str, ...]] = set()
+            for index in conn.execute(
+                f"PRAGMA index_list({table})"
+            ).fetchall():
+                if not bool(index["unique"]) or str(
+                    index["origin"]
+                ) == "pk":
+                    continue
+                columns = tuple(
+                    str(column["name"])
+                    for column in sorted(
+                        conn.execute(
+                            f"PRAGMA index_info({index['name']})"
+                        ).fetchall(),
+                        key=lambda column: int(column["seqno"]),
+                    )
+                )
+                constraints.add(columns)
+            return constraints
+
+        required_unique_constraints = {
+            "preferred_source_notification_deliveries": {
+                ("subscription_id", "article_id", "channel")
+            },
+            "apify_actor_alert_deliveries": {
+                ("incident_id", "event_type", "channel")
+            },
+        }
+        for table, expected in required_unique_constraints.items():
+            if unique_constraints(table) != expected:
+                return True
+
+        expected_primary_keys = {
+            "user_notification_channels": ("user_id", "channel"),
+            "workspace_telegram_transports": ("workspace_id",),
+            "apify_actor_alert_channels": ("workspace_id", "channel"),
+        }
+        for table, expected in expected_primary_keys.items():
+            primary_key = tuple(
+                str(row["name"])
+                for row in sorted(
+                    (
+                        row
+                        for row in conn.execute(
+                            f"PRAGMA table_info({table})"
+                        ).fetchall()
+                        if int(row["pk"]) > 0
+                    ),
+                    key=lambda row: int(row["pk"]),
+                )
+            )
+            if primary_key != expected:
+                return True
+
+        required_table_checks = {
+            "preferred_source_notification_deliveries": (
+                "check(channelin('email','webhook','telegram'))",
+            ),
+            "user_notification_settings": (
+                "check(channelin('email','webhook','telegram'))",
+            ),
+            "user_notification_channels": (
+                "check(channelin('email','webhook','telegram'))",
+                "check(enabledin(0,1))",
+                "check(position>=0)",
+                "check(generation>=0)",
+                "check((destination_env_nameisnull)=(destination_secret_digestisnull))",
+            ),
+            "workspace_telegram_transports": (
+                "check(enabledin(0,1))",
+                "check(generation>=0)",
+                "check((token_env_nameisnull)=(token_secret_digestisnull))",
+            ),
+            "apify_actor_alert_channels": (
+                "check(channelin('email','webhook','telegram'))",
+                "check(enabledin(0,1))",
+                "check(position>=0)",
+                "check(generation>=1)",
+                "check((destination_env_nameisnull)=(destination_secret_digestisnull))",
+            ),
+            "apify_actor_alert_settings": (
+                "check(channelin('email','webhook','telegram'))",
+            ),
+            "apify_actor_alert_deliveries": (
+                "check(channelin('email','webhook','telegram'))",
+            ),
+        }
+        for table, required_checks in required_table_checks.items():
+            definition = conn.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = ?
+                """,
+                (table,),
+            ).fetchone()
+            normalized_sql = re.sub(
+                r"\s+",
+                "",
+                str(definition["sql"] if definition else "").lower(),
+            )
+            if any(
+                required not in normalized_sql
+                for required in required_checks
+            ):
+                return True
+
+        placeholders = ",".join("?" for _value in NOTIFICATION_CHANNELS)
+        for table in (
+            "user_notification_channels",
+            "apify_actor_alert_channels",
+        ):
+            invalid = conn.execute(
+                f"""
+                SELECT 1 FROM {table}
+                WHERE channel NOT IN ({placeholders})
+                   OR enabled NOT IN (0, 1)
+                   OR position < 0
+                   OR (
+                        (destination_env_name IS NULL)
+                        != (destination_secret_digest IS NULL)
+                   )
+                   OR (
+                        destination_secret_digest IS NOT NULL
+                        AND (
+                            length(destination_secret_digest) != 64
+                            OR destination_secret_digest GLOB '*[^0-9a-f]*'
+                        )
+                   )
+                LIMIT 1
+                """,
+                NOTIFICATION_CHANNELS,
+            ).fetchone()
+            if invalid:
+                return True
+        for table in (
+            "preferred_source_notification_deliveries",
+            "apify_actor_alert_deliveries",
+        ):
+            if conn.execute(
+                f"""
+                SELECT 1 FROM {table}
+                WHERE channel NOT IN ({placeholders})
+                LIMIT 1
+                """,
+                NOTIFICATION_CHANNELS,
+            ).fetchone():
+                return True
+        return False
 
     def _seed_apify_key_pools(self, *, commit: bool = True) -> None:
         """Idempotently seed workspace pools from existing Apify secret refs."""
@@ -2676,6 +3036,22 @@ class ServiceStore:
         return data
 
     @staticmethod
+    def _notification_channel(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["enabled"] = _bool(data.get("enabled"))
+        data["position"] = max(0, int(data.get("position") or 0))
+        data["generation"] = max(0, int(data.get("generation") or 0))
+        if data.get("last_test_generation") is not None:
+            data["last_test_generation"] = int(
+                data["last_test_generation"]
+            )
+        return data
+
+    @staticmethod
     def _workspace_email_transport(
         row: sqlite3.Row | None,
     ) -> dict[str, Any] | None:
@@ -2684,6 +3060,21 @@ class ServiceStore:
         data = dict(row)
         data["enabled"] = _bool(data.get("enabled"))
         data["generation"] = int(data.get("generation") or 0)
+        if data.get("last_test_generation") is not None:
+            data["last_test_generation"] = int(
+                data["last_test_generation"]
+            )
+        return data
+
+    @staticmethod
+    def _workspace_telegram_transport(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["enabled"] = _bool(data.get("enabled"))
+        data["generation"] = max(0, int(data.get("generation") or 0))
         if data.get("last_test_generation") is not None:
             data["last_test_generation"] = int(
                 data["last_test_generation"]
@@ -2700,6 +3091,9 @@ class ServiceStore:
         data["attempts"] = int(data.get("attempts") or 0)
         data["account_notification_generation"] = int(
             data.get("account_notification_generation") or 0
+        )
+        data["channel_notification_generation"] = int(
+            data.get("channel_notification_generation") or 0
         )
         data["subscription_notification_generation"] = int(
             data.get("subscription_notification_generation") or 0
@@ -4245,6 +4639,636 @@ class ServiceStore:
             return None
         return updated
 
+    def get_workspace_telegram_transport(
+        self,
+        *,
+        workspace_id: str,
+    ) -> dict[str, Any] | None:
+        row = self.connect().execute(
+            """
+            SELECT * FROM workspace_telegram_transports
+            WHERE workspace_id = ?
+            """,
+            (workspace_id,),
+        ).fetchone()
+        return self._workspace_telegram_transport(row)
+
+    def upsert_workspace_telegram_transport(
+        self,
+        *,
+        workspace_id: str,
+        enabled: bool,
+        token_env_name: str | None,
+        token_secret_digest: str | None,
+        generation: int,
+        last_test_status: str | None,
+        last_test_generation: int | None,
+        last_test_attempted_at: str | None,
+        last_tested_at: str | None,
+        last_test_error_code: str | None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if bool(token_env_name) != bool(token_secret_digest):
+            raise ValueError(
+                "Telegram token environment and digest must be configured together"
+            )
+        if token_secret_digest and not re.fullmatch(
+            r"[0-9a-f]{64}", token_secret_digest
+        ):
+            raise ValueError("Telegram token digest must be a SHA-256 value")
+        if last_test_status not in {None, "sent", "failed"}:
+            raise ValueError("Telegram transport test status is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            conn.execute(
+                """
+                INSERT INTO workspace_telegram_transports (
+                    workspace_id, enabled, token_env_name,
+                    token_secret_digest, generation, last_test_status,
+                    last_test_generation, last_test_attempted_at,
+                    last_tested_at, last_test_error_code, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(workspace_id) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    token_env_name = excluded.token_env_name,
+                    token_secret_digest = excluded.token_secret_digest,
+                    generation = excluded.generation,
+                    last_test_status = excluded.last_test_status,
+                    last_test_generation = excluded.last_test_generation,
+                    last_test_attempted_at =
+                        excluded.last_test_attempted_at,
+                    last_tested_at = excluded.last_tested_at,
+                    last_test_error_code = excluded.last_test_error_code,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    workspace_id,
+                    1 if enabled else 0,
+                    token_env_name,
+                    token_secret_digest,
+                    max(0, int(generation)),
+                    last_test_status,
+                    last_test_generation,
+                    last_test_attempted_at,
+                    last_tested_at,
+                    last_test_error_code,
+                    now,
+                    now,
+                ),
+            )
+            updated = self.get_workspace_telegram_transport(
+                workspace_id=workspace_id
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated is None:
+            raise LookupError(
+                "workspace Telegram transport not found after update"
+            )
+        return updated
+
+    def delete_workspace_telegram_transport(
+        self,
+        *,
+        workspace_id: str,
+        commit: bool = True,
+    ) -> bool:
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            deleted = conn.execute(
+                """
+                DELETE FROM workspace_telegram_transports
+                WHERE workspace_id = ?
+                """,
+                (workspace_id,),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return deleted.rowcount == 1
+
+    def invalidate_notification_channel_deliveries(
+        self,
+        *,
+        workspace_id: str,
+        channel: str,
+        error_code: str = "notification_transport_changed",
+        commit: bool = True,
+    ) -> int:
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification channel is invalid")
+        if not re.fullmatch(r"[a-z][a-z0-9_.:-]{0,63}", error_code):
+            raise ValueError("notification delivery error code is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            updated = conn.execute(
+                """
+                UPDATE preferred_source_notification_deliveries
+                SET status = 'failed', error_code = ?, updated_at = ?
+                WHERE workspace_id = ? AND channel = ?
+                  AND status = 'pending'
+                """,
+                (error_code, now, workspace_id, channel),
+            )
+            alerts = conn.execute(
+                """
+                UPDATE apify_actor_alert_deliveries
+                SET status = 'failed', error_code = ?, retry_at = NULL,
+                    updated_at = ?
+                WHERE workspace_id = ? AND channel = ?
+                  AND status = 'pending'
+                """,
+                (error_code, now, workspace_id, channel),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return max(0, int(updated.rowcount)) + max(
+            0, int(alerts.rowcount)
+        )
+
+    def advance_notification_channel_watermarks(
+        self,
+        *,
+        workspace_id: str,
+        channel: str,
+        enabled_at: str | None = None,
+        commit: bool = True,
+    ) -> int:
+        """Prevent transport restoration from staging historical content."""
+
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification channel is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = enabled_at or _now_iso()
+            users = conn.execute(
+                """
+                UPDATE user_notification_channels
+                SET enabled_at = ?, updated_at = ?
+                WHERE workspace_id = ? AND channel = ? AND enabled = 1
+                """,
+                (now, now, workspace_id, channel),
+            )
+            alerts = conn.execute(
+                """
+                UPDATE apify_actor_alert_channels
+                SET enabled_at = ?, updated_at = ?
+                WHERE workspace_id = ? AND channel = ? AND enabled = 1
+                """,
+                (now, now, workspace_id, channel),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return max(0, int(users.rowcount)) + max(
+            0, int(alerts.rowcount)
+        )
+
+    def claim_workspace_telegram_transport_test_attempt(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        cooldown_seconds: int = 60,
+        attempted_at: str | None = None,
+    ) -> dict[str, Any]:
+        conn = self.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "Telegram transport test attempt requires no active transaction"
+            )
+        now = (
+            datetime.fromisoformat(
+                str(attempted_at).replace("Z", "+00:00")
+            )
+            if attempted_at
+            else datetime.now(timezone.utc)
+        )
+        if now.tzinfo is None:
+            raise ValueError(
+                "Telegram transport test timestamp must include a timezone"
+            )
+        now = now.astimezone(timezone.utc)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            actor = self.get_user(actor_user_id)
+            if (
+                actor is None
+                or not bool(actor.get("enabled"))
+                or str(actor.get("workspace_id")) != str(workspace_id)
+                or str(actor.get("role") or "") not in {"owner", "admin"}
+            ):
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "forbidden",
+                    "retry_after_seconds": 0,
+                    "transport": None,
+                }
+            current = self.get_workspace_telegram_transport(
+                workspace_id=workspace_id
+            )
+            if current is None:
+                conn.commit()
+                return {
+                    "claimed": False,
+                    "reason": "not_configured",
+                    "retry_after_seconds": 0,
+                    "transport": None,
+                }
+            previous = None
+            if current.get("last_test_attempted_at"):
+                try:
+                    previous = datetime.fromisoformat(
+                        str(current["last_test_attempted_at"]).replace(
+                            "Z", "+00:00"
+                        )
+                    )
+                except ValueError:
+                    previous = None
+            if previous is not None and previous.tzinfo is not None:
+                elapsed = (
+                    now - previous.astimezone(timezone.utc)
+                ).total_seconds()
+                if elapsed < max(1, int(cooldown_seconds)):
+                    conn.commit()
+                    return {
+                        "claimed": False,
+                        "reason": "rate_limited",
+                        "retry_after_seconds": max(
+                            1,
+                            int(
+                                math.ceil(
+                                    max(1, int(cooldown_seconds)) - elapsed
+                                )
+                            ),
+                        ),
+                        "transport": current,
+                    }
+            attempted = now.isoformat()
+            conn.execute(
+                """
+                UPDATE workspace_telegram_transports
+                SET last_test_attempted_at = ?, updated_at = ?
+                WHERE workspace_id = ?
+                """,
+                (attempted, attempted, workspace_id),
+            )
+            claimed = self.get_workspace_telegram_transport(
+                workspace_id=workspace_id
+            )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        return {
+            "claimed": True,
+            "reason": None,
+            "retry_after_seconds": 0,
+            "transport": claimed,
+        }
+
+    def record_workspace_telegram_transport_test(
+        self,
+        *,
+        workspace_id: str,
+        generation: int,
+        status: str,
+        error_code: str | None = None,
+        tested_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        if status not in {"sent", "failed"}:
+            raise ValueError("Telegram transport test status is invalid")
+        conn = self.connect()
+        owns_transaction = not conn.in_transaction
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = tested_at or _now_iso()
+            updated = conn.execute(
+                """
+                UPDATE workspace_telegram_transports
+                SET last_test_status = ?, last_test_generation = ?,
+                    last_tested_at = ?, last_test_error_code = ?,
+                    updated_at = ?
+                WHERE workspace_id = ? AND generation = ?
+                """,
+                (
+                    status,
+                    int(generation),
+                    now,
+                    error_code if status == "failed" else None,
+                    now,
+                    workspace_id,
+                    int(generation),
+                ),
+            )
+            transport = self.get_workspace_telegram_transport(
+                workspace_id=workspace_id
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated.rowcount != 1:
+            return None
+        return transport
+
+    def list_user_notification_channels(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        rows = self.connect().execute(
+            """
+            SELECT * FROM user_notification_channels
+            WHERE workspace_id = ? AND user_id = ?
+            ORDER BY position, channel
+            """,
+            (workspace_id, user_id),
+        ).fetchall()
+        return [
+            channel
+            for row in rows
+            if (channel := self._notification_channel(row)) is not None
+        ]
+
+    def get_user_notification_channel(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        channel: str,
+    ) -> dict[str, Any] | None:
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            return None
+        row = self.connect().execute(
+            """
+            SELECT * FROM user_notification_channels
+            WHERE workspace_id = ? AND user_id = ? AND channel = ?
+            """,
+            (workspace_id, user_id, channel),
+        ).fetchone()
+        return self._notification_channel(row)
+
+    def upsert_user_notification_channel(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        channel: str,
+        position: int,
+        enabled: bool,
+        enabled_at: str | None,
+        generation: int,
+        destination_env_name: str | None = None,
+        destination_secret_digest: str | None = None,
+        last_test_status: str | None = None,
+        last_test_generation: int | None = None,
+        last_test_attempted_at: str | None = None,
+        last_tested_at: str | None = None,
+        last_test_error_code: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification channel is invalid")
+        if bool(destination_env_name) != bool(destination_secret_digest):
+            raise ValueError(
+                "notification destination environment and digest must be configured together"
+            )
+        if destination_secret_digest and not re.fullmatch(
+            r"[0-9a-f]{64}", destination_secret_digest
+        ):
+            raise ValueError(
+                "notification destination digest must be a SHA-256 value"
+            )
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            conn.execute(
+                """
+                INSERT INTO user_notification_channels (
+                    user_id, workspace_id, channel, position, enabled,
+                    enabled_at, generation, destination_env_name,
+                    destination_secret_digest, last_test_status,
+                    last_test_generation, last_test_attempted_at,
+                    last_tested_at, last_test_error_code, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, channel) DO UPDATE SET
+                    workspace_id = excluded.workspace_id,
+                    position = excluded.position,
+                    enabled = excluded.enabled,
+                    enabled_at = excluded.enabled_at,
+                    generation = excluded.generation,
+                    destination_env_name = excluded.destination_env_name,
+                    destination_secret_digest =
+                        excluded.destination_secret_digest,
+                    last_test_status = excluded.last_test_status,
+                    last_test_generation = excluded.last_test_generation,
+                    last_test_attempted_at =
+                        excluded.last_test_attempted_at,
+                    last_tested_at = excluded.last_tested_at,
+                    last_test_error_code = excluded.last_test_error_code,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    workspace_id,
+                    channel,
+                    max(0, int(position)),
+                    1 if enabled else 0,
+                    enabled_at,
+                    max(0, int(generation)),
+                    destination_env_name,
+                    destination_secret_digest,
+                    last_test_status,
+                    last_test_generation,
+                    last_test_attempted_at,
+                    last_tested_at,
+                    last_test_error_code,
+                    now,
+                    now,
+                ),
+            )
+            updated = self.get_user_notification_channel(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated is None:
+            raise LookupError("notification channel not found after update")
+        return updated
+
+    def list_apify_actor_alert_channels(
+        self,
+        *,
+        workspace_id: str,
+    ) -> list[dict[str, Any]]:
+        rows = self.connect().execute(
+            """
+            SELECT * FROM apify_actor_alert_channels
+            WHERE workspace_id = ?
+            ORDER BY position, channel
+            """,
+            (workspace_id,),
+        ).fetchall()
+        return [
+            channel
+            for row in rows
+            if (channel := self._notification_channel(row)) is not None
+        ]
+
+    def get_apify_actor_alert_channel(
+        self,
+        *,
+        workspace_id: str,
+        channel: str,
+    ) -> dict[str, Any] | None:
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            return None
+        row = self.connect().execute(
+            """
+            SELECT * FROM apify_actor_alert_channels
+            WHERE workspace_id = ? AND channel = ?
+            """,
+            (workspace_id, channel),
+        ).fetchone()
+        return self._notification_channel(row)
+
+    def upsert_apify_actor_alert_channel(
+        self,
+        *,
+        workspace_id: str,
+        channel: str,
+        position: int,
+        enabled: bool,
+        enabled_at: str | None,
+        generation: int,
+        destination_env_name: str | None = None,
+        destination_secret_digest: str | None = None,
+        last_test_status: str | None = None,
+        last_test_generation: int | None = None,
+        last_test_attempted_at: str | None = None,
+        last_tested_at: str | None = None,
+        last_test_error_code: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification channel is invalid")
+        if bool(destination_env_name) != bool(destination_secret_digest):
+            raise ValueError(
+                "alert destination environment and digest must be configured together"
+            )
+        if destination_secret_digest and not re.fullmatch(
+            r"[0-9a-f]{64}", destination_secret_digest
+        ):
+            raise ValueError(
+                "alert destination digest must be a SHA-256 value"
+            )
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            conn.execute(
+                """
+                INSERT INTO apify_actor_alert_channels (
+                    workspace_id, channel, position, enabled, enabled_at,
+                    generation, destination_env_name,
+                    destination_secret_digest, last_test_status,
+                    last_test_generation, last_test_attempted_at,
+                    last_tested_at, last_test_error_code, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(workspace_id, channel) DO UPDATE SET
+                    position = excluded.position,
+                    enabled = excluded.enabled,
+                    enabled_at = excluded.enabled_at,
+                    generation = excluded.generation,
+                    destination_env_name = excluded.destination_env_name,
+                    destination_secret_digest =
+                        excluded.destination_secret_digest,
+                    last_test_status = excluded.last_test_status,
+                    last_test_generation = excluded.last_test_generation,
+                    last_test_attempted_at =
+                        excluded.last_test_attempted_at,
+                    last_tested_at = excluded.last_tested_at,
+                    last_test_error_code = excluded.last_test_error_code,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    workspace_id,
+                    channel,
+                    max(0, int(position)),
+                    1 if enabled else 0,
+                    enabled_at,
+                    max(1, int(generation)),
+                    destination_env_name,
+                    destination_secret_digest,
+                    last_test_status,
+                    last_test_generation,
+                    last_test_attempted_at,
+                    last_tested_at,
+                    last_test_error_code,
+                    now,
+                    now,
+                ),
+            )
+            updated = self.get_apify_actor_alert_channel(
+                workspace_id=workspace_id,
+                channel=channel,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if updated is None:
+            raise LookupError("alert channel not found after update")
+        return updated
+
     def get_user_notification_settings(
         self,
         *,
@@ -4306,8 +5330,10 @@ class ServiceStore:
                 if channel is _UNSET or channel is None
                 else channel
             ).strip().lower()
-            if target_channel not in {"email", "webhook"}:
-                raise ValueError("notification channel must be email or webhook")
+            if target_channel not in NOTIFICATION_CHANNEL_SET:
+                raise ValueError(
+                    "notification channel must be email, webhook, or telegram"
+                )
             target_email = (
                 (current or {}).get("email_address")
                 if email_address is _UNSET
@@ -4374,25 +5400,6 @@ class ServiceStore:
                 raise ValueError(
                     "selected webhook provider does not support signing"
                 )
-            if (
-                target_enabled
-                and target_channel == "email"
-                and not str(target_email or "").strip()
-            ):
-                raise ValueError(
-                    "enabled email notifications require an email destination"
-                )
-            if (
-                target_enabled
-                and target_channel == "webhook"
-                and (
-                    not str(target_webhook_env or "").strip()
-                    or not str(target_webhook_digest or "").strip()
-                )
-            ):
-                raise ValueError(
-                    "enabled webhook notifications require a webhook destination"
-                )
             now = _now_iso()
             notification_enabled_at = (current or {}).get(
                 "notification_enabled_at"
@@ -4400,7 +5407,7 @@ class ServiceStore:
             notification_generation = int(
                 (current or {}).get("notification_generation") or 0
             )
-            material_changed = current is not None and any(
+            compatibility_projection_changed = current is not None and any(
                 (
                     target_channel
                     != str((current or {}).get("channel") or "webhook"),
@@ -4423,11 +5430,7 @@ class ServiceStore:
                 )
             )
             generation_changed = bool(
-                material_changed
-                or (
-                    target_enabled
-                    and not bool((current or {}).get("enabled"))
-                )
+                target_enabled != bool((current or {}).get("enabled"))
             )
             if generation_changed:
                 notification_generation += 1
@@ -4440,7 +5443,7 @@ class ServiceStore:
             last_test_error_code = (current or {}).get(
                 "last_test_error_code"
             )
-            if material_changed:
+            if compatibility_projection_changed:
                 last_test_status = None
                 last_tested_at = None
                 last_test_error_code = None
@@ -4496,6 +5499,41 @@ class ServiceStore:
                     now,
                 ),
             )
+            has_channel_table = bool(
+                conn.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'user_notification_channels'
+                    """
+                ).fetchone()
+            )
+            if has_channel_table and not conn.execute(
+                """
+                SELECT 1 FROM user_notification_channels
+                WHERE user_id = ?
+                LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone():
+                conn.execute(
+                    """
+                    INSERT INTO user_notification_channels (
+                        user_id, workspace_id, channel, position, enabled,
+                        enabled_at, generation, created_at, updated_at
+                    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        user_id,
+                        workspace_id,
+                        target_channel,
+                        1 if target_enabled else 0,
+                        notification_enabled_at,
+                        max(1, notification_generation),
+                        now,
+                        now,
+                    ),
+                )
             updated = self.get_user_notification_settings(
                 workspace_id=workspace_id,
                 user_id=user_id,
@@ -4516,6 +5554,7 @@ class ServiceStore:
         workspace_id: str,
         user_id: str,
         status: str,
+        channel: str | None = None,
         generation: int | None = None,
         error_code: str | None = None,
         tested_at: str | None = None,
@@ -4534,16 +5573,22 @@ class ServiceStore:
             )
             if current is None:
                 raise LookupError("notification settings not found")
+            target_channel = str(
+                channel or current.get("channel") or "webhook"
+            ).strip().lower()
+            if target_channel not in NOTIFICATION_CHANNEL_SET:
+                raise ValueError("notification test channel is invalid")
             now = tested_at or _now_iso()
             updated_row = conn.execute(
                 """
-                UPDATE user_notification_settings
+                UPDATE user_notification_channels
                 SET last_test_status = ?,
+                    last_test_generation = generation,
                     last_tested_at = ?,
                     last_test_error_code = ?,
                     updated_at = ?
-                WHERE workspace_id = ? AND user_id = ?
-                  AND (? IS NULL OR notification_generation = ?)
+                WHERE workspace_id = ? AND user_id = ? AND channel = ?
+                  AND (? IS NULL OR generation = ?)
                 """,
                 (
                     status,
@@ -4552,6 +5597,7 @@ class ServiceStore:
                     now,
                     workspace_id,
                     user_id,
+                    target_channel,
                     generation,
                     generation,
                 ),
@@ -4560,9 +5606,27 @@ class ServiceStore:
                 if owns_transaction:
                     conn.commit()
                 return None
-            updated = self.get_user_notification_settings(
+            conn.execute(
+                """
+                UPDATE user_notification_settings
+                SET last_test_status = ?, last_tested_at = ?,
+                    last_test_error_code = ?, updated_at = ?
+                WHERE workspace_id = ? AND user_id = ? AND channel = ?
+                """,
+                (
+                    status,
+                    now,
+                    error_code if status == "failed" else None,
+                    now,
+                    workspace_id,
+                    user_id,
+                    target_channel,
+                ),
+            )
+            updated = self.get_user_notification_channel(
                 workspace_id=workspace_id,
                 user_id=user_id,
+                channel=target_channel,
             )
             if owns_transaction:
                 conn.commit()
@@ -4579,6 +5643,7 @@ class ServiceStore:
         *,
         workspace_id: str,
         user_id: str,
+        channel: str | None = None,
         cooldown_seconds: int = 60,
         attempted_at: str | None = None,
     ) -> dict[str, Any]:
@@ -4630,7 +5695,21 @@ class ServiceStore:
             )
             if current is None:
                 raise LookupError("notification settings not found")
-            last_attempted_at = current.get("last_test_attempted_at")
+            target_channel = str(
+                channel or current.get("channel") or "webhook"
+            ).strip().lower()
+            if target_channel not in NOTIFICATION_CHANNEL_SET:
+                raise ValueError("notification test channel is invalid")
+            channel_state = self.get_user_notification_channel(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                channel=target_channel,
+            )
+            if channel_state is None:
+                raise LookupError("notification channel not found")
+            last_attempted_at = channel_state.get(
+                "last_test_attempted_at"
+            )
             elapsed: float | None = None
             if last_attempted_at:
                 try:
@@ -4652,20 +5731,39 @@ class ServiceStore:
                         1,
                         int(math.ceil(cooldown - elapsed)),
                     ),
-                    "settings": current,
+                    "settings": {
+                        **current,
+                        "channel": target_channel,
+                        "_channel_state": channel_state,
+                    },
                 }
             attempted_at_iso = now.isoformat()
             conn.execute(
                 """
-                UPDATE user_notification_settings
+                UPDATE user_notification_channels
                 SET last_test_attempted_at = ?
-                WHERE workspace_id = ? AND user_id = ?
+                WHERE workspace_id = ? AND user_id = ? AND channel = ?
                 """,
-                (attempted_at_iso, workspace_id, user_id),
+                (
+                    attempted_at_iso,
+                    workspace_id,
+                    user_id,
+                    target_channel,
+                ),
             )
-            claimed = self.get_user_notification_settings(
+            claimed_channel = self.get_user_notification_channel(
                 workspace_id=workspace_id,
                 user_id=user_id,
+                channel=target_channel,
+            )
+            claimed = (
+                {
+                    **current,
+                    "channel": target_channel,
+                    "_channel_state": claimed_channel,
+                }
+                if claimed_channel is not None
+                else None
             )
             conn.commit()
         except Exception:

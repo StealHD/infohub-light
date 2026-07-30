@@ -725,6 +725,17 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "webhook_providers_v14",
             }
+        if store.multichannel_notifications_v15_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "multichannel_notifications_v15",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -769,6 +780,7 @@ def run_worker_once(
             and not store.content_timeline_v11_migration_required()
             and not store.apify_actor_routing_v13_migration_required()
             and not store.webhook_providers_v14_migration_required()
+            and not store.multichannel_notifications_v15_migration_required()
         ):
             update_observability_context(stage="maintenance")
             MaintenanceService(store).run_if_due()
