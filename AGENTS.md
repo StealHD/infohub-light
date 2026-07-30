@@ -14,7 +14,7 @@ Current domain objects:
 5. Legacy optional outputs: `data/site/*.json`, `data/horizon.db`, and article graph JSON; the old CLI publisher may maintain them, but the default Service UI/API does not depend on them.
 
 ## 2. Hard Constraints
-- Do not put API keys, webhook URLs, Apify tokens, or model keys in JSON config or code. Store environment variable names only.
+- Do not put API keys, webhook URLs, Telegram Bot Tokens, Telegram Chat IDs, Apify tokens, or model keys in JSON config or code. Store environment variable names only.
 - Personal tags are user preference signals and must not be sent to AI scoring prompts.
 - `analysis_mode=personal_only` items enter history and personal feed but skip AI analysis, featured selection, and daily push.
 - Prefer targeted tests and static checks before running full fetch, enrichment, full-text, scheduler, or push workflows.

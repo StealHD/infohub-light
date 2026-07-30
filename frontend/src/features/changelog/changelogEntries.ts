@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-30',
+        title: '消息通知支持邮箱、Webhook 与 Telegram 多选',
+        summary: '个人新内容通知和 Apify 运行告警都可同时启用多个渠道；每个渠道独立配置、测试和投递，切换时不再隐藏或清空邮箱配置。',
+        items: [
+          { title: '三张渠道卡始终可见', description: '邮箱、Webhook 和 Telegram 配置同时保留，可任意多选；每张卡显示自己的可用性、测试状态与发送结果，保存一种渠道不会清空另外两种。' },
+          { title: 'Telegram 使用工作区共享 Bot', description: 'Owner/Admin 保存、测试并启用工作区 Bot Token；个人通知与运行告警分别使用自己的 write-only Chat ID，Token 和目的地均不会在页面、接口或日志中回显。' },
+          { title: '失败隔离且不补发历史', description: '同一批新内容或同一运行告警会按渠道独立投递；一路失败不阻断其他渠道或抓取任务，服务恢复或重新启用后只发送之后严格新增的内容。' },
+          { title: '旧客户端继续兼容', description: '旧版单渠道字段仍可读取和保存；新版多渠道字段提供逐渠道 generation、水位和测试状态，迁移会保留既有邮箱、Webhook 配置和投递历史。' },
+        ],
+      },
+      {
+        date: '2026-07-30',
         title: '故障排查可以从请求串到后台结果',
         summary: '接口、后台任务、来源获取和通知现在使用同一组安全线索串联；管理员也可把工作区级脱敏诊断显式交给 OpenClaw。',
         items: [
