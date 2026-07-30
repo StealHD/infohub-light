@@ -73,7 +73,13 @@ def test_apify_actor_alert_settings_are_admin_only_and_write_only(
     assert initial.headers["cache-control"] == "no-store"
     initial_data = initial.json()["data"]
     assert initial_data["enabled"] is False
-    assert initial_data["schema_version"] == 2
+    assert initial_data["schema_version"] == 3
+    assert initial_data["channels"] == []
+    assert set(initial_data["channel_states"]) == {
+        "email",
+        "webhook",
+        "telegram",
+    }
     assert initial_data["webhook_provider"] == "generic_event"
     assert initial_data["webhook_provider_explicit"] is True
     assert initial_data["webhook_signing_secret_configured"] is False
@@ -101,6 +107,7 @@ def test_apify_actor_alert_settings_are_admin_only_and_write_only(
     assert updated.status_code == 200, updated.text
     assert updated.headers["cache-control"] == "no-store"
     assert updated.json()["data"]["webhook_configured"] is True
+    assert updated.json()["data"]["channels"] == ["webhook"]
     assert updated.json()["data"]["events"] == [
         "actor_switched",
         "recovered",
@@ -193,7 +200,10 @@ def test_apify_actor_alert_incidents_project_only_safe_fields(
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     incidents = response.json()["data"]["incidents"]
+    assert response.json()["data"]["schema_version"] == 2
     assert len(incidents) == 1
+    assert incidents[0]["schema_version"] == 2
+    assert incidents[0]["deliveries"] == []
     assert incidents[0]["actor_name"] == "ScrapeBadger"
     assert incidents[0]["active_actor_name"] == "Dami"
     assert incidents[0]["reason_code"] == "placeholder_records"

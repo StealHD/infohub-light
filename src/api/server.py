@@ -97,6 +97,9 @@ from ..services.operation_log import (
 from ..services.notification_email_transport import (
     EmailTransportError,
 )
+from ..services.workspace_telegram_transport import (
+    TelegramTransportServiceError,
+)
 from ..mcp.remote_config import OpenClawChatSettings, RemoteMCPSettings
 from ..mcp.remote_server import create_remote_mcp
 from ..services.source_type_registry import (
@@ -253,6 +256,24 @@ def ok(data: Any) -> dict[str, Any]:
     return {"ok": True, "data": data}
 
 
+def _public_notification_test_result(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep delivery acknowledgements and destinations out of test responses."""
+
+    channel = str(result.get("channel") or "")
+    public: dict[str, Any] = {
+        "sent": bool(result.get("sent")),
+        "channel": channel,
+    }
+    if channel == "webhook":
+        if result.get("provider") is not None:
+            public["provider"] = str(result["provider"])
+        if result.get("verification") is not None:
+            public["verification"] = str(result["verification"])
+    return public
+
+
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
     """Remove worker-internal lease credentials from API responses."""
     return {key: value for key, value in job.items() if key != "claim_token"}
@@ -351,7 +372,8 @@ class NotificationSettingsPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: StrictBool | None = None
-    channel: Literal["email", "webhook"] | None = None
+    channel: Literal["email", "webhook", "telegram"] | None = None
+    channels: list[Literal["email", "webhook", "telegram"]] | None = None
     email_address: str | None = Field(default=None, min_length=3, max_length=320)
     webhook_url: str | None = Field(default=None, min_length=8, max_length=4096)
     webhook_provider: Literal[
@@ -367,6 +389,13 @@ class NotificationSettingsPatchRequest(BaseModel):
         default=None,
         max_length=4096,
     )
+    telegram_chat_id: str | None = Field(default=None, max_length=128)
+
+
+class NotificationChannelTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Literal["email", "webhook", "telegram"] | None = None
 
 
 class NotificationEmailTransportPatchRequest(BaseModel):
@@ -399,6 +428,19 @@ class NotificationEmailTransportTestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     recipient_email: str = Field(min_length=3, max_length=320)
+
+
+class NotificationTelegramTransportPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bot_token: str | None = Field(default=None, max_length=256)
+    enabled: StrictBool | None = None
+
+
+class NotificationTelegramTransportTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chat_id: str = Field(min_length=1, max_length=128)
 
 
 class SourceCreateRequest(BaseModel):
@@ -479,7 +521,8 @@ class ApifyActorAlertSettingsPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: StrictBool | None = None
-    channel: Literal["email", "webhook"] | None = None
+    channel: Literal["email", "webhook", "telegram"] | None = None
+    channels: list[Literal["email", "webhook", "telegram"]] | None = None
     events: list[
         Literal[
             "actor_switched",
@@ -505,6 +548,7 @@ class ApifyActorAlertSettingsPatchRequest(BaseModel):
         default=None,
         max_length=4096,
     )
+    telegram_chat_id: str | None = Field(default=None, max_length=128)
 
 
 class SubscriptionRequest(BaseModel):
@@ -677,6 +721,18 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "notification",
         "email_transport_test",
     ),
+    ("PATCH", "/api/admin/notification-telegram-transport"): (
+        "notification",
+        "telegram_transport_update",
+    ),
+    ("DELETE", "/api/admin/notification-telegram-transport"): (
+        "notification",
+        "telegram_transport_delete",
+    ),
+    ("POST", "/api/admin/notification-telegram-transport/test"): (
+        "notification",
+        "telegram_transport_test",
+    ),
     ("PUT", "/api/admin/apify-key-pool/order"): ("secret", "pool_reorder"),
     ("POST", "/api/admin/apify-key-pool/{secret_id}/drain"): (
         "secret",
@@ -802,10 +858,14 @@ def create_app(
     workspace_email_transport = (
         preferred_source_notifications.email_transport
     )
+    workspace_telegram_transport = (
+        preferred_source_notifications.telegram_transport
+    )
     apify_actor_alerts = ApifyActorAlertService(
         store,
         data_dir=str(data_path),
         email_transport=workspace_email_transport,
+        telegram_transport=workspace_telegram_transport,
     )
     apify_key_pool = ApifyKeyPoolService(store, secret_store=secret_values)
 
@@ -830,6 +890,18 @@ def create_app(
                 action=(
                     "Stop API and Worker, then run "
                     "scripts/migrate_webhook_providers_v14.py --apply."
+                ),
+            )
+
+    def require_notification_channels_v15() -> None:
+        if store.multichannel_notifications_v15_migration_required():
+            raise ApiError(
+                "migration_required",
+                "notification channels v15 migration must be applied before notification delivery is used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_notification_channels_v15.py --apply."
                 ),
             )
 
@@ -1112,6 +1184,7 @@ def create_app(
     app.state.subscription_mutations = subscription_mutations
     app.state.preferred_source_notifications = preferred_source_notifications
     app.state.workspace_email_transport = workspace_email_transport
+    app.state.workspace_telegram_transport = workspace_telegram_transport
     app.state.apify_actor_alerts = apify_actor_alerts
     app.state.apify_actor_route_for = apify_actor_route_for
     app.state.remote_mcp = remote_mcp.server if remote_mcp else None
@@ -1462,6 +1535,36 @@ def create_app(
                         "Save the provider settings, send a test, then enable the transport."
                         if exc.status_code < 500
                         else "Review the provider credential and retry the test."
+                    )
+                ),
+            )
+        )
+
+    @app.exception_handler(TelegramTransportServiceError)
+    async def _telegram_transport_error_handler(
+        request: Request,
+        exc: TelegramTransportServiceError,
+    ) -> JSONResponse:
+        mark_operation_error(request, exc.code)
+        return error_response(
+            ApiError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+                action=(
+                    "Do not retry this test; refresh the transport state and "
+                    "confirm the Telegram receiver before any manual action."
+                    if exc.outcome_unknown
+                    else (
+                        "Wait at least 60 seconds before sending another test."
+                        if exc.code
+                        == "telegram_transport_test_rate_limited"
+                        else (
+                            "Save the Bot Token, send a test, then enable the transport."
+                            if exc.status_code < 500
+                            else "Review Telegram availability and retry later."
+                        )
                     )
                 ),
             )
@@ -2449,6 +2552,7 @@ def create_app(
             )
         require_apify_actor_routing_v13()
         require_webhook_providers_v14()
+        require_notification_channels_v15()
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -2552,6 +2656,7 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_webhook_providers_v14()
+        require_notification_channels_v15()
         response.headers["Cache-Control"] = "no-store"
         return ok(
             preferred_source_notifications.get_public_settings(
@@ -2569,6 +2674,7 @@ def create_app(
     ) -> dict[str, Any]:
         require_mutating_member(user)
         require_webhook_providers_v14()
+        require_notification_channels_v15()
         provided = payload.model_fields_set
         if not provided:
             raise ApiError(
@@ -2576,17 +2682,24 @@ def create_app(
                 "at least one notification setting is required",
                 status_code=400,
             )
-        if (
-            ("enabled" in provided and payload.enabled is None)
-            or ("channel" in provided and payload.channel is None)
-            or (
-                "webhook_provider" in provided
-                and payload.webhook_provider is None
+        if "channel" in provided and "channels" in provided:
+            raise ApiError(
+                "invalid_notification_settings",
+                "channel and channels are mutually exclusive",
+                status_code=400,
+            )
+        if any(
+            field in provided and getattr(payload, field) is None
+            for field in (
+                "enabled",
+                "channel",
+                "channels",
+                "webhook_provider",
             )
         ):
             raise ApiError(
                 "invalid_notification_settings",
-                "enabled and channel cannot be null",
+                "enabled, channel, channels, and webhook_provider cannot be null",
                 status_code=400,
             )
         updates = {
@@ -2594,10 +2707,12 @@ def create_app(
             for field in (
                 "enabled",
                 "channel",
+                "channels",
                 "email_address",
                 "webhook_url",
                 "webhook_provider",
                 "webhook_signing_secret",
+                "telegram_chat_id",
             )
             if field in provided
         }
@@ -2613,17 +2728,25 @@ def create_app(
     @app.post("/api/me/notification-settings/test")
     async def notification_settings_test(
         response: Response,
+        payload: NotificationChannelTestRequest | None = None,
         user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         require_mutating_member(user)
         require_webhook_providers_v14()
+        require_notification_channels_v15()
+        test_kwargs = (
+            {"channel": payload.channel}
+            if payload is not None and payload.channel is not None
+            else {}
+        )
         result = await run_in_threadpool(
             preferred_source_notifications.send_test,
             workspace_id=user["workspace_id"],
             user_id=user["id"],
+            **test_kwargs,
         )
         response.headers["Cache-Control"] = "no-store"
-        return ok(result)
+        return ok(_public_notification_test_result(result))
 
     @app.get("/api/config")
     async def config_get(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
@@ -2801,6 +2924,7 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_notification_channels_v15()
         response.headers["Cache-Control"] = "no-store"
         return ok(
             workspace_email_transport.get_public_settings(
@@ -2815,6 +2939,7 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_notification_channels_v15()
         provided = payload.model_fields_set
         if not provided:
             raise ApiError(
@@ -2864,6 +2989,7 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_notification_channels_v15()
         deleted = workspace_email_transport.delete(
             workspace_id=str(user["workspace_id"]),
             actor_user_id=str(user["id"]),
@@ -2877,6 +3003,7 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        require_notification_channels_v15()
         result = await run_in_threadpool(
             workspace_email_transport.send_test,
             workspace_id=str(user["workspace_id"]),
@@ -2885,6 +3012,88 @@ def create_app(
         )
         response.headers["Cache-Control"] = "no-store"
         return ok(result)
+
+    @app.get("/api/admin/notification-telegram-transport")
+    async def admin_notification_telegram_transport_get(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_notification_channels_v15()
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            workspace_telegram_transport.get_public_settings(
+                workspace_id=str(user["workspace_id"]),
+            )
+        )
+
+    @app.patch("/api/admin/notification-telegram-transport")
+    async def admin_notification_telegram_transport_patch(
+        payload: NotificationTelegramTransportPatchRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_notification_channels_v15()
+        provided = payload.model_fields_set
+        if not provided:
+            raise ApiError(
+                "invalid_telegram_transport",
+                "at least one Telegram transport setting is required",
+                status_code=400,
+            )
+        if "enabled" in provided and payload.enabled is None:
+            raise ApiError(
+                "invalid_telegram_transport",
+                "enabled cannot be null",
+                status_code=400,
+            )
+        updates = {
+            field: getattr(payload, field)
+            for field in ("bot_token", "enabled")
+            if field in provided
+        }
+        updated = workspace_telegram_transport.upsert(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            **updates,
+        )
+        request.state.operation_changed_fields = sorted(provided)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(updated)
+
+    @app.delete("/api/admin/notification-telegram-transport")
+    async def admin_notification_telegram_transport_delete(
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_notification_channels_v15()
+        deleted = workspace_telegram_transport.delete(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"deleted": deleted})
+
+    @app.post("/api/admin/notification-telegram-transport/test")
+    async def admin_notification_telegram_transport_test(
+        payload: NotificationTelegramTransportTestRequest,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_notification_channels_v15()
+        result = await run_in_threadpool(
+            workspace_telegram_transport.send_test,
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            chat_id=payload.chat_id,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "sent": bool(result.get("sent")),
+                "generation": int(result.get("generation") or 0),
+            }
+        )
 
     @app.get("/api/admin/apify-key-pool")
     async def admin_apify_key_pool(
@@ -3163,6 +3372,7 @@ def create_app(
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
         require_webhook_providers_v14()
+        require_notification_channels_v15()
         response.headers["Cache-Control"] = "no-store"
         return ok(
             apify_actor_alerts.get_public_settings(
@@ -3179,10 +3389,20 @@ def create_app(
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
         require_webhook_providers_v14()
+        require_notification_channels_v15()
         if not payload.model_fields_set:
             raise ApiError(
                 "invalid_apify_actor_alert_settings",
                 "at least one alert setting is required",
+                status_code=400,
+            )
+        if (
+            "channel" in payload.model_fields_set
+            and "channels" in payload.model_fields_set
+        ):
+            raise ApiError(
+                "invalid_apify_actor_alert_settings",
+                "channel and channels are mutually exclusive",
                 status_code=400,
             )
         if any(
@@ -3190,13 +3410,14 @@ def create_app(
             for field in (
                 "enabled",
                 "channel",
+                "channels",
                 "events",
                 "webhook_provider",
             )
         ):
             raise ApiError(
                 "invalid_apify_actor_alert_settings",
-                "enabled, channel, and events cannot be null",
+                "enabled, channel, channels, events, and webhook_provider cannot be null",
                 status_code=400,
             )
         updates = {
@@ -3215,17 +3436,25 @@ def create_app(
     @app.post("/api/admin/apify-actor-alert-settings/test")
     async def admin_apify_actor_alert_settings_test(
         response: Response,
+        payload: NotificationChannelTestRequest | None = None,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
         require_webhook_providers_v14()
+        require_notification_channels_v15()
+        test_kwargs = (
+            {"channel": payload.channel}
+            if payload is not None and payload.channel is not None
+            else {}
+        )
         result = await run_in_threadpool(
             apify_actor_alerts.send_test,
             workspace_id=str(user["workspace_id"]),
             actor_user_id=str(user["id"]),
+            **test_kwargs,
         )
         response.headers["Cache-Control"] = "no-store"
-        return ok(result)
+        return ok(_public_notification_test_result(result))
 
     @app.get("/api/admin/apify-actor-alert-incidents")
     async def admin_apify_actor_alert_incidents(
@@ -3234,10 +3463,12 @@ def create_app(
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         require_apify_actor_routing_v13()
+        require_webhook_providers_v14()
+        require_notification_channels_v15()
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "incidents": apify_actor_alerts.list_incidents(
                     workspace_id=str(user["workspace_id"]),
                     limit=max(1, min(int(limit), 100)),

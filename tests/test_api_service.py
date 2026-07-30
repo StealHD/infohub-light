@@ -4059,7 +4059,9 @@ def test_notification_settings_are_write_only_and_user_scoped(
     projection_keys = {
         "schema_version",
         "enabled",
+        "channels",
         "channel",
+        "channel_states",
         "email_configured",
         "email_transport_ready",
         "webhook_configured",
@@ -4068,6 +4070,8 @@ def test_notification_settings_are_write_only_and_user_scoped(
         "webhook_signing_secret_configured",
         "webhook_verification_mode",
         "webhook_provider_options",
+        "telegram_configured",
+        "telegram_transport_ready",
         "last_test_status",
         "last_tested_at",
         "last_test_error_code",
@@ -4077,8 +4081,9 @@ def test_notification_settings_are_write_only_and_user_scoped(
     default_response = client.get("/api/me/notification-settings")
     default_data = _assert_notification_destination_is_write_only(default_response)
     assert set(default_data) == projection_keys
-    assert default_data["schema_version"] == 2
+    assert default_data["schema_version"] == 3
     assert default_data["enabled"] is False
+    assert default_data["channels"] == []
     assert default_data["email_configured"] is False
     assert default_data["email_transport_ready"] is True
     assert default_data["webhook_configured"] is False
@@ -4103,6 +4108,7 @@ def test_notification_settings_are_write_only_and_user_scoped(
     )
     assert set(owner_data) == projection_keys
     assert owner_data["enabled"] is True
+    assert owner_data["channels"] == ["webhook"]
     assert owner_data["channel"] == "webhook"
     assert owner_data["webhook_configured"] is True
     assert owner_data["email_configured"] is False
@@ -4139,6 +4145,7 @@ def test_notification_settings_are_write_only_and_user_scoped(
         email_address,
     )
     assert member_data["enabled"] is True
+    assert member_data["channels"] == ["email"]
     assert member_data["channel"] == "email"
     assert member_data["email_configured"] is True
     assert member_data["webhook_configured"] is False
@@ -4181,7 +4188,7 @@ def test_notification_provider_and_signing_secret_are_write_only(
         webhook_url,
         signing_secret,
     )
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
     assert data["webhook_provider"] == "feishu_lark_v2"
     assert data["webhook_provider_explicit"] is True
     assert data["webhook_signing_secret_configured"] is True
@@ -4238,10 +4245,11 @@ def test_admin_email_transport_requires_test_and_never_returns_secret(
             "email_address": "owner@example.com",
         },
     )
-    assert unavailable.status_code == 409
-    assert unavailable.json()["error"]["code"] == (
-        "notification_channel_unavailable"
-    )
+    assert unavailable.status_code == 200
+    unavailable_data = unavailable.json()["data"]
+    assert unavailable_data["channels"] == ["email"]
+    assert unavailable_data["email_configured"] is True
+    assert unavailable_data["email_transport_ready"] is False
 
     default = client.get(
         "/api/admin/notification-email-transport"
@@ -4451,7 +4459,9 @@ def test_notification_test_push_does_not_create_delivery_snapshot_or_job(
     assert set(settings) == {
         "schema_version",
         "enabled",
+        "channels",
         "channel",
+        "channel_states",
         "email_configured",
         "email_transport_ready",
         "webhook_configured",
@@ -4460,6 +4470,8 @@ def test_notification_test_push_does_not_create_delivery_snapshot_or_job(
         "webhook_signing_secret_configured",
         "webhook_verification_mode",
         "webhook_provider_options",
+        "telegram_configured",
+        "telegram_transport_ready",
         "last_test_status",
         "last_tested_at",
         "last_test_error_code",

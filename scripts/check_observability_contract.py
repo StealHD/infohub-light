@@ -21,10 +21,12 @@ PROTECTED_RUNTIME_FILES = (
     "src/services/catalog_source_runner.py",
     "src/services/job_queue.py",
     "src/services/notification_email_transport.py",
+    "src/services/notification_telegram_transport.py",
     "src/services/notification_webhook_transport.py",
     "src/services/operation_log.py",
     "src/services/preferred_source_notifications.py",
     "src/services/source_avatar.py",
+    "src/services/workspace_telegram_transport.py",
     "src/services/worker.py",
 )
 MUTATION_METHODS = {"post", "put", "patch", "delete"}

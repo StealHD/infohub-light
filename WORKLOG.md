@@ -30,6 +30,30 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": [
+    "api_contract",
+    "migration",
+    "observability"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "完成 Telegram 多渠道通知的 schema v3/v2 API 接线、Owner/Admin Transport 管理接口、显式 v15 SQLite 迁移、readiness/up-latest fail-closed 与安全操作日志覆盖。",
+  "status": "completed",
+  "task_id": "2026-07-30-telegram-multichannel-api-migration",
+  "unresolved": [
+    "本提交依赖多渠道 Store/Service 与工作区 Telegram Transport 分支合并后集成",
+    "未合并、未推送、未重建 8080，未调用真实通知服务"
+  ],
+  "validation": [
+    "组合分支 migration/API 专项 9/9 passed",
+    "组合分支 API、Apify 与操作日志回归 101/101 passed",
+    "运行脚本、observability contract 与操作日志专项 40/40 passed",
+    "py_compile、test impact JSON 与 git diff --check passed"
+  ]
+}
+```
+
+```json
+{
   "control_topics": [],
   "recorded_on": "2026-07-30",
   "result": "在独立任务分支新增 Telegram Bot API 低层传输：固定公共 HTTPS 端点、纯文本与关闭链接预览、4096 字符上限、目标 ACK 校验，以及不会自动重放的安全结果未知语义。",
