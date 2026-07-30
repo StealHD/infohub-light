@@ -73,6 +73,29 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "从本地 main 创建独立分支，修复设置页全部七个分区只显示标题的问题；滚轮、触摸、键盘和滚动条会按相邻顺序自然挂载正文，显式目录与选择器仍用于快速跳转，同时保留按当前分区启用请求、缓存和草稿的性能边界。",
+  "status": "completed",
+  "task_id": "2026-07-30-settings-natural-scroll-reveal",
+  "unresolved": [
+    "未合入 main、未推送远端，也未触发真实来源、AI、通知、Webhook 或付费调用"
+  ],
+  "validation": [
+    "settings App Vitest: 97 passed; changelog Vitest: 5 passed",
+    "mobile Playwright touch and reverse-scroll regression passed",
+    "TypeScript, ESLint (0 errors), UI contract and git diff checks passed",
+    "python scripts/test_gate.py run --mode full: 22/22 passed",
+    "local 8080 browser verified all seven sections reveal in order, reverse scroll updates the previous section, and console errors are empty"
+  ]
+}
+```
+
+```json
+{
   "control_topics": [],
   "recorded_on": "2026-07-29",
   "result": "将已验证的 OpenClaw 通用来源解析与 YouTube 名称订阅提交组合到独立 main 集成结果，完整门禁通过后以纯快进方式合入本地 main；原 codex/0728-2 脏工作区保持不变。",

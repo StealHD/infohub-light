@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
 const privateHistoryItems = [1, 2].map((index) => ({
@@ -729,6 +729,74 @@ test('settings landing defers hidden section requests and a direct hash loads on
       '/api/admin/apify-key-pool',
     ].includes(pathname)
   ))).toEqual([])
+})
+
+test('settings sections reveal naturally in both scroll directions without using the section selector', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'The natural reveal regression is specific to the compact scrolling surface.')
+  await mockAdminApi(page)
+  await page.goto('/settings')
+
+  const scrollRegion = page.locator('[data-settings-scroll-region]')
+  const sectionSelector = page.getByRole('button', { name: /设置区域/ })
+  await expect(scrollRegion).toBeVisible()
+  await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
+  await expect(sectionSelector).toContainText('关于 Inteliscope')
+  await expect(page.getByRole('button', { name: '发送测试通知' })).toHaveCount(0)
+
+  const revealSection = async (id: string, label: string, content: Locator) => {
+    await page.locator(`#${id}`).scrollIntoViewIfNeeded()
+    await page.waitForTimeout(50)
+    if (!((await sectionSelector.textContent()) ?? '').includes(label)) {
+      await scrollRegion.evaluate((element) => {
+        const start = new Touch({ identifier: 1, target: element, clientX: 180, clientY: 700 })
+        const move = new Touch({ identifier: 1, target: element, clientX: 180, clientY: 580 })
+        element.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [start] }))
+        element.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, touches: [move] }))
+      })
+    }
+    await expect(sectionSelector).toContainText(label)
+    await expect(content).toBeVisible()
+  }
+
+  await revealSection(
+    'settings-notifications',
+    '消息通知',
+    page.getByRole('button', { name: '发送测试通知' }),
+  )
+  await revealSection(
+    'settings-ai',
+    '助手与 AI',
+    page.getByRole('button', { name: '保存 AI 设置' }),
+  )
+  await revealSection(
+    'settings-ignored',
+    '已忽略内容',
+    page.getByText('暂无已忽略内容'),
+  )
+  await revealSection(
+    'settings-fetching',
+    '获取与主题',
+    page.getByRole('heading', { name: 'RSSHub 服务' }),
+  )
+  await revealSection(
+    'settings-storage',
+    '存储与归档',
+    page.getByText('稳定内容'),
+  )
+  await revealSection(
+    'settings-secrets',
+    '密钥',
+    page.getByRole('textbox', { name: 'Key 名称' }),
+  )
+
+  await page.locator('#settings-storage').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(50)
+  if (!((await sectionSelector.textContent()) ?? '').includes('存储与归档')) {
+    await scrollRegion.dispatchEvent('wheel', { deltaY: -120 })
+  }
+  await expect(sectionSelector).toContainText('存储与归档')
+  await expect(page.getByText('稳定内容')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('settings saves all dirty core sections in one bundle request', async ({ page }, testInfo) => {

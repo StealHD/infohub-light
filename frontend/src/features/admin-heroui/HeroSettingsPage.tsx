@@ -961,7 +961,12 @@ export function HeroSettingsPage() {
     () => new Set([settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about']),
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const passiveSectionTrackingEnabled = useRef(false)
+  const activeSectionRef = useRef(activeSection)
+  const scrollActivationFrameRef = useRef<number | undefined>(undefined)
+  const scrollUnlockFrameRef = useRef<number | undefined>(undefined)
+  const scrollActivationPendingRef = useRef(false)
+  const lastScrollTopRef = useRef(0)
+  const lastTouchYRef = useRef<number | null>(null)
   const configQueryEnabled = admin && (
     activeSection === 'settings-ai'
     || activeSection === 'settings-fetching'
@@ -1062,6 +1067,7 @@ export function HeroSettingsPage() {
   const settingsDirty = dirtyCoreSections.size > 0 || secretDirty
 
   const activateSection = useCallback((id: string) => {
+    activeSectionRef.current = id
     setActiveSection(id)
     setActivatedSections((current) => {
       if (current.has(id)) return current
@@ -1070,6 +1076,37 @@ export function HeroSettingsPage() {
       return next
     })
   }, [])
+
+  const scheduleAdjacentSectionActivation = useCallback((direction: -1 | 1) => {
+    const root = scrollContainerRef.current
+    if (!root || scrollActivationPendingRef.current) return
+    const activeIndex = sectionOptions.findIndex((section) => section.id === activeSectionRef.current)
+    const candidate = sectionOptions[activeIndex + direction]
+    if (!candidate) return
+    const candidateElement = document.getElementById(candidate.id)
+    if (!candidateElement) return
+    const rootRect = root.getBoundingClientRect()
+    const candidateRect = candidateElement.getBoundingClientRect()
+    const revealInset = Math.min(64, Math.max(24, rootRect.height / 8))
+    const visibleEnough = (
+      candidateRect.bottom >= rootRect.top + revealInset
+      && candidateRect.top <= rootRect.bottom - revealInset
+    )
+    if (!visibleEnough) return
+
+    scrollActivationPendingRef.current = true
+    window.cancelAnimationFrame(scrollActivationFrameRef.current ?? 0)
+    scrollActivationFrameRef.current = window.requestAnimationFrame(() => {
+      activateSection(candidate.id)
+      const nextUrl = `${window.location.pathname}${window.location.search}#${candidate.id}`
+      window.history.replaceState(window.history.state, '', nextUrl)
+      window.cancelAnimationFrame(scrollUnlockFrameRef.current ?? 0)
+      scrollUnlockFrameRef.current = window.requestAnimationFrame(() => {
+        lastScrollTopRef.current = root.scrollTop
+        scrollActivationPendingRef.current = false
+      })
+    })
+  }, [activateSection, sectionOptions])
 
   function updateCoreSectionDirty(section: CoreSettingsSection, dirty: boolean) {
     setDirtyCoreSections((current) => {
@@ -1113,7 +1150,6 @@ export function HeroSettingsPage() {
   useEffect(() => {
     const section = settingsSectionFromHash(location.hash, user.role)
     if (!section) return
-    passiveSectionTrackingEnabled.current = false
     const frame = window.requestAnimationFrame(() => {
       activateSection(section.id)
       const target = document.getElementById(section.id)
@@ -1129,57 +1165,87 @@ export function HeroSettingsPage() {
   useEffect(() => {
     const root = scrollContainerRef.current
     if (!root) return
-    const enablePassiveTracking = () => {
-      passiveSectionTrackingEnabled.current = true
+    lastScrollTopRef.current = root.scrollTop
+
+    const nestedScrollConsumes = (target: EventTarget | null, direction: -1 | 1) => {
+      let element = target instanceof HTMLElement ? target : null
+      while (element && element !== root) {
+        const overflowY = window.getComputedStyle(element).overflowY
+        if (
+          ['auto', 'scroll'].includes(overflowY)
+          && element.scrollHeight > element.clientHeight
+          && (
+            (direction > 0 && element.scrollTop + element.clientHeight < element.scrollHeight - 1)
+            || (direction < 0 && element.scrollTop > 1)
+          )
+        ) {
+          return true
+        }
+        element = element.parentElement
+      }
+      return false
+    }
+    const keyboardTargetOwnsNavigation = (target: EventTarget | null) => (
+      target instanceof HTMLElement
+      && Boolean(target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="combobox"], [role="listbox"], [role="menu"], [role="slider"], [role="spinbutton"]'))
+    )
+    const activateFromScroll = () => {
+      const nextScrollTop = root.scrollTop
+      const delta = nextScrollTop - lastScrollTopRef.current
+      lastScrollTopRef.current = nextScrollTop
+      if (Math.abs(delta) < 1) return
+      scheduleAdjacentSectionActivation(delta > 0 ? 1 : -1)
+    }
+    const activateFromWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 1) return
+      const direction = event.deltaY > 0 ? 1 : -1
+      if (nestedScrollConsumes(event.target, direction)) return
+      scheduleAdjacentSectionActivation(direction)
+    }
+    const rememberTouch = (event: TouchEvent) => {
+      lastTouchYRef.current = event.touches[0]?.clientY ?? null
+    }
+    const activateFromTouch = (event: TouchEvent) => {
+      const currentY = event.touches[0]?.clientY
+      const previousY = lastTouchYRef.current
+      if (currentY === undefined || previousY === null) return
+      lastTouchYRef.current = currentY
+      const delta = previousY - currentY
+      if (Math.abs(delta) < 4) return
+      const direction = delta > 0 ? 1 : -1
+      if (nestedScrollConsumes(event.target, direction)) return
+      scheduleAdjacentSectionActivation(direction)
     }
     const enableForKeyboardScroll = (event: KeyboardEvent) => {
-      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
-        enablePassiveTracking()
+      if (keyboardTargetOwnsNavigation(event.target)) return
+      if (['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey)) {
+        scheduleAdjacentSectionActivation(1)
+      } else if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) {
+        scheduleAdjacentSectionActivation(-1)
       }
     }
-    const enableForScrollbar = (event: PointerEvent) => {
-      if (event.target === root) enablePassiveTracking()
-    }
-    root.addEventListener('wheel', enablePassiveTracking, { passive: true })
-    root.addEventListener('touchmove', enablePassiveTracking, { passive: true })
+    root.addEventListener('scroll', activateFromScroll, { passive: true })
+    root.addEventListener('wheel', activateFromWheel, { passive: true })
+    root.addEventListener('touchstart', rememberTouch, { passive: true })
+    root.addEventListener('touchmove', activateFromTouch, { passive: true })
     root.addEventListener('keydown', enableForKeyboardScroll)
-    root.addEventListener('pointerdown', enableForScrollbar)
     return () => {
-      root.removeEventListener('wheel', enablePassiveTracking)
-      root.removeEventListener('touchmove', enablePassiveTracking)
+      root.removeEventListener('scroll', activateFromScroll)
+      root.removeEventListener('wheel', activateFromWheel)
+      root.removeEventListener('touchstart', rememberTouch)
+      root.removeEventListener('touchmove', activateFromTouch)
       root.removeEventListener('keydown', enableForKeyboardScroll)
-      root.removeEventListener('pointerdown', enableForScrollbar)
     }
-  }, [])
+  }, [scheduleAdjacentSectionActivation])
 
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return
-    const targets = sectionOptions
-      .map((section) => document.getElementById(section.id))
-      .filter((target): target is HTMLElement => Boolean(target))
-    if (!targets.length) return
-    const observer = new IntersectionObserver((entries) => {
-      if (!passiveSectionTrackingEnabled.current) return
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((left, right) => Math.abs(left.boundingClientRect.top) - Math.abs(right.boundingClientRect.top))
-      const id = visible[0]?.target.id
-      if (!id || id === activeSection) return
-      activateSection(id)
-      const nextUrl = `${window.location.pathname}${window.location.search}#${id}`
-      window.history.replaceState(window.history.state, '', nextUrl)
-    }, {
-      root: scrollContainerRef.current,
-      rootMargin: '-12% 0px -68% 0px',
-      threshold: [0, 0.01, 0.5],
-    })
-    targets.forEach((target) => observer.observe(target))
-    return () => observer.disconnect()
-  }, [activateSection, activeSection, sectionOptions])
+  useEffect(() => () => {
+    window.cancelAnimationFrame(scrollActivationFrameRef.current ?? 0)
+    window.cancelAnimationFrame(scrollUnlockFrameRef.current ?? 0)
+    scrollActivationPendingRef.current = false
+  }, [])
 
   function jumpToSection(id: string) {
     if (!sectionOptions.some((section) => section.id === id)) return
-    passiveSectionTrackingEnabled.current = false
     activateSection(id)
     if (location.hash === `#${id}`) {
       window.requestAnimationFrame(() => {
@@ -1479,7 +1545,7 @@ export function HeroSettingsPage() {
     saveCoreSections(['rsshub'])
   }
 
-  return <div ref={scrollContainerRef} className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+  return <div ref={scrollContainerRef} data-settings-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {settingsDirty && <div
       data-settings-dirty-notice

@@ -1663,6 +1663,142 @@ describe('App routes', () => {
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
   })
 
+  it('naturally activates every settings section in order while scrolling without using the section selector', async () => {
+    const config = vi.fn().mockResolvedValue({
+      config: { ai: {}, filtering: {}, feed_end_messages: {} },
+      taxonomy: { channels: [], topics: [] },
+    })
+    const secrets = vi.fn().mockResolvedValue({ secrets: [] })
+    const ignoredFeed = vi.fn().mockResolvedValue({
+      items: [],
+      pagination: { limit: 200, offset: 0, count: 0, total: 0 },
+    })
+    const notificationSettings = vi.fn().mockResolvedValue({
+      schema_version: 2,
+      enabled: false,
+      channel: 'webhook',
+      email_configured: false,
+      email_transport_ready: false,
+      webhook_configured: false,
+      webhook_provider: 'generic_event',
+      webhook_provider_explicit: true,
+      webhook_signing_secret_configured: false,
+      webhook_verification_mode: 'http_status',
+      webhook_provider_options: webhookProviderOptions(),
+      last_test_status: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      updated_at: null,
+    })
+    const notificationEmailTransport = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      configured: false,
+      provider: null,
+      sender_email: null,
+      sender_name: 'Inteliscope',
+      region: null,
+      smtp_username: null,
+      enabled: false,
+      credential_configured: false,
+      generation: 0,
+      last_test_status: null,
+      last_test_generation: null,
+      last_tested_at: null,
+      last_test_error_code: null,
+      can_enable: false,
+      ready: false,
+      connection: null,
+      providers: [],
+      updated_at: null,
+    })
+    const storageSummary = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
+      bytes: { database: 1024, media: 0, archives: 0 },
+      counts: { content_total: 0, content_online: 0, content_archived: 0, feed_snapshots: 0, source_snapshots: 0, media_assets: 0, archive_batches: 0 },
+      readiness: { feed_storage_v3: true, content_timeline_v11: true, ready: true },
+      last_cleanup_at: null,
+    })
+    const storageArchives = vi.fn().mockResolvedValue({ schema_version: 1, archives: [] })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-settings-scroll', username: 'owner', role: 'owner', enabled: true } }),
+      config,
+      secrets,
+      ignoredFeed,
+      notificationSettings,
+      notificationEmailTransport,
+      storageSummary,
+      storageArchives,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('button', { name: '查看操作手册' })).toBeInTheDocument()
+    const scrollRegion = document.querySelector<HTMLElement>('[data-settings-scroll-region]')
+    expect(scrollRegion).not.toBeNull()
+    const rootRect = { x: 0, y: 0, top: 0, right: 900, bottom: 800, left: 0, width: 900, height: 800, toJSON: () => ({}) } as DOMRect
+    const sectionRect = { x: 0, y: 640, top: 640, right: 900, bottom: 724, left: 0, width: 900, height: 84, toJSON: () => ({}) } as DOMRect
+    vi.spyOn(scrollRegion!, 'getBoundingClientRect').mockReturnValue(rootRect)
+    for (const id of [
+      'settings-about',
+      'settings-notifications',
+      'settings-ai',
+      'settings-ignored',
+      'settings-fetching',
+      'settings-storage',
+      'settings-secrets',
+    ]) {
+      vi.spyOn(document.getElementById(id)!, 'getBoundingClientRect').mockReturnValue(sectionRect)
+    }
+
+    const revealNextSection = async (label: string, assertion: () => void) => {
+      fireEvent.wheel(scrollRegion!, { deltaY: 120 })
+      await waitFor(() => expect(screen.getByRole('button', { name: /设置区域/ })).toHaveTextContent(label))
+      await waitFor(assertion)
+      await act(async () => new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))))
+    }
+
+    expect(notificationSettings).not.toHaveBeenCalled()
+    expect(config).not.toHaveBeenCalled()
+    expect(ignoredFeed).not.toHaveBeenCalled()
+    expect(storageSummary).not.toHaveBeenCalled()
+    expect(secrets).not.toHaveBeenCalled()
+
+    await revealNextSection('消息通知', () => {
+      expect(screen.getByRole('button', { name: '发送测试通知' })).toBeInTheDocument()
+    })
+    expect(notificationSettings).toHaveBeenCalledOnce()
+    expect(notificationEmailTransport).toHaveBeenCalledOnce()
+
+    await revealNextSection('助手与 AI', () => {
+      expect(screen.getByRole('button', { name: '保存 AI 设置' })).toBeInTheDocument()
+    })
+    expect(config).toHaveBeenCalledOnce()
+    expect(secrets).toHaveBeenCalledOnce()
+
+    await revealNextSection('已忽略内容', () => {
+      expect(screen.getByText('暂无已忽略内容')).toBeInTheDocument()
+    })
+    expect(ignoredFeed).toHaveBeenCalledOnce()
+
+    await revealNextSection('获取与主题', () => {
+      expect(screen.getByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
+    })
+    expect(api.apifyActorXProfileRoute).toHaveBeenCalledOnce()
+    expect(storageSummary).not.toHaveBeenCalled()
+
+    await revealNextSection('存储与归档', () => {
+      expect(screen.getByText('稳定内容')).toBeInTheDocument()
+    })
+    expect(storageSummary).toHaveBeenCalledOnce()
+    expect(storageArchives).toHaveBeenCalledOnce()
+
+    await revealNextSection('密钥', () => {
+      expect(screen.getByRole('textbox', { name: 'Key 名称' })).toBeInTheDocument()
+    })
+    expect(secrets).toHaveBeenCalledOnce()
+  }, 20_000)
+
   it('loads each Apify quota once on first Secrets entry and honors its five-minute cache', async () => {
     const browser = userEvent.setup()
     const apifyQuota = {
