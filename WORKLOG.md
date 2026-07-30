@@ -494,3 +494,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions"
+  ],
+  "recorded_on": "2026-07-30",
+  "result": "发布 v2.1.1 注释标签并将本地 main、远端 main、本地 8080 与 VPS 统一到设置七分区自然滚动、通用 Webhook 和网络稳定性组合版本；VPS 使用本机构建的 linux/amd64 镜像完成 v14 迁移与 API/Worker 安全切换。",
+  "status": "completed",
+  "task_id": "2026-07-30-v2.1.1-production-rollout",
+  "unresolved": [
+    "未执行真实 Webhook、付费 Canary、来源抓取或 AI 调用；现有自动计划保持原配置并等待自然周期"
+  ],
+  "validation": [
+    "release Test Gate: 24/24 passed",
+    "v2.1.1 annotated tag and main pushed atomically at 8412f29c4b9f",
+    "local and VPS images report version 2.1.1 and revision 8412f29c4b9f; API/Worker healthy and ready",
+    "staging and production v14 migrations passed integrity and foreign-key checks; production backup mode is 0600",
+    "public rb.jiefs.top live/ready returned 2.1.1 with zero container restarts and zero recent API/Worker error lines",
+    "active jobs, due schedules and active notification deliveries remained zero; scheduler stayed stopped and v2.1.0 rollback release remains available"
+  ]
+}
+```
