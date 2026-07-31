@@ -5,13 +5,13 @@ import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ServiceApi } from '../../api/service'
-import type { NotificationTarget } from '../../api/types'
+import type { NotificationService, NotificationServices } from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
 import { HeroNotificationTargets } from './HeroNotificationTargets'
 
-const target = (overrides: Partial<NotificationTarget> = {}): NotificationTarget => ({
-  id: 'target-shared-telegram',
+const service = (overrides: Partial<NotificationService> = {}): NotificationService => ({
+  id: 'service-shared-telegram',
   name: '值班 Telegram',
   scope: 'shared',
   channel: 'telegram',
@@ -28,6 +28,8 @@ const target = (overrides: Partial<NotificationTarget> = {}): NotificationTarget
   can_edit: true,
   can_test: true,
   can_enable: true,
+  can_validate: true,
+  legacy_private: false,
   usage: {
     user_binding_count: 0,
     alert_binding_count: 0,
@@ -38,30 +40,60 @@ const target = (overrides: Partial<NotificationTarget> = {}): NotificationTarget
   ...overrides,
 })
 
-function renderTargets(apiOverrides: Partial<ServiceApi> = {}) {
+const response = (services: NotificationService[] = []): NotificationServices => ({
+  schema_version: 1,
+  services,
+  channel_credentials: {
+    email: {
+      configured: false,
+      ready: false,
+      generation: 0,
+      provider: null,
+      sender_name: 'Inteliscope',
+      region: null,
+      sender_email_configured: false,
+      smtp_username_configured: false,
+      providers: [],
+    },
+    telegram: {
+      configured: false,
+      ready: false,
+      generation: 0,
+    },
+    webhook: {
+      configured: true,
+      ready: true,
+      generation: 0,
+    },
+  },
+  webhook_provider_options: [],
+  can_manage: true,
+})
+
+function renderServices(apiOverrides: Partial<ServiceApi> = {}) {
+  const created = service()
   const api = {
-    notificationTargets: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      targets: [],
-      webhook_provider_options: [],
-    }),
-    createNotificationTarget: vi.fn().mockResolvedValue(target()),
-    updateNotificationTarget: vi.fn().mockResolvedValue(target()),
-    testNotificationTarget: vi.fn().mockResolvedValue({
+    notificationServices: vi.fn().mockResolvedValue(response()),
+    createNotificationService: vi.fn().mockResolvedValue(created),
+    updateNotificationService: vi.fn().mockResolvedValue(created),
+    testAndEnableNotificationService: vi.fn().mockResolvedValue({
       sent: true,
-      target_id: 'target-shared-telegram',
+      enabled: true,
+      target_id: created.id,
       channel: 'telegram',
     }),
-    archiveNotificationTarget: vi.fn().mockResolvedValue({
-      target_id: 'target-shared-telegram',
+    archiveNotificationService: vi.fn().mockResolvedValue({
+      service_id: created.id,
       archived: true,
     }),
+    updateNotificationTarget: vi.fn(),
+    archiveNotificationTarget: vi.fn(),
     ...apiOverrides,
   } as unknown as ServiceApi
   const context = {
     api,
     user: {
-      id: 'owner-targets',
+      id: 'owner-services',
       username: 'owner',
       role: 'owner',
       enabled: true,
@@ -70,7 +102,7 @@ function renderTargets(apiOverrides: Partial<ServiceApi> = {}) {
     setQuery: vi.fn(),
     activity: { state: 'idle', message: '' },
     refresh: vi.fn(),
-    beginAction: () => ({ userId: 'owner-targets', generation: 0 }),
+    beginAction: () => ({ userId: 'owner-services', generation: 0 }),
     isActionCurrent: () => true,
   } as unknown as AppOutletContext
   const queryClient = new QueryClient({
@@ -96,45 +128,65 @@ function renderTargets(apiOverrides: Partial<ServiceApi> = {}) {
 describe('HeroNotificationTargets', () => {
   beforeEach(() => actionToast.clear())
 
-  it('creates one write-only destination and clears it before the request resolves', async () => {
+  it('configures, tests, and enables Telegram from one write-only form', async () => {
     const browser = userEvent.setup()
-    const api = renderTargets()
-    await screen.findByRole('heading', { name: '通知目标' })
+    const api = renderServices()
+    await screen.findByRole('heading', { name: '通知服务' })
 
-    await browser.type(screen.getByRole('textbox', { name: '目标名称' }), '我的 Telegram')
-    await browser.selectOptions(screen.getByRole('combobox', { name: '渠道' }), 'telegram')
-    const destination = screen.getByLabelText('Chat ID')
+    await browser.type(screen.getByRole('textbox', { name: '服务名称' }), '群组 Telegram')
+    await browser.selectOptions(screen.getByRole('combobox', { name: '发送方式' }), 'telegram')
+    const destination = screen.getByLabelText('群组或会话 Chat ID')
+    const token = screen.getByLabelText('Bot Token')
     expect(destination).toHaveAttribute('type', 'password')
-    await browser.type(destination, '@private_delivery_target')
-    await browser.click(screen.getByRole('button', { name: '创建通知目标' }))
+    expect(token).toHaveAttribute('type', 'password')
+    await browser.type(destination, '-1001234567890')
+    await browser.type(token, '123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    await browser.click(screen.getByRole('button', { name: '保存并测试' }))
 
-    await waitFor(() => expect(api.createNotificationTarget).toHaveBeenCalledWith({
-      name: '我的 Telegram',
-      scope: 'private',
+    await waitFor(() => expect(api.createNotificationService).toHaveBeenCalledWith({
+      name: '群组 Telegram',
+      scope: 'shared',
       channel: 'telegram',
-      telegram_chat_id: '@private_delivery_target',
+      telegram_chat_id: '-1001234567890',
+      telegram_bot_token: '123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     }))
+    await waitFor(() => expect(api.testAndEnableNotificationService).toHaveBeenCalledWith(
+      'service-shared-telegram',
+    ))
     expect(destination).toHaveValue('')
-    expect(document.body.textContent).not.toContain('@private_delivery_target')
+    expect(token).toHaveValue('')
+    expect(document.body.textContent).not.toContain('-1001234567890')
+    expect(document.body.textContent).not.toContain('123456789:AAAAAAAA')
   })
 
-  it('tests and enables an existing target only from the target manager', async () => {
+  it('resumes a previously verified service without sending another test', async () => {
     const browser = userEvent.setup()
-    const existing = target()
-    const api = renderTargets({
-      notificationTargets: vi.fn().mockResolvedValue({
-        schema_version: 1,
-        targets: [existing],
-        webhook_provider_options: [],
-      }),
+    const existing = service()
+    const api = renderServices({
+      notificationServices: vi.fn().mockResolvedValue(response([existing])),
     })
 
-    await browser.click(await screen.findByRole('button', { name: '发送测试' }))
-    await waitFor(() => expect(api.testNotificationTarget).toHaveBeenCalledWith(existing.id))
-    await browser.click(screen.getByRole('button', { name: '启用' }))
-    await waitFor(() => expect(api.updateNotificationTarget).toHaveBeenCalledWith(
+    await browser.click(await screen.findByRole('button', { name: '启用' }))
+    await waitFor(() => expect(api.updateNotificationService).toHaveBeenCalledWith(
       existing.id,
       { enabled: true },
     ))
+    expect(api.testAndEnableNotificationService).not.toHaveBeenCalled()
+  })
+
+  it('tests and enables a service whose current generation is not verified', async () => {
+    const browser = userEvent.setup()
+    const existing = service({
+      last_test_status: null,
+      last_tested_at: null,
+      can_enable: false,
+    })
+    const api = renderServices({
+      notificationServices: vi.fn().mockResolvedValue(response([existing])),
+    })
+
+    await browser.click(await screen.findByRole('button', { name: '测试并启用' }))
+    await waitFor(() => expect(api.testAndEnableNotificationService).toHaveBeenCalledWith(existing.id))
+    expect(api.updateNotificationService).not.toHaveBeenCalled()
   })
 })

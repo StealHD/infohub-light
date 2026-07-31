@@ -23,13 +23,14 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-07-31',
-        title: '通知目标统一配置并由多个业务复用',
-        summary: '邮箱、Webhook 和 Telegram 目的地现在只需在“通知目标”中保存和测试一次；个人新内容通知与 Apify 运行告警直接选择已有目标。',
+        title: '通知服务统一配置、测试并直接复用',
+        summary: '管理员现在只在一个“通知服务”区域维护邮箱、Webhook 和 Telegram；个人新内容通知与 Apify 运行告警直接选择已经验证的服务。',
         items: [
-          { title: '一个目的地只维护一次', description: '每个通知目标对应一个邮箱、Webhook 或 Telegram 会话；修改、测试、暂停和归档都集中在目标管理处，业务页面不再重复显示相同配置。' },
-          { title: '私有与共享边界清晰', description: '成员维护自己的私有目标，Owner/Admin 维护工作区共享目标；个人通知可选自己的或共享目标，系统运行告警只允许选择共享目标。' },
-          { title: '同渠道也能选择多个目标', description: '个人通知和运行告警都可同时选择多个目标，包括多个邮箱或多个 Telegram 会话；任一目标失败不会阻断其他目标或原抓取任务。' },
-          { title: '升级保留配置与历史', description: 'v16 迁移把既有个人渠道变成私有目标、Apify 渠道变成共享目标，并保留顺序、水位、测试状态、incident 和 delivery 历史；旧客户端在映射无歧义时继续兼容。' },
+          { title: '一次保存、测试并启用', description: '创建或修改服务只有一个“保存并测试”主操作；接收端确认成功后自动启用，失败会保留安全草稿供修改或重试。' },
+          { title: '共享凭据就地复用', description: '首个 Telegram 服务同时填写 Bot Token 和 Chat ID，后续服务复用 Token；首个邮件服务同时填写 Provider 凭据和收件地址，后续服务复用发送凭据；Webhook 直接配置地址与可选签名。' },
+          { title: '业务页面只选择服务', description: '个人通知和运行告警不再显示测试入口，可同时选择多个服务或多个相同渠道服务；暂停或不可用服务不能新选，但已有绑定仍可移除。' },
+          { title: '兼容本机 fake-IP', description: 'Telegram 固定主机在解析到 198.18.0.0/15 时使用严格的应用内例外，仍强制 HTTPS、固定 Host/SNI、禁重定向和环境代理；不会读取或修改 Clash 配置，Webhook 仍拒绝 synthetic/private IP。' },
+          { title: '保留 v16 身份与历史', description: '继续使用现有服务 ID、绑定、generation、水位与投递历史，不新增数据库迁移；历史私人目标不扩大共享范围，旧 API 继续兼容。' },
         ],
       },
       {

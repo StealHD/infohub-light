@@ -3,7 +3,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from src.api.server import create_app
+from src.services.notification_telegram_transport import TelegramSendResult
 from src.services.notification_webhook_transport import WebhookSendResult
+from src.services.workspace_telegram_transport import (
+    TelegramTransportServiceError,
+)
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -473,7 +477,7 @@ def test_notification_target_api_enforces_private_and_shared_scope(
 
     client.post("/api/auth/logout")
     _login(client, "target-member", "member-password")
-    private = client.post(
+    private_disabled = client.post(
         "/api/notification-targets",
         json={
             "name": "成员私有邮箱",
@@ -482,8 +486,23 @@ def test_notification_target_api_enforces_private_and_shared_scope(
             "email_address": "member@example.invalid",
         },
     )
-    assert private.status_code == 200, private.text
-    private_id = private.json()["data"]["id"]
+    assert private_disabled.status_code == 409
+    assert private_disabled.json()["error"]["code"] == (
+        "notification_target_private_creation_disabled"
+    )
+    member_user = client.app.state.service_store.get_user_by_username(
+        "target-member"
+    )
+    assert member_user is not None
+    private = client.app.state.notification_targets.create(
+        workspace_id=str(member_user["workspace_id"]),
+        actor_user_id=str(member_user["id"]),
+        name="历史成员私有邮箱",
+        scope="private",
+        channel="email",
+        email_address="member@example.invalid",
+    )
+    private_id = private["id"]
     forbidden_shared = client.post(
         "/api/notification-targets",
         json={
@@ -545,3 +564,290 @@ def test_notification_target_api_enforces_private_and_shared_scope(
             "email_address": "viewer@example.invalid",
         },
     ).status_code == 403
+
+
+def test_admin_notification_service_configures_tests_and_reuses_telegram(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    token = "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    rotated_token = "987654321:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    first_chat = "-1001234567890"
+    second_chat = "-1001234567891"
+
+    first = client.post(
+        "/api/admin/notification-services",
+        json={
+            "name": "主值班群",
+            "channel": "telegram",
+            "telegram_chat_id": first_chat,
+            "telegram_bot_token": token,
+        },
+    )
+    assert first.status_code == 200, first.text
+    first_id = first.json()["data"]["id"]
+    assert first.json()["data"]["enabled"] is False
+    assert token not in first.text
+    assert first_chat not in first.text
+    assert token.encode() not in (
+        tmp_path / "data" / "service.db"
+    ).read_bytes()
+    assert first_chat.encode() not in (
+        tmp_path / "data" / "service.db"
+    ).read_bytes()
+
+    target_service = client.app.state.notification_targets
+    sent_chat_ids: list[str] = []
+
+    def fake_send_message(*, chat_id, **_kwargs):
+        sent_chat_ids.append(str(chat_id))
+        return TelegramSendResult(
+            message_id=len(sent_chat_ids),
+            verification="provider_accepted",
+        )
+
+    monkeypatch.setattr(
+        target_service.telegram_transport,
+        "send_message",
+        fake_send_message,
+    )
+    tested = client.post(
+        f"/api/admin/notification-services/{first_id}/test-and-enable"
+    )
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["data"] == {
+        "sent": True,
+        "enabled": True,
+        "target_id": first_id,
+        "channel": "telegram",
+    }
+
+    second = client.post(
+        "/api/admin/notification-services",
+        json={
+            "name": "备用值班群",
+            "channel": "telegram",
+            "telegram_chat_id": second_chat,
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_id = second.json()["data"]["id"]
+    second_test = client.post(
+        f"/api/admin/notification-services/{second_id}/test-and-enable"
+    )
+    assert second_test.status_code == 200, second_test.text
+    assert sent_chat_ids == [first_chat, second_chat]
+
+    rotated = client.patch(
+        f"/api/admin/notification-services/{first_id}",
+        json={"telegram_bot_token": rotated_token},
+    )
+    assert rotated.status_code == 200, rotated.text
+    assert rotated_token not in rotated.text
+    paused = client.get("/api/notification-services").json()["data"]
+    assert paused["channel_credentials"]["telegram"]["ready"] is False
+    assert all(
+        not service["available"]
+        for service in paused["services"]
+        if service["channel"] == "telegram"
+    )
+
+    restored = client.post(
+        f"/api/admin/notification-services/{first_id}/test-and-enable"
+    )
+    assert restored.status_code == 200, restored.text
+    current = client.get("/api/notification-services").json()["data"]
+    assert current["channel_credentials"]["telegram"]["ready"] is True
+    assert all(
+        service["available"]
+        for service in current["services"]
+        if service["channel"] == "telegram"
+    )
+    assert "sender_email" not in current["channel_credentials"]["email"]
+    assert "smtp_username" not in current["channel_credentials"]["email"]
+
+    member = client.post(
+        "/api/users",
+        json={
+            "username": "service-member",
+            "password": "member-password",
+            "role": "member",
+        },
+    )
+    assert member.status_code == 200
+    viewer = client.post(
+        "/api/users",
+        json={
+            "username": "service-viewer",
+            "password": "viewer-password",
+            "role": "viewer",
+        },
+    )
+    assert viewer.status_code == 200
+    client.post("/api/auth/logout")
+    _login(client, "service-member", "member-password")
+    visible = client.get("/api/notification-services")
+    assert visible.status_code == 200
+    assert visible.json()["data"]["can_manage"] is False
+    forbidden = client.post(
+        "/api/admin/notification-services",
+        json={
+            "name": "成员越权服务",
+            "channel": "telegram",
+            "telegram_chat_id": "-1004307524910",
+        },
+    )
+    assert forbidden.status_code == 403
+    client.post("/api/auth/logout")
+    _login(client, "service-viewer", "viewer-password")
+    readonly = client.get("/api/notification-services")
+    assert readonly.status_code == 200
+    assert readonly.json()["data"]["can_manage"] is False
+    assert client.patch(
+        f"/api/admin/notification-services/{first_id}",
+        json={"name": "只读账户不能修改"},
+    ).status_code == 403
+
+
+def test_admin_notification_service_configures_tests_and_reuses_email(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    credential = "test-only-qq-service-authorization-code"
+    sender = "notice@qq.com"
+    first_recipient = "primary@example.com"
+    second_recipient = "backup@example.com"
+
+    first = client.post(
+        "/api/admin/notification-services",
+        json={
+            "name": "主通知邮箱",
+            "channel": "email",
+            "email_address": first_recipient,
+            "email_transport": {
+                "provider": "qq",
+                "sender_email": sender,
+                "sender_name": "Inteliscope",
+                "credential": credential,
+            },
+        },
+    )
+    assert first.status_code == 200, first.text
+    first_id = first.json()["data"]["id"]
+    assert first.json()["data"]["enabled"] is False
+    assert credential not in first.text
+    assert sender not in first.text
+    assert first_recipient not in first.text
+    database = (tmp_path / "data" / "service.db").read_bytes()
+    assert credential.encode() not in database
+    assert first_recipient.encode() not in database
+
+    target_service = client.app.state.notification_targets
+    recipients: list[str] = []
+
+    def fake_send_service_test(*, workspace_id, recipient_email):
+        recipients.append(str(recipient_email))
+        transport = target_service.store.get_workspace_email_transport(
+            workspace_id=workspace_id
+        )
+        assert transport is not None
+        return int(transport["generation"])
+
+    monkeypatch.setattr(
+        target_service.email_transport,
+        "send_service_test",
+        fake_send_service_test,
+    )
+    tested = client.post(
+        f"/api/admin/notification-services/{first_id}/test-and-enable"
+    )
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["data"] == {
+        "sent": True,
+        "enabled": True,
+        "target_id": first_id,
+        "channel": "email",
+    }
+
+    second = client.post(
+        "/api/admin/notification-services",
+        json={
+            "name": "备用通知邮箱",
+            "channel": "email",
+            "email_address": second_recipient,
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_id = second.json()["data"]["id"]
+    second_test = client.post(
+        f"/api/admin/notification-services/{second_id}/test-and-enable"
+    )
+    assert second_test.status_code == 200, second_test.text
+    assert recipients == [first_recipient, second_recipient]
+
+    listed = client.get("/api/notification-services")
+    assert listed.status_code == 200
+    credentials = listed.json()["data"]["channel_credentials"]["email"]
+    assert credentials["configured"] is True
+    assert credentials["ready"] is True
+    assert credentials["provider"] == "qq"
+    assert credentials["sender_email_configured"] is True
+    assert "sender_email" not in credentials
+    assert "smtp_username" not in credentials
+    for secret in (credential, sender, first_recipient, second_recipient):
+        assert secret not in listed.text
+
+
+def test_notification_service_failed_test_keeps_safe_draft(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    token = "123456789:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    chat_id = "-1004307524999"
+    created = client.post(
+        "/api/admin/notification-services",
+        json={
+            "name": "待修复 Telegram",
+            "channel": "telegram",
+            "telegram_chat_id": chat_id,
+            "telegram_bot_token": token,
+        },
+    )
+    assert created.status_code == 200, created.text
+    service_id = created.json()["data"]["id"]
+    target_service = client.app.state.notification_targets
+
+    def rejected(**_kwargs):
+        raise TelegramTransportServiceError(
+            "notification_telegram_destination_rejected",
+            "Telegram destination rejected",
+        )
+
+    monkeypatch.setattr(
+        target_service.telegram_transport,
+        "send_message",
+        rejected,
+    )
+    tested = client.post(
+        f"/api/admin/notification-services/{service_id}/test-and-enable"
+    )
+    assert tested.status_code == 400
+    assert tested.json()["error"]["code"] == (
+        "notification_telegram_destination_rejected"
+    )
+    listed = client.get("/api/notification-services")
+    draft = next(
+        item
+        for item in listed.json()["data"]["services"]
+        if item["id"] == service_id
+    )
+    assert draft["enabled"] is False
+    assert draft["last_test_status"] == "failed"
+    assert token not in listed.text
+    assert chat_id not in listed.text

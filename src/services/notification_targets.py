@@ -185,6 +185,86 @@ class NotificationTargetService:
             "webhook_provider_options": webhook_provider_options(),
         }
 
+    def list_public_services(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Project notification targets as reusable admin-managed services."""
+
+        actor = self._actor(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            writable=False,
+        )
+        targets = self.store.list_notification_targets(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        is_admin = str(actor.get("role") or "") in {"owner", "admin"}
+        services: list[dict[str, Any]] = []
+        for target in targets:
+            public = self.public_target(target, actor=actor)
+            shared = str(target.get("scope") or "") == "shared"
+            public.update(
+                {
+                    "legacy_private": not shared,
+                    "can_validate": bool(
+                        is_admin
+                        and shared
+                        and public.get("configured")
+                        and self._transport_configured(target)
+                    ),
+                }
+            )
+            services.append(public)
+        email = self.email_transport.get_public_settings(
+            workspace_id=workspace_id
+        )
+        telegram = self.telegram_transport.get_public_settings(
+            workspace_id=workspace_id
+        )
+        return {
+            "schema_version": 1,
+            "services": services,
+            "channel_credentials": {
+                "email": {
+                    "configured": bool(
+                        email.get("configured")
+                        and email.get("credential_configured")
+                    ),
+                    "ready": bool(email.get("ready")),
+                    "generation": int(email.get("generation") or 0),
+                    "provider": email.get("provider"),
+                    "sender_name": email.get("sender_name"),
+                    "region": email.get("region"),
+                    "sender_email_configured": bool(
+                        email.get("sender_email")
+                    ),
+                    "smtp_username_configured": bool(
+                        email.get("smtp_username")
+                    ),
+                    "providers": email.get("providers") or [],
+                },
+                "telegram": {
+                    "configured": bool(
+                        telegram.get("configured")
+                        and telegram.get("token_configured")
+                    ),
+                    "ready": bool(telegram.get("ready")),
+                    "generation": int(telegram.get("generation") or 0),
+                },
+                "webhook": {
+                    "configured": True,
+                    "ready": True,
+                    "generation": 0,
+                },
+            },
+            "webhook_provider_options": webhook_provider_options(),
+            "can_manage": is_admin,
+        }
+
     def public_target(
         self,
         target: dict[str, Any],
@@ -618,6 +698,7 @@ class NotificationTargetService:
                     webhook_signing_secret_digest = ?,
                     last_test_status = ?,
                     last_test_config_generation = ?,
+                    last_test_attempted_at = ?,
                     last_tested_at = ?, last_test_error_code = ?,
                     updated_at = ?
                 WHERE workspace_id = ? AND id = ? AND archived_at IS NULL
@@ -665,6 +746,11 @@ class NotificationTargetService:
                     ),
                     last_test_status,
                     last_test_generation,
+                    (
+                        None
+                        if config_fields_touched
+                        else target.get("last_test_attempted_at")
+                    ),
                     last_tested_at,
                     last_test_error_code,
                     now,
@@ -881,6 +967,215 @@ class NotificationTargetService:
             )
         response: dict[str, Any] = {
             "sent": True,
+            "target_id": target_id,
+            "channel": str(target["channel"]),
+        }
+        if isinstance(result, WebhookSendResult):
+            response.update(
+                {
+                    "provider": result.provider,
+                    "verification": result.verification,
+                }
+            )
+        elif isinstance(result, TelegramSendResult):
+            response["verification"] = result.verification
+        return response
+
+    def send_test_and_enable(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        target_id: str,
+    ) -> dict[str, Any]:
+        """Send one service test, then atomically validate and enable it."""
+
+        actor = self._actor(
+            workspace_id=workspace_id,
+            user_id=actor_user_id,
+            writable=True,
+        )
+        if str(actor.get("role") or "") not in {"owner", "admin"}:
+            raise NotificationTargetError(
+                "forbidden",
+                "notification services require owner or admin",
+                status_code=403,
+            )
+        conn = self.store.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "notification service test requires no active transaction"
+            )
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            target = self._editable_target(
+                workspace_id=workspace_id,
+                actor=actor,
+                target_id=target_id,
+            )
+            if str(target.get("scope") or "") != "shared":
+                raise NotificationTargetError(
+                    "notification_service_legacy_private",
+                    "legacy private targets cannot be validated as shared services",
+                    status_code=409,
+                )
+            if self._destination(target) is None:
+                raise NotificationTargetError(
+                    "notification_destination_required",
+                    "configure the notification service before testing",
+                    status_code=409,
+                )
+            if not self._transport_configured(target):
+                raise NotificationTargetError(
+                    "notification_channel_unavailable",
+                    "configure the shared channel credential before testing",
+                    status_code=409,
+                )
+            previous_attempt = target.get("last_test_attempted_at")
+            if previous_attempt:
+                try:
+                    previous_time = datetime.fromisoformat(
+                        str(previous_attempt).replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    previous_time = None
+                if previous_time is not None and previous_time.tzinfo is not None:
+                    elapsed = (
+                        datetime.now(timezone.utc)
+                        - previous_time.astimezone(timezone.utc)
+                    ).total_seconds()
+                    if elapsed < _TEST_COOLDOWN_SECONDS:
+                        raise NotificationTargetError(
+                            "notification_target_test_rate_limited",
+                            "wait before testing this notification service again",
+                            status_code=429,
+                            retryable=True,
+                        )
+            attempted_at = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                """
+                UPDATE notification_targets
+                SET last_test_attempted_at = ?, updated_at = ?
+                WHERE workspace_id = ? AND id = ?
+                """,
+                (attempted_at, attempted_at, workspace_id, target_id),
+            )
+            generation = int(target["config_generation"])
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+
+        transport_generation: int | None = None
+        try:
+            destination = self._destination(target)
+            if destination is None:
+                raise NotificationTargetError(
+                    "notification_destination_required",
+                    "notification service destination is unavailable",
+                    status_code=409,
+                )
+            channel = str(target["channel"])
+            if channel == "email":
+                try:
+                    transport_generation = (
+                        self.email_transport.send_service_test(
+                            workspace_id=workspace_id,
+                            recipient_email=destination,
+                        )
+                    )
+                except EmailTransportError as exc:
+                    raise NotificationTargetError(
+                        exc.code,
+                        str(exc),
+                        status_code=exc.status_code,
+                        retryable=exc.retryable,
+                        outcome_unknown=exc.outcome_unknown,
+                    ) from exc
+                result: WebhookSendResult | TelegramSendResult | None = None
+            elif channel == "telegram":
+                transport = self.store.get_workspace_telegram_transport(
+                    workspace_id=workspace_id
+                )
+                if transport is None:
+                    raise NotificationTargetError(
+                        "telegram_transport_not_configured",
+                        "configure the Telegram Bot before testing",
+                        status_code=409,
+                    )
+                transport_generation = int(
+                    transport.get("generation") or 0
+                )
+                try:
+                    result = self.telegram_transport.send_message(
+                        workspace_id=workspace_id,
+                        chat_id=destination,
+                        text=(
+                            "Inteliscope 通知服务测试\n"
+                            "这是一条模拟消息，用于验证当前通知服务。"
+                        ),
+                        require_enabled=False,
+                        transport=transport,
+                    )
+                except TelegramTransportServiceError as exc:
+                    raise NotificationTargetError(
+                        exc.code,
+                        str(exc),
+                        status_code=exc.status_code,
+                        retryable=exc.retryable,
+                        outcome_unknown=exc.outcome_unknown,
+                    ) from exc
+            else:
+                result = self._send_test_payload(target)
+        except NotificationTargetError as exc:
+            self._record_test(
+                workspace_id=workspace_id,
+                target_id=target_id,
+                generation=generation,
+                status="unknown" if exc.outcome_unknown else "failed",
+                error_code=exc.code,
+            )
+            raise
+        except Exception as exc:
+            self._record_test(
+                workspace_id=workspace_id,
+                target_id=target_id,
+                generation=generation,
+                status="unknown",
+                error_code="notification_delivery_outcome_unknown",
+            )
+            raise NotificationTargetError(
+                "notification_target_test_outcome_unknown",
+                "notification service test outcome is unknown; do not retry",
+                status_code=502,
+                outcome_unknown=True,
+            ) from exc
+
+        activated = self.store.activate_notification_service_after_test(
+            workspace_id=workspace_id,
+            target_id=target_id,
+            target_generation=generation,
+            channel=str(target["channel"]),
+            transport_generation=transport_generation,
+        )
+        if activated is None:
+            self._record_test(
+                workspace_id=workspace_id,
+                target_id=target_id,
+                generation=generation,
+                status="unknown",
+                error_code="notification_target_test_outcome_unknown",
+            )
+            raise NotificationTargetError(
+                "notification_target_test_outcome_unknown",
+                "notification service changed while the test was running",
+                status_code=409,
+                outcome_unknown=True,
+            )
+        response: dict[str, Any] = {
+            "sent": True,
+            "enabled": True,
             "target_id": target_id,
             "channel": str(target["channel"]),
         }
@@ -1303,6 +1598,27 @@ class NotificationTargetService:
         if channel == "telegram":
             return self.telegram_transport.is_ready(
                 workspace_id=str(target.get("workspace_id") or "")
+            )
+        return channel == "webhook"
+
+    def _transport_configured(self, target: dict[str, Any]) -> bool:
+        channel = str(target.get("channel") or "")
+        workspace_id = str(target.get("workspace_id") or "")
+        if channel == "email":
+            settings = self.email_transport.get_public_settings(
+                workspace_id=workspace_id
+            )
+            return bool(
+                settings.get("configured")
+                and settings.get("credential_configured")
+            )
+        if channel == "telegram":
+            settings = self.telegram_transport.get_public_settings(
+                workspace_id=workspace_id
+            )
+            return bool(
+                settings.get("configured")
+                and settings.get("token_configured")
             )
         return channel == "webhook"
 

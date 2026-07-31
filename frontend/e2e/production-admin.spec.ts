@@ -460,6 +460,37 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       targets: notificationTargets,
       webhook_provider_options: notificationWebhookProviders,
     }
+    else if (url.pathname === '/api/notification-services') data = {
+      schema_version: 1,
+      services: notificationTargets.map((target) => ({
+        ...target,
+        legacy_private: target.scope === 'private',
+        can_validate: target.scope === 'shared',
+      })),
+      channel_credentials: {
+        email: {
+          configured: false,
+          ready: false,
+          generation: 0,
+          provider: null,
+          sender_name: 'Inteliscope',
+          region: null,
+          sender_email_configured: false,
+          smtp_username_configured: false,
+          providers: [
+            { provider: 'qq', label: 'QQ 邮箱', credential_label: 'SMTP 授权码', sender_hint: '填写完整 QQ 邮箱地址', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+            { provider: 'netease', label: '网易邮箱', credential_label: 'SMTP 授权码', sender_hint: '支持 163、126 与 yeah.net', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+            { provider: 'gmail', label: 'Gmail', credential_label: 'App Password', sender_hint: '填写完整邮箱地址', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+            { provider: 'resend', label: 'Resend', credential_label: 'API Key', sender_hint: '使用已验证域名', requires_region: false, requires_smtp_username: false, smtp_port: 465, security: 'ssl' },
+            { provider: 'amazon_ses', label: 'Amazon SES', credential_label: 'SES SMTP Password', sender_hint: '使用已验证地址', requires_region: true, requires_smtp_username: true, smtp_port: 465, security: 'ssl' },
+          ],
+        },
+        telegram: { configured: false, ready: false, generation: 0 },
+        webhook: { configured: true, ready: true, generation: 0 },
+      },
+      webhook_provider_options: notificationWebhookProviders,
+      can_manage: true,
+    }
     else if (url.pathname === '/api/me/notification-settings/test') {
       const payload = route.request().postDataJSON() as { channel?: string }
       data = { sent: true, channel: payload.channel ?? 'webhook' }
@@ -795,19 +826,13 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await page.goto('/settings#settings-notifications')
   await expectHeroAdminPage(page, '设置')
   await expect(page.getByRole('heading', { name: '消息通知' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '通知目标', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '通知服务', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '我的收件箱', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '工作区值班群', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '新增通知目标' })).toBeVisible()
-  for (const targetName of ['我的收件箱', '工作区值班群']) {
-    const targetCard = page.getByRole('heading', { name: targetName, exact: true })
-      .locator('xpath=ancestor::*[@data-slot="card"][1]')
-    await expect(targetCard.getByRole('button', { name: '发送测试' })).toBeVisible()
-  }
-  await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
-  await expect(page.getByText('Telegram Bot 服务', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '发送 Telegram 测试' })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: '新增通知服务' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '保存并测试' })).toBeVisible()
+  await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /发送.*测试/ })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
   await page.goto('/settings#settings-fetching')
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
@@ -867,6 +892,7 @@ test('settings landing defers hidden section requests and a direct hash loads on
     '/api/feed/ignored',
     '/api/me/notification-settings',
     '/api/notification-targets',
+    '/api/notification-services',
     '/api/admin/notification-email-transport',
     '/api/admin/notification-telegram-transport',
     '/api/admin/storage/summary',
@@ -932,7 +958,7 @@ test('settings sections reveal naturally in both scroll directions without using
   await revealSection(
     'settings-notifications',
     '消息通知',
-    page.getByRole('button', { name: '发送Webhook测试' }),
+    page.getByRole('button', { name: '保存并测试' }),
   )
   await revealSection(
     'settings-ai',
@@ -1007,7 +1033,7 @@ test('settings saves all dirty core sections in one bundle request', async ({ pa
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
-test('workspace email and Telegram transports stay bounded at 390, 768 and 1440 pixels', async ({ page }) => {
+test('unified notification services stay bounded at 390, 768 and 1440 pixels', async ({ page }) => {
   await mockAdminApi(page)
 
   for (const viewport of [
@@ -1018,21 +1044,20 @@ test('workspace email and Telegram transports stay bounded at 390, 768 and 1440 
     await page.setViewportSize(viewport)
     await page.goto('/settings#settings-notifications')
 
-    await expect(page.getByText('邮件发送服务', { exact: true })).toBeVisible()
-    await expect(page.getByRole('switch', { name: '未启用', exact: true })).toBeDisabled()
-    await expect(page.getByRole('button', { name: '发送测试邮件' })).toBeDisabled()
-    await expect(page.getByText('Telegram Bot 服务', { exact: true })).toBeVisible()
-    await expect(page.getByRole('switch', { name: 'Telegram 未启用' })).toBeDisabled()
-    await expect(page.getByLabel('Bot Token')).toHaveAttribute('type', 'password')
-    await expect(page.getByLabel('一次性测试 Chat ID')).toHaveAttribute('type', 'password')
-    await expect(page.getByRole('button', { name: '发送 Telegram 测试' })).toBeDisabled()
+    await expect(page.getByRole('heading', { name: '通知服务', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '新增通知服务' })).toBeVisible()
+    await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
-    await page.getByRole('button', { name: /邮件服务商/ }).click()
-    await page.getByRole('option', { name: /Amazon SES/ }).click()
+    await page.getByRole('combobox', { name: '发送方式' }).selectOption('email')
+    await page.getByRole('combobox', { name: '邮件服务商' }).selectOption('amazon_ses')
     await expect(page.getByLabel('Amazon SES Region')).toBeVisible()
     await expect(page.getByLabel('SES SMTP 用户名')).toBeVisible()
     await expect(page.getByLabel('SES SMTP Password')).toHaveAttribute('type', 'password')
+    await page.getByRole('combobox', { name: '发送方式' }).selectOption('telegram')
+    await expect(page.getByLabel('群组或会话 Chat ID')).toHaveAttribute('type', 'password')
+    await expect(page.getByLabel('Bot Token')).toHaveAttribute('type', 'password')
+    await expect(page.getByRole('button', { name: '保存并测试' })).toBeDisabled()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   }
 })

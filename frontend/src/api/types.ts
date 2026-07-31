@@ -98,6 +98,43 @@ export type NotificationTargets = {
   webhook_provider_options: WebhookProviderOption[]
 }
 
+export type NotificationService = NotificationTarget & {
+  legacy_private: boolean
+  can_validate: boolean
+}
+
+export type NotificationServiceEmailCredentialState = {
+  configured: boolean
+  ready: boolean
+  generation: number
+  provider: NotificationEmailProvider | null
+  sender_name: string | null
+  region: string | null
+  sender_email_configured: boolean
+  smtp_username_configured: boolean
+  providers: NotificationEmailProviderOption[]
+}
+
+export type NotificationServices = {
+  schema_version: 1
+  services: NotificationService[]
+  channel_credentials: {
+    email: NotificationServiceEmailCredentialState
+    telegram: {
+      configured: boolean
+      ready: boolean
+      generation: number
+    }
+    webhook: {
+      configured: true
+      ready: true
+      generation: 0
+    }
+  }
+  webhook_provider_options: WebhookProviderOption[]
+  can_manage: boolean
+}
+
 export type NotificationTargetCreate = {
   name: string
   scope: NotificationTargetScope
@@ -117,6 +154,26 @@ export type NotificationTargetPatch = {
   webhook_provider?: WebhookProvider
   webhook_signing_secret?: string | null
   telegram_chat_id?: string
+}
+
+export type NotificationServiceEmailTransportPatch = {
+  provider?: NotificationEmailProvider
+  sender_email?: string
+  sender_name?: string
+  credential?: string
+  region?: string | null
+  smtp_username?: string | null
+}
+
+export type NotificationServiceCreate = Omit<NotificationTargetCreate, 'scope'> & {
+  scope?: 'shared'
+  telegram_bot_token?: string
+  email_transport?: NotificationServiceEmailTransportPatch
+}
+
+export type NotificationServicePatch = NotificationTargetPatch & {
+  telegram_bot_token?: string
+  email_transport?: NotificationServiceEmailTransportPatch
 }
 
 export type UserNotificationSettings = {
@@ -157,6 +214,7 @@ export type UserNotificationSettingsPatch = {
 
 export type NotificationTestResult = {
   sent: boolean
+  enabled?: boolean
   channel: NotificationChannel
   target_id?: string
   provider?: WebhookProvider

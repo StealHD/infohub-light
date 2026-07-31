@@ -80,6 +80,7 @@ def _host_matches_suffixes(host: str, suffixes: tuple[str, ...]) -> bool:
 def resolve_public_http_url(
     url: str,
     *,
+    synthetic_dns_hosts: tuple[str, ...] = (),
     synthetic_dns_host_suffixes: tuple[str, ...] = (),
     allow_private_host_allowlist: bool = True,
 ) -> ResolvedHttpTarget:
@@ -132,9 +133,17 @@ def resolve_public_http_url(
         )
     if not allow_private_host_allowlist or host.lower() not in allowlisted_hosts:
         non_public = tuple(address for address in addresses if not address.is_global)
+        exact_synthetic_dns_hosts = {
+            entry.lower().strip().rstrip(".")
+            for entry in synthetic_dns_hosts
+            if entry.strip()
+        }
         synthetic_dns_allowed = (
             bool(non_public)
-            and _host_matches_suffixes(host, synthetic_dns_host_suffixes)
+            and (
+                host.lower() in exact_synthetic_dns_hosts
+                or _host_matches_suffixes(host, synthetic_dns_host_suffixes)
+            )
             and all(address in _SYNTHETIC_DNS_NETWORK for address in non_public)
         )
         if non_public and not synthetic_dns_allowed:
@@ -158,6 +167,7 @@ async def _resolve_public_http_url_daemon(
     *,
     timeout: float,
     allow_private_host_allowlist: bool,
+    synthetic_dns_hosts: tuple[str, ...] = (),
 ) -> ResolvedHttpTarget:
     """Resolve without tying event-loop shutdown to a blocking system resolver."""
 
@@ -168,6 +178,7 @@ async def _resolve_public_http_url_daemon(
         try:
             target = resolve_public_http_url(
                 url,
+                synthetic_dns_hosts=synthetic_dns_hosts,
                 allow_private_host_allowlist=allow_private_host_allowlist,
             )
         except Exception as exc:
@@ -390,6 +401,7 @@ async def post_public_http(
     max_response_bytes: int = 64_000,
     transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     response_body_mode: Literal["discard", "bounded"] = "discard",
+    synthetic_dns_hosts: tuple[str, ...] = (),
 ) -> httpx.Response:
     """POST once to a public-only URL with DNS pinning and no redirects."""
 
@@ -399,6 +411,7 @@ async def post_public_http(
         url,
         timeout=timeout,
         allow_private_host_allowlist=False,
+        synthetic_dns_hosts=synthetic_dns_hosts,
     )
     # A POST may have reached the first address even when its response is lost.
     # Replaying against another DNS answer would therefore duplicate a

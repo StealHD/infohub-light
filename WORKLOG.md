@@ -468,3 +468,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-31",
+  "result": "将 v16 通知目标统一为管理员维护的“通知服务”交互：邮箱、Webhook、Telegram 在单一区域保存并测试后自动启用，个人通知与 Apify 告警只选择服务；Telegram 固定主机可在严格 Host/SNI 和单次 POST 约束下接受 198.18.0.0/15 fake-IP，且不读写 Clash 配置。",
+  "status": "completed",
+  "task_id": "2026-07-31-unified-notification-service-interaction",
+  "unresolved": [
+    "按任务约束未合并、未推送，也未调用真实 Telegram、邮件或 Webhook"
+  ],
+  "validation": [
+    "targeted backend/API/network regressions: 56 passed",
+    "frontend full Vitest: 60 files and 536 tests; TypeScript, ESLint, UI contract and production build passed",
+    "selected Playwright settings checks: 7 passed and 2 conditionally skipped across desktop/tablet/mobile, including 390/768/1440 overflow and Axe",
+    "python scripts/test_gate.py run --mode full: 23/23 passed"
+  ]
+}
+```

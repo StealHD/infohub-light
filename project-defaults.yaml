@@ -49,6 +49,7 @@
       "explicit_webhook_providers_v14_migration_enabled": true,
       "explicit_notification_channels_v15_migration_enabled": true,
       "notification_target_library_enabled": true,
+      "unified_notification_service_management_enabled": true,
       "explicit_notification_targets_v16_migration_enabled": true,
       "feed_end_messages_enabled": true,
       "workspace_email_transport_enabled": true,

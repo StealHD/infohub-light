@@ -271,6 +271,8 @@ def _public_notification_test_result(
     }
     if result.get("target_id") is not None:
         public["target_id"] = str(result["target_id"])
+    if result.get("enabled") is not None:
+        public["enabled"] = bool(result["enabled"])
     if channel == "webhook":
         if result.get("provider") is not None:
             public["provider"] = str(result["provider"])
@@ -449,6 +451,38 @@ class NotificationTargetPatchRequest(BaseModel):
         max_length=4096,
     )
     telegram_chat_id: str | None = Field(default=None, max_length=128)
+
+
+class NotificationServiceEmailTransportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal[
+        "qq",
+        "netease",
+        "gmail",
+        "resend",
+        "amazon_ses",
+    ] | None = None
+    sender_email: str | None = Field(default=None, max_length=320)
+    sender_name: str | None = Field(default=None, max_length=80)
+    credential: str | None = Field(default=None, max_length=4096)
+    region: str | None = Field(default=None, max_length=64)
+    smtp_username: str | None = Field(default=None, max_length=320)
+
+
+class NotificationServiceCreateRequest(NotificationTargetCreateRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["shared"] = "shared"
+    telegram_bot_token: str | None = Field(default=None, max_length=256)
+    email_transport: NotificationServiceEmailTransportRequest | None = None
+
+
+class NotificationServicePatchRequest(NotificationTargetPatchRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    telegram_bot_token: str | None = Field(default=None, max_length=256)
+    email_transport: NotificationServiceEmailTransportRequest | None = None
 
 
 class NotificationEmailTransportPatchRequest(BaseModel):
@@ -772,6 +806,22 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "notification",
         "target_test",
     ),
+    ("POST", "/api/admin/notification-services"): (
+        "notification",
+        "service_create",
+    ),
+    ("PATCH", "/api/admin/notification-services/{service_id}"): (
+        "notification",
+        "service_update",
+    ),
+    ("DELETE", "/api/admin/notification-services/{service_id}"): (
+        "notification",
+        "service_archive",
+    ),
+    (
+        "POST",
+        "/api/admin/notification-services/{service_id}/test-and-enable",
+    ): ("notification", "service_test_enable"),
     ("POST", "/api/config/action"): ("source", "compat_config_action"),
     ("POST", "/api/admin/feed-end-messages/refresh"): (
         "job",
@@ -2776,6 +2826,309 @@ def create_app(
             )
         )
 
+    @app.get("/api/notification-services")
+    async def notification_services_get(
+        response: Response,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        require_webhook_providers_v14()
+        require_notification_targets_v16()
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            notification_targets.list_public_services(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+            )
+        )
+
+    def public_notification_service(
+        *,
+        workspace_id: str,
+        user_id: str,
+        service_id: str,
+    ) -> dict[str, Any]:
+        services = notification_targets.list_public_services(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )["services"]
+        for service in services:
+            if str(service.get("id")) == service_id:
+                return service
+        raise ApiError(
+            "notification_service_not_found",
+            "notification service not found",
+            status_code=404,
+        )
+
+    @app.post("/api/admin/notification-services")
+    async def admin_notification_services_create(
+        payload: NotificationServiceCreateRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_webhook_providers_v14()
+        require_notification_targets_v16()
+        provided = payload.model_fields_set
+        if payload.channel != "telegram" and "telegram_bot_token" in provided:
+            raise ApiError(
+                "invalid_notification_service",
+                "Telegram credentials require a Telegram service",
+                status_code=400,
+            )
+        if payload.channel != "email" and "email_transport" in provided:
+            raise ApiError(
+                "invalid_notification_service",
+                "email credentials require an email service",
+                status_code=400,
+            )
+        if (
+            "telegram_bot_token" in provided
+            and not str(payload.telegram_bot_token or "").strip()
+        ):
+            raise ApiError(
+                "invalid_notification_service",
+                "Telegram Bot Token cannot be empty",
+                status_code=400,
+            )
+        if "email_transport" in provided and payload.email_transport is None:
+            raise ApiError(
+                "invalid_notification_service",
+                "email transport settings cannot be null",
+                status_code=400,
+            )
+        target_fields = {
+            field: getattr(payload, field)
+            for field in (
+                "name",
+                "scope",
+                "channel",
+                "email_address",
+                "webhook_url",
+                "webhook_provider",
+                "webhook_signing_secret",
+                "telegram_chat_id",
+            )
+            if field in provided or field in {"name", "scope", "channel"}
+        }
+        created = notification_targets.create(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            **target_fields,
+        )
+        if "telegram_bot_token" in provided:
+            workspace_telegram_transport.upsert(
+                workspace_id=str(user["workspace_id"]),
+                actor_user_id=str(user["id"]),
+                bot_token=payload.telegram_bot_token,
+            )
+        if "email_transport" in provided and payload.email_transport is not None:
+            email_updates = payload.email_transport.model_dump(
+                exclude_unset=True
+            )
+            if not email_updates:
+                raise ApiError(
+                    "invalid_notification_service",
+                    "email transport settings cannot be empty",
+                    status_code=400,
+                )
+            workspace_email_transport.upsert(
+                workspace_id=str(user["workspace_id"]),
+                actor_user_id=str(user["id"]),
+                **email_updates,
+            )
+        request.state.operation_changed_fields = sorted(provided)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            public_notification_service(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                service_id=str(created["id"]),
+            )
+        )
+
+    @app.patch("/api/admin/notification-services/{service_id}")
+    async def admin_notification_services_patch(
+        service_id: str,
+        payload: NotificationServicePatchRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_webhook_providers_v14()
+        require_notification_targets_v16()
+        provided = payload.model_fields_set
+        if not provided:
+            raise ApiError(
+                "invalid_notification_service",
+                "at least one notification service field is required",
+                status_code=400,
+            )
+        target = store.get_notification_target(
+            workspace_id=str(user["workspace_id"]),
+            target_id=service_id,
+        )
+        if (
+            target is None
+            or target.get("archived_at") is not None
+            or str(target.get("scope") or "") != "shared"
+        ):
+            raise ApiError(
+                "notification_service_not_found",
+                "notification service not found",
+                status_code=404,
+            )
+        channel = str(target["channel"])
+        if channel != "telegram" and "telegram_bot_token" in provided:
+            raise ApiError(
+                "invalid_notification_service",
+                "Telegram credentials require a Telegram service",
+                status_code=400,
+            )
+        if channel != "email" and "email_transport" in provided:
+            raise ApiError(
+                "invalid_notification_service",
+                "email credentials require an email service",
+                status_code=400,
+            )
+        if (
+            "telegram_bot_token" in provided
+            and not str(payload.telegram_bot_token or "").strip()
+        ):
+            raise ApiError(
+                "invalid_notification_service",
+                "Telegram Bot Token cannot be empty",
+                status_code=400,
+            )
+        if "email_transport" in provided and payload.email_transport is None:
+            raise ApiError(
+                "invalid_notification_service",
+                "email transport settings cannot be null",
+                status_code=400,
+            )
+        if any(
+            field in provided and getattr(payload, field) is None
+            for field in (
+                "name",
+                "enabled",
+                "email_address",
+                "webhook_url",
+                "webhook_provider",
+                "telegram_chat_id",
+            )
+        ):
+            raise ApiError(
+                "invalid_notification_service",
+                "notification service fields cannot be null",
+                status_code=400,
+            )
+        target_updates = {
+            field: getattr(payload, field)
+            for field in (
+                "name",
+                "enabled",
+                "email_address",
+                "webhook_url",
+                "webhook_provider",
+                "webhook_signing_secret",
+                "telegram_chat_id",
+            )
+            if field in provided
+        }
+        if target_updates:
+            notification_targets.update(
+                workspace_id=str(user["workspace_id"]),
+                actor_user_id=str(user["id"]),
+                target_id=service_id,
+                **target_updates,
+            )
+        if "telegram_bot_token" in provided:
+            workspace_telegram_transport.upsert(
+                workspace_id=str(user["workspace_id"]),
+                actor_user_id=str(user["id"]),
+                bot_token=payload.telegram_bot_token,
+            )
+        if "email_transport" in provided and payload.email_transport is not None:
+            email_updates = payload.email_transport.model_dump(
+                exclude_unset=True
+            )
+            if not email_updates:
+                raise ApiError(
+                    "invalid_notification_service",
+                    "email transport settings cannot be empty",
+                    status_code=400,
+                )
+            workspace_email_transport.upsert(
+                workspace_id=str(user["workspace_id"]),
+                actor_user_id=str(user["id"]),
+                **email_updates,
+            )
+        request.state.operation_changed_fields = sorted(provided)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            public_notification_service(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                service_id=service_id,
+            )
+        )
+
+    @app.delete("/api/admin/notification-services/{service_id}")
+    async def admin_notification_services_archive(
+        service_id: str,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_webhook_providers_v14()
+        require_notification_targets_v16()
+        target = store.get_notification_target(
+            workspace_id=str(user["workspace_id"]),
+            target_id=service_id,
+        )
+        if (
+            target is None
+            or target.get("archived_at") is not None
+            or str(target.get("scope") or "") != "shared"
+        ):
+            raise ApiError(
+                "notification_service_not_found",
+                "notification service not found",
+                status_code=404,
+            )
+        archived = notification_targets.archive(
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            target_id=service_id,
+        )
+        request.state.operation_changed_fields = ["archived"]
+        response.headers["Cache-Control"] = "no-store"
+        return ok({"service_id": service_id, "archived": archived})
+
+    @app.post(
+        "/api/admin/notification-services/{service_id}/test-and-enable"
+    )
+    async def admin_notification_services_test_and_enable(
+        service_id: str,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        require_webhook_providers_v14()
+        require_notification_targets_v16()
+        result = await run_in_threadpool(
+            notification_targets.send_test_and_enable,
+            workspace_id=str(user["workspace_id"]),
+            actor_user_id=str(user["id"]),
+            target_id=service_id,
+        )
+        request.state.operation_changed_fields = [
+            "enabled",
+            "last_test_status",
+        ]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(_public_notification_test_result(result))
+
     @app.post("/api/notification-targets")
     async def notification_targets_create(
         payload: NotificationTargetCreateRequest,
@@ -2786,6 +3139,12 @@ def create_app(
         require_mutating_member(user)
         require_webhook_providers_v14()
         require_notification_targets_v16()
+        if payload.scope == "private":
+            raise ApiError(
+                "notification_target_private_creation_disabled",
+                "new private notification targets are no longer available",
+                status_code=409,
+            )
         created = notification_targets.create(
             workspace_id=str(user["workspace_id"]),
             actor_user_id=str(user["id"]),

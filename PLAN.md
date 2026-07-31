@@ -18,7 +18,8 @@
 4. X/profile 的 Apify 三 Actor 路由、schema v13 账本、语义占位拦截、费用熔断、管理员状态页与工作区告警已在本地实现；默认顺序为 ScrapeBadger、Dami、Xquik，真实付费 Canary 与 48 小时观察仍需 operator 单独确认。
 4A. 个人新内容通知与 Apify 运行告警的七类 Webhook Provider Registry、平台业务 ACK、飞书/钉钉可选签名和 schema v14 显式门禁已在本地实现并通过完整 Test Gate；未迁移数据库必须保持 API readiness 与 Worker fail closed，真实 Webhook 验收和部署均未执行。
 4B. 个人新内容通知与 Apify 运行告警升级为邮箱、Webhook、Telegram 可同时启用的多渠道投递；工作区共享 Telegram Bot Token，个人通知与运行告警分别保存 write-only Chat ID。schema v15 负责渠道状态、generation、水位和 delivery 唯一约束的显式迁移；本任务只使用伪造凭据与 Mock Transport，不触发真实通知。
-4C. Email、Webhook 与 Telegram 目的地统一进入 schema v16“通知目标”库：成员只维护自己的私有目标，Owner/Admin 维护工作区共享目标；个人新内容通知选择自己的或共享目标，Apify 运行告警只选择共享目标，并允许同时选择多个相同渠道目标。业务设置不再重复保存或测试目的地；本地 8080 尚未执行 v16 迁移或切换。
+4C. Email、Webhook 与 Telegram 目的地已经统一进入 schema v16 目标与业务绑定模型：个人新内容通知选择可见目标，Apify 运行告警只选择共享目标，并允许同时选择多个相同渠道目标；既有私有目标继续保持原归属与绑定。
+4D. 产品交互统一称为“通知服务”：Owner/Admin 只在消息通知的单一入口新建共享服务，并通过“保存并测试”一次完成目的地、首次共享邮件/Telegram 凭据、验证和启用；成员不再新建私人服务，个人通知和系统告警只选择已配置服务。底层继续复用 v16 目标 ID、绑定、投递和历史，不新增迁移。Telegram 仅在固定 `api.telegram.org` 解析到 `198.18.0.0/15` 时使用应用内精确 fake-IP 例外，不读取或修改 Clash 配置。
 5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
 6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
 7. API、Worker、Scheduler 和 CLI 私有双流 JSONL 已完成故障排查加固：请求/Job/source/subscription/stage 可串联，未知 API 异常返回安全 request ID，Worker 覆盖边界、租约恢复、逐来源和通知终态，readiness 独立披露 sink 降级；OpenClaw 缺省只查本人，Owner/Admin 可在新连接上显式授权有界工作区诊断。静态日志合同已进入全部 Test Gate scope；不包含日志 REST API、前端日志页、自动修复或部署。
@@ -53,7 +54,7 @@
 2. Hub taxonomy 与 legacy alias 的兼容迁移。
 3. 来源配置、抓取任务、可选 AI、Service UI、Feed snapshot 和稳定历史的字段合同。
 4. 任务队列、配额、Source Health、确定性优先级及明确的 capability/degrade 表达。
-5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池、X/profile 三 Actor 路由、工作区邮箱/Telegram Transport、私有/共享通知目标库与多目标运行告警，以及受控长度概括。
+5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池、X/profile 三 Actor 路由、统一通知服务管理、底层 v16 私有目标兼容与多服务运行告警，以及受控长度概括。
 6. React/HeroUI Service UI、用户作用域 Query cache、任务轮询、三视口与浏览器验收。
 7. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、安全读工具、受控订阅流程和浏览器直连用户 Gateway。
 8. 上海自然日内容分层、用户隔离全局搜索，以及 Owner/Admin 的预演式标准清理、冷归档与恢复。

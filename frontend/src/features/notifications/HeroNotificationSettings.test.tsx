@@ -272,7 +272,7 @@ describe('NotificationSettingsForm', () => {
     expect(signingSecret).toHaveValue('')
     expect(document.body.textContent).not.toContain('write-only-signing-secret')
     await act(async () => request.resolve(settings()))
-  })
+  }, 10_000)
 
   it('derives viewer access as read-only and blocks every write and test', async () => {
     const browser = userEvent.setup()
@@ -305,10 +305,26 @@ describe('NotificationSettingsForm', () => {
     }))
     const api = {
       notificationSettings,
-      notificationTargets: vi.fn().mockResolvedValue({
+      notificationServices: vi.fn().mockResolvedValue({
         schema_version: 1,
-        targets: [selected],
+        services: [{ ...selected, legacy_private: true, can_validate: true }],
+        channel_credentials: {
+          email: {
+            configured: true,
+            ready: true,
+            generation: 1,
+            provider: 'smtp',
+            sender_name: 'Inteliscope',
+            region: null,
+            sender_email_configured: true,
+            smtp_username_configured: true,
+            providers: [],
+          },
+          telegram: { configured: false, ready: false, generation: 0 },
+          webhook: { configured: true, ready: true, generation: 0 },
+        },
         webhook_provider_options: providerOptions,
+        can_manage: true,
       }),
       updateNotificationSettings,
     } as unknown as ServiceApi

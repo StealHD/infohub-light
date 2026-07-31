@@ -281,10 +281,26 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     apifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     updateApifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     testApifyActorAlertSettings: vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' }),
-    notificationTargets: vi.fn().mockResolvedValue({
+    notificationServices: vi.fn().mockResolvedValue({
       schema_version: 1,
-      targets: [sharedTarget()],
+      services: [{ ...sharedTarget(), legacy_private: false, can_validate: true }],
+      channel_credentials: {
+        email: {
+          configured: true,
+          ready: true,
+          generation: 1,
+          provider: 'smtp',
+          sender_name: 'Inteliscope',
+          region: null,
+          sender_email_configured: true,
+          smtp_username_configured: true,
+          providers: [],
+        },
+        telegram: { configured: false, ready: false, generation: 0 },
+        webhook: { configured: true, ready: true, generation: 0 },
+      },
       webhook_provider_options: alertSettings().webhook_provider_options,
+      can_manage: true,
     }),
     apifyActorAlertIncidents: vi.fn().mockResolvedValue({
       schema_version: 3,
@@ -471,10 +487,26 @@ describe('HeroApifyActorRouteSettings', () => {
       selected_targets: [selected],
     }))
     const { api } = renderFeature({
-      notificationTargets: vi.fn().mockResolvedValue({
+      notificationServices: vi.fn().mockResolvedValue({
         schema_version: 1,
-        targets: [selected],
+        services: [{ ...selected, legacy_private: false, can_validate: true }],
+        channel_credentials: {
+          email: {
+            configured: true,
+            ready: true,
+            generation: 1,
+            provider: 'smtp',
+            sender_name: 'Inteliscope',
+            region: null,
+            sender_email_configured: true,
+            smtp_username_configured: true,
+            providers: [],
+          },
+          telegram: { configured: false, ready: false, generation: 0 },
+          webhook: { configured: true, ready: true, generation: 0 },
+        },
         webhook_provider_options: alertSettings().webhook_provider_options,
+        can_manage: true,
       }),
       updateApifyActorAlertSettings,
     })

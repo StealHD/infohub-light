@@ -5318,6 +5318,39 @@ class ServiceStore:
             0, int(alerts.rowcount)
         )
 
+    def reset_notification_target_test_cooldowns(
+        self,
+        *,
+        workspace_id: str,
+        channel: str,
+        commit: bool = True,
+    ) -> int:
+        """Allow immediate validation after a shared credential changes."""
+
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification channel is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            updated = conn.execute(
+                """
+                UPDATE notification_targets
+                SET last_test_attempted_at = NULL
+                WHERE workspace_id = ? AND channel = ?
+                  AND archived_at IS NULL
+                """,
+                (workspace_id, channel),
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return max(0, int(updated.rowcount))
+
     def advance_notification_channel_watermarks(
         self,
         *,
@@ -5536,6 +5569,180 @@ class ServiceStore:
         if updated.rowcount != 1:
             return None
         return transport
+
+    def activate_notification_service_after_test(
+        self,
+        *,
+        workspace_id: str,
+        target_id: str,
+        target_generation: int,
+        channel: str,
+        transport_generation: int | None = None,
+        tested_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Atomically accept one verified service test and make it selectable."""
+
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification channel is invalid")
+        if channel in {"email", "telegram"} and transport_generation is None:
+            raise ValueError("notification transport generation is required")
+        conn = self.connect()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "notification service activation requires no active transaction"
+            )
+        now = tested_at or _now_iso()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            target = self.get_notification_target(
+                workspace_id=workspace_id,
+                target_id=target_id,
+            )
+            if (
+                target is None
+                or target.get("archived_at") is not None
+                or int(target.get("config_generation") or 0)
+                != int(target_generation)
+                or str(target.get("channel") or "") != channel
+            ):
+                conn.rollback()
+                return None
+
+            transport_restored = False
+            if channel == "email":
+                transport = self.get_workspace_email_transport(
+                    workspace_id=workspace_id
+                )
+                if (
+                    transport is None
+                    or int(transport.get("generation") or 0)
+                    != int(transport_generation or 0)
+                    or not transport.get("credential_env_name")
+                    or not transport.get("credential_secret_digest")
+                ):
+                    conn.rollback()
+                    return None
+                transport_restored = not bool(
+                    transport.get("enabled")
+                    and transport.get("last_test_status") == "sent"
+                    and int(transport.get("last_test_generation") or -1)
+                    == int(transport_generation or 0)
+                )
+                updated_transport = conn.execute(
+                    """
+                    UPDATE workspace_email_transports
+                    SET enabled = 1, last_test_status = 'sent',
+                        last_test_generation = ?, last_tested_at = ?,
+                        last_test_error_code = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND generation = ?
+                    """,
+                    (
+                        int(transport_generation or 0),
+                        now,
+                        now,
+                        workspace_id,
+                        int(transport_generation or 0),
+                    ),
+                )
+                if updated_transport.rowcount != 1:
+                    conn.rollback()
+                    return None
+            elif channel == "telegram":
+                transport = self.get_workspace_telegram_transport(
+                    workspace_id=workspace_id
+                )
+                if (
+                    transport is None
+                    or int(transport.get("generation") or 0)
+                    != int(transport_generation or 0)
+                    or not transport.get("token_env_name")
+                    or not transport.get("token_secret_digest")
+                ):
+                    conn.rollback()
+                    return None
+                transport_restored = not bool(
+                    transport.get("enabled")
+                    and transport.get("last_test_status") == "sent"
+                    and int(transport.get("last_test_generation") or -1)
+                    == int(transport_generation or 0)
+                )
+                updated_transport = conn.execute(
+                    """
+                    UPDATE workspace_telegram_transports
+                    SET enabled = 1, last_test_status = 'sent',
+                        last_test_generation = ?, last_tested_at = ?,
+                        last_test_error_code = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND generation = ?
+                    """,
+                    (
+                        int(transport_generation or 0),
+                        now,
+                        now,
+                        workspace_id,
+                        int(transport_generation or 0),
+                    ),
+                )
+                if updated_transport.rowcount != 1:
+                    conn.rollback()
+                    return None
+
+            if transport_restored:
+                self.advance_notification_channel_watermarks(
+                    workspace_id=workspace_id,
+                    channel=channel,
+                    enabled_at=now,
+                    commit=False,
+                )
+
+            target_is_currently_active = bool(
+                target.get("enabled")
+                and target.get("last_test_status") == "sent"
+                and int(target.get("last_test_config_generation") or 0)
+                == int(target_generation)
+            )
+            updated_target = conn.execute(
+                """
+                UPDATE notification_targets
+                SET enabled = 1,
+                    enabled_at = CASE
+                        WHEN ? THEN enabled_at
+                        ELSE ?
+                    END,
+                    activation_generation = activation_generation
+                        + CASE WHEN ? THEN 0 ELSE 1 END,
+                    last_test_status = 'sent',
+                    last_test_config_generation = ?,
+                    last_tested_at = ?,
+                    last_test_error_code = NULL,
+                    updated_at = ?
+                WHERE workspace_id = ? AND id = ?
+                  AND config_generation = ? AND archived_at IS NULL
+                """,
+                (
+                    1 if target_is_currently_active else 0,
+                    now,
+                    1 if target_is_currently_active else 0,
+                    int(target_generation),
+                    now,
+                    now,
+                    workspace_id,
+                    target_id,
+                    int(target_generation),
+                ),
+            )
+            if updated_target.rowcount != 1:
+                conn.rollback()
+                return None
+            updated = self.get_notification_target(
+                workspace_id=workspace_id,
+                target_id=target_id,
+            )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        return updated
 
     def get_notification_target(
         self,

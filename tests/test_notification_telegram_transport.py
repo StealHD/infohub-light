@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from typing import Any
 
 import httpx
 import pytest
 
-from src.services.network_policy import UnsafeNetworkResponse
+from src.services.network_policy import (
+    UnsafeNetworkResponse,
+    UnsafeNetworkTarget,
+    resolve_public_http_url,
+)
 from src.services.notification_telegram_transport import (
     TelegramConfigurationError,
     TelegramDeliveryError,
@@ -158,6 +163,7 @@ def test_send_uses_fixed_endpoint_plain_text_and_bounded_ack() -> None:
     assert "parse_mode" not in captured["body"]
     assert captured["max_response_bytes"] == 32_768
     assert captured["response_body_mode"] == "bounded"
+    assert captured["synthetic_dns_hosts"] == ("api.telegram.org",)
     assert result.message_id == 42
     assert result.verification == "provider_accepted"
 
@@ -456,3 +462,53 @@ def test_message_length_is_checked_before_any_post() -> None:
         )
     assert exc_info.value.code == "telegram_message_too_long"
     assert captured["calls"] == 1
+
+
+def test_telegram_only_accepts_clash_fake_ip_with_fixed_tls_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_ip_dns(
+        host: str,
+        port: int,
+        *,
+        type: int,
+    ) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        assert type == socket.SOCK_STREAM
+        assert host in {"api.telegram.org", "hooks.example.com"}
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("198.18.0.29", port),
+            )
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_ip_dns)
+    requests: list[httpx.Request] = []
+
+    def telegram_ack(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.host == "198.18.0.29"
+        assert request.headers["host"] == "api.telegram.org"
+        assert request.extensions["sni_hostname"] == "api.telegram.org"
+        return _ack()
+
+    result = asyncio.run(
+        send_telegram_message(
+            BOT_TOKEN,
+            NUMERIC_CHAT_ID,
+            "fake-ip safe path",
+            transport_factory=lambda: httpx.MockTransport(telegram_ack),
+        )
+    )
+    assert result.message_id == 42
+    assert len(requests) == 1
+
+    with pytest.raises(UnsafeNetworkTarget):
+        resolve_public_http_url(
+            "https://hooks.example.com/notification",
+            synthetic_dns_hosts=("api.telegram.org",),
+            allow_private_host_allowlist=False,
+        )

@@ -865,3 +865,11 @@
 - 一致性与安全：`NotificationTargetService` 是目标配置、测试、权限、SecretStore 和 Transport 选择的唯一边界。配置变化自动停用并清除测试，重命名不移动代数；暂停保留业务绑定，恢复推进 activation generation 与水位。归档要求无当前绑定且无 pending/sending delivery，随后清除无引用 Secret 并保留历史名称/渠道投影。个人 outbox 改以 `(subscription_id, article_id, target_id)` 唯一，Apify outbox 改以 `(incident_id, event_type, target_id)` 唯一；发送前复查总开关、绑定、目标配置/启停、Transport 和订阅 generation/水位。目标或 Transport 恢复不补发，任一目标失败不阻断其他目标或原业务，结果未知永不自动重放。
 - API、迁移与兼容：个人通知和 Apify settings 升级 schema v4，规范字段为有序 `target_ids/selected_targets`；Apify incident 升级 schema v3 并按 delivery 返回 `target_id/target_name/channel`。旧 `channels/channel/channel_states` 和业务级测试继续作为兼容入口，但只有每个渠道可唯一映射到一个可见兼容目标时才允许写；歧义返回 `notification_target_legacy_conflict`。schema v16 依赖 v15，显式停止 API/Worker、拒绝活动 Worker、创建 UTC `0600` backup、迁移私有/共享绑定和历史占位目标、重建按 target 的 delivery 约束，并校验计数、schema、integrity 与 foreign keys；迁移只搬运既有 SecretStore 引用/摘要，不读取真实目的地或发送消息。缺 marker/约束时 readiness 和 Worker fail closed。
 - 原因与取代关系：同一邮箱、Webhook 或 Telegram 会话分别出现在个人通知和告警设置中，会迫使用户重复保存、测试和轮换，也无法表达两个相同渠道目的地。统一目标让配置生命周期与业务用途解耦，并为后续告警服务复用稳定实体。D101 取代 D100 中“个人与 Apify 各自维护逐渠道目的地/测试”和按 channel 唯一 delivery 的部分；D100 的共享 Telegram Transport、协议 ACK、安全出站、失败隔离、无历史补发和旧客户端兼容原则继续保留。
+
+### D102 通知目标产品交互统一为管理员通知服务
+
+- 决策日期：2026-07-31
+- 当前状态：采用现有 schema v16 数据模型实现，不新增数据库迁移；真实 Telegram、邮件与 Webhook 调用不属于实现或验证范围
+- 决策内容：产品统一称为“通知服务”。Owner/Admin 只在消息通知的一个区域新建共享 Email、Webhook 或 Telegram 服务；首次 Email/Telegram 服务在同一表单提交 workspace Transport 凭据与目的地，后续服务复用已经配置的共享凭据。创建或修改的唯一主操作为“保存并测试”，接收端 ACK 成功后原子记录 Transport 与服务测试并启用，失败保留停用且不回显秘密的安全草稿。个人新内容通知、Apify 和后续系统告警只选择服务，不再提供业务级测试。历史私有目标不扩权、不删除绑定，仅对原用户继续可见、可选、暂停或归档。
+- 一致性与兼容：新组合 API 复用既有 `notification_targets`、workspace Transport、目标 ID、generation、水位、绑定和 delivery 唯一约束。共享凭据变化继续推进 Transport generation 并暂停对应渠道；一个服务测试成功恢复 Transport 后，目的地未变且此前已验证的其他服务恢复可用，停用期内容不补发。旧目标、Transport 和业务测试接口继续兼容，但新 UI 不调用；D101 的权限、SecretStore、投递隔离和 v16 历史合同保持不变。
+- 网络边界：Telegram 仍只允许固定 `https://api.telegram.org`、固定 Host/SNI、禁重定向和环境代理。仅当这个精确主机解析到 `198.18.0.0/15` 时，应用网络策略允许该 synthetic DNS 地址；该例外不适用于别名、Webhook 或任何用户输入 URL。应用不读取、写入或依赖 Clash 配置，用户在 Clash `fake-ip-filter` 中改为真实解析后同样兼容。D102 取代 D101 中“新建私有目标”和独立 Transport 管理卡的产品交互，不取代其底层数据与安全模型。

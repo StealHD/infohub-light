@@ -626,6 +626,12 @@ class WorkspaceEmailTransportService:
                     workspace_id=workspace_id,
                     commit=False,
                 )
+            if changed_generation:
+                self.store.reset_notification_target_test_cooldowns(
+                    workspace_id=workspace_id,
+                    channel="email",
+                    commit=False,
+                )
             if future_ready and not current_ready:
                 self.store.advance_notification_channel_watermarks(
                     workspace_id=workspace_id,
@@ -769,6 +775,41 @@ class WorkspaceEmailTransportService:
             "sent": True,
             "generation": generation,
         }
+
+    def send_service_test(
+        self,
+        *,
+        workspace_id: str,
+        recipient_email: Any,
+    ) -> int:
+        """Send one destination test without requiring a separately enabled transport."""
+
+        transport = self.store.get_workspace_email_transport(
+            workspace_id=workspace_id
+        )
+        if transport is None:
+            raise EmailTransportError(
+                "email_transport_not_configured",
+                "configure the email transport before testing a service",
+                status_code=409,
+            )
+        recipient = normalize_email(
+            recipient_email,
+            code="invalid_notification_destination",
+        )
+        self._send(
+            transport=transport,
+            recipient=recipient,
+            payload={
+                "kind": "test",
+                "source_name": "Inteliscope",
+                "title": "Inteliscope 通知服务测试",
+                "summary": "这是一封测试邮件，用于验证当前通知服务。",
+                "url": "https://example.com/inteliscope-notification-service-test",
+            },
+            require_enabled=False,
+        )
+        return int(transport.get("generation") or 0)
 
     def send_notification(
         self,

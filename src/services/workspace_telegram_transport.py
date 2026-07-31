@@ -280,6 +280,12 @@ class WorkspaceTelegramTransportService:
                     channel="telegram",
                     commit=False,
                 )
+            if current is None or token_touched:
+                self.store.reset_notification_target_test_cooldowns(
+                    workspace_id=workspace_id,
+                    channel="telegram",
+                    commit=False,
+                )
             if future_ready and not current_ready:
                 self.store.advance_notification_channel_watermarks(
                     workspace_id=workspace_id,

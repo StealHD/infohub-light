@@ -11,7 +11,7 @@ import type {
   ApifyActorRouteCandidate,
   CatalogSource,
   NotificationChannel,
-  NotificationTarget,
+  NotificationService,
   NotificationTestResult,
   WebhookProvider,
 } from '../../api/types'
@@ -828,19 +828,19 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
     retry: false,
     refetchInterval: queryEnabled ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
   })
-  const targets = useQuery({
-    queryKey: queryKeys.notificationTargets(user.id),
-    queryFn: ({ signal }) => api.notificationTargets(signal),
+  const services = useQuery({
+    queryKey: queryKeys.notificationServices(user.id),
+    queryFn: ({ signal }) => api.notificationServices(signal),
     enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
   })
 
-  if (settings.isPending || targets.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
-  if (settings.isError || targets.isError || !settings.data || !targets.data) return <HeroNotice title="Apify 运行告警设置读取失败" status="warning">
+  if (settings.isPending || services.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
+  if (settings.isError || services.isError || !settings.data || !services.data) return <HeroNotice title="Apify 运行告警设置读取失败" status="warning">
     <Button size="sm" variant="ghost" onPress={() => void settings.refetch()}>重试此区域</Button>
   </HeroNotice>
 
-  const sharedTargets = targets.data.targets.filter((target) => target.scope === 'shared')
+  const sharedTargets = services.data.services.filter((service) => service.scope === 'shared')
   const cacheKey = [
     settings.data.enabled,
     settings.data.target_ids.join(':'),
@@ -869,7 +869,7 @@ function ApifyTargetSelectionForm({
   onSave,
 }: {
   settings: ApifyActorAlertSettings
-  targets: NotificationTarget[]
+  targets: NotificationService[]
   onSave: (patch: ApifyActorAlertSettingsPatch) => Promise<ApifyActorAlertSettings>
 }) {
   const [enabled, setEnabled] = useState(settings.enabled)
@@ -886,7 +886,7 @@ function ApifyTargetSelectionForm({
     event.preventDefault()
     if (saving || !dirty) return
     if (enabled && targetIds.length === 0) {
-      setRequestError('启用运行告警时，请至少选择一个工作区共享目标。')
+      setRequestError('启用运行告警时，请至少选择一个工作区共享通知服务。')
       return
     }
     if (enabled && events.length === 0) {
@@ -915,14 +915,15 @@ function ApifyTargetSelectionForm({
       }}>
         <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>启用 Apify 运行告警</Switch.Content>
       </Switch>
-      <Description>系统告警只能选择工作区共享目标；目标配置和测试统一在“消息通知”中完成。</Description>
+      <Description>系统告警只能选择工作区共享通知服务；接收地址、共享凭据和测试统一在“消息通知”中完成。</Description>
     </div>
     <fieldset className="grid gap-3">
-      <legend className="type-control">共享通知目标</legend>
+      <legend className="type-control">共享通知服务</legend>
       <div className="grid gap-3 min-[720px]:grid-cols-2">
         {targets.map((target) => <Card key={target.id} className="grid gap-2 p-3">
           <Checkbox
             isSelected={targetIds.includes(target.id)}
+            isDisabled={!target.available && !targetIds.includes(target.id)}
             onChange={(selected) => {
               setTargetIds((current) => selected
                 ? current.includes(target.id) ? current : [...current, target.id]
@@ -937,12 +938,16 @@ function ApifyTargetSelectionForm({
           </Checkbox>
           <Card.Description>
             {target.channel === 'email' ? '邮箱' : target.channel === 'telegram' ? 'Telegram' : 'Webhook'}
-            {' · '}{target.available ? '可用' : target.enabled ? '暂不可用' : '已暂停'}
+            {' · '}{target.available
+              ? '可用'
+              : target.enabled
+                ? '暂不可用，不能新选择'
+                : '已暂停，不能新选择'}
           </Card.Description>
         </Card>)}
       </div>
-      {targets.length === 0 && <HeroNotice title="没有可用的工作区共享目标" status="warning">
-        <a className="underline" href="#settings-notifications">前往消息通知创建共享目标</a>
+      {targets.length === 0 && <HeroNotice title="没有工作区共享通知服务" status="warning">
+        <a className="underline" href="#settings-notifications">前往消息通知创建通知服务</a>
       </HeroNotice>}
     </fieldset>
     <fieldset className="grid gap-3" aria-describedby="apify-target-events-help">
@@ -1052,7 +1057,7 @@ export function HeroApifyActorRouteSettings({ queryEnabled = true }: { queryEnab
     <ApifyActorRoutePanel queryEnabled={queryEnabled} />
     <div className="mt-6 border-t border-separator pt-5">
       <h3 className="type-page-title">故障告警</h3>
-      <p className="type-meta mt-1 text-muted">从工作区共享通知目标中多选；目标只需统一配置和测试一次。</p>
+      <p className="type-meta mt-1 text-muted">从工作区共享通知服务中多选；服务只需统一配置和测试一次。</p>
       <div className="mt-4"><ApifyActorAlertSettingsPanel queryEnabled={queryEnabled} /></div>
     </div>
     <div className="mt-6 border-t border-separator pt-5">

@@ -255,6 +255,7 @@ async def send_telegram_message(
             max_response_bytes=_ACK_LIMIT_BYTES,
             transport_factory=transport_factory,
             response_body_mode="bounded",
+            synthetic_dns_hosts=(_TELEGRAM_API_HOST,),
         )
     except NetworkResolutionError:
         raise TelegramDeliveryError(

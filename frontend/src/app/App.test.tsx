@@ -164,6 +164,27 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       targets: [],
       webhook_provider_options: webhookProviderOptions(),
     }),
+    notificationServices: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      services: [],
+      channel_credentials: {
+        email: {
+          configured: false,
+          ready: false,
+          generation: 0,
+          provider: null,
+          sender_name: 'Inteliscope',
+          region: null,
+          sender_email_configured: false,
+          smtp_username_configured: false,
+          providers: [],
+        },
+        telegram: { configured: false, ready: false, generation: 0 },
+        webhook: { configured: true, ready: true, generation: 0 },
+      },
+      webhook_provider_options: webhookProviderOptions(),
+      can_manage: true,
+    }),
     updateItemState: vi.fn(),
     ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
     subscribe: vi.fn().mockResolvedValue({ subscription: { reused_item_count: 0 } }),
@@ -1682,6 +1703,27 @@ describe('App routes', () => {
       targets: [],
       webhook_provider_options: webhookProviderOptions(),
     })
+    const notificationServices = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      services: [],
+      channel_credentials: {
+        email: {
+          configured: false,
+          ready: false,
+          generation: 0,
+          provider: null,
+          sender_name: 'Inteliscope',
+          region: null,
+          sender_email_configured: false,
+          smtp_username_configured: false,
+          providers: [],
+        },
+        telegram: { configured: false, ready: false, generation: 0 },
+        webhook: { configured: true, ready: true, generation: 0 },
+      },
+      webhook_provider_options: webhookProviderOptions(),
+      can_manage: true,
+    })
     const notificationEmailTransport = vi.fn().mockResolvedValue({
       schema_version: 1,
       configured: false,
@@ -1710,6 +1752,7 @@ describe('App routes', () => {
       ignoredFeed,
       notificationSettings,
       notificationTargets,
+      notificationServices,
       notificationEmailTransport,
       notificationTelegramTransport,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
@@ -1736,10 +1779,11 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('option', { name: '消息通知' }))
     await waitFor(() => {
       expect(notificationSettings).toHaveBeenCalledOnce()
-      expect(notificationTargets).toHaveBeenCalledOnce()
-      expect(notificationEmailTransport).toHaveBeenCalledOnce()
-      expect(notificationTelegramTransport).toHaveBeenCalledOnce()
+      expect(notificationTargets).not.toHaveBeenCalled()
+      expect(notificationServices).toHaveBeenCalledOnce()
     })
+    expect(notificationEmailTransport).not.toHaveBeenCalled()
+    expect(notificationTelegramTransport).not.toHaveBeenCalled()
     expect(config).not.toHaveBeenCalled()
     expect(secrets).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
@@ -1747,7 +1791,7 @@ describe('App routes', () => {
     expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
 
     await browser.selectOptions(
-      screen.getByRole('combobox', { name: '渠道' }),
+      screen.getByRole('combobox', { name: '发送方式' }),
       'webhook',
     )
     const provider = screen.getByRole('combobox', { name: 'Webhook 类型' })
@@ -1761,9 +1805,10 @@ describe('App routes', () => {
     expect(destination).toHaveValue('https://example.invalid/preserved-draft')
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()
-    expect(notificationTargets).toHaveBeenCalledOnce()
-    expect(notificationEmailTransport).toHaveBeenCalledOnce()
-    expect(notificationTelegramTransport).toHaveBeenCalledOnce()
+    expect(notificationTargets).not.toHaveBeenCalled()
+    expect(notificationServices).toHaveBeenCalledOnce()
+    expect(notificationEmailTransport).not.toHaveBeenCalled()
+    expect(notificationTelegramTransport).not.toHaveBeenCalled()
 
     await browser.click(screen.getByRole('button', { name: /设置区域/ }))
     await browser.click(await screen.findByRole('option', { name: '消息通知' }))
@@ -1771,9 +1816,10 @@ describe('App routes', () => {
     expect(destination).toHaveValue('https://example.invalid/preserved-draft')
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()
-    expect(notificationTargets).toHaveBeenCalledOnce()
-    expect(notificationEmailTransport).toHaveBeenCalledOnce()
-    expect(notificationTelegramTransport).toHaveBeenCalledOnce()
+    expect(notificationTargets).not.toHaveBeenCalled()
+    expect(notificationServices).toHaveBeenCalledOnce()
+    expect(notificationEmailTransport).not.toHaveBeenCalled()
+    expect(notificationTelegramTransport).not.toHaveBeenCalled()
   })
 
   it('naturally activates every settings section in order while scrolling without using the section selector', async () => {
@@ -1840,6 +1886,27 @@ describe('App routes', () => {
       updated_at: null,
     })
     const notificationTelegramTransport = vi.fn().mockResolvedValue(emptyTelegramTransport())
+    const notificationServices = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      services: [],
+      channel_credentials: {
+        email: {
+          configured: false,
+          ready: false,
+          generation: 0,
+          provider: null,
+          sender_name: 'Inteliscope',
+          region: null,
+          sender_email_configured: false,
+          smtp_username_configured: false,
+          providers: [],
+        },
+        telegram: { configured: false, ready: false, generation: 0 },
+        webhook: { configured: true, ready: true, generation: 0 },
+      },
+      webhook_provider_options: webhookProviderOptions(),
+      can_manage: true,
+    })
     const storageSummary = vi.fn().mockResolvedValue({
       schema_version: 1,
       policy: { feed_snapshot_days: 30, feed_snapshot_per_user: 20, source_snapshot_days: 7, completed_job_days: 14, analysis_cache_days: 30, usage_event_days: 90, archive_after_days: 90, automatic_permanent_delete: false },
@@ -1856,6 +1923,7 @@ describe('App routes', () => {
       ignoredFeed,
       notificationSettings,
       notificationTargets,
+      notificationServices,
       notificationEmailTransport,
       notificationTelegramTransport,
       storageSummary,
@@ -1891,6 +1959,7 @@ describe('App routes', () => {
 
     expect(notificationSettings).not.toHaveBeenCalled()
     expect(notificationTargets).not.toHaveBeenCalled()
+    expect(notificationServices).not.toHaveBeenCalled()
     expect(notificationTelegramTransport).not.toHaveBeenCalled()
     expect(config).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
@@ -1898,12 +1967,13 @@ describe('App routes', () => {
     expect(secrets).not.toHaveBeenCalled()
 
     await revealNextSection('消息通知', () => {
-      expect(screen.getByRole('button', { name: '创建通知目标' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '保存并测试' })).toBeInTheDocument()
     })
     expect(notificationSettings).toHaveBeenCalledOnce()
-    expect(notificationTargets).toHaveBeenCalledOnce()
-    expect(notificationEmailTransport).toHaveBeenCalledOnce()
-    expect(notificationTelegramTransport).toHaveBeenCalledOnce()
+    expect(notificationTargets).not.toHaveBeenCalled()
+    expect(notificationServices).toHaveBeenCalledOnce()
+    expect(notificationEmailTransport).not.toHaveBeenCalled()
+    expect(notificationTelegramTransport).not.toHaveBeenCalled()
 
     await revealNextSection('助手与 AI', () => {
       expect(screen.getByRole('button', { name: '保存 AI 设置' })).toBeInTheDocument()

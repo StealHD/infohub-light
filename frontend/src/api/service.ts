@@ -30,6 +30,10 @@ import type {
   NotificationTargetCreate,
   NotificationTargetPatch,
   NotificationTargets,
+  NotificationService,
+  NotificationServiceCreate,
+  NotificationServicePatch,
+  NotificationServices,
   NotificationTelegramTransport,
   NotificationTelegramTransportPatch,
   NotificationTelegramTransportTestResult,
@@ -140,6 +144,24 @@ export function createServiceApi(client: ApiClient) {
     notificationTargets: (signal?: AbortSignal) => client.get<NotificationTargets>(
       '/api/notification-targets',
       signal,
+    ),
+    notificationServices: (signal?: AbortSignal) => client.get<NotificationServices>(
+      '/api/notification-services',
+      signal,
+    ),
+    createNotificationService: (payload: NotificationServiceCreate) => client.post<NotificationService>(
+      '/api/admin/notification-services',
+      payload,
+    ),
+    updateNotificationService: (serviceId: string, patch: NotificationServicePatch) => client.patch<NotificationService>(
+      resource('/api/admin/notification-services', serviceId),
+      patch,
+    ),
+    testAndEnableNotificationService: (serviceId: string) => client.post<NotificationTestResult>(
+      `${resource('/api/admin/notification-services', serviceId)}/test-and-enable`,
+    ),
+    archiveNotificationService: (serviceId: string) => client.delete<{ service_id: string; archived: boolean }>(
+      resource('/api/admin/notification-services', serviceId),
     ),
     createNotificationTarget: (payload: NotificationTargetCreate) => client.post<NotificationTarget>(
       '/api/notification-targets',

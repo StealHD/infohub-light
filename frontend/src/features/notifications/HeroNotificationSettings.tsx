@@ -5,7 +5,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import type {
   NotificationChannel,
-  NotificationTarget,
+  NotificationService,
   NotificationTestResult,
   UserNotificationSettings,
   UserNotificationSettingsPatch,
@@ -286,22 +286,22 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
     enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
   })
-  const targets = useQuery({
-    queryKey: queryKeys.notificationTargets(user.id),
-    queryFn: ({ signal }) => api.notificationTargets(signal),
+  const services = useQuery({
+    queryKey: queryKeys.notificationServices(user.id),
+    queryFn: ({ signal }) => api.notificationServices(signal),
     enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
   })
 
-  if (settings.isPending || targets.isPending) return <LoadingState label="正在读取消息通知设置" rows={2} />
-  if (settings.isError || targets.isError || !settings.data || !targets.data) {
+  if (settings.isPending || services.isPending) return <LoadingState label="正在读取消息通知设置" rows={2} />
+  if (settings.isError || services.isError || !settings.data || !services.data) {
     return <HeroNotice title="消息通知设置读取失败，请刷新后重试。" />
   }
 
   const cacheKey = [
     settings.data.enabled,
     settings.data.target_ids.join(':'),
-    targets.data.targets.map((target) => `${target.id}:${target.available}:${target.config_generation}`).join('|'),
+    services.data.services.map((service) => `${service.id}:${service.available}:${service.config_generation}`).join('|'),
   ].join(':')
 
   async function save(patch: UserNotificationSettingsPatch) {
@@ -313,7 +313,7 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
   return <NotificationTargetSelectionForm
     key={cacheKey}
     settings={settings.data}
-    targets={targets.data.targets}
+    targets={services.data.services}
     onSave={save}
     readOnly={user.role === 'viewer'}
   />
@@ -326,7 +326,7 @@ export function NotificationTargetSelectionForm({
   readOnly = false,
 }: {
   settings: UserNotificationSettings
-  targets: NotificationTarget[]
+  targets: NotificationService[]
   onSave: (patch: UserNotificationSettingsPatch) => Promise<UserNotificationSettings>
   readOnly?: boolean
 }) {
@@ -349,7 +349,7 @@ export function NotificationTargetSelectionForm({
     event.preventDefault()
     if (readOnly || saving || !dirty) return
     if (enabled && targetIds.length === 0) {
-      setRequestError('启用新内容通知时，请至少选择一个通知目标。')
+      setRequestError('启用新内容通知时，请至少选择一个通知服务。')
       return
     }
     setSaving(true)
@@ -381,13 +381,16 @@ export function NotificationTargetSelectionForm({
       >
         <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>启用新内容通知</Switch.Content>
       </Switch>
-      <Description>只对订阅中已开启通知的来源生效；可以选择多个目标，也可以选择多个相同渠道的目标。</Description>
+      <Description>只对订阅中已开启通知的来源生效；可以选择多个服务，也可以选择多个相同渠道的服务。</Description>
     </div>
     <div className="grid min-w-0 gap-3 min-[768px]:grid-cols-2">
       {targets.map((target) => <Card key={target.id} className="grid gap-2 p-4">
         <Checkbox
           isSelected={targetIds.includes(target.id)}
-          isDisabled={readOnly}
+          isDisabled={
+            readOnly
+            || (!target.available && !targetIds.includes(target.id))
+          }
           onChange={(selected) => toggleTarget(target.id, selected)}
         >
           <Checkbox.Content>
@@ -396,19 +399,23 @@ export function NotificationTargetSelectionForm({
           </Checkbox.Content>
         </Checkbox>
         <Card.Description>
-          {target.scope === 'shared' ? '工作区共享' : '我的目标'} · {
+          {target.scope === 'shared' ? '工作区共享' : '历史私人服务'} · {
             target.channel === 'email' ? '邮箱' : target.channel === 'telegram' ? 'Telegram' : 'Webhook'
-          } · {target.available ? '可用' : target.enabled ? '暂不可用' : '已暂停'}
+          } · {target.available
+            ? '可用'
+            : target.enabled
+              ? '暂不可用，不能新选择'
+              : '已暂停，不能新选择'}
         </Card.Description>
       </Card>)}
       {targets.length === 0 && <HeroNotice
-        title="暂无可选通知目标"
+        title="暂无可选通知服务"
         status="warning"
         role="status"
-      >请先在上方“通知目标”中创建、测试并启用一个目标。</HeroNotice>}
+      >请联系管理员在上方“通知服务”中保存并测试一个服务。</HeroNotice>}
     </div>
     <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
-      新启用目标、恢复目标或恢复总开关都只发送之后严格新增的内容，不补发停用期间或历史内容。
+      新选择服务、恢复服务或恢复总开关都只发送之后严格新增的内容，不补发停用期间或历史内容。
     </div>
     {requestError && <HeroNotice title={requestError} />}
     <div className="flex flex-wrap gap-2">
