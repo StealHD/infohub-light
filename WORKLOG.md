@@ -451,3 +451,20 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-07-31",
+  "result": "将统一通知目标分支切换到本地 8080：清理可重建 Docker 构建缓存后完成镜像构建，安全停止 API/Worker，应用通知目标 v16 迁移及私有备份，并启动目标版本的 API/Worker；scheduler 未启动。",
+  "status": "completed",
+  "task_id": "2026-07-31-start-unified-notification-target-containers",
+  "unresolved": [],
+  "validation": [
+    "runtime migration v16 applied; backup mode 0600; integrity_check ok and foreign-key check clean",
+    "API and Worker run inteliscope-service:local-71006ee4de02 and report healthy",
+    "live revision is 71006ee4de02; readiness reports database ready and worker_status ready",
+    "served settings asset HeroSettingsPage-_X-YBwVU.js contains 通知目标; canonical runtime data/logs/.env mounts verified; scheduler absent"
+  ]
+}
+```
