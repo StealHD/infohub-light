@@ -64,6 +64,8 @@ WEBHOOK_PROVIDERS = {
 }
 NOTIFICATION_CHANNELS = ("email", "webhook", "telegram")
 NOTIFICATION_CHANNEL_SET = frozenset(NOTIFICATION_CHANNELS)
+NOTIFICATION_TARGET_SCOPES = ("private", "shared")
+NOTIFICATION_TARGET_SCOPE_SET = frozenset(NOTIFICATION_TARGET_SCOPES)
 WEBHOOK_PROVIDER_TRIGGER_NAMES = {
     f"trg_{table}_webhook_v14_{operation}"
     for table in (
@@ -470,6 +472,7 @@ class ServiceStore:
         prepare_apify_actor_routing_v13: bool = False,
         prepare_webhook_providers_v14: bool = False,
         prepare_multichannel_notifications_v15: bool = False,
+        prepare_notification_targets_v16: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -540,6 +543,27 @@ class ServiceStore:
                 and (
                     multichannel_notifications_v15_migrated
                     or prepare_multichannel_notifications_v15
+                )
+            )
+        )
+        notification_targets_v16_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 16"
+            ).fetchone()
+        )
+        notification_targets_v16_upgrade_pending = bool(
+            existing_schema and not notification_targets_v16_migrated
+        )
+        install_notification_targets_v16 = bool(
+            not existing_schema
+            or (
+                apify_actor_v13_migrated
+                and webhook_providers_v14_migrated
+                and multichannel_notifications_v15_migrated
+                and (
+                    notification_targets_v16_migrated
+                    or prepare_notification_targets_v16
                 )
             )
         )
@@ -944,16 +968,25 @@ class ServiceStore:
                 account_notification_generation INTEGER NOT NULL DEFAULT 0,
                 channel_notification_generation INTEGER NOT NULL DEFAULT 0,
                 subscription_notification_generation INTEGER NOT NULL DEFAULT 0,
+                target_id TEXT,
+                target_name_snapshot TEXT NOT NULL DEFAULT '',
+                target_config_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(target_config_generation >= 0),
+                target_activation_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(target_activation_generation >= 0),
+                binding_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(binding_generation >= 0),
                 error_code TEXT,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 sent_at TEXT,
                 updated_at TEXT NOT NULL,
-                UNIQUE(subscription_id, article_id, channel),
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
-                FOREIGN KEY(source_id) REFERENCES source_catalog(id) ON DELETE CASCADE
+                FOREIGN KEY(source_id) REFERENCES source_catalog(id) ON DELETE CASCADE,
+                FOREIGN KEY(target_id) REFERENCES notification_targets(id)
+                    ON DELETE RESTRICT
             );
             CREATE INDEX IF NOT EXISTS idx_preferred_source_notifications_pending
                 ON preferred_source_notification_deliveries(status, created_at, id);
@@ -1451,6 +1484,14 @@ class ServiceStore:
                 settings_generation INTEGER NOT NULL CHECK(settings_generation >= 1),
                 channel_generation INTEGER NOT NULL DEFAULT 1
                     CHECK(channel_generation >= 1),
+                target_id TEXT,
+                target_name_snapshot TEXT NOT NULL DEFAULT '',
+                target_config_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(target_config_generation >= 0),
+                target_activation_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(target_activation_generation >= 0),
+                binding_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(binding_generation >= 0),
                 payload_json TEXT NOT NULL,
                 status TEXT NOT NULL
                     CHECK(status IN ('pending', 'sending', 'succeeded', 'failed')),
@@ -1462,10 +1503,11 @@ class ServiceStore:
                 started_at TEXT,
                 sent_at TEXT,
                 updated_at TEXT NOT NULL,
-                UNIQUE(incident_id, event_type, channel),
                 FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
                 FOREIGN KEY(incident_id)
-                    REFERENCES apify_actor_alert_incidents(id) ON DELETE CASCADE
+                    REFERENCES apify_actor_alert_incidents(id) ON DELETE CASCADE,
+                FOREIGN KEY(target_id) REFERENCES notification_targets(id)
+                    ON DELETE RESTRICT
             );
             CREATE INDEX IF NOT EXISTS idx_apify_actor_alert_delivery_due
                 ON apify_actor_alert_deliveries(status, retry_at, created_at);
@@ -1563,6 +1605,129 @@ class ServiceStore:
                     workspace_id, enabled, position
                 );
             -- MULTICHANNEL_NOTIFICATIONS_V15_END
+
+            -- NOTIFICATION_TARGETS_V16_BEGIN
+            CREATE TABLE IF NOT EXISTS notification_targets (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                scope TEXT NOT NULL
+                    CHECK(scope IN ('private', 'shared')),
+                owner_user_id TEXT,
+                name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 80),
+                name_key TEXT NOT NULL CHECK(length(name_key) BETWEEN 1 AND 160),
+                channel TEXT NOT NULL
+                    CHECK(channel IN ('email', 'webhook', 'telegram')),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                enabled_at TEXT,
+                config_generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(config_generation >= 1),
+                activation_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK(activation_generation >= 0),
+                destination_env_name TEXT,
+                destination_secret_digest TEXT,
+                secret_binding_kind TEXT NOT NULL DEFAULT 'target_v16'
+                    CHECK(secret_binding_kind IN (
+                        'target_v16', 'legacy_user_v15', 'legacy_apify_v15',
+                        'historical_placeholder'
+                    )),
+                webhook_provider TEXT
+                    CHECK(
+                        webhook_provider IS NULL
+                        OR webhook_provider IN (
+                            'legacy_auto', 'generic_event', 'generic_text',
+                            'feishu_lark_v2', 'wecom', 'dingtalk', 'slack',
+                            'discord'
+                        )
+                    ),
+                webhook_signing_env_name TEXT,
+                webhook_signing_secret_digest TEXT,
+                last_test_status TEXT
+                    CHECK(last_test_status IS NULL OR last_test_status IN (
+                        'sent', 'failed', 'unknown'
+                    )),
+                last_test_config_generation INTEGER,
+                last_test_attempted_at TEXT,
+                last_tested_at TEXT,
+                last_test_error_code TEXT,
+                archived_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(owner_user_id)
+                    REFERENCES users(id) ON DELETE CASCADE,
+                CHECK(
+                    (scope = 'private' AND owner_user_id IS NOT NULL)
+                    OR (scope = 'shared' AND owner_user_id IS NULL)
+                ),
+                CHECK(
+                    (destination_env_name IS NULL)
+                    = (destination_secret_digest IS NULL)
+                ),
+                CHECK(
+                    (webhook_signing_env_name IS NULL)
+                    = (webhook_signing_secret_digest IS NULL)
+                ),
+                CHECK(
+                    (channel = 'webhook' AND webhook_provider IS NOT NULL)
+                    OR (
+                        channel != 'webhook'
+                        AND webhook_provider IS NULL
+                        AND webhook_signing_env_name IS NULL
+                        AND webhook_signing_secret_digest IS NULL
+                    )
+                ),
+                UNIQUE(workspace_id, scope, owner_user_id, name_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_targets_visible
+                ON notification_targets(
+                    workspace_id, scope, owner_user_id, archived_at, channel
+                );
+
+            CREATE TABLE IF NOT EXISTS user_notification_target_bindings (
+                user_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0 CHECK(position >= 0),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                enabled_at TEXT,
+                generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(user_id, target_id),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(target_id)
+                    REFERENCES notification_targets(id) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS
+                idx_user_notification_target_bindings_enabled
+                ON user_notification_target_bindings(
+                    workspace_id, user_id, enabled, position
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_alert_target_bindings (
+                workspace_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0 CHECK(position >= 0),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                enabled_at TEXT,
+                generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, target_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(target_id)
+                    REFERENCES notification_targets(id) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS
+                idx_apify_actor_alert_target_bindings_enabled
+                ON apify_actor_alert_target_bindings(
+                    workspace_id, enabled, position
+                );
+            -- NOTIFICATION_TARGETS_V16_END
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -1687,6 +1852,16 @@ class ServiceStore:
                 1,
             )
             schema_sql = before_v15 + after_v15
+        if not install_notification_targets_v16:
+            before_v16, after_marker = schema_sql.split(
+                "-- NOTIFICATION_TARGETS_V16_BEGIN",
+                1,
+            )
+            _v16_sql, after_v16 = after_marker.split(
+                "-- NOTIFICATION_TARGETS_V16_END",
+                1,
+            )
+            schema_sql = before_v16 + after_v16
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -1813,6 +1988,60 @@ class ServiceStore:
                 "apify_actor_alert_deliveries",
                 "channel_generation",
                 "INTEGER NOT NULL DEFAULT 1",
+            )
+        if install_notification_targets_v16:
+            for table in (
+                "preferred_source_notification_deliveries",
+                "apify_actor_alert_deliveries",
+            ):
+                self._ensure_column(table, "target_id", "TEXT")
+                self._ensure_column(
+                    table,
+                    "target_name_snapshot",
+                    "TEXT NOT NULL DEFAULT ''",
+                )
+                self._ensure_column(
+                    table,
+                    "target_config_generation",
+                    "INTEGER NOT NULL DEFAULT 0",
+                )
+                self._ensure_column(
+                    table,
+                    "target_activation_generation",
+                    "INTEGER NOT NULL DEFAULT 0",
+                )
+                self._ensure_column(
+                    table,
+                    "binding_generation",
+                    "INTEGER NOT NULL DEFAULT 0",
+                )
+            conn.executescript(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_preferred_source_notification_legacy_unique
+                    ON preferred_source_notification_deliveries(
+                        subscription_id, article_id, channel
+                    )
+                    WHERE target_id IS NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_preferred_source_notification_target_unique
+                    ON preferred_source_notification_deliveries(
+                        subscription_id, article_id, target_id
+                    )
+                    WHERE target_id IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_apify_actor_alert_delivery_legacy_unique
+                    ON apify_actor_alert_deliveries(
+                        incident_id, event_type, channel
+                    )
+                    WHERE target_id IS NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_apify_actor_alert_delivery_target_unique
+                    ON apify_actor_alert_deliveries(
+                        incident_id, event_type, target_id
+                    )
+                    WHERE target_id IS NOT NULL;
+                """
             )
         self._ensure_column(
             "preferred_source_notification_deliveries",
@@ -1955,6 +2184,11 @@ class ServiceStore:
             and not multichannel_notifications_v15_upgrade_pending
         ):
             self.mark_multichannel_notifications_v15_migrated(commit=False)
+        if (
+            install_notification_targets_v16
+            and not notification_targets_v16_upgrade_pending
+        ):
+            self.mark_notification_targets_v16_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -2283,6 +2517,32 @@ class ServiceStore:
             "SELECT 1 FROM schema_migrations WHERE version = 15"
         ).fetchone():
             return True
+        if conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 16"
+        ).fetchone():
+            allowed_v16_indexes = {
+                "preferred_source_notification_deliveries": {
+                    "idx_preferred_source_notification_legacy_unique",
+                    "idx_preferred_source_notification_target_unique",
+                },
+                "apify_actor_alert_deliveries": {
+                    "idx_apify_actor_alert_delivery_legacy_unique",
+                    "idx_apify_actor_alert_delivery_target_unique",
+                },
+            }
+            for table, allowed in allowed_v16_indexes.items():
+                unexpected = {
+                    str(index["name"])
+                    for index in conn.execute(
+                        f"PRAGMA index_list({table})"
+                    ).fetchall()
+                    if bool(index["unique"])
+                    and str(index["origin"]) != "pk"
+                    and str(index["name"]) not in allowed
+                }
+                if unexpected:
+                    return True
+            return False
         required_tables = {
             "user_notification_channels",
             "workspace_telegram_transports",
@@ -2469,6 +2729,196 @@ class ServiceStore:
                 LIMIT 1
                 """,
                 NOTIFICATION_CHANNELS,
+            ).fetchone():
+                return True
+        return False
+
+    def mark_notification_targets_v16_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        self.connect().execute(
+            """
+            INSERT OR REPLACE INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (
+                16,
+                'notification_targets_v16',
+                'reusable-notification-targets-v16',
+                ?
+            )
+            """,
+            (_now_iso(),),
+        )
+        if commit:
+            self.connect().commit()
+
+    def notification_targets_v16_migration_required(self) -> bool:
+        conn = self.connect()
+        if not conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 16"
+        ).fetchone():
+            return True
+        required_tables = {
+            "notification_targets",
+            "user_notification_target_bindings",
+            "apify_actor_alert_target_bindings",
+        }
+        installed_tables = {
+            str(row["name"])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if not required_tables <= installed_tables:
+            return True
+        required_delivery_columns = {
+            "target_id",
+            "target_name_snapshot",
+            "target_config_generation",
+            "target_activation_generation",
+            "binding_generation",
+        }
+        for table in (
+            "preferred_source_notification_deliveries",
+            "apify_actor_alert_deliveries",
+        ):
+            columns = {
+                str(row["name"])
+                for row in conn.execute(
+                    f"PRAGMA table_info({table})"
+                ).fetchall()
+            }
+            if not required_delivery_columns <= columns:
+                return True
+        expected_indexes = {
+            "preferred_source_notification_deliveries": {
+                "idx_preferred_source_notification_legacy_unique": (
+                    ("subscription_id", "article_id", "channel"),
+                    True,
+                ),
+                "idx_preferred_source_notification_target_unique": (
+                    ("subscription_id", "article_id", "target_id"),
+                    True,
+                ),
+            },
+            "apify_actor_alert_deliveries": {
+                "idx_apify_actor_alert_delivery_legacy_unique": (
+                    ("incident_id", "event_type", "channel"),
+                    True,
+                ),
+                "idx_apify_actor_alert_delivery_target_unique": (
+                    ("incident_id", "event_type", "target_id"),
+                    True,
+                ),
+            },
+        }
+        for table, indexes in expected_indexes.items():
+            installed = {
+                str(row["name"]): row
+                for row in conn.execute(
+                    f"PRAGMA index_list({table})"
+                ).fetchall()
+            }
+            unexpected_unique = {
+                name
+                for name, index in installed.items()
+                if bool(index["unique"])
+                and str(index["origin"]) != "pk"
+                and name not in indexes
+            }
+            if unexpected_unique:
+                return True
+            for name, (columns, partial) in indexes.items():
+                index = installed.get(name)
+                if (
+                    index is None
+                    or not bool(index["unique"])
+                    or bool(index["partial"]) != partial
+                ):
+                    return True
+                actual_columns = tuple(
+                    str(row["name"])
+                    for row in sorted(
+                        conn.execute(
+                            f"PRAGMA index_info({name})"
+                        ).fetchall(),
+                        key=lambda row: int(row["seqno"]),
+                    )
+                )
+                if actual_columns != columns:
+                    return True
+        invalid_target = conn.execute(
+            """
+            SELECT 1 FROM notification_targets
+            WHERE scope NOT IN ('private', 'shared')
+               OR channel NOT IN ('email', 'webhook', 'telegram')
+               OR enabled NOT IN (0, 1)
+               OR config_generation < 1
+               OR activation_generation < 0
+               OR archived_at IS NOT NULL AND enabled != 0
+               OR (
+                    (scope = 'private' AND owner_user_id IS NULL)
+                    OR (scope = 'shared' AND owner_user_id IS NOT NULL)
+               )
+               OR (
+                    (destination_env_name IS NULL)
+                    != (destination_secret_digest IS NULL)
+               )
+               OR (
+                    destination_secret_digest IS NOT NULL
+                    AND (
+                        length(destination_secret_digest) != 64
+                        OR destination_secret_digest GLOB '*[^0-9a-f]*'
+                    )
+               )
+               OR (
+                    (webhook_signing_env_name IS NULL)
+                    != (webhook_signing_secret_digest IS NULL)
+               )
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_target:
+            return True
+        invalid_private_binding = conn.execute(
+            """
+            SELECT 1
+            FROM user_notification_target_bindings AS binding
+            JOIN notification_targets AS target
+              ON target.id = binding.target_id
+            WHERE binding.workspace_id != target.workspace_id
+               OR (
+                    target.scope = 'private'
+                    AND target.owner_user_id != binding.user_id
+               )
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_private_binding:
+            return True
+        invalid_alert_binding = conn.execute(
+            """
+            SELECT 1
+            FROM apify_actor_alert_target_bindings AS binding
+            JOIN notification_targets AS target
+              ON target.id = binding.target_id
+            WHERE binding.workspace_id != target.workspace_id
+               OR target.scope != 'shared'
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_alert_binding:
+            return True
+        for table in (
+            "preferred_source_notification_deliveries",
+            "apify_actor_alert_deliveries",
+        ):
+            if conn.execute(
+                f"""
+                SELECT 1 FROM {table}
+                WHERE target_id IS NULL
+                LIMIT 1
+                """
             ).fetchone():
                 return True
         return False
@@ -3060,6 +3510,49 @@ class ServiceStore:
         return data
 
     @staticmethod
+    def _notification_target(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = dict(row)
+        data["enabled"] = _bool(data.get("enabled"))
+        data["config_generation"] = max(
+            1, int(data.get("config_generation") or 1)
+        )
+        data["activation_generation"] = max(
+            0, int(data.get("activation_generation") or 0)
+        )
+        if data.get("last_test_config_generation") is not None:
+            data["last_test_config_generation"] = int(
+                data["last_test_config_generation"]
+            )
+        return data
+
+    @staticmethod
+    def _notification_target_binding(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        data = ServiceStore._notification_target(row)
+        if data is None:
+            return None
+        data["binding_enabled"] = _bool(data.get("binding_enabled"))
+        data["binding_position"] = max(
+            0, int(data.get("binding_position") or 0)
+        )
+        data["binding_generation"] = max(
+            0, int(data.get("binding_generation") or 0)
+        )
+        for key in (
+            "binding_created_at",
+            "binding_updated_at",
+        ):
+            data.pop(key, None)
+        return data
+
+    @staticmethod
     def _workspace_email_transport(
         row: sqlite3.Row | None,
     ) -> dict[str, Any] | None:
@@ -3105,6 +3598,15 @@ class ServiceStore:
         )
         data["subscription_notification_generation"] = int(
             data.get("subscription_notification_generation") or 0
+        )
+        data["target_config_generation"] = int(
+            data.get("target_config_generation") or 0
+        )
+        data["target_activation_generation"] = int(
+            data.get("target_activation_generation") or 0
+        )
+        data["binding_generation"] = int(
+            data.get("binding_generation") or 0
         )
         data["payload"] = _json_loads(data.pop("payload_json", None), {})
         return data
@@ -4850,14 +5352,36 @@ class ServiceStore:
                 """,
                 (now, now, workspace_id, channel),
             )
+            targets_updated = 0
+            if conn.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'notification_targets'
+                """
+            ).fetchone():
+                targets = conn.execute(
+                    """
+                    UPDATE notification_targets
+                    SET enabled_at = ?,
+                        activation_generation =
+                            activation_generation + 1,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND channel = ?
+                      AND enabled = 1 AND archived_at IS NULL
+                    """,
+                    (now, now, workspace_id, channel),
+                )
+                targets_updated = max(0, int(targets.rowcount))
             if owns_transaction:
                 conn.commit()
         except Exception:
             if owns_transaction and conn.in_transaction:
                 conn.rollback()
             raise
-        return max(0, int(users.rowcount)) + max(
-            0, int(alerts.rowcount)
+        return (
+            max(0, int(users.rowcount))
+            + max(0, int(alerts.rowcount))
+            + targets_updated
         )
 
     def claim_workspace_telegram_transport_test_attempt(
@@ -5012,6 +5536,564 @@ class ServiceStore:
         if updated.rowcount != 1:
             return None
         return transport
+
+    def get_notification_target(
+        self,
+        *,
+        workspace_id: str,
+        target_id: str,
+    ) -> dict[str, Any] | None:
+        row = self.connect().execute(
+            """
+            SELECT * FROM notification_targets
+            WHERE workspace_id = ? AND id = ?
+            """,
+            (workspace_id, target_id),
+        ).fetchone()
+        return self._notification_target(row)
+
+    def list_notification_targets(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
+        archived_clause = "" if include_archived else "AND archived_at IS NULL"
+        rows = self.connect().execute(
+            f"""
+            SELECT * FROM notification_targets
+            WHERE workspace_id = ?
+              AND (scope = 'shared' OR owner_user_id = ?)
+              {archived_clause}
+            ORDER BY
+                CASE scope WHEN 'private' THEN 0 ELSE 1 END,
+                created_at, id
+            """,
+            (workspace_id, user_id),
+        ).fetchall()
+        return [
+            target
+            for row in rows
+            if (target := self._notification_target(row)) is not None
+        ]
+
+    def create_notification_target(
+        self,
+        *,
+        target_id: str,
+        workspace_id: str,
+        scope: str,
+        owner_user_id: str | None,
+        name: str,
+        name_key: str,
+        channel: str,
+        destination_env_name: str | None,
+        destination_secret_digest: str | None,
+        webhook_provider: str | None,
+        webhook_signing_env_name: str | None,
+        webhook_signing_secret_digest: str | None,
+        secret_binding_kind: str = "target_v16",
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        if scope not in NOTIFICATION_TARGET_SCOPE_SET:
+            raise ValueError("notification target scope is invalid")
+        if channel not in NOTIFICATION_CHANNEL_SET:
+            raise ValueError("notification target channel is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            conn.execute(
+                """
+                INSERT INTO notification_targets (
+                    id, workspace_id, scope, owner_user_id, name, name_key,
+                    channel, enabled, enabled_at, config_generation,
+                    activation_generation, destination_env_name,
+                    destination_secret_digest, secret_binding_kind,
+                    webhook_provider, webhook_signing_env_name,
+                    webhook_signing_secret_digest, last_test_status,
+                    last_test_config_generation, last_test_attempted_at,
+                    last_tested_at, last_test_error_code, archived_at,
+                    created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, 0, NULL, 1, 0, ?, ?, ?, ?, ?, ?,
+                    NULL, NULL, NULL, NULL, NULL, NULL, ?, ?
+                )
+                """,
+                (
+                    target_id,
+                    workspace_id,
+                    scope,
+                    owner_user_id,
+                    name,
+                    name_key,
+                    channel,
+                    destination_env_name,
+                    destination_secret_digest,
+                    secret_binding_kind,
+                    webhook_provider,
+                    webhook_signing_env_name,
+                    webhook_signing_secret_digest,
+                    now,
+                    now,
+                ),
+            )
+            created = self.get_notification_target(
+                workspace_id=workspace_id,
+                target_id=target_id,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        if created is None:
+            raise LookupError("notification target was not created")
+        return created
+
+    def notification_target_usage(
+        self,
+        *,
+        workspace_id: str,
+        target_id: str,
+    ) -> dict[str, int]:
+        row = self.connect().execute(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)
+                    FROM user_notification_target_bindings
+                    WHERE workspace_id = ? AND target_id = ? AND enabled = 1
+                ) AS user_binding_count,
+                (
+                    SELECT COUNT(*)
+                    FROM apify_actor_alert_target_bindings
+                    WHERE workspace_id = ? AND target_id = ? AND enabled = 1
+                ) AS alert_binding_count,
+                (
+                    SELECT COUNT(*)
+                    FROM preferred_source_notification_deliveries
+                    WHERE workspace_id = ? AND target_id = ?
+                      AND status IN ('pending', 'sending')
+                ) AS preferred_active_delivery_count,
+                (
+                    SELECT COUNT(*)
+                    FROM apify_actor_alert_deliveries
+                    WHERE workspace_id = ? AND target_id = ?
+                      AND status IN ('pending', 'sending')
+                ) AS alert_active_delivery_count
+            """,
+            (
+                workspace_id,
+                target_id,
+                workspace_id,
+                target_id,
+                workspace_id,
+                target_id,
+                workspace_id,
+                target_id,
+            ),
+        ).fetchone()
+        return {
+            key: int(row[key] if row is not None else 0)
+            for key in (
+                "user_binding_count",
+                "alert_binding_count",
+                "preferred_active_delivery_count",
+                "alert_active_delivery_count",
+            )
+        }
+
+    def list_user_notification_target_bindings(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        enabled_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        enabled_clause = "AND binding.enabled = 1" if enabled_only else ""
+        rows = self.connect().execute(
+            f"""
+            SELECT
+                target.*,
+                binding.position AS binding_position,
+                binding.enabled AS binding_enabled,
+                binding.enabled_at AS binding_enabled_at,
+                binding.generation AS binding_generation,
+                binding.created_at AS binding_created_at,
+                binding.updated_at AS binding_updated_at
+            FROM user_notification_target_bindings AS binding
+            JOIN notification_targets AS target
+              ON target.id = binding.target_id
+            WHERE binding.workspace_id = ?
+              AND binding.user_id = ?
+              {enabled_clause}
+            ORDER BY binding.position, target.id
+            """,
+            (workspace_id, user_id),
+        ).fetchall()
+        return [
+            target
+            for row in rows
+            if (target := self._notification_target_binding(row)) is not None
+        ]
+
+    def set_user_notification_target_bindings(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        target_ids: list[str],
+        enabled_at: str | None = None,
+        commit: bool = True,
+    ) -> list[dict[str, Any]]:
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            user = self.get_user(user_id)
+            if (
+                user is None
+                or str(user.get("workspace_id")) != str(workspace_id)
+                or not bool(user.get("enabled"))
+                or str(user.get("role") or "")
+                not in {"owner", "admin", "member"}
+            ):
+                raise PermissionError(
+                    "user cannot modify notification target bindings"
+                )
+            unique_ids = list(dict.fromkeys(str(value) for value in target_ids))
+            if len(unique_ids) != len(target_ids):
+                raise ValueError("notification target ids must be unique")
+            targets: dict[str, dict[str, Any]] = {}
+            for target_id in unique_ids:
+                target = self.get_notification_target(
+                    workspace_id=workspace_id,
+                    target_id=target_id,
+                )
+                if (
+                    target is None
+                    or target.get("archived_at") is not None
+                    or (
+                        str(target.get("scope")) == "private"
+                        and str(target.get("owner_user_id")) != str(user_id)
+                    )
+                ):
+                    raise LookupError("notification target is unavailable")
+                targets[target_id] = target
+            now = enabled_at or _now_iso()
+            existing = {
+                str(row["target_id"]): dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT * FROM user_notification_target_bindings
+                    WHERE workspace_id = ? AND user_id = ?
+                    """,
+                    (workspace_id, user_id),
+                ).fetchall()
+            }
+            selected = set(unique_ids)
+            for target_id, current in existing.items():
+                if target_id in selected or not bool(current["enabled"]):
+                    continue
+                conn.execute(
+                    """
+                    UPDATE user_notification_target_bindings
+                    SET enabled = 0, generation = generation + 1,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND user_id = ? AND target_id = ?
+                    """,
+                    (now, workspace_id, user_id, target_id),
+                )
+                self.fail_pending_notification_target_deliveries(
+                    workspace_id=workspace_id,
+                    target_id=target_id,
+                    user_id=user_id,
+                    include_alerts=False,
+                    error_code="notification_target_binding_changed",
+                    commit=False,
+                )
+            for position, target_id in enumerate(unique_ids):
+                current = existing.get(target_id)
+                if current is None:
+                    conn.execute(
+                        """
+                        INSERT INTO user_notification_target_bindings (
+                            user_id, workspace_id, target_id, position,
+                            enabled, enabled_at, generation, created_at,
+                            updated_at
+                        ) VALUES (?, ?, ?, ?, 1, ?, 1, ?, ?)
+                        """,
+                        (
+                            user_id,
+                            workspace_id,
+                            target_id,
+                            position,
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                elif bool(current["enabled"]):
+                    conn.execute(
+                        """
+                        UPDATE user_notification_target_bindings
+                        SET position = ?, updated_at = ?
+                        WHERE workspace_id = ? AND user_id = ?
+                          AND target_id = ?
+                        """,
+                        (
+                            position,
+                            now,
+                            workspace_id,
+                            user_id,
+                            target_id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE user_notification_target_bindings
+                        SET position = ?, enabled = 1, enabled_at = ?,
+                            generation = generation + 1, updated_at = ?
+                        WHERE workspace_id = ? AND user_id = ?
+                          AND target_id = ?
+                        """,
+                        (
+                            position,
+                            now,
+                            now,
+                            workspace_id,
+                            user_id,
+                            target_id,
+                        ),
+                    )
+            result = self.list_user_notification_target_bindings(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                enabled_only=True,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return result
+
+    def list_apify_actor_alert_target_bindings(
+        self,
+        *,
+        workspace_id: str,
+        enabled_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        enabled_clause = "AND binding.enabled = 1" if enabled_only else ""
+        rows = self.connect().execute(
+            f"""
+            SELECT
+                target.*,
+                binding.position AS binding_position,
+                binding.enabled AS binding_enabled,
+                binding.enabled_at AS binding_enabled_at,
+                binding.generation AS binding_generation,
+                binding.created_at AS binding_created_at,
+                binding.updated_at AS binding_updated_at
+            FROM apify_actor_alert_target_bindings AS binding
+            JOIN notification_targets AS target
+              ON target.id = binding.target_id
+            WHERE binding.workspace_id = ?
+              {enabled_clause}
+            ORDER BY binding.position, target.id
+            """,
+            (workspace_id,),
+        ).fetchall()
+        return [
+            target
+            for row in rows
+            if (target := self._notification_target_binding(row)) is not None
+        ]
+
+    def set_apify_actor_alert_target_bindings(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        target_ids: list[str],
+        enabled_at: str | None = None,
+        commit: bool = True,
+    ) -> list[dict[str, Any]]:
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            actor = self.get_user(actor_user_id)
+            if (
+                actor is None
+                or str(actor.get("workspace_id")) != str(workspace_id)
+                or not bool(actor.get("enabled"))
+                or str(actor.get("role") or "") not in {"owner", "admin"}
+            ):
+                raise PermissionError(
+                    "actor cannot modify alert target bindings"
+                )
+            unique_ids = list(dict.fromkeys(str(value) for value in target_ids))
+            if len(unique_ids) != len(target_ids):
+                raise ValueError("notification target ids must be unique")
+            for target_id in unique_ids:
+                target = self.get_notification_target(
+                    workspace_id=workspace_id,
+                    target_id=target_id,
+                )
+                if (
+                    target is None
+                    or target.get("archived_at") is not None
+                    or str(target.get("scope")) != "shared"
+                ):
+                    raise LookupError("shared notification target is unavailable")
+            now = enabled_at or _now_iso()
+            existing = {
+                str(row["target_id"]): dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT * FROM apify_actor_alert_target_bindings
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchall()
+            }
+            selected = set(unique_ids)
+            for target_id, current in existing.items():
+                if target_id in selected or not bool(current["enabled"]):
+                    continue
+                conn.execute(
+                    """
+                    UPDATE apify_actor_alert_target_bindings
+                    SET enabled = 0, generation = generation + 1,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND target_id = ?
+                    """,
+                    (now, workspace_id, target_id),
+                )
+                self.fail_pending_notification_target_deliveries(
+                    workspace_id=workspace_id,
+                    target_id=target_id,
+                    include_preferred=False,
+                    error_code="notification_target_binding_changed",
+                    commit=False,
+                )
+            for position, target_id in enumerate(unique_ids):
+                current = existing.get(target_id)
+                if current is None:
+                    conn.execute(
+                        """
+                        INSERT INTO apify_actor_alert_target_bindings (
+                            workspace_id, target_id, position, enabled,
+                            enabled_at, generation, created_at, updated_at
+                        ) VALUES (?, ?, ?, 1, ?, 1, ?, ?)
+                        """,
+                        (
+                            workspace_id,
+                            target_id,
+                            position,
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                elif bool(current["enabled"]):
+                    conn.execute(
+                        """
+                        UPDATE apify_actor_alert_target_bindings
+                        SET position = ?, updated_at = ?
+                        WHERE workspace_id = ? AND target_id = ?
+                        """,
+                        (position, now, workspace_id, target_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE apify_actor_alert_target_bindings
+                        SET position = ?, enabled = 1, enabled_at = ?,
+                            generation = generation + 1, updated_at = ?
+                        WHERE workspace_id = ? AND target_id = ?
+                        """,
+                        (position, now, now, workspace_id, target_id),
+                    )
+            result = self.list_apify_actor_alert_target_bindings(
+                workspace_id=workspace_id,
+                enabled_only=True,
+            )
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return result
+
+    def fail_pending_notification_target_deliveries(
+        self,
+        *,
+        workspace_id: str,
+        target_id: str,
+        error_code: str,
+        user_id: str | None = None,
+        include_preferred: bool = True,
+        include_alerts: bool = True,
+        commit: bool = True,
+    ) -> int:
+        if not re.fullmatch(r"[a-z][a-z0-9_.:-]{0,63}", error_code):
+            raise ValueError("notification delivery error code is invalid")
+        conn = self.connect()
+        owns_transaction = bool(commit and not conn.in_transaction)
+        try:
+            if owns_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            now = _now_iso()
+            user_clause = " AND user_id = ?" if user_id is not None else ""
+            user_parameters: tuple[Any, ...] = (
+                (workspace_id, target_id, user_id)
+                if user_id is not None
+                else (workspace_id, target_id)
+            )
+            preferred_count = 0
+            if include_preferred:
+                preferred = conn.execute(
+                    f"""
+                    UPDATE preferred_source_notification_deliveries
+                    SET status = 'failed', error_code = ?, updated_at = ?
+                    WHERE workspace_id = ? AND target_id = ?
+                      {user_clause} AND status = 'pending'
+                    """,
+                    (error_code, now, *user_parameters),
+                )
+                preferred_count = max(0, int(preferred.rowcount))
+            alert_count = 0
+            if include_alerts:
+                alerts = conn.execute(
+                    """
+                    UPDATE apify_actor_alert_deliveries
+                    SET status = 'failed', error_code = ?, retry_at = NULL,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND target_id = ?
+                      AND status = 'pending'
+                    """,
+                    (error_code, now, workspace_id, target_id),
+                )
+                alert_count = max(0, int(alerts.rowcount))
+            if owns_transaction:
+                conn.commit()
+        except Exception:
+            if owns_transaction and conn.in_transaction:
+                conn.rollback()
+            raise
+        return preferred_count + alert_count
 
     def list_user_notification_channels(
         self,

@@ -39,6 +39,16 @@ describe('service api', () => {
     await api.updateNotificationSettings({ enabled: true, channels: ['email', 'webhook', 'telegram'], webhook_url: 'write-only' })
     await api.testNotificationSettings('telegram')
     await api.testNotificationSettings()
+    await api.notificationTargets()
+    await api.createNotificationTarget({
+      name: '值班群',
+      scope: 'shared',
+      channel: 'telegram',
+      telegram_chat_id: '@on_call',
+    })
+    await api.updateNotificationTarget('target/1', { name: '主值班群', enabled: true })
+    await api.testNotificationTarget('target/1')
+    await api.archiveNotificationTarget('target/1')
     await api.notificationEmailTransport()
     await api.updateNotificationEmailTransport({
       provider: 'qq',
@@ -109,6 +119,19 @@ describe('service api', () => {
     })
     expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test', { channel: 'telegram' })
     expect(client.post).toHaveBeenCalledWith('/api/me/notification-settings/test', undefined)
+    expect(client.get).toHaveBeenCalledWith('/api/notification-targets', undefined)
+    expect(client.post).toHaveBeenCalledWith('/api/notification-targets', {
+      name: '值班群',
+      scope: 'shared',
+      channel: 'telegram',
+      telegram_chat_id: '@on_call',
+    })
+    expect(client.patch).toHaveBeenCalledWith('/api/notification-targets/target%2F1', {
+      name: '主值班群',
+      enabled: true,
+    })
+    expect(client.post).toHaveBeenCalledWith('/api/notification-targets/target%2F1/test')
+    expect(client.delete).toHaveBeenCalledWith('/api/notification-targets/target%2F1')
     expect(client.get).toHaveBeenCalledWith('/api/admin/notification-email-transport', undefined)
     expect(client.patch).toHaveBeenCalledWith('/api/admin/notification-email-transport', {
       provider: 'qq',

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from src.api.server import create_app
+from src.services.notification_webhook_transport import WebhookSendResult
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -354,8 +355,193 @@ def test_apify_multichannel_wiring_and_incident_schema_v2(
     incidents = client.get("/api/admin/apify-actor-alert-incidents")
     assert incidents.status_code == 200
     data = incidents.json()["data"]
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
     assert data["incidents"][0]["deliveries"] == [
         {"channel": "webhook", "status": "succeeded"},
         {"channel": "telegram", "status": "failed"},
     ]
+
+
+def test_notification_target_api_is_write_only_and_reused_by_businesses(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    secret_url = "https://hooks.example.com/api-target-secret"
+    created = client.post(
+        "/api/notification-targets",
+        json={
+            "name": "共享告警 Webhook",
+            "scope": "shared",
+            "channel": "webhook",
+            "webhook_url": secret_url,
+            "webhook_provider": "generic_event",
+        },
+    )
+    assert created.status_code == 200, created.text
+    target = created.json()["data"]
+    target_id = target["id"]
+    assert target["configured"] is True
+    assert target["enabled"] is False
+    assert secret_url not in created.text
+    assert secret_url.encode() not in (
+        tmp_path / "data" / "service.db"
+    ).read_bytes()
+
+    target_service = client.app.state.notification_targets
+    monkeypatch.setattr(
+        target_service,
+        "_send_test_payload",
+        lambda _target: WebhookSendResult(
+            provider="generic_event",
+            verification="http_status",
+        ),
+    )
+    tested = client.post(
+        f"/api/notification-targets/{target_id}/test"
+    )
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["data"]["target_id"] == target_id
+    enabled = client.patch(
+        f"/api/notification-targets/{target_id}",
+        json={"enabled": True},
+    )
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["data"]["enabled"] is True
+
+    personal = client.patch(
+        "/api/me/notification-settings",
+        json={"enabled": True, "target_ids": [target_id]},
+    )
+    assert personal.status_code == 200, personal.text
+    assert personal.json()["data"]["schema_version"] == 4
+    assert personal.json()["data"]["target_ids"] == [target_id]
+    apify = client.patch(
+        "/api/admin/apify-actor-alert-settings",
+        json={"enabled": True, "target_ids": [target_id]},
+    )
+    assert apify.status_code == 200, apify.text
+    assert apify.json()["data"]["schema_version"] == 4
+    assert apify.json()["data"]["target_ids"] == [target_id]
+
+    in_use = client.delete(f"/api/notification-targets/{target_id}")
+    assert in_use.status_code == 409
+    assert in_use.json()["error"]["code"] == "notification_target_in_use"
+
+    second = client.post(
+        "/api/notification-targets",
+        json={
+            "name": "共享告警 Webhook 2",
+            "scope": "shared",
+            "channel": "webhook",
+            "webhook_url": "https://hooks.example.com/api-target-second",
+            "webhook_provider": "generic_event",
+        },
+    )
+    assert second.status_code == 200
+    conflict = client.patch(
+        "/api/admin/apify-actor-alert-settings",
+        json={"channel": "webhook"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == (
+        "notification_target_legacy_conflict"
+    )
+
+
+def test_notification_target_api_enforces_private_and_shared_scope(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    for username, role in (
+        ("target-member", "member"),
+        ("target-other", "member"),
+        ("target-viewer", "viewer"),
+    ):
+        created_user = client.post(
+            "/api/users",
+            json={
+                "username": username,
+                "password": "member-password",
+                "role": role,
+            },
+        )
+        assert created_user.status_code == 200
+
+    client.post("/api/auth/logout")
+    _login(client, "target-member", "member-password")
+    private = client.post(
+        "/api/notification-targets",
+        json={
+            "name": "成员私有邮箱",
+            "scope": "private",
+            "channel": "email",
+            "email_address": "member@example.invalid",
+        },
+    )
+    assert private.status_code == 200, private.text
+    private_id = private.json()["data"]["id"]
+    forbidden_shared = client.post(
+        "/api/notification-targets",
+        json={
+            "name": "越权共享邮箱",
+            "scope": "shared",
+            "channel": "email",
+            "email_address": "shared@example.invalid",
+        },
+    )
+    assert forbidden_shared.status_code == 403
+    assert forbidden_shared.json()["error"]["code"] == "forbidden"
+
+    client.post("/api/auth/logout")
+    _login(client, "target-other", "member-password")
+    other_targets = client.get("/api/notification-targets")
+    assert other_targets.status_code == 200
+    assert private_id not in {
+        target["id"]
+        for target in other_targets.json()["data"]["targets"]
+    }
+
+    client.post("/api/auth/logout")
+    _login(client)
+    shared = client.post(
+        "/api/notification-targets",
+        json={
+            "name": "工作区共享邮箱",
+            "scope": "shared",
+            "channel": "email",
+            "email_address": "workspace@example.invalid",
+        },
+    )
+    assert shared.status_code == 200
+    shared_id = shared.json()["data"]["id"]
+
+    client.post("/api/auth/logout")
+    _login(client, "target-member", "member-password")
+    visible = client.get("/api/notification-targets")
+    assert {
+        target["id"] for target in visible.json()["data"]["targets"]
+    } == {private_id, shared_id}
+    assert client.patch(
+        f"/api/notification-targets/{shared_id}",
+        json={"name": "成员不能改共享目标"},
+    ).status_code == 403
+    assert client.post(
+        f"/api/notification-targets/{shared_id}/test"
+    ).status_code == 403
+
+    client.post("/api/auth/logout")
+    _login(client, "target-viewer", "member-password")
+    assert client.get("/api/notification-targets").status_code == 200
+    assert client.post(
+        "/api/notification-targets",
+        json={
+            "name": "只读目标",
+            "scope": "private",
+            "channel": "email",
+            "email_address": "viewer@example.invalid",
+        },
+    ).status_code == 403

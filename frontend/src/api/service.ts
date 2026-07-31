@@ -26,6 +26,10 @@ import type {
   NotificationEmailTransportPatch,
   NotificationEmailTransportTestResult,
   NotificationChannel,
+  NotificationTarget,
+  NotificationTargetCreate,
+  NotificationTargetPatch,
+  NotificationTargets,
   NotificationTelegramTransport,
   NotificationTelegramTransportPatch,
   NotificationTelegramTransportTestResult,
@@ -133,6 +137,24 @@ export function createServiceApi(client: ApiClient) {
     updateSourceSchedule: (subscriptionId: string, patch: Pick<FeedSchedule, 'enabled' | 'interval_minutes'>) => client.patch<FeedSchedule>(`${resource('/api/me/subscriptions', subscriptionId)}/schedule`, patch),
     notificationSettings: (signal?: AbortSignal) => client.get<UserNotificationSettings>('/api/me/notification-settings', signal),
     updateNotificationSettings: (patch: UserNotificationSettingsPatch) => client.patch<UserNotificationSettings>('/api/me/notification-settings', patch),
+    notificationTargets: (signal?: AbortSignal) => client.get<NotificationTargets>(
+      '/api/notification-targets',
+      signal,
+    ),
+    createNotificationTarget: (payload: NotificationTargetCreate) => client.post<NotificationTarget>(
+      '/api/notification-targets',
+      payload,
+    ),
+    updateNotificationTarget: (targetId: string, patch: NotificationTargetPatch) => client.patch<NotificationTarget>(
+      resource('/api/notification-targets', targetId),
+      patch,
+    ),
+    testNotificationTarget: (targetId: string) => client.post<NotificationTestResult>(
+      `${resource('/api/notification-targets', targetId)}/test`,
+    ),
+    archiveNotificationTarget: (targetId: string) => client.delete<{ target_id: string; archived: boolean }>(
+      resource('/api/notification-targets', targetId),
+    ),
     testNotificationSettings: (channel?: NotificationChannel) => client.post<NotificationTestResult>(
       '/api/me/notification-settings/test',
       channel ? { channel } : undefined,

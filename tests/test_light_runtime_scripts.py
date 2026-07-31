@@ -173,6 +173,9 @@ case "$url" in
       exit 0
     fi
     case "${FAKE_READY_MODE-}" in
+      migration-v16)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"notification targets v16 migration must be applied"}}'
+        ;;
       migration-v15)
         printf '{"ok":false,"error":{"code":"migration_required","message":"notification channels v15 migration must be applied"}}'
         ;;
@@ -427,6 +430,7 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
 def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path):
     primary, linked, _, revision = _create_linked_worktree_fixture(tmp_path)
     migration_cases = {
+        "migration-v16": "scripts/migrate_notification_targets_v16.py",
         "migration-v15": "scripts/migrate_notification_channels_v15.py",
         "migration-v14": "scripts/migrate_webhook_providers_v14.py",
         "migration-v13": "scripts/migrate_apify_actor_routing_v13.py",

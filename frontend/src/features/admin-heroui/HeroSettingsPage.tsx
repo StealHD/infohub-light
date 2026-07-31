@@ -18,6 +18,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Description,
   FieldError,
   Icons,
   Input,
@@ -38,6 +39,7 @@ import { HeroApifyActorRouteSettings } from '../apify-actors/HeroApifyActorRoute
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { HeroEmailTransportSettings } from '../notifications/HeroEmailTransportSettings'
 import { HeroNotificationSettings } from '../notifications/HeroNotificationSettings'
+import { HeroNotificationTargets } from '../notifications/HeroNotificationTargets'
 import { HeroTelegramTransportSettings } from '../notifications/HeroTelegramTransportSettings'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
@@ -1600,10 +1602,20 @@ export function HeroSettingsPage() {
       </div>}
     </AdminSection>
 
-    <AdminSection id="settings-notifications" title="消息通知" description="选择当前账户的接收方式，并先发送一条安全的模拟通知进行验证。">
+    <AdminSection id="settings-notifications" title="消息通知" description="统一维护通知目标，再由个人通知和系统告警复用。">
       {activatedSections.has('settings-notifications') && <>
-        <HeroNotificationSettings queryEnabled={activeSection === 'settings-notifications'} />
+        <HeroNotificationTargets queryEnabled={activeSection === 'settings-notifications'} />
+        <div className="mt-6 border-t border-separator pt-5">
+          <h3 className="type-title">个人新内容通知</h3>
+          <div className="mt-4">
+            <HeroNotificationSettings queryEnabled={activeSection === 'settings-notifications'} />
+          </div>
+        </div>
         {admin && <div className="mt-6 border-t border-separator pt-5">
+          <div className="mb-4">
+            <h3 className="type-title">发送基础服务</h3>
+            <Description>工作区邮件服务和 Telegram Bot 由 Owner/Admin 维护；暂停单项服务不会影响其他渠道。</Description>
+          </div>
           <div className="grid min-w-0 gap-4 min-[1100px]:grid-cols-2">
             <HeroEmailTransportSettings queryEnabled={activeSection === 'settings-notifications'} />
             <HeroTelegramTransportSettings queryEnabled={activeSection === 'settings-notifications'} />

@@ -45,6 +45,7 @@ export const queryKeys = {
   job: (userId: string, jobId: string) => [...userKey(userId), 'job', jobId] as const,
   feedSchedule: (userId: string) => [...userKey(userId), 'feed-schedule'] as const,
   notificationSettings: (userId: string) => [...userKey(userId), 'notification-settings'] as const,
+  notificationTargets: (userId: string) => [...userKey(userId), 'notification-targets'] as const,
   notificationEmailTransport: (userId: string) => [
     ...userKey(userId), 'notification-email-transport',
   ] as const,

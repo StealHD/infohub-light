@@ -468,6 +468,8 @@ def test_settings_projection_is_value_free_and_webhook_is_secret_only(
     assert set(public) == {
         "schema_version",
         "enabled",
+        "target_ids",
+        "selected_targets",
         "channels",
         "channel",
         "channel_states",
@@ -486,6 +488,7 @@ def test_settings_projection_is_value_free_and_webhook_is_secret_only(
         "last_test_error_code",
         "updated_at",
     }
+    assert public["schema_version"] == 4
     assert {
         "email_address",
         "webhook_url",
@@ -3132,3 +3135,121 @@ def test_unclassified_notification_test_error_is_unknown_and_not_retryable(
         user_id=context["user"]["id"],
     )
     assert public["channel_states"]["webhook"]["last_test_status"] == "unknown"
+
+
+def test_same_channel_notification_targets_stage_and_dispatch_independently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _notification_context(tmp_path, monkeypatch)
+    store = context["store"]
+    service = context["service"]
+    workspace_id = context["workspace"]["id"]
+    user_id = context["user"]["id"]
+    targets = [
+        service.notification_targets.create(
+            workspace_id=workspace_id,
+            actor_user_id=user_id,
+            name=f"Webhook {index}",
+            scope="private",
+            channel="webhook",
+            webhook_url=f"https://hooks.example.com/target-{index}",
+            webhook_provider="generic_event",
+        )
+        for index in (1, 2)
+    ]
+    store.connect().executemany(
+        """
+        UPDATE notification_targets
+        SET enabled = 1, enabled_at = ?, activation_generation = 1,
+            last_test_status = 'sent',
+            last_test_config_generation = config_generation,
+            last_tested_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        [
+            (WATERMARK, WATERMARK, WATERMARK, target["id"])
+            for target in targets
+        ],
+    )
+    store.connect().commit()
+    service.upsert_settings(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        enabled=True,
+        target_ids=[target["id"] for target in targets],
+    )
+    store.connect().execute(
+        """
+        UPDATE user_notification_settings
+        SET notification_enabled_at = ?
+        WHERE workspace_id = ? AND user_id = ?
+        """,
+        (WATERMARK, workspace_id, user_id),
+    )
+    store.connect().execute(
+        """
+        UPDATE user_notification_target_bindings
+        SET enabled_at = ?
+        WHERE workspace_id = ? AND user_id = ?
+        """,
+        (WATERMARK, workspace_id, user_id),
+    )
+    store.connect().execute(
+        """
+        UPDATE user_subscriptions
+        SET notification_enabled_at = ?
+        WHERE id = ?
+        """,
+        (WATERMARK, context["subscription_id"]),
+    )
+    store.connect().commit()
+
+    previous_job = _job(context)
+    _save_snapshot(
+        context,
+        previous_job,
+        [],
+        generated_at="2026-07-24T00:00:00+00:00",
+    )
+    store.connect().commit()
+    current_job = _job(context)
+    current_snapshot = _save_snapshot(
+        context,
+        current_job,
+        [_item(context, "same-channel-target-item")],
+        generated_at="2026-07-24T00:00:02+00:00",
+    )
+    assert service.stage_for_job(
+        job=current_job,
+        snapshot_id=current_snapshot["id"],
+        snapshot_created=True,
+    ) == 2
+    store.connect().commit()
+    rows = store.connect().execute(
+        """
+        SELECT target_id, channel
+        FROM preferred_source_notification_deliveries
+        WHERE article_id = 'same-channel-target-item'
+        ORDER BY target_id
+        """
+    ).fetchall()
+    assert [str(row["target_id"]) for row in rows] == sorted(
+        target["id"] for target in targets
+    )
+    assert {str(row["channel"]) for row in rows} == {"webhook"}
+
+    attempted: list[str] = []
+
+    def fake_send(
+        settings: dict[str, Any],
+        _payload: dict[str, Any],
+    ) -> None:
+        attempted.append(
+            str(settings["_notification_target"]["id"])
+        )
+
+    monkeypatch.setattr(service, "_send_payload", fake_send)
+    summary = service.dispatch_pending(job_id=current_job["id"])
+    assert summary == {"claimed": 2, "succeeded": 2, "failed": 0}
+    assert set(attempted) == {target["id"] for target in targets}

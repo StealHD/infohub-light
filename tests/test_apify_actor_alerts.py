@@ -1189,3 +1189,99 @@ def test_alert_channel_generation_cooldown_and_sending_are_independent(
             channel="telegram",
         )
     assert limited.value.code == "apify_actor_alert_test_rate_limited"
+
+
+def test_same_channel_shared_targets_are_isolated_per_incident(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store, service, admin_id, _email = _service(tmp_path)
+    targets = [
+        service.notification_targets.create(
+            workspace_id=DEFAULT_WORKSPACE_ID,
+            actor_user_id=admin_id,
+            name=f"共享 Webhook {index}",
+            scope="shared",
+            channel="webhook",
+            webhook_url=f"https://hooks.example.com/apify-target-{index}",
+            webhook_provider="generic_event",
+        )
+        for index in (1, 2)
+    ]
+    watermark = "2020-01-01T00:00:00+00:00"
+    store.connect().executemany(
+        """
+        UPDATE notification_targets
+        SET enabled = 1, enabled_at = ?, activation_generation = 1,
+            last_test_status = 'sent',
+            last_test_config_generation = config_generation,
+            last_tested_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        [
+            (watermark, watermark, watermark, target["id"])
+            for target in targets
+        ],
+    )
+    store.connect().commit()
+    public = service.upsert_settings(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        actor_user_id=admin_id,
+        enabled=True,
+        target_ids=[target["id"] for target in targets],
+    )
+    assert public["schema_version"] == 4
+    assert public["target_ids"] == [target["id"] for target in targets]
+    store.connect().execute(
+        """
+        UPDATE apify_actor_alert_settings
+        SET notification_enabled_at = ?
+        WHERE workspace_id = ?
+        """,
+        (watermark, DEFAULT_WORKSPACE_ID),
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_alert_target_bindings
+        SET enabled_at = ?
+        WHERE workspace_id = ?
+        """,
+        (watermark, DEFAULT_WORKSPACE_ID),
+    )
+    store.connect().commit()
+    opened = service.open_incident(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        route_key="x/profile",
+        incident_key="target-isolation",
+        event_type="actor_switched",
+        severity="warning",
+    )
+    assert opened["delivery_staged"] is True
+    deliveries = opened["incident"]["deliveries"]
+    assert {delivery["target_id"] for delivery in deliveries} == {
+        target["id"] for target in targets
+    }
+    assert {delivery["channel"] for delivery in deliveries} == {"webhook"}
+    assert opened["incident"]["schema_version"] == 3
+
+    attempted: list[str] = []
+
+    def fake_send(settings, _payload, *, test):
+        assert test is False
+        attempted.append(
+            str(settings["_notification_target"]["id"])
+        )
+
+    monkeypatch.setattr(service, "_send_payload", fake_send)
+    summary = service.dispatch_pending(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        limit=10,
+    )
+    assert summary == {
+        "claimed": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "retried": 0,
+        "unknown": 0,
+    }
+    assert set(attempted) == {target["id"] for target in targets}

@@ -4059,6 +4059,8 @@ def test_notification_settings_are_write_only_and_user_scoped(
     projection_keys = {
         "schema_version",
         "enabled",
+        "target_ids",
+        "selected_targets",
         "channels",
         "channel",
         "channel_states",
@@ -4081,7 +4083,7 @@ def test_notification_settings_are_write_only_and_user_scoped(
     default_response = client.get("/api/me/notification-settings")
     default_data = _assert_notification_destination_is_write_only(default_response)
     assert set(default_data) == projection_keys
-    assert default_data["schema_version"] == 3
+    assert default_data["schema_version"] == 4
     assert default_data["enabled"] is False
     assert default_data["channels"] == []
     assert default_data["email_configured"] is False
@@ -4188,7 +4190,7 @@ def test_notification_provider_and_signing_secret_are_write_only(
         webhook_url,
         signing_secret,
     )
-    assert data["schema_version"] == 3
+    assert data["schema_version"] == 4
     assert data["webhook_provider"] == "feishu_lark_v2"
     assert data["webhook_provider_explicit"] is True
     assert data["webhook_signing_secret_configured"] is True
@@ -4459,6 +4461,8 @@ def test_notification_test_push_does_not_create_delivery_snapshot_or_job(
     assert set(settings) == {
         "schema_version",
         "enabled",
+        "target_ids",
+        "selected_targets",
         "channels",
         "channel",
         "channel_states",

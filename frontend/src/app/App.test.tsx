@@ -133,8 +133,10 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
     jobs: vi.fn().mockResolvedValue({ jobs: [] }),
     feedSchedule: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 60, worker_status: 'ready' }),
     notificationSettings: vi.fn().mockResolvedValue({
-      schema_version: 3,
+      schema_version: 4,
       enabled: false,
+      target_ids: [],
+      selected_targets: [],
       channels: ['email'],
       channel: 'email',
       channel_states: notificationChannelStates({
@@ -156,6 +158,11 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       last_tested_at: null,
       last_test_error_code: null,
       updated_at: '2026-07-24T00:00:00Z',
+    }),
+    notificationTargets: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      targets: [],
+      webhook_provider_options: webhookProviderOptions(),
     }),
     updateItemState: vi.fn(),
     ignoredFeed: vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } }),
@@ -183,8 +190,10 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       candidates: [],
     }),
     apifyActorAlertSettings: vi.fn().mockResolvedValue({
-      schema_version: 3,
+      schema_version: 4,
       enabled: false,
+      target_ids: [],
+      selected_targets: [],
       channels: ['webhook'],
       channel: 'webhook',
       channel_states: notificationChannelStates({
@@ -211,7 +220,7 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       last_alert_error_code: null,
       updated_at: null,
     }),
-    apifyActorAlertIncidents: vi.fn().mockResolvedValue({ schema_version: 1, incidents: [] }),
+    apifyActorAlertIncidents: vi.fn().mockResolvedValue({ schema_version: 3, incidents: [] }),
     notificationTelegramTransport: vi.fn().mockResolvedValue(emptyTelegramTransport()),
     storageSummary: vi.fn().mockResolvedValue({
       schema_version: 1,
@@ -1646,8 +1655,10 @@ describe('App routes', () => {
     const secrets = vi.fn().mockResolvedValue({ secrets: [] })
     const ignoredFeed = vi.fn().mockResolvedValue({ items: [], pagination: { limit: 200, offset: 0, count: 0, total: 0 } })
     const notificationSettings = vi.fn().mockResolvedValue({
-      schema_version: 3,
+      schema_version: 4,
       enabled: true,
+      target_ids: [],
+      selected_targets: [],
       channels: ['webhook'],
       channel: 'webhook',
       channel_states: notificationChannelStates({ webhookConfigured: true }),
@@ -1665,6 +1676,11 @@ describe('App routes', () => {
       last_tested_at: null,
       last_test_error_code: null,
       updated_at: '2026-07-30T00:00:00Z',
+    })
+    const notificationTargets = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      targets: [],
+      webhook_provider_options: webhookProviderOptions(),
     })
     const notificationEmailTransport = vi.fn().mockResolvedValue({
       schema_version: 1,
@@ -1693,6 +1709,7 @@ describe('App routes', () => {
       secrets,
       ignoredFeed,
       notificationSettings,
+      notificationTargets,
       notificationEmailTransport,
       notificationTelegramTransport,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
@@ -1719,6 +1736,7 @@ describe('App routes', () => {
     await browser.click(await screen.findByRole('option', { name: '消息通知' }))
     await waitFor(() => {
       expect(notificationSettings).toHaveBeenCalledOnce()
+      expect(notificationTargets).toHaveBeenCalledOnce()
       expect(notificationEmailTransport).toHaveBeenCalledOnce()
       expect(notificationTelegramTransport).toHaveBeenCalledOnce()
     })
@@ -1728,11 +1746,13 @@ describe('App routes', () => {
     expect(hiddenQueries.apifyActorXProfileRoute).not.toHaveBeenCalled()
     expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
 
-    const provider = screen.getByRole('button', { name: /Webhook 类型/ })
-    expect(provider).toHaveTextContent('通用事件 JSON')
-    await browser.click(provider)
-    expect(await screen.findAllByRole('option')).toHaveLength(7)
-    await browser.keyboard('{Escape}')
+    await browser.selectOptions(
+      screen.getByRole('combobox', { name: '渠道' }),
+      'webhook',
+    )
+    const provider = screen.getByRole('combobox', { name: 'Webhook 类型' })
+    expect(provider).toHaveValue('generic_event')
+    expect(within(provider).getAllByRole('option')).toHaveLength(7)
 
     const destination = screen.getByLabelText('Webhook 地址')
     await browser.type(destination, 'https://example.invalid/preserved-draft')
@@ -1741,15 +1761,17 @@ describe('App routes', () => {
     expect(destination).toHaveValue('https://example.invalid/preserved-draft')
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()
+    expect(notificationTargets).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
     expect(notificationTelegramTransport).toHaveBeenCalledOnce()
 
     await browser.click(screen.getByRole('button', { name: /设置区域/ }))
     await browser.click(await screen.findByRole('option', { name: '消息通知' }))
-    expect(screen.getByRole('button', { name: /Webhook 类型/ })).toHaveTextContent('通用事件 JSON')
+    expect(screen.getByRole('combobox', { name: 'Webhook 类型' })).toHaveValue('generic_event')
     expect(destination).toHaveValue('https://example.invalid/preserved-draft')
     await act(async () => Promise.resolve())
     expect(notificationSettings).toHaveBeenCalledOnce()
+    expect(notificationTargets).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
     expect(notificationTelegramTransport).toHaveBeenCalledOnce()
   })
@@ -1765,8 +1787,10 @@ describe('App routes', () => {
       pagination: { limit: 200, offset: 0, count: 0, total: 0 },
     })
     const notificationSettings = vi.fn().mockResolvedValue({
-      schema_version: 3,
+      schema_version: 4,
       enabled: false,
+      target_ids: [],
+      selected_targets: [],
       channels: ['webhook'],
       channel: 'webhook',
       channel_states: notificationChannelStates({
@@ -1788,6 +1812,11 @@ describe('App routes', () => {
       last_tested_at: null,
       last_test_error_code: null,
       updated_at: null,
+    })
+    const notificationTargets = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      targets: [],
+      webhook_provider_options: webhookProviderOptions(),
     })
     const notificationEmailTransport = vi.fn().mockResolvedValue({
       schema_version: 1,
@@ -1826,6 +1855,7 @@ describe('App routes', () => {
       secrets,
       ignoredFeed,
       notificationSettings,
+      notificationTargets,
       notificationEmailTransport,
       notificationTelegramTransport,
       storageSummary,
@@ -1860,6 +1890,7 @@ describe('App routes', () => {
     }
 
     expect(notificationSettings).not.toHaveBeenCalled()
+    expect(notificationTargets).not.toHaveBeenCalled()
     expect(notificationTelegramTransport).not.toHaveBeenCalled()
     expect(config).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
@@ -1867,9 +1898,10 @@ describe('App routes', () => {
     expect(secrets).not.toHaveBeenCalled()
 
     await revealNextSection('消息通知', () => {
-      expect(screen.getByRole('button', { name: '发送Webhook测试' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '创建通知目标' })).toBeInTheDocument()
     })
     expect(notificationSettings).toHaveBeenCalledOnce()
+    expect(notificationTargets).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).toHaveBeenCalledOnce()
     expect(notificationTelegramTransport).toHaveBeenCalledOnce()
 

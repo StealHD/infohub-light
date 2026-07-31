@@ -11,6 +11,7 @@ import type {
   ApifyActorRouteCandidate,
   CatalogSource,
   NotificationChannel,
+  NotificationTarget,
   NotificationTestResult,
   WebhookProvider,
 } from '../../api/types'
@@ -827,23 +828,24 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
     retry: false,
     refetchInterval: queryEnabled ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
   })
+  const targets = useQuery({
+    queryKey: queryKeys.notificationTargets(user.id),
+    queryFn: ({ signal }) => api.notificationTargets(signal),
+    enabled: queryEnabled,
+    staleTime: queryStaleTime.settings,
+  })
 
-  if (settings.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
-  if (settings.isError || !settings.data) return <HeroNotice title="Apify 运行告警设置读取失败" status="warning">
+  if (settings.isPending || targets.isPending) return <LoadingState label="正在读取 Apify 运行告警设置" rows={2} />
+  if (settings.isError || targets.isError || !settings.data || !targets.data) return <HeroNotice title="Apify 运行告警设置读取失败" status="warning">
     <Button size="sm" variant="ghost" onPress={() => void settings.refetch()}>重试此区域</Button>
   </HeroNotice>
 
+  const sharedTargets = targets.data.targets.filter((target) => target.scope === 'shared')
   const cacheKey = [
     settings.data.enabled,
-    settings.data.channels.join(':'),
+    settings.data.target_ids.join(':'),
     settings.data.events.join(':'),
-    ...(['email', 'webhook', 'telegram'] as const).flatMap((channel) => {
-      const state = settings.data.channel_states[channel]
-      return [state.enabled, state.configured, state.available, state.generation, state.last_tested_at]
-    }),
-    settings.data.channel_states.webhook.provider,
-    settings.data.channel_states.webhook.provider_explicit,
-    settings.data.channel_states.webhook.signing_secret_configured,
+    sharedTargets.map((target) => `${target.id}:${target.available}:${target.config_generation}`).join('|'),
     settings.data.last_alerted_at,
   ].join(':')
 
@@ -853,20 +855,129 @@ function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean 
     return updated
   }
 
-  async function test(channel: NotificationChannel) {
+  return <ApifyTargetSelectionForm
+    key={cacheKey}
+    settings={settings.data}
+    targets={sharedTargets}
+    onSave={save}
+  />
+}
+
+function ApifyTargetSelectionForm({
+  settings,
+  targets,
+  onSave,
+}: {
+  settings: ApifyActorAlertSettings
+  targets: NotificationTarget[]
+  onSave: (patch: ApifyActorAlertSettingsPatch) => Promise<ApifyActorAlertSettings>
+}) {
+  const [enabled, setEnabled] = useState(settings.enabled)
+  const [targetIds, setTargetIds] = useState(settings.target_ids)
+  const [events, setEvents] = useState(settings.events)
+  const [saving, setSaving] = useState(false)
+  const [requestError, setRequestError] = useState('')
+  const dirty = enabled !== settings.enabled
+    || targetIds.length !== settings.target_ids.length
+    || targetIds.some((id, index) => id !== settings.target_ids[index])
+    || [...events].sort().join(':') !== [...settings.events].sort().join(':')
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (saving || !dirty) return
+    if (enabled && targetIds.length === 0) {
+      setRequestError('启用运行告警时，请至少选择一个工作区共享目标。')
+      return
+    }
+    if (enabled && events.length === 0) {
+      setRequestError('启用运行告警时，请至少选择一种告警事件。')
+      return
+    }
+    setSaving(true)
+    setRequestError('')
     try {
-      return await api.testApifyActorAlertSettings(channel)
+      await onSave({ enabled, target_ids: targetIds, events })
+      actionToast.success('Apify 运行告警设置已保存')
+    } catch (caught) {
+      const message = safeActorActionError(caught, 'Apify 运行告警设置保存失败，请稍后重试。')
+      setRequestError(message)
+      actionToast.danger('Apify 运行告警设置保存失败', { description: message })
     } finally {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorAlertSettings(user.id) })
+      setSaving(false)
     }
   }
 
-  return <ApifyActorAlertSettingsForm
-    key={cacheKey}
-    settings={settings.data}
-    onSave={save}
-    onTest={test}
-  />
+  return <form className="grid min-w-0 gap-4" noValidate onSubmit={save}>
+    <div className="grid gap-1">
+      <Switch isSelected={enabled} onChange={(value) => {
+        setEnabled(value)
+        setRequestError('')
+      }}>
+        <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>启用 Apify 运行告警</Switch.Content>
+      </Switch>
+      <Description>系统告警只能选择工作区共享目标；目标配置和测试统一在“消息通知”中完成。</Description>
+    </div>
+    <fieldset className="grid gap-3">
+      <legend className="type-control">共享通知目标</legend>
+      <div className="grid gap-3 min-[720px]:grid-cols-2">
+        {targets.map((target) => <Card key={target.id} className="grid gap-2 p-3">
+          <Checkbox
+            isSelected={targetIds.includes(target.id)}
+            onChange={(selected) => {
+              setTargetIds((current) => selected
+                ? current.includes(target.id) ? current : [...current, target.id]
+                : current.filter((id) => id !== target.id))
+              setRequestError('')
+            }}
+          >
+            <Checkbox.Content>
+              <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+              {target.name}
+            </Checkbox.Content>
+          </Checkbox>
+          <Card.Description>
+            {target.channel === 'email' ? '邮箱' : target.channel === 'telegram' ? 'Telegram' : 'Webhook'}
+            {' · '}{target.available ? '可用' : target.enabled ? '暂不可用' : '已暂停'}
+          </Card.Description>
+        </Card>)}
+      </div>
+      {targets.length === 0 && <HeroNotice title="没有可用的工作区共享目标" status="warning">
+        <a className="underline" href="#settings-notifications">前往消息通知创建共享目标</a>
+      </HeroNotice>}
+    </fieldset>
+    <fieldset className="grid gap-3" aria-describedby="apify-target-events-help">
+      <legend className="type-control">告警事件</legend>
+      <div className="grid gap-3 min-[720px]:grid-cols-2">
+        {alertEvents.map((alertEvent) => <Checkbox
+          key={alertEvent}
+          isSelected={events.includes(alertEvent)}
+          onChange={(selected) => {
+            setEvents((current) => selected
+              ? current.includes(alertEvent) ? current : [...current, alertEvent]
+              : current.filter((item) => item !== alertEvent))
+            setRequestError('')
+          }}
+        >
+          <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>{actorAlertEventLabels[alertEvent]}</Checkbox.Content>
+        </Checkbox>)}
+      </div>
+      <Description id="apify-target-events-help">同一故障只首报一次；状态恢复后按原目标发送恢复通知。</Description>
+    </fieldset>
+    <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
+      <p>任一目标失败不会阻断其他目标或原抓取任务；结果未知的投递不会自动重放。</p>
+      <p className="type-meta mt-1">
+        {lastAlertLabel(
+          settings.last_alert_status,
+          settings.channel,
+          settings.webhook_verification_mode,
+        )} · {formatActorDateTime(settings.last_alerted_at)}
+      </p>
+    </div>
+    {requestError && <HeroNotice title={requestError} />}
+    <div className="flex flex-wrap gap-2">
+      <Button type="submit" isDisabled={saving || !dirty}>{saving ? '保存中…' : '保存运行告警'}</Button>
+    </div>
+  </form>
 }
 
 function incidentDeliveryLabel(status: string | null): string {
@@ -925,10 +1036,10 @@ function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean }) {
       </p>
       {(incident.deliveries ?? []).length > 0 && <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1" aria-label="逐渠道投递状态">
         {(incident.deliveries ?? []).map((delivery) => <li
-          key={`${delivery.event_type}:${delivery.channel}`}
+          key={`${delivery.event_type}:${delivery.target_id ?? delivery.channel}`}
           className="type-meta text-muted"
         >
-          {delivery.channel === 'email' ? '邮箱' : delivery.channel === 'webhook' ? 'Webhook' : 'Telegram'}
+          {delivery.target_name ?? (delivery.channel === 'email' ? '邮箱' : delivery.channel === 'webhook' ? 'Webhook' : 'Telegram')}
           {' · '}{incidentDeliveryLabel(delivery.status)}
         </li>)}
       </ul>}
@@ -941,7 +1052,7 @@ export function HeroApifyActorRouteSettings({ queryEnabled = true }: { queryEnab
     <ApifyActorRoutePanel queryEnabled={queryEnabled} />
     <div className="mt-6 border-t border-separator pt-5">
       <h3 className="type-page-title">故障告警</h3>
-      <p className="type-meta mt-1 text-muted">邮箱、Webhook、Telegram 可同时启用；与个人的新内容通知相互独立。</p>
+      <p className="type-meta mt-1 text-muted">从工作区共享通知目标中多选；目标只需统一配置和测试一次。</p>
       <div className="mt-4"><ApifyActorAlertSettingsPanel queryEnabled={queryEnabled} /></div>
     </div>
     <div className="mt-6 border-t border-separator pt-5">

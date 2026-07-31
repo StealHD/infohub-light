@@ -34,7 +34,7 @@ API、Worker、legacy Scheduler 和 CLI 统一调用 `src/logging_utils.py::conf
 任何日志都不得接收或拼接以下值：
 
 - 密码、Token（含 Telegram Bot Token）、Authorization、API Key、Secret、确认短语或其他凭据。
-- Webhook/邮箱/Telegram Chat ID 目的地、URL、source config、请求 payload、环境变量名。
+- 通知目标中的 Webhook/邮箱/Telegram Chat ID 目的地、URL、Secret 引用/摘要、source config、请求 payload、环境变量名。
 - 个人标签、展示名、文章 ID、标题、正文、摘要或媒体内容。
 - 上游请求/响应正文、原始错误消息、远端账号资料或堆栈投影。
 
@@ -50,7 +50,7 @@ API、Worker、legacy Scheduler 和 CLI 统一调用 `src/logging_utils.py::conf
 
 - 登录成功/失败、退出、个人改密及成员创建、角色/状态/密码变更。
 - 来源、订阅、共享范围、Feed/单来源计划的创建、更新、启停和删除。
-- Secret 引用创建/轮换/删除、Apify 池排序/排空、通知设置和邮件 transport 配置/测试。
+- Secret 引用创建/轮换/删除、Apify 池排序/排空、通知目标创建/更新/测试/启停/归档、业务目标绑定和邮件/Telegram transport 配置/测试。
 - Agent delegation 创建、重命名、吊销、删除及每次 MCP 调用结果。
 - Job 排队/去重、计划排队、领取、资格检查、执行、持久化终态、重试、取消、失效取消、stale lease 恢复和终态；claim 前边界失败也必须留下安全事件。
 - 每个 Job 类型必须在 Worker trace policy 中显式声明；每个来源获取结果、来源头像缓存和通知投递都要带可关联的 Job/source/subscription 与 stage。

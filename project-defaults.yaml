@@ -48,6 +48,8 @@
       "webhook_provider_registry_enabled": true,
       "explicit_webhook_providers_v14_migration_enabled": true,
       "explicit_notification_channels_v15_migration_enabled": true,
+      "notification_target_library_enabled": true,
+      "explicit_notification_targets_v16_migration_enabled": true,
       "feed_end_messages_enabled": true,
       "workspace_email_transport_enabled": true,
       "workspace_telegram_transport_enabled": true,
@@ -402,6 +404,9 @@
       "content_repair_max_images_per_item": 6,
       "content_repair_bulk_paid_sources_enabled": false,
       "preferred_source_notification_channels": ["email", "webhook", "telegram"],
+      "notification_target_scopes": ["private", "shared"],
+      "notification_target_business_bindings": ["preferred_source", "apify_actor_alert"],
+      "apify_actor_alert_private_targets_enabled": false,
       "notification_webhook_providers": ["generic_event", "generic_text", "feishu_lark_v2", "wecom", "dingtalk", "slack", "discord"],
       "notification_webhook_legacy_provider": "legacy_auto",
       "notification_webhook_generic_auth": "url_only",
@@ -494,6 +499,7 @@
       "feed_v2_migration_check": "./.venv/bin/python scripts/migrate_user_feed_v2.py --data-dir data --backup-dir data/backups",
       "webhook_providers_v14_migration_check": "./.venv/bin/python scripts/migrate_webhook_providers_v14.py --data-dir data --backup-dir data/backups --dry-run",
       "notification_channels_v15_migration_check": "./.venv/bin/python scripts/migrate_notification_channels_v15.py --data-dir data --backup-dir data/backups --dry-run",
+      "notification_targets_v16_migration_check": "./.venv/bin/python scripts/migrate_notification_targets_v16.py --data-dir data --backup-dir data/backups --dry-run",
       "multi_user_feed_e2e": "./.venv/bin/pytest -q tests/test_multi_user_feed_e2e.py",
       "service_feed_schedule": "./.venv/bin/pytest -q tests/test_feed_schedule.py tests/test_light_runtime_scripts.py"
     }

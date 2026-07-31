@@ -9,6 +9,7 @@ import type { ServiceApi } from '../../api/service'
 import type {
   ApifyActorAlertSettings,
   ApifyActorRoute,
+  NotificationTarget,
 } from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
@@ -104,8 +105,10 @@ const route = (overrides: Partial<ApifyActorRoute> = {}): ApifyActorRoute => ({
 const alertSettings = (
   overrides: Partial<ApifyActorAlertSettings> = {},
 ): ApifyActorAlertSettings => ({
-  schema_version: 3,
+  schema_version: 4,
   enabled: true,
+  target_ids: [],
+  selected_targets: [],
   channels: ['webhook'],
   channel: 'webhook',
   channel_states: {
@@ -229,6 +232,37 @@ const alertSettings = (
   ...overrides,
 })
 
+const sharedTarget = (overrides: Partial<NotificationTarget> = {}): NotificationTarget => ({
+  id: 'target-shared-webhook',
+  name: '运维告警群',
+  scope: 'shared',
+  channel: 'webhook',
+  configured: true,
+  enabled: true,
+  available: true,
+  transport_ready: true,
+  config_generation: 1,
+  activation_generation: 1,
+  enabled_at: '2026-07-30T00:00:00Z',
+  last_test_status: 'sent',
+  last_tested_at: '2026-07-30T00:00:00Z',
+  last_test_error_code: null,
+  can_edit: true,
+  can_test: true,
+  can_enable: true,
+  usage: {
+    user_binding_count: 0,
+    alert_binding_count: 0,
+    preferred_active_delivery_count: 0,
+    alert_active_delivery_count: 0,
+  },
+  updated_at: '2026-07-30T00:00:00Z',
+  webhook_provider: 'generic_event',
+  webhook_signing_secret_configured: false,
+  webhook_verification_mode: 'http_status',
+  ...overrides,
+})
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => {
@@ -247,8 +281,13 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     apifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     updateApifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     testApifyActorAlertSettings: vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' }),
+    notificationTargets: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      targets: [sharedTarget()],
+      webhook_provider_options: alertSettings().webhook_provider_options,
+    }),
     apifyActorAlertIncidents: vi.fn().mockResolvedValue({
-      schema_version: 2,
+      schema_version: 3,
       incidents: [{
         id: 'incident-1',
         route: 'x/profile',
@@ -424,39 +463,32 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(document.body.textContent).not.toContain('unsafe-dataset')
   })
 
-  it('refreshes and shows persisted unknown status after an ambiguous alert test', async () => {
+  it('selects a shared target without repeating target configuration or testing', async () => {
     const browser = userEvent.setup()
-    const apifyActorAlertSettings = vi.fn()
-      .mockResolvedValueOnce(alertSettings())
-      .mockResolvedValue(alertSettings({
-        channel_states: {
-          ...alertSettings().channel_states,
-          webhook: {
-            ...alertSettings().channel_states.webhook,
-            last_test_status: 'unknown',
-            last_tested_at: '2026-07-30T08:00:00Z',
-            last_test_error_code: 'notification_webhook_response_invalid',
-          },
-        },
-      }))
-    const testApifyActorAlertSettings = vi.fn().mockRejectedValue(new ApiError(502, {
-      code: 'apify_actor_alert_test_outcome_unknown',
-      message: 'raw upstream response must stay private',
-      retryable: false,
+    const selected = sharedTarget()
+    const updateApifyActorAlertSettings = vi.fn().mockResolvedValue(alertSettings({
+      target_ids: [selected.id],
+      selected_targets: [selected],
     }))
     const { api } = renderFeature({
-      apifyActorAlertSettings,
-      testApifyActorAlertSettings,
+      notificationTargets: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        targets: [selected],
+        webhook_provider_options: alertSettings().webhook_provider_options,
+      }),
+      updateApifyActorAlertSettings,
     })
 
-    expect((await screen.findAllByText(/尚未发送测试通知/)).length).toBe(3)
-    await browser.click(screen.getByRole('button', { name: '发送Webhook测试' }))
+    await browser.click(await screen.findByRole('checkbox', { name: selected.name }))
+    await browser.click(screen.getByRole('button', { name: '保存运行告警' }))
 
-    await waitFor(() => expect(apifyActorAlertSettings).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText(/最近一次测试结果未知，不会自动重发/)).toBeVisible()
-    expect(screen.getByText('测试告警结果未知，请勿重复发送；请先确认接收端。')).toBeVisible()
-    expect(api.testApifyActorAlertSettings).toHaveBeenCalledWith('webhook')
-    expect(document.body.textContent).not.toContain('raw upstream')
+    await waitFor(() => expect(updateApifyActorAlertSettings).toHaveBeenCalledWith({
+      enabled: true,
+      target_ids: [selected.id],
+      events: alertSettings().events,
+    }))
+    expect(api.testApifyActorAlertSettings).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
   })
 })
 

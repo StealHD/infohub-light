@@ -22,6 +22,17 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 7 月',
     entries: [
       {
+        date: '2026-07-31',
+        title: '通知目标统一配置并由多个业务复用',
+        summary: '邮箱、Webhook 和 Telegram 目的地现在只需在“通知目标”中保存和测试一次；个人新内容通知与 Apify 运行告警直接选择已有目标。',
+        items: [
+          { title: '一个目的地只维护一次', description: '每个通知目标对应一个邮箱、Webhook 或 Telegram 会话；修改、测试、暂停和归档都集中在目标管理处，业务页面不再重复显示相同配置。' },
+          { title: '私有与共享边界清晰', description: '成员维护自己的私有目标，Owner/Admin 维护工作区共享目标；个人通知可选自己的或共享目标，系统运行告警只允许选择共享目标。' },
+          { title: '同渠道也能选择多个目标', description: '个人通知和运行告警都可同时选择多个目标，包括多个邮箱或多个 Telegram 会话；任一目标失败不会阻断其他目标或原抓取任务。' },
+          { title: '升级保留配置与历史', description: 'v16 迁移把既有个人渠道变成私有目标、Apify 渠道变成共享目标，并保留顺序、水位、测试状态、incident 和 delivery 历史；旧客户端在映射无歧义时继续兼容。' },
+        ],
+      },
+      {
         date: '2026-07-30',
         title: '消息通知支持邮箱、Webhook 与 Telegram 多选',
         summary: '个人新内容通知和 Apify 运行告警都可同时启用多个渠道；每个渠道独立配置、测试和投递，切换时不再隐藏或清空邮箱配置。',

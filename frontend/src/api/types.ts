@@ -60,9 +60,70 @@ export type NotificationChannelStates = {
   telegram: NotificationChannelState
 }
 
-export type UserNotificationSettings = {
-  schema_version: 3
+export type NotificationTargetScope = 'private' | 'shared'
+
+export type NotificationTarget = {
+  id: string
+  name: string
+  scope: NotificationTargetScope
+  channel: NotificationChannel
+  configured: boolean
   enabled: boolean
+  available: boolean
+  transport_ready: boolean
+  config_generation: number
+  activation_generation: number
+  enabled_at: string | null
+  last_test_status: NotificationChannelTestStatus
+  last_tested_at: string | null
+  last_test_error_code: string | null
+  can_edit: boolean
+  can_test: boolean
+  can_enable: boolean
+  usage: {
+    user_binding_count: number
+    alert_binding_count: number
+    preferred_active_delivery_count: number
+    alert_active_delivery_count: number
+  }
+  updated_at: string | null
+  webhook_provider?: WebhookProvider
+  webhook_signing_secret_configured?: boolean
+  webhook_verification_mode?: 'http_status' | 'provider_response'
+}
+
+export type NotificationTargets = {
+  schema_version: 1
+  targets: NotificationTarget[]
+  webhook_provider_options: WebhookProviderOption[]
+}
+
+export type NotificationTargetCreate = {
+  name: string
+  scope: NotificationTargetScope
+  channel: NotificationChannel
+  email_address?: string
+  webhook_url?: string
+  webhook_provider?: WebhookProvider
+  webhook_signing_secret?: string
+  telegram_chat_id?: string
+}
+
+export type NotificationTargetPatch = {
+  name?: string
+  enabled?: boolean
+  email_address?: string
+  webhook_url?: string
+  webhook_provider?: WebhookProvider
+  webhook_signing_secret?: string | null
+  telegram_chat_id?: string
+}
+
+export type UserNotificationSettings = {
+  schema_version: 4
+  enabled: boolean
+  target_ids: string[]
+  selected_targets: NotificationTarget[]
   channels: NotificationChannel[]
   channel: NotificationChannel
   channel_states: NotificationChannelStates
@@ -84,6 +145,7 @@ export type UserNotificationSettings = {
 
 export type UserNotificationSettingsPatch = {
   enabled?: boolean
+  target_ids?: string[]
   channels?: NotificationChannel[]
   channel?: NotificationChannel
   email_address?: string | null
@@ -96,6 +158,7 @@ export type UserNotificationSettingsPatch = {
 export type NotificationTestResult = {
   sent: boolean
   channel: NotificationChannel
+  target_id?: string
   provider?: WebhookProvider
   verification?: 'http_accepted' | 'provider_accepted'
 }
@@ -724,8 +787,10 @@ export type ApifyActorAlertEvent =
   | 'recovered'
 
 export type ApifyActorAlertSettings = {
-  schema_version: 3
+  schema_version: 4
   enabled: boolean
+  target_ids: string[]
+  selected_targets: NotificationTarget[]
   channels: NotificationChannel[]
   channel: NotificationChannel
   channel_states: NotificationChannelStates
@@ -751,6 +816,7 @@ export type ApifyActorAlertSettings = {
 
 export type ApifyActorAlertSettingsPatch = {
   enabled?: boolean
+  target_ids?: string[]
   channels?: NotificationChannel[]
   channel?: NotificationChannel
   events?: ApifyActorAlertEvent[]
@@ -774,6 +840,8 @@ export type ApifyActorAlertDeliveryStatus =
 export type ApifyActorAlertDelivery = {
   event_type: ApifyActorAlertEvent | ''
   channel: NotificationChannel
+  target_id: string | null
+  target_name: string | null
   status: ApifyActorAlertDeliveryStatus
   error_code: string | null
   created_at: string
@@ -783,6 +851,7 @@ export type ApifyActorAlertDelivery = {
 }
 
 export type ApifyActorAlertIncident = {
+  schema_version: 3
   id: string
   route: 'x/profile'
   event_type: ApifyActorAlertEvent
@@ -800,7 +869,7 @@ export type ApifyActorAlertIncident = {
 }
 
 export type ApifyActorAlertIncidents = {
-  schema_version: 2
+  schema_version: 3
   incidents: ApifyActorAlertIncident[]
 }
 

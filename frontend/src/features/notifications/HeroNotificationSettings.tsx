@@ -5,6 +5,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import type {
   NotificationChannel,
+  NotificationTarget,
   NotificationTestResult,
   UserNotificationSettings,
   UserNotificationSettingsPatch,
@@ -14,6 +15,8 @@ import { useAppContext } from '../../app/AppContext'
 import {
   actionToast,
   Button,
+  Card,
+  Checkbox,
   Description,
   LoadingState,
   Switch,
@@ -283,20 +286,22 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
     enabled: queryEnabled,
     staleTime: queryStaleTime.settings,
   })
+  const targets = useQuery({
+    queryKey: queryKeys.notificationTargets(user.id),
+    queryFn: ({ signal }) => api.notificationTargets(signal),
+    enabled: queryEnabled,
+    staleTime: queryStaleTime.settings,
+  })
 
-  if (settings.isPending) return <LoadingState label="正在读取消息通知设置" rows={2} />
-  if (settings.isError || !settings.data) return <HeroNotice title="消息通知设置读取失败，请刷新后重试。" />
+  if (settings.isPending || targets.isPending) return <LoadingState label="正在读取消息通知设置" rows={2} />
+  if (settings.isError || targets.isError || !settings.data || !targets.data) {
+    return <HeroNotice title="消息通知设置读取失败，请刷新后重试。" />
+  }
 
   const cacheKey = [
     settings.data.enabled,
-    settings.data.channels.join(':'),
-    ...(['email', 'webhook', 'telegram'] as const).flatMap((channel) => {
-      const state = settings.data.channel_states[channel]
-      return [state.enabled, state.configured, state.available, state.generation, state.last_tested_at]
-    }),
-    settings.data.channel_states.webhook.provider,
-    settings.data.channel_states.webhook.provider_explicit,
-    settings.data.channel_states.webhook.signing_secret_configured,
+    settings.data.target_ids.join(':'),
+    targets.data.targets.map((target) => `${target.id}:${target.available}:${target.config_generation}`).join('|'),
   ].join(':')
 
   async function save(patch: UserNotificationSettingsPatch) {
@@ -305,19 +310,111 @@ export function HeroNotificationSettings({ queryEnabled = true }: { queryEnabled
     return updated
   }
 
-  async function test(channel: NotificationChannel) {
+  return <NotificationTargetSelectionForm
+    key={cacheKey}
+    settings={settings.data}
+    targets={targets.data.targets}
+    onSave={save}
+    readOnly={user.role === 'viewer'}
+  />
+}
+
+export function NotificationTargetSelectionForm({
+  settings,
+  targets,
+  onSave,
+  readOnly = false,
+}: {
+  settings: UserNotificationSettings
+  targets: NotificationTarget[]
+  onSave: (patch: UserNotificationSettingsPatch) => Promise<UserNotificationSettings>
+  readOnly?: boolean
+}) {
+  const [enabled, setEnabled] = useState(settings.enabled)
+  const [targetIds, setTargetIds] = useState(settings.target_ids)
+  const [saving, setSaving] = useState(false)
+  const [requestError, setRequestError] = useState('')
+  const dirty = enabled !== settings.enabled
+    || targetIds.length !== settings.target_ids.length
+    || targetIds.some((id, index) => id !== settings.target_ids[index])
+
+  function toggleTarget(targetId: string, selected: boolean) {
+    setTargetIds((current) => selected
+      ? current.includes(targetId) ? current : [...current, targetId]
+      : current.filter((id) => id !== targetId))
+    setRequestError('')
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (readOnly || saving || !dirty) return
+    if (enabled && targetIds.length === 0) {
+      setRequestError('启用新内容通知时，请至少选择一个通知目标。')
+      return
+    }
+    setSaving(true)
+    setRequestError('')
     try {
-      return await api.testNotificationSettings(channel)
+      await onSave({ enabled, target_ids: targetIds })
+      actionToast.success('消息通知设置已保存')
+    } catch (caught) {
+      const message = safeNotificationError(caught, '消息通知设置保存失败，请稍后重试。')
+      setRequestError(message)
+      actionToast.danger('消息通知设置保存失败', { description: message })
     } finally {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.notificationSettings(user.id) })
+      setSaving(false)
     }
   }
 
-  return <NotificationSettingsForm
-    key={cacheKey}
-    settings={settings.data}
-    onSave={save}
-    onTest={test}
-    readOnly={user.role === 'viewer'}
-  />
+  return <form className="grid min-w-0 gap-4" noValidate onSubmit={save}>
+    {readOnly && <HeroNotice title="当前账户为只读权限" status="default" role="status">
+      通知设置仅供查看，无法修改。
+    </HeroNotice>}
+    <div className="grid gap-1">
+      <Switch
+        isSelected={enabled}
+        isDisabled={readOnly}
+        onChange={(value) => {
+          setEnabled(value)
+          setRequestError('')
+        }}
+      >
+        <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control>启用新内容通知</Switch.Content>
+      </Switch>
+      <Description>只对订阅中已开启通知的来源生效；可以选择多个目标，也可以选择多个相同渠道的目标。</Description>
+    </div>
+    <div className="grid min-w-0 gap-3 min-[768px]:grid-cols-2">
+      {targets.map((target) => <Card key={target.id} className="grid gap-2 p-4">
+        <Checkbox
+          isSelected={targetIds.includes(target.id)}
+          isDisabled={readOnly}
+          onChange={(selected) => toggleTarget(target.id, selected)}
+        >
+          <Checkbox.Content>
+            <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+            <span>{target.name}</span>
+          </Checkbox.Content>
+        </Checkbox>
+        <Card.Description>
+          {target.scope === 'shared' ? '工作区共享' : '我的目标'} · {
+            target.channel === 'email' ? '邮箱' : target.channel === 'telegram' ? 'Telegram' : 'Webhook'
+          } · {target.available ? '可用' : target.enabled ? '暂不可用' : '已暂停'}
+        </Card.Description>
+      </Card>)}
+      {targets.length === 0 && <HeroNotice
+        title="暂无可选通知目标"
+        status="warning"
+        role="status"
+      >请先在上方“通知目标”中创建、测试并启用一个目标。</HeroNotice>}
+    </div>
+    <div className="type-body rounded-control border border-separator bg-surface-secondary p-3 text-muted">
+      新启用目标、恢复目标或恢复总开关都只发送之后严格新增的内容，不补发停用期间或历史内容。
+    </div>
+    {requestError && <HeroNotice title={requestError} />}
+    <div className="flex flex-wrap gap-2">
+      <Button type="submit" isDisabled={readOnly || saving || !dirty}>
+        {saving ? '保存中…' : '保存通知设置'}
+      </Button>
+    </div>
+  </form>
 }

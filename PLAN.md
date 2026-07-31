@@ -18,6 +18,7 @@
 4. X/profile 的 Apify 三 Actor 路由、schema v13 账本、语义占位拦截、费用熔断、管理员状态页与工作区告警已在本地实现；默认顺序为 ScrapeBadger、Dami、Xquik，真实付费 Canary 与 48 小时观察仍需 operator 单独确认。
 4A. 个人新内容通知与 Apify 运行告警的七类 Webhook Provider Registry、平台业务 ACK、飞书/钉钉可选签名和 schema v14 显式门禁已在本地实现并通过完整 Test Gate；未迁移数据库必须保持 API readiness 与 Worker fail closed，真实 Webhook 验收和部署均未执行。
 4B. 个人新内容通知与 Apify 运行告警升级为邮箱、Webhook、Telegram 可同时启用的多渠道投递；工作区共享 Telegram Bot Token，个人通知与运行告警分别保存 write-only Chat ID。schema v15 负责渠道状态、generation、水位和 delivery 唯一约束的显式迁移；本任务只使用伪造凭据与 Mock Transport，不触发真实通知。
+4C. Email、Webhook 与 Telegram 目的地统一进入 schema v16“通知目标”库：成员只维护自己的私有目标，Owner/Admin 维护工作区共享目标；个人新内容通知选择自己的或共享目标，Apify 运行告警只选择共享目标，并允许同时选择多个相同渠道目标。业务设置不再重复保存或测试目的地；本地 8080 尚未执行 v16 迁移或切换。
 5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
 6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
 7. API、Worker、Scheduler 和 CLI 私有双流 JSONL 已完成故障排查加固：请求/Job/source/subscription/stage 可串联，未知 API 异常返回安全 request ID，Worker 覆盖边界、租约恢复、逐来源和通知终态，readiness 独立披露 sink 降级；OpenClaw 缺省只查本人，Owner/Admin 可在新连接上显式授权有界工作区诊断。静态日志合同已进入全部 Test Gate scope；不包含日志 REST API、前端日志页、自动修复或部署。
@@ -33,6 +34,7 @@
 5. X/profile 上线先迁移 schema v13，再分别对两个现有 X 来源执行一次 ScrapeBadger Canary；Dami 仅在各自 Canary 通过后进入 48 小时 probation，Xquik 保持 open 并只由自然任务探测。未经再次明确授权，不得触发这些付费调用。
 5A. 部署包含 Webhook Registry 的 revision 前必须先完成 schema v13，停止 API/Worker并跨过 heartbeat 安全窗，再对目标数据库执行 Webhook providers v14 dry-run、`0600` backup 与 apply；只有两表约束、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移与发布不得触发真实 Webhook。
 5B. 部署多渠道通知 revision 前必须在 v14 已完成的数据库上停止 API/Worker并跨过 heartbeat 安全窗，再执行 notification channels v15 dry-run、UTC `0600` backup 与 apply；只有渠道表、delivery 唯一约束、计数、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移不得触发或补发任何渠道。
+5C. 部署统一通知目标 revision 前必须在 v15 已完成的数据库上停止 API/Worker并跨过 heartbeat 安全窗，再执行 notification targets v16 dry-run、UTC `0600` backup 与 apply；只有目标/绑定表、按 target 的 delivery 唯一约束、历史映射、计数、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移不得读取目的地真实值、调用 Transport 或补发旧事件。
 6. 用户写入 DeepSeek 轮换 Key 后，只对一篇 captured article 执行零 Token 模型预检和一次省略 `temperature`、SDK/application retry 均关闭的 completion smoke；成功后才启用。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 仍失败，网络出口恢复后只做 1 条公开频道复验。
 8. VPS 的 Feed storage v3 apply、rollout flag 开启和任何付费 canary 必须分别满足门禁并取得对应授权；Bilibili 冷路由受风控时不得高频重试。
@@ -51,7 +53,7 @@
 2. Hub taxonomy 与 legacy alias 的兼容迁移。
 3. 来源配置、抓取任务、可选 AI、Service UI、Feed snapshot 和稳定历史的字段合同。
 4. 任务队列、配额、Source Health、确定性优先级及明确的 capability/degrade 表达。
-5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池、X/profile 三 Actor 路由、工作区邮箱/Telegram Transport 与多渠道运行告警，以及受控长度概括。
+5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池、X/profile 三 Actor 路由、工作区邮箱/Telegram Transport、私有/共享通知目标库与多目标运行告警，以及受控长度概括。
 6. React/HeroUI Service UI、用户作用域 Query cache、任务轮询、三视口与浏览器验收。
 7. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、安全读工具、受控订阅流程和浏览器直连用户 Gateway。
 8. 上海自然日内容分层、用户隔离全局搜索，以及 Owner/Admin 的预演式标准清理、冷归档与恢复。

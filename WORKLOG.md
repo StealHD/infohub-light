@@ -427,3 +427,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-31",
+  "result": "将个人新内容通知与 Apify 运行告警改为复用统一通知目标库：目的地只在私有或工作区共享目标中配置、测试和启停，业务仅多选目标；新增 schema v4/v3 API、逐目标投递隔离和显式 v16 迁移。",
+  "status": "completed",
+  "task_id": "2026-07-31-unified-notification-target-library",
+  "unresolved": [
+    "按任务约束未合入 main、未推送、未迁移当前运行库、未重建 8080，也未调用真实 Telegram、邮件、Webhook 或 Apify"
+  ],
+  "validation": [
+    "121 targeted backend/API/migration/runtime tests passed",
+    "frontend full Vitest: 60 files and 535 tests; TypeScript, ESLint, UI contract and production build passed",
+    "selected Playwright settings checks passed across desktop/tablet/mobile and explicit 390/768/1440 layouts, including Axe",
+    "python scripts/test_gate.py run --mode full: 23/23 passed"
+  ]
+}
+```

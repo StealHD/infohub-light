@@ -229,7 +229,9 @@ for attempt in $(seq 1 90); do
       exit 1
     fi
     migration_script=""
-    if [[ "$ready_payload" == *"notification channels v15"* ]]; then
+    if [[ "$ready_payload" == *"notification targets v16"* ]]; then
+      migration_script="scripts/migrate_notification_targets_v16.py"
+    elif [[ "$ready_payload" == *"notification channels v15"* ]]; then
       migration_script="scripts/migrate_notification_channels_v15.py"
     elif [[ "$ready_payload" == *"Webhook providers v14"* ]]; then
       migration_script="scripts/migrate_webhook_providers_v14.py"

@@ -238,7 +238,7 @@ def _create_v14_fixture(data_dir) -> tuple[str, str, str]:
     ):
         store.connect().execute(f"DROP TABLE IF EXISTS {table}")
     store.connect().execute(
-        "DELETE FROM schema_migrations WHERE version = 15"
+        "DELETE FROM schema_migrations WHERE version IN (15, 16)"
     )
     store.connect().commit()
     store.close()
@@ -531,7 +531,7 @@ def _downgrade_notification_schema_to_v13(data_dir) -> None:
         )
 
         connection.execute(
-            "DELETE FROM schema_migrations WHERE version IN (14, 15)"
+            "DELETE FROM schema_migrations WHERE version IN (14, 15, 16)"
         )
         assert connection.execute(
             "SELECT 1 FROM schema_migrations WHERE version = 13"
@@ -936,7 +936,7 @@ def test_v15_requires_v14_and_stopped_workers(tmp_path) -> None:
     store = ServiceStore(missing_v14_dir)
     store.initialize()
     store.connect().execute(
-        "DELETE FROM schema_migrations WHERE version IN (14, 15)"
+        "DELETE FROM schema_migrations WHERE version IN (14, 15, 16)"
     )
     store.connect().commit()
     store.close()
@@ -1138,7 +1138,7 @@ def test_api_readiness_fails_closed_until_v15_is_applied(
     ):
         store.connect().execute(f"DROP TABLE IF EXISTS {table}")
     store.connect().execute(
-        "DELETE FROM schema_migrations WHERE version = 15"
+        "DELETE FROM schema_migrations WHERE version IN (15, 16)"
     )
     store.connect().commit()
     store.close()

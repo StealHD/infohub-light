@@ -4,9 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError } from '../../api/client'
 import type { ServiceApi } from '../../api/service'
-import type { NotificationChannelState, UserNotificationSettings } from '../../api/types'
+import type {
+  NotificationChannelState,
+  NotificationTarget,
+  UserNotificationSettings,
+} from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
 import { HeroNotificationSettings, NotificationSettingsForm } from './HeroNotificationSettings'
@@ -41,9 +44,39 @@ const providerOptions: UserNotificationSettings['webhook_provider_options'] = [{
   verification_mode: 'provider_response',
 }]
 
-const settings = (overrides: Partial<UserNotificationSettings> = {}): UserNotificationSettings => ({
-  schema_version: 3,
+const target = (overrides: Partial<NotificationTarget> = {}): NotificationTarget => ({
+  id: 'target-private-email',
+  name: '我的收件箱',
+  scope: 'private',
+  channel: 'email',
+  configured: true,
   enabled: true,
+  available: true,
+  transport_ready: true,
+  config_generation: 1,
+  activation_generation: 1,
+  enabled_at: '2026-07-30T00:00:00Z',
+  last_test_status: 'sent',
+  last_tested_at: '2026-07-30T00:00:00Z',
+  last_test_error_code: null,
+  can_edit: true,
+  can_test: true,
+  can_enable: true,
+  usage: {
+    user_binding_count: 0,
+    alert_binding_count: 0,
+    preferred_active_delivery_count: 0,
+    alert_active_delivery_count: 0,
+  },
+  updated_at: '2026-07-30T00:00:00Z',
+  ...overrides,
+})
+
+const settings = (overrides: Partial<UserNotificationSettings> = {}): UserNotificationSettings => ({
+  schema_version: 4,
+  enabled: true,
+  target_ids: [],
+  selected_targets: [],
   channels: ['webhook'],
   channel: 'webhook',
   channel_states: {
@@ -261,32 +294,23 @@ describe('NotificationSettingsForm', () => {
     expect(onTest).not.toHaveBeenCalled()
   })
 
-  it('refreshes the tested channel state after an outcome-unknown response', async () => {
+  it('saves target selection without repeating target configuration or testing', async () => {
     const browser = userEvent.setup()
     const initial = settings()
-    const unknown = settings({
-      channel_states: {
-        ...initial.channel_states,
-        webhook: {
-          ...initial.channel_states.webhook,
-          last_test_status: 'unknown',
-          last_tested_at: '2026-07-30T08:00:00Z',
-          last_test_error_code: 'notification_webhook_response_invalid',
-        },
-      },
-    })
-    const notificationSettings = vi.fn()
-      .mockResolvedValueOnce(initial)
-      .mockResolvedValue(unknown)
-    const testNotificationSettings = vi.fn().mockRejectedValue(new ApiError(502, {
-      code: 'notification_test_outcome_unknown',
-      message: 'raw upstream response must stay private',
-      retryable: false,
+    const selected = target()
+    const notificationSettings = vi.fn().mockResolvedValue(initial)
+    const updateNotificationSettings = vi.fn().mockResolvedValue(settings({
+      target_ids: [selected.id],
+      selected_targets: [selected],
     }))
     const api = {
       notificationSettings,
-      updateNotificationSettings: vi.fn().mockResolvedValue(initial),
-      testNotificationSettings,
+      notificationTargets: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        targets: [selected],
+        webhook_provider_options: providerOptions,
+      }),
+      updateNotificationSettings,
     } as unknown as ServiceApi
     const token = { userId: 'owner-1', generation: 0 }
     const context = {
@@ -313,14 +337,13 @@ describe('NotificationSettingsForm', () => {
       </MemoryRouter>
     </QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: 'Webhook' })
-    expect(await channelCard('webhook').findByText('尚未发送测试通知')).toBeVisible()
-    await browser.click(screen.getByRole('button', { name: '发送Webhook测试' }))
+    await browser.click(await screen.findByRole('checkbox', { name: selected.name }))
+    await browser.click(screen.getByRole('button', { name: '保存通知设置' }))
 
-    await waitFor(() => expect(notificationSettings).toHaveBeenCalledTimes(2))
-    expect(await channelCard('webhook').findByText(/最近一次测试结果未知，不会自动重发/)).toBeVisible()
-    expect(screen.getByText('测试通知结果未知，请勿重复发送；请先确认接收端。')).toBeVisible()
-    expect(testNotificationSettings).toHaveBeenCalledWith('webhook')
-    expect(document.body.textContent).not.toContain('raw upstream')
+    await waitFor(() => expect(updateNotificationSettings).toHaveBeenCalledWith({
+      enabled: true,
+      target_ids: [selected.id],
+    }))
+    expect(screen.queryByRole('button', { name: /发送.*测试/ })).not.toBeInTheDocument()
   })
 })

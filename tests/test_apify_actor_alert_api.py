@@ -73,7 +73,9 @@ def test_apify_actor_alert_settings_are_admin_only_and_write_only(
     assert initial.headers["cache-control"] == "no-store"
     initial_data = initial.json()["data"]
     assert initial_data["enabled"] is False
-    assert initial_data["schema_version"] == 3
+    assert initial_data["schema_version"] == 4
+    assert initial_data["target_ids"] == []
+    assert initial_data["selected_targets"] == []
     assert initial_data["channels"] == []
     assert set(initial_data["channel_states"]) == {
         "email",
@@ -200,9 +202,9 @@ def test_apify_actor_alert_incidents_project_only_safe_fields(
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     incidents = response.json()["data"]["incidents"]
-    assert response.json()["data"]["schema_version"] == 2
+    assert response.json()["data"]["schema_version"] == 3
     assert len(incidents) == 1
-    assert incidents[0]["schema_version"] == 2
+    assert incidents[0]["schema_version"] == 3
     assert incidents[0]["deliveries"] == []
     assert incidents[0]["actor_name"] == "ScrapeBadger"
     assert incidents[0]["active_actor_name"] == "Dami"
