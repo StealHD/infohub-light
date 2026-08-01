@@ -15,10 +15,20 @@ from src.services.apify_actor_discovery import (
     _input_template_from_schema,
     _pricing,
     _safe_pricing_summary,
+    _validate_manifest_output_schema,
+    _validate_manifest_route_identity,
     _validate_pricing,
 )
+from src.services.apify_actor_manifest import (
+    ActorManifestError,
+    parse_actor_manifest,
+)
 from src.services.apify_actor_ops import ApifyActorOpsService
-from src.services.apify_discovery_ai import resolve_global_discovery_ai
+from src.services.apify_discovery_ai import (
+    list_global_discovery_ai_options,
+    resolve_global_discovery_ai,
+    resolve_global_discovery_ai_config_id,
+)
 from src.services.secret_store import SecretStore
 from src.services.worker import (
     _actor_discovery_queries,
@@ -43,6 +53,9 @@ OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "id": {"type": "string"},
+        "url": {"type": "string", "format": "uri"},
+        "publishedAt": {"type": "string", "format": "date-time"},
+        "channelId": {"type": "string"},
         "title": {"type": "string"},
         "nested": {
             "type": "object",
@@ -116,6 +129,36 @@ def _manifest(actor_id: str, build_number: str) -> dict:
             "url_host_allowlist": ["youtube.com"],
         },
     }
+
+
+def test_manifest_output_pointers_must_exist_in_exact_build_schema() -> None:
+    manifest = parse_actor_manifest(_manifest("publisher/actor", "1.0.0"))
+    incomplete_schema = json.loads(json.dumps(OUTPUT_SCHEMA))
+    incomplete_schema["properties"].pop("publishedAt")
+    with pytest.raises(ActorManifestError) as error:
+        _validate_manifest_output_schema(
+            manifest,
+            incomplete_schema,
+        )
+    assert error.value.code == "apify_manifest_output_pointer_unverifiable"
+
+
+def test_profile_item_identity_cannot_reuse_item_url() -> None:
+    raw = _manifest("publisher/actor", "1.0.0")
+    raw["output"]["source_url"] = raw["output"]["url"]
+    raw["semantics"]["identity"] = {
+        "output_field": "source_url",
+        "target_ref": "target.canonical_url",
+        "match": "url",
+    }
+    manifest = parse_actor_manifest(raw)
+    with pytest.raises(ActorManifestError) as error:
+        _validate_manifest_route_identity(
+            manifest,
+            target_type="channel",
+            capability="items",
+        )
+    assert error.value.code == "apify_manifest_source_identity_invalid"
 
 
 class _Metadata:
@@ -315,6 +358,62 @@ def test_global_ai_selection_follows_only_the_preferred_key(tmp_path) -> None:
     assert unavailable.key_name == "Gemini Secondary"
     assert unavailable.unavailable_reason == "global_ai_key_unavailable"
     assert secrets.status("GEMINI_PRIMARY_TEST_KEY")["is_set"] is True
+
+
+def test_discovery_can_select_one_non_preferred_global_key(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _write_global_ai_config(
+        data_dir,
+        enabled=True,
+        api_key_env="GEMINI_PRIMARY_TEST_KEY",
+    )
+    store = ServiceStore(data_dir)
+    store.initialize()
+    now = FIXED_NOW.isoformat()
+    for secret_id, name, env_name in (
+        ("gemini-primary", "Gemini Primary", "GEMINI_PRIMARY_TEST_KEY"),
+        ("gemini-secondary", "Gemini Secondary", "GEMINI_SECONDARY_TEST_KEY"),
+    ):
+        store.connect().execute(
+            """
+            INSERT INTO secret_refs (
+                id, workspace_id, owner_user_id, name, env_name, scope,
+                kind, provider, version, created_at, updated_at
+            ) VALUES (?, ?, NULL, ?, ?, 'workspace', 'ai', 'gemini', 1, ?, ?)
+            """,
+            (secret_id, DEFAULT_WORKSPACE_ID, name, env_name, now, now),
+        )
+    store.connect().commit()
+    SecretStore(data_dir).replace_many(
+        {
+            "GEMINI_PRIMARY_TEST_KEY": "primary-test-value",
+            "GEMINI_SECONDARY_TEST_KEY": "secondary-test-value",
+        }
+    )
+
+    options = list_global_discovery_ai_options(
+        store,
+        data_dir=data_dir,
+        workspace_id=DEFAULT_WORKSPACE_ID,
+    )
+    assert [option.key_name for option in options] == [
+        "Gemini Primary",
+        "Gemini Secondary",
+    ]
+    assert options[0].preferred is True
+    secondary = resolve_global_discovery_ai_config_id(
+        store,
+        data_dir=data_dir,
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        ai_config_id=options[1].config_id,
+    )
+    assert secondary is not None
+    assert secondary.ready is True
+    assert secondary.secret_ref_id == "gemini-secondary"
+    assert secondary.config is not None
+    assert secondary.config.api_key_env == "GEMINI_SECONDARY_TEST_KEY"
+    assert "gemini-secondary" not in secondary.config_id
 
 
 def test_worker_blocks_before_store_or_model_when_global_ai_is_unavailable(

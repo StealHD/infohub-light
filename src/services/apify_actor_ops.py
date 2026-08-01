@@ -63,6 +63,7 @@ SUPPORTED_ROUTE_PROFILES = (
 PAID_CANARY_CONFIRMATION = "确认付费试跑"
 FIRST_ACTIVATION_CONFIRMATION = "确认首次启用"
 ROUTE_CANARY_BUDGET_USD = 0.10
+ROUTE_CANARY_ATTEMPT_LIMIT = 5
 SOURCE_CANARY_BUDGET_USD = 0.06
 MEMBER_SUPPORT_CHECKS_PER_DAY = 10
 MEMBER_PENDING_DISCOVERY_ROUTES = 20
@@ -2649,7 +2650,7 @@ class ApifyActorOpsService:
                     status_code=409,
                 )
             if (
-                int(usage["attempts"]) >= 5
+                int(usage["attempts"]) >= ROUTE_CANARY_ATTEMPT_LIMIT
                 or float(usage["cost"]) + cap > cycle_budget + 1e-9
             ):
                 raise ActorOpsError(
@@ -2962,7 +2963,8 @@ class ApifyActorOpsService:
         with self._write() as connection:
             current = connection.execute(
                 """
-                SELECT status FROM apify_actor_validations
+                SELECT status, kind, discovery_run_id
+                FROM apify_actor_validations
                 WHERE workspace_id = ? AND validation_id = ?
                 """,
                 (self.workspace_id, validation_id),
@@ -3018,6 +3020,47 @@ class ApifyActorOpsService:
                     validation_id,
                 ),
             )
+            if (
+                terminal
+                and str(current["kind"]) == "route_reference"
+                and current["discovery_run_id"] is not None
+            ):
+                cycle = connection.execute(
+                    """
+                    SELECT COUNT(*) AS attempts,
+                           COUNT(DISTINCT CASE
+                               WHEN status = 'succeeded' THEN revision_id
+                           END) AS succeeded_revisions
+                    FROM apify_actor_validations
+                    WHERE workspace_id = ?
+                      AND discovery_run_id = ?
+                      AND kind = 'route_reference'
+                      AND attempt_id IS NOT NULL
+                    """,
+                    (self.workspace_id, str(current["discovery_run_id"])),
+                ).fetchone()
+                if (
+                    cycle is not None
+                    and int(cycle["attempts"] or 0)
+                    >= ROUTE_CANARY_ATTEMPT_LIMIT
+                    and int(cycle["succeeded_revisions"] or 0) < 3
+                ):
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_discovery_runs
+                        SET stage = 'canary_exhausted',
+                            error_code = 'route_canary_attempts_exhausted',
+                            failure_phase = NULL,
+                            updated_at = ?
+                        WHERE workspace_id = ? AND run_id = ?
+                          AND stage = 'awaiting_canary_approval'
+                        """,
+                        (
+                            now,
+                            self.workspace_id,
+                            str(current["discovery_run_id"]),
+                        ),
+                    )
         return self.get_validation(validation_id)
 
     def get_validation(self, validation_id: str) -> dict[str, Any]:
@@ -3999,6 +4042,7 @@ class ApifyActorOpsService:
             "static_validation",
             "input_validation",
             "awaiting_canary_approval",
+            "canary_exhausted",
             "candidate_shortfall",
             "blocked_ai_unavailable",
             "failed",
@@ -4078,8 +4122,8 @@ class ApifyActorOpsService:
     def get_discovery_settings(self) -> dict[str, Any]:
         row = self.store.connect().execute(
             """
-            SELECT enabled, call_limit, max_candidates, max_output_tokens, generation,
-                   created_at, updated_at
+            SELECT enabled, secret_ref_id, call_limit, max_candidates,
+                   max_output_tokens, generation, created_at, updated_at
             FROM apify_actor_discovery_settings
             WHERE workspace_id = ?
             """,
@@ -4093,7 +4137,7 @@ class ApifyActorOpsService:
             )
         return {
             "enabled": bool(row["enabled"]),
-            "ai_config_id": "global",
+            "secret_ref_id": row["secret_ref_id"],
             "call_limit": int(row["call_limit"]),
             "max_candidates": int(row["max_candidates"]),
             "max_output_tokens": int(row["max_output_tokens"]),
@@ -4107,6 +4151,7 @@ class ApifyActorOpsService:
         *,
         expected_generation: int,
         enabled: bool | None = None,
+        selected_secret_ref_id: str | None = None,
         call_limit: int | None = None,
         max_candidates: int | None = None,
         max_output_tokens: int | None = None,
@@ -4148,6 +4193,11 @@ class ApifyActorOpsService:
             selected_enabled = (
                 int(enabled) if enabled is not None else int(current["enabled"])
             )
+            selected_secret = (
+                str(selected_secret_ref_id)
+                if selected_secret_ref_id is not None
+                else current["secret_ref_id"]
+            )
             selected_limit = (
                 int(call_limit) if call_limit is not None else int(current["call_limit"])
             )
@@ -4165,13 +4215,14 @@ class ApifyActorOpsService:
                 """
                 UPDATE apify_actor_discovery_settings
                 SET enabled = ?, ai_provider = '', ai_model = '',
-                    secret_ref_id = NULL, call_limit = ?, max_candidates = ?,
+                    secret_ref_id = ?, call_limit = ?, max_candidates = ?,
                     max_output_tokens = ?,
                     generation = generation + 1, updated_at = ?
                 WHERE workspace_id = ? AND generation = ?
                 """,
                 (
                     selected_enabled,
+                    selected_secret,
                     selected_limit,
                     selected_candidates,
                     selected_output_tokens,
@@ -4335,6 +4386,135 @@ class ApifyActorOpsService:
                     "apify_actor_attempt_conflict",
                     "Actor attempt is not running",
                 )
+
+    def finalized_actor_run_cost(self, attempt_id: str) -> float | None:
+        """Return a terminal remote charge for one frozen logical attempt."""
+
+        row = self.store.connect().execute(
+            """
+            SELECT charge_actual_usd
+            FROM apify_actor_runs
+            WHERE workspace_id = ? AND logical_run_id = ?
+              AND charge_final = 1
+              AND status IN ('succeeded', 'failed', 'aborted', 'timed_out')
+            ORDER BY terminal_at DESC, updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, attempt_id),
+        ).fetchone()
+        if row is None or row["charge_actual_usd"] is None:
+            return None
+        return _bounded_actual_cost(
+            float(row["charge_actual_usd"]),
+            maximum=10_000.0,
+        )
+
+    def reconcile_terminal_validation_costs(self) -> dict[str, int]:
+        """Copy final remote charges into the attempt and validation ledgers.
+
+        This recovery is local and idempotent. It never contacts Apify and
+        never starts or retries an Actor.
+        """
+
+        attempts = 0
+        validations = 0
+        cycles = 0
+        now = self._now_iso()
+        with self._write() as connection:
+            rows = connection.execute(
+                """
+                SELECT attempt.id AS attempt_id,
+                       validation.validation_id,
+                       run.charge_actual_usd
+                FROM apify_actor_attempts AS attempt
+                JOIN apify_actor_validations AS validation
+                  ON validation.workspace_id = attempt.workspace_id
+                 AND validation.attempt_id = attempt.id
+                JOIN apify_actor_runs AS run
+                  ON run.workspace_id = attempt.workspace_id
+                 AND run.logical_run_id = attempt.id
+                WHERE attempt.workspace_id = ?
+                  AND attempt.status <> 'running'
+                  AND run.charge_final = 1
+                  AND run.charge_actual_usd IS NOT NULL
+                  AND (
+                      attempt.cost_final = 0
+                      OR attempt.actual_cost_usd IS NULL
+                      OR validation.cost_usd IS NULL
+                      OR ABS(validation.cost_usd - run.charge_actual_usd)
+                         > 0.000000001
+                  )
+                ORDER BY run.updated_at, run.id
+                LIMIT 500
+                """,
+                (self.workspace_id,),
+            ).fetchall()
+            for row in rows:
+                actual = _bounded_actual_cost(
+                    float(row["charge_actual_usd"]),
+                    maximum=10_000.0,
+                )
+                attempt_cursor = connection.execute(
+                    """
+                    UPDATE apify_actor_attempts
+                    SET actual_cost_usd = ?, cost_final = 1, updated_at = ?
+                    WHERE workspace_id = ? AND id = ?
+                      AND status <> 'running'
+                    """,
+                    (actual, now, self.workspace_id, str(row["attempt_id"])),
+                )
+                validation_cursor = connection.execute(
+                    """
+                    UPDATE apify_actor_validations
+                    SET cost_usd = ?
+                    WHERE workspace_id = ? AND validation_id = ?
+                      AND status IN ('succeeded', 'failed', 'cancelled')
+                    """,
+                    (
+                        actual,
+                        self.workspace_id,
+                        str(row["validation_id"]),
+                    ),
+                )
+                attempts += int(attempt_cursor.rowcount)
+                validations += int(validation_cursor.rowcount)
+            cycle_cursor = connection.execute(
+                """
+                UPDATE apify_actor_discovery_runs
+                SET stage = 'canary_exhausted',
+                    error_code = 'route_canary_attempts_exhausted',
+                    failure_phase = NULL,
+                    updated_at = ?
+                WHERE workspace_id = ?
+                  AND stage = 'awaiting_canary_approval'
+                  AND run_id IN (
+                      SELECT validation.discovery_run_id
+                      FROM apify_actor_validations AS validation
+                      WHERE validation.workspace_id = ?
+                        AND validation.kind = 'route_reference'
+                        AND validation.discovery_run_id IS NOT NULL
+                        AND validation.attempt_id IS NOT NULL
+                      GROUP BY validation.discovery_run_id
+                      HAVING COUNT(*) >= ?
+                         AND COUNT(DISTINCT CASE
+                             WHEN validation.status = 'succeeded'
+                             THEN validation.revision_id
+                         END) < 3
+                  )
+                """,
+                (
+                    now,
+                    self.workspace_id,
+                    self.workspace_id,
+                    ROUTE_CANARY_ATTEMPT_LIMIT,
+                ),
+            )
+            cycles = int(cycle_cursor.rowcount)
+        return {
+            "attempts": attempts,
+            "validations": validations,
+            "cycles": cycles,
+        }
 
     async def execute_route(
         self,

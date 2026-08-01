@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import math
 import os
 import re
 import time
@@ -66,11 +67,17 @@ from ..services.apify_actor_ops import (
     FIRST_ACTIVATION_CONFIRMATION,
     MEMBER_PENDING_DISCOVERY_ROUTES,
     MEMBER_SUPPORT_CHECKS_PER_DAY,
+    ROUTE_CANARY_ATTEMPT_LIMIT,
     SOURCE_CANARY_BUDGET_USD,
     source_target_fingerprint,
     supported_route_profiles,
 )
-from ..services.apify_discovery_ai import resolve_global_discovery_ai
+from ..services.apify_actor_canary import actor_canary_timeout_seconds
+from ..services.apify_discovery_ai import (
+    list_global_discovery_ai_options,
+    resolve_global_discovery_ai,
+    resolve_global_discovery_ai_config_id,
+)
 from ..services.apify_actor_monitoring import ApifyActorAlertBridge
 from ..services.source_health import SourceHealthService
 from ..services.storage_governance import (
@@ -585,7 +592,12 @@ class ApifyDiscoverySettingsPatchRequest(BaseModel):
 
     expected_generation: StrictInt = Field(ge=1)
     enabled: StrictBool | None = None
-    ai_config_id: Literal["global"] | None = None
+    ai_config_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=64,
+        pattern=r"^global-ai-[a-f0-9]{24}$",
+    )
     max_queries_per_run: StrictInt | None = Field(default=None, ge=1, le=3)
     max_candidates: StrictInt | None = Field(default=None, ge=3, le=30)
     max_output_tokens: StrictInt | None = Field(default=None, ge=4096, le=65536)
@@ -1079,6 +1091,27 @@ def create_app(
                     "name": str(base_config.ai.provider.value),
                 }
             )
+        discovery_use = (
+            store.connect().execute(
+                """
+                SELECT 1
+                FROM apify_actor_discovery_settings
+                WHERE workspace_id = ? AND secret_ref_id = ?
+                LIMIT 1
+                """,
+                (str(secret["workspace_id"]), str(secret["id"])),
+            ).fetchone()
+            if not store.apify_actor_ops_v15_migration_required()
+            else None
+        )
+        if discovery_use is not None:
+            usages.append(
+                {
+                    "type": "ai",
+                    "id": "actor-discovery-ai",
+                    "name": "Actor Discovery AI",
+                }
+            )
         return usages
 
     def public_secret(secret: dict[str, Any]) -> dict[str, Any]:
@@ -1252,6 +1285,68 @@ def create_app(
             else {}
         )
         listed = pricing.get("price_per_1000")
+
+        def safe_price(value: Any) -> float | None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            number = float(value)
+            return number if math.isfinite(number) and number >= 0 else None
+
+        model = str(
+            pricing.get("pricingModel")
+            or pricing.get("model")
+            or ""
+        ).upper() or None
+        unit_prices: list[float] = []
+        direct_unit_price = safe_price(pricing.get("pricePerUnitUsd"))
+        if direct_unit_price is not None:
+            unit_prices.append(direct_unit_price)
+        tiered_pricing = pricing.get("tieredPricing")
+        if isinstance(tiered_pricing, dict):
+            for tier in tiered_pricing.values():
+                if not isinstance(tier, dict):
+                    continue
+                value = safe_price(tier.get("tieredPricePerUnitUsd"))
+                if value is not None:
+                    unit_prices.append(value)
+        event_pricing = pricing.get("pricingPerEvent")
+        events = (
+            event_pricing.get("actorChargeEvents")
+            if isinstance(event_pricing, dict)
+            else None
+        )
+        if isinstance(events, dict):
+            for event in events.values():
+                if not isinstance(event, dict):
+                    continue
+                value = safe_price(event.get("eventPriceUsd"))
+                if value is not None:
+                    unit_prices.append(value)
+                tiers = event.get("eventTieredPricingUsd")
+                if isinstance(tiers, dict):
+                    for tier in tiers.values():
+                        tier_value = (
+                            tier.get("tieredEventPriceUsd")
+                            if isinstance(tier, dict)
+                            else tier
+                        )
+                        value = safe_price(tier_value)
+                        if value is not None:
+                            unit_prices.append(value)
+        minimum_cap = safe_price(pricing.get("minimalMaxTotalChargeUsd"))
+        minimum_charge = next(
+            (
+                value
+                for key in (
+                    "minimumChargeUsd",
+                    "minChargeUsd",
+                    "minimumPriceUsd",
+                    "pricePerRunUsd",
+                )
+                if (value := safe_price(pricing.get(key))) is not None
+            ),
+            None,
+        )
         return {
             "revision_id": str(revision["revision_id"]),
             "actor_id": str(revision["actor_id"]),
@@ -1267,6 +1362,22 @@ def create_app(
                 and not isinstance(listed, bool)
                 else None
             ),
+            "pricing": {
+                "model": model,
+                "billing_unit": (
+                    "free"
+                    if model == "FREE"
+                    else "dataset_item"
+                    if model == "PRICE_PER_DATASET_ITEM"
+                    else "event"
+                    if model == "PAY_PER_EVENT"
+                    else "unknown"
+                ),
+                "unit_price_min_usd": min(unit_prices) if unit_prices else None,
+                "unit_price_max_usd": max(unit_prices) if unit_prices else None,
+                "minimum_charge_usd": minimum_charge,
+                "minimum_run_cap_usd": minimum_cap,
+            },
             "last_canary_at": revision.get("canary_passed_at"),
             "can_canary": str(revision["lifecycle"])
             in {"static_valid", "probationary"},
@@ -1286,11 +1397,28 @@ def create_app(
         *,
         workspace_id: str,
     ) -> dict[str, Any]:
-        global_ai = resolve_global_discovery_ai(
+        selected_ai = resolve_global_discovery_ai(
             store,
             data_dir=data_path,
             workspace_id=workspace_id,
+            secret_ref_id=(
+                str(settings["secret_ref_id"])
+                if settings.get("secret_ref_id")
+                else None
+            ),
         )
+        ai_options = list(
+            list_global_discovery_ai_options(
+                store,
+                data_dir=data_path,
+                workspace_id=workspace_id,
+            )
+        )
+        if all(
+            option.config_id != selected_ai.config_id
+            for option in ai_options
+        ):
+            ai_options.insert(0, selected_ai)
         measurement_summary = ApifyActorOpsService(
             store,
             workspace_id=workspace_id,
@@ -1317,11 +1445,11 @@ def create_app(
                 },
             }
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "generation": int(settings["generation"]),
             "enabled": bool(settings["enabled"]),
-            "ai_config_id": "global",
-            "ai_options": [global_ai.public_dict()],
+            "ai_config_id": selected_ai.config_id,
+            "ai_options": [option.public_dict() for option in ai_options],
             "max_queries_per_run": int(settings["call_limit"]),
             "max_candidates": int(settings["max_candidates"]),
             "max_output_tokens": int(settings["max_output_tokens"]),
@@ -4029,17 +4157,57 @@ def create_app(
         ).fetchall()
         validation_rows = store.connect().execute(
             """
-            SELECT revision_id, status, semantic_outcome, created_at,
-                   completed_at
-            FROM apify_actor_validations
-            WHERE workspace_id = ? AND discovery_run_id = ?
-            ORDER BY created_at DESC, validation_id DESC
+            SELECT validation.revision_id, validation.status,
+                   validation.semantic_outcome, validation.created_at,
+                   validation.completed_at, validation.attempt_id,
+                   validation.cost_usd, validation.approved_max_cost_usd,
+                   attempt.started_at, attempt.terminal_at,
+                   (
+                       SELECT actor_run.status
+                       FROM apify_actor_runs AS actor_run
+                       WHERE actor_run.workspace_id = validation.workspace_id
+                         AND actor_run.logical_run_id = validation.attempt_id
+                       ORDER BY actor_run.updated_at DESC, actor_run.id DESC
+                       LIMIT 1
+                   ) AS actor_run_status,
+                   (
+                       SELECT CASE WHEN actor_run.charge_final = 1
+                                   THEN actor_run.charge_actual_usd END
+                       FROM apify_actor_runs AS actor_run
+                       WHERE actor_run.workspace_id = validation.workspace_id
+                         AND actor_run.logical_run_id = validation.attempt_id
+                       ORDER BY actor_run.updated_at DESC, actor_run.id DESC
+                       LIMIT 1
+                   ) AS actor_run_cost_usd
+            FROM apify_actor_validations AS validation
+            LEFT JOIN apify_actor_attempts AS attempt
+              ON attempt.workspace_id = validation.workspace_id
+             AND attempt.id = validation.attempt_id
+            WHERE validation.workspace_id = ?
+              AND validation.discovery_run_id = ?
+            ORDER BY validation.created_at DESC,
+                     validation.validation_id DESC
             """,
             (str(user["workspace_id"]), run_id),
         ).fetchall()
         latest_validation: dict[str, dict[str, Any]] = {}
         for row in validation_rows:
             latest_validation.setdefault(str(row["revision_id"]), dict(row))
+        attempt_count = sum(
+            1 for row in validation_rows if row["attempt_id"] is not None
+        )
+        succeeded_revisions = {
+            str(row["revision_id"])
+            for row in validation_rows
+            if str(row["status"]) == "succeeded"
+        }
+        effective_stage = str(run["stage"])
+        if (
+            effective_stage == "awaiting_canary_approval"
+            and attempt_count >= ROUTE_CANARY_ATTEMPT_LIMIT
+            and len(succeeded_revisions) < 3
+        ):
+            effective_stage = "canary_exhausted"
         candidates = []
         for rank, row in enumerate(revisions, start=1):
             revision = ops.get_revision(str(row["revision_id"]))
@@ -4049,31 +4217,70 @@ def create_app(
                 str(validation["status"]) if validation is not None else None
             )
             canary_in_flight = validation_status in {"queued", "running"}
+            validation_cost = None
+            validation_cost_final = False
+            validation_duration_ms = None
+            if validation is not None:
+                if validation.get("actor_run_cost_usd") is not None:
+                    validation_cost = float(validation["actor_run_cost_usd"])
+                    validation_cost_final = True
+                elif validation.get("cost_usd") is not None:
+                    validation_cost = float(validation["cost_usd"])
+                if validation.get("started_at") and validation.get("terminal_at"):
+                    try:
+                        started_at = datetime.fromisoformat(
+                            str(validation["started_at"]).replace("Z", "+00:00")
+                        )
+                        terminal_at = datetime.fromisoformat(
+                            str(validation["terminal_at"]).replace("Z", "+00:00")
+                        )
+                        validation_duration_ms = max(
+                            0,
+                            int((terminal_at - started_at).total_seconds() * 1000),
+                        )
+                    except ValueError:
+                        validation_duration_ms = None
             candidates.append(
                 {
                     "revision": public_actor_ops_revision(revision),
                     "rank": rank,
                     "status": lifecycle,
                     "validation_status": validation_status,
+                    "validation_outcome": (
+                        str(validation["semantic_outcome"])
+                        if validation is not None
+                        and validation.get("semantic_outcome") is not None
+                        else None
+                    ),
+                    "validation_cost_usd": validation_cost,
+                    "validation_cost_final": validation_cost_final,
+                    "validation_duration_ms": validation_duration_ms,
+                    "actor_run_status": (
+                        str(validation["actor_run_status"])
+                        if validation is not None
+                        and validation.get("actor_run_status") is not None
+                        else None
+                    ),
                     "canary_in_flight": canary_in_flight,
                     "rejection_reasons": [],
                     "awaiting_approval": (
-                        str(run["stage"]) == "awaiting_canary_approval"
+                        effective_stage == "awaiting_canary_approval"
                         and lifecycle in {"static_valid", "probationary"}
                         and not canary_in_flight
                     ),
                 }
             )
-        spent = store.connect().execute(
-            """
-            SELECT COALESCE(SUM(COALESCE(
-                       cost_usd, approved_max_cost_usd
-                   )), 0) AS spent_usd
-            FROM apify_actor_validations
-            WHERE workspace_id = ? AND discovery_run_id = ?
-            """,
-            (str(user["workspace_id"]), run_id),
-        ).fetchone()
+        spent_usd = sum(
+            float(
+                row["actor_run_cost_usd"]
+                if row["actor_run_cost_usd"] is not None
+                else row["cost_usd"]
+                if row["cost_usd"] is not None
+                else row["approved_max_cost_usd"]
+                or 0
+            )
+            for row in validation_rows
+        )
         settings = ops.get_discovery_settings()
         candidate_count = len(candidates)
         publisher_count = len(
@@ -4086,18 +4293,25 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "run_id": str(run["run_id"]),
                 "route_id": str(run["route_id"]),
                 "generation": int(
                     ops.get_route(str(run["route_id"]))["generation"]
                 ),
-                "stage": str(run["stage"]),
-                "status": str(run["stage"]),
+                "stage": effective_stage,
+                "status": effective_stage,
                 "queries_completed": int(run["query_count"]),
                 "queries_limit": int(settings["call_limit"]),
                 "budget_cap_usd": float(run["budget_usd"]),
-                "spent_usd": float(spent["spent_usd"] or 0),
+                "spent_usd": spent_usd,
+                "canary_attempts_used": attempt_count,
+                "canary_attempts_limit": ROUTE_CANARY_ATTEMPT_LIMIT,
+                "canary_attempts_remaining": max(
+                    ROUTE_CANARY_ATTEMPT_LIMIT - attempt_count,
+                    0,
+                ),
+                "canary_timeout_seconds": actor_canary_timeout_seconds(),
                 "candidate_count": candidate_count,
                 "candidate_shortfall": (
                     max(3 - candidate_count, 0)
@@ -4110,8 +4324,16 @@ def create_app(
                     if str(run["stage"]) == "candidate_shortfall"
                     else 0
                 ),
-                "error_code": run.get("error_code"),
-                "failure_phase": run.get("failure_phase"),
+                "error_code": (
+                    "route_canary_attempts_exhausted"
+                    if effective_stage == "canary_exhausted"
+                    else run.get("error_code")
+                ),
+                "failure_phase": (
+                    "route_canary"
+                    if effective_stage == "canary_exhausted"
+                    else run.get("failure_phase")
+                ),
                 "measurement_mode": bool(run.get("measurement_mode")),
                 "metrics": {
                     "request_max_output_tokens": run.get("ai_max_output_tokens"),
@@ -4606,13 +4828,33 @@ def create_app(
             if "enabled" in provided
             else bool(current["enabled"])
         )
-        if selected_enabled:
-            global_ai = resolve_global_discovery_ai(
+        selected_ai = (
+            resolve_global_discovery_ai_config_id(
                 store,
                 data_dir=data_path,
                 workspace_id=str(user["workspace_id"]),
+                ai_config_id=str(payload.ai_config_id),
             )
-            if not global_ai.ready:
+            if "ai_config_id" in provided and payload.ai_config_id is not None
+            else resolve_global_discovery_ai(
+                store,
+                data_dir=data_path,
+                workspace_id=str(user["workspace_id"]),
+                secret_ref_id=(
+                    str(current["secret_ref_id"])
+                    if current.get("secret_ref_id")
+                    else None
+                ),
+            )
+        )
+        if selected_ai is None:
+            raise ActorOpsError(
+                "apify_actor_discovery_ai_config_invalid",
+                "The selected global AI option is not available",
+                status_code=422,
+            )
+        if selected_enabled:
+            if not selected_ai.ready:
                 raise ActorOpsError(
                     "apify_actor_discovery_global_ai_unavailable",
                     "The selected global AI configuration is not ready for Actor discovery",
@@ -4621,6 +4863,11 @@ def create_app(
         settings = ops.patch_discovery_settings(
             expected_generation=int(payload.expected_generation),
             enabled=payload.enabled if "enabled" in provided else None,
+            selected_secret_ref_id=(
+                selected_ai.secret_ref_id
+                if "ai_config_id" in provided
+                else None
+            ),
             call_limit=(
                 int(payload.max_queries_per_run)
                 if "max_queries_per_run" in provided
@@ -4658,10 +4905,17 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
+        ops = apify_actor_ops_for(str(user["workspace_id"]))
+        settings = ops.get_discovery_settings()
         global_ai = resolve_global_discovery_ai(
             store,
             data_dir=data_path,
             workspace_id=str(user["workspace_id"]),
+            secret_ref_id=(
+                str(settings["secret_ref_id"])
+                if settings.get("secret_ref_id")
+                else None
+            ),
         )
         if not global_ai.ready:
             raise ActorOpsError(
@@ -4669,8 +4923,7 @@ def create_app(
                 "The selected global AI configuration is not ready for Actor discovery",
                 status_code=409,
             )
-        ops = apify_actor_ops_for(str(user["workspace_id"]))
-        if not ops.get_discovery_settings()["enabled"]:
+        if not settings["enabled"]:
             raise ActorOpsError(
                 "apify_actor_discovery_disabled",
                 "Actor discovery must be enabled before an AI capacity test",

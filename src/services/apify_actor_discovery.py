@@ -480,6 +480,11 @@ class ApifyActorDiscoveryService:
             stage="ranking",
         )
         proposal_target = min(MAX_AI_PROPOSALS, len(accepted))
+        identity_example = {
+            "output_field": "author_handle",
+            "target_ref": "target.handle",
+            "match": "handle",
+        }
         prompt = {
             "task": "rank_candidates_and_generate_manifest_v1",
             "route": {
@@ -537,17 +542,13 @@ class ApifyActorDiscoveryService:
                                     "pointers": ["/candidate/text"],
                                     "transforms": ["strip_html"],
                                 },
-                                "source_url": {
-                                    "pointers": ["/candidate/sourceUrl"],
-                                    "transforms": ["normalize_url"],
+                                "author_handle": {
+                                    "pointers": ["/candidate/ownerUsername"],
+                                    "transforms": ["to_string"],
                                 },
                             },
                             "semantics": {
-                                "identity": {
-                                    "output_field": "source_url",
-                                    "target_ref": "target.canonical_url",
-                                    "match": "url",
-                                },
+                                "identity": identity_example,
                                 "url_host_allowlist": [
                                     "must_use_route_allowed_output_host"
                                 ],
@@ -567,6 +568,9 @@ class ApifyActorDiscoveryService:
                     "output paths are RFC 6901 JSON Pointers.",
                     "allowed transforms: pick_first,to_string,to_integer,to_number,to_boolean,parse_datetime,normalize_url,strip_html.",
                     "native_id,url,published_at and title or text are required.",
+                    "For profile/channel items, prove identity with an author/owner handle or source id from each content row.",
+                    "The content item url is not the source profile/channel url and must never be reused as source_url identity.",
+                    "Reject profile metadata-only Dataset schemas for the items capability.",
                 ],
             },
             "candidates": [candidate.ai_summary() for candidate in accepted],
@@ -660,6 +664,15 @@ class ApifyActorDiscoveryService:
                 normalized_manifest["input"] = dict(candidate.input_template)
                 manifest = parse_actor_manifest(normalized_manifest)
                 _validate_manifest_hosts(manifest, str(route["platform"]))
+                _validate_manifest_output_schema(
+                    manifest,
+                    candidate.output_schema,
+                )
+                _validate_manifest_route_identity(
+                    manifest,
+                    target_type=str(route["target_type"]),
+                    capability=str(route["capability"]),
+                )
             except ActorManifestError as error:
                 rejected.append(
                     {"actor_id": candidate.actor_id, "reason": error.code}
@@ -1489,6 +1502,104 @@ def _validate_manifest_hosts(manifest: Any, platform: str) -> None:
             raise ActorManifestError(
                 "apify_manifest_output_host_invalid",
                 "Manifest output host is outside the route allowlist",
+            )
+
+
+def _json_pointer_tokens(pointer: str) -> tuple[str, ...]:
+    if pointer == "":
+        return ()
+    return tuple(
+        token.replace("~1", "/").replace("~0", "~")
+        for token in pointer[1:].split("/")
+    )
+
+
+def _schema_alternatives(schema: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+    alternatives: list[Mapping[str, Any]] = [schema]
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        branches = schema.get(keyword)
+        if isinstance(branches, Sequence) and not isinstance(
+            branches,
+            (str, bytes, bytearray),
+        ):
+            alternatives.extend(
+                branch for branch in branches if isinstance(branch, Mapping)
+            )
+    return tuple(alternatives)
+
+
+def _schema_pointer_exists(schema: Mapping[str, Any], pointer: str) -> bool:
+    frontier: tuple[Mapping[str, Any], ...] = (schema,)
+    for token in _json_pointer_tokens(pointer):
+        next_frontier: list[Mapping[str, Any]] = []
+        for raw_node in frontier:
+            for node in _schema_alternatives(raw_node):
+                properties = node.get("properties")
+                if isinstance(properties, Mapping):
+                    child = properties.get(token)
+                    if isinstance(child, Mapping):
+                        next_frontier.append(child)
+                # Apify Dataset schemas frequently expose ``fields`` as a
+                # direct name -> JSON Schema mapping rather than wrapping it
+                # in a root ``properties`` object.
+                direct = node.get(token)
+                if isinstance(direct, Mapping):
+                    next_frontier.append(direct)
+                if token.isdigit():
+                    items = node.get("items")
+                    if isinstance(items, Mapping):
+                        next_frontier.append(items)
+        if not next_frontier:
+            return False
+        frontier = tuple(next_frontier)
+    return bool(frontier)
+
+
+def _validate_manifest_output_schema(
+    manifest: Any,
+    output_schema: Mapping[str, Any],
+) -> None:
+    """Require every output pointer to exist in the fetched Build schema."""
+
+    if not output_schema:
+        raise ActorManifestError(
+            "apify_manifest_output_schema_unverifiable",
+            "Manifest output schema is unavailable",
+        )
+    for field_name in type(manifest.output).model_fields:
+        mapping = getattr(manifest.output, field_name)
+        if mapping is None:
+            continue
+        if any(
+            not _schema_pointer_exists(output_schema, pointer)
+            for pointer in mapping.pointers
+        ):
+            raise ActorManifestError(
+                "apify_manifest_output_pointer_unverifiable",
+                "Manifest output pointer is absent from the exact Build schema",
+            )
+
+
+def _validate_manifest_route_identity(
+    manifest: Any,
+    *,
+    target_type: str,
+    capability: str,
+) -> None:
+    """Keep item identity separate from the content item's own URL."""
+
+    identity = manifest.semantics.identity
+    if (
+        target_type in {"profile", "channel"}
+        and capability == "items"
+        and identity.output_field == "source_url"
+    ):
+        source_url = manifest.output.source_url
+        item_url = manifest.output.url
+        if source_url is None or set(source_url.pointers) & set(item_url.pointers):
+            raise ActorManifestError(
+                "apify_manifest_source_identity_invalid",
+                "Profile or channel identity cannot reuse the content item URL",
             )
 
 

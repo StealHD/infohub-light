@@ -151,6 +151,14 @@ const actorOpsDetail = (
       build_number: '1.0.3',
       manifest_hash: 'c'.repeat(64),
       lifecycle: 'probationary' as const,
+      pricing: {
+        model: 'PAY_PER_EVENT',
+        billing_unit: 'event' as const,
+        unit_price_min_usd: 0.001,
+        unit_price_max_usd: 0.015,
+        minimum_charge_usd: null,
+        minimum_run_cap_usd: 0.02,
+      },
       last_charge_usd: 0.01,
       avg_charge_24h_usd: 0.01,
       last_canary_at: '2026-07-29T08:00:00Z',
@@ -239,7 +247,7 @@ const actorOpsRoutes = (
 const discoveryRun = (
   detail: ApifyActorRouteDetail,
 ): ApifyActorDiscoveryRun => ({
-  schema_version: 2,
+  schema_version: 3,
   run_id: 'discovery-run-1',
   route_id: detail.route_id,
   generation: detail.generation,
@@ -434,16 +442,17 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     canaryApifyActorSourceRevision: vi.fn(),
     activateApifyActorSourceBinding: vi.fn(),
     apifyActorDiscoverySettings: vi.fn().mockResolvedValue({
-      schema_version: 3,
+      schema_version: 4,
       generation: 1,
       enabled: false,
-      ai_config_id: 'global',
+      ai_config_id: 'global-ai-111111111111111111111111',
       ai_options: [{
-        id: 'global',
-        label: '当前全局 AI',
+        id: 'global-ai-111111111111111111111111',
+        label: 'Gemini Secondary',
         provider: 'gemini',
         model: 'gemini-test',
         key_name: 'Gemini Secondary',
+        preferred: true,
         ready: true,
         unavailable_reason: null,
       }],
@@ -629,10 +638,45 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(await screen.findByText('缺少 2 个 Actor')).toBeVisible()
     expect(screen.getByText('固定 Build 输入校验需要处理')).toBeVisible()
     expect(screen.getByText(/候选输入与固定 Build Schema 不兼容/)).toBeVisible()
-    expect(screen.getByText('1/3 Actor · 1/2 发布者；付费 Canary 不会自动执行')).toBeVisible()
+    expect(screen.getByText('1/3 Actor · 1/2 发布者；Canary 0/5 次')).toBeVisible()
     expect(within(
       screen.getByRole('list', { name: 'Actor 发现候选' }),
     ).getAllByRole('listitem')).toHaveLength(1)
+  })
+
+  it('stops approvals and explains a timed-out exhausted Canary cycle', async () => {
+    const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+    const exhausted = discoveryRun(detail)
+    exhausted.stage = 'canary_exhausted'
+    exhausted.status = 'canary_exhausted'
+    exhausted.error_code = 'route_canary_attempts_exhausted'
+    exhausted.failure_phase = 'route_canary'
+    exhausted.canary_attempts_used = 5
+    exhausted.canary_attempts_limit = 5
+    exhausted.canary_attempts_remaining = 0
+    exhausted.canary_timeout_seconds = 300
+    exhausted.spent_usd = 0.01905
+    exhausted.candidates[0] = {
+      ...exhausted.candidates[0],
+      awaiting_approval: false,
+      validation_status: 'failed',
+      validation_outcome: 'apify_actor_run_timed_out',
+      validation_cost_usd: 0.01905,
+      validation_cost_final: true,
+      validation_duration_ms: 187_189,
+      actor_run_status: 'aborted',
+    }
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(exhausted),
+    })
+
+    expect(await screen.findByText('当前候选组不能继续付费验证')).toBeVisible()
+    expect(screen.getByText(/Actor 在时限内未完成/)).toBeVisible()
+    expect(screen.getByText(/实际费用 \$0\.01905（已终结）/)).toBeVisible()
+    expect(screen.getByText(/Canary 5\/5 次/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
   })
 
   it('renders safe three-slot projections and submits a generation-checked support request', async () => {
@@ -855,6 +899,11 @@ describe('HeroApifyActorRouteSettings', () => {
     const dialog = screen.getByRole('dialog', { name: '确认付费 Canary' })
     expect(api.canaryApifyActorDiscoveryCandidate).not.toHaveBeenCalled()
     expect(within(dialog).queryByText('not-rendered')).not.toBeInTheDocument()
+    expect(within(dialog).getByText(/x \/ profile \/ items/)).toBeVisible()
+    expect(within(dialog).getByText(/Route 认证公开参考来源/)).toBeVisible()
+    expect(within(dialog).getByText(/\$0\.001–\$0\.015 每计费事件/)).toBeVisible()
+    expect(within(dialog).getByText(/本次付费封顶/)).toBeVisible()
+    expect(within(dialog).getByText(/总上限 \$0\.10/)).toBeVisible()
 
     await browser.click(within(dialog).getByRole('button', { name: '确认付费试跑' }))
 
@@ -875,22 +924,35 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(document.body.textContent).not.toContain(request.approval_id)
   })
 
-  it('uses the single global AI selection without exposing a Secret reference', async () => {
+  it('manually selects one safe global AI option and hot-loads it', async () => {
     const browser = userEvent.setup()
     const current = {
-      schema_version: 3 as const,
+      schema_version: 4 as const,
       generation: 4,
       enabled: false,
-      ai_config_id: 'global' as const,
-      ai_options: [{
-        id: 'global' as const,
-        label: '当前全局 AI',
-        provider: 'gemini',
-        model: 'gemini-test',
-        key_name: 'Gemini Secondary',
-        ready: true,
-        unavailable_reason: null,
-      }],
+      ai_config_id: 'global-ai-111111111111111111111111',
+      ai_options: [
+        {
+          id: 'global-ai-111111111111111111111111',
+          label: 'Gemini Primary',
+          provider: 'gemini',
+          model: 'gemini-test',
+          key_name: 'Gemini Primary',
+          preferred: true,
+          ready: true,
+          unavailable_reason: null,
+        },
+        {
+          id: 'global-ai-222222222222222222222222',
+          label: 'Gemini Secondary',
+          provider: 'gemini',
+          model: 'gemini-test',
+          key_name: 'Gemini Secondary',
+          preferred: false,
+          ready: true,
+          unavailable_reason: null,
+        },
+      ],
       max_queries_per_run: 2,
       max_candidates: 12,
       max_output_tokens: 4096,
@@ -907,15 +969,17 @@ describe('HeroApifyActorRouteSettings', () => {
       updateApifyActorDiscoverySettings,
     })
 
-    expect(await screen.findByLabelText('当前全局 AI')).toBeInTheDocument()
+    const selector = await screen.findByLabelText('Discovery 使用的全局 AI')
+    expect(selector).toBeInTheDocument()
     expect(screen.queryByLabelText('SecretStore 引用')).not.toBeInTheDocument()
-    expect(screen.getByText(/Gemini Secondary/)).toBeInTheDocument()
+    await browser.click(selector)
+    await browser.click(await screen.findByRole('option', { name: /Gemini Secondary/ }))
     await browser.click(screen.getByRole('button', { name: '保存并热加载' }))
 
     await waitFor(() => expect(api.updateApifyActorDiscoverySettings).toHaveBeenCalledWith({
       expected_generation: 4,
       enabled: false,
-      ai_config_id: 'global',
+      ai_config_id: 'global-ai-222222222222222222222222',
       max_queries_per_run: 2,
       max_candidates: 12,
       max_output_tokens: 4096,

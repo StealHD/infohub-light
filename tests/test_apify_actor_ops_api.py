@@ -128,6 +128,16 @@ def _discovery_revision(store: ServiceStore):
         build_id="build-api-canary",
         build_number="1.0.1",
         manifest=_manifest(actor_id, "1.0.1"),
+        pricing={
+            "pricingModel": "PAY_PER_EVENT",
+            "minimalMaxTotalChargeUsd": 0.02,
+            "pricingPerEvent": {
+                "actorChargeEvents": {
+                    "item": {"eventPriceUsd": 0.001},
+                    "detail": {"eventPriceUsd": 0.015},
+                }
+            },
+        },
         lifecycle="static_valid",
         discovery_run_id=str(run["run_id"]),
     )
@@ -599,27 +609,14 @@ def test_discovery_settings_use_global_ai_and_are_cas_guarded(tmp_path, monkeypa
     current = client.get("/api/admin/apify-discovery-settings")
     assert current.status_code == 200
     settings = current.json()["data"]
-    assert settings["schema_version"] == 3
+    assert settings["schema_version"] == 4
     assert settings["max_output_tokens"] == 4096
     assert settings["recommended_max_output_tokens"] is None
     assert settings["enabled"] is False
-    assert settings["ai_config_id"] == "global"
+    assert settings["ai_config_id"] == "global-ai-unavailable"
     assert settings["ai_options"][0]["ready"] is False
     assert "secret_id" not in current.text
     assert "api_key_env" not in current.text
-
-    unavailable = client.patch(
-        "/api/admin/apify-discovery-settings",
-        json={
-            "expected_generation": settings["generation"],
-            "enabled": True,
-            "ai_config_id": "global",
-        },
-    )
-    assert unavailable.status_code == 409
-    assert unavailable.json()["error"]["code"] == (
-        "apify_actor_discovery_global_ai_unavailable"
-    )
 
     rejected_legacy = client.patch(
         "/api/admin/apify-discovery-settings",
@@ -660,6 +657,18 @@ def test_discovery_settings_use_global_ai_and_are_cas_guarded(tmp_path, monkeypa
     updated_settings = updated.json()["data"]
     assert updated_settings["ai_options"][0]["key_name"] == "Actor Discovery Test"
     assert updated_settings["ai_options"][0]["ready"] is False
+    unavailable = client.patch(
+        "/api/admin/apify-discovery-settings",
+        json={
+            "expected_generation": updated_settings["generation"],
+            "enabled": True,
+            "ai_config_id": updated_settings["ai_options"][0]["id"],
+        },
+    )
+    assert unavailable.status_code == 409
+    assert unavailable.json()["error"]["code"] == (
+        "apify_actor_discovery_global_ai_unavailable"
+    )
 
     SecretStore(tmp_path / "data").set(
         "ACTOR_DISCOVERY_TEST_KEY",
@@ -675,17 +684,52 @@ def test_discovery_settings_use_global_ai_and_are_cas_guarded(tmp_path, monkeypa
         json={
             "expected_generation": configured["generation"],
             "enabled": True,
-            "ai_config_id": "global",
+            "ai_config_id": configured["ai_config_id"],
         },
     )
     assert enabled.status_code == 200, enabled.text
     enabled_settings = enabled.json()["data"]
     assert enabled_settings["enabled"] is True
     assert enabled_settings["generation"] == configured["generation"] + 1
+    secondary = store.create_secret_ref(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        owner_user_id=str(owner["id"]),
+        name="Actor Discovery Secondary",
+        env_name="ACTOR_DISCOVERY_SECONDARY_TEST_KEY",
+        kind="ai",
+        provider="deepseek",
+    )
+    SecretStore(tmp_path / "data").set(
+        "ACTOR_DISCOVERY_SECONDARY_TEST_KEY",
+        "test-only-secondary-secret",
+    )
+    choices = client.get("/api/admin/apify-discovery-settings").json()["data"]
+    secondary_option = next(
+        option
+        for option in choices["ai_options"]
+        if option["key_name"] == "Actor Discovery Secondary"
+    )
+    assert secondary_option["preferred"] is False
+    switched = client.patch(
+        "/api/admin/apify-discovery-settings",
+        json={
+            "expected_generation": choices["generation"],
+            "ai_config_id": secondary_option["id"],
+        },
+    )
+    assert switched.status_code == 200, switched.text
+    switched_settings = switched.json()["data"]
+    assert switched_settings["ai_config_id"] == secondary_option["id"]
+    assert ApifyActorOpsService(store).get_discovery_settings()[
+        "secret_ref_id"
+    ] == secondary["id"]
+    protected = client.delete(f"/api/admin/secrets/{secondary['id']}")
+    assert protected.status_code == 409
+    assert protected.json()["error"]["code"] == "secret_in_use"
     output_updated = client.patch(
         "/api/admin/apify-discovery-settings",
         json={
-            "expected_generation": enabled_settings["generation"],
+            "expected_generation": switched_settings["generation"],
             "max_output_tokens": 12288,
         },
     )
@@ -966,10 +1010,23 @@ def test_discovery_projection_reports_rank_rejections_and_committed_spend(
     )
     assert response.status_code == 200, response.text
     projected = response.json()["data"]
+    assert projected["schema_version"] == 3
+    assert projected["canary_attempts_used"] == 0
+    assert projected["canary_attempts_limit"] == 5
+    assert projected["canary_attempts_remaining"] == 5
+    assert projected["canary_timeout_seconds"] == 300
     assert projected["candidates"][0]["rank"] == 1
     assert projected["candidates"][0]["validation_status"] == "queued"
     assert projected["candidates"][0]["canary_in_flight"] is True
     assert projected["candidates"][0]["awaiting_approval"] is False
+    assert projected["candidates"][0]["revision"]["pricing"] == {
+        "model": "PAY_PER_EVENT",
+        "billing_unit": "event",
+        "unit_price_min_usd": 0.001,
+        "unit_price_max_usd": 0.015,
+        "minimum_charge_usd": None,
+        "minimum_run_cap_usd": 0.02,
+    }
     assert projected["spent_usd"] == 0.02
     assert projected["rejections"] == [
         {"reason": "actor_full_permission", "count": 2}

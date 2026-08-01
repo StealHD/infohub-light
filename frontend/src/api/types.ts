@@ -726,6 +726,14 @@ export type ApifyActorRevisionSummary = {
   manifest_hash?: string | null
   lifecycle: ApifyActorRevisionLifecycle
   listed_price_usd_per_1000?: number | null
+  pricing?: {
+    model: string | null
+    billing_unit: 'free' | 'dataset_item' | 'event' | 'unknown'
+    unit_price_min_usd: number | null
+    unit_price_max_usd: number | null
+    minimum_charge_usd: number | null
+    minimum_run_cap_usd: number | null
+  }
   last_charge_usd?: number | null
   avg_charge_24h_usd?: number | null
   last_canary_at?: string | null
@@ -811,13 +819,18 @@ export type ApifyActorDiscoveryCandidate = {
   rank?: number | null
   status: string
   validation_status?: string | null
+  validation_outcome?: string | null
+  validation_cost_usd?: number | null
+  validation_cost_final?: boolean
+  validation_duration_ms?: number | null
+  actor_run_status?: string | null
   canary_in_flight?: boolean
   rejection_reasons?: string[]
   awaiting_approval?: boolean
 }
 
 export type ApifyActorDiscoveryRun = {
-  schema_version: 2
+  schema_version: 3
   run_id: string
   route_id?: string | null
   generation: number
@@ -827,6 +840,10 @@ export type ApifyActorDiscoveryRun = {
   queries_limit?: number | null
   budget_cap_usd: number
   spent_usd?: number | null
+  canary_attempts_used?: number | null
+  canary_attempts_limit?: number | null
+  canary_attempts_remaining?: number | null
+  canary_timeout_seconds?: number | null
   candidate_count?: number | null
   candidate_shortfall?: number | null
   publisher_count?: number | null
@@ -940,16 +957,17 @@ export type ApifyActorSourceBindingActivation = {
 }
 
 export type ApifyActorDiscoverySettings = {
-  schema_version: 3
+  schema_version: 4
   generation: number
   enabled: boolean
-  ai_config_id: 'global'
+  ai_config_id: string
   ai_options: Array<{
-    id: 'global'
+    id: string
     label: string
     provider: string
     model: string
     key_name: string | null
+    preferred: boolean
     ready: boolean
     unavailable_reason: string | null
   }>
@@ -975,7 +993,7 @@ export type ApifyActorDiscoveryMeasurement = {
 export type ApifyActorDiscoverySettingsPatch = {
   expected_generation: number
   enabled?: boolean
-  ai_config_id?: 'global'
+  ai_config_id?: string
   max_queries_per_run?: number
   max_candidates?: number
   max_output_tokens?: number

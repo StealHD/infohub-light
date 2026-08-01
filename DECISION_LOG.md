@@ -880,3 +880,12 @@
 - 召回边界：Store 查询按 Route 的内容合同固定为 X profile posts、YouTube channel videos、Instagram profile/user posts，而不是宽泛的 profile/items 文本；模型在一次调用内必须按当前有界 target 返回精确 3–6 个排序 proposal。少返回或单个 Manifest 无效仍只形成安全 shortfall，不能降低三 Actor、两发布者、静态校验或官方 input validation 门槛。
 - 输入生成边界：实测确认同一批公开候选在代码按 Schema 生成 target string/array/标准 `startUrls` object 后全部通过官方 validation，而模型生成的输入 shape 会系统性得到候选级 400。因此 input template 改由确定性代码从公开 Build Schema 生成，只允许 target URL/handle/native-ID 和一个 runtime max-items reference；无法映射的候选在 AI 前淘汰。AI 仍必须提交完整安全 Manifest并先通过危险字段检查，但持久化前 input 规范为该模板；模型继续负责候选排序、输出 mapping 和 semantics。
 - 生命周期：Discovery AI transport 在所属 Job event loop 退出前显式关闭，避免异步 SDK 清理落到已关闭 loop。该修复不增加 AI 重试、不修改 `$0.02` Route cap 或 30720 生产输出上限、不自动启动 Canary，也不新增数据库迁移或改写历史失败 Run。
+
+### D103 Actor Discovery 人工选 Key 且 Canary 失败证据闭环
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动发起新的 AI 或付费 Actor
+- AI 配置边界：Discovery settings 不再把全局首选 Key 当作唯一只读选项。API 从当前全局 Provider 的已登记 AI Secret 中生成不含内部 ID 的 opaque 选项，管理员以 settings CAS 人工固定一个；provider/model/Base URL 继续继承全局配置，下一 Job 热加载且不回退其他 Key，被选 Secret 不允许删除。
+- 付费前静态边界：AI 生成的每个输出 Pointer 必须能在精确 Build Dataset Schema 中解析；Profile/Channel items 不允许内容 URL 与来源身份共用同一路径。Prompt 改为优先使用 author/owner handle 或 source native ID，profile metadata-only Dataset 不得进入 Canary，避免用付费试跑发现本可静态淘汰的合同错误。
+- 超时与耗尽边界：Actor Canary 缺省等待 300 秒，可在 180–900 秒内为下一 Job 热加载；已知 Run 超时后中止且不自动重试。`apify_actor_runs` 的终态实际费用回写 attempt/validation，Worker 启动时幂等修复历史漏账。一个 Discovery cycle 的五次已启动 Route Canary 仍不足三个成功 Revision 时进入 `canary_exhausted`，页面停止审批并显示安全 outcome、耗时、远端终态与实际费用，只允许管理员显式重新发现。
+- 审批可见性：确认 Modal 必须在付费前显示 Route/来源类型、参考来源或 opaque source、Actor、精确 Build、商城定价、本次封顶和认证总预算；仍不回显真实 target、Actor input、Run/Dataset ID、凭据或上游正文。

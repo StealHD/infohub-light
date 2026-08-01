@@ -913,7 +913,10 @@ def _run_apify_actor_validation(
     import asyncio
 
     from ..scrapers.apify_client import ApifyClient
-    from .apify_actor_canary import ApifyActorCanaryRunner
+    from .apify_actor_canary import (
+        ApifyActorCanaryRunner,
+        actor_canary_timeout_seconds,
+    )
     from .apify_actor_ops import ApifyActorOpsService
 
     validation_id = _actor_validation_id(job)
@@ -953,6 +956,7 @@ def _run_apify_actor_validation(
             client = ApifyClient(
                 coordinator=coordinator,
                 http_client=http_client,
+                timeout_seconds=actor_canary_timeout_seconds(),
             )
             result = await ApifyActorCanaryRunner(
                 store,
@@ -1065,6 +1069,11 @@ def _run_apify_actor_discovery(
         store,
         data_dir=data_dir,
         workspace_id=str(job["workspace_id"]),
+        secret_ref_id=(
+            str(settings["secret_ref_id"])
+            if settings.get("secret_ref_id")
+            else None
+        ),
     )
     if not global_ai.ready or global_ai.config is None:
         blocked = ops.update_discovery_run(
@@ -1497,14 +1506,22 @@ def run_worker_once(
                 )
             from .apify_actor_ops import ApifyActorOpsService
 
-            actor_ops_reconcile = ApifyActorOpsService(
+            actor_ops = ApifyActorOpsService(
                 store,
                 workspace_id=str(outcome["workspace_id"]),
-            ).reconcile_unfinished_attempts()
+            )
+            actor_ops_reconcile = actor_ops.reconcile_unfinished_attempts()
             if actor_ops_reconcile["routes_blocked"]:
                 logger.warning(
                     "Apify ActorOps reconcile blocked workspace_id=%s",
                     outcome["workspace_id"],
+                )
+            cost_reconcile = actor_ops.reconcile_terminal_validation_costs()
+            if cost_reconcile["validations"]:
+                logger.info(
+                    "Apify Actor validation costs reconciled workspace_id=%s count=%s",
+                    outcome["workspace_id"],
+                    cost_reconcile["validations"],
                 )
             try:
                 sync_apify_actor_quota_alert(

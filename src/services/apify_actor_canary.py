@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -52,6 +53,27 @@ _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
         ),
     ),
 }
+
+DEFAULT_ACTOR_CANARY_TIMEOUT_SECONDS = 300
+MIN_ACTOR_CANARY_TIMEOUT_SECONDS = 180
+MAX_ACTOR_CANARY_TIMEOUT_SECONDS = 900
+
+
+def actor_canary_timeout_seconds() -> int:
+    """Return the bounded per-Actor Canary timeout hot-loaded per job."""
+
+    raw = os.getenv(
+        "HORIZON_APIFY_ACTOR_CANARY_TIMEOUT_SECONDS",
+        str(DEFAULT_ACTOR_CANARY_TIMEOUT_SECONDS),
+    )
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_ACTOR_CANARY_TIMEOUT_SECONDS
+    return max(
+        MIN_ACTOR_CANARY_TIMEOUT_SECONDS,
+        min(value, MAX_ACTOR_CANARY_TIMEOUT_SECONDS),
+    )
 
 
 def reference_target_fingerprint(
@@ -326,10 +348,12 @@ class ApifyActorCanaryRunner:
             mapped = map_actor_output(manifest, run.items, target, runtime)
         except TimeoutError:
             error_code = "apify_actor_run_timed_out"
+            actual_charge_usd = self.ops.finalized_actor_run_cost(attempt_id)
             self.ops.finish_attempt(
                 attempt_id,
                 status="actor_failed",
                 semantic_outcome=error_code,
+                actual_cost_usd=actual_charge_usd,
                 error_code=error_code,
             )
             self.ops.record_validation(
@@ -337,6 +361,7 @@ class ApifyActorCanaryRunner:
                 status="failed",
                 semantic_outcome=error_code,
                 attempt_id=attempt_id,
+                cost_usd=actual_charge_usd,
             )
             raise ActorOpsError(
                 error_code,

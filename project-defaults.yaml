@@ -162,6 +162,7 @@
       "apify_actor_ops_min_publishers": 2,
       "apify_actor_ops_route_canary_budget_usd": 0.1,
       "apify_actor_ops_route_canary_max_attempts": 5,
+      "apify_actor_ops_canary_timeout_seconds": 300,
       "apify_actor_ops_source_validation_budget_usd": 0.06,
       "apify_actor_ops_discovery_query_rounds": 3,
       "apify_actor_ops_discovery_candidate_limit": 12,

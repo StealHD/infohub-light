@@ -83,6 +83,7 @@ const lifecycleLabels: Record<ApifyActorRevisionSummary['lifecycle'], string> = 
 
 const terminalDiscoveryStatuses = new Set([
   'awaiting_canary_approval',
+  'canary_exhausted',
   'candidate_shortfall',
   'blocked_ai_unavailable',
   'completed',
@@ -105,25 +106,41 @@ const discoveryReasonLabels: Record<string, string> = {
   input_validation_candidate_shortfall: '通过输入校验的候选不足三个',
   publisher_diversity_candidate_shortfall: '通过校验的候选不足两个发布者',
   candidate_shortfall: '商城元数据过滤后候选不足',
+  route_canary_attempts_exhausted: '本轮五次 Route Canary 已用完，请重新发现并生成修正后的 Revision',
+  apify_actor_run_timed_out: 'Actor 在时限内未完成，已中止且不会自动重试',
+  apify_actor_contract_mismatch: 'Dataset 未满足统一内容合同',
+  apify_actor_target_identity_mismatch: 'Dataset 内容无法确认属于目标账号或频道',
+  apify_manifest_output_pointer_unverifiable: 'Manifest 字段路径不在固定 Build Dataset Schema 中',
+  apify_manifest_source_identity_invalid: 'Manifest 错把内容 URL 当作来源身份',
 }
 
 type PoolDraft = Record<ApifyActorSlotName, string>
 
+type CanaryRouteContext = {
+  routeKey: string
+  routeLabel: string
+  routeMode: 'primary' | 'fallback'
+  actorPricingLabel: string
+  buildLabel: string
+}
+
 type CanaryTarget =
-  | {
+  | (CanaryRouteContext & {
     kind: 'discovery'
     runId: string
     candidate: ApifyActorDiscoveryCandidate
     expectedGeneration: number
     capUsd: number
-  }
-  | {
+    routeBudgetUsd: number
+    routeSpentUsd: number
+  })
+  | (CanaryRouteContext & {
     kind: 'source'
     sourceId: string
     revision: ApifyActorRevisionSummary
     expectedGeneration: number
     capUsd: number
-  }
+  })
 
 type CanaryApprovalTarget = CanaryTarget & {
   approvalId: string
@@ -131,7 +148,7 @@ type CanaryApprovalTarget = CanaryTarget & {
 
 type DiscoverySettingsDraft = {
   enabled: boolean
-  aiConfigId: 'global'
+  aiConfigId: string
   maxQueriesPerRun: string
   maxCandidates: string
   maxOutputTokens: string
@@ -144,6 +161,24 @@ function routeIdentity(platform: string, targetType: string, capability: string)
 function revisionLabel(revision: ApifyActorRevisionSummary): string {
   const build = revision.build_number || revision.build_id || 'legacy'
   return `${revision.publisher} · ${revision.actor_public_name || revision.actor_id} · ${build}`
+}
+
+function actorPricingLabel(revision: ApifyActorRevisionSummary): string {
+  const pricing = revision.pricing
+  if (!pricing || pricing.billing_unit === 'unknown') return '定价快照不可用'
+  if (pricing.billing_unit === 'free') return '免费 Actor'
+  const minimum = pricing.unit_price_min_usd
+  const maximum = pricing.unit_price_max_usd
+  const price = minimum === null || minimum === undefined
+    ? '标价未提供'
+    : maximum !== null && maximum !== undefined && Math.abs(maximum - minimum) > 1e-9
+      ? `${formatActorUsd(minimum, true)}–${formatActorUsd(maximum, true)}`
+      : formatActorUsd(minimum, true)
+  const unit = pricing.billing_unit === 'dataset_item' ? '每 Dataset 行' : '每计费事件'
+  const cap = pricing.minimum_run_cap_usd
+  return `${price} ${unit}${cap !== null && cap !== undefined
+    ? ` · Actor 最低 Run 上限 ${formatActorUsd(cap, true)}`
+    : ''}`
 }
 
 function shortRevision(revisionId: string | null | undefined): string {
@@ -160,7 +195,13 @@ function discoveryFailureTitle(phase: string | null | undefined): string {
   if (phase === 'input_validation') return '固定 Build 输入校验需要处理'
   if (phase === 'ai_generation') return 'Discovery AI 生成需要处理'
   if (phase === 'static_validation') return 'Manifest 静态校验需要处理'
+  if (phase === 'route_canary') return '本轮 Route Canary 已停止'
   return '发现任务需要处理'
+}
+
+function canaryDurationLabel(durationMs: number | null | undefined): string {
+  if (durationMs === null || durationMs === undefined) return '耗时未知'
+  return `耗时 ${(durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)} 秒`
 }
 
 function routeStatusIcon(tone: 'neutral' | 'success' | 'warning' | 'danger') {
@@ -420,9 +461,9 @@ function DiscoveryPanel({
           : `状态 ${run.status}`}
       />
       <Metric
-        label="费用边界"
+        label="Route 认证费用"
         value={formatActorUsd(run.spent_usd ?? 0)}
-        detail={`任务上限 ${formatActorUsd(run.budget_cap_usd)}`}
+        detail={`已审批/记录；总上限 ${formatActorUsd(run.budget_cap_usd)}；单次最长 ${run.canary_timeout_seconds ?? 300} 秒`}
       />
       <Metric
         label="候选完整度"
@@ -431,11 +472,14 @@ function DiscoveryPanel({
           : run.publisher_shortfall
             ? `缺少 ${run.publisher_shortfall} 个发布者`
             : '数量充足'}
-        detail={`${run.candidate_count ?? run.candidates.length}/3 Actor · ${publisherCount}/2 发布者；付费 Canary 不会自动执行`}
+        detail={`${run.candidate_count ?? run.candidates.length}/3 Actor · ${publisherCount}/2 发布者；Canary ${run.canary_attempts_used ?? 0}/${run.canary_attempts_limit ?? 5} 次`}
       />
     </div>
     {run.error_code && <HeroNotice title={discoveryFailureTitle(run.failure_phase)} status="warning">
       {discoveryReasonLabel(run.error_code)}。安全错误码：<code>{run.error_code}</code>
+    </HeroNotice>}
+    {run.stage === 'canary_exhausted' && <HeroNotice title="当前候选组不能继续付费验证" status="warning">
+      已使用 {run.canary_attempts_used ?? run.canary_attempts_limit ?? 5} 次，本轮剩余 0 次。请勾选“强制重新发现”后重新请求支持检查；系统会使用加强后的 Dataset Schema 与来源身份规则生成新 Revision。
     </HeroNotice>}
     {Boolean(run.rejections?.length) && <HeroNotice title="确定性淘汰摘要" status="default">
       <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
@@ -460,12 +504,25 @@ function DiscoveryPanel({
               {' · '}{lifecycleLabels[candidate.revision.lifecycle]}
             </p>
             <code className="type-meta mt-1 block break-all text-muted">{shortRevision(candidate.revision.revision_id)}</code>
+            <div className="mt-2 grid gap-1 type-meta text-muted">
+              <p>所属 Route：{routeIdentity(detail.platform, detail.target_type, detail.capability)} · <code>{detail.route_key}</code></p>
+              <p>参考来源：Route 认证公开参考来源（真实目标已脱敏）</p>
+              <p>Actor 定价：{actorPricingLabel(candidate.revision)}</p>
+              <p>本次单次上限：{formatActorUsd(Math.min(
+                detail.per_run_cap_usd,
+                Math.max(0, run.budget_cap_usd - (run.spent_usd ?? 0)),
+              ), true)}</p>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusIndicator
               label={candidate.canary_in_flight
                 ? `Canary ${candidate.validation_status || '运行中'}`
-                : candidate.awaiting_approval ? '等待付费审批' : candidate.status}
+                : candidate.awaiting_approval
+                  ? '等待付费审批'
+                  : candidate.validation_status === 'failed'
+                    ? 'Canary 失败'
+                    : candidate.status}
               tone={candidate.rejection_reasons?.length
                 ? 'danger'
                 : candidate.canary_in_flight || candidate.awaiting_approval ? 'warning' : 'neutral'}
@@ -482,6 +539,13 @@ function DiscoveryPanel({
                 candidate,
                 expectedGeneration: run.generation,
                 capUsd: Math.min(detail.per_run_cap_usd, Math.max(0, run.budget_cap_usd - (run.spent_usd ?? 0))),
+                routeBudgetUsd: run.budget_cap_usd,
+                routeSpentUsd: run.spent_usd ?? 0,
+                routeKey: detail.route_key,
+                routeLabel: routeIdentity(detail.platform, detail.target_type, detail.capability),
+                routeMode: detail.mode,
+                actorPricingLabel: actorPricingLabel(candidate.revision),
+                buildLabel: candidate.revision.build_number || candidate.revision.build_id || '未固定',
               })}
             ><Icons.FlaskConical size={14} aria-hidden="true" />确认付费 Canary</Button>}
           </div>
@@ -491,6 +555,18 @@ function DiscoveryPanel({
             {discoveryReasonLabel(reason)} · <code>{reason}</code>
           </li>)}
         </ul>}
+        {candidate.validation_status === 'failed' && <div className="mt-2 rounded-control border border-separator bg-surface-primary p-3 type-meta text-muted">
+          <p className="text-default">{discoveryReasonLabel(candidate.validation_outcome || 'unknown')}</p>
+          <p className="mt-1 break-words">
+            安全错误码：<code>{candidate.validation_outcome || 'unknown'}</code>
+            {' · '}{canaryDurationLabel(candidate.validation_duration_ms)}
+            {' · '}远端终态 {candidate.actor_run_status || '未知'}
+            {' · '}实际费用 {candidate.validation_cost_usd === null || candidate.validation_cost_usd === undefined
+              ? '未知'
+              : formatActorUsd(candidate.validation_cost_usd, true)}
+            {candidate.validation_cost_final ? '（已终结）' : '（待对账）'}
+          </p>
+        </div>}
       </li>)}
     </ol>
   </div>
@@ -744,6 +820,11 @@ function SourceSupportPanel({
                 revision,
                 expectedGeneration: support.generation,
                 capUsd: sourceCanaryCapValue,
+                routeKey: detail.route_key,
+                routeLabel: routeIdentity(detail.platform, detail.target_type, detail.capability),
+                routeMode: detail.mode,
+                actorPricingLabel: actorPricingLabel(revision),
+                buildLabel: revision.build_number || revision.build_id || '未固定',
               })}
             ><Icons.FlaskConical size={14} aria-hidden="true" />验证此槽</Button>}
           </li>
@@ -857,14 +938,14 @@ function DiscoverySettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
       return
     }
     if (draft.enabled && !selectedAI.ready) {
-      setFieldError('当前全局 AI 或首选 Key 尚未就绪，不能启用 Actor 发现。')
+      setFieldError('人工选择的全局 AI Key 尚未就绪，不能启用 Actor 发现。')
       return
     }
     setFieldError('')
     update.mutate({
       expected_generation: query.data.generation,
       enabled: draft.enabled,
-      ai_config_id: 'global',
+      ai_config_id: draft.aiConfigId,
       max_queries_per_run: maxQueries,
       max_candidates: maxCandidates,
       max_output_tokens: maxOutputTokens,
@@ -876,15 +957,17 @@ function DiscoverySettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
     <Button size="sm" variant="ghost" onPress={() => void query.refetch()}>重试此区域</Button>
   </HeroNotice>
 
+  const selectedAI = query.data.ai_options.find((option) => option.id === draft.aiConfigId)
+
   return <form className="grid gap-4" onSubmit={save} noValidate>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <p className="type-control">使用全局 AI</p>
-        <p className="type-meta mt-1 text-muted">Discovery Job 启动时冻结管理员当前选择的全局模型与首选 Key；不自动切换其他 Key。</p>
+        <p className="type-control">从全局 AI 配置人工选择</p>
+        <p className="type-meta mt-1 text-muted">Provider、模型和 Base URL 继承全局 AI；这里人工固定一个同 Provider 的已保存 Key，下一 Discovery Job 热生效且不自动切 Key。</p>
       </div>
       <Switch
         isSelected={draft.enabled}
-        isDisabled={update.isPending || (!draft.enabled && !query.data.ai_options[0]?.ready)}
+        isDisabled={update.isPending || (!draft.enabled && !selectedAI?.ready)}
         onChange={(enabled) => setDraft((current) => current ? { ...current, enabled } : current)}
       >
         <Switch.Content>
@@ -895,16 +978,16 @@ function DiscoverySettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
     </div>
     <div className="grid gap-4 min-[720px]:grid-cols-2">
       <HeroSelect
-        label="当前全局 AI"
+        label="Discovery 使用的全局 AI"
         value={draft.aiConfigId}
-        onChange={() => setDraft((current) => current ? { ...current, aiConfigId: 'global' } : current)}
+        onChange={(aiConfigId) => setDraft((current) => current ? { ...current, aiConfigId } : current)}
         isDisabled={update.isPending}
         options={query.data.ai_options.map((option) => ({
           id: option.id,
-          label: option.label,
+          label: `${option.label}${option.preferred ? '（全局首选）' : ''}${option.ready ? '' : '（未就绪）'}`,
           description: `${option.provider || '未配置'} · ${option.model || '未配置模型'} · ${option.key_name || '未选择 Key'}`,
         }))}
-        description="模型和 Key 在全局 AI 设置中维护。"
+        description="只列出与当前全局 Provider 匹配的 AI Key；模型和 Key 均在全局 AI 设置中维护。"
       />
       <div className="grid grid-cols-2 gap-3">
         <TextField
@@ -934,8 +1017,8 @@ function DiscoverySettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
         </TextField>
       </div>
     </div>
-    {!query.data.ai_options[0]?.ready && <HeroNotice title="当前全局 AI 尚未就绪" status="warning">
-      请先前往 <a className="type-control text-accent underline" href="#settings-ai">全局 AI 设置</a> 选择并配置一个可用 Key。
+    {!selectedAI?.ready && <HeroNotice title="所选全局 AI 尚未就绪" status="warning">
+      请先前往 <a className="type-control text-accent underline" href="#settings-ai">全局 AI 设置</a> 配置相同 Provider 的可用 Key，再回到这里人工选择。
     </HeroNotice>}
     {fieldError && <FieldError>{fieldError}</FieldError>}
     <section className="grid gap-3 rounded-control border border-separator bg-surface-secondary p-3">
@@ -1421,11 +1504,18 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
                   指定精确 Build，串行执行一次；本次最高费用 {formatActorUsd(canaryTarget?.capUsd ?? null)}。
                   提交后不会自动重试或并发竞速。
                 </HeroNotice>
-                <p className="type-control">
-                  {canaryTarget?.kind === 'discovery'
+                {canaryTarget && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+                  <div><dt className="text-muted">所属 Route / 源类型</dt><dd className="type-control mt-1 break-words">{canaryTarget.routeLabel} · <code>{canaryTarget.routeKey}</code> · {canaryTarget.routeMode === 'fallback' ? '原生失败时 Actor 回退' : 'Actor 主链路'}</dd></div>
+                  <div><dt className="text-muted">本次验证来源</dt><dd className="type-control mt-1 break-words">{canaryTarget.kind === 'discovery'
+                    ? 'Route 认证公开参考来源（真实目标已脱敏）'
+                    : `具体来源 ${canaryTarget.sourceId}（真实目标不回显）`}</dd></div>
+                  <div><dt className="text-muted">Actor / Build</dt><dd className="type-control mt-1 break-words">{canaryTarget.kind === 'discovery'
                     ? canaryTarget.candidate.revision.actor_public_name || canaryTarget.candidate.revision.actor_id
-                    : canaryTarget?.revision.actor_public_name || canaryTarget?.revision.actor_id}
-                </p>
+                    : canaryTarget.revision.actor_public_name || canaryTarget.revision.actor_id} · Build {canaryTarget.buildLabel}</dd></div>
+                  <div><dt className="text-muted">Actor 商城定价</dt><dd className="type-control mt-1 break-words">{canaryTarget.actorPricingLabel}</dd></div>
+                  <div><dt className="text-muted">本次付费封顶</dt><dd className="type-control mt-1 tabular-nums">{formatActorUsd(canaryTarget.capUsd, true)}</dd></div>
+                  {canaryTarget.kind === 'discovery' && <div><dt className="text-muted">Route 认证预算</dt><dd className="type-control mt-1 tabular-nums">已审批/记录 {formatActorUsd(canaryTarget.routeSpentUsd, true)} / 总上限 {formatActorUsd(canaryTarget.routeBudgetUsd, true)}</dd></div>}
+                </dl>}
                 {canaryError && <HeroNotice title={canaryError} />}
               </div>
             </Modal.Body>

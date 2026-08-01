@@ -38,7 +38,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-08-01",
   "result": "Actor Discovery 增加 180 秒单次 AI 调用、完整 Manifest v1 Prompt 合同、安全 Token/finish/耗时测量、4096–65536 生产热配置，以及管理员确认的 YouTube/Instagram 32K/64K 容量测试；通过独立 v16 离线迁移切换本地 8080。",
-  "status": "partial",
+  "status": "success",
   "task_id": "2026-08-01-actor-discovery-token-measurement-v16",
   "unresolved": [
     "任务分支按用户边界保持未提交、未合并、未推送，等待用户明确提交指令",
@@ -565,6 +565,32 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "真实 YouTube Discovery 保存 5 个 static_valid Revision、4 个发布者；真实 Instagram 保存 5 个 static_valid Revision、5 个发布者；两者均 awaiting_canary_approval 且 Canary 记录为 0",
     "两个既有 X source_fetch 串行成功，分别返回 22/23 条，均只有一个 Actor start、semantic_outcome=valid_nonempty、费用终态，总实际费用约 $0.000421，日志不再出现本轮 DecodingError",
     "8080 API/Worker 从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0；ActorOps 页面显示两条 Route 的 5/3 候选且浏览器控制台错误 0"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "Actor Discovery 改为从全局 AI Key 中人工选择；付费确认补齐 Route、来源、定价与预算；Canary 增加 300 秒有界超时、终态费用对账、五次耗尽状态，并在付费前校验 Manifest 输出 Pointer 与来源身份。",
+  "status": "partial",
+  "task_id": "2026-08-02-actor-discovery-ai-canary-diagnostics",
+  "unresolved": [
+    "Instagram 本轮五次 Route Canary 已耗尽；需管理员强制重新发现后，逐次确认新的付费 Canary",
+    "本次未发起新的真实 AI、付费 Canary、三槽激活，也未合并 main、推送或发布 VPS"
+  ],
+  "validation": [
+    "Backend targeted ActorOps/Discovery/Canary/Worker tests passed",
+    "Frontend ActorOps 18 tests passed and production build passed",
+    "Full Test Gate 23/23 passed；git diff --check 与 project-defaults JSON 校验通过",
+    "8080 API/Worker 已从任务 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0",
+    "浏览器验收确认全局 AI 人工选择、Canary 5/5 耗尽阻断、300 秒超时与终态费用诊断；390px 无页面横向溢出，控制台 error/warn 为 0"
   ]
 }
 ```

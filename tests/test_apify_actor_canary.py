@@ -6,6 +6,7 @@ import pytest
 
 from src.services.apify_actor_canary import (
     ApifyActorCanaryRunner,
+    actor_canary_timeout_seconds,
     next_reference_fingerprint,
 )
 from src.services.apify_actor_ops import (
@@ -255,6 +256,199 @@ def test_paid_canary_records_remote_charge_when_output_mapping_fails(tmp_path):
         "cost_usd": 0.013,
         "actual_cost_usd": 0.013,
     }
+
+
+def test_timed_out_canary_reconciles_final_remote_charge(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = next(
+        route for route in ops.list_routes() if route["route_key"] == "x/profile"
+    )
+    candidate_id = ops.ensure_candidate(
+        route["route_id"],
+        actor_id="publisher/reference-actor",
+    )
+    revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id="publisher/reference-actor",
+        publisher="publisher",
+        build_id="build-timeout-cost",
+        build_number="1.0.1",
+        manifest=_manifest(),
+        lifecycle="static_valid",
+    )
+    validation = ops.approve_revision_canary(
+        route["route_id"],
+        revision_id,
+        expected_generation=route["generation"],
+        approval_id="approval-timeout-cost",
+        confirmation=PAID_CANARY_CONFIRMATION,
+        max_cost_usd=0.02,
+        reference_fingerprint=next_reference_fingerprint(
+            store,
+            workspace_id=ops.workspace_id,
+            platform="x",
+            route_id=str(route["route_id"]),
+            revision_id=revision_id,
+        ),
+    )
+    owner = store.create_user(
+        workspace_id=ops.workspace_id,
+        username="timeout-cost-admin",
+        password="safe-test-password",
+        role="admin",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=ops.workspace_id,
+        user_id=owner["id"],
+        job_type="apify_actor_validation",
+        payload={"validation_id": validation["validation_id"]},
+        priority=100,
+        max_attempts=1,
+    )
+
+    class TimeoutClient:
+        async def run_actor_detailed(self, *_args, **kwargs):
+            attempt_id = str(kwargs["logical_run_id"])
+            now = "2030-01-01T00:00:00+00:00"
+            store.connect().execute(
+                """
+                INSERT INTO apify_actor_runs (
+                    id, workspace_id, logical_run_id, secret_id,
+                    secret_version, pool_generation, status,
+                    created_at, started_at, terminal_at, updated_at,
+                    charge_reserved_usd, charge_actual_usd, charge_final
+                ) VALUES (
+                    'run-timeout-cost', ?, ?, 'secret-ref',
+                    1, 1, 'aborted', ?, ?, ?, ?, 0.02, 0.01905, 1
+                )
+                """,
+                (ops.workspace_id, attempt_id, now, now, now, now),
+            )
+            store.connect().commit()
+            raise TimeoutError
+
+    with pytest.raises(ActorOpsError) as error:
+        asyncio.run(
+            ApifyActorCanaryRunner(store, ops, TimeoutClient()).run(
+                validation["validation_id"],
+                job_id=job["id"],
+            )
+        )
+    assert error.value.code == "apify_actor_run_timed_out"
+    persisted = store.connect().execute(
+        """
+        SELECT validation.status, validation.cost_usd,
+               attempt.actual_cost_usd, attempt.cost_final
+        FROM apify_actor_validations AS validation
+        JOIN apify_actor_attempts AS attempt
+          ON attempt.id = validation.attempt_id
+        WHERE validation.validation_id = ?
+        """,
+        (validation["validation_id"],),
+    ).fetchone()
+    assert dict(persisted) == {
+        "status": "failed",
+        "cost_usd": 0.01905,
+        "actual_cost_usd": 0.01905,
+        "cost_final": 1,
+    }
+
+
+def test_canary_timeout_is_bounded_and_hot_loaded(monkeypatch) -> None:
+    monkeypatch.delenv("HORIZON_APIFY_ACTOR_CANARY_TIMEOUT_SECONDS", raising=False)
+    assert actor_canary_timeout_seconds() == 300
+    monkeypatch.setenv("HORIZON_APIFY_ACTOR_CANARY_TIMEOUT_SECONDS", "600")
+    assert actor_canary_timeout_seconds() == 600
+    monkeypatch.setenv("HORIZON_APIFY_ACTOR_CANARY_TIMEOUT_SECONDS", "9999")
+    assert actor_canary_timeout_seconds() == 900
+    monkeypatch.setenv("HORIZON_APIFY_ACTOR_CANARY_TIMEOUT_SECONDS", "invalid")
+    assert actor_canary_timeout_seconds() == 300
+
+
+def test_fifth_failed_route_canary_exhausts_discovery_cycle(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = next(
+        route for route in ops.list_routes() if route["route_key"] == "x/profile"
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="test_canary_exhaustion",
+        expected_generation=int(route["generation"]),
+    )
+    candidate_id = ops.ensure_candidate(
+        route["route_id"],
+        actor_id="publisher/reference-actor",
+    )
+    revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id="publisher/reference-actor",
+        publisher="publisher",
+        build_id="build-canary-exhaustion",
+        build_number="1.0.1",
+        manifest=_manifest(),
+        lifecycle="static_valid",
+        discovery_run_id=str(run["run_id"]),
+    )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+    owner = store.create_user(
+        workspace_id=ops.workspace_id,
+        username="canary-exhaustion-admin",
+        password="safe-test-password",
+        role="admin",
+    )
+
+    class ContractFailureClient:
+        async def run_actor_detailed(self, *_args, **_kwargs):
+            return SimpleNamespace(
+                items=[{"profile": "metadata-only"}],
+                actual_charge_usd=0.001,
+            )
+
+    for index in range(5):
+        validation = ops.approve_revision_canary(
+            route["route_id"],
+            revision_id,
+            expected_generation=route["generation"],
+            approval_id=f"approval-exhaustion-{index}",
+            confirmation=PAID_CANARY_CONFIRMATION,
+            max_cost_usd=0.02,
+            reference_fingerprint=next_reference_fingerprint(
+                store,
+                workspace_id=ops.workspace_id,
+                platform="x",
+                route_id=str(route["route_id"]),
+                revision_id=revision_id,
+            ),
+            discovery_run_id=str(run["run_id"]),
+        )
+        job = JobQueue(store).create_job(
+            workspace_id=ops.workspace_id,
+            user_id=owner["id"],
+            job_type="apify_actor_validation",
+            payload={"validation_id": validation["validation_id"]},
+            priority=100,
+            max_attempts=1,
+        )
+        with pytest.raises(ActorOpsError):
+            asyncio.run(
+                ApifyActorCanaryRunner(
+                    store,
+                    ops,
+                    ContractFailureClient(),
+                ).run(validation["validation_id"], job_id=job["id"])
+            )
+
+    exhausted = ops.get_discovery_run(str(run["run_id"]))
+    assert exhausted["stage"] == "canary_exhausted"
+    assert exhausted["error_code"] == "route_canary_attempts_exhausted"
 
 
 def test_route_canary_generation_change_cancels_same_timestamp_approval(
