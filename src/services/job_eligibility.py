@@ -41,7 +41,12 @@ class JobEligibilityService:
         source_id = str(job.get("source_id") or "")
         if source_id:
             source = self.store.get_source(source_id)
-            if source is None or not source.get("enabled"):
+            if source is None:
+                return JobEligibilityDecision(False, "source_disabled")
+            if (
+                not source.get("enabled")
+                and job.get("job_type") != "apify_actor_validation"
+            ):
                 return JobEligibilityDecision(False, "source_disabled")
 
         if (

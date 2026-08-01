@@ -1,6 +1,8 @@
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from src.models import ContentItem, SourceType
 from src.services.feed_run import FeedRunResult, SourceAvatarHint, SourceOutcome
 from src.services.job_queue import JobQueue
@@ -244,7 +246,14 @@ def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
         def __init__(self, _store, *, data_dir):
             assert data_dir == str(tmp_path)
 
-        def refresh_run_result(self, *, workspace_id, result):
+        def refresh_run_result(
+            self,
+            *,
+            workspace_id,
+            result,
+            commit=True,
+            media_cleanup=None,
+        ):
             avatar_runs.append((workspace_id, result))
             return []
 
@@ -320,3 +329,122 @@ def test_catalog_source_fetch_successful_empty_result_reuses_unchanged_snapshot(
     assert len(avatar_runs) == 2
     assert all(workspace_id == workspace["id"] for workspace_id, _ in avatar_runs)
     assert all(result.items == () for _, result in avatar_runs)
+
+
+def test_catalog_stale_publication_rolls_back_feed_and_media_files(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _write_config(tmp_path)
+    store, workspace, owner, source_id, subscription = _store_with_rss_source(
+        tmp_path,
+        monkeypatch,
+    )
+    old_path = tmp_path / "media" / "catalog-old-avatar.png"
+    old_path.parent.mkdir(parents=True, exist_ok=True)
+    old_path.write_bytes(b"\x89PNG\r\n\x1a\nold-avatar")
+    now = datetime.now(timezone.utc).isoformat()
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+            id, workspace_id, source_id, asset_kind, remote_url, local_path,
+            mime_type, byte_size, checksum, visibility_scope, status,
+            created_at, updated_at
+        ) VALUES ('med_catalog_old', ?, ?, 'source_avatar',
+                  'https://old.example/avatar.png',
+                  'media/catalog-old-avatar.png', 'image/png', 18,
+                  'old-checksum', 'public', 'ready', ?, ?)
+        """,
+        (workspace["id"], source_id, now, now),
+    )
+    store.connect().commit()
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        source_id=source_id,
+        subscription_id=subscription["id"],
+        job_type="source_fetch",
+        payload={},
+    )
+
+    class StaleOrchestrator:
+        def __init__(self, _config, _storage):
+            self.fence_calls = 0
+
+        async def execute(self, **_kwargs):
+            item = ContentItem(
+                id="rss:catalog-stale",
+                source_type=SourceType.RSS,
+                title="Catalog stale",
+                url="https://example.com/catalog-item",
+                published_at=datetime.now(timezone.utc),
+                metadata={
+                    "source_id": source_id,
+                    "subscription_id": subscription["id"],
+                    "remote_media_urls": ["https://media.example/catalog.png"],
+                },
+            )
+            return FeedRunResult(
+                run_id="run-catalog-stale",
+                status="succeeded",
+                started_at=now,
+                finished_at=now,
+                items=(item,),
+                source_outcomes=(
+                    SourceOutcome(
+                        source_id,
+                        subscription["id"],
+                        "rss:catalog-stale",
+                        "full",
+                        "succeeded",
+                        1,
+                        avatar_hints=(
+                            SourceAvatarHint(
+                                source_id=source_id,
+                                remote_url="https://new.example/avatar.png",
+                                origin="rss_feed_icon",
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        def assert_service_apify_actor_ops_publishable(self):
+            self.fence_calls += 1
+            if self.fence_calls == 3:
+                raise RuntimeError("stale route generation")
+
+    monkeypatch.setattr(
+        "src.services.catalog_source_runner.HorizonOrchestrator",
+        StaleOrchestrator,
+    )
+    monkeypatch.setattr(
+        "src.services.media_cache.MediaCacheService._download",
+        lambda _self, _url, *, max_bytes: (
+            b"\x89PNG\r\n\x1a\nnew-media",
+            "image/png",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="stale route generation"):
+        run_catalog_source_fetch(
+            job,
+            data_dir=str(tmp_path),
+            store=store,
+            commit=True,
+        )
+
+    assert UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    ) is None
+    rows = store.connect().execute(
+        "SELECT id, local_path FROM media_assets ORDER BY id"
+    ).fetchall()
+    assert [(row["id"], row["local_path"]) for row in rows] == [
+        ("med_catalog_old", "media/catalog-old-avatar.png")
+    ]
+    assert old_path.exists()
+    assert [path for path in (tmp_path / "media").rglob("*") if path.is_file()] == [
+        old_path
+    ]

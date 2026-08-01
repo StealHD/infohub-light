@@ -39,6 +39,9 @@ export const queryKeys = {
   sources: (userId: string) => [...userKey(userId), 'sources'] as const,
   sourceUsage: (userId: string, sourceId: string) => [...userKey(userId), 'source-usage', sourceId] as const,
   sourceTypes: (userId: string) => [...userKey(userId), 'source-types'] as const,
+  sourceCapabilities: (userId: string) => [
+    ...userKey(userId), 'source-capabilities',
+  ] as const,
   sourceHealth: (userId: string) => [...userKey(userId), 'source-health'] as const,
   feedJobs: (userId: string) => [...userKey(userId), 'feed-jobs'] as const,
   jobs: (userId: string) => [...userKey(userId), 'jobs'] as const,
@@ -57,6 +60,21 @@ export const queryKeys = {
   apifyKeyPool: (userId: string) => [...userKey(userId), 'apify-key-pool'] as const,
   apifyActorXProfileRoute: (userId: string) => [
     ...userKey(userId), 'apify-actor-route', 'x', 'profile',
+  ] as const,
+  apifyActorRoutes: (userId: string) => [
+    ...userKey(userId), 'apify-actor-routes',
+  ] as const,
+  apifyActorRoute: (userId: string, routeId: string) => [
+    ...userKey(userId), 'apify-actor-routes', routeId,
+  ] as const,
+  apifyActorDiscoveryRun: (userId: string, runId: string) => [
+    ...userKey(userId), 'apify-actor-discovery-runs', runId,
+  ] as const,
+  apifyActorSourceSupport: (userId: string, sourceId: string) => [
+    ...userKey(userId), 'apify-actor-source-support', sourceId,
+  ] as const,
+  apifyActorDiscoverySettings: (userId: string) => [
+    ...userKey(userId), 'apify-actor-discovery-settings',
   ] as const,
   apifyActorAlertSettings: (userId: string) => [
     ...userKey(userId), 'apify-actor-alert-settings',

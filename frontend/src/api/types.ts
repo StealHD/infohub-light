@@ -469,6 +469,38 @@ export type SourceTypeDefinition = {
   fields: CatalogField[]
 }
 
+export type ApifyActorSourceCapability = {
+  profile_id: string
+  platform: string
+  target_type: string
+  capability: string
+  mode: 'primary' | 'fallback'
+  generation: number
+  storage_type: string
+  fields: Array<{
+    name: string
+    input_type: string
+    required: boolean
+  }>
+}
+
+export type ApifyActorSupportProfile = {
+  id: string
+  route_key: string
+  platform: 'x' | 'youtube' | 'instagram'
+  target_type: 'profile' | 'channel'
+  capability: 'items'
+  mode: 'primary' | 'fallback'
+  label: string
+}
+
+export type ApifyActorSourceCapabilitiesResponse = {
+  schema_version: 1
+  generation: number
+  support_profiles: ApifyActorSupportProfile[]
+  capabilities: ApifyActorSourceCapability[]
+}
+
 export type CatalogSource = {
   id: string
   type: string
@@ -656,6 +688,310 @@ export type ApifyActorRoute = {
     failed_spend_6h_usd: number
   }
   candidates: ApifyActorRouteCandidate[]
+}
+
+export type ApifyActorRouteSupportStatus =
+  | 'supported'
+  | 'degraded'
+  | 'pending'
+  | 'unsupported'
+  | 'blocked'
+
+export type ApifyActorRouteRuntimeStatus =
+  | 'ready'
+  | 'degraded'
+  | 'blocked'
+  | 'exhausted'
+  | 'budget_blocked'
+
+export type ApifyActorSlotName = 'primary' | 'backup_1' | 'backup_2'
+
+export type ApifyActorRevisionLifecycle =
+  | 'proposed'
+  | 'static_valid'
+  | 'probationary'
+  | 'certified'
+  | 'legacy_builtin'
+  | 'quarantined'
+  | 'superseded'
+  | 'rejected'
+
+export type ApifyActorRevisionSummary = {
+  revision_id: string
+  actor_id: string
+  actor_public_name?: string | null
+  publisher: string
+  build_id?: string | null
+  build_number?: string | null
+  manifest_hash?: string | null
+  lifecycle: ApifyActorRevisionLifecycle
+  listed_price_usd_per_1000?: number | null
+  last_charge_usd?: number | null
+  avg_charge_24h_usd?: number | null
+  last_canary_at?: string | null
+  last_canary_status?: string | null
+  can_canary?: boolean
+  can_activate?: boolean
+}
+
+export type ApifyActorRouteActiveSlot = {
+  slot: ApifyActorSlotName
+  revision_id: string | null
+  runnable: boolean
+  validation_status?: string | null
+  revision?: ApifyActorRevisionSummary | null
+}
+
+export type ApifyActorRouteSummary = {
+  route_id: string
+  route_key: string
+  platform: string
+  target_type: string
+  capability: string
+  mode: 'primary' | 'fallback'
+  generation: number
+  support_status: ApifyActorRouteSupportStatus
+  runtime_status: ApifyActorRouteRuntimeStatus
+  runnable_slots: number
+  required_slots: 3
+  min_runtime_healthy: 2
+  publisher_count: number
+  per_run_cap_usd: number
+  discovery_run_id?: string | null
+  blocked_reason?: string | null
+  updated_at?: string | null
+}
+
+export type ApifyActorSourceValidationSlot = {
+  slot: ApifyActorSlotName
+  revision_id: string | null
+  status: string
+  last_canary_at?: string | null
+  last_canary_status?: string | null
+  can_canary?: boolean
+}
+
+export type ApifyActorSourceValidation = {
+  source_id: string
+  binding_status: string
+  generation: number
+  slots: ApifyActorSourceValidationSlot[]
+  activation_confirmation?: string | null
+}
+
+export type ApifyActorRevisionDiff = {
+  slot: ApifyActorSlotName
+  current_revision_id: string | null
+  proposed_revision_id: string
+  changes: string[]
+}
+
+export type ApifyActorRouteDetail = ApifyActorRouteSummary & {
+  slots: ApifyActorRouteActiveSlot[]
+  revisions: ApifyActorRevisionSummary[]
+  source_validations?: ApifyActorSourceValidation[]
+  source_validation_summary?: {
+    ready: number
+    pending: number
+    failed: number
+  }
+  replacement_needed?: boolean
+  revision_diffs?: ApifyActorRevisionDiff[]
+}
+
+export type ApifyActorRoutesResponse = {
+  schema_version: 1
+  generation: number
+  support_profiles: ApifyActorSupportProfile[]
+  routes: ApifyActorRouteSummary[]
+}
+
+export type ApifyActorDiscoveryCandidate = {
+  revision: ApifyActorRevisionSummary
+  rank?: number | null
+  status: string
+  validation_status?: string | null
+  canary_in_flight?: boolean
+  rejection_reasons?: string[]
+  awaiting_approval?: boolean
+}
+
+export type ApifyActorDiscoveryRun = {
+  schema_version: 2
+  run_id: string
+  route_id?: string | null
+  generation: number
+  stage: string
+  status: string
+  queries_completed?: number | null
+  queries_limit?: number | null
+  budget_cap_usd: number
+  spent_usd?: number | null
+  candidate_count?: number | null
+  candidate_shortfall?: number | null
+  publisher_count?: number | null
+  publisher_shortfall?: number | null
+  error_code?: string | null
+  failure_phase?: string | null
+  measurement_mode?: boolean
+  metrics?: ApifyActorDiscoveryMetrics
+  rejections?: Array<{ reason: string; count: number }>
+  candidates: ApifyActorDiscoveryCandidate[]
+  updated_at?: string | null
+}
+
+export type ApifyActorDiscoveryMetrics = {
+  request_max_output_tokens: number | null
+  input_tokens: number | null
+  completion_tokens: number | null
+  reasoning_tokens: number | null
+  content_tokens: number | null
+  finish_reason: string | null
+  latency_ms: number | null
+  response_bytes: number | null
+  json_status: string | null
+  manifest_status: string | null
+}
+
+export type ApifyActorSupportCheckRequest = {
+  platform: string
+  target_type: string
+  capability: string
+  expected_generation: number
+  force_discovery?: boolean
+}
+
+export type ApifyActorSupportCheckResponse = {
+  schema_version: 1
+  kind: 'route' | 'discovery'
+  generation: number
+  route_generation: number
+  route_id?: string | null
+  support_status: ApifyActorRouteSupportStatus
+  discovery_run_id?: string | null
+  job?: {
+    id: string
+    status: string
+  } | null
+}
+
+export type ApifyActorActivePoolUpdate = {
+  expected_generation: number
+  rollback_revision_id?: string
+  per_run_cap_usd?: number
+  slots: Array<{
+    slot: ApifyActorSlotName
+    revision_id: string
+  }>
+}
+
+export type ApifyActorPaidCanaryRequest = {
+  expected_generation: number
+  approval_id: string
+  confirmation: '确认付费试跑'
+  max_total_charge_usd: number
+}
+
+export type ApifyActorPaidCanaryResponse = {
+  schema_version: 1
+  validation: {
+    validation_id: string
+    route_id: string
+    source_id?: string | null
+    revision_id: string
+    kind: 'route_reference' | 'source_canary'
+    status: string
+    semantic_outcome?: string | null
+    cost_usd?: number | null
+    created_at: string
+    completed_at?: string | null
+  }
+  job: {
+    id: string
+    status: string
+  }
+}
+
+export type ApifyActorSourceBindingActivationResponse = {
+  schema_version: 1
+  source_id: string
+  route_id: string
+  generation: number
+  binding_status: string
+}
+
+export type ApifyActorSourceSupport = {
+  schema_version: 1
+  source_id: string
+  route_id: string | null
+  generation: number
+  binding_status: string
+  verified_revision_set_hash?: string | null
+  budget_cap_usd: number
+  spent_usd: number
+  remaining_budget_usd: number
+  slots: ApifyActorSourceValidationSlot[]
+  activation_confirmation?: string | null
+}
+
+export type ApifyActorSourceBindingActivation = {
+  expected_generation: number
+  confirmation: string
+}
+
+export type ApifyActorDiscoverySettings = {
+  schema_version: 3
+  generation: number
+  enabled: boolean
+  ai_config_id: 'global'
+  ai_options: Array<{
+    id: 'global'
+    label: string
+    provider: string
+    model: string
+    key_name: string | null
+    ready: boolean
+    unavailable_reason: string | null
+  }>
+  max_queries_per_run: number
+  max_candidates: number
+  max_output_tokens: number
+  recommended_max_output_tokens: number | null
+  measurements: {
+    youtube: ApifyActorDiscoveryMeasurement | null
+    instagram: ApifyActorDiscoveryMeasurement | null
+  }
+  updated_at?: string | null
+}
+
+export type ApifyActorDiscoveryMeasurement = {
+  run_id: string
+  route_id: string
+  stage: string
+  updated_at: string | null
+  metrics: ApifyActorDiscoveryMetrics
+}
+
+export type ApifyActorDiscoverySettingsPatch = {
+  expected_generation: number
+  enabled?: boolean
+  ai_config_id?: 'global'
+  max_queries_per_run?: number
+  max_candidates?: number
+  max_output_tokens?: number
+}
+
+export type ApifyActorDiscoveryMeasurementRequest = {
+  expected_generation: number
+  confirmation: '确认AI容量测试'
+  max_output_tokens: 32768 | 65536
+  route_keys: Array<'youtube/channel/items' | 'instagram/profile/items'>
+}
+
+export type ApifyActorDiscoveryMeasurementResponse = {
+  schema_version: 1
+  runs: Array<{ run_id: string; route_id: string; stage: string }>
+  jobs: Array<{ id: string; status: string }>
 }
 
 export type ApifyActorAlertEvent =

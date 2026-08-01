@@ -640,7 +640,7 @@ def test_apify_timeout_error_does_not_expose_remote_identifiers():
     assert remote_dataset_id not in str(raised.value)
 
 
-def test_apify_client_retries_rate_limit_before_succeeding():
+def test_apify_client_does_not_retry_non_idempotent_start_on_rate_limit():
     attempts = {"post": 0}
     seen_auth = []
 
@@ -648,9 +648,7 @@ def test_apify_client_retries_rate_limit_before_succeeding():
         seen_auth.append(request.headers["Authorization"])
         if request.method == "POST":
             attempts["post"] += 1
-            if attempts["post"] == 1:
-                return httpx.Response(429, json={"error": {"message": "rate limit"}})
-            return httpx.Response(200, json=_run_resp())
+            return httpx.Response(429, json={"error": {"message": "rate limit"}})
         if "/actor-runs/" in request.url.path:
             return httpx.Response(200, json=_status_resp())
         if "/datasets/" in request.url.path:
@@ -658,23 +656,99 @@ def test_apify_client_retries_rate_limit_before_succeeding():
         raise AssertionError(f"Unexpected request: {request.url}")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = asyncio.run(
-        ApifyClient(
-            tokens=[
-                ("APIFY_TOKEN", "test-token"),
-                ("APIFY_TOKEN_2", "unused-token"),
-            ],
-            http_client=client,
-            poll_interval=0,
-            timeout_seconds=5,
-            retry_base_delay=0,
-        ).run_actor("actor/id", {})
-    )
+    with pytest.raises(ApifyClientError) as raised:
+        asyncio.run(
+            ApifyClient(
+                tokens=[
+                    ("APIFY_TOKEN", "test-token"),
+                    ("APIFY_TOKEN_2", "unused-token"),
+                ],
+                http_client=client,
+                poll_interval=0,
+                timeout_seconds=5,
+                retry_base_delay=0,
+            ).run_actor_detailed(
+                "actor/id",
+                {},
+                max_remote_starts=1,
+            )
+        )
     asyncio.run(client.aclose())
 
-    assert result == []
-    assert attempts["post"] == 2
+    assert raised.value.code == "apify_actor_start_rejected"
+    assert attempts["post"] == 1
     assert set(seen_auth) == {"Bearer test-token"}
+
+
+def test_unknown_start_callback_failure_keeps_poison_error_and_one_post():
+    class BrokenUnknownCoordinator(_FakeApifyCoordinator):
+        def report_start_outcome_unknown(self, *_args, **_kwargs):
+            raise RuntimeError("local poison callback failed")
+
+    coordinator = BrokenUnknownCoordinator(
+        ("secret-one", "token-one"),
+        ("secret-two", "token-two"),
+    )
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(request.headers["Authorization"])
+        raise httpx.ReadTimeout("unknown start", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ApifyClientError) as raised:
+            asyncio.run(
+                ApifyClient(
+                    coordinator=coordinator,
+                    http_client=client,
+                    retry_base_delay=0,
+                ).run_actor("actor/id", {})
+            )
+    finally:
+        asyncio.run(client.aclose())
+
+    assert raised.value.code == "apify_start_outcome_unknown"
+    assert attempts == ["Bearer token-one"]
+
+
+def test_reconcile_callback_failure_keeps_known_run_poison_error():
+    class BrokenReconcileCoordinator(_FakeApifyCoordinator):
+        def block_run_reconciliation(self, *_args, **_kwargs):
+            raise RuntimeError("local reconcile callback failed")
+
+    coordinator = BrokenReconcileCoordinator(("secret-one", "token-one"))
+    attempts = {"post": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            attempts["post"] += 1
+            return httpx.Response(200, json=_run_resp("run-known", "dataset-known"))
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(200, json=_status_resp("SUCCEEDED"))
+        if "/datasets/" in request.url.path:
+            return httpx.Response(
+                401,
+                json={"error": {"type": "token-not-valid"}},
+            )
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ApifyClientError) as raised:
+            asyncio.run(
+                ApifyClient(
+                    coordinator=coordinator,
+                    http_client=client,
+                    poll_interval=0,
+                    retry_base_delay=0,
+                ).run_actor("actor/id", {})
+            )
+    finally:
+        asyncio.run(client.aclose())
+
+    assert raised.value.code == "apify_run_reconcile_required"
+    assert attempts["post"] == 1
 
 
 def test_apify_client_retries_idempotent_get_5xx_on_same_actor():
@@ -739,6 +813,44 @@ def test_apify_client_retries_idempotent_get_transport_on_same_actor():
 
     assert result == []
     assert attempts == {"post": 1, "status": 1, "dataset": 2}
+
+
+def test_apify_client_retries_dataset_decoding_on_same_run_with_identity_encoding():
+    attempts = {"post": 0, "status": 0, "dataset": 0}
+    encodings = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        encodings.append(request.headers.get("Accept-Encoding"))
+        if request.method == "POST":
+            attempts["post"] += 1
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            attempts["status"] += 1
+            return httpx.Response(200, json=_status_resp())
+        if "/datasets/" in request.url.path:
+            attempts["dataset"] += 1
+            if attempts["dataset"] == 1:
+                raise httpx.DecodingError(
+                    "brotli: decoder failed",
+                    request=request,
+                )
+            return httpx.Response(200, json=[{"id": "tweet-one"}])
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            token="test-token",
+            http_client=client,
+            poll_interval=0,
+            retry_base_delay=0,
+        ).run_actor("actor/id", {})
+    )
+    asyncio.run(client.aclose())
+
+    assert result == [{"id": "tweet-one"}]
+    assert attempts == {"post": 1, "status": 1, "dataset": 2}
+    assert encodings == ["identity"] * 4
 
 
 def test_apify_client_rotates_to_next_token_on_quota_failure():
@@ -1071,6 +1183,51 @@ def test_terminal_dataset_5xx_blocks_without_second_actor_post():
             return httpx.Response(
                 503,
                 json={"error": {"type": "temporarily-unavailable"}},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ApifyClientError) as raised:
+            asyncio.run(
+                ApifyClient(
+                    coordinator=coordinator,
+                    http_client=client,
+                    poll_interval=0,
+                    retry_base_delay=0,
+                ).run_actor("actor/id", {})
+            )
+    finally:
+        asyncio.run(client.aclose())
+
+    assert raised.value.code == "apify_run_reconcile_required"
+    assert raised.value.retryable is True
+    assert attempts == {"post": 1, "dataset": 3}
+    assert coordinator.blocked is True
+    assert not any(
+        event[0] == "credential_failure" for event in coordinator.events
+    )
+
+
+def test_terminal_dataset_decoding_failure_blocks_without_second_actor_post():
+    coordinator = _FakeApifyCoordinator(
+        ("secret-one", "token-one"),
+        ("secret-two", "token-two"),
+    )
+    attempts = {"post": 0, "dataset": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Accept-Encoding"] == "identity"
+        if request.method == "POST":
+            attempts["post"] += 1
+            return httpx.Response(200, json=_run_resp("run-one", "dataset-one"))
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(200, json=_status_resp("SUCCEEDED"))
+        if "/datasets/" in request.url.path:
+            attempts["dataset"] += 1
+            raise httpx.DecodingError(
+                "brotli: decoder failed",
+                request=request,
             )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
@@ -1660,7 +1817,79 @@ def test_x_actors_set_two_cent_run_charge_cap(monkeypatch, actor_id):
     )
     asyncio.run(client.aclose())
 
-    assert seen_query == [{"maxTotalChargeUsd": "0.02"}]
+    assert seen_query == [
+        {"maxItems": "1", "maxTotalChargeUsd": "0.02"}
+    ]
+
+
+def test_apify_client_pins_build_and_bounds_dataset_read():
+    seen: dict[str, dict[str, str]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            seen["start"] = dict(request.url.params)
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(200, json=_status_resp())
+        if "/datasets/" in request.url.path:
+            seen["dataset"] = dict(request.url.params)
+            return httpx.Response(200, json=[{"id": "one"}])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            token="test-token",
+            http_client=http_client,
+            poll_interval=0,
+        ).run_actor(
+            "actor/id",
+            {"maxItems": 1},
+            build_number="1.2.3",
+            max_total_charge_usd=0.02,
+            dataset_item_limit=2,
+        )
+    )
+    asyncio.run(http_client.aclose())
+
+    assert result == [{"id": "one"}]
+    assert seen == {
+        "start": {
+            "maxItems": "1",
+            "maxTotalChargeUsd": "0.02",
+            "build": "1.2.3",
+        },
+        "dataset": {"clean": "true", "limit": "2"},
+    }
+
+
+def test_apify_client_rejects_oversized_dataset_response():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            return httpx.Response(200, json=_status_resp())
+        if "/datasets/" in request.url.path:
+            return httpx.Response(200, json=[{"text": "x" * 256}])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(ApifyClientError) as raised:
+        asyncio.run(
+            ApifyClient(
+                token="test-token",
+                http_client=http_client,
+                poll_interval=0,
+            ).run_actor(
+                "actor/id",
+                {"maxItems": 1},
+                build_number="1.2.3",
+                dataset_response_max_bytes=64,
+            )
+        )
+    asyncio.run(http_client.aclose())
+
+    assert raised.value.code == "apify_dataset_response_too_large"
 
 
 def test_xquik_maps_author_avatar_and_rejects_demo_only_dataset(monkeypatch):

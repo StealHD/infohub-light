@@ -173,6 +173,12 @@ case "$url" in
       exit 0
     fi
     case "${FAKE_READY_MODE-}" in
+      migration-v15)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"Apify ActorOps v15 migration must be applied"}}'
+        ;;
+      migration-v16)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"Apify Discovery limits v16 migration must be applied"}}'
+        ;;
       migration-v11)
         printf '{"ok":false,"error":{"code":"migration_required","message":"content timeline v11 migration must be applied"}}'
         ;;
@@ -421,6 +427,8 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
 def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path):
     primary, linked, _, revision = _create_linked_worktree_fixture(tmp_path)
     migration_cases = {
+        "migration-v15": "scripts/migrate_apify_actor_ops_v15.py",
+        "migration-v16": "scripts/migrate_apify_discovery_limits_v16.py",
         "migration-v13": "scripts/migrate_apify_actor_routing_v13.py",
         "migration-v11": "scripts/migrate_content_timeline_v11.py",
         "migration-v4": "scripts/migrate_user_content_v4.py",

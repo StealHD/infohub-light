@@ -584,6 +584,7 @@ class ApifyKeyPoolService:
         *,
         workspace_id: str | None = None,
         logical_run_id: str | None = None,
+        expected_pool_generation: int | None = None,
     ) -> ApifyCredentialLease:
         """Atomically pin one active secret and create a pre-POST reservation."""
 
@@ -597,6 +598,13 @@ class ApifyKeyPoolService:
             if owns_transaction:
                 connection.execute("BEGIN IMMEDIATE")
             state = self._state_row(connection, workspace_id)
+            if (
+                expected_pool_generation is not None
+                and int(state["generation"]) != int(expected_pool_generation)
+            ):
+                raise ApifyKeyPoolConflictError(
+                    "Apify Key pool changed after the task was frozen"
+                )
             if state["status"] == "draining":
                 raise ApifyKeyDrainPendingError()
             if state["status"] == "blocked":
@@ -647,6 +655,7 @@ class ApifyKeyPoolService:
                     (*attempted, secret_id),
                     workspace_id=workspace_id,
                     logical_run_id=logical_run_id,
+                    expected_pool_generation=expected_pool_generation,
                 )
             env_name = str(secret["env_name"])
             token = self._token_for_env(env_name)
@@ -671,6 +680,7 @@ class ApifyKeyPoolService:
                     (*attempted, secret_id),
                     workspace_id=workspace_id,
                     logical_run_id=logical_run_id,
+                    expected_pool_generation=expected_pool_generation,
                 )
 
             reservation_id = f"apifyrun_{uuid.uuid4().hex}"

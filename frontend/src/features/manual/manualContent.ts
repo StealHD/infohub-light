@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-30',
-  change: '故障日志串联、工作区诊断授权与自动开发门禁',
+  change: '通用 ActorOps 三槽主备、来源级验证与热配置',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -86,6 +86,16 @@ export const manualSections: ManualSection[] = [
       {
         title: '订阅 YouTube 公开频道',
         description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。普通视频、Shorts、公开直播及回放都沿用频道 Feed 收录；“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
+      },
+      {
+        title: '验证 Actor 来源',
+        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → 获取与主题”中的 ActorOps 统一管理。首期支持检查只提供 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合，不允许把 YouTube 与 Profile 等目标类型任意拼接。每条 Route 固定显示 Primary、Backup 1、Backup 2；Discovery 会在一次 AI 调用中排序并尝试 3–6 个候选，已经通过的部分结果会显示为 1/3 或 2/3 并继续等待补位，不会因暂时不足三槽被隐藏，但达到三个 Actor和两个发布者前不能付费 Canary。目标 URL、handle 或原生 ID 的输入形状由代码从官方 Build Schema 生成，AI 不再猜测 string、array 或 startUrls object；官方输入校验拒绝某个候选时只淘汰该候选并继续。页面会区分 Store/元数据故障、输入不兼容、临时校验故障和真正的候选不足。新账号必须按顺序让三槽各完成一次来源级 Canary，三次都通过后才能首次启用。每次付费试跑和首次启用都需要管理员单独确认；提交超时或结果不明时可安全重试当前确认，系统只返回原任务，不会再次扣费。Actor、Build、Manifest、顺序、Route 费用和 Discovery 输出 Token 上限修改后无需重启；Actor Discovery 直接使用“助手与 AI”中已保存的全局 provider、model 与首选 Key，不另存一套模型配置，也不会自动换用其他 Key。管理员输入“确认AI容量测试”后，可顺序测量 YouTube/Instagram 的模型用量；32K 只用于本次护栏，64K 仅在输出被截断后重测，测试不会启动 Actor 或付费 Canary。页面只显示安全 Token、耗时和验证状态，未知用量不会显示为 0，建议值也不会自动保存。全局 AI 不可用时只能阻断新发现，既有 Route 继续运行。X 已启动 Run 的 Dataset 解码失败只会重读同一 Dataset，不会重新付费启动或切换 Actor。新 Actor、Build 或 Manifest 仍必须通过静态校验、付费 Canary 和管理员激活。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
+        href: '/settings#settings-fetching',
+        linkLabel: '打开 ActorOps',
+      },
+      {
+        title: '按内容类型发现 Actor',
+        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。模型按当前有界目标返回完整的 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低三 Actor、两发布者、官方输入校验或每 Run 0.02 美元上限。',
       },
       {
         title: '全局与单源自动更新',

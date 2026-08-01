@@ -17,6 +17,7 @@
 3. Apify Key 池 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；启用仍需停 Worker、核对远端 Run、备份数据库和有上限 canary。
 4. X/profile 的 Apify 三 Actor 路由、schema v13 账本、语义占位拦截、费用熔断、管理员状态页与工作区告警已在本地实现；默认顺序为 ScrapeBadger、Dami、Xquik，真实付费 Canary 与 48 小时观察仍需 operator 单独确认。
 4A. 个人新内容通知与 Apify 运行告警的七类 Webhook Provider Registry、平台业务 ACK、飞书/钉钉可选签名和 schema v14 显式门禁已在本地实现并通过完整 Test Gate；未迁移数据库必须保持 API readiness 与 Worker fail closed，真实 Webhook 验收和部署均未执行。
+4B. 通用 ActorOps schema v15、受限 Manifest v1、三槽 Route Profile、来源级验证、发现设置与管理 UI 已在本地任务分支完成；Discovery 复用管理员保存的全局 AI 首选 Key，首期 tuple 只允许 X Profile、YouTube Channel 与 Instagram Profile。单次 AI 调用要求 3–6 个 best-first proposal，逐项验证并保留有效的 `1/3|2/3` 部分 Revision，只有三 Actor、两发布者才进入 Canary 审批。v16 Token 实测扩展以 global migration 18 离线加列，生产输出上限热配置为 4096–65536，AI 单次调用超时 180 秒；管理员可确认后对 YouTube/Instagram 顺序执行 32K 容量测试，64K 只用于 length 重测，且不启动 Actor/Canary。受控 v15 离线修复会在证据全空时删除误建的 `youtube/profile/items`，并保持合法 Route CAS 单调。X 既有候选与历史只投影为 `legacy_builtin`，YouTube/Instagram Route 在候选不足时明确阻断。真实容量测试、每次付费 Canary、首次启用、分支集成与 VPS 发布仍需后续独立授权。
 5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
 6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
 7. API、Worker、Scheduler 和 CLI 私有双流 JSONL 已完成故障排查加固：请求/Job/source/subscription/stage 可串联，未知 API 异常返回安全 request ID，Worker 覆盖边界、租约恢复、逐来源和通知终态，readiness 独立披露 sink 降级；OpenClaw 缺省只查本人，Owner/Admin 可在新连接上显式授权有界工作区诊断。静态日志合同已进入全部 Test Gate scope；不包含日志 REST API、前端日志页、自动修复或部署。
@@ -31,6 +32,8 @@
 4. 开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前暂停 Worker、确认无 running Job、核对并终止未登记远端 Run、备份 Service 数据库，只执行一次有上限 canary；无法核对的启动结果保持 blocked。
 5. X/profile 上线先迁移 schema v13，再分别对两个现有 X 来源执行一次 ScrapeBadger Canary；Dami 仅在各自 Canary 通过后进入 48 小时 probation，Xquik 保持 open 并只由自然任务探测。未经再次明确授权，不得触发这些付费调用。
 5A. 部署包含 Webhook Registry 的 revision 前必须先完成 schema v13，停止 API/Worker并跨过 heartbeat 安全窗，再对目标数据库执行 Webhook providers v14 dry-run、`0600` backup 与 apply；只有两表约束、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移与发布不得触发真实 Webhook。
+5B. ActorOps 引擎切换前必须在 v13/v14 已完成后停止 API/Worker并跨过 heartbeat 安全窗，对目标数据库执行 v15 dry-run、SQLite `0600` backup 与 apply；只有 X 历史/费用/健康保留、三条 Route Profile、attempt 冻结列、integrity、foreign keys、API/Worker readiness 全部通过后才可恢复。迁移不联网、不调用 AI 或付费 Actor。
+5C. Token 测量上线前必须在 v15 已完成后停止 API/Worker并确认无活跃 Discovery/Canary Job，对目标数据库执行 v16 dry-run、`0600` backup、apply、integrity 与 foreign-key check；旧 Run usage 保持 NULL。自动化验证不得调用真实 AI，8080 重建后真实 32K 测试仍由管理员单独确认。
 6. 用户写入 DeepSeek 轮换 Key 后，只对一篇 captured article 执行零 Token 模型预检和一次省略 `temperature`、SDK/application retry 均关闭的 completion smoke；成功后才启用。
 7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 仍失败，网络出口恢复后只做 1 条公开频道复验。
 8. VPS 的 Feed storage v3 apply、rollout flag 开启和任何付费 canary 必须分别满足门禁并取得对应授权；Bilibili 冷路由受风控时不得高频重试。

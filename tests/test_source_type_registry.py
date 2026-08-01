@@ -8,6 +8,7 @@ from src.services.source_type_registry import (
     catalog_source_setup_type,
     list_source_setup_types,
     list_source_types,
+    normalize_source_setup_input,
     self_service_agent_type_for_catalog,
     source_key,
     validate_secret_env_name,
@@ -70,6 +71,44 @@ def test_source_type_registry_lists_supported_types_and_templates():
     }
     assert by_type["rss"]["credential_mode"] == "none"
     assert by_type["apify_social"]["credential_mode"] == "source_secret"
+
+
+def test_actor_ops_profile_config_keeps_route_identity_opaque():
+    config = validate_source_config(
+        "apify_social",
+        {
+            "profile_id": "route_01HZYX.actor-ops",
+            "target": "@OpenAI",
+            "fetch_limit": 1,
+        },
+    )
+
+    assert config["profile_id"] == "route_01HZYX.actor-ops"
+    assert "platform" not in config
+    assert "kind" not in config
+    assert source_key("apify_social", config) == (
+        "apify_social:route_01HZYX.actor-ops:@openai"
+    )
+
+    with pytest.raises(SourceConfigError, match="profile_id"):
+        validate_source_config(
+            "apify_social",
+            {"profile_id": "../route", "target": "openai"},
+        )
+
+
+def test_agent_apify_lookup_keeps_legacy_identity_and_requires_web_setup():
+    setup = normalize_source_setup_input(
+        "apify",
+        {"platform": "x", "kind": "profile", "target": "openai"},
+    )
+
+    assert setup["lookup_identity"] == {
+        "catalog_source_type": "apify_social",
+        "config": {"platform": "x", "kind": "profile", "target": "openai"},
+    }
+    assert setup["policy"]["resolution_mode"] == "existing_visible_only"
+    assert setup["policy"]["self_service"] is False
 
 
 def test_web_setup_types_add_youtube_alias_without_changing_storage_enum():

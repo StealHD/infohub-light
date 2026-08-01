@@ -28,7 +28,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
 ```json
 {
   "control_topics": [
@@ -37,85 +36,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "ui"
   ],
-  "recorded_on": "2026-07-29",
-  "result": "实现信息流、收藏、历史与搜索的真实终页提示、三场景内置/AI 文案池、收藏 50 条分页，以及仅在普通队列空闲时执行的 workspace 级安全生成缓存；未调用真实模型、未重建或部署 8080。",
-  "status": "completed",
-  "task_id": "2026-07-29-feed-end-messages",
-  "unresolved": [],
-  "validation": [
-    "147 targeted Python regressions passed",
-    "frontend 494 tests passed",
-    "frontend typecheck, lint and UI contract checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "git diff --check"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "将终页与真实空列表统一为无卡片的轻量符号文案，移除冲突的旧空状态信息，并允许每句最多一个白名单 Emoji 或颜文字；安全合同版本进入缓存指纹。",
-  "status": "completed",
-  "task_id": "2026-07-29-feed-end-messages-lightweight",
-  "unresolved": [],
-  "validation": [
-    "22 targeted backend and permission tests passed",
-    "128 targeted frontend tests passed",
-    "frontend typecheck passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent subagent review approved"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "将设置页三个触底文案场景从三条样例改为默认收起的完整列表；每组显示实际条数，可独立展开、隐藏，并在有界可聚焦区域内查看全部带序号文案。",
-  "status": "completed",
-  "task_id": "2026-07-29-feed-end-messages-full-lists",
-  "unresolved": [],
-  "validation": [
-    "frontend App route tests: 90 passed",
-    "frontend typecheck and UI contract checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent subagent review findings addressed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-29",
-  "result": "实现仅使用 Apify 的 X/profile 三 Actor 串行主备、占位语义拦截、稳定 Job 费用组与六小时费用熔断、多 Key 新鲜额度准入、GET-only 重启恢复、管理员状态页，以及邮件或 HTTPS Webhook 首报与恢复告警；新增显式备份校验的 v13 增量迁移。",
-  "status": "completed",
-  "task_id": "2026-07-29-apify-x-actor-failover-alerts",
+  "recorded_on": "2026-08-01",
+  "result": "Actor Discovery 增加 180 秒单次 AI 调用、完整 Manifest v1 Prompt 合同、安全 Token/finish/耗时测量、4096–65536 生产热配置，以及管理员确认的 YouTube/Instagram 32K/64K 容量测试；通过独立 v16 离线迁移切换本地 8080。",
+  "status": "partial",
+  "task_id": "2026-08-01-actor-discovery-token-measurement-v16",
   "unresolved": [
-    "未触发真实付费 Canary 或真实告警测试；Dami 转正式备用仍需两个已启用 X 来源验证并观察 48 小时"
+    "任务分支按用户边界保持未提交、未合并、未推送，等待用户明确提交指令",
+    "真实 32K/64K AI 容量测试未自动执行；当前生产上限仍为管理员已有的 4096，建议值需实测后由管理员保存",
+    "付费 Actor Canary、首次启用与 VPS 发布均未执行"
   ],
   "validation": [
-    "247 related backend regressions passed before final hardening",
-    "generation-conflict paid attempts remain bounded to 3 reservations / $0.06 while proven no-POST cancellations remain retryable",
-    "frontend typecheck and UI contract checks passed",
-    "frontend 501 tests and desktop/tablet/390px X Actor Playwright checks passed",
-    "python scripts/test_gate.py run --mode full: 22/22 passed",
-    "independent final review found no remaining product P0/P1"
+    "ActorOps/Discovery/API/v15-v16 migration/runtime script 定向测试与前端类型、ActorOps Vitest 通过；全部 AI 响应均为 fake",
+    "python scripts/test_gate.py run --mode full: 23/23 passed in 200.836 seconds（最终文档与迁移文件名调整后再次执行）",
+    "v16 SQLite 备份权限 0600；marker 18 apify_discovery_limits_v16、integrity ok、foreign keys 0；旧 Run usage 保持 NULL",
+    "8080 API/Worker 运行 410fac3c28b6-dirty 且 healthy，worker_status=ready，scheduler containers=0；迁移后新增 Actor Run/Validation/Measurement 均为 0",
+    "实际 ActorOps 页面显示生产 Token 上限、两条 Route 未知用量、确认短语与禁用的 32K 按钮；未点击或调用真实 AI"
   ]
 }
 ```
@@ -482,6 +417,154 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "main fast-forwarded from fa78e52627fc to 0681480a59cb",
     "python scripts/test_gate.py run --mode full: 23/23 passed on merged main",
     "observability contract, control JSON, diff checks, backend, frontend and Compose validation all passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-31",
+  "result": "加固 ActorOps API/UI：新付费来源统一经过完整 2+1 capability gate，来源 Canary 使用独立费用输入与总预算，发现/来源异步验证持续轮询，并补齐 Discovery Secret 清除、真实 configured 状态、能力目录失效与错误态、活跃 legacy 回滚过滤及 exact-build Revision 差异投影。",
+  "status": "completed",
+  "task_id": "2026-07-31-apify-actor-ops-api-ui-hardening",
+  "unresolved": [
+    "完整 Test Gate 与本地 8080 cutover 由 ActorOps 集成任务统一执行"
+  ],
+  "validation": [
+    "backend ActorOps API/discovery/legacy compatibility: 24 passed",
+    "frontend ActorOps and App regressions: 113 passed",
+    "frontend typecheck and scoped ESLint passed; Python compile and scoped diff check passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-07-31",
+  "result": "在隔离分支完成通用 ActorOps v15 控制面、受限 Manifest DSL、三槽运行时、发现/认证/来源验证、YouTube 原生优先回退、热配置管理 API/UI 与既有 X 兼容迁移；本机数据库已离线备份迁移并切换 8080，页面脱敏为仅显示 opaque source_id。",
+  "status": "partial",
+  "task_id": "2026-07-31-apify-actor-ops-control-plane-v15",
+  "unresolved": [
+    "任务分支按用户边界保持未提交、未集成 main、未推送，也未发布 VPS",
+    "真实 Store/AI 发现、每次付费 Canary、首次 Route/来源启用仍需管理员后续逐次确认"
+  ],
+  "validation": [
+    "ActorOps、运行时、来源回退、迁移、Worker 与 API 定向回归全部通过，真实 Store、AI 和付费 Actor 均未调用",
+    "frontend 58 files and 539 tests passed before final privacy hardening; final ActorOps frontend 16 tests and backend 16 tests passed",
+    "python scripts/test_gate.py run --mode full: 23/23 passed in 193.314 seconds",
+    "v15 backup mode 0600; SQLite integrity ok and foreign keys empty; schema marker 17 apify_actor_ops_v15 present",
+    "local API and Worker healthy on 8080 with worker_status ready; scheduler containers 0; ActorOps browser smoke and console-error check passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-01",
+  "result": "Actor Discovery 改为每个 Job 冻结全局 AI 的管理员首选 Key，支持检查严格限定 X Profile、YouTube Channel、Instagram Profile；通过受控 v15 离线修复清理误建 youtube/profile/items，并完成本地 8080 API/Worker 切换。",
+  "status": "partial",
+  "task_id": "2026-08-01-actor-discovery-global-ai-route-repair",
+  "unresolved": [
+    "任务分支按用户边界保持未提交、未合并、未推送，等待用户明确提交指令",
+    "Discovery 默认关闭；真实 Store/AI、付费 Canary 与首次启用均未执行"
+  ],
+  "validation": [
+    "ActorOps backend 定向回归通过，frontend ActorOps/App 115 tests 通过",
+    "python scripts/test_gate.py run --mode full: 23/23 passed in 189.138 seconds",
+    "v15 备份为 0600，删除 1 条错误 Route、3 个空槽、2 条零调用 Run 与 2 个终态 Job；integrity ok、foreign keys 0",
+    "X Candidate、Attempt、Target Health、Revision 和费用账本与迁移前备份一致",
+    "8080 API/Worker 运行 410fac3c28b6-dirty 且 healthy，worker_status=ready，scheduler containers=0，前端资产包含全局 AI 与组合 Profile 控件"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface"
+  ],
+  "recorded_on": "2026-08-01",
+  "result": "修复 Actor Discovery Worker 缺失 QuotaService 导入与异常后 Run 保持 queued 的重复补建故障；异常现在与 Job 一起终结，并清理本机重复终态 Job 后重建 8080。",
+  "status": "partial",
+  "task_id": "2026-08-01-actor-discovery-worker-requeue-fix",
+  "unresolved": [
+    "任务分支仍未提交、未合并、未推送，等待用户明确提交指令",
+    "真实 Store/AI 发现、付费 Canary 与首次启用仍由管理员后续独立发起"
+  ],
+  "validation": [
+    "backend targeted 89 passed; frontend targeted 21 passed",
+    "python scripts/test_gate.py run --mode full: 23/23 passed in 191.016 seconds",
+    "创建 0600 SQLite 备份；终结 2 条零查询 Discovery Run，删除 380 个重复 Job 并保留 2 个审计 Job；integrity ok、foreign keys 0",
+    "切换后观察 12 秒：Discovery queued/running 为 0、Job 数量不再增长、无新 NameError",
+    "8080 API/Worker healthy 且 worker_status=ready；scheduler 为 0；未创建付费 Validation"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-01",
+  "result": "修复 Actor Discovery 一次只返回少量 Manifest 时整批归零的问题：单次 AI 调用现在请求 3–6 个排序 proposal，逐项校验并保留有效部分 Revision；API/UI 显示 Actor 与发布者短缺，最终 Canary 门槛仍为三 Actor、两发布者。",
+  "status": "partial",
+  "task_id": "2026-08-01-actor-discovery-partial-candidate-fill",
+  "unresolved": [
+    "任务分支按用户边界保持未提交、未合并、未推送，等待用户明确提交指令",
+    "旧 Discovery Run 不回填历史 AI 正文或 Revision；需要管理员后续重新发起 Discovery 才会产生新部分候选或完整三槽",
+    "真实 AI、付费 Canary 与首次启用均未由本次实现自动执行"
+  ],
+  "validation": [
+    "backend targeted 37 passed；frontend ActorOps targeted 17 passed",
+    "python scripts/test_gate.py run --mode full: 23/23 passed in 188.404 seconds",
+    "8080 API/Worker 已从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0",
+    "浏览器验证新候选短缺投影正常、控制台错误 0；未触发 Store、AI 或付费 Actor"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-01",
+  "result": "修复 X Dataset Brotli 解码后的同 Dataset 幂等重读与 Actor Discovery 候选级输入校验隔离；Discovery 改为按 Route 内容类型召回并要求完整排序备选，真实 YouTube/Instagram 均取得五个静态有效 Revision并进入待 Canary。",
+  "status": "success",
+  "task_id": "2026-08-01-x-dataset-and-multiplatform-discovery-repair",
+  "unresolved": [
+    "YouTube/Instagram 只完成静态发现，未启动任何付费 Canary、三槽激活或来源级验证",
+    "任务分支未合并 main、未推送，也未发布 VPS"
+  ],
+  "validation": [
+    "Actor Discovery targeted 37 passed；final full Test Gate 23/23 passed",
+    "真实 YouTube Discovery 保存 5 个 static_valid Revision、4 个发布者；真实 Instagram 保存 5 个 static_valid Revision、5 个发布者；两者均 awaiting_canary_approval 且 Canary 记录为 0",
+    "两个既有 X source_fetch 串行成功，分别返回 22/23 条，均只有一个 Actor start、semantic_outcome=valid_nonempty、费用终态，总实际费用约 $0.000421，日志不再出现本轮 DecodingError",
+    "8080 API/Worker 从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0；ActorOps 页面显示两条 Route 的 5/3 候选且浏览器控制台错误 0"
   ]
 }
 ```

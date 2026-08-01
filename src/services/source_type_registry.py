@@ -442,9 +442,17 @@ _SOURCE_TYPES: tuple[SourceTypeDefinition, ...] = (
         type="apify_social",
         label="Apify Social",
         description="Apify-backed public social target.",
-        required_fields=("platform", "kind", "target"),
+        # ActorOps sources use profile_id + target. The legacy
+        # platform/kind/target shape remains accepted by validation.
+        required_fields=("target",),
         template={"platform": "x", "kind": "profile", "target": "openai"},
         fields=(
+            _field(
+                "profile_id",
+                "Actor Route",
+                "text",
+                help="Opaque identifier from the certified capability catalog.",
+            ),
             _field(
                 "platform",
                 "Platform",
@@ -1079,7 +1087,15 @@ _AGENT_SOURCE_TYPES: tuple[AgentSourceTypeDefinition, ...] = (
         ),
         _AGENT_GUIDE_METADATA["youtube"],
     ),
-    AgentSourceTypeDefinition("apify", "apify_social", _BY_TYPE["apify_social"].required_fields, _BY_TYPE["apify_social"].fields[:3], _AGENT_GUIDE_METADATA["apify"]),
+    AgentSourceTypeDefinition(
+        "apify",
+        "apify_social",
+        ("platform", "kind", "target"),
+        # Agent-side Apify setup remains an existing-visible-only legacy
+        # lookup. profile_id is supplied only by the Web capability catalog.
+        _BY_TYPE["apify_social"].fields[1:4],
+        _AGENT_GUIDE_METADATA["apify"],
+    ),
 )
 _AGENT_BY_TYPE = {item.type: item for item in _AGENT_SOURCE_TYPES}
 
@@ -2148,14 +2164,29 @@ def validate_source_config(source_type: str, config: dict[str, Any] | None) -> d
         return data
 
     if source_type == "apify_social":
+        profile_id = str(data.get("profile_id") or "").strip()
         platform = str(data.get("platform") or "").strip().lower()
-        if platform not in _APIFY_KINDS:
-            raise SourceConfigError("platform must be one of facebook, instagram, telegram, x")
         kind = str(data.get("kind") or "").strip().lower()
-        _validate_choice(kind, _APIFY_KINDS[platform], "kind")
+        if profile_id:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", profile_id):
+                raise SourceConfigError("profile_id must be an opaque route identifier")
+            if bool(platform) != bool(kind):
+                raise SourceConfigError("platform and kind must be provided together")
+            data["profile_id"] = profile_id
+        elif not platform or not kind:
+            raise SourceConfigError("profile_id or legacy platform and kind is required")
+        if platform:
+            if platform not in _APIFY_KINDS:
+                raise SourceConfigError(
+                    "platform must be one of facebook, instagram, telegram, x"
+                )
+            _validate_choice(kind, _APIFY_KINDS[platform], "kind")
+            data["platform"] = platform
+            data["kind"] = kind
+        else:
+            data.pop("platform", None)
+            data.pop("kind", None)
         target = _text(data, "target", "target")
-        data["platform"] = platform
-        data["kind"] = kind
         data["target"] = target
         data["fetch_limit"] = _int(data, "fetch_limit", default=20, minimum=1, maximum=100)
         analysis_mode = str(data.get("analysis_mode") or "full").strip()
@@ -2196,6 +2227,11 @@ def source_key(source_type: str, config: dict[str, Any]) -> str:
     if source_type == "telegram_channel":
         return f"telegram_channel:{normalized['channel'].lower()}"
     if source_type == "apify_social":
+        if normalized.get("profile_id"):
+            return (
+                "apify_social:"
+                f"{normalized['profile_id']}:{normalized['target'].lower()}"
+            )
         return (
             "apify_social:"
             f"{normalized['platform']}:{normalized['kind']}:{normalized['target'].lower()}"

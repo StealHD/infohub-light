@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -30,6 +31,7 @@ from .maintenance import MaintenanceService
 from .preferred_source_notifications import PreferredSourceNotificationService
 from .apify_actor_alerts import ApifyActorAlertService
 from .operation_log import safe_emit_operation_event
+from .quota import QuotaService
 from .source_type_registry import build_source_payload
 from .secret_store import SecretStore
 from .source_schedule import SourceScheduleService
@@ -38,7 +40,7 @@ from .source_acquisition import (
     shared_acquisition_enabled,
 )
 from .usage_attempt_meter import UsageAttemptMeter
-from .media_cache import MediaCacheService
+from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .source_avatar import SourceAvatarService
 from .apify_pool_runtime import (
     apify_coordinator_for_workspace,
@@ -60,7 +62,133 @@ WORKER_JOB_TRACE_POLICY = {
     "source_fetch": "per_source_acquisition",
     "user_feed_refresh": "per_source_acquisition",
     "content_repair": "job_lifecycle_only",
+    "apify_actor_validation": "job_lifecycle_only",
+    "apify_actor_discovery": "job_lifecycle_only",
 }
+
+
+def _promote_due_actor_revisions(store: ServiceStore) -> dict[str, int]:
+    """Re-evaluate the 48-hour certification window without paid retries."""
+
+    from .apify_actor_ops import ApifyActorOpsService
+
+    promoted = 0
+    pending = 0
+    workspaces = store.connect().execute(
+        "SELECT id FROM workspaces ORDER BY created_at, id"
+    ).fetchall()
+    for workspace in workspaces:
+        result = ApifyActorOpsService(
+            store,
+            workspace_id=str(workspace["id"]),
+        ).promote_eligible_revisions()
+        promoted += int(result["promoted"])
+        pending += int(result["pending"])
+    return {"promoted": promoted, "pending": pending}
+
+
+def _reconcile_and_enqueue_actor_discoveries(
+    store: ServiceStore,
+    queue: JobQueue,
+) -> dict[str, int]:
+    """Recover free discovery work without replaying any paid Canary."""
+
+    connection = store.connect()
+    now = datetime.now(timezone.utc).isoformat()
+    enqueued = 0
+    failed = 0
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        interrupted = connection.execute(
+            """
+            SELECT run.run_id
+            FROM apify_actor_discovery_runs AS run
+            WHERE run.stage IN (
+                'searching', 'metadata', 'ranking',
+                'static_validation', 'input_validation'
+            )
+              AND NOT EXISTS (
+                  SELECT 1 FROM fetch_jobs AS job
+                  WHERE job.workspace_id = run.workspace_id
+                    AND job.job_type = 'apify_actor_discovery'
+                    AND job.status IN ('queued', 'running')
+                    AND json_extract(job.payload_json, '$.run_id') = run.run_id
+              )
+            """
+        ).fetchall()
+        for row in interrupted:
+            connection.execute(
+                """
+                UPDATE apify_actor_discovery_runs
+                SET stage = 'failed', error_code = 'discovery_interrupted',
+                    updated_at = ?
+                WHERE run_id = ? AND stage IN (
+                    'searching', 'metadata', 'ranking',
+                    'static_validation', 'input_validation'
+                )
+                """,
+                (now, row["run_id"]),
+            )
+            failed += 1
+        queued_runs = connection.execute(
+            """
+            SELECT run.run_id, run.workspace_id
+            FROM apify_actor_discovery_runs AS run
+            WHERE run.stage = 'queued'
+              AND NOT EXISTS (
+                  SELECT 1 FROM fetch_jobs AS job
+                  WHERE job.workspace_id = run.workspace_id
+                    AND job.job_type = 'apify_actor_discovery'
+                    AND job.status IN ('queued', 'running')
+                    AND json_extract(job.payload_json, '$.run_id') = run.run_id
+              )
+            ORDER BY run.created_at, run.run_id
+            """
+        ).fetchall()
+        for run in queued_runs:
+            actor = connection.execute(
+                """
+                SELECT id FROM users
+                WHERE workspace_id = ? AND enabled = 1
+                  AND role IN ('owner', 'admin')
+                ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END,
+                         created_at, id
+                LIMIT 1
+                """,
+                (run["workspace_id"],),
+            ).fetchone()
+            if actor is None:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_discovery_runs
+                    SET stage = 'failed',
+                        error_code = 'discovery_admin_unavailable',
+                        updated_at = ?
+                    WHERE run_id = ? AND stage = 'queued'
+                    """,
+                    (now, run["run_id"]),
+                )
+                failed += 1
+                continue
+            queue.create_job(
+                workspace_id=str(run["workspace_id"]),
+                user_id=str(actor["id"]),
+                job_type="apify_actor_discovery",
+                payload={"run_id": str(run["run_id"])},
+                priority=50,
+                max_attempts=1,
+                retention_days=int(
+                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                ),
+                commit=False,
+            )
+            enqueued += 1
+        connection.commit()
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    return {"enqueued": enqueued, "failed": failed}
 
 
 def _exception_code(exc: Exception) -> str:
@@ -77,6 +205,42 @@ def _safe_machine_code(value: Any, fallback: str) -> str:
         if _SAFE_ERROR_CODE_RE.fullmatch(candidate)
         else fallback
     )
+
+
+def _terminalize_failed_actor_discovery(
+    store: ServiceStore,
+    job: dict[str, Any],
+) -> bool:
+    """Fail a broken discovery run in the caller's job-finalization transaction."""
+
+    if str(job.get("job_type") or "") != "apify_actor_discovery":
+        return False
+    payload = (
+        job.get("payload_json")
+        if isinstance(job.get("payload_json"), dict)
+        else {}
+    )
+    run_id = str(payload.get("run_id") or "").strip()
+    if not run_id:
+        return False
+    cursor = store.connect().execute(
+        """
+        UPDATE apify_actor_discovery_runs
+        SET stage = 'failed', error_code = 'apify_actor_discovery_failed',
+            updated_at = ?
+        WHERE workspace_id = ? AND run_id = ?
+          AND stage IN (
+              'queued', 'searching', 'metadata', 'ranking',
+              'static_validation', 'input_validation'
+          )
+        """,
+        (
+            datetime.now(timezone.utc).isoformat(),
+            str(job.get("workspace_id") or ""),
+            run_id,
+        ),
+    )
+    return cursor.rowcount == 1
 
 
 def _emit_source_outcome_events(
@@ -158,24 +322,79 @@ def _emit_job_invalidation(
     )
 
 
+def _cancel_claimed_job_with_validation(
+    queue: JobQueue,
+    store: ServiceStore,
+    job: dict[str, Any],
+    *,
+    reason: str,
+    worker_id: str,
+) -> dict[str, Any]:
+    """Atomically cancel a claim and any paid validation not yet attempted."""
+
+    connection = store.connect()
+    owns_transaction = not connection.in_transaction
+    try:
+        if owns_transaction:
+            connection.execute("BEGIN IMMEDIATE")
+        _terminalize_unstarted_actor_validation(
+            store,
+            job,
+            status="cancelled",
+            semantic_outcome=reason,
+        )
+        finalized = queue.cancel_claimed_job(
+            str(job["id"]),
+            reason=reason,
+            worker_id=worker_id,
+            claim_token=str(job["claim_token"]),
+            commit=False,
+        )
+        if owns_transaction:
+            connection.commit()
+        return finalized
+    except Exception:
+        if owns_transaction and connection.in_transaction:
+            connection.rollback()
+        raise
+
+
 def _cache_run_media(
     job: dict[str, Any],
     *,
     data_dir: str,
     store: ServiceStore,
     items: list[Any],
+    commit: bool = True,
+    publication_cleanup: PostCommitMediaCleanup | None = None,
 ) -> None:
     """Best-effort media caching must never change the feed job outcome."""
 
+    conn = store.connect()
+    savepoint = not commit and conn.in_transaction
+    if not commit and publication_cleanup is None:
+        raise RuntimeError("publication_cleanup is required inside an outer transaction")
+    stage_cleanup = PostCommitMediaCleanup()
+    if savepoint:
+        conn.execute("SAVEPOINT actor_ops_media_cache")
     try:
         MediaCacheService(store, data_dir=data_dir).cache_items(
             workspace_id=job["workspace_id"],
             user_id=job["user_id"],
             items=items,
+            commit=commit,
+            media_cleanup=(stage_cleanup if not commit else None),
         )
+        if savepoint:
+            conn.execute("RELEASE actor_ops_media_cache")
+            publication_cleanup.absorb(stage_cleanup)
     except Exception:
-        if store.connect().in_transaction:
-            store.connect().rollback()
+        if savepoint:
+            conn.execute("ROLLBACK TO actor_ops_media_cache")
+            conn.execute("RELEASE actor_ops_media_cache")
+        elif conn.in_transaction:
+            conn.rollback()
+        stage_cleanup.discard()
         logger.warning(
             "media cache failed job_id=%s; content finalization will continue",
             job.get("id"),
@@ -188,9 +407,18 @@ def _cache_run_source_avatars(
     data_dir: str,
     store: ServiceStore,
     result: Any,
+    commit: bool = True,
+    publication_cleanup: PostCommitMediaCleanup | None = None,
 ) -> None:
     """Persist source-level avatar evidence without changing the Feed outcome."""
 
+    conn = store.connect()
+    savepoint = not commit and conn.in_transaction
+    if not commit and publication_cleanup is None:
+        raise RuntimeError("publication_cleanup is required inside an outer transaction")
+    stage_cleanup = PostCommitMediaCleanup()
+    if savepoint:
+        conn.execute("SAVEPOINT actor_ops_avatar_cache")
     try:
         refreshes = SourceAvatarService(
             store,
@@ -198,10 +426,19 @@ def _cache_run_source_avatars(
         ).refresh_run_result(
             workspace_id=str(job["workspace_id"]),
             result=result,
+            commit=commit,
+            media_cleanup=(stage_cleanup if not commit else None),
         )
+        if savepoint:
+            conn.execute("RELEASE actor_ops_avatar_cache")
+            publication_cleanup.absorb(stage_cleanup)
     except Exception:
-        if store.connect().in_transaction:
-            store.connect().rollback()
+        if savepoint:
+            conn.execute("ROLLBACK TO actor_ops_avatar_cache")
+            conn.execute("RELEASE actor_ops_avatar_cache")
+        elif conn.in_transaction:
+            conn.rollback()
+        stage_cleanup.discard()
         logger.warning(
             "source avatar cache failed job_id=%s; feed finalization will continue",
             job.get("id"),
@@ -251,6 +488,53 @@ class PaidCanaryUnavailableError(RuntimeError):
 class PaidCanaryAuthorizationError(RuntimeError):
     code = "apify_actor_canary_unavailable"
     retryable = False
+
+
+def _actor_validation_id(job: dict[str, Any]) -> str | None:
+    if str(job.get("job_type") or "") != "apify_actor_validation":
+        return None
+    payload = job.get("payload_json")
+    if not isinstance(payload, dict) or set(payload) != {"validation_id"}:
+        return None
+    validation_id = str(payload.get("validation_id") or "").strip()
+    return validation_id or None
+
+
+def _terminalize_unstarted_actor_validation(
+    store: ServiceStore,
+    job: dict[str, Any],
+    *,
+    status: str,
+    semantic_outcome: str,
+) -> bool:
+    """Release a paid approval when its Worker job ends before an Attempt."""
+
+    validation_id = _actor_validation_id(job)
+    if validation_id is None:
+        return False
+    if status not in {"failed", "cancelled"}:
+        raise ValueError("unstarted Actor validation must become terminal")
+    now = datetime.now(timezone.utc).isoformat()
+    updated = store.connect().execute(
+        """
+        UPDATE apify_actor_validations
+        SET status = ?, semantic_outcome = ?, cost_usd = 0,
+            completed_at = ?
+        WHERE workspace_id = ? AND validation_id = ?
+          AND status = 'queued' AND attempt_id IS NULL
+        """,
+        (
+            status,
+            _safe_machine_code(
+                semantic_outcome,
+                "apify_actor_validation_not_started",
+            ),
+            now,
+            str(job.get("workspace_id") or ""),
+            validation_id,
+        ),
+    )
+    return updated.rowcount == 1
 
 
 def _is_retryable_exception(exc: Exception) -> bool:
@@ -405,9 +689,6 @@ def _run_user_feed_refresh(
 
     from ..orchestrator import HorizonOrchestrator
     from ..storage.manager import StorageManager
-    from .feed_production import FeedProductionService, FeedRunFailed, active_service_source_ids
-    from .feed_run import safe_run_diagnostics
-    from .source_health import SourceHealthService
     from .user_analysis_cache import UserAnalysisCache
     from .user_config_builder import build_user_config
 
@@ -465,6 +746,19 @@ def _run_user_feed_refresh(
                 job_id=str(job["id"]),
             )
         if (
+            apify_key_pool_enabled()
+            and hasattr(orchestrator, "set_service_apify_actor_ops")
+        ):
+            from .apify_actor_ops import ApifyActorOpsService
+
+            orchestrator.set_service_apify_actor_ops(
+                ApifyActorOpsService(
+                    store,
+                    workspace_id=str(job["workspace_id"]),
+                ),
+                job_id=str(job["id"]),
+            )
+        if (
             shared_acquisition_enabled()
             and hasattr(orchestrator, "set_service_acquisition_coordinator")
         ):
@@ -487,71 +781,486 @@ def _run_user_feed_refresh(
                 enrich=False,
             )
         )
+        if hasattr(
+            orchestrator,
+            "assert_service_apify_actor_ops_publishable",
+        ):
+            orchestrator.assert_service_apify_actor_ops_publishable()
     finally:
         analysis_cache.close()
-    _cache_run_source_avatars(
+    return _stage_user_feed_publication(
         job,
         data_dir=data_dir,
         store=store,
-        result=run_result,
+        config=config,
+        orchestrator=orchestrator,
+        run_result=run_result,
     )
-    if run_result.status == "failed":
-        raise FeedRunFailed(run_result)
-    _cache_run_media(
-        job,
-        data_dir=data_dir,
-        store=store,
-        items=list(run_result.items),
-    )
-    configured_source_ids = active_service_source_ids(config)
-    all_active_source_ids = _active_catalog_source_ids(
+
+
+def _stage_user_feed_publication(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+    config: Any,
+    orchestrator: Any,
+    run_result: Any,
+) -> dict[str, Any]:
+    """Stage Feed and media references under one rollback-safe transaction."""
+
+    from .feed_production import FeedProductionService, FeedRunFailed, active_service_source_ids
+    from .feed_run import safe_run_diagnostics
+    from .source_health import SourceHealthService
+
+    publication = store.connect()
+    if not publication.in_transaction:
+        publication.execute("BEGIN IMMEDIATE")
+    cleanup = PostCommitMediaCleanup()
+    try:
+        if hasattr(
+            orchestrator,
+            "assert_service_apify_actor_ops_publishable",
+        ):
+            orchestrator.assert_service_apify_actor_ops_publishable()
+        _cache_run_source_avatars(
+            job,
+            data_dir=data_dir,
+            store=store,
+            result=run_result,
+            commit=False,
+            publication_cleanup=cleanup,
+        )
+        if run_result.status == "failed":
+            raise FeedRunFailed(run_result)
+        _cache_run_media(
+            job,
+            data_dir=data_dir,
+            store=store,
+            items=list(run_result.items),
+            commit=False,
+            publication_cleanup=cleanup,
+        )
+        configured_source_ids = active_service_source_ids(config)
+        all_active_source_ids = _active_catalog_source_ids(
+            store,
+            workspace_id=job["workspace_id"],
+            user_id=job["user_id"],
+        )
+        catalog_subscriptions = store.list_user_subscriptions(job["user_id"])
+        retained_source_ids = all_active_source_ids if catalog_subscriptions else None
+        attempted_source_ids = configured_source_ids & all_active_source_ids
+        current_outcomes = tuple(
+            outcome
+            for outcome in run_result.source_outcomes
+            if outcome.source_id in attempted_source_ids
+        )
+        snapshot = FeedProductionService(store, config).save_run_result(
+            workspace_id=job["workspace_id"],
+            user_id=job["user_id"],
+            job_id=job["id"],
+            job_type="user_feed_refresh",
+            result=run_result,
+            active_source_ids=retained_source_ids,
+            publication_fence=(
+                orchestrator.assert_service_apify_actor_ops_publishable
+                if hasattr(
+                    orchestrator,
+                    "assert_service_apify_actor_ops_publishable",
+                )
+                else None
+            ),
+            commit=False,
+        )
+        SourceHealthService(store).apply_outcomes(
+            workspace_id=job["workspace_id"],
+            user_id=job["user_id"],
+            job_id=job["id"],
+            attempted_at=run_result.finished_at,
+            outcomes=current_outcomes,
+            commit=False,
+        )
+        SourceScheduleService(store).advance_after_full_refresh(
+            workspace_id=job["workspace_id"],
+            user_id=job["user_id"],
+            source_outcomes=current_outcomes,
+            finished_at=run_result.finished_at,
+            job_id=job["id"],
+        )
+        return {
+            "ok": True,
+            "job_type": "user_feed_refresh",
+            "snapshot_id": snapshot["id"],
+            "snapshot_created": bool(snapshot.get("snapshot_created", True)),
+            "new_item_count": snapshot["new_item_count"],
+            **safe_run_diagnostics(run_result, item_count=snapshot["item_count"]),
+            "_job_status": run_result.status,
+            "_media_cleanup": cleanup,
+        }
+    except Exception:
+        if publication.in_transaction:
+            publication.rollback()
+        cleanup.discard()
+        raise
+
+
+def _run_apify_actor_validation(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+) -> dict[str, Any]:
+    import asyncio
+
+    from ..scrapers.apify_client import ApifyClient
+    from .apify_actor_canary import ApifyActorCanaryRunner
+    from .apify_actor_ops import ApifyActorOpsService
+
+    validation_id = _actor_validation_id(job)
+    if (
+        not validation_id
+        or int(job.get("max_attempts") or 0) != 1
+        or int(job.get("priority") or 0) != 100
+    ):
+        raise PaidCanaryAuthorizationError(
+            "Actor validation job authorization metadata is invalid"
+        )
+    actor = store.get_user(str(job["user_id"]))
+    if (
+        actor is None
+        or not bool(actor.get("enabled"))
+        or actor.get("role") not in {"owner", "admin"}
+    ):
+        raise PaidCanaryAuthorizationError(
+            "Actor validation requires an active administrator"
+        )
+    coordinator = apify_coordinator_for_workspace(
         store,
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
+        workspace_id=str(job["workspace_id"]),
+        data_dir=data_dir,
     )
-    catalog_subscriptions = store.list_user_subscriptions(job["user_id"])
-    retained_source_ids = (
-        all_active_source_ids if catalog_subscriptions else None
+    if coordinator is None:
+        raise PaidCanaryUnavailableError(
+            "Actor validation requires the enabled Apify Key pool"
+        )
+
+    async def execute() -> dict[str, Any]:
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            trust_env=False,
+        ) as http_client:
+            client = ApifyClient(
+                coordinator=coordinator,
+                http_client=http_client,
+            )
+            result = await ApifyActorCanaryRunner(
+                store,
+                ApifyActorOpsService(
+                    store,
+                    workspace_id=str(job["workspace_id"]),
+                ),
+                client,
+            ).run(
+                validation_id,
+                job_id=str(job["id"]),
+            )
+            return {
+                "ok": True,
+                "job_type": "apify_actor_validation",
+                **result.public_dict(),
+            }
+
+    return asyncio.run(execute())
+
+
+def _actor_discovery_queries(route: dict[str, Any]) -> tuple[str, str, str]:
+    """Return route-specific Store queries that target content-item Actors."""
+
+    profile = (
+        str(route.get("platform") or ""),
+        str(route.get("target_type") or ""),
+        str(route.get("capability") or ""),
     )
-    attempted_source_ids = configured_source_ids & all_active_source_ids
-    current_outcomes = tuple(
-        outcome
-        for outcome in run_result.source_outcomes
-        if outcome.source_id in attempted_source_ids
-    )
-    snapshot = FeedProductionService(store, config).save_run_result(
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        job_id=job["id"],
-        job_type="user_feed_refresh",
-        result=run_result,
-        active_source_ids=retained_source_ids,
-        commit=False,
-    )
-    SourceHealthService(store).apply_outcomes(
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        job_id=job["id"],
-        attempted_at=run_result.finished_at,
-        outcomes=current_outcomes,
-        commit=False,
-    )
-    SourceScheduleService(store).advance_after_full_refresh(
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        source_outcomes=current_outcomes,
-        finished_at=run_result.finished_at,
-        job_id=job["id"],
-    )
-    return {
-        "ok": True,
-        "job_type": "user_feed_refresh",
-        "snapshot_id": snapshot["id"],
-        "snapshot_created": bool(snapshot.get("snapshot_created", True)),
-        "new_item_count": snapshot["new_item_count"],
-        **safe_run_diagnostics(run_result, item_count=snapshot["item_count"]),
-        "_job_status": run_result.status,
+    presets = {
+        ("x", "profile", "items"): (
+            "x profile posts scraper",
+            "twitter user tweets scraper",
+            "x profile feed actor",
+        ),
+        ("youtube", "channel", "items"): (
+            "youtube channel videos scraper",
+            "youtube public channel videos",
+            "youtube channel feed actor",
+        ),
+        ("instagram", "profile", "items"): (
+            "instagram profile posts scraper",
+            "instagram user posts scraper",
+            "instagram profile feed actor",
+        ),
     }
+    selected = presets.get(profile)
+    if selected is None:
+        raise ValueError("Actor discovery route profile is unsupported")
+    return selected
+
+
+def _run_apify_actor_discovery(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+) -> dict[str, Any]:
+    import asyncio
+    import inspect
+    import json
+
+    from ..ai.client import create_ai_client
+    from .apify_actor_discovery import (
+        ActorDiscoveryError,
+        ApifyActorDiscoveryService,
+        ApifyStoreRestClient,
+    )
+    from .apify_actor_ops import ApifyActorOpsService
+    from .apify_discovery_ai import resolve_global_discovery_ai
+
+    payload = (
+        job.get("payload_json")
+        if isinstance(job.get("payload_json"), dict)
+        else {}
+    )
+    run_id = str(payload.get("run_id") or "").strip()
+    if (
+        not run_id
+        or set(payload) != {"run_id"}
+        or int(job.get("max_attempts") or 0) != 1
+    ):
+        raise ValueError("Actor discovery job metadata is invalid")
+    actor = store.get_user(str(job["user_id"]))
+    if actor is None or not bool(actor.get("enabled")) or actor.get("role") == "viewer":
+        raise PermissionError("Actor discovery requires an active member")
+    ops = ApifyActorOpsService(
+        store,
+        workspace_id=str(job["workspace_id"]),
+    )
+    run = ops.get_discovery_run(run_id)
+    if str(run["stage"]) != "queued":
+        raise ValueError("Actor discovery run is not queued")
+    settings = ops.get_discovery_settings()
+    if not bool(settings["enabled"]):
+        blocked = ops.update_discovery_run(
+            run_id,
+            expected_stage="queued",
+            stage="blocked_ai_unavailable",
+            error_code="discovery_ai_disabled",
+        )
+        return {
+            "ok": True,
+            "job_type": "apify_actor_discovery",
+            "run_id": run_id,
+            "stage": blocked["stage"],
+            "revision_count": 0,
+        }
+    global_ai = resolve_global_discovery_ai(
+        store,
+        data_dir=data_dir,
+        workspace_id=str(job["workspace_id"]),
+    )
+    if not global_ai.ready or global_ai.config is None:
+        blocked = ops.update_discovery_run(
+            run_id,
+            expected_stage="queued",
+            stage="blocked_ai_unavailable",
+            error_code="discovery_global_ai_unavailable",
+        )
+        return {
+            "ok": True,
+            "job_type": "apify_actor_discovery",
+            "run_id": run_id,
+            "stage": blocked["stage"],
+            "revision_count": 0,
+        }
+    pool_secret = store.connect().execute(
+        """
+        SELECT secret.env_name
+        FROM apify_key_pool_state AS state
+        JOIN secret_refs AS secret ON secret.id = state.active_secret_id
+        WHERE state.workspace_id = ?
+        """,
+        (str(job["workspace_id"]),),
+    ).fetchone()
+    apify_env = str(pool_secret["env_name"]) if pool_secret else ""
+    if not apify_env or not os.getenv(apify_env):
+        failed = ops.update_discovery_run(
+            run_id,
+            expected_stage="queued",
+            stage="failed",
+            error_code="metadata_token_unavailable",
+        )
+        return {
+            "ok": False,
+            "job_type": "apify_actor_discovery",
+            "run_id": run_id,
+            "stage": failed["stage"],
+            "revision_count": 0,
+        }
+    QuotaService(store).admit_ai_attempt(
+        workspace_id=str(job["workspace_id"]),
+        user_id=str(job["user_id"]),
+        provider=global_ai.provider,
+    )
+    route = ops.get_route(str(run["route_id"]))
+    output_limit = int(run.get("ai_max_output_tokens") or settings["max_output_tokens"])
+    ai_config = global_ai.config.model_copy(
+        update={
+            "enabled": True,
+            "temperature": 0.0,
+            "max_tokens": output_limit,
+        }
+    )
+    ai_client = create_ai_client(
+        ai_config,
+        single_attempt=True,
+        timeout_seconds=180,
+    )
+
+    async def generate(prompt: dict[str, Any]) -> dict[str, Any]:
+        started = time.monotonic()
+        try:
+            raw = await ai_client.complete(
+                (
+                    "Return one strict JSON object only. Follow the supplied "
+                    "Manifest v1 contract exactly. Never invent Actor IDs, "
+                    "Build IDs, schema fields, code, templates, credentials, "
+                    "headers, tokens, or URLs."
+                ),
+                json.dumps(prompt, ensure_ascii=False, sort_keys=True),
+                temperature=0.0,
+                max_tokens=output_limit,
+            )
+        except Exception as error:
+            latency_ms = int((time.monotonic() - started) * 1000)
+            ops.record_discovery_ai_metrics(
+                run_id,
+                latency_ms=latency_ms,
+                json_status="unknown",
+                manifest_status="not_run",
+            )
+            status = getattr(error, "status_code", None)
+            name = type(error).__name__.casefold()
+            if "timeout" in name or isinstance(error, (TimeoutError, httpx.TimeoutException)):
+                code = "discovery_ai_timeout"
+            elif status in {401, 403}:
+                code = "discovery_ai_authentication_failed"
+            elif status == 402:
+                code = "discovery_ai_balance_unavailable"
+            elif status == 404:
+                code = "discovery_ai_model_unavailable"
+            elif status == 429:
+                code = "discovery_ai_rate_limited"
+            else:
+                code = "discovery_ai_transport_unavailable"
+            raise ActorDiscoveryError(code, "Actor discovery AI request failed") from error
+        latency_ms = int((time.monotonic() - started) * 1000)
+        metrics = getattr(ai_client, "last_completion_metrics", None)
+        ops.record_discovery_ai_metrics(
+            run_id,
+            input_tokens=(metrics.input_tokens if metrics else None),
+            completion_tokens=(metrics.completion_tokens if metrics else None),
+            reasoning_tokens=(metrics.reasoning_tokens if metrics else None),
+            content_tokens=(metrics.content_tokens if metrics else None),
+            finish_reason=(metrics.finish_reason if metrics else None),
+            latency_ms=latency_ms,
+            response_bytes=(metrics.response_bytes if metrics else len(raw.encode("utf-8"))),
+            json_status="unknown",
+            manifest_status="not_run",
+        )
+        if not raw.strip():
+            ops.record_discovery_ai_metrics(run_id, json_status="empty")
+            raise ActorDiscoveryError("discovery_ai_empty_content", "Actor discovery AI returned no content")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as error:
+            status = "truncated" if metrics and metrics.finish_reason == "length" else "invalid"
+            ops.record_discovery_ai_metrics(run_id, json_status=status)
+            code = "discovery_ai_output_truncated" if status == "truncated" else "discovery_ai_invalid_json"
+            raise ActorDiscoveryError(code, "Actor discovery AI returned invalid JSON") from error
+        if not isinstance(parsed, dict):
+            ops.record_discovery_ai_metrics(run_id, json_status="invalid")
+            raise ActorDiscoveryError("discovery_ai_contract_invalid", "Actor discovery AI output must be an object")
+        ops.record_discovery_ai_metrics(run_id, json_status="valid")
+        return parsed
+
+    queries = _actor_discovery_queries(route)
+
+    async def execute() -> dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0, connect=10.0),
+                trust_env=False,
+            ) as http_client:
+                service = ApifyActorDiscoveryService(
+                    ops,
+                    ApifyStoreRestClient(
+                        os.environ[apify_env],
+                        client=http_client,
+                    ),
+                    generate,
+                    ai_provider=global_ai.provider,
+                    ai_model=global_ai.model,
+                )
+                outcome = await service.run_discovery(
+                    run_id,
+                    queries=queries,
+                )
+                return {
+                    "ok": True,
+                    "job_type": "apify_actor_discovery",
+                    "run_id": outcome.run_id,
+                    "route_id": outcome.route_id,
+                    "stage": outcome.stage,
+                    "revision_count": len(outcome.revision_ids),
+                    "rejected_count": len(outcome.rejected),
+                }
+        finally:
+            close = getattr(ai_client, "aclose", None)
+            if callable(close):
+                try:
+                    close_result = close()
+                    if inspect.isawaitable(close_result):
+                        await close_result
+                except Exception:
+                    logger.warning(
+                        "Actor discovery AI client close failed error_code=ai_client_close_failed"
+                    )
+
+    try:
+        return asyncio.run(execute())
+    except Exception as exc:
+        current = ops.get_discovery_run(run_id)
+        if str(current["stage"]) not in {
+            "awaiting_canary_approval",
+            "candidate_shortfall",
+            "blocked_ai_unavailable",
+            "failed",
+        }:
+            ops.update_discovery_run(
+                run_id,
+                expected_stage=str(current["stage"]),
+                stage="failed",
+                error_code=_safe_machine_code(
+                    getattr(exc, "code", None),
+                    "apify_actor_discovery_failed",
+                ),
+                failure_phase={
+                    "searching": "store",
+                    "metadata": "metadata",
+                    "ranking": "ai_generation",
+                    "static_validation": "static_validation",
+                    "input_validation": "input_validation",
+                }.get(str(current["stage"])),
+            )
+        raise
 
 
 def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict[str, Any]:
@@ -562,6 +1271,20 @@ def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict
         else {}
     )
     job_type = job["job_type"]
+
+    if job_type == "apify_actor_discovery":
+        return _run_apify_actor_discovery(
+            job,
+            data_dir=data_dir,
+            store=store,
+        )
+
+    if job_type == "apify_actor_validation":
+        return _run_apify_actor_validation(
+            job,
+            data_dir=data_dir,
+            store=store,
+        )
 
     if job_type == "source_test":
         meter = UsageAttemptMeter(
@@ -699,6 +1422,7 @@ def run_worker_once(
     store = ServiceStore(data_dir)
     job: dict[str, Any] | None = None
     failure_fingerprint: str | None = None
+    publication_cleanup: PostCommitMediaCleanup | None = None
     context_token = begin_observability_context(stage="startup")
     try:
         store.initialize()
@@ -725,6 +1449,28 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "webhook_providers_v14",
             }
+        if store.apify_actor_ops_v15_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_ops_v15",
+            }
+        if store.apify_discovery_limits_v16_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_discovery_limits_v16",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -749,6 +1495,17 @@ def run_worker_once(
                     "Apify Actor route reconcile blocked workspace_id=%s",
                     outcome["workspace_id"],
                 )
+            from .apify_actor_ops import ApifyActorOpsService
+
+            actor_ops_reconcile = ApifyActorOpsService(
+                store,
+                workspace_id=str(outcome["workspace_id"]),
+            ).reconcile_unfinished_attempts()
+            if actor_ops_reconcile["routes_blocked"]:
+                logger.warning(
+                    "Apify ActorOps reconcile blocked workspace_id=%s",
+                    outcome["workspace_id"],
+                )
             try:
                 sync_apify_actor_quota_alert(
                     store,
@@ -769,9 +1526,32 @@ def run_worker_once(
             and not store.content_timeline_v11_migration_required()
             and not store.apify_actor_routing_v13_migration_required()
             and not store.webhook_providers_v14_migration_required()
+            and not store.apify_actor_ops_v15_migration_required()
+            and not store.apify_discovery_limits_v16_migration_required()
         ):
             update_observability_context(stage="maintenance")
-            MaintenanceService(store).run_if_due()
+            maintenance_result = MaintenanceService(store).run_if_due()
+            if bool(maintenance_result.get("ran")):
+                try:
+                    _promote_due_actor_revisions(store)
+                except Exception:
+                    logger.warning(
+                        "Actor revision certification maintenance failed",
+                        exc_info=True,
+                    )
+                try:
+                    from .apify_actor_maintenance import (
+                        run_due_actor_metadata_checks,
+                    )
+
+                    run_due_actor_metadata_checks(store)
+                except Exception:
+                    # Metadata refresh is proposal-only. Existing pinned
+                    # Routes continue safely when Store metadata is unavailable.
+                    logger.warning(
+                        "Actor metadata maintenance failed",
+                        exc_info=True,
+                    )
         queue = JobQueue(store)
         lease = float(lease_seconds if lease_seconds is not None else os.getenv("HORIZON_WORKER_LEASE_SECONDS", "900"))
         retry_base = float(
@@ -797,6 +1577,7 @@ def run_worker_once(
                 error_code="lease_expired",
                 counts={"attempts": int(recovered["attempts"])},
             )
+        _reconcile_and_enqueue_actor_discoveries(store, queue)
         queue.prune_terminal_jobs()
         if enqueue_schedules:
             update_observability_context(stage="schedule_enqueue")
@@ -930,11 +1711,12 @@ def run_worker_once(
                 invalidation_reason = str(
                     eligibility.reason or "job_invalidated"
                 )
-                finalized = queue.cancel_claimed_job(
-                    job["id"],
+                finalized = _cancel_claimed_job_with_validation(
+                    queue,
+                    store,
+                    job,
                     reason=invalidation_reason,
                     worker_id=worker_id,
-                    claim_token=job["claim_token"],
                 )
                 _emit_job_invalidation(job, reason=invalidation_reason)
             else:
@@ -946,7 +1728,21 @@ def run_worker_once(
                         raise MigrationRequiredError("user content v4 migration is required before feed jobs can run")
                     if job["job_type"] in {"source_fetch", "user_feed_refresh", "content_repair"} and store.content_timeline_v11_migration_required():
                         raise MigrationRequiredError("content timeline v11 migration is required before feed jobs can run")
+                    if store.apify_actor_ops_v15_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify ActorOps v15 migration is required before jobs can run"
+                        )
+                    if store.apify_discovery_limits_v16_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify Discovery limits v16 migration is required before jobs can run"
+                        )
                     result = _run_job(job, data_dir=data_dir, store=store)
+                    raw_cleanup = result.pop("_media_cleanup", None)
+                    if raw_cleanup is not None and not isinstance(
+                        raw_cleanup, PostCommitMediaCleanup
+                    ):
+                        raise RuntimeError("invalid media publication cleanup")
+                    publication_cleanup = raw_cleanup
                     if result.get("snapshot_id"):
                         conn = store.connect()
                         if conn.in_transaction:
@@ -1004,16 +1800,20 @@ def run_worker_once(
                     )
                     conn = store.connect()
                     conn.rollback()
+                    if publication_cleanup is not None:
+                        publication_cleanup.discard()
+                        publication_cleanup = None
                     eligibility = JobEligibilityService(store).evaluate(job)
                     if not eligibility.allowed:
                         invalidation_reason = str(
                             eligibility.reason or "job_invalidated"
                         )
-                        finalized = queue.cancel_claimed_job(
-                            job["id"],
+                        finalized = _cancel_claimed_job_with_validation(
+                            queue,
+                            store,
+                            job,
                             reason=invalidation_reason,
                             worker_id=worker_id,
-                            claim_token=job["claim_token"],
                         )
                         _emit_job_invalidation(
                             job,
@@ -1022,6 +1822,13 @@ def run_worker_once(
                     else:
                         try:
                             conn.execute("BEGIN IMMEDIATE")
+                            _terminalize_failed_actor_discovery(store, job)
+                            _terminalize_unstarted_actor_validation(
+                                store,
+                                job,
+                                status="failed",
+                                semantic_outcome=error_code,
+                            )
                             structured_result = (
                                 safe_run_diagnostics(exc.result, item_count=0)
                                 if isinstance(exc, FeedRunFailed)
@@ -1080,14 +1887,18 @@ def run_worker_once(
                     eligibility = JobEligibilityService(store).evaluate(job)
                     if not eligibility.allowed:
                         store.connect().rollback()
+                        if publication_cleanup is not None:
+                            publication_cleanup.discard()
+                            publication_cleanup = None
                         invalidation_reason = str(
                             eligibility.reason or "job_invalidated"
                         )
-                        finalized = queue.cancel_claimed_job(
-                            job["id"],
+                        finalized = _cancel_claimed_job_with_validation(
+                            queue,
+                            store,
+                            job,
                             reason=invalidation_reason,
                             worker_id=worker_id,
-                            claim_token=job["claim_token"],
                         )
                         _emit_job_invalidation(
                             job,
@@ -1101,7 +1912,13 @@ def run_worker_once(
                             result=result,
                             worker_id=worker_id,
                             claim_token=job["claim_token"],
+                            commit=False,
                         )
+                        store.connect().commit()
+                        committed_cleanup = publication_cleanup
+                        publication_cleanup = None
+                        if committed_cleanup is not None:
+                            committed_cleanup.run()
         update_observability_context(stage="notification_dispatch")
         try:
             delivery_summary = notifications.dispatch_pending(job_id=str(job["id"]))
@@ -1307,6 +2124,10 @@ def run_worker_once(
             )
         raise
     finally:
+        if publication_cleanup is not None:
+            if store.connect().in_transaction:
+                store.connect().rollback()
+            publication_cleanup.discard()
         store.close()
         reset_observability_context(context_token)
 

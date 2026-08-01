@@ -1288,6 +1288,7 @@ export function HeroSettingsPage() {
     if (action === 'rotate') {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) }),
         ...(apifySecret
           ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
@@ -1298,6 +1299,7 @@ export function HeroSettingsPage() {
     queryClient.removeQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) })
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
       ...(apifySecret
         ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
         : []),
@@ -1333,6 +1335,9 @@ export function HeroSettingsPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }),
         ...(submitted.sections.some((section) => section === 'ai' || section === 'feed_end_messages')
           ? [queryClient.invalidateQueries({ queryKey: queryKeys.feedEndMessages(user.id) })]
+          : []),
+        ...(submitted.sections.includes('ai')
+          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) })]
           : []),
         ...(submitted.sections.includes('filtering')
           ? [
@@ -1400,6 +1405,7 @@ export function HeroSettingsPage() {
       actionToast.success('Key 已安全保存')
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
         ...(submitted.kind === 'apify'
           ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
           : []),

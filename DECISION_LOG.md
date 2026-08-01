@@ -847,3 +847,36 @@
 - 执行门禁：`scripts/check_observability_contract.py` 由 targeted/full/release 的每个 Test Gate scope 先行执行，阻止未映射 FastAPI 写路由、未声明 Worker Job 类型、受保护生产路径 `print`/独立日志配置、未收口 Uvicorn 和缺失关键 Worker 事件。Test Gate 持久化失败输出复用运行时脱敏器，只保留私有 `0600` 日志，不保留具名 raw 临时文件。并行分支可继续隔离开发，但只能由单一 integration owner 合到包含该门禁的最新基线，并在组合结果上修复合同失败后重新验证。
 - 原因：原双流 JSONL 能留下局部记录，却不能保证所有新增写接口和 Job 自动纳入，也无法区分“业务成功但日志实际写失败”；OpenClaw self-only 又不足以让管理员排查其他成员触发的同一后台故障。把关联、sink 健康、显式最小授权与静态失败门禁放在一起，才能让问题可定位且后续并行开发不会静默绕过。
 - 兼容/边界：不新增数据库迁移、日志 REST API、前端日志列表、服务器侧 Agent、自动修复或原始日志外发。普通 MCP 数据工具和确定性 Source/Job 诊断继续严格用户隔离；workspace 例外只适用于脱敏 operation events。D099 替代此前 D065 中“Owner/Admin 永远没有跨用户 operation event 例外”与“日志写入只有 best-effort、无可观测 sink 状态”的部分，其余私有权限、保留、脱敏和提交后事件边界不变。
+
+### D100 Apify Actor 路由泛化为声明式三槽 ActorOps 控制面
+
+- 决策日期：2026-07-30
+- 当前状态：本地任务分支实现与验证中；不触发真实 Store/AI/Actor，不发布 VPS
+- 决策内容：把 v13 的 `x/profile` 专用主备扩展为 `platform + target_type + capability` Route Profile。首期只接受 `x/profile/items`、`youtube/channel/items`、`instagram/profile/items` 三个完整 tuple，X 的兼容 route key 继续为 `x/profile`；API 在事务前拒绝其他组合，前端只使用统一 Profile 选择器。每条 Route 固定 Primary/Backup 1/Backup 2，采用两个 certified 加一个 probationary/certified、三个 Actor 唯一且至少两个发布者；少于两个 runnable 时自动付费抓取 fail closed。Actor 配置成为含精确 Build 与受限 Manifest v1 的不可变 Revision，槽位、来源绑定、发现调用边界和运行任务都使用 generation/CAS；运行中冻结旧 revision set，发布缓存或 Feed 前再次校验。
+- Manifest 与发现边界：Manifest 只允许 JSON literal、六个 target/runtime 引用、RFC 6901 Pointer 和固定纯转换，强制身份、host、占位/付费墙、时间与必需字段验证；代码、插值、任意网络、Header/Cookie/Token、JSONPath 和凭据字段全部拒绝。Discovery 最多三轮读取公开 Actor/成功 Build/Schema/权限/定价元数据，按热配置有界候选数确定性过滤后 AI 才能排序并生成 Manifest，Actor/Build 必须来自拉取证据；原始 Dataset 只在当前进程短暂存在，AI 只看无值路径/类型摘要。Discovery 不再维护独立 provider/model/Secret，而在每个 Job 开始时冻结管理员保存的全局 AI 与唯一首选 Key；不自动回退其他 Key，全局 AI 不可用时在 Store/AI 调用前阻断。官方 Dataset `fields` 进入合同，展示用 `views` 不参与漂移；七日维护只保存元数据指纹，相同 observation 不重复提案。发现、静态校验和 proposal 不产生付费 Run，每次 Canary、首次启用和新 Revision 激活均由管理员单独确认。
+- 付费动作重放边界：每次确认对话生成一次管理员动作唯一的 `approval_id`，后端仅保存 SHA-256 摘要、批准 generation 和不可变 USD 上限，并在同一事务创建 validation 与 one-shot Job。客户端因超时重放同一动作只得到原 Job；参数漂移冲突，新的付费 Canary 必须重新确认并生成新 ID。旧 X Canary 接口没有这组证据，因此兼容期只保留读取/排序并拒绝付费 mutation。
+- 证据与回滚边界：目标身份使用 workspace/Route 加盐指纹冻结在 validation/attempt，不由日后改变的 binding 重解释；Discovery 候选可关联多个 run，但费用只以 validation 的不可变 `discovery_run_id` 归属，淘汰信息只保存 reason/count。新 Revision 激活时保存旧 lifecycle，回滚必须显式指定且只改一槽，不能借回滚重排其他槽。仅调整 Route cap 或保留某槽 Revision 时不得复活该槽的 open/disabled circuit，也不得清除 unknown-start 阻断。
+- 迁移与兼容：ActorOps feature schema v15 显式依赖 v13/v14；共享运行库的全局 migration 15/16 已由通知功能占用，所以本功能以 global version 17 保存 `apify_actor_ops_v15` marker，绝不覆盖既有版本。停止 API/Worker并跨过 heartbeat 安全窗后用 SQLite backup API 生成 `0600` 备份，离线迁移并验证 integrity/foreign keys；普通 initialize 对缺失、旧形状或错误 checksum 只报告 migration required，不静默改表。已安装旧 checksum 的受控修复只有在误建 `youtube/profile/items` 完全没有候选、Revision、绑定、验证、attempt、费用、target health、非终态任务或 AI 调用证据时才删除它；否则恢复备份并中止。修复增加合法 `youtube/channel/items` generation，清空旧独立 Discovery 字段，并把曾启用的设置强制停用。现有 X candidate、attempt、费用和健康历史不改写；无法证明 exact Build 的适配器只投影为 `legacy_builtin`，既有来源标记 `legacy_validation_pending`，旧 blocked/unknown-start 状态继续 fail closed。`x/profile` 永久兼容；YouTube/Instagram Route 在三槽候选未完成时明确 candidate shortfall，禁止伪造认证。旧 `platform/kind/target` 与旧管理 API 保留一个兼容周期；未发布的 partial ActorOps 表形状不自动猜测重建，只能备份恢复并人工处理。
+- 新建与运行分离：旧 X `legacy_builtin` 只要保持两路 runnable 即可继续服务存量来源，但 capability catalog 只开放三个 exact-Build Revision 均 runnable 且完整满足 2+1 认证的 Route，避免把迁移兼容证据扩大成新付费来源的准入证据。
+- 原生与运行边界：YouTube 继续是 RSS catalog source，原生成功或可信空结果不调用 Apify；只有 timeout/DNS/429/5xx/schema drift、历史非空后的可疑空或已验证来源的未确认 404 可进入 fallback，无效配置、SSRF 和已确认删除/私有不花费。每个 Actor Run 使用精确 Build、`maxItems=1` 与 Route cap，Dataset 另限行数/字节；批准预算必须大于零，但实际结算允许 `$0.00`。Key 401/402 只影响 Key Pool，Actor 系统/合同错误才切槽，目标错误只影响 target health；未知启动 attempt/validation 与 Key/Route 阻断原子提交且不切槽。回退内容仍归原 source 并保持稳定 Feed identity。
+- 原因：按平台硬编码 Actor input、output 和主备会把同一成本、安全、认证和发布栅栏重复实现，并使商城 Actor/Build 调整必须发布代码。声明式不可变 Revision 与统一 Route 可以在不执行模型生成代码的前提下热更新日常配置，同时把付费动作和生产激活继续保留在人类审批边界。
+- 非目标：不创建、修改或部署第三方 Actor，不在生产 Worker 使用 Apify MCP，不自动放宽 `$0.02` Route cap，不运行真实 AI/Canary，不启动 scheduler，不发布 VPS。超出 Manifest v1 的登录、浏览器交互或新解析原语仍需要受控代码扩展。
+
+### D101 Actor Discovery 输出容量以安全实测和管理员热配置决定
+
+- 决策日期：2026-08-01
+- 当前状态：本地任务分支实现与验证中；真实容量测试待管理员确认
+- 决策内容：Discovery AI 保留 Provider 默认 reasoning 行为，将单次超时提高至 180 秒，并把生产 `max_output_tokens` 作为 4096–65536 的 settings generation 热配置冻结到每个 Run。管理员专用容量测试首次只允许 YouTube Channel、Instagram Profile 顺序各调用模型一次并临时使用 32768 护栏；只有相应 32K Run 的 `finish_reason=length` 才显示和接受该 Route 的 65536 重测。测试不启动 Actor、Dataset 或付费 Canary，也不自动重试。
+- 证据与存储边界：global version 18 的离线 `apify_discovery_limits_v16` 只新增 settings/run 测量列；旧 Run 全部保持 NULL。数据库仅保存请求上限、输入/completion/reasoning/content Token、finish reason、耗时、响应字节及 JSON/Manifest 状态，不保存 Prompt、AI 正文、Key、Actor input 或原始异常。供应商未返回 usage 时显示未知，禁止伪造为 0。两个 Route 都成功且未截断后，建议值取最大 completion 的 1.5 倍向上取整至 1024，并限制为 8192–65536；建议不会自动写回。
+- 候选补位边界：一次模型调用从已拉取候选返回 3–6 个 best-first Manifest proposal，逐项静态及 Build input 校验，后序 proposal 可替换前序无效项。每个通过项立即成为与该 Run 关联的 `static_valid` Revision；最终不足三 Actor或两发布者时保留并展示部分结果，但不得进入付费 Canary、Active Pool 或来源准入。该修复不降低公开性、权限、精确 Build、Schema、价格、Actor 唯一和发布者多样性规则，也不增加自动 AI 重试。
+- 迁移与审批边界：v16 要求 v15 marker/形状已就绪，停止 API/Worker、等待心跳窗且不存在 queued/running Discovery/Canary Job，经 SQLite backup API 生成 `0600` 备份并通过 integrity/foreign-key check 后才写 marker。真实模型测试必须由 owner/admin 提交 settings CAS 和逐字 `确认AI容量测试`；自动化测试只使用 fake AI。
+
+### D102 Apify 响应故障按幂等读取与候选边界隔离
+
+- 决策日期：2026-08-01
+- 当前状态：本地任务分支实现与验证中；不改变费用上限或付费审批
+- Dataset 边界：Apify API、Store、Run 与 Dataset 请求显式使用 identity encoding。已登记远端 Run 后，Dataset 的网络或解码错误只允许同一 Key、同一 Dataset 的三次幂等 GET；绝不重新 POST Actor或切换下一槽。重试耗尽保留远端 Run、attempt 与费用账本，并转换为安全 reconciliation 阻断，禁止把 HTTP 解码器异常当作目标健康或 Actor 合同故障。
+- Discovery 边界：Store/Actor/Build GET 和官方 Build input validation 对 429、5xx、网络及解码错误做最多三次有界重试。`200 valid=false` 及候选相关 400/403/404 只淘汰当前 proposal，已通过 Revision 立即持久化且后序候选继续；401 终止整个 Run 为 Apify Key 认证失败，其他请求合同错误以 input-validation phase 失败。日志/API 只投影阶段、状态类别、安全 reason 与数量，不保存响应正文、Actor input 或凭据。
+- 召回边界：Store 查询按 Route 的内容合同固定为 X profile posts、YouTube channel videos、Instagram profile/user posts，而不是宽泛的 profile/items 文本；模型在一次调用内必须按当前有界 target 返回精确 3–6 个排序 proposal。少返回或单个 Manifest 无效仍只形成安全 shortfall，不能降低三 Actor、两发布者、静态校验或官方 input validation 门槛。
+- 输入生成边界：实测确认同一批公开候选在代码按 Schema 生成 target string/array/标准 `startUrls` object 后全部通过官方 validation，而模型生成的输入 shape 会系统性得到候选级 400。因此 input template 改由确定性代码从公开 Build Schema 生成，只允许 target URL/handle/native-ID 和一个 runtime max-items reference；无法映射的候选在 AI 前淘汰。AI 仍必须提交完整安全 Manifest并先通过危险字段检查，但持久化前 input 规范为该模板；模型继续负责候选排序、输出 mapping 和 semantics。
+- 生命周期：Discovery AI transport 在所属 Job event loop 退出前显式关闭，避免异步 SDK 清理落到已关闭 loop。该修复不增加 AI 重试、不修改 `$0.02` Route cap 或 30720 生产输出上限、不自动启动 Canary，也不新增数据库迁移或改写历史失败 Run。

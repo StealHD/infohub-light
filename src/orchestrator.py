@@ -91,6 +91,9 @@ class HorizonOrchestrator:
         self._service_acquisition_coordinator: Any | None = None
         self._service_apify_coordinator: Any | None = None
         self._service_apify_actor_route: Any | None = None
+        self._service_apify_actor_ops: Any | None = None
+        self._service_apify_actor_ops_job_id: str | None = None
+        self._service_apify_actor_ops_snapshots: list[Any] = []
         self._service_apify_actor_route_job_id: str | None = None
         self._service_apify_forced_candidate_id: str | None = None
         self._service_apify_forced_route_generation: int | None = None
@@ -137,6 +140,32 @@ class HorizonOrchestrator:
         self._service_apify_forced_route_generation = expected_generation
         self._service_apify_paid_canary = bool(paid_canary)
 
+    def set_service_apify_actor_ops(
+        self,
+        actor_ops: Any | None,
+        *,
+        job_id: str | None = None,
+    ) -> None:
+        """Attach the generic three-slot ActorOps runtime."""
+
+        self._service_apify_actor_ops = actor_ops
+        self._service_apify_actor_ops_job_id = job_id
+
+    def assert_service_apify_actor_ops_publishable(self) -> None:
+        """Fence Actor-derived results immediately before Feed persistence."""
+
+        assert_acquisition_current = getattr(
+            self._service_acquisition_coordinator,
+            "assert_publication_current",
+            None,
+        )
+        if callable(assert_acquisition_current):
+            assert_acquisition_current()
+        if self._service_apify_actor_ops is None:
+            return
+        for snapshot in self._service_apify_actor_ops_snapshots:
+            self._service_apify_actor_ops.assert_publishable(snapshot)
+
     def _service_acquisition_usage(self) -> AcquisitionUsage:
         metrics = getattr(self._service_acquisition_coordinator, "metrics", None)
         values = metrics.as_dict() if hasattr(metrics, "as_dict") else {}
@@ -156,6 +185,7 @@ class HorizonOrchestrator:
         exclude_item_ids: set[str] | None = None,
     ) -> FeedRunResult:
         """Run the side-effect-free service pipeline without the global disk cache."""
+        self._service_apify_actor_ops_snapshots = []
         token = _SERVICE_EXECUTION.set(not legacy_sources)
         try:
             return await self._execute_structured(
@@ -327,7 +357,30 @@ class HorizonOrchestrator:
             specs.append((f"HackerNews:{source.source_id or source.source_key or 'default'}", HackerNewsScraper(source, client), source))
         for source in self.config.sources.rss:
             if source.enabled:
-                specs.append((f"RSS:{source.source_id or source.source_key or source.name}", RSSScraper([source], client), source))
+                scraper: Any = RSSScraper([source], client)
+                if (
+                    self._service_apify_actor_ops is not None
+                    and self._service_apify_coordinator is not None
+                    and source.source_id
+                ):
+                    from .services.apify_native_fallback import (
+                        YouTubeNativeActorFallbackScraper,
+                        is_canonical_youtube_url,
+                    )
+
+                    if is_canonical_youtube_url(str(source.url)):
+                        scraper = YouTubeNativeActorFallbackScraper(
+                            source,
+                            client,
+                            actor_ops=self._service_apify_actor_ops,
+                            apify_coordinator=self._service_apify_coordinator,
+                            job_id=self._service_apify_actor_ops_job_id,
+                        )
+                specs.append((
+                    f"RSS:{source.source_id or source.source_key or source.name}",
+                    scraper,
+                    source,
+                ))
 
         reddit = self.config.sources.reddit
         if reddit.enabled:
@@ -351,6 +404,24 @@ class HorizonOrchestrator:
         if apify and apify.enabled:
             for source in apify.subscriptions:
                 if source.enabled:
+                    actor_ops_snapshot = None
+                    if source.profile_id:
+                        if (
+                            self._service_apify_actor_ops is None
+                            or not source.source_id
+                        ):
+                            raise RuntimeError(
+                                "ActorOps source is missing its Service runtime"
+                            )
+                        actor_ops_snapshot = (
+                            self._service_apify_actor_ops.freeze_execution(
+                                str(source.profile_id),
+                                source_id=str(source.source_id),
+                            )
+                        )
+                        self._service_apify_actor_ops_snapshots.append(
+                            actor_ops_snapshot
+                        )
                     config = apify.model_copy(update={"enabled": True, "subscriptions": [source]})
                     specs.append((
                         f"Apify:{source.source_id or source.source_key or source.target}",
@@ -359,7 +430,12 @@ class HorizonOrchestrator:
                             client,
                             apify_coordinator=self._service_apify_coordinator,
                             apify_actor_route=self._service_apify_actor_route,
-                            route_job_id=self._service_apify_actor_route_job_id,
+                            apify_actor_ops=self._service_apify_actor_ops,
+                            actor_ops_snapshot=actor_ops_snapshot,
+                            route_job_id=(
+                                self._service_apify_actor_ops_job_id
+                                or self._service_apify_actor_route_job_id
+                            ),
                             forced_candidate_id=(
                                 self._service_apify_forced_candidate_id
                             ),
@@ -438,6 +514,9 @@ class HorizonOrchestrator:
         items: list[ContentItem] = []
         outcomes: list[SourceOutcome] = []
         for (label, scraper, source), result in zip(specs, results):
+            for snapshot in getattr(scraper, "publication_snapshots", ()):
+                if snapshot not in self._service_apify_actor_ops_snapshots:
+                    self._service_apify_actor_ops_snapshots.append(snapshot)
             analysis_mode = getattr(source, "analysis_mode", "full")
             if hasattr(analysis_mode, "value"):
                 analysis_mode = analysis_mode.value

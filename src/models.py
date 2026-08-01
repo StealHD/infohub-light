@@ -334,8 +334,12 @@ class ApifySocialActorsConfig(BaseModel):
 class ApifySocialSubscriptionConfig(ServiceSourceConfig):
     """One public social subscription fetched through Apify."""
 
-    platform: ApifySocialPlatform
-    kind: str
+    # New ActorOps-managed sources keep only the opaque Route profile id and
+    # target.  platform/kind remain accepted for legacy sources and are never
+    # inferred from the opaque id in configuration.
+    profile_id: Optional[str] = None
+    platform: Optional[ApifySocialPlatform] = None
+    kind: Optional[str] = None
     target: str
     token_env: Optional[str] = None
     fetch_limit: int = Field(default=20, ge=1, le=100)
@@ -367,11 +371,23 @@ class ApifySocialSubscriptionConfig(ServiceSourceConfig):
             ApifySocialPlatform.FACEBOOK: {"page", "group", "post"},
             ApifySocialPlatform.TELEGRAM: {"channel"},
         }
-        if self.kind not in allowed[self.platform]:
-            allowed_values = ", ".join(sorted(allowed[self.platform]))
+        profile_id = str(self.profile_id or "").strip()
+        if profile_id:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", profile_id):
+                raise ValueError("apify_social profile_id must be an opaque identifier")
+            self.profile_id = profile_id
+        elif self.platform is None or self.kind is None:
             raise ValueError(
-                f"apify_social kind for {self.platform.value} must be one of {allowed_values}"
+                "apify_social requires profile_id or legacy platform and kind"
             )
+        if (self.platform is None) != (self.kind is None):
+            raise ValueError("apify_social platform and kind must be provided together")
+        if self.platform is not None and self.kind is not None:
+            if self.kind not in allowed[self.platform]:
+                allowed_values = ", ".join(sorted(allowed[self.platform]))
+                raise ValueError(
+                    f"apify_social kind for {self.platform.value} must be one of {allowed_values}"
+                )
         if not self.target.strip():
             raise ValueError("apify_social target cannot be empty")
         self.target = self.target.strip()

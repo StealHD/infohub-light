@@ -8,7 +8,12 @@ import { ApiError } from '../../api/client'
 import type { ServiceApi } from '../../api/service'
 import type {
   ApifyActorAlertSettings,
+  ApifyActorDiscoveryRun,
   ApifyActorRoute,
+  ApifyActorRouteDetail,
+  ApifyActorRoutesResponse,
+  ApifyActorSourceValidation,
+  ApifyActorSourceSupport,
 } from '../../api/types'
 import type { AppOutletContext } from '../../app/AppContext'
 import { actionToast, DesignSystemProvider } from '../../design-system'
@@ -98,6 +103,195 @@ const route = (overrides: Partial<ApifyActorRoute> = {}): ApifyActorRoute => ({
       can_canary: true,
     },
   ],
+  ...overrides,
+})
+
+const actorOpsDetail = (
+  overrides: Partial<ApifyActorRouteDetail> = {},
+): ApifyActorRouteDetail => {
+  const revisions = [
+    {
+      revision_id: 'revision-primary',
+      actor_id: 'publisher-a/primary',
+      actor_public_name: 'Publisher A Primary',
+      publisher: 'publisher-a',
+      build_id: 'build-primary',
+      build_number: '1.0.1',
+      manifest_hash: 'a'.repeat(64),
+      lifecycle: 'certified' as const,
+      last_charge_usd: 0.01,
+      avg_charge_24h_usd: 0.009,
+      last_canary_at: '2026-07-29T08:00:00Z',
+      last_canary_status: 'valid_nonempty',
+      can_canary: false,
+      can_activate: true,
+    },
+    {
+      revision_id: 'revision-backup-1',
+      actor_id: 'publisher-b/backup',
+      actor_public_name: 'Publisher B Backup',
+      publisher: 'publisher-b',
+      build_id: 'build-backup-1',
+      build_number: '1.0.2',
+      manifest_hash: 'b'.repeat(64),
+      lifecycle: 'certified' as const,
+      last_charge_usd: 0.01,
+      avg_charge_24h_usd: 0.01,
+      last_canary_at: '2026-07-29T08:00:00Z',
+      last_canary_status: 'valid_nonempty',
+      can_canary: false,
+      can_activate: true,
+    },
+    {
+      revision_id: 'revision-backup-2',
+      actor_id: 'publisher-a/probationary',
+      actor_public_name: 'Publisher A Probationary',
+      publisher: 'publisher-a',
+      build_id: 'build-backup-2',
+      build_number: '1.0.3',
+      manifest_hash: 'c'.repeat(64),
+      lifecycle: 'probationary' as const,
+      last_charge_usd: 0.01,
+      avg_charge_24h_usd: 0.01,
+      last_canary_at: '2026-07-29T08:00:00Z',
+      last_canary_status: 'valid_empty',
+      can_canary: true,
+      can_activate: true,
+    },
+  ]
+  return {
+    route_id: 'route-x-profile',
+    route_key: 'x/profile',
+    platform: 'x',
+    target_type: 'profile',
+    capability: 'items',
+    mode: 'primary',
+    generation: 7,
+    support_status: 'supported',
+    runtime_status: 'ready',
+    runnable_slots: 3,
+    required_slots: 3,
+    min_runtime_healthy: 2,
+    publisher_count: 2,
+    per_run_cap_usd: 0.02,
+    discovery_run_id: null,
+    blocked_reason: null,
+    updated_at: '2026-07-29T08:00:00Z',
+    slots: [
+      {
+        slot: 'primary',
+        revision_id: revisions[0].revision_id,
+        runnable: true,
+        revision: revisions[0],
+      },
+      {
+        slot: 'backup_1',
+        revision_id: revisions[1].revision_id,
+        runnable: true,
+        revision: revisions[1],
+      },
+      {
+        slot: 'backup_2',
+        revision_id: revisions[2].revision_id,
+        runnable: true,
+        revision: revisions[2],
+      },
+    ],
+    revisions,
+    source_validations: [],
+    source_validation_summary: { ready: 0, pending: 0, failed: 0 },
+    replacement_needed: false,
+    ...overrides,
+  }
+}
+
+const actorOpsRoutes = (
+  detail: ApifyActorRouteDetail = actorOpsDetail(),
+): ApifyActorRoutesResponse => ({
+  schema_version: 1,
+  generation: detail.generation,
+  support_profiles: [
+    { id: 'x/profile/items', route_key: 'x/profile', platform: 'x', target_type: 'profile', capability: 'items', mode: 'primary', label: 'X Profile' },
+    { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube', target_type: 'channel', capability: 'items', mode: 'fallback', label: 'YouTube Channel' },
+    { id: 'instagram/profile/items', route_key: 'instagram/profile/items', platform: 'instagram', target_type: 'profile', capability: 'items', mode: 'primary', label: 'Instagram Profile' },
+  ],
+  routes: [{
+    route_id: detail.route_id,
+    route_key: detail.route_key,
+    platform: detail.platform,
+    target_type: detail.target_type,
+    capability: detail.capability,
+    mode: detail.mode,
+    generation: detail.generation,
+    support_status: detail.support_status,
+    runtime_status: detail.runtime_status,
+    runnable_slots: detail.runnable_slots,
+    required_slots: 3,
+    min_runtime_healthy: 2,
+    publisher_count: detail.publisher_count,
+    per_run_cap_usd: detail.per_run_cap_usd,
+    discovery_run_id: detail.discovery_run_id,
+    blocked_reason: detail.blocked_reason,
+    updated_at: detail.updated_at,
+  }],
+})
+
+const discoveryRun = (
+  detail: ApifyActorRouteDetail,
+): ApifyActorDiscoveryRun => ({
+  schema_version: 2,
+  run_id: 'discovery-run-1',
+  route_id: detail.route_id,
+  generation: detail.generation,
+  stage: 'awaiting_canary_approval',
+  status: 'awaiting_canary_approval',
+  queries_completed: 3,
+  queries_limit: 3,
+  budget_cap_usd: 0.1,
+  spent_usd: 0,
+  candidate_shortfall: 0,
+  candidates: [{
+    revision: {
+      ...detail.revisions[2],
+      revision_id: 'revision-discovered',
+      actor_id: 'publisher-c/discovered',
+      actor_public_name: 'Publisher C Discovered',
+      publisher: 'publisher-c',
+      build_id: 'build-discovered',
+      build_number: '2.0.0',
+      lifecycle: 'static_valid',
+      can_canary: true,
+      can_activate: false,
+    },
+    rank: 1,
+    status: 'static_valid',
+    awaiting_approval: true,
+  }],
+  updated_at: '2026-07-29T08:00:00Z',
+})
+
+const sourceSupport = (
+  detail: ApifyActorRouteDetail,
+  overrides: Partial<ApifyActorSourceSupport> = {},
+): ApifyActorSourceSupport => ({
+  schema_version: 1,
+  source_id: 'source-opaque-1',
+  route_id: detail.route_id,
+  generation: 3,
+  binding_status: 'pending_validation',
+  verified_revision_set_hash: null,
+  budget_cap_usd: 0.06,
+  spent_usd: 0.045,
+  remaining_budget_usd: 0.015,
+  slots: detail.slots.map((slot, index) => ({
+    slot: slot.slot,
+    revision_id: slot.revision_id,
+    status: 'pending',
+    last_canary_at: null,
+    last_canary_status: null,
+    can_canary: index === 0,
+  })),
+  activation_confirmation: '确认首次启用',
   ...overrides,
 })
 
@@ -199,12 +393,69 @@ function deferred<T>() {
 }
 
 function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = true) {
+  const defaultDetail = actorOpsDetail()
   const api = {
     apifyActorXProfileRoute: vi.fn().mockResolvedValue(route()),
     reorderApifyActorXProfileRoute: vi.fn().mockResolvedValue(route({ generation: 8 })),
     enableApifyActorXProfileCandidate: vi.fn().mockResolvedValue(route({ generation: 8 })),
     disableApifyActorXProfileCandidate: vi.fn().mockResolvedValue(route({ generation: 8 })),
     canaryApifyActorXProfileCandidate: vi.fn().mockResolvedValue(route({ generation: 8 })),
+    apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(defaultDetail)),
+    apifyActorRoute: vi.fn().mockResolvedValue(defaultDetail),
+    requestApifyActorSupportCheck: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      kind: 'route',
+      generation: 7,
+      route_generation: 7,
+      route_id: defaultDetail.route_id,
+      support_status: 'supported',
+      discovery_run_id: null,
+      job: null,
+    }),
+    apifyActorDiscoveryRun: vi.fn().mockResolvedValue(
+      discoveryRun(defaultDetail),
+    ),
+    canaryApifyActorDiscoveryCandidate: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      validation: {
+        validation_id: 'validation-1',
+        route_id: defaultDetail.route_id,
+        source_id: null,
+        revision_id: 'revision-discovered',
+        kind: 'route_reference',
+        status: 'queued',
+        cost_usd: 0.02,
+        created_at: '2026-07-29T08:00:00Z',
+      },
+      job: { id: 'job-1', status: 'queued' },
+    }),
+    updateApifyActorRouteActivePool: vi.fn().mockResolvedValue(defaultDetail),
+    apifyActorSourceSupport: vi.fn(),
+    canaryApifyActorSourceRevision: vi.fn(),
+    activateApifyActorSourceBinding: vi.fn(),
+    apifyActorDiscoverySettings: vi.fn().mockResolvedValue({
+      schema_version: 3,
+      generation: 1,
+      enabled: false,
+      ai_config_id: 'global',
+      ai_options: [{
+        id: 'global',
+        label: '当前全局 AI',
+        provider: 'gemini',
+        model: 'gemini-test',
+        key_name: 'Gemini Secondary',
+        ready: true,
+        unavailable_reason: null,
+      }],
+      max_queries_per_run: 3,
+      max_candidates: 12,
+      max_output_tokens: 4096,
+      recommended_max_output_tokens: null,
+      measurements: { youtube: null, instagram: null },
+      updated_at: '2026-07-29T08:00:00Z',
+    }),
+    updateApifyActorDiscoverySettings: vi.fn(),
+    measureApifyActorDiscovery: vi.fn(),
     apifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     updateApifyActorAlertSettings: vi.fn().mockResolvedValue(alertSettings()),
     testApifyActorAlertSettings: vi.fn().mockResolvedValue({ sent: true, channel: 'webhook' }),
@@ -295,7 +546,7 @@ describe('HeroApifyActorRouteSettings', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(APIFY_ACTOR_ROUTE_REFRESH_MS * 2)
       })
-      expect(api.apifyActorXProfileRoute).not.toHaveBeenCalled()
+      expect(api.apifyActorRoutes).not.toHaveBeenCalled()
       expect(api.apifyActorAlertSettings).not.toHaveBeenCalled()
       expect(api.apifyActorAlertIncidents).not.toHaveBeenCalled()
 
@@ -303,7 +554,7 @@ describe('HeroApifyActorRouteSettings', () => {
         setQueryEnabled(true)
         await vi.advanceTimersByTimeAsync(0)
       })
-      expect(api.apifyActorXProfileRoute).toHaveBeenCalledOnce()
+      expect(api.apifyActorRoutes).toHaveBeenCalledOnce()
       expect(api.apifyActorAlertSettings).toHaveBeenCalledOnce()
       expect(api.apifyActorAlertIncidents).toHaveBeenCalledOnce()
 
@@ -311,7 +562,7 @@ describe('HeroApifyActorRouteSettings', () => {
         setQueryEnabled(false)
         await vi.advanceTimersByTimeAsync(APIFY_ACTOR_ROUTE_REFRESH_MS * 2)
       })
-      expect(api.apifyActorXProfileRoute).toHaveBeenCalledOnce()
+      expect(api.apifyActorRoutes).toHaveBeenCalledOnce()
       expect(api.apifyActorAlertSettings).toHaveBeenCalledOnce()
       expect(api.apifyActorAlertIncidents).toHaveBeenCalledOnce()
     } finally {
@@ -319,67 +570,372 @@ describe('HeroApifyActorRouteSettings', () => {
     }
   })
 
-  it('renders only safe route projections and submits one complete generation-checked order', async () => {
-    const browser = userEvent.setup()
-    const { api } = renderFeature()
+  it('keeps polling an in-flight Discovery Canary after the approval stage pauses', async () => {
+    vi.useFakeTimers()
+    try {
+      const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+      const running = discoveryRun(detail)
+      running.candidates[0] = {
+        ...running.candidates[0],
+        validation_status: 'running',
+        canary_in_flight: true,
+        awaiting_approval: false,
+      }
+      const apifyActorDiscoveryRun = vi.fn().mockResolvedValue(running)
+      renderFeature({
+        apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+        apifyActorRoute: vi.fn().mockResolvedValue(detail),
+        apifyActorDiscoveryRun,
+      })
 
-    expect(await screen.findByText('当前使用：ScrapeBadger')).toBeInTheDocument()
-    expect(screen.getByText('可以抓取')).toBeInTheDocument()
-    expect(screen.getByRole('grid', { name: 'X 抓取主备 Actor' })).toBeInTheDocument()
-    expect(screen.getByText('scrape.badger/twitter-tweets-scraper')).toBeInTheDocument()
-    expect(screen.getByText('Apify Free 约 $15.00 / 千条')).toBeInTheDocument()
-    expect(screen.getByText('Apify 付费计划约 $0.15 / 千条')).toBeInTheDocument()
-    expect(screen.getAllByText('费用判断以实际账单为准')).toHaveLength(3)
-    expect(screen.queryByText('最近一次运行告警发送成功', { exact: false })).not.toBeInTheDocument()
-    expect(screen.getAllByText('自动切换 Actor').length).toBeGreaterThan(0)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(apifyActorDiscoveryRun).toHaveBeenCalledOnce()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(apifyActorDiscoveryRun).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows persisted Actor and publisher shortfalls without hiding valid partials', async () => {
+    const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+    const partial = discoveryRun(detail)
+    partial.stage = 'candidate_shortfall'
+    partial.status = 'candidate_shortfall'
+    partial.candidate_count = 1
+    partial.candidate_shortfall = 2
+    partial.publisher_count = 1
+    partial.publisher_shortfall = 1
+    partial.error_code = 'input_validation_candidate_shortfall'
+    partial.failure_phase = 'input_validation'
+    partial.rejections = [{
+      reason: 'actor_input_validation_rejected',
+      count: 2,
+    }]
+    partial.candidates[0] = {
+      ...partial.candidates[0],
+      awaiting_approval: false,
+    }
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(partial),
+    })
+
+    expect(await screen.findByText('缺少 2 个 Actor')).toBeVisible()
+    expect(screen.getByText('固定 Build 输入校验需要处理')).toBeVisible()
+    expect(screen.getByText(/候选输入与固定 Build Schema 不兼容/)).toBeVisible()
+    expect(screen.getByText('1/3 Actor · 1/2 发布者；付费 Canary 不会自动执行')).toBeVisible()
+    expect(within(
+      screen.getByRole('list', { name: 'Actor 发现候选' }),
+    ).getAllByRole('listitem')).toHaveLength(1)
+  })
+
+  it('renders safe three-slot projections and submits a generation-checked support request', async () => {
+    const browser = userEvent.setup()
+    const { api } = renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue({
+        ...actorOpsRoutes(),
+        generation: 41,
+      }),
+    })
+
+    expect(await screen.findByRole(
+      'grid',
+      { name: 'ActorOps 路由列表' },
+    )).toBeInTheDocument()
+    expect(await screen.findByRole(
+      'grid',
+      { name: 'x/profile 三槽 Actor Pool' },
+    )).toBeInTheDocument()
+    expect(screen.getByText('Publisher A Primary')).toBeInTheDocument()
+    expect(screen.getByText('Publisher B Backup')).toBeInTheDocument()
+    expect(screen.getByText('Publisher A Probationary')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('not-rendered')
 
-    const primaryRow = screen.getByRole('row', { name: /ScrapeBadger/ })
-    await browser.click(within(primaryRow).getByRole('button', { name: '下移 ScrapeBadger' }))
-    await waitFor(() => expect(api.reorderApifyActorXProfileRoute).toHaveBeenCalledWith(
-      ['dami', 'scrape-badger', 'xquik'],
-      7,
-    ))
+    await browser.click(screen.getByRole('button', { name: '请求支持检查' }))
+    await waitFor(() => expect(api.requestApifyActorSupportCheck).toHaveBeenCalledWith({
+      platform: 'x',
+      target_type: 'profile',
+      capability: 'items',
+      expected_generation: 41,
+      force_discovery: false,
+    }))
   })
 
-  it('requires an explicit X source and a second confirmation before paid canary', async () => {
+  it('renders only opaque source ids in embedded validation progress', async () => {
+    const detail = actorOpsDetail({
+      source_validations: [{
+        source_id: 'source-opaque-1',
+        source_name: '@private-target-must-not-render',
+        binding_status: 'pending_validation',
+        generation: 2,
+        slots: [],
+      } as unknown as ApifyActorSourceValidation],
+      source_validation_summary: { ready: 0, pending: 1, failed: 0 },
+    })
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+    })
+
+    expect(await screen.findByText('source-opaque-1')).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('@private-target-must-not-render')
+  })
+
+  it('supports explicit route-cap updates and administrator rediscovery', async () => {
     const browser = userEvent.setup()
     const { api } = renderFeature()
-    const primaryRow = await screen.findByRole('row', { name: /ScrapeBadger/ })
-    const canaryTrigger = within(primaryRow).getByRole('button', { name: '付费试跑' })
-
-    await browser.click(canaryTrigger)
-    const dialog = screen.getByRole('dialog', { name: '付费试跑 ScrapeBadger' })
-    expect(api.canaryApifyActorXProfileCandidate).not.toHaveBeenCalled()
-    expect(within(dialog).getByRole('button', { name: '确认付费试跑' })).toBeDisabled()
-    expect(within(dialog).queryByText('not-rendered')).not.toBeInTheDocument()
-
-    await browser.click(await within(dialog).findByRole('button', { name: /试跑 X 来源/ }))
-    await browser.click(await screen.findByRole('option', { name: 'X · @thsottiaux' }))
-    await browser.click(within(dialog).getByRole('button', { name: '确认付费试跑' }))
-
-    await waitFor(() => expect(api.canaryApifyActorXProfileCandidate).toHaveBeenCalledWith(
-      'scrape-badger',
-      'source-x-1',
-      7,
-      '确认付费试跑',
+    const cap = await screen.findByLabelText('Route 单次费用上限（USD）')
+    await browser.clear(cap)
+    await browser.type(cap, '0.03')
+    await browser.click(screen.getByRole('button', { name: '保存三槽配置' }))
+    await waitFor(() => expect(api.updateApifyActorRouteActivePool).toHaveBeenCalledWith(
+      'route-x-profile',
+      {
+        expected_generation: 7,
+        per_run_cap_usd: 0.03,
+        slots: [
+          { slot: 'primary', revision_id: 'revision-primary' },
+          { slot: 'backup_1', revision_id: 'revision-backup-1' },
+          { slot: 'backup_2', revision_id: 'revision-backup-2' },
+        ],
+      },
     ))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '付费试跑 ScrapeBadger' })).not.toBeInTheDocument())
-    await waitFor(() => expect(canaryTrigger).toHaveFocus())
+
+    await browser.click(screen.getByRole('switch', { name: '仅检查现有支持' }))
+    await browser.click(screen.getByRole('button', { name: '请求支持检查' }))
+    await waitFor(() => expect(api.requestApifyActorSupportCheck).toHaveBeenLastCalledWith({
+      platform: 'x',
+      target_type: 'profile',
+      capability: 'items',
+      expected_generation: 7,
+      force_discovery: true,
+    }))
   })
 
-  it('keeps unsafe server details out of route action feedback', async () => {
+  it('rolls back from canonical server slots and sends an explicit revision id', async () => {
+    const browser = userEvent.setup()
+    const detail = actorOpsDetail({
+      revisions: [
+        ...actorOpsDetail().revisions,
+        {
+          ...actorOpsDetail().revisions[0],
+          revision_id: 'revision-primary-old',
+          build_id: 'build-primary-old',
+          build_number: '0.9.1',
+          lifecycle: 'superseded',
+          can_activate: true,
+        },
+      ],
+    })
+    const { api } = renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+    })
+
+    await screen.findByRole('grid', { name: 'x/profile 三槽 Actor Pool' })
+    await browser.click(screen.getByRole('button', { name: /Backup 1 Revision$/ }))
+    await browser.click(await screen.findByRole('option', { name: /Publisher A Primary · 1\.0\.1/ }))
+    await browser.click(screen.getByRole('button', { name: '回滚到此 Revision' }))
+    await browser.click(within(
+      screen.getByRole('dialog', { name: '回滚不可变 Revision' }),
+    ).getByRole('button', { name: '确认回滚' }))
+
+    await waitFor(() => expect(api.updateApifyActorRouteActivePool).toHaveBeenCalledWith(
+      'route-x-profile',
+      {
+        expected_generation: 7,
+        rollback_revision_id: 'revision-primary-old',
+        slots: [
+          { slot: 'primary', revision_id: 'revision-primary-old' },
+          { slot: 'backup_1', revision_id: 'revision-backup-1' },
+          { slot: 'backup_2', revision_id: 'revision-backup-2' },
+        ],
+      },
+    ))
+  })
+
+  it('does not offer an active legacy revision as rollback history', async () => {
+    const base = actorOpsDetail()
+    const activeLegacy = {
+      ...base.revisions[0],
+      revision_id: 'revision-active-legacy',
+      build_id: null,
+      build_number: null,
+      manifest_hash: null,
+      lifecycle: 'legacy_builtin' as const,
+      can_activate: true,
+    }
+    const detail = actorOpsDetail({
+      revisions: [activeLegacy, ...base.revisions.slice(1)],
+      slots: [
+        {
+          slot: 'primary',
+          revision_id: activeLegacy.revision_id,
+          runnable: true,
+          revision: activeLegacy,
+        },
+        ...base.slots.slice(1),
+      ],
+    })
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+    })
+
+    expect(await screen.findByText('当前没有可回滚的历史 Revision。')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '回滚到此 Revision' })).not.toBeInTheDocument()
+  })
+
+  it('uses an independent source Canary cap bounded by remaining source budget', async () => {
+    const browser = userEvent.setup()
+    const detail = actorOpsDetail()
+    const support = sourceSupport(detail)
+    const canaryApifyActorSourceRevision = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      validation: {
+        validation_id: 'validation-source-1',
+        route_id: detail.route_id,
+        source_id: support.source_id,
+        revision_id: detail.revisions[0].revision_id,
+        kind: 'source_canary',
+        status: 'queued',
+        created_at: '2026-07-29T08:00:00Z',
+      },
+      job: { id: 'job-source-1', status: 'queued' },
+    })
+    const { api } = renderFeature({
+      apifyActorSourceSupport: vi.fn().mockResolvedValue(support),
+      canaryApifyActorSourceRevision,
+    })
+
+    const lookup = await screen.findByLabelText('按来源 ID 查看三槽验证')
+    await browser.type(lookup, support.source_id)
+    await browser.click(screen.getByRole('button', { name: '读取验证状态' }))
+    expect(await screen.findByText('$0.015 剩余')).toBeVisible()
+    const cap = screen.getByLabelText('来源 Canary 单次上限（USD）')
+    expect(cap).toHaveValue(0.015)
+    await browser.clear(cap)
+    await browser.type(cap, '0.007')
+    await browser.click(screen.getByRole('button', { name: '验证此槽' }))
+    await browser.click(within(
+      screen.getByRole('dialog', { name: '确认付费 Canary' }),
+    ).getByRole('button', { name: '确认付费试跑' }))
+
+    await waitFor(() => expect(api.canaryApifyActorSourceRevision).toHaveBeenCalledWith(
+      support.source_id,
+      detail.revisions[0].revision_id,
+      expect.objectContaining({
+        expected_generation: support.generation,
+        confirmation: '确认付费试跑',
+        max_total_charge_usd: 0.007,
+      }),
+    ))
+  })
+
+  it('creates one opaque approval id only after the paid Canary confirmation', async () => {
+    const browser = userEvent.setup()
+    const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+    const { api } = renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(discoveryRun(detail)),
+    })
+    const canaryTrigger = await screen.findByRole(
+      'button',
+      { name: '确认付费 Canary' },
+    )
+
+    await browser.click(canaryTrigger)
+    const dialog = screen.getByRole('dialog', { name: '确认付费 Canary' })
+    expect(api.canaryApifyActorDiscoveryCandidate).not.toHaveBeenCalled()
+    expect(within(dialog).queryByText('not-rendered')).not.toBeInTheDocument()
+
+    await browser.click(within(dialog).getByRole('button', { name: '确认付费试跑' }))
+
+    await waitFor(() => expect(api.canaryApifyActorDiscoveryCandidate).toHaveBeenCalledWith(
+      'discovery-run-1',
+      'revision-discovered',
+      expect.objectContaining({
+        expected_generation: 7,
+        approval_id: expect.any(String),
+        confirmation: '确认付费试跑',
+        max_total_charge_usd: 0.02,
+      }),
+    ))
+    const request = vi.mocked(
+      api.canaryApifyActorDiscoveryCandidate,
+    ).mock.calls[0][2]
+    expect(request.approval_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(document.body.textContent).not.toContain(request.approval_id)
+  })
+
+  it('uses the single global AI selection without exposing a Secret reference', async () => {
+    const browser = userEvent.setup()
+    const current = {
+      schema_version: 3 as const,
+      generation: 4,
+      enabled: false,
+      ai_config_id: 'global' as const,
+      ai_options: [{
+        id: 'global' as const,
+        label: '当前全局 AI',
+        provider: 'gemini',
+        model: 'gemini-test',
+        key_name: 'Gemini Secondary',
+        ready: true,
+        unavailable_reason: null,
+      }],
+      max_queries_per_run: 2,
+      max_candidates: 12,
+      max_output_tokens: 4096,
+      recommended_max_output_tokens: null,
+      measurements: { youtube: null, instagram: null },
+      updated_at: '2026-07-29T08:00:00Z',
+    }
+    const updateApifyActorDiscoverySettings = vi.fn().mockResolvedValue({
+      ...current,
+      generation: 5,
+    })
+    const { api } = renderFeature({
+      apifyActorDiscoverySettings: vi.fn().mockResolvedValue(current),
+      updateApifyActorDiscoverySettings,
+    })
+
+    expect(await screen.findByLabelText('当前全局 AI')).toBeInTheDocument()
+    expect(screen.queryByLabelText('SecretStore 引用')).not.toBeInTheDocument()
+    expect(screen.getByText(/Gemini Secondary/)).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '保存并热加载' }))
+
+    await waitFor(() => expect(api.updateApifyActorDiscoverySettings).toHaveBeenCalledWith({
+      expected_generation: 4,
+      enabled: false,
+      ai_config_id: 'global',
+      max_queries_per_run: 2,
+      max_candidates: 12,
+      max_output_tokens: 4096,
+    }))
+  })
+
+  it('keeps unsafe server details out of ActorOps action feedback', async () => {
     const browser = userEvent.setup()
     renderFeature({
-      reorderApifyActorXProfileRoute: vi.fn().mockRejectedValue(new ApiError(502, {
+      requestApifyActorSupportCheck: vi.fn().mockRejectedValue(new ApiError(502, {
         code: 'unexpected_upstream_failure',
         message: 'runId=unsafe-run datasetId=unsafe-dataset',
       })),
     })
 
-    const primaryRow = await screen.findByRole('row', { name: /ScrapeBadger/ })
-    await browser.click(within(primaryRow).getByRole('button', { name: '下移 ScrapeBadger' }))
-    expect(await screen.findByText('Actor 顺序更新失败')).toBeInTheDocument()
+    await browser.click(await screen.findByRole(
+      'button',
+      { name: '请求支持检查' },
+    ))
+    expect(await screen.findByText('支持检查请求失败')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('unsafe-run')
     expect(document.body.textContent).not.toContain('unsafe-dataset')
   })

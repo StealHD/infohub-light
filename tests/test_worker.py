@@ -14,6 +14,8 @@ from src.services.feed_run import (
 )
 from src.services.job_eligibility import JobIneligibleError
 from src.services.job_queue import JobQueue
+from src.services.apify_actor_ops import ApifyActorOpsService
+from src.services.media_cache import PostCommitMediaCleanup
 from src.services.secret_store import SecretStore
 from src.services.source_health import SourceHealthService
 from src.services.source_schedule import SourceScheduleService
@@ -52,6 +54,77 @@ def test_worker_preclaim_failure_emits_safe_boundary_event(
     assert operation_events[0]["error_fingerprint"].startswith("err_")
     assert "workspace_id" not in operation_events[0]
     assert "pre-claim boundary failed" in caplog.records[-1].getMessage()
+
+
+def test_failed_actor_discovery_is_terminalized_without_reenqueue(
+    tmp_path,
+    monkeypatch,
+):
+    data_dir = tmp_path / "data"
+    store = ServiceStore(data_dir)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id="default",
+        username="discovery-failure-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store)
+    route = next(
+        item
+        for item in ops.list_routes()
+        if item["route_key"] == "youtube/channel/items"
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="test_worker_failure",
+        expected_generation=int(route["generation"]),
+    )
+    job = JobQueue(store).create_job(
+        workspace_id="default",
+        user_id=str(owner["id"]),
+        job_type="apify_actor_discovery",
+        payload={"run_id": str(run["run_id"])},
+        priority=50,
+        max_attempts=1,
+    )
+
+    monkeypatch.setattr(
+        "src.services.worker.MaintenanceService.run_if_due",
+        lambda *_args, **_kwargs: {"ran": False},
+    )
+
+    def fail_discovery(*_args, **_kwargs):
+        raise NameError("simulated missing dependency")
+
+    monkeypatch.setattr("src.services.worker._run_job", fail_discovery)
+    first = run_worker_once(
+        data_dir=str(data_dir),
+        worker_id="discovery-failure-worker",
+        enqueue_schedules=False,
+    )
+
+    assert first["id"] == job["id"]
+    assert first["status"] == "failed"
+    failed_run = ops.get_discovery_run(str(run["run_id"]))
+    assert failed_run["stage"] == "failed"
+    assert failed_run["error_code"] == "apify_actor_discovery_failed"
+
+    run_worker_once(
+        data_dir=str(data_dir),
+        worker_id="discovery-failure-worker",
+        enqueue_schedules=False,
+    )
+    jobs = store.connect().execute(
+        """
+        SELECT status FROM fetch_jobs
+        WHERE workspace_id = ?
+          AND job_type = 'apify_actor_discovery'
+          AND json_extract(payload_json, '$.run_id') = ?
+        """,
+        ("default", str(run["run_id"])),
+    ).fetchall()
+    assert [str(row["status"]) for row in jobs] == ["failed"]
 
 
 def test_worker_reconciles_actor_attempts_after_key_pool_before_claiming(
@@ -1535,7 +1608,14 @@ def test_worker_all_sources_failed_does_not_create_snapshot(tmp_path, monkeypatc
         def __init__(self, _store, *, data_dir):
             assert data_dir == str(tmp_path)
 
-        def refresh_run_result(self, *, workspace_id, result):
+        def refresh_run_result(
+            self,
+            *,
+            workspace_id,
+            result,
+            commit=True,
+            media_cleanup=None,
+        ):
             avatar_runs.append((workspace_id, result))
             return []
 
@@ -1640,6 +1720,66 @@ def test_worker_defers_retention_until_feed_storage_v3_is_migrated(
     assert calls == 0
 
 
+def test_worker_runs_actor_revision_and_metadata_maintenance_when_due(
+    tmp_path,
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        "src.services.worker.MaintenanceService.run_if_due",
+        lambda *_args, **_kwargs: {"ran": True},
+    )
+    monkeypatch.setattr(
+        "src.services.worker._promote_due_actor_revisions",
+        lambda _store: calls.append("promote") or {"promoted": 0},
+    )
+    monkeypatch.setattr(
+        "src.services.apify_actor_maintenance.run_due_actor_metadata_checks",
+        lambda _store: calls.append("metadata") or {"ran": True},
+    )
+
+    assert run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="actor-maintenance-worker",
+        enqueue_schedules=False,
+    ) is None
+    assert calls == ["promote", "metadata"]
+
+
+def test_worker_keeps_existing_routes_running_when_actor_metadata_check_fails(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(
+        "src.services.worker.MaintenanceService.run_if_due",
+        lambda *_args, **_kwargs: {"ran": True},
+    )
+    monkeypatch.setattr(
+        "src.services.worker._promote_due_actor_revisions",
+        lambda _store: {"promoted": 0},
+    )
+
+    def fail_metadata(_store):
+        raise RuntimeError("private upstream detail")
+
+    monkeypatch.setattr(
+        "src.services.apify_actor_maintenance.run_due_actor_metadata_checks",
+        fail_metadata,
+    )
+    caplog.set_level("WARNING", logger="src.services.worker")
+
+    assert run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="actor-maintenance-failure-worker",
+        enqueue_schedules=False,
+    ) is None
+    assert any(
+        "Actor metadata maintenance failed" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_worker_runs_content_repair_without_schedules_or_feed_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
@@ -1677,3 +1817,201 @@ def test_worker_runs_content_repair_without_schedules_or_feed_snapshot(tmp_path,
     assert result["result_json"]["snapshot_created"] is False
     assert result["result_json"]["analysis_calls"] == 0
     assert store.connect().execute("SELECT COUNT(*) FROM user_feed_snapshots").fetchone()[0] == 0
+
+
+def test_stale_actor_publication_rolls_back_feed_and_media_files(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    (tmp_path / "config.json").write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "ai": {"enabled": False},
+                "sources": {
+                    "rss": [],
+                    "github": [],
+                    "hackernews": {"enabled": False},
+                },
+                "filtering": {"time_window_hours": 24},
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Stale media source",
+        config={"url": "https://example.com/feed.xml"},
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    old_path = tmp_path / "media" / "old-avatar.png"
+    old_path.parent.mkdir(parents=True, exist_ok=True)
+    old_path.write_bytes(b"\x89PNG\r\n\x1a\nold-avatar")
+    now = datetime.now(timezone.utc).isoformat()
+    store.connect().execute(
+        """
+        INSERT INTO media_assets (
+            id, workspace_id, source_id, asset_kind, remote_url, local_path,
+            mime_type, byte_size, checksum, visibility_scope, status,
+            created_at, updated_at
+        ) VALUES ('med_stale_old', ?, ?, 'source_avatar',
+                  'https://old.example/avatar.png', 'media/old-avatar.png',
+                  'image/png', 18, 'old-checksum', 'private', 'ready', ?, ?)
+        """,
+        (workspace["id"], source_id, now, now),
+    )
+    store.connect().commit()
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="user_feed_refresh",
+        payload={},
+    )
+
+    class StaleOrchestrator:
+        def __init__(self, _config, _storage):
+            self.fence_calls = 0
+
+        async def execute(self, **_kwargs):
+            item = ContentItem(
+                id="rss:stale-media",
+                source_type=SourceType.RSS,
+                title="Stale media",
+                url="https://example.com/item",
+                published_at=datetime.now(timezone.utc),
+                metadata={
+                    "source_id": source_id,
+                    "subscription_id": subscription["id"],
+                    "remote_media_urls": ["https://media.example/item.png"],
+                },
+            )
+            return FeedRunResult(
+                run_id="run-stale-media",
+                status="succeeded",
+                started_at=now,
+                finished_at=now,
+                items=(item,),
+                source_outcomes=(
+                    SourceOutcome(
+                        source_id,
+                        subscription["id"],
+                        "rss:stale-media",
+                        "full",
+                        "succeeded",
+                        1,
+                        avatar_hints=(
+                            SourceAvatarHint(
+                                source_id=source_id,
+                                remote_url="https://new.example/avatar.png",
+                                origin="rss_feed_icon",
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        def assert_service_apify_actor_ops_publishable(self):
+            self.fence_calls += 1
+            if self.fence_calls == 3:
+                raise RuntimeError("stale route generation")
+
+    monkeypatch.setattr("src.orchestrator.HorizonOrchestrator", StaleOrchestrator)
+    monkeypatch.setattr(
+        "src.services.media_cache.MediaCacheService._download",
+        lambda _self, _url, *, max_bytes: (
+            b"\x89PNG\r\n\x1a\nnew-media",
+            "image/png",
+        ),
+    )
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="stale-media-worker",
+        enqueue_schedules=False,
+    )
+
+    assert result["id"] == job["id"]
+    assert result["status"] in {"queued", "failed"}
+    assert UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    ) is None
+    rows = store.connect().execute(
+        "SELECT id, local_path FROM media_assets ORDER BY id"
+    ).fetchall()
+    assert [(row["id"], row["local_path"]) for row in rows] == [
+        ("med_stale_old", "media/old-avatar.png")
+    ]
+    assert old_path.exists()
+    assert [path for path in (tmp_path / "media").rglob("*") if path.is_file()] == [
+        old_path
+    ]
+
+
+def test_post_commit_cleanup_error_keeps_committed_media_file(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
+    monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    workspace = store.get_default_workspace()
+    owner = store.get_user_by_username("owner")
+    job = JobQueue(store).create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_test",
+        payload={"source_type": "rss"},
+    )
+    store.close()
+    created_path = tmp_path / "media" / "committed.png"
+
+    def fake_run_job(_job, *, data_dir, store):
+        assert data_dir == str(tmp_path)
+        created_path.parent.mkdir(parents=True, exist_ok=True)
+        created_path.write_bytes(b"committed-media")
+        cleanup = PostCommitMediaCleanup()
+        cleanup.add_created(created_path)
+        return {"ok": True, "_media_cleanup": cleanup}
+
+    monkeypatch.setattr("src.services.worker._run_job", fake_run_job)
+    monkeypatch.setattr(
+        "src.services.worker.reconcile_all_apify_pools_sync",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "src.services.worker.MaintenanceService.run_if_due",
+        lambda *_args, **_kwargs: {"ran": False},
+    )
+    monkeypatch.setattr(
+        PostCommitMediaCleanup,
+        "run",
+        lambda _self: (_ for _ in ()).throw(
+            RuntimeError("post-commit cleanup failed")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="post-commit cleanup failed"):
+        run_worker_once(
+            data_dir=str(tmp_path),
+            worker_id="post-commit-cleanup-worker",
+            enqueue_schedules=False,
+        )
+
+    verification_store = ServiceStore(tmp_path)
+    verification_store.initialize()
+    assert JobQueue(verification_store).get_job(job["id"])["status"] == "succeeded"
+    assert created_path.read_bytes() == b"committed-media"

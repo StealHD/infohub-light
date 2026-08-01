@@ -129,6 +129,39 @@ def _service(tmp_path, monkeypatch):
     return store, workspace, owner, FeedProductionService(store, _config())
 
 
+def test_publication_fence_runs_inside_snapshot_write_transaction(
+    tmp_path,
+    monkeypatch,
+):
+    store, workspace, owner, service = _service(tmp_path, monkeypatch)
+    calls = []
+
+    def reject_stale_result():
+        calls.append(store.connect().in_transaction)
+        raise RuntimeError("stale route generation")
+
+    with pytest.raises(RuntimeError, match="stale route generation"):
+        service.save_run_result(
+            workspace_id=workspace["id"],
+            user_id=owner["id"],
+            job_id="job_stale_actor_result",
+            job_type="user_feed_refresh",
+            result=_result(
+                "run_stale_actor_result",
+                "succeeded",
+                (_item("stale", "src", "sub"),),
+                (_outcome("src", "sub"),),
+            ),
+            publication_fence=reject_stale_result,
+        )
+
+    assert calls == [True]
+    assert UserFeedStore(store).latest_snapshot(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+    ) is None
+
+
 def test_partial_refresh_retains_recent_items_from_successful_and_failed_sources(
     tmp_path, monkeypatch
 ):

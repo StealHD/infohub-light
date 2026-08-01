@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..apify_actor_identity import source_target_fingerprint
 from ..security import (
     classification_copies,
     is_sensitive_credential_key,
@@ -29,6 +30,18 @@ from ..ui.auth import hash_password, verify_password_hash
 
 DEFAULT_WORKSPACE_ID = "default"
 DEFAULT_WORKSPACE_NAME = "Default Workspace"
+# ActorOps keeps its feature/DSL name "v15".  The shared runtime migration
+# ledger already reserves global versions 15 and 16 for notification schemas.
+APIFY_ACTOR_OPS_MIGRATION_VERSION = 17
+APIFY_ACTOR_OPS_MIGRATION_NAME = "apify_actor_ops_v15"
+APIFY_ACTOR_OPS_MIGRATION_CHECKSUM = (
+    "apify-actor-ops-three-slot-v15-global-ai-route-repair"
+)
+APIFY_DISCOVERY_LIMITS_MIGRATION_VERSION = 18
+APIFY_DISCOVERY_LIMITS_MIGRATION_NAME = "apify_discovery_limits_v16"
+APIFY_DISCOVERY_LIMITS_MIGRATION_CHECKSUM = (
+    "apify-discovery-limits-v16-token-measurement"
+)
 ROLES = {"owner", "admin", "member", "viewer"}
 SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
@@ -52,6 +65,185 @@ AGENT_SOURCE_RESOLUTION_MAX_ACTIVE = 20
 AGENT_SOURCE_RESOLUTION_RETENTION_HOURS = 24
 AGENT_SOURCE_RESOLUTION_ENVELOPE_MAX_BYTES = 16_384
 _UNSET = object()
+
+APIFY_ACTOR_OPS_V15_TRIGGER_REQUIRED_FRAGMENTS = {
+    "trg_apify_actor_adapter_revision_immutable": (
+        "beforeupdateonapify_actor_adapter_revisions",
+        "new.workspace_idisnotold.workspace_id",
+        "new.candidate_idisnotold.candidate_id",
+        "new.actor_idisnotold.actor_id",
+        "new.publisherisnotold.publisher",
+        "new.build_idisnotold.build_id",
+        "new.build_numberisnotold.build_number",
+        "new.manifest_jsonisnotold.manifest_json",
+        "new.manifest_hashisnotold.manifest_hash",
+        "new.input_schema_hashisnotold.input_schema_hash",
+        "new.output_schema_hashisnotold.output_schema_hash",
+        "new.pricing_jsonisnotold.pricing_json",
+        "new.permission_levelisnotold.permission_level",
+        "new.security_evidence_jsonisnotold.security_evidence_json",
+        "new.ai_providerisnotold.ai_provider",
+        "new.ai_modelisnotold.ai_model",
+        "new.prompt_versionisnotold.prompt_version",
+        "new.discovery_run_idisnotold.discovery_run_id",
+        "new.created_atisnotold.created_at",
+    ),
+    "trg_apify_actor_attempt_freeze_immutable": (
+        "beforeupdateonapify_actor_attempts",
+        "new.adapter_revision_idisnotold.adapter_revision_id",
+        "new.build_idisnotold.build_id",
+        "new.build_numberisnotold.build_number",
+        "new.manifest_hashisnotold.manifest_hash",
+        "new.target_fingerprintisnotold.target_fingerprint",
+    ),
+    "trg_apify_actor_validation_attempt_delete": (
+        "beforedeleteonapify_actor_attempts",
+        "updateapify_actor_validationssetattempt_id=null",
+        "attempt_id=old.id",
+    ),
+    "trg_apify_actor_validation_source_delete": (
+        "beforedeleteonsource_catalog",
+        "updateapify_actor_validationssetsource_id=null",
+        "source_id=old.id",
+    ),
+    "trg_apify_discovery_secret_delete": (
+        "beforedeleteonsecret_refs",
+        "updateapify_actor_discovery_settingssetsecret_ref_id=null",
+        "secret_ref_id=old.id",
+    ),
+    "trg_apify_route_active_slots_validate_insert": (
+        "beforeinsertonapify_route_active_slots",
+        "profile.route_id=new.route_id",
+        "profile.workspace_id=new.workspace_id",
+        "revision.candidate_id=new.candidate_id",
+        "revision.revision_id=new.revision_id",
+        "candidate.route_key=profile.route_key",
+    ),
+    "trg_apify_route_active_slots_validate_update": (
+        "beforeupdateonapify_route_active_slots",
+        "profile.route_id=new.route_id",
+        "profile.workspace_id=new.workspace_id",
+        "revision.candidate_id=new.candidate_id",
+        "revision.revision_id=new.revision_id",
+        "candidate.route_key=profile.route_key",
+    ),
+}
+
+APIFY_ACTOR_OPS_V15_TABLE_REQUIRED_FRAGMENTS = {
+    "apify_actor_adapter_revisions": (
+        "unique(workspace_id,revision_id)",
+        "foreignkey(workspace_id,discovery_run_id)referencesapify_actor_discovery_runs(workspace_id,run_id)ondeleterestrict",
+        "superseded_from_lifecyclein('probationary','certified')",
+    ),
+    "apify_actor_discovery_runs": (
+        "check(candidate_count>=0)",
+        "unique(workspace_id,run_id)",
+    ),
+    "apify_actor_discovery_run_revisions": (
+        "foreignkey(workspace_id,run_id)referencesapify_actor_discovery_runs(workspace_id,run_id)ondeletecascade",
+    ),
+    "apify_actor_validations": (
+        "approved_generation>=1",
+        "approved_max_cost_usd>0",
+        "target_fingerprintnotglob'*[^0-9a-f]*'",
+        "foreignkey(workspace_id,discovery_run_id)referencesapify_actor_discovery_runs(workspace_id,run_id)ondeleterestrict",
+        "kind!='route_reference'ortarget_fingerprintisnotnull",
+    ),
+    "apify_actor_discovery_settings": (
+        "check(max_candidatesbetween3and30)",
+    ),
+    "apify_actor_attempts": (
+        "check(reserved_usd>=0)",
+        "target_fingerprintnotglob'*[^0-9a-f]*'",
+        "foreignkey(workspace_id,adapter_revision_id)referencesapify_actor_adapter_revisions(workspace_id,revision_id)",
+    ),
+}
+
+
+def _normalized_schema_sql(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "").casefold())
+
+
+def apify_actor_ops_v15_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate security-relevant v15 table and trigger definitions."""
+
+    table_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            """
+            SELECT name, sql FROM sqlite_master
+            WHERE type = 'table'
+            """
+        ).fetchall()
+    }
+    for table, fragments in APIFY_ACTOR_OPS_V15_TABLE_REQUIRED_FRAGMENTS.items():
+        sql = table_sql.get(table, "")
+        if not sql or any(fragment not in sql for fragment in fragments):
+            return False
+
+    trigger_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            """
+            SELECT name, sql FROM sqlite_master
+            WHERE type = 'trigger'
+            """
+        ).fetchall()
+    }
+    for trigger, fragments in (
+        APIFY_ACTOR_OPS_V15_TRIGGER_REQUIRED_FRAGMENTS.items()
+    ):
+        sql = trigger_sql.get(trigger, "")
+        if not sql or any(fragment not in sql for fragment in fragments):
+            return False
+    return True
+
+
+APIFY_DISCOVERY_LIMITS_V16_COLUMNS = {
+    "apify_actor_discovery_settings": {"max_output_tokens"},
+    "apify_actor_discovery_runs": {
+        "measurement_mode",
+        "ai_max_output_tokens",
+        "ai_input_tokens",
+        "ai_completion_tokens",
+        "ai_reasoning_tokens",
+        "ai_content_tokens",
+        "ai_finish_reason",
+        "ai_latency_ms",
+        "ai_response_bytes",
+        "ai_json_status",
+        "ai_manifest_status",
+        "failure_phase",
+    },
+}
+
+
+def apify_discovery_limits_v16_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate the additive, safety-bounded v16 measurement columns."""
+
+    for table, expected in APIFY_DISCOVERY_LIMITS_V16_COLUMNS.items():
+        columns = {
+            str(row[1])
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if not expected <= columns:
+            return False
+    table_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    return (
+        "check(max_output_tokensbetween4096and65536)"
+        in table_sql.get("apify_actor_discovery_settings", "")
+        and "measurement_modein(0,1)"
+        in table_sql.get("apify_actor_discovery_runs", "")
+    )
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
     "generic_event",
@@ -467,6 +659,8 @@ class ServiceStore:
         *,
         prepare_apify_actor_routing_v13: bool = False,
         prepare_webhook_providers_v14: bool = False,
+        prepare_apify_actor_ops_v15: bool = False,
+        prepare_apify_discovery_limits_v16: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -518,6 +712,58 @@ class ServiceStore:
                     webhook_providers_v14_migrated
                     or prepare_webhook_providers_v14
                 )
+            )
+        )
+        apify_actor_ops_v15_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_ACTOR_OPS_MIGRATION_VERSION,
+                    APIFY_ACTOR_OPS_MIGRATION_NAME,
+                    APIFY_ACTOR_OPS_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
+        )
+        apify_actor_ops_v15_upgrade_pending = bool(
+            existing_schema and not apify_actor_ops_v15_migrated
+        )
+        # Existing databases may mutate ActorOps tables only through the
+        # explicit offline migration, which owns backup and integrity checks.
+        # Normal API/Worker initialization remains read-only for this schema.
+        install_apify_actor_ops_v15 = bool(
+            not existing_schema
+            or (
+                prepare_apify_actor_ops_v15
+                and apify_actor_v13_migrated
+                and webhook_providers_v14_migrated
+            )
+        )
+        apify_discovery_limits_v16_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_DISCOVERY_LIMITS_MIGRATION_VERSION,
+                    APIFY_DISCOVERY_LIMITS_MIGRATION_NAME,
+                    APIFY_DISCOVERY_LIMITS_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
+        )
+        apify_discovery_limits_v16_upgrade_pending = bool(
+            existing_schema and not apify_discovery_limits_v16_migrated
+        )
+        install_apify_discovery_limits_v16 = bool(
+            not existing_schema
+            or (
+                prepare_apify_discovery_limits_v16
+                and apify_actor_ops_v15_migrated
             )
         )
         schema_sql = """
@@ -1442,6 +1688,490 @@ class ServiceStore:
                 ON apify_actor_alert_deliveries(status, retry_at, created_at);
             -- APIFY_ACTOR_ROUTING_V13_END
 
+            -- APIFY_ACTOR_OPS_V15_BEGIN
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_candidates_workspace_id
+                ON apify_actor_candidates(workspace_id, id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_source_catalog_workspace_id
+                ON source_catalog(workspace_id, id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fetch_jobs_workspace_id
+                ON fetch_jobs(workspace_id, id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_secret_refs_workspace_id
+                ON secret_refs(workspace_id, id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_attempts_workspace_id
+                ON apify_actor_attempts(workspace_id, id);
+
+            CREATE TABLE IF NOT EXISTS apify_actor_route_profiles (
+                route_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                capability TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK(mode IN ('primary', 'fallback')),
+                required_slots INTEGER NOT NULL DEFAULT 3
+                    CHECK(required_slots = 3),
+                min_runtime_healthy INTEGER NOT NULL DEFAULT 2
+                    CHECK(min_runtime_healthy BETWEEN 2 AND 3),
+                min_publishers INTEGER NOT NULL DEFAULT 2
+                    CHECK(min_publishers BETWEEN 2 AND 3),
+                per_run_cap_usd REAL NOT NULL DEFAULT 0.02
+                    CHECK(per_run_cap_usd > 0),
+                status TEXT NOT NULL DEFAULT 'discovery_required',
+                metadata_check_interval_seconds INTEGER NOT NULL DEFAULT 604800
+                    CHECK(metadata_check_interval_seconds >= 3600),
+                policy_version TEXT NOT NULL DEFAULT 'actor_ops_v1',
+                generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(generation >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, route_key),
+                UNIQUE(workspace_id, platform, target_type, capability),
+                UNIQUE(workspace_id, route_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_route_profiles_capability
+                ON apify_actor_route_profiles(
+                    workspace_id, platform, target_type, capability, status
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_adapter_revisions (
+                revision_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                publisher TEXT NOT NULL,
+                build_id TEXT,
+                build_number TEXT,
+                manifest_json TEXT
+                    CHECK(manifest_json IS NULL OR json_valid(manifest_json)),
+                manifest_hash TEXT
+                    CHECK(manifest_hash IS NULL OR length(manifest_hash) = 64),
+                input_schema_hash TEXT
+                    CHECK(input_schema_hash IS NULL OR length(input_schema_hash) = 64),
+                output_schema_hash TEXT
+                    CHECK(output_schema_hash IS NULL OR length(output_schema_hash) = 64),
+                pricing_json TEXT
+                    CHECK(pricing_json IS NULL OR json_valid(pricing_json)),
+                permission_level TEXT NOT NULL DEFAULT 'unknown',
+                security_evidence_json TEXT NOT NULL DEFAULT '{}'
+                    CHECK(json_valid(security_evidence_json)),
+                lifecycle TEXT NOT NULL CHECK(lifecycle IN (
+                    'proposed', 'static_valid', 'probationary', 'certified',
+                    'quarantined', 'superseded', 'rejected', 'legacy_builtin'
+                )),
+                ai_provider TEXT,
+                ai_model TEXT,
+                prompt_version TEXT,
+                discovery_run_id TEXT,
+                canary_passed_at TEXT,
+                created_at TEXT NOT NULL,
+                superseded_at TEXT,
+                superseded_from_lifecycle TEXT
+                    CHECK(
+                        superseded_from_lifecycle IS NULL
+                        OR superseded_from_lifecycle IN (
+                            'probationary', 'certified'
+                        )
+                    ),
+                UNIQUE(workspace_id, revision_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, candidate_id)
+                    REFERENCES apify_actor_candidates(workspace_id, id)
+                    ON DELETE RESTRICT,
+                FOREIGN KEY(workspace_id, discovery_run_id)
+                    REFERENCES apify_actor_discovery_runs(
+                        workspace_id, run_id
+                    )
+                    ON DELETE RESTRICT,
+                CHECK(
+                    lifecycle = 'legacy_builtin'
+                    OR (
+                        build_id IS NOT NULL
+                        AND build_number IS NOT NULL
+                        AND manifest_json IS NOT NULL
+                        AND manifest_hash IS NOT NULL
+                    )
+                )
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_adapter_revisions_candidate
+                ON apify_actor_adapter_revisions(
+                    workspace_id, candidate_id, created_at DESC
+                );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_adapter_revision_identity
+                ON apify_actor_adapter_revisions(
+                    workspace_id, candidate_id, build_id, build_number,
+                    manifest_hash
+                )
+                WHERE lifecycle != 'legacy_builtin';
+
+            CREATE TRIGGER IF NOT EXISTS trg_apify_actor_adapter_revision_immutable
+            BEFORE UPDATE ON apify_actor_adapter_revisions
+            FOR EACH ROW
+            WHEN
+                NEW.workspace_id IS NOT OLD.workspace_id
+                OR NEW.candidate_id IS NOT OLD.candidate_id
+                OR NEW.actor_id IS NOT OLD.actor_id
+                OR NEW.publisher IS NOT OLD.publisher
+                OR NEW.build_id IS NOT OLD.build_id
+                OR NEW.build_number IS NOT OLD.build_number
+                OR NEW.manifest_json IS NOT OLD.manifest_json
+                OR NEW.manifest_hash IS NOT OLD.manifest_hash
+                OR NEW.input_schema_hash IS NOT OLD.input_schema_hash
+                OR NEW.output_schema_hash IS NOT OLD.output_schema_hash
+                OR NEW.pricing_json IS NOT OLD.pricing_json
+                OR NEW.permission_level IS NOT OLD.permission_level
+                OR NEW.security_evidence_json IS NOT OLD.security_evidence_json
+                OR NEW.ai_provider IS NOT OLD.ai_provider
+                OR NEW.ai_model IS NOT OLD.ai_model
+                OR NEW.prompt_version IS NOT OLD.prompt_version
+                OR NEW.discovery_run_id IS NOT OLD.discovery_run_id
+                OR NEW.created_at IS NOT OLD.created_at
+            BEGIN
+                SELECT RAISE(
+                    ABORT,
+                    'apify_actor_adapter_revision configuration is immutable'
+                );
+            END;
+
+            CREATE TABLE IF NOT EXISTS apify_route_active_slots (
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                slot_name TEXT NOT NULL CHECK(slot_name IN (
+                    'primary', 'backup_1', 'backup_2'
+                )),
+                candidate_id TEXT,
+                revision_id TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(route_id, slot_name),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    )
+                    ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, candidate_id)
+                    REFERENCES apify_actor_candidates(workspace_id, id)
+                    ON DELETE RESTRICT,
+                FOREIGN KEY(workspace_id, revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    )
+                    ON DELETE RESTRICT,
+                CHECK(
+                    (candidate_id IS NULL AND revision_id IS NULL)
+                    OR (candidate_id IS NOT NULL AND revision_id IS NOT NULL)
+                )
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_route_active_slots_workspace
+                ON apify_route_active_slots(workspace_id, route_id, slot_name);
+
+            CREATE TRIGGER IF NOT EXISTS trg_apify_route_active_slots_validate_insert
+            BEFORE INSERT ON apify_route_active_slots
+            FOR EACH ROW
+            WHEN NEW.candidate_id IS NOT NULL AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM apify_actor_route_profiles AS profile
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = profile.workspace_id
+                    JOIN apify_actor_candidates AS candidate
+                      ON candidate.workspace_id = revision.workspace_id
+                     AND candidate.id = revision.candidate_id
+                    WHERE profile.route_id = NEW.route_id
+                      AND profile.workspace_id = NEW.workspace_id
+                      AND revision.candidate_id = NEW.candidate_id
+                      AND revision.revision_id = NEW.revision_id
+                      AND candidate.route_key = profile.route_key
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid Apify active slot association');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_apify_route_active_slots_validate_update
+            BEFORE UPDATE ON apify_route_active_slots
+            FOR EACH ROW
+            WHEN NEW.candidate_id IS NOT NULL AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM apify_actor_route_profiles AS profile
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = profile.workspace_id
+                    JOIN apify_actor_candidates AS candidate
+                      ON candidate.workspace_id = revision.workspace_id
+                     AND candidate.id = revision.candidate_id
+                    WHERE profile.route_id = NEW.route_id
+                      AND profile.workspace_id = NEW.workspace_id
+                      AND revision.candidate_id = NEW.candidate_id
+                      AND revision.revision_id = NEW.revision_id
+                      AND candidate.route_key = profile.route_key
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid Apify active slot association');
+            END;
+
+            CREATE TABLE IF NOT EXISTS apify_actor_metadata_observations (
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                revision_id TEXT NOT NULL,
+                fingerprint TEXT NOT NULL
+                    CHECK(
+                        length(fingerprint) = 64
+                        AND fingerprint NOT GLOB '*[^0-9a-f]*'
+                    ),
+                last_checked_at TEXT NOT NULL,
+                last_changed_at TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, route_id, revision_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    )
+                    ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    )
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_metadata_observations_checked
+                ON apify_actor_metadata_observations(
+                    workspace_id, route_id, last_checked_at
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_source_route_bindings (
+                binding_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                target_fingerprint TEXT NOT NULL
+                    CHECK(length(target_fingerprint) = 64),
+                mode TEXT NOT NULL CHECK(mode IN ('primary', 'fallback')),
+                validation_status TEXT NOT NULL,
+                verified_revision_set_hash TEXT
+                    CHECK(
+                        verified_revision_set_hash IS NULL
+                        OR length(verified_revision_set_hash) = 64
+                    ),
+                generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(generation >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, source_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, source_id)
+                    REFERENCES source_catalog(workspace_id, id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    )
+                    ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_source_route_bindings_route
+                ON apify_source_route_bindings(
+                    workspace_id, route_id, validation_status
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_discovery_runs (
+                run_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                trigger_reason TEXT NOT NULL,
+                budget_usd REAL NOT NULL DEFAULT 0.10
+                    CHECK(budget_usd >= 0),
+                error_code TEXT,
+                query_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(query_count BETWEEN 0 AND 3),
+                candidate_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(candidate_count >= 0),
+                rejection_summary_json TEXT NOT NULL DEFAULT '[]',
+                -- APIFY_DISCOVERY_LIMITS_V16_BEGIN
+                measurement_mode INTEGER NOT NULL DEFAULT 0
+                    CHECK(measurement_mode IN (0, 1)),
+                ai_max_output_tokens INTEGER
+                    CHECK(ai_max_output_tokens IS NULL OR ai_max_output_tokens BETWEEN 4096 AND 65536),
+                ai_input_tokens INTEGER CHECK(ai_input_tokens IS NULL OR ai_input_tokens >= 0),
+                ai_completion_tokens INTEGER CHECK(ai_completion_tokens IS NULL OR ai_completion_tokens >= 0),
+                ai_reasoning_tokens INTEGER CHECK(ai_reasoning_tokens IS NULL OR ai_reasoning_tokens >= 0),
+                ai_content_tokens INTEGER CHECK(ai_content_tokens IS NULL OR ai_content_tokens >= 0),
+                ai_finish_reason TEXT CHECK(ai_finish_reason IS NULL OR length(ai_finish_reason) <= 64),
+                ai_latency_ms INTEGER CHECK(ai_latency_ms IS NULL OR ai_latency_ms >= 0),
+                ai_response_bytes INTEGER CHECK(ai_response_bytes IS NULL OR ai_response_bytes >= 0),
+                ai_json_status TEXT CHECK(ai_json_status IS NULL OR ai_json_status IN ('valid', 'empty', 'invalid', 'truncated', 'unknown')),
+                ai_manifest_status TEXT CHECK(ai_manifest_status IS NULL OR ai_manifest_status IN ('valid', 'invalid', 'not_run', 'unknown')),
+                failure_phase TEXT CHECK(failure_phase IS NULL OR failure_phase IN ('store', 'metadata', 'ai_generation', 'static_validation', 'input_validation')),
+                -- APIFY_DISCOVERY_LIMITS_V16_END
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, run_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    )
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_discovery_runs_route
+                ON apify_actor_discovery_runs(
+                    workspace_id, route_id, created_at DESC
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_discovery_run_revisions (
+                workspace_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                revision_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(run_id, revision_id),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, run_id)
+                    REFERENCES apify_actor_discovery_runs(
+                        workspace_id, run_id
+                    )
+                    ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    )
+                    ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_discovery_run_revisions_workspace
+                ON apify_actor_discovery_run_revisions(
+                    workspace_id, run_id, created_at
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_validations (
+                validation_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                source_id TEXT,
+                revision_id TEXT NOT NULL,
+                attempt_id TEXT,
+                discovery_run_id TEXT,
+                kind TEXT NOT NULL CHECK(kind IN (
+                    'route_reference', 'source_canary'
+                )),
+                approval_key_hash TEXT
+                    CHECK(
+                        approval_key_hash IS NULL
+                        OR (
+                            length(approval_key_hash) = 64
+                            AND approval_key_hash NOT GLOB '*[^0-9a-f]*'
+                        )
+                    ),
+                approved_generation INTEGER
+                    CHECK(
+                        approved_generation IS NULL
+                        OR approved_generation >= 1
+                    ),
+                approved_max_cost_usd REAL
+                    CHECK(
+                        approved_max_cost_usd IS NULL
+                        OR approved_max_cost_usd > 0
+                    ),
+                target_fingerprint TEXT
+                    CHECK(
+                        target_fingerprint IS NULL
+                        OR (
+                            length(target_fingerprint) = 64
+                            AND target_fingerprint NOT GLOB '*[^0-9a-f]*'
+                        )
+                    ),
+                status TEXT NOT NULL,
+                semantic_outcome TEXT,
+                cost_usd REAL CHECK(cost_usd IS NULL OR cost_usd >= 0),
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    )
+                    ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, source_id)
+                    REFERENCES source_catalog(workspace_id, id),
+                FOREIGN KEY(workspace_id, revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    )
+                    ON DELETE RESTRICT,
+                FOREIGN KEY(workspace_id, attempt_id)
+                    REFERENCES apify_actor_attempts(workspace_id, id),
+                FOREIGN KEY(workspace_id, discovery_run_id)
+                    REFERENCES apify_actor_discovery_runs(
+                        workspace_id, run_id
+                    )
+                    ON DELETE RESTRICT,
+                CHECK(
+                    kind != 'route_reference'
+                    OR target_fingerprint IS NOT NULL
+                )
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_validations_route
+                ON apify_actor_validations(
+                    workspace_id, route_id, kind, created_at DESC
+                );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_validations_source
+                ON apify_actor_validations(source_id, revision_id, created_at DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_validations_approval
+                ON apify_actor_validations(workspace_id, approval_key_hash)
+                WHERE approval_key_hash IS NOT NULL;
+
+            CREATE TABLE IF NOT EXISTS apify_actor_discovery_settings (
+                workspace_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+                ai_provider TEXT NOT NULL DEFAULT '',
+                ai_model TEXT NOT NULL DEFAULT '',
+                secret_ref_id TEXT,
+                call_limit INTEGER NOT NULL DEFAULT 3
+                    CHECK(call_limit BETWEEN 1 AND 3),
+                max_candidates INTEGER NOT NULL DEFAULT 12
+                    CHECK(max_candidates BETWEEN 3 AND 30),
+                -- APIFY_DISCOVERY_LIMITS_V16_BEGIN
+                max_output_tokens INTEGER NOT NULL DEFAULT 4096
+                    CHECK(max_output_tokens BETWEEN 4096 AND 65536),
+                -- APIFY_DISCOVERY_LIMITS_V16_END
+                generation INTEGER NOT NULL DEFAULT 1
+                    CHECK(generation >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, secret_ref_id)
+                    REFERENCES secret_refs(workspace_id, id)
+            );
+
+            CREATE TRIGGER IF NOT EXISTS trg_apify_actor_validation_source_delete
+            BEFORE DELETE ON source_catalog
+            FOR EACH ROW
+            BEGIN
+                UPDATE apify_actor_validations
+                SET source_id = NULL
+                WHERE workspace_id = OLD.workspace_id
+                  AND source_id = OLD.id;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_apify_discovery_secret_delete
+            BEFORE DELETE ON secret_refs
+            FOR EACH ROW
+            BEGIN
+                UPDATE apify_actor_discovery_settings
+                SET secret_ref_id = NULL
+                WHERE workspace_id = OLD.workspace_id
+                  AND secret_ref_id = OLD.id;
+            END;
+            -- APIFY_ACTOR_OPS_V15_END
+
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
@@ -1555,6 +2285,27 @@ class ServiceStore:
                 1,
             )
             schema_sql = before_v13 + after_v13
+        if not install_apify_actor_ops_v15:
+            before_v15, after_marker = schema_sql.split(
+                "-- APIFY_ACTOR_OPS_V15_BEGIN",
+                1,
+            )
+            _v15_sql, after_v15 = after_marker.split(
+                "-- APIFY_ACTOR_OPS_V15_END",
+                1,
+            )
+            schema_sql = before_v15 + after_v15
+        elif not install_apify_discovery_limits_v16:
+            while "-- APIFY_DISCOVERY_LIMITS_V16_BEGIN" in schema_sql:
+                before_v16, after_marker = schema_sql.split(
+                    "-- APIFY_DISCOVERY_LIMITS_V16_BEGIN",
+                    1,
+                )
+                _v16_sql, after_v16 = after_marker.split(
+                    "-- APIFY_DISCOVERY_LIMITS_V16_END",
+                    1,
+                )
+                schema_sql = before_v16 + after_v16
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -1593,6 +2344,115 @@ class ServiceStore:
                 "charge_final",
                 "INTEGER NOT NULL DEFAULT 0",
             )
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_apify_actor_candidates_workspace_id
+                ON apify_actor_candidates(workspace_id, id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_apify_actor_attempts_workspace_id
+                ON apify_actor_attempts(workspace_id, id)
+                """
+            )
+        if install_apify_actor_ops_v15:
+            self._ensure_column(
+                "apify_actor_adapter_revisions",
+                "superseded_from_lifecycle",
+                """TEXT CHECK(
+                    superseded_from_lifecycle IS NULL
+                    OR superseded_from_lifecycle IN (
+                        'probationary', 'certified'
+                    )
+                )""",
+            )
+            self._ensure_column(
+                "apify_actor_discovery_runs",
+                "candidate_count",
+                "INTEGER NOT NULL DEFAULT 0 CHECK(candidate_count >= 0)",
+            )
+            self._ensure_column(
+                "apify_actor_discovery_runs",
+                "rejection_summary_json",
+                "TEXT NOT NULL DEFAULT '[]'",
+            )
+            self._ensure_column(
+                "apify_actor_validations",
+                "discovery_run_id",
+                """TEXT REFERENCES apify_actor_discovery_runs(run_id)
+                    ON DELETE RESTRICT""",
+            )
+        if install_apify_discovery_limits_v16:
+            self._ensure_column(
+                "apify_actor_discovery_settings",
+                "max_output_tokens",
+                "INTEGER NOT NULL DEFAULT 4096 CHECK(max_output_tokens BETWEEN 4096 AND 65536)",
+            )
+            for name, declaration in (
+                ("measurement_mode", "INTEGER NOT NULL DEFAULT 0 CHECK(measurement_mode IN (0, 1))"),
+                ("ai_max_output_tokens", "INTEGER CHECK(ai_max_output_tokens IS NULL OR ai_max_output_tokens BETWEEN 4096 AND 65536)"),
+                ("ai_input_tokens", "INTEGER CHECK(ai_input_tokens IS NULL OR ai_input_tokens >= 0)"),
+                ("ai_completion_tokens", "INTEGER CHECK(ai_completion_tokens IS NULL OR ai_completion_tokens >= 0)"),
+                ("ai_reasoning_tokens", "INTEGER CHECK(ai_reasoning_tokens IS NULL OR ai_reasoning_tokens >= 0)"),
+                ("ai_content_tokens", "INTEGER CHECK(ai_content_tokens IS NULL OR ai_content_tokens >= 0)"),
+                ("ai_finish_reason", "TEXT CHECK(ai_finish_reason IS NULL OR length(ai_finish_reason) <= 64)"),
+                ("ai_latency_ms", "INTEGER CHECK(ai_latency_ms IS NULL OR ai_latency_ms >= 0)"),
+                ("ai_response_bytes", "INTEGER CHECK(ai_response_bytes IS NULL OR ai_response_bytes >= 0)"),
+                ("ai_json_status", "TEXT CHECK(ai_json_status IS NULL OR ai_json_status IN ('valid', 'empty', 'invalid', 'truncated', 'unknown'))"),
+                ("ai_manifest_status", "TEXT CHECK(ai_manifest_status IS NULL OR ai_manifest_status IN ('valid', 'invalid', 'not_run', 'unknown'))"),
+                ("failure_phase", "TEXT CHECK(failure_phase IS NULL OR failure_phase IN ('store', 'metadata', 'ai_generation', 'static_validation', 'input_validation'))"),
+            ):
+                self._ensure_column("apify_actor_discovery_runs", name, declaration)
+        if install_apify_actor_ops_v15:
+            self._ensure_column(
+                "apify_actor_validations",
+                "target_fingerprint",
+                """TEXT CHECK(
+                    target_fingerprint IS NULL
+                    OR (
+                        length(target_fingerprint) = 64
+                        AND target_fingerprint NOT GLOB '*[^0-9a-f]*'
+                    )
+                )""",
+            )
+            self._ensure_column(
+                "apify_actor_validations",
+                "approval_key_hash",
+                """TEXT CHECK(
+                    approval_key_hash IS NULL
+                    OR (
+                        length(approval_key_hash) = 64
+                        AND approval_key_hash NOT GLOB '*[^0-9a-f]*'
+                    )
+                )""",
+            )
+            self._ensure_column(
+                "apify_actor_validations",
+                "approved_generation",
+                """INTEGER CHECK(
+                    approved_generation IS NULL
+                    OR approved_generation >= 1
+                )""",
+            )
+            self._ensure_column(
+                "apify_actor_validations",
+                "approved_max_cost_usd",
+                """REAL CHECK(
+                    approved_max_cost_usd IS NULL
+                    OR approved_max_cost_usd > 0
+                )""",
+            )
+            self._ensure_column(
+                "apify_actor_discovery_settings",
+                "max_candidates",
+                """INTEGER NOT NULL DEFAULT 12
+                    CHECK(max_candidates BETWEEN 3 AND 30)""",
+            )
+            self._upgrade_apify_actor_attempts_v15()
+            self._ensure_apify_actor_ops_v15_triggers()
         self._ensure_column(
             "source_acquisition_states",
             "failure_count",
@@ -1802,6 +2662,15 @@ class ServiceStore:
             and not webhook_providers_v14_upgrade_pending
         ):
             self.mark_webhook_providers_v14_migrated(commit=False)
+        if install_apify_actor_ops_v15:
+            self._seed_apify_actor_ops_v15(commit=False)
+            if not apify_actor_ops_v15_upgrade_pending:
+                self.mark_apify_actor_ops_v15_migrated(commit=False)
+        if (
+            install_apify_discovery_limits_v16
+            and not apify_discovery_limits_v16_upgrade_pending
+        ):
+            self.mark_apify_discovery_limits_v16_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -2022,6 +2891,232 @@ class ServiceStore:
             ).fetchall()
         }
         return not WEBHOOK_PROVIDER_TRIGGER_NAMES <= installed_triggers
+
+    def mark_apify_actor_ops_v15_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            """
+            SELECT name FROM schema_migrations WHERE version = ?
+            """,
+            (APIFY_ACTOR_OPS_MIGRATION_VERSION,),
+        ).fetchone()
+        if (
+            existing is not None
+            and str(existing["name"]) != APIFY_ACTOR_OPS_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 17 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (
+                version, name, checksum, applied_at
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_ACTOR_OPS_MIGRATION_VERSION,
+                APIFY_ACTOR_OPS_MIGRATION_NAME,
+                APIFY_ACTOR_OPS_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            self.connect().commit()
+
+    def apify_actor_ops_v15_migration_required(self) -> bool:
+        conn = self.connect()
+        if not conn.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_ACTOR_OPS_MIGRATION_VERSION,
+                APIFY_ACTOR_OPS_MIGRATION_NAME,
+                APIFY_ACTOR_OPS_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone():
+            return True
+        required_tables = {
+            "apify_actor_route_profiles",
+            "apify_actor_adapter_revisions",
+            "apify_route_active_slots",
+            "apify_actor_metadata_observations",
+            "apify_source_route_bindings",
+            "apify_actor_discovery_runs",
+            "apify_actor_discovery_run_revisions",
+            "apify_actor_validations",
+            "apify_actor_discovery_settings",
+        }
+        installed_tables = {
+            str(row["name"])
+            for row in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                """
+            ).fetchall()
+        }
+        if not required_tables <= installed_tables:
+            return True
+        validation_columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_actor_validations)"
+            ).fetchall()
+        }
+        if not {
+            "target_fingerprint",
+            "approval_key_hash",
+            "approved_generation",
+            "approved_max_cost_usd",
+            "discovery_run_id",
+        } <= validation_columns:
+            return True
+        discovery_run_columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_actor_discovery_runs)"
+            ).fetchall()
+        }
+        if not {"candidate_count", "rejection_summary_json"} <= (
+            discovery_run_columns
+        ):
+            return True
+        discovery_setting_columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_actor_discovery_settings)"
+            ).fetchall()
+        }
+        if "max_candidates" not in discovery_setting_columns:
+            return True
+        revision_columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_actor_adapter_revisions)"
+            ).fetchall()
+        }
+        if "superseded_from_lifecycle" not in revision_columns:
+            return True
+        attempt_columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_actor_attempts)"
+            ).fetchall()
+        }
+        if not {
+            "adapter_revision_id",
+            "build_id",
+            "build_number",
+            "manifest_hash",
+            "target_fingerprint",
+        } <= attempt_columns:
+            return True
+        attempt_schema = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'apify_actor_attempts'
+            """
+        ).fetchone()
+        normalized_sql = re.sub(
+            r"\s+",
+            "",
+            str(attempt_schema["sql"] if attempt_schema else "").casefold(),
+        )
+        if "reserved_usd>=0andreserved_usd<=0.02" in normalized_sql:
+            return True
+        if not apify_actor_ops_v15_schema_shapes_valid(conn):
+            return True
+        required_indexes = {
+            "idx_apify_actor_candidates_workspace_id",
+            "idx_source_catalog_workspace_id",
+            "idx_fetch_jobs_workspace_id",
+            "idx_secret_refs_workspace_id",
+            "idx_apify_actor_attempts_workspace_id",
+            "idx_apify_actor_metadata_observations_checked",
+            "idx_apify_discovery_run_revisions_workspace",
+            "idx_apify_actor_validations_approval",
+        }
+        installed_indexes = {
+            str(row["name"])
+            for row in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'index'
+                """
+            ).fetchall()
+        }
+        if not required_indexes <= installed_indexes:
+            return True
+        invalid_slot_count = conn.execute(
+            """
+            SELECT 1
+            FROM apify_actor_route_profiles AS profile
+            LEFT JOIN apify_route_active_slots AS slot
+              ON slot.route_id = profile.route_id
+            GROUP BY profile.route_id
+            HAVING COUNT(slot.slot_name) != 3
+            LIMIT 1
+            """
+        ).fetchone()
+        return invalid_slot_count is not None
+
+    def mark_apify_discovery_limits_v16_migrated(
+        self, *, commit: bool = True
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (APIFY_DISCOVERY_LIMITS_MIGRATION_VERSION,),
+        ).fetchone()
+        if existing is not None and str(existing["name"]) != (
+            APIFY_DISCOVERY_LIMITS_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 18 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_DISCOVERY_LIMITS_MIGRATION_VERSION,
+                APIFY_DISCOVERY_LIMITS_MIGRATION_NAME,
+                APIFY_DISCOVERY_LIMITS_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            connection.commit()
+
+    def apify_discovery_limits_v16_migration_required(self) -> bool:
+        connection = self.connect()
+        marker = connection.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_DISCOVERY_LIMITS_MIGRATION_VERSION,
+                APIFY_DISCOVERY_LIMITS_MIGRATION_NAME,
+                APIFY_DISCOVERY_LIMITS_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone()
+        return not marker or not apify_discovery_limits_v16_schema_shapes_valid(
+            connection
+        )
 
     def mark_apify_key_pool_v8_migrated(self, *, commit: bool = True) -> None:
         self.connect().execute(
@@ -2412,6 +3507,322 @@ class ServiceStore:
         if commit:
             conn.commit()
 
+    def _seed_apify_actor_ops_v15(self, *, commit: bool = True) -> None:
+        """Seed initial Route Profiles and project legacy X into three slots."""
+
+        conn = self.connect()
+        now = _now_iso()
+        route_specs = {
+            "x/profile": {
+                "platform": "x",
+                "target_type": "profile",
+                "capability": "items",
+                "mode": "primary",
+                "status": "legacy_validation_pending",
+            },
+            "youtube/channel/items": {
+                "platform": "youtube",
+                "target_type": "channel",
+                "capability": "items",
+                "mode": "fallback",
+                "status": "candidate_shortfall",
+            },
+            "instagram/profile/items": {
+                "platform": "instagram",
+                "target_type": "profile",
+                "capability": "items",
+                "mode": "primary",
+                "status": "candidate_shortfall",
+            },
+        }
+        for workspace in conn.execute(
+            "SELECT id FROM workspaces ORDER BY created_at, id"
+        ).fetchall():
+            workspace_id = str(workspace["id"])
+            x_route = conn.execute(
+                """
+                SELECT generation, status, blocked_reason
+                FROM apify_actor_routes
+                WHERE workspace_id = ? AND route_key = 'x/profile'
+                """,
+                (workspace_id,),
+            ).fetchone()
+            for route_key, spec in route_specs.items():
+                generation = (
+                    int(x_route["generation"])
+                    if route_key == "x/profile" and x_route is not None
+                    else 1
+                )
+                route_id = "apify-route-" + hashlib.sha256(
+                    "\x1f".join(
+                        (
+                            "apify-actor-ops-v15",
+                            workspace_id,
+                            route_key,
+                        )
+                    ).encode("utf-8")
+                ).hexdigest()[:32]
+                profile_status = str(spec["status"])
+                if route_key == "x/profile" and x_route is not None:
+                    legacy_status = str(x_route["status"] or "").casefold()
+                    legacy_reason = str(
+                        x_route["blocked_reason"] or ""
+                    ).casefold()
+                    if legacy_status in {
+                        "blocked",
+                        "budget_blocked",
+                        "exhausted",
+                    }:
+                        profile_status = (
+                            "blocked_unknown_start"
+                            if legacy_reason
+                            in {
+                                "apify_start_outcome_unknown",
+                                "apify_run_reconcile_required",
+                                "start_outcome_unknown",
+                            }
+                            else "blocked"
+                        )
+                    else:
+                        # Support evidence remains explicitly legacy/pending;
+                        # the runtime gate independently counts runnable slots
+                        # and fails closed below two.
+                        profile_status = "legacy_validation_pending"
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO apify_actor_route_profiles (
+                        route_id, workspace_id, route_key, platform, target_type,
+                        capability, mode, required_slots, min_runtime_healthy,
+                        min_publishers, per_run_cap_usd, status,
+                        metadata_check_interval_seconds, policy_version,
+                        generation, created_at, updated_at
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?,
+                        3, 2, 2, 0.02, ?,
+                        604800, 'actor_ops_v1', ?, ?, ?
+                    )
+                    """,
+                    (
+                        route_id,
+                        workspace_id,
+                        route_key,
+                        spec["platform"],
+                        spec["target_type"],
+                        spec["capability"],
+                        spec["mode"],
+                        profile_status,
+                        generation,
+                        now,
+                        now,
+                    ),
+                )
+                candidates = conn.execute(
+                    """
+                    SELECT id, actor_id, state, position
+                    FROM apify_actor_candidates
+                    WHERE workspace_id = ? AND route_key = ?
+                    ORDER BY position, id
+                    """,
+                    (workspace_id, route_key),
+                ).fetchall()
+                revision_by_candidate: dict[str, str] = {}
+                for candidate in candidates:
+                    candidate_id = str(candidate["id"])
+                    actor_id = str(candidate["actor_id"])
+                    publisher = (
+                        actor_id.split("/", 1)[0].strip()
+                        if "/" in actor_id
+                        else actor_id.strip()
+                    )
+                    revision_id = "apify-revision-" + hashlib.sha256(
+                        "\x1f".join(
+                            (
+                                "apify-actor-ops-v15",
+                                candidate_id,
+                                "legacy_builtin",
+                            )
+                        ).encode("utf-8")
+                    ).hexdigest()[:32]
+                    evidence = json.dumps(
+                        {
+                            "certification_proven": False,
+                            "exact_build_proven": False,
+                            "legacy_candidate_state": str(candidate["state"]),
+                            "migration": "apify_actor_ops_v15",
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO apify_actor_adapter_revisions (
+                            revision_id, workspace_id, candidate_id, actor_id,
+                            publisher, build_id, build_number, manifest_json,
+                            manifest_hash, input_schema_hash, output_schema_hash,
+                            pricing_json, permission_level, security_evidence_json,
+                            lifecycle, ai_provider, ai_model, prompt_version,
+                            canary_passed_at, created_at, superseded_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL,
+                            NULL, 'unknown', ?, 'legacy_builtin',
+                            NULL, NULL, NULL, NULL, ?, NULL
+                        )
+                        """,
+                        (
+                            revision_id,
+                            workspace_id,
+                            candidate_id,
+                            actor_id,
+                            publisher,
+                            evidence,
+                            now,
+                        ),
+                    )
+                    revision_by_candidate[candidate_id] = revision_id
+
+                slot_names = ("primary", "backup_1", "backup_2")
+                for index, slot_name in enumerate(slot_names):
+                    candidate = (
+                        candidates[index] if index < len(candidates) else None
+                    )
+                    candidate_id = str(candidate["id"]) if candidate else None
+                    revision_id = (
+                        revision_by_candidate.get(candidate_id)
+                        if candidate_id is not None
+                        else None
+                    )
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO apify_route_active_slots (
+                            workspace_id, route_id, slot_name,
+                            candidate_id, revision_id, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            workspace_id,
+                            route_id,
+                            slot_name,
+                            candidate_id,
+                            revision_id,
+                            now,
+                        ),
+                    )
+
+                if route_key != "x/profile":
+                    continue
+                for source in conn.execute(
+                    """
+                    SELECT id, config_json
+                    FROM source_catalog
+                    WHERE workspace_id = ? AND type = 'apify_social'
+                    ORDER BY id
+                    """,
+                    (workspace_id,),
+                ).fetchall():
+                    try:
+                        config = json.loads(str(source["config_json"] or "{}"))
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                    if not isinstance(config, dict):
+                        continue
+                    if (
+                        str(config.get("platform") or "").strip().casefold()
+                        != "x"
+                    ):
+                        continue
+                    if (
+                        str(config.get("kind") or "profile").strip().casefold()
+                        != "profile"
+                    ):
+                        continue
+                    target = str(config.get("target") or "").strip()
+                    if not target:
+                        continue
+                    source_id = str(source["id"])
+                    target_fingerprint = source_target_fingerprint(
+                        workspace_id,
+                        route_id,
+                        target,
+                        platform="x",
+                    )
+                    binding_id = "apify-binding-" + hashlib.sha256(
+                        "\x1f".join(
+                            (
+                                "apify-actor-ops-v15",
+                                workspace_id,
+                                source_id,
+                                route_id,
+                            )
+                        ).encode("utf-8")
+                    ).hexdigest()[:32]
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO apify_source_route_bindings (
+                            binding_id, workspace_id, source_id, route_id,
+                            target_fingerprint, mode, validation_status,
+                            verified_revision_set_hash, generation,
+                            created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, 'primary',
+                            'legacy_validation_pending', NULL, 1, ?, ?
+                        )
+                        """,
+                        (
+                            binding_id,
+                            workspace_id,
+                            source_id,
+                            route_id,
+                            target_fingerprint,
+                            now,
+                            now,
+                        ),
+                    )
+
+        for workspace in conn.execute(
+            "SELECT id FROM workspaces ORDER BY created_at, id"
+        ).fetchall():
+            settings_columns = {
+                str(row["name"])
+                for row in conn.execute(
+                    "PRAGMA table_info(apify_actor_discovery_settings)"
+                ).fetchall()
+            }
+            if "max_output_tokens" in settings_columns:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO apify_actor_discovery_settings (
+                        workspace_id, enabled, ai_provider, ai_model,
+                        secret_ref_id, call_limit, max_candidates,
+                        max_output_tokens, generation, created_at, updated_at
+                    ) VALUES (?, 0, '', '', NULL, 3, 12, 4096, 1, ?, ?)
+                    """,
+                    (str(workspace["id"]), now, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO apify_actor_discovery_settings (
+                        workspace_id, enabled, ai_provider, ai_model,
+                        secret_ref_id, call_limit, max_candidates, generation,
+                        created_at, updated_at
+                    ) VALUES (?, 0, '', '', NULL, 3, 12, 1, ?, ?)
+                    """,
+                    (str(workspace["id"]), now, now),
+                )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO apify_actor_discovery_run_revisions (
+                workspace_id, run_id, revision_id, created_at
+            )
+            SELECT workspace_id, discovery_run_id, revision_id, created_at
+            FROM apify_actor_adapter_revisions
+            WHERE discovery_run_id IS NOT NULL
+            """
+        )
+        if commit:
+            conn.commit()
+
     def _has_unmigrated_content_index_v4_artifacts(self) -> bool:
         return bool(
             self.connect().execute(
@@ -2463,6 +3874,355 @@ class ServiceStore:
                 LIMIT 1
                 """
             ).fetchone()
+        )
+
+    def _upgrade_apify_actor_attempts_v15(self) -> None:
+        """Add immutable adapter snapshots and remove the legacy $0.02 DB ceiling."""
+
+        conn = self.connect()
+        columns = {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(apify_actor_attempts)"
+            ).fetchall()
+        }
+        required_columns = {
+            "adapter_revision_id",
+            "build_id",
+            "build_number",
+            "manifest_hash",
+            "target_fingerprint",
+        }
+        schema_row = conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'apify_actor_attempts'
+            """
+        ).fetchone()
+        normalized_sql = re.sub(
+            r"\s+",
+            "",
+            str(schema_row["sql"] if schema_row else "").casefold(),
+        )
+        has_legacy_cap = (
+            "reserved_usd>=0andreserved_usd<=0.02" in normalized_sql
+        )
+        if required_columns <= columns and not has_legacy_cap:
+            return
+
+        missing_columns = required_columns - columns
+        if missing_columns == {"target_fingerprint"} and not has_legacy_cap:
+            self._ensure_column(
+                "apify_actor_attempts",
+                "target_fingerprint",
+                """TEXT CHECK(
+                    target_fingerprint IS NULL
+                    OR (
+                        length(target_fingerprint) = 64
+                        AND target_fingerprint NOT GLOB '*[^0-9a-f]*'
+                    )
+                )""",
+            )
+            return
+
+        validation_count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM apify_actor_validations"
+            ).fetchone()[0]
+        )
+        if validation_count:
+            raise RuntimeError(
+                "cannot rebuild Apify Actor attempts while v15 validations exist"
+            )
+        conn.execute("DROP TABLE IF EXISTS apify_actor_attempts_v15_new")
+        conn.execute(
+            """
+            CREATE TABLE apify_actor_attempts_v15_new (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_key TEXT NOT NULL,
+                route_generation INTEGER NOT NULL CHECK(route_generation >= 1),
+                candidate_id TEXT NOT NULL,
+                source_id TEXT,
+                job_id TEXT,
+                attempt_group_id TEXT NOT NULL,
+                attempt_index INTEGER NOT NULL CHECK(attempt_index BETWEEN 1 AND 3),
+                status TEXT NOT NULL
+                    CHECK(status IN (
+                        'reserved', 'running', 'succeeded', 'valid_empty',
+                        'actor_failed', 'target_failed',
+                        'start_outcome_unknown', 'cancelled'
+                    )),
+                semantic_outcome TEXT,
+                reserved_usd REAL NOT NULL DEFAULT 0.02
+                    CHECK(reserved_usd >= 0),
+                actual_cost_usd REAL
+                    CHECK(actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                cost_final INTEGER NOT NULL DEFAULT 0 CHECK(cost_final IN (0, 1)),
+                adapter_revision_id TEXT,
+                build_id TEXT,
+                build_number TEXT,
+                manifest_hash TEXT
+                    CHECK(manifest_hash IS NULL OR length(manifest_hash) = 64),
+                target_fingerprint TEXT
+                    CHECK(
+                        target_fingerprint IS NULL
+                        OR (
+                            length(target_fingerprint) = 64
+                            AND target_fingerprint NOT GLOB '*[^0-9a-f]*'
+                        )
+                    ),
+                last_error_code TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                terminal_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, id),
+                FOREIGN KEY(workspace_id, route_key)
+                    REFERENCES apify_actor_routes(workspace_id, route_key)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, candidate_id)
+                    REFERENCES apify_actor_candidates(workspace_id, id)
+                    ON DELETE RESTRICT,
+                FOREIGN KEY(source_id)
+                    REFERENCES source_catalog(id) ON DELETE SET NULL,
+                FOREIGN KEY(job_id)
+                    REFERENCES fetch_jobs(id) ON DELETE SET NULL,
+                FOREIGN KEY(workspace_id, adapter_revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    )
+                    ON DELETE RESTRICT
+            )
+            """
+        )
+        legacy_columns = [
+            "id",
+            "workspace_id",
+            "route_key",
+            "route_generation",
+            "candidate_id",
+            "source_id",
+            "job_id",
+            "attempt_group_id",
+            "attempt_index",
+            "status",
+            "semantic_outcome",
+            "reserved_usd",
+            "actual_cost_usd",
+            "cost_final",
+        ]
+        snapshot_columns = [
+            "adapter_revision_id",
+            "build_id",
+            "build_number",
+            "manifest_hash",
+            "target_fingerprint",
+        ]
+        trailing_columns = [
+            "last_error_code",
+            "created_at",
+            "started_at",
+            "terminal_at",
+            "updated_at",
+        ]
+        destination_columns = legacy_columns + snapshot_columns + trailing_columns
+        source_expressions = (
+            legacy_columns
+            + [
+                column if column in columns else "NULL"
+                for column in snapshot_columns
+            ]
+            + trailing_columns
+        )
+        conn.execute(
+            f"""
+            INSERT INTO apify_actor_attempts_v15_new (
+                {", ".join(destination_columns)}
+            )
+            SELECT {", ".join(source_expressions)}
+            FROM apify_actor_attempts
+            """
+        )
+        conn.execute("DROP TABLE apify_actor_attempts")
+        conn.execute(
+            """
+            ALTER TABLE apify_actor_attempts_v15_new
+            RENAME TO apify_actor_attempts
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX idx_apify_actor_attempts_group
+                ON apify_actor_attempts(
+                    workspace_id, route_key, attempt_group_id, attempt_index
+                )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX idx_apify_actor_attempts_candidate_time
+                ON apify_actor_attempts(candidate_id, created_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX idx_apify_actor_attempts_failed_cost
+                ON apify_actor_attempts(workspace_id, route_key, terminal_at)
+                WHERE status IN (
+                    'actor_failed', 'target_failed', 'start_outcome_unknown'
+                )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX idx_apify_actor_attempts_revision_time
+                ON apify_actor_attempts(
+                    adapter_revision_id, created_at DESC
+                )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX idx_apify_actor_attempts_workspace_id
+                ON apify_actor_attempts(workspace_id, id)
+            """
+        )
+
+    def _ensure_apify_actor_ops_v15_triggers(self) -> None:
+        """Replace security triggers so same-name legacy shapes cannot survive."""
+
+        self.connect().executescript(
+            """
+            DROP TRIGGER IF EXISTS trg_apify_actor_adapter_revision_immutable;
+            DROP TRIGGER IF EXISTS trg_apify_actor_attempt_freeze_immutable;
+            DROP TRIGGER IF EXISTS trg_apify_actor_validation_attempt_delete;
+            DROP TRIGGER IF EXISTS trg_apify_actor_validation_source_delete;
+            DROP TRIGGER IF EXISTS trg_apify_discovery_secret_delete;
+            DROP TRIGGER IF EXISTS trg_apify_route_active_slots_validate_insert;
+            DROP TRIGGER IF EXISTS trg_apify_route_active_slots_validate_update;
+
+            CREATE TRIGGER trg_apify_actor_adapter_revision_immutable
+            BEFORE UPDATE ON apify_actor_adapter_revisions
+            FOR EACH ROW
+            WHEN
+                NEW.workspace_id IS NOT OLD.workspace_id
+                OR NEW.candidate_id IS NOT OLD.candidate_id
+                OR NEW.actor_id IS NOT OLD.actor_id
+                OR NEW.publisher IS NOT OLD.publisher
+                OR NEW.build_id IS NOT OLD.build_id
+                OR NEW.build_number IS NOT OLD.build_number
+                OR NEW.manifest_json IS NOT OLD.manifest_json
+                OR NEW.manifest_hash IS NOT OLD.manifest_hash
+                OR NEW.input_schema_hash IS NOT OLD.input_schema_hash
+                OR NEW.output_schema_hash IS NOT OLD.output_schema_hash
+                OR NEW.pricing_json IS NOT OLD.pricing_json
+                OR NEW.permission_level IS NOT OLD.permission_level
+                OR NEW.security_evidence_json IS NOT OLD.security_evidence_json
+                OR NEW.ai_provider IS NOT OLD.ai_provider
+                OR NEW.ai_model IS NOT OLD.ai_model
+                OR NEW.prompt_version IS NOT OLD.prompt_version
+                OR NEW.discovery_run_id IS NOT OLD.discovery_run_id
+                OR NEW.created_at IS NOT OLD.created_at
+            BEGIN
+                SELECT RAISE(
+                    ABORT,
+                    'apify_actor_adapter_revision configuration is immutable'
+                );
+            END;
+
+            CREATE TRIGGER trg_apify_actor_attempt_freeze_immutable
+            BEFORE UPDATE ON apify_actor_attempts
+            FOR EACH ROW
+            WHEN
+                NEW.adapter_revision_id IS NOT OLD.adapter_revision_id
+                OR NEW.build_id IS NOT OLD.build_id
+                OR NEW.build_number IS NOT OLD.build_number
+                OR NEW.manifest_hash IS NOT OLD.manifest_hash
+                OR NEW.target_fingerprint IS NOT OLD.target_fingerprint
+            BEGIN
+                SELECT RAISE(
+                    ABORT,
+                    'apify_actor_attempt adapter snapshot is immutable'
+                );
+            END;
+
+            CREATE TRIGGER trg_apify_actor_validation_attempt_delete
+            BEFORE DELETE ON apify_actor_attempts
+            FOR EACH ROW
+            BEGIN
+                UPDATE apify_actor_validations
+                SET attempt_id = NULL
+                WHERE workspace_id = OLD.workspace_id
+                  AND attempt_id = OLD.id;
+            END;
+
+            CREATE TRIGGER trg_apify_actor_validation_source_delete
+            BEFORE DELETE ON source_catalog
+            FOR EACH ROW
+            BEGIN
+                UPDATE apify_actor_validations
+                SET source_id = NULL
+                WHERE workspace_id = OLD.workspace_id
+                  AND source_id = OLD.id;
+            END;
+
+            CREATE TRIGGER trg_apify_discovery_secret_delete
+            BEFORE DELETE ON secret_refs
+            FOR EACH ROW
+            BEGIN
+                UPDATE apify_actor_discovery_settings
+                SET secret_ref_id = NULL
+                WHERE workspace_id = OLD.workspace_id
+                  AND secret_ref_id = OLD.id;
+            END;
+
+            CREATE TRIGGER trg_apify_route_active_slots_validate_insert
+            BEFORE INSERT ON apify_route_active_slots
+            FOR EACH ROW
+            WHEN NEW.candidate_id IS NOT NULL AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM apify_actor_route_profiles AS profile
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = profile.workspace_id
+                    JOIN apify_actor_candidates AS candidate
+                      ON candidate.workspace_id = revision.workspace_id
+                     AND candidate.id = revision.candidate_id
+                    WHERE profile.route_id = NEW.route_id
+                      AND profile.workspace_id = NEW.workspace_id
+                      AND revision.candidate_id = NEW.candidate_id
+                      AND revision.revision_id = NEW.revision_id
+                      AND candidate.route_key = profile.route_key
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid Apify active slot association');
+            END;
+
+            CREATE TRIGGER trg_apify_route_active_slots_validate_update
+            BEFORE UPDATE ON apify_route_active_slots
+            FOR EACH ROW
+            WHEN NEW.candidate_id IS NOT NULL AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM apify_actor_route_profiles AS profile
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = profile.workspace_id
+                    JOIN apify_actor_candidates AS candidate
+                      ON candidate.workspace_id = revision.workspace_id
+                     AND candidate.id = revision.candidate_id
+                    WHERE profile.route_id = NEW.route_id
+                      AND profile.workspace_id = NEW.workspace_id
+                      AND revision.candidate_id = NEW.candidate_id
+                      AND revision.revision_id = NEW.revision_id
+                      AND candidate.route_key = profile.route_key
+                )
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid Apify active slot association');
+            END;
+            """
         )
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
