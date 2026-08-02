@@ -45,10 +45,12 @@ _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
     "youtube": (
         ActorTarget(
             canonical_url="https://www.youtube.com/@YouTube",
+            native_id="UCBR8-60-B28hp2BmDPdntcQ",
             handle="YouTube",
         ),
         ActorTarget(
             canonical_url="https://www.youtube.com/@GoogleDevelopers",
+            native_id="UC_x5XG1OV2P6uZZ5FSM9Ttw",
             handle="GoogleDevelopers",
         ),
     ),
@@ -92,9 +94,11 @@ def reference_target_fingerprint(
 ) -> str:
     """Return a stable opaque digest without persisting the reference target."""
 
+    # Keep historical reference fingerprints stable when a public channel's
+    # exact native ID is added later for Actor inputs.
     identity = (
-        target.native_id
-        or target.handle
+        target.handle
+        or target.native_id
         or target.canonical_url
         or ""
     ).strip()

@@ -462,6 +462,16 @@ class ApifyActorDiscoveryService:
                 rejected.append({"actor_id": actor_id, "reason": error.code})
                 continue
             accepted.append(candidate)
+        # Prefer Builds whose exact Dataset schema proves a content-item
+        # contract.  Store result ordering is not a quality signal and used to
+        # exclude valid YouTube video Actors merely because their opaque Actor
+        # ID sorted after metadata-only candidates.
+        accepted.sort(
+            key=lambda candidate: (
+                0 if _output_schema_proves_items(candidate.output_schema) else 1,
+                candidate.actor_id,
+            )
+        )
         accepted = accepted[: int(settings["max_candidates"])]
         if len(accepted) < 3 or len({row.publisher for row in accepted}) < 2:
             self.ops.update_discovery_run(
@@ -532,23 +542,33 @@ class ApifyActorDiscoveryService:
                             "input": "must_equal_candidate.input_template",
                             "output": {
                                 "native_id": {
-                                    "pointers": ["/candidate/id"],
+                                    "pointers": [
+                                        "must_select_exact_RFC6901_pointer_from_candidate.output_schema"
+                                    ],
                                     "transforms": ["to_string"],
                                 },
                                 "url": {
-                                    "pointers": ["/candidate/url"],
+                                    "pointers": [
+                                        "must_select_exact_RFC6901_pointer_from_candidate.output_schema"
+                                    ],
                                     "transforms": ["normalize_url"],
                                 },
                                 "published_at": {
-                                    "pointers": ["/candidate/date"],
+                                    "pointers": [
+                                        "must_select_exact_RFC6901_pointer_from_candidate.output_schema"
+                                    ],
                                     "transforms": ["parse_datetime"],
                                 },
                                 "text": {
-                                    "pointers": ["/candidate/text"],
+                                    "pointers": [
+                                        "must_select_exact_RFC6901_pointer_from_candidate.output_schema"
+                                    ],
                                     "transforms": ["strip_html"],
                                 },
                                 "author_handle": {
-                                    "pointers": ["/candidate/ownerUsername"],
+                                    "pointers": [
+                                        "must_select_exact_RFC6901_pointer_from_candidate.output_schema"
+                                    ],
                                     "transforms": ["to_string"],
                                 },
                             },
@@ -568,6 +588,7 @@ class ApifyActorDiscoveryService:
                     "Use at least two distinct candidate publishers across the proposals.",
                     "Rank proposals best-first so later entries can replace an invalid earlier entry.",
                     "Replace candidate placeholders with fetched schema paths only.",
+                    "Every pointer starts at the Dataset row root. Do not invent /candidate, /item, /data or /result wrappers unless that exact root property exists in candidate.output_schema.",
                     "Copy candidate.input_template exactly into manifest.input.",
                     "input values are JSON literals or one exact $ref object.",
                     "output paths are RFC 6901 JSON Pointers.",
@@ -661,6 +682,10 @@ class ApifyActorDiscoveryService:
                         "apify_manifest_identity_mismatch",
                         "Manifest identity mismatch",
                     )
+                ai_manifest = _repair_manifest_schema_root_pointers(
+                    ai_manifest,
+                    candidate.output_schema,
+                )
                 normalized_manifest = ai_manifest.model_dump(
                     mode="json",
                     by_alias=True,
@@ -673,6 +698,11 @@ class ApifyActorDiscoveryService:
                     manifest,
                     candidate.output_schema,
                 )
+                if "parse_datetime" not in manifest.output.published_at.transforms:
+                    raise ActorManifestError(
+                        "apify_manifest_published_at_transform_required",
+                        "Discovery manifests must parse the publication timestamp",
+                    )
                 _validate_manifest_route_identity(
                     manifest,
                     target_type=str(route["target_type"]),
@@ -866,6 +896,7 @@ class ApifyActorDiscoveryService:
             platform=platform,
             target_type=target_type,
             capability=capability,
+            output_schema=output_schema,
         )
         publisher = _publisher(actor_id, actor)
         return DiscoveryCandidate(
@@ -1003,6 +1034,124 @@ def _dataset_schema_mapping(value: Any) -> Mapping[str, Any]:
     return schema
 
 
+_SCHEMA_STRUCTURAL_KEYS = frozenset(
+    {
+        "$schema",
+        "$id",
+        "$defs",
+        "definitions",
+        "type",
+        "format",
+        "required",
+        "properties",
+        "items",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "additionalProperties",
+    }
+)
+
+
+def _output_schema_field_names(schema: Mapping[str, Any]) -> frozenset[str]:
+    """Return bounded normalized field names without reading Dataset values."""
+
+    names: set[str] = set()
+
+    def visit(node: Mapping[str, Any], *, depth: int, root: bool = False) -> None:
+        if depth > 8 or len(names) >= 512:
+            return
+        properties = node.get("properties")
+        if isinstance(properties, Mapping):
+            fields = properties
+        elif root:
+            fields = {
+                key: value
+                for key, value in node.items()
+                if key not in _SCHEMA_STRUCTURAL_KEYS
+                and isinstance(key, str)
+                and isinstance(value, Mapping)
+            }
+        else:
+            fields = {}
+        for raw_name, raw_child in list(fields.items())[:128]:
+            if not isinstance(raw_name, str) or not isinstance(raw_child, Mapping):
+                continue
+            normalized = re.sub(r"[^a-z0-9]+", "", raw_name.casefold())
+            if normalized:
+                names.add(normalized)
+            visit(raw_child, depth=depth + 1)
+            items = raw_child.get("items")
+            if isinstance(items, Mapping):
+                visit(items, depth=depth + 1)
+        for keyword in ("oneOf", "anyOf", "allOf"):
+            branches = node.get(keyword)
+            if isinstance(branches, Sequence) and not isinstance(
+                branches,
+                (str, bytes, bytearray),
+            ):
+                for branch in branches[:16]:
+                    if isinstance(branch, Mapping):
+                        visit(branch, depth=depth + 1)
+
+    visit(schema, depth=0, root=True)
+    return frozenset(names)
+
+
+def _output_schema_proves_items(schema: Mapping[str, Any]) -> bool:
+    """Accept price-event ambiguity when the exact Build proves real items."""
+
+    names = _output_schema_field_names(schema)
+    item_markers = (
+        "video",
+        "post",
+        "tweet",
+        "media",
+        "short",
+        "reel",
+        "item",
+    )
+    has_item_context = any(
+        any(marker in name for marker in item_markers) for name in names
+    )
+    if not has_item_context:
+        return False
+    has_identity = any(
+        name in {
+            "id",
+            "videoid",
+            "postid",
+            "tweetid",
+            "mediaid",
+            "itemid",
+            "shortcode",
+        }
+        for name in names
+    )
+    has_url = any(
+        name in {"url", "videourl", "posturl", "tweeturl", "mediaurl", "itemurl"}
+        for name in names
+    )
+    has_published = any(
+        "published" in name
+        or name in {"date", "createdat", "timestamp", "time"}
+        for name in names
+    )
+    has_content = any(
+        name in {
+            "title",
+            "text",
+            "caption",
+            "description",
+            "videotitle",
+            "videodescription",
+            "posttext",
+        }
+        for name in names
+    )
+    return has_identity and has_url and has_published and has_content
+
+
 def _pricing(actor: Mapping[str, Any]) -> Mapping[str, Any]:
     """Select the currently effective official Actor Detail price record.
 
@@ -1129,6 +1278,7 @@ def _validate_capability_pricing(
     platform: str,
     target_type: str,
     capability: str,
+    output_schema: Mapping[str, Any] | None = None,
 ) -> None:
     error_code = actor_pricing_capability_error(
         pricing,
@@ -1136,7 +1286,9 @@ def _validate_capability_pricing(
         target_type=target_type,
         capability=capability,
     )
-    if error_code is not None:
+    if error_code is not None and not _output_schema_proves_items(
+        output_schema or {}
+    ):
         raise _reject(error_code)
 
 
@@ -1368,7 +1520,7 @@ def _target_input_value(name: str, schema: Mapping[str, Any]) -> Any:
         if any(marker in normalized for marker in ("handle", "username"))
         and "url" not in normalized
         else "target.native_id"
-        if normalized.endswith("id") and "url" not in normalized
+        if normalized.endswith(("id", "ids")) and "url" not in normalized
         else "target.canonical_url"
     )
     value: dict[str, str] = {"$ref": reference}
@@ -1586,6 +1738,55 @@ def _schema_pointer_exists(schema: Mapping[str, Any], pointer: str) -> bool:
     return bool(frontier)
 
 
+def _repair_manifest_schema_root_pointers(
+    manifest: Any,
+    output_schema: Mapping[str, Any],
+) -> Any:
+    """Remove only a proven synthetic wrapper from AI-generated pointers.
+
+    The repair is deliberately narrow: the original pointer must be absent,
+    its first token must be a known prompt-shaped wrapper, and the exact
+    remaining pointer must exist in the immutable Build Dataset schema.
+    """
+
+    normalized = manifest.model_dump(
+        mode="json",
+        by_alias=True,
+        exclude_none=True,
+    )
+    output = normalized.get("output")
+    if not isinstance(output, dict):
+        return manifest
+    changed = False
+    synthetic_roots = {"candidate", "data", "item", "result"}
+    for raw_mapping in output.values():
+        if not isinstance(raw_mapping, dict):
+            continue
+        pointers = raw_mapping.get("pointers")
+        if not isinstance(pointers, list):
+            continue
+        repaired: list[str] = []
+        for pointer in pointers:
+            value = str(pointer)
+            tokens = _json_pointer_tokens(value)
+            if (
+                _schema_pointer_exists(output_schema, value)
+                or len(tokens) < 2
+                or tokens[0].casefold() not in synthetic_roots
+            ):
+                repaired.append(value)
+                continue
+            prefix = f"/{tokens[0]}"
+            candidate = value[len(prefix) :]
+            if candidate and _schema_pointer_exists(output_schema, candidate):
+                repaired.append(candidate)
+                changed = True
+            else:
+                repaired.append(value)
+        raw_mapping["pointers"] = repaired
+    return parse_actor_manifest(normalized) if changed else manifest
+
+
 def _validate_manifest_output_schema(
     manifest: Any,
     output_schema: Mapping[str, Any],
@@ -1655,7 +1856,7 @@ def _reference_target(platform: str) -> ActorTarget:
     if platform == "youtube":
         return ActorTarget(
             canonical_url="https://www.youtube.com/@apify",
-            native_id="apify",
+            native_id="UCTgwcoeGGKmZ3zzCXN2qo_A",
             handle="apify",
         )
     if platform == "instagram":

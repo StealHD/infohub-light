@@ -938,3 +938,12 @@
 - 执行与停止边界：Worker 严格串行，并在每个付费 POST 前免费读取公开 Actor 与精确 Build。删除、私有、不可运行、确定性 403/404/410 或 Build identity/number/status 漂移以 `$0` 终结、不创建 attempt、不占 Canary 次数并停用 Revision；两个不同 Actor、来自两个不同发布者且通过统一内容合同后立即停止，未启动候选同样 `$0`。只有已知远端 Run 才进入 300 秒等待和费用对账；`start_outcome_unknown` 阻断整批、Route 与 Key且禁止继续。候选耗尽仍不足两路时保留已有成功证据，批次进入 partial，并自动排入一次不启动 Actor 的 Discovery 补位；生产激活仍需独立 `确认启用 Actor 主备`。
 - 费用与迁移边界：批准上限与实际费用是两类证据。Discovery API 分别投影已终结实际成本与 queued/running 预留；旧批准 cap 不得再显示为真实扣费。`apify_actor_canary_batches_v17` 使用 global migration 19，在 global 18 后离线安装 batch/item ledger 和 validation 的 `cost_final/counts_toward_canary`；停 API/Worker、跨过 heartbeat 安全窗、确认无活跃 ActorOps Job并创建 `0600` SQLite backup。只有 ledger 同时证明 `start_rejected`、没有 remote Run/Dataset、预留为零且实际费用为空/零时才修复为 `$0` 并停用失效 Revision；不能证明未启动的历史记录保持未知，失败恢复备份。迁移不联网、不调用 Store、AI 或 Actor，也不改写已证明的 X/Instagram/YouTube 实际费用。
 - 原因：此前管理员必须理解 Revision、手工逐候选确认并反复刷新；已消失的精确 Build 又会在远端 POST 前返回 403，却被本地批准上限错误显示为 `$0.02` 实际费用。把候选策略、免费可用性核对、串行停止和精确费用账本收回服务端，可以保留所有付费人工边界，同时让操作只剩“批准一次验证”和“确认一次生效”。
+
+### D110 YouTube Actor 以精确视频 Schema 覆盖模糊定价事件
+
+- 决策日期：2026-08-03
+- 当前状态：本地任务分支修复与验证中；新付费 Canary 仍需管理员单独确认
+- 决策内容：`youtube/channel/items` 的确定性输入模板把 `channelId/channelIds` 绑定到已验证的 UC Channel ID，而不是 handle 或频道 URL；固定参考频道同时保存公开 handle、规范 URL 与 UC ID，并保持旧 handle 指纹兼容。AI 输出 Pointer 必须从 Dataset row 根开始；仅当 Build Schema 证明人工生成的 `candidate/item/data/result` 包装不存在、且移除包装后的精确 Pointer 存在时，静态阶段才允许无值修正。`published_at` 必须显式执行 `parse_datetime`。
+- 候选判定：定价事件名仍可作为频道资料型 Actor 的负证据，但精确 Build Dataset Schema 同时证明视频内容 ID、视频 URL、发布时间和标题/正文时优先采用 Schema，不再因 `youtube-channel-row` 等模糊计费名称误杀真实视频 Actor。Store 返回顺序不再代表质量；有完整 items Schema 的候选先进入有界 AI 排序集合。
+- 运行边界：上述修复不复活历史失败 Revision、不伪造成功 Canary，也不自动启动 Actor。重复排队的同一 Discovery Run 若已被另一 Worker 推进，后续 Job 作为幂等重放成功结束，不再生成误导性的 `ValueError`。原始 Dataset 仍不落库、不发给模型；开发排障只读取已有 Run 的无值字段路径与类型摘要。
+- 原因：真实 YouTube Run 已证明至少一个固定 Build 返回完整 `videoId/videoUrl/videoPublishedAt`，但旧 Manifest 被 Prompt 诱导加上不存在的 `/candidate/...`，并因仅看价格事件名被后续 Discovery 淘汰；另一个 Actor 的 `channelIds` 又收到 handle 字符串。这些是控制面映射错误，不是商城缺少 Actor。

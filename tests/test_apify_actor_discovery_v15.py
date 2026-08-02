@@ -13,7 +13,9 @@ from src.services.apify_actor_discovery import (
     ApifyActorDiscoveryService,
     ApifyStoreRestClient,
     _input_template_from_schema,
+    _output_schema_proves_items,
     _pricing,
+    _repair_manifest_schema_root_pointers,
     _safe_pricing_summary,
     _validate_capability_pricing,
     _validate_manifest_output_schema,
@@ -142,6 +144,22 @@ def test_manifest_output_pointers_must_exist_in_exact_build_schema() -> None:
             incomplete_schema,
         )
     assert error.value.code == "apify_manifest_output_pointer_unverifiable"
+
+
+def test_prompt_shaped_output_wrapper_is_repaired_only_when_schema_proves_root() -> None:
+    raw = _manifest("publisher/actor", "1.0.0")
+    for mapping in raw["output"].values():
+        mapping["pointers"] = [
+            f"/candidate{pointer}" for pointer in mapping["pointers"]
+        ]
+    repaired = _repair_manifest_schema_root_pointers(
+        parse_actor_manifest(raw),
+        OUTPUT_SCHEMA,
+    )
+
+    assert repaired.output.native_id.pointers == ("/id",)
+    assert repaired.output.published_at.pointers == ("/publishedAt",)
+    assert repaired.output.source_native_id.pointers == ("/channelId",)
 
 
 def test_profile_item_identity_cannot_reuse_item_url() -> None:
@@ -505,6 +523,67 @@ def test_worker_blocks_before_store_or_model_when_global_ai_is_unavailable(
     assert blocked["error_code"] == "discovery_global_ai_unavailable"
 
 
+def test_duplicate_discovery_job_is_an_idempotent_noop(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    store = ServiceStore(data_dir)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username="duplicate-discovery-owner",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = next(
+        route
+        for route in ops.list_routes()
+        if route["route_key"] == "youtube/channel/items"
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="duplicate_job_test",
+        expected_generation=int(route["generation"]),
+    )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="searching",
+    )
+
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("idempotent replay must not call Store or AI")
+
+    monkeypatch.setattr("src.ai.client.create_ai_client", unexpected_call)
+    monkeypatch.setattr(
+        "src.services.apify_actor_discovery.ApifyStoreRestClient",
+        unexpected_call,
+    )
+    result = _run_apify_actor_discovery(
+        {
+            "id": "job-duplicate-discovery",
+            "workspace_id": DEFAULT_WORKSPACE_ID,
+            "user_id": str(owner["id"]),
+            "payload_json": {"run_id": str(run["run_id"])},
+            "max_attempts": 1,
+        },
+        data_dir=str(data_dir),
+        store=store,
+    )
+
+    assert result == {
+        "ok": True,
+        "job_type": "apify_actor_discovery",
+        "run_id": str(run["run_id"]),
+        "stage": "searching",
+        "revision_count": 0,
+        "idempotent_replay": True,
+    }
+
+
 def test_worker_ready_global_ai_reaches_quota_and_discovery(
     tmp_path,
     monkeypatch,
@@ -682,6 +761,8 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
     assert prompt_seen["response_contract"]["properties"]["proposals"][
         "min_items"
     ] == 3
+    assert "/candidate/id" not in json.dumps(prompt_seen)
+    assert "Dataset row root" in json.dumps(prompt_seen)
     assert {row["reason"] for row in outcome.rejected} == {
         "actor_full_permission"
     }
@@ -1017,6 +1098,23 @@ def test_discovery_normalizes_ai_input_to_the_fetched_schema_template(
                 },
             },
             {"channelUsername": {"$ref": "target.handle"}},
+        ),
+        (
+            {
+                "type": "object",
+                "required": ["channelIds"],
+                "properties": {
+                    "channelIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "maxItems": {"type": "integer"},
+                },
+            },
+            {
+                "channelIds": [{"$ref": "target.native_id"}],
+                "maxItems": {"$ref": "runtime.max_items"},
+            },
         ),
     ),
 )
@@ -1483,6 +1581,25 @@ def test_youtube_metadata_only_event_pricing_is_rejected_before_ai() -> None:
             capability="items",
         )
     assert caught.value.code == "actor_items_capability_unproven"
+
+    proven_video_schema = {
+        "type": "object",
+        "properties": {
+            "videoId": {"type": "string"},
+            "videoUrl": {"type": "string", "format": "uri"},
+            "videoPublishedAt": {"type": "string", "format": "date-time"},
+            "videoTitle": {"type": "string"},
+            "channelId": {"type": "string"},
+        },
+    }
+    assert _output_schema_proves_items(proven_video_schema) is True
+    _validate_capability_pricing(
+        metadata_only,
+        platform="youtube",
+        target_type="channel",
+        capability="items",
+        output_schema=proven_video_schema,
+    )
 
     for content_event in ("result", "dataset-item", "channel-video"):
         _validate_capability_pricing(

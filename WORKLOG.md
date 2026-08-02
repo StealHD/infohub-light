@@ -736,3 +736,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "runtime"
+  ],
+  "recorded_on": "2026-08-03",
+  "result": "修复 YouTube Actor Discovery 的控制面误杀：channelIds 使用真实 UC ID，Manifest 从 Dataset row 根映射并安全去除可证明不存在的模型包装，精确视频 Schema 可覆盖模糊定价事件，重复 Discovery Job 幂等结束。",
+  "status": "completed",
+  "task_id": "2026-08-03-youtube-actor-schema-recovery",
+  "unresolved": [
+    "新 Revision 仍必须完成真实 Discovery、管理员确认的付费 Canary 与独立 Route 激活，不复活或伪造历史失败证据",
+    "分支不合并 main、不推送，也不发布 VPS"
+  ],
+  "validation": [
+    "只读复核五个既有 YouTube Dataset 的无值字段路径/类型，确认 maximedupre Build 具备 videoId、videoUrl、videoPublishedAt 和视频正文，旧 Manifest 的 /candidate 前缀为误判根因",
+    "免费读取当前 Actor/Build 元数据，五个已知候选均通过修复后的确定性筛选，ninhothedev channelIds 已绑定 target.native_id",
+    "Actor Discovery/Canary/API 定向后端 82 项与前端 Changelog/ActorOps 27 项通过；Full Test Gate 23/23 passed"
+  ]
+}
+```

@@ -1420,7 +1420,17 @@ def _run_apify_actor_discovery(
     )
     run = ops.get_discovery_run(run_id)
     if str(run["stage"]) != "queued":
-        raise ValueError("Actor discovery run is not queued")
+        # Concurrent support checks can observe the same queued Run before one
+        # Worker advances it.  A second one-shot Job must be an idempotent
+        # no-op, not a false system failure after the first Job succeeds.
+        return {
+            "ok": True,
+            "job_type": "apify_actor_discovery",
+            "run_id": run_id,
+            "stage": str(run["stage"]),
+            "revision_count": 0,
+            "idempotent_replay": True,
+        }
     settings = ops.get_discovery_settings()
     if not bool(settings["enabled"]):
         blocked = ops.update_discovery_run(

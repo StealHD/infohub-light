@@ -18,6 +18,23 @@ export type ChangelogMonth = {
 
 export const changelogMonths: ChangelogMonth[] = [
   {
+    id: 'month-2026-08',
+    label: '2026 年 8 月',
+    entries: [
+      {
+        date: '2026-08-03',
+        title: 'YouTube Actor 不再因映射错误全军覆没',
+        summary: '真实 Run 证明商城存在可返回完整视频字段的固定 Build；Discovery 现在使用正确频道 ID、Dataset 根路径和 Schema 优先证据。',
+        items: [
+          { title: '频道 ID 不再传错', description: 'Actor 输入字段为 channelId 或 channelIds 时使用已验证的 UC Channel ID，不再把频道 URL 或 handle 填入 ID 数组；公开参考频道同时保留 URL、handle 和稳定 UC ID。' },
+          { title: '输出路径从真实根开始', description: 'Manifest 只从精确 Build Dataset row 根选择字段；若模型增加不存在的 candidate、item、data 或 result 包装，只有 Schema 能证明移除后路径精确存在时才安全修正。发布时间必须显式解析。' },
+          { title: '完整视频 Schema 优先', description: '定价事件名仍用于淘汰明确的频道资料 Actor，但固定 Build 已证明视频 ID、视频 URL、发布时间和标题或正文时，不再被模糊的频道计费事件误杀；Store 的任意返回顺序也不再挤掉更强候选。' },
+          { title: '重复发现不再伪报系统错误', description: '同一个 Discovery Run 被并发排队时，先执行的任务负责推进状态，后执行的任务幂等结束，不再产生与实际候选失败无关的 ValueError。' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'month-2026-07',
     label: '2026 年 7 月',
     entries: [
