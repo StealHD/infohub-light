@@ -689,6 +689,8 @@ class ApifyActorOpsService:
         row = connection.execute(
             """
             SELECT revision.manifest_json, revision.pricing_json,
+                   revision.output_schema_hash,
+                   revision.security_evidence_json,
                    profile.platform, profile.target_type, profile.capability
             FROM apify_actor_adapter_revisions AS revision
             JOIN apify_actor_candidates AS candidate
@@ -735,12 +737,31 @@ class ApifyActorOpsService:
             return str(exc.code)
         if manifest_error is not None:
             return manifest_error
-        return actor_pricing_capability_error(
+        pricing_error = actor_pricing_capability_error(
             pricing,
             platform=str(row["platform"]),
             target_type=str(row["target_type"]),
             capability=str(row["capability"]),
         )
+        if pricing_error is None:
+            return None
+        evidence = _safe_json(row["security_evidence_json"], {})
+        schema_proof = evidence.get("output_schema_proves_items") is True
+        # Revisions created before the explicit proof flag can still carry a
+        # conservative, immutable proof: an exact output-schema hash, the
+        # successful Build/input checks, and item-specific identity pointers.
+        # This keeps Canary admission consistent with Discovery without
+        # mutating an existing Revision or trusting a price-event label over
+        # the exact Build contract.
+        legacy_schema_proof = (
+            bool(row["output_schema_hash"])
+            and evidence.get("exact_successful_build") is True
+            and evidence.get("input_validation") is True
+            and _manifest_has_explicit_item_identity(manifest)
+        )
+        if schema_proof or legacy_schema_proof:
+            return None
+        return pricing_error
 
     def stop_unavailable_revision(
         self,
@@ -6615,6 +6636,24 @@ def _normalize_actor_id(value: str) -> str:
             status_code=422,
         )
     return normalized
+
+
+def _manifest_has_explicit_item_identity(
+    manifest: ActorManifestV1 | Mapping[str, Any],
+) -> bool:
+    parsed = parse_actor_manifest(manifest)
+    markers = ("video", "post", "tweet", "item", "media", "short", "reel")
+
+    def proves_item(mapping: Any) -> bool:
+        return mapping is not None and any(
+            any(
+                marker in re.sub(r"[^a-z0-9]+", "", pointer.casefold())
+                for marker in markers
+            )
+            for pointer in mapping.pointers
+        )
+
+    return proves_item(parsed.output.native_id) and proves_item(parsed.output.url)
 
 
 def _safe_label(value: Any, maximum: int) -> str:

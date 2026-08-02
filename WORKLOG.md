@@ -745,17 +745,18 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "runtime"
   ],
   "recorded_on": "2026-08-03",
-  "result": "修复 YouTube Actor Discovery 的控制面误杀：channelIds 使用真实 UC ID，Manifest 从 Dataset row 根映射并安全去除可证明不存在的模型包装，精确视频 Schema 可覆盖模糊定价事件，重复 Discovery Job 幂等结束。",
+  "result": "修复 YouTube Actor Discovery 与 Canary 计划的控制面误杀：channelIds 使用真实 UC ID，Manifest 从 Dataset row 根映射并安全去除可证明不存在的模型包装，精确视频 Schema 可覆盖模糊定价事件，重复 Discovery Job 幂等结束。",
   "status": "completed",
   "task_id": "2026-08-03-youtube-actor-schema-recovery",
   "unresolved": [
-    "新 Revision 仍必须完成真实 Discovery、管理员确认的付费 Canary 与独立 Route 激活，不复活或伪造历史失败证据",
+    "真实 Route 批量 Canary（最多 $0.06，两个不同发布者成功即停）与生产激活仍必须分别由管理员确认；本轮未启动 Actor 或产生 Canary 费用",
     "分支不合并 main、不推送，也不发布 VPS"
   ],
   "validation": [
     "只读复核五个既有 YouTube Dataset 的无值字段路径/类型，确认 maximedupre Build 具备 videoId、videoUrl、videoPublishedAt 和视频正文，旧 Manifest 的 /candidate 前缀为误判根因",
     "免费读取当前 Actor/Build 元数据，五个已知候选均通过修复后的确定性筛选，ninhothedev channelIds 已绑定 target.native_id",
-    "Actor Discovery/Canary/API 定向后端 82 项与前端 Changelog/ActorOps 27 项通过；Full Test Gate 23/23 passed"
+    "真实 Store/全局 AI Discovery 一次成功：5 个 static_valid Revision、5 个发布者，AI JSON/Manifest 均 valid；未启动 Actor，实际 Canary 费用 $0",
+    "修复后的付费计划为 ready，包含已实证返回视频内容的 maximedupre，最多批准 $0.06；定向后端 80 项及 Full Test Gate 23/23 passed"
   ]
 }
 ```

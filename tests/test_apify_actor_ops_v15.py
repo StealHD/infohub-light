@@ -101,6 +101,78 @@ def _route(store: ServiceStore, route_key: str = "youtube/channel/items"):
     ).fetchone()
 
 
+def test_canary_gate_keeps_exact_video_schema_proof_over_price_event_label(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path / "data")
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = _route(store)
+    pricing = {
+        "pricingModel": "PAY_PER_EVENT",
+        "pricingPerEvent": {
+            "actorChargeEvents": {
+                "actor-start": {"eventPriceUsd": 0.001},
+                "youtube-channel-row": {"eventPriceUsd": 0.00045},
+            }
+        },
+    }
+    evidence = {
+        "exact_successful_build": True,
+        "input_validation": True,
+    }
+
+    proven_actor = "publisher/video-items"
+    proven_manifest = _manifest(proven_actor, "1.0.1")
+    proven_manifest["output"]["native_id"]["pointers"] = ["/videoId"]
+    proven_manifest["output"]["url"]["pointers"] = ["/videoUrl"]
+    proven_candidate = ops.ensure_candidate(
+        str(route["route_id"]),
+        actor_id=proven_actor,
+    )
+    proven_revision = ops.create_adapter_revision(
+        candidate_id=proven_candidate,
+        actor_id=proven_actor,
+        publisher="publisher",
+        build_id="build-video",
+        build_number="1.0.1",
+        manifest=proven_manifest,
+        output_schema_hash=hashlib.sha256(b"video-schema").hexdigest(),
+        pricing=pricing,
+        security_evidence=evidence,
+        lifecycle="static_valid",
+    )
+    assert (
+        ops.revision_canary_block_reason(
+            str(route["route_id"]),
+            proven_revision,
+        )
+        is None
+    )
+
+    generic_actor = "publisher/channel-row"
+    generic_candidate = ops.ensure_candidate(
+        str(route["route_id"]),
+        actor_id=generic_actor,
+    )
+    generic_revision = ops.create_adapter_revision(
+        candidate_id=generic_candidate,
+        actor_id=generic_actor,
+        publisher="publisher",
+        build_id="build-channel",
+        build_number="1.0.2",
+        manifest=_manifest(generic_actor, "1.0.2"),
+        output_schema_hash=hashlib.sha256(b"channel-schema").hexdigest(),
+        pricing=pricing,
+        security_evidence=evidence,
+        lifecycle="static_valid",
+    )
+    assert ops.revision_canary_block_reason(
+        str(route["route_id"]),
+        generic_revision,
+    ) == "actor_items_capability_unproven"
+
+
 def _ready_pool(store: ServiceStore):
     ops = ApifyActorOpsService(
         store,

@@ -788,6 +788,9 @@ class ApifyActorDiscoveryService:
                     "limited_permissions": True,
                     "exact_successful_build": True,
                     "input_validation": True,
+                    "output_schema_proves_items": _output_schema_proves_items(
+                        candidate.output_schema
+                    ),
                 },
                 lifecycle="static_valid",
                 ai_provider=self.ai_provider,

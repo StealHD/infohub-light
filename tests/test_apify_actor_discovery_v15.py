@@ -811,6 +811,7 @@ def test_discovery_filters_metadata_and_stops_before_paid_canary(tmp_path) -> No
             "input_validation": True,
             "limited_permissions": True,
             "not_deprecated": True,
+            "output_schema_proves_items": False,
             "public": True,
             "store_unrunnable_actors_excluded": True,
         }
