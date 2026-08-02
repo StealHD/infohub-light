@@ -594,3 +594,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "修复 Instagram Actor Canary 对合法 Unix 时间和混合 Dataset 的误判：时间转换支持有界 Unix 秒/毫秒，账号元数据行不再阻断后续真实内容，全为元数据时使用独立安全错误码。",
+  "status": "success",
+  "task_id": "2026-08-02-apify-canary-mixed-dataset-contract-repair",
+  "unresolved": [
+    "历史失败、费用与不可变 Revision 保持原样；生产认证仍需管理员对修复后的运行时逐次确认新的付费 Canary",
+    "本次排查只重读既有 Dataset，不新增 AI 或 Actor Run，不合并 main、不推送、不发布 VPS"
+  ],
+  "validation": [
+    "实测失败根因：一个 Actor 返回 Unix 整数时间，另一个 Dataset 首行为账号元数据、次行为有效帖子；第三个 Actor 在 300 秒后安全中止并结算 $0.01905",
+    "Actor Manifest/Canary/Runtime/Route/Discovery targeted tests passed",
+    "Full Test Gate 23/23 passed in 197.069 seconds",
+    "修复后只读重放两个既有 Dataset 均为 valid_nonempty：Unix 时间 Actor 映射 1 条，混合 Dataset 隔离 1 条元数据后映射 1 条；没有 Actor POST 或新增费用",
+    "8080 API/Worker 已运行提交 6c9e35d 并 healthy，worker_status=ready，scheduler containers=0"
+  ]
+}
+```

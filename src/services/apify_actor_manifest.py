@@ -671,6 +671,7 @@ def map_actor_output(
 
     mapped: list[MappedActorItem] = []
     excluded = 0
+    metadata_only = 0
     explicit_empty = 0
     for raw_row in rows:
         if not isinstance(raw_row, Mapping):
@@ -719,6 +720,9 @@ def map_actor_output(
         try:
             item = MappedActorItem.model_validate(values)
         except ValidationError:
+            if _is_metadata_only_mapping(values):
+                metadata_only += 1
+                continue
             raise ActorManifestError(
                 "apify_actor_contract_mismatch",
                 "Actor output does not satisfy the content contract",
@@ -736,18 +740,24 @@ def map_actor_output(
         return ManifestMappingResult(
             tuple(mapped),
             "valid_nonempty",
-            excluded_rows=excluded + explicit_empty,
+            excluded_rows=excluded + explicit_empty + metadata_only,
         )
-    if explicit_empty and explicit_empty + excluded == len(rows):
+    if explicit_empty and explicit_empty + excluded + metadata_only == len(rows):
         return ManifestMappingResult(
             (),
             "valid_empty",
-            excluded_rows=excluded,
+            excluded_rows=excluded + metadata_only,
         )
     if excluded == len(rows):
         raise ActorManifestError(
             "apify_actor_placeholder",
             "Actor returned only placeholder or control rows",
+            retryable=True,
+        )
+    if metadata_only and metadata_only + excluded == len(rows):
+        raise ActorManifestError(
+            "apify_actor_metadata_only",
+            "Actor returned metadata rows without content items",
             retryable=True,
         )
     raise ActorManifestError(
@@ -1318,6 +1328,21 @@ def _nonempty_text(value: str | None) -> str | None:
     return normalized or None
 
 
+def _is_metadata_only_mapping(values: Mapping[str, Any]) -> bool:
+    """Return true when a row maps identity metadata but no content fields."""
+
+    return not any(
+        values.get(field_name) is not None
+        for field_name in (
+            "native_id",
+            "url",
+            "published_at",
+            "title",
+            "text",
+        )
+    )
+
+
 def _to_boolean(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -1332,12 +1357,37 @@ def _to_boolean(value: Any) -> bool:
 
 
 def _parse_datetime(value: Any) -> datetime:
+    if isinstance(value, bool):
+        raise TypeError("datetime must not be a boolean")
+    if isinstance(value, (int, float)):
+        return _parse_epoch_datetime(value)
     if not isinstance(value, str) or not value.strip():
-        raise TypeError("datetime must be a nonempty string")
-    parsed = isoparse(value.strip())
+        raise TypeError("datetime must be a nonempty string or epoch number")
+    normalized = value.strip()
+    if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", normalized):
+        return _parse_epoch_datetime(float(normalized))
+    parsed = isoparse(normalized)
     if parsed.tzinfo is None:
         raise ValueError("datetime must include a timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _parse_epoch_datetime(value: int | float) -> datetime:
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise ValueError("epoch datetime must be finite and nonnegative")
+    # Actor schemas commonly expose Unix seconds or milliseconds.  Values
+    # beyond the supported UTC window are treated as milliseconds exactly
+    # once; accepting arbitrary magnitudes would hide contract drift.
+    max_epoch_seconds = 4_102_444_800  # 2100-01-01T00:00:00Z
+    if number > max_epoch_seconds:
+        number /= 1_000
+    if number < 946_684_800 or number > max_epoch_seconds:
+        raise ValueError("epoch datetime is outside the supported range")
+    try:
+        return datetime.fromtimestamp(number, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        raise ValueError("epoch datetime is invalid") from None
 
 
 class _TextExtractor(HTMLParser):

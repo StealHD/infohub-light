@@ -889,3 +889,11 @@
 - 付费前静态边界：AI 生成的每个输出 Pointer 必须能在精确 Build Dataset Schema 中解析；Profile/Channel items 不允许内容 URL 与来源身份共用同一路径。Prompt 改为优先使用 author/owner handle 或 source native ID，profile metadata-only Dataset 不得进入 Canary，避免用付费试跑发现本可静态淘汰的合同错误。
 - 超时与耗尽边界：Actor Canary 缺省等待 300 秒，可在 180–900 秒内为下一 Job 热加载；已知 Run 超时后中止且不自动重试。`apify_actor_runs` 的终态实际费用回写 attempt/validation，Worker 启动时幂等修复历史漏账。一个 Discovery cycle 的五次已启动 Route Canary 仍不足三个成功 Revision 时进入 `canary_exhausted`，页面停止审批并显示安全 outcome、耗时、远端终态与实际费用，只允许管理员显式重新发现。
 - 审批可见性：确认 Modal 必须在付费前显示 Route/来源类型、参考来源或 opaque source、Actor、精确 Build、商城定价、本次封顶和认证总预算；仍不回显真实 target、Actor input、Run/Dataset ID、凭据或上游正文。
+
+### D104 Actor Dataset 行级合同允许安全隔离账号元数据
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动重跑付费 Canary
+- 决策内容：Manifest `parse_datetime` 确定性接受带时区 ISO 字符串以及 2000–2100 范围内的 Unix 秒/毫秒，拒绝 boolean、非有限数值、无时区文本和范围外 epoch。混合 Dataset 中，只映射账号身份而没有 `native_id/url/published_at/title|text` 内容证据的行作为元数据隔离；后续内容行继续完整执行必填字段、host、时间窗和目标身份验证。至少一条真实内容通过时返回成功并计入 excluded rows；全为元数据时返回独立 `apify_actor_metadata_only`，不得伪装为空结果或成功。
+- 原因：Instagram 实测 Actor 一类把 `takenAtTimestamp` 返回为 Unix 整数，另一类在首行返回账号元数据、第二行返回真实帖子。旧映射器分别把整数时间视为不可解析、在首个元数据行立即终止，导致已存在有效内容的 Dataset 被错误记为 `apify_actor_contract_mismatch`。
+- 安全边界：只有完全没有内容合同字段的元数据行可以隔离；部分内容字段存在但格式错误、URL host 不符、时间越界或身份不匹配仍立即失败。原始 Dataset 继续只在进程内短暂存在，诊断只使用无值路径/类型摘要；历史失败与费用不改写，任何再次付费试跑仍需管理员新确认。

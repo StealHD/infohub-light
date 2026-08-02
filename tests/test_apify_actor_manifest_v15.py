@@ -109,6 +109,122 @@ def test_manifest_renders_only_exact_references_and_maps_safe_output() -> None:
 
 
 @pytest.mark.parametrize(
+    "timestamp",
+    [1893456000, 1893456000000, "1893456000"],
+)
+def test_manifest_parse_datetime_accepts_bounded_unix_epochs(timestamp) -> None:
+    result = map_actor_output(
+        parse_actor_manifest(_manifest()),
+        [
+            {
+                "id": "post-1",
+                "url": "https://x.com/apify/status/post-1",
+                "createdAt": timestamp,
+                "text": "content",
+                "author": {"handle": "apify"},
+            }
+        ],
+        {
+            "canonical_url": "https://x.com/apify",
+            "native_id": "apify",
+            "handle": "apify",
+        },
+        {"max_items": 1},
+    )
+
+    assert result.semantic_outcome == "valid_nonempty"
+    assert result.items[0].published_at.isoformat() == "2030-01-01T00:00:00+00:00"
+
+
+def test_manifest_skips_metadata_row_before_valid_content() -> None:
+    parsed = parse_actor_manifest(_manifest())
+    target = {
+        "canonical_url": "https://x.com/apify",
+        "native_id": "apify",
+        "handle": "apify",
+    }
+    result = map_actor_output(
+        parsed,
+        [
+            {
+                "profileName": "metadata row",
+                "author": {"handle": "apify"},
+            },
+            {
+                "id": "post-1",
+                "url": "https://x.com/apify/status/post-1",
+                "createdAt": "2030-01-01T00:00:00Z",
+                "text": "content row",
+                "author": {"handle": "apify"},
+            },
+        ],
+        target,
+        {"max_items": 1},
+    )
+
+    assert result.semantic_outcome == "valid_nonempty"
+    assert result.excluded_rows == 1
+    assert [item.native_id for item in result.items] == ["post-1"]
+
+
+def test_manifest_rejects_dataset_containing_only_metadata_rows() -> None:
+    with pytest.raises(ActorManifestError) as caught:
+        map_actor_output(
+            parse_actor_manifest(_manifest()),
+            [{"profileName": "metadata", "author": {"handle": "apify"}}],
+            {
+                "canonical_url": "https://x.com/apify",
+                "native_id": "apify",
+                "handle": "apify",
+            },
+            {"max_items": 1},
+        )
+
+    assert caught.value.code == "apify_actor_metadata_only"
+
+
+@pytest.mark.parametrize("timestamp", [True, -1, 4_102_444_800_001])
+def test_manifest_rejects_unsafe_epoch_values(timestamp) -> None:
+    with pytest.raises(ActorManifestError) as caught:
+        map_actor_output(
+            parse_actor_manifest(_manifest()),
+            [
+                {
+                    "id": "post-1",
+                    "url": "https://x.com/apify/status/post-1",
+                    "createdAt": timestamp,
+                    "text": "content",
+                    "author": {"handle": "apify"},
+                }
+            ],
+            {
+                "canonical_url": "https://x.com/apify",
+                "native_id": "apify",
+                "handle": "apify",
+            },
+            {"max_items": 1},
+        )
+
+    assert caught.value.code == "apify_actor_contract_mismatch"
+
+
+def test_manifest_does_not_skip_partially_mapped_content_rows() -> None:
+    with pytest.raises(ActorManifestError) as caught:
+        map_actor_output(
+            parse_actor_manifest(_manifest()),
+            [{"id": "post-1", "author": {"handle": "apify"}}],
+            {
+                "canonical_url": "https://x.com/apify",
+                "native_id": "apify",
+                "handle": "apify",
+            },
+            {"max_items": 1},
+        )
+
+    assert caught.value.code == "apify_actor_contract_mismatch"
+
+
+@pytest.mark.parametrize(
     ("mutate", "code"),
     [
         (

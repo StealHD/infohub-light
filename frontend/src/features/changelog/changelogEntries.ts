@@ -37,6 +37,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '输入校验按候选隔离', description: '官方固定 Build 输入校验拒绝单个候选时会记录安全原因并继续验证后序 proposal；429、5xx、网络和解码错误只做三次有界重试，认证或请求合同错误才终止整次发现。' },
           { title: '输入模板不再依赖模型猜形状', description: '目标 URL、handle 或原生 ID 应放入 string、array 还是标准 startUrls object，由代码从公开 Build Schema 确定性生成；AI 复制安全模板并专注排序、输出映射和语义规则，无法映射的 Actor 在调用模型前淘汰。' },
           { title: '输出映射在付费前验真', description: 'Manifest 的每个 RFC 6901 路径都必须存在于精确 Build Dataset Schema；Profile/Channel 内容不能把帖子 URL 当作账号身份，账户资料型 Dataset 不再进入付费 Canary。' },
+          { title: '混合 Dataset 不再误判失败', description: '时间转换支持有界 Unix 秒和毫秒；Actor 先返回账号元数据、后返回真实帖子时会隔离元数据行并继续验证内容，全为元数据才安全失败。' },
           { title: 'Canary 超时和费用可核对', description: '付费确认先显示 Route、来源、Actor、Build、商城价格和费用边界；Actor 默认最长等待 300 秒，超时中止且不自动重试，终态费用从远端账本回写。五次仍未凑齐三 Revision 时停止审批并要求重新发现。' },
           { title: 'Dataset 解码不重复付费', description: '所有 Apify 请求显式使用 identity encoding；已启动 X Run 的 Dataset 解码失败只会使用同一 Key 重读同一 Dataset，不会二次启动 Actor或切换槽位，耗尽后保留账本并安全阻断对账。' },
           { title: '支持组合固定', description: '首期支持检查只显示 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合。离线升级会在确认没有候选、费用、绑定、验证或活跃任务证据后安全清理误建的 YouTube Profile，并保留合法 Route 的 generation 单调性。' },
