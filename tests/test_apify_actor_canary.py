@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.scrapers.apify_client import ApifyClientError
 from src.services.apify_actor_canary import (
     ApifyActorCanaryRunner,
     actor_canary_timeout_seconds,
@@ -173,6 +174,103 @@ def test_paid_canary_uses_exact_revision_and_persists_only_semantic_evidence(
         """,
         (ops.workspace_id,),
     ).fetchone()["generation"]
+
+
+def test_paid_canary_preflight_rejects_missing_build_without_attempt_or_cost(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store)
+    route = next(
+        route for route in ops.list_routes() if route["route_key"] == "x/profile"
+    )
+    candidate_id = ops.ensure_candidate(
+        route["route_id"],
+        actor_id="publisher/missing-build",
+    )
+    revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id="publisher/missing-build",
+        publisher="publisher",
+        build_id="missing-build-id",
+        build_number="0.0.900",
+        manifest={**_manifest(), "actor_id": "publisher/missing-build", "build_number": "0.0.900"},
+        lifecycle="static_valid",
+    )
+    validation = ops.approve_revision_canary(
+        route["route_id"],
+        revision_id,
+        expected_generation=route["generation"],
+        approval_id="approval-missing-build-preflight",
+        confirmation=PAID_CANARY_CONFIRMATION,
+        max_cost_usd=0.02,
+        reference_fingerprint=next_reference_fingerprint(
+            store,
+            workspace_id=ops.workspace_id,
+            platform="x",
+            route_id=str(route["route_id"]),
+            revision_id=revision_id,
+        ),
+    )
+    owner = store.create_user(
+        workspace_id=ops.workspace_id,
+        username="preflight-admin",
+        password="safe-test-password",
+        role="admin",
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=ops.workspace_id,
+        user_id=owner["id"],
+        job_type="apify_actor_validation",
+        payload={"validation_id": validation["validation_id"]},
+        priority=100,
+        max_attempts=1,
+    )
+
+    class MissingBuildClient:
+        async def preflight_actor_revision(self, *_args, **_kwargs):
+            raise ApifyClientError(
+                "apify_actor_revision_unavailable",
+                "missing exact build",
+                retryable=False,
+                status_code=404,
+            )
+
+        async def run_actor_detailed(self, *_args, **_kwargs):
+            raise AssertionError("paid Actor POST must not run after failed preflight")
+
+    with pytest.raises(ActorOpsError) as caught:
+        asyncio.run(
+            ApifyActorCanaryRunner(store, ops, MissingBuildClient()).run(
+                validation["validation_id"],
+                job_id=job["id"],
+            )
+        )
+    assert caught.value.code == "apify_actor_revision_unavailable"
+    persisted = store.connect().execute(
+        """
+        SELECT status, semantic_outcome, attempt_id, cost_usd,
+               cost_final, counts_toward_canary
+        FROM apify_actor_validations
+        WHERE validation_id = ?
+        """,
+        (validation["validation_id"],),
+    ).fetchone()
+    assert tuple(persisted) == (
+        "failed",
+        "apify_actor_revision_unavailable",
+        None,
+        0.0,
+        1,
+        0,
+    )
+    revision = ops.get_revision(revision_id)
+    assert revision["lifecycle"] == "rejected"
+    assert store.connect().execute(
+        "SELECT state FROM apify_actor_candidates WHERE id = ?",
+        (candidate_id,),
+    ).fetchone()["state"] == "disabled"
 
 
 def test_paid_canary_records_remote_charge_when_output_mapping_fails(tmp_path):

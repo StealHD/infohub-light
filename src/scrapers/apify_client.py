@@ -308,6 +308,139 @@ class ApifyClient:
         )
         return result.items
 
+    async def preflight_actor_revision(
+        self,
+        actor_id: str,
+        *,
+        build_id: str,
+        build_number: str,
+    ) -> dict[str, str]:
+        """Recheck one public Actor and exact Build without starting a Run."""
+
+        token = str(self.token or "").strip()
+        if not token:
+            raise ApifyClientError(
+                "apify_key_rejected",
+                "Apify metadata preflight has no active credential",
+                retryable=False,
+                status_code=401,
+            )
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }
+
+        async def get_data(path: str) -> dict[str, Any]:
+            response: httpx.Response | None = None
+            for attempt in range(3):
+                try:
+                    response = await self.http_client.get(
+                        f"{self.base_url}{path}",
+                        headers=headers,
+                        timeout=10.0,
+                    )
+                except (httpx.TransportError, httpx.DecodingError):
+                    if attempt >= 2:
+                        raise ApifyClientError(
+                            "apify_actor_revision_preflight_unavailable",
+                            "Actor metadata preflight is temporarily unavailable",
+                            retryable=True,
+                        ) from None
+                    await asyncio.sleep(
+                        min(max(self.retry_base_delay * (2**attempt), 0.0), 5.0)
+                    )
+                    continue
+                if response.status_code == 401 or response.status_code == 402:
+                    raise ApifyClientError(
+                        "apify_key_rejected",
+                        "Apify rejected the metadata credential",
+                        retryable=False,
+                        status_code=response.status_code,
+                    )
+                if response.status_code in {403, 404, 410}:
+                    raise ApifyClientError(
+                        "apify_actor_revision_unavailable",
+                        "The immutable Actor revision is unavailable",
+                        retryable=False,
+                        status_code=response.status_code,
+                    )
+                if response.status_code == 429 or response.status_code >= 500:
+                    if attempt < 2:
+                        retry_after = response.headers.get("Retry-After")
+                        try:
+                            delay = (
+                                float(retry_after)
+                                if retry_after
+                                else self.retry_base_delay * (2**attempt)
+                            )
+                        except ValueError:
+                            delay = self.retry_base_delay * (2**attempt)
+                        await asyncio.sleep(min(max(delay, 0.0), 5.0))
+                        continue
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_unavailable",
+                        "Actor metadata preflight is temporarily unavailable",
+                        retryable=True,
+                        status_code=response.status_code,
+                    )
+                if response.status_code >= 400:
+                    raise ApifyClientError(
+                        "apify_actor_revision_unavailable",
+                        "The immutable Actor revision failed metadata preflight",
+                        retryable=False,
+                        status_code=response.status_code,
+                    )
+                if len(response.content) > 1024 * 1024:
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_invalid",
+                        "Actor metadata preflight exceeded the response limit",
+                        retryable=False,
+                    )
+                try:
+                    payload = response.json()
+                except ValueError:
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_invalid",
+                        "Actor metadata preflight returned invalid JSON",
+                        retryable=False,
+                    ) from None
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, dict):
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_invalid",
+                        "Actor metadata preflight returned an invalid envelope",
+                        retryable=False,
+                    )
+                return data
+            raise AssertionError("bounded metadata preflight did not terminate")
+
+        actor = await get_data(f"/acts/{self._actor_path_id(actor_id)}")
+        build = await get_data(
+            f"/actor-builds/{quote(str(build_id), safe='')}"
+        )
+        actor_data_id = str(actor.get("id") or "")
+        build_actor_id = str(build.get("actorId") or "")
+        if (
+            actor.get("isPublic") is False
+            or bool(actor.get("isDeprecated"))
+            or str(build.get("id") or "") != str(build_id)
+            or str(build.get("buildNumber") or "") != str(build_number)
+            or str(build.get("status") or "").upper() != "SUCCEEDED"
+            or (actor_data_id and build_actor_id and actor_data_id != build_actor_id)
+        ):
+            raise ApifyClientError(
+                "apify_actor_revision_unavailable",
+                "The immutable Actor revision changed before the paid Run",
+                retryable=False,
+                status_code=412,
+            )
+        return {
+            "status": "available",
+            "build_id": str(build_id),
+            "build_number": str(build_number),
+        }
+
     async def run_actor_detailed(
         self,
         actor_id: str,

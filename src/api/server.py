@@ -596,6 +596,25 @@ class ApifyActorOpsCanaryRequest(BaseModel):
     max_total_charge_usd: float = Field(gt=0, le=100)
 
 
+class ApifyActorCanaryBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: StrictInt = Field(ge=1)
+    expected_plan_hash: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    approval_id: str = Field(
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    confirmation: Literal["确认付费验证主备"]
+    max_candidates: StrictInt = Field(default=3, ge=1, le=3)
+    max_total_charge_usd: float = Field(default=0.06, gt=0, le=0.06)
+
+
 class ApifySourceBindingActivateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -836,6 +855,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "POST",
         "/api/admin/apify-discovery-runs/{run_id}/candidates/{revision_id}/canary",
     ): ("job", "actor_revision_canary_queue"),
+    (
+        "POST",
+        "/api/admin/apify-discovery-runs/{run_id}/canary-batches",
+    ): ("job", "actor_canary_batch_queue"),
     ("PUT", "/api/admin/apify-routes/{route_id}/active-pool"): (
         "source",
         "actor_route_pool_replace",
@@ -1019,10 +1042,23 @@ def create_app(
                 ),
             )
 
+    def require_apify_actor_canary_batches_v17() -> None:
+        if store.apify_actor_canary_batches_v17_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor Canary batch migration must be applied before Actor routes are used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_canary_batches_v17.py --apply."
+                ),
+            )
+
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
+        require_apify_actor_canary_batches_v17()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1038,6 +1074,7 @@ def create_app(
     def apify_actor_ops_for(workspace_id: str) -> ApifyActorOpsService:
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
+        require_apify_actor_canary_batches_v17()
         return ApifyActorOpsService(
             store,
             workspace_id=str(workspace_id),
@@ -4211,6 +4248,10 @@ def create_app(
                    validation.semantic_outcome, validation.created_at,
                    validation.completed_at, validation.attempt_id,
                    validation.cost_usd, validation.approved_max_cost_usd,
+                   validation.cost_final,
+                   validation.counts_toward_canary,
+                   revision.actor_id AS validation_actor_id,
+                   revision.publisher AS validation_publisher,
                    attempt.started_at, attempt.terminal_at,
                    (
                        SELECT actor_run.status
@@ -4230,6 +4271,9 @@ def create_app(
                        LIMIT 1
                    ) AS actor_run_cost_usd
             FROM apify_actor_validations AS validation
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
             LEFT JOIN apify_actor_attempts AS attempt
               ON attempt.workspace_id = validation.workspace_id
              AND attempt.id = validation.attempt_id
@@ -4244,18 +4288,31 @@ def create_app(
         for row in validation_rows:
             latest_validation.setdefault(str(row["revision_id"]), dict(row))
         attempt_count = sum(
-            1 for row in validation_rows if row["attempt_id"] is not None
+            int(row["counts_toward_canary"] or 0)
+            for row in validation_rows
         )
-        succeeded_revisions = {
-            str(row["revision_id"])
+        succeeded_actors = {
+            str(row["validation_actor_id"])
+            for row in validation_rows
+            if str(row["status"]) == "succeeded"
+        }
+        succeeded_publishers = {
+            str(row["validation_publisher"]).casefold()
             for row in validation_rows
             if str(row["status"]) == "succeeded"
         }
         effective_stage = str(run["stage"])
+        if len(succeeded_actors) >= 2 and len(succeeded_publishers) >= 2:
+            effective_stage = "activation_ready"
         if (
-            effective_stage == "awaiting_canary_approval"
+            effective_stage in {
+                "awaiting_canary_approval", "canary_exhausted"
+            }
             and attempt_count >= ROUTE_CANARY_ATTEMPT_LIMIT
-            and len(succeeded_revisions) < 3
+            and (
+                len(succeeded_actors) < 2
+                or len(succeeded_publishers) < 2
+            )
         ):
             effective_stage = "canary_exhausted"
         candidates = []
@@ -4292,6 +4349,9 @@ def create_app(
                     validation_cost_final = True
                 elif validation.get("cost_usd") is not None:
                     validation_cost = float(validation["cost_usd"])
+                    validation_cost_final = bool(
+                        validation.get("cost_final")
+                    )
                 if validation.get("started_at") and validation.get("terminal_at"):
                     try:
                         started_at = datetime.fromisoformat(
@@ -4344,11 +4404,16 @@ def create_app(
                 row["actor_run_cost_usd"]
                 if row["actor_run_cost_usd"] is not None
                 else row["cost_usd"]
-                if row["cost_usd"] is not None
-                else row["approved_max_cost_usd"]
-                or 0
+                if bool(row["cost_final"])
+                and row["cost_usd"] is not None
+                else 0
             )
             for row in validation_rows
+        )
+        reserved_usd = sum(
+            float(row["approved_max_cost_usd"] or 0)
+            for row in validation_rows
+            if str(row["status"]) in {"queued", "running"}
         )
         settings = ops.get_discovery_settings()
         candidate_count = len(candidates)
@@ -4359,10 +4424,27 @@ def create_app(
                 if candidate["revision"].get("publisher")
             }
         )
+        latest_batch_row = store.connect().execute(
+            """
+            SELECT batch_id
+            FROM apify_actor_canary_batches
+            WHERE workspace_id = ? AND discovery_run_id = ?
+            ORDER BY created_at DESC, batch_id DESC
+            LIMIT 1
+            """,
+            (str(user["workspace_id"]), run_id),
+        ).fetchone()
+        latest_batch = (
+            public_canary_batch(
+                ops.get_canary_batch(str(latest_batch_row["batch_id"]))
+            )
+            if latest_batch_row is not None
+            else None
+        )
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "run_id": str(run["run_id"]),
                 "route_id": str(run["route_id"]),
                 "generation": int(
@@ -4374,6 +4456,7 @@ def create_app(
                 "queries_limit": int(settings["call_limit"]),
                 "budget_cap_usd": float(run["budget_usd"]),
                 "spent_usd": spent_usd,
+                "reserved_usd": reserved_usd,
                 "canary_attempts_used": attempt_count,
                 "canary_attempts_limit": ROUTE_CANARY_ATTEMPT_LIMIT,
                 "canary_attempts_remaining": max(
@@ -4418,9 +4501,118 @@ def create_app(
                 },
                 "rejections": list(run.get("rejection_summary") or []),
                 "candidates": candidates,
+                "canary_batch": latest_batch,
                 "updated_at": run.get("updated_at"),
             }
         )
+
+    def public_canary_plan(plan: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: plan[key]
+            for key in (
+                "schema_version",
+                "run_id",
+                "route_id",
+                "route_key",
+                "platform",
+                "target_type",
+                "capability",
+                "mode",
+                "generation",
+                "status",
+                "ready",
+                "activation_ready",
+                "plan_hash",
+                "max_candidates",
+                "max_total_charge_usd",
+                "per_candidate_cap_usd",
+                "successful_actor_count",
+                "successful_publisher_count",
+                "attempts_used",
+                "attempts_remaining",
+                "budget_remaining_usd",
+                "items",
+            )
+        }
+
+    def public_canary_batch(batch: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            **{
+                key: batch[key]
+                for key in (
+                    "batch_id",
+                    "route_id",
+                    "discovery_run_id",
+                    "approved_generation",
+                    "plan_hash",
+                    "max_candidates",
+                    "max_total_charge_usd",
+                    "per_candidate_cap_usd",
+                    "status",
+                    "planned_count",
+                    "success_count",
+                    "publisher_count",
+                    "actual_cost_usd",
+                    "cost_final",
+                    "stop_reason",
+                    "created_at",
+                    "started_at",
+                    "completed_at",
+                    "updated_at",
+                )
+            },
+            "items": [
+                {
+                    key: item[key]
+                    for key in (
+                        "ordinal",
+                        "revision_id",
+                        "status",
+                        "semantic_outcome",
+                        "authorized_cap_usd",
+                        "actual_cost_usd",
+                        "cost_final",
+                        "preflight_checked_at",
+                        "started_at",
+                        "completed_at",
+                        "actor_id",
+                        "publisher",
+                        "build_id",
+                        "build_number",
+                        "lifecycle",
+                        "pricing",
+                    )
+                }
+                for item in batch["items"]
+            ],
+        }
+
+    @app.get(
+        "/api/admin/apify-discovery-runs/{run_id}/canary-plan"
+    )
+    async def admin_apify_canary_plan(
+        run_id: str,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        plan = apify_actor_ops_for(
+            str(user["workspace_id"])
+        ).get_canary_plan(run_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(public_canary_plan(plan))
+
+    @app.get("/api/admin/apify-canary-batches/{batch_id}")
+    async def admin_apify_canary_batch(
+        batch_id: str,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        batch = apify_actor_ops_for(
+            str(user["workspace_id"])
+        ).get_canary_batch(batch_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(public_canary_batch(batch))
 
     def queue_actor_validation(
         validation: dict[str, Any],
@@ -4516,6 +4708,146 @@ def create_app(
                 connection.execute(f"RELEASE {savepoint}")
             raise
         return validation, queued
+
+    def approve_and_queue_actor_canary_batch(
+        approve: Callable[[], dict[str, Any]],
+        *,
+        user: dict[str, Any],
+        request: Request,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Commit one paid batch approval and its one-shot job atomically."""
+
+        connection = store.connect()
+        owns_transaction = not connection.in_transaction
+        savepoint = f"actor_canary_batch_{uuid.uuid4().hex}"
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            else:
+                connection.execute(f"SAVEPOINT {savepoint}")
+            batch = approve()
+            replayed = bool(batch.pop("_approval_replayed", False))
+            if replayed:
+                existing = connection.execute(
+                    """
+                    SELECT id
+                    FROM fetch_jobs
+                    WHERE workspace_id = ?
+                      AND job_type = 'apify_actor_canary_batch'
+                      AND json_extract(payload_json, '$.batch_id') = ?
+                    ORDER BY created_at
+                    LIMIT 1
+                    """,
+                    (
+                        str(user["workspace_id"]),
+                        str(batch["batch_id"]),
+                    ),
+                ).fetchone()
+                queued = (
+                    queue.get_job(str(existing["id"]))
+                    if existing is not None
+                    else None
+                )
+                if queued is None:
+                    raise ActorOpsError(
+                        "apify_actor_canary_batch_job_missing",
+                        "Paid Canary batch exists without its one-shot job",
+                        status_code=409,
+                    )
+                request.state.operation_job_id = str(queued["id"])
+                request.state.operation_outcome = "idempotent_replay"
+            else:
+                queued = queue.create_job(
+                    workspace_id=str(user["workspace_id"]),
+                    user_id=str(user["id"]),
+                    job_type="apify_actor_canary_batch",
+                    payload={"batch_id": str(batch["batch_id"])},
+                    priority=100,
+                    max_attempts=1,
+                    retention_days=int(
+                        os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                    ),
+                    commit=False,
+                )
+                request.state.operation_job_id = str(queued["id"])
+                request.state.operation_outcome = "queued"
+            if owns_transaction:
+                connection.commit()
+            else:
+                connection.execute(f"RELEASE {savepoint}")
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            elif not owns_transaction:
+                connection.execute(f"ROLLBACK TO {savepoint}")
+                connection.execute(f"RELEASE {savepoint}")
+            raise
+        return batch, queued
+
+    @app.post(
+        "/api/admin/apify-discovery-runs/{run_id}/canary-batches"
+    )
+    async def admin_apify_create_canary_batch(
+        run_id: str,
+        payload: ApifyActorCanaryBatchRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        if not apify_key_pool_enabled():
+            raise ApiError(
+                "apify_actor_routing_disabled",
+                "Paid Actor validation requires the workspace Apify Key pool",
+                status_code=409,
+            )
+        quota.ensure_job_allowed(
+            workspace_id=str(user["workspace_id"]),
+            user_id=str(user["id"]),
+        )
+        ops = apify_actor_ops_for(str(user["workspace_id"]))
+        plan = ops.get_canary_plan(
+            run_id,
+            max_candidates=int(payload.max_candidates),
+            max_total_charge_usd=float(payload.max_total_charge_usd),
+        )
+        from ..services.apify_actor_canary import next_reference_fingerprint
+
+        reference_fingerprints = {
+            str(item["revision_id"]): next_reference_fingerprint(
+                store,
+                workspace_id=str(user["workspace_id"]),
+                platform=str(plan["platform"]),
+                route_id=str(plan["route_id"]),
+                revision_id=str(item["revision_id"]),
+            )
+            for item in plan["items"]
+        }
+        batch, queued = approve_and_queue_actor_canary_batch(
+            lambda: ops.create_canary_batch(
+                run_id,
+                expected_generation=int(payload.expected_generation),
+                expected_plan_hash=str(payload.expected_plan_hash),
+                approval_id=str(payload.approval_id),
+                confirmation=str(payload.confirmation),
+                max_candidates=int(payload.max_candidates),
+                max_total_charge_usd=float(payload.max_total_charge_usd),
+                created_by_user_id=str(user["id"]),
+                reference_fingerprints=reference_fingerprints,
+            ),
+            user=user,
+            request=request,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "batch": public_canary_batch(batch),
+                "job": {
+                    "id": str(queued["id"]),
+                    "status": str(queued["status"]),
+                },
+            }
+        )
 
     @app.post(
         "/api/admin/apify-discovery-runs/{run_id}/candidates/{revision_id}/canary"
@@ -4675,7 +5007,12 @@ def create_app(
         detail = public_actor_ops_detail(ops, str(binding["route_id"]))
         spent_row = store.connect().execute(
             """
-            SELECT COALESCE(SUM(cost_usd), 0) AS spent_usd
+            SELECT COALESCE(SUM(CASE
+                       WHEN cost_final = 1 THEN COALESCE(cost_usd, 0)
+                       ELSE 0 END), 0) AS spent_usd,
+                   COALESCE(SUM(CASE
+                       WHEN status IN ('queued', 'running')
+                       THEN approved_max_cost_usd ELSE 0 END), 0) AS reserved_usd
             FROM apify_actor_validations
             WHERE workspace_id = ? AND source_id = ?
               AND kind = 'source_canary' AND created_at >= ?
@@ -4687,9 +5024,10 @@ def create_app(
             ),
         ).fetchone()
         spent_usd = float(spent_row["spent_usd"] or 0)
+        reserved_usd = float(spent_row["reserved_usd"] or 0)
         remaining_budget_usd = max(
             0.0,
-            SOURCE_CANARY_BUDGET_USD - spent_usd,
+            SOURCE_CANARY_BUDGET_USD - spent_usd - reserved_usd,
         )
         validation_rows = store.connect().execute(
             """
@@ -4778,6 +5116,7 @@ def create_app(
                 ),
                 "budget_cap_usd": SOURCE_CANARY_BUDGET_USD,
                 "spent_usd": spent_usd,
+                "reserved_usd": reserved_usd,
                 "remaining_budget_usd": remaining_budget_usd,
                 "slots": slots,
                 "activation_confirmation": FIRST_ACTIVATION_CONFIRMATION,

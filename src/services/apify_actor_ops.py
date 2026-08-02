@@ -17,6 +17,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from itertools import combinations
 from typing import Any, Awaitable, Callable, Generic, Iterator, Literal, Mapping, TypeVar
 
 from ..apify_actor_identity import source_target_fingerprint
@@ -64,10 +65,13 @@ SUPPORTED_ROUTE_PROFILES = (
     },
 )
 PAID_CANARY_CONFIRMATION = "确认付费试跑"
+BATCH_CANARY_CONFIRMATION = "确认付费验证主备"
 FIRST_ACTIVATION_CONFIRMATION = "确认首次启用"
 ROUTE_POOL_ACTIVATION_CONFIRMATION = "确认启用 Actor 主备"
 ROUTE_CANARY_BUDGET_USD = 0.10
 ROUTE_CANARY_ATTEMPT_LIMIT = 5
+BATCH_CANARY_MAX_CANDIDATES = 3
+BATCH_CANARY_MAX_TOTAL_USD = 0.06
 SOURCE_CANARY_BUDGET_USD = 0.06
 MEMBER_SUPPORT_CHECKS_PER_DAY = 10
 MEMBER_PENDING_DISCOVERY_ROUTES = 20
@@ -736,6 +740,83 @@ class ApifyActorOpsService:
             platform=str(row["platform"]),
             target_type=str(row["target_type"]),
             capability=str(row["capability"]),
+        )
+
+    def stop_unavailable_revision(
+        self,
+        revision_id: str,
+        *,
+        reason: str = "apify_actor_revision_unavailable",
+    ) -> dict[str, Any]:
+        """Stop one immutable Build after a deterministic free preflight."""
+
+        safe_reason = _safe_label(reason, 128)
+        now = self._now_iso()
+        with self._write() as connection:
+            row = connection.execute(
+                """
+                SELECT candidate_id, lifecycle
+                FROM apify_actor_adapter_revisions
+                WHERE workspace_id = ? AND revision_id = ?
+                """,
+                (self.workspace_id, revision_id),
+            ).fetchone()
+            if row is None:
+                raise ActorOpsError(
+                    "apify_actor_revision_not_found",
+                    "Actor adapter revision was not found",
+                    status_code=404,
+                )
+            lifecycle = str(row["lifecycle"])
+            next_lifecycle = {
+                "static_valid": "rejected",
+                "probationary": "quarantined",
+                "certified": "quarantined",
+            }.get(lifecycle)
+            if next_lifecycle is not None:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_adapter_revisions
+                    SET lifecycle = ?
+                    WHERE workspace_id = ? AND revision_id = ?
+                    """,
+                    (next_lifecycle, self.workspace_id, revision_id),
+                )
+            connection.execute(
+                """
+                UPDATE apify_actor_candidates
+                SET state = 'disabled', last_error_code = ?, updated_at = ?
+                WHERE workspace_id = ? AND id = ?
+                """,
+                (
+                    safe_reason,
+                    now,
+                    self.workspace_id,
+                    str(row["candidate_id"]),
+                ),
+            )
+        return self.get_revision(revision_id)
+
+    def proven_no_remote_start(self, attempt_id: str) -> bool:
+        row = self.store.connect().execute(
+            """
+            SELECT status, remote_run_id, dataset_id,
+                   charge_reserved_usd, charge_actual_usd, charge_final
+            FROM apify_actor_runs
+            WHERE workspace_id = ? AND logical_run_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (self.workspace_id, attempt_id),
+        ).fetchone()
+        return bool(
+            row is not None
+            and str(row["status"]) == "start_rejected"
+            and row["remote_run_id"] is None
+            and row["dataset_id"] is None
+            and float(row["charge_reserved_usd"] or 0) == 0
+            and float(row["charge_actual_usd"] or 0) == 0
+            and int(row["charge_final"] or 0) == 1
         )
 
     def _safe_route_row(self, row: sqlite3.Row) -> dict[str, Any]:
@@ -2830,6 +2911,882 @@ class ApifyActorOpsService:
                 status_code=412,
             )
 
+    def get_canary_plan(
+        self,
+        run_id: str,
+        *,
+        max_candidates: int = BATCH_CANARY_MAX_CANDIDATES,
+        max_total_charge_usd: float = BATCH_CANARY_MAX_TOTAL_USD,
+    ) -> dict[str, Any]:
+        """Return a deterministic server-selected paid validation plan."""
+
+        if isinstance(max_candidates, bool) or not 1 <= int(max_candidates) <= 3:
+            raise ActorOpsError(
+                "apify_actor_canary_batch_limit_invalid",
+                "A Canary batch may contain one to three candidates",
+                status_code=422,
+            )
+        total_cap = _bounded_cost(
+            max_total_charge_usd,
+            maximum=BATCH_CANARY_MAX_TOTAL_USD,
+        )
+        connection = self.store.connect()
+        run = connection.execute(
+            """
+            SELECT run.*, profile.route_key, profile.platform,
+                   profile.target_type, profile.capability,
+                   profile.mode, profile.generation,
+                   profile.per_run_cap_usd, profile.min_publishers
+            FROM apify_actor_discovery_runs AS run
+            JOIN apify_actor_route_profiles AS profile
+              ON profile.workspace_id = run.workspace_id
+             AND profile.route_id = run.route_id
+            WHERE run.workspace_id = ? AND run.run_id = ?
+            """,
+            (self.workspace_id, run_id),
+        ).fetchone()
+        if run is None:
+            raise ActorOpsError(
+                "apify_actor_discovery_run_not_found",
+                "Actor discovery run was not found",
+                status_code=404,
+            )
+        if str(run["stage"]) not in {
+            "awaiting_canary_approval",
+            "canary_exhausted",
+            "activation_ready",
+        }:
+            raise ActorOpsError(
+                "apify_actor_discovery_not_awaiting_approval",
+                "Actor discovery run is not ready for a paid validation plan",
+                status_code=409,
+            )
+
+        successful = connection.execute(
+            """
+            SELECT DISTINCT revision.revision_id, revision.actor_id,
+                   lower(revision.publisher) AS publisher
+            FROM apify_actor_validations AS validation
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
+            WHERE validation.workspace_id = ?
+              AND validation.route_id = ?
+              AND validation.kind = 'route_reference'
+              AND validation.status = 'succeeded'
+              AND validation.semantic_outcome IN (
+                  'valid_nonempty', 'valid_empty'
+              )
+              AND revision.lifecycle IN ('probationary', 'certified')
+              AND revision.build_id IS NOT NULL
+              AND revision.build_number IS NOT NULL
+              AND revision.manifest_hash IS NOT NULL
+            ORDER BY revision.revision_id
+            """,
+            (self.workspace_id, str(run["route_id"])),
+        ).fetchall()
+        proven_actors = {str(row["actor_id"]) for row in successful}
+        proven_publishers = {str(row["publisher"]) for row in successful}
+        usage = connection.execute(
+            """
+            SELECT COALESCE(SUM(validation.counts_toward_canary), 0)
+                       AS attempts,
+                   COALESCE(SUM(CASE
+                       WHEN validation.cost_final = 1
+                       THEN COALESCE(validation.cost_usd, 0)
+                       WHEN validation.status IN ('queued', 'running')
+                       THEN COALESCE(validation.approved_max_cost_usd, 0)
+                       ELSE 0 END), 0) AS occupied_usd
+            FROM apify_actor_validations AS validation
+            WHERE validation.workspace_id = ?
+              AND validation.route_id = ?
+              AND validation.discovery_run_id = ?
+              AND validation.kind = 'route_reference'
+            """,
+            (self.workspace_id, str(run["route_id"]), run_id),
+        ).fetchone()
+        attempts_used = int(usage["attempts"] or 0)
+        attempts_remaining = max(
+            ROUTE_CANARY_ATTEMPT_LIMIT - attempts_used,
+            0,
+        )
+        budget_remaining = max(
+            min(float(run["budget_usd"]), ROUTE_CANARY_BUDGET_USD)
+            - float(usage["occupied_usd"] or 0),
+            0.0,
+        )
+        per_candidate_cap = min(float(run["per_run_cap_usd"]), 0.02)
+        authorization_budget = min(total_cap, budget_remaining)
+        affordable_candidates = int(
+            (authorization_budget + 1e-9) // per_candidate_cap
+        )
+
+        raw_candidates = connection.execute(
+            """
+            SELECT revision.revision_id, revision.actor_id,
+                   revision.publisher, revision.build_id,
+                   revision.build_number, revision.manifest_hash,
+                   revision.pricing_json, revision.lifecycle,
+                   candidate.position, association.created_at
+            FROM apify_actor_discovery_run_revisions AS association
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = association.workspace_id
+             AND revision.revision_id = association.revision_id
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE association.workspace_id = ?
+              AND association.run_id = ?
+              AND candidate.route_key = ?
+              AND revision.lifecycle IN ('static_valid', 'probationary')
+              AND revision.build_id IS NOT NULL
+              AND revision.build_number IS NOT NULL
+              AND revision.manifest_hash IS NOT NULL
+              AND NOT (
+                  candidate.state = 'disabled'
+                  AND COALESCE(candidate.last_error_code, '') =
+                      'apify_actor_revision_unavailable'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM apify_actor_validations AS attempted
+                  WHERE attempted.workspace_id = revision.workspace_id
+                    AND attempted.discovery_run_id = ?
+                    AND attempted.revision_id = revision.revision_id
+                    AND attempted.kind = 'route_reference'
+                    AND attempted.counts_toward_canary = 1
+              )
+            ORDER BY candidate.position, association.created_at,
+                     revision.revision_id
+            """,
+            (
+                self.workspace_id,
+                run_id,
+                str(run["route_key"]),
+                run_id,
+            ),
+        ).fetchall()
+        candidates: list[sqlite3.Row] = []
+        seen_actors = set(proven_actors)
+        for row in raw_candidates:
+            actor_id = str(row["actor_id"])
+            if actor_id in seen_actors:
+                continue
+            if self._revision_canary_block_reason(
+                connection,
+                str(run["route_id"]),
+                str(row["revision_id"]),
+            ) is not None:
+                continue
+            active = connection.execute(
+                """
+                SELECT 1 FROM apify_actor_validations
+                WHERE workspace_id = ? AND revision_id = ?
+                  AND kind = 'route_reference'
+                  AND status IN ('queued', 'running')
+                LIMIT 1
+                """,
+                (self.workspace_id, str(row["revision_id"])),
+            ).fetchone()
+            if active is not None:
+                continue
+            seen_actors.add(actor_id)
+            candidates.append(row)
+
+        selected: tuple[sqlite3.Row, ...] = ()
+        maximum = min(
+            int(max_candidates),
+            len(candidates),
+            attempts_remaining,
+            affordable_candidates,
+        )
+        best_score: tuple[Any, ...] | None = None
+        for size in range(1, maximum + 1):
+            for option in combinations(candidates, size):
+                actors = proven_actors | {str(row["actor_id"]) for row in option}
+                publishers = proven_publishers | {
+                    str(row["publisher"]).casefold() for row in option
+                }
+                reaches_two = len(actors) >= 2 and len(publishers) >= 2
+                score: tuple[Any, ...] = (
+                    0 if reaches_two else 1,
+                    -size,
+                    sum(int(row["position"] or 0) for row in option),
+                    *(str(row["revision_id"]) for row in option),
+                )
+                if best_score is None or score < best_score:
+                    best_score = score
+                    selected = option
+
+        combined_actors = proven_actors | {
+            str(row["actor_id"]) for row in selected
+        }
+        combined_publishers = proven_publishers | {
+            str(row["publisher"]).casefold() for row in selected
+        }
+        activation_ready = (
+            len(proven_actors) >= 2 and len(proven_publishers) >= 2
+        )
+        reachable = activation_ready or (
+            len(combined_actors) >= 2 and len(combined_publishers) >= 2
+        )
+        plan_items = [
+            {
+                "ordinal": index,
+                "revision_id": str(row["revision_id"]),
+                "actor_id": str(row["actor_id"]),
+                "publisher": str(row["publisher"]),
+                "build_id": str(row["build_id"]),
+                "build_number": str(row["build_number"]),
+                "manifest_hash": str(row["manifest_hash"]),
+                "lifecycle": str(row["lifecycle"]),
+                "pricing": _safe_json(row["pricing_json"], {}),
+                "authorized_cap_usd": round(per_candidate_cap, 6),
+            }
+            for index, row in enumerate(selected, start=1)
+        ]
+        authorized_total = round(
+            sum(float(item["authorized_cap_usd"]) for item in plan_items),
+            6,
+        )
+        plan_payload = {
+            "run_id": str(run["run_id"]),
+            "route_id": str(run["route_id"]),
+            "generation": int(run["generation"]),
+            "max_candidates": int(max_candidates),
+            "max_total_charge_usd": authorized_total,
+            "items": [
+                {
+                    key: item[key]
+                    for key in (
+                        "ordinal",
+                        "revision_id",
+                        "actor_id",
+                        "publisher",
+                        "build_id",
+                        "build_number",
+                        "manifest_hash",
+                        "authorized_cap_usd",
+                    )
+                }
+                for item in plan_items
+            ],
+        }
+        plan_hash = hashlib.sha256(
+            json.dumps(
+                plan_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return {
+            "schema_version": 1,
+            "run_id": str(run["run_id"]),
+            "route_id": str(run["route_id"]),
+            "route_key": str(run["route_key"]),
+            "platform": str(run["platform"]),
+            "target_type": str(run["target_type"]),
+            "capability": str(run["capability"]),
+            "mode": str(run["mode"]),
+            "generation": int(run["generation"]),
+            "status": (
+                "activation_ready"
+                if activation_ready
+                else "ready"
+                if reachable and plan_items
+                else "insufficient_candidates"
+            ),
+            "ready": bool(reachable and plan_items and not activation_ready),
+            "activation_ready": activation_ready,
+            "plan_hash": plan_hash,
+            "max_candidates": int(max_candidates),
+            "max_total_charge_usd": authorized_total,
+            "per_candidate_cap_usd": round(per_candidate_cap, 6),
+            "successful_actor_count": len(proven_actors),
+            "successful_publisher_count": len(proven_publishers),
+            "attempts_used": attempts_used,
+            "attempts_remaining": attempts_remaining,
+            "budget_remaining_usd": round(budget_remaining, 6),
+            "items": plan_items,
+        }
+
+    def create_canary_batch(
+        self,
+        run_id: str,
+        *,
+        expected_generation: int,
+        expected_plan_hash: str,
+        approval_id: str,
+        confirmation: str,
+        max_candidates: int,
+        max_total_charge_usd: float,
+        created_by_user_id: str,
+        reference_fingerprints: Mapping[str, str],
+    ) -> dict[str, Any]:
+        if confirmation != BATCH_CANARY_CONFIRMATION:
+            raise ActorOpsError(
+                "apify_actor_canary_batch_confirmation_required",
+                "Paid Canary batch requires the exact confirmation phrase",
+                status_code=422,
+            )
+        if not _HEX_64_RE.fullmatch(str(expected_plan_hash)):
+            raise ActorOpsError(
+                "apify_actor_canary_plan_invalid",
+                "Canary plan hash is invalid",
+                status_code=422,
+            )
+        approval_hash = _approval_key_hash(approval_id)
+        plan = self.get_canary_plan(
+            run_id,
+            max_candidates=max_candidates,
+            max_total_charge_usd=max_total_charge_usd,
+        )
+        with self._write() as connection:
+            replay = connection.execute(
+                """
+                SELECT batch_id, approved_generation, plan_hash,
+                       max_candidates, max_total_charge_usd
+                FROM apify_actor_canary_batches
+                WHERE workspace_id = ? AND approval_key_hash = ?
+                """,
+                (self.workspace_id, approval_hash),
+            ).fetchone()
+            if replay is not None:
+                if (
+                    int(replay["approved_generation"]) != int(expected_generation)
+                    or str(replay["plan_hash"]) != str(expected_plan_hash)
+                    or int(replay["max_candidates"]) != int(max_candidates)
+                    or abs(
+                        float(replay["max_total_charge_usd"])
+                        - float(max_total_charge_usd)
+                    )
+                    > 1e-9
+                ):
+                    raise ActorOpsError(
+                        "apify_actor_approval_id_conflict",
+                        "Paid approval id was already used for another action",
+                        status_code=409,
+                    )
+                result = self.get_canary_batch(str(replay["batch_id"]))
+                result["_approval_replayed"] = True
+                return result
+            if int(plan["generation"]) != int(expected_generation):
+                raise ActorOpsError(
+                    "apify_actor_route_generation_conflict",
+                    "Actor route changed; reload before retrying",
+                )
+            if str(plan["plan_hash"]) != str(expected_plan_hash):
+                raise ActorOpsError(
+                    "apify_actor_canary_plan_conflict",
+                    "Canary plan changed; reload before approving spend",
+                    status_code=409,
+                )
+            if not bool(plan["ready"]):
+                raise ActorOpsError(
+                    "apify_actor_canary_batch_not_ready",
+                    "The current candidates cannot produce two safe providers",
+                    status_code=412,
+                )
+            revision_ids = {
+                str(item["revision_id"]) for item in plan["items"]
+            }
+            if set(reference_fingerprints) != revision_ids or any(
+                not _HEX_64_RE.fullmatch(str(value))
+                for value in reference_fingerprints.values()
+            ):
+                raise ActorOpsError(
+                    "apify_actor_reference_fingerprint_required",
+                    "Route Canary references do not match the frozen plan",
+                    status_code=422,
+                )
+            active = connection.execute(
+                """
+                SELECT batch_id
+                FROM apify_actor_canary_batches
+                WHERE workspace_id = ? AND discovery_run_id = ?
+                  AND status IN ('queued', 'preflighting', 'running')
+                LIMIT 1
+                """,
+                (self.workspace_id, run_id),
+            ).fetchone()
+            if active is not None:
+                raise ActorOpsError(
+                    "apify_actor_canary_batch_active",
+                    "A paid Canary batch is already queued or running",
+                    status_code=409,
+                )
+            usage = connection.execute(
+                """
+                SELECT run.budget_usd,
+                       COALESCE(SUM(CASE
+                           WHEN validation.cost_final = 1
+                           THEN COALESCE(validation.cost_usd, 0)
+                           WHEN validation.status IN ('queued', 'running')
+                           THEN validation.approved_max_cost_usd
+                           ELSE 0 END), 0) AS occupied_usd
+                FROM apify_actor_discovery_runs AS run
+                LEFT JOIN apify_actor_validations AS validation
+                  ON validation.workspace_id = run.workspace_id
+                 AND validation.discovery_run_id = run.run_id
+                 AND validation.kind = 'route_reference'
+                WHERE run.workspace_id = ? AND run.run_id = ?
+                GROUP BY run.run_id
+                """,
+                (self.workspace_id, run_id),
+            ).fetchone()
+            occupied_cap = sum(
+                float(item["authorized_cap_usd"])
+                for item in plan["items"]
+            )
+            if (
+                usage is None
+                or float(usage["occupied_usd"] or 0)
+                + occupied_cap
+                > min(float(usage["budget_usd"]), ROUTE_CANARY_BUDGET_USD)
+                + 1e-9
+            ):
+                raise ActorOpsError(
+                    "apify_actor_canary_budget_exhausted",
+                    "Route certification Canary budget is exhausted",
+                    status_code=412,
+                )
+            batch_id = f"apify-canary-batch-{uuid.uuid4().hex}"
+            now = self._now_iso()
+            per_cap = float(plan["per_candidate_cap_usd"])
+            connection.execute(
+                """
+                INSERT INTO apify_actor_canary_batches (
+                    batch_id, workspace_id, route_id, discovery_run_id,
+                    approval_key_hash, approved_generation, plan_hash,
+                    max_candidates, max_total_charge_usd,
+                    per_candidate_cap_usd, status, planned_count,
+                    success_count, publisher_count, actual_cost_usd,
+                    cost_final, stop_reason, created_by_user_id,
+                    created_at, started_at, completed_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?,
+                    0, 0, NULL, 0, NULL, ?, ?, NULL, NULL, ?
+                )
+                """,
+                (
+                    batch_id,
+                    self.workspace_id,
+                    str(plan["route_id"]),
+                    run_id,
+                    approval_hash,
+                    expected_generation,
+                    expected_plan_hash,
+                    int(max_candidates),
+                    float(plan["max_total_charge_usd"]),
+                    per_cap,
+                    len(plan["items"]),
+                    created_by_user_id,
+                    now,
+                    now,
+                ),
+            )
+            for item in plan["items"]:
+                revision_id = str(item["revision_id"])
+                ordinal = int(item["ordinal"])
+                validation_id = f"apify-validation-{uuid.uuid4().hex}"
+                validation_approval_hash = hashlib.sha256(
+                    f"{approval_hash}:{ordinal}:{revision_id}".encode("utf-8")
+                ).hexdigest()
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_validations (
+                        validation_id, workspace_id, route_id, source_id,
+                        revision_id, attempt_id, discovery_run_id, kind,
+                        approval_key_hash, approved_generation,
+                        approved_max_cost_usd, status, semantic_outcome,
+                        cost_usd, cost_final, counts_toward_canary,
+                        target_fingerprint, created_at, completed_at
+                    ) VALUES (
+                        ?, ?, ?, NULL, ?, NULL, ?, 'route_reference',
+                        ?, ?, ?, 'queued', NULL, NULL, 0, 0, ?, ?, NULL
+                    )
+                    """,
+                    (
+                        validation_id,
+                        self.workspace_id,
+                        str(plan["route_id"]),
+                        revision_id,
+                        run_id,
+                        validation_approval_hash,
+                        expected_generation,
+                        per_cap,
+                        str(reference_fingerprints[revision_id]),
+                        now,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO apify_actor_canary_batch_items (
+                        workspace_id, batch_id, ordinal, revision_id,
+                        validation_id, status, semantic_outcome,
+                        authorized_cap_usd, actual_cost_usd, cost_final,
+                        preflight_checked_at, started_at, completed_at,
+                        updated_at
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, 'planned', NULL, ?, NULL, 0,
+                        NULL, NULL, NULL, ?
+                    )
+                    """,
+                    (
+                        self.workspace_id,
+                        batch_id,
+                        ordinal,
+                        revision_id,
+                        validation_id,
+                        per_cap,
+                        now,
+                    ),
+                )
+        result = self.get_canary_batch(batch_id)
+        result["_approval_replayed"] = False
+        return result
+
+    def get_canary_batch(self, batch_id: str) -> dict[str, Any]:
+        connection = self.store.connect()
+        batch = connection.execute(
+            """
+            SELECT batch_id, route_id, discovery_run_id,
+                   approved_generation, plan_hash, max_candidates,
+                   max_total_charge_usd, per_candidate_cap_usd,
+                   status, planned_count, success_count, publisher_count,
+                   actual_cost_usd, cost_final, stop_reason,
+                   created_at, started_at, completed_at, updated_at
+            FROM apify_actor_canary_batches
+            WHERE workspace_id = ? AND batch_id = ?
+            """,
+            (self.workspace_id, batch_id),
+        ).fetchone()
+        if batch is None:
+            raise ActorOpsError(
+                "apify_actor_canary_batch_not_found",
+                "Actor Canary batch was not found",
+                status_code=404,
+            )
+        items = connection.execute(
+            """
+            SELECT item.ordinal, item.revision_id, item.validation_id,
+                   item.status, item.semantic_outcome,
+                   item.authorized_cap_usd, item.actual_cost_usd,
+                   item.cost_final, item.preflight_checked_at,
+                   item.started_at, item.completed_at,
+                   revision.actor_id, revision.publisher,
+                   revision.build_id, revision.build_number,
+                   revision.lifecycle, revision.pricing_json
+            FROM apify_actor_canary_batch_items AS item
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = item.workspace_id
+             AND revision.revision_id = item.revision_id
+            WHERE item.workspace_id = ? AND item.batch_id = ?
+            ORDER BY item.ordinal
+            """,
+            (self.workspace_id, batch_id),
+        ).fetchall()
+        result = dict(batch)
+        result["cost_final"] = bool(result["cost_final"])
+        result["items"] = [
+            {
+                **{
+                    key: row[key]
+                    for key in (
+                        "ordinal",
+                        "revision_id",
+                        "validation_id",
+                        "status",
+                        "semantic_outcome",
+                        "authorized_cap_usd",
+                        "actual_cost_usd",
+                        "preflight_checked_at",
+                        "started_at",
+                        "completed_at",
+                        "actor_id",
+                        "publisher",
+                        "build_id",
+                        "build_number",
+                        "lifecycle",
+                    )
+                },
+                "cost_final": bool(row["cost_final"]),
+                "pricing": _safe_json(row["pricing_json"], {}),
+            }
+            for row in items
+        ]
+        return result
+
+    def set_canary_batch_status(
+        self,
+        batch_id: str,
+        *,
+        expected_statuses: tuple[str, ...],
+        status: str,
+        stop_reason: str | None = None,
+    ) -> dict[str, Any]:
+        allowed = {
+            "queued", "preflighting", "running", "activation_ready",
+            "partial", "blocked_unknown_start", "failed", "cancelled",
+        }
+        if status not in allowed or not expected_statuses or any(
+            value not in allowed for value in expected_statuses
+        ):
+            raise ActorOpsError(
+                "apify_actor_canary_batch_status_invalid",
+                "Actor Canary batch status transition is invalid",
+                status_code=422,
+            )
+        now = self._now_iso()
+        placeholders = ",".join("?" for _value in expected_statuses)
+        terminal = status in {
+            "activation_ready", "partial", "blocked_unknown_start",
+            "failed", "cancelled",
+        }
+        with self._write() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE apify_actor_canary_batches
+                SET status = ?, stop_reason = ?,
+                    started_at = CASE
+                        WHEN ? IN ('preflighting', 'running')
+                        THEN COALESCE(started_at, ?) ELSE started_at END,
+                    completed_at = CASE WHEN ? THEN ? ELSE completed_at END,
+                    updated_at = ?
+                WHERE workspace_id = ? AND batch_id = ?
+                  AND status IN ({placeholders})
+                """,
+                (
+                    status,
+                    _optional_label(stop_reason, 128),
+                    status,
+                    now,
+                    int(terminal),
+                    now,
+                    now,
+                    self.workspace_id,
+                    batch_id,
+                    *expected_statuses,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ActorOpsError(
+                    "apify_actor_canary_batch_conflict",
+                    "Actor Canary batch changed; reload before retrying",
+                    status_code=409,
+                )
+        return self.get_canary_batch(batch_id)
+
+    def update_canary_batch_item(
+        self,
+        batch_id: str,
+        ordinal: int,
+        *,
+        status: str,
+        semantic_outcome: str | None = None,
+        actual_cost_usd: float | None = None,
+        cost_final: bool = False,
+    ) -> dict[str, Any]:
+        allowed = {
+            "planned", "preflight_passed", "preflight_failed", "queued",
+            "running", "succeeded", "failed", "not_needed_no_charge",
+            "blocked_unknown_start",
+        }
+        if status not in allowed:
+            raise ActorOpsError(
+                "apify_actor_canary_batch_item_status_invalid",
+                "Actor Canary batch item status is invalid",
+                status_code=422,
+            )
+        if actual_cost_usd is not None:
+            _bounded_actual_cost(actual_cost_usd, maximum=0.02)
+        if cost_final and actual_cost_usd is None:
+            raise ActorOpsError(
+                "apify_actor_cost_invalid",
+                "A finalized Actor cost requires an explicit amount",
+                status_code=422,
+            )
+        now = self._now_iso()
+        terminal = status in {
+            "preflight_failed", "succeeded", "failed",
+            "not_needed_no_charge", "blocked_unknown_start",
+        }
+        with self._write() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE apify_actor_canary_batch_items
+                SET status = ?, semantic_outcome = ?,
+                    actual_cost_usd = ?, cost_final = ?,
+                    preflight_checked_at = CASE
+                        WHEN ? IN ('preflight_passed', 'preflight_failed')
+                        THEN COALESCE(preflight_checked_at, ?)
+                        ELSE preflight_checked_at END,
+                    started_at = CASE
+                        WHEN ? IN ('running', 'succeeded', 'failed',
+                                   'blocked_unknown_start')
+                        THEN COALESCE(started_at, ?) ELSE started_at END,
+                    completed_at = CASE WHEN ? THEN ? ELSE NULL END,
+                    updated_at = ?
+                WHERE workspace_id = ? AND batch_id = ? AND ordinal = ?
+                """,
+                (
+                    status,
+                    _optional_label(semantic_outcome, 128),
+                    actual_cost_usd,
+                    int(cost_final),
+                    status,
+                    now,
+                    status,
+                    now,
+                    int(terminal),
+                    now,
+                    now,
+                    self.workspace_id,
+                    batch_id,
+                    int(ordinal),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ActorOpsError(
+                    "apify_actor_canary_batch_item_not_found",
+                    "Actor Canary batch item was not found",
+                    status_code=404,
+                )
+        return self.get_canary_batch(batch_id)
+
+    def finalize_canary_batch(
+        self,
+        batch_id: str,
+        *,
+        stop_reason: str | None = None,
+    ) -> dict[str, Any]:
+        now = self._now_iso()
+        with self._write() as connection:
+            batch = connection.execute(
+                """
+                SELECT * FROM apify_actor_canary_batches
+                WHERE workspace_id = ? AND batch_id = ?
+                """,
+                (self.workspace_id, batch_id),
+            ).fetchone()
+            if batch is None:
+                raise ActorOpsError(
+                    "apify_actor_canary_batch_not_found",
+                    "Actor Canary batch was not found",
+                    status_code=404,
+                )
+            evidence = connection.execute(
+                """
+                SELECT COUNT(DISTINCT CASE WHEN item.status = 'succeeded'
+                           THEN revision.actor_id END) AS actors,
+                       COUNT(DISTINCT CASE WHEN item.status = 'succeeded'
+                           THEN lower(revision.publisher) END) AS publishers,
+                       COALESCE(SUM(CASE WHEN item.cost_final = 1
+                           THEN COALESCE(item.actual_cost_usd, 0)
+                           ELSE 0 END), 0) AS actual_cost,
+                       COUNT(*) AS item_count,
+                       SUM(item.cost_final) AS final_count
+                FROM apify_actor_canary_batch_items AS item
+                JOIN apify_actor_adapter_revisions AS revision
+                  ON revision.workspace_id = item.workspace_id
+                 AND revision.revision_id = item.revision_id
+                WHERE item.workspace_id = ? AND item.batch_id = ?
+                """,
+                (self.workspace_id, batch_id),
+            ).fetchone()
+            prior = connection.execute(
+                """
+                SELECT COUNT(DISTINCT revision.actor_id) AS actors,
+                       COUNT(DISTINCT lower(revision.publisher)) AS publishers
+                FROM apify_actor_validations AS validation
+                JOIN apify_actor_adapter_revisions AS revision
+                  ON revision.workspace_id = validation.workspace_id
+                 AND revision.revision_id = validation.revision_id
+                WHERE validation.workspace_id = ?
+                  AND validation.route_id = ?
+                  AND validation.kind = 'route_reference'
+                  AND validation.status = 'succeeded'
+                  AND validation.semantic_outcome IN (
+                      'valid_nonempty', 'valid_empty'
+                  )
+                """,
+                (self.workspace_id, str(batch["route_id"])),
+            ).fetchone()
+            actor_count = int(prior["actors"] or 0)
+            publisher_count = int(prior["publishers"] or 0)
+            ready = actor_count >= 2 and publisher_count >= 2
+            batch_status = "activation_ready" if ready else "partial"
+            # Batch counters are bounded by the three-item batch schema even
+            # when older Route evidence contains more historical Actors.
+            stored_actor_count = min(actor_count, BATCH_CANARY_MAX_CANDIDATES)
+            stored_publisher_count = min(
+                publisher_count,
+                BATCH_CANARY_MAX_CANDIDATES,
+            )
+            final_cost = float(evidence["actual_cost"] or 0)
+            all_final = int(evidence["final_count"] or 0) == int(
+                evidence["item_count"] or 0
+            )
+            connection.execute(
+                """
+                UPDATE apify_actor_canary_batches
+                SET status = ?, success_count = ?, publisher_count = ?,
+                    actual_cost_usd = ?, cost_final = ?, stop_reason = ?,
+                    completed_at = ?, updated_at = ?
+                WHERE workspace_id = ? AND batch_id = ?
+                """,
+                (
+                    batch_status,
+                    stored_actor_count,
+                    stored_publisher_count,
+                    final_cost,
+                    int(all_final),
+                    _optional_label(
+                        stop_reason or (
+                            "two_providers_ready"
+                            if ready
+                            else "candidate_replenishment_required"
+                        ),
+                        128,
+                    ),
+                    now,
+                    now,
+                    self.workspace_id,
+                    batch_id,
+                ),
+            )
+            if ready:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_discovery_runs
+                    SET stage = 'activation_ready', error_code = NULL,
+                        failure_phase = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND run_id = ?
+                    """,
+                    (
+                        now,
+                        self.workspace_id,
+                        str(batch["discovery_run_id"]),
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE apify_actor_discovery_runs
+                    SET stage = 'candidate_shortfall',
+                        error_code = 'canary_batch_candidates_exhausted',
+                        failure_phase = NULL, updated_at = ?
+                    WHERE workspace_id = ? AND run_id = ?
+                    """,
+                    (
+                        now,
+                        self.workspace_id,
+                        str(batch["discovery_run_id"]),
+                    ),
+                )
+        return self.get_canary_batch(batch_id)
+
     def approve_revision_canary(
         self,
         route_id: str,
@@ -2977,20 +3934,20 @@ class ApifyActorOpsService:
             if effective_discovery_run_id is not None:
                 usage = connection.execute(
                     """
-                    SELECT COUNT(*) AS attempts,
-                           COALESCE(SUM(COALESCE(
-                               validation.cost_usd,
-                               validation.approved_max_cost_usd
-                           )), 0) AS cost
+                    SELECT COALESCE(SUM(
+                               validation.counts_toward_canary
+                           ), 0) AS attempts,
+                           COALESCE(SUM(CASE
+                               WHEN validation.cost_final = 1
+                               THEN COALESCE(validation.cost_usd, 0)
+                               WHEN validation.status IN ('queued', 'running')
+                               THEN validation.approved_max_cost_usd
+                               ELSE 0 END), 0) AS cost
                     FROM apify_actor_validations AS validation
                     WHERE validation.workspace_id = ?
                       AND validation.route_id = ?
                       AND validation.kind = 'route_reference'
                       AND validation.discovery_run_id = ?
-                      AND (
-                          validation.attempt_id IS NOT NULL
-                          OR validation.status NOT IN ('cancelled', 'failed')
-                      )
                     """,
                     (
                         self.workspace_id,
@@ -3001,11 +3958,15 @@ class ApifyActorOpsService:
             else:
                 usage = connection.execute(
                     """
-                    SELECT COUNT(*) AS attempts,
-                           COALESCE(SUM(COALESCE(
-                               validation.cost_usd,
-                               validation.approved_max_cost_usd
-                           )), 0) AS cost
+                    SELECT COALESCE(SUM(
+                               validation.counts_toward_canary
+                           ), 0) AS attempts,
+                           COALESCE(SUM(CASE
+                               WHEN validation.cost_final = 1
+                               THEN COALESCE(validation.cost_usd, 0)
+                               WHEN validation.status IN ('queued', 'running')
+                               THEN validation.approved_max_cost_usd
+                               ELSE 0 END), 0) AS cost
                     FROM apify_actor_validations AS validation
                     JOIN apify_actor_adapter_revisions AS used_revision
                       ON used_revision.workspace_id = validation.workspace_id
@@ -3015,10 +3976,6 @@ class ApifyActorOpsService:
                       AND validation.kind = 'route_reference'
                       AND validation.discovery_run_id IS NULL
                       AND used_revision.discovery_run_id IS NULL
-                      AND (
-                          validation.attempt_id IS NOT NULL
-                          OR validation.status NOT IN ('cancelled', 'failed')
-                      )
                     """,
                     (self.workspace_id, route_id),
                 ).fetchone()
@@ -3057,10 +4014,11 @@ class ApifyActorOpsService:
                     revision_id, attempt_id, discovery_run_id, kind,
                     approval_key_hash,
                     approved_generation, approved_max_cost_usd, status,
-                    semantic_outcome, cost_usd, target_fingerprint,
+                    semantic_outcome, cost_usd, cost_final,
+                    counts_toward_canary, target_fingerprint,
                     created_at, completed_at
                 ) VALUES (?, ?, ?, NULL, ?, NULL, ?, 'route_reference', ?, ?, ?,
-                          'queued', NULL, ?, ?, ?, NULL)
+                          'queued', NULL, NULL, 0, 0, ?, ?, NULL)
                 """,
                 (
                     validation_id,
@@ -3070,7 +4028,6 @@ class ApifyActorOpsService:
                     effective_discovery_run_id,
                     approval_hash,
                     expected_generation,
-                    cap,
                     cap,
                     reference_fingerprint,
                     now,
@@ -3140,7 +4097,11 @@ class ApifyActorOpsService:
                 )
             usage = connection.execute(
                 """
-                SELECT COALESCE(SUM(cost_usd), 0) AS cost
+                SELECT COALESCE(SUM(CASE
+                           WHEN cost_final = 1 THEN COALESCE(cost_usd, 0)
+                           WHEN status IN ('queued', 'running')
+                           THEN approved_max_cost_usd
+                           ELSE 0 END), 0) AS cost
                 FROM apify_actor_validations
                 WHERE workspace_id = ? AND source_id = ?
                   AND kind = 'source_canary' AND created_at >= ?
@@ -3242,10 +4203,11 @@ class ApifyActorOpsService:
                     validation_id, workspace_id, route_id, source_id,
                     revision_id, attempt_id, kind, approval_key_hash,
                     approved_generation, approved_max_cost_usd, status,
-                    semantic_outcome, cost_usd, target_fingerprint,
+                    semantic_outcome, cost_usd, cost_final,
+                    counts_toward_canary, target_fingerprint,
                     created_at, completed_at
                 ) VALUES (?, ?, ?, ?, ?, NULL, 'source_canary', ?, ?, ?,
-                          'queued', NULL, ?, ?, ?, NULL)
+                          'queued', NULL, NULL, 0, 0, ?, ?, NULL)
                 """,
                 (
                     validation_id,
@@ -3255,7 +4217,6 @@ class ApifyActorOpsService:
                     revision_id,
                     approval_hash,
                     expected_generation,
-                    cap,
                     cap,
                     binding["target_fingerprint"],
                     now,
@@ -3282,6 +4243,7 @@ class ApifyActorOpsService:
             """
             SELECT validation_id, route_id, source_id, revision_id, kind,
                    approved_generation, status, semantic_outcome, cost_usd,
+                   cost_final, counts_toward_canary,
                    approved_max_cost_usd, discovery_run_id,
                    created_at, completed_at
             FROM apify_actor_validations
@@ -3327,6 +4289,8 @@ class ApifyActorOpsService:
                 "status",
                 "semantic_outcome",
                 "cost_usd",
+                "cost_final",
+                "counts_toward_canary",
                 "created_at",
                 "completed_at",
             )
@@ -3340,6 +4304,8 @@ class ApifyActorOpsService:
         semantic_outcome: str | None = None,
         attempt_id: str | None = None,
         cost_usd: float | None = None,
+        cost_final: bool | None = None,
+        counts_toward_canary: bool | None = None,
     ) -> dict[str, Any]:
         if cost_usd is not None:
             _bounded_actual_cost(
@@ -3348,12 +4314,28 @@ class ApifyActorOpsService:
             )
         if semantic_outcome is not None:
             semantic_outcome = _safe_label(semantic_outcome, 128)
+        if cost_final is True and cost_usd is None:
+            raise ActorOpsError(
+                "apify_actor_cost_invalid",
+                "A finalized Actor cost requires an explicit amount",
+                status_code=422,
+            )
+        resolved_cost_final = (
+            bool(cost_usd is not None)
+            if cost_final is None
+            else bool(cost_final)
+        )
+        resolved_counts = (
+            bool(attempt_id is not None)
+            if counts_toward_canary is None
+            else bool(counts_toward_canary)
+        )
         terminal = status in {"succeeded", "failed", "cancelled"}
         now = self._now_iso()
         with self._write() as connection:
             current = connection.execute(
                 """
-                SELECT status, kind, discovery_run_id
+                SELECT status, kind, discovery_run_id, route_id, revision_id
                 FROM apify_actor_validations
                 WHERE workspace_id = ? AND validation_id = ?
                 """,
@@ -3396,6 +4378,7 @@ class ApifyActorOpsService:
                 UPDATE apify_actor_validations
                 SET status = ?, semantic_outcome = ?, attempt_id = ?,
                     cost_usd = COALESCE(?, cost_usd),
+                    cost_final = ?, counts_toward_canary = ?,
                     completed_at = CASE WHEN ? THEN ? ELSE NULL END
                 WHERE workspace_id = ? AND validation_id = ?
                 """,
@@ -3404,6 +4387,8 @@ class ApifyActorOpsService:
                     semantic_outcome,
                     attempt_id,
                     cost_usd,
+                    int(resolved_cost_final),
+                    int(resolved_counts),
                     int(terminal),
                     now,
                     self.workspace_id,
@@ -3417,23 +4402,57 @@ class ApifyActorOpsService:
             ):
                 cycle = connection.execute(
                     """
-                    SELECT COUNT(*) AS attempts,
+                    SELECT COALESCE(SUM(
+                               validation.counts_toward_canary
+                           ), 0) AS attempts,
                            COUNT(DISTINCT CASE
-                               WHEN status = 'succeeded' THEN revision_id
-                           END) AS succeeded_revisions
-                    FROM apify_actor_validations
-                    WHERE workspace_id = ?
-                      AND discovery_run_id = ?
-                      AND kind = 'route_reference'
-                      AND attempt_id IS NOT NULL
+                               WHEN validation.status = 'succeeded'
+                               THEN revision.actor_id END
+                           ) AS succeeded_actors,
+                           COUNT(DISTINCT CASE
+                               WHEN validation.status = 'succeeded'
+                               THEN lower(revision.publisher) END
+                           ) AS succeeded_publishers
+                    FROM apify_actor_validations AS validation
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = validation.workspace_id
+                     AND revision.revision_id = validation.revision_id
+                    WHERE validation.workspace_id = ?
+                      AND validation.discovery_run_id = ?
+                      AND validation.kind = 'route_reference'
                     """,
                     (self.workspace_id, str(current["discovery_run_id"])),
                 ).fetchone()
                 if (
                     cycle is not None
+                    and int(cycle["succeeded_actors"] or 0) >= 2
+                    and int(cycle["succeeded_publishers"] or 0) >= 2
+                ):
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_discovery_runs
+                        SET stage = 'activation_ready', error_code = NULL,
+                            failure_phase = NULL, updated_at = ?
+                        WHERE workspace_id = ? AND run_id = ?
+                          AND stage IN (
+                              'awaiting_canary_approval',
+                              'canary_exhausted'
+                          )
+                        """,
+                        (
+                            now,
+                            self.workspace_id,
+                            str(current["discovery_run_id"]),
+                        ),
+                    )
+                elif (
+                    cycle is not None
                     and int(cycle["attempts"] or 0)
                     >= ROUTE_CANARY_ATTEMPT_LIMIT
-                    and int(cycle["succeeded_revisions"] or 0) < 3
+                    and (
+                        int(cycle["succeeded_actors"] or 0) < 2
+                        or int(cycle["succeeded_publishers"] or 0) < 2
+                    )
                 ):
                     connection.execute(
                         """
@@ -3457,7 +4476,8 @@ class ApifyActorOpsService:
         row = self.store.connect().execute(
             """
             SELECT validation_id, route_id, source_id, revision_id, kind,
-                   status, semantic_outcome, cost_usd, created_at, completed_at
+                   status, semantic_outcome, cost_usd, cost_final,
+                   counts_toward_canary, created_at, completed_at
             FROM apify_actor_validations
             WHERE workspace_id = ? AND validation_id = ?
             """,
@@ -4426,6 +5446,7 @@ class ApifyActorOpsService:
             "static_validation",
             "input_validation",
             "awaiting_canary_approval",
+            "activation_ready",
             "canary_exhausted",
             "candidate_shortfall",
             "blocked_ai_unavailable",
@@ -4780,7 +5801,10 @@ class ApifyActorOpsService:
             FROM apify_actor_runs
             WHERE workspace_id = ? AND logical_run_id = ?
               AND charge_final = 1
-              AND status IN ('succeeded', 'failed', 'aborted', 'timed_out')
+              AND status IN (
+                  'succeeded', 'failed', 'aborted', 'timed_out',
+                  'start_rejected', 'cancelled'
+              )
             ORDER BY terminal_at DESC, updated_at DESC, id DESC
             LIMIT 1
             """,
@@ -4825,6 +5849,7 @@ class ApifyActorOpsService:
                       attempt.cost_final = 0
                       OR attempt.actual_cost_usd IS NULL
                       OR validation.cost_usd IS NULL
+                      OR validation.cost_final = 0
                       OR ABS(validation.cost_usd - run.charge_actual_usd)
                          > 0.000000001
                   )
@@ -4850,7 +5875,7 @@ class ApifyActorOpsService:
                 validation_cursor = connection.execute(
                     """
                     UPDATE apify_actor_validations
-                    SET cost_usd = ?
+                    SET cost_usd = ?, cost_final = 1
                     WHERE workspace_id = ? AND validation_id = ?
                       AND status IN ('succeeded', 'failed', 'cancelled')
                     """,
@@ -4862,7 +5887,37 @@ class ApifyActorOpsService:
                 )
                 attempts += int(attempt_cursor.rowcount)
                 validations += int(validation_cursor.rowcount)
-            cycle_cursor = connection.execute(
+            ready_cursor = connection.execute(
+                """
+                UPDATE apify_actor_discovery_runs
+                SET stage = 'activation_ready', error_code = NULL,
+                    failure_phase = NULL, updated_at = ?
+                WHERE workspace_id = ?
+                  AND stage IN (
+                      'awaiting_canary_approval', 'canary_exhausted',
+                      'candidate_shortfall'
+                  )
+                  AND run_id IN (
+                      SELECT validation.discovery_run_id
+                      FROM apify_actor_validations AS validation
+                      JOIN apify_actor_adapter_revisions AS revision
+                        ON revision.workspace_id = validation.workspace_id
+                       AND revision.revision_id = validation.revision_id
+                      WHERE validation.workspace_id = ?
+                        AND validation.kind = 'route_reference'
+                        AND validation.discovery_run_id IS NOT NULL
+                        AND validation.status = 'succeeded'
+                        AND validation.semantic_outcome IN (
+                            'valid_nonempty', 'valid_empty'
+                        )
+                      GROUP BY validation.discovery_run_id
+                      HAVING COUNT(DISTINCT revision.actor_id) >= 2
+                         AND COUNT(DISTINCT lower(revision.publisher)) >= 2
+                  )
+                """,
+                (now, self.workspace_id, self.workspace_id),
+            )
+            exhausted_cursor = connection.execute(
                 """
                 UPDATE apify_actor_discovery_runs
                 SET stage = 'canary_exhausted',
@@ -4870,20 +5925,34 @@ class ApifyActorOpsService:
                     failure_phase = NULL,
                     updated_at = ?
                 WHERE workspace_id = ?
-                  AND stage = 'awaiting_canary_approval'
+                  AND stage IN (
+                      'awaiting_canary_approval', 'canary_exhausted'
+                  )
                   AND run_id IN (
                       SELECT validation.discovery_run_id
                       FROM apify_actor_validations AS validation
+                      JOIN apify_actor_adapter_revisions AS revision
+                        ON revision.workspace_id = validation.workspace_id
+                       AND revision.revision_id = validation.revision_id
                       WHERE validation.workspace_id = ?
                         AND validation.kind = 'route_reference'
                         AND validation.discovery_run_id IS NOT NULL
-                        AND validation.attempt_id IS NOT NULL
                       GROUP BY validation.discovery_run_id
-                      HAVING COUNT(*) >= ?
-                         AND COUNT(DISTINCT CASE
+                      HAVING SUM(validation.counts_toward_canary) >= ?
+                         AND (
+                           COUNT(DISTINCT CASE
                              WHEN validation.status = 'succeeded'
-                             THEN validation.revision_id
-                         END) < 3
+                              AND validation.semantic_outcome IN (
+                                  'valid_nonempty', 'valid_empty'
+                              )
+                             THEN revision.actor_id END) < 2
+                           OR COUNT(DISTINCT CASE
+                             WHEN validation.status = 'succeeded'
+                              AND validation.semantic_outcome IN (
+                                  'valid_nonempty', 'valid_empty'
+                              )
+                             THEN lower(revision.publisher) END) < 2
+                         )
                   )
                 """,
                 (
@@ -4893,7 +5962,9 @@ class ApifyActorOpsService:
                     ROUTE_CANARY_ATTEMPT_LIMIT,
                 ),
             )
-            cycles = int(cycle_cursor.rowcount)
+            cycles = int(ready_cursor.rowcount) + int(
+                exhausted_cursor.rowcount
+            )
         return {
             "attempts": attempts,
             "validations": validations,

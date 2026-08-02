@@ -196,6 +196,7 @@ class ApifyActorCanaryRunner:
         validation_id: str,
         *,
         job_id: str,
+        skip_preflight: bool = False,
     ) -> CanaryResult:
         row = self.store.connect().execute(
             """
@@ -332,6 +333,43 @@ class ApifyActorCanaryRunner:
                 int(key_row["generation"]) if key_row is not None else None
             ),
         )
+        preflight = getattr(self.client, "preflight_actor_revision", None)
+        if not skip_preflight and callable(preflight):
+            try:
+                await preflight(
+                    slot.actor_id,
+                    build_id=str(slot.build_id),
+                    build_number=str(slot.build_number),
+                )
+            except ApifyClientError as exc:
+                deterministic = str(exc.code) == (
+                    "apify_actor_revision_unavailable"
+                )
+                self.ops.record_validation(
+                    validation_id,
+                    status="failed",
+                    semantic_outcome=str(exc.code),
+                    cost_usd=0.0,
+                    cost_final=True,
+                    counts_toward_canary=False,
+                )
+                if deterministic:
+                    self.ops.stop_unavailable_revision(
+                        str(row["revision_id"]),
+                        reason=str(exc.code),
+                    )
+                raise ActorOpsError(
+                    str(exc.code),
+                    "Actor revision failed the free paid-start preflight",
+                    retryable=bool(exc.retryable),
+                    status_code=(
+                        503
+                        if exc.retryable
+                        else 412
+                        if deterministic
+                        else 422
+                    ),
+                ) from None
         attempt_id = self.ops.begin_validation_attempt(
             validation_id,
             snapshot,
@@ -381,6 +419,7 @@ class ApifyActorCanaryRunner:
                 "apify_start_outcome_unknown",
                 "apify_run_reconcile_required",
             }
+            public_error_code = str(exc.code)
             if unknown:
                 self.ops.finish_unknown_start(
                     snapshot,
@@ -389,11 +428,45 @@ class ApifyActorCanaryRunner:
                     error_code=str(exc.code),
                     validation_id=validation_id,
                 )
+            elif (
+                str(exc.code)
+                in {
+                    "apify_actor_deleted",
+                    "apify_actor_build_unavailable",
+                    "apify_actor_start_rejected",
+                }
+                and self.ops.proven_no_remote_start(attempt_id)
+            ):
+                self.ops.finish_attempt(
+                    attempt_id,
+                    status="cancelled",
+                    semantic_outcome="apify_actor_revision_unavailable",
+                    actual_cost_usd=0.0,
+                    error_code="apify_actor_revision_unavailable",
+                )
+                self.ops.record_validation(
+                    validation_id,
+                    status="failed",
+                    semantic_outcome="apify_actor_revision_unavailable",
+                    attempt_id=attempt_id,
+                    cost_usd=0.0,
+                    cost_final=True,
+                    counts_toward_canary=False,
+                )
+                self.ops.stop_unavailable_revision(
+                    str(row["revision_id"]),
+                    reason="apify_actor_revision_unavailable",
+                )
+                public_error_code = "apify_actor_revision_unavailable"
             else:
+                actual_charge_usd = self.ops.finalized_actor_run_cost(
+                    attempt_id
+                )
                 self.ops.finish_attempt(
                     attempt_id,
                     status="actor_failed",
                     semantic_outcome=str(exc.code),
+                    actual_cost_usd=actual_charge_usd,
                     error_code=str(exc.code),
                 )
                 self.ops.record_validation(
@@ -401,9 +474,11 @@ class ApifyActorCanaryRunner:
                     status="failed",
                     semantic_outcome=str(exc.code),
                     attempt_id=attempt_id,
+                    cost_usd=actual_charge_usd,
+                    cost_final=actual_charge_usd is not None,
                 )
             raise ActorOpsError(
-                str(exc.code),
+                public_error_code,
                 "Actor Canary could not complete safely",
                 retryable=bool(exc.retryable),
                 status_code=503 if unknown or exc.retryable else 422,
@@ -413,6 +488,7 @@ class ApifyActorCanaryRunner:
                 attempt_id,
                 status="cancelled",
                 semantic_outcome=str(exc.code),
+                actual_cost_usd=0.0,
                 error_code=str(exc.code),
             )
             self.ops.record_validation(
@@ -420,6 +496,9 @@ class ApifyActorCanaryRunner:
                 status="failed",
                 semantic_outcome=str(exc.code),
                 attempt_id=attempt_id,
+                cost_usd=0.0,
+                cost_final=True,
+                counts_toward_canary=False,
             )
             raise ActorOpsError(
                 str(exc.code),

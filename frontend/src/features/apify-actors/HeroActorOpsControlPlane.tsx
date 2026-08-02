@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../../api/queryKeys'
 import type {
   ApifyActorDiscoveryCandidate,
+  ApifyActorCanaryBatch,
+  ApifyActorCanaryPlan,
   ApifyActorDiscoverySettingsPatch,
   ApifyActorPaidCanaryRequest,
   ApifyActorRevisionSummary,
@@ -88,6 +90,7 @@ const lifecycleLabels: Record<ApifyActorRevisionSummary['lifecycle'], string> = 
 
 const terminalDiscoveryStatuses = new Set([
   'awaiting_canary_approval',
+  'activation_ready',
   'canary_exhausted',
   'candidate_shortfall',
   'blocked_ai_unavailable',
@@ -154,6 +157,11 @@ type CanaryApprovalTarget = CanaryTarget & {
   approvalId: string
 }
 
+type CanaryBatchApprovalTarget = {
+  plan: ApifyActorCanaryPlan
+  approvalId: string
+}
+
 type DiscoverySettingsDraft = {
   enabled: boolean
   aiConfigId: string
@@ -176,33 +184,6 @@ function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string
   return '当前 Revision 不能进入 Active Pool'
 }
 
-
-function minimumCanariesForExpeditedPool(
-  candidates: ApifyActorDiscoveryCandidate[],
-): number | null {
-  const probationCost = (revision: ApifyActorRevisionSummary): number => {
-    if (['certified', 'probationary', 'legacy_builtin'].includes(revision.lifecycle)) return 0
-    if (revision.lifecycle === 'static_valid') return 1
-    return Number.POSITIVE_INFINITY
-  }
-  const eligible = candidates.filter((candidate) => (
-    candidate.revision.can_canary !== false
-    && !candidate.rejection_reasons?.length
-    && Number.isFinite(probationCost(candidate.revision))
-  ))
-  let minimum = Number.POSITIVE_INFINITY
-  for (const primary of eligible) {
-    for (const backup1 of eligible) {
-      if (primary.revision.actor_id === backup1.revision.actor_id) continue
-      if (primary.revision.publisher === backup1.revision.publisher) continue
-      minimum = Math.min(
-        minimum,
-        probationCost(primary.revision) + probationCost(backup1.revision),
-      )
-    }
-  }
-  return Number.isFinite(minimum) ? minimum : null
-}
 
 function actorPricingLabel(revision: ApifyActorRevisionSummary): string {
   const pricing = revision.pricing
@@ -425,11 +406,13 @@ function ActorPoolPlan({
 function DiscoveryPanel({
   detail,
   queryEnabled,
-  onCanary,
+  activeBatch,
+  onBatchCanary,
 }: {
   detail: ApifyActorRouteDetail
   queryEnabled: boolean
-  onCanary: (target: CanaryTarget) => void
+  activeBatch: ApifyActorCanaryBatch | null
+  onBatchCanary: (plan: ApifyActorCanaryPlan) => void
 }) {
   const { api, user } = useAppContext()
   const runId = detail.discovery_run_id || ''
@@ -448,6 +431,18 @@ function DiscoveryPanel({
       return status && terminalDiscoveryStatuses.has(status) ? false : 5_000
     },
   })
+  const canPlan = Boolean(runId)
+    && ['awaiting_canary_approval', 'canary_exhausted', 'activation_ready'].includes(query.data?.stage || '')
+    && !detail.activation_recommendation?.ready
+  const planQuery = useQuery({
+    queryKey: queryKeys.apifyActorCanaryPlan(user.id, runId),
+    queryFn: ({ signal }) => api.apifyActorCanaryPlan(runId, signal),
+    enabled: queryEnabled && canPlan,
+    retry: false,
+    refetchInterval: activeBatch && ['queued', 'preflighting', 'running'].includes(activeBatch.status)
+      ? 3_000
+      : false,
+  })
 
   if (!runId) return <HeroNotice title="当前没有进行中的发现任务" status="default" role="status">
     Actor、Build 或 Schema 指纹变化时，系统会在这里生成不自动付费的补位提案。
@@ -458,16 +453,11 @@ function DiscoveryPanel({
   </HeroNotice>
 
   const run = query.data
+  const displayedBatch = activeBatch ?? run.canary_batch ?? null
   const publisherCount = run.publisher_count ?? new Set(
     run.candidates.map((candidate) => candidate.revision.publisher),
   ).size
-  const attemptsRemaining = run.canary_attempts_remaining
-    ?? Math.max((run.canary_attempts_limit ?? 5) - (run.canary_attempts_used ?? 0), 0)
-  const minimumCanaries = minimumCanariesForExpeditedPool(run.candidates)
-  const canaryCapacityBlocked = run.stage === 'awaiting_canary_approval'
-    && !detail.activation_recommendation?.ready
-    && minimumCanaries !== null
-    && minimumCanaries > attemptsRemaining
+  const paidBatchRunning = Boolean(displayedBatch && ['queued', 'preflighting', 'running'].includes(displayedBatch.status))
   return <div className="grid gap-3">
     <div className="grid gap-3 min-[720px]:grid-cols-3">
       <Metric
@@ -480,7 +470,7 @@ function DiscoveryPanel({
       <Metric
         label="Route 认证费用"
         value={formatActorUsd(run.spent_usd ?? 0)}
-        detail={`已审批/记录；总上限 ${formatActorUsd(run.budget_cap_usd)}；单次最长 ${run.canary_timeout_seconds ?? 300} 秒`}
+        detail={`实际已终结；预留 ${formatActorUsd(run.reserved_usd ?? 0)}；总上限 ${formatActorUsd(run.budget_cap_usd)}`}
       />
       <Metric
         label="候选完整度"
@@ -489,18 +479,42 @@ function DiscoveryPanel({
           : run.publisher_shortfall
             ? `缺少 ${run.publisher_shortfall} 个发布者`
             : '数量充足'}
-        detail={`${run.candidate_count ?? run.candidates.length}/3 Actor · ${publisherCount}/2 发布者；Canary ${run.canary_attempts_used ?? 0}/${run.canary_attempts_limit ?? 5} 次`}
+        detail={`${run.candidate_count ?? run.candidates.length}/3 Actor · ${publisherCount}/2 发布者；付费验证只统计真实启动`}
       />
     </div>
     {run.error_code && <HeroNotice title={discoveryFailureTitle(run.failure_phase)} status="warning">
       {discoveryReasonLabel(run.error_code)}。安全错误码：<code>{run.error_code}</code>
     </HeroNotice>}
-    {run.stage === 'canary_exhausted' && <HeroNotice title="当前候选组不能继续付费验证" status="warning">
-      已使用 {run.canary_attempts_used ?? run.canary_attempts_limit ?? 5} 次，本轮剩余 0 次。请勾选“强制重新发现”后重新请求支持检查；系统会使用加强后的 Dataset Schema 与来源身份规则生成新 Revision。
+    {displayedBatch && <HeroNotice
+      title={displayedBatch.status === 'activation_ready'
+        ? '两路主备验证完成，可以确认启用'
+        : paidBatchRunning
+          ? `正在串行验证主备（${displayedBatch.success_count}/2 成功）`
+          : displayedBatch.status === 'partial'
+            ? '本批候选未凑齐两路，系统正在补位发现（不会启动 Actor）'
+            : '主备验证批次已结束'}
+      status={displayedBatch.status === 'activation_ready' ? 'success' : paidBatchRunning ? 'warning' : 'default'}
+    >
+      实际费用 {displayedBatch.actual_cost_usd === null || displayedBatch.actual_cost_usd === undefined
+        ? '待远端对账'
+        : formatActorUsd(displayedBatch.actual_cost_usd, true)}；
+      未启动或不再需要的候选费用为 $0。批次状态：<code>{displayedBatch.status}</code>。
     </HeroNotice>}
-    {canaryCapacityBlocked && <HeroNotice title="成功试跑 Actor 仍不足两路" status="warning">
-      当前候选至少还需要 {minimumCanaries} 次全部成功的 Route Canary，
-      但本轮只剩 {attemptsRemaining} 次。页面已停止继续付费；只有不足两个可运行 Actor 时才需要重新发现。
+    {!detail.activation_recommendation?.ready && !paidBatchRunning && planQuery.data?.ready && <div className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-separator bg-surface-secondary p-3">
+      <div>
+        <p className="type-control">一次确认，系统验证两路主备</p>
+        <p className="type-meta mt-1 text-muted">
+          服务器已选择 {planQuery.data.items.length} 个候选，严格串行；两位不同发布者成功后立即停止。全部候选总封顶 {formatActorUsd(planQuery.data.max_total_charge_usd, true)}。
+        </p>
+      </div>
+      <Button
+        size="sm"
+        isDisabled={paidBatchRunning}
+        onPress={() => onBatchCanary(planQuery.data)}
+      ><Icons.FlaskConical size={14} aria-hidden="true" />验证两路主备</Button>
+    </div>}
+    {!detail.activation_recommendation?.ready && planQuery.isError && <HeroNotice title="当前候选还不能组成安全的两路主备" status="warning">
+      无需反复刷新或逐个试跑；系统会保留已有成功证据，并在候选用尽时自动创建不会启动 Actor 的补位发现任务。
     </HeroNotice>}
     {Boolean(run.rejections?.length) && <HeroNotice title="确定性淘汰摘要" status="default">
       <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
@@ -552,27 +566,6 @@ function DiscoveryPanel({
                 ? <Icons.CircleX size={13} aria-hidden="true" />
                 : <Icons.CircleDashed size={13} aria-hidden="true" />}
             />
-            {candidate.awaiting_approval
-              && !detail.activation_recommendation?.ready
-              && !canaryCapacityBlocked
-              && candidate.revision.can_canary !== false && <Button
-              size="sm"
-              variant="secondary"
-              onPress={() => onCanary({
-                kind: 'discovery',
-                runId: run.run_id,
-                candidate,
-                expectedGeneration: run.generation,
-                capUsd: Math.min(detail.per_run_cap_usd, Math.max(0, run.budget_cap_usd - (run.spent_usd ?? 0))),
-                routeBudgetUsd: run.budget_cap_usd,
-                routeSpentUsd: run.spent_usd ?? 0,
-                routeKey: detail.route_key,
-                routeLabel: routeIdentity(detail.platform, detail.target_type, detail.capability),
-                routeMode: detail.mode,
-                actorPricingLabel: actorPricingLabel(candidate.revision),
-                buildLabel: candidate.revision.build_number || candidate.revision.build_id || '未固定',
-              })}
-            ><Icons.FlaskConical size={14} aria-hidden="true" />确认付费 Canary</Button>}
           </div>
         </div>
         {Boolean(candidate.rejection_reasons?.length) && <ul className="mt-2 list-disc space-y-1 pl-5 type-meta text-muted">
@@ -824,7 +817,7 @@ function SourceSupportPanel({
         <Metric
           label="来源验证预算"
           value={`${formatActorUsd(support.remaining_budget_usd, true)} 剩余`}
-          detail={`已用 ${formatActorUsd(support.spent_usd, true)} / 总上限 ${formatActorUsd(support.budget_cap_usd, true)}`}
+          detail={`实际已终结 ${formatActorUsd(support.spent_usd, true)} · 预留 ${formatActorUsd(support.reserved_usd, true)} / 总上限 ${formatActorUsd(support.budget_cap_usd, true)}`}
         />
         <TextField
           fullWidth
@@ -1208,6 +1201,9 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const [routeCapDraft, setRouteCapDraft] = useState('')
   const [canaryTarget, setCanaryTarget] = useState<CanaryApprovalTarget | null>(null)
   const [canaryError, setCanaryError] = useState('')
+  const [batchTarget, setBatchTarget] = useState<CanaryBatchApprovalTarget | null>(null)
+  const [batchError, setBatchError] = useState('')
+  const [activeBatchId, setActiveBatchId] = useState('')
   const [activationOpen, setActivationOpen] = useState(false)
   const [rollbackRevision, setRollbackRevision] = useState<ApifyActorRevisionSummary | null>(null)
   const [rollbackSlot, setRollbackSlot] = useState<ApifyActorSlotName>('primary')
@@ -1224,6 +1220,18 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
     enabled: queryEnabled && Boolean(selectedRouteId),
     retry: false,
     refetchInterval: queryEnabled && selectedRouteId ? APIFY_ACTOR_ROUTE_REFRESH_MS : false,
+  })
+  const batchQuery = useQuery({
+    queryKey: queryKeys.apifyActorCanaryBatch(user.id, activeBatchId),
+    queryFn: ({ signal }) => api.apifyActorCanaryBatch(activeBatchId, signal),
+    enabled: queryEnabled && Boolean(activeBatchId),
+    retry: false,
+    refetchInterval: (current) => {
+      const status = current.state.data?.status
+      return status && ['queued', 'preflighting', 'running'].includes(status)
+        ? 3_000
+        : false
+    },
   })
   const capabilityFingerprint = (routesQuery.data?.routes ?? [])
     .map((route) => [
@@ -1323,6 +1331,35 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
     },
   })
 
+  const canaryBatch = useMutation({
+    mutationFn: (target: CanaryBatchApprovalTarget) => (
+      api.createApifyActorCanaryBatch(target.plan.run_id, {
+        expected_generation: target.plan.generation,
+        expected_plan_hash: target.plan.plan_hash,
+        approval_id: target.approvalId,
+        confirmation: '确认付费验证主备',
+        max_candidates: target.plan.max_candidates,
+        max_total_charge_usd: target.plan.max_total_charge_usd,
+      })
+    ),
+    onSuccess: (response) => {
+      setActiveBatchId(response.batch.batch_id)
+      setBatchTarget(null)
+      setBatchError('')
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.apifyActorDiscoveryRun(user.id, response.batch.discovery_run_id),
+      })
+      actionToast.success('两路主备验证已提交，将严格串行执行')
+    },
+    onError: (caught) => {
+      setBatchError(safeActorActionError(
+        caught,
+        '验证计划已变化或已有批次运行；页面会刷新最新状态，不会重复付费。',
+      ))
+    },
+  })
+
   const canary = useMutation({
     mutationFn: async (target: CanaryApprovalTarget) => {
       const payload: ApifyActorPaidCanaryRequest = {
@@ -1385,7 +1422,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const routes = routesQuery.data?.routes ?? []
   const detail = detailQuery.data
   const selectedSummary = routes.find((route) => route.route_id === selectedRouteId)
-  const actionPending = updatePool.isPending || activatePool.isPending || canary.isPending
+  const actionPending = updatePool.isPending || activatePool.isPending || canary.isPending || canaryBatch.isPending
   const routeCapValue = Number(routeCapDraft)
   const routeCapValid = Number.isFinite(routeCapValue) && routeCapValue > 0 && routeCapValue <= 100
   const routeCapChanged = detail !== undefined && routeCapValid
@@ -1418,7 +1455,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
       <div className="min-w-0">
         <Card.Title>ActorOps 路由控制面</Card.Title>
         <Card.Description className="mt-1">
-          逐次审批付费 Canary；候选合格后由系统生成主备方案，你只需确认一次生效。
+          每条 Route 只需确认一次主备验证；系统串行试跑并在两路成功后停止，随后再确认启用。
         </Card.Description>
       </div>
       {selectedSummary && <div className="flex flex-wrap gap-2">
@@ -1516,12 +1553,13 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
 
       <section className="border-t border-separator pt-5" aria-labelledby="actor-ops-discovery-heading">
         <h3 id="actor-ops-discovery-heading" className="type-page-title">AI 发现与候选审批</h3>
-        <p className="type-meta mt-1 text-muted">展示进度、确定性淘汰原因、候选不足和每次独立付费审批。</p>
+        <p className="type-meta mt-1 text-muted">展示进度与淘汰原因；候选由后端选择，不再要求你手工逐个审批 Revision。</p>
         <div className="mt-3"><DiscoveryPanel
           detail={detail}
           queryEnabled={queryEnabled}
-          onCanary={(target) => setCanaryTarget({
-            ...target,
+          activeBatch={batchQuery.data ?? null}
+          onBatchCanary={(plan) => setBatchTarget({
+            plan,
             approvalId: crypto.randomUUID(),
           })}
         /></div>
@@ -1589,6 +1627,60 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
                 : detail?.activation_recommendation?.activation_mode === 'expedited_2of3'
                   ? '确认先启用两路主备'
                   : '确认启用 Actor 主备'}</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+
+    <Modal isOpen={Boolean(batchTarget)} onOpenChange={(open) => {
+      if (!open && !canaryBatch.isPending) {
+        setBatchTarget(null)
+        setBatchError('')
+      }
+    }}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开两路主备付费验证确认</Modal.Trigger>
+      <Modal.Backdrop isDismissable={!canaryBatch.isPending} isKeyboardDismissDisabled={canaryBatch.isPending}>
+        <Modal.Container>
+          <Modal.Dialog>
+            <Modal.Header><Modal.Heading>确认付费验证两路主备</Modal.Heading></Modal.Header>
+            <Modal.Body>
+              <div className="grid gap-3" aria-busy={canaryBatch.isPending}>
+                <HeroNotice title="一次确认，最多串行验证三个候选" status="warning" role="status">
+                  每次启动前先免费检查 Actor 与精确 Build；两位不同发布者成功后立即停止。未启动、Build 已失效或不再需要的候选费用为 $0，不计入失败次数。
+                </HeroNotice>
+                {batchTarget && <>
+                  <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+                    <div><dt className="text-muted">所属 Route / 来源类型</dt><dd className="type-control mt-1 break-words">{routeIdentity(batchTarget.plan.platform, batchTarget.plan.target_type, batchTarget.plan.capability)} · <code>{batchTarget.plan.route_key}</code> · {batchTarget.plan.mode === 'fallback' ? '原生优先，Actor 回退' : 'Actor 主链路'}</dd></div>
+                    <div><dt className="text-muted">本批总费用上限</dt><dd className="type-control mt-1 tabular-nums">{formatActorUsd(batchTarget.plan.max_total_charge_usd, true)}</dd></div>
+                    <div><dt className="text-muted">本轮剩余额度</dt><dd className="type-control mt-1 tabular-nums">还可计入 {batchTarget.plan.attempts_remaining} 次真实启动 · 费用余额 {formatActorUsd(batchTarget.plan.budget_remaining_usd, true)}</dd></div>
+                    <div><dt className="text-muted">停止条件</dt><dd className="type-control mt-1">两个不同 Actor、来自两个不同发布者且均通过内容合同。</dd></div>
+                  </dl>
+                  <ol className="grid gap-2" aria-label="本批 Actor 验证计划">
+                    {batchTarget.plan.items.map((item) => <li key={item.revision_id} className="rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+                      <p className="type-control break-words">#{item.ordinal} · {item.publisher} · {item.actor_id}</p>
+                      <p className="mt-1 break-words text-muted">Build {item.build_number} · 单次封顶 {formatActorUsd(item.authorized_cap_usd, true)}</p>
+                      <p className="mt-1 break-words text-muted">商城定价：{item.pricing?.billing_unit === 'free'
+                        ? '免费 Actor'
+                        : item.pricing?.unit_price_min_usd !== null && item.pricing?.unit_price_min_usd !== undefined
+                          ? `${formatActorUsd(item.pricing.unit_price_min_usd, true)} 起 / ${item.pricing.billing_unit === 'dataset_item' ? 'Dataset 行' : '计费事件'}`
+                          : '定价快照未提供；仍受单次封顶保护'}</p>
+                    </li>)}
+                  </ol>
+                </>}
+                {batchError && <HeroNotice title={batchError} status="danger" />}
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button type="button" variant="ghost" isDisabled={canaryBatch.isPending} onPress={() => {
+                setBatchTarget(null)
+                setBatchError('')
+              }}>取消</Button>
+              <Button
+                type="button"
+                isDisabled={!batchTarget?.plan.ready || canaryBatch.isPending}
+                onPress={() => batchTarget && canaryBatch.mutate(batchTarget)}
+              >{canaryBatch.isPending ? '提交中…' : '确认付费验证主备'}</Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

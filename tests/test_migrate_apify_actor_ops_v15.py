@@ -91,6 +91,10 @@ def _downgrade_to_v14(data_dir) -> None:
     connection.execute("PRAGMA foreign_keys = OFF")
     for trigger in V15_TRIGGERS:
         connection.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+    # The current fresh-schema fixture includes all later migrations. A true
+    # v14 snapshot cannot contain v17 batch tables that reference v15 rows.
+    connection.execute("DROP TABLE IF EXISTS apify_actor_canary_batch_items")
+    connection.execute("DROP TABLE IF EXISTS apify_actor_canary_batches")
     connection.execute("DROP TABLE apify_actor_validations")
     connection.execute("DROP TABLE apify_actor_discovery_run_revisions")
     connection.execute("DROP TABLE apify_route_active_slots")
@@ -144,10 +148,7 @@ def _downgrade_to_v14(data_dir) -> None:
         )
         """
     )
-    connection.execute(
-        "DELETE FROM schema_migrations WHERE version = ?",
-        (APIFY_ACTOR_OPS_MIGRATION_VERSION,),
-    )
+    connection.execute("DELETE FROM schema_migrations WHERE version >= 15")
     connection.commit()
     connection.execute("PRAGMA foreign_keys = ON")
     assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

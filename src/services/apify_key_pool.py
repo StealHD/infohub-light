@@ -847,6 +847,8 @@ class ApifyKeyPoolService:
                     """
                     UPDATE apify_actor_runs
                     SET status = 'start_rejected', last_error_code = ?,
+                        charge_reserved_usd = 0,
+                        charge_actual_usd = 0, charge_final = 1,
                         terminal_at = ?, updated_at = ?
                     WHERE id = ?
                     """,

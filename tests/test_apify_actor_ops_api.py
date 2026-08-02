@@ -153,6 +153,39 @@ def _discovery_revision(store: ServiceStore):
     return ops, route, run, revision_id
 
 
+def _discovery_batch_candidates(store: ServiceStore):
+    ops, route, run, first_revision = _discovery_revision(store)
+    revisions = [first_revision]
+    for index, publisher in enumerate(("publisher-two", "publisher-three"), start=2):
+        actor_id = f"{publisher}/api-canary-{index}"
+        candidate_id = ops.ensure_candidate(
+            str(route["route_id"]),
+            actor_id=actor_id,
+        )
+        revisions.append(
+            ops.create_adapter_revision(
+                candidate_id=candidate_id,
+                actor_id=actor_id,
+                publisher=publisher,
+                build_id=f"build-api-canary-{index}",
+                build_number=f"1.0.{index}",
+                manifest=_manifest(actor_id, f"1.0.{index}"),
+                pricing={
+                    "pricingModel": "PAY_PER_EVENT",
+                    "minimalMaxTotalChargeUsd": 0.02,
+                    "pricingPerEvent": {
+                        "actorChargeEvents": {
+                            "item": {"eventPriceUsd": 0.001 * index},
+                        }
+                    },
+                },
+                lifecycle="static_valid",
+                discovery_run_id=str(run["run_id"]),
+            )
+        )
+    return ops, route, run, revisions
+
+
 def _client(tmp_path, monkeypatch) -> tuple[TestClient, ServiceStore]:
     monkeypatch.setenv("HORIZON_AUTH_USER", "owner")
     monkeypatch.setenv("HORIZON_AUTH_PASSWORD", "secret-password")
@@ -489,7 +522,8 @@ def test_source_support_projects_independent_budget_and_inflight_canary(
     refreshed = client.get(support_endpoint)
     assert refreshed.status_code == 200, refreshed.text
     refreshed_data = refreshed.json()["data"]
-    assert refreshed_data["spent_usd"] == 0.01
+    assert refreshed_data["spent_usd"] == 0
+    assert refreshed_data["reserved_usd"] == 0.01
     assert round(refreshed_data["remaining_budget_usd"], 2) == 0.05
     assert refreshed_data["slots"][0]["status"] == "queued"
     assert refreshed_data["slots"][0]["can_canary"] is False
@@ -1129,7 +1163,7 @@ def test_discovery_projection_reports_rank_rejections_and_committed_spend(
     )
     assert response.status_code == 200, response.text
     projected = response.json()["data"]
-    assert projected["schema_version"] == 3
+    assert projected["schema_version"] == 4
     assert projected["canary_attempts_used"] == 0
     assert projected["canary_attempts_limit"] == 5
     assert projected["canary_attempts_remaining"] == 5
@@ -1146,13 +1180,130 @@ def test_discovery_projection_reports_rank_rejections_and_committed_spend(
         "minimum_charge_usd": None,
         "minimum_run_cap_usd": 0.02,
     }
-    assert projected["spent_usd"] == 0.02
+    assert projected["spent_usd"] == 0
+    assert projected["reserved_usd"] == 0.02
     assert projected["rejections"] == [
         {"reason": "actor_full_permission", "count": 2}
     ]
     assert "not-persisted" not in response.text
 
 
+def test_canary_batch_plan_is_server_selected_and_approval_is_atomic(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, run, revisions = _discovery_batch_candidates(store)
+    plan_endpoint = (
+        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-plan"
+    )
+    plan_response = client.get(plan_endpoint)
+    assert plan_response.status_code == 200, plan_response.text
+    plan = plan_response.json()["data"]
+    assert plan["ready"] is True
+    assert plan["activation_ready"] is False
+    assert plan["max_total_charge_usd"] == 0.06
+    assert plan["attempts_used"] == 0
+    assert plan["attempts_remaining"] == 5
+    assert plan["budget_remaining_usd"] == 0.1
+    assert len(plan["items"]) == 3
+    assert {item["revision_id"] for item in plan["items"]} == set(revisions)
+    assert len({item["publisher"] for item in plan["items"]}) == 3
+
+    endpoint = (
+        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-batches"
+    )
+    request = {
+        "expected_generation": route["generation"],
+        "expected_plan_hash": plan["plan_hash"],
+        "approval_id": "batch-approval-api-0001",
+        "confirmation": "确认付费验证主备",
+        "max_candidates": 3,
+        "max_total_charge_usd": plan["max_total_charge_usd"],
+    }
+    approved = client.post(endpoint, json=request)
+    assert approved.status_code == 200, approved.text
+    payload = approved.json()["data"]
+    assert payload["batch"]["status"] == "queued"
+    assert payload["batch"]["planned_count"] == 3
+    assert payload["batch"]["actual_cost_usd"] is None
+    assert payload["batch"]["cost_final"] is False
+    assert payload["job"]["status"] == "queued"
+    batch_id = payload["batch"]["batch_id"]
+
+    validations = store.connect().execute(
+        """
+        SELECT status, cost_usd, cost_final, counts_toward_canary
+        FROM apify_actor_validations
+        WHERE discovery_run_id = ?
+        ORDER BY created_at
+        """,
+        (run["run_id"],),
+    ).fetchall()
+    assert len(validations) == 3
+    assert all(str(row["status"]) == "queued" for row in validations)
+    assert all(row["cost_usd"] is None for row in validations)
+    assert all(int(row["cost_final"]) == 0 for row in validations)
+    assert all(int(row["counts_toward_canary"]) == 0 for row in validations)
+
+    replay = client.post(endpoint, json=request)
+    assert replay.status_code == 200, replay.text
+    replay_data = replay.json()["data"]
+    assert replay_data["batch"]["batch_id"] == batch_id
+    assert replay_data["job"]["id"] == payload["job"]["id"]
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM fetch_jobs WHERE job_type = 'apify_actor_canary_batch'"
+    ).fetchone()[0] == 1
+
+    refreshed = client.get(
+        f"/api/admin/apify-discovery-runs/{run['run_id']}"
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["data"]["canary_batch"]["batch_id"] == batch_id
+
+
+def test_canary_batch_rejects_stale_plan_and_browser_candidate_override(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, run, revisions = _discovery_batch_candidates(store)
+    plan = client.get(
+        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-plan"
+    ).json()["data"]
+    endpoint = (
+        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-batches"
+    )
+    base = {
+        "expected_generation": route["generation"],
+        "expected_plan_hash": plan["plan_hash"],
+        "approval_id": "batch-approval-api-0002",
+        "confirmation": "确认付费验证主备",
+        "max_candidates": 3,
+        "max_total_charge_usd": plan["max_total_charge_usd"],
+    }
+    override = client.post(
+        endpoint,
+        json={**base, "revision_ids": revisions[:2]},
+    )
+    assert override.status_code == 400
+
+    stale = client.post(
+        endpoint,
+        json={**base, "expected_plan_hash": "0" * 64},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "apify_actor_canary_plan_conflict"
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM apify_actor_canary_batches"
+    ).fetchone()[0] == 0
+    assert store.connect().execute(
+        "SELECT COUNT(*) FROM fetch_jobs WHERE job_type = 'apify_actor_canary_batch'"
+    ).fetchone()[0] == 0
 def test_discovery_projection_reports_persisted_partial_pool(
     tmp_path,
     monkeypatch,

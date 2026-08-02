@@ -846,7 +846,7 @@ export type ApifyActorDiscoveryCandidate = {
 }
 
 export type ApifyActorDiscoveryRun = {
-  schema_version: 3
+  schema_version: 4
   run_id: string
   route_id?: string | null
   generation: number
@@ -856,6 +856,7 @@ export type ApifyActorDiscoveryRun = {
   queries_limit?: number | null
   budget_cap_usd: number
   spent_usd?: number | null
+  reserved_usd?: number | null
   canary_attempts_used?: number | null
   canary_attempts_limit?: number | null
   canary_attempts_remaining?: number | null
@@ -870,7 +871,94 @@ export type ApifyActorDiscoveryRun = {
   metrics?: ApifyActorDiscoveryMetrics
   rejections?: Array<{ reason: string; count: number }>
   candidates: ApifyActorDiscoveryCandidate[]
+  canary_batch?: ApifyActorCanaryBatch | null
   updated_at?: string | null
+}
+
+export type ApifyActorCanaryPlanItem = {
+  ordinal: number
+  revision_id: string
+  actor_id: string
+  publisher: string
+  build_id: string
+  build_number: string
+  lifecycle: ApifyActorRevisionSummary['lifecycle']
+  pricing?: ApifyActorRevisionSummary['pricing']
+  authorized_cap_usd: number
+}
+
+export type ApifyActorCanaryPlan = {
+  schema_version: 1
+  run_id: string
+  route_id: string
+  route_key: string
+  platform: string
+  target_type: string
+  capability: string
+  mode: 'primary' | 'fallback'
+  generation: number
+  status: 'ready' | 'activation_ready' | 'insufficient_candidates'
+  ready: boolean
+  activation_ready: boolean
+  plan_hash: string
+  max_candidates: number
+  max_total_charge_usd: number
+  per_candidate_cap_usd: number
+  successful_actor_count: number
+  successful_publisher_count: number
+  attempts_used: number
+  attempts_remaining: number
+  budget_remaining_usd: number
+  items: ApifyActorCanaryPlanItem[]
+}
+
+export type ApifyActorCanaryBatchRequest = {
+  expected_generation: number
+  expected_plan_hash: string
+  approval_id: string
+  confirmation: '确认付费验证主备'
+  max_candidates: number
+  max_total_charge_usd: number
+}
+
+export type ApifyActorCanaryBatchItem = ApifyActorCanaryPlanItem & {
+  status: string
+  semantic_outcome?: string | null
+  actual_cost_usd?: number | null
+  cost_final: boolean
+  preflight_checked_at?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+}
+
+export type ApifyActorCanaryBatch = {
+  schema_version: 1
+  batch_id: string
+  route_id: string
+  discovery_run_id: string
+  approved_generation: number
+  plan_hash: string
+  max_candidates: number
+  max_total_charge_usd: number
+  per_candidate_cap_usd: number
+  status: string
+  planned_count: number
+  success_count: number
+  publisher_count: number
+  actual_cost_usd?: number | null
+  cost_final: boolean
+  stop_reason?: string | null
+  created_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  updated_at: string
+  items: ApifyActorCanaryBatchItem[]
+}
+
+export type ApifyActorCanaryBatchResponse = {
+  schema_version: 1
+  batch: ApifyActorCanaryBatch
+  job: { id: string; status: string }
 }
 
 export type ApifyActorDiscoveryMetrics = {
@@ -967,6 +1055,7 @@ export type ApifyActorSourceSupport = {
   verified_revision_set_hash?: string | null
   budget_cap_usd: number
   spent_usd: number
+  reserved_usd: number
   remaining_budget_usd: number
   slots: ApifyActorSourceValidationSlot[]
   activation_confirmation?: string | null

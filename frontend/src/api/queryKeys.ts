@@ -70,6 +70,12 @@ export const queryKeys = {
   apifyActorDiscoveryRun: (userId: string, runId: string) => [
     ...userKey(userId), 'apify-actor-discovery-runs', runId,
   ] as const,
+  apifyActorCanaryPlan: (userId: string, runId: string) => [
+    ...userKey(userId), 'apify-actor-discovery-runs', runId, 'canary-plan',
+  ] as const,
+  apifyActorCanaryBatch: (userId: string, batchId: string) => [
+    ...userKey(userId), 'apify-actor-canary-batches', batchId,
+  ] as const,
   apifyActorSourceSupport: (userId: string, sourceId: string) => [
     ...userKey(userId), 'apify-actor-source-support', sourceId,
   ] as const,

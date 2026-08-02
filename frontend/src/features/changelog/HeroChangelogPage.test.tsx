@@ -71,7 +71,7 @@ describe('HeroChangelogPage', () => {
     expect(entries[1]).not.toHaveAttribute('aria-current')
     expect(entries[2]).not.toHaveAttribute('aria-current')
     expect(within(entries[0] as HTMLElement).getByText('完整 2+1 优先、两路可先上线')).toBeVisible()
-    expect(within(entries[0] as HTMLElement).getByText('付费动作仍由人确认')).toBeVisible()
+    expect(within(entries[0] as HTMLElement).getByText('Route 试跑一次确认')).toBeVisible()
     expect(within(entries[0] as HTMLElement).getByText('2026-07-30')).toHaveAttribute('datetime', '2026-07-30')
     expect(within(entries[1] as HTMLElement).getByText('一个编号串联整次故障')).toBeVisible()
     expect(within(entries[1] as HTMLElement).getByText('后续开发自动受检')).toBeVisible()

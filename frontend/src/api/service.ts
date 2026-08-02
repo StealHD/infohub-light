@@ -9,6 +9,10 @@ import type {
   ApifyActorAlertSettings,
   ApifyActorAlertSettingsPatch,
   ApifyActorActivePoolUpdate,
+  ApifyActorCanaryBatch,
+  ApifyActorCanaryBatchRequest,
+  ApifyActorCanaryBatchResponse,
+  ApifyActorCanaryPlan,
   ApifyActorDiscoveryRun,
   ApifyActorDiscoveryMeasurementRequest,
   ApifyActorDiscoveryMeasurementResponse,
@@ -256,6 +260,21 @@ export function createServiceApi(client: ApiClient) {
     ),
     apifyActorDiscoveryRun: (runId: string, signal?: AbortSignal) => client.get<ApifyActorDiscoveryRun>(
       resource('/api/admin/apify-discovery-runs', runId),
+      signal,
+    ),
+    apifyActorCanaryPlan: (runId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryPlan>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
+      signal,
+    ),
+    createApifyActorCanaryBatch: (
+      runId: string,
+      payload: ApifyActorCanaryBatchRequest,
+    ) => client.post<ApifyActorCanaryBatchResponse>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-batches`,
+      payload,
+    ),
+    apifyActorCanaryBatch: (batchId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryBatch>(
+      resource('/api/admin/apify-canary-batches', batchId),
       signal,
     ),
     canaryApifyActorDiscoveryCandidate: (

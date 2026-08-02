@@ -63,6 +63,7 @@ WORKER_JOB_TRACE_POLICY = {
     "user_feed_refresh": "per_source_acquisition",
     "content_repair": "job_lifecycle_only",
     "apify_actor_validation": "job_lifecycle_only",
+    "apify_actor_canary_batch": "job_lifecycle_only",
     "apify_actor_discovery": "job_lifecycle_only",
 }
 
@@ -500,6 +501,16 @@ def _actor_validation_id(job: dict[str, Any]) -> str | None:
     return validation_id or None
 
 
+def _actor_canary_batch_id(job: dict[str, Any]) -> str | None:
+    if str(job.get("job_type") or "") != "apify_actor_canary_batch":
+        return None
+    payload = job.get("payload_json")
+    if not isinstance(payload, dict) or set(payload) != {"batch_id"}:
+        return None
+    batch_id = str(payload.get("batch_id") or "").strip()
+    return batch_id or None
+
+
 def _terminalize_unstarted_actor_validation(
     store: ServiceStore,
     job: dict[str, Any],
@@ -509,6 +520,79 @@ def _terminalize_unstarted_actor_validation(
 ) -> bool:
     """Release a paid approval when its Worker job ends before an Attempt."""
 
+    batch_id = _actor_canary_batch_id(job)
+    if batch_id is not None:
+        if status not in {"failed", "cancelled"}:
+            raise ValueError("unstarted Actor batch must become terminal")
+        now = datetime.now(timezone.utc).isoformat()
+        connection = store.connect()
+        connection.execute(
+            """
+            UPDATE apify_actor_validations
+            SET status = ?, semantic_outcome = ?, cost_usd = 0,
+                cost_final = 1, counts_toward_canary = 0,
+                completed_at = ?
+            WHERE workspace_id = ? AND status = 'queued'
+              AND attempt_id IS NULL
+              AND validation_id IN (
+                  SELECT validation_id
+                  FROM apify_actor_canary_batch_items
+                  WHERE workspace_id = ? AND batch_id = ?
+              )
+            """,
+            (
+                status,
+                _safe_machine_code(
+                    semantic_outcome,
+                    "apify_actor_validation_not_started",
+                ),
+                now,
+                str(job.get("workspace_id") or ""),
+                str(job.get("workspace_id") or ""),
+                batch_id,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE apify_actor_canary_batch_items
+            SET status = 'not_needed_no_charge',
+                semantic_outcome = ?, actual_cost_usd = 0,
+                cost_final = 1, completed_at = ?, updated_at = ?
+            WHERE workspace_id = ? AND batch_id = ?
+              AND status IN ('planned', 'queued', 'preflight_passed')
+            """,
+            (
+                _safe_machine_code(
+                    semantic_outcome,
+                    "apify_actor_validation_not_started",
+                ),
+                now,
+                now,
+                str(job.get("workspace_id") or ""),
+                batch_id,
+            ),
+        )
+        updated = connection.execute(
+            """
+            UPDATE apify_actor_canary_batches
+            SET status = ?, stop_reason = ?, actual_cost_usd = 0,
+                cost_final = 1, completed_at = ?, updated_at = ?
+            WHERE workspace_id = ? AND batch_id = ?
+              AND status IN ('queued', 'preflighting')
+            """,
+            (
+                status,
+                _safe_machine_code(
+                    semantic_outcome,
+                    "apify_actor_validation_not_started",
+                ),
+                now,
+                now,
+                str(job.get("workspace_id") or ""),
+                batch_id,
+            ),
+        )
+        return updated.rowcount == 1
     validation_id = _actor_validation_id(job)
     if validation_id is None:
         return False
@@ -519,6 +603,7 @@ def _terminalize_unstarted_actor_validation(
         """
         UPDATE apify_actor_validations
         SET status = ?, semantic_outcome = ?, cost_usd = 0,
+            cost_final = 1, counts_toward_canary = 0,
             completed_at = ?
         WHERE workspace_id = ? AND validation_id = ?
           AND status = 'queued' AND attempt_id IS NULL
@@ -946,6 +1031,13 @@ def _run_apify_actor_validation(
         raise PaidCanaryUnavailableError(
             "Actor validation requires the enabled Apify Key pool"
         )
+    pool_state = coordinator.public_state(str(job["workspace_id"]))
+    active_secret_id = str(pool_state.get("active_secret_id") or "")
+    if not active_secret_id:
+        raise PaidCanaryUnavailableError(
+            "Actor validation requires an active Apify credential"
+        )
+    metadata_credential = coordinator.quota_candidate(active_secret_id)
 
     async def execute() -> dict[str, Any]:
         timeout = httpx.Timeout(30.0, connect=10.0)
@@ -954,6 +1046,12 @@ def _run_apify_actor_validation(
             trust_env=False,
         ) as http_client:
             client = ApifyClient(
+                tokens=[
+                    (
+                        metadata_credential.env_name,
+                        metadata_credential.token,
+                    )
+                ],
                 coordinator=coordinator,
                 http_client=http_client,
                 timeout_seconds=actor_canary_timeout_seconds(),
@@ -974,6 +1072,279 @@ def _run_apify_actor_validation(
                 "job_type": "apify_actor_validation",
                 **result.public_dict(),
             }
+
+    return asyncio.run(execute())
+
+
+def _run_apify_actor_canary_batch(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+) -> dict[str, Any]:
+    """Execute one administrator-approved, strictly serial Canary batch."""
+
+    import asyncio
+
+    from ..scrapers.apify_client import ApifyClient, ApifyClientError
+    from .apify_actor_canary import (
+        ApifyActorCanaryRunner,
+        actor_canary_timeout_seconds,
+    )
+    from .apify_actor_ops import ApifyActorOpsService, ActorOpsError
+
+    batch_id = _actor_canary_batch_id(job)
+    if (
+        not batch_id
+        or int(job.get("max_attempts") or 0) != 1
+        or int(job.get("priority") or 0) != 100
+    ):
+        raise PaidCanaryAuthorizationError(
+            "Actor Canary batch authorization metadata is invalid"
+        )
+    actor = store.get_user(str(job["user_id"]))
+    if (
+        actor is None
+        or not bool(actor.get("enabled"))
+        or actor.get("role") not in {"owner", "admin"}
+    ):
+        raise PaidCanaryAuthorizationError(
+            "Actor Canary batch requires an active administrator"
+        )
+    coordinator = apify_coordinator_for_workspace(
+        store,
+        workspace_id=str(job["workspace_id"]),
+        data_dir=data_dir,
+    )
+    if coordinator is None:
+        raise PaidCanaryUnavailableError(
+            "Actor Canary batch requires the enabled Apify Key pool"
+        )
+    pool_state = coordinator.public_state(str(job["workspace_id"]))
+    active_secret_id = str(pool_state.get("active_secret_id") or "")
+    if not active_secret_id:
+        raise PaidCanaryUnavailableError(
+            "Actor Canary batch requires an active Apify credential"
+        )
+    metadata_credential = coordinator.quota_candidate(active_secret_id)
+    ops = ApifyActorOpsService(
+        store,
+        workspace_id=str(job["workspace_id"]),
+    )
+
+    def cancel_remaining(
+        items: list[dict[str, Any]],
+        *,
+        reason: str,
+    ) -> None:
+        for item in items:
+            validation = ops.get_validation(str(item["validation_id"]))
+            if str(validation["status"]) in {"queued", "running"}:
+                if str(validation["status"]) == "queued":
+                    ops.record_validation(
+                        str(item["validation_id"]),
+                        status="cancelled",
+                        semantic_outcome=reason,
+                        cost_usd=0.0,
+                        cost_final=True,
+                        counts_toward_canary=False,
+                    )
+                else:
+                    continue
+            ops.update_canary_batch_item(
+                batch_id,
+                int(item["ordinal"]),
+                status="not_needed_no_charge",
+                semantic_outcome=reason,
+                actual_cost_usd=0.0,
+                cost_final=True,
+            )
+
+    async def execute() -> dict[str, Any]:
+        current = ops.get_canary_batch(batch_id)
+        if str(current["status"]) != "queued":
+            raise PaidCanaryAuthorizationError(
+                "Actor Canary batch is not queued"
+            )
+        ops.set_canary_batch_status(
+            batch_id,
+            expected_statuses=("queued",),
+            status="preflighting",
+        )
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        stop_reason: str | None = None
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            trust_env=False,
+        ) as http_client:
+            client = ApifyClient(
+                tokens=[
+                    (
+                        metadata_credential.env_name,
+                        metadata_credential.token,
+                    )
+                ],
+                coordinator=coordinator,
+                http_client=http_client,
+                timeout_seconds=actor_canary_timeout_seconds(),
+            )
+            runner = ApifyActorCanaryRunner(store, ops, client)
+            items = list(ops.get_canary_batch(batch_id)["items"])
+            for index, item in enumerate(items):
+                recommendation = ops.recommend_active_pool(
+                    str(current["route_id"])
+                )
+                if bool(recommendation.get("ready")):
+                    stop_reason = "two_providers_ready"
+                    cancel_remaining(items[index:], reason=stop_reason)
+                    break
+                validation_id = str(item["validation_id"])
+                revision_id = str(item["revision_id"])
+                try:
+                    await client.preflight_actor_revision(
+                        str(item["actor_id"]),
+                        build_id=str(item["build_id"]),
+                        build_number=str(item["build_number"]),
+                    )
+                except ApifyClientError as exc:
+                    ops.record_validation(
+                        validation_id,
+                        status="failed",
+                        semantic_outcome=str(exc.code),
+                        cost_usd=0.0,
+                        cost_final=True,
+                        counts_toward_canary=False,
+                    )
+                    if str(exc.code) == "apify_actor_revision_unavailable":
+                        ops.stop_unavailable_revision(
+                            revision_id,
+                            reason=str(exc.code),
+                        )
+                    ops.update_canary_batch_item(
+                        batch_id,
+                        int(item["ordinal"]),
+                        status="preflight_failed",
+                        semantic_outcome=str(exc.code),
+                        actual_cost_usd=0.0,
+                        cost_final=True,
+                    )
+                    if str(exc.code) in {
+                        "apify_key_rejected",
+                        "apify_actor_revision_preflight_unavailable",
+                    }:
+                        stop_reason = str(exc.code)
+                        cancel_remaining(items[index + 1 :], reason=stop_reason)
+                        break
+                    continue
+                ops.update_canary_batch_item(
+                    batch_id,
+                    int(item["ordinal"]),
+                    status="preflight_passed",
+                    semantic_outcome="preflight_available",
+                )
+                batch_state = ops.get_canary_batch(batch_id)
+                if str(batch_state["status"]) == "preflighting":
+                    ops.set_canary_batch_status(
+                        batch_id,
+                        expected_statuses=("preflighting",),
+                        status="running",
+                    )
+                ops.update_canary_batch_item(
+                    batch_id,
+                    int(item["ordinal"]),
+                    status="running",
+                )
+                try:
+                    result = await runner.run(
+                        validation_id,
+                        job_id=str(job["id"]),
+                        skip_preflight=True,
+                    )
+                except ActorOpsError as exc:
+                    validation = ops.get_validation(validation_id)
+                    cost = validation.get("cost_usd")
+                    final = bool(validation.get("cost_final"))
+                    unknown = str(exc.code) in {
+                        "apify_start_outcome_unknown",
+                        "apify_run_reconcile_required",
+                    }
+                    ops.update_canary_batch_item(
+                        batch_id,
+                        int(item["ordinal"]),
+                        status=(
+                            "blocked_unknown_start" if unknown else "failed"
+                        ),
+                        semantic_outcome=str(
+                            validation.get("semantic_outcome") or exc.code
+                        ),
+                        actual_cost_usd=(
+                            float(cost) if cost is not None else None
+                        ),
+                        cost_final=final,
+                    )
+                    if unknown:
+                        stop_reason = "apify_start_outcome_unknown"
+                        cancel_remaining(items[index + 1 :], reason=stop_reason)
+                        ops.set_canary_batch_status(
+                            batch_id,
+                            expected_statuses=("running",),
+                            status="blocked_unknown_start",
+                            stop_reason=stop_reason,
+                        )
+                        return {
+                            "ok": False,
+                            "job_type": "apify_actor_canary_batch",
+                            "batch_id": batch_id,
+                            "status": "blocked_unknown_start",
+                            "error_code": stop_reason,
+                        }
+                    continue
+                else:
+                    validation = ops.get_validation(validation_id)
+                    ops.update_canary_batch_item(
+                        batch_id,
+                        int(item["ordinal"]),
+                        status="succeeded",
+                        semantic_outcome=result.semantic_outcome,
+                        actual_cost_usd=result.cost_usd,
+                        cost_final=bool(validation.get("cost_final")),
+                    )
+
+        finalized = ops.finalize_canary_batch(
+            batch_id,
+            stop_reason=stop_reason,
+        )
+        replenishment_job_id: str | None = None
+        if str(finalized["status"]) == "partial":
+            route = ops.get_route(str(finalized["route_id"]))
+            discovery = ops.create_discovery_run(
+                str(finalized["route_id"]),
+                trigger_reason="canary_batch_replenishment",
+                expected_generation=int(route["generation"]),
+            )
+            replenishment = JobQueue(store).create_job(
+                workspace_id=str(job["workspace_id"]),
+                user_id=str(job["user_id"]),
+                job_type="apify_actor_discovery",
+                payload={"run_id": str(discovery["run_id"])},
+                priority=50,
+                max_attempts=1,
+                retention_days=int(
+                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                ),
+            )
+            replenishment_job_id = str(replenishment["id"])
+        return {
+            "ok": True,
+            "job_type": "apify_actor_canary_batch",
+            "batch_id": batch_id,
+            "status": str(finalized["status"]),
+            "success_count": int(finalized["success_count"]),
+            "publisher_count": int(finalized["publisher_count"]),
+            "actual_cost_usd": finalized.get("actual_cost_usd"),
+            "cost_final": bool(finalized.get("cost_final")),
+            "replenishment_job_id": replenishment_job_id,
+        }
 
     return asyncio.run(execute())
 
@@ -1295,6 +1666,13 @@ def _run_job(job: dict[str, Any], *, data_dir: str, store: ServiceStore) -> dict
             store=store,
         )
 
+    if job_type == "apify_actor_canary_batch":
+        return _run_apify_actor_canary_batch(
+            job,
+            data_dir=data_dir,
+            store=store,
+        )
+
     if job_type == "source_test":
         meter = UsageAttemptMeter(
             store,
@@ -1480,6 +1858,17 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "apify_discovery_limits_v16",
             }
+        if store.apify_actor_canary_batches_v17_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_canary_batches_v17",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -1545,6 +1934,7 @@ def run_worker_once(
             and not store.webhook_providers_v14_migration_required()
             and not store.apify_actor_ops_v15_migration_required()
             and not store.apify_discovery_limits_v16_migration_required()
+            and not store.apify_actor_canary_batches_v17_migration_required()
         ):
             update_observability_context(stage="maintenance")
             maintenance_result = MaintenanceService(store).run_if_due()
@@ -1752,6 +2142,10 @@ def run_worker_once(
                     if store.apify_discovery_limits_v16_migration_required():
                         raise MigrationRequiredError(
                             "Apify Discovery limits v16 migration is required before jobs can run"
+                        )
+                    if store.apify_actor_canary_batches_v17_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify Actor Canary batch migration is required before jobs can run"
                         )
                     result = _run_job(job, data_dir=data_dir, store=store)
                     raw_cleanup = result.pop("_media_cleanup", None)

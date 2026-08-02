@@ -42,6 +42,11 @@ APIFY_DISCOVERY_LIMITS_MIGRATION_NAME = "apify_discovery_limits_v16"
 APIFY_DISCOVERY_LIMITS_MIGRATION_CHECKSUM = (
     "apify-discovery-limits-v16-token-measurement"
 )
+APIFY_ACTOR_CANARY_BATCHES_MIGRATION_VERSION = 19
+APIFY_ACTOR_CANARY_BATCHES_MIGRATION_NAME = "apify_actor_canary_batches_v17"
+APIFY_ACTOR_CANARY_BATCHES_MIGRATION_CHECKSUM = (
+    "apify-actor-canary-batches-v17-two-provider-approval"
+)
 ROLES = {"owner", "admin", "member", "viewer"}
 SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
@@ -243,6 +248,57 @@ def apify_discovery_limits_v16_schema_shapes_valid(
         in table_sql.get("apify_actor_discovery_settings", "")
         and "measurement_modein(0,1)"
         in table_sql.get("apify_actor_discovery_runs", "")
+    )
+
+
+APIFY_ACTOR_CANARY_BATCHES_V17_COLUMNS = {
+    "apify_actor_validations": {"cost_final", "counts_toward_canary"},
+}
+APIFY_ACTOR_CANARY_BATCHES_V17_TABLES = {
+    "apify_actor_canary_batches",
+    "apify_actor_canary_batch_items",
+}
+
+
+def apify_actor_canary_batches_v17_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate the batch approval ledger and exact-cost evidence columns."""
+
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if not APIFY_ACTOR_CANARY_BATCHES_V17_TABLES <= tables:
+        return False
+    for table, expected in APIFY_ACTOR_CANARY_BATCHES_V17_COLUMNS.items():
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if not expected <= columns:
+            return False
+    table_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    batch_sql = table_sql.get("apify_actor_canary_batches", "")
+    item_sql = table_sql.get("apify_actor_canary_batch_items", "")
+    validation_sql = table_sql.get("apify_actor_validations", "")
+    return (
+        "check(max_candidatesbetween1and3)" in batch_sql
+        and "max_total_charge_usd<=0.06" in batch_sql
+        and "unique(workspace_id,approval_key_hash)" in batch_sql
+        and "statusin('planned','preflight_passed','preflight_failed','queued','running','succeeded','failed','not_needed_no_charge','blocked_unknown_start')"
+        in item_sql
+        and "check(cost_finalin(0,1))" in validation_sql
+        and "check(counts_toward_canaryin(0,1))" in validation_sql
     )
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
@@ -661,6 +717,7 @@ class ServiceStore:
         prepare_webhook_providers_v14: bool = False,
         prepare_apify_actor_ops_v15: bool = False,
         prepare_apify_discovery_limits_v16: bool = False,
+        prepare_apify_actor_canary_batches_v17: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -764,6 +821,30 @@ class ServiceStore:
             or (
                 prepare_apify_discovery_limits_v16
                 and apify_actor_ops_v15_migrated
+            )
+        )
+        apify_actor_canary_batches_v17_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_ACTOR_CANARY_BATCHES_MIGRATION_VERSION,
+                    APIFY_ACTOR_CANARY_BATCHES_MIGRATION_NAME,
+                    APIFY_ACTOR_CANARY_BATCHES_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
+        )
+        apify_actor_canary_batches_v17_upgrade_pending = bool(
+            existing_schema and not apify_actor_canary_batches_v17_migrated
+        )
+        install_apify_actor_canary_batches_v17 = bool(
+            not existing_schema
+            or (
+                prepare_apify_actor_canary_batches_v17
+                and apify_discovery_limits_v16_migrated
             )
         )
         schema_sql = """
@@ -2089,6 +2170,10 @@ class ServiceStore:
                 status TEXT NOT NULL,
                 semantic_outcome TEXT,
                 cost_usd REAL CHECK(cost_usd IS NULL OR cost_usd >= 0),
+                cost_final INTEGER NOT NULL DEFAULT 0
+                    CHECK(cost_final IN (0, 1)),
+                counts_toward_canary INTEGER NOT NULL DEFAULT 0
+                    CHECK(counts_toward_canary IN (0, 1)),
                 created_at TEXT NOT NULL,
                 completed_at TEXT,
                 FOREIGN KEY(workspace_id)
@@ -2171,6 +2256,126 @@ class ServiceStore:
                   AND secret_ref_id = OLD.id;
             END;
             -- APIFY_ACTOR_OPS_V15_END
+
+            -- APIFY_ACTOR_CANARY_BATCHES_V17_BEGIN
+            CREATE TABLE IF NOT EXISTS apify_actor_canary_batches (
+                batch_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                discovery_run_id TEXT NOT NULL,
+                approval_key_hash TEXT NOT NULL
+                    CHECK(
+                        length(approval_key_hash) = 64
+                        AND approval_key_hash NOT GLOB '*[^0-9a-f]*'
+                    ),
+                approved_generation INTEGER NOT NULL
+                    CHECK(approved_generation >= 1),
+                plan_hash TEXT NOT NULL
+                    CHECK(
+                        length(plan_hash) = 64
+                        AND plan_hash NOT GLOB '*[^0-9a-f]*'
+                    ),
+                max_candidates INTEGER NOT NULL DEFAULT 3
+                    CHECK(max_candidates BETWEEN 1 AND 3),
+                max_total_charge_usd REAL NOT NULL
+                    CHECK(
+                        max_total_charge_usd > 0
+                        AND max_total_charge_usd <= 0.06
+                    ),
+                per_candidate_cap_usd REAL NOT NULL
+                    CHECK(
+                        per_candidate_cap_usd > 0
+                        AND per_candidate_cap_usd <= 0.02
+                    ),
+                status TEXT NOT NULL CHECK(status IN (
+                    'queued', 'preflighting', 'running',
+                    'activation_ready', 'partial',
+                    'blocked_unknown_start', 'failed', 'cancelled'
+                )),
+                planned_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(planned_count BETWEEN 0 AND 3),
+                success_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(success_count BETWEEN 0 AND 3),
+                publisher_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(publisher_count BETWEEN 0 AND 3),
+                actual_cost_usd REAL
+                    CHECK(actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                cost_final INTEGER NOT NULL DEFAULT 0
+                    CHECK(cost_final IN (0, 1)),
+                stop_reason TEXT,
+                created_by_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workspace_id, batch_id),
+                UNIQUE(workspace_id, approval_key_hash),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, discovery_run_id)
+                    REFERENCES apify_actor_discovery_runs(
+                        workspace_id, run_id
+                    ) ON DELETE RESTRICT,
+                FOREIGN KEY(created_by_user_id)
+                    REFERENCES users(id) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_canary_batches_route
+                ON apify_actor_canary_batches(
+                    workspace_id, route_id, created_at DESC
+                );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_validations_workspace_id
+                ON apify_actor_validations(workspace_id, validation_id);
+
+            CREATE TABLE IF NOT EXISTS apify_actor_canary_batch_items (
+                workspace_id TEXT NOT NULL,
+                batch_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 3),
+                revision_id TEXT NOT NULL,
+                validation_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN (
+                    'planned', 'preflight_passed', 'preflight_failed',
+                    'queued', 'running', 'succeeded', 'failed',
+                    'not_needed_no_charge', 'blocked_unknown_start'
+                )),
+                semantic_outcome TEXT,
+                authorized_cap_usd REAL NOT NULL
+                    CHECK(
+                        authorized_cap_usd > 0
+                        AND authorized_cap_usd <= 0.02
+                    ),
+                actual_cost_usd REAL
+                    CHECK(actual_cost_usd IS NULL OR actual_cost_usd >= 0),
+                cost_final INTEGER NOT NULL DEFAULT 0
+                    CHECK(cost_final IN (0, 1)),
+                preflight_checked_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(batch_id, ordinal),
+                UNIQUE(batch_id, revision_id),
+                UNIQUE(workspace_id, validation_id),
+                FOREIGN KEY(workspace_id, batch_id)
+                    REFERENCES apify_actor_canary_batches(
+                        workspace_id, batch_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, revision_id)
+                    REFERENCES apify_actor_adapter_revisions(
+                        workspace_id, revision_id
+                    ) ON DELETE RESTRICT,
+                FOREIGN KEY(workspace_id, validation_id)
+                    REFERENCES apify_actor_validations(
+                        workspace_id, validation_id
+                    ) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_canary_batch_items_status
+                ON apify_actor_canary_batch_items(
+                    workspace_id, batch_id, status, ordinal
+                );
+            -- APIFY_ACTOR_CANARY_BATCHES_V17_END
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -2306,6 +2511,16 @@ class ServiceStore:
                     1,
                 )
                 schema_sql = before_v16 + after_v16
+        if not install_apify_actor_canary_batches_v17:
+            before_batches, after_marker = schema_sql.split(
+                "-- APIFY_ACTOR_CANARY_BATCHES_V17_BEGIN",
+                1,
+            )
+            _batch_sql, after_batches = after_marker.split(
+                "-- APIFY_ACTOR_CANARY_BATCHES_V17_END",
+                1,
+            )
+            schema_sql = before_batches + after_batches
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -2406,6 +2621,17 @@ class ServiceStore:
                 ("failure_phase", "TEXT CHECK(failure_phase IS NULL OR failure_phase IN ('store', 'metadata', 'ai_generation', 'static_validation', 'input_validation'))"),
             ):
                 self._ensure_column("apify_actor_discovery_runs", name, declaration)
+        if install_apify_actor_canary_batches_v17:
+            self._ensure_column(
+                "apify_actor_validations",
+                "cost_final",
+                "INTEGER NOT NULL DEFAULT 0 CHECK(cost_final IN (0, 1))",
+            )
+            self._ensure_column(
+                "apify_actor_validations",
+                "counts_toward_canary",
+                "INTEGER NOT NULL DEFAULT 0 CHECK(counts_toward_canary IN (0, 1))",
+            )
         if install_apify_actor_ops_v15:
             self._ensure_column(
                 "apify_actor_validations",
@@ -2671,6 +2897,11 @@ class ServiceStore:
             and not apify_discovery_limits_v16_upgrade_pending
         ):
             self.mark_apify_discovery_limits_v16_migrated(commit=False)
+        if (
+            install_apify_actor_canary_batches_v17
+            and not apify_actor_canary_batches_v17_upgrade_pending
+        ):
+            self.mark_apify_actor_canary_batches_v17_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -3115,6 +3346,58 @@ class ServiceStore:
             ),
         ).fetchone()
         return not marker or not apify_discovery_limits_v16_schema_shapes_valid(
+            connection
+        )
+
+    def mark_apify_actor_canary_batches_v17_migrated(
+        self,
+        *,
+        commit: bool = True,
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (APIFY_ACTOR_CANARY_BATCHES_MIGRATION_VERSION,),
+        ).fetchone()
+        if existing is not None and str(existing["name"]) != (
+            APIFY_ACTOR_CANARY_BATCHES_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 19 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_ACTOR_CANARY_BATCHES_MIGRATION_VERSION,
+                APIFY_ACTOR_CANARY_BATCHES_MIGRATION_NAME,
+                APIFY_ACTOR_CANARY_BATCHES_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            connection.commit()
+
+    def apify_actor_canary_batches_v17_migration_required(self) -> bool:
+        connection = self.connect()
+        marker = connection.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_ACTOR_CANARY_BATCHES_MIGRATION_VERSION,
+                APIFY_ACTOR_CANARY_BATCHES_MIGRATION_NAME,
+                APIFY_ACTOR_CANARY_BATCHES_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone()
+        return not marker or not apify_actor_canary_batches_v17_schema_shapes_valid(
             connection
         )
 

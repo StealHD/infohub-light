@@ -929,3 +929,12 @@
 - 决策内容：`youtube/channel/items` 不再把“能抓频道”视为“能抓频道视频”。若 pay-per-event 除启动费外只声明频道资料、统计、订阅者或描述链接事件，候选在 AI 前以安全原因淘汰；Manifest 的内容 `native_id/url` 若只映射频道或主页自身字段，也在付费前阻断。带 video/post/item 等内容语义的字段继续允许，泛化 `result` 事件保持未知并交给 Manifest 与 Canary 验真，避免把弱元数据误作充分证据。
 - 不可变失败边界：Route 参考 Canary 已确认固定 Build 全为元数据、占位或违反统一内容合同时，该 Revision 进入 rejected/quarantined，历史同类失败也使后续审批返回 412，不得靠刷新页面重复付费。网络、超时、限流和临时系统错误不进入这一永久集合。页面的剩余 Canary 可达性按两路快速池计算，排除上述不可付费候选，并要求两个 Actor 与发布者均不同；完整 2+1 无法在当前轮完成不再阻断安全的两路试跑。
 - 原因与安全边界：实测 YouTube 的首个候选远端成功并结算 `$0.001`，但 Dataset 只有频道元数据；同轮五个候选中另有两个 Manifest 把 channel ID/URL 当作视频 ID/URL。系统仅持久化安全 reason code、定价摘要和既有 Validation 证据，不保存或回显原始 Dataset。
+
+### D109 Route 认证采用一次审批的串行两路批次
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；迁移与容器切换不触发真实付费 Actor
+- 决策内容：Route 认证不再把候选选择和重复付费按钮交给浏览器。服务端从当前 Discovery Run、历史成功证据、五次真实启动上限和 `$0.10` 周期预算确定性生成最多三个候选的 plan；管理员只核对 Route、来源模式、发布者、精确 Build、商城定价和逐项/总费用上限，并以一次 `确认付费验证主备` 提交 generation、plan hash 与 opaque approval ID。batch、逐项 validation 和 one-shot Job 在同一事务创建；重放只返回原任务，浏览器不能提交 Revision 列表或改变顺序。
+- 执行与停止边界：Worker 严格串行，并在每个付费 POST 前免费读取公开 Actor 与精确 Build。删除、私有、不可运行、确定性 403/404/410 或 Build identity/number/status 漂移以 `$0` 终结、不创建 attempt、不占 Canary 次数并停用 Revision；两个不同 Actor、来自两个不同发布者且通过统一内容合同后立即停止，未启动候选同样 `$0`。只有已知远端 Run 才进入 300 秒等待和费用对账；`start_outcome_unknown` 阻断整批、Route 与 Key且禁止继续。候选耗尽仍不足两路时保留已有成功证据，批次进入 partial，并自动排入一次不启动 Actor 的 Discovery 补位；生产激活仍需独立 `确认启用 Actor 主备`。
+- 费用与迁移边界：批准上限与实际费用是两类证据。Discovery API 分别投影已终结实际成本与 queued/running 预留；旧批准 cap 不得再显示为真实扣费。`apify_actor_canary_batches_v17` 使用 global migration 19，在 global 18 后离线安装 batch/item ledger 和 validation 的 `cost_final/counts_toward_canary`；停 API/Worker、跨过 heartbeat 安全窗、确认无活跃 ActorOps Job并创建 `0600` SQLite backup。只有 ledger 同时证明 `start_rejected`、没有 remote Run/Dataset、预留为零且实际费用为空/零时才修复为 `$0` 并停用失效 Revision；不能证明未启动的历史记录保持未知，失败恢复备份。迁移不联网、不调用 Store、AI 或 Actor，也不改写已证明的 X/Instagram/YouTube 实际费用。
+- 原因：此前管理员必须理解 Revision、手工逐候选确认并反复刷新；已消失的精确 Build 又会在远端 POST 前返回 403，却被本地批准上限错误显示为 `$0.02` 实际费用。把候选策略、免费可用性核对、串行停止和精确费用账本收回服务端，可以保留所有付费人工边界，同时让操作只剩“批准一次验证”和“确认一次生效”。

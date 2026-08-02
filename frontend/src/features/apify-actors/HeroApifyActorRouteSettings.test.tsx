@@ -8,6 +8,8 @@ import { ApiError } from '../../api/client'
 import type { ServiceApi } from '../../api/service'
 import type {
   ApifyActorAlertSettings,
+  ApifyActorCanaryBatch,
+  ApifyActorCanaryPlan,
   ApifyActorDiscoveryRun,
   ApifyActorRoute,
   ApifyActorRouteDetail,
@@ -263,7 +265,7 @@ const actorOpsRoutes = (
 const discoveryRun = (
   detail: ApifyActorRouteDetail,
 ): ApifyActorDiscoveryRun => ({
-  schema_version: 3,
+  schema_version: 4,
   run_id: 'discovery-run-1',
   route_id: detail.route_id,
   generation: detail.generation,
@@ -294,6 +296,103 @@ const discoveryRun = (
   updated_at: '2026-07-29T08:00:00Z',
 })
 
+const canaryPlan = (
+  detail: ApifyActorRouteDetail,
+): ApifyActorCanaryPlan => ({
+  schema_version: 1,
+  run_id: 'discovery-run-1',
+  route_id: detail.route_id,
+  route_key: detail.route_key,
+  platform: detail.platform,
+  target_type: detail.target_type,
+  capability: detail.capability,
+  mode: detail.mode,
+  generation: detail.generation,
+  status: 'ready',
+  ready: true,
+  activation_ready: false,
+  plan_hash: 'a'.repeat(64),
+  max_candidates: 3,
+  max_total_charge_usd: 0.04,
+  per_candidate_cap_usd: 0.02,
+  successful_actor_count: 0,
+  successful_publisher_count: 0,
+  attempts_used: 1,
+  attempts_remaining: 4,
+  budget_remaining_usd: 0.08,
+  items: [
+    {
+      ordinal: 1,
+      revision_id: 'revision-discovered',
+      actor_id: 'publisher-c/discovered',
+      publisher: 'publisher-c',
+      build_id: 'build-discovered',
+      build_number: '2.0.0',
+      lifecycle: 'static_valid',
+      pricing: {
+        model: 'PAY_PER_EVENT',
+        billing_unit: 'event',
+        unit_price_min_usd: 0.001,
+        unit_price_max_usd: 0.015,
+        minimum_charge_usd: null,
+        minimum_run_cap_usd: 0.02,
+      },
+      authorized_cap_usd: 0.02,
+    },
+    {
+      ordinal: 2,
+      revision_id: 'revision-second',
+      actor_id: 'publisher-d/second',
+      publisher: 'publisher-d',
+      build_id: 'build-second',
+      build_number: '3.0.0',
+      lifecycle: 'static_valid',
+      pricing: {
+        model: 'PAY_PER_EVENT',
+        billing_unit: 'event',
+        unit_price_min_usd: 0.002,
+        unit_price_max_usd: 0.002,
+        minimum_charge_usd: null,
+        minimum_run_cap_usd: 0.02,
+      },
+      authorized_cap_usd: 0.02,
+    },
+  ],
+})
+
+const queuedCanaryBatch = (detail: ApifyActorRouteDetail): ApifyActorCanaryBatch => ({
+  schema_version: 1,
+  batch_id: 'canary-batch-1',
+  route_id: detail.route_id,
+  discovery_run_id: 'discovery-run-1',
+  approved_generation: detail.generation,
+  plan_hash: 'a'.repeat(64),
+  max_candidates: 3,
+  max_total_charge_usd: 0.04,
+  per_candidate_cap_usd: 0.02,
+  status: 'queued',
+  planned_count: 2,
+  success_count: 0,
+  publisher_count: 0,
+  actual_cost_usd: null,
+  cost_final: false,
+  stop_reason: null,
+  created_at: '2026-07-29T08:00:00Z',
+  started_at: null,
+  completed_at: null,
+  updated_at: '2026-07-29T08:00:00Z',
+  items: canaryPlan(detail).items.map((item) => ({
+    ...item,
+    status: 'planned',
+    semantic_outcome: null,
+    actual_cost_usd: null,
+    cost_final: false,
+    preflight_checked_at: null,
+    started_at: null,
+    completed_at: null,
+  })),
+})
+
 const sourceSupport = (
   detail: ApifyActorRouteDetail,
   overrides: Partial<ApifyActorSourceSupport> = {},
@@ -306,6 +405,7 @@ const sourceSupport = (
   verified_revision_set_hash: null,
   budget_cap_usd: 0.06,
   spent_usd: 0.045,
+  reserved_usd: 0,
   remaining_budget_usd: 0.015,
   slots: detail.slots.map((slot, index) => ({
     slot: slot.slot,
@@ -438,6 +538,15 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
     }),
     apifyActorDiscoveryRun: vi.fn().mockResolvedValue(
       discoveryRun(defaultDetail),
+    ),
+    apifyActorCanaryPlan: vi.fn().mockResolvedValue(canaryPlan(defaultDetail)),
+    createApifyActorCanaryBatch: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      batch: queuedCanaryBatch(defaultDetail),
+      job: { id: 'job-canary-batch-1', status: 'queued' },
+    }),
+    apifyActorCanaryBatch: vi.fn().mockResolvedValue(
+      queuedCanaryBatch(defaultDetail),
     ),
     canaryApifyActorDiscoveryCandidate: vi.fn().mockResolvedValue({
       schema_version: 1,
@@ -655,14 +764,28 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(await screen.findByText('缺少 2 个 Actor')).toBeVisible()
     expect(screen.getByText('固定 Build 输入校验需要处理')).toBeVisible()
     expect(screen.getByText(/候选输入与固定 Build Schema 不兼容/)).toBeVisible()
-    expect(screen.getByText('1/3 Actor · 1/2 发布者；Canary 0/5 次')).toBeVisible()
+    expect(screen.getByText('1/3 Actor · 1/2 发布者；付费验证只统计真实启动')).toBeVisible()
     expect(within(
       screen.getByRole('list', { name: 'Actor 发现候选' }),
     ).getAllByRole('listitem')).toHaveLength(1)
   })
 
-  it('stops approvals and explains a timed-out exhausted Canary cycle', async () => {
-    const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+  it('preserves timeout cost evidence while offering a fresh server plan', async () => {
+    const detail = actorOpsDetail({
+      discovery_run_id: 'discovery-run-1',
+      activation_recommendation: {
+        ready: false,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: ['canary_successful_candidates_incomplete'],
+        certified_actor_count: 0,
+        backup_2_actor_count: 1,
+        runnable_actor_count: 1,
+        publisher_count: 1,
+        activation_mode: null,
+        slots: [],
+      },
+    })
     const exhausted = discoveryRun(detail)
     exhausted.stage = 'canary_exhausted'
     exhausted.status = 'canary_exhausted'
@@ -687,12 +810,13 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
       apifyActorDiscoveryRun: vi.fn().mockResolvedValue(exhausted),
+      apifyActorCanaryPlan: vi.fn().mockResolvedValue(canaryPlan(detail)),
     })
 
-    expect(await screen.findByText('当前候选组不能继续付费验证')).toBeVisible()
+    expect(await screen.findByRole('button', { name: '验证两路主备' })).toBeVisible()
     expect(screen.getByText(/Actor 在时限内未完成/)).toBeVisible()
     expect(screen.getByText(/实际费用 \$0\.01905（已终结）/)).toBeVisible()
-    expect(screen.getByText(/Canary 5\/5 次/)).toBeVisible()
+    expect(screen.getByText(/付费验证只统计真实启动/)).toBeVisible()
     expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
   })
 
@@ -782,15 +906,22 @@ describe('HeroApifyActorRouteSettings', () => {
         },
       },
     ]
+    const apifyActorCanaryPlan = vi.fn().mockResolvedValue(canaryPlan(detail))
     renderFeature({
       apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
       apifyActorDiscoveryRun: vi.fn().mockResolvedValue(run),
+      apifyActorCanaryPlan,
     })
 
-    expect(await screen.findByText('5/3 Actor · 4/2 发布者；Canary 1/5 次')).toBeVisible()
+    expect(await screen.findByText('5/3 Actor · 4/2 发布者；付费验证只统计真实启动')).toBeVisible()
+    await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
+      'discovery-run-1',
+      expect.any(AbortSignal),
+    ))
     expect(screen.queryByText('成功试跑 Actor 仍不足两路')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '确认付费 Canary' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: '验证两路主备' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
   })
 
   it('offers expedited two-Actor activation without another paid attempt', async () => {
@@ -1161,7 +1292,7 @@ describe('HeroApifyActorRouteSettings', () => {
     ))
   })
 
-  it('creates one opaque approval id only after the paid Canary confirmation', async () => {
+  it('creates one opaque approval id only after the batch Canary confirmation', async () => {
     const browser = userEvent.setup()
     const detail = actorOpsDetail({
       discovery_run_id: 'discovery-run-1',
@@ -1178,41 +1309,50 @@ describe('HeroApifyActorRouteSettings', () => {
         slots: [],
       },
     })
+    const plan = canaryPlan(detail)
+    const createApifyActorCanaryBatch = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      batch: queuedCanaryBatch(detail),
+      job: { id: 'job-canary-batch-1', status: 'queued' },
+    })
     const { api } = renderFeature({
       apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
       apifyActorDiscoveryRun: vi.fn().mockResolvedValue(discoveryRun(detail)),
+      apifyActorCanaryPlan: vi.fn().mockResolvedValue(plan),
+      createApifyActorCanaryBatch,
     })
     const canaryTrigger = await screen.findByRole(
       'button',
-      { name: '确认付费 Canary' },
+      { name: '验证两路主备' },
     )
 
     await browser.click(canaryTrigger)
-    const dialog = screen.getByRole('dialog', { name: '确认付费 Canary' })
-    expect(api.canaryApifyActorDiscoveryCandidate).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog', { name: '确认付费验证两路主备' })
+    expect(api.createApifyActorCanaryBatch).not.toHaveBeenCalled()
     expect(within(dialog).queryByText('not-rendered')).not.toBeInTheDocument()
     expect(within(dialog).getByText(/x \/ profile \/ items/)).toBeVisible()
-    expect(within(dialog).getByText(/Route 认证公开参考来源/)).toBeVisible()
-    expect(within(dialog).getByText(/\$0\.001–\$0\.015 每计费事件/)).toBeVisible()
-    expect(within(dialog).getByText(/本次付费封顶/)).toBeVisible()
-    expect(within(dialog).getByText(/总上限 \$0\.10/)).toBeVisible()
+    expect(within(dialog).getByText(/一次确认，最多串行验证三个候选/)).toBeVisible()
+    expect(within(dialog).getByText(/本批总费用上限/)).toBeVisible()
+    expect(within(dialog).getByText(/publisher-c.*discovered/)).toBeVisible()
+    expect(within(dialog).getByText(/\$0\.001 起 \/ 计费事件/)).toBeVisible()
 
-    await browser.click(within(dialog).getByRole('button', { name: '确认付费试跑' }))
+    await browser.click(within(dialog).getByRole('button', { name: '确认付费验证主备' }))
 
-    await waitFor(() => expect(api.canaryApifyActorDiscoveryCandidate).toHaveBeenCalledWith(
+    await waitFor(() => expect(api.createApifyActorCanaryBatch).toHaveBeenCalledWith(
       'discovery-run-1',
-      'revision-discovered',
       expect.objectContaining({
         expected_generation: 7,
+        expected_plan_hash: 'a'.repeat(64),
         approval_id: expect.any(String),
-        confirmation: '确认付费试跑',
-        max_total_charge_usd: 0.02,
+        confirmation: '确认付费验证主备',
+        max_candidates: 3,
+        max_total_charge_usd: 0.04,
       }),
     ))
     const request = vi.mocked(
-      api.canaryApifyActorDiscoveryCandidate,
-    ).mock.calls[0][2]
+      api.createApifyActorCanaryBatch,
+    ).mock.calls[0][1]
     expect(request.approval_id).toMatch(/^[0-9a-f-]{36}$/)
     expect(document.body.textContent).not.toContain(request.approval_id)
   })

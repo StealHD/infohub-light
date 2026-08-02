@@ -712,3 +712,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "ActorOps Route 认证改为一次管理员审批的服务端串行批次：每个候选付费前免费复核公开 Actor 与精确 Build，两位不同发布者成功即停，未启动项为零费用，候选不足自动创建不启动 Actor 的补位发现任务；批准上限与实际费用分账。",
+  "status": "completed",
+  "task_id": "2026-08-02-actorops-serial-canary-batches",
+  "unresolved": [
+    "真实 Route batch Canary 与后续生产激活仍需管理员分别确认；本次实现、测试和迁移未调用真实 AI、Store 或 Actor，也未产生新费用",
+    "分支不合并 main、不推送，也不发布 VPS"
+  ],
+  "validation": [
+    "ActorOps/Apify 定向后端 260+ 项、批次 Worker/API/迁移 32 项、前端 ActorOps 22 项及 Changelog 5 项通过",
+    "Full Test Gate 23/23 passed；observability contract、TypeScript typecheck、JSON 与 diff checks 通过",
+    "global migration 19 以 0600 SQLite backup 成功 apply，integrity/FK 通过；修复 3 条 proven-no-start 为 $0、对账 16 条真实终态费用，迁移前后 X Candidate/attempt/实际费用保持一致"
+  ]
+}
+```

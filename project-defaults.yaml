@@ -92,6 +92,8 @@
       "apify_actor_ops_global_migration_version": 17,
       "explicit_apify_discovery_limits_v16_migration_enabled": true,
       "apify_discovery_limits_global_migration_version": 18,
+      "explicit_apify_actor_canary_batches_v17_migration_enabled": true,
+      "apify_actor_canary_batches_global_migration_version": 19,
       "apify_discovery_ai_timeout_seconds": 180,
       "apify_discovery_max_output_tokens_default": 4096,
       "apify_actor_manifest_v1_enabled": true,
@@ -162,6 +164,10 @@
       "apify_actor_ops_min_publishers": 2,
       "apify_actor_ops_route_canary_budget_usd": 0.1,
       "apify_actor_ops_route_canary_max_attempts": 5,
+      "apify_actor_ops_canary_batch_max_candidates": 3,
+      "apify_actor_ops_canary_batch_max_total_usd": 0.06,
+      "apify_actor_ops_canary_batch_confirmation": "确认付费验证主备",
+      "apify_actor_ops_revision_preflight_attempts": 3,
       "apify_actor_ops_canary_timeout_seconds": 300,
       "apify_actor_ops_source_validation_budget_usd": 0.06,
       "apify_actor_ops_discovery_query_rounds": 3,
@@ -515,6 +521,7 @@
       "real_source_smoke": "uv run python scripts/service_real_source_smoke.py --base-url http://127.0.0.1:8080 --run-worker --hours 168",
       "feed_v2_migration_check": "./.venv/bin/python scripts/migrate_user_feed_v2.py --data-dir data --backup-dir data/backups",
       "webhook_providers_v14_migration_check": "./.venv/bin/python scripts/migrate_webhook_providers_v14.py --data-dir data --backup-dir data/backups --dry-run",
+      "apify_actor_canary_batches_v17_migration_check": "./.venv/bin/python scripts/migrate_apify_actor_canary_batches_v17.py --data-dir data",
       "multi_user_feed_e2e": "./.venv/bin/pytest -q tests/test_multi_user_feed_e2e.py",
       "service_feed_schedule": "./.venv/bin/pytest -q tests/test_feed_schedule.py tests/test_light_runtime_scripts.py"
     }
