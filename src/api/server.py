@@ -530,7 +530,7 @@ class ApifyRouteSlotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     slot: Literal["primary", "backup_1", "backup_2"]
-    revision_id: str = Field(min_length=1, max_length=128)
+    revision_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class ApifyActivePoolRequest(BaseModel):
@@ -554,6 +554,8 @@ class ApifyActivePoolRequest(BaseModel):
         names = {item.slot for item in slots}
         if names != {"primary", "backup_1", "backup_2"}:
             raise ValueError("slots must contain primary, backup_1, and backup_2")
+        if sum(item.revision_id is not None for item in slots) < 2:
+            raise ValueError("slots must contain at least two revisions")
         return slots
 
 
@@ -1612,12 +1614,20 @@ def create_app(
             "backup_2_actor_count": int(
                 recommendation["backup_2_actor_count"]
             ),
+            "runnable_actor_count": int(
+                recommendation["runnable_actor_count"]
+            ),
             "publisher_count": int(recommendation["publisher_count"]),
+            "activation_mode": recommendation["activation_mode"],
             "slots": [
                 {
                     "slot": slot_name,
                     "revision_id": revision_id,
-                    "revision": revisions.get(str(revision_id)),
+                    "revision": (
+                        revisions.get(str(revision_id))
+                        if revision_id is not None
+                        else None
+                    ),
                 }
                 for slot_name, revision_id in recommendation["slots"].items()
             ],
@@ -1783,7 +1793,7 @@ def create_app(
             binding_status = str(binding["validation_status"])
             bucket = (
                 "ready"
-                if binding_status == "ready_3of3"
+                if binding_status in {"ready_2of2", "ready_3of3"}
                 else "failed"
                 if binding_status in {"failed", "blocked"}
                 else "pending"
@@ -5641,7 +5651,7 @@ def create_app(
                 existing_source
                 and existing_binding
                 and existing_binding.get("validation_status")
-                == "ready_3of3"
+                in {"ready_2of2", "ready_3of3"}
                 and existing_source.get("enabled")
             )
         try:
@@ -5884,13 +5894,16 @@ def create_app(
                         raise
                     raise ApiError(
                         "apify_actor_source_binding_not_ready",
-                        "Actor source must complete three Canaries before activation",
+                        "Actor source must validate every active Actor before activation",
                         status_code=409,
                     ) from exc
-                if str(binding["validation_status"]) != "ready_3of3":
+                if str(binding["validation_status"]) not in {
+                    "ready_2of2",
+                    "ready_3of3",
+                }:
                     raise ApiError(
                         "apify_actor_source_binding_not_ready",
-                        "Actor source must complete three Canaries before activation",
+                        "Actor source must validate every active Actor before activation",
                         status_code=409,
                     )
             updates["enabled"] = (

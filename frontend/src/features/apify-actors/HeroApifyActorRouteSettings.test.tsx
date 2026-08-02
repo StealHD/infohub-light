@@ -213,7 +213,9 @@ const actorOpsDetail = (
       problems: [],
       certified_actor_count: 2,
       backup_2_actor_count: 3,
+      runnable_actor_count: 3,
       publisher_count: 2,
+      activation_mode: 'standard_2plus1',
       slots: [
         { slot: 'primary', revision_id: revisions[0].revision_id, revision: revisions[0] },
         { slot: 'backup_1', revision_id: revisions[1].revision_id, revision: revisions[1] },
@@ -694,27 +696,39 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
   })
 
-  it('stops a mathematically incomplete Canary cycle before another paid attempt', async () => {
+  it('offers expedited two-Actor activation without another paid attempt', async () => {
+    const base = actorOpsDetail()
+    const expeditedRevisions = base.revisions.map((revision, index) => ({
+      ...revision,
+      lifecycle: index < 2 ? 'probationary' as const : 'static_valid' as const,
+    }))
     const detail = actorOpsDetail({
       discovery_run_id: 'discovery-run-1',
       support_status: 'pending',
       runtime_status: 'blocked',
       runnable_slots: 0,
       publisher_count: 0,
+      revisions: expeditedRevisions,
       slots: [
         { slot: 'primary', revision_id: null, runnable: false, revision: null },
         { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
         { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
       ],
       activation_recommendation: {
-        ready: false,
+        ready: true,
         already_active: false,
         confirmation: '确认启用 Actor 主备',
-        problems: ['certified_candidates_incomplete'],
+        problems: [],
         certified_actor_count: 0,
         backup_2_actor_count: 2,
+        runnable_actor_count: 2,
         publisher_count: 2,
-        slots: [],
+        activation_mode: 'expedited_2of3',
+        slots: [
+          { slot: 'primary', revision_id: expeditedRevisions[0].revision_id, revision: expeditedRevisions[0] },
+          { slot: 'backup_1', revision_id: expeditedRevisions[1].revision_id, revision: expeditedRevisions[1] },
+          { slot: 'backup_2', revision_id: null, revision: null },
+        ],
       },
     })
     const run = discoveryRun(detail)
@@ -755,9 +769,10 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorDiscoveryRun: vi.fn().mockResolvedValue(run),
     })
 
-    expect(await screen.findByText('本轮剩余 Canary 无法完成 2+1')).toBeVisible()
-    expect(screen.getByText(/至少还需要 3 次全部成功/)).toBeVisible()
-    expect(screen.getAllByText(/用于 Primary\/Backup 1 仍需第二个独立参考来源/)).toHaveLength(2)
+    expect(await screen.findByText('两路主备已可快速启用')).toBeVisible()
+    expect(screen.getByText(/第三槽先留空/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '确认先启用两路主备' })).toBeVisible()
+    expect(screen.queryByText('本轮剩余 Canary 无法完成 2+1')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
     expect(screen.getByText('此步骤尚未解锁')).toBeVisible()
     expect(screen.queryByPlaceholderText('仅提交 opaque source_id')).not.toBeInTheDocument()
@@ -779,7 +794,9 @@ describe('HeroApifyActorRouteSettings', () => {
         problems: ['certified_candidates_incomplete'],
         certified_actor_count: 0,
         backup_2_actor_count: 2,
+        runnable_actor_count: 0,
         publisher_count: 2,
+        activation_mode: null,
         slots: [],
       },
     })
@@ -789,8 +806,8 @@ describe('HeroApifyActorRouteSettings', () => {
     })
 
     expect(await screen.findByText('候选审批尚未完成，你现在无需配置')).toBeVisible()
-    expect(screen.getByText('0/2')).toBeVisible()
-    expect(screen.getByText('2/3')).toBeVisible()
+    expect(screen.getAllByText('0/2')).toHaveLength(2)
+    expect(screen.getByText('成功试跑 Actor')).toBeVisible()
     expect(screen.queryByText('替换 Revision')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保存三槽配置' })).not.toBeInTheDocument()
   })
@@ -815,7 +832,9 @@ describe('HeroApifyActorRouteSettings', () => {
         problems: [],
         certified_actor_count: 2,
         backup_2_actor_count: 3,
+        runnable_actor_count: 3,
         publisher_count: 2,
+        activation_mode: 'standard_2plus1',
         slots: [
           { slot: 'primary', revision_id: base.revisions[0].revision_id, revision: base.revisions[0] },
           { slot: 'backup_1', revision_id: base.revisions[1].revision_id, revision: base.revisions[1] },
@@ -1021,7 +1040,7 @@ describe('HeroApifyActorRouteSettings', () => {
       canaryApifyActorSourceRevision,
     })
 
-    const lookup = await screen.findByLabelText('按来源 ID 查看三槽验证')
+    const lookup = await screen.findByLabelText('按来源 ID 查看当前主备验证')
     await browser.type(lookup, support.source_id)
     await browser.click(screen.getByRole('button', { name: '读取验证状态' }))
     expect(await screen.findByText('$0.015 剩余')).toBeVisible()
@@ -1047,7 +1066,21 @@ describe('HeroApifyActorRouteSettings', () => {
 
   it('creates one opaque approval id only after the paid Canary confirmation', async () => {
     const browser = userEvent.setup()
-    const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+    const detail = actorOpsDetail({
+      discovery_run_id: 'discovery-run-1',
+      activation_recommendation: {
+        ready: false,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: ['canary_successful_candidates_incomplete'],
+        certified_actor_count: 0,
+        backup_2_actor_count: 1,
+        runnable_actor_count: 1,
+        publisher_count: 1,
+        activation_mode: null,
+        slots: [],
+      },
+    })
     const { api } = renderFeature({
       apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
       apifyActorRoute: vi.fn().mockResolvedValue(detail),

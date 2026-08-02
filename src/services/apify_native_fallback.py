@@ -207,7 +207,7 @@ class YouTubeNativeActorFallbackScraper:
         validated = bool(
             binding
             and str(binding["validation_status"])
-            in {"ready_3of3", "revalidation_pending"}
+            in {"ready_2of2", "ready_3of3", "revalidation_pending"}
         )
         if validated and binding is not None:
             try:

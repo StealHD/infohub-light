@@ -155,6 +155,47 @@ def _ready_pool(store: ServiceStore):
     return ops, ops.get_route(str(route["route_id"])), revision_ids
 
 
+def _expedited_pool(store: ServiceStore):
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = _route(store)
+    revision_ids: list[str] = []
+    for index, publisher in enumerate(
+        ("publisher-a", "publisher-b", "publisher-c"),
+        start=1,
+    ):
+        actor_id = f"{publisher}/expedited-{index}"
+        candidate_id = ops.ensure_candidate(
+            str(route["route_id"]),
+            actor_id=actor_id,
+        )
+        revision_id = ops.create_adapter_revision(
+            candidate_id=candidate_id,
+            actor_id=actor_id,
+            publisher=publisher,
+            build_id=f"build-expedited-{index}",
+            build_number=f"3.0.{index}",
+            manifest=_manifest(actor_id, f"3.0.{index}"),
+            lifecycle="static_valid",
+        )
+        if index < 3:
+            store.connect().execute(
+                """
+                UPDATE apify_actor_adapter_revisions
+                SET lifecycle = 'probationary', canary_passed_at = ?
+                WHERE revision_id = ?
+                """,
+                (FIXED_NOW.isoformat(), revision_id),
+            )
+            store.connect().commit()
+        revision_ids.append(revision_id)
+    activated = ops.activate_recommended_pool(
+        str(route["route_id"]),
+        expected_generation=int(route["generation"]),
+        confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
+    )
+    return ops, activated, revision_ids
+
+
 def test_active_pool_enforces_2_plus_1_and_generation_cas(tmp_path) -> None:
     store = ServiceStore(tmp_path)
     store.initialize()
@@ -244,6 +285,79 @@ def test_recommended_pool_activation_chooses_ids_inside_service_transaction(
     assert ops.recommend_active_pool(str(route["route_id"]))[
         "already_active"
     ] is True
+
+
+def test_expedited_pool_activates_two_canary_proven_actors_and_validates_source(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops, route, revisions = _expedited_pool(store)
+
+    recommendation = ops.recommend_active_pool(str(route["route_id"]))
+    assert recommendation["activation_mode"] == "expedited_2of3"
+    assert recommendation["already_active"] is True
+    assert recommendation["slots"]["backup_2"] is None
+    assert route["runtime"] == {
+        "status": "degraded",
+        "runnable_count": 2,
+        "allowed": True,
+        "error_code": None,
+    }
+    assert ops.source_capability_ready(str(route["route_id"])) is True
+    assert [
+        slot["revision_id"] for slot in route["slots"]
+    ] == [revisions[0], revisions[1], None]
+
+    source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Expedited source",
+        config={"platform": "youtube", "kind": "channel", "target": "safe"},
+    )
+    binding = ops.bind_source(
+        source_id=source_id,
+        route_id=route["route_id"],
+        target_fingerprint=hashlib.sha256(b"expedited-target").hexdigest(),
+        mode="fallback",
+    )
+    for revision_id in revisions[:2]:
+        validation = ops.approve_source_canary(
+            source_id,
+            revision_id,
+            expected_generation=binding["generation"],
+            approval_id=f"approval-expedited-{revision_id}",
+            confirmation=PAID_CANARY_CONFIRMATION,
+            max_cost_usd=0.02,
+        )
+        ops.record_validation(
+            validation["validation_id"],
+            status="succeeded",
+            semantic_outcome="valid_nonempty",
+            cost_usd=0.01,
+        )
+    ready = ops.activate_binding(
+        source_id,
+        expected_generation=binding["generation"],
+        confirmation=FIRST_ACTIVATION_CONFIRMATION,
+    )
+    assert ready["validation_status"] == "ready_2of2"
+    assert len(ops.freeze_execution(route["route_id"], source_id=source_id).slots) == 2
+    cap_only = ops.replace_active_pool(
+        route["route_id"],
+        slots={
+            "primary": revisions[0],
+            "backup_1": revisions[1],
+            "backup_2": None,
+        },
+        expected_generation=int(route["generation"]),
+        per_run_cap_usd=0.03,
+    )
+    assert cap_only["per_run_cap_usd"] == 0.03
+    assert cap_only["runtime"]["runnable_count"] == 2
+    assert ops.get_source_binding(source_id)["validation_status"] == "ready_2of2"
 
 
 def test_cap_only_update_preserves_circuit_and_route_block_state(tmp_path) -> None:

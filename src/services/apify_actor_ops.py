@@ -70,6 +70,7 @@ SOURCE_CANARY_BUDGET_USD = 0.06
 MEMBER_SUPPORT_CHECKS_PER_DAY = 10
 MEMBER_PENDING_DISCOVERY_ROUTES = 20
 _RUNNABLE_CANDIDATE_STATES = frozenset({"closed", "half_open", "probationary"})
+_READY_BINDING_STATUSES = frozenset({"ready_2of2", "ready_3of3"})
 _BLOCKING_ROUTE_STATUSES = frozenset(
     {
         "blocked",
@@ -342,12 +343,14 @@ class ApifyActorOpsService:
         return result
 
     def recommend_active_pool(self, route_id: str) -> dict[str, Any]:
-        """Choose the deterministic 2+1 pool without accepting browser IDs.
+        """Choose a deterministic full or expedited pool without browser IDs.
 
-        The recommendation is deliberately recomputed by the service.  The
-        browser only confirms the Route generation; it never decides which
-        immutable revisions satisfy certification, Actor uniqueness, or
-        publisher diversity.
+        A complete certified/certified/probationary 2+1 pool is always
+        preferred.  When it is unavailable, two exact-Build revisions that
+        each completed a successful Canary may be activated in degraded mode
+        if they are different Actors from different publishers.  The third
+        slot remains empty until a later, independently approved replacement
+        is ready.
         """
 
         return self._recommend_active_pool(self.store.connect(), route_id)
@@ -393,9 +396,16 @@ class ApifyActorOpsService:
             (self.workspace_id, route["route_key"]),
         ).fetchall()
 
-        def eligible(row: sqlite3.Row, slot_name: str) -> bool:
+        def eligible(
+            row: sqlite3.Row,
+            slot_name: str,
+            *,
+            expedited: bool = False,
+        ) -> bool:
             lifecycle = str(row["lifecycle"])
             if lifecycle == "legacy_builtin":
+                if expedited:
+                    return False
                 return current.get(slot_name) == str(row["revision_id"])
             if (
                 not row["build_id"]
@@ -414,6 +424,8 @@ class ApifyActorOpsService:
                 _assert_manifest_route_hosts(parsed, str(route["platform"]))
             except (ActorManifestError, ActorOpsError):
                 return False
+            if expedited:
+                return lifecycle in {"certified", "probationary"}
             if slot_name in {"primary", "backup_1"}:
                 return lifecycle == "certified"
             return lifecycle in {"certified", "probationary"}
@@ -464,6 +476,47 @@ class ApifyActorOpsService:
                     if best is None or score < best[0]:
                         best = (score, selected)
 
+        expedited_rows = [
+            row for row in rows if eligible(row, "primary", expedited=True)
+        ]
+        expedited_best: (
+            tuple[tuple[Any, ...], tuple[sqlite3.Row, sqlite3.Row]] | None
+        ) = None
+        if best is None:
+            for primary in expedited_rows:
+                for backup_1 in expedited_rows:
+                    selected_pair = (primary, backup_1)
+                    if len({str(row["actor_id"]) for row in selected_pair}) != 2:
+                        continue
+                    if len(
+                        {
+                            str(row["publisher"]).casefold()
+                            for row in selected_pair
+                        }
+                    ) < int(route["min_publishers"]):
+                        continue
+                    selected_by_slot = {
+                        "primary": primary,
+                        "backup_1": backup_1,
+                    }
+                    current_matches = sum(
+                        current.get(slot_name) == str(row["revision_id"])
+                        for slot_name, row in selected_by_slot.items()
+                    ) + int(not current.get("backup_2"))
+                    lifecycle_cost = sum(
+                        {"certified": 0, "probationary": 1}[str(row["lifecycle"])]
+                        for row in selected_pair
+                    )
+                    score = (
+                        -current_matches,
+                        lifecycle_cost,
+                        sum(int(row["position"] or 0) for row in selected_pair),
+                        *(row_order[str(row["revision_id"])] for row in selected_pair),
+                        *(str(row["revision_id"]) for row in selected_pair),
+                    )
+                    if expedited_best is None or score < expedited_best[0]:
+                        expedited_best = (score, selected_pair)
+
         primary_actor_count = len(
             {str(row["actor_id"]) for row in primary_rows}
         )
@@ -476,12 +529,13 @@ class ApifyActorOpsService:
                 for row in (*primary_rows, *backup_2_rows)
             }
         )
-        if best is None:
+        runnable_actor_count = len(
+            {str(row["actor_id"]) for row in expedited_rows}
+        )
+        if best is None and expedited_best is None:
             problems: list[str] = []
-            if primary_actor_count < 2:
-                problems.append("certified_candidates_incomplete")
-            if backup_2_actor_count < 3:
-                problems.append("unique_actor_candidates_incomplete")
+            if runnable_actor_count < int(route["min_runtime_healthy"]):
+                problems.append("canary_successful_candidates_incomplete")
             if eligible_publishers < int(route["min_publishers"]):
                 problems.append("publisher_diversity_incomplete")
             if not problems:
@@ -493,16 +547,32 @@ class ApifyActorOpsService:
                 "problems": problems,
                 "certified_actor_count": primary_actor_count,
                 "backup_2_actor_count": backup_2_actor_count,
+                "runnable_actor_count": runnable_actor_count,
                 "publisher_count": eligible_publishers,
+                "activation_mode": None,
             }
 
-        selected = dict(zip(SLOT_NAMES, best[1], strict=True))
+        if best is not None:
+            activation_mode = "standard_2plus1"
+            selected: dict[str, sqlite3.Row | None] = dict(
+                zip(SLOT_NAMES, best[1], strict=True)
+            )
+        else:
+            assert expedited_best is not None
+            activation_mode = "expedited_2of3"
+            selected = {
+                "primary": expedited_best[1][0],
+                "backup_1": expedited_best[1][1],
+                "backup_2": None,
+            }
         slots = {
-            slot_name: str(row["revision_id"])
+            slot_name: (
+                str(row["revision_id"]) if row is not None else None
+            )
             for slot_name, row in selected.items()
         }
         already_active = all(
-            current.get(slot_name) == revision_id
+            str(current.get(slot_name) or "") == str(revision_id or "")
             for slot_name, revision_id in slots.items()
         )
         return {
@@ -512,9 +582,15 @@ class ApifyActorOpsService:
             "problems": [],
             "certified_actor_count": primary_actor_count,
             "backup_2_actor_count": backup_2_actor_count,
+            "runnable_actor_count": runnable_actor_count,
             "publisher_count": len(
-                {str(row["publisher"]).casefold() for row in selected.values()}
+                {
+                    str(row["publisher"]).casefold()
+                    for row in selected.values()
+                    if row is not None
+                }
             ),
+            "activation_mode": activation_mode,
         }
 
     def activate_recommended_pool(
@@ -541,7 +617,7 @@ class ApifyActorOpsService:
             if not recommendation["ready"]:
                 raise ActorOpsError(
                     "apify_actor_active_pool_not_ready",
-                    "No certified 2+1 Actor pool is ready to activate",
+                    "No safe two-Actor pool is ready to activate",
                     status_code=412,
                 )
             if recommendation["already_active"]:
@@ -1099,7 +1175,7 @@ class ApifyActorOpsService:
                         SET validation_status = 'revalidation_pending',
                             generation = generation + 1, updated_at = ?
                         WHERE workspace_id = ? AND route_id = ?
-                          AND validation_status = 'ready_3of3'
+                          AND validation_status IN ('ready_2of2', 'ready_3of3')
                         """,
                         (
                             now,
@@ -1394,19 +1470,8 @@ class ApifyActorOpsService:
                   AND candidate.state IN (
                       'closed', 'half_open', 'probationary'
                   )
-                  AND (
-                      (
-                          slot.slot_name IN ('primary', 'backup_1')
-                          AND revision.lifecycle IN (
-                              'certified', 'legacy_builtin'
-                          )
-                      )
-                      OR (
-                          slot.slot_name = 'backup_2'
-                          AND revision.lifecycle IN (
-                              'certified', 'probationary', 'legacy_builtin'
-                          )
-                      )
+                  AND revision.lifecycle IN (
+                      'certified', 'probationary', 'legacy_builtin'
                   )
                 """,
                 (self.workspace_id, route_id),
@@ -1417,15 +1482,27 @@ class ApifyActorOpsService:
         self,
         route_id: str,
         *,
-        slots: Mapping[str, str],
+        slots: Mapping[str, str | None],
         expected_generation: int,
         rollback_revision_id: str | None = None,
         per_run_cap_usd: float | None = None,
     ) -> dict[str, Any]:
-        if set(slots) != set(SLOT_NAMES) or any(not slots[name] for name in SLOT_NAMES):
+        if set(slots) != set(SLOT_NAMES):
             raise ActorOpsError(
                 "apify_actor_active_pool_incomplete",
-                "Active pool requires exactly three populated slots",
+                "Active pool requires all three named slots",
+                status_code=422,
+            )
+        requested_slots = {
+            name: str(slots[name] or "") for name in SLOT_NAMES
+        }
+        populated_slot_names = [
+            name for name in SLOT_NAMES if requested_slots[name]
+        ]
+        if len(populated_slot_names) not in {2, 3}:
+            raise ActorOpsError(
+                "apify_actor_active_pool_incomplete",
+                "Active pool requires at least two populated slots",
                 status_code=422,
             )
         selected_cap = (
@@ -1452,9 +1529,6 @@ class ApifyActorOpsService:
             old_slots = {
                 str(row["slot_name"]): str(row["revision_id"] or "")
                 for row in old_slot_rows
-            }
-            requested_slots = {
-                name: str(slots[name]) for name in SLOT_NAMES
             }
             if rollback_revision_id is None and old_slots == requested_slots:
                 if selected_cap is None or math.isclose(
@@ -1490,7 +1564,7 @@ class ApifyActorOpsService:
                 )
                 return self.get_route(route_id)
             revision_rows: dict[str, sqlite3.Row] = {}
-            for slot_name in SLOT_NAMES:
+            for slot_name in populated_slot_names:
                 row = connection.execute(
                     """
                     SELECT revision.*, candidate.route_key, candidate.state
@@ -1499,7 +1573,7 @@ class ApifyActorOpsService:
                       ON candidate.id = revision.candidate_id
                     WHERE revision.workspace_id = ? AND revision.revision_id = ?
                     """,
-                    (self.workspace_id, slots[slot_name]),
+                    (self.workspace_id, requested_slots[slot_name]),
                 ).fetchone()
                 if row is None or str(row["route_key"]) != str(route["route_key"]):
                     raise ActorOpsError(
@@ -1544,7 +1618,7 @@ class ApifyActorOpsService:
                     slot_name
                     for slot_name in SLOT_NAMES
                     if old_slots.get(slot_name, "")
-                    != str(slots[slot_name])
+                    != requested_slots[slot_name]
                 }
                 if changed_slots != {rollback_slot}:
                     raise ActorOpsError(
@@ -1554,7 +1628,7 @@ class ApifyActorOpsService:
                     )
             actor_ids = {str(row["actor_id"]) for row in revision_rows.values()}
             publishers = {str(row["publisher"]).casefold() for row in revision_rows.values()}
-            if len(actor_ids) != 3:
+            if len(actor_ids) != len(populated_slot_names):
                 raise ActorOpsError(
                     "apify_actor_active_pool_duplicate",
                     "Active pool Actor IDs must be unique",
@@ -1567,6 +1641,7 @@ class ApifyActorOpsService:
                     status_code=422,
                 )
             effective_lifecycles: dict[str, str] = {}
+            expedited = len(populated_slot_names) == 2
             for slot_name, row in revision_rows.items():
                 lifecycle = str(row["lifecycle"])
                 if (
@@ -1606,7 +1681,9 @@ class ApifyActorOpsService:
                         )
                     lifecycle = prior_lifecycle
                 allowed_lifecycle = (
-                    {"certified", "legacy_builtin"}
+                    {"certified", "probationary"}
+                    if expedited
+                    else {"certified", "legacy_builtin"}
                     if slot_name in {"primary", "backup_1"}
                     else {"certified", "probationary", "legacy_builtin"}
                 )
@@ -1665,7 +1742,7 @@ class ApifyActorOpsService:
             replaced_revision_ids = {
                 revision_id
                 for revision_id in old_slots.values()
-                if revision_id and revision_id not in set(slots.values())
+                if revision_id and revision_id not in set(requested_slots.values())
             }
             if replaced_revision_ids:
                 placeholders = ",".join("?" for _ in replaced_revision_ids)
@@ -1710,7 +1787,23 @@ class ApifyActorOpsService:
                 ),
             )
             for position, slot_name in enumerate(SLOT_NAMES):
-                row = revision_rows[slot_name]
+                row = revision_rows.get(slot_name)
+                if row is None:
+                    connection.execute(
+                        """
+                        INSERT INTO apify_route_active_slots (
+                            workspace_id, route_id, slot_name, candidate_id,
+                            revision_id, updated_at
+                        ) VALUES (?, ?, ?, NULL, NULL, ?)
+                        ON CONFLICT(route_id, slot_name) DO UPDATE SET
+                            workspace_id = excluded.workspace_id,
+                            candidate_id = NULL,
+                            revision_id = NULL,
+                            updated_at = excluded.updated_at
+                        """,
+                        (self.workspace_id, route_id, slot_name, now),
+                    )
+                    continue
                 slot_unchanged = old_slots.get(slot_name) == str(
                     row["revision_id"]
                 )
@@ -1800,7 +1893,7 @@ class ApifyActorOpsService:
                 (now, self.workspace_id, route["route_key"]),
             )
             if any(
-                old_slots.get(name, "") != str(slots[name])
+                old_slots.get(name, "") != requested_slots[name]
                 for name in SLOT_NAMES
             ):
                 connection.execute(
@@ -1992,11 +2085,7 @@ class ApifyActorOpsService:
             lifecycle = str(row["lifecycle"])
             slot_name = str(row["slot_name"])
             if enabled:
-                allowed = (
-                    {"certified", "legacy_builtin"}
-                    if slot_name in {"primary", "backup_1"}
-                    else {"certified", "probationary"}
-                )
+                allowed = {"certified", "probationary", "legacy_builtin"}
                 if lifecycle not in allowed:
                     raise ActorOpsError(
                         "apify_actor_candidate_canary_required",
@@ -2029,14 +2118,8 @@ class ApifyActorOpsService:
                      AND revision.revision_id = slot.revision_id
                     WHERE slot.workspace_id = ? AND slot.route_id = ?
                       AND candidate.state IN ('closed', 'half_open', 'probationary')
-                      AND (
-                        (slot.slot_name IN ('primary', 'backup_1')
-                         AND revision.lifecycle IN ('certified', 'legacy_builtin'))
-                        OR
-                        (slot.slot_name = 'backup_2'
-                         AND revision.lifecycle IN (
-                             'certified', 'probationary', 'legacy_builtin'
-                         ))
+                      AND revision.lifecycle IN (
+                          'certified', 'probationary', 'legacy_builtin'
                       )
                     """,
                     (self.workspace_id, route_id),
@@ -2150,17 +2233,17 @@ class ApifyActorOpsService:
         *,
         connection: sqlite3.Connection | None = None,
     ) -> bool:
-        """Return whether a Route is certified for binding a new source.
+        """Return whether a Route can safely bind a new source.
 
-        Runtime continuity deliberately permits a migrated two-of-three legacy
-        pool. New sources require three exact-Build revisions that satisfy the
-        certified/certified/probationary-or-certified policy.
+        A full 2+1 pool is preferred. Expedited launch permits two
+        Canary-proven exact-Build revisions from different publishers; source
+        validation covers the revisions that are actually active.
         """
 
         active = connection or self.store.connect()
         route = active.execute(
             """
-            SELECT status, min_publishers
+            SELECT status, min_publishers, min_runtime_healthy
             FROM apify_actor_route_profiles
             WHERE workspace_id = ? AND route_id = ?
             """,
@@ -2170,7 +2253,8 @@ class ApifyActorOpsService:
             return False
         rows = active.execute(
             """
-            SELECT slot.slot_name, revision.actor_id, revision.publisher,
+            SELECT slot.slot_name, slot.revision_id, revision.actor_id,
+                   revision.publisher,
                    revision.lifecycle, revision.build_id,
                    revision.build_number, revision.manifest_hash,
                    candidate.state AS candidate_state
@@ -2185,20 +2269,15 @@ class ApifyActorOpsService:
             """,
             (self.workspace_id, route_id),
         ).fetchall()
-        by_slot = {str(row["slot_name"]): row for row in rows}
-        if set(by_slot) != set(SLOT_NAMES):
+        configured = [row for row in rows if row["revision_id"]]
+        if len(configured) < int(route["min_runtime_healthy"]):
             return False
         actor_ids: set[str] = set()
         publishers: set[str] = set()
-        for slot_name in SLOT_NAMES:
-            row = by_slot[slot_name]
-            allowed = (
-                {"certified"}
-                if slot_name in {"primary", "backup_1"}
-                else {"probationary", "certified"}
-            )
+        for row in configured:
             if (
-                str(row["lifecycle"] or "") not in allowed
+                str(row["lifecycle"] or "")
+                not in {"probationary", "certified"}
                 or str(row["candidate_state"] or "")
                 not in _RUNNABLE_CANDIDATE_STATES
                 or not row["actor_id"]
@@ -2211,7 +2290,7 @@ class ApifyActorOpsService:
             actor_ids.add(str(row["actor_id"]))
             publishers.add(str(row["publisher"]).casefold())
         return (
-            len(actor_ids) == 3
+            len(actor_ids) == len(configured)
             and len(publishers) >= int(route["min_publishers"])
         )
 
@@ -2263,7 +2342,7 @@ class ApifyActorOpsService:
         validated_revision_ids: set[str] | None = None
         if binding is not None:
             validation_status = str(binding["validation_status"])
-            if validation_status == "ready_3of3":
+            if validation_status in _READY_BINDING_STATUSES:
                 expected_hash = revision_set_hash(
                     {
                         str(row["slot_name"]): str(row["revision_id"])
@@ -2274,6 +2353,7 @@ class ApifyActorOpsService:
                 if str(binding["verified_revision_set_hash"] or "") != expected_hash:
                     validation_status = "revalidation_pending"
             if validation_status not in {
+                "ready_2of2",
                 "ready_3of3",
                 "legacy_validation_pending",
                 "revalidation_pending",
@@ -2301,6 +2381,7 @@ class ApifyActorOpsService:
                             str(binding["target_fingerprint"]),
                         ),
                     ).fetchall()
+                    if row["revision_id"]
                 }
                 if binding["verified_revision_set_hash"] is None:
                     validated_revision_ids.update(
@@ -2317,11 +2398,11 @@ class ApifyActorOpsService:
             slot_name = str(row["slot_name"])
             if str(row["candidate_state"]) not in _RUNNABLE_CANDIDATE_STATES:
                 continue
-            allowed_lifecycle = (
-                {"certified", "legacy_builtin"}
-                if slot_name in {"primary", "backup_1"}
-                else {"certified", "probationary", "legacy_builtin"}
-            )
+            allowed_lifecycle = {
+                "certified",
+                "probationary",
+                "legacy_builtin",
+            }
             if lifecycle not in allowed_lifecycle:
                 continue
             if source_id is not None:
@@ -2485,11 +2566,11 @@ class ApifyActorOpsService:
         }
         for slot in snapshot.slots:
             row = current_by_slot.get(slot.slot_name)
-            allowed_lifecycle = (
-                {"certified", "legacy_builtin"}
-                if slot.slot_name in {"primary", "backup_1"}
-                else {"certified", "probationary", "legacy_builtin"}
-            )
+            allowed_lifecycle = {
+                "certified",
+                "probationary",
+                "legacy_builtin",
+            }
             stale = (
                 stale
                 or row is None
@@ -3333,10 +3414,11 @@ class ApifyActorOpsService:
                 (self.workspace_id, binding["route_id"]),
             ).fetchall()
             revision_ids = {str(row["revision_id"]) for row in rows}
-            if len(revision_ids) != 3:
+            route = self._require_route(connection, str(binding["route_id"]))
+            if len(revision_ids) < int(route["min_runtime_healthy"]):
                 raise ActorOpsError(
                     "apify_actor_source_validation_incomplete",
-                    "All three active Actor revisions are required",
+                    "At least two active Actor revisions are required",
                     status_code=412,
                 )
             succeeded = {
@@ -3360,7 +3442,7 @@ class ApifyActorOpsService:
             if not revision_ids <= succeeded:
                 raise ActorOpsError(
                     "apify_actor_source_validation_incomplete",
-                    "All three Actor source Canaries must succeed before activation",
+                    "Every active Actor source Canary must succeed before activation",
                     status_code=412,
                 )
             digest = revision_set_hash(
@@ -3374,9 +3456,13 @@ class ApifyActorOpsService:
                         """,
                         (self.workspace_id, binding["route_id"]),
                     ).fetchall()
+                    if row["revision_id"]
                 }
             )
-            if str(binding["validation_status"]) == "ready_3of3":
+            ready_status = (
+                "ready_3of3" if len(revision_ids) == 3 else "ready_2of2"
+            )
+            if str(binding["validation_status"]) in _READY_BINDING_STATUSES:
                 if str(binding["verified_revision_set_hash"] or "") != digest:
                     raise ActorOpsError(
                         "apify_actor_binding_generation_conflict",
@@ -3393,12 +3479,13 @@ class ApifyActorOpsService:
             cursor = connection.execute(
                 """
                 UPDATE apify_source_route_bindings
-                SET validation_status = 'ready_3of3',
+                SET validation_status = ?,
                     verified_revision_set_hash = ?,
                     generation = generation + 1, updated_at = ?
                 WHERE workspace_id = ? AND binding_id = ? AND generation = ?
                 """,
                 (
+                    ready_status,
                     digest,
                     now,
                     self.workspace_id,
@@ -4017,20 +4104,8 @@ class ApifyActorOpsService:
                       AND candidate.state IN (
                           'closed', 'half_open', 'probationary'
                       )
-                      AND (
-                          (
-                              slot.slot_name IN ('primary', 'backup_1')
-                              AND revision.lifecycle IN (
-                                  'certified', 'legacy_builtin'
-                              )
-                          )
-                          OR (
-                              slot.slot_name = 'backup_2'
-                              AND revision.lifecycle IN (
-                                  'certified', 'probationary',
-                                  'legacy_builtin'
-                              )
-                          )
+                      AND revision.lifecycle IN (
+                          'certified', 'probationary', 'legacy_builtin'
                       )
                     """,
                     (self.workspace_id, route_id),
@@ -4083,7 +4158,7 @@ class ApifyActorOpsService:
                     SET validation_status = 'revalidation_pending',
                         generation = generation + 1, updated_at = ?
                     WHERE workspace_id = ? AND route_id = ?
-                      AND validation_status = 'ready_3of3'
+                      AND validation_status IN ('ready_2of2', 'ready_3of3')
                     """,
                     (now, self.workspace_id, route_id),
                 )

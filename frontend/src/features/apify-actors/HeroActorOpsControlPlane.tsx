@@ -119,7 +119,7 @@ const discoveryReasonLabels: Record<string, string> = {
   apify_manifest_source_identity_invalid: 'Manifest 错把内容 URL 当作来源身份',
 }
 
-type PoolDraft = Record<ApifyActorSlotName, string>
+type PoolDraft = Record<ApifyActorSlotName, string | null>
 
 type CanaryRouteContext = {
   routeKey: string
@@ -163,20 +163,10 @@ function routeIdentity(platform: string, targetType: string, capability: string)
   return `${platform} / ${targetType} / ${capability}`
 }
 
-function revisionCanFillSlot(
-  revision: ApifyActorRevisionSummary,
-  slot: ApifyActorSlotName,
-): boolean {
-  if (slot === 'backup_2') {
-    return ['certified', 'probationary', 'legacy_builtin'].includes(revision.lifecycle)
-  }
-  return ['certified', 'legacy_builtin'].includes(revision.lifecycle)
-}
-
 function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string {
   if (revision.lifecycle === 'certified') return '已完成 Route 认证，可用于 Primary、Backup 1 或 Backup 2'
   if (revision.lifecycle === 'probationary') {
-    return '已通过首个参考 Canary，可用于 Backup 2；用于 Primary/Backup 1 仍需第二个独立参考来源、48 小时观察和至少 95% 成功率'
+    return '已通过首个参考 Canary，可进入两路快速主备；完成完整观察后可升级为 certified'
   }
   if (revision.lifecycle === 'static_valid') return '仅完成静态校验，尚未取得成功的 Route 参考 Canary'
   if (revision.lifecycle === 'legacy_builtin') return '旧版兼容 Revision，仅保留既有 Route 运行'
@@ -359,6 +349,7 @@ function ActorPoolPlan({
   const recommendation = detail.activation_recommendation
   const activeSlots = detail.slots.filter((slot) => slot.revision)
   const alreadyActive = recommendation?.already_active ?? activeSlots.length === 3
+  const expedited = recommendation?.activation_mode === 'expedited_2of3'
   const displaySlots = alreadyActive
     ? detail.slots
     : recommendation?.ready
@@ -366,30 +357,37 @@ function ActorPoolPlan({
       : []
 
   if (!alreadyActive && !recommendation?.ready) {
-    const certified = recommendation?.certified_actor_count ?? 0
-    const eligible = recommendation?.backup_2_actor_count ?? 0
+    const runnable = recommendation?.runnable_actor_count
+      ?? recommendation?.backup_2_actor_count
+      ?? 0
     const publishers = recommendation?.publisher_count ?? 0
     return <div className="grid gap-3">
       <HeroNotice title="候选审批尚未完成，你现在无需配置" status="warning" role="status">
-        继续在下方逐次确认 Canary。条件满足后，系统会自动生成三名 Actor 的主备方案；这里不会再要求选择 Revision 或手工排槽。
+        至少需要两个成功试跑、Actor 不同且发布者不同的固定 Build。满足后系统会自动生成快速主备方案；这里不会要求选择 Revision 或手工排槽。
       </HeroNotice>
       <div className="grid gap-3 min-[640px]:grid-cols-3">
-        <Metric label="已认证主备" value={`${Math.min(certified, 2)}/2`} detail="主用和备用 1 必须已认证" />
-        <Metric label="不同 Actor 候选" value={`${Math.min(eligible, 3)}/3`} detail="三个位置不能使用同一 Actor" />
-        <Metric label="候选发布者" value={`${Math.min(publishers, 2)}/2`} detail="三名 Actor 至少来自两个发布者" />
+        <Metric label="成功试跑 Actor" value={`${Math.min(runnable, 2)}/2`} detail="每个 Actor 至少成功一次 Canary" />
+        <Metric label="不同 Actor 候选" value={`${Math.min(runnable, 2)}/2`} detail="主用和备用不能是同一 Actor" />
+        <Metric label="候选发布者" value={`${Math.min(publishers, 2)}/2`} detail="两路必须来自不同发布者" />
       </div>
     </div>
   }
 
   return <div className="grid gap-3">
     <HeroNotice
-      title={alreadyActive ? 'Actor 主备已生效' : '系统已完成候选审批'}
+      title={alreadyActive
+        ? expedited ? '两路 Actor 主备已生效' : 'Actor 主备已生效'
+        : expedited ? '两路主备已可快速启用' : '系统已完成候选审批'}
       status={alreadyActive ? 'success' : 'default'}
       role="status"
     >
       {alreadyActive
-        ? '当前 Route 已按 2+1 规则运行；日常故障切换由系统自动完成。'
-        : '以下方案已由后端重新校验 2+1、Actor 唯一、发布者分散和固定 Build。你只需确认一次即可生效。'}
+        ? expedited
+          ? '当前 Route 以两个成功试跑的固定 Build 降级运行；少于两路仍会自动阻断，第三槽可后续热补位。'
+          : '当前 Route 已按 2+1 规则运行；日常故障切换由系统自动完成。'
+        : expedited
+          ? '以下两个 Actor 均已成功试跑，来自不同发布者并固定 Build。第三槽先留空，你无需继续付费认证即可确认生效。'
+          : '以下方案已由后端重新校验 2+1、Actor 唯一、发布者分散和固定 Build。你只需确认一次即可生效。'}
     </HeroNotice>
     <ol className="grid gap-3 min-[760px]:grid-cols-3" aria-label={alreadyActive ? '当前 Actor 主备方案' : '系统推荐 Actor 主备方案'}>
       {displaySlots.map((slot) => {
@@ -409,9 +407,9 @@ function ActorPoolPlan({
                 : <Icons.CircleDashed size={13} aria-hidden="true" />}
             />
           </div>
-          <p className="type-control mt-2 break-words">{revision?.actor_public_name || revision?.actor_id || '尚未生成'}</p>
-          <p className="type-meta mt-1 break-words text-muted">{revision?.publisher || '发布者未知'} · Build {revision?.build_number || revision?.build_id || 'legacy'}</p>
-          <p className="type-meta mt-2 text-muted">最近 Canary：{revision?.last_canary_status || '尚未记录'}</p>
+          <p className="type-control mt-2 break-words">{revision?.actor_public_name || revision?.actor_id || '待后续补位'}</p>
+          <p className="type-meta mt-1 break-words text-muted">{revision ? `${revision.publisher || '发布者未知'} · Build ${revision.build_number || revision.build_id || 'legacy'}` : '当前不参与运行，也不会产生费用'}</p>
+          <p className="type-meta mt-2 text-muted">最近 Canary：{revision?.last_canary_status || (revision ? '尚未记录' : '无需验证')}</p>
         </li>
       })}
     </ol>
@@ -421,7 +419,7 @@ function ActorPoolPlan({
         {' '}单次费用最高 {formatActorUsd(detail.per_run_cap_usd)}。
       </p>
       <Button size="sm" isDisabled={actionPending} onPress={onConfirm}>
-        确认启用 Actor 主备
+        {expedited ? '确认先启用两路主备' : '确认启用 Actor 主备'}
       </Button>
     </div>}
   </div>
@@ -470,6 +468,7 @@ function DiscoveryPanel({
     ?? Math.max((run.canary_attempts_limit ?? 5) - (run.canary_attempts_used ?? 0), 0)
   const minimumCanaries = minimumCanariesForActivatablePool(run.candidates)
   const canaryCapacityBlocked = run.stage === 'awaiting_canary_approval'
+    && !detail.activation_recommendation?.ready
     && minimumCanaries !== null
     && minimumCanaries > attemptsRemaining
   return <div className="grid gap-3">
@@ -502,9 +501,9 @@ function DiscoveryPanel({
     {run.stage === 'canary_exhausted' && <HeroNotice title="当前候选组不能继续付费验证" status="warning">
       已使用 {run.canary_attempts_used ?? run.canary_attempts_limit ?? 5} 次，本轮剩余 0 次。请勾选“强制重新发现”后重新请求支持检查；系统会使用加强后的 Dataset Schema 与来源身份规则生成新 Revision。
     </HeroNotice>}
-    {canaryCapacityBlocked && <HeroNotice title="本轮剩余 Canary 无法完成 2+1" status="warning">
+    {canaryCapacityBlocked && <HeroNotice title="成功试跑 Actor 仍不足两路" status="warning">
       当前候选至少还需要 {minimumCanaries} 次全部成功的 Route Canary，
-      但本轮只剩 {attemptsRemaining} 次。页面已停止继续付费；请使用“强制重新发现”补充新 Revision。
+      但本轮只剩 {attemptsRemaining} 次。页面已停止继续付费；只有不足两个可运行 Actor 时才需要重新发现。
     </HeroNotice>}
     {Boolean(run.rejections?.length) && <HeroNotice title="确定性淘汰摘要" status="default">
       <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
@@ -556,7 +555,10 @@ function DiscoveryPanel({
                 ? <Icons.CircleX size={13} aria-hidden="true" />
                 : <Icons.CircleDashed size={13} aria-hidden="true" />}
             />
-            {candidate.awaiting_approval && !canaryCapacityBlocked && candidate.revision.can_canary !== false && <Button
+            {candidate.awaiting_approval
+              && !detail.activation_recommendation?.ready
+              && !canaryCapacityBlocked
+              && candidate.revision.can_canary !== false && <Button
               size="sm"
               variant="secondary"
               onPress={() => onCanary({
@@ -726,18 +728,21 @@ function SourceSupportPanel({
   })
 
   const embedded = detail.source_validations ?? []
+  const configuredRouteSlots = detail.slots.filter((slot) => slot.revision)
   const routeConfiguredForSources = detail.support_status === 'supported'
-    && detail.runnable_slots === detail.required_slots
-    && detail.slots.length === 3
-    && detail.slots.every((slot) => (
+    && detail.runnable_slots >= detail.min_runtime_healthy
+    && configuredRouteSlots.length >= detail.min_runtime_healthy
+    && configuredRouteSlots.every((slot) => (
       slot.revision
-      && revisionCanFillSlot(slot.revision, slot.slot)
+      && ['probationary', 'certified'].includes(slot.revision.lifecycle)
     ))
   const requiredConfirmation = support?.activation_confirmation || '确认首次启用'
+  const activeSupportSlots = support?.slots.filter((slot) => slot.revision_id) ?? []
+  const requiredSourceCanaries = activeSupportSlots.length || detail.runnable_slots
   const allSlotsPassed = Boolean(
     support
-    && support.slots.length === 3
-    && support.slots.every((slot) => slot.status === 'passed'),
+    && activeSupportSlots.length >= detail.min_runtime_healthy
+    && activeSupportSlots.every((slot) => slot.status === 'passed'),
   )
   const revisionMap = new Map((detail.revisions ?? []).map((revision) => [revision.revision_id, revision]))
 
@@ -785,13 +790,12 @@ function SourceSupportPanel({
     </Table>}
 
     {!routeConfiguredForSources && embedded.length === 0 && <HeroNotice title="此步骤尚未解锁" status="warning">
-      这里不是添加账号的入口。请先完成 Route 参考 Canary，并激活符合
-      “Primary 已认证 + Backup 1 已认证 + Backup 2 至少试运行”的三槽；之后在订阅页创建具体来源，系统建立绑定后才会在这里显示 3/3 验证进度。
+      这里不是添加账号的入口。请先让至少两个不同发布者的 Actor 成功试跑并确认启用；之后在订阅页创建具体来源，系统会按当前实际运行槽位验证。
     </HeroNotice>}
 
     {(routeConfiguredForSources || embedded.length > 0) && <form className="flex min-w-0 flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end" onSubmit={submitLookup}>
       <TextField fullWidth value={sourceInput} onChange={setSourceInput}>
-        <Label>按来源 ID 查看三槽验证</Label>
+        <Label>按来源 ID 查看当前主备验证</Label>
         <Input autoComplete="off" placeholder="仅提交 opaque source_id" />
         <Description>界面不会读取或显示真实目标、Actor input、Run ID 或 Dataset ID。</Description>
       </TextField>
@@ -810,7 +814,9 @@ function SourceSupportPanel({
           <p className="type-meta mt-1 text-muted">绑定状态 {support.binding_status} · generation {support.generation}</p>
         </div>
         <StatusIndicator
-          label={allSlotsPassed ? '3/3 已验证' : '尚未完成 3/3'}
+          label={allSlotsPassed
+            ? `${requiredSourceCanaries}/${requiredSourceCanaries} 已验证`
+            : `尚未完成 ${requiredSourceCanaries}/${requiredSourceCanaries}`}
           tone={allSlotsPassed ? 'success' : 'warning'}
           icon={allSlotsPassed
             ? <Icons.CircleCheck size={13} aria-hidden="true" />
@@ -837,7 +843,7 @@ function SourceSupportPanel({
           </FieldError>}
         </TextField>
       </div>
-      <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源三槽 Canary 状态">
+      <ol className="grid gap-2 min-[720px]:grid-cols-3" aria-label="来源当前主备 Canary 状态">
         {slotOrder.map((slotName) => {
           const slot = support.slots.find((item) => item.slot === slotName)
           const revision = slot?.revision_id
@@ -868,7 +874,7 @@ function SourceSupportPanel({
           </li>
         })}
       </ol>
-      {allSlotsPassed && support.binding_status !== 'ready_3of3' && <form
+      {allSlotsPassed && !['ready_2of2', 'ready_3of3'].includes(support.binding_status) && <form
         className="grid gap-3 border-t border-separator pt-3 min-[720px]:grid-cols-[1fr_auto]"
         onSubmit={(event) => {
           event.preventDefault()
@@ -1391,15 +1397,17 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const activePoolDraft = useMemo(() => {
     if (!detail) return null
     const slots = Object.fromEntries(
-      detail.slots.map((slot) => [slot.slot, slot.revision_id || '']),
+      detail.slots.map((slot) => [slot.slot, slot.revision_id]),
     ) as PoolDraft
-    return slotOrder.every((slot) => slots[slot]) ? slots : null
+    return slotOrder.filter((slot) => slots[slot]).length >= detail.min_runtime_healthy
+      ? slots
+      : null
   }, [detail])
 
   const rollbackDraft = useMemo(() => {
     if (!detail || !rollbackRevision) return null
     const current = Object.fromEntries(
-      detail.slots.map((slot) => [slot.slot, slot.revision_id || '']),
+      detail.slots.map((slot) => [slot.slot, slot.revision_id]),
     ) as PoolDraft
     const next: PoolDraft = {
       ...current,
@@ -1523,8 +1531,8 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
       </section>
 
       <section className="border-t border-separator pt-5" aria-labelledby="actor-ops-source-validation-heading">
-        <h3 id="actor-ops-source-validation-heading" className="type-page-title">来源级三 Actor 验证</h3>
-        <p className="type-meta mt-1 text-muted">新来源必须串行通过 3/3；Revision 变化只使对应槽位待复验。</p>
+        <h3 id="actor-ops-source-validation-heading" className="type-page-title">来源级 Actor 验证</h3>
+        <p className="type-meta mt-1 text-muted">新来源串行验证当前实际运行的 2 或 3 个 Actor；后续补位只复验变化槽位。</p>
         <div className="mt-3"><SourceSupportPanel
           detail={detail}
           queryEnabled={queryEnabled}
@@ -1564,7 +1572,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
             <Modal.Body>
               <div className="grid gap-3" aria-busy={activatePool.isPending}>
                 <HeroNotice title="系统将在提交时重新校验候选" status="warning" role="status">
-                  不接受浏览器指定的 Revision。后端会按当前 generation 自动选择满足 2+1、Actor 唯一、至少两个发布者和固定 Build 的方案。
+                  不接受浏览器指定的 Revision。后端优先选择完整 2+1；暂时不足时允许两个已成功试跑、Actor 与发布者均不同的固定 Build 先以降级模式上线。
                 </HeroNotice>
                 {detail && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
                   <div><dt className="text-muted">Route / 来源类型</dt><dd className="type-control mt-1 break-words">{routeIdentity(detail.platform, detail.target_type, detail.capability)} · {detail.mode === 'fallback' ? '原生优先，Actor 回退' : 'Actor 主链路'}</dd></div>
@@ -1579,7 +1587,11 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
                 type="button"
                 isDisabled={!detail?.activation_recommendation?.ready || detail.activation_recommendation.already_active || activatePool.isPending}
                 onPress={() => detail && activatePool.mutate(detail)}
-              >{activatePool.isPending ? '启用中…' : '确认启用 Actor 主备'}</Button>
+              >{activatePool.isPending
+                ? '启用中…'
+                : detail?.activation_recommendation?.activation_mode === 'expedited_2of3'
+                  ? '确认先启用两路主备'
+                  : '确认启用 Actor 主备'}</Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

@@ -912,3 +912,12 @@
 - 决策内容：删除候选认证后的手工 Revision 下拉与“保存三槽配置”。认证未完成时 UI 只显示 certified Actor、不同 Actor 和发布者缺口；满足 2+1 后，`ApifyActorOpsService` 确定性选择三个 Actor 并投影只读推荐方案。管理员提交的启用请求只含 Route generation 与 `确认启用 Actor 主备`，服务端在同一写事务中重新计算推荐、执行 Actor 唯一、发布者多样性、生命周期、固定 Build、Manifest 完整性与 CAS 校验后生效。
 - 安全与兼容边界：每次付费 Canary 仍需管理员单独确认，系统不得自动产生费用；原 `PUT active-pool` 保留给调费、显式回滚和兼容管理，来源级 3/3 验证不变。已有合格 Active Pool 继续显示只读主备方案，费用调整默认折叠；没有合格推荐、generation 冲突或重复激活都 fail closed。
 - 原因：发布者、Actor ID、Build、Revision 和生命周期同时出现在三个下拉中会让管理员误以为任意选满三项即可启用，也把本应由策略服务拥有的安全选择下放给浏览器。服务端排槽把管理员决策收敛为“是否让已认证方案生效”，同时保留付费和生产启用的人工边界。
+
+### D107 ActorOps 允许两路 Canary 成功后快速上线
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；生产启用仍由管理员一次确认
+- 决策内容：完整 `certified + certified + probationary` 2+1 仍是服务端推荐的第一优先级；但它不再是首期上线的硬阻断。若已有两个不同 Actor、不同发布者、固定 Build 且各完成一次成功 Canary 的 `probationary|certified` Revision，服务端可生成 `expedited_2of3` 推荐，将其放入 Primary/Backup 1，Backup 2 保持 NULL。管理员仍只提交 generation 与 `确认启用 Actor 主备`；浏览器不能选 Revision。
+- 运行与来源边界：两路池以 degraded 状态运行并自动串行故障切换，少于两个 runnable 继续 fail closed；NULL 第三槽不执行、不验证也不产生费用。Capability catalog 可开放该 exact-Build 两路池，新来源串行验证当前实际运行 Revision，两路通过记录 `ready_2of2`，完整三路通过记录 `ready_3of3`。后续第三槽补位增加 generation，只要求变化槽复验。
+- 费用与证据边界：快速上线不改变 Route `$0.02` 默认单次上限，不把 static-valid、超时或合同失败候选伪装成 runnable，也不自动触发 AI、Canary 或 Actor。已有两个安全 Actor 后，UI 隐藏继续为完整 2+1 付费的入口，不再要求强制重新发现；只有安全 Actor 少于两个且尝试耗尽时才需要新 Discovery。
+- 原因：原五次 Canary 上限等于完整 2+1 的理论最少成功次数，任何一次上游失败都会让流程永久停在“重新发现—再付费”循环。运行时本来就以 `min_runtime_healthy=2` 为安全门槛，因此让两个已有成功证据的独立 Actor 先上线，比继续为第三槽反复调用 AI/Actor 更符合成本与可用性目标。

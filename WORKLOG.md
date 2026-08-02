@@ -663,3 +663,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "ActorOps 保持完整 2+1 优先，同时允许两个不同发布者、均已成功 Canary 的固定 Build 先以 2/3 降级主备上线；第三槽空缺且不运行、不产生费用。",
+  "status": "success",
+  "task_id": "2026-08-02-actorops-expedited-two-actor-activation",
+  "unresolved": [
+    "新建具体 Instagram 来源后仍需按当前两个活动 Actor 依次完成来源级 2/2 Canary；本次实现与重建未调用 AI、Actor 或产生费用",
+    "第三槽后续按 generation 热补位；分支未合并 main、未推送，也未发布 VPS"
+  ],
+  "validation": [
+    "真实数据库只读核对：fetch_cat 与 alwaysprimedev 各有成功 Canary；超时的 krazee_kaushik 未进入推荐",
+    "Backend targeted 50 passed；Frontend ActorOps 21 passed；Changelog 5 passed；production build passed",
+    "Full Test Gate 23/23 passed",
+    "8080 已运行提交 fe56d9f，API/Worker healthy、worker_status=ready、scheduler=0；真实 Instagram Route generation 2 已为 ready，两个 probationary Actor 来自不同发布者，第三槽为空"
+  ]
+}
+```

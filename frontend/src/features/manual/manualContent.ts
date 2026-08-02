@@ -89,13 +89,13 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → 获取与主题”中的 ActorOps 统一管理。首期支持检查只提供 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合，不允许把 YouTube 与 Profile 等目标类型任意拼接。Discovery 会在一次 AI 调用中排序并尝试 3–6 个候选，已经通过的部分结果会显示为 1/3 或 2/3 并继续等待补位，不会因暂时不足三槽被隐藏，但达到三个 Actor和两个发布者前不能付费 Canary。目标 URL、handle 或原生 ID 的输入形状由代码从官方 Build Schema 生成，AI 不再猜测 string、array 或 startUrls object；每个输出字段路径也必须能在精确 Build 的 Dataset Schema 中验证，账号或频道内容不能把帖子 URL 当作来源身份。时间映射支持带时区 ISO 以及有界 Unix 秒/毫秒；Actor 先返回账号元数据、后返回真实帖子时会隔离元数据行并继续验证，全为元数据才安全失败。官方输入或静态校验拒绝某个候选时只淘汰该候选并继续。页面会区分 Store/元数据故障、输入不兼容、临时校验故障和真正的候选不足。候选认证未完成时，主备区域只显示还缺几个已认证 Actor、不同 Actor 和发布者，不需要手工选择 Revision。达到两个已认证主备加一个已认证或试运行备用后，后端会自动生成三名 Actor 的方案；页面只展示主用、备用 1、备用 2、Build、认证状态和费用上限，管理员点一次“确认启用 Actor 主备”即可生效。提交时后端会按当前 generation 重新选取并校验，浏览器不能指定 Revision。新账号必须按顺序让三槽各完成一次来源级 Canary，三次都通过后才能首次启用；该区域不是创建来源入口，在主备尚未激活时会保持锁定。每次付费试跑和主备启用都需要管理员单独确认；付费确认页会先列出 Route、来源类型、Actor、Build、商城价格、本次封顶和认证总预算。Canary 默认最长等待 300 秒，超时会中止已知 Run且不自动重试，实际费用从远端终态账本对账；五次用完或剩余次数已经不可能凑齐 2+1 认证时停止继续付费并要求强制重新发现。Actor、Build、Manifest、顺序、Route 费用和 Discovery 输出 Token 上限修改后无需重启；Actor Discovery 继承“助手与 AI”中已保存的全局 provider、model 与 Base URL，并由管理员在同 Provider 的 Key 中人工选择一个，不另存模型配置，也不会自动换用其他 Key。管理员输入“确认AI容量测试”后，可顺序测量 YouTube/Instagram 的模型用量；32K 只用于本次护栏，64K 仅在输出被截断后重测，测试不会启动 Actor 或付费 Canary。页面只显示安全 Token、耗时和验证状态，未知用量不会显示为 0，建议值也不会自动保存。全局 AI 不可用时只能阻断新发现，既有 Route 继续运行。X 已启动 Run 的 Dataset 解码失败只会重读同一 Dataset，不会重新付费启动或切换 Actor。新 Actor、Build 或 Manifest 仍必须通过静态校验、付费 Canary 和管理员激活。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
+        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → 获取与主题”中的 ActorOps 统一管理。首期只支持 X Profile、YouTube Channel 与 Instagram Profile。Discovery 使用全局 AI 排序并生成受限 Manifest，输入形状与输出字段都必须由精确 Build Schema 验证；单个候选不合格只淘汰该候选。主备区域不需要手工选择 Revision：系统优先生成完整 2+1；如果已有两个不同 Actor、来自不同发布者、固定 Build 且各成功一次 Canary，就会直接给出“两路主备快速启用”，第三槽留空且不产生费用。管理员核对当前每 Run 费用上限后只需确认一次生效，少于两个可运行 Actor 仍会阻断。新账号只串行验证当前实际运行的两个或三个 Actor，通过后分别显示 2/2 或 3/3；后续补第三槽只复验变化槽位。每次真实付费 Canary 仍单独确认，默认最长 300 秒且不自动重试，实际费用按远端终态账本对账；已有安全两路时不会再要求为了凑满 2+1 强制重新发现。Actor、Build、Manifest、Route 费用和 Discovery 输出 Token 上限都按 generation 热加载。Actor Discovery 继承“助手与 AI”的 provider、model 与 Base URL，并由管理员从同 Provider 的 Key 中选择一个；全局 AI 不可用只阻断新发现。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
         href: '/settings#settings-fetching',
         linkLabel: '打开 ActorOps',
       },
       {
         title: '按内容类型发现 Actor',
-        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。模型按当前有界目标返回完整的 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低三 Actor、两发布者、官方输入校验或每 Run 0.02 美元上限。',
+        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。模型按当前有界目标返回 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低公开性、固定 Build、官方输入校验或每 Run 0.02 美元默认上限。生产至少需要两个不同发布者且各自成功试跑的 Actor。',
       },
       {
         title: '全局与单源自动更新',

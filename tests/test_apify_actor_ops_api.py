@@ -1037,6 +1037,61 @@ def test_route_activation_uses_server_recommendation_and_exact_confirmation(
     )
 
 
+def test_route_activation_projects_expedited_two_actor_pool(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, revision_ids = _ready_route(
+        store,
+        route_key="instagram/profile/items",
+        activate=False,
+    )
+    store.connect().executemany(
+        """
+        UPDATE apify_actor_adapter_revisions
+        SET lifecycle = ?
+        WHERE revision_id = ?
+        """,
+        [
+            ("probationary", revision_ids[0]),
+            ("probationary", revision_ids[1]),
+            ("static_valid", revision_ids[2]),
+        ],
+    )
+    store.connect().commit()
+
+    detail = client.get(f"/api/admin/apify-routes/{route['route_id']}")
+    assert detail.status_code == 200, detail.text
+    recommendation = detail.json()["data"]["activation_recommendation"]
+    assert recommendation["ready"] is True
+    assert recommendation["activation_mode"] == "expedited_2of3"
+    assert [slot["revision_id"] for slot in recommendation["slots"]] == [
+        revision_ids[0],
+        revision_ids[1],
+        None,
+    ]
+
+    activated = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/active-pool/activate",
+        json={
+            "expected_generation": route["generation"],
+            "confirmation": "确认启用 Actor 主备",
+        },
+    )
+    assert activated.status_code == 200, activated.text
+    payload = activated.json()["data"]
+    assert payload["support_status"] == "supported"
+    assert payload["runtime_status"] == "degraded"
+    assert payload["runnable_slots"] == 2
+    assert [slot["revision_id"] for slot in payload["slots"]] == [
+        revision_ids[0],
+        revision_ids[1],
+        None,
+    ]
+
+
 def test_discovery_projection_reports_rank_rejections_and_committed_spend(
     tmp_path,
     monkeypatch,

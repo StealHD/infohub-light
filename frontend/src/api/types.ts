@@ -812,10 +812,12 @@ export type ApifyActorRouteDetail = ApifyActorRouteSummary & {
     problems: string[]
     certified_actor_count: number
     backup_2_actor_count: number
+    runnable_actor_count: number
     publisher_count: number
+    activation_mode: 'standard_2plus1' | 'expedited_2of3' | null
     slots: Array<{
       slot: ApifyActorSlotName
-      revision_id: string
+      revision_id: string | null
       revision: ApifyActorRevisionSummary | null
     }>
   }
@@ -912,7 +914,7 @@ export type ApifyActorActivePoolUpdate = {
   per_run_cap_usd?: number
   slots: Array<{
     slot: ApifyActorSlotName
-    revision_id: string
+    revision_id: string | null
   }>
 }
 
