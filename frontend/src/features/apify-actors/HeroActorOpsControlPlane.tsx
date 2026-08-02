@@ -104,6 +104,7 @@ const discoveryReasonLabels: Record<string, string> = {
   actor_input_validation_unavailable: '官方输入校验暂时不可用（已完成有界重试）',
   actor_input_validation_contract_error: '输入校验请求合同被拒绝',
   actor_input_schema_unmappable: '官方输入 Schema 无法安全映射目标身份',
+  actor_items_capability_unproven: 'Actor 只提供频道资料或统计，不能返回频道内容',
   apify_actor_metadata_authentication_failed: 'Apify Key 无法认证元数据请求',
   apify_actor_metadata_unavailable: 'Store、Actor 或 Build 元数据暂时不可用',
   apify_actor_metadata_not_found: 'Actor 或固定 Build 元数据不存在',
@@ -116,6 +117,8 @@ const discoveryReasonLabels: Record<string, string> = {
   apify_actor_contract_mismatch: 'Dataset 未满足统一内容合同',
   apify_actor_target_identity_mismatch: 'Dataset 内容无法确认属于目标账号或频道',
   apify_manifest_output_pointer_unverifiable: 'Manifest 字段路径不在固定 Build Dataset Schema 中',
+  apify_manifest_item_identity_invalid: 'Manifest 把频道或主页本身错误映射成内容条目',
+  apify_actor_metadata_only: 'Actor 只返回频道资料，没有返回视频内容；该 Build 已停止重复试跑',
   apify_manifest_source_identity_invalid: 'Manifest 错把内容 URL 当作来源身份',
 }
 
@@ -174,34 +177,28 @@ function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string
 }
 
 
-function minimumCanariesForActivatablePool(
+function minimumCanariesForExpeditedPool(
   candidates: ApifyActorDiscoveryCandidate[],
 ): number | null {
-  const certificationCost = (revision: ApifyActorRevisionSummary): number => {
-    if (['certified', 'legacy_builtin'].includes(revision.lifecycle)) return 0
-    if (revision.lifecycle === 'probationary') return 1
-    if (revision.lifecycle === 'static_valid') return 2
-    return Number.POSITIVE_INFINITY
-  }
   const probationCost = (revision: ApifyActorRevisionSummary): number => {
     if (['certified', 'probationary', 'legacy_builtin'].includes(revision.lifecycle)) return 0
     if (revision.lifecycle === 'static_valid') return 1
     return Number.POSITIVE_INFINITY
   }
+  const eligible = candidates.filter((candidate) => (
+    candidate.revision.can_canary !== false
+    && !candidate.rejection_reasons?.length
+    && Number.isFinite(probationCost(candidate.revision))
+  ))
   let minimum = Number.POSITIVE_INFINITY
-  for (const primary of candidates) {
-    for (const backup1 of candidates) {
-      for (const backup2 of candidates) {
-        const revisions = [primary.revision, backup1.revision, backup2.revision]
-        if (new Set(revisions.map((revision) => revision.actor_id)).size !== 3) continue
-        if (new Set(revisions.map((revision) => revision.publisher)).size < 2) continue
-        minimum = Math.min(
-          minimum,
-          certificationCost(primary.revision)
-            + certificationCost(backup1.revision)
-            + probationCost(backup2.revision),
-        )
-      }
+  for (const primary of eligible) {
+    for (const backup1 of eligible) {
+      if (primary.revision.actor_id === backup1.revision.actor_id) continue
+      if (primary.revision.publisher === backup1.revision.publisher) continue
+      minimum = Math.min(
+        minimum,
+        probationCost(primary.revision) + probationCost(backup1.revision),
+      )
     }
   }
   return Number.isFinite(minimum) ? minimum : null
@@ -466,7 +463,7 @@ function DiscoveryPanel({
   ).size
   const attemptsRemaining = run.canary_attempts_remaining
     ?? Math.max((run.canary_attempts_limit ?? 5) - (run.canary_attempts_used ?? 0), 0)
-  const minimumCanaries = minimumCanariesForActivatablePool(run.candidates)
+  const minimumCanaries = minimumCanariesForExpeditedPool(run.candidates)
   const canaryCapacityBlocked = run.stage === 'awaiting_canary_approval'
     && !detail.activation_recommendation?.ready
     && minimumCanaries !== null

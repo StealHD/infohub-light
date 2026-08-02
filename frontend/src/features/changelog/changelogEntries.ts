@@ -37,6 +37,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '输入校验按候选隔离', description: '官方固定 Build 输入校验拒绝单个候选时会记录安全原因并继续验证后序 proposal；429、5xx、网络和解码错误只做三次有界重试，认证或请求合同错误才终止整次发现。' },
           { title: '输入模板不再依赖模型猜形状', description: '目标 URL、handle 或原生 ID 应放入 string、array 还是标准 startUrls object，由代码从公开 Build Schema 确定性生成；AI 复制安全模板并专注排序、输出映射和语义规则，无法映射的 Actor 在调用模型前淘汰。' },
           { title: '输出映射在付费前验真', description: 'Manifest 的每个 RFC 6901 路径都必须存在于精确 Build Dataset Schema；Profile/Channel 内容不能把帖子 URL 当作账号身份，账户资料型 Dataset 不再进入付费 Canary。' },
+          { title: 'YouTube 元数据 Actor 不再消耗试跑', description: '频道资料、统计或主页字段不能再冒充视频条目；定价事件已明确只提供元数据的 Actor 会在 AI 前淘汰，某个固定 Build 已付费确认只返回元数据、占位或错误内容合同后也会永久关闭重复试跑入口。剩余次数按两个不同发布者的快速主备计算，不再因完整 2+1 来不及完成而误关有效候选。' },
           { title: '混合 Dataset 不再误判失败', description: '时间转换支持有界 Unix 秒和毫秒；Actor 先返回账号元数据、后返回真实帖子时会隔离元数据行并继续验证内容，全为元数据才安全失败。' },
           { title: 'Canary 超时和费用可核对', description: '付费确认先显示 Route、来源、Actor、Build、商城价格和费用边界；Actor 默认最长等待 300 秒，超时中止且不自动重试，终态费用从远端账本回写。已有两路成功证据后不再为凑满第三槽继续付费。' },
           { title: '候选合格后只需确认启用', description: '页面不再暴露 Revision 下拉或手工排槽。服务端优先生成完整 2+1，也可生成两个 Canary 成功 Actor 的快速主备方案；管理员核对 Route、来源模式和费用上限后确认一次生效，浏览器不能指定候选。新来源按当前两或三路完成 2/2 或 3/3 验证。' },

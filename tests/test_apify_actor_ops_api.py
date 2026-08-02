@@ -1180,3 +1180,60 @@ def test_discovery_projection_reports_persisted_partial_pool(
     assert projected["publisher_shortfall"] == 1
     assert len(projected["candidates"]) == 1
     assert projected["candidates"][0]["awaiting_approval"] is False
+
+
+def test_discovery_projection_stops_metadata_only_revision_retries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops, route, run, revision_id = _discovery_revision(store)
+    validation = ops.approve_revision_canary(
+        str(route["route_id"]),
+        revision_id,
+        expected_generation=int(route["generation"]),
+        approval_id="approval-metadata-only-projection",
+        confirmation="确认付费试跑",
+        max_cost_usd=0.02,
+        reference_fingerprint="a" * 64,
+        discovery_run_id=str(run["run_id"]),
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_validations
+        SET status = 'failed', semantic_outcome = 'apify_actor_metadata_only',
+            cost_usd = 0.001, completed_at = created_at
+        WHERE validation_id = ?
+        """,
+        (validation["validation_id"],),
+    )
+    store.connect().commit()
+
+    response = client.get(
+        f"/api/admin/apify-discovery-runs/{run['run_id']}"
+    )
+
+    assert response.status_code == 200, response.text
+    candidate = response.json()["data"]["candidates"][0]
+    assert candidate["awaiting_approval"] is False
+    assert candidate["revision"]["can_canary"] is False
+    assert candidate["rejection_reasons"] == ["apify_actor_metadata_only"]
+
+    repeated = client.post(
+        (
+            f"/api/admin/apify-discovery-runs/{run['run_id']}/candidates/"
+            f"{revision_id}/canary"
+        ),
+        json={
+            "expected_generation": int(route["generation"]),
+            "approval_id": "approval-metadata-only-repeat",
+            "confirmation": "确认付费试跑",
+            "max_total_charge_usd": 0.02,
+        },
+    )
+    assert repeated.status_code == 412, repeated.text
+    assert repeated.json()["error"]["code"] == (
+        "apify_actor_revision_output_incompatible"
+    )

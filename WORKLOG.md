@@ -688,3 +688,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "修正 YouTube Channel Items 候选判定与审批可达性：频道资料/统计与频道自身 ID/URL 不再冒充视频内容，固定 Build 的永久输出失败停止重复付费，剩余次数按两个不同发布者的快速主备计算。",
+  "status": "partial",
+  "task_id": "2026-08-02-youtube-actor-items-capability-gate",
+  "unresolved": [
+    "真实 Route 仍需对剩余 streamers 与 apidojo 两个不同发布者的候选各执行一次管理员确认的付费 Canary；本次未调用 AI、Actor 或产生费用",
+    "分支未合并 main、未推送，也未发布 VPS"
+  ],
+  "validation": [
+    "真实数据库只读重判五个 YouTube 候选：三个以历史 metadata-only 或静态 item identity 冲突阻断，仅保留 streamers 与 apidojo 两个不同发布者候选",
+    "Backend targeted 70 passed；Frontend ActorOps 22 passed（含 3 个阻断候选、2 个有效候选仍显示两个付费入口）；Python compile、TypeScript typecheck 与 git diff check 通过",
+    "Full Test Gate 23/23 passed in 193.596 seconds"
+  ]
+}
+```

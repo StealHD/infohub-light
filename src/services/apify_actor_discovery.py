@@ -26,6 +26,8 @@ from .apify_actor_manifest import (
     ActorManifestError,
     ActorRuntime,
     ActorTarget,
+    actor_manifest_capability_error,
+    actor_pricing_capability_error,
     parse_actor_manifest,
     render_actor_input,
 )
@@ -450,6 +452,9 @@ class ApifyActorDiscoveryService:
                 candidate = await self._load_candidate(
                     actor_id,
                     per_run_cap_usd=float(route["per_run_cap_usd"]),
+                    platform=str(route["platform"]),
+                    target_type=str(route["target_type"]),
+                    capability=str(route["capability"]),
                 )
             except ActorDiscoveryError as error:
                 if error.code == "apify_actor_metadata_authentication_failed":
@@ -804,6 +809,9 @@ class ApifyActorDiscoveryService:
         actor_id: str,
         *,
         per_run_cap_usd: float,
+        platform: str,
+        target_type: str,
+        capability: str,
     ) -> DiscoveryCandidate:
         actor = dict(await _maybe_await(self.metadata_client.get_actor(actor_id)))
         metadata_identities = {
@@ -853,6 +861,12 @@ class ApifyActorDiscoveryService:
             raise _reject("actor_input_schema_unmappable")
         pricing = _pricing(actor)
         _validate_pricing(pricing, per_run_cap_usd)
+        _validate_capability_pricing(
+            pricing,
+            platform=platform,
+            target_type=target_type,
+            capability=capability,
+        )
         publisher = _publisher(actor_id, actor)
         return DiscoveryCandidate(
             actor_id=actor_id,
@@ -1107,6 +1121,23 @@ def _validate_pricing(pricing: Mapping[str, Any], cap: float) -> None:
             ):
                 raise _reject("actor_pricing_invalid")
             _validate_price_value(tier["tieredEventPriceUsd"], cap)
+
+
+def _validate_capability_pricing(
+    pricing: Mapping[str, Any],
+    *,
+    platform: str,
+    target_type: str,
+    capability: str,
+) -> None:
+    error_code = actor_pricing_capability_error(
+        pricing,
+        platform=platform,
+        target_type=target_type,
+        capability=capability,
+    )
+    if error_code is not None:
+        raise _reject(error_code)
 
 
 def _safe_pricing_summary(pricing: Mapping[str, Any]) -> dict[str, Any]:
@@ -1600,6 +1631,17 @@ def _validate_manifest_route_identity(
             raise ActorManifestError(
                 "apify_manifest_source_identity_invalid",
                 "Profile or channel identity cannot reuse the content item URL",
+            )
+    if target_type in {"profile", "channel"} and capability == "items":
+        error_code = actor_manifest_capability_error(
+            manifest,
+            target_type=target_type,
+            capability=capability,
+        )
+        if error_code is not None:
+            raise ActorManifestError(
+                error_code,
+                "Content item identity cannot map only to profile or channel fields",
             )
 
 

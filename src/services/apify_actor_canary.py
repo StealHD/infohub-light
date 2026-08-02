@@ -57,6 +57,13 @@ _REFERENCE_TARGETS: dict[str, tuple[ActorTarget, ...]] = {
 DEFAULT_ACTOR_CANARY_TIMEOUT_SECONDS = 300
 MIN_ACTOR_CANARY_TIMEOUT_SECONDS = 180
 MAX_ACTOR_CANARY_TIMEOUT_SECONDS = 900
+_HARD_OUTPUT_CONTRACT_FAILURES = frozenset(
+    {
+        "apify_actor_contract_mismatch",
+        "apify_actor_metadata_only",
+        "apify_actor_placeholder",
+    }
+)
 
 
 def actor_canary_timeout_seconds() -> int:
@@ -435,6 +442,11 @@ class ApifyActorCanaryRunner:
                 attempt_id=attempt_id,
                 cost_usd=actual_charge_usd,
             )
+            if (
+                str(row["kind"]) == "route_reference"
+                and str(exc.code) in _HARD_OUTPUT_CONTRACT_FAILURES
+            ):
+                self._stop_incompatible_revision(str(row["revision_id"]))
             raise ActorOpsError(
                 str(exc.code),
                 "Actor Canary output failed semantic validation",
@@ -636,6 +648,25 @@ class ApifyActorCanaryRunner:
                 "apify_actor_revision_observation_incomplete",
                 "apify_actor_revision_success_rate_low",
             }:
+                raise
+
+    def _stop_incompatible_revision(self, revision_id: str) -> None:
+        """Prevent another paid Canary for an immutable incompatible Build."""
+
+        lifecycle = str(self.ops.get_revision(revision_id)["lifecycle"])
+        destination = (
+            "rejected" if lifecycle == "static_valid" else "quarantined"
+        )
+        if lifecycle not in {"static_valid", "probationary"}:
+            return
+        try:
+            self.ops.transition_revision(
+                revision_id,
+                expected_lifecycle=lifecycle,
+                lifecycle=destination,
+            )
+        except ActorOpsError as exc:
+            if exc.code != "apify_actor_revision_generation_conflict":
                 raise
 
 def _source_target(

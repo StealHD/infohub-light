@@ -921,3 +921,11 @@
 - 运行与来源边界：两路池以 degraded 状态运行并自动串行故障切换，少于两个 runnable 继续 fail closed；NULL 第三槽不执行、不验证也不产生费用。Capability catalog 可开放该 exact-Build 两路池，新来源串行验证当前实际运行 Revision，两路通过记录 `ready_2of2`，完整三路通过记录 `ready_3of3`。后续第三槽补位增加 generation，只要求变化槽复验。
 - 费用与证据边界：快速上线不改变 Route `$0.02` 默认单次上限，不把 static-valid、超时或合同失败候选伪装成 runnable，也不自动触发 AI、Canary 或 Actor。已有两个安全 Actor 后，UI 隐藏继续为完整 2+1 付费的入口，不再要求强制重新发现；只有安全 Actor 少于两个且尝试耗尽时才需要新 Discovery。
 - 原因：原五次 Canary 上限等于完整 2+1 的理论最少成功次数，任何一次上游失败都会让流程永久停在“重新发现—再付费”循环。运行时本来就以 `min_runtime_healthy=2` 为安全门槛，因此让两个已有成功证据的独立 Actor 先上线，比继续为第三槽反复调用 AI/Actor 更符合成本与可用性目标。
+
+### D108 YouTube Items 采用静态负证据与不可变失败终止重复付费
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；本次修复不自动发起付费 Canary
+- 决策内容：`youtube/channel/items` 不再把“能抓频道”视为“能抓频道视频”。若 pay-per-event 除启动费外只声明频道资料、统计、订阅者或描述链接事件，候选在 AI 前以安全原因淘汰；Manifest 的内容 `native_id/url` 若只映射频道或主页自身字段，也在付费前阻断。带 video/post/item 等内容语义的字段继续允许，泛化 `result` 事件保持未知并交给 Manifest 与 Canary 验真，避免把弱元数据误作充分证据。
+- 不可变失败边界：Route 参考 Canary 已确认固定 Build 全为元数据、占位或违反统一内容合同时，该 Revision 进入 rejected/quarantined，历史同类失败也使后续审批返回 412，不得靠刷新页面重复付费。网络、超时、限流和临时系统错误不进入这一永久集合。页面的剩余 Canary 可达性按两路快速池计算，排除上述不可付费候选，并要求两个 Actor 与发布者均不同；完整 2+1 无法在当前轮完成不再阻断安全的两路试跑。
+- 原因与安全边界：实测 YouTube 的首个候选远端成功并结算 `$0.001`，但 Dataset 只有频道元数据；同轮五个候选中另有两个 Manifest 把 channel ID/URL 当作视频 ID/URL。系统仅持久化安全 reason code、定价摘要和既有 Validation 证据，不保存或回显原始 Dataset。

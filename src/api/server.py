@@ -151,6 +151,13 @@ _ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SECRET_PREFIXES = ("sk-", "sk_", "AIza", "xai-", "gsk_", "hf_", "tp-")
 _LOGGER = logging.getLogger(__name__)
 SERVICE_STATIC_DIR = Path(__file__).resolve().parents[1] / "ui" / "service_static"
+_NONRETRYABLE_ACTOR_OUTPUT_FAILURES = frozenset(
+    {
+        "apify_actor_contract_mismatch",
+        "apify_actor_metadata_only",
+        "apify_actor_placeholder",
+    }
+)
 
 
 def resolve_service_static_dir(
@@ -4259,6 +4266,22 @@ def create_app(
             validation_status = (
                 str(validation["status"]) if validation is not None else None
             )
+            validation_outcome = (
+                str(validation["semantic_outcome"])
+                if validation is not None
+                and validation.get("semantic_outcome") is not None
+                else None
+            )
+            static_block_reason = ops.revision_canary_block_reason(
+                str(run["route_id"]),
+                str(row["revision_id"]),
+            )
+            permanently_incompatible = static_block_reason is not None
+            rejection_reason = (
+                validation_outcome
+                if validation_outcome in _NONRETRYABLE_ACTOR_OUTPUT_FAILURES
+                else static_block_reason
+            )
             canary_in_flight = validation_status in {"queued", "running"}
             validation_cost = None
             validation_cost_final = False
@@ -4283,18 +4306,16 @@ def create_app(
                         )
                     except ValueError:
                         validation_duration_ms = None
+            public_revision = public_actor_ops_revision(revision)
+            if permanently_incompatible:
+                public_revision["can_canary"] = False
             candidates.append(
                 {
-                    "revision": public_actor_ops_revision(revision),
+                    "revision": public_revision,
                     "rank": rank,
                     "status": lifecycle,
                     "validation_status": validation_status,
-                    "validation_outcome": (
-                        str(validation["semantic_outcome"])
-                        if validation is not None
-                        and validation.get("semantic_outcome") is not None
-                        else None
-                    ),
+                    "validation_outcome": validation_outcome,
                     "validation_cost_usd": validation_cost,
                     "validation_cost_final": validation_cost_final,
                     "validation_duration_ms": validation_duration_ms,
@@ -4305,11 +4326,16 @@ def create_app(
                         else None
                     ),
                     "canary_in_flight": canary_in_flight,
-                    "rejection_reasons": [],
+                    "rejection_reasons": (
+                        [rejection_reason]
+                        if permanently_incompatible and rejection_reason
+                        else []
+                    ),
                     "awaiting_approval": (
                         effective_stage == "awaiting_canary_approval"
                         and lifecycle in {"static_valid", "probationary"}
                         and not canary_in_flight
+                        and not permanently_incompatible
                     ),
                 }
             )

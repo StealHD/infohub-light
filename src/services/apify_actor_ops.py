@@ -24,7 +24,9 @@ from ..storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 from .apify_actor_manifest import (
     ActorManifestError,
     ActorManifestV1,
+    actor_manifest_capability_error,
     actor_manifest_hash,
+    actor_pricing_capability_error,
     canonical_manifest_json,
     parse_actor_manifest,
 )
@@ -71,6 +73,13 @@ MEMBER_SUPPORT_CHECKS_PER_DAY = 10
 MEMBER_PENDING_DISCOVERY_ROUTES = 20
 _RUNNABLE_CANDIDATE_STATES = frozenset({"closed", "half_open", "probationary"})
 _READY_BINDING_STATUSES = frozenset({"ready_2of2", "ready_3of3"})
+_HARD_OUTPUT_CONTRACT_FAILURES = frozenset(
+    {
+        "apify_actor_contract_mismatch",
+        "apify_actor_metadata_only",
+        "apify_actor_placeholder",
+    }
+)
 _BLOCKING_ROUTE_STATUSES = frozenset(
     {
         "blocked",
@@ -655,6 +664,79 @@ class ApifyActorOpsService:
         for name in ("pricing_json", "security_evidence_json"):
             result[name.removesuffix("_json")] = _safe_json(result.pop(name), {})
         return result
+
+    def revision_canary_block_reason(
+        self,
+        route_id: str,
+        revision_id: str,
+    ) -> str | None:
+        return self._revision_canary_block_reason(
+            self.store.connect(),
+            route_id,
+            revision_id,
+        )
+
+    def _revision_canary_block_reason(
+        self,
+        connection: sqlite3.Connection,
+        route_id: str,
+        revision_id: str,
+    ) -> str | None:
+        row = connection.execute(
+            """
+            SELECT revision.manifest_json, revision.pricing_json,
+                   profile.platform, profile.target_type, profile.capability
+            FROM apify_actor_adapter_revisions AS revision
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            JOIN apify_actor_route_profiles AS profile
+              ON profile.workspace_id = candidate.workspace_id
+             AND profile.route_key = candidate.route_key
+            WHERE revision.workspace_id = ? AND revision.revision_id = ?
+              AND profile.route_id = ?
+            """,
+            (self.workspace_id, revision_id, route_id),
+        ).fetchone()
+        if row is None:
+            return "apify_actor_revision_not_canary_ready"
+        incompatible = connection.execute(
+            """
+            SELECT 1
+            FROM apify_actor_validations
+            WHERE workspace_id = ? AND route_id = ?
+              AND revision_id = ? AND kind = 'route_reference'
+              AND status = 'failed'
+              AND semantic_outcome IN (?, ?, ?)
+            LIMIT 1
+            """,
+            (
+                self.workspace_id,
+                route_id,
+                revision_id,
+                *sorted(_HARD_OUTPUT_CONTRACT_FAILURES),
+            ),
+        ).fetchone()
+        if incompatible is not None:
+            return "apify_actor_revision_output_incompatible"
+        manifest = _safe_json(row["manifest_json"], {})
+        pricing = _safe_json(row["pricing_json"], {})
+        try:
+            manifest_error = actor_manifest_capability_error(
+                manifest,
+                target_type=str(row["target_type"]),
+                capability=str(row["capability"]),
+            )
+        except ActorManifestError as exc:
+            return str(exc.code)
+        if manifest_error is not None:
+            return manifest_error
+        return actor_pricing_capability_error(
+            pricing,
+            platform=str(row["platform"]),
+            target_type=str(row["target_type"]),
+            capability=str(row["capability"]),
+        )
 
     def _safe_route_row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
@@ -2853,6 +2935,17 @@ class ApifyActorOpsService:
                 raise ActorOpsError(
                     "apify_actor_revision_not_canary_ready",
                     "Actor adapter revision is not ready for Canary",
+                    status_code=412,
+                )
+            block_reason = self._revision_canary_block_reason(
+                connection,
+                route_id,
+                revision_id,
+            )
+            if block_reason is not None:
+                raise ActorOpsError(
+                    block_reason,
+                    "Actor revision does not prove the Route item capability",
                     status_code=412,
                 )
             effective_discovery_run_id = (

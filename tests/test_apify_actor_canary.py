@@ -256,6 +256,24 @@ def test_paid_canary_records_remote_charge_when_output_mapping_fails(tmp_path):
         "cost_usd": 0.013,
         "actual_cost_usd": 0.013,
     }
+    assert ops.get_revision(revision_id)["lifecycle"] == "rejected"
+    with pytest.raises(ActorOpsError) as repeated:
+        ops.approve_revision_canary(
+            route["route_id"],
+            revision_id,
+            expected_generation=route["generation"],
+            approval_id="approval-cost-evidence-repeat",
+            confirmation=PAID_CANARY_CONFIRMATION,
+            max_cost_usd=0.02,
+            reference_fingerprint=next_reference_fingerprint(
+                store,
+                workspace_id=ops.workspace_id,
+                platform="x",
+                route_id=str(route["route_id"]),
+                revision_id=revision_id,
+            ),
+        )
+    assert repeated.value.code == "apify_actor_revision_not_canary_ready"
 
 
 def test_timed_out_canary_reconciles_final_remote_charge(tmp_path) -> None:
@@ -379,20 +397,27 @@ def test_fifth_failed_route_canary_exhausts_discovery_cycle(tmp_path) -> None:
         trigger_reason="test_canary_exhaustion",
         expected_generation=int(route["generation"]),
     )
-    candidate_id = ops.ensure_candidate(
-        route["route_id"],
-        actor_id="publisher/reference-actor",
-    )
-    revision_id = ops.create_adapter_revision(
-        candidate_id=candidate_id,
-        actor_id="publisher/reference-actor",
-        publisher="publisher",
-        build_id="build-canary-exhaustion",
-        build_number="1.0.1",
-        manifest=_manifest(),
-        lifecycle="static_valid",
-        discovery_run_id=str(run["run_id"]),
-    )
+    revision_ids: list[str] = []
+    for index in range(5):
+        actor_id = f"publisher/reference-actor-{index}"
+        manifest = _manifest()
+        manifest["actor_id"] = actor_id
+        candidate_id = ops.ensure_candidate(
+            route["route_id"],
+            actor_id=actor_id,
+        )
+        revision_ids.append(
+            ops.create_adapter_revision(
+                candidate_id=candidate_id,
+                actor_id=actor_id,
+                publisher="publisher",
+                build_id=f"build-canary-exhaustion-{index}",
+                build_number="1.0.1",
+                manifest=manifest,
+                lifecycle="static_valid",
+                discovery_run_id=str(run["run_id"]),
+            )
+        )
     ops.update_discovery_run(
         str(run["run_id"]),
         expected_stage="queued",
@@ -412,7 +437,7 @@ def test_fifth_failed_route_canary_exhausts_discovery_cycle(tmp_path) -> None:
                 actual_charge_usd=0.001,
             )
 
-    for index in range(5):
+    for index, revision_id in enumerate(revision_ids):
         validation = ops.approve_revision_canary(
             route["route_id"],
             revision_id,

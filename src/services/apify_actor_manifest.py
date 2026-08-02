@@ -1431,6 +1431,89 @@ def _json_type(value: Any) -> str:
     return "unknown"
 
 
+def actor_manifest_capability_error(
+    manifest: ActorManifestV1 | Mapping[str, Any],
+    *,
+    target_type: str,
+    capability: str,
+) -> str | None:
+    """Return a deterministic incompatibility without reading Dataset values."""
+
+    parsed = parse_actor_manifest(manifest)
+    if target_type not in {"profile", "channel"} or capability != "items":
+        return None
+    for mapping in (parsed.output.native_id, parsed.output.url):
+        if mapping is None:
+            continue
+        if all(_pointer_is_source_identity(pointer) for pointer in mapping.pointers):
+            return "apify_manifest_item_identity_invalid"
+    return None
+
+
+def actor_pricing_capability_error(
+    pricing: Mapping[str, Any],
+    *,
+    platform: str,
+    target_type: str,
+    capability: str,
+) -> str | None:
+    """Use only strong price-event evidence to reject metadata-only Actors."""
+
+    if (platform, target_type, capability) != (
+        "youtube",
+        "channel",
+        "items",
+    ):
+        return None
+    pricing_per_event = pricing.get("pricingPerEvent")
+    events = (
+        pricing_per_event.get("actorChargeEvents")
+        if isinstance(pricing_per_event, Mapping)
+        else None
+    )
+    if not isinstance(events, Mapping):
+        return None
+    names = [
+        re.sub(r"[^a-z0-9]+", "-", str(name).casefold()).strip("-")
+        for name in events
+        if str(name).strip()
+    ]
+    substantive = [
+        name
+        for name in names
+        if name not in {"actor-start", "apify-actor-start", "run-start"}
+    ]
+    if not substantive or any(
+        any(marker in name for marker in ("video", "dataset-item"))
+        for name in substantive
+    ):
+        return None
+    metadata_markers = (
+        "channel",
+        "profile",
+        "statistic",
+        "subscriber",
+        "enrichment",
+        "description-link",
+    )
+    if all(
+        any(marker in name for marker in metadata_markers)
+        for name in substantive
+    ):
+        return "actor_items_capability_unproven"
+    return None
+
+
+def _pointer_is_source_identity(pointer: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "", pointer.casefold())
+    if any(
+        marker in normalized
+        for marker in ("video", "post", "tweet", "item", "media", "short", "reel")
+    ):
+        return False
+    return any(marker in normalized for marker in ("channel", "profile"))
+
+
 __all__ = [
     "ALLOWED_REFERENCES",
     "ALLOWED_TRANSFORMS",
@@ -1444,6 +1527,8 @@ __all__ = [
     "OutputFieldMapping",
     "SemanticValidation",
     "actor_manifest_hash",
+    "actor_manifest_capability_error",
+    "actor_pricing_capability_error",
     "canonical_manifest_json",
     "map_actor_output",
     "normalize_http_url",

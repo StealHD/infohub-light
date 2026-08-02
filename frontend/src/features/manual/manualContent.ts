@@ -95,7 +95,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '按内容类型发现 Actor',
-        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。模型按当前有界目标返回 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低公开性、固定 Build、官方输入校验或每 Run 0.02 美元默认上限。生产至少需要两个不同发布者且各自成功试跑的 Actor。',
+        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。YouTube 候选若定价事件和 Manifest 只能证明频道资料、统计或主页身份，会在付费前淘汰；某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。模型按当前有界目标返回 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低公开性、固定 Build、官方输入校验或每 Run 0.02 美元默认上限。生产至少需要两个不同发布者且各自成功试跑的 Actor。',
       },
       {
         title: '全局与单源自动更新',

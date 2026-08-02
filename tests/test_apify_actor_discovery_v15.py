@@ -15,6 +15,7 @@ from src.services.apify_actor_discovery import (
     _input_template_from_schema,
     _pricing,
     _safe_pricing_summary,
+    _validate_capability_pricing,
     _validate_manifest_output_schema,
     _validate_manifest_route_identity,
     _validate_pricing,
@@ -159,6 +160,38 @@ def test_profile_item_identity_cannot_reuse_item_url() -> None:
             capability="items",
         )
     assert error.value.code == "apify_manifest_source_identity_invalid"
+
+
+def test_channel_items_cannot_use_channel_fields_as_item_identity() -> None:
+    raw = _manifest("publisher/actor", "1.0.0")
+    raw["output"]["native_id"] = {"pointers": ["/channelId"]}
+    raw["output"]["url"] = {
+        "pointers": ["/channelUrl"],
+        "transforms": ["normalize_url"],
+    }
+    manifest = parse_actor_manifest(raw)
+    with pytest.raises(ActorManifestError) as error:
+        _validate_manifest_route_identity(
+            manifest,
+            target_type="channel",
+            capability="items",
+        )
+    assert error.value.code == "apify_manifest_item_identity_invalid"
+
+
+def test_channel_video_fields_are_valid_item_identity() -> None:
+    raw = _manifest("publisher/actor", "1.0.0")
+    raw["output"]["native_id"] = {"pointers": ["/channelVideoId"]}
+    raw["output"]["url"] = {
+        "pointers": ["/channelVideoUrl"],
+        "transforms": ["normalize_url"],
+    }
+    manifest = parse_actor_manifest(raw)
+    _validate_manifest_route_identity(
+        manifest,
+        target_type="channel",
+        capability="items",
+    )
 
 
 class _Metadata:
@@ -1343,6 +1376,9 @@ def test_candidate_security_evidence_is_fail_closed(
             service._load_candidate(
                 "publisher-a/one",
                 per_run_cap_usd=0.02,
+                platform="youtube",
+                target_type="channel",
+                capability="items",
             )
         )
     assert caught.value.code == expected_code
@@ -1426,6 +1462,42 @@ def test_official_pay_per_event_tiers_are_bounded_by_route_cap() -> None:
     with pytest.raises(ActorDiscoveryError) as caught:
         _validate_pricing(pricing, 0.02)
     assert caught.value.code == "actor_price_above_route_cap"
+
+
+def test_youtube_metadata_only_event_pricing_is_rejected_before_ai() -> None:
+    metadata_only = {
+        "pricingModel": "PAY_PER_EVENT",
+        "pricingPerEvent": {
+            "actorChargeEvents": {
+                "apify-actor-start": {"eventPriceUsd": 0.001},
+                "youtube-channel-row": {"eventPriceUsd": 0.00045},
+                "description-links-enrichment": {"eventPriceUsd": 0.0004},
+            }
+        },
+    }
+    with pytest.raises(ActorDiscoveryError) as caught:
+        _validate_capability_pricing(
+            metadata_only,
+            platform="youtube",
+            target_type="channel",
+            capability="items",
+        )
+    assert caught.value.code == "actor_items_capability_unproven"
+
+    for content_event in ("result", "dataset-item", "channel-video"):
+        _validate_capability_pricing(
+            {
+                "pricingModel": "PAY_PER_EVENT",
+                "pricingPerEvent": {
+                    "actorChargeEvents": {
+                        content_event: {"eventPriceUsd": 0.001},
+                    }
+                },
+            },
+            platform="youtube",
+            target_type="channel",
+            capability="items",
+        )
 
 
 def test_pricing_models_enforce_mutually_exclusive_price_shapes() -> None:

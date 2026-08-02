@@ -696,6 +696,103 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
   })
 
+  it('keeps two viable candidates approvable when three metadata candidates are blocked', async () => {
+    const detail = actorOpsDetail({
+      discovery_run_id: 'discovery-run-1',
+      runtime_status: 'blocked',
+      runnable_slots: 0,
+      activation_recommendation: {
+        ready: false,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: ['probationary_candidates_incomplete'],
+        certified_actor_count: 0,
+        backup_2_actor_count: 0,
+        runnable_actor_count: 0,
+        publisher_count: 0,
+        activation_mode: null,
+        slots: [],
+      },
+    })
+    const run = discoveryRun(detail)
+    const candidate = run.candidates[0]
+    run.canary_attempts_used = 1
+    run.canary_attempts_limit = 5
+    run.canary_attempts_remaining = 4
+    run.candidate_count = 5
+    run.publisher_count = 4
+    run.candidates = [
+      {
+        ...candidate,
+        rank: 1,
+        awaiting_approval: false,
+        rejection_reasons: ['apify_actor_metadata_only'],
+        revision: {
+          ...candidate.revision,
+          revision_id: 'revision-metadata-only',
+          actor_id: 'metadata/channel',
+          publisher: 'metadata',
+          can_canary: false,
+        },
+      },
+      {
+        ...candidate,
+        rank: 2,
+        revision: {
+          ...candidate.revision,
+          revision_id: 'revision-streamers',
+          actor_id: 'streamers/videos',
+          publisher: 'streamers',
+        },
+      },
+      {
+        ...candidate,
+        rank: 3,
+        awaiting_approval: false,
+        rejection_reasons: ['apify_manifest_item_identity_invalid'],
+        revision: {
+          ...candidate.revision,
+          revision_id: 'revision-channel-id',
+          actor_id: 'metadata/statistics',
+          publisher: 'metadata',
+          can_canary: false,
+        },
+      },
+      {
+        ...candidate,
+        rank: 4,
+        revision: {
+          ...candidate.revision,
+          revision_id: 'revision-apidojo',
+          actor_id: 'apidojo/videos',
+          publisher: 'apidojo',
+        },
+      },
+      {
+        ...candidate,
+        rank: 5,
+        awaiting_approval: false,
+        rejection_reasons: ['apify_manifest_item_identity_invalid'],
+        revision: {
+          ...candidate.revision,
+          revision_id: 'revision-profile-id',
+          actor_id: 'profile/channel',
+          publisher: 'profile',
+          can_canary: false,
+        },
+      },
+    ]
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(run),
+    })
+
+    expect(await screen.findByText('5/3 Actor · 4/2 发布者；Canary 1/5 次')).toBeVisible()
+    expect(screen.queryByText('成功试跑 Actor 仍不足两路')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '确认付费 Canary' })).toHaveLength(2)
+  })
+
   it('offers expedited two-Actor activation without another paid attempt', async () => {
     const base = actorOpsDetail()
     const expeditedRevisions = base.revisions.map((revision, index) => ({
