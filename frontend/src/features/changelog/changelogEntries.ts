@@ -39,6 +39,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '输出映射在付费前验真', description: 'Manifest 的每个 RFC 6901 路径都必须存在于精确 Build Dataset Schema；Profile/Channel 内容不能把帖子 URL 当作账号身份，账户资料型 Dataset 不再进入付费 Canary。' },
           { title: '混合 Dataset 不再误判失败', description: '时间转换支持有界 Unix 秒和毫秒；Actor 先返回账号元数据、后返回真实帖子时会隔离元数据行并继续验证内容，全为元数据才安全失败。' },
           { title: 'Canary 超时和费用可核对', description: '付费确认先显示 Route、来源、Actor、Build、商城价格和费用边界；Actor 默认最长等待 300 秒，超时中止且不自动重试，终态费用从远端账本回写。五次仍未凑齐三 Revision 时停止审批并要求重新发现。' },
+          { title: '认证步骤不再靠报错猜', description: '三槽选择器会在提交前区分已认证与试运行 Revision，并说明 Actor/发布者规则；来源级验证在 Route 尚未激活时保持锁定。若本轮剩余 Canary 已不可能凑齐 2+1，页面会提前停止继续付费并提示重新发现。' },
           { title: 'Dataset 解码不重复付费', description: '所有 Apify 请求显式使用 identity encoding；已启动 X Run 的 Dataset 解码失败只会使用同一 Key 重读同一 Dataset，不会二次启动 Actor或切换槽位，耗尽后保留账本并安全阻断对账。' },
           { title: '支持组合固定', description: '首期支持检查只显示 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合。离线升级会在确认没有候选、费用、绑定、验证或活跃任务证据后安全清理误建的 YouTube Profile，并保留合法 Route 的 generation 单调性。' },
           { title: '发现失败安全停止', description: 'Discovery Worker 的额度准入依赖已补齐；如果后续仍发生未处理异常，对应 Run 会与失败 Job 一起进入终态，不再保持 queued 并每轮重复补建任务。失败发生在 Store 或 AI 调用前时不会伪造查询、候选或可用度。' },

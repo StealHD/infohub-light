@@ -89,6 +89,7 @@ const actorErrorLabels: Record<string, string> = {
   apify_actor_canary_source_required: '请先选择一个 X 账号进行试跑。',
   apify_actor_canary_unavailable: '当前不能发起 Actor 试跑。',
   apify_actor_canary_active: '这个 Actor 已有一项试跑正在等待或执行。',
+  apify_actor_active_pool_uncertified: 'Primary 与 Backup 1 必须使用已认证 Revision，Backup 2 至少需要试运行；请先完成 Route Canary 和观察期。',
   apify_actor_canary_required: '该 Actor 需要先完成付费试跑，才能启用。',
   apify_actor_routing_disabled: 'Apify Actor 路由当前未启用。',
   invalid_apify_actor_alert_settings: '告警设置无效，请检查后重试。',

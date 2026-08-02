@@ -679,6 +679,79 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
   })
 
+  it('stops a mathematically incomplete Canary cycle before another paid attempt', async () => {
+    const detail = actorOpsDetail({
+      discovery_run_id: 'discovery-run-1',
+      support_status: 'pending',
+      runtime_status: 'blocked',
+      runnable_slots: 0,
+      publisher_count: 0,
+      slots: [
+        { slot: 'primary', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
+      ],
+    })
+    const run = discoveryRun(detail)
+    run.canary_attempts_used = 4
+    run.canary_attempts_limit = 5
+    run.canary_attempts_remaining = 1
+    run.candidates = [
+      {
+        ...run.candidates[0],
+        revision: {
+          ...detail.revisions[0],
+          lifecycle: 'probationary',
+          can_canary: true,
+        },
+      },
+      {
+        ...run.candidates[0],
+        rank: 2,
+        revision: {
+          ...detail.revisions[1],
+          lifecycle: 'probationary',
+          can_canary: true,
+        },
+      },
+      {
+        ...run.candidates[0],
+        rank: 3,
+        revision: {
+          ...detail.revisions[2],
+          lifecycle: 'static_valid',
+          can_canary: true,
+        },
+      },
+    ]
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      apifyActorDiscoveryRun: vi.fn().mockResolvedValue(run),
+    })
+
+    expect(await screen.findByText('本轮剩余 Canary 无法完成 2+1')).toBeVisible()
+    expect(screen.getByText(/至少还需要 3 次全部成功/)).toBeVisible()
+    expect(screen.getAllByText(/用于 Primary\/Backup 1 仍需第二个独立参考来源/)).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: '确认付费 Canary' })).not.toBeInTheDocument()
+    expect(screen.getByText('此步骤尚未解锁')).toBeVisible()
+    expect(screen.queryByPlaceholderText('仅提交 opaque source_id')).not.toBeInTheDocument()
+  })
+
+  it('allows probationary revisions only in Backup 2', async () => {
+    const browser = userEvent.setup()
+    renderFeature()
+
+    await screen.findByRole('grid', { name: 'x/profile 三槽 Actor Pool' })
+    await browser.click(screen.getByRole('button', { name: /Primary Revision$/ }))
+    expect(await screen.findByRole('option', { name: /Publisher A Probationary · 1\.0\.3/ }))
+      .toHaveAttribute('aria-disabled', 'true')
+    await browser.keyboard('{Escape}')
+    await browser.click(screen.getByRole('button', { name: /Backup 2 Revision$/ }))
+    expect(await screen.findByRole('option', { name: /Publisher A Probationary · 1\.0\.3/ }))
+      .not.toHaveAttribute('aria-disabled', 'true')
+  })
+
   it('renders safe three-slot projections and submits a generation-checked support request', async () => {
     const browser = userEvent.setup()
     const { api } = renderFeature({

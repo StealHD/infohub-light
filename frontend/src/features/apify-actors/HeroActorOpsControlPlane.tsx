@@ -163,6 +163,92 @@ function revisionLabel(revision: ApifyActorRevisionSummary): string {
   return `${revision.publisher} · ${revision.actor_public_name || revision.actor_id} · ${build}`
 }
 
+function revisionCanFillSlot(
+  revision: ApifyActorRevisionSummary,
+  slot: ApifyActorSlotName,
+): boolean {
+  if (slot === 'backup_2') {
+    return ['certified', 'probationary', 'legacy_builtin'].includes(revision.lifecycle)
+  }
+  return ['certified', 'legacy_builtin'].includes(revision.lifecycle)
+}
+
+function slotEligibilityLabel(
+  revision: ApifyActorRevisionSummary,
+  slot: ApifyActorSlotName,
+): string {
+  if (revisionCanFillSlot(revision, slot)) return '可用于此槽'
+  if (revision.lifecycle === 'probationary') return '试运行仅可用于 Backup 2'
+  if (revision.lifecycle === 'static_valid') return '尚未通过 Route Canary'
+  return '当前生命周期不可激活'
+}
+
+function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string {
+  if (revision.lifecycle === 'certified') return '已完成 Route 认证，可用于 Primary、Backup 1 或 Backup 2'
+  if (revision.lifecycle === 'probationary') {
+    return '已通过首个参考 Canary，可用于 Backup 2；用于 Primary/Backup 1 仍需第二个独立参考来源、48 小时观察和至少 95% 成功率'
+  }
+  if (revision.lifecycle === 'static_valid') return '仅完成静态校验，尚未取得成功的 Route 参考 Canary'
+  if (revision.lifecycle === 'legacy_builtin') return '旧版兼容 Revision，仅保留既有 Route 运行'
+  return '当前 Revision 不能进入 Active Pool'
+}
+
+function poolDraftProblems(
+  detail: ApifyActorRouteDetail,
+  draft: PoolDraft,
+): string[] {
+  const revisions = new Map(detail.revisions.map((revision) => [revision.revision_id, revision]))
+  const selected = slotOrder.map((slot) => ({ slot, revision: revisions.get(draft[slot]) }))
+  const problems: string[] = []
+  if (selected.some(({ revision }) => !revision)) {
+    problems.push('请先为三个槽位各选择一个 Revision')
+    return problems
+  }
+  for (const { slot, revision } of selected) {
+    if (revision && !revisionCanFillSlot(revision, slot)) {
+      problems.push(`${slotLabels[slot]} 需要${slot === 'backup_2' ? '已认证或试运行' : '已认证'} Revision`)
+    }
+  }
+  const actors = selected.map(({ revision }) => revision?.actor_id).filter(Boolean)
+  if (new Set(actors).size !== 3) problems.push('三个槽位必须使用不同 Actor')
+  const publishers = selected.map(({ revision }) => revision?.publisher).filter(Boolean)
+  if (new Set(publishers).size < 2) problems.push('三个槽位必须来自至少两个发布者')
+  return problems
+}
+
+function minimumCanariesForActivatablePool(
+  candidates: ApifyActorDiscoveryCandidate[],
+): number | null {
+  const certificationCost = (revision: ApifyActorRevisionSummary): number => {
+    if (['certified', 'legacy_builtin'].includes(revision.lifecycle)) return 0
+    if (revision.lifecycle === 'probationary') return 1
+    if (revision.lifecycle === 'static_valid') return 2
+    return Number.POSITIVE_INFINITY
+  }
+  const probationCost = (revision: ApifyActorRevisionSummary): number => {
+    if (['certified', 'probationary', 'legacy_builtin'].includes(revision.lifecycle)) return 0
+    if (revision.lifecycle === 'static_valid') return 1
+    return Number.POSITIVE_INFINITY
+  }
+  let minimum = Number.POSITIVE_INFINITY
+  for (const primary of candidates) {
+    for (const backup1 of candidates) {
+      for (const backup2 of candidates) {
+        const revisions = [primary.revision, backup1.revision, backup2.revision]
+        if (new Set(revisions.map((revision) => revision.actor_id)).size !== 3) continue
+        if (new Set(revisions.map((revision) => revision.publisher)).size < 2) continue
+        minimum = Math.min(
+          minimum,
+          certificationCost(primary.revision)
+            + certificationCost(backup1.revision)
+            + probationCost(backup2.revision),
+        )
+      }
+    }
+  }
+  return Number.isFinite(minimum) ? minimum : null
+}
+
 function actorPricingLabel(revision: ApifyActorRevisionSummary): string {
   const pricing = revision.pricing
   if (!pricing || pricing.billing_unit === 'unknown') return '定价快照不可用'
@@ -301,6 +387,7 @@ function SlotTable({
   onSave,
   hasAdditionalChange = false,
   saveBlocked = false,
+  policyProblems = [],
 }: {
   detail: ApifyActorRouteDetail
   poolDraft: PoolDraft
@@ -309,6 +396,7 @@ function SlotTable({
   onSave: () => void
   hasAdditionalChange?: boolean
   saveBlocked?: boolean
+  policyProblems?: string[]
 }) {
   const slotsByName = new Map(detail.slots.map((slot) => [slot.slot, slot]))
   const revisions = detail.revisions ?? []
@@ -388,8 +476,11 @@ function SlotTable({
                     options={revisions.map((item) => ({
                       id: item.revision_id,
                       label: revisionLabel(item),
-                      description: lifecycleLabels[item.lifecycle],
-                      isDisabled: !item.can_activate && item.revision_id !== slot?.revision_id,
+                      description: `${lifecycleLabels[item.lifecycle]} · ${slotEligibilityLabel(item, slotName)}`,
+                      isDisabled: (
+                        !revisionCanFillSlot(item, slotName)
+                        || !item.can_activate
+                      ) && item.revision_id !== slot?.revision_id,
                     }))}
                   />
                 </Table.Cell>
@@ -399,6 +490,13 @@ function SlotTable({
         </Table.Content>
       </Table.ScrollContainer>
     </Table>
+    {policyProblems.length > 0 && <div className="mt-3">
+      <HeroNotice title="当前三槽不能保存" status="warning">
+        <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
+          {policyProblems.map((problem) => <li key={problem}>{problem}</li>)}
+        </ul>
+      </HeroNotice>
+    </div>}
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
       <p className="type-meta text-muted">
         保存时校验三 Actor 唯一、至少两个发布者，并以 generation {detail.generation} 执行原子切换。
@@ -451,6 +549,12 @@ function DiscoveryPanel({
   const publisherCount = run.publisher_count ?? new Set(
     run.candidates.map((candidate) => candidate.revision.publisher),
   ).size
+  const attemptsRemaining = run.canary_attempts_remaining
+    ?? Math.max((run.canary_attempts_limit ?? 5) - (run.canary_attempts_used ?? 0), 0)
+  const minimumCanaries = minimumCanariesForActivatablePool(run.candidates)
+  const canaryCapacityBlocked = run.stage === 'awaiting_canary_approval'
+    && minimumCanaries !== null
+    && minimumCanaries > attemptsRemaining
   return <div className="grid gap-3">
     <div className="grid gap-3 min-[720px]:grid-cols-3">
       <Metric
@@ -480,6 +584,10 @@ function DiscoveryPanel({
     </HeroNotice>}
     {run.stage === 'canary_exhausted' && <HeroNotice title="当前候选组不能继续付费验证" status="warning">
       已使用 {run.canary_attempts_used ?? run.canary_attempts_limit ?? 5} 次，本轮剩余 0 次。请勾选“强制重新发现”后重新请求支持检查；系统会使用加强后的 Dataset Schema 与来源身份规则生成新 Revision。
+    </HeroNotice>}
+    {canaryCapacityBlocked && <HeroNotice title="本轮剩余 Canary 无法完成 2+1" status="warning">
+      当前候选至少还需要 {minimumCanaries} 次全部成功的 Route Canary，
+      但本轮只剩 {attemptsRemaining} 次。页面已停止继续付费；请使用“强制重新发现”补充新 Revision。
     </HeroNotice>}
     {Boolean(run.rejections?.length) && <HeroNotice title="确定性淘汰摘要" status="default">
       <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
@@ -512,6 +620,7 @@ function DiscoveryPanel({
                 detail.per_run_cap_usd,
                 Math.max(0, run.budget_cap_usd - (run.spent_usd ?? 0)),
               ), true)}</p>
+              <p>认证进度：{revisionCertificationLabel(candidate.revision)}</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -530,7 +639,7 @@ function DiscoveryPanel({
                 ? <Icons.CircleX size={13} aria-hidden="true" />
                 : <Icons.CircleDashed size={13} aria-hidden="true" />}
             />
-            {candidate.awaiting_approval && candidate.revision.can_canary !== false && <Button
+            {candidate.awaiting_approval && !canaryCapacityBlocked && candidate.revision.can_canary !== false && <Button
               size="sm"
               variant="secondary"
               onPress={() => onCanary({
@@ -700,6 +809,13 @@ function SourceSupportPanel({
   })
 
   const embedded = detail.source_validations ?? []
+  const routeConfiguredForSources = detail.support_status === 'supported'
+    && detail.runnable_slots === detail.required_slots
+    && detail.slots.length === 3
+    && detail.slots.every((slot) => (
+      slot.revision
+      && revisionCanFillSlot(slot.revision, slot.slot)
+    ))
   const requiredConfirmation = support?.activation_confirmation || '确认首次启用'
   const allSlotsPassed = Boolean(
     support
@@ -751,7 +867,12 @@ function SourceSupportPanel({
       </Table.ScrollContainer>
     </Table>}
 
-    <form className="flex min-w-0 flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end" onSubmit={submitLookup}>
+    {!routeConfiguredForSources && embedded.length === 0 && <HeroNotice title="此步骤尚未解锁" status="warning">
+      这里不是添加账号的入口。请先完成 Route 参考 Canary，并激活符合
+      “Primary 已认证 + Backup 1 已认证 + Backup 2 至少试运行”的三槽；之后在订阅页创建具体来源，系统建立绑定后才会在这里显示 3/3 验证进度。
+    </HeroNotice>}
+
+    {(routeConfiguredForSources || embedded.length > 0) && <form className="flex min-w-0 flex-col gap-3 min-[640px]:flex-row min-[640px]:items-end" onSubmit={submitLookup}>
       <TextField fullWidth value={sourceInput} onChange={setSourceInput}>
         <Label>按来源 ID 查看三槽验证</Label>
         <Input autoComplete="off" placeholder="仅提交 opaque source_id" />
@@ -760,7 +881,7 @@ function SourceSupportPanel({
       <Button type="submit" variant="secondary" isDisabled={!sourceInput.trim() || query.isFetching}>
         {query.isFetching ? '读取中…' : '读取验证状态'}
       </Button>
-    </form>
+    </form>}
 
     {query.isError && <HeroNotice title="来源验证状态读取失败" status="warning">
       请确认来源 ID 有效且当前账户有管理权限。
@@ -1332,6 +1453,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const routeCapChanged = detail !== undefined && routeCapValid
     && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9
   const rollbackSlots = detail?.slots ?? []
+  const currentPoolProblems = detail ? poolDraftProblems(detail, poolDraft) : []
 
   const rollbackDraft = useMemo(() => {
     if (!detail || !rollbackRevision) return null
@@ -1429,7 +1551,8 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
             poolDraft={poolDraft}
             actionPending={actionPending}
             hasAdditionalChange={routeCapChanged}
-            saveBlocked={!routeCapValid}
+            saveBlocked={!routeCapValid || currentPoolProblems.length > 0}
+            policyProblems={currentPoolProblems}
             onDraftChange={(slot, revisionId) => setPoolDraft((current) => ({ ...current, [slot]: revisionId }))}
             onSave={() => {
               if (!routeCapValid) return

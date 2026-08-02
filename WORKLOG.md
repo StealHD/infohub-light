@@ -618,3 +618,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "排查确认 Instagram 三槽保存失败源于两个 probationary 与一个 static_valid Revision 不满足 2+1；ActorOps 现于付费、三槽保存和来源级验证前显示可达性并阻断无效操作。",
+  "status": "success",
+  "task_id": "2026-08-02-actorops-certification-flow-guard",
+  "unresolved": [
+    "当前 Instagram discovery cycle 只剩一次 Canary，至少还需三次全部成功，必须由管理员强制重新发现；本次未触发 AI、Actor Run 或费用",
+    "分支未合并 main、未推送，也未发布 VPS"
+  ],
+  "validation": [
+    "日志确认两次 Active Pool 写入均以 apify_actor_active_pool_uncertified 原子拒绝；最新四次 Route Canary 为两次成功、一次 300 秒超时和一次远端 failed",
+    "ActorOps 前端测试 20/20、生产构建和完整 Test Gate 23/23 通过",
+    "页面按槽位禁用未认证 Revision、提前阻断数学上无法完成的 Canary cycle，并在 Route 未激活时锁定来源级验证"
+  ]
+}
+```

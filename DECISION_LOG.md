@@ -897,3 +897,10 @@
 - 决策内容：Manifest `parse_datetime` 确定性接受带时区 ISO 字符串以及 2000–2100 范围内的 Unix 秒/毫秒，拒绝 boolean、非有限数值、无时区文本和范围外 epoch。混合 Dataset 中，只映射账号身份而没有 `native_id/url/published_at/title|text` 内容证据的行作为元数据隔离；后续内容行继续完整执行必填字段、host、时间窗和目标身份验证。至少一条真实内容通过时返回成功并计入 excluded rows；全为元数据时返回独立 `apify_actor_metadata_only`，不得伪装为空结果或成功。
 - 原因：Instagram 实测 Actor 一类把 `takenAtTimestamp` 返回为 Unix 整数，另一类在首行返回账号元数据、第二行返回真实帖子。旧映射器分别把整数时间视为不可解析、在首个元数据行立即终止，导致已存在有效内容的 Dataset 被错误记为 `apify_actor_contract_mismatch`。
 - 安全边界：只有完全没有内容合同字段的元数据行可以隔离；部分内容字段存在但格式错误、URL host 不符、时间越界或身份不匹配仍立即失败。原始 Dataset 继续只在进程内短暂存在，诊断只使用无值路径/类型摘要；历史失败与费用不改写，任何再次付费试跑仍需管理员新确认。
+
+### D105 ActorOps 认证流程在付费与保存前显示可达性
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动发起新的 AI 或付费 Actor
+- 决策内容：Active Pool 按槽位在选择阶段执行生命周期约束，Primary/Backup 1 只接受 certified/legacy-compatible，Backup 2 允许 probationary，并在提交前展示 Actor 唯一与发布者多样性缺口。Discovery 页面按候选生命周期计算完成 certified + certified + probationary 所需的乐观最少成功 Canary；若该下界已大于当前 cycle 剩余次数，则不再展示付费入口并要求显式重新发现。
+- 来源流程边界：来源级 3/3 只在有效 Active Pool 后出现；无绑定且 Route 未激活时显示步骤说明并隐藏 opaque source ID 查询，明确账号创建属于订阅页。该 UI 阻断不改写历史 validation、费用或 Revision，也不绕过后端 CAS、认证、48 小时观察与 95% 成功率规则。
