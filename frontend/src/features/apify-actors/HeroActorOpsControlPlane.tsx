@@ -47,6 +47,11 @@ const slotLabels: Record<ApifyActorSlotName, string> = {
   backup_1: 'Backup 1',
   backup_2: 'Backup 2',
 }
+const slotDisplayLabels: Record<ApifyActorSlotName, string> = {
+  primary: '主用',
+  backup_1: '备用 1',
+  backup_2: '备用 2',
+}
 
 const supportPresentation: Record<ApifyActorRouteSupportStatus, {
   label: string
@@ -158,11 +163,6 @@ function routeIdentity(platform: string, targetType: string, capability: string)
   return `${platform} / ${targetType} / ${capability}`
 }
 
-function revisionLabel(revision: ApifyActorRevisionSummary): string {
-  const build = revision.build_number || revision.build_id || 'legacy'
-  return `${revision.publisher} · ${revision.actor_public_name || revision.actor_id} · ${build}`
-}
-
 function revisionCanFillSlot(
   revision: ApifyActorRevisionSummary,
   slot: ApifyActorSlotName,
@@ -171,16 +171,6 @@ function revisionCanFillSlot(
     return ['certified', 'probationary', 'legacy_builtin'].includes(revision.lifecycle)
   }
   return ['certified', 'legacy_builtin'].includes(revision.lifecycle)
-}
-
-function slotEligibilityLabel(
-  revision: ApifyActorRevisionSummary,
-  slot: ApifyActorSlotName,
-): string {
-  if (revisionCanFillSlot(revision, slot)) return '可用于此槽'
-  if (revision.lifecycle === 'probationary') return '试运行仅可用于 Backup 2'
-  if (revision.lifecycle === 'static_valid') return '尚未通过 Route Canary'
-  return '当前生命周期不可激活'
 }
 
 function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string {
@@ -193,28 +183,6 @@ function revisionCertificationLabel(revision: ApifyActorRevisionSummary): string
   return '当前 Revision 不能进入 Active Pool'
 }
 
-function poolDraftProblems(
-  detail: ApifyActorRouteDetail,
-  draft: PoolDraft,
-): string[] {
-  const revisions = new Map(detail.revisions.map((revision) => [revision.revision_id, revision]))
-  const selected = slotOrder.map((slot) => ({ slot, revision: revisions.get(draft[slot]) }))
-  const problems: string[] = []
-  if (selected.some(({ revision }) => !revision)) {
-    problems.push('请先为三个槽位各选择一个 Revision')
-    return problems
-  }
-  for (const { slot, revision } of selected) {
-    if (revision && !revisionCanFillSlot(revision, slot)) {
-      problems.push(`${slotLabels[slot]} 需要${slot === 'backup_2' ? '已认证或试运行' : '已认证'} Revision`)
-    }
-  }
-  const actors = selected.map(({ revision }) => revision?.actor_id).filter(Boolean)
-  if (new Set(actors).size !== 3) problems.push('三个槽位必须使用不同 Actor')
-  const publishers = selected.map(({ revision }) => revision?.publisher).filter(Boolean)
-  if (new Set(publishers).size < 2) problems.push('三个槽位必须来自至少两个发布者')
-  return problems
-}
 
 function minimumCanariesForActivatablePool(
   candidates: ApifyActorDiscoveryCandidate[],
@@ -379,135 +347,84 @@ function RouteList({
   </Table>
 }
 
-function SlotTable({
+function ActorPoolPlan({
   detail,
-  poolDraft,
   actionPending,
-  onDraftChange,
-  onSave,
-  hasAdditionalChange = false,
-  saveBlocked = false,
-  policyProblems = [],
+  onConfirm,
 }: {
   detail: ApifyActorRouteDetail
-  poolDraft: PoolDraft
   actionPending: boolean
-  onDraftChange: (slot: ApifyActorSlotName, revisionId: string) => void
-  onSave: () => void
-  hasAdditionalChange?: boolean
-  saveBlocked?: boolean
-  policyProblems?: string[]
+  onConfirm: () => void
 }) {
-  const slotsByName = new Map(detail.slots.map((slot) => [slot.slot, slot]))
-  const revisions = detail.revisions ?? []
-  const slotRows = slotOrder.map((slot) => ({ id: slot, slot }))
-  const hasDraftChange = slotOrder.some((slotName) => (
-    (slotsByName.get(slotName)?.revision_id ?? '') !== poolDraft[slotName]
-  ))
+  const recommendation = detail.activation_recommendation
+  const activeSlots = detail.slots.filter((slot) => slot.revision)
+  const alreadyActive = recommendation?.already_active ?? activeSlots.length === 3
+  const displaySlots = alreadyActive
+    ? detail.slots
+    : recommendation?.ready
+      ? recommendation.slots.map((slot) => ({ ...slot, runnable: false }))
+      : []
 
-  return <>
-    <Table variant="secondary" className="max-w-full">
-      <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="actor-ops-slot-scroll">
-        <Table.Content aria-label={`${detail.route_key} 三槽 Actor Pool`}>
-          <Table.Header>
-            <Table.Column isRowHeader>槽位</Table.Column>
-            <Table.Column>Actor / 发布者</Table.Column>
-            <Table.Column>Build / Revision</Table.Column>
-            <Table.Column>认证与运行</Table.Column>
-            <Table.Column>费用</Table.Column>
-            <Table.Column>最近 Canary</Table.Column>
-            <Table.Column>替换 Revision</Table.Column>
-          </Table.Header>
-          <Table.Body items={slotRows}>
-            {(slotRow) => {
-              const slotName = slotRow.slot
-              const slot = slotsByName.get(slotName)
-              const revision = slot?.revision
-              return <Table.Row id={slotName}>
-                <Table.Cell><p className="min-w-24 type-control">{slotLabels[slotName]}</p></Table.Cell>
-                <Table.Cell>
-                  <div className="min-w-56">
-                    <p className="type-control">{revision?.actor_public_name || revision?.actor_id || '尚未配置'}</p>
-                    <p className="type-meta mt-1 text-muted">发布者 {revision?.publisher || '未知'}</p>
-                  </div>
-                </Table.Cell>
-                <Table.Cell>
-                  <div className="min-w-52">
-                    <p className="type-control">{revision?.build_number || revision?.build_id || 'legacy_builtin'}</p>
-                    <code className="type-meta mt-1 block break-all text-muted">{shortRevision(slot?.revision_id)}</code>
-                  </div>
-                </Table.Cell>
-                <Table.Cell>
-                  <div className="min-w-44">
-                    <StatusIndicator
-                      label={revision ? lifecycleLabels[revision.lifecycle] : '未绑定'}
-                      tone={revision?.lifecycle === 'certified'
-                        ? 'success'
-                        : revision?.lifecycle === 'probationary' || revision?.lifecycle === 'legacy_builtin'
-                          ? 'warning'
-                          : 'neutral'}
-                      icon={slot?.runnable
-                        ? <Icons.CircleCheck size={13} aria-hidden="true" />
-                        : <Icons.CircleX size={13} aria-hidden="true" />}
-                    />
-                    <p className="type-meta mt-1 text-muted">{slot?.runnable ? '当前可运行' : '当前不可运行'}</p>
-                  </div>
-                </Table.Cell>
-                <Table.Cell>
-                  <div className="min-w-40">
-                    <p className="type-control tabular-nums">{formatActorUsd(revision?.last_charge_usd ?? null, true)}</p>
-                    <p className="type-meta mt-1 text-muted">24h 平均 {formatActorUsd(revision?.avg_charge_24h_usd ?? null, true)}</p>
-                  </div>
-                </Table.Cell>
-                <Table.Cell>
-                  <div className="min-w-40">
-                    <p className="type-control">{revision?.last_canary_status || '尚未记录'}</p>
-                    <p className="type-meta mt-1 text-muted">{formatActorDateTime(revision?.last_canary_at ?? null)}</p>
-                  </div>
-                </Table.Cell>
-                <Table.Cell>
-                  <HeroSelect
-                    label={`${slotLabels[slotName]} Revision`}
-                    hideLabel
-                    value={poolDraft[slotName]}
-                    onChange={(revisionId) => onDraftChange(slotName, revisionId)}
-                    isDisabled={actionPending}
-                    className="min-w-72"
-                    options={revisions.map((item) => ({
-                      id: item.revision_id,
-                      label: revisionLabel(item),
-                      description: `${lifecycleLabels[item.lifecycle]} · ${slotEligibilityLabel(item, slotName)}`,
-                      isDisabled: (
-                        !revisionCanFillSlot(item, slotName)
-                        || !item.can_activate
-                      ) && item.revision_id !== slot?.revision_id,
-                    }))}
-                  />
-                </Table.Cell>
-              </Table.Row>
-            }}
-          </Table.Body>
-        </Table.Content>
-      </Table.ScrollContainer>
-    </Table>
-    {policyProblems.length > 0 && <div className="mt-3">
-      <HeroNotice title="当前三槽不能保存" status="warning">
-        <ul className="list-disc space-y-1 pl-5 type-meta text-muted">
-          {policyProblems.map((problem) => <li key={problem}>{problem}</li>)}
-        </ul>
+  if (!alreadyActive && !recommendation?.ready) {
+    const certified = recommendation?.certified_actor_count ?? 0
+    const eligible = recommendation?.backup_2_actor_count ?? 0
+    const publishers = recommendation?.publisher_count ?? 0
+    return <div className="grid gap-3">
+      <HeroNotice title="候选审批尚未完成，你现在无需配置" status="warning" role="status">
+        继续在下方逐次确认 Canary。条件满足后，系统会自动生成三名 Actor 的主备方案；这里不会再要求选择 Revision 或手工排槽。
       </HeroNotice>
-    </div>}
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-      <p className="type-meta text-muted">
-        保存时校验三 Actor 唯一、至少两个发布者，并以 generation {detail.generation} 执行原子切换。
-      </p>
-      <Button
-        size="sm"
-        isDisabled={saveBlocked || (!hasDraftChange && !hasAdditionalChange) || actionPending || slotOrder.some((slotName) => !poolDraft[slotName])}
-        onPress={onSave}
-      >{actionPending ? '保存中…' : '保存三槽配置'}</Button>
+      <div className="grid gap-3 min-[640px]:grid-cols-3">
+        <Metric label="已认证主备" value={`${Math.min(certified, 2)}/2`} detail="主用和备用 1 必须已认证" />
+        <Metric label="不同 Actor 候选" value={`${Math.min(eligible, 3)}/3`} detail="三个位置不能使用同一 Actor" />
+        <Metric label="候选发布者" value={`${Math.min(publishers, 2)}/2`} detail="三名 Actor 至少来自两个发布者" />
+      </div>
     </div>
-  </>
+  }
+
+  return <div className="grid gap-3">
+    <HeroNotice
+      title={alreadyActive ? 'Actor 主备已生效' : '系统已完成候选审批'}
+      status={alreadyActive ? 'success' : 'default'}
+      role="status"
+    >
+      {alreadyActive
+        ? '当前 Route 已按 2+1 规则运行；日常故障切换由系统自动完成。'
+        : '以下方案已由后端重新校验 2+1、Actor 唯一、发布者分散和固定 Build。你只需确认一次即可生效。'}
+    </HeroNotice>
+    <ol className="grid gap-3 min-[760px]:grid-cols-3" aria-label={alreadyActive ? '当前 Actor 主备方案' : '系统推荐 Actor 主备方案'}>
+      {displaySlots.map((slot) => {
+        const revision = slot.revision
+        return <li key={slot.slot} className="min-w-0 rounded-control border border-separator bg-surface-secondary p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="type-meta text-muted">{slotDisplayLabels[slot.slot]}</p>
+            <StatusIndicator
+              label={revision ? lifecycleLabels[revision.lifecycle] : '未绑定'}
+              tone={revision?.lifecycle === 'certified'
+                ? 'success'
+                : revision?.lifecycle === 'probationary' || revision?.lifecycle === 'legacy_builtin'
+                  ? 'warning'
+                  : 'neutral'}
+              icon={alreadyActive && slot.runnable
+                ? <Icons.CircleCheck size={13} aria-hidden="true" />
+                : <Icons.CircleDashed size={13} aria-hidden="true" />}
+            />
+          </div>
+          <p className="type-control mt-2 break-words">{revision?.actor_public_name || revision?.actor_id || '尚未生成'}</p>
+          <p className="type-meta mt-1 break-words text-muted">{revision?.publisher || '发布者未知'} · Build {revision?.build_number || revision?.build_id || 'legacy'}</p>
+          <p className="type-meta mt-2 text-muted">最近 Canary：{revision?.last_canary_status || '尚未记录'}</p>
+        </li>
+      })}
+    </ol>
+    {!alreadyActive && <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="type-meta text-muted">
+        {detail.mode === 'fallback' ? '原生链路优先，只有允许回退的故障才调用 Actor。' : '该来源类型启用后以 Actor 为主链路。'}
+        {' '}单次费用最高 {formatActorUsd(detail.per_run_cap_usd)}。
+      </p>
+      <Button size="sm" isDisabled={actionPending} onPress={onConfirm}>
+        确认启用 Actor 主备
+      </Button>
+    </div>}
+  </div>
 }
 
 function DiscoveryPanel({
@@ -1285,10 +1202,10 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const [selectedRouteId, setSelectedRouteId] = useState('')
-  const [poolDraft, setPoolDraft] = useState<PoolDraft>({ primary: '', backup_1: '', backup_2: '' })
   const [routeCapDraft, setRouteCapDraft] = useState('')
   const [canaryTarget, setCanaryTarget] = useState<CanaryApprovalTarget | null>(null)
   const [canaryError, setCanaryError] = useState('')
+  const [activationOpen, setActivationOpen] = useState(false)
   const [rollbackRevision, setRollbackRevision] = useState<ApifyActorRevisionSummary | null>(null)
   const [rollbackSlot, setRollbackSlot] = useState<ApifyActorSlotName>('primary')
   const routesQuery = useQuery({
@@ -1339,14 +1256,8 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   useEffect(() => {
     const detail = detailQuery.data
     if (!detail) return
-    const bySlot = new Map(detail.slots.map((slot) => [slot.slot, slot.revision_id || '']))
-    // Route generation is the reset boundary for both CAS-controlled drafts.
+    // Route generation is the reset boundary for the CAS-controlled cap draft.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPoolDraft({
-      primary: bySlot.get('primary') || '',
-      backup_1: bySlot.get('backup_1') || '',
-      backup_2: bySlot.get('backup_2') || '',
-    })
     setRouteCapDraft(String(detail.per_run_cap_usd))
   }, [detailQuery.data])
 
@@ -1381,6 +1292,30 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourceCapabilities(user.id) })
       actionToast.danger('Actor Pool 更新失败', {
         description: safeActorActionError(caught, 'Route generation 已变化或三槽规则未通过，请刷新后重试。'),
+      })
+    },
+  })
+
+  const activatePool = useMutation({
+    mutationFn: (detail: ApifyActorRouteDetail) => (
+      api.activateApifyActorRouteRecommendedPool(detail.route_id, {
+        expected_generation: detail.generation,
+        confirmation: '确认启用 Actor 主备',
+      })
+    ),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(queryKeys.apifyActorRoute(user.id, detail.route_id), detail)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourceCapabilities(user.id) })
+      setActivationOpen(false)
+      actionToast.success('Actor 主备已启用')
+    },
+    onError: (caught, detail) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoute(user.id, detail.route_id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorRoutes(user.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sourceCapabilities(user.id) })
+      actionToast.danger('Actor 主备未能启用', {
+        description: safeActorActionError(caught, '候选认证或 Route generation 已变化，请刷新后重试。'),
       })
     },
   })
@@ -1447,13 +1382,19 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const routes = routesQuery.data?.routes ?? []
   const detail = detailQuery.data
   const selectedSummary = routes.find((route) => route.route_id === selectedRouteId)
-  const actionPending = updatePool.isPending || canary.isPending
+  const actionPending = updatePool.isPending || activatePool.isPending || canary.isPending
   const routeCapValue = Number(routeCapDraft)
   const routeCapValid = Number.isFinite(routeCapValue) && routeCapValue > 0 && routeCapValue <= 100
   const routeCapChanged = detail !== undefined && routeCapValid
     && Math.abs(routeCapValue - detail.per_run_cap_usd) > 1e-9
   const rollbackSlots = detail?.slots ?? []
-  const currentPoolProblems = detail ? poolDraftProblems(detail, poolDraft) : []
+  const activePoolDraft = useMemo(() => {
+    if (!detail) return null
+    const slots = Object.fromEntries(
+      detail.slots.map((slot) => [slot.slot, slot.revision_id || '']),
+    ) as PoolDraft
+    return slotOrder.every((slot) => slots[slot]) ? slots : null
+  }, [detail])
 
   const rollbackDraft = useMemo(() => {
     if (!detail || !rollbackRevision) return null
@@ -1472,7 +1413,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
       <div className="min-w-0">
         <Card.Title>ActorOps 路由控制面</Card.Title>
         <Card.Description className="mt-1">
-          X、YouTube 与 Instagram 共用三槽 Route；支持状态与运行状态分开显示，配置按 generation 热加载。
+          逐次审批付费 Canary；候选合格后由系统生成主备方案，你只需确认一次生效。
         </Card.Description>
       </div>
       {selectedSummary && <div className="flex flex-wrap gap-2">
@@ -1516,7 +1457,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
       <section aria-labelledby="actor-ops-active-pool-heading">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h3 id="actor-ops-active-pool-heading" className="type-page-title">三槽 Active Pool</h3>
+            <h3 id="actor-ops-active-pool-heading" className="type-page-title">Actor 主备方案</h3>
             <p className="type-meta mt-1 text-muted">
               {routeIdentity(detail.platform, detail.target_type, detail.capability)}
               {' · '}generation {detail.generation}
@@ -1532,37 +1473,39 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
           </HeroNotice>
         </div>}
         <div className="mt-3">
-          <div className="mb-3 max-w-sm">
-            <TextField
-              fullWidth
-              value={routeCapDraft}
-              onChange={setRouteCapDraft}
-              isDisabled={actionPending}
-              isInvalid={Boolean(routeCapDraft) && !routeCapValid}
-            >
-              <Label>Route 单次费用上限（USD）</Label>
-              <Input type="number" min={0.000001} max={100} step={0.001} />
-              <Description>管理员明确调整后按 generation 热加载；商城价格不会自动放宽此上限。</Description>
-              {Boolean(routeCapDraft) && !routeCapValid && <FieldError>请输入大于 0 且不超过 100 的 USD 上限。</FieldError>}
-            </TextField>
-          </div>
-          <SlotTable
+          <ActorPoolPlan
             detail={detail}
-            poolDraft={poolDraft}
             actionPending={actionPending}
-            hasAdditionalChange={routeCapChanged}
-            saveBlocked={!routeCapValid || currentPoolProblems.length > 0}
-            policyProblems={currentPoolProblems}
-            onDraftChange={(slot, revisionId) => setPoolDraft((current) => ({ ...current, [slot]: revisionId }))}
-            onSave={() => {
-              if (!routeCapValid) return
-              updatePool.mutate({
-                detail,
-                draft: poolDraft,
-                perRunCapUsd: routeCapValue,
-              })
-            }}
+            onConfirm={() => setActivationOpen(true)}
           />
+          {detail.activation_recommendation?.already_active && activePoolDraft && <details className="mt-3 rounded-control border border-separator bg-surface-secondary p-3">
+            <summary className="type-meta cursor-pointer text-muted">调整 Route 单次费用上限</summary>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div className="max-w-sm flex-1">
+                <TextField
+                  fullWidth
+                  value={routeCapDraft}
+                  onChange={setRouteCapDraft}
+                  isDisabled={actionPending}
+                  isInvalid={Boolean(routeCapDraft) && !routeCapValid}
+                >
+                  <Label>Route 单次费用上限（USD）</Label>
+                  <Input type="number" min={0.000001} max={100} step={0.001} />
+                  <Description>管理员明确调整后按 generation 热加载；商城价格不会自动放宽此上限。</Description>
+                  {Boolean(routeCapDraft) && !routeCapValid && <FieldError>请输入大于 0 且不超过 100 的 USD 上限。</FieldError>}
+                </TextField>
+              </div>
+              <Button
+                size="sm"
+                isDisabled={!routeCapValid || !routeCapChanged || actionPending}
+                onPress={() => updatePool.mutate({
+                  detail,
+                  draft: activePoolDraft,
+                  perRunCapUsd: routeCapValue,
+                })}
+              >{updatePool.isPending ? '保存中…' : '保存费用上限'}</Button>
+            </div>
+          </details>}
         </div>
       </section>
 
@@ -1609,6 +1552,39 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
         <div className="mt-3"><DiscoverySettingsPanel queryEnabled={queryEnabled} /></div>
       </section>
     </div>}
+
+    <Modal isOpen={activationOpen} onOpenChange={(open) => {
+      if (!open && !activatePool.isPending) setActivationOpen(false)
+    }}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开 Actor 主备启用确认</Modal.Trigger>
+      <Modal.Backdrop isDismissable={!activatePool.isPending} isKeyboardDismissDisabled={activatePool.isPending}>
+        <Modal.Container>
+          <Modal.Dialog>
+            <Modal.Header><Modal.Heading>确认启用 Actor 主备</Modal.Heading></Modal.Header>
+            <Modal.Body>
+              <div className="grid gap-3" aria-busy={activatePool.isPending}>
+                <HeroNotice title="系统将在提交时重新校验候选" status="warning" role="status">
+                  不接受浏览器指定的 Revision。后端会按当前 generation 自动选择满足 2+1、Actor 唯一、至少两个发布者和固定 Build 的方案。
+                </HeroNotice>
+                {detail && <dl className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 type-meta">
+                  <div><dt className="text-muted">Route / 来源类型</dt><dd className="type-control mt-1 break-words">{routeIdentity(detail.platform, detail.target_type, detail.capability)} · {detail.mode === 'fallback' ? '原生优先，Actor 回退' : 'Actor 主链路'}</dd></div>
+                  <div><dt className="text-muted">生效范围</dt><dd className="type-control mt-1">下一次任务开始读取新 generation；运行中的旧任务仍使用冻结配置。</dd></div>
+                  <div><dt className="text-muted">单次 Actor 费用上限</dt><dd className="type-control mt-1 tabular-nums">{formatActorUsd(detail.per_run_cap_usd)}</dd></div>
+                </dl>}
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button type="button" variant="ghost" isDisabled={activatePool.isPending} onPress={() => setActivationOpen(false)}>取消</Button>
+              <Button
+                type="button"
+                isDisabled={!detail?.activation_recommendation?.ready || detail.activation_recommendation.already_active || activatePool.isPending}
+                onPress={() => detail && activatePool.mutate(detail)}
+              >{activatePool.isPending ? '启用中…' : '确认启用 Actor 主备'}</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
 
     <Modal isOpen={Boolean(canaryTarget)} onOpenChange={(open) => {
       if (!open && !canary.isPending) {

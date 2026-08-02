@@ -904,3 +904,11 @@
 - 当前状态：本地任务分支实现与验证中；不自动发起新的 AI 或付费 Actor
 - 决策内容：Active Pool 按槽位在选择阶段执行生命周期约束，Primary/Backup 1 只接受 certified/legacy-compatible，Backup 2 允许 probationary，并在提交前展示 Actor 唯一与发布者多样性缺口。Discovery 页面按候选生命周期计算完成 certified + certified + probationary 所需的乐观最少成功 Canary；若该下界已大于当前 cycle 剩余次数，则不再展示付费入口并要求显式重新发现。
 - 来源流程边界：来源级 3/3 只在有效 Active Pool 后出现；无绑定且 Route 未激活时显示步骤说明并隐藏 opaque source ID 查询，明确账号创建属于订阅页。该 UI 阻断不改写历史 validation、费用或 Revision，也不绕过后端 CAS、认证、48 小时观察与 95% 成功率规则。
+
+### D106 ActorOps 由服务端排槽，管理员只确认生效
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动发起 AI 或付费 Actor
+- 决策内容：删除候选认证后的手工 Revision 下拉与“保存三槽配置”。认证未完成时 UI 只显示 certified Actor、不同 Actor 和发布者缺口；满足 2+1 后，`ApifyActorOpsService` 确定性选择三个 Actor 并投影只读推荐方案。管理员提交的启用请求只含 Route generation 与 `确认启用 Actor 主备`，服务端在同一写事务中重新计算推荐、执行 Actor 唯一、发布者多样性、生命周期、固定 Build、Manifest 完整性与 CAS 校验后生效。
+- 安全与兼容边界：每次付费 Canary 仍需管理员单独确认，系统不得自动产生费用；原 `PUT active-pool` 保留给调费、显式回滚和兼容管理，来源级 3/3 验证不变。已有合格 Active Pool 继续显示只读主备方案，费用调整默认折叠；没有合格推荐、generation 冲突或重复激活都 fail closed。
+- 原因：发布者、Actor ID、Build、Revision 和生命周期同时出现在三个下拉中会让管理员误以为任意选满三项即可启用，也把本应由策略服务拥有的安全选择下放给浏览器。服务端排槽把管理员决策收敛为“是否让已认证方案生效”，同时保留付费和生产启用的人工边界。

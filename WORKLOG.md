@@ -640,3 +640,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-02",
+  "result": "删除 ActorOps 手工 Revision 排槽；候选认证完成后由服务端确定性生成 2+1 主备方案，管理员只提交 generation 与独立确认短语使其生效。",
+  "status": "success",
+  "task_id": "2026-08-02-actorops-server-recommended-activation",
+  "unresolved": [
+    "当前 Instagram 候选仍未达到两个 certified，需继续按现有规则逐次确认 Canary 或强制重新发现；本次未调用 AI、Apify Actor 或产生费用",
+    "分支未合并 main、未推送，也未发布 VPS"
+  ],
+  "validation": [
+    "后端 ActorOps/API 定向测试 44 passed；前端 ActorOps 21 passed，生产构建通过",
+    "完整 Test Gate 23/23 passed",
+    "8080 API/Worker 从当前任务提交重建并 healthy，worker_status=ready，scheduler containers=0；真实 Instagram Route 显示 0/2 已认证、3/3 不同 Actor、2/2 发布者，且不再出现 Revision 下拉或手工保存按钮"
+  ]
+}
+```

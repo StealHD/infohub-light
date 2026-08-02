@@ -58,6 +58,7 @@ def _ready_route(
     store: ServiceStore,
     *,
     route_key: str = "instagram/profile/items",
+    activate: bool = True,
 ):
     ops = ApifyActorOpsService(store)
     route = next(
@@ -92,6 +93,8 @@ def _ready_route(
         )
         store.connect().commit()
         revisions.append(revision_id)
+    if not activate:
+        return ops, ops.get_route(str(route["route_id"])), revisions
     detail = ops.replace_active_pool(
         route["route_id"],
         slots={
@@ -971,6 +974,67 @@ def test_route_cap_hot_update_and_manual_rediscovery_are_cas_guarded(
     assert rediscovery_data["generation"] == route_catalog["generation"]
     assert rediscovery_data["route_generation"] == updated_route["generation"]
     assert rediscovery_data["job"]["status"] == "queued"
+
+
+def test_route_activation_uses_server_recommendation_and_exact_confirmation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    _ops, route, revision_ids = _ready_route(
+        store,
+        route_key="youtube/channel/items",
+        activate=False,
+    )
+    endpoint = (
+        f"/api/admin/apify-routes/{route['route_id']}/active-pool/activate"
+    )
+
+    detail = client.get(
+        f"/api/admin/apify-routes/{route['route_id']}"
+    )
+    assert detail.status_code == 200, detail.text
+    recommendation = detail.json()["data"]["activation_recommendation"]
+    assert recommendation["ready"] is True
+    assert recommendation["already_active"] is False
+    assert {
+        slot["revision_id"] for slot in recommendation["slots"]
+    } == set(revision_ids)
+
+    invalid = client.post(
+        endpoint,
+        json={
+            "expected_generation": route["generation"],
+            "confirmation": "确认首次启用",
+        },
+    )
+    assert invalid.status_code == 400
+
+    activated = client.post(
+        endpoint,
+        json={
+            "expected_generation": route["generation"],
+            "confirmation": "确认启用 Actor 主备",
+        },
+    )
+    assert activated.status_code == 200, activated.text
+    payload = activated.json()["data"]
+    assert payload["generation"] == route["generation"] + 1
+    assert payload["runnable_slots"] == 3
+    assert payload["activation_recommendation"]["already_active"] is True
+
+    replay = client.post(
+        endpoint,
+        json={
+            "expected_generation": payload["generation"],
+            "confirmation": "确认启用 Actor 主备",
+        },
+    )
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == (
+        "apify_actor_active_pool_already_active"
+    )
 
 
 def test_discovery_projection_reports_rank_rejections_and_committed_spend(

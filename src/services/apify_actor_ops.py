@@ -22,6 +22,7 @@ from typing import Any, Awaitable, Callable, Generic, Iterator, Literal, Mapping
 from ..apify_actor_identity import source_target_fingerprint
 from ..storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 from .apify_actor_manifest import (
+    ActorManifestError,
     ActorManifestV1,
     actor_manifest_hash,
     canonical_manifest_json,
@@ -62,6 +63,7 @@ SUPPORTED_ROUTE_PROFILES = (
 )
 PAID_CANARY_CONFIRMATION = "确认付费试跑"
 FIRST_ACTIVATION_CONFIRMATION = "确认首次启用"
+ROUTE_POOL_ACTIVATION_CONFIRMATION = "确认启用 Actor 主备"
 ROUTE_CANARY_BUDGET_USD = 0.10
 ROUTE_CANARY_ATTEMPT_LIMIT = 5
 SOURCE_CANARY_BUDGET_USD = 0.06
@@ -338,6 +340,220 @@ class ApifyActorOpsService:
             "error_code": gate.error_code,
         }
         return result
+
+    def recommend_active_pool(self, route_id: str) -> dict[str, Any]:
+        """Choose the deterministic 2+1 pool without accepting browser IDs.
+
+        The recommendation is deliberately recomputed by the service.  The
+        browser only confirms the Route generation; it never decides which
+        immutable revisions satisfy certification, Actor uniqueness, or
+        publisher diversity.
+        """
+
+        return self._recommend_active_pool(self.store.connect(), route_id)
+
+    def _recommend_active_pool(
+        self,
+        connection: sqlite3.Connection,
+        route_id: str,
+    ) -> dict[str, Any]:
+        route = self._require_route(connection, route_id)
+        current_rows = connection.execute(
+            """
+            SELECT slot_name, revision_id
+            FROM apify_route_active_slots
+            WHERE workspace_id = ? AND route_id = ?
+            """,
+            (self.workspace_id, route_id),
+        ).fetchall()
+        current = {
+            str(row["slot_name"]): str(row["revision_id"] or "")
+            for row in current_rows
+        }
+        rows = connection.execute(
+            """
+            SELECT revision.revision_id, revision.actor_id,
+                   revision.publisher, revision.lifecycle,
+                   revision.build_id, revision.build_number,
+                   revision.manifest_hash, revision.manifest_json,
+                   revision.created_at,
+                   candidate.position
+            FROM apify_actor_adapter_revisions AS revision
+            JOIN apify_actor_candidates AS candidate
+              ON candidate.workspace_id = revision.workspace_id
+             AND candidate.id = revision.candidate_id
+            WHERE revision.workspace_id = ?
+              AND candidate.route_key = ?
+              AND revision.lifecycle IN (
+                  'certified', 'probationary', 'legacy_builtin'
+              )
+            ORDER BY candidate.position ASC, revision.created_at DESC,
+                     revision.revision_id ASC
+            """,
+            (self.workspace_id, route["route_key"]),
+        ).fetchall()
+
+        def eligible(row: sqlite3.Row, slot_name: str) -> bool:
+            lifecycle = str(row["lifecycle"])
+            if lifecycle == "legacy_builtin":
+                return current.get(slot_name) == str(row["revision_id"])
+            if (
+                not row["build_id"]
+                or not row["build_number"]
+                or not row["manifest_hash"]
+            ):
+                return False
+            try:
+                parsed = parse_actor_manifest(str(row["manifest_json"]))
+                if (
+                    parsed.actor_id != str(row["actor_id"])
+                    or parsed.build_number != str(row["build_number"])
+                    or actor_manifest_hash(parsed) != str(row["manifest_hash"])
+                ):
+                    return False
+                _assert_manifest_route_hosts(parsed, str(route["platform"]))
+            except (ActorManifestError, ActorOpsError):
+                return False
+            if slot_name in {"primary", "backup_1"}:
+                return lifecycle == "certified"
+            return lifecycle in {"certified", "probationary"}
+
+        primary_rows = [row for row in rows if eligible(row, "primary")]
+        backup_1_rows = [row for row in rows if eligible(row, "backup_1")]
+        backup_2_rows = [row for row in rows if eligible(row, "backup_2")]
+        row_order = {
+            str(row["revision_id"]): index for index, row in enumerate(rows)
+        }
+        best: (
+            tuple[
+                tuple[Any, ...],
+                tuple[sqlite3.Row, sqlite3.Row, sqlite3.Row],
+            ]
+            | None
+        ) = None
+        for primary in primary_rows:
+            for backup_1 in backup_1_rows:
+                for backup_2 in backup_2_rows:
+                    selected = (primary, backup_1, backup_2)
+                    if len({str(row["actor_id"]) for row in selected}) != 3:
+                        continue
+                    if len({str(row["publisher"]).casefold() for row in selected}) < int(
+                        route["min_publishers"]
+                    ):
+                        continue
+                    selected_by_slot = dict(zip(SLOT_NAMES, selected, strict=True))
+                    current_matches = sum(
+                        current.get(slot_name) == str(row["revision_id"])
+                        for slot_name, row in selected_by_slot.items()
+                    )
+                    lifecycle_cost = sum(
+                        {
+                            "certified": 0,
+                            "probationary": 1,
+                            "legacy_builtin": 2,
+                        }[str(row["lifecycle"])]
+                        for row in selected
+                    )
+                    score: tuple[Any, ...] = (
+                        -current_matches,
+                        lifecycle_cost,
+                        sum(int(row["position"] or 0) for row in selected),
+                        *(row_order[str(row["revision_id"])] for row in selected),
+                        *(str(row["revision_id"]) for row in selected),
+                    )
+                    if best is None or score < best[0]:
+                        best = (score, selected)
+
+        primary_actor_count = len(
+            {str(row["actor_id"]) for row in primary_rows}
+        )
+        backup_2_actor_count = len(
+            {str(row["actor_id"]) for row in backup_2_rows}
+        )
+        eligible_publishers = len(
+            {
+                str(row["publisher"]).casefold()
+                for row in (*primary_rows, *backup_2_rows)
+            }
+        )
+        if best is None:
+            problems: list[str] = []
+            if primary_actor_count < 2:
+                problems.append("certified_candidates_incomplete")
+            if backup_2_actor_count < 3:
+                problems.append("unique_actor_candidates_incomplete")
+            if eligible_publishers < int(route["min_publishers"]):
+                problems.append("publisher_diversity_incomplete")
+            if not problems:
+                problems.append("compatible_pool_unavailable")
+            return {
+                "ready": False,
+                "already_active": False,
+                "slots": {},
+                "problems": problems,
+                "certified_actor_count": primary_actor_count,
+                "backup_2_actor_count": backup_2_actor_count,
+                "publisher_count": eligible_publishers,
+            }
+
+        selected = dict(zip(SLOT_NAMES, best[1], strict=True))
+        slots = {
+            slot_name: str(row["revision_id"])
+            for slot_name, row in selected.items()
+        }
+        already_active = all(
+            current.get(slot_name) == revision_id
+            for slot_name, revision_id in slots.items()
+        )
+        return {
+            "ready": True,
+            "already_active": already_active,
+            "slots": slots,
+            "problems": [],
+            "certified_actor_count": primary_actor_count,
+            "backup_2_actor_count": backup_2_actor_count,
+            "publisher_count": len(
+                {str(row["publisher"]).casefold() for row in selected.values()}
+            ),
+        }
+
+    def activate_recommended_pool(
+        self,
+        route_id: str,
+        *,
+        expected_generation: int,
+        confirmation: str,
+    ) -> dict[str, Any]:
+        if confirmation != ROUTE_POOL_ACTIVATION_CONFIRMATION:
+            raise ActorOpsError(
+                "apify_actor_route_activation_confirmation_required",
+                "Route activation requires the exact confirmation phrase",
+                status_code=422,
+            )
+        with self._write() as connection:
+            route = self._require_route(connection, route_id)
+            if int(route["generation"]) != int(expected_generation):
+                raise ActorOpsError(
+                    "apify_actor_route_generation_conflict",
+                    "Actor route changed; reload before retrying",
+                )
+            recommendation = self._recommend_active_pool(connection, route_id)
+            if not recommendation["ready"]:
+                raise ActorOpsError(
+                    "apify_actor_active_pool_not_ready",
+                    "No certified 2+1 Actor pool is ready to activate",
+                    status_code=412,
+                )
+            if recommendation["already_active"]:
+                raise ActorOpsError(
+                    "apify_actor_active_pool_already_active",
+                    "The recommended Actor pool is already active",
+                )
+            return self.replace_active_pool(
+                route_id,
+                slots=recommendation["slots"],
+                expected_generation=expected_generation,
+            )
 
     def get_revision(self, revision_id: str) -> dict[str, Any]:
         row = self.store.connect().execute(

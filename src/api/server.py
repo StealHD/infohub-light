@@ -557,6 +557,13 @@ class ApifyActivePoolRequest(BaseModel):
         return slots
 
 
+class ApifyRecommendedPoolActivationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: StrictInt = Field(ge=1)
+    confirmation: Literal["确认启用 Actor 主备"]
+
+
 class ApifySupportCheckRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -824,6 +831,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
         "source",
         "actor_route_pool_replace",
     ),
+    (
+        "POST",
+        "/api/admin/apify-routes/{route_id}/active-pool/activate",
+    ): ("source", "actor_route_pool_activate"),
     (
         "POST",
         "/api/admin/sources/{source_id}/apify-validations/{revision_id}/canary",
@@ -1589,6 +1600,28 @@ def create_app(
             )
         result["slots"] = slots
         result["revisions"] = list(revisions.values())
+        recommendation = ops.recommend_active_pool(route_id)
+        result["activation_recommendation"] = {
+            "ready": bool(recommendation["ready"]),
+            "already_active": bool(recommendation["already_active"]),
+            "confirmation": "确认启用 Actor 主备",
+            "problems": list(recommendation["problems"]),
+            "certified_actor_count": int(
+                recommendation["certified_actor_count"]
+            ),
+            "backup_2_actor_count": int(
+                recommendation["backup_2_actor_count"]
+            ),
+            "publisher_count": int(recommendation["publisher_count"]),
+            "slots": [
+                {
+                    "slot": slot_name,
+                    "revision_id": revision_id,
+                    "revision": revisions.get(str(revision_id)),
+                }
+                for slot_name, revision_id in recommendation["slots"].items()
+            ],
+        }
         revision_order = {
             str(row["revision_id"]): index
             for index, row in enumerate(revision_rows)
@@ -4548,6 +4581,36 @@ def create_app(
                 if payload.per_run_cap_usd is not None
                 else []
             ),
+        ]
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                **public_actor_ops_detail(
+                    apify_actor_ops_for(str(user["workspace_id"])),
+                    str(result["route_id"]),
+                ),
+            }
+        )
+
+    @app.post("/api/admin/apify-routes/{route_id}/active-pool/activate")
+    async def admin_apify_activate_recommended_pool(
+        route_id: str,
+        payload: ApifyRecommendedPoolActivationRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_ops_for(
+            str(user["workspace_id"])
+        ).activate_recommended_pool(
+            route_id,
+            expected_generation=int(payload.expected_generation),
+            confirmation=payload.confirmation,
+        )
+        request.state.operation_changed_fields = [
+            "recommended_slots",
+            "generation",
         ]
         response.headers["Cache-Control"] = "no-store"
         return ok(

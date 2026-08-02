@@ -206,6 +206,20 @@ const actorOpsDetail = (
       },
     ],
     revisions,
+    activation_recommendation: {
+      ready: true,
+      already_active: true,
+      confirmation: '确认启用 Actor 主备',
+      problems: [],
+      certified_actor_count: 2,
+      backup_2_actor_count: 3,
+      publisher_count: 2,
+      slots: [
+        { slot: 'primary', revision_id: revisions[0].revision_id, revision: revisions[0] },
+        { slot: 'backup_1', revision_id: revisions[1].revision_id, revision: revisions[1] },
+        { slot: 'backup_2', revision_id: revisions[2].revision_id, revision: revisions[2] },
+      ],
+    },
     source_validations: [],
     source_validation_summary: { ready: 0, pending: 0, failed: 0 },
     replacement_needed: false,
@@ -438,6 +452,7 @@ function renderFeature(apiOverrides: Partial<ServiceApi> = {}, queryEnabled = tr
       job: { id: 'job-1', status: 'queued' },
     }),
     updateApifyActorRouteActivePool: vi.fn().mockResolvedValue(defaultDetail),
+    activateApifyActorRouteRecommendedPool: vi.fn().mockResolvedValue(defaultDetail),
     apifyActorSourceSupport: vi.fn(),
     canaryApifyActorSourceRevision: vi.fn(),
     activateApifyActorSourceBinding: vi.fn(),
@@ -691,6 +706,16 @@ describe('HeroApifyActorRouteSettings', () => {
         { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
         { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
       ],
+      activation_recommendation: {
+        ready: false,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: ['certified_candidates_incomplete'],
+        certified_actor_count: 0,
+        backup_2_actor_count: 2,
+        publisher_count: 2,
+        slots: [],
+      },
     })
     const run = discoveryRun(detail)
     run.canary_attempts_used = 4
@@ -738,18 +763,87 @@ describe('HeroApifyActorRouteSettings', () => {
     expect(screen.queryByPlaceholderText('仅提交 opaque source_id')).not.toBeInTheDocument()
   })
 
-  it('allows probationary revisions only in Backup 2', async () => {
-    const browser = userEvent.setup()
-    renderFeature()
+  it('hides manual Revision configuration until candidate approval is complete', async () => {
+    const detail = actorOpsDetail({
+      runnable_slots: 0,
+      publisher_count: 0,
+      slots: [
+        { slot: 'primary', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
+      ],
+      activation_recommendation: {
+        ready: false,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: ['certified_candidates_incomplete'],
+        certified_actor_count: 0,
+        backup_2_actor_count: 2,
+        publisher_count: 2,
+        slots: [],
+      },
+    })
+    renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+    })
 
-    await screen.findByRole('grid', { name: 'x/profile 三槽 Actor Pool' })
-    await browser.click(screen.getByRole('button', { name: /Primary Revision$/ }))
-    expect(await screen.findByRole('option', { name: /Publisher A Probationary · 1\.0\.3/ }))
-      .toHaveAttribute('aria-disabled', 'true')
-    await browser.keyboard('{Escape}')
-    await browser.click(screen.getByRole('button', { name: /Backup 2 Revision$/ }))
-    expect(await screen.findByRole('option', { name: /Publisher A Probationary · 1\.0\.3/ }))
-      .not.toHaveAttribute('aria-disabled', 'true')
+    expect(await screen.findByText('候选审批尚未完成，你现在无需配置')).toBeVisible()
+    expect(screen.getByText('0/2')).toBeVisible()
+    expect(screen.getByText('2/3')).toBeVisible()
+    expect(screen.queryByText('替换 Revision')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存三槽配置' })).not.toBeInTheDocument()
+  })
+
+  it('activates the server-recommended pool with one explicit confirmation', async () => {
+    const browser = userEvent.setup()
+    const base = actorOpsDetail()
+    const detail = actorOpsDetail({
+      support_status: 'pending',
+      runtime_status: 'blocked',
+      runnable_slots: 0,
+      publisher_count: 0,
+      slots: [
+        { slot: 'primary', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_1', revision_id: null, runnable: false, revision: null },
+        { slot: 'backup_2', revision_id: null, runnable: false, revision: null },
+      ],
+      activation_recommendation: {
+        ready: true,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: [],
+        certified_actor_count: 2,
+        backup_2_actor_count: 3,
+        publisher_count: 2,
+        slots: [
+          { slot: 'primary', revision_id: base.revisions[0].revision_id, revision: base.revisions[0] },
+          { slot: 'backup_1', revision_id: base.revisions[1].revision_id, revision: base.revisions[1] },
+          { slot: 'backup_2', revision_id: base.revisions[2].revision_id, revision: base.revisions[2] },
+        ],
+      },
+    })
+    const activate = vi.fn().mockResolvedValue(base)
+    const { api } = renderFeature({
+      apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
+      apifyActorRoute: vi.fn().mockResolvedValue(detail),
+      activateApifyActorRouteRecommendedPool: activate,
+    })
+
+    expect(await screen.findByRole('list', { name: '系统推荐 Actor 主备方案' })).toBeVisible()
+    expect(screen.queryByText('替换 Revision')).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '确认启用 Actor 主备' }))
+    const dialog = await screen.findByRole('dialog', { name: '确认启用 Actor 主备' })
+    await browser.click(within(dialog).getByRole('button', { name: '确认启用 Actor 主备' }))
+
+    await waitFor(() => expect(api.activateApifyActorRouteRecommendedPool).toHaveBeenCalledWith(
+      detail.route_id,
+      {
+        expected_generation: detail.generation,
+        confirmation: '确认启用 Actor 主备',
+      },
+    ))
+    expect(api.updateApifyActorRouteActivePool).not.toHaveBeenCalled()
   })
 
   it('renders safe three-slot projections and submits a generation-checked support request', async () => {
@@ -765,10 +859,7 @@ describe('HeroApifyActorRouteSettings', () => {
       'grid',
       { name: 'ActorOps 路由列表' },
     )).toBeInTheDocument()
-    expect(await screen.findByRole(
-      'grid',
-      { name: 'x/profile 三槽 Actor Pool' },
-    )).toBeInTheDocument()
+    expect(await screen.findByRole('list', { name: '当前 Actor 主备方案' })).toBeInTheDocument()
     expect(screen.getByText('Publisher A Primary')).toBeInTheDocument()
     expect(screen.getByText('Publisher B Backup')).toBeInTheDocument()
     expect(screen.getByText('Publisher A Probationary')).toBeInTheDocument()
@@ -807,10 +898,11 @@ describe('HeroApifyActorRouteSettings', () => {
   it('supports explicit route-cap updates and administrator rediscovery', async () => {
     const browser = userEvent.setup()
     const { api } = renderFeature()
+    await browser.click(await screen.findByText('调整 Route 单次费用上限'))
     const cap = await screen.findByLabelText('Route 单次费用上限（USD）')
     await browser.clear(cap)
     await browser.type(cap, '0.03')
-    await browser.click(screen.getByRole('button', { name: '保存三槽配置' }))
+    await browser.click(screen.getByRole('button', { name: '保存费用上限' }))
     await waitFor(() => expect(api.updateApifyActorRouteActivePool).toHaveBeenCalledWith(
       'route-x-profile',
       {
@@ -855,9 +947,7 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
     })
 
-    await screen.findByRole('grid', { name: 'x/profile 三槽 Actor Pool' })
-    await browser.click(screen.getByRole('button', { name: /Backup 1 Revision$/ }))
-    await browser.click(await screen.findByRole('option', { name: /Publisher A Primary · 1\.0\.1/ }))
+    await screen.findByRole('list', { name: '当前 Actor 主备方案' })
     await browser.click(screen.getByRole('button', { name: '回滚到此 Revision' }))
     await browser.click(within(
       screen.getByRole('dialog', { name: '回滚不可变 Revision' }),

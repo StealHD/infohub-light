@@ -16,6 +16,7 @@ import type {
   ApifyActorDiscoverySettingsPatch,
   ApifyActorPaidCanaryRequest,
   ApifyActorPaidCanaryResponse,
+  ApifyActorRecommendedPoolActivation,
   ApifyActorRoute,
   ApifyActorRouteDetail,
   ApifyActorRoutesResponse,
@@ -270,6 +271,13 @@ export function createServiceApi(client: ApiClient) {
       payload: ApifyActorActivePoolUpdate,
     ) => client.put<ApifyActorRouteDetail>(
       `${resource('/api/admin/apify-routes', routeId)}/active-pool`,
+      payload,
+    ),
+    activateApifyActorRouteRecommendedPool: (
+      routeId: string,
+      payload: ApifyActorRecommendedPoolActivation,
+    ) => client.post<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/active-pool/activate`,
       payload,
     ),
     apifyActorSourceSupport: (sourceId: string, signal?: AbortSignal) => client.get<ApifyActorSourceSupport>(

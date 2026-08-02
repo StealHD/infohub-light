@@ -805,6 +805,20 @@ export type ApifyActorRouteDetail = ApifyActorRouteSummary & {
   }
   replacement_needed?: boolean
   revision_diffs?: ApifyActorRevisionDiff[]
+  activation_recommendation?: {
+    ready: boolean
+    already_active: boolean
+    confirmation: '确认启用 Actor 主备'
+    problems: string[]
+    certified_actor_count: number
+    backup_2_actor_count: number
+    publisher_count: number
+    slots: Array<{
+      slot: ApifyActorSlotName
+      revision_id: string
+      revision: ApifyActorRevisionSummary | null
+    }>
+  }
 }
 
 export type ApifyActorRoutesResponse = {
@@ -900,6 +914,11 @@ export type ApifyActorActivePoolUpdate = {
     slot: ApifyActorSlotName
     revision_id: string
   }>
+}
+
+export type ApifyActorRecommendedPoolActivation = {
+  expected_generation: number
+  confirmation: '确认启用 Actor 主备'
 }
 
 export type ApifyActorPaidCanaryRequest = {

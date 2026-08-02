@@ -11,6 +11,7 @@ from src.services.apify_actor_ops import (
     ApifyActorOpsService,
     FIRST_ACTIVATION_CONFIRMATION,
     PAID_CANARY_CONFIRMATION,
+    ROUTE_POOL_ACTIVATION_CONFIRMATION,
     RouteInvocationResult,
     source_target_fingerprint,
 )
@@ -178,6 +179,71 @@ def test_active_pool_enforces_2_plus_1_and_generation_cas(tmp_path) -> None:
             expected_generation=1,
         )
     assert caught.value.code == "apify_actor_route_generation_conflict"
+
+
+def test_recommended_pool_activation_chooses_ids_inside_service_transaction(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = _route(store)
+    revision_ids: list[str] = []
+    for index, publisher in enumerate(
+        ("publisher-a", "publisher-b", "publisher-a"),
+        start=1,
+    ):
+        actor_id = f"{publisher}/recommended-{index}"
+        candidate_id = ops.ensure_candidate(
+            str(route["route_id"]),
+            actor_id=actor_id,
+        )
+        revision_id = ops.create_adapter_revision(
+            candidate_id=candidate_id,
+            actor_id=actor_id,
+            publisher=publisher,
+            build_id=f"build-recommended-{index}",
+            build_number=f"2.0.{index}",
+            manifest=_manifest(actor_id, f"2.0.{index}"),
+            lifecycle="static_valid",
+        )
+        store.connect().execute(
+            """
+            UPDATE apify_actor_adapter_revisions
+            SET lifecycle = ?
+            WHERE revision_id = ?
+            """,
+            ("certified" if index < 3 else "probationary", revision_id),
+        )
+        store.connect().commit()
+        revision_ids.append(revision_id)
+
+    recommendation = ops.recommend_active_pool(str(route["route_id"]))
+    assert recommendation["ready"] is True
+    assert recommendation["already_active"] is False
+    assert set(recommendation["slots"].values()) == set(revision_ids)
+
+    with pytest.raises(ActorOpsError) as wrong_confirmation:
+        ops.activate_recommended_pool(
+            str(route["route_id"]),
+            expected_generation=int(route["generation"]),
+            confirmation="确认首次启用",
+        )
+    assert wrong_confirmation.value.code == (
+        "apify_actor_route_activation_confirmation_required"
+    )
+
+    activated = ops.activate_recommended_pool(
+        str(route["route_id"]),
+        expected_generation=int(route["generation"]),
+        confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
+    )
+    assert activated["generation"] == int(route["generation"]) + 1
+    assert [slot["revision_id"] for slot in activated["slots"]] == revision_ids
+    assert activated["runtime"]["allowed"] is True
+    assert ops.recommend_active_pool(str(route["route_id"]))[
+        "already_active"
+    ] is True
 
 
 def test_cap_only_update_preserves_circuit_and_route_block_state(tmp_path) -> None:
