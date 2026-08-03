@@ -86,30 +86,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "decisions"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "修复 Instagram Actor Canary 对合法 Unix 时间和混合 Dataset 的误判：时间转换支持有界 Unix 秒/毫秒，账号元数据行不再阻断后续真实内容，全为元数据时使用独立安全错误码。",
-  "status": "completed",
-  "task_id": "2026-08-02-apify-canary-mixed-dataset-contract-repair",
-  "unresolved": [
-    "历史失败、费用与不可变 Revision 保持原样；生产认证仍需管理员对修复后的运行时逐次确认新的付费 Canary",
-    "本次排查只重读既有 Dataset，不新增 AI 或 Actor Run，不合并 main、不推送、不发布 VPS"
-  ],
-  "validation": [
-    "实测失败根因：一个 Actor 返回 Unix 整数时间，另一个 Dataset 首行为账号元数据、次行为有效帖子；第三个 Actor 在 300 秒后安全中止并结算 $0.01905",
-    "Actor Manifest/Canary/Runtime/Route/Discovery targeted tests passed",
-    "Full Test Gate 23/23 passed in 197.069 seconds",
-    "修复后只读重放两个既有 Dataset 均为 valid_nonempty：Unix 时间 Actor 映射 1 条，混合 Dataset 隔离 1 条元数据后映射 1 条；没有 Actor POST 或新增费用",
-    "8080 API/Worker 已运行提交 6c9e35d 并 healthy，worker_status=ready，scheduler containers=0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -433,6 +409,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产只读诊断返回 400 invalid-value，明确 startedAfter 不是接口接受的 ISO UTC 格式",
     "修复格式后的生产只读查询返回 authoritative_empty=true，未启动 Actor 且未产生费用",
     "Apify pool/key 定向 22 项通过，完整 Test Gate 23/23 通过"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "发布并部署 v2.2.5，修复 Apify 未知启动对账日期格式；生产旧未知启动以 0 美元安全终结，唯一补验成功后自动激活 YouTube 两路不同发布者 Actor 主备。",
+  "status": "completed",
+  "task_id": "2026-08-03-publish-deploy-v2.2.5-youtube-actor-ready",
+  "unresolved": [],
+  "validation": [
+    "定向 Apify pool/key 22 项、完整 Gate 23/23、Release Gate 25/25 通过；GitHub main 与 v2.2.5 Tag Test Gate 均成功",
+    "本地 8080 运行精确 f46e6a2497e0，API/Worker healthy、worker_status=ready、前端资产已更新；scheduler 未启动",
+    "VPS 使用本地预构建 amd64 镜像 docker load 与 --no-build 切换；0600 数据库和 .env 备份完成，integrity ok、foreign keys 0",
+    "生产未知启动变为 start_rejected、实际费用 0 且 Key Pool 解锁；补验只启动一次，实际费用 0.00145 美元并终结",
+    "youtube/channel/items generation 4 为 ready，Primary/Backup 1 是两个不同 Actor 和两个发布者，Backup 2 留空；活动任务 0、API/Worker/RSSHub healthy、日志无 HTTPStatusError 或 Traceback"
   ]
 }
 ```
