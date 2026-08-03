@@ -6,8 +6,6 @@ import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { queryStaleTime } from '../../api/queryPolicy'
 import type {
-  ApifyKeyPoolMember,
-  SecretRef,
   StorageOperation,
   StoragePlan,
 } from '../../api/types'
@@ -17,21 +15,14 @@ import {
   actionToast,
   Button,
   Card,
-  FieldError,
   Icons,
   Input,
   Label,
   LoadingState,
-  Modal,
   PageFrame,
-  StatusIndicator,
-  Table,
   TextField,
 } from '../../design-system'
-import {
-  canAdministerWorkspace,
-  secretPresentation,
-} from '../settings/settingsModel'
+import { canAdministerWorkspace } from '../settings/settingsModel'
 import { HeroApifyActorRouteSettings } from '../apify-actors/HeroApifyActorRouteSettings'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
@@ -44,22 +35,6 @@ const errorMessage = (caught: unknown, fallback: string) => caught instanceof Ap
   : caught instanceof Error && caught.message
     ? caught.message
     : fallback
-const secretEnvPattern = /^[A-Za-z_][A-Za-z0-9_]*$/
-const secretProviders: Record<string, string[]> = {
-  ai: ['gemini', 'openai', 'anthropic', 'deepseek'],
-  apify: ['apify'],
-}
-const isApifySecret = (secret: SecretRef) => secret.kind === 'apify' || secret.provider === 'apify'
-const secretQuotaStaleTime = 5 * 60 * 1000
-
-type SecretDraft = {
-  name: string
-  kind: string
-  provider: string
-  envName: string
-  value: string
-}
-
 type CoreSettingsSection = 'rsshub' | 'filtering' | 'topics'
 type CoreSettingsBundle = Partial<Record<CoreSettingsSection, Record<string, unknown>>>
 type CoreSettingsSave = {
@@ -69,73 +44,6 @@ type CoreSettingsSave = {
 }
 
 const coreSettingsOrder: CoreSettingsSection[] = ['rsshub', 'filtering', 'topics']
-const emptySecretDraft: SecretDraft = { name: '', kind: 'ai', provider: '', envName: '', value: '' }
-
-type SecretField = keyof SecretDraft
-type SecretFieldErrors = Partial<Record<SecretField, string>>
-
-function validateSecretDraft(draft: SecretDraft): SecretFieldErrors {
-  const errors: SecretFieldErrors = {}
-  const provider = draft.provider.trim().toLowerCase()
-  if (!draft.name.trim()) errors.name = 'Key 名称不能为空。'
-  if (!secretProviders[draft.kind]) errors.kind = '请选择有效的 Key 类型。'
-  if (!provider) {
-    errors.provider = 'Provider 不能为空。'
-  } else if (!secretProviders[draft.kind]?.includes(provider)) {
-    errors.provider = draft.kind === 'apify'
-      ? 'Apify Key 的 Provider 必须是 apify。'
-      : 'AI Key 的 Provider 仅支持 gemini、openai、anthropic 或 deepseek。'
-  }
-  if (!draft.envName.trim()) {
-    errors.envName = '环境变量名不能为空。'
-  } else if (!secretEnvPattern.test(draft.envName.trim())) {
-    errors.envName = '环境变量名必须以字母或下划线开头，且只能包含字母、数字和下划线。'
-  }
-  if (!draft.value) {
-    errors.value = 'Key 值不能为空。'
-  } else if (draft.value.includes('\r') || draft.value.includes('\n') || draft.value.includes('\u0000')) {
-    errors.value = 'Key 值必须为不含换行或空字符的单行文本。'
-  } else if (draft.value.length > 4096) {
-    errors.value = 'Key 值不能超过 4096 个字符。'
-  }
-  return errors
-}
-
-function secretCreateErrorMessage(caught: unknown): string {
-  if (!(caught instanceof ApiError)) {
-    return caught instanceof Error && caught.message
-      ? `网络请求失败：${caught.message}。请检查连接后重试。`
-      : '网络请求失败，请检查连接后重试。'
-  }
-  if (caught.code === 'secret_env_conflict') return '环境变量名已被其他 Key 使用，请更换后重试。'
-  if (caught.code === 'invalid_secret') {
-    if (/provider/i.test(caught.message)) return 'Provider 与 Key 类型不匹配，请检查后重试。'
-    if (/env|environment/i.test(caught.message)) return '环境变量名格式无效，请使用字母或下划线开头。'
-    if (/empty|required/i.test(caught.message)) return '必填内容不能为空，请补充后重试。'
-    if (/single|line|null/i.test(caught.message)) return 'Key 值必须为不含换行或空字符的单行文本。'
-    if (/4096|exceed/i.test(caught.message)) return 'Key 值不能超过 4096 个字符。'
-    return 'Key 元数据或值格式无效，请检查后重试。'
-  }
-  return caught.action ? `${caught.message} ${caught.action}` : caught.message
-}
-
-const formatUsd = (value: number) => new Intl.NumberFormat('zh-CN', {
-  style: 'currency',
-  currency: 'USD',
-  currencyDisplay: 'narrowSymbol',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-}).format(value)
-
-function formatCycleEnd(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '未知'
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date)
-}
 
 function formatDateTime(value: string | null): string {
   if (!value) return '尚未记录'
@@ -149,543 +57,10 @@ function formatDateTime(value: string | null): string {
   }).format(date)
 }
 
-const poolStatusLabels: Record<string, string> = {
-  empty: '尚未配置 Key',
-  ready: '可以启动新任务',
-  active: '运行中',
-  draining: '正在安全排空',
-  blocked: '已阻塞，等待人工核对',
-  exhausted: '所有 Key 额度均已用尽',
-  disabled: '尚未启用',
-}
-
-const memberStatusPresentation: Record<ApifyKeyPoolMember['status'], {
-  label: string
-  tone: 'neutral' | 'success' | 'warning' | 'danger'
-}> = {
-  active: { label: '主用', tone: 'success' },
-  standby: { label: '备用', tone: 'neutral' },
-  draining: { label: '排空中', tone: 'warning' },
-  depleted: { label: '额度已用尽', tone: 'warning' },
-  invalid: { label: 'Key 无效', tone: 'danger' },
-}
-
-const memberErrorLabels: Record<string, string> = {
-  quota_exhausted: '额度不足，等待下个周期',
-  apify_quota_exhausted: '额度不足，等待下个周期',
-  apify_credits_depleted: '额度不足，等待下个周期',
-  invalid_token: 'Key 无效，请排空后轮换',
-  apify_invalid_token: 'Key 无效，请排空后轮换',
-  apify_token_invalid: 'Key 无效，请排空后轮换',
-  run_outcome_unknown: '启动结果未知，需要人工核对',
-  apify_start_outcome_unknown: '启动结果未知，需要人工核对',
-  apify_restart_start_outcome_unknown: '重启后启动结果未知，需要人工核对',
-}
-
-function ApifyPoolStatusCell({ member }: { member: ApifyKeyPoolMember | null }) {
-  if (!member) return <div className="min-w-48">
-    <p className="type-control">等待加入池</p>
-    <p className="type-meta mt-1 text-muted">刷新后仍未加入时，请检查服务状态</p>
-  </div>
-
-  const presentation = memberStatusPresentation[member.status] ?? { label: '状态未知', tone: 'neutral' as const }
-  return <div className="min-w-52">
-    <StatusIndicator
-      label={presentation.label}
-      tone={presentation.tone}
-      icon={member.status === 'draining'
-        ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-        : member.status === 'active'
-          ? <Icons.CircleCheck size={13} aria-hidden="true" />
-          : member.status === 'invalid'
-            ? <Icons.CircleX size={13} aria-hidden="true" />
-            : member.status === 'depleted'
-              ? <Icons.TriangleAlert size={13} aria-hidden="true" />
-              : <Icons.CircleDashed size={13} aria-hidden="true" />}
-    />
-    <p className="type-meta mt-2 text-muted">
-      {member.active_run_count > 0 ? `${member.active_run_count} 个运行中任务` : '没有运行中任务'}
-    </p>
-    {member.blocked_until && <p className="type-meta mt-1 text-muted">受阻至 {formatDateTime(member.blocked_until)}</p>}
-    {member.cycle_end_at && <p className="type-meta mt-1 text-muted">额度周期至 {formatDateTime(member.cycle_end_at)}</p>}
-    <p className="type-meta mt-1 text-muted">最近检查 {formatDateTime(member.last_checked_at)}</p>
-    {member.last_error_code && <p className="type-meta mt-1 text-danger">
-      {memberErrorLabels[member.last_error_code] ?? 'Key 需要管理员检查'}
-    </p>}
-  </div>
-}
-
 function FormField({ label, name, defaultValue = '', type = 'text', min, max, required = false }: {
   label: string; name: string; defaultValue?: string | number; type?: string; min?: number; max?: number; required?: boolean
 }) {
   return <TextField fullWidth name={name} defaultValue={String(defaultValue)} isRequired={required}><Label>{label}</Label><Input type={type} min={min} max={max} /></TextField>
-}
-
-function SecretQuotaCell({ secret, userId, queryEnabled }: {
-  secret: SecretRef
-  userId: string
-  queryEnabled: boolean
-}) {
-  const { api } = useAppContext()
-  const supported = isApifySecret(secret)
-  const [manualAction, setManualAction] = useState<'refresh' | 'retry' | null>(null)
-  const [retryError, setRetryError] = useState<unknown>(null)
-  const quota = useQuery({
-    queryKey: queryKeys.secretQuota(userId, secret.id),
-    // Keep one shared in-flight lookup across React StrictMode's development remount.
-    queryFn: () => api.secretQuota(secret.id),
-    enabled: queryEnabled && supported && secret.is_set,
-    staleTime: secretQuotaStaleTime,
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  })
-
-  async function refetchQuota(action: 'refresh' | 'retry') {
-    if (action === 'retry') setRetryError(quota.error)
-    setManualAction(action)
-    try {
-      await quota.refetch()
-    } finally {
-      setManualAction(null)
-    }
-  }
-
-  if (!supported) return <span className="type-meta text-muted">暂不支持查询</span>
-  if (!secret.is_set) return <span className="type-meta text-muted">Key 未配置，无法查询</span>
-  const retrying = manualAction === 'retry'
-  const retryBusy = retrying || quota.isFetching
-  if (!quota.data && (quota.isError || retrying)) {
-    return <div className="min-w-56" role="alert" aria-busy={retryBusy}>
-      <p className="type-meta text-danger">{errorMessage(
-        quota.isError ? quota.error : retryError,
-        '额度查询失败，请稍后重试。',
-      )}</p>
-      <Button
-        className="mt-1"
-        size="sm"
-        variant="ghost"
-        aria-label={retryBusy ? `正在重试 ${secret.name} 额度` : `重试 ${secret.name} 额度`}
-        isDisabled={retryBusy}
-        onPress={() => void refetchQuota('retry')}
-      ><Icons.RefreshCw size={14} className={retryBusy ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />{retryBusy ? '重试中…' : '重试'}</Button>
-    </div>
-  }
-  if (quota.isPending) return <span className="type-meta text-muted" aria-live="polite">正在查询额度…</span>
-  if (!quota.data) return <span className="type-meta text-muted">暂无额度数据</span>
-
-  const refreshing = manualAction === 'refresh' || (quota.isFetching && !retrying)
-  const refreshError = quota.isError || retrying
-    ? errorMessage(quota.isError ? quota.error : retryError, '额度刷新失败，请稍后重试。')
-    : null
-  return <div className="min-w-64" aria-live="polite" aria-busy={refreshing || retryBusy}>
-    <p className="type-control">套餐剩余 {formatUsd(quota.data.remaining_included_credits_usd)}</p>
-    <p className="type-meta mt-1 text-muted">
-      本月已用 {formatUsd(quota.data.monthly_usage_usd)} · 硬上限剩余 {formatUsd(quota.data.remaining_hard_limit_usd)}
-    </p>
-    <div className="mt-1 flex items-center gap-2">
-      <span className="type-meta text-muted">周期至 {formatCycleEnd(quota.data.cycle_end_at)}</span>
-      {refreshError ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={retryBusy ? `正在重试 ${secret.name} 额度` : `重试 ${secret.name} 额度`}
-          isDisabled={retryBusy}
-          onPress={() => void refetchQuota('retry')}
-        ><Icons.RefreshCw size={14} className={retryBusy ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />{retryBusy ? '重试中…' : '重试'}</Button>
-      ) : (
-        <Button
-          size="sm"
-          variant="ghost"
-          isIconOnly
-          aria-label={refreshing ? `正在刷新 ${secret.name} 额度` : `刷新 ${secret.name} 额度`}
-          isDisabled={refreshing}
-          onPress={() => void refetchQuota('refresh')}
-        ><Icons.RefreshCw size={14} className={refreshing ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></Button>
-      )}
-      {refreshing && <span className="sr-only" role="status">正在刷新 {secret.name} 额度</span>}
-      {refreshError && retryBusy && <span className="sr-only" role="status">正在重试 {secret.name} 额度</span>}
-    </div>
-    {refreshError && <p className="type-meta mt-1 text-danger" role="alert">{refreshError}</p>}
-  </div>
-}
-
-function SecretRowActions({ secret, onChanged, lifecycleLocked = false, lockMessage = '请先安全排空，再轮换或删除' }: {
-  secret: SecretRef
-  onChanged: (secretId: string, action: 'rotate' | 'delete') => void
-  lifecycleLocked?: boolean
-  lockMessage?: string
-}) {
-  const { api } = useAppContext()
-  const feedback = useActionFeedback()
-  const [value, setValue] = useState('')
-  const [rotateOpen, setRotateOpen] = useState(false)
-  const [rotateError, setRotateError] = useState('')
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
-  const rotateTriggerRef = useRef<HTMLButtonElement>(null)
-  const deleteTriggerRef = useRef<HTMLButtonElement>(null)
-  const rotating = feedback.isPending('secret-rotate', secret.id)
-  const removing = feedback.isPending('secret-delete', secret.id)
-
-  function closeRotateDialog() {
-    setRotateOpen(false)
-    setRotateError('')
-    setValue('')
-    queueMicrotask(() => rotateTriggerRef.current?.focus())
-  }
-
-  function closeDeleteDialog() {
-    setDeleteOpen(false)
-    setDeleteError('')
-    queueMicrotask(() => deleteTriggerRef.current?.focus())
-  }
-
-  async function rotate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const submitted = value
-    setValue('')
-    setRotateError('')
-    if (!submitted) {
-      setRotateError('新 Key 值不能为空。')
-      return
-    }
-    feedback.begin('secret-rotate', secret.id)
-    try {
-      await api.rotateSecret(secret.id, submitted)
-      feedback.succeed('secret-rotate', secret.id, `${secret.name} 已轮换。`)
-      closeRotateDialog()
-      actionToast.success('Key 已轮换', { description: secret.name })
-      onChanged(secret.id, 'rotate')
-    } catch (caught) {
-      const message = errorMessage(caught, '轮换失败，请稍后重试。')
-      setRotateError(message)
-      feedback.fail('secret-rotate', secret.id, message)
-    }
-  }
-
-  async function remove() {
-    setDeleteError('')
-    feedback.begin('secret-delete', secret.id)
-    try {
-      await api.deleteSecret(secret.id)
-      feedback.succeed('secret-delete', secret.id, `${secret.name} 已删除。`)
-      closeDeleteDialog()
-      actionToast.success('Key 已删除', { description: secret.name })
-      onChanged(secret.id, 'delete')
-    } catch (caught) {
-      const message = errorMessage(caught, '删除失败。')
-      setDeleteError(message)
-      feedback.fail('secret-delete', secret.id, message)
-    }
-  }
-
-  return <div className="flex min-w-40 flex-wrap gap-2">
-    <Modal isOpen={rotateOpen} onOpenChange={(open) => {
-      if (rotating) return
-      setRotateOpen(open)
-      if (!open) {
-        setRotateError('')
-        setValue('')
-        queueMicrotask(() => rotateTriggerRef.current?.focus())
-      }
-    }}>
-      <Button ref={rotateTriggerRef} size="sm" type="button" variant="ghost" aria-label={`轮换 ${secret.name}`} isDisabled={lifecycleLocked}>轮换</Button>
-      <Modal.Backdrop isDismissable={!rotating} isKeyboardDismissDisabled={rotating}>
-        <Modal.Container>
-          <Modal.Dialog>
-            <Modal.Header><Modal.Heading>{`轮换 ${secret.name}`}</Modal.Heading></Modal.Header>
-            <Modal.Body>
-              <form id={`rotate-secret-${secret.id}`} className="grid gap-3" onSubmit={rotate}>
-                <TextField fullWidth value={value} onChange={setValue} isRequired>
-                  <Label>新 Key 值</Label>
-                  <Input type="password" autoComplete="new-password" placeholder="粘贴新 Key（不会回显）" />
-                </TextField>
-                {rotateError && <HeroNotice title={rotateError} />}
-              </form>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button type="button" variant="ghost" isDisabled={rotating} onPress={closeRotateDialog}>取消轮换</Button>
-              <Button type="submit" form={`rotate-secret-${secret.id}`} isDisabled={rotating}>
-                {rotating ? '轮换中…' : '确认轮换'}
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
-    <Modal isOpen={deleteOpen} onOpenChange={(open) => {
-        if (removing) return
-        setDeleteOpen(open)
-        if (!open) {
-          setDeleteError('')
-          queueMicrotask(() => deleteTriggerRef.current?.focus())
-        }
-      }}>
-        <Button ref={deleteTriggerRef} size="sm" type="button" variant="danger" aria-label={`删除 ${secret.name}`} isDisabled={lifecycleLocked || secret.used_by.length > 0 || removing}>删除</Button>
-        <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}>
-          <Modal.Container>
-            <Modal.Dialog>
-              <Modal.Header><Modal.Heading>{`删除 ${secret.name}？`}</Modal.Heading></Modal.Header>
-              <Modal.Body>
-                <p>删除后无法恢复；如需再次使用，必须重新添加 Key。</p>
-                {deleteError && <div className="mt-3"><HeroNotice title={deleteError} /></div>}
-              </Modal.Body>
-              <Modal.Footer>
-                <Button type="button" variant="ghost" isDisabled={removing} onPress={closeDeleteDialog}>取消删除</Button>
-                <Button type="button" variant="danger" isDisabled={removing} onPress={() => void remove()}>{removing ? '删除中…' : '确认删除'}</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
-    {lifecycleLocked && <span className="type-meta basis-full text-muted">{lockMessage}</span>}
-  </div>
-}
-
-function apifyPoolActionError(caught: unknown, fallback: string): string {
-  if (caught instanceof ApiError && (
-    caught.code === 'apify_key_pool_generation_conflict'
-    || caught.code === 'apify_key_pool_conflict'
-  )) {
-    return 'Key 池刚刚发生变化，已刷新最新顺序，请重试。'
-  }
-  return errorMessage(caught, fallback)
-}
-
-function ApifyKeyPoolTable({ secrets, userId, queryEnabled, onSecretChanged }: {
-  secrets: SecretRef[]
-  userId: string
-  queryEnabled: boolean
-  onSecretChanged: (secretId: string, action: 'rotate' | 'delete') => void
-}) {
-  const { api } = useAppContext()
-  const queryClient = useQueryClient()
-  const poolQuery = useQuery({
-    queryKey: queryKeys.apifyKeyPool(userId),
-    queryFn: ({ signal }) => api.apifyKeyPool(signal),
-    enabled: queryEnabled,
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchInterval: (query) => queryEnabled && query.state.data?.status === 'draining' ? 2_000 : false,
-  })
-  const orderMutation = useMutation({
-    mutationFn: ({ secretIds, expectedGeneration }: { secretIds: string[]; expectedGeneration: number }) => (
-      api.reorderApifyKeyPool(secretIds, expectedGeneration)
-    ),
-    onSuccess: (pool) => {
-      queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
-      actionToast.success('Apify Key 顺序已更新')
-    },
-    onError: (caught, variables) => {
-      const message = apifyPoolActionError(caught, 'Key 顺序更新失败，请稍后重试。')
-      if (caught instanceof ApiError && (
-        caught.code === 'apify_key_pool_generation_conflict'
-        || caught.code === 'apify_key_pool_conflict'
-      )) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(userId) })
-      }
-      actionToast.danger('Key 顺序更新失败', {
-        description: message,
-        onRetry: () => {
-          if (!orderMutation.isPending) orderMutation.mutate(variables)
-        },
-      })
-    },
-  })
-  const drainMutation = useMutation({
-    mutationFn: (secretId: string) => api.drainApifyKey(secretId),
-    onSuccess: (pool, secretId) => {
-      queryClient.setQueryData(queryKeys.apifyKeyPool(userId), pool)
-      const secret = secrets.find((item) => item.id === secretId)
-      actionToast.success('已提交安全排空', { description: secret?.name })
-    },
-    onError: (caught, secretId) => {
-      const message = apifyPoolActionError(caught, '安全排空失败，请稍后重试。')
-      actionToast.danger('安全排空失败', {
-        description: message,
-        onRetry: () => {
-          if (!drainMutation.isPending) drainMutation.mutate(secretId)
-        },
-      })
-    },
-  })
-
-  const apifySecrets = secrets.filter(isApifySecret)
-  const secretsById = new Map(apifySecrets.map((secret) => [secret.id, secret]))
-  const orderedMembers = [...(poolQuery.data?.members ?? [])].sort((left, right) => left.position - right.position)
-  const memberIds = new Set(orderedMembers.map((member) => member.secret_id))
-  const rows: Array<{ secret: SecretRef; member: ApifyKeyPoolMember | null }> = [
-    ...orderedMembers.flatMap((member) => {
-      const secret = secretsById.get(member.secret_id)
-      return secret ? [{ secret, member }] : []
-    }),
-    ...apifySecrets.filter((secret) => !memberIds.has(secret.id)).map((secret) => ({ secret, member: null })),
-  ]
-  const unresolvedMembers = orderedMembers.filter((member) => !secretsById.has(member.secret_id)).length
-  const poolBusy = poolQuery.data?.enabled === true && (
-    poolQuery.data.status === 'draining'
-    || poolQuery.data.status === 'blocked'
-  )
-
-  function moveMember(secretId: string, offset: -1 | 1) {
-    const pool = poolQuery.data
-    if (!pool || orderMutation.isPending || drainMutation.isPending || poolBusy) return
-    const members = [...pool.members].sort((left, right) => left.position - right.position)
-    const index = members.findIndex((member) => member.secret_id === secretId)
-    const target = index + offset
-    if (index < 0 || target < 0 || target >= members.length) return
-    const memberLocked = (member: ApifyKeyPoolMember) => pool.enabled && (
-      member.status === 'active'
-      || member.status === 'draining'
-      || member.active_run_count > 0
-      || pool.active_secret_id === member.secret_id
-    )
-    if (memberLocked(members[index]) || memberLocked(members[target])) return
-    const reordered = [...members]
-    const [moving] = reordered.splice(index, 1)
-    reordered.splice(target, 0, moving)
-    orderMutation.mutate({
-      secretIds: reordered.map((member) => member.secret_id),
-      expectedGeneration: pool.generation,
-    })
-  }
-
-  const poolStatus = poolQuery.data
-    ? poolStatusLabels[poolQuery.data.status] ?? '状态需要检查'
-    : '正在读取'
-  const activeName = poolQuery.data?.active_secret_id
-    ? secretsById.get(poolQuery.data.active_secret_id)?.name
-    : null
-  const poolTone = poolQuery.data?.status === 'ready'
-    ? 'success'
-    : poolQuery.data?.status === 'blocked' || poolQuery.data?.status === 'exhausted'
-      ? 'danger'
-      : poolQuery.data?.status === 'draining'
-        ? 'warning'
-        : 'neutral'
-  const poolIcon = poolQuery.data?.status === 'draining'
-    ? <Icons.LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-    : poolQuery.data?.status === 'ready'
-      ? <Icons.CircleCheck size={13} aria-hidden="true" />
-      : poolQuery.data?.status === 'blocked' || poolQuery.data?.status === 'exhausted'
-        ? <Icons.CircleX size={13} aria-hidden="true" />
-        : <Icons.CircleDashed size={13} aria-hidden="true" />
-
-  return <Card variant="secondary" className="p-4">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <Card.Title>Apify Key 池</Card.Title>
-        <Card.Description className="mt-1">
-          所有 Apify 来源统一使用此池；额度不足时先停止旧 Key 的任务，再切换到下一备用 Key。
-        </Card.Description>
-      </div>
-      <StatusIndicator label={poolStatus} tone={poolTone} icon={poolIcon} />
-    </div>
-    {poolQuery.isPending && <div className="mt-4"><LoadingState label="正在读取 Apify Key 池" rows={1} /></div>}
-    {poolQuery.isError && <div className="mt-4"><HeroNotice title="Apify Key 池读取失败">
-      为避免误操作，池状态恢复前不会提供排序或排空操作。
-    </HeroNotice></div>}
-    {poolQuery.data && !poolQuery.data.enabled && <div className="mt-4"><HeroNotice title="Apify Key 池尚未启用" status="warning" role="status">
-      当前仍处于兼容阶段；可以预先维护备用顺序，但不会自动切换。
-    </HeroNotice></div>}
-    {poolQuery.data?.enabled && <p className="type-meta mt-3 text-muted">
-      {activeName ? `当前主用：${activeName}` : '当前没有可用的主用 Key'} · {poolStatus}
-    </p>}
-    {unresolvedMembers > 0 && <div className="mt-4"><HeroNotice title="部分 Key 元数据尚未加载" status="warning" role="status">
-      已隐藏无法安全识别的池成员，请刷新页面后再操作。
-    </HeroNotice></div>}
-    <div className="mt-4 min-w-0 max-w-full">
-      <Table variant="secondary" className="max-w-full">
-        <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="apify-key-pool-scroll">
-          <Table.Content aria-label="Apify Key 池">
-            <Table.Header>
-              <Table.Column isRowHeader>Key</Table.Column>
-              <Table.Column>池状态</Table.Column>
-              <Table.Column>额度</Table.Column>
-              <Table.Column>操作</Table.Column>
-            </Table.Header>
-            <Table.Body
-              items={rows}
-              renderEmptyState={() => <div className="p-6 text-center text-muted">尚未配置 Apify Key</div>}
-            >
-              {({ secret, member }) => {
-                const memberIndex = member ? orderedMembers.findIndex((item) => item.secret_id === member.secret_id) : -1
-                const poolEnabled = poolQuery.data?.enabled === true
-                const poolStateUnknown = poolEnabled && !member
-                const lifecycleLocked = poolStateUnknown || (
-                  poolEnabled && Boolean(member && (
-                    member.status === 'active'
-                    || member.status === 'draining'
-                    || member.active_run_count > 0
-                    || poolQuery.data?.active_secret_id === secret.id
-                  ))
-                )
-                const controlsDisabled = !member || poolQuery.isError || orderMutation.isPending || drainMutation.isPending || poolBusy
-                const previousMember = memberIndex > 0 ? orderedMembers[memberIndex - 1] : null
-                const nextMember = memberIndex >= 0 && memberIndex < orderedMembers.length - 1 ? orderedMembers[memberIndex + 1] : null
-                const neighborLocked = (candidate: ApifyKeyPoolMember | null) => poolEnabled && Boolean(candidate && (
-                  candidate.status === 'active'
-                  || candidate.status === 'draining'
-                  || candidate.active_run_count > 0
-                  || poolQuery.data?.active_secret_id === candidate.secret_id
-                ))
-                const draining = drainMutation.isPending && drainMutation.variables === secret.id
-                const canDrain = Boolean(
-                  poolQuery.data?.enabled
-                  && member
-                  && (lifecycleLocked || poolQuery.data.active_secret_id === secret.id),
-                )
-                return <Table.Row id={secret.id}>
-                  <Table.Cell>
-                    <div className="min-w-44">
-                      <p className="type-control">{secret.name}</p>
-                      <code className="type-meta text-muted">{secret.env_name}</code>
-                    </div>
-                  </Table.Cell>
-                  <Table.Cell><ApifyPoolStatusCell member={member} /></Table.Cell>
-                  <Table.Cell><SecretQuotaCell secret={secret} userId={userId} queryEnabled={queryEnabled} /></Table.Cell>
-                  <Table.Cell>
-                    <div className="flex min-w-64 flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        isIconOnly
-                        aria-label={`上移 ${secret.name}`}
-                        isDisabled={controlsDisabled || memberIndex <= 0 || lifecycleLocked || neighborLocked(previousMember)}
-                        onPress={() => moveMember(secret.id, -1)}
-                      ><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        isIconOnly
-                        aria-label={`下移 ${secret.name}`}
-                        isDisabled={controlsDisabled || memberIndex < 0 || memberIndex >= orderedMembers.length - 1 || lifecycleLocked || neighborLocked(nextMember)}
-                        onPress={() => moveMember(secret.id, 1)}
-                      ><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
-                      {canDrain && <Button
-                        size="sm"
-                        variant="secondary"
-                        aria-label={`安全排空 ${secret.name}`}
-                        isDisabled={draining || member?.status === 'draining' || poolQuery.data?.status === 'blocked'}
-                        onPress={() => drainMutation.mutate(secret.id)}
-                      ><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
-                      <SecretRowActions
-                        secret={secret}
-                        lifecycleLocked={lifecycleLocked}
-                        lockMessage={poolStateUnknown ? '池状态确认前不可轮换或删除' : undefined}
-                        onChanged={onSecretChanged}
-                      />
-                    </div>
-                  </Table.Cell>
-                </Table.Row>
-              }}
-            </Table.Body>
-          </Table.Content>
-        </Table.ScrollContainer>
-      </Table>
-    </div>
-  </Card>
 }
 
 const storageOperationLabels: Record<StorageOperation, string> = {
@@ -945,22 +320,12 @@ export function HeroSettingsPage() {
   const lastTouchYRef = useRef<number | null>(null)
   const explicitSectionNavigationRef = useRef(Boolean(legacySettingsSectionFromHash(location.hash, user.role)))
   const configQueryEnabled = admin && activeSection === 'settings-fetching'
-  const secretsQueryEnabled = admin && activeSection === 'settings-secrets'
   const config = useQuery({
     queryKey: queryKeys.config(user.id),
     queryFn: ({ signal }) => api.config(signal),
     enabled: configQueryEnabled,
     staleTime: queryStaleTime.settings,
   })
-  const secrets = useQuery({
-    queryKey: queryKeys.secrets(user.id),
-    queryFn: ({ signal }) => api.secrets(signal),
-    enabled: secretsQueryEnabled,
-    staleTime: queryStaleTime.settings,
-  })
-  const [secretDraft, setSecretDraft] = useState<SecretDraft>(emptySecretDraft)
-  const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
-  const [secretFormError, setSecretFormError] = useState('')
   const [rssInitialFetchWindowOverride, setRssInitialFetchWindowOverride] = useState<string | null>(null)
   const [feedWindowDaysOverride, setFeedWindowDaysOverride] = useState<string | null>(null)
   const [topicsOverride, setTopicsOverride] = useState<string[] | null>(null)
@@ -991,8 +356,7 @@ export function HeroSettingsPage() {
     (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
   )
   const sectionOptions = useMemo(() => legacySettingsSectionsForRole(user.role), [user.role])
-  const secretDirty = Object.entries(secretDraft).some(([key, value]) => value !== emptySecretDraft[key as keyof SecretDraft])
-  const settingsDirty = dirtyCoreSections.size > 0 || secretDirty
+  const settingsDirty = dirtyCoreSections.size > 0
 
   const activateSection = useCallback((id: string) => {
     activeSectionRef.current = id
@@ -1200,39 +564,6 @@ export function HeroSettingsPage() {
     navigate({ pathname: location.pathname, search: location.search, hash: `#${id}` })
   }
 
-  function clearSecretFieldError(field: SecretField) {
-    setSecretFieldErrors((current) => {
-      if (!current[field]) return current
-      const next = { ...current }
-      delete next[field]
-      return next
-    })
-    setSecretFormError('')
-  }
-
-  function secretChanged(secretId: string, action: 'rotate' | 'delete') {
-    const apifySecret = (secrets.data?.secrets ?? []).some((secret) => secret.id === secretId && isApifySecret(secret))
-    if (action === 'rotate') {
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) }),
-        ...(apifySecret
-          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
-          : []),
-      ])
-      return
-    }
-    queryClient.removeQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) })
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
-      ...(apifySecret
-        ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
-        : []),
-    ])
-  }
-
   const configMutation = useMutation({
     mutationFn: ({ payload }: CoreSettingsSave) => api.configAction('set_settings_bundle', payload),
     onMutate: () => feedback.begin('config-save', 'set_settings_bundle'),
@@ -1271,44 +602,6 @@ export function HeroSettingsPage() {
       actionToast.danger('设置保存失败', { description: message })
     },
   })
-
-  async function createSecret(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const submitted = { name: secretDraft.name.trim(), kind: secretDraft.kind, provider: secretDraft.provider.trim(), env_name: secretDraft.envName.trim(), value: secretDraft.value }
-    setSecretDraft((current) => ({ ...current, value: '' }))
-    setSecretFieldErrors({})
-    setSecretFormError('')
-    const fieldErrors = validateSecretDraft(secretDraft)
-    if (Object.keys(fieldErrors).length) {
-      const message = Object.values(fieldErrors)[0] ?? '请检查 Key 表单。'
-      setSecretFieldErrors(fieldErrors)
-      setSecretFormError('请修正标出的字段后重试。')
-      feedback.fail('secret-create', 'new', message)
-      actionToast.danger('新增 Key 失败', { description: message })
-      return
-    }
-    feedback.begin('secret-create', 'new')
-    try {
-      await api.createSecret(submitted)
-      setSecretDraft(emptySecretDraft)
-      setSecretFieldErrors({})
-      setSecretFormError('')
-      feedback.clear('secret-create', 'new')
-      actionToast.success('Key 已安全保存')
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
-        ...(submitted.kind === 'apify'
-          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })]
-          : []),
-      ])
-    } catch (caught) {
-      const message = secretCreateErrorMessage(caught)
-      setSecretFormError(message)
-      feedback.fail('secret-create', 'new', message)
-      actionToast.danger('新增 Key 失败', { description: message })
-    }
-  }
 
   function filteringPayload(): Record<string, unknown> {
     if (!filteringFormRef.current) throw new Error('获取设置表单尚未加载')
@@ -1398,9 +691,7 @@ export function HeroSettingsPage() {
       <HeroNotice title="有尚未保存的更改" status="warning" role="status">
         <div className="flex flex-wrap items-center gap-3">
           <span className="min-w-0 flex-1">
-            {dirtyCoreSections.size > 0
-              ? `${dirtyCoreSections.size} 项核心配置待保存${secretDirty ? '；Key 草稿仍需单独保存' : ''}。`
-              : 'Key 草稿需要通过密钥表单单独保存。'}
+            {dirtyCoreSections.size} 项核心配置待保存。
           </span>
           {dirtyCoreSections.size > 0 && <Button
             size="sm"
@@ -1489,100 +780,6 @@ export function HeroSettingsPage() {
 
       <AdminSection id="settings-storage" title="存储与归档" description="预演工作区清理、90 日冷归档与恢复；所有操作均先核对候选指纹并记录审计。">
         {activatedSections.has('settings-storage') && <StorageArchiveSettings queryEnabled={activeSection === 'settings-storage'} />}
-      </AdminSection>
-
-      <AdminSection id="settings-secrets" title="密钥" description="真实 Key 只写入 SecretStore，保存后永不回显。">
-        {activatedSections.has('settings-secrets') && (secrets.isPending
-          ? <LoadingState label="正在读取密钥" rows={2} />
-          : secrets.isError
-            ? <HeroNotice title="密钥读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void secrets.refetch()}>重试此区域</Button></HeroNotice>
-            : <>
-        <form className="grid gap-3 min-[760px]:grid-cols-5" noValidate onSubmit={createSecret}>
-          <TextField fullWidth value={secretDraft.name} onChange={(name) => {
-            setSecretDraft((current) => ({ ...current, name }))
-            clearSecretFieldError('name')
-          }} isRequired isInvalid={Boolean(secretFieldErrors.name)}>
-            <Label>Key 名称</Label><Input />{secretFieldErrors.name && <FieldError>{secretFieldErrors.name}</FieldError>}
-          </TextField>
-          <div>
-            <HeroSelect label="Key 类型" value={secretDraft.kind} onChange={(kind) => {
-              setSecretDraft((current) => ({ ...current, kind }))
-              clearSecretFieldError('kind')
-              clearSecretFieldError('provider')
-            }} options={[{ id: 'ai', label: 'AI' }, { id: 'apify', label: 'Apify' }]} />
-            {secretFieldErrors.kind && <FieldError>{secretFieldErrors.kind}</FieldError>}
-          </div>
-          <TextField fullWidth value={secretDraft.provider} onChange={(provider) => {
-            setSecretDraft((current) => ({ ...current, provider }))
-            clearSecretFieldError('provider')
-          }} isRequired isInvalid={Boolean(secretFieldErrors.provider)}>
-            <Label>Key provider</Label><Input />{secretFieldErrors.provider && <FieldError>{secretFieldErrors.provider}</FieldError>}
-          </TextField>
-          <TextField fullWidth value={secretDraft.envName} onChange={(envName) => {
-            setSecretDraft((current) => ({ ...current, envName }))
-            clearSecretFieldError('envName')
-          }} isRequired isInvalid={Boolean(secretFieldErrors.envName)}>
-            <Label>环境变量名</Label><Input />{secretFieldErrors.envName && <FieldError>{secretFieldErrors.envName}</FieldError>}
-          </TextField>
-          <TextField fullWidth value={secretDraft.value} onChange={(value) => {
-            setSecretDraft((current) => ({ ...current, value }))
-            clearSecretFieldError('value')
-          }} isRequired isInvalid={Boolean(secretFieldErrors.value)}>
-            <Label>Key 值</Label><Input type="password" autoComplete="new-password" />{secretFieldErrors.value && <FieldError>{secretFieldErrors.value}</FieldError>}
-          </TextField>
-          {secretFormError && <div className="min-[760px]:col-span-5" data-testid="secret-form-feedback"><HeroNotice title={secretFormError} /></div>}
-          <Button className="w-fit" type="submit" isDisabled={feedback.isPending('secret-create', 'new')}><Icons.KeyRound size={15} />{feedback.isPending('secret-create', 'new') ? '保存中…' : '新增 Key'}</Button>
-        </form>
-        <div className="mt-5">
-          <ApifyKeyPoolTable
-            secrets={secrets.data?.secrets ?? []}
-            userId={user.id}
-            queryEnabled={activeSection === 'settings-secrets'}
-            onSecretChanged={secretChanged}
-          />
-        </div>
-        <div className="mt-5 min-w-0 max-w-full">
-          <h3 className="type-page-title mb-3">AI Key</h3>
-          <Table variant="secondary" className="max-w-full">
-            <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="secret-table-scroll">
-              <Table.Content aria-label="已配置 AI Key">
-                <Table.Header>
-                  <Table.Column isRowHeader>Key</Table.Column>
-                  <Table.Column>类型</Table.Column>
-                  <Table.Column>状态</Table.Column>
-                  <Table.Column>额度</Table.Column>
-                  <Table.Column>操作</Table.Column>
-                </Table.Header>
-                <Table.Body
-                  items={(secrets.data?.secrets ?? []).filter((secret) => !isApifySecret(secret))}
-                  renderEmptyState={() => <div className="p-6 text-center text-muted">尚未配置 AI Key</div>}
-                >
-                  {(secret) => {
-                    const presentation = secretPresentation(secret)
-                    return <Table.Row id={secret.id}>
-                      <Table.Cell>
-                        <div className="min-w-44">
-                          <p className="type-control">{presentation.name}</p>
-                          <code className="type-meta text-muted">{secret.env_name}</code>
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell><span className="type-meta">{isApifySecret(secret) ? 'Apify' : 'AI'} · {presentation.provider}</span></Table.Cell>
-                      <Table.Cell>
-                        <div className="min-w-28">
-                          <p className="type-control">{presentation.status}</p>
-                          <p className="type-meta mt-1 text-muted">{presentation.usage}</p>
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell><SecretQuotaCell secret={secret} userId={user.id} queryEnabled={activeSection === 'settings-secrets'} /></Table.Cell>
-                      <Table.Cell><SecretRowActions secret={secret} onChanged={secretChanged} /></Table.Cell>
-                    </Table.Row>
-                  }}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
-        </div>
-        </>)}
       </AdminSection>
 
     </>}

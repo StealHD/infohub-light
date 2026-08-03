@@ -85,83 +85,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-01",
-  "result": "修复 Actor Discovery 一次只返回少量 Manifest 时整批归零的问题：单次 AI 调用现在请求 3–6 个排序 proposal，逐项校验并保留有效部分 Revision；API/UI 显示 Actor 与发布者短缺，最终 Canary 门槛仍为三 Actor、两发布者。",
-  "status": "partial",
-  "task_id": "2026-08-01-actor-discovery-partial-candidate-fill",
-  "unresolved": [
-    "任务分支按用户边界保持未提交、未合并、未推送，等待用户明确提交指令",
-    "旧 Discovery Run 不回填历史 AI 正文或 Revision；需要管理员后续重新发起 Discovery 才会产生新部分候选或完整三槽",
-    "真实 AI、付费 Canary 与首次启用均未由本次实现自动执行"
-  ],
-  "validation": [
-    "backend targeted 37 passed；frontend ActorOps targeted 17 passed",
-    "python scripts/test_gate.py run --mode full: 23/23 passed in 188.404 seconds",
-    "8080 API/Worker 已从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0",
-    "浏览器验证新候选短缺投影正常、控制台错误 0；未触发 Store、AI 或付费 Actor"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-01",
-  "result": "修复 X Dataset Brotli 解码后的同 Dataset 幂等重读与 Actor Discovery 候选级输入校验隔离；Discovery 改为按 Route 内容类型召回并要求完整排序备选，真实 YouTube/Instagram 均取得五个静态有效 Revision并进入待 Canary。",
-  "status": "completed",
-  "task_id": "2026-08-01-x-dataset-and-multiplatform-discovery-repair",
-  "unresolved": [
-    "YouTube/Instagram 只完成静态发现，未启动任何付费 Canary、三槽激活或来源级验证",
-    "任务分支未合并 main、未推送，也未发布 VPS"
-  ],
-  "validation": [
-    "Actor Discovery targeted 37 passed；final full Test Gate 23/23 passed",
-    "真实 YouTube Discovery 保存 5 个 static_valid Revision、4 个发布者；真实 Instagram 保存 5 个 static_valid Revision、5 个发布者；两者均 awaiting_canary_approval 且 Canary 记录为 0",
-    "两个既有 X source_fetch 串行成功，分别返回 22/23 条，均只有一个 Actor start、semantic_outcome=valid_nonempty、费用终态，总实际费用约 $0.000421，日志不再出现本轮 DecodingError",
-    "8080 API/Worker 从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0；ActorOps 页面显示两条 Route 的 5/3 候选且浏览器控制台错误 0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "Actor Discovery 改为从全局 AI Key 中人工选择；付费确认补齐 Route、来源、定价与预算；Canary 增加 300 秒有界超时、终态费用对账、五次耗尽状态，并在付费前校验 Manifest 输出 Pointer 与来源身份。",
-  "status": "partial",
-  "task_id": "2026-08-02-actor-discovery-ai-canary-diagnostics",
-  "unresolved": [
-    "Instagram 本轮五次 Route Canary 已耗尽；需管理员强制重新发现后，逐次确认新的付费 Canary",
-    "本次未发起新的真实 AI、付费 Canary、三槽激活，也未合并 main、推送或发布 VPS"
-  ],
-  "validation": [
-    "Backend targeted ActorOps/Discovery/Canary/Worker tests passed",
-    "Frontend ActorOps 18 tests passed and production build passed",
-    "Full Test Gate 23/23 passed；git diff --check 与 project-defaults JSON 校验通过",
-    "8080 API/Worker 已从任务 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0",
-    "浏览器验收确认全局 AI 人工选择、Canary 5/5 耗尽阻断、300 秒超时与终态费用诊断；390px 无页面横向溢出，控制台 error/warn 为 0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
     "decisions"
   ],
   "recorded_on": "2026-08-02",
@@ -491,6 +414,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "新增 AI payload/diff 与折叠草稿保留单测；应用级回归覆盖旧 hash、只读零请求、AI/触底保存、已忽略内容恢复和高级设置桥接",
     "Playwright 通过桌面原生 AI/ignored/hash/请求惰性、390/768/1024/1440、浅深主题与 Axe，以及移动 Drawer 验收",
     "VITEST_MAX_WORKERS=4 python scripts/test_gate.py run --mode full：23/23 passed in 333.669 seconds"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-04",
+  "result": "将 Owner/Admin 密钥管理迁入原生 Settings Workspace：新增 /settings/secrets、导航和旧 hash 兼容，迁移 AI Key 与 Apify 池操作，Legacy 只保留获取/主题和存储/归档。",
+  "status": "completed",
+  "task_id": "2026-08-04-settings-secrets-native-workspace",
+  "unresolved": [],
+  "validation": [
+    "完整 Test Gate full 23/23 通过（Python、Compose、legacy、React contract/lint/typecheck/Vitest/build）",
+    "前端 Vitest 567/567 通过；生产构建包含独立 SettingsSecretsPage 懒加载 chunk",
+    "Member/Viewer 直达密钥页不请求 secrets、quota 或 Apify pool；旧 /settings/legacy#settings-secrets 重定向",
+    "未修改 API、数据库、SecretStore 格式或 Query key"
   ]
 }
 ```

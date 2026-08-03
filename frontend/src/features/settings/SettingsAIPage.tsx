@@ -338,7 +338,7 @@ export function SettingsAIPage() {
                   }} options={[{ id: '', label: '请选择' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="ghost" onPress={() => navigate('/settings/legacy#settings-secrets', { state: returnState })}>
+                  <Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>
                     <Icons.KeyRound size={15} aria-hidden="true" />管理密钥
                   </Button>
                   <span className="type-meta text-muted">仅显示 Key 元数据，不会显示真实值。</span>

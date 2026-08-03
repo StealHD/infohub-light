@@ -27,7 +27,6 @@ describe('settingsSections', () => {
     expect(legacySettingsSectionsForRole('owner').map((section) => section.id)).toEqual([
       'settings-fetching',
       'settings-storage',
-      'settings-secrets',
     ])
     expect(legacySettingsSectionsForRole('member')).toHaveLength(0)
     expect(legacySettingsSectionFromHash('#settings-ai', 'owner')).toBeNull()

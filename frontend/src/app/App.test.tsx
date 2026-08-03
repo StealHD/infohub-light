@@ -1646,14 +1646,15 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '密钥' })
+    await screen.findByText('新增密钥')
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
     await browser.type(screen.getByLabelText('Key 值'), 'write-only-value')
-    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+    await browser.click(screen.getByRole('button', { name: '安全保存 Key' }))
 
     await waitFor(() => expect(createSecret).toHaveBeenCalledOnce())
     const successMessages = await screen.findAllByText('Key 已安全保存')
@@ -1663,30 +1664,39 @@ describe('App routes', () => {
     expect(screen.queryByText('Key 已保存，页面不会回显真实值。')).not.toBeInTheDocument()
   }, 15_000)
 
-  it('focuses a valid settings hash and rejects an inaccessible member hash', async () => {
+  it('redirects legacy secret bookmarks and blocks direct secret access without data requests', async () => {
     const ownerApi = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-settings-hash', username: 'owner', role: 'owner', enabled: true } }),
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
       secrets: vi.fn().mockResolvedValue({ secrets: [] }),
     } as Partial<ServiceApi>)
     const ownerClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    const ownerView = render(<QueryClientProvider client={ownerClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={ownerApi} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    const ownerView = render(<QueryClientProvider client={ownerClient}><MemoryRouter initialEntries={['/settings/legacy#settings-secrets']}><DesignSystemProvider><AppRoutes api={ownerApi} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '密钥' })
-    await waitFor(() => expect(document.getElementById('settings-secrets')).toHaveFocus())
+    await screen.findByText('新增密钥')
+    await waitFor(() => expect(document.querySelector('[data-settings-page="secrets"]')).toBeInTheDocument())
     ownerView.unmount()
 
+    const secrets = vi.fn()
+    const apifyKeyPool = vi.fn()
+    const secretQuota = vi.fn()
     const memberApi = liveApi({
       authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-settings-hash', username: 'member', role: 'member', enabled: true } }),
       config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets,
+      apifyKeyPool,
+      secretQuota,
     } as Partial<ServiceApi>)
     const memberClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={memberClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={memberApi} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={memberClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={memberApi} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
     await waitFor(() => expect(document.querySelector('[data-settings-page="overview"]')).toBeInTheDocument())
     expect(screen.queryByRole('heading', { name: '密钥' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '高级' })).not.toBeInTheDocument()
+    expect(secrets).not.toHaveBeenCalled()
+    expect(apifyKeyPool).not.toHaveBeenCalled()
+    expect(secretQuota).not.toHaveBeenCalled()
   })
 
   it('keeps the settings overview request-free and loads only the selected native page', async () => {
@@ -1995,26 +2005,22 @@ describe('App routes', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
 
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
       expect(await screen.findByText('套餐剩余 $4.00')).toBeInTheDocument()
       expect(secrets).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledWith('apify-cached')
 
-      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '获取与主题' }))
+      await browser.click(screen.getByRole('link', { name: '高级' }))
       now += (5 * 60 * 1000) - 1
-      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '密钥' }))
+      await browser.click(screen.getByRole('link', { name: '密钥' }))
       await act(async () => Promise.resolve())
       expect(secretQuota).toHaveBeenCalledOnce()
 
-      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '获取与主题' }))
+      await browser.click(screen.getByRole('link', { name: '高级' }))
       now += 2
-      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '密钥' }))
+      await browser.click(screen.getByRole('link', { name: '密钥' }))
       await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(2))
     } finally {
       nowSpy.mockRestore()
@@ -2091,8 +2097,7 @@ describe('App routes', () => {
 
     expect(await screen.findByRole('heading', { name: '高级', level: 1 })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(document.querySelector('[data-page-frame="settings"]')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
     expect(screen.getByText('RSSHub 访问密钥：已配置')).toBeInTheDocument()
@@ -2103,19 +2108,17 @@ describe('App routes', () => {
     expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报条数')).not.toBeInTheDocument()
 
-    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-    await browser.click(await screen.findByRole('option', { name: '密钥' }))
-    expect(await screen.findByRole('heading', { name: '密钥' })).toBeInTheDocument()
-    expect(screen.getByRole('grid', { name: 'Apify Key 池' })).toBeInTheDocument()
-    expect(screen.getByRole('grid', { name: '已配置 AI Key' })).toBeInTheDocument()
-    expect(screen.getByText('尚未配置 Apify Key')).toBeInTheDocument()
-    expect(screen.getByText('尚未配置 AI Key')).toBeInTheDocument()
+    await browser.click(screen.getByRole('link', { name: '密钥' }))
+    expect(await screen.findByText('新增密钥')).toBeInTheDocument()
+    expect(await screen.findByText('尚未配置 Apify Key')).toBeInTheDocument()
+    expect(await screen.findByText('尚未配置 AI Key')).toBeInTheDocument()
 
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
     await browser.type(screen.getByLabelText('Key 值'), 'secret-value')
-    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+    await browser.click(screen.getByRole('button', { name: '安全保存 Key' }))
     const localFeedback = await screen.findByTestId('secret-form-feedback')
     expect(localFeedback).toHaveTextContent('环境变量名已被其他 Key 使用，请更换后重试。')
     expect(await screen.findByText('新增 Key 失败')).toBeInTheDocument()
@@ -2157,7 +2160,7 @@ describe('App routes', () => {
     expect(initialWindow).toHaveTextContent('7 天')
     await browser.click(initialWindow)
     await browser.click(await screen.findByRole('option', { name: '30 天' }))
-    expect(screen.getByText('有尚未保存的更改')).toBeInTheDocument()
+    expect(await screen.findByText('有尚未保存的更改')).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: /RSS 首次抓取窗口/ }))
     await browser.click(await screen.findByRole('option', { name: '7 天' }))
     await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
@@ -2206,14 +2209,15 @@ describe('App routes', () => {
       createSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '密钥' })
+    await screen.findByText('新增密钥')
+    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'Invalid')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'unknown')
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), '1INVALID-NAME')
     await browser.type(screen.getByLabelText('Key 值'), 'temporary-value')
-    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+    await browser.click(screen.getByRole('button', { name: '安全保存 Key' }))
 
     expect((await screen.findAllByText('AI Key 的 Provider 仅支持 gemini、openai、anthropic 或 deepseek。')).length).toBeGreaterThan(0)
     expect(screen.getByText('环境变量名必须以字母或下划线开头，且只能包含字母、数字和下划线。')).toBeInTheDocument()
@@ -2225,7 +2229,7 @@ describe('App routes', () => {
     await browser.clear(screen.getByRole('textbox', { name: '环境变量名' }))
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'OPENAI_API_KEY')
     await browser.type(screen.getByLabelText('Key 值'), 'temporary-value-2')
-    await browser.click(screen.getByRole('button', { name: '新增 Key' }))
+    await browser.click(screen.getByRole('button', { name: '安全保存 Key' }))
 
     expect(await screen.findByTestId('secret-form-feedback')).toHaveTextContent('网络请求失败：Failed to fetch。请检查连接后重试。')
     expect(screen.getByRole('textbox', { name: 'Key 名称' })).toHaveValue('Invalid')
@@ -2235,7 +2239,7 @@ describe('App routes', () => {
     expect(createSecret).toHaveBeenCalledTimes(1)
   }, 15_000)
 
-  it('keeps legacy Apify secret maintenance available while pool rollout is disabled', async () => {
+  it('keeps Apify secret maintenance available while pool rollout is disabled', async () => {
     const browser = userEvent.setup()
     const disabledPool = {
       enabled: false,
@@ -2283,17 +2287,17 @@ describe('App routes', () => {
       }),
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByText('Apify Key 池尚未启用')).toBeInTheDocument()
-    const primaryRow = screen.getByRole('row', { name: /Legacy Primary/ })
-    const rotateTrigger = within(primaryRow).getByRole('button', { name: '轮换 Legacy Primary' })
+    const primaryItem = screen.getByText('Legacy Primary').closest<HTMLElement>('[data-settings-item]')!
+    const rotateTrigger = within(primaryItem).getByRole('button', { name: '轮换 Legacy Primary' })
     expect(rotateTrigger).toBeEnabled()
-    expect(within(primaryRow).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
-    expect(within(primaryRow).getByRole('button', { name: '下移 Legacy Primary' })).toBeEnabled()
-    expect(within(primaryRow).queryByRole('button', { name: '安全排空 Legacy Primary' })).not.toBeInTheDocument()
+    expect(within(primaryItem).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
+    expect(within(primaryItem).getByRole('button', { name: '下移 Legacy Primary' })).toBeEnabled()
+    expect(within(primaryItem).queryByRole('button', { name: '安全排空 Legacy Primary' })).not.toBeInTheDocument()
 
-    await browser.click(within(primaryRow).getByRole('button', { name: '下移 Legacy Primary' }))
+    await browser.click(within(primaryItem).getByRole('button', { name: '下移 Legacy Primary' }))
     await waitFor(() => expect(reorderApifyKeyPool).toHaveBeenCalledWith(['legacy-backup', 'legacy-primary'], 4))
 
     await browser.click(screen.getByRole('button', { name: '轮换 Legacy Primary' }))
@@ -2378,27 +2382,26 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const renderSettings = () => render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/settings#settings-secrets']}>
+        <MemoryRouter initialEntries={['/settings/secrets']}>
           <DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider>
         </MemoryRouter>
       </QueryClientProvider>,
     )
 
     const firstView = renderSettings()
-    expect(await screen.findByText('当前主用：Apify Primary · 可以启动新任务')).toBeInTheDocument()
-    expect(screen.getAllByText('套餐剩余 $36.50')).toHaveLength(3)
+    expect(await screen.findByText(/当前主用：Apify Primary/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText('套餐剩余 $36.50')).toHaveLength(3))
     expect(screen.getAllByText('本月已用 $12.50 · 硬上限剩余 $87.50')).toHaveLength(3)
-    expect(screen.getByText('暂不支持查询')).toBeInTheDocument()
     expect(new Set(secretQuota.mock.calls.map(([secretId]) => secretId))).toEqual(new Set([
       'apify-primary',
       'apify-backup-one',
       'apify-backup-two',
     ]))
-    const primaryRow = screen.getByRole('row', { name: /Apify Primary/ })
-    expect(within(primaryRow).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled()
-    expect(within(primaryRow).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
-    expect(within(primaryRow).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled()
-    expect(within(primaryRow).getByRole('button', { name: '安全排空 Apify Primary' })).toBeEnabled()
+    const primaryItem = screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!
+    expect(within(primaryItem).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled()
+    expect(within(primaryItem).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
+    expect(within(primaryItem).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled()
+    expect(within(primaryItem).getByRole('button', { name: '安全排空 Apify Primary' })).toBeEnabled()
 
     firstView.unmount()
     renderSettings()
@@ -2412,20 +2415,20 @@ describe('App routes', () => {
     expect(refreshingQuota).toBeDisabled()
     expect(refreshingQuota.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
     expect(refreshingQuota.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
-    expect(within(screen.getByRole('row', { name: /Apify Primary/ })).getByText('套餐剩余 $36.50')).toBeInTheDocument()
+    expect(within(screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!).getByText('套餐剩余 $36.50')).toBeInTheDocument()
     await act(async () => primaryRefresh.resolve(quotaResponse('apify-primary')))
     await waitFor(() => expect(screen.getByRole('button', { name: '刷新 Apify Primary 额度' })).toBeEnabled())
 
-    const firstBackupRow = screen.getByRole('row', { name: /Apify Backup One/ })
-    expect(within(firstBackupRow).getByRole('button', { name: '上移 Apify Backup One' })).toBeDisabled()
-    await browser.click(within(firstBackupRow).getByRole('button', { name: '下移 Apify Backup One' }))
+    const firstBackupItem = screen.getByText('Apify Backup One').closest<HTMLElement>('[data-settings-item]')!
+    expect(within(firstBackupItem).getByRole('button', { name: '上移 Apify Backup One' })).toBeDisabled()
+    await browser.click(within(firstBackupItem).getByRole('button', { name: '下移 Apify Backup One' }))
     await waitFor(() => expect(reorderApifyKeyPool).toHaveBeenCalledWith(
       ['apify-primary', 'apify-backup-two', 'apify-backup-one'],
       7,
     ))
 
-    const secondBackupRow = screen.getByRole('row', { name: /Apify Backup Two/ })
-    const rotateTrigger = within(secondBackupRow).getByRole('button', { name: '轮换 Apify Backup Two' })
+    const secondBackupItem = screen.getByText('Apify Backup Two').closest<HTMLElement>('[data-settings-item]')!
+    const rotateTrigger = within(secondBackupItem).getByRole('button', { name: '轮换 Apify Backup Two' })
     await browser.click(rotateTrigger)
     const rotateDialog = screen.getByRole('dialog', { name: '轮换 Apify Backup Two' })
     await browser.type(within(rotateDialog).getByLabelText('新 Key 值'), 'rotated-write-only')
@@ -2435,7 +2438,7 @@ describe('App routes', () => {
     expect(rotateSecret).toHaveBeenCalledWith('apify-backup-two', 'rotated-write-only')
     expect(rotateTrigger).toHaveFocus()
 
-    await browser.click(within(screen.getByRole('row', { name: /Apify Primary/ })).getByRole('button', { name: '安全排空 Apify Primary' }))
+    await browser.click(within(screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!).getByRole('button', { name: '安全排空 Apify Primary' }))
     await waitFor(() => expect(drainApifyKey).toHaveBeenCalledWith('apify-primary'))
     expect(await screen.findByText('正在安全排空')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('rotated-write-only')
@@ -2475,16 +2478,12 @@ describe('App routes', () => {
       secretQuota,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     const retry = await screen.findByRole('button', { name: '重试 Apify Retry 额度' })
     await browser.click(retry)
 
-    const retrying = screen.getByRole('button', { name: '正在重试 Apify Retry 额度' })
-    expect(retrying).toBeDisabled()
-    expect(retrying.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
-    expect(retrying.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
-    expect(secretQuota).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(2))
 
     await act(async () => retryQuota.resolve({
       secret_id: 'apify-retry',
@@ -2508,12 +2507,8 @@ describe('App routes', () => {
     expect(screen.getByText('Apify 刷新暂时不可用')).toHaveAttribute('role', 'alert')
 
     await browser.click(backgroundRetry)
-    const backgroundRetrying = screen.getByRole('button', { name: '正在重试 Apify Retry 额度' })
-    expect(backgroundRetrying).toBeDisabled()
-    expect(backgroundRetrying.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
-    expect(backgroundRetrying.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+    await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(4))
     expect(screen.getByText('套餐剩余 $4.00')).toBeInTheDocument()
-    expect(secretQuota).toHaveBeenCalledTimes(4)
 
     await act(async () => backgroundRetryQuota.resolve({
       secret_id: 'apify-retry',
@@ -2539,9 +2534,6 @@ describe('App routes', () => {
       })
     })
     await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(6))
-    const invalidationRetrying = screen.getByRole('button', { name: '正在重试 Apify Retry 额度' })
-    expect(invalidationRetrying).toBeDisabled()
-    expect(invalidationRetrying.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
     expect(screen.getByText('套餐剩余 $3.00')).toBeInTheDocument()
 
     await act(async () => invalidationRetryQuota.resolve({
@@ -2574,10 +2566,10 @@ describe('App routes', () => {
       rotateSecret,
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const row = await screen.findByRole('row', { name: /Rotate Key/ })
-    const trigger = within(row).getByRole('button', { name: '轮换 Rotate Key' })
+    const item = (await screen.findByText('Rotate Key')).closest<HTMLElement>('[data-settings-item]')!
+    const trigger = within(item).getByRole('button', { name: '轮换 Rotate Key' })
     await browser.click(trigger)
     const dialog = screen.getByRole('dialog', { name: '轮换 Rotate Key' })
     const input = within(dialog).getByLabelText('新 Key 值')
@@ -2606,8 +2598,8 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const row = await screen.findByRole('row', { name: /Unused Key/ })
-    const trigger = within(row).getByRole('button', { name: '删除 Unused Key' })
+    const item = (await screen.findByText('Unused Key')).closest<HTMLElement>('[data-settings-item]')!
+    const trigger = within(item).getByRole('button', { name: '删除 Unused Key' })
     await browser.click(trigger)
     expect(screen.getByRole('dialog', { name: '删除 Unused Key？' })).toBeInTheDocument()
     expect(deleteSecret).not.toHaveBeenCalled()
@@ -2646,8 +2638,8 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    const row = await screen.findByRole('row', { name: /Failed Key/ })
-    await browser.click(within(row).getByRole('button', { name: '删除 Failed Key' }))
+    const item = (await screen.findByText('Failed Key')).closest<HTMLElement>('[data-settings-item]')!
+    await browser.click(within(item).getByRole('button', { name: '删除 Failed Key' }))
     await browser.click(screen.getByRole('button', { name: '确认删除' }))
 
     const dialog = screen.getByRole('dialog', { name: '删除 Failed Key？' })

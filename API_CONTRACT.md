@@ -145,7 +145,7 @@ capability / degrade：
 22. FastAPI 默认托管 React Service UI：`/assets/*` 为带内容哈希的 immutable 资源，构建根目录中真实存在的静态文件按实际 MIME 返回；`/favicon.ico` 是显式可缓存的空兼容响应。只有不含文件扩展名的前端深链可回退到 no-cache `index.html`，不存在的带扩展名路径返回普通静态 404；`/api/*`、`/mcp`、`/mcp/*` 和任何路径穿越输入永不进入 SPA fallback。支持且未以 `q=0` 明确拒绝 gzip 的客户端，对不小于 1024 bytes 的合格响应使用压缩级别 5；流式或不适合压缩的响应仍由框架保持原语义。`HORIZON_SERVICE_UI_VARIANT=react|legacy` 控制 Service 前端，默认 `react`；React 构建缺失时可安全回退 legacy。`/mcp` 为精确协议路由，不通过重定向修正路径。
 23. API 为每个请求生成不可伪造的 `req_<uuid>`，忽略客户端 `X-Request-ID`，并在应用返回的 `/api/*` 与 `/mcp` 响应中写入 `X-Request-ID`。未知服务端异常固定返回 HTTP 500 的 `internal_error` 安全 envelope 与相同 request ID，不向测试客户端或调用方传播原异常文本。诊断日志没有 REST 路由、SPA 页面或前端数据接口；浏览器只能取得上述 request ID，不能取得日志文件或事件正文。
 
-稳定前端路由为 `/feed?mode=featured|all|daily&item=<id>`、`/later?item=<id>`、`/saved?item=<id>`、`/history?item=<id>`、`/subscriptions`、`/agents`、`/settings`、`/settings/ai`、`/settings/appearance`、`/settings/ignored`、`/settings/notifications`、`/login`。未迁移高级设置暂由 `/settings/legacy#settings-fetching|settings-storage|settings-secrets` 承载；旧 `/settings#settings-ai`、`/settings#settings-ignored`、关于和通知 hash 与旧根路径 `?view=featured|all|daily|readLater|history|subscriptions|config` 只做客户端重定向，不改变 API 合同。
+稳定前端路由为 `/feed?mode=featured|all|daily&item=<id>`、`/later?item=<id>`、`/saved?item=<id>`、`/history?item=<id>`、`/subscriptions`、`/agents`、`/settings`、`/settings/ai`、`/settings/appearance`、`/settings/ignored`、`/settings/notifications`、`/settings/secrets`、`/login`。未迁移高级设置暂由 `/settings/legacy#settings-fetching|settings-storage` 承载；旧 `/settings#settings-ai`、`/settings#settings-ignored`、`/settings#settings-secrets`、关于和通知 hash 与旧根路径 `?view=featured|all|daily|readLater|history|subscriptions|config` 只做客户端重定向，不改变 API 合同。密钥 hash 仅 Owner/Admin 重定向到原生密钥页，其他角色回到 Overview。
 
 权限规则：
 

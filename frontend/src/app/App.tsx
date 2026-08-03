@@ -29,6 +29,7 @@ const SettingsIgnoredPage = lazy(() => import('../features/settings/SettingsIgno
 const SettingsLegacyPage = lazy(() => import('../features/settings/SettingsLegacyPage').then((module) => ({ default: module.SettingsLegacyPage })))
 const SettingsNotificationsPage = lazy(() => import('../features/settings/SettingsNotificationsPage').then((module) => ({ default: module.SettingsNotificationsPage })))
 const SettingsOverviewPage = lazy(() => import('../features/settings/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })))
+const SettingsSecretsPage = lazy(() => import('../features/settings/SettingsSecretsPage').then((module) => ({ default: module.SettingsSecretsPage })))
 
 type AppErrorBoundaryProps = { children: ReactNode; surface?: 'app' | 'page' }
 type AppErrorBoundaryState = { failed: boolean }
@@ -179,6 +180,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/settings/appearance" element={<SettingsAppearancePage />} />
         <Route path="/settings/ignored" element={<SettingsIgnoredPage />} />
         <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
+        <Route path="/settings/secrets" element={<SettingsSecretsPage />} />
         <Route path="/settings/legacy" element={<SettingsLegacyPage />} />
         <Route path="/users" element={<HeroUsersPage />} />
         <Route path="/manual" element={<HeroManualPage />} />

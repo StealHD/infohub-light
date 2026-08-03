@@ -22,6 +22,17 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-04',
+        title: '密钥管理迁入设置工作区',
+        summary: 'Owner/Admin 现在可在原生“密钥”页管理 AI Key 与 Apify 主备 Key 池，保留原有 SecretStore、权限和安全操作语义。',
+        items: [
+          { title: '密钥页不再打开旧设置', description: '新增 `/settings/secrets`，开发者分组内“密钥”排在“高级”前；AI 与概览的密钥入口也会直达原生页。旧密钥书签会自动转到新页面。' },
+          { title: '真实值始终只写一次', description: '新增与轮换 Key 的真实值提交后立即清空，不会通过列表、提示、错误或缓存回显；失败时仍保留可安全编辑的元数据草稿。' },
+          { title: 'Apify 池继续安全运行', description: '主备顺序、额度查询、排空、轮换和删除继续使用原有 API。额度保留五分钟缓存与刷新失败时的可信旧数据；运行中或排空中的 Key 必须先安全排空。' },
+          { title: '权限和请求更收敛', description: 'Member/Viewer 看不到密钥入口；直接打开链接会回到概览，并且不会请求 Key、额度或 Apify 池数据。获取与主题、存储与归档仍在兼容设置页。' },
+        ],
+      },
+      {
         date: '2026-08-03',
         title: '设置成为独立工作区',
         summary: '设置现在使用类似系统设置的独立侧栏与内容区，不再占用或改变信息流主侧栏；概览、外观、通知、AI 和已忽略内容均已原生化。',

@@ -90,13 +90,20 @@ export function SettingsOverviewPage() {
             state={returnState}
           />
           {admin && <SettingsCard
+            title="密钥"
+            description="管理工作区服务密钥和 Apify 主备 Key 池。"
+            icon={<Icons.KeyRound size={18} aria-hidden="true" />}
+            status={<StatusBadge tone="warning">管理员</StatusBadge>}
+            to="/settings/secrets"
+            state={returnState}
+          />}
+          {admin && <SettingsCard
             title="高级"
-            description="管理获取策略、存储归档和工作区密钥。"
+            description="管理获取策略、存储归档和工作区运行参数。"
             icon={<Icons.SlidersHorizontal size={18} aria-hidden="true" />}
             status={<StatusBadge tone="warning">管理员</StatusBadge>}
             to="/settings/legacy#settings-fetching"
             state={returnState}
-            className="min-[640px]:col-span-2"
           />}
         </div>
       </SettingsSection>

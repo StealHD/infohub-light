@@ -1,7 +1,7 @@
 import { Icons, type LucideIcon } from '../../design-system'
 
 export type SettingsRole = 'owner' | 'admin' | 'member' | 'viewer'
-export type SettingsNavigationId = 'overview' | 'sources' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'advanced'
+export type SettingsNavigationId = 'overview' | 'sources' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'secrets' | 'advanced'
 
 export type SettingsNavigationItem = {
   id: SettingsNavigationId
@@ -49,7 +49,10 @@ export const SETTINGS_NAVIGATION_GROUPS: readonly SettingsNavigationGroup[] = [
   {
     id: 'developer',
     label: '开发者',
-    items: [{ id: 'advanced', label: '高级', href: '/settings/legacy#settings-fetching', icon: Icons.SlidersHorizontal, adminOnly: true }],
+    items: [
+      { id: 'secrets', label: '密钥', href: '/settings/secrets', icon: Icons.KeyRound, adminOnly: true },
+      { id: 'advanced', label: '高级', href: '/settings/legacy#settings-fetching', icon: Icons.SlidersHorizontal, adminOnly: true },
+    ],
   },
 ]
 
@@ -65,13 +68,14 @@ export function settingsNavigationForRole(role: SettingsRole): readonly Settings
   })).filter((group) => group.items.length > 0)
 }
 
-const advancedHashes = new Set(['settings-fetching', 'settings-storage', 'settings-secrets'])
+const advancedHashes = new Set(['settings-fetching', 'settings-storage'])
 
 export function activeSettingsNavigationId(pathname: string, hash: string): SettingsNavigationId {
   if (pathname === '/settings/notifications') return 'notifications'
   if (pathname === '/settings/appearance') return 'appearance'
   if (pathname === '/settings/ai') return 'ai'
   if (pathname === '/settings/ignored') return 'ignored'
+  if (pathname === '/settings/secrets') return 'secrets'
   if (pathname === '/settings/legacy') {
     const id = hash.replace(/^#/, '')
     if (!id) return 'advanced'
@@ -91,6 +95,7 @@ export function settingsDestinationFromLegacyHash(hash: string, role: SettingsRo
   if (id === 'settings-notifications') return '/settings/notifications'
   if (id === 'settings-ai') return '/settings/ai'
   if (id === 'settings-ignored') return '/settings/ignored'
+  if (id === 'settings-secrets' && canAdministerSettings(role)) return '/settings/secrets'
   if (advancedHashes.has(id) && canAdministerSettings(role)) return `/settings/legacy#${id}`
   return '/settings'
 }
