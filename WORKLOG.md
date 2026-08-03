@@ -7,6 +7,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "将通用 ActorOps 与通知服务合并到本地 main，发布不可变 v2.2.1 标签和 GitHub Release，并用本地构建的 revision-locked linux/amd64 镜像完成 VPS 离线迁移与生产切换。",
+  "status": "completed",
+  "task_id": "2026-08-03-publish-and-deploy-v2.2.1",
+  "unresolved": [],
+  "validation": [
+    "main 与 v2.2.1 GitHub Test Gate 均通过；标签门禁覆盖 backend-full、frontend-full、Linux UI E2E 和 release-smoke",
+    "发布镜像 inteliscope-service:v2.2.1-3a8f9f425db0 为 linux/amd64，上传哈希一致，并先在隔离 staging 返回 2.2.1/3a8f9f425db0",
+    "生产停机前无活跃 Fetch Job 或 Actor Attempt；0600 数据库/.env 回滚备份 integrity ok、foreign keys 0",
+    "离线迁移 15–19 全部成功且各自生成 0600 备份；迁移前后 fetch_jobs=649、apify_actor_attempts=105，未产生 AI、Actor 或付费 Canary 调用",
+    "VPS API/Worker 使用精确 v2.2.1 镜像且 healthy、restart=0、worker_status=ready；RSSHub healthy，scheduler/staging 容器为 0",
+    "https://rb.jiefs.top/、/feed、live、ready 均为 200，未登录 ActorOps 管理 API 为 401，API/Worker 严重日志计数均为 0"
+  ]
+}
+```
+
+
+```json
+{
   "control_topics": [
     "ui"
   ],
