@@ -9,6 +9,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-08-03",
+  "result": "在生产环境确认管理员所选全局 DeepSeek 配置 ready 后，通过 ActorOps 服务层 CAS 开启 Discovery；配置 generation 从 2 热更新为 3。",
+  "status": "completed",
+  "task_id": "2026-08-03-enable-production-actor-discovery",
+  "unresolved": [],
+  "validation": [
+    "启用前 selected_key=true、global AI ready=true，provider=deepseek、model=deepseek-v4-flash",
+    "启用后 enabled=true、generation=3，生产无需重启",
+    "操作前后 Discovery Run 仍为 8，未创建支持检查、未调用 AI、未启动 Actor 或付费 Canary",
+    "活跃 Fetch Job 为 0"
+  ]
+}
+```
+
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
   "result": "将通用 ActorOps 与通知服务合并到本地 main，发布不可变 v2.2.1 标签和 GitHub Release，并用本地构建的 revision-locked linux/amd64 镜像完成 VPS 离线迁移与生产切换。",
   "status": "completed",
   "task_id": "2026-08-03-publish-and-deploy-v2.2.1",
