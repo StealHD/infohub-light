@@ -492,3 +492,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "将 Telegram 多渠道通知、v15/v16 迁移、统一通知服务交互与 fake-IP 精确网络策略从 codex/telegram-multichannel-notifications-20260730 fast-forward 合入本地 main。",
+  "status": "completed",
+  "task_id": "2026-08-03-merge-telegram-notifications-to-local-main",
+  "unresolved": [
+    "按用户要求只合入本地 main，未推送远端，也未重建 8080"
+  ],
+  "validation": [
+    "fast-forward main: 308320b -> 536ae0d without conflicts",
+    "product documentation gate passed for 27 product-code paths",
+    "python scripts/test_gate.py run --mode full on merged main: 23/23 passed",
+    "git diff --check passed"
+  ]
+}
+```
