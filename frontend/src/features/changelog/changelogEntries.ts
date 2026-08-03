@@ -23,6 +23,15 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-03',
+        title: 'v2.2.1 修复 Linux 移动端发布验收',
+        summary: '订阅能力目录的新布局已同步到 Linux Chrome 的明暗主题视觉基线，避免正确界面被旧截图阻断发布。',
+        items: [
+          { title: '只修发布基线', description: '本补丁不改变 ActorOps 路由、费用、审批或运行逻辑；更新的两张移动端基线分别覆盖明暗主题，并由隔离 linux/amd64 Chrome 环境验收。' },
+          { title: '保留精确版本', description: '已公开的 v2.2.0 标签不改写；v2.2.1 作为可部署补丁版本保留相同功能和数据库迁移契约。' },
+        ],
+      },
+      {
+        date: '2026-08-03',
         title: 'YouTube Actor 不再因映射错误全军覆没',
         summary: '真实 Run 证明商城存在可返回完整视频字段的固定 Build；Discovery 现在使用正确频道 ID、Dataset 根路径和 Schema 优先证据。',
         items: [

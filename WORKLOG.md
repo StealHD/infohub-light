@@ -7,6 +7,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-03",
+  "result": "补齐 v2.2.1 Linux 移动端视觉基线修复的产品手册复核与 Changelog 说明，解除 GitHub impact 文档门禁。",
+  "status": "partial",
+  "task_id": "2026-08-03-complete-v2.2.1-product-doc-review",
+  "unresolved": [
+    "等待 GitHub Test Gate 通过后创建 v2.2.1 标签、GitHub Release 并部署 VPS"
+  ],
+  "validation": [
+    "首个 GitHub CI 错误仅为两个产品文档源未随补丁提交复核",
+    "ActorOps 运行、费用和审批契约未改变"
+  ]
+}
+```
+
+
+```json
+{
   "control_topics": [],
   "recorded_on": "2026-08-03",
   "result": "将 Telegram 多渠道通知、v15/v16 迁移、统一通知服务交互与 fake-IP 精确网络策略从 codex/telegram-multichannel-notifications-20260730 fast-forward 合入本地 main。",

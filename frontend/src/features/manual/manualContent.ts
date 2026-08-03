@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-07-30',
-  change: '通用 ActorOps 三槽主备、来源级验证与热配置',
+  reviewedAt: '2026-08-03',
+  change: '复核 v2.2.1 发布基线；ActorOps 操作与费用规则不变',
 } as const
 
 export const manualSections: ManualSection[] = [
