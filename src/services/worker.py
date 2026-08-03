@@ -1316,24 +1316,28 @@ def _run_apify_actor_canary_batch(
         )
         replenishment_job_id: str | None = None
         if str(finalized["status"]) == "partial":
-            route = ops.get_route(str(finalized["route_id"]))
-            discovery = ops.create_discovery_run(
-                str(finalized["route_id"]),
-                trigger_reason="canary_batch_replenishment",
-                expected_generation=int(route["generation"]),
+            continuation = ops.get_canary_plan(
+                str(finalized["discovery_run_id"])
             )
-            replenishment = JobQueue(store).create_job(
-                workspace_id=str(job["workspace_id"]),
-                user_id=str(job["user_id"]),
-                job_type="apify_actor_discovery",
-                payload={"run_id": str(discovery["run_id"])},
-                priority=50,
-                max_attempts=1,
-                retention_days=int(
-                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
-                ),
-            )
-            replenishment_job_id = str(replenishment["id"])
+            if not bool(continuation["ready"]):
+                route = ops.get_route(str(finalized["route_id"]))
+                discovery = ops.create_discovery_run(
+                    str(finalized["route_id"]),
+                    trigger_reason="canary_batch_replenishment",
+                    expected_generation=int(route["generation"]),
+                )
+                replenishment = JobQueue(store).create_job(
+                    workspace_id=str(job["workspace_id"]),
+                    user_id=str(job["user_id"]),
+                    job_type="apify_actor_discovery",
+                    payload={"run_id": str(discovery["run_id"])},
+                    priority=50,
+                    max_attempts=1,
+                    retention_days=int(
+                        os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                    ),
+                )
+                replenishment_job_id = str(replenishment["id"])
         return {
             "ok": True,
             "job_type": "apify_actor_canary_batch",

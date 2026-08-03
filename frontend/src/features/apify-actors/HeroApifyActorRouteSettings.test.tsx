@@ -832,7 +832,21 @@ describe('HeroApifyActorRouteSettings', () => {
   })
 
   it('shows persisted Actor and publisher shortfalls without hiding valid partials', async () => {
-    const detail = actorOpsDetail({ discovery_run_id: 'discovery-run-1' })
+    const detail = actorOpsDetail({
+      discovery_run_id: 'discovery-run-1',
+      activation_recommendation: {
+        ready: false,
+        already_active: false,
+        confirmation: '确认启用 Actor 主备',
+        problems: ['canary_successful_candidates_incomplete'],
+        certified_actor_count: 0,
+        backup_2_actor_count: 0,
+        runnable_actor_count: 0,
+        publisher_count: 0,
+        activation_mode: null,
+        slots: [],
+      },
+    })
     const partial = discoveryRun(detail)
     partial.stage = 'candidate_shortfall'
     partial.status = 'candidate_shortfall'
@@ -850,13 +864,20 @@ describe('HeroApifyActorRouteSettings', () => {
       ...partial.candidates[0],
       awaiting_approval: false,
     }
+    const apifyActorCanaryPlan = vi.fn().mockResolvedValue(canaryPlan(detail))
     renderFeature({
       apifyActorRoutes: vi.fn().mockResolvedValue(actorOpsRoutes(detail)),
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
       apifyActorDiscoveryRun: vi.fn().mockResolvedValue(partial),
+      apifyActorCanaryPlan,
     })
 
     expect(await screen.findByText('缺少 2 个 Actor')).toBeVisible()
+    await waitFor(() => expect(apifyActorCanaryPlan).toHaveBeenCalledWith(
+      'discovery-run-1',
+      expect.any(AbortSignal),
+    ))
+    expect(screen.getByRole('button', { name: '验证两路主备' })).toBeVisible()
     expect(screen.getByText('固定 Build 输入校验需要处理')).toBeVisible()
     expect(screen.getByText(/候选输入与固定 Build Schema 不兼容/)).toBeVisible()
     expect(screen.getByText('1/3 Actor · 1/2 发布者；付费验证只统计真实启动')).toBeVisible()

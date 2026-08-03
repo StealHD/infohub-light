@@ -1264,6 +1264,88 @@ def test_canary_batch_plan_is_server_selected_and_approval_is_atomic(
     assert refreshed.json()["data"]["canary_batch"]["batch_id"] == batch_id
 
 
+def test_canary_plan_reuses_route_history_after_empty_replenishment(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops, route, original_run, revisions = _discovery_batch_candidates(store)
+    validation = ops.approve_revision_canary(
+        str(route["route_id"]),
+        revisions[0],
+        expected_generation=int(route["generation"]),
+        approval_id="route-history-success-0001",
+        confirmation="确认付费试跑",
+        max_cost_usd=0.02,
+        reference_fingerprint=hashlib.sha256(
+            b"route-history-reference"
+        ).hexdigest(),
+        discovery_run_id=str(original_run["run_id"]),
+    )
+    ops.record_validation(
+        str(validation["validation_id"]),
+        status="succeeded",
+        semantic_outcome="valid_nonempty",
+        cost_usd=0.001,
+        cost_final=True,
+        counts_toward_canary=True,
+    )
+    ops.transition_revision(
+        revisions[0],
+        expected_lifecycle="static_valid",
+        lifecycle="probationary",
+    )
+    replenishment = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="canary_batch_replenishment",
+        expected_generation=int(route["generation"]),
+    )
+    ops.update_discovery_run(
+        str(replenishment["run_id"]),
+        expected_stage="queued",
+        stage="candidate_shortfall",
+        error_code="input_validation_candidate_shortfall",
+        candidate_count=0,
+    )
+
+    response = client.get(
+        f"/api/admin/apify-discovery-runs/{replenishment['run_id']}/canary-plan"
+    )
+
+    assert response.status_code == 200, response.text
+    plan = response.json()["data"]
+    assert plan["ready"] is True
+    assert plan["successful_actor_count"] == 1
+    assert plan["successful_publisher_count"] == 1
+    assert plan["attempts_used"] == 1
+    assert plan["attempts_remaining"] == 4
+    assert plan["budget_remaining_usd"] == 0.099
+    assert plan["max_total_charge_usd"] == 0.02
+    assert [item["revision_id"] for item in plan["items"]] == [revisions[1]]
+
+    approved = client.post(
+        (
+            f"/api/admin/apify-discovery-runs/{replenishment['run_id']}"
+            "/canary-batches"
+        ),
+        json={
+            "expected_generation": route["generation"],
+            "expected_plan_hash": plan["plan_hash"],
+            "approval_id": "route-history-batch-0001",
+            "confirmation": "确认付费验证主备",
+            "max_candidates": 3,
+            "max_total_charge_usd": plan["max_total_charge_usd"],
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    approved_data = approved.json()["data"]
+    assert approved_data["batch"]["planned_count"] == 1
+    assert approved_data["batch"]["items"][0]["revision_id"] == revisions[1]
+    assert approved_data["job"]["status"] == "queued"
+
+
 def test_canary_batch_rejects_stale_plan_and_browser_candidate_override(
     tmp_path,
     monkeypatch,

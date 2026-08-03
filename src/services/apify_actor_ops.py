@@ -2975,6 +2975,7 @@ class ApifyActorOpsService:
         if str(run["stage"]) not in {
             "awaiting_canary_approval",
             "canary_exhausted",
+            "candidate_shortfall",
             "activation_ready",
         }:
             raise ActorOpsError(
@@ -3021,10 +3022,9 @@ class ApifyActorOpsService:
             FROM apify_actor_validations AS validation
             WHERE validation.workspace_id = ?
               AND validation.route_id = ?
-              AND validation.discovery_run_id = ?
               AND validation.kind = 'route_reference'
             """,
-            (self.workspace_id, str(run["route_id"]), run_id),
+            (self.workspace_id, str(run["route_id"])),
         ).fetchone()
         attempts_used = int(usage["attempts"] or 0)
         attempts_remaining = max(
@@ -3048,16 +3048,12 @@ class ApifyActorOpsService:
                    revision.publisher, revision.build_id,
                    revision.build_number, revision.manifest_hash,
                    revision.pricing_json, revision.lifecycle,
-                   candidate.position, association.created_at
-            FROM apify_actor_discovery_run_revisions AS association
-            JOIN apify_actor_adapter_revisions AS revision
-              ON revision.workspace_id = association.workspace_id
-             AND revision.revision_id = association.revision_id
+                   candidate.position, revision.created_at
+            FROM apify_actor_adapter_revisions AS revision
             JOIN apify_actor_candidates AS candidate
               ON candidate.workspace_id = revision.workspace_id
              AND candidate.id = revision.candidate_id
-            WHERE association.workspace_id = ?
-              AND association.run_id = ?
+            WHERE revision.workspace_id = ?
               AND candidate.route_key = ?
               AND revision.lifecycle IN ('static_valid', 'probationary')
               AND revision.build_id IS NOT NULL
@@ -3068,23 +3064,33 @@ class ApifyActorOpsService:
                   AND COALESCE(candidate.last_error_code, '') =
                       'apify_actor_revision_unavailable'
               )
+              AND EXISTS (
+                  SELECT 1
+                  FROM apify_actor_discovery_run_revisions AS association
+                  JOIN apify_actor_discovery_runs AS source_run
+                    ON source_run.workspace_id = association.workspace_id
+                   AND source_run.run_id = association.run_id
+                  WHERE association.workspace_id = revision.workspace_id
+                    AND association.revision_id = revision.revision_id
+                    AND source_run.route_id = ?
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM apify_actor_validations AS attempted
                   WHERE attempted.workspace_id = revision.workspace_id
-                    AND attempted.discovery_run_id = ?
+                    AND attempted.route_id = ?
                     AND attempted.revision_id = revision.revision_id
                     AND attempted.kind = 'route_reference'
                     AND attempted.counts_toward_canary = 1
               )
-            ORDER BY candidate.position, association.created_at,
+            ORDER BY candidate.position, revision.created_at,
                      revision.revision_id
             """,
             (
                 self.workspace_id,
-                run_id,
                 str(run["route_key"]),
-                run_id,
+                str(run["route_id"]),
+                str(run["route_id"]),
             ),
         ).fetchall()
         candidates: list[sqlite3.Row] = []
@@ -3121,6 +3127,7 @@ class ApifyActorOpsService:
             attempts_remaining,
             affordable_candidates,
         )
+        prefer_minimum = bool(proven_actors)
         best_score: tuple[Any, ...] | None = None
         for size in range(1, maximum + 1):
             for option in combinations(candidates, size):
@@ -3131,7 +3138,7 @@ class ApifyActorOpsService:
                 reaches_two = len(actors) >= 2 and len(publishers) >= 2
                 score: tuple[Any, ...] = (
                     0 if reaches_two else 1,
-                    -size,
+                    size if reaches_two and prefer_minimum else -size,
                     sum(int(row["position"] or 0) for row in option),
                     *(str(row["revision_id"]) for row in option),
                 )
@@ -3325,11 +3332,11 @@ class ApifyActorOpsService:
                 """
                 SELECT batch_id
                 FROM apify_actor_canary_batches
-                WHERE workspace_id = ? AND discovery_run_id = ?
+                WHERE workspace_id = ? AND route_id = ?
                   AND status IN ('queued', 'preflighting', 'running')
                 LIMIT 1
                 """,
-                (self.workspace_id, run_id),
+                (self.workspace_id, str(plan["route_id"])),
             ).fetchone()
             if active is not None:
                 raise ActorOpsError(
@@ -3349,7 +3356,7 @@ class ApifyActorOpsService:
                 FROM apify_actor_discovery_runs AS run
                 LEFT JOIN apify_actor_validations AS validation
                   ON validation.workspace_id = run.workspace_id
-                 AND validation.discovery_run_id = run.run_id
+                 AND validation.route_id = run.route_id
                  AND validation.kind = 'route_reference'
                 WHERE run.workspace_id = ? AND run.run_id = ?
                 GROUP BY run.run_id

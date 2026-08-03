@@ -432,7 +432,7 @@ function DiscoveryPanel({
     },
   })
   const canPlan = Boolean(runId)
-    && ['awaiting_canary_approval', 'canary_exhausted', 'activation_ready'].includes(query.data?.stage || '')
+    && ['awaiting_canary_approval', 'canary_exhausted', 'candidate_shortfall', 'activation_ready'].includes(query.data?.stage || '')
     && !detail.activation_recommendation?.ready
   const planQuery = useQuery({
     queryKey: queryKeys.apifyActorCanaryPlan(user.id, runId),
