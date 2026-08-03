@@ -18,7 +18,6 @@ import {
   Button,
   Card,
   Checkbox,
-  Description,
   FieldError,
   Icons,
   Input,
@@ -36,12 +35,9 @@ import {
   secretPresentation,
 } from '../settings/settingsModel'
 import { HeroApifyActorRouteSettings } from '../apify-actors/HeroApifyActorRouteSettings'
-import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
-import { HeroNotificationSettings } from '../notifications/HeroNotificationSettings'
-import { HeroNotificationTargets } from '../notifications/HeroNotificationTargets'
 import { AdminPageHeader, AdminSection, HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroTopicLibrary } from './HeroTopicLibrary'
-import { settingsSectionFromHash, settingsSectionsForRole } from './settingsSections'
+import { legacySettingsSectionFromHash, legacySettingsSectionsForRole } from './settingsSections'
 
 const recordOf = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {}
 const inputValue = (data: FormData, key: string) => String(data.get(key) ?? '').trim()
@@ -956,10 +952,10 @@ export function HeroSettingsPage() {
   const location = useLocation()
   const admin = canAdministerWorkspace(user)
   const [activeSection, setActiveSection] = useState<string>(
-    () => settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about',
+    () => legacySettingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-ai',
   )
   const [activatedSections, setActivatedSections] = useState<Set<string>>(
-    () => new Set([settingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-about']),
+    () => new Set([legacySettingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-ai']),
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const activeSectionRef = useRef(activeSection)
@@ -968,7 +964,7 @@ export function HeroSettingsPage() {
   const scrollActivationPendingRef = useRef(false)
   const lastScrollTopRef = useRef(0)
   const lastTouchYRef = useRef<number | null>(null)
-  const explicitSectionNavigationRef = useRef(Boolean(settingsSectionFromHash(location.hash, user.role)))
+  const explicitSectionNavigationRef = useRef(Boolean(legacySettingsSectionFromHash(location.hash, user.role)))
   const configQueryEnabled = admin && (
     activeSection === 'settings-ai'
     || activeSection === 'settings-fetching'
@@ -1064,7 +1060,7 @@ export function HeroSettingsPage() {
   const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
     (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
   )
-  const sectionOptions = useMemo(() => settingsSectionsForRole(user.role), [user.role])
+  const sectionOptions = useMemo(() => legacySettingsSectionsForRole(user.role), [user.role])
   const secretDirty = Object.entries(secretDraft).some(([key, value]) => value !== emptySecretDraft[key as keyof SecretDraft])
   const settingsDirty = dirtyCoreSections.size > 0 || secretDirty
 
@@ -1150,7 +1146,7 @@ export function HeroSettingsPage() {
   }, [settingsDirty])
 
   useEffect(() => {
-    const section = settingsSectionFromHash(location.hash, user.role)
+    const section = legacySettingsSectionFromHash(location.hash, user.role)
     if (!section) return
     explicitSectionNavigationRef.current = true
     const frame = window.requestAnimationFrame(() => {
@@ -1567,7 +1563,7 @@ export function HeroSettingsPage() {
     saveCoreSections(['rsshub'])
   }
 
-  return <div ref={scrollContainerRef} data-settings-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid gap-5 p-4 min-[768px]:p-6">
+  return <div ref={scrollContainerRef} data-settings-scroll-region className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto"><PageFrame width="settings" className="grid gap-5 p-4 min-[768px]:p-6">
     <AdminPageHeader description={`当前账户：${user.display_name || user.username} · ${user.role}`} />
     {settingsDirty && <div
       data-settings-dirty-notice
@@ -1592,32 +1588,6 @@ export function HeroSettingsPage() {
       <HeroSelect label="设置区域" value={activeSection} onChange={jumpToSection} options={[...sectionOptions]} className="w-full" />
     </div>
     <div className="grid min-w-0 gap-5">
-
-    <AdminSection id="settings-about" title="关于 Inteliscope" description="查阅操作方法、产品变化和正式发布记录。">
-      {activatedSections.has('settings-about') && <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="secondary" onPress={() => navigate('/manual')}><Icons.BookOpen size={16} aria-hidden="true" />查看操作手册</Button>
-        <Button size="sm" variant="secondary" onPress={() => navigate('/changelog')}><Icons.ScrollText size={16} aria-hidden="true" />查看更新日志</Button>
-        <a
-          href={PRODUCT_RELEASES_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="type-control inline-flex min-h-8 items-center gap-2 rounded-xl border border-separator bg-surface-secondary px-3 text-foreground hover:bg-default focus-visible:outline-2 focus-visible:outline-focus"
-        ><Icons.Rocket size={16} aria-hidden="true" />Release 发布页<Icons.ExternalLink size={13} aria-hidden="true" /></a>
-      </div>}
-    </AdminSection>
-
-    <AdminSection id="settings-notifications" title="消息通知" description="统一维护通知服务，再由个人通知和系统告警直接选择。">
-      {activatedSections.has('settings-notifications') && <>
-        <HeroNotificationTargets queryEnabled={activeSection === 'settings-notifications'} />
-        <div className="mt-6 border-t border-separator pt-5">
-          <h3 className="type-title">个人新内容通知</h3>
-          <Description>这里只选择已配置并验证的通知服务，不再重复填写接收地址或发送测试。</Description>
-          <div className="mt-4">
-            <HeroNotificationSettings queryEnabled={activeSection === 'settings-notifications'} />
-          </div>
-        </div>
-      </>}
-    </AdminSection>
 
     <AdminSection id="settings-ai" title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
       {activatedSections.has('settings-ai') && <>

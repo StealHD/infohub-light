@@ -10,7 +10,7 @@ import {
 
 import * as Icons from './icons'
 
-export type PageFrameWidth = 'reading' | 'admin' | 'auth'
+export type PageFrameWidth = 'reading' | 'admin' | 'settings' | 'auth'
 
 export type ViewBarAction = {
   ariaLabel: string
@@ -37,6 +37,7 @@ export type LoadingRevealProps = {
 const pageWidths: Record<PageFrameWidth, string> = {
   reading: 'max-w-[var(--inteliscope-width-reading)]',
   admin: 'max-w-[var(--inteliscope-width-admin)]',
+  settings: 'max-w-[var(--inteliscope-width-settings)]',
   auth: 'max-w-[var(--inteliscope-width-auth)]',
 }
 

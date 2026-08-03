@@ -11,6 +11,8 @@
   --inteliscope-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif;
   --inteliscope-width-reading: 820px;
   --inteliscope-width-admin: 1180px;
+  --inteliscope-width-settings: 920px;
+  --inteliscope-width-settings-sidebar: 260px;
   --inteliscope-width-auth: 420px;
 
   --inteliscope-type-display-size: 24px;
@@ -227,6 +229,43 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
 .inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-corner {
   border: 0;
   background: transparent;
+}
+
+/* Appearance previews are intentionally independent from the active root
+ * mode, so both choices remain truthful before selection. */
+.inteliscope-design-system .settings-theme-preview[data-settings-theme-preview="dark"] {
+  --settings-preview-background: oklch(0.14 0.008 286);
+  --settings-preview-surface: oklch(0.18 0.008 286);
+  --settings-preview-card: oklch(0.215 0.009 286);
+  --settings-preview-border: oklch(0.31 0.011 286);
+  --settings-preview-bar: oklch(0.68 0.012 286);
+}
+
+.inteliscope-design-system .settings-theme-preview[data-settings-theme-preview="light"] {
+  --settings-preview-background: oklch(0.975 0.004 286);
+  --settings-preview-surface: oklch(0.995 0.002 286);
+  --settings-preview-card: oklch(0.95 0.006 286);
+  --settings-preview-border: oklch(0.82 0.011 286);
+  --settings-preview-bar: oklch(0.5 0.012 286);
+}
+
+.inteliscope-design-system .settings-theme-preview {
+  border-color: var(--settings-preview-border);
+  background: var(--settings-preview-background);
+}
+
+.inteliscope-design-system .settings-theme-preview-sidebar {
+  border-color: var(--settings-preview-border);
+  background: var(--settings-preview-surface);
+}
+
+.inteliscope-design-system .settings-theme-preview-bar {
+  background: var(--settings-preview-bar);
+}
+
+.inteliscope-design-system .settings-theme-preview-card {
+  border-color: var(--settings-preview-border);
+  background: var(--settings-preview-card);
 }
 
 .inteliscope-design-system .quiet-scroll-region::-webkit-scrollbar-thumb {

@@ -1683,12 +1683,13 @@ describe('App routes', () => {
     const memberClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={memberClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={memberApi} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('heading', { name: '关于 Inteliscope' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('[data-settings-page="overview"]')).toBeInTheDocument())
     expect(screen.queryByRole('heading', { name: '密钥' })).not.toBeInTheDocument()
-    expect(document.activeElement).not.toBe(document.getElementById('settings-about'))
+    expect(screen.queryByRole('link', { name: '高级' })).not.toBeInTheDocument()
   })
 
-  it('keeps the settings landing section request-free and activates only the selected section', async () => {
+  it('keeps the settings overview request-free and loads only the selected native page', async () => {
     const browser = userEvent.setup()
     const config = vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } })
     const secrets = vi.fn().mockResolvedValue({ secrets: [] })
@@ -1789,12 +1790,13 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('heading', { name: '关于 Inteliscope' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
+    expect(screen.queryByTestId('live-workbench-shell')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-settings-workspace]')).toBeInTheDocument()
     await act(async () => Promise.resolve())
     for (const query of Object.values(hiddenQueries)) expect(query).not.toHaveBeenCalled()
 
-    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-    await browser.click(await screen.findByRole('option', { name: '消息通知' }))
+    await browser.click(screen.getByRole('link', { name: '通知' }))
     await waitFor(() => {
       expect(notificationSettings).toHaveBeenCalledOnce()
       expect(notificationTargets).not.toHaveBeenCalled()
@@ -1807,40 +1809,11 @@ describe('App routes', () => {
     expect(ignoredFeed).not.toHaveBeenCalled()
     expect(hiddenQueries.apifyActorRoutes).not.toHaveBeenCalled()
     expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
-
-    await browser.selectOptions(
-      screen.getByRole('combobox', { name: '发送方式' }),
-      'webhook',
-    )
-    const provider = screen.getByRole('combobox', { name: 'Webhook 类型' })
-    expect(provider).toHaveValue('generic_event')
-    expect(within(provider).getAllByRole('option')).toHaveLength(7)
-
-    const destination = screen.getByLabelText('Webhook 地址')
-    await browser.type(destination, 'https://example.invalid/preserved-draft')
-    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-    await browser.click(await screen.findByRole('option', { name: '关于 Inteliscope' }))
-    expect(destination).toHaveValue('https://example.invalid/preserved-draft')
-    await act(async () => Promise.resolve())
-    expect(notificationSettings).toHaveBeenCalledOnce()
-    expect(notificationTargets).not.toHaveBeenCalled()
-    expect(notificationServices).toHaveBeenCalledOnce()
-    expect(notificationEmailTransport).not.toHaveBeenCalled()
-    expect(notificationTelegramTransport).not.toHaveBeenCalled()
-
-    await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-    await browser.click(await screen.findByRole('option', { name: '消息通知' }))
-    expect(screen.getByRole('combobox', { name: 'Webhook 类型' })).toHaveValue('generic_event')
-    expect(destination).toHaveValue('https://example.invalid/preserved-draft')
-    await act(async () => Promise.resolve())
-    expect(notificationSettings).toHaveBeenCalledOnce()
-    expect(notificationTargets).not.toHaveBeenCalled()
-    expect(notificationServices).toHaveBeenCalledOnce()
-    expect(notificationEmailTransport).not.toHaveBeenCalled()
-    expect(notificationTelegramTransport).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: '通知', level: 1 })).toBeInTheDocument()
+    expect(document.querySelector('[data-settings-page="notifications"]')).toBeInTheDocument()
   })
 
-  it('naturally activates every settings section in order while scrolling without using the section selector', async () => {
+  it('keeps legacy settings reachable inside the workspace without mounting the Feed shell', async () => {
     const config = vi.fn().mockResolvedValue({
       config: { ai: {}, filtering: {}, feed_end_messages: {} },
       taxonomy: { channels: [], topics: [] },
@@ -1950,76 +1923,25 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('button', { name: '查看操作手册' })).toBeInTheDocument()
-    const scrollRegion = document.querySelector<HTMLElement>('[data-settings-scroll-region]')
-    expect(scrollRegion).not.toBeNull()
-    const rootRect = { x: 0, y: 0, top: 0, right: 900, bottom: 800, left: 0, width: 900, height: 800, toJSON: () => ({}) } as DOMRect
-    const sectionRect = { x: 0, y: 640, top: 640, right: 900, bottom: 724, left: 0, width: 900, height: 84, toJSON: () => ({}) } as DOMRect
-    vi.spyOn(scrollRegion!, 'getBoundingClientRect').mockReturnValue(rootRect)
-    for (const id of [
-      'settings-about',
-      'settings-notifications',
-      'settings-ai',
-      'settings-ignored',
-      'settings-fetching',
-      'settings-storage',
-      'settings-secrets',
-    ]) {
-      vi.spyOn(document.getElementById(id)!, 'getBoundingClientRect').mockReturnValue(sectionRect)
-    }
+    expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
+    expect(config).not.toHaveBeenCalled()
+    expect(secrets).not.toHaveBeenCalled()
 
-    const revealNextSection = async (label: string, assertion: () => void) => {
-      fireEvent.wheel(scrollRegion!, { deltaY: 120 })
-      await waitFor(() => expect(screen.getByRole('button', { name: /设置区域/ })).toHaveTextContent(label))
-      await waitFor(assertion)
-      await act(async () => new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))))
-    }
-
+    await userEvent.setup().click(screen.getByRole('link', { name: 'AI' }))
+    expect(await screen.findByRole('heading', { name: 'AI', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '保存 AI 设置' })).toBeInTheDocument()
+    expect(document.querySelector('[data-settings-workspace]')).toBeInTheDocument()
+    expect(screen.queryByTestId('live-workbench-shell')).not.toBeInTheDocument()
+    expect(config).toHaveBeenCalledOnce()
+    expect(secrets).toHaveBeenCalledOnce()
     expect(notificationSettings).not.toHaveBeenCalled()
     expect(notificationTargets).not.toHaveBeenCalled()
     expect(notificationServices).not.toHaveBeenCalled()
-    expect(notificationTelegramTransport).not.toHaveBeenCalled()
-    expect(config).not.toHaveBeenCalled()
-    expect(ignoredFeed).not.toHaveBeenCalled()
-    expect(storageSummary).not.toHaveBeenCalled()
-    expect(secrets).not.toHaveBeenCalled()
-
-    await revealNextSection('消息通知', () => {
-      expect(screen.getByRole('button', { name: '保存并测试' })).toBeInTheDocument()
-    })
-    expect(notificationSettings).toHaveBeenCalledOnce()
-    expect(notificationTargets).not.toHaveBeenCalled()
-    expect(notificationServices).toHaveBeenCalledOnce()
     expect(notificationEmailTransport).not.toHaveBeenCalled()
     expect(notificationTelegramTransport).not.toHaveBeenCalled()
-
-    await revealNextSection('助手与 AI', () => {
-      expect(screen.getByRole('button', { name: '保存 AI 设置' })).toBeInTheDocument()
-    })
-    expect(config).toHaveBeenCalledOnce()
-    expect(secrets).toHaveBeenCalledOnce()
-
-    await revealNextSection('已忽略内容', () => {
-      expect(screen.getByText('暂无已忽略内容')).toBeInTheDocument()
-    })
-    expect(ignoredFeed).toHaveBeenCalledOnce()
-
-    await revealNextSection('获取与主题', () => {
-      expect(screen.getByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
-    })
-    expect(api.apifyActorRoutes).toHaveBeenCalledOnce()
+    expect(ignoredFeed).not.toHaveBeenCalled()
     expect(storageSummary).not.toHaveBeenCalled()
-
-    await revealNextSection('存储与归档', () => {
-      expect(screen.getByText('稳定内容')).toBeInTheDocument()
-    })
-    expect(storageSummary).toHaveBeenCalledOnce()
-    expect(storageArchives).toHaveBeenCalledOnce()
-
-    await revealNextSection('密钥', () => {
-      expect(screen.getByRole('textbox', { name: 'Key 名称' })).toBeInTheDocument()
-    })
-    expect(secrets).toHaveBeenCalledOnce()
+    expect(storageArchives).not.toHaveBeenCalled()
   }, 20_000)
 
   it('loads each Apify quota once on first Secrets entry and honors its five-minute cache', async () => {
@@ -2052,21 +1974,15 @@ describe('App routes', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
 
     try {
-      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-      expect(await screen.findByRole('heading', { name: '关于 Inteliscope' })).toBeInTheDocument()
-      expect(secrets).not.toHaveBeenCalled()
-      expect(secretQuota).not.toHaveBeenCalled()
-
-      await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '密钥' }))
       expect(await screen.findByText('套餐剩余 $4.00')).toBeInTheDocument()
       expect(secrets).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledWith('apify-cached')
 
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '关于 Inteliscope' }))
+      await browser.click(await screen.findByRole('option', { name: '助手与 AI' }))
       now += (5 * 60 * 1000) - 1
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
       await browser.click(await screen.findByRole('option', { name: '密钥' }))
@@ -2074,7 +1990,7 @@ describe('App routes', () => {
       expect(secretQuota).toHaveBeenCalledOnce()
 
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '关于 Inteliscope' }))
+      await browser.click(await screen.findByRole('option', { name: '助手与 AI' }))
       now += 2
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
       await browser.click(await screen.findByRole('option', { name: '密钥' }))
@@ -2154,13 +2070,14 @@ describe('App routes', () => {
 
     expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(document.querySelector('[data-page-frame="admin"]')).toBeInTheDocument()
+    expect(document.querySelector('[data-page-frame="settings"]')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
     expect(screen.getByText('RSSHub 访问密钥：已配置')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '账户与成员' })).toHaveAttribute('href', '/users')
+    expect(screen.queryByTestId('live-workbench-shell')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-settings-workspace]')).toBeInTheDocument()
     expect(screen.queryByText('精选阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报阈值')).not.toBeInTheDocument()
     expect(screen.queryByText('日报条数')).not.toBeInTheDocument()

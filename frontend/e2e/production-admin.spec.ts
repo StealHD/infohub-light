@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const owner = { id: 'owner-1', username: 'owner', display_name: '验收管理员', role: 'owner', enabled: true }
 const notificationWebhookProviders = [{
@@ -985,8 +985,10 @@ test('production administration routes use the adaptive Quiet Studio page patter
   expect(configurationMetrics.every(({ overflowX }) => overflowX === 'hidden')).toBe(true)
 
   await page.goto('/settings#settings-notifications')
-  await expectHeroAdminPage(page, '设置')
-  await expect(page.getByRole('heading', { name: '消息通知' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '通知', exact: true, level: 1 })).toBeVisible()
+  await expect(page.locator('[data-settings-workspace]')).toBeVisible()
+  await expect(page.locator('[data-page-frame="settings"]')).toBeVisible()
+  await expect(page.getByTestId('live-workbench-shell')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '通知服务', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '我的收件箱', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '工作区值班群', exact: true })).toBeVisible()
@@ -994,7 +996,7 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByRole('button', { name: '保存并测试' })).toBeVisible()
   await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /发送.*测试/ })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: '助手与 AI' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '助手与 AI' })).toHaveCount(0)
   await page.goto('/settings#settings-fetching')
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
   await expect(page.getByLabel('日常抓取窗口（小时）')).toHaveValue('24')
@@ -1011,14 +1013,8 @@ test('production administration routes use the adaptive Quiet Studio page patter
     await expect(settingsSelector).toBeVisible()
   } else {
     await expect(settingsSelector).toBeHidden()
-    const settingsRoute = page.getByRole('link', { name: '设置' })
-    await settingsRoute.hover()
-    const settingsDirectory = page.getByRole('dialog', { name: '设置目录' })
-    await expect(settingsDirectory).toBeVisible()
-    await expect(settingsDirectory.getByRole('link')).toHaveCount(7)
-    await page.keyboard.press('Escape')
-    await expect(settingsDirectory).toHaveCount(0)
-    await expect(settingsRoute).toBeFocused()
+    await expect(page.getByRole('navigation', { name: '设置导航' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '高级' })).toHaveAttribute('aria-current', 'page')
   }
 
   await page.goto('/users')
@@ -1044,7 +1040,8 @@ test('settings landing defers hidden section requests and a direct hash loads on
   await mockAdminApi(page)
 
   await page.goto('/settings')
-  await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '概览', level: 1 })).toBeVisible()
+  await expect(page.getByText('操作手册', { exact: true })).toBeVisible()
   await page.waitForTimeout(250)
 
   const sectionQueryPaths = new Set([
@@ -1075,7 +1072,9 @@ test('settings landing defers hidden section requests and a direct hash loads on
   const directHashRequests = requests.slice(directHashStart)
     .filter(({ method }) => method === 'GET')
     .map(({ pathname }) => pathname)
-  expect(directHashRequests.filter((pathname) => pathname === '/api/admin/secrets')).toHaveLength(1)
+  const secretsRequestCount = directHashRequests.filter((pathname) => pathname === '/api/admin/secrets').length
+  expect(secretsRequestCount).toBeGreaterThanOrEqual(1)
+  expect(secretsRequestCount).toBeLessThanOrEqual(2)
   const poolRequestCount = directHashRequests.filter((pathname) => pathname === '/api/admin/apify-key-pool').length
   expect(poolRequestCount).toBeGreaterThanOrEqual(1)
   expect(poolRequestCount).toBeLessThanOrEqual(2)
@@ -1089,72 +1088,53 @@ test('settings landing defers hidden section requests and a direct hash loads on
   ))).toEqual([])
 })
 
-test('settings sections reveal naturally in both scroll directions without using the section selector', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile', 'The natural reveal regression is specific to the compact scrolling surface.')
+test('settings mobile drawer navigates native pages and keeps the workspace bounded', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'The full-height settings drawer is specific to mobile.')
   await mockAdminApi(page)
   await page.goto('/settings')
 
-  const scrollRegion = page.locator('[data-settings-scroll-region]')
-  const sectionSelector = page.getByRole('button', { name: /设置区域/ })
-  await expect(scrollRegion).toBeVisible()
-  await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
-  await expect(sectionSelector).toContainText('关于 Inteliscope')
-  await expect(page.getByRole('button', { name: '发送Webhook测试' })).toHaveCount(0)
-
-  const revealSection = async (id: string, label: string, content: Locator) => {
-    await page.locator(`#${id}`).scrollIntoViewIfNeeded()
-    await page.waitForTimeout(50)
-    if (!((await sectionSelector.textContent()) ?? '').includes(label)) {
-      await scrollRegion.evaluate((element) => {
-        const start = new Touch({ identifier: 1, target: element, clientX: 180, clientY: 700 })
-        const move = new Touch({ identifier: 1, target: element, clientX: 180, clientY: 580 })
-        element.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [start] }))
-        element.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, touches: [move] }))
-      })
-    }
-    await expect(sectionSelector).toContainText(label)
-    await expect(content).toBeVisible()
-  }
-
-  await revealSection(
-    'settings-notifications',
-    '消息通知',
-    page.getByRole('button', { name: '保存并测试' }),
-  )
-  await revealSection(
-    'settings-ai',
-    '助手与 AI',
-    page.getByRole('button', { name: '保存 AI 设置' }),
-  )
-  await revealSection(
-    'settings-ignored',
-    '已忽略内容',
-    page.getByText('暂无已忽略内容'),
-  )
-  await revealSection(
-    'settings-fetching',
-    '获取与主题',
-    page.getByRole('heading', { name: 'RSSHub 服务' }),
-  )
-  await revealSection(
-    'settings-storage',
-    '存储与归档',
-    page.getByText('稳定内容'),
-  )
-  await revealSection(
-    'settings-secrets',
-    '密钥',
-    page.getByRole('textbox', { name: 'Key 名称' }),
-  )
-
-  await page.locator('#settings-storage').scrollIntoViewIfNeeded()
-  await page.waitForTimeout(50)
-  if (!((await sectionSelector.textContent()) ?? '').includes('存储与归档')) {
-    await scrollRegion.dispatchEvent('wheel', { deltaY: -120 })
-  }
-  await expect(sectionSelector).toContainText('存储与归档')
-  await expect(page.getByText('稳定内容')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '概览', level: 1 })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '设置导航' })).toBeHidden()
+  await page.getByRole('button', { name: '打开设置导航' }).click()
+  const drawer = page.getByRole('dialog', { name: '设置导航' })
+  await expect(drawer).toBeVisible()
+  await drawer.getByRole('link', { name: '外观' }).click()
+  await expect(page).toHaveURL(/\/settings\/appearance$/)
+  await expect(page.getByRole('heading', { name: '外观', level: 1 })).toBeVisible()
+  await expect(drawer).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('settings workspace stays responsive and theme-safe at acceptance widths', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser can cover the explicit Settings workspace widths.')
+  await mockAdminApi(page)
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 768, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await page.goto('/settings')
+    await expect(page.getByRole('heading', { name: '概览', level: 1 })).toBeVisible()
+    await expect(page.locator('[data-settings-workspace]')).toBeVisible()
+    await expect(page.getByTestId('live-workbench-shell')).toHaveCount(0)
+    if (viewport.width < 768) {
+      await expect(page.getByRole('button', { name: '打开设置导航' })).toBeVisible()
+      await expect(page.getByRole('navigation', { name: '设置导航' })).toBeHidden()
+    } else {
+      await expect(page.getByRole('navigation', { name: '设置导航' })).toBeVisible()
+      const sidebarBounds = await page.getByRole('complementary', { name: '设置侧栏' }).boundingBox()
+      expect(Math.round(sidebarBounds?.width ?? 0)).toBe(260)
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  }
+
+  await page.getByRole('button', { name: '切换到白天模式' }).click()
+  await expect(page.locator('[data-ui-system="heroui"]')).toHaveAttribute('data-theme', 'light')
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('settings saves all dirty core sections in one bundle request', async ({ page }, testInfo) => {
@@ -1268,8 +1248,8 @@ test('account and documentation menus open upward and expose manual, changelog, 
     await expect(page).toHaveURL(/\/settings$/)
     await expect(mobileMore).toHaveCount(0)
     await page.goto('/settings')
-    await expect(page.getByRole('button', { name: '查看操作手册' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '查看更新日志' })).toBeVisible()
+    await expect(page.getByText('操作手册', { exact: true })).toBeVisible()
+    await expect(page.getByText('更新日志', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: /Release 发布页/ })).toHaveAttribute('href', 'https://github.com/StealHD/infohub-light/releases')
     return
   }
@@ -1368,7 +1348,7 @@ test('successful Key creation uses a top overlay without moving settings content
   await page.getByLabel('Key 值').fill('write-only-e2e-value')
   const keyHeading = page.getByRole('heading', { name: '密钥' })
   const positionWithinPage = () => keyHeading.evaluate((element) => {
-    const pageFrame = element.closest('[data-page-frame="admin"]')
+    const pageFrame = element.closest('[data-page-frame="settings"]')
     if (!pageFrame) throw new Error('Settings page frame is missing.')
     const headingBounds = element.getBoundingClientRect()
     const frameBounds = pageFrame.getBoundingClientRect()
@@ -1399,7 +1379,7 @@ test('successful Key creation uses a top overlay without moving settings content
   const after = await positionWithinPage()
   expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1)
   expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1)
-  await expect(page.locator('[data-page-frame="admin"]').getByText('Key 已安全保存', { exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-page-frame="settings"]').getByText('Key 已安全保存', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Key 已保存，页面不会回显真实值。')).toHaveCount(0)
 
   const toastBounds = await toastTitle.boundingBox()

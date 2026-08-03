@@ -115,9 +115,10 @@ describe('HeroChangelogPage', () => {
     expect(within(entries[12] as HTMLElement).getByText('2026-07-28')).toHaveAttribute('datetime', '2026-07-28')
     const latestTimeline = screen.getByRole('list', { name: '2026 年 8 月更新记录' })
     const latestEntries = latestTimeline.querySelectorAll(':scope > [data-timeline-item]')
-    expect(latestEntries).toHaveLength(1)
+    expect(latestEntries).toHaveLength(2)
     expect(latestEntries[0]).toHaveAttribute('aria-current', 'true')
-    expect(within(latestEntries[0] as HTMLElement).getByText('频道 ID 不再传错')).toBeVisible()
+    expect(within(latestEntries[0] as HTMLElement).getByText('返回原来的应用位置')).toBeVisible()
+    expect(within(latestEntries[1] as HTMLElement).getByText('频道 ID 不再传错')).toBeVisible()
   })
 
   it('keeps a plain changelog entry at the page introduction', async () => {

@@ -973,3 +973,11 @@
 - 候选判定：定价事件名仍可作为频道资料型 Actor 的负证据，但精确 Build Dataset Schema 同时证明视频内容 ID、视频 URL、发布时间和标题/正文时优先采用 Schema，不再因 `youtube-channel-row` 等模糊计费名称误杀真实视频 Actor。Store 返回顺序不再代表质量；有完整 items Schema 的候选先进入有界 AI 排序集合。
 - 运行边界：上述修复不复活历史失败 Revision、不伪造成功 Canary，也不自动启动 Actor。重复排队的同一 Discovery Run 若已被另一 Worker 推进，后续 Job 作为幂等重放成功结束，不再生成误导性的 `ValueError`。原始 Dataset 仍不落库、不发给模型；开发排障只读取已有 Run 的无值字段路径与类型摘要。
 - 原因：真实 YouTube Run 已证明至少一个固定 Build 返回完整 `videoId/videoUrl/videoPublishedAt`，但旧 Manifest 被 Prompt 诱导加上不存在的 `/candidate/...`，并因仅看价格事件名被后续 Discovery 淘汰；另一个 Actor 的 `channelIds` 又收到 handle 字符串。这些是控制面映射错误，不是商城缺少 Actor。
+
+### D114 Settings 采用独立工作区并按路由渐进迁移
+
+- 决策日期：2026-08-03
+- 当前状态：第一阶段 UI 架构实现；不修改 API、数据库或业务逻辑
+- 决策内容：所有 `/settings/*` 路由不再挂载 Feed Workbench Shell，而由独立 Settings Workspace 接管同一左栏位置。桌面固定 260 px 设置侧栏，移动端使用全高 Drawer；顶部返回动作携带并校验来源应用的 path/query/hash，拒绝登录、设置循环和外部目的地，缺失时回退 `/feed`。设置导航固定分为概览、工作区 / 来源、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 高级，第一阶段不提供搜索，高级继续按 Owner/Admin 权限过滤。
+- 迁移边界：第一阶段只原生迁移 `/settings` Overview、`/settings/appearance` 和 `/settings/notifications`。Notifications 直接复用既有 query/mutation 组件，Appearance 复用 `inteliscope.ui.theme.v1`，Overview 不新增业务请求。AI、ignored、fetching/topic、storage/archive 和 secrets 继续由 `/settings/legacy#settings-*` 承载；旧 hash 确定性重定向，角色不可访问或未知 hash 回到 Overview。来源桥接到 `/subscriptions`。
+- 组件与兼容：`frontend/src/components/settings/` 统一拥有 SettingsSection、SettingsGroup、SettingsItem、SettingsCard、SettingsSidebar 和 StatusBadge，仍只消费项目 design-system，不引入 HeroUI Pro。Feed sidebar preference、API/DB schema、权限、脏草稿、原子保存、write-only 凭据和通知投递语义全部不变。D114 取代 D097 中“设置必须依赖主侧栏悬浮目录与整页相邻滚动激活”的页面架构；D096/D097 的按需查询与草稿语义仅在 legacy bridge 内继续适用，直至对应页面逐项迁移。

@@ -22,7 +22,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
 ```json
 {
   "control_topics": [],
@@ -41,7 +40,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
-
 
 ```json
 {
@@ -449,6 +447,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "次数与 $0.10 Route 认证预算跨 Run 累计，已真实尝试 Revision 不会重复进入计划",
     "ActorOps 后端 29 项、前端 22 项与 Changelog/ActorOps 定向 27 项通过",
     "python scripts/test_gate.py run --mode full: 23/23 passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-03",
+  "result": "将 Settings 从 Feed Sidebar 中拆分为带返回按钮、独立侧栏与内容区的 Settings Workspace；首批迁移概览、外观和通知，并保留未迁移设置的兼容入口与原业务逻辑。",
+  "status": "completed",
+  "task_id": "2026-08-03-refactor-settings-workspace-ui",
+  "unresolved": [],
+  "validation": [
+    "前端 Vitest 64 文件、561 项通过；typecheck、UI contract、lint（0 error）与生产构建通过",
+    "Playwright 覆盖移动 Drawer、390/768/1024/1440 响应式、浅深主题与严重/关键 Axe 违规为 0",
+    "VITEST_MAX_WORKERS=4 python scripts/test_gate.py run --mode full：23/23 passed in 225.425 seconds"
   ]
 }
 ```

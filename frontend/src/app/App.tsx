@@ -10,6 +10,7 @@ import { LoadingState, actionToast } from '../design-system'
 import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
+import { SettingsLayout } from '../features/settings/SettingsLayout'
 import { clearUserCache } from './sessionCache'
 import { legacyViewDestination } from './legacyRoute'
 import { ActionGeneration, type ActionToken } from './actionGeneration'
@@ -23,6 +24,9 @@ const HeroSubscriptionsPage = lazy(() => import('../features/admin-heroui/HeroSu
 const HeroUsersPage = lazy(() => import('../features/admin-heroui/HeroUsersPage').then((module) => ({ default: module.HeroUsersPage })))
 const HeroChangelogPage = lazy(() => import('../features/changelog/HeroChangelogPage').then((module) => ({ default: module.HeroChangelogPage })))
 const HeroManualPage = lazy(() => import('../features/manual/HeroManualPage').then((module) => ({ default: module.HeroManualPage })))
+const SettingsAppearancePage = lazy(() => import('../features/settings/SettingsAppearancePage').then((module) => ({ default: module.SettingsAppearancePage })))
+const SettingsNotificationsPage = lazy(() => import('../features/settings/SettingsNotificationsPage').then((module) => ({ default: module.SettingsNotificationsPage })))
+const SettingsOverviewPage = lazy(() => import('../features/settings/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })))
 
 type AppErrorBoundaryProps = { children: ReactNode; surface?: 'app' | 'page' }
 type AppErrorBoundaryState = { failed: boolean }
@@ -76,6 +80,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   const actionGuard = useMemo(() => new ActionGeneration(user.id), [user.id])
   const feedActivity = useFeedActivity(api, user, actionGuard)
   const canMutate = user.role !== 'viewer'
+  const settingsWorkspaceRoute = location.pathname === '/settings' || location.pathname.startsWith('/settings/')
   const contentRoute = location.pathname === '/feed'
     ? 'feed'
     : location.pathname === '/saved'
@@ -119,7 +124,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
   </AppErrorBoundary>
 
   return <ActionFeedbackProvider key={user.id} userId={user.id}>
-    <HeroWorkbenchShell
+    {settingsWorkspaceRoute ? <SettingsLayout user={user}>{outlet}</SettingsLayout> : <HeroWorkbenchShell
       api={api}
       user={user}
       query={query}
@@ -130,7 +135,7 @@ function AuthenticatedLayout({ api, user }: { api: ServiceApi; user: User }) {
       refreshState={feedActivity.pending ? 'pending' : feedActivity.notice?.state ?? feedActivity.activity.state}
       refreshMessage={feedActivity.notice?.message}
       refreshEventKey={feedActivity.notice?.key}
-    >{outlet}</HeroWorkbenchShell>
+    >{outlet}</HeroWorkbenchShell>}
   </ActionFeedbackProvider>
 }
 
@@ -167,7 +172,10 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/history" element={<HeroWorkbenchPage kind="history" />} />
         <Route path="/subscriptions" element={<HeroSubscriptionsPage />} />
         <Route path="/agents" element={<HeroAgentsPage />} />
-        <Route path="/settings" element={<HeroSettingsPage />} />
+        <Route path="/settings" element={<SettingsOverviewPage />} />
+        <Route path="/settings/appearance" element={<SettingsAppearancePage />} />
+        <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
+        <Route path="/settings/legacy" element={<HeroSettingsPage />} />
         <Route path="/users" element={<HeroUsersPage />} />
         <Route path="/manual" element={<HeroManualPage />} />
         <Route path="/changelog" element={<HeroChangelogPage />} />

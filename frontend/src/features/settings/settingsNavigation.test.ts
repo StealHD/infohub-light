@@ -1,0 +1,38 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  activeSettingsNavigationId,
+  settingsDestinationFromLegacyHash,
+  settingsNavigationForRole,
+  settingsWorkspaceTitle,
+} from './settingsNavigation'
+
+describe('settingsNavigation', () => {
+  it('exposes the requested groups and scopes Advanced to administrators', () => {
+    const ownerItems = settingsNavigationForRole('owner').flatMap((group) => group.items)
+    const memberItems = settingsNavigationForRole('member').flatMap((group) => group.items)
+
+    expect(ownerItems.map((item) => item.label)).toEqual(['概览', '来源', 'AI', '通知', '外观', '高级'])
+    expect(memberItems.map((item) => item.label)).toEqual(['概览', '来源', 'AI', '通知', '外观'])
+    expect(ownerItems.find((item) => item.id === 'sources')).toMatchObject({ href: '/subscriptions', bridge: true })
+  })
+
+  it('maps native and legacy locations to a stable sidebar selection and title', () => {
+    expect(activeSettingsNavigationId('/settings/notifications', '')).toBe('notifications')
+    expect(activeSettingsNavigationId('/settings/appearance', '')).toBe('appearance')
+    expect(activeSettingsNavigationId('/settings/legacy', '#settings-storage')).toBe('advanced')
+    expect(activeSettingsNavigationId('/settings/legacy', '#settings-ai')).toBe('ai')
+    expect(activeSettingsNavigationId('/settings/legacy', '')).toBe('ai')
+    expect(settingsWorkspaceTitle('/settings/legacy', '#settings-secrets')).toBe('高级')
+    expect(settingsWorkspaceTitle('/settings/legacy', '#settings-ignored')).toBe('已忽略内容')
+  })
+
+  it('keeps old hashes compatible without exposing administrator pages to members', () => {
+    expect(settingsDestinationFromLegacyHash('#settings-about', 'member')).toBe('/settings')
+    expect(settingsDestinationFromLegacyHash('#settings-notifications', 'member')).toBe('/settings/notifications')
+    expect(settingsDestinationFromLegacyHash('#settings-ai', 'member')).toBe('/settings/legacy#settings-ai')
+    expect(settingsDestinationFromLegacyHash('#settings-storage', 'owner')).toBe('/settings/legacy#settings-storage')
+    expect(settingsDestinationFromLegacyHash('#settings-storage', 'member')).toBe('/settings')
+    expect(settingsDestinationFromLegacyHash('#settings-unknown', 'owner')).toBe('/settings')
+  })
+})
