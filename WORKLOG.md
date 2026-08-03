@@ -92,32 +92,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-01",
-  "result": "修复 Actor Discovery 一次只返回少量 Manifest 时整批归零的问题：单次 AI 调用现在请求 3–6 个排序 proposal，逐项校验并保留有效部分 Revision；API/UI 显示 Actor 与发布者短缺，最终 Canary 门槛仍为三 Actor、两发布者。",
-  "status": "partial",
-  "task_id": "2026-08-01-actor-discovery-partial-candidate-fill",
-  "unresolved": [
-    "任务分支按用户边界保持未提交、未合并、未推送，等待用户明确提交指令",
-    "旧 Discovery Run 不回填历史 AI 正文或 Revision；需要管理员后续重新发起 Discovery 才会产生新部分候选或完整三槽",
-    "真实 AI、付费 Canary 与首次启用均未由本次实现自动执行"
-  ],
-  "validation": [
-    "backend targeted 37 passed；frontend ActorOps targeted 17 passed",
-    "python scripts/test_gate.py run --mode full: 23/23 passed in 188.404 seconds",
-    "8080 API/Worker 已从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0",
-    "浏览器验证新候选短缺投影正常、控制台错误 0；未触发 Store、AI 或付费 Actor"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-01",
   "result": "修复 X Dataset Brotli 解码后的同 Dataset 幂等重读与 Actor Discovery 候选级输入校验隔离；Discovery 改为按 Route 内容类型召回并要求完整排序备选，真实 YouTube/Instagram 均取得五个静态有效 Revision并进入待 Canary。",
   "status": "completed",
   "task_id": "2026-08-01-x-dataset-and-multiplatform-discovery-repair",
@@ -449,6 +423,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "次数与 $0.10 Route 认证预算跨 Run 累计，已真实尝试 Revision 不会重复进入计划",
     "ActorOps 后端 29 项、前端 22 项与 Changelog/ActorOps 定向 27 项通过",
     "python scripts/test_gate.py run --mode full: 23/23 passed"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "发布 v2.2.2 并以本地预构建的 revision-locked linux/amd64 镜像完成 VPS 切换；生产 YouTube 补位 Run 现可跨 Discovery Run 复用历史候选并恢复最小续接 Canary 计划。",
+  "status": "completed",
+  "task_id": "2026-08-03-publish-deploy-v2.2.2-canary-history-reuse",
+  "unresolved": [],
+  "validation": [
+    "main 与 v2.2.2 Tag GitHub Test Gate 均成功，本地 full 23/23、release 25/25 通过",
+    "VPS 上传源码与镜像 SHA-256 一致，镜像为 amd64、version 2.2.2、revision aefcbae70d1df669e4b831fe38654594928edea8",
+    "停机前及心跳安全窗后活跃 Job/Attempt/Validation/Batch 均为 0；0600 数据库与 .env 回滚备份 integrity ok、foreign keys 0",
+    "API/Worker 使用精确 v2.2.2 镜像且 healthy、restart=0、worker_status=ready；RSSHub healthy，scheduler/staging 为 0，公网首页与 /feed 为 200",
+    "生产最新 youtube/channel/items Run 虽自身候选为 0，现已返回 ready=true、历史成功 1 路、补验候选 1 项、授权上限 $0.02；未自动调用 AI、Actor 或付费 Canary"
   ]
 }
 ```
