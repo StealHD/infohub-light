@@ -110,6 +110,8 @@ class ApifySocialScraper(BaseScraper):
         http_client: httpx.AsyncClient,
         apify_coordinator: ApifyRunCoordinator | None = None,
         apify_actor_route: Any | None = None,
+        apify_actor_ops: Any | None = None,
+        actor_ops_snapshot: Any | None = None,
         route_job_id: str | None = None,
         forced_candidate_id: str | None = None,
         forced_route_generation: int | None = None,
@@ -119,6 +121,8 @@ class ApifySocialScraper(BaseScraper):
         self.social_config = config
         self.apify_coordinator = apify_coordinator
         self.apify_actor_route = apify_actor_route
+        self.apify_actor_ops = apify_actor_ops
+        self.actor_ops_snapshot = actor_ops_snapshot
         self.route_job_id = route_job_id
         self.forced_candidate_id = forced_candidate_id
         self.forced_route_generation = forced_route_generation
@@ -226,6 +230,63 @@ class ApifySocialScraper(BaseScraper):
         sub: ApifySocialSubscriptionConfig,
         since: datetime,
     ) -> list[ContentItem]:
+        if sub.profile_id:
+            if (
+                self.apify_actor_ops is None
+                or self.apify_coordinator is None
+                or not sub.source_id
+            ):
+                raise SourceFetchError(
+                    "ActorOps route runtime is unavailable",
+                    retryable=True,
+                    code="apify_actor_ops_unavailable",
+                )
+            from ..services.apify_actor_manifest import ActorRuntime
+            from ..services.apify_actor_runtime import (
+                ActorContentContext,
+                ApifyActorRuntimeService,
+                actor_target_for_route,
+            )
+
+            route = self.apify_actor_ops.get_route(str(sub.profile_id))
+            platform = str(route["platform"])
+            analysis_mode = (
+                sub.analysis_mode.value
+                if hasattr(sub.analysis_mode, "value")
+                else str(sub.analysis_mode)
+            )
+            result = await ApifyActorRuntimeService(
+                self.apify_actor_ops,
+                self._client_for_subscription(sub),
+            ).fetch(
+                route_id=str(sub.profile_id),
+                source_id=str(sub.source_id),
+                target=actor_target_for_route(platform, sub.target),
+                runtime=ActorRuntime(
+                    max_items=1,
+                    since_iso=since.astimezone(timezone.utc).isoformat(),
+                    until_iso=datetime.now(timezone.utc).isoformat(),
+                ),
+                content=ActorContentContext(
+                    platform=platform,
+                    source_id=str(sub.source_id),
+                    source_key=str(
+                        sub.source_key
+                        or f"apify_social:{sub.profile_id}:{sub.source_id}"
+                    ),
+                    source_name=str(sub.source_display_name or sub.target),
+                    channel=sub.channel,
+                    topics=tuple(sub.topics),
+                    tags=tuple(sub.tags),
+                    personal_tags=tuple(sub.personal_tags),
+                    analysis_mode=analysis_mode,
+                ),
+                job_id=self.route_job_id,
+                frozen_snapshot=self.actor_ops_snapshot,
+                source_target_value=sub.target,
+            )
+            return list(result.value or [])
+
         if (
             self.apify_actor_route is not None
             and sub.platform == ApifySocialPlatform.X

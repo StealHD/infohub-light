@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import os
 import tempfile
@@ -40,10 +41,17 @@ def _new_id() -> str:
 
 
 class PostCommitMediaCleanup:
-    """Collect private filesystem cleanup until the owning DB commit succeeds."""
+    """Journal filesystem changes until the owning DB transaction finishes.
+
+    ``add`` records an obsolete file that may only be removed after commit.
+    ``add_created`` records a newly published file that must be removed if the
+    database transaction rolls back.  Existing callers that only use ``add``
+    retain the original post-commit cleanup behaviour.
+    """
 
     def __init__(self) -> None:
         self._paths: set[Path] = set()
+        self._created_paths: set[Path] = set()
         self._closed = False
 
     def add(self, path: Path) -> None:
@@ -51,11 +59,30 @@ class PostCommitMediaCleanup:
             raise RuntimeError("post-commit media cleanup is already closed")
         self._paths.add(path)
 
+    def add_created(self, path: Path) -> None:
+        if self._closed:
+            raise RuntimeError("post-commit media cleanup is already closed")
+        self._created_paths.add(path)
+
+    def absorb(self, other: "PostCommitMediaCleanup") -> None:
+        """Merge a successful savepoint journal into its outer transaction."""
+
+        if self._closed:
+            raise RuntimeError("post-commit media cleanup is already closed")
+        if other._closed:
+            raise RuntimeError("media cleanup savepoint is already closed")
+        self._paths.update(other._paths)
+        self._created_paths.update(other._created_paths)
+        other._paths.clear()
+        other._created_paths.clear()
+        other._closed = True
+
     def run(self) -> int:
         if self._closed:
             return 0
         paths = tuple(self._paths)
         self._paths.clear()
+        self._created_paths.clear()
         self._closed = True
         removed = 0
         for path in paths:
@@ -67,8 +94,19 @@ class PostCommitMediaCleanup:
         return removed
 
     def discard(self) -> None:
+        """Apply rollback cleanup: keep obsolete files and remove new files."""
+
+        if self._closed:
+            return
+        created_paths = tuple(self._created_paths)
         self._paths.clear()
+        self._created_paths.clear()
         self._closed = True
+        for path in created_paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
 
 
 def _remote_identity(url: str) -> str:
@@ -125,10 +163,34 @@ class MediaCacheService:
         workspace_id: str,
         user_id: str,
         items: list[ContentItem],
+        commit: bool = True,
+        media_cleanup: PostCommitMediaCleanup | None = None,
     ) -> None:
-        for item in items:
-            self._cache_item(workspace_id=workspace_id, user_id=user_id, item=item)
-        self.store.connect().commit()
+        if not commit and media_cleanup is None:
+            raise RuntimeError("media_cleanup is required inside an outer transaction")
+        cleanup = media_cleanup or PostCommitMediaCleanup()
+        conn = self.store.connect()
+        metadata_snapshots = [copy.deepcopy(item.metadata) for item in items]
+        try:
+            for item in items:
+                self._cache_item(
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    item=item,
+                    media_cleanup=cleanup,
+                )
+            if commit:
+                conn.commit()
+                cleanup.run()
+        except Exception:
+            for item, metadata in zip(items, metadata_snapshots, strict=True):
+                item.metadata.clear()
+                item.metadata.update(metadata)
+            if commit:
+                if conn.in_transaction:
+                    conn.rollback()
+                cleanup.discard()
+            raise
 
     def cache_source_avatar_candidates(
         self,
@@ -136,8 +198,41 @@ class MediaCacheService:
         workspace_id: str,
         source_id: str,
         remote_urls: list[str] | tuple[str, ...],
+        commit: bool = True,
+        media_cleanup: PostCommitMediaCleanup | None = None,
     ) -> dict[str, str]:
         """Cache ordered source-level candidates without requiring a content item."""
+
+        if not commit and media_cleanup is None:
+            raise RuntimeError("media_cleanup is required inside an outer transaction")
+        cleanup = media_cleanup or PostCommitMediaCleanup()
+        conn = self.store.connect()
+        try:
+            result = self._cache_source_avatar_candidates_locked(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                remote_urls=remote_urls,
+                media_cleanup=cleanup,
+            )
+            if commit:
+                conn.commit()
+                cleanup.run()
+            return result
+        except Exception:
+            if commit:
+                if conn.in_transaction:
+                    conn.rollback()
+                cleanup.discard()
+            raise
+
+    def _cache_source_avatar_candidates_locked(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        remote_urls: list[str] | tuple[str, ...],
+        media_cleanup: PostCommitMediaCleanup,
+    ) -> dict[str, str]:
 
         source = self.store.get_source(source_id)
         if source is None or str(source.get("workspace_id") or "") != workspace_id:
@@ -166,13 +261,13 @@ class MediaCacheService:
                 alt=str(source.get("display_name") or "来源头像"),
                 visibility_scope=str(source.get("scope") or "private"),
                 current=previous,
+                media_cleanup=media_cleanup,
             )
             if refreshed is None:
                 continue
             current = refreshed
             refreshed_id = str(refreshed.get("id") or "")
             if previous is None or refreshed_id != str(previous.get("id") or ""):
-                self.store.connect().commit()
                 return {"status": "stored", "asset_id": refreshed_id}
             refreshed_updated_at = str(refreshed.get("updated_at") or "")
             if (
@@ -183,15 +278,20 @@ class MediaCacheService:
                     or refreshed_updated_at != previous_updated_at
                 )
             ):
-                self.store.connect().commit()
                 return {"status": "unchanged", "asset_id": refreshed_id}
-        self.store.connect().commit()
         return {
             "status": "kept_previous" if current else "failed",
             "asset_id": str((current or {}).get("id") or ""),
         }
 
-    def _cache_item(self, *, workspace_id: str, user_id: str, item: ContentItem) -> None:
+    def _cache_item(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        item: ContentItem,
+        media_cleanup: PostCommitMediaCleanup,
+    ) -> None:
         metadata = item.metadata
         source_id = str(metadata.get("source_id") or "") or None
         all_remote_urls = self._unique_urls(
@@ -230,6 +330,7 @@ class MediaCacheService:
                     remote_url=remote_url,
                     alt=str(item.title or f"图片 {index + 1}"),
                     visibility_scope="private",
+                    media_cleanup=media_cleanup,
                 )
             if asset is not None:
                 asset_id = str(asset["id"])
@@ -264,6 +365,7 @@ class MediaCacheService:
                     alt=str(source.get("display_name") or item.author or "来源头像"),
                     visibility_scope=str(source.get("scope") or "private"),
                     current=avatar,
+                    media_cleanup=media_cleanup,
                 )
             metadata["avatar_url"] = f"/api/media/{avatar['id']}" if avatar else ""
 
@@ -286,6 +388,7 @@ class MediaCacheService:
         alt: str,
         visibility_scope: str,
         current: dict[str, Any] | None,
+        media_cleanup: PostCommitMediaCleanup,
     ) -> dict[str, Any] | None:
         current_identity = _remote_identity(str((current or {}).get("remote_url") or ""))
         candidate_identity = _remote_identity(remote_url)
@@ -326,6 +429,7 @@ class MediaCacheService:
             mime_type=mime_type,
             suffix=suffix,
             checksum=checksum,
+            media_cleanup=media_cleanup,
         )
         if candidate is None:
             return current
@@ -333,6 +437,7 @@ class MediaCacheService:
             workspace_id=workspace_id,
             source_id=source_id,
             keep_id=str(candidate["id"]),
+            media_cleanup=media_cleanup,
         )
         return candidate
 
@@ -347,6 +452,7 @@ class MediaCacheService:
         remote_url: str,
         alt: str,
         visibility_scope: str,
+        media_cleanup: PostCommitMediaCleanup,
     ) -> dict[str, Any] | None:
         prepared = self._prepare_image(remote_url)
         if prepared is None:
@@ -385,6 +491,7 @@ class MediaCacheService:
             mime_type=mime_type,
             suffix=suffix,
             checksum=checksum,
+            media_cleanup=media_cleanup,
         )
 
     def _prepare_image(
@@ -427,12 +534,14 @@ class MediaCacheService:
         mime_type: str,
         suffix: str,
         checksum: str,
+        media_cleanup: PostCommitMediaCleanup,
     ) -> dict[str, Any] | None:
         asset_id = _new_id()
         relative_path = Path("media") / checksum[:2] / f"{asset_id}{suffix}"
         destination = self.data_dir / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
+        destination_published = False
         try:
             with tempfile.NamedTemporaryFile(
                 dir=destination.parent,
@@ -445,11 +554,22 @@ class MediaCacheService:
                 os.fsync(handle.fileno())
                 temporary_path = Path(handle.name)
             os.replace(temporary_path, destination)
+            temporary_path = None
+            destination_published = True
+            media_cleanup.add_created(destination)
             os.chmod(destination, 0o600)
         except OSError:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
+            if destination_published:
+                destination.unlink(missing_ok=True)
             return None
+        except Exception:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            if destination_published:
+                destination.unlink(missing_ok=True)
+            raise
         now = _now_iso()
         self.store.connect().execute(
             """
@@ -485,6 +605,7 @@ class MediaCacheService:
         workspace_id: str,
         source_id: str,
         keep_id: str,
+        media_cleanup: PostCommitMediaCleanup,
     ) -> None:
         rows = self.store.connect().execute(
             """
@@ -506,7 +627,7 @@ class MediaCacheService:
         for row in rows:
             path = (self.data_dir / str(row["local_path"])).resolve()
             if path.is_relative_to(media_root):
-                path.unlink(missing_ok=True)
+                media_cleanup.add(path)
 
     def _download(
         self,

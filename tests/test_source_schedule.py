@@ -837,6 +837,77 @@ def test_actor_route_gate_applies_only_to_apify_x_profile(
     ] == ["apify_actor_route_exhausted"]
 
 
+def test_actor_ops_profile_schedule_fails_closed_when_route_has_fewer_than_two(
+    tmp_path,
+    monkeypatch,
+):
+    from src.services.apify_actor_ops import RouteScheduleGate
+    from src.services.source_schedule import SourceScheduleService
+
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner, _rss_id, _rss_subscription = _subscribed_owner(
+        tmp_path,
+        monkeypatch,
+    )
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="apify_social",
+        display_name="Instagram profile",
+        config={
+            "profile_id": "route-instagram-profile-items",
+            "target": "example",
+        },
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    due = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
+    service = SourceScheduleService(store)
+    service.update_subscription_schedule(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        subscription_id=subscription["id"],
+        enabled=True,
+        interval_minutes=30,
+        now=due,
+    )
+    monkeypatch.setattr(
+        "src.services.source_schedule.ApifyKeyPoolService.schedule_gate",
+        lambda *_args, **_kwargs: {
+            "blocked": False,
+            "code": None,
+            "retry_at": None,
+        },
+    )
+    seen = []
+
+    def route_gate(_service, route_id, *, source_id=None):
+        seen.append((route_id, source_id))
+        return RouteScheduleGate(
+            False,
+            "candidate_shortfall",
+            1,
+            "apify_actor_route_candidate_shortfall",
+        )
+
+    monkeypatch.setattr(
+        "src.services.source_schedule.ApifyActorOpsService.schedule_gate",
+        route_gate,
+    )
+
+    result = service.enqueue_due(now=due)
+
+    assert seen == [("route-instagram-profile-items", source_id)]
+    assert result["enqueued"] == 0
+    assert result["skipped"] == 1
+    assert result["outcomes"][0]["reason"] == (
+        "apify_actor_route_candidate_shortfall"
+    )
+
+
 def test_x_profile_schedule_releases_budget_incident_through_alert_bridge(
     tmp_path,
     monkeypatch,

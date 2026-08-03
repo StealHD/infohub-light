@@ -95,6 +95,53 @@
       "groups": ["python_api_store"]
     },
     {
+      "id": "ActorOps v15 control plane",
+      "globs": [
+        "src/apify_actor_identity.py",
+        "src/services/apify_actor_ops.py"
+      ],
+      "groups": [
+        "python_api_store",
+        "python_queue_worker",
+        "python_source_acquisition"
+      ]
+    },
+    {
+      "id": "ActorOps manifest DSL",
+      "globs": ["src/services/apify_actor_manifest.py"],
+      "groups": ["python_queue_worker", "python_source_acquisition"]
+    },
+    {
+      "id": "ActorOps discovery metadata",
+      "globs": [
+        "src/services/apify_actor_discovery.py",
+        "src/services/apify_discovery_ai.py",
+        "src/services/apify_actor_maintenance.py"
+      ],
+      "groups": [
+        "python_api_store",
+        "python_queue_worker",
+        "python_scrapers"
+      ]
+    },
+    {
+      "id": "ActorOps paid runtime",
+      "globs": [
+        "src/services/apify_actor_canary.py",
+        "src/services/apify_actor_runtime.py"
+      ],
+      "groups": [
+        "python_queue_worker",
+        "python_source_acquisition",
+        "python_scrapers"
+      ]
+    },
+    {
+      "id": "ActorOps native fallback",
+      "globs": ["src/services/apify_native_fallback.py"],
+      "groups": ["python_source_acquisition"]
+    },
+    {
       "id": "Remote MCP/OpenClaw",
       "globs": [
         "src/mcp/remote_*.py",
@@ -289,6 +336,10 @@
       "tests/test_apify_actor_alerts.py",
       "tests/test_apify_actor_route.py",
       "tests/test_apify_actor_route_api.py",
+      "tests/test_apify_actor_discovery_v15.py",
+      "tests/test_apify_actor_maintenance.py",
+      "tests/test_apify_actor_ops_api.py",
+      "tests/test_apify_actor_ops_v15.py",
       "tests/test_apify_key_pool.py",
       "tests/test_apify_key_pool_api.py",
       "tests/test_auth.py",
@@ -323,6 +374,9 @@
       "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_notification_channels_v15.py",
       "tests/test_migrate_notification_targets_v16.py",
+      "tests/test_migrate_apify_actor_ops_v15.py",
+      "tests/test_migrate_apify_actor_canary_batches_v17.py",
+      "tests/test_migrate_apify_discovery_limits_v16.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_notification_multichannel_api.py",
       "tests/test_notification_targets.py",
@@ -342,6 +396,13 @@
       "tests/test_apify_actor_alert_api.py",
       "tests/test_apify_actor_alerts.py",
       "tests/test_apify_actor_route.py",
+      "tests/test_apify_actor_canary.py",
+      "tests/test_apify_actor_discovery_v15.py",
+      "tests/test_apify_actor_maintenance.py",
+      "tests/test_apify_actor_manifest_v15.py",
+      "tests/test_apify_actor_ops_v15.py",
+      "tests/test_apify_actor_runtime.py",
+      "tests/test_apify_actor_validation_worker.py",
       "tests/test_apify_key_pool.py",
       "tests/test_apify_pool_runtime.py",
       "tests/test_job_queue.py",
@@ -377,6 +438,11 @@
     "python_source_acquisition": [
       "tests/test_catalog_source_runner.py",
       "tests/test_apify_actor_route.py",
+      "tests/test_apify_actor_canary.py",
+      "tests/test_apify_actor_manifest_v15.py",
+      "tests/test_apify_actor_ops_v15.py",
+      "tests/test_apify_actor_runtime.py",
+      "tests/test_apify_native_fallback.py",
       "tests/test_apify_key_pool.py",
       "tests/test_source_acquisition.py",
       "tests/test_source_health.py",
@@ -399,6 +465,11 @@
       "tests/test_token_usage.py"
     ],
     "python_scrapers": [
+      "tests/test_apify_actor_canary.py",
+      "tests/test_apify_actor_discovery_v15.py",
+      "tests/test_apify_actor_maintenance.py",
+      "tests/test_apify_actor_runtime.py",
+      "tests/test_apify_actor_preflight.py",
       "tests/test_apify_social.py",
       "tests/test_openbb_scraper.py",
       "tests/test_reddit.py",
@@ -420,6 +491,9 @@
       "tests/test_migrate_apify_actor_routing_v13.py",
       "tests/test_migrate_notification_channels_v15.py",
       "tests/test_migrate_notification_targets_v16.py",
+      "tests/test_migrate_apify_actor_ops_v15.py",
+      "tests/test_migrate_apify_actor_canary_batches_v17.py",
+      "tests/test_migrate_apify_discovery_limits_v16.py",
       "tests/test_migrate_rsshub_sources.py",
       "tests/test_prepare_service_deployment.py",
       "tests/test_remote_mcp_performance_script.py",

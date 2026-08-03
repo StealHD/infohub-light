@@ -12,6 +12,10 @@ from fastapi.testclient import TestClient
 from scripts.migrate_apify_actor_routing_v13 import (
     migrate_apify_actor_routing_v13,
 )
+from scripts.migrate_apify_actor_ops_v15 import (
+    V15_INDEXES,
+    V15_TRIGGERS,
+)
 from src.api.server import create_app
 from src.services.worker import run_worker_once
 from src.storage.service_store import ServiceStore
@@ -22,6 +26,26 @@ def _downgrade_to_v12(data_dir) -> None:
     store.initialize()
     connection = store.connect()
     connection.execute("PRAGMA foreign_keys = OFF")
+    # Empty databases install the latest schema. Remove the later ActorOps
+    # layer before reconstructing a faithful v12 fixture for this older
+    # migration test.
+    for trigger in V15_TRIGGERS:
+        connection.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+    for table in (
+        "apify_actor_validations",
+        "apify_actor_discovery_run_revisions",
+        "apify_route_active_slots",
+        "apify_source_route_bindings",
+        "apify_actor_discovery_runs",
+        "apify_actor_discovery_settings",
+        "apify_actor_metadata_observations",
+        "apify_actor_adapter_revisions",
+        "apify_actor_route_profiles",
+    ):
+        connection.execute(f"DROP TABLE {table}")
+    for index in V15_INDEXES:
+        connection.execute(f"DROP INDEX IF EXISTS {index}")
+    connection.execute("DELETE FROM schema_migrations WHERE version = 17")
     for table in (
         "apify_actor_alert_deliveries",
         "apify_actor_alert_incidents",

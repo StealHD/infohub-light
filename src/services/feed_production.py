@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ..models import Config
 from ..storage.service_store import ServiceStore
@@ -198,12 +198,15 @@ class FeedProductionService:
         result: FeedRunResult,
         source_id: str | None = None,
         active_source_ids: set[str] | None = None,
+        publication_fence: Callable[[], None] | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
         conn = self.store.connect()
         if not conn.in_transaction:
             conn.execute("BEGIN IMMEDIATE")
         try:
+            if publication_fence is not None:
+                publication_fence()
             snapshot = self._save_run_result_locked(
                 workspace_id=workspace_id,
                 user_id=user_id,

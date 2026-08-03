@@ -74,6 +74,7 @@ class ApifyRunCoordinator(Protocol):
         attempted_secret_ids: Collection[str] = (),
         *,
         logical_run_id: str | None = None,
+        expected_pool_generation: int | None = None,
     ) -> ApifyCredentialLease | Awaitable[ApifyCredentialLease]: ...
 
     def record_quota_snapshot(
@@ -177,6 +178,8 @@ class ApifyRunCoordinator(Protocol):
 
 
 _TERMINAL_RUN_STATUSES = frozenset({"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"})
+_DEFAULT_DATASET_ITEM_LIMIT = 2
+_DEFAULT_DATASET_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 _EXPLICIT_QUOTA_ERROR_TYPES = frozenset(
     {
         "account-credit-exhausted",
@@ -287,6 +290,10 @@ class ApifyClient:
         *,
         max_total_charge_usd: float | None = None,
         logical_run_id: str | None = None,
+        build_number: str | None = None,
+        max_paid_dataset_items: int = 1,
+        dataset_item_limit: int = _DEFAULT_DATASET_ITEM_LIMIT,
+        dataset_response_max_bytes: int = _DEFAULT_DATASET_RESPONSE_MAX_BYTES,
     ) -> list[dict[str, Any]]:
         """Start a fresh Run per credential attempt and return dataset items."""
         result = await self.run_actor_detailed(
@@ -294,8 +301,145 @@ class ApifyClient:
             actor_input,
             max_total_charge_usd=max_total_charge_usd,
             logical_run_id=logical_run_id,
+            build_number=build_number,
+            max_paid_dataset_items=max_paid_dataset_items,
+            dataset_item_limit=dataset_item_limit,
+            dataset_response_max_bytes=dataset_response_max_bytes,
         )
         return result.items
+
+    async def preflight_actor_revision(
+        self,
+        actor_id: str,
+        *,
+        build_id: str,
+        build_number: str,
+    ) -> dict[str, str]:
+        """Recheck one public Actor and exact Build without starting a Run."""
+
+        token = str(self.token or "").strip()
+        if not token:
+            raise ApifyClientError(
+                "apify_key_rejected",
+                "Apify metadata preflight has no active credential",
+                retryable=False,
+                status_code=401,
+            )
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }
+
+        async def get_data(path: str) -> dict[str, Any]:
+            response: httpx.Response | None = None
+            for attempt in range(3):
+                try:
+                    response = await self.http_client.get(
+                        f"{self.base_url}{path}",
+                        headers=headers,
+                        timeout=10.0,
+                    )
+                except (httpx.TransportError, httpx.DecodingError):
+                    if attempt >= 2:
+                        raise ApifyClientError(
+                            "apify_actor_revision_preflight_unavailable",
+                            "Actor metadata preflight is temporarily unavailable",
+                            retryable=True,
+                        ) from None
+                    await asyncio.sleep(
+                        min(max(self.retry_base_delay * (2**attempt), 0.0), 5.0)
+                    )
+                    continue
+                if response.status_code == 401 or response.status_code == 402:
+                    raise ApifyClientError(
+                        "apify_key_rejected",
+                        "Apify rejected the metadata credential",
+                        retryable=False,
+                        status_code=response.status_code,
+                    )
+                if response.status_code in {403, 404, 410}:
+                    raise ApifyClientError(
+                        "apify_actor_revision_unavailable",
+                        "The immutable Actor revision is unavailable",
+                        retryable=False,
+                        status_code=response.status_code,
+                    )
+                if response.status_code == 429 or response.status_code >= 500:
+                    if attempt < 2:
+                        retry_after = response.headers.get("Retry-After")
+                        try:
+                            delay = (
+                                float(retry_after)
+                                if retry_after
+                                else self.retry_base_delay * (2**attempt)
+                            )
+                        except ValueError:
+                            delay = self.retry_base_delay * (2**attempt)
+                        await asyncio.sleep(min(max(delay, 0.0), 5.0))
+                        continue
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_unavailable",
+                        "Actor metadata preflight is temporarily unavailable",
+                        retryable=True,
+                        status_code=response.status_code,
+                    )
+                if response.status_code >= 400:
+                    raise ApifyClientError(
+                        "apify_actor_revision_unavailable",
+                        "The immutable Actor revision failed metadata preflight",
+                        retryable=False,
+                        status_code=response.status_code,
+                    )
+                if len(response.content) > 1024 * 1024:
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_invalid",
+                        "Actor metadata preflight exceeded the response limit",
+                        retryable=False,
+                    )
+                try:
+                    payload = response.json()
+                except ValueError:
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_invalid",
+                        "Actor metadata preflight returned invalid JSON",
+                        retryable=False,
+                    ) from None
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, dict):
+                    raise ApifyClientError(
+                        "apify_actor_revision_preflight_invalid",
+                        "Actor metadata preflight returned an invalid envelope",
+                        retryable=False,
+                    )
+                return data
+            raise AssertionError("bounded metadata preflight did not terminate")
+
+        actor = await get_data(f"/acts/{self._actor_path_id(actor_id)}")
+        build = await get_data(
+            f"/actor-builds/{quote(str(build_id), safe='')}"
+        )
+        actor_data_id = str(actor.get("id") or "")
+        build_actor_id = str(build.get("actorId") or "")
+        if (
+            actor.get("isPublic") is False
+            or bool(actor.get("isDeprecated"))
+            or str(build.get("id") or "") != str(build_id)
+            or str(build.get("buildNumber") or "") != str(build_number)
+            or str(build.get("status") or "").upper() != "SUCCEEDED"
+            or (actor_data_id and build_actor_id and actor_data_id != build_actor_id)
+        ):
+            raise ApifyClientError(
+                "apify_actor_revision_unavailable",
+                "The immutable Actor revision changed before the paid Run",
+                retryable=False,
+                status_code=412,
+            )
+        return {
+            "status": "available",
+            "build_id": str(build_id),
+            "build_number": str(build_number),
+        }
 
     async def run_actor_detailed(
         self,
@@ -304,14 +448,44 @@ class ApifyClient:
         *,
         max_total_charge_usd: float | None = None,
         logical_run_id: str | None = None,
+        build_number: str | None = None,
+        max_paid_dataset_items: int = 1,
+        dataset_item_limit: int = _DEFAULT_DATASET_ITEM_LIMIT,
+        dataset_response_max_bytes: int = _DEFAULT_DATASET_RESPONSE_MAX_BYTES,
+        expected_pool_generation: int | None = None,
+        max_remote_starts: int | None = None,
     ) -> ApifyActorRunResult:
         """Return dataset rows together with terminal Apify charge metadata."""
+        build = self._optional_build_number(build_number)
+        paid_item_limit = self._positive_limit(
+            max_paid_dataset_items,
+            label="max_paid_dataset_items",
+            maximum=100,
+        )
+        response_item_limit = self._positive_limit(
+            dataset_item_limit,
+            label="dataset_item_limit",
+            maximum=100,
+        )
+        response_byte_limit = self._positive_limit(
+            dataset_response_max_bytes,
+            label="dataset_response_max_bytes",
+            maximum=16 * 1024 * 1024,
+        )
         attempted_secret_ids: set[str] = set()
+        remote_start_attempts = 0
+        if max_remote_starts is not None:
+            max_remote_starts = self._positive_limit(
+                max_remote_starts,
+                label="max_remote_starts",
+                maximum=3,
+            )
 
         while True:
             lease, legacy_index = await self._acquire_credential(
                 attempted_secret_ids,
                 logical_run_id=logical_run_id,
+                expected_pool_generation=expected_pool_generation,
             )
             if lease.secret_id in attempted_secret_ids:
                 raise ApifyClientError(
@@ -325,19 +499,43 @@ class ApifyClient:
             try:
                 if lease.quota_check_required:
                     await self._refresh_quota_snapshot(lease)
+                remote_start_attempts += 1
                 result = await self._run_actor_once(
                     lease,
                     actor_id,
                     actor_input,
                     max_total_charge_usd=max_total_charge_usd,
                     logical_run_id=logical_run_id,
+                    build_number=build,
+                    max_paid_dataset_items=paid_item_limit,
+                    dataset_item_limit=response_item_limit,
+                    dataset_response_max_bytes=response_byte_limit,
                 )
             except _RetryRunAfterDrain:
+                if (
+                    max_remote_starts is not None
+                    and remote_start_attempts >= max_remote_starts
+                ):
+                    raise ApifyClientError(
+                        "apify_remote_start_limit",
+                        "Actor Run cannot be restarted without a new authorization",
+                        retryable=False,
+                    ) from None
                 continue
             except _ApifyCredentialRejected as exc:
                 await self._handle_credential_failure(lease, exc)
                 if legacy_index is not None:
                     self._legacy_token_index = legacy_index + 1
+                if (
+                    max_remote_starts is not None
+                    and remote_start_attempts >= max_remote_starts
+                ):
+                    raise ApifyClientError(
+                        "apify_remote_start_limit",
+                        "Actor Run cannot be retried without a new authorization",
+                        retryable=False,
+                        status_code=exc.status_code,
+                    ) from None
                 continue
             else:
                 if legacy_index is not None:
@@ -347,8 +545,22 @@ class ApifyClient:
     async def resume_actor_detailed(
         self,
         reservation_id: str,
+        *,
+        dataset_item_limit: int = _DEFAULT_DATASET_ITEM_LIMIT,
+        dataset_response_max_bytes: int = _DEFAULT_DATASET_RESPONSE_MAX_BYTES,
     ) -> ApifyActorRunResult:
         """Consume a durable Run without issuing another Actor POST."""
+
+        response_item_limit = self._positive_limit(
+            dataset_item_limit,
+            label="dataset_item_limit",
+            maximum=100,
+        )
+        response_byte_limit = self._positive_limit(
+            dataset_response_max_bytes,
+            label="dataset_response_max_bytes",
+            maximum=16 * 1024 * 1024,
+        )
 
         if self.coordinator is None:
             raise ApifyClientError(
@@ -430,8 +642,12 @@ class ApifyClient:
                 lease,
                 "GET",
                 f"/datasets/{quote(dataset_id, safe='')}/items",
-                params={"clean": "true"},
+                params={
+                    "clean": "true",
+                    "limit": str(response_item_limit),
+                },
                 timeout=30.0,
+                max_response_bytes=response_byte_limit,
             )
         except _ApifyCredentialRejected as exc:
             await self._block_started_run(
@@ -455,6 +671,12 @@ class ApifyClient:
                 "apify_run_reconcile_required",
                 "The durable Apify dataset could not be validated",
                 retryable=True,
+            )
+        if len(items) > response_item_limit:
+            raise ApifyClientError(
+                "apify_dataset_row_limit_exceeded",
+                "The durable Apify dataset exceeded the bounded row limit",
+                retryable=False,
             )
         await self._complete_started_run(lease)
         return ApifyActorRunResult(
@@ -540,16 +762,29 @@ class ApifyClient:
         *,
         max_total_charge_usd: float | None,
         logical_run_id: str | None,
+        build_number: str | None,
+        max_paid_dataset_items: int,
+        dataset_item_limit: int,
+        dataset_response_max_bytes: int,
     ) -> ApifyActorRunResult:
         start_path = f"/acts/{self._actor_path_id(actor_id)}/runs"
         start_kwargs: dict[str, Any] = {
             "json": actor_input,
             "timeout": 30.0,
         }
+        start_params: dict[str, str] = {
+            "maxItems": str(max_paid_dataset_items),
+        }
         if max_total_charge_usd is not None:
-            start_kwargs["params"] = {
-                "maxTotalChargeUsd": f"{max_total_charge_usd:.2f}"
-            }
+            # ActorOps approvals are stored to six decimal places.  Keeping
+            # that precision is safety-critical: rounding an approved
+            # $0.006 cap to $0.01 would authorize more spend than requested.
+            start_params["maxTotalChargeUsd"] = (
+                f"{max_total_charge_usd:.6f}".rstrip("0").rstrip(".")
+            )
+        if build_number is not None:
+            start_params["build"] = build_number
+        start_kwargs["params"] = start_params
 
         try:
             await self._coordinator_call(
@@ -580,7 +815,7 @@ class ApifyClient:
             )
         except _ApifyCredentialRejected:
             raise
-        except httpx.TransportError:
+        except (httpx.TransportError, httpx.DecodingError):
             await self._report_start_outcome_unknown(lease)
             raise ApifyClientError(
                 "apify_start_outcome_unknown",
@@ -717,7 +952,7 @@ class ApifyClient:
                 "Apify rejected a Run status request",
                 exc.response.status_code,
             ) from None
-        except httpx.TransportError:
+        except (httpx.TransportError, httpx.DecodingError):
             await self.abort_run(lease, run_id)
             raise ApifyClientError(
                 "apify_run_status_unavailable",
@@ -731,14 +966,22 @@ class ApifyClient:
                 "Apify Run status could not be validated",
                 retryable=True,
             ) from None
+        except TimeoutError:
+            # Preserve the public client contract. _wait_for_run already
+            # aborted and confirmed this Run terminal before raising.
+            raise
 
         try:
             items = await self._request_json(
                 lease,
                 "GET",
                 f"/datasets/{quote(dataset_id, safe='')}/items",
-                params={"clean": "true"},
+                params={
+                    "clean": "true",
+                    "limit": str(dataset_item_limit),
+                },
                 timeout=30.0,
+                max_response_bytes=dataset_response_max_bytes,
             )
         except _ApifyCredentialRejected as exc:
             await self._block_started_run(
@@ -762,7 +1005,7 @@ class ApifyClient:
                 retryable=True,
                 status_code=exc.response.status_code,
             ) from None
-        except httpx.TransportError:
+        except (httpx.TransportError, httpx.DecodingError):
             await self._block_started_run(
                 lease,
                 error_code="apify_run_reconcile_required",
@@ -791,6 +1034,12 @@ class ApifyClient:
                 "apify_run_reconcile_required",
                 "The completed Apify Run dataset requires reconciliation",
                 retryable=True,
+            )
+        if len(items) > dataset_item_limit:
+            raise ApifyClientError(
+                "apify_dataset_row_limit_exceeded",
+                "The completed Apify dataset exceeded the bounded row limit",
+                retryable=False,
             )
         return ApifyActorRunResult(
             items=[item for item in items if isinstance(item, dict)],
@@ -884,12 +1133,20 @@ class ApifyClient:
         attempted_secret_ids: Collection[str],
         *,
         logical_run_id: str | None,
+        expected_pool_generation: int | None = None,
     ) -> tuple[ApifyCredentialLease, int | None]:
         if self.coordinator is not None:
+            acquire_kwargs: dict[str, Any] = {
+                "logical_run_id": logical_run_id,
+            }
+            if expected_pool_generation is not None:
+                acquire_kwargs["expected_pool_generation"] = (
+                    expected_pool_generation
+                )
             lease = await self._coordinator_call(
                 "acquire_credential",
                 tuple(attempted_secret_ids),
-                logical_run_id=logical_run_id,
+                **acquire_kwargs,
             )
             if not isinstance(lease, ApifyCredentialLease):
                 required = (
@@ -956,7 +1213,7 @@ class ApifyClient:
                 "Apify rejected the quota check",
                 exc.response.status_code,
             ) from None
-        except httpx.TransportError:
+        except (httpx.TransportError, httpx.DecodingError):
             await self._release_reservation(lease, "apify_quota_check_failed")
             raise ApifyClientError(
                 "apify_quota_check_failed",
@@ -1031,33 +1288,78 @@ class ApifyClient:
         classify_credential: bool = True,
         **kwargs: Any,
     ) -> Any:
+        max_response_bytes = kwargs.pop("max_response_bytes", None)
         url = f"{self.base_url}{path}"
-        headers = {"Authorization": f"Bearer {lease.token}"}
+        headers = {
+            "Authorization": f"Bearer {lease.token}",
+            "Accept": "application/json",
+            # Apify/CDN responses have occasionally declared Brotli while
+            # returning bytes that cannot be decoded.  Actor and Dataset
+            # payloads are already bounded, so request the identity encoding
+            # and keep retries scoped to the same idempotent read.
+            "Accept-Encoding": "identity",
+        }
         provided_headers = kwargs.pop("headers", None) or {}
         headers.update(provided_headers)
+        headers["Accept-Encoding"] = "identity"
 
         request_method = str(method).upper()
         response: httpx.Response | None = None
         for attempt in range(3):
             try:
-                response = await self.http_client.request(
-                    request_method,
-                    url,
-                    headers=headers,
-                    **kwargs,
-                )
-            except httpx.TransportError:
+                if max_response_bytes is None:
+                    response = await self.http_client.request(
+                        request_method,
+                        url,
+                        headers=headers,
+                        **kwargs,
+                    )
+                else:
+                    content = bytearray()
+                    async with self.http_client.stream(
+                        request_method,
+                        url,
+                        headers=headers,
+                        **kwargs,
+                    ) as streamed:
+                        async for chunk in streamed.aiter_bytes():
+                            if (
+                                len(content) + len(chunk)
+                                > int(max_response_bytes)
+                            ):
+                                raise ApifyClientError(
+                                    "apify_dataset_response_too_large",
+                                    "The Apify dataset response exceeded the bounded byte limit",
+                                    retryable=False,
+                                )
+                            content.extend(chunk)
+                        response = httpx.Response(
+                            streamed.status_code,
+                            headers=streamed.headers,
+                            content=bytes(content),
+                            request=streamed.request,
+                            extensions=streamed.extensions,
+                        )
+            except (httpx.TransportError, httpx.DecodingError) as error:
                 if request_method != "GET" or attempt >= 2:
                     raise
                 delay = min(max(self.retry_base_delay * (2**attempt), 0.0), 30.0)
                 logger.warning(
-                    "Apify GET transport failed; retrying with the same key in %.1fs",
+                    "Apify GET response failed category=%s; retrying with the same key in %.1fs",
+                    (
+                        "decoding"
+                        if isinstance(error, httpx.DecodingError)
+                        else "transport"
+                    ),
                     delay,
                 )
                 await asyncio.sleep(delay)
                 continue
-            retryable_response = response.status_code == 429 or (
-                request_method == "GET" and response.status_code >= 500
+            # Only idempotent reads may be retried inside one HTTP operation.
+            # A paid Actor start POST is counted by the outer authorization
+            # boundary; retrying it here would bypass Canary's one-start cap.
+            retryable_response = request_method == "GET" and (
+                response.status_code == 429 or response.status_code >= 500
             )
             if not retryable_response or attempt >= 2:
                 break
@@ -1092,17 +1394,48 @@ class ApifyClient:
         except ValueError:
             raise ValueError("Apify response was not valid JSON") from None
 
+    @staticmethod
+    def _positive_limit(value: Any, *, label: str, maximum: int) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{label} must be an integer")
+        if value < 1 or value > maximum:
+            raise ValueError(f"{label} must be between 1 and {maximum}")
+        return int(value)
+
+    @staticmethod
+    def _optional_build_number(value: str | None) -> str | None:
+        if value is None:
+            return None
+        build = str(value).strip()
+        if not build or len(build) > 128:
+            raise ValueError("build_number must be a non-empty bounded string")
+        if any(character.isspace() for character in build):
+            raise ValueError("build_number cannot contain whitespace")
+        return build
+
     async def _report_start_outcome_unknown(
         self,
         lease: ApifyCredentialLease,
         *,
         error_code: str = "apify_start_outcome_unknown",
     ) -> None:
-        await self._coordinator_call(
-            "report_start_outcome_unknown",
-            lease,
-            error_code,
-        )
+        try:
+            await self._coordinator_call(
+                "report_start_outcome_unknown",
+                lease,
+                error_code,
+            )
+        except ApifyClientError:
+            raise
+        except Exception:
+            # The remote POST may already have created a paid Run.  A failure
+            # in the local poison callback must never degrade into a generic
+            # Actor error that lets ActorOps try another slot.
+            raise ApifyClientError(
+                "apify_start_outcome_unknown",
+                "Apify Run start outcome is unknown; reconciliation is required",
+                retryable=False,
+            ) from None
 
     async def _block_started_run(
         self,
@@ -1114,17 +1447,28 @@ class ApifyClient:
 
         if self.coordinator is None:
             return
-        if getattr(self.coordinator, "block_run_reconciliation", None) is not None:
-            await self._coordinator_call(
-                "block_run_reconciliation",
+        try:
+            if getattr(self.coordinator, "block_run_reconciliation", None) is not None:
+                await self._coordinator_call(
+                    "block_run_reconciliation",
+                    lease,
+                    error_code,
+                )
+                return
+            await self._report_start_outcome_unknown(
                 lease,
-                error_code,
+                error_code=error_code,
             )
-            return
-        await self._report_start_outcome_unknown(
-            lease,
-            error_code=error_code,
-        )
+        except ApifyClientError:
+            raise
+        except Exception:
+            # A known remote Run remains a poison state even if the durable
+            # coordinator cannot persist its reconciliation barrier.
+            raise ApifyClientError(
+                "apify_run_reconcile_required",
+                "The started Apify Run requires reconciliation",
+                retryable=True,
+            ) from None
 
     async def _complete_started_run(
         self,

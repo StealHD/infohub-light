@@ -314,7 +314,7 @@ def test_referenced_secret_cannot_be_deleted_and_rotation_resets_only_its_health
             "scope": "private",
             "type": "apify_social",
             "display_name": "X Primary",
-            "config": {"platform": "x", "kind": "profile", "target": "example", "fetch_limit": 20},
+            "config": {"platform": "x", "kind": "keyword", "target": "example", "fetch_limit": 20},
             "secret_env": "APIFY_TOKEN",
         },
     ).json()["data"]
@@ -368,7 +368,7 @@ def test_non_admin_catalog_hides_env_name_and_cannot_assign_secret(tmp_path, mon
             "scope": "workspace",
             "type": "apify_social",
             "display_name": "Shared X",
-            "config": {"platform": "x", "kind": "profile", "target": "example", "fetch_limit": 20},
+            "config": {"platform": "x", "kind": "keyword", "target": "example", "fetch_limit": 20},
             "secret_env": "APIFY_TOKEN",
         },
     )
@@ -379,7 +379,7 @@ def test_non_admin_catalog_hides_env_name_and_cannot_assign_secret(tmp_path, mon
             "scope": "workspace",
             "type": "apify_social",
             "display_name": "Shared X Missing Key",
-            "config": {"platform": "x", "kind": "profile", "target": "missing", "fetch_limit": 20},
+            "config": {"platform": "x", "kind": "keyword", "target": "missing", "fetch_limit": 20},
             "secret_env": "MISSING_APIFY_KEY",
         },
     )

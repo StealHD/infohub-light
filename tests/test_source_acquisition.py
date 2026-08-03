@@ -10,13 +10,15 @@ from types import SimpleNamespace
 import pytest
 
 from src.models import ContentItem, SourceType
+from src.orchestrator import HorizonOrchestrator
+from src.services.apify_actor_ops import ApifyActorOpsService
 from src.services.apify_actor_route import ApifyActorRoutedList
+from src.services.apify_key_pool import ApifyKeyPoolService
 from src.services.source_acquisition import (
     AcquisitionBusyError,
     AcquisitionLeaseLostError,
     SourceAcquisitionCoordinator,
 )
-from src.services.apify_key_pool import ApifyKeyPoolService
 from src.storage.service_store import ServiceStore
 
 
@@ -145,6 +147,294 @@ def _content_item(*, suffix: str = "one") -> ContentItem:
             "personal_tags": ["must-not-leak"],
         },
     )
+
+
+def _youtube_fallback_source(
+    store: ServiceStore,
+    workspace: dict,
+    owner: dict,
+) -> tuple[str, str, SimpleNamespace]:
+    route = store.connect().execute(
+        """
+        SELECT route_id FROM apify_actor_route_profiles
+        WHERE workspace_id = ? AND route_key = 'youtube/channel/items'
+        """,
+        (workspace["id"],),
+    ).fetchone()
+    assert route is not None
+    canonical_url = (
+        "https://www.youtube.com/feeds/videos.xml?channel_id=UC-fence-test"
+    )
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="public",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="YouTube fallback fence",
+        config={"name": "YouTube fallback fence", "url": canonical_url},
+        source_key=f"rss:{canonical_url}",
+    )
+    subscription = store.create_subscription(
+        user_id=owner["id"],
+        source_id=source_id,
+    )
+    ApifyActorOpsService(store, workspace_id=workspace["id"]).bind_source(
+        source_id=source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint="a" * 64,
+        mode="fallback",
+    )
+    projection = _projection(
+        source_id,
+        subscription["id"],
+        channel="youtube",
+        personal_tag="youtube-only",
+        analysis_mode="full",
+    )
+    return source_id, str(route["route_id"]), projection
+
+
+def _publication_orchestrator(
+    coordinator: SourceAcquisitionCoordinator,
+) -> HorizonOrchestrator:
+    orchestrator = object.__new__(HorizonOrchestrator)
+    orchestrator._service_acquisition_coordinator = coordinator
+    orchestrator._service_apify_actor_ops = None
+    orchestrator._service_apify_actor_ops_snapshots = []
+    return orchestrator
+
+
+def _bump_youtube_actor_context(
+    store: ServiceStore,
+    workspace_id: str,
+    source_id: str,
+    route_id: str,
+    changed_context: str,
+) -> None:
+    conn = store.connect()
+    if changed_context == "route":
+        cursor = conn.execute(
+            """
+            UPDATE apify_actor_route_profiles
+            SET generation = generation + 1
+            WHERE workspace_id = ? AND route_id = ?
+            """,
+            (workspace_id, route_id),
+        )
+    elif changed_context == "binding":
+        cursor = conn.execute(
+            """
+            UPDATE apify_source_route_bindings
+            SET generation = generation + 1
+            WHERE workspace_id = ? AND source_id = ?
+            """,
+            (workspace_id, source_id),
+        )
+    else:
+        cursor = conn.execute(
+            """
+            UPDATE apify_key_pool_state
+            SET generation = generation + 1
+            WHERE workspace_id = ?
+            """,
+            (workspace_id,),
+        )
+    assert cursor.rowcount == 1
+    conn.commit()
+
+
+@pytest.mark.parametrize("changed_context", ("route", "binding", "key"))
+def test_youtube_fallback_cache_hit_is_fenced_from_changed_actor_context(
+    tmp_path,
+    monkeypatch,
+    changed_context,
+):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id, route_id, source = _youtube_fallback_source(
+        store,
+        workspace,
+        owner,
+    )
+    fallback_item = _content_item(suffix=f"youtube-{changed_context}")
+    fallback_item.metadata["acquisition_origin"] = "apify_fallback"
+
+    async def fetch_fallback():
+        return [fallback_item]
+
+    producer = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=f"job-youtube-producer-{changed_context}",
+    )
+    asyncio.run(
+        producer.acquire(
+            source=source,
+            provider="rss",
+            window_hours=24,
+            fetch=fetch_fallback,
+        )
+    )
+
+    async def must_use_cache():
+        raise AssertionError("fresh YouTube fallback snapshot was not reused")
+
+    consumer = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=f"job-youtube-consumer-{changed_context}",
+    )
+    cached = asyncio.run(
+        consumer.acquire(
+            source=source,
+            provider="rss",
+            window_hours=24,
+            fetch=must_use_cache,
+        )
+    )
+    assert [item.id for item in cached] == [fallback_item.id]
+    assert consumer.origin_for(source_id) == "cache"
+    consumer.assert_publication_current()
+
+    _bump_youtube_actor_context(
+        store,
+        workspace["id"],
+        source_id,
+        route_id,
+        changed_context,
+    )
+
+    conn = store.connect()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        assert conn.in_transaction is True
+        with pytest.raises(AcquisitionLeaseLostError):
+            _publication_orchestrator(
+                consumer
+            ).assert_service_apify_actor_ops_publishable()
+        assert conn.in_transaction is True
+    finally:
+        conn.rollback()
+
+
+@pytest.mark.parametrize("changed_context", ("route", "binding", "key"))
+def test_youtube_native_cache_hit_ignores_changed_actor_context(
+    tmp_path,
+    monkeypatch,
+    changed_context,
+):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id, route_id, source = _youtube_fallback_source(
+        store,
+        workspace,
+        owner,
+    )
+    native_item = _content_item(suffix="youtube-native")
+
+    async def fetch_native():
+        return [native_item]
+
+    producer = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=f"job-youtube-native-producer-{changed_context}",
+    )
+    asyncio.run(
+        producer.acquire(
+            source=source,
+            provider="rss",
+            window_hours=24,
+            fetch=fetch_native,
+        )
+    )
+
+    async def must_use_cache():
+        raise AssertionError("fresh YouTube native snapshot was not reused")
+
+    consumer = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=f"job-youtube-native-consumer-{changed_context}",
+    )
+    cached = asyncio.run(
+        consumer.acquire(
+            source=source,
+            provider="rss",
+            window_hours=24,
+            fetch=must_use_cache,
+        )
+    )
+    assert [item.id for item in cached] == [native_item.id]
+    assert consumer.origin_for(source_id) == "cache"
+
+    _bump_youtube_actor_context(
+        store,
+        workspace["id"],
+        source_id,
+        route_id,
+        changed_context,
+    )
+
+    conn = store.connect()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        _publication_orchestrator(
+            consumer
+        ).assert_service_apify_actor_ops_publishable()
+        assert conn.in_transaction is True
+    finally:
+        conn.rollback()
+
+
+@pytest.mark.parametrize("changed_context", ("route", "binding", "key"))
+def test_youtube_native_upstream_ignores_actor_context_change_during_fetch(
+    tmp_path,
+    monkeypatch,
+    changed_context,
+):
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id, route_id, source = _youtube_fallback_source(
+        store,
+        workspace,
+        owner,
+    )
+    native_item = _content_item(suffix=f"youtube-native-{changed_context}")
+
+    async def fetch_native_during_actor_change():
+        _bump_youtube_actor_context(
+            store,
+            workspace["id"],
+            source_id,
+            route_id,
+            changed_context,
+        )
+        return [native_item]
+
+    coordinator = SourceAcquisitionCoordinator(
+        store,
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_id=f"job-youtube-native-race-{changed_context}",
+    )
+    items = asyncio.run(
+        coordinator.acquire(
+            source=source,
+            provider="rss",
+            window_hours=24,
+            fetch=fetch_native_during_actor_change,
+        )
+    )
+
+    assert [item.id for item in items] == [native_item.id]
+    _publication_orchestrator(
+        coordinator
+    ).assert_service_apify_actor_ops_publishable()
 
 
 def test_apify_pool_generation_is_in_fingerprint_and_blocks_stale_publication(

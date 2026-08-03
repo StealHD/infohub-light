@@ -18,6 +18,23 @@ export type ChangelogMonth = {
 
 export const changelogMonths: ChangelogMonth[] = [
   {
+    id: 'month-2026-08',
+    label: '2026 年 8 月',
+    entries: [
+      {
+        date: '2026-08-03',
+        title: 'YouTube Actor 不再因映射错误全军覆没',
+        summary: '真实 Run 证明商城存在可返回完整视频字段的固定 Build；Discovery 现在使用正确频道 ID、Dataset 根路径和 Schema 优先证据。',
+        items: [
+          { title: '频道 ID 不再传错', description: 'Actor 输入字段为 channelId 或 channelIds 时使用已验证的 UC Channel ID，不再把频道 URL 或 handle 填入 ID 数组；公开参考频道同时保留 URL、handle 和稳定 UC ID。' },
+          { title: '输出路径从真实根开始', description: 'Manifest 只从精确 Build Dataset row 根选择字段；若模型增加不存在的 candidate、item、data 或 result 包装，只有 Schema 能证明移除后路径精确存在时才安全修正。发布时间必须显式解析。' },
+          { title: '完整视频 Schema 优先', description: '定价事件名仍用于淘汰明确的频道资料 Actor，但固定 Build 已证明视频 ID、视频 URL、发布时间和标题或正文时，不再被模糊的频道计费事件误杀；Store 的任意返回顺序也不再挤掉更强候选。' },
+          { title: '重复发现不再伪报系统错误', description: '同一个 Discovery Run 被并发排队时，先执行的任务负责推进状态，后执行的任务幂等结束，不再产生与实际候选失败无关的 ValueError。' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'month-2026-07',
     label: '2026 年 7 月',
     entries: [
@@ -42,6 +59,35 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: 'Telegram 使用工作区共享 Bot', description: 'Owner/Admin 保存、测试并启用工作区 Bot Token；个人通知与运行告警分别使用自己的 write-only Chat ID，Token 和目的地均不会在页面、接口或日志中回显。' },
           { title: '失败隔离且不补发历史', description: '同一批新内容或同一运行告警会按渠道独立投递；一路失败不阻断其他渠道或抓取任务，服务恢复或重新启用后只发送之后严格新增的内容。' },
           { title: '旧客户端继续兼容', description: '旧版单渠道字段仍可读取和保存；新版多渠道字段提供逐渠道 generation、水位和测试状态，迁移会保留既有邮箱、Webhook 配置和投递历史。' },
+        ],
+      },
+      {
+        date: '2026-07-30',
+        title: 'Actor 主备统一为三槽控制面',
+        summary: 'X、YouTube 与 Instagram 共用 Route、不可变适配版本和来源级验证；Discovery 复用全局 AI，首期支持组合固定且不会误建 YouTube Profile。',
+        items: [
+          { title: '完整 2+1 优先、两路可先上线', description: '每条 Route 保留 Primary、Backup 1、Backup 2；完整认证池优先，但两个不同发布者的固定 Build 各成功一次 Canary 后即可降级上线，第三槽留空热补位，少于两路仍阻断。' },
+          { title: 'Route 试跑一次确认', description: 'AI 只搜索公开 Actor、排序并生成受限 JSON Manifest；Route 认证由管理员核对服务端候选和批次上限后一次确认，来源级试跑、首次来源启用、新 Build 或新 Manifest 激活仍保持各自明确审批。同一次确认若因网络超时重放只返回原任务，不会再次扣费。' },
+          { title: '新来源逐槽验证', description: '每个新账号或频道依次验证当前实际运行的两个或三个 Actor，全部确认身份并返回真实内容或可信空结果后才启用；只更换一个 Revision 时只重验对应槽。' },
+          { title: '原生链路优先', description: 'YouTube 继续保存为 RSS 来源，原生成功或可信空结果不调用 Apify；只有允许回退的超时、429、5xx、合同漂移等故障才进入三槽，来源身份和 Feed 稳定编号不变。' },
+          { title: '人工选择全局 AI Key', description: 'Actor Discovery 继承全局 provider、model 与 Base URL；管理员从同 Provider 的已登记 Key 中固定一个安全选项，下一次发现任务热生效，不另设模型配置，也不会自动换用其他 Key。' },
+          { title: '可测量的输出容量', description: 'Discovery 单次 AI 超时提高至 180 秒；管理员可确认后顺序执行 YouTube/Instagram 32K 容量测试，安全查看 Token、耗时、finish reason 与 Manifest 校验，系统给出但不会自动采用生产上限建议。测试不会运行 Actor 或付费 Canary。' },
+          { title: '候选不足不再归零', description: 'AI 一次排序并生成 3–6 个候选，系统逐项验证并让后序候选补位；已通过的 1/3 或 2/3 Revision 会保留展示，只有凑齐三个 Actor和两个发布者才开放付费 Canary。' },
+          { title: '按内容类型召回 Actor', description: 'YouTube 发现精确搜索频道视频，Instagram 精确搜索账号帖子和 Feed，避免只抓账户资料的 Actor 挤占候选；模型会按当前有界目标返回完整排序备选，安全门槛与 0.02 美元上限不变。' },
+          { title: '输入校验按候选隔离', description: '官方固定 Build 输入校验拒绝单个候选时会记录安全原因并继续验证后序 proposal；429、5xx、网络和解码错误只做三次有界重试，认证或请求合同错误才终止整次发现。' },
+          { title: '输入模板不再依赖模型猜形状', description: '目标 URL、handle 或原生 ID 应放入 string、array 还是标准 startUrls object，由代码从公开 Build Schema 确定性生成；AI 复制安全模板并专注排序、输出映射和语义规则，无法映射的 Actor 在调用模型前淘汰。' },
+          { title: '输出映射在付费前验真', description: 'Manifest 的每个 RFC 6901 路径都必须存在于精确 Build Dataset Schema；Profile/Channel 内容不能把帖子 URL 当作账号身份，账户资料型 Dataset 不再进入付费 Canary。' },
+          { title: 'YouTube 元数据 Actor 不再消耗试跑', description: '频道资料、统计或主页字段不能再冒充视频条目；定价事件已明确只提供元数据的 Actor 会在 AI 前淘汰，某个固定 Build 已付费确认只返回元数据、占位或错误内容合同后也会永久关闭重复试跑入口。剩余次数按两个不同发布者的快速主备计算，不再因完整 2+1 来不及完成而误关有效候选。' },
+          { title: '混合 Dataset 不再误判失败', description: '时间转换支持有界 Unix 秒和毫秒；Actor 先返回账号元数据、后返回真实帖子时会隔离元数据行并继续验证内容，全为元数据才安全失败。' },
+          { title: 'Canary 超时和费用可核对', description: '付费确认先显示 Route、来源、Actor、Build、商城价格和费用边界；Actor 默认最长等待 300 秒，超时中止且不自动重试，终态费用从远端账本回写。已有两路成功证据后不再为凑满第三槽继续付费。' },
+          { title: '两路主备自动串行验证', description: '页面不再要求逐个候选点击。一次确认后，服务端最多选择三个不同 Actor 并逐项执行：每次付费启动前先免费核对公开 Actor 和精确 Build，两个不同发布者成功后立即停止，未启动候选费用为 0。' },
+          { title: '候选用尽自动补位', description: '本批候选仍不足两路时会保留已经成功的证据，并自动创建一个不启动 Actor 的 Discovery 补位任务；未知启动结果仍会阻断整批、Route 与 Key，不会为了赶进度重复付费。' },
+          { title: '批准上限不再冒充实际费用', description: '页面分别显示已终结实际费用与仍排队的批准上限。离线升级只把账本证明从未创建远端 Run/Dataset 的 start rejection 修复为 0 美元并停用失效 Build；不能证明未启动的旧记录继续显示费用未知。' },
+          { title: '候选合格后只需确认启用', description: '页面不再暴露 Revision 下拉或手工排槽。服务端优先生成完整 2+1，也可生成两个 Canary 成功 Actor 的快速主备方案；管理员核对 Route、来源模式和费用上限后确认一次生效，浏览器不能指定候选。新来源按当前两或三路完成 2/2 或 3/3 验证。' },
+          { title: 'Dataset 解码不重复付费', description: '所有 Apify 请求显式使用 identity encoding；已启动 X Run 的 Dataset 解码失败只会使用同一 Key 重读同一 Dataset，不会二次启动 Actor或切换槽位，耗尽后保留账本并安全阻断对账。' },
+          { title: '支持组合固定', description: '首期支持检查只显示 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合。离线升级会在确认没有候选、费用、绑定、验证或活跃任务证据后安全清理误建的 YouTube Profile，并保留合法 Route 的 generation 单调性。' },
+          { title: '发现失败安全停止', description: 'Discovery Worker 的额度准入依赖已补齐；如果后续仍发生未处理异常，对应 Run 会与失败 Job 一起进入终态，不再保持 queued 并每轮重复补建任务。失败发生在 Store 或 AI 调用前时不会伪造查询、候选或可用度。' },
+          { title: '配置无需重启', description: 'Actor、精确 Build、Manifest、三槽顺序和 Route 费用上限均带 generation 从 SQLite 热加载；新 Actor、Build 或 Manifest 仍需静态校验、付费 Canary 和管理员激活。运行中的任务冻结旧版本，过期结果不能写入新缓存或 Feed。' },
         ],
       },
       {

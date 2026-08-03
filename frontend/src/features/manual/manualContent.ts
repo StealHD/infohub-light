@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-07-30',
-  change: '故障日志串联、工作区诊断授权与自动开发门禁',
+  change: '通用 ActorOps 三槽主备、来源级验证与热配置',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -86,6 +86,16 @@ export const manualSections: ManualSection[] = [
       {
         title: '订阅 YouTube 公开频道',
         description: '新增来源时选择“YouTube 频道”，填写公开频道链接、@handle、UC 开头的频道 ID 或规范 Feed 地址；无需 API Key、Cookie 或登录。普通视频、Shorts、公开直播及回放都沿用频道 Feed 收录；“保留最新内容”默认开启，首次窗口为空时只补最近一条，不会批量导入历史。创建并订阅后不会自动抓取，可点击“立即获取”或开启周期计划。',
+      },
+      {
+        title: '验证 Actor 来源',
+        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → 获取与主题”中的 ActorOps 统一管理。首期只支持 X Profile、YouTube Channel 与 Instagram Profile。Discovery 使用全局 AI 排序并生成受限 Manifest，输入形状与输出字段都必须由精确 Build Schema 验证；单个候选不合格只淘汰该候选。Route 认证也不需要逐个 Actor 反复操作：页面只显示一次“验证两路主备”，确认框会列出 Route、候选发布者、精确 Build、商城定价、每项和本批费用上限。确认后系统先免费检查每个 Actor 与固定 Build，再严格串行试跑；两个不同发布者成功后立即停止，未启动或已失效的 Build 费用为 0 且不计次数。候选用尽仍不足两路时会保留已有成功证据，并自动创建一个不启动 Actor 的补位发现任务；未知启动结果则安全阻断并要求人工核对。系统优先生成完整 2+1；如果已有两个不同 Actor、来自不同发布者、固定 Build 且各成功一次 Canary，就会直接给出“两路主备快速启用”，第三槽留空且不产生费用。管理员再独立确认一次生效，少于两个可运行 Actor 仍会阻断。新账号只串行验证当前实际运行的两个或三个 Actor，通过后分别显示 2/2 或 3/3；后续补第三槽只复验变化槽位。Canary 默认最长 300 秒且不自动重试，批准上限和远端账本确认的实际费用分开显示。Actor、Build、Manifest、Route 费用和 Discovery 输出 Token 上限都按 generation 热加载。Actor Discovery 继承“助手与 AI”的 provider、model 与 Base URL，并由管理员从同 Provider 的 Key 中选择一个；全局 AI 不可用只阻断新发现。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
+        href: '/settings#settings-fetching',
+        linkLabel: '打开 ActorOps',
+      },
+      {
+        title: '按内容类型发现 Actor',
+        description: 'Discovery 会分别检索 X 账号帖子、YouTube 频道视频和 Instagram 账号帖子或 Feed，不用宽泛的账户资料结果凑数。YouTube 的 channelId/channelIds 输入使用已验证的 UC Channel ID；输出字段从 Dataset row 根映射，不会凭空增加 candidate/item/data 包装。定价事件和 Manifest 都只能证明频道资料、统计或主页身份时会在付费前淘汰；精确 Build Schema 已同时证明视频 ID、URL、发布时间和正文时，不会再被模糊的计费事件名称误杀。某个固定 Build 已经付费确认只返回元数据、占位或错误内容合同后也不会再次出现试跑按钮。模型按当前有界目标返回 3–6 个排序备选；少返回或单个 Manifest 不合格只记录候选短缺，不会降低公开性、固定 Build、官方输入校验或每 Run 0.02 美元默认上限。生产至少需要两个不同发布者且各自成功试跑的 Actor。',
       },
       {
         title: '全局与单源自动更新',

@@ -9,6 +9,7 @@ from typing import Any
 
 from ..storage.service_store import ServiceStore
 from .apify_actor_monitoring import build_apify_actor_route
+from .apify_actor_ops import ApifyActorOpsService
 from .apify_key_pool import ApifyKeyPoolService, apify_key_pool_enabled
 from .job_queue import JobQueue
 from .quota import QuotaExceeded, QuotaService
@@ -383,19 +384,34 @@ class SourceScheduleService:
                 elif (
                     subscription is not None
                     and subscription["source_type"] == "apify_social"
-                    and apify_key_pool_enabled()
                 ):
-                    pool_gate = ApifyKeyPoolService(self.store).schedule_gate(
-                        str(schedule["workspace_id"]),
-                        now=now_dt,
-                    )
-                    if pool_gate["blocked"]:
-                        reason = str(pool_gate["code"])
-                        retry_at = _parse_time(pool_gate.get("retry_at"))
-                        if retry_at is not None and retry_at > now_dt:
-                            interval_next = retry_at
-                    if (
+                    if apify_key_pool_enabled():
+                        pool_gate = ApifyKeyPoolService(self.store).schedule_gate(
+                            str(schedule["workspace_id"]),
+                            now=now_dt,
+                        )
+                        if pool_gate["blocked"]:
+                            reason = str(pool_gate["code"])
+                            retry_at = _parse_time(pool_gate.get("retry_at"))
+                            if retry_at is not None and retry_at > now_dt:
+                                interval_next = retry_at
+                    profile_id = self._actor_ops_profile_id(subscription)
+                    if reason is None and profile_id is not None:
+                        route_gate = ApifyActorOpsService(
+                            self.store,
+                            workspace_id=str(schedule["workspace_id"]),
+                        ).schedule_gate(
+                            profile_id,
+                            source_id=str(subscription["source_id"]),
+                        )
+                        if not route_gate.allowed:
+                            reason = str(
+                                route_gate.error_code
+                                or "apify_actor_route_candidate_shortfall"
+                            )
+                    elif (
                         reason is None
+                        and apify_key_pool_enabled()
                         and self._is_x_profile_subscription(subscription)
                     ):
                         actor_route = build_apify_actor_route(
@@ -595,6 +611,17 @@ class SourceScheduleService:
                 conn.rollback()
             raise
         return result
+
+    @staticmethod
+    def _actor_ops_profile_id(subscription: Any) -> str | None:
+        try:
+            config = json.loads(str(subscription["source_config_json"] or "{}"))
+        except (KeyError, TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(config, dict):
+            return None
+        profile_id = str(config.get("profile_id") or "").strip()
+        return profile_id or None
 
     @staticmethod
     def _is_x_profile_subscription(subscription: Any) -> bool:

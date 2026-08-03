@@ -48,6 +48,34 @@ def test_job_queue_claims_and_completes_job(tmp_path, monkeypatch):
     assert loaded["locked_until"] is None
 
 
+def test_complete_job_can_join_publication_transaction(tmp_path, monkeypatch):
+    store, workspace, owner = _store_with_owner(tmp_path, monkeypatch)
+    queue = JobQueue(store)
+    job = queue.create_job(
+        workspace_id=workspace["id"],
+        user_id=owner["id"],
+        job_type="source_test",
+        payload={"source_type": "rss"},
+    )
+    claimed = queue.claim_next_job(worker_id="worker-transactional-complete")
+
+    completed = queue.complete_job(
+        job["id"],
+        status="succeeded",
+        result={"count": 1},
+        worker_id=claimed["worker_id"],
+        claim_token=claimed["claim_token"],
+        commit=False,
+    )
+
+    assert completed["status"] == "succeeded"
+    assert store.connect().in_transaction is True
+    store.connect().rollback()
+    rolled_back = queue.get_job(job["id"])
+    assert rolled_back["status"] == "running"
+    assert rolled_back["claim_token"] == claimed["claim_token"]
+
+
 def test_job_queue_summary_omits_heavy_fields_and_keeps_active_jobs(
     tmp_path, monkeypatch
 ):

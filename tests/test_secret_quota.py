@@ -41,6 +41,7 @@ def test_apify_quota_projects_safe_numbers_and_clamps_remaining_values() -> None
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         assert request.headers["authorization"] == f"Bearer {TEST_TOKEN}"
+        assert request.headers["accept-encoding"] == "identity"
         if request.url.path == "/v2/users/me":
             return httpx.Response(200, json=_user_payload(included=10))
         if request.url.path == "/v2/users/me/limits":

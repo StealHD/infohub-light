@@ -29,6 +29,7 @@ from .apify_pool_runtime import apify_coordinator_for_workspace
 from .apify_key_pool import apify_key_pool_enabled
 from .apify_actor_monitoring import build_apify_actor_route
 from .operation_log import safe_emit_operation_event
+from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .source_avatar import SourceAvatarService
 
 
@@ -223,6 +224,19 @@ def run_catalog_source_fetch(
                 job_id=str(job["id"]),
             )
         if (
+            apify_key_pool_enabled()
+            and hasattr(orchestrator, "set_service_apify_actor_ops")
+        ):
+            from .apify_actor_ops import ApifyActorOpsService
+
+            orchestrator.set_service_apify_actor_ops(
+                ApifyActorOpsService(
+                    store,
+                    workspace_id=str(job["workspace_id"]),
+                ),
+                job_id=str(job["id"]),
+            )
+        if (
             shared_acquisition_enabled()
             and hasattr(orchestrator, "set_service_acquisition_coordinator")
         ):
@@ -244,110 +258,182 @@ def run_catalog_source_fetch(
                 enrich=False,
             )
         )
+        if hasattr(
+            orchestrator,
+            "assert_service_apify_actor_ops_publishable",
+        ):
+            orchestrator.assert_service_apify_actor_ops_publishable()
     finally:
         analysis_cache.close()
-    try:
-        avatar_refreshes = SourceAvatarService(
-            store,
-            data_dir=data_dir,
-        ).refresh_run_result(
-            workspace_id=str(job["workspace_id"]),
-            result=run_result,
-        )
-    except Exception:
-        if store.connect().in_transaction:
-            store.connect().rollback()
-        avatar_refreshes = []
-        logger.warning(
-            "source avatar cache failed job_id=%s; feed finalization will continue",
-            job.get("id"),
-        )
-    for refresh in avatar_refreshes:
-        safe_emit_operation_event(
-            category="source",
-            action="avatar_cache",
-            outcome=(
-                "succeeded"
-                if refresh.status == "stored"
-                else "skipped"
-                if refresh.status in {"unchanged", "candidate_missing"}
-                else "partial"
-                if refresh.status == "kept_previous"
-                else "denied"
-                if refresh.status == "identity_mismatch"
-                else "failed"
-            ),
-            level=(
-                "warning"
-                if refresh.status
-                in {"kept_previous", "failed", "identity_mismatch"}
-                else "info"
-            ),
-            workspace_id=str(job["workspace_id"]),
-            subject_user_id=str(job["user_id"]),
-            job_id=str(job["id"]),
-            source_id=refresh.source_id,
-            error_code=(
-                refresh.status
-                if refresh.status
-                not in {"stored", "unchanged", "candidate_missing"}
-                else None
-            ),
-        )
-    if run_result.status == "failed":
-        raise FeedRunFailed(run_result)
-    from .media_cache import MediaCacheService
+    return _stage_catalog_publication(
+        job,
+        data_dir=data_dir,
+        store=store,
+        config=config,
+        orchestrator=orchestrator,
+        run_result=run_result,
+        source=source,
+        source_id=source_id,
+        commit=commit,
+    )
 
+
+def _stage_catalog_publication(
+    job: dict[str, Any],
+    *,
+    data_dir: str,
+    store: ServiceStore,
+    config: Config,
+    orchestrator: Any,
+    run_result: Any,
+    source: dict[str, Any],
+    source_id: str,
+    commit: bool,
+) -> dict[str, Any]:
+    """Stage a source Feed and media references with rollback-safe files."""
+
+    publication = store.connect()
+    if not publication.in_transaction:
+        publication.execute("BEGIN IMMEDIATE")
+    cleanup = PostCommitMediaCleanup()
     try:
-        MediaCacheService(store, data_dir=data_dir).cache_items(
+        if hasattr(
+            orchestrator,
+            "assert_service_apify_actor_ops_publishable",
+        ):
+            orchestrator.assert_service_apify_actor_ops_publishable()
+
+        avatar_cleanup = PostCommitMediaCleanup()
+        publication.execute("SAVEPOINT actor_ops_avatar_cache")
+        try:
+            avatar_refreshes = SourceAvatarService(
+                store,
+                data_dir=data_dir,
+            ).refresh_run_result(
+                workspace_id=str(job["workspace_id"]),
+                result=run_result,
+                commit=False,
+                media_cleanup=avatar_cleanup,
+            )
+            publication.execute("RELEASE actor_ops_avatar_cache")
+            cleanup.absorb(avatar_cleanup)
+        except Exception:
+            publication.execute("ROLLBACK TO actor_ops_avatar_cache")
+            publication.execute("RELEASE actor_ops_avatar_cache")
+            avatar_cleanup.discard()
+            avatar_refreshes = []
+            logger.warning(
+                "source avatar cache failed job_id=%s; feed finalization will continue",
+                job.get("id"),
+            )
+        for refresh in avatar_refreshes:
+            safe_emit_operation_event(
+                category="source",
+                action="avatar_cache",
+                outcome=(
+                    "succeeded"
+                    if refresh.status == "stored"
+                    else "skipped"
+                    if refresh.status in {"unchanged", "candidate_missing"}
+                    else "partial"
+                    if refresh.status == "kept_previous"
+                    else "denied"
+                    if refresh.status == "identity_mismatch"
+                    else "failed"
+                ),
+                level=(
+                    "warning"
+                    if refresh.status
+                    in {"kept_previous", "failed", "identity_mismatch"}
+                    else "info"
+                ),
+                workspace_id=str(job["workspace_id"]),
+                subject_user_id=str(job["user_id"]),
+                job_id=str(job["id"]),
+                source_id=refresh.source_id,
+                error_code=(
+                    refresh.status
+                    if refresh.status
+                    not in {"stored", "unchanged", "candidate_missing"}
+                    else None
+                ),
+            )
+        if run_result.status == "failed":
+            raise FeedRunFailed(run_result)
+
+        media_cleanup = PostCommitMediaCleanup()
+        publication.execute("SAVEPOINT actor_ops_media_cache")
+        try:
+            MediaCacheService(store, data_dir=data_dir).cache_items(
+                workspace_id=job["workspace_id"],
+                user_id=job["user_id"],
+                items=list(run_result.items),
+                commit=False,
+                media_cleanup=media_cleanup,
+            )
+            publication.execute("RELEASE actor_ops_media_cache")
+            cleanup.absorb(media_cleanup)
+        except Exception:
+            publication.execute("ROLLBACK TO actor_ops_media_cache")
+            publication.execute("RELEASE actor_ops_media_cache")
+            media_cleanup.discard()
+
+        snapshot = FeedProductionService(store, config).save_run_result(
             workspace_id=job["workspace_id"],
             user_id=job["user_id"],
-            items=list(run_result.items),
+            job_id=job["id"],
+            job_type="source_fetch",
+            source_id=source_id,
+            result=run_result,
+            publication_fence=(
+                orchestrator.assert_service_apify_actor_ops_publishable
+                if hasattr(
+                    orchestrator,
+                    "assert_service_apify_actor_ops_publishable",
+                )
+                else None
+            ),
+            commit=False,
         )
+        source_outcomes = tuple(
+            outcome
+            for outcome in run_result.source_outcomes
+            if outcome.source_id == source_id
+        )
+        fetched_count = sum(
+            max(int(outcome.fetched_count), 0) for outcome in source_outcomes
+        )
+        SourceHealthService(store).apply_outcomes(
+            workspace_id=job["workspace_id"],
+            user_id=job["user_id"],
+            job_id=job["id"],
+            attempted_at=run_result.finished_at,
+            outcomes=source_outcomes,
+            commit=False,
+        )
+        if commit:
+            publication.commit()
+            cleanup.run()
+        return {
+            "ok": True,
+            "job_type": "source_fetch",
+            "source_id": source["id"],
+            "source_type": source["type"],
+            "source_key": source.get("source_key"),
+            "run_id": run_result.run_id,
+            "run_status": run_result.status,
+            "snapshot_id": snapshot["id"],
+            "snapshot_created": bool(snapshot.get("snapshot_created", True)),
+            "fetched_count": fetched_count,
+            "item_count": snapshot["item_count"],
+            "new_item_count": snapshot["new_item_count"],
+            "analysis_usage": run_result.analysis_usage.as_dict(),
+            "acquisition_usage": run_result.acquisition_usage.as_dict(),
+            "_job_status": run_result.status,
+            **({} if commit else {"_media_cleanup": cleanup}),
+        }
     except Exception:
-        if store.connect().in_transaction:
-            store.connect().rollback()
-    snapshot = FeedProductionService(store, config).save_run_result(
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        job_id=job["id"],
-        job_type="source_fetch",
-        source_id=source_id,
-        result=run_result,
-        commit=False,
-    )
-    source_outcomes = tuple(
-        outcome
-        for outcome in run_result.source_outcomes
-        if outcome.source_id == source_id
-    )
-    fetched_count = sum(
-        max(int(outcome.fetched_count), 0) for outcome in source_outcomes
-    )
-    SourceHealthService(store).apply_outcomes(
-        workspace_id=job["workspace_id"],
-        user_id=job["user_id"],
-        job_id=job["id"],
-        attempted_at=run_result.finished_at,
-        outcomes=source_outcomes,
-        commit=False,
-    )
-    if commit:
-        store.connect().commit()
-    return {
-        "ok": True,
-        "job_type": "source_fetch",
-        "source_id": source["id"],
-        "source_type": source["type"],
-        "source_key": source.get("source_key"),
-        "run_id": run_result.run_id,
-        "run_status": run_result.status,
-        "snapshot_id": snapshot["id"],
-        "snapshot_created": bool(snapshot.get("snapshot_created", True)),
-        "fetched_count": fetched_count,
-        "item_count": snapshot["item_count"],
-        "new_item_count": snapshot["new_item_count"],
-        "analysis_usage": run_result.analysis_usage.as_dict(),
-        "acquisition_usage": run_result.acquisition_usage.as_dict(),
-        "_job_status": run_result.status,
-    }
+        if publication.in_transaction:
+            publication.rollback()
+        cleanup.discard()
+        raise

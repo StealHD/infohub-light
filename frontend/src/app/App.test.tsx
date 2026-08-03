@@ -13,6 +13,12 @@ import { actionToast, DesignSystemProvider } from '../design-system'
 import { validateRegistryFields } from '../features/admin-heroui/sourceFormValidation'
 import { AppRoutes } from './App'
 
+const actorSupportProfiles = [
+  { id: 'x/profile/items', route_key: 'x/profile', platform: 'x' as const, target_type: 'profile' as const, capability: 'items' as const, mode: 'primary' as const, label: 'X Profile' },
+  { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube' as const, target_type: 'channel' as const, capability: 'items' as const, mode: 'fallback' as const, label: 'YouTube Channel' },
+  { id: 'instagram/profile/items', route_key: 'instagram/profile/items', platform: 'instagram' as const, target_type: 'profile' as const, capability: 'items' as const, mode: 'primary' as const, label: 'Instagram Profile' },
+]
+
 function LocationProbe() {
   const location = useLocation()
   return <output aria-label="当前位置">{location.pathname}{location.search}</output>
@@ -209,6 +215,18 @@ function liveApi(overrides: Partial<ServiceApi> = {}): ServiceApi {
       },
       limits: { per_run_usd: 0.02, per_job_usd: 0.06, failed_spend_6h_usd: 0.08 },
       candidates: [],
+    }),
+    apifyActorRoutes: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      generation: 1,
+      support_profiles: actorSupportProfiles,
+      routes: [],
+    }),
+    sourceCapabilities: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      generation: 1,
+      support_profiles: actorSupportProfiles,
+      capabilities: [],
     }),
     apifyActorAlertSettings: vi.fn().mockResolvedValue({
       schema_version: 4,
@@ -1756,7 +1774,7 @@ describe('App routes', () => {
       notificationEmailTransport,
       notificationTelegramTransport,
       apifyKeyPool: vi.fn().mockResolvedValue({ enabled: false, generation: 0, status: 'disabled', active_secret_id: null, members: [] }),
-      apifyActorXProfileRoute: vi.fn(),
+      apifyActorRoutes: vi.fn(),
       apifyActorAlertSettings: vi.fn(),
       apifyActorAlertIncidents: vi.fn(),
       storageSummary: vi.fn(),
@@ -1787,7 +1805,7 @@ describe('App routes', () => {
     expect(config).not.toHaveBeenCalled()
     expect(secrets).not.toHaveBeenCalled()
     expect(ignoredFeed).not.toHaveBeenCalled()
-    expect(hiddenQueries.apifyActorXProfileRoute).not.toHaveBeenCalled()
+    expect(hiddenQueries.apifyActorRoutes).not.toHaveBeenCalled()
     expect(hiddenQueries.storageSummary).not.toHaveBeenCalled()
 
     await browser.selectOptions(
@@ -1989,7 +2007,7 @@ describe('App routes', () => {
     await revealNextSection('获取与主题', () => {
       expect(screen.getByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
     })
-    expect(api.apifyActorXProfileRoute).toHaveBeenCalledOnce()
+    expect(api.apifyActorRoutes).toHaveBeenCalledOnce()
     expect(storageSummary).not.toHaveBeenCalled()
 
     await revealNextSection('存储与归档', () => {
@@ -2767,6 +2785,130 @@ describe('App routes', () => {
     expect(dialog.querySelector('details')).not.toBeInTheDocument()
   })
 
+  it('surfaces a source capability catalog failure and supports a local retry', async () => {
+    const browser = userEvent.setup()
+    const sourceCapabilities = vi.fn()
+      .mockRejectedValueOnce(new Error('capability catalog unavailable'))
+      .mockResolvedValue({
+        schema_version: 1,
+        generation: 2,
+        support_profiles: actorSupportProfiles,
+        capabilities: [],
+      })
+    const api = liveApi({
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({
+        source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }],
+      }),
+      sourceCapabilities,
+      sourceHealth: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        scope: 'user',
+        summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 },
+        items: [],
+      }),
+      config: vi.fn().mockResolvedValue({
+        config: {},
+        taxonomy: { channels: [], topics: [] },
+      }),
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(<QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/subscriptions']}>
+        <AppRoutes api={api} />
+      </MemoryRouter>
+    </QueryClientProvider>)
+
+    expect(await screen.findByText(
+      'Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。',
+    )).toBeVisible()
+    await browser.click(screen.getByRole('button', { name: '重试能力目录' }))
+    await waitFor(() => expect(sourceCapabilities).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText(
+      'Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。',
+    )).not.toBeInTheDocument())
+  })
+
+  it('lets a member submit an Actor support check from the source dialog', async () => {
+    const browser = userEvent.setup()
+    const requestApifyActorSupportCheck = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      kind: 'discovery',
+      generation: 4,
+      route_generation: 1,
+      route_id: 'route-instagram',
+      support_status: 'pending',
+      discovery_run_id: 'discovery-instagram',
+      job: null,
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({
+        authenticated: true,
+        user: {
+          id: 'member-actor-support',
+          username: 'member',
+          role: 'member',
+          enabled: true,
+        },
+      }),
+      sources: vi.fn().mockResolvedValue({ sources: [] }),
+      subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
+      sourceTypes: vi.fn().mockResolvedValue({
+        source_types: [{ type: 'rss', label: 'RSS / Atom', fields: [] }],
+      }),
+      sourceCapabilities: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        generation: 23,
+        support_profiles: actorSupportProfiles,
+        capabilities: [],
+      }),
+      sourceHealth: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        scope: 'user',
+        summary: {
+          healthy: 0,
+          degraded: 0,
+          failing: 0,
+          unknown: 0,
+          total: 0,
+        },
+        items: [],
+      }),
+      config: vi.fn().mockResolvedValue({
+        config: {},
+        taxonomy: { channels: [], topics: [] },
+      }),
+      requestApifyActorSupportCheck,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    render(<QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/subscriptions']}>
+        <AppRoutes api={api} />
+      </MemoryRouter>
+    </QueryClientProvider>)
+
+    await browser.click(await screen.findByRole('button', { name: '新增来源' }))
+    const dialog = screen.getByRole('dialog', { name: '新增来源' })
+    await browser.click(within(dialog).getByRole('button', { name: /待检查 Profile/ }))
+    await browser.click(await screen.findByRole('option', { name: /Instagram Profile/ }))
+    await browser.click(within(dialog).getByRole('button', { name: '请求支持检查' }))
+
+    await waitFor(() => expect(requestApifyActorSupportCheck).toHaveBeenCalledWith({
+      platform: 'instagram',
+      target_type: 'profile',
+      capability: 'items',
+      expected_generation: 23,
+    }))
+  })
+
   it('loads admin secrets only inside a source-secret dialog and keeps loading errors local', async () => {
     const browser = userEvent.setup()
     const firstSecretsRequest = deferred<{ secrets: [] }>()
@@ -2784,6 +2926,24 @@ describe('App routes', () => {
         { type: 'rss', label: 'RSS / Atom', fields: [] },
         { type: 'apify_social', label: 'Apify 社交来源', credential_mode: 'source_secret', fields: [] },
       ] }),
+      sourceCapabilities: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        generation: 7,
+        support_profiles: actorSupportProfiles,
+        capabilities: [{
+          profile_id: 'route-instagram-profile',
+          platform: 'instagram',
+          target_type: 'profile',
+          capability: 'items',
+          mode: 'primary',
+          generation: 7,
+          storage_type: 'apify_social',
+          fields: [
+            { name: 'profile_id', input_type: 'select', required: true },
+            { name: 'target', input_type: 'text', required: true },
+          ],
+        }],
+      }),
       sourceHealth: vi.fn().mockResolvedValue({
         schema_version: 1,
         scope: 'user',
@@ -2828,10 +2988,30 @@ describe('App routes', () => {
       subscriptions: vi.fn().mockResolvedValue({ subscriptions: [] }),
       sourceTypes: vi.fn().mockResolvedValue({ source_types: [{
         type: 'apify_social', label: 'Apify 社交来源', fields: [
-          { name: 'platform', label: '平台', input_type: 'select', required: true, default: '', options: [{ value: 'x', label: 'X' }], help: '选择要抓取的平台。' },
-          { name: 'kind', label: '来源类别', input_type: 'select', required: true, default: '', options: [{ value: 'account', label: '账号' }], help: '选择账号或关键词来源。' },
+          { name: 'profile_id', label: 'Actor Route', input_type: 'text', required: false, default: '' },
+          { name: 'platform', label: '平台', input_type: 'select', required: true, default: '', options: [{ value: 'x', label: 'X' }] },
+          { name: 'kind', label: '来源类别', input_type: 'select', required: true, default: '', options: [{ value: 'profile', label: '账号' }] },
+          { name: 'target', label: '目标', input_type: 'text', required: true, default: '', help: '输入公开账号。' },
         ],
       }] }),
+      sourceCapabilities: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        generation: 11,
+        support_profiles: actorSupportProfiles,
+        capabilities: [{
+          profile_id: 'route-x-profile',
+          platform: 'x',
+          target_type: 'profile',
+          capability: 'items',
+          mode: 'primary',
+          generation: 11,
+          storage_type: 'apify_social',
+          fields: [
+            { name: 'profile_id', input_type: 'select', required: true },
+            { name: 'target', input_type: 'text', required: true },
+          ],
+        }],
+      }),
       sourceHealth: vi.fn().mockResolvedValue({ schema_version: 1, scope: 'user', summary: { healthy: 0, degraded: 0, failing: 0, unknown: 0, total: 0 }, items: [] }),
       config: vi.fn().mockResolvedValue({ config: {}, taxonomy: { channels: ['AI'], topics: [] } }),
       createSource,
@@ -2843,31 +3023,27 @@ describe('App routes', () => {
     await browser.click(screen.getByRole('button', { name: /来源类型/ }))
     await browser.click(await screen.findByRole('option', { name: 'Apify 社交来源' }))
     await browser.type(await screen.findByRole('textbox', { name: '来源名称' }), 'Codex 动态')
-    const platformControl = screen.getByLabelText('平台')
-    const kindControl = screen.getByLabelText('来源类别')
-    expect(platformControl.parentElement).toHaveAttribute('data-required', 'true')
-    expect(kindControl.parentElement).toHaveAttribute('data-required', 'true')
-    expect(platformControl.parentElement?.querySelector('select')).toBeRequired()
-    expect(kindControl.parentElement?.querySelector('select')).toBeRequired()
-    expect(screen.getByText('选择要抓取的平台。')).toBeInTheDocument()
+    const routeControl = screen.getByLabelText('Actor Route')
+    const targetControl = screen.getByLabelText('目标')
+    expect(routeControl.parentElement).toHaveAttribute('data-required', 'true')
+    expect(targetControl).toBeRequired()
+    expect(routeControl).toHaveTextContent('X · profile · items')
+    expect(screen.queryByLabelText('平台')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('来源类别')).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     expect(createSource).not.toHaveBeenCalled()
-    expect(await screen.findByText('平台不能为空。')).toBeInTheDocument()
-    expect(screen.getByText('来源类别不能为空。')).toBeInTheDocument()
+    expect(await screen.findByText('目标不能为空。')).toBeInTheDocument()
 
-    await browser.click(screen.getByLabelText('平台'))
-    await browser.click(await screen.findByRole('option', { name: 'X' }))
-    await browser.click(screen.getByLabelText('来源类别'))
-    await browser.click(await screen.findByRole('option', { name: '账号' }))
-    expect(screen.getByLabelText('平台')).toHaveTextContent('X')
-    expect(screen.getByLabelText('来源类别')).toHaveTextContent('账号')
-    expect(screen.queryByText('平台不能为空。')).not.toBeInTheDocument()
-    expect(screen.queryByText('来源类别不能为空。')).not.toBeInTheDocument()
+    await browser.type(targetControl, 'openai')
+    expect(screen.queryByText('目标不能为空。')).not.toBeInTheDocument()
     const sourceForm = screen.getByRole('button', { name: '创建并订阅' }).closest('form') as HTMLFormElement
     expect(Array.from(sourceForm.elements).filter((element): element is HTMLInputElement => element instanceof HTMLInputElement && !element.validity.valid).map((element) => ({ name: element.name, value: element.value, required: element.required, validity: element.validity.valid }))).toEqual([])
     await browser.click(screen.getByRole('button', { name: '创建并订阅' }))
     await waitFor(() => expect(createSource).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({ platform: 'x', kind: 'account' }),
+      config: {
+        profile_id: 'route-x-profile',
+        target: 'openai',
+      },
     })))
     expect(api.subscribe).toHaveBeenCalledWith('apify-new')
   })

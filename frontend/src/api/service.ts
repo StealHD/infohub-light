@@ -8,7 +8,28 @@ import type {
   ApifyActorAlertIncidents,
   ApifyActorAlertSettings,
   ApifyActorAlertSettingsPatch,
+  ApifyActorActivePoolUpdate,
+  ApifyActorCanaryBatch,
+  ApifyActorCanaryBatchRequest,
+  ApifyActorCanaryBatchResponse,
+  ApifyActorCanaryPlan,
+  ApifyActorDiscoveryRun,
+  ApifyActorDiscoveryMeasurementRequest,
+  ApifyActorDiscoveryMeasurementResponse,
+  ApifyActorDiscoverySettings,
+  ApifyActorDiscoverySettingsPatch,
+  ApifyActorPaidCanaryRequest,
+  ApifyActorPaidCanaryResponse,
+  ApifyActorRecommendedPoolActivation,
   ApifyActorRoute,
+  ApifyActorRouteDetail,
+  ApifyActorRoutesResponse,
+  ApifyActorSourceCapabilitiesResponse,
+  ApifyActorSourceBindingActivation,
+  ApifyActorSourceBindingActivationResponse,
+  ApifyActorSourceSupport,
+  ApifyActorSupportCheckRequest,
+  ApifyActorSupportCheckResponse,
   ApifyKeyPool,
   CatalogSource,
   ConfigResponse,
@@ -128,6 +149,10 @@ export function createServiceApi(client: ApiClient) {
       signal,
     ),
     sourceTypes: (signal?: AbortSignal) => client.get<ListResponse<SourceTypeDefinition, 'source_types'>>('/api/catalog/source-types', signal),
+    sourceCapabilities: (signal?: AbortSignal) => client.get<ApifyActorSourceCapabilitiesResponse>(
+      '/api/catalog/source-capabilities',
+      signal,
+    ),
     subscriptions: (signal?: AbortSignal) => client.get<ListResponse<Subscription, 'subscriptions'>>('/api/me/subscriptions?schedule_view=summary', signal),
     subscribe: (sourceId: string) => client.post<{ subscription: Subscription }>(`${resource('/api/catalog/sources', sourceId)}/subscribe`),
     unsubscribe: (subscriptionId: string) => client.delete<{ deleted: boolean }>(resource('/api/me/subscriptions', subscriptionId)),
@@ -287,6 +312,90 @@ export function createServiceApi(client: ApiClient) {
         expected_generation: expectedGeneration,
         confirmation,
       },
+    ),
+    apifyActorRoutes: (signal?: AbortSignal) => client.get<ApifyActorRoutesResponse>(
+      '/api/admin/apify-routes',
+      signal,
+    ),
+    apifyActorRoute: (routeId: string, signal?: AbortSignal) => client.get<ApifyActorRouteDetail>(
+      resource('/api/admin/apify-routes', routeId),
+      signal,
+    ),
+    requestApifyActorSupportCheck: (payload: ApifyActorSupportCheckRequest) => (
+      client.post<ApifyActorSupportCheckResponse>('/api/admin/apify-support-checks', payload)
+    ),
+    apifyActorDiscoveryRun: (runId: string, signal?: AbortSignal) => client.get<ApifyActorDiscoveryRun>(
+      resource('/api/admin/apify-discovery-runs', runId),
+      signal,
+    ),
+    apifyActorCanaryPlan: (runId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryPlan>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
+      signal,
+    ),
+    createApifyActorCanaryBatch: (
+      runId: string,
+      payload: ApifyActorCanaryBatchRequest,
+    ) => client.post<ApifyActorCanaryBatchResponse>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-batches`,
+      payload,
+    ),
+    apifyActorCanaryBatch: (batchId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryBatch>(
+      resource('/api/admin/apify-canary-batches', batchId),
+      signal,
+    ),
+    canaryApifyActorDiscoveryCandidate: (
+      runId: string,
+      revisionId: string,
+      payload: ApifyActorPaidCanaryRequest,
+    ) => client.post<ApifyActorPaidCanaryResponse>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/candidates/${encodeURIComponent(revisionId)}/canary`,
+      payload,
+    ),
+    updateApifyActorRouteActivePool: (
+      routeId: string,
+      payload: ApifyActorActivePoolUpdate,
+    ) => client.put<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/active-pool`,
+      payload,
+    ),
+    activateApifyActorRouteRecommendedPool: (
+      routeId: string,
+      payload: ApifyActorRecommendedPoolActivation,
+    ) => client.post<ApifyActorRouteDetail>(
+      `${resource('/api/admin/apify-routes', routeId)}/active-pool/activate`,
+      payload,
+    ),
+    apifyActorSourceSupport: (sourceId: string, signal?: AbortSignal) => client.get<ApifyActorSourceSupport>(
+      `${resource('/api/admin/sources', sourceId)}/apify-support`,
+      signal,
+    ),
+    canaryApifyActorSourceRevision: (
+      sourceId: string,
+      revisionId: string,
+      payload: ApifyActorPaidCanaryRequest,
+    ) => client.post<ApifyActorPaidCanaryResponse>(
+      `${resource('/api/admin/sources', sourceId)}/apify-validations/${encodeURIComponent(revisionId)}/canary`,
+      payload,
+    ),
+    activateApifyActorSourceBinding: (
+      sourceId: string,
+      payload: ApifyActorSourceBindingActivation,
+    ) => client.post<ApifyActorSourceBindingActivationResponse>(
+      `${resource('/api/admin/sources', sourceId)}/apify-binding/activate`,
+      payload,
+    ),
+    apifyActorDiscoverySettings: (signal?: AbortSignal) => client.get<ApifyActorDiscoverySettings>(
+      '/api/admin/apify-discovery-settings',
+      signal,
+    ),
+    updateApifyActorDiscoverySettings: (payload: ApifyActorDiscoverySettingsPatch) => (
+      client.patch<ApifyActorDiscoverySettings>('/api/admin/apify-discovery-settings', payload)
+    ),
+    measureApifyActorDiscovery: (payload: ApifyActorDiscoveryMeasurementRequest) => (
+      client.post<ApifyActorDiscoveryMeasurementResponse>(
+        '/api/admin/apify-discovery-measurements',
+        payload,
+      )
     ),
     apifyActorAlertSettings: (signal?: AbortSignal) => client.get<ApifyActorAlertSettings>(
       '/api/admin/apify-actor-alert-settings',

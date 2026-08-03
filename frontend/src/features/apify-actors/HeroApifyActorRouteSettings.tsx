@@ -50,6 +50,7 @@ import {
   formatEstimatedDays,
   safeActorActionError,
 } from './apifyActorModel'
+import { HeroActorOpsControlPlane } from './HeroActorOpsControlPlane'
 
 const alertEvents = Object.keys(actorAlertEventLabels) as ApifyActorAlertEvent[]
 
@@ -225,7 +226,8 @@ function ActorCandidateTable({
   </Table>
 }
 
-function ApifyActorRoutePanel({ queryEnabled }: { queryEnabled: boolean }) {
+/** @deprecated Kept for the one-version x/profile compatibility surface. */
+export function ApifyActorRoutePanel({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const canaryTriggerRefs = useRef(new Map<string, HTMLButtonElement>())
@@ -1054,7 +1056,7 @@ function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean }) {
 
 export function HeroApifyActorRouteSettings({ queryEnabled = true }: { queryEnabled?: boolean }) {
   return <Card variant="secondary" className="min-w-0 max-w-full p-4">
-    <ApifyActorRoutePanel queryEnabled={queryEnabled} />
+    <HeroActorOpsControlPlane queryEnabled={queryEnabled} />
     <div className="mt-6 border-t border-separator pt-5">
       <h3 className="type-page-title">故障告警</h3>
       <p className="type-meta mt-1 text-muted">从工作区共享通知服务中多选；服务只需统一配置和测试一次。</p>

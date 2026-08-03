@@ -539,6 +539,7 @@ class JobQueue:
         error_message: str | None = None,
         worker_id: str,
         claim_token: str,
+        commit: bool = True,
     ) -> dict[str, Any]:
         if status not in JOB_STATUSES - {"queued", "running"}:
             raise ValueError("completion status must be succeeded, failed, or partial")
@@ -578,10 +579,17 @@ class JobQueue:
         if current.rowcount != 1:
             conn.rollback()
             self._raise_claim_conflict(job_id)
-        conn.commit()
-        job = self.get_job(job_id)
+        row = conn.execute(
+            "SELECT * FROM fetch_jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+        job = self.store._job(row)
         if job is None:
+            if conn.in_transaction:
+                conn.rollback()
             raise LookupError("job not found")
+        if commit:
+            conn.commit()
         return job
 
     def fail_or_retry_job(

@@ -301,7 +301,10 @@ def test_pool_managed_sources_reject_secret_env_and_hide_legacy_reference(
         "display_name": "OpenAI X",
         "config": {
             "platform": "x",
-            "kind": "profile",
+            # Keep this credential-projection regression on the legacy
+            # compatibility path. New X profiles intentionally require a
+            # source-ready ActorOps 2+1 Route before creation.
+            "kind": "keyword",
             "target": "OpenAI",
             "fetch_limit": 1,
         },

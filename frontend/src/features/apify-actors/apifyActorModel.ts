@@ -89,6 +89,8 @@ const actorErrorLabels: Record<string, string> = {
   apify_actor_canary_source_required: '请先选择一个 X 账号进行试跑。',
   apify_actor_canary_unavailable: '当前不能发起 Actor 试跑。',
   apify_actor_canary_active: '这个 Actor 已有一项试跑正在等待或执行。',
+  apify_actor_revision_output_incompatible: '该固定 Build 已确认只返回元数据或不符合内容合同，不能重复付费试跑。',
+  apify_actor_active_pool_uncertified: '快速主备至少需要两个成功试跑的固定 Build；完整 2+1 的前两槽仍需认证。请刷新候选状态后重试。',
   apify_actor_canary_required: '该 Actor 需要先完成付费试跑，才能启用。',
   apify_actor_routing_disabled: 'Apify Actor 路由当前未启用。',
   invalid_apify_actor_alert_settings: '告警设置无效，请检查后重试。',

@@ -20,7 +20,7 @@ from ..rsshub import (
 from ..storage.service_store import ServiceStore
 from .bilibili_user_search import BilibiliUserSearchService
 from .feed_run import FeedRunResult, SourceAvatarHint
-from .media_cache import MediaCacheService
+from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .network_policy import fetch_public_http
 
 
@@ -127,6 +127,8 @@ class SourceAvatarService:
         *,
         workspace_id: str,
         result: FeedRunResult,
+        commit: bool = True,
+        media_cleanup: PostCommitMediaCleanup | None = None,
     ) -> list[SourceAvatarRefresh]:
         attempted = {
             outcome.source_id
@@ -143,6 +145,8 @@ class SourceAvatarService:
             source_ids=attempted,
             hints=self.hints_from_result(result),
             resolve_missing_source_ids=resolve_missing,
+            commit=commit,
+            media_cleanup=media_cleanup,
         )
 
     def refresh_sources(
@@ -152,6 +156,8 @@ class SourceAvatarService:
         source_ids: Iterable[str],
         hints: Iterable[SourceAvatarHint] = (),
         resolve_missing_source_ids: Iterable[str] = (),
+        commit: bool = True,
+        media_cleanup: PostCommitMediaCleanup | None = None,
     ) -> list[SourceAvatarRefresh]:
         grouped: dict[str, list[SourceAvatarHint]] = {}
         for hint in hints:
@@ -178,6 +184,8 @@ class SourceAvatarService:
                 workspace_id=workspace_id,
                 source_id=source_id,
                 hints=image_hints,
+                commit=commit,
+                media_cleanup=media_cleanup,
             )
             if (
                 primary_result is not None
@@ -206,6 +214,8 @@ class SourceAvatarService:
                 workspace_id=workspace_id,
                 source_id=source_id,
                 hints=fallback_hints,
+                commit=commit,
+                media_cleanup=media_cleanup,
             )
             results.append(
                 fallback_result
@@ -220,6 +230,8 @@ class SourceAvatarService:
         workspace_id: str,
         source_id: str,
         hints: Iterable[SourceAvatarHint],
+        commit: bool,
+        media_cleanup: PostCommitMediaCleanup | None,
     ) -> SourceAvatarRefresh | None:
         saw_candidate = False
         for hint in hints:
@@ -230,6 +242,8 @@ class SourceAvatarService:
                 workspace_id=workspace_id,
                 source_id=source_id,
                 remote_urls=[hint.remote_url],
+                commit=commit,
+                media_cleanup=media_cleanup,
             )
             if cached["status"] in {"stored", "unchanged"}:
                 return SourceAvatarRefresh(

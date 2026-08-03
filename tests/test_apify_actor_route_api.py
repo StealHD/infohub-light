@@ -8,7 +8,6 @@ import pytest
 from src.api.server import create_app
 from src.services.apify_actor_route import ApifyActorRouteService
 from src.services.job_queue import JobQueue
-from src.services.quota import QuotaService
 from src.storage.service_store import DEFAULT_WORKSPACE_ID, ServiceStore
 
 
@@ -77,7 +76,7 @@ def test_actor_route_admin_lifecycle_and_safe_projection(tmp_path, monkeypatch):
     assert initial_response.headers["cache-control"] == "no-store"
     initial = initial_response.json()["data"]
     assert initial["route"] == "x/profile"
-    assert initial["status"] == "degraded"
+    assert initial["status"] == "blocked"
     assert [
         candidate["actor_public_name"]
         for candidate in initial["candidates"]
@@ -146,7 +145,7 @@ def test_actor_route_admin_lifecycle_and_safe_projection(tmp_path, monkeypatch):
     assert denied.json()["error"]["code"] == "forbidden"
 
 
-def test_paid_canary_requires_confirmation_and_only_queues_one_job(
+def test_legacy_paid_canary_requires_v15_approval_contract(
     tmp_path,
     monkeypatch,
 ):
@@ -226,57 +225,22 @@ def test_paid_canary_requires_confirmation_and_only_queues_one_job(
         },
     )
 
-    assert queued.status_code == 200, queued.text
+    assert queued.status_code == 409, queued.text
+    assert queued.json()["error"]["code"] == (
+        "apify_actor_compat_canary_requires_v15"
+    )
     jobs = JobQueue(store).list_jobs(
         workspace_id=DEFAULT_WORKSPACE_ID,
         user_id=owner["id"],
         status="queued",
     )
-    assert len(jobs) == 1
-    assert jobs[0]["max_attempts"] == 1
-    assert jobs[0]["payload_json"] == {
-        "reason": "apify_actor_canary",
-        "apify_actor_candidate_id": candidate_id,
-        "apify_actor_route_generation": route["generation"],
-    }
+    assert jobs == []
     assert store.connect().execute(
         "SELECT COUNT(*) FROM apify_actor_attempts"
     ).fetchone()[0] == before_attempts
     assert store.connect().execute(
         "SELECT COUNT(*) FROM apify_actor_runs"
     ).fetchone()[0] == before_runs
-
-    duplicate = client.post(
-        endpoint,
-        json={
-            "source_id": source_id,
-            "expected_generation": route["generation"],
-            "confirmation": "确认付费试跑",
-        },
-    )
-    assert duplicate.status_code == 409
-    assert (
-        duplicate.json()["error"]["code"]
-        == "apify_actor_canary_active"
-    )
-    assert store.connect().execute(
-        "SELECT COUNT(*) FROM fetch_jobs"
-    ).fetchone()[0] == 1
-
-    queued_job_id = jobs[0]["id"]
-    store.connect().execute(
-        """
-        UPDATE fetch_jobs
-        SET status = 'failed', finished_at = updated_at
-        WHERE id = ?
-        """,
-        (queued_job_id,),
-    )
-    store.connect().commit()
-    retry = client.post(f"/api/jobs/{queued_job_id}/retry")
-    assert retry.status_code == 409
-    assert retry.json()["error"]["code"] == "job_not_retryable"
-    assert JobQueue(store).get_job(queued_job_id)["status"] == "failed"
 
     job_count = store.connect().execute(
         "SELECT COUNT(*) FROM fetch_jobs"
@@ -291,31 +255,9 @@ def test_paid_canary_requires_confirmation_and_only_queues_one_job(
         },
     )
     assert routing_disabled.status_code == 409
-    assert (
-        routing_disabled.json()["error"]["code"]
-        == "apify_actor_routing_disabled"
+    assert routing_disabled.json()["error"]["code"] == (
+        "apify_actor_compat_canary_requires_v15"
     )
-    assert store.connect().execute(
-        "SELECT COUNT(*) FROM fetch_jobs"
-    ).fetchone()[0] == job_count
-    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
-
-    def fail_usage(*_args, **_kwargs):
-        raise RuntimeError("usage write failed")
-
-    monkeypatch.setattr(QuotaService, "record_job_usage", fail_usage)
-    failed = client.post(
-        endpoint,
-        json={
-            "source_id": source_id,
-            "expected_generation": route["generation"],
-            "confirmation": "确认付费试跑",
-        },
-    )
-    assert failed.status_code == 500
-    assert failed.json()["error"]["code"] == "internal_error"
-    assert failed.headers["X-Request-ID"].startswith("req_")
-    assert "usage write failed" not in failed.text
     assert store.connect().execute(
         "SELECT COUNT(*) FROM fetch_jobs"
     ).fetchone()[0] == job_count
@@ -369,7 +311,9 @@ def test_paid_canary_is_rejected_while_candidate_has_natural_attempt(
     )
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "apify_actor_canary_active"
+    assert response.json()["error"]["code"] == (
+        "apify_actor_compat_canary_requires_v15"
+    )
     assert store.connect().execute(
         "SELECT COUNT(*) FROM fetch_jobs"
     ).fetchone()[0] == 0

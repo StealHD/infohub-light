@@ -873,3 +873,103 @@
 - 决策内容：产品统一称为“通知服务”。Owner/Admin 只在消息通知的一个区域新建共享 Email、Webhook 或 Telegram 服务；首次 Email/Telegram 服务在同一表单提交 workspace Transport 凭据与目的地，后续服务复用已经配置的共享凭据。创建或修改的唯一主操作为“保存并测试”，接收端 ACK 成功后原子记录 Transport 与服务测试并启用，失败保留停用且不回显秘密的安全草稿。个人新内容通知、Apify 和后续系统告警只选择服务，不再提供业务级测试。历史私有目标不扩权、不删除绑定，仅对原用户继续可见、可选、暂停或归档。
 - 一致性与兼容：新组合 API 复用既有 `notification_targets`、workspace Transport、目标 ID、generation、水位、绑定和 delivery 唯一约束。共享凭据变化继续推进 Transport generation 并暂停对应渠道；一个服务测试成功恢复 Transport 后，目的地未变且此前已验证的其他服务恢复可用，停用期内容不补发。旧目标、Transport 和业务测试接口继续兼容，但新 UI 不调用；D101 的权限、SecretStore、投递隔离和 v16 历史合同保持不变。
 - 网络边界：Telegram 仍只允许固定 `https://api.telegram.org`、固定 Host/SNI、禁重定向和环境代理。仅当这个精确主机解析到 `198.18.0.0/15` 时，应用网络策略允许该 synthetic DNS 地址；该例外不适用于别名、Webhook 或任何用户输入 URL。应用不读取、写入或依赖 Clash 配置，用户在 Clash `fake-ip-filter` 中改为真实解析后同样兼容。D102 取代 D101 中“新建私有目标”和独立 Transport 管理卡的产品交互，不取代其底层数据与安全模型。
+
+### D103 Apify Actor 路由泛化为声明式三槽 ActorOps 控制面
+
+- 决策日期：2026-07-30
+- 当前状态：本地任务分支实现与验证中；不触发真实 Store/AI/Actor，不发布 VPS
+- 决策内容：把 v13 的 `x/profile` 专用主备扩展为 `platform + target_type + capability` Route Profile。首期只接受 `x/profile/items`、`youtube/channel/items`、`instagram/profile/items` 三个完整 tuple，X 的兼容 route key 继续为 `x/profile`；API 在事务前拒绝其他组合，前端只使用统一 Profile 选择器。每条 Route 固定 Primary/Backup 1/Backup 2，采用两个 certified 加一个 probationary/certified、三个 Actor 唯一且至少两个发布者；少于两个 runnable 时自动付费抓取 fail closed。Actor 配置成为含精确 Build 与受限 Manifest v1 的不可变 Revision，槽位、来源绑定、发现调用边界和运行任务都使用 generation/CAS；运行中冻结旧 revision set，发布缓存或 Feed 前再次校验。
+- Manifest 与发现边界：Manifest 只允许 JSON literal、六个 target/runtime 引用、RFC 6901 Pointer 和固定纯转换，强制身份、host、占位/付费墙、时间与必需字段验证；代码、插值、任意网络、Header/Cookie/Token、JSONPath 和凭据字段全部拒绝。Discovery 最多三轮读取公开 Actor/成功 Build/Schema/权限/定价元数据，按热配置有界候选数确定性过滤后 AI 才能排序并生成 Manifest，Actor/Build 必须来自拉取证据；原始 Dataset 只在当前进程短暂存在，AI 只看无值路径/类型摘要。Discovery 不再维护独立 provider/model/Secret，而在每个 Job 开始时冻结管理员保存的全局 AI 与唯一首选 Key；不自动回退其他 Key，全局 AI 不可用时在 Store/AI 调用前阻断。官方 Dataset `fields` 进入合同，展示用 `views` 不参与漂移；七日维护只保存元数据指纹，相同 observation 不重复提案。发现、静态校验和 proposal 不产生付费 Run，每次 Canary、首次启用和新 Revision 激活均由管理员单独确认。
+- 付费动作重放边界：每次确认对话生成一次管理员动作唯一的 `approval_id`，后端仅保存 SHA-256 摘要、批准 generation 和不可变 USD 上限，并在同一事务创建 validation 与 one-shot Job。客户端因超时重放同一动作只得到原 Job；参数漂移冲突，新的付费 Canary 必须重新确认并生成新 ID。旧 X Canary 接口没有这组证据，因此兼容期只保留读取/排序并拒绝付费 mutation。
+- 证据与回滚边界：目标身份使用 workspace/Route 加盐指纹冻结在 validation/attempt，不由日后改变的 binding 重解释；Discovery 候选可关联多个 run，但费用只以 validation 的不可变 `discovery_run_id` 归属，淘汰信息只保存 reason/count。新 Revision 激活时保存旧 lifecycle，回滚必须显式指定且只改一槽，不能借回滚重排其他槽。仅调整 Route cap 或保留某槽 Revision 时不得复活该槽的 open/disabled circuit，也不得清除 unknown-start 阻断。
+- 迁移与兼容：ActorOps feature schema v15 显式依赖 v13/v14；共享运行库的全局 migration 15/16 已由通知功能占用，所以本功能以 global version 17 保存 `apify_actor_ops_v15` marker，绝不覆盖既有版本。停止 API/Worker并跨过 heartbeat 安全窗后用 SQLite backup API 生成 `0600` 备份，离线迁移并验证 integrity/foreign keys；普通 initialize 对缺失、旧形状或错误 checksum 只报告 migration required，不静默改表。已安装旧 checksum 的受控修复只有在误建 `youtube/profile/items` 完全没有候选、Revision、绑定、验证、attempt、费用、target health、非终态任务或 AI 调用证据时才删除它；否则恢复备份并中止。修复增加合法 `youtube/channel/items` generation，清空旧独立 Discovery 字段，并把曾启用的设置强制停用。现有 X candidate、attempt、费用和健康历史不改写；无法证明 exact Build 的适配器只投影为 `legacy_builtin`，既有来源标记 `legacy_validation_pending`，旧 blocked/unknown-start 状态继续 fail closed。`x/profile` 永久兼容；YouTube/Instagram Route 在三槽候选未完成时明确 candidate shortfall，禁止伪造认证。旧 `platform/kind/target` 与旧管理 API 保留一个兼容周期；未发布的 partial ActorOps 表形状不自动猜测重建，只能备份恢复并人工处理。
+- 新建与运行分离：旧 X `legacy_builtin` 只要保持两路 runnable 即可继续服务存量来源，但 capability catalog 只开放三个 exact-Build Revision 均 runnable 且完整满足 2+1 认证的 Route，避免把迁移兼容证据扩大成新付费来源的准入证据。
+- 原生与运行边界：YouTube 继续是 RSS catalog source，原生成功或可信空结果不调用 Apify；只有 timeout/DNS/429/5xx/schema drift、历史非空后的可疑空或已验证来源的未确认 404 可进入 fallback，无效配置、SSRF 和已确认删除/私有不花费。每个 Actor Run 使用精确 Build、`maxItems=1` 与 Route cap，Dataset 另限行数/字节；批准预算必须大于零，但实际结算允许 `$0.00`。Key 401/402 只影响 Key Pool，Actor 系统/合同错误才切槽，目标错误只影响 target health；未知启动 attempt/validation 与 Key/Route 阻断原子提交且不切槽。回退内容仍归原 source 并保持稳定 Feed identity。
+- 原因：按平台硬编码 Actor input、output 和主备会把同一成本、安全、认证和发布栅栏重复实现，并使商城 Actor/Build 调整必须发布代码。声明式不可变 Revision 与统一 Route 可以在不执行模型生成代码的前提下热更新日常配置，同时把付费动作和生产激活继续保留在人类审批边界。
+- 非目标：不创建、修改或部署第三方 Actor，不在生产 Worker 使用 Apify MCP，不自动放宽 `$0.02` Route cap，不运行真实 AI/Canary，不启动 scheduler，不发布 VPS。超出 Manifest v1 的登录、浏览器交互或新解析原语仍需要受控代码扩展。
+
+### D104 Actor Discovery 输出容量以安全实测和管理员热配置决定
+
+- 决策日期：2026-08-01
+- 当前状态：本地任务分支实现与验证中；真实容量测试待管理员确认
+- 决策内容：Discovery AI 保留 Provider 默认 reasoning 行为，将单次超时提高至 180 秒，并把生产 `max_output_tokens` 作为 4096–65536 的 settings generation 热配置冻结到每个 Run。管理员专用容量测试首次只允许 YouTube Channel、Instagram Profile 顺序各调用模型一次并临时使用 32768 护栏；只有相应 32K Run 的 `finish_reason=length` 才显示和接受该 Route 的 65536 重测。测试不启动 Actor、Dataset 或付费 Canary，也不自动重试。
+- 证据与存储边界：global version 18 的离线 `apify_discovery_limits_v16` 只新增 settings/run 测量列；旧 Run 全部保持 NULL。数据库仅保存请求上限、输入/completion/reasoning/content Token、finish reason、耗时、响应字节及 JSON/Manifest 状态，不保存 Prompt、AI 正文、Key、Actor input 或原始异常。供应商未返回 usage 时显示未知，禁止伪造为 0。两个 Route 都成功且未截断后，建议值取最大 completion 的 1.5 倍向上取整至 1024，并限制为 8192–65536；建议不会自动写回。
+- 候选补位边界：一次模型调用从已拉取候选返回 3–6 个 best-first Manifest proposal，逐项静态及 Build input 校验，后序 proposal 可替换前序无效项。每个通过项立即成为与该 Run 关联的 `static_valid` Revision；最终不足三 Actor或两发布者时保留并展示部分结果，但不得进入付费 Canary、Active Pool 或来源准入。该修复不降低公开性、权限、精确 Build、Schema、价格、Actor 唯一和发布者多样性规则，也不增加自动 AI 重试。
+- 迁移与审批边界：v16 要求 v15 marker/形状已就绪，停止 API/Worker、等待心跳窗且不存在 queued/running Discovery/Canary Job，经 SQLite backup API 生成 `0600` 备份并通过 integrity/foreign-key check 后才写 marker。真实模型测试必须由 owner/admin 提交 settings CAS 和逐字 `确认AI容量测试`；自动化测试只使用 fake AI。
+
+### D105 Apify 响应故障按幂等读取与候选边界隔离
+
+- 决策日期：2026-08-01
+- 当前状态：本地任务分支实现与验证中；不改变费用上限或付费审批
+- Dataset 边界：Apify API、Store、Run 与 Dataset 请求显式使用 identity encoding。已登记远端 Run 后，Dataset 的网络或解码错误只允许同一 Key、同一 Dataset 的三次幂等 GET；绝不重新 POST Actor或切换下一槽。重试耗尽保留远端 Run、attempt 与费用账本，并转换为安全 reconciliation 阻断，禁止把 HTTP 解码器异常当作目标健康或 Actor 合同故障。
+- Discovery 边界：Store/Actor/Build GET 和官方 Build input validation 对 429、5xx、网络及解码错误做最多三次有界重试。`200 valid=false` 及候选相关 400/403/404 只淘汰当前 proposal，已通过 Revision 立即持久化且后序候选继续；401 终止整个 Run 为 Apify Key 认证失败，其他请求合同错误以 input-validation phase 失败。日志/API 只投影阶段、状态类别、安全 reason 与数量，不保存响应正文、Actor input 或凭据。
+- 召回边界：Store 查询按 Route 的内容合同固定为 X profile posts、YouTube channel videos、Instagram profile/user posts，而不是宽泛的 profile/items 文本；模型在一次调用内必须按当前有界 target 返回精确 3–6 个排序 proposal。少返回或单个 Manifest 无效仍只形成安全 shortfall，不能降低三 Actor、两发布者、静态校验或官方 input validation 门槛。
+- 输入生成边界：实测确认同一批公开候选在代码按 Schema 生成 target string/array/标准 `startUrls` object 后全部通过官方 validation，而模型生成的输入 shape 会系统性得到候选级 400。因此 input template 改由确定性代码从公开 Build Schema 生成，只允许 target URL/handle/native-ID 和一个 runtime max-items reference；无法映射的候选在 AI 前淘汰。AI 仍必须提交完整安全 Manifest并先通过危险字段检查，但持久化前 input 规范为该模板；模型继续负责候选排序、输出 mapping 和 semantics。
+- 生命周期：Discovery AI transport 在所属 Job event loop 退出前显式关闭，避免异步 SDK 清理落到已关闭 loop。该修复不增加 AI 重试、不修改 `$0.02` Route cap 或 30720 生产输出上限、不自动启动 Canary，也不新增数据库迁移或改写历史失败 Run。
+
+### D106 Actor Discovery 人工选 Key 且 Canary 失败证据闭环
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动发起新的 AI 或付费 Actor
+- AI 配置边界：Discovery settings 不再把全局首选 Key 当作唯一只读选项。API 从当前全局 Provider 的已登记 AI Secret 中生成不含内部 ID 的 opaque 选项，管理员以 settings CAS 人工固定一个；provider/model/Base URL 继续继承全局配置，下一 Job 热加载且不回退其他 Key，被选 Secret 不允许删除。
+- 付费前静态边界：AI 生成的每个输出 Pointer 必须能在精确 Build Dataset Schema 中解析；Profile/Channel items 不允许内容 URL 与来源身份共用同一路径。Prompt 改为优先使用 author/owner handle 或 source native ID，profile metadata-only Dataset 不得进入 Canary，避免用付费试跑发现本可静态淘汰的合同错误。
+- 超时与耗尽边界：Actor Canary 缺省等待 300 秒，可在 180–900 秒内为下一 Job 热加载；已知 Run 超时后中止且不自动重试。`apify_actor_runs` 的终态实际费用回写 attempt/validation，Worker 启动时幂等修复历史漏账。一个 Discovery cycle 的五次已启动 Route Canary 仍不足三个成功 Revision 时进入 `canary_exhausted`，页面停止审批并显示安全 outcome、耗时、远端终态与实际费用，只允许管理员显式重新发现。
+- 审批可见性：确认 Modal 必须在付费前显示 Route/来源类型、参考来源或 opaque source、Actor、精确 Build、商城定价、本次封顶和认证总预算；仍不回显真实 target、Actor input、Run/Dataset ID、凭据或上游正文。
+
+### D107 Actor Dataset 行级合同允许安全隔离账号元数据
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动重跑付费 Canary
+- 决策内容：Manifest `parse_datetime` 确定性接受带时区 ISO 字符串以及 2000–2100 范围内的 Unix 秒/毫秒，拒绝 boolean、非有限数值、无时区文本和范围外 epoch。混合 Dataset 中，只映射账号身份而没有 `native_id/url/published_at/title|text` 内容证据的行作为元数据隔离；后续内容行继续完整执行必填字段、host、时间窗和目标身份验证。至少一条真实内容通过时返回成功并计入 excluded rows；全为元数据时返回独立 `apify_actor_metadata_only`，不得伪装为空结果或成功。
+- 原因：Instagram 实测 Actor 一类把 `takenAtTimestamp` 返回为 Unix 整数，另一类在首行返回账号元数据、第二行返回真实帖子。旧映射器分别把整数时间视为不可解析、在首个元数据行立即终止，导致已存在有效内容的 Dataset 被错误记为 `apify_actor_contract_mismatch`。
+- 安全边界：只有完全没有内容合同字段的元数据行可以隔离；部分内容字段存在但格式错误、URL host 不符、时间越界或身份不匹配仍立即失败。原始 Dataset 继续只在进程内短暂存在，诊断只使用无值路径/类型摘要；历史失败与费用不改写，任何再次付费试跑仍需管理员新确认。
+
+### D108 ActorOps 认证流程在付费与保存前显示可达性
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动发起新的 AI 或付费 Actor
+- 决策内容：Active Pool 按槽位在选择阶段执行生命周期约束，Primary/Backup 1 只接受 certified/legacy-compatible，Backup 2 允许 probationary，并在提交前展示 Actor 唯一与发布者多样性缺口。Discovery 页面按候选生命周期计算完成 certified + certified + probationary 所需的乐观最少成功 Canary；若该下界已大于当前 cycle 剩余次数，则不再展示付费入口并要求显式重新发现。
+- 来源流程边界：来源级 3/3 只在有效 Active Pool 后出现；无绑定且 Route 未激活时显示步骤说明并隐藏 opaque source ID 查询，明确账号创建属于订阅页。该 UI 阻断不改写历史 validation、费用或 Revision，也不绕过后端 CAS、认证、48 小时观察与 95% 成功率规则。
+
+### D109 ActorOps 由服务端排槽，管理员只确认生效
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；不自动发起 AI 或付费 Actor
+- 决策内容：删除候选认证后的手工 Revision 下拉与“保存三槽配置”。认证未完成时 UI 只显示 certified Actor、不同 Actor 和发布者缺口；满足 2+1 后，`ApifyActorOpsService` 确定性选择三个 Actor 并投影只读推荐方案。管理员提交的启用请求只含 Route generation 与 `确认启用 Actor 主备`，服务端在同一写事务中重新计算推荐、执行 Actor 唯一、发布者多样性、生命周期、固定 Build、Manifest 完整性与 CAS 校验后生效。
+- 安全与兼容边界：每次付费 Canary 仍需管理员单独确认，系统不得自动产生费用；原 `PUT active-pool` 保留给调费、显式回滚和兼容管理，来源级 3/3 验证不变。已有合格 Active Pool 继续显示只读主备方案，费用调整默认折叠；没有合格推荐、generation 冲突或重复激活都 fail closed。
+- 原因：发布者、Actor ID、Build、Revision 和生命周期同时出现在三个下拉中会让管理员误以为任意选满三项即可启用，也把本应由策略服务拥有的安全选择下放给浏览器。服务端排槽把管理员决策收敛为“是否让已认证方案生效”，同时保留付费和生产启用的人工边界。
+
+### D110 ActorOps 允许两路 Canary 成功后快速上线
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；生产启用仍由管理员一次确认
+- 决策内容：完整 `certified + certified + probationary` 2+1 仍是服务端推荐的第一优先级；但它不再是首期上线的硬阻断。若已有两个不同 Actor、不同发布者、固定 Build 且各完成一次成功 Canary 的 `probationary|certified` Revision，服务端可生成 `expedited_2of3` 推荐，将其放入 Primary/Backup 1，Backup 2 保持 NULL。管理员仍只提交 generation 与 `确认启用 Actor 主备`；浏览器不能选 Revision。
+- 运行与来源边界：两路池以 degraded 状态运行并自动串行故障切换，少于两个 runnable 继续 fail closed；NULL 第三槽不执行、不验证也不产生费用。Capability catalog 可开放该 exact-Build 两路池，新来源串行验证当前实际运行 Revision，两路通过记录 `ready_2of2`，完整三路通过记录 `ready_3of3`。后续第三槽补位增加 generation，只要求变化槽复验。
+- 费用与证据边界：快速上线不改变 Route `$0.02` 默认单次上限，不把 static-valid、超时或合同失败候选伪装成 runnable，也不自动触发 AI、Canary 或 Actor。已有两个安全 Actor 后，UI 隐藏继续为完整 2+1 付费的入口，不再要求强制重新发现；只有安全 Actor 少于两个且尝试耗尽时才需要新 Discovery。
+- 原因：原五次 Canary 上限等于完整 2+1 的理论最少成功次数，任何一次上游失败都会让流程永久停在“重新发现—再付费”循环。运行时本来就以 `min_runtime_healthy=2` 为安全门槛，因此让两个已有成功证据的独立 Actor 先上线，比继续为第三槽反复调用 AI/Actor 更符合成本与可用性目标。
+
+### D111 YouTube Items 采用静态负证据与不可变失败终止重复付费
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；本次修复不自动发起付费 Canary
+- 决策内容：`youtube/channel/items` 不再把“能抓频道”视为“能抓频道视频”。若 pay-per-event 除启动费外只声明频道资料、统计、订阅者或描述链接事件，候选在 AI 前以安全原因淘汰；Manifest 的内容 `native_id/url` 若只映射频道或主页自身字段，也在付费前阻断。带 video/post/item 等内容语义的字段继续允许，泛化 `result` 事件保持未知并交给 Manifest 与 Canary 验真，避免把弱元数据误作充分证据。
+- 不可变失败边界：Route 参考 Canary 已确认固定 Build 全为元数据、占位或违反统一内容合同时，该 Revision 进入 rejected/quarantined，历史同类失败也使后续审批返回 412，不得靠刷新页面重复付费。网络、超时、限流和临时系统错误不进入这一永久集合。页面的剩余 Canary 可达性按两路快速池计算，排除上述不可付费候选，并要求两个 Actor 与发布者均不同；完整 2+1 无法在当前轮完成不再阻断安全的两路试跑。
+- 原因与安全边界：实测 YouTube 的首个候选远端成功并结算 `$0.001`，但 Dataset 只有频道元数据；同轮五个候选中另有两个 Manifest 把 channel ID/URL 当作视频 ID/URL。系统仅持久化安全 reason code、定价摘要和既有 Validation 证据，不保存或回显原始 Dataset。
+
+### D112 Route 认证采用一次审批的串行两路批次
+
+- 决策日期：2026-08-02
+- 当前状态：本地任务分支实现与验证中；迁移与容器切换不触发真实付费 Actor
+- 决策内容：Route 认证不再把候选选择和重复付费按钮交给浏览器。服务端从当前 Discovery Run、历史成功证据、五次真实启动上限和 `$0.10` 周期预算确定性生成最多三个候选的 plan；管理员只核对 Route、来源模式、发布者、精确 Build、商城定价和逐项/总费用上限，并以一次 `确认付费验证主备` 提交 generation、plan hash 与 opaque approval ID。batch、逐项 validation 和 one-shot Job 在同一事务创建；重放只返回原任务，浏览器不能提交 Revision 列表或改变顺序。
+- 执行与停止边界：Worker 严格串行，并在每个付费 POST 前免费读取公开 Actor 与精确 Build。删除、私有、不可运行、确定性 403/404/410 或 Build identity/number/status 漂移以 `$0` 终结、不创建 attempt、不占 Canary 次数并停用 Revision；两个不同 Actor、来自两个不同发布者且通过统一内容合同后立即停止，未启动候选同样 `$0`。只有已知远端 Run 才进入 300 秒等待和费用对账；`start_outcome_unknown` 阻断整批、Route 与 Key且禁止继续。候选耗尽仍不足两路时保留已有成功证据，批次进入 partial，并自动排入一次不启动 Actor 的 Discovery 补位；生产激活仍需独立 `确认启用 Actor 主备`。
+- 费用与迁移边界：批准上限与实际费用是两类证据。Discovery API 分别投影已终结实际成本与 queued/running 预留；旧批准 cap 不得再显示为真实扣费。`apify_actor_canary_batches_v17` 使用 global migration 19，在 global 18 后离线安装 batch/item ledger 和 validation 的 `cost_final/counts_toward_canary`；停 API/Worker、跨过 heartbeat 安全窗、确认无活跃 ActorOps Job并创建 `0600` SQLite backup。只有 ledger 同时证明 `start_rejected`、没有 remote Run/Dataset、预留为零且实际费用为空/零时才修复为 `$0` 并停用失效 Revision；不能证明未启动的历史记录保持未知，失败恢复备份。迁移不联网、不调用 Store、AI 或 Actor，也不改写已证明的 X/Instagram/YouTube 实际费用。
+- 原因：此前管理员必须理解 Revision、手工逐候选确认并反复刷新；已消失的精确 Build 又会在远端 POST 前返回 403，却被本地批准上限错误显示为 `$0.02` 实际费用。把候选策略、免费可用性核对、串行停止和精确费用账本收回服务端，可以保留所有付费人工边界，同时让操作只剩“批准一次验证”和“确认一次生效”。
+
+### D113 YouTube Actor 以精确视频 Schema 覆盖模糊定价事件
+
+- 决策日期：2026-08-03
+- 当前状态：本地任务分支修复与验证中；新付费 Canary 仍需管理员单独确认
+- 决策内容：`youtube/channel/items` 的确定性输入模板把 `channelId/channelIds` 绑定到已验证的 UC Channel ID，而不是 handle 或频道 URL；固定参考频道同时保存公开 handle、规范 URL 与 UC ID，并保持旧 handle 指纹兼容。AI 输出 Pointer 必须从 Dataset row 根开始；仅当 Build Schema 证明人工生成的 `candidate/item/data/result` 包装不存在、且移除包装后的精确 Pointer 存在时，静态阶段才允许无值修正。`published_at` 必须显式执行 `parse_datetime`。
+- 候选判定：定价事件名仍可作为频道资料型 Actor 的负证据，但精确 Build Dataset Schema 同时证明视频内容 ID、视频 URL、发布时间和标题/正文时优先采用 Schema，不再因 `youtube-channel-row` 等模糊计费名称误杀真实视频 Actor。Store 返回顺序不再代表质量；有完整 items Schema 的候选先进入有界 AI 排序集合。
+- 运行边界：上述修复不复活历史失败 Revision、不伪造成功 Canary，也不自动启动 Actor。重复排队的同一 Discovery Run 若已被另一 Worker 推进，后续 Job 作为幂等重放成功结束，不再生成误导性的 `ValueError`。原始 Dataset 仍不落库、不发给模型；开发排障只读取已有 Run 的无值字段路径与类型摘要。
+- 原因：真实 YouTube Run 已证明至少一个固定 Build 返回完整 `videoId/videoUrl/videoPublishedAt`，但旧 Manifest 被 Prompt 诱导加上不存在的 `/candidate/...`，并因仅看价格事件名被后续 Discovery 淘汰；另一个 Actor 的 `channelIds` 又收到 handle 字符串。这些是控制面映射错误，不是商城缺少 Actor。

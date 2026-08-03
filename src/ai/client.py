@@ -1,8 +1,10 @@
 """AI client abstraction supporting multiple providers."""
 
+import inspect
 import os
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Optional
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from anthropic import AsyncAnthropic
@@ -35,6 +37,41 @@ _DEFAULT_API_KEY_ENVS = {
     AIProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
     AIProvider.XIAOMI: "XIAOMI_API_KEY",
 }
+
+
+@dataclass(frozen=True)
+class CompletionMetrics:
+    input_tokens: int | None
+    completion_tokens: int | None
+    reasoning_tokens: int | None
+    content_tokens: int | None
+    finish_reason: str | None
+    response_bytes: int
+
+
+def _openai_completion_metrics(response: object, content: str) -> CompletionMetrics:
+    usage = getattr(response, "usage", None)
+    input_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+    completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+    details = getattr(usage, "completion_tokens_details", None) if usage else None
+    reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
+    content_tokens = None
+    if completion_tokens is not None and reasoning_tokens is not None:
+        content_tokens = max(0, int(completion_tokens) - int(reasoning_tokens))
+    choices = getattr(response, "choices", None) or []
+    finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+    return CompletionMetrics(
+        input_tokens=int(input_tokens) if input_tokens is not None else None,
+        completion_tokens=(
+            int(completion_tokens) if completion_tokens is not None else None
+        ),
+        reasoning_tokens=(
+            int(reasoning_tokens) if reasoning_tokens is not None else None
+        ),
+        content_tokens=content_tokens,
+        finish_reason=str(finish_reason)[:64] if finish_reason is not None else None,
+        response_bytes=len(content.encode("utf-8")),
+    )
 
 
 def _resolve_api_key(config: AIConfig, *, fallback: Optional[str] = None) -> str:
@@ -81,6 +118,8 @@ def _looks_like_api_key_value(value: str) -> bool:
 class AIClient(ABC):
     """Abstract base class for AI clients."""
 
+    last_completion_metrics: CompletionMetrics | None = None
+
     @abstractmethod
     async def complete(
         self,
@@ -101,6 +140,24 @@ class AIClient(ABC):
             str: Generated completion text
         """
         pass
+
+    async def aclose(self) -> None:
+        """Close an SDK transport before its owning event loop exits."""
+
+        client = getattr(self, "client", None)
+        async_client = getattr(client, "aio", None) if client is not None else None
+        for owner, method_name in (
+            (async_client, "aclose"),
+            (client, "close"),
+            (client, "aclose"),
+        ):
+            method = getattr(owner, method_name, None)
+            if not callable(method):
+                continue
+            result = method()
+            if inspect.isawaitable(result):
+                await result
+            return
 
 
 class AnthropicClient(AIClient):
@@ -134,6 +191,7 @@ class AnthropicClient(AIClient):
         self.model = config.model
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
+        self.last_completion_metrics = None
 
     async def complete(
         self,
@@ -170,7 +228,20 @@ class AnthropicClient(AIClient):
                 input_tokens=getattr(usage, "input_tokens", 0),
                 output_tokens=getattr(usage, "output_tokens", 0),
             )
-        return message.content[0].text
+        content = message.content[0].text
+        input_tokens = getattr(usage, "input_tokens", None) if usage else None
+        output_tokens = getattr(usage, "output_tokens", None) if usage else None
+        self.last_completion_metrics = CompletionMetrics(
+            input_tokens=int(input_tokens) if input_tokens is not None else None,
+            completion_tokens=(int(output_tokens) if output_tokens is not None else None),
+            reasoning_tokens=None,
+            content_tokens=(int(output_tokens) if output_tokens is not None else None),
+            finish_reason=(
+                str(getattr(message, "stop_reason", ""))[:64] or None
+            ),
+            response_bytes=len(content.encode("utf-8")),
+        )
+        return content
 
 
 class OpenAIClient(AIClient):
@@ -230,6 +301,7 @@ class OpenAIClient(AIClient):
         # Some newer models (e.g. Claude Opus 4.7 on Bedrock Converse) reject
         # `temperature`. We learn this on first 400 and stop sending it.
         self._supports_temperature = True
+        self.last_completion_metrics = None
 
     async def complete(
         self,
@@ -287,7 +359,9 @@ class OpenAIClient(AIClient):
                 input_tokens=getattr(usage, "prompt_tokens", 0),
                 output_tokens=getattr(usage, "completion_tokens", 0),
             )
-        return response.choices[0].message.content
+        content = response.choices[0].message.content or ""
+        self.last_completion_metrics = _openai_completion_metrics(response, content)
+        return content
 
     async def _do_request(
         self,
@@ -382,6 +456,7 @@ class AzureOpenAIClient(AIClient):
             config.model.startswith(prefix)
             for prefix in self._MODELS_REQUIRING_MAX_COMPLETION_TOKENS
         )
+        self.last_completion_metrics = None
 
     async def complete(
         self,
@@ -437,7 +512,9 @@ class AzureOpenAIClient(AIClient):
                 input_tokens=getattr(usage, "prompt_tokens", 0),
                 output_tokens=getattr(usage, "completion_tokens", 0),
             )
-        return response.choices[0].message.content
+        content = response.choices[0].message.content or ""
+        self.last_completion_metrics = _openai_completion_metrics(response, content)
+        return content
 
     async def _create_completion(
         self,
@@ -507,6 +584,7 @@ class GeminiClient(AIClient):
         self.model = config.model
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
+        self.last_completion_metrics = None
 
     async def complete(
         self,
@@ -549,7 +627,21 @@ class GeminiClient(AIClient):
             prompt = getattr(usage, "prompt_token_count", 0) or 0
             completion = max(0, total - prompt)
             record_usage("gemini", input_tokens=prompt, output_tokens=completion)
-        return response.text
+        content = response.text or ""
+        finish_reason = None
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            raw_finish = getattr(candidates[0], "finish_reason", None)
+            finish_reason = str(raw_finish)[:64] if raw_finish is not None else None
+        self.last_completion_metrics = CompletionMetrics(
+            input_tokens=int(prompt) if usage is not None else None,
+            completion_tokens=int(completion) if usage is not None else None,
+            reasoning_tokens=None,
+            content_tokens=int(completion) if usage is not None else None,
+            finish_reason=finish_reason,
+            response_bytes=len(content.encode("utf-8")),
+        )
+        return content
 
 
 def create_ai_client(

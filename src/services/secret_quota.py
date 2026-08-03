@@ -47,7 +47,11 @@ class ApifySecretQuotaService:
         try:
             async with httpx.AsyncClient(
                 base_url="https://api.apify.com/v2",
-                headers={"Authorization": f"Bearer {token}"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                    "Accept-Encoding": "identity",
+                },
                 timeout=timeout,
                 transport=self._transport,
                 trust_env=False,

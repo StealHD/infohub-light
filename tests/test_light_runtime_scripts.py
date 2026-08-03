@@ -173,14 +173,23 @@ case "$url" in
       exit 0
     fi
     case "${FAKE_READY_MODE-}" in
-      migration-v16)
+      migration-notification-v16)
         printf '{"ok":false,"error":{"code":"migration_required","message":"notification targets v16 migration must be applied"}}'
         ;;
-      migration-v15)
+      migration-notification-v15)
         printf '{"ok":false,"error":{"code":"migration_required","message":"notification channels v15 migration must be applied"}}'
         ;;
       migration-v14)
         printf '{"ok":false,"error":{"code":"migration_required","message":"Webhook providers v14 migration must be applied"}}'
+        ;;
+      migration-apify-v17)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"Apify ActorOps v15 migration must be applied"}}'
+        ;;
+      migration-apify-v18)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"Apify Discovery limits v16 migration must be applied"}}'
+        ;;
+      migration-apify-v19)
+        printf '{"ok":false,"error":{"code":"migration_required","message":"Apify Actor Canary batch migration must be applied"}}'
         ;;
       migration-v11)
         printf '{"ok":false,"error":{"code":"migration_required","message":"content timeline v11 migration must be applied"}}'
@@ -430,9 +439,12 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
 def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path):
     primary, linked, _, revision = _create_linked_worktree_fixture(tmp_path)
     migration_cases = {
-        "migration-v16": "scripts/migrate_notification_targets_v16.py",
-        "migration-v15": "scripts/migrate_notification_channels_v15.py",
+        "migration-notification-v16": "scripts/migrate_notification_targets_v16.py",
+        "migration-notification-v15": "scripts/migrate_notification_channels_v15.py",
         "migration-v14": "scripts/migrate_webhook_providers_v14.py",
+        "migration-apify-v17": "scripts/migrate_apify_actor_ops_v15.py",
+        "migration-apify-v18": "scripts/migrate_apify_discovery_limits_v16.py",
+        "migration-apify-v19": "scripts/migrate_apify_actor_canary_batches_v17.py",
         "migration-v13": "scripts/migrate_apify_actor_routing_v13.py",
         "migration-v11": "scripts/migrate_content_timeline_v11.py",
         "migration-v4": "scripts/migrate_user_content_v4.py",
