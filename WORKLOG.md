@@ -7,23 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [],
-  "recorded_on": "2026-07-31",
-  "result": "将统一通知目标分支切换到本地 8080：清理可重建 Docker 构建缓存后完成镜像构建，安全停止 API/Worker，应用通知目标 v16 迁移及私有备份，并启动目标版本的 API/Worker；scheduler 未启动。",
-  "status": "completed",
-  "task_id": "2026-07-31-start-unified-notification-target-containers",
-  "unresolved": [],
-  "validation": [
-    "runtime migration v16 applied; backup mode 0600; integrity_check ok and foreign-key check clean",
-    "API and Worker run inteliscope-service:local-71006ee4de02 and report healthy",
-    "live revision is 71006ee4de02; readiness reports database ready and worker_status ready",
-    "served settings asset HeroSettingsPage-_X-YBwVU.js contains 通知目标; canonical runtime data/logs/.env mounts verified; scheduler absent"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [
     "architecture",
     "capabilities",
@@ -478,6 +461,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps 与 Changelog 冲突前端回归 27/27 通过；App 全文件连续三次 297/297 通过",
     "python scripts/test_gate.py run --mode full: 23/23 passed in 214.465 seconds",
     "worklog validator、JSON、git diff check 与 observability contract 通过"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "将包含 Telegram 多渠道通知与通用 ActorOps 控制面的合并结果升级为 2.2.0，准备创建 v2.2.0 注释标签、GitHub Release 与 revision-locked VPS 升级。",
+  "status": "partial",
+  "task_id": "2026-08-03-prepare-v2.2.0-actorops-release",
+  "unresolved": [
+    "release Test Gate、Git 推送、GitHub Release 与 VPS 部署尚待本任务后续步骤完成",
+    "生产数据库迁移不调用 AI/Actor；任何真实付费 Canary 与生产 Route 激活仍保持独立审批"
+  ],
+  "validation": [
+    "合并提交 5375da1 的 full Test Gate 23/23 通过",
+    "项目与锁文件版本同步为 2.2.0",
+    "v2.2.0 本地与远端 Tag 尚不存在"
   ]
 }
 ```
