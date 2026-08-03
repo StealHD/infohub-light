@@ -133,6 +133,137 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   let youtubeKeepLatest = true
   const youtubeCreatePayloads: Array<Record<string, unknown>> = []
   const actorCanaryPayloads: Array<Record<string, unknown>> = []
+  const actorOpsSupportProfiles = [
+    { id: 'x/profile/items', route_key: 'x/profile', platform: 'x', target_type: 'profile', capability: 'items', mode: 'primary', label: 'X Profile' },
+    { id: 'youtube/channel/items', route_key: 'youtube/channel/items', platform: 'youtube', target_type: 'channel', capability: 'items', mode: 'fallback', label: 'YouTube Channel' },
+    { id: 'instagram/profile/items', route_key: 'instagram/profile/items', platform: 'instagram', target_type: 'profile', capability: 'items', mode: 'primary', label: 'Instagram Profile' },
+  ]
+  const actorOpsRevisions = [
+    {
+      revision_id: 'revision-primary',
+      actor_id: 'publisher-a/primary',
+      actor_public_name: 'Publisher A Primary',
+      publisher: 'publisher-a',
+      build_id: 'build-primary',
+      build_number: '1.0.1',
+      manifest_hash: 'a'.repeat(64),
+      lifecycle: 'certified',
+      last_charge_usd: 0.01,
+      avg_charge_24h_usd: 0.009,
+      last_canary_at: '2026-07-29T08:00:00Z',
+      last_canary_status: 'valid_nonempty',
+      can_canary: false,
+      can_activate: true,
+    },
+    {
+      revision_id: 'revision-backup-1',
+      actor_id: 'publisher-b/backup',
+      actor_public_name: 'Publisher B Backup',
+      publisher: 'publisher-b',
+      build_id: 'build-backup-1',
+      build_number: '1.0.2',
+      manifest_hash: 'b'.repeat(64),
+      lifecycle: 'certified',
+      last_charge_usd: 0.01,
+      avg_charge_24h_usd: 0.01,
+      last_canary_at: '2026-07-29T08:00:00Z',
+      last_canary_status: 'valid_nonempty',
+      can_canary: false,
+      can_activate: true,
+    },
+    {
+      revision_id: 'revision-backup-2',
+      actor_id: 'publisher-a/probationary',
+      actor_public_name: 'Publisher A Probationary',
+      publisher: 'publisher-a',
+      build_id: 'build-backup-2',
+      build_number: '1.0.3',
+      manifest_hash: 'c'.repeat(64),
+      lifecycle: 'probationary',
+      pricing: {
+        model: 'PAY_PER_EVENT',
+        billing_unit: 'event',
+        unit_price_min_usd: 0.001,
+        unit_price_max_usd: 0.015,
+        minimum_charge_usd: null,
+        minimum_run_cap_usd: 0.02,
+      },
+      last_charge_usd: 0.01,
+      avg_charge_24h_usd: 0.01,
+      last_canary_at: '2026-07-29T08:00:00Z',
+      last_canary_status: 'valid_empty',
+      can_canary: true,
+      can_activate: true,
+    },
+  ]
+  const actorOpsRouteDetail = {
+    route_id: 'route-x-profile',
+    route_key: 'x/profile',
+    platform: 'x',
+    target_type: 'profile',
+    capability: 'items',
+    mode: 'primary',
+    generation: 7,
+    support_status: 'supported',
+    runtime_status: 'ready',
+    runnable_slots: 3,
+    required_slots: 3,
+    min_runtime_healthy: 2,
+    publisher_count: 2,
+    per_run_cap_usd: 0.02,
+    discovery_run_id: null,
+    blocked_reason: null,
+    updated_at: '2026-07-29T08:00:00Z',
+    slots: [
+      { slot: 'primary', revision_id: actorOpsRevisions[0].revision_id, runnable: true, revision: actorOpsRevisions[0] },
+      { slot: 'backup_1', revision_id: actorOpsRevisions[1].revision_id, runnable: true, revision: actorOpsRevisions[1] },
+      { slot: 'backup_2', revision_id: actorOpsRevisions[2].revision_id, runnable: true, revision: actorOpsRevisions[2] },
+    ],
+    revisions: actorOpsRevisions,
+    activation_recommendation: {
+      ready: true,
+      already_active: true,
+      confirmation: '确认启用 Actor 主备',
+      problems: [],
+      certified_actor_count: 2,
+      backup_2_actor_count: 3,
+      runnable_actor_count: 3,
+      publisher_count: 2,
+      activation_mode: 'standard_2plus1',
+      slots: [
+        { slot: 'primary', revision_id: actorOpsRevisions[0].revision_id, revision: actorOpsRevisions[0] },
+        { slot: 'backup_1', revision_id: actorOpsRevisions[1].revision_id, revision: actorOpsRevisions[1] },
+        { slot: 'backup_2', revision_id: actorOpsRevisions[2].revision_id, revision: actorOpsRevisions[2] },
+      ],
+    },
+    source_validations: [],
+    source_validation_summary: { ready: 0, pending: 0, failed: 0 },
+    replacement_needed: false,
+  }
+  const actorOpsRoutes = {
+    schema_version: 1,
+    generation: 7,
+    support_profiles: actorOpsSupportProfiles,
+    routes: [{
+      route_id: actorOpsRouteDetail.route_id,
+      route_key: actorOpsRouteDetail.route_key,
+      platform: actorOpsRouteDetail.platform,
+      target_type: actorOpsRouteDetail.target_type,
+      capability: actorOpsRouteDetail.capability,
+      mode: actorOpsRouteDetail.mode,
+      generation: actorOpsRouteDetail.generation,
+      support_status: actorOpsRouteDetail.support_status,
+      runtime_status: actorOpsRouteDetail.runtime_status,
+      runnable_slots: actorOpsRouteDetail.runnable_slots,
+      required_slots: actorOpsRouteDetail.required_slots,
+      min_runtime_healthy: actorOpsRouteDetail.min_runtime_healthy,
+      publisher_count: actorOpsRouteDetail.publisher_count,
+      per_run_cap_usd: actorOpsRouteDetail.per_run_cap_usd,
+      discovery_run_id: null,
+      blocked_reason: null,
+      updated_at: actorOpsRouteDetail.updated_at,
+    }],
+  }
   let actorAlertSettings = {
     schema_version: 4,
     enabled: false,
@@ -630,6 +761,36 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       ready: false,
       updated_at: null,
     }
+    else if (url.pathname === '/api/catalog/source-capabilities') data = {
+      schema_version: 1,
+      generation: 7,
+      support_profiles: actorOpsSupportProfiles,
+      capabilities: [],
+    }
+    else if (url.pathname === '/api/admin/apify-routes') data = actorOpsRoutes
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile') data = actorOpsRouteDetail
+    else if (url.pathname === '/api/admin/apify-discovery-settings') data = {
+      schema_version: 4,
+      generation: 1,
+      enabled: false,
+      ai_config_id: 'global-ai-gemini-secondary',
+      ai_options: [{
+        id: 'global-ai-gemini-secondary',
+        label: 'Gemini Secondary',
+        provider: 'gemini',
+        model: 'gemini-test',
+        key_name: 'Gemini Secondary',
+        preferred: true,
+        ready: true,
+        unavailable_reason: null,
+      }],
+      max_queries_per_run: 3,
+      max_candidates: 12,
+      max_output_tokens: 4096,
+      recommended_max_output_tokens: null,
+      measurements: { youtube: null, instagram: null },
+      updated_at: '2026-07-29T08:00:00Z',
+    }
     else if (url.pathname === '/api/admin/apify-actor-routes/x/profile/order' && route.request().method() === 'PUT') {
       data = actorRoute
     }
@@ -1062,40 +1223,24 @@ test('unified notification services stay bounded at 390, 768 and 1440 pixels', a
   }
 })
 
-test('X Actor failover and paid canary stay safe and bounded across settings layouts', async ({ page }) => {
+test('ActorOps route control plane stays safe and bounded across settings layouts', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  const apiState = await mockAdminApi(page, true, { includeXProfileSource: true })
+  await mockAdminApi(page, true, { includeXProfileSource: true })
   await page.goto('/settings#settings-fetching')
 
-  await expect(page.getByText('X 抓取主备', { exact: true })).toBeVisible()
-  await expect(page.getByText('当前使用：ScrapeBadger')).toBeVisible()
-  await expect(page.getByRole('grid', { name: 'X 抓取主备 Actor' })).toBeVisible()
+  await expect(page.getByText('ActorOps 路由控制面', { exact: true })).toBeVisible()
+  await expect(page.getByRole('grid', { name: 'ActorOps 路由列表' })).toBeVisible()
+  await expect(page.getByRole('list', { name: '当前 Actor 主备方案' })).toBeVisible()
+  await expect(page.getByText('Actor Discovery AI 设置', { exact: true })).toBeVisible()
   await expect(page.getByText('故障告警', { exact: true })).toBeVisible()
   await expect(page.getByRole('switch', { name: '启用 Apify 运行告警' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
-  const actorTableScroll = page.getByTestId('apify-actor-route-scroll')
+  const actorTableScroll = page.getByTestId('actor-ops-route-scroll')
   expect(await actorTableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
   if ((page.viewportSize()?.width ?? 0) <= 390) {
     expect(await actorTableScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
   }
-
-  const canaryTrigger = page.getByRole('button', { name: '付费试跑' }).first()
-  await canaryTrigger.click()
-  const dialog = page.getByRole('dialog', { name: '付费试跑 ScrapeBadger' })
-  await expect(dialog.getByRole('button', { name: '确认付费试跑' })).toBeDisabled()
-  await dialog.getByRole('button', { name: /试跑 X 来源/ }).click()
-  await page.getByRole('option', { name: 'X · @thsottiaux' }).click()
-  await dialog.getByRole('button', { name: '确认付费试跑' }).click()
-
-  await expect(dialog).toHaveCount(0)
-  await expect(page.locator('[data-slot="modal-dialog"]')).toHaveCount(0)
-  await expect(canaryTrigger).toBeFocused()
-  expect(apiState.actorCanaryPayloads()).toEqual([{
-    source_id: 'source-x-profile',
-    expected_generation: 3,
-    confirmation: '确认付费试跑',
-  }])
   expect(await page.locator('body').innerText()).not.toContain('not-rendered-by-actor-settings')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 

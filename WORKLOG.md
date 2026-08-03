@@ -7,30 +7,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": [
-    "architecture",
-    "capabilities",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-31",
-  "result": "将 v16 通知目标统一为管理员维护的“通知服务”交互：邮箱、Webhook、Telegram 在单一区域保存并测试后自动启用，个人通知与 Apify 告警只选择服务；Telegram 固定主机可在严格 Host/SNI 和单次 POST 约束下接受 198.18.0.0/15 fake-IP，且不读写 Clash 配置。",
-  "status": "completed",
-  "task_id": "2026-07-31-unified-notification-service-interaction",
-  "unresolved": [
-    "按任务约束未合并、未推送，也未调用真实 Telegram、邮件或 Webhook"
-  ],
-  "validation": [
-    "targeted backend/API/network regressions: 56 passed",
-    "frontend full Vitest: 60 files and 536 tests; TypeScript, ESLint, UI contract and production build passed",
-    "selected Playwright settings checks: 7 passed and 2 conditionally skipped across desktop/tablet/mobile, including 390/768/1440 overflow and Axe",
-    "python scripts/test_gate.py run --mode full: 23/23 passed"
-  ]
-}
-```
-
-```json
-{
   "control_topics": [],
   "recorded_on": "2026-08-03",
   "result": "将 Telegram 多渠道通知、v15/v16 迁移、统一通知服务交互与 fake-IP 精确网络策略从 codex/telegram-multichannel-notifications-20260730 fast-forward 合入本地 main。",
@@ -480,6 +456,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并提交 5375da1 的 full Test Gate 23/23 通过",
     "项目与锁文件版本同步为 2.2.0",
     "v2.2.0 本地与远端 Tag 尚不存在"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "修正 v2.2.0 Release Gate 的 ActorOps、来源能力目录与 Changelog 浏览器验收契约，使验收脚本覆盖当前通用三槽控制面而非旧 X 专用界面。",
+  "status": "partial",
+  "task_id": "2026-08-03-align-v2.2.0-release-acceptance",
+  "unresolved": [
+    "完整 Release Test Gate、Tag、GitHub 发布与 VPS 部署尚待本任务后续步骤完成"
+  ],
+  "validation": [
+    "Release Playwright 定向 15 项：13 passed、2 skipped",
+    "订阅 capability catalog 404 消失，既有 light/dark 三视口截图无需更新",
+    "ActorOps 通用路由表、当前三槽主备、全局 Discovery AI 和告警区域通过三视口可访问性验收"
   ]
 }
 ```
