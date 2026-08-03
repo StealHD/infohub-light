@@ -242,6 +242,53 @@ def test_apify_client_detailed_result_captures_terminal_usage():
     assert result.cost_final is True
 
 
+def test_apify_client_refetches_terminal_usage_after_finished_at_settles():
+    status_reads = 0
+    finished_at = (
+        datetime.now(timezone.utc) - timedelta(seconds=30)
+    ).isoformat()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal status_reads
+        if request.method == "POST":
+            return httpx.Response(200, json=_run_resp())
+        if "/actor-runs/" in request.url.path:
+            status_reads += 1
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "status": "SUCCEEDED",
+                        "finishedAt": finished_at,
+                        "usageTotalUsd": (
+                            0.00005 if status_reads == 1 else 0.00505
+                        ),
+                    }
+                },
+            )
+        if "/datasets/" in request.url.path:
+            return httpx.Response(200, json=[{"id": "tweet-1"}])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        ApifyClient(
+            token="test-token",
+            http_client=http_client,
+            poll_interval=0,
+        ).run_actor_detailed(
+            "actor/id",
+            {},
+            max_total_charge_usd=0.02,
+        )
+    )
+    asyncio.run(http_client.aclose())
+
+    assert status_reads == 2
+    assert result.actual_charge_usd == 0.00505
+    assert result.cost_final is True
+
+
 def test_apify_client_resumes_terminal_dataset_with_get_only():
     lease = ApifyCredentialLease(
         secret_id="secret-one",

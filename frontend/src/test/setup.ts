@@ -1,8 +1,14 @@
 import '@testing-library/jest-dom/vitest'
+import { configure } from '@testing-library/dom'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
 import { toast } from '../design-system'
+
+// Full-gate runs intentionally execute many jsdom suites together. Keep
+// Testing Library's element polling above its one-second default so a busy
+// local or CI runner does not turn a rendered control into a false negative.
+configure({ asyncUtilTimeout: 3_000 })
 
 if (!Element.prototype.getAnimations) {
   Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] })

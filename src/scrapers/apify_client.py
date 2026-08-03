@@ -255,6 +255,7 @@ class ApifyClient:
         timeout_seconds: int = 180,
         drain_timeout_seconds: float = 30.0,
         retry_base_delay: float = 1.0,
+        accounting_settle_delay_seconds: float = 10.0,
     ):
         if tokens is None and token:
             tokens = [("APIFY_TOKEN", token)]
@@ -282,6 +283,78 @@ class ApifyClient:
         self.timeout_seconds = timeout_seconds
         self.drain_timeout_seconds = drain_timeout_seconds
         self.retry_base_delay = retry_base_delay
+        self.accounting_settle_delay_seconds = max(
+            float(accounting_settle_delay_seconds),
+            0.0,
+        )
+
+    async def prove_no_user_run_in_window(
+        self,
+        lease: ApifyCredentialLease,
+        *,
+        started_after: str,
+        started_before: str,
+    ) -> bool:
+        """Return true only when Apify proves an account-wide empty window.
+
+        This read is deliberately broader than one Actor.  A zero ``total``
+        from the authenticated user Run list proves that an ambiguous start
+        POST did not create any Run in the reservation window.  Any non-zero,
+        malformed, truncated, or unavailable response remains fail-closed.
+        """
+
+        payload = await self._request_json(
+            lease,
+            "GET",
+            "/actor-runs",
+            params={
+                "startedAfter": str(started_after),
+                "startedBefore": str(started_before),
+                "limit": "1000",
+                "offset": "0",
+            },
+            timeout=15.0,
+            classify_credential=False,
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        items = data.get("items") if isinstance(data, dict) else None
+        total = data.get("total") if isinstance(data, dict) else None
+        if (
+            isinstance(total, bool)
+            or not isinstance(total, int)
+            or total < 0
+            or not isinstance(items, list)
+        ):
+            raise ValueError("Apify user Run list was not authoritative")
+        return total == 0 and not items
+
+    async def refresh_terminal_run_accounting(
+        self,
+        lease: ApifyCredentialLease,
+        remote_run_id: str,
+    ) -> float:
+        """Refresh one known terminal Run after Apify's settlement window."""
+
+        path = f"/actor-runs/{quote(str(remote_run_id), safe='')}"
+        payload = await self._request_json(
+            lease,
+            "GET",
+            path,
+            timeout=10.0,
+            classify_credential=False,
+        )
+        status = self._run_status(payload)
+        actual_charge_usd = self._run_usage_total_usd(payload)
+        if status not in _TERMINAL_RUN_STATUSES or actual_charge_usd is None:
+            raise ValueError("Apify terminal Run accounting is not settled")
+        await self._coordinator_call(
+            "record_run_accounting",
+            lease,
+            actual_cost_usd=actual_charge_usd,
+            cost_final=True,
+            optional=True,
+        )
+        return actual_charge_usd
 
     async def run_actor(
         self,
@@ -723,12 +796,21 @@ class ApifyClient:
                 )
                 status = self._run_status(payload)
                 if status in _TERMINAL_RUN_STATUSES:
+                    payload, accounting_settled = await self._settled_terminal_payload(
+                        lease,
+                        f"/actor-runs/{run_id}",
+                        payload,
+                    )
                     actual_charge_usd = self._run_usage_total_usd(payload)
                     await self._coordinator_call(
                         "record_run_accounting",
                         lease,
                         actual_cost_usd=actual_charge_usd,
-                        cost_final=actual_charge_usd is not None,
+                        cost_final=(
+                            accounting_settled
+                            and self._run_status(payload) in _TERMINAL_RUN_STATUSES
+                            and actual_charge_usd is not None
+                        ),
                         optional=True,
                     )
                     await self._coordinator_call(
@@ -1065,12 +1147,22 @@ class ApifyClient:
             )
             status = self._run_status(payload)
             if status in _TERMINAL_RUN_STATUSES:
+                payload, accounting_settled = await self._settled_terminal_payload(
+                    lease,
+                    path,
+                    payload,
+                )
                 actual_charge_usd = self._run_usage_total_usd(payload)
+                cost_final = (
+                    accounting_settled
+                    and self._run_status(payload) in _TERMINAL_RUN_STATUSES
+                    and actual_charge_usd is not None
+                )
                 await self._coordinator_call(
                     "record_run_accounting",
                     lease,
                     actual_cost_usd=actual_charge_usd,
-                    cost_final=actual_charge_usd is not None,
+                    cost_final=cost_final,
                     reserved_cost_usd=reserved_cost_usd,
                     optional=True,
                 )
@@ -1081,7 +1173,7 @@ class ApifyClient:
                     status,
                 )
                 if status == "SUCCEEDED":
-                    return actual_charge_usd, actual_charge_usd is not None
+                    return actual_charge_usd, cost_final
                 should_retry = bool(mark_result)
                 if self.coordinator is not None and not should_retry:
                     should_retry = await self._should_retry_after_terminal(
@@ -1098,6 +1190,52 @@ class ApifyClient:
         raise TimeoutError(
             f"Apify actor run timed out after {self.timeout_seconds}s"
         )
+
+    async def _settled_terminal_payload(
+        self,
+        lease: ApifyCredentialLease,
+        path: str,
+        payload: Any,
+    ) -> tuple[Any, bool]:
+        """Refetch a terminal Run after Apify's documented usage delay.
+
+        Old/fake responses without ``finishedAt`` retain the existing behavior.
+        Production Run responses include it, allowing a bounded wait without
+        adding a fixed delay when the aggregate is already old enough.
+        """
+
+        if self.accounting_settle_delay_seconds <= 0:
+            return payload, True
+        data = payload.get("data") if isinstance(payload, dict) else None
+        finished_raw = data.get("finishedAt") if isinstance(data, dict) else None
+        if not isinstance(finished_raw, str) or not finished_raw.strip():
+            return payload, True
+        try:
+            finished_at = datetime.fromisoformat(
+                finished_raw.strip().replace("Z", "+00:00")
+            )
+            if finished_at.tzinfo is None:
+                finished_at = finished_at.replace(tzinfo=timezone.utc)
+            remaining = (
+                finished_at.astimezone(timezone.utc).timestamp()
+                + self.accounting_settle_delay_seconds
+                - datetime.now(timezone.utc).timestamp()
+            )
+        except ValueError:
+            return payload, False
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+        try:
+            refreshed = await self._request_json(
+                lease,
+                "GET",
+                path,
+                timeout=10.0,
+                classify_credential=False,
+            )
+        except (httpx.HTTPError, ValueError):
+            return payload, False
+        return refreshed, True
 
     async def _handle_credential_failure(
         self,

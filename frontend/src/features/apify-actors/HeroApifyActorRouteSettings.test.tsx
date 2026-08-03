@@ -266,7 +266,7 @@ const actorOpsRoutes = (
 const discoveryRun = (
   detail: ApifyActorRouteDetail,
 ): ApifyActorDiscoveryRun => ({
-  schema_version: 4,
+  schema_version: 5,
   run_id: 'discovery-run-1',
   route_id: detail.route_id,
   generation: detail.generation,

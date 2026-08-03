@@ -91,31 +91,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "interface",
     "ui"
   ],
-  "recorded_on": "2026-08-01",
-  "result": "修复 X Dataset Brotli 解码后的同 Dataset 幂等重读与 Actor Discovery 候选级输入校验隔离；Discovery 改为按 Route 内容类型召回并要求完整排序备选，真实 YouTube/Instagram 均取得五个静态有效 Revision并进入待 Canary。",
-  "status": "completed",
-  "task_id": "2026-08-01-x-dataset-and-multiplatform-discovery-repair",
-  "unresolved": [
-    "YouTube/Instagram 只完成静态发现，未启动任何付费 Canary、三槽激活或来源级验证",
-    "任务分支未合并 main、未推送，也未发布 VPS"
-  ],
-  "validation": [
-    "Actor Discovery targeted 37 passed；final full Test Gate 23/23 passed",
-    "真实 YouTube Discovery 保存 5 个 static_valid Revision、4 个发布者；真实 Instagram 保存 5 个 static_valid Revision、5 个发布者；两者均 awaiting_canary_approval 且 Canary 记录为 0",
-    "两个既有 X source_fetch 串行成功，分别返回 22/23 条，均只有一个 Actor start、semantic_outcome=valid_nonempty、费用终态，总实际费用约 $0.000421，日志不再出现本轮 DecodingError",
-    "8080 API/Worker 从当前 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0；ActorOps 页面显示两条 Route 的 5/3 候选且浏览器控制台错误 0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
   "recorded_on": "2026-08-02",
   "result": "Actor Discovery 改为从全局 AI Key 中人工选择；付费确认补齐 Route、来源、定价与预算；Canary 增加 300 秒有界超时、终态费用对账、五次耗尽状态，并在付费前校验 Manifest 输出 Pointer 与来源身份。",
   "status": "partial",
@@ -441,6 +416,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "停机前及心跳安全窗后活跃 Job/Attempt/Validation/Batch 均为 0；0600 数据库与 .env 回滚备份 integrity ok、foreign keys 0",
     "API/Worker 使用精确 v2.2.2 镜像且 healthy、restart=0、worker_status=ready；RSSHub healthy，scheduler/staging 为 0，公网首页与 /feed 为 200",
     "生产最新 youtube/channel/items Run 虽自身候选为 0，现已返回 ready=true、历史成功 1 路、补验候选 1 项、授权上限 $0.02；未自动调用 AI、Actor 或付费 Canary"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-03",
+  "result": "修复 YouTube Actor Canary 的未知启动永久阻断与终态费用早结算：只读账户 Run 时间窗可证明未创建并安全解锁，已创建 Run 延迟复核真实费用，错误 Job 不再显示成功。",
+  "status": "partial",
+  "task_id": "2026-08-03-fix-youtube-apify-start-reconciliation",
+  "unresolved": [
+    "等待提交、Release Gate、本地 8080 切换、Git 发布与 VPS 部署",
+    "全量前端 551 项在组合运行中有 1 个无关设置目录用例抖动，但该用例单独通过；ActorOps 22/22 通过"
+  ],
+  "validation": [
+    "ActorOps/Apify 后端定向约 145 项通过，完整 Gate 后端及其余 21 组通过",
+    "ActorOps 前端 22/22、通知设置 7/7 通过；全量前端串行 550/551，唯一无关 App 设置目录用例单独 1/1 通过",
+    "未知启动恢复测试证明不发送第二次 Actor POST，只有账户时间窗权威为空才解除 Route/Key 阻断并结算 $0",
+    "终态费用复核测试覆盖 0.00005 到 0.00505 的 Apify 最终值更新"
   ]
 }
 ```

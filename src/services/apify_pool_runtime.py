@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -40,12 +41,73 @@ async def reconcile_apify_pool(
     quota_service: ApifySecretQuotaService | None = None,
     http_transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
-    """Finish a known drain, fail closed on unknown starts, and recheck due Keys."""
+    """Reconcile paid-run barriers without ever replaying an Actor start."""
 
     workspace_id = coordinator.workspace_id
     state = coordinator.public_state(workspace_id)
+
     if state["status"] == "blocked":
-        return state
+        recoverable_reasons = {
+            "start_outcome_unknown",
+            "apify_start_outcome_unknown",
+            "apify_start_http_outcome_unknown",
+            "apify_restart_start_outcome_unknown",
+        }
+        if str(state.get("blocked_reason") or "") not in recoverable_reasons:
+            return state
+        unknown_runs = [
+            run
+            for run in coordinator.list_nonterminal_runs(workspace_id)
+            if str(run.get("status") or "") == "start_outcome_unknown"
+            and not run.get("remote_run_id")
+        ]
+        if not unknown_runs:
+            return state
+        timeout = httpx.Timeout(15.0, connect=5.0)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            transport=http_transport,
+            trust_env=False,
+        ) as http_client:
+            client = ApifyClient(
+                coordinator=coordinator,
+                http_client=http_client,
+                retry_base_delay=1.0,
+            )
+            for run in unknown_runs:
+                try:
+                    created_at = datetime.fromisoformat(
+                        str(run["created_at"]).replace("Z", "+00:00")
+                    )
+                    unknown_at = datetime.fromisoformat(
+                        str(run["updated_at"]).replace("Z", "+00:00")
+                    )
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    if unknown_at.tzinfo is None:
+                        unknown_at = unknown_at.replace(tzinfo=timezone.utc)
+                except (KeyError, ValueError):
+                    return coordinator.public_state(workspace_id)
+                unknown_at = unknown_at.astimezone(timezone.utc)
+                if datetime.now(timezone.utc) < unknown_at + timedelta(seconds=30):
+                    return coordinator.public_state(workspace_id)
+                lease = coordinator.lease_for_run(str(run["id"]))
+                proof_checked_at = datetime.now(timezone.utc)
+                proved_empty = await client.prove_no_user_run_in_window(
+                    lease,
+                    started_after=(
+                        created_at.astimezone(timezone.utc) - timedelta(seconds=5)
+                    ).isoformat(),
+                    # Include the complete safety delay so a remotely queued
+                    # Run with a late startedAt cannot be missed.
+                    started_before=proof_checked_at.isoformat(),
+                )
+                if not proved_empty:
+                    return coordinator.public_state(workspace_id)
+                coordinator.confirm_start_not_created(lease)
+        state = coordinator.public_state(workspace_id)
+        if state["status"] == "blocked":
+            return state
 
     runs = coordinator.list_nonterminal_runs(workspace_id)
     unresolved = [run for run in runs if not run.get("remote_run_id")]
@@ -87,6 +149,35 @@ async def reconcile_apify_pool(
                 lease = coordinator.lease_for_run(str(run["id"]))
                 await client.abort_run(lease, remote_run_id)
         state = coordinator.complete_drain_and_failover(workspace_id)
+
+    settlement_rows = coordinator.list_terminal_runs_requiring_accounting_settlement(
+        workspace_id,
+        limit=20,
+    )
+    if settlement_rows:
+        timeout = httpx.Timeout(10.0, connect=3.0)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            transport=http_transport,
+            trust_env=False,
+        ) as http_client:
+            client = ApifyClient(
+                coordinator=coordinator,
+                http_client=http_client,
+                retry_base_delay=1.0,
+                accounting_settle_delay_seconds=0,
+            )
+            for run in settlement_rows:
+                try:
+                    lease = coordinator.lease_for_run(str(run["id"]))
+                    await client.refresh_terminal_run_accounting(
+                        lease,
+                        str(run["remote_run_id"]),
+                    )
+                except Exception:
+                    # A terminal Run cannot create duplicate spend here. Keep
+                    # its prior amount and try the bounded read next Worker pass.
+                    continue
 
     quota = quota_service or ApifySecretQuotaService()
     for secret_id in coordinator.quota_refresh_candidates(workspace_id):

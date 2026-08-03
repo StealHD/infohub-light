@@ -1024,7 +1024,7 @@ export type ApifyActorDiscoveryCandidate = {
 }
 
 export type ApifyActorDiscoveryRun = {
-  schema_version: 4
+  schema_version: 5
   run_id: string
   route_id?: string | null
   generation: number
@@ -1035,6 +1035,7 @@ export type ApifyActorDiscoveryRun = {
   budget_cap_usd: number
   spent_usd?: number | null
   reserved_usd?: number | null
+  unreconciled_cost_count?: number | null
   canary_attempts_used?: number | null
   canary_attempts_limit?: number | null
   canary_attempts_remaining?: number | null

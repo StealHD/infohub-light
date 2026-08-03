@@ -5845,6 +5845,289 @@ class ApifyActorOpsService:
             maximum=10_000.0,
         )
 
+    def reconcile_proven_no_start_attempts(self) -> dict[str, int]:
+        """Release ActorOps barriers after Apify proves no Run was created.
+
+        The remote proof and Key-pool ledger transition happen in
+        :class:`ApifyKeyPoolService`.  This idempotent local phase restores the
+        Canary budget and Route state; it never contacts Apify and never queues
+        a paid retry.
+        """
+
+        now = self._now_iso()
+        attempts = 0
+        validations = 0
+        batches: set[str] = set()
+        discovery_runs: set[str] = set()
+        routes: set[tuple[str, str, int]] = set()
+        with self._write() as connection:
+            rows = connection.execute(
+                """
+                SELECT attempt.id AS attempt_id, attempt.job_id,
+                       attempt.route_key, profile.route_id,
+                       profile.min_runtime_healthy,
+                       validation.validation_id,
+                       validation.discovery_run_id,
+                       item.batch_id
+                FROM apify_actor_runs AS run
+                JOIN apify_actor_attempts AS attempt
+                  ON attempt.workspace_id = run.workspace_id
+                 AND attempt.id = run.logical_run_id
+                JOIN apify_actor_route_profiles AS profile
+                  ON profile.workspace_id = attempt.workspace_id
+                 AND profile.route_key = attempt.route_key
+                LEFT JOIN apify_actor_validations AS validation
+                  ON validation.workspace_id = attempt.workspace_id
+                 AND validation.attempt_id = attempt.id
+                LEFT JOIN apify_actor_canary_batch_items AS item
+                  ON item.workspace_id = validation.workspace_id
+                 AND item.validation_id = validation.validation_id
+                WHERE run.workspace_id = ?
+                  AND run.status = 'start_rejected'
+                  AND run.last_error_code = 'apify_start_not_created'
+                  AND run.charge_final = 1
+                  AND run.charge_actual_usd = 0
+                  AND attempt.status = 'start_outcome_unknown'
+                ORDER BY run.terminal_at, run.id
+                LIMIT 100
+                """,
+                (self.workspace_id,),
+            ).fetchall()
+            for row in rows:
+                attempt_cursor = connection.execute(
+                    """
+                    UPDATE apify_actor_attempts
+                    SET status = 'cancelled',
+                        semantic_outcome = 'apify_start_not_created',
+                        actual_cost_usd = 0, cost_final = 1,
+                        last_error_code = 'apify_start_not_created',
+                        terminal_at = COALESCE(terminal_at, ?), updated_at = ?
+                    WHERE workspace_id = ? AND id = ?
+                      AND status = 'start_outcome_unknown'
+                    """,
+                    (now, now, self.workspace_id, str(row["attempt_id"])),
+                )
+                attempts += int(attempt_cursor.rowcount)
+                if row["validation_id"] is not None:
+                    validation_cursor = connection.execute(
+                        """
+                        UPDATE apify_actor_validations
+                        SET status = 'failed',
+                            semantic_outcome = 'apify_start_not_created',
+                            cost_usd = 0, cost_final = 1,
+                            counts_toward_canary = 0,
+                            completed_at = COALESCE(completed_at, ?)
+                        WHERE workspace_id = ? AND validation_id = ?
+                        """,
+                        (now, self.workspace_id, str(row["validation_id"])),
+                    )
+                    validations += int(validation_cursor.rowcount)
+                if row["batch_id"] is not None:
+                    batch_id = str(row["batch_id"])
+                    batches.add(batch_id)
+                    connection.execute(
+                        """
+                        UPDATE apify_actor_canary_batch_items
+                        SET status = 'failed',
+                            semantic_outcome = 'apify_start_not_created',
+                            actual_cost_usd = 0, cost_final = 1,
+                            completed_at = COALESCE(completed_at, ?),
+                            updated_at = ?
+                        WHERE workspace_id = ? AND batch_id = ?
+                          AND validation_id = ?
+                          AND status = 'blocked_unknown_start'
+                        """,
+                        (
+                            now,
+                            now,
+                            self.workspace_id,
+                            batch_id,
+                            str(row["validation_id"]),
+                        ),
+                    )
+                if row["discovery_run_id"] is not None:
+                    discovery_runs.add(str(row["discovery_run_id"]))
+                if row["job_id"] is not None:
+                    connection.execute(
+                        """
+                        UPDATE fetch_jobs
+                        SET status = 'failed',
+                            error_code = 'apify_start_not_created',
+                            error_message = 'Apify confirmed that the Run was not created',
+                            updated_at = ?
+                        WHERE workspace_id = ? AND id = ?
+                          AND status = 'succeeded'
+                        """,
+                        (now, self.workspace_id, str(row["job_id"])),
+                    )
+                routes.add(
+                    (
+                        str(row["route_id"]),
+                        str(row["route_key"]),
+                        int(row["min_runtime_healthy"]),
+                    )
+                )
+
+            for batch_id in batches:
+                batch = connection.execute(
+                    """
+                    SELECT batch.route_id,
+                           COALESCE(SUM(CASE WHEN item.cost_final = 1
+                               THEN COALESCE(item.actual_cost_usd, 0)
+                               ELSE 0 END), 0) AS actual_cost,
+                           COUNT(*) AS item_count,
+                           COALESCE(SUM(item.cost_final), 0) AS final_count
+                    FROM apify_actor_canary_batches AS batch
+                    JOIN apify_actor_canary_batch_items AS item
+                      ON item.workspace_id = batch.workspace_id
+                     AND item.batch_id = batch.batch_id
+                    WHERE batch.workspace_id = ? AND batch.batch_id = ?
+                    GROUP BY batch.route_id
+                    """,
+                    (self.workspace_id, batch_id),
+                ).fetchone()
+                if batch is None:
+                    continue
+                proof = connection.execute(
+                    """
+                    SELECT COUNT(DISTINCT revision.actor_id) AS actors,
+                           COUNT(DISTINCT lower(revision.publisher)) AS publishers
+                    FROM apify_actor_validations AS validation
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = validation.workspace_id
+                     AND revision.revision_id = validation.revision_id
+                    WHERE validation.workspace_id = ?
+                      AND validation.route_id = ?
+                      AND validation.kind = 'route_reference'
+                      AND validation.status = 'succeeded'
+                      AND validation.semantic_outcome IN (
+                          'valid_nonempty', 'valid_empty'
+                      )
+                    """,
+                    (self.workspace_id, str(batch["route_id"])),
+                ).fetchone()
+                ready = (
+                    int(proof["actors"] or 0) >= 2
+                    and int(proof["publishers"] or 0) >= 2
+                )
+                connection.execute(
+                    """
+                    UPDATE apify_actor_canary_batches
+                    SET status = ?, success_count = ?, publisher_count = ?,
+                        actual_cost_usd = ?, cost_final = ?,
+                        stop_reason = 'apify_start_not_created',
+                        completed_at = COALESCE(completed_at, ?), updated_at = ?
+                    WHERE workspace_id = ? AND batch_id = ?
+                    """,
+                    (
+                        "activation_ready" if ready else "partial",
+                        min(int(proof["actors"] or 0), 3),
+                        min(int(proof["publishers"] or 0), 3),
+                        float(batch["actual_cost"] or 0),
+                        int(
+                            int(batch["final_count"] or 0)
+                            == int(batch["item_count"] or 0)
+                        ),
+                        now,
+                        now,
+                        self.workspace_id,
+                        batch_id,
+                    ),
+                )
+
+            for run_id in discovery_runs:
+                proof = connection.execute(
+                    """
+                    SELECT COUNT(DISTINCT revision.actor_id) AS actors,
+                           COUNT(DISTINCT lower(revision.publisher)) AS publishers
+                    FROM apify_actor_validations AS validation
+                    JOIN apify_actor_adapter_revisions AS revision
+                      ON revision.workspace_id = validation.workspace_id
+                     AND revision.revision_id = validation.revision_id
+                    WHERE validation.workspace_id = ?
+                      AND validation.discovery_run_id = ?
+                      AND validation.kind = 'route_reference'
+                      AND validation.status = 'succeeded'
+                      AND validation.semantic_outcome IN (
+                          'valid_nonempty', 'valid_empty'
+                      )
+                    """,
+                    (self.workspace_id, run_id),
+                ).fetchone()
+                ready = (
+                    int(proof["actors"] or 0) >= 2
+                    and int(proof["publishers"] or 0) >= 2
+                )
+                connection.execute(
+                    """
+                    UPDATE apify_actor_discovery_runs
+                    SET stage = ?, error_code = NULL, failure_phase = NULL,
+                        updated_at = ?
+                    WHERE workspace_id = ? AND run_id = ?
+                      AND stage IN (
+                          'awaiting_canary_approval', 'canary_exhausted',
+                          'candidate_shortfall', 'activation_ready'
+                      )
+                    """,
+                    (
+                        "activation_ready" if ready else "awaiting_canary_approval",
+                        now,
+                        self.workspace_id,
+                        run_id,
+                    ),
+                )
+
+            for route_id, route_key, minimum in routes:
+                runnable = self._count_runnable_slots(connection, route_id)
+                profile_status = (
+                    "ready" if runnable >= minimum else "discovery_required"
+                )
+                compatibility_status = (
+                    "ready"
+                    if runnable == 3
+                    else "degraded"
+                    if runnable >= minimum
+                    else "blocked"
+                )
+                compatibility_reason = (
+                    None if runnable >= minimum else "discovery_required"
+                )
+                connection.execute(
+                    """
+                    UPDATE apify_actor_route_profiles
+                    SET status = ?, generation = generation + 1, updated_at = ?
+                    WHERE workspace_id = ? AND route_id = ?
+                      AND status = 'blocked_unknown_start'
+                    """,
+                    (profile_status, now, self.workspace_id, route_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE apify_actor_routes
+                    SET status = ?, blocked_reason = ?,
+                        generation = generation + 1, updated_at = ?
+                    WHERE workspace_id = ? AND route_key = ?
+                      AND blocked_reason IN (
+                          'start_outcome_unknown',
+                          'apify_start_outcome_unknown',
+                          'apify_run_reconcile_required'
+                      )
+                    """,
+                    (
+                        compatibility_status,
+                        compatibility_reason,
+                        now,
+                        self.workspace_id,
+                        route_key,
+                    ),
+                )
+        return {
+            "attempts": attempts,
+            "validations": validations,
+            "batches": len(batches),
+            "routes": len(routes),
+        }
+
     def reconcile_terminal_validation_costs(self) -> dict[str, int]:
         """Copy final remote charges into the attempt and validation ledgers.
 
@@ -5854,6 +6137,8 @@ class ApifyActorOpsService:
 
         attempts = 0
         validations = 0
+        batch_items = 0
+        batch_ids: set[str] = set()
         cycles = 0
         now = self._now_iso()
         with self._write() as connection:
@@ -5915,6 +6200,59 @@ class ApifyActorOpsService:
                 )
                 attempts += int(attempt_cursor.rowcount)
                 validations += int(validation_cursor.rowcount)
+                item_rows = connection.execute(
+                    """
+                    SELECT batch_id
+                    FROM apify_actor_canary_batch_items
+                    WHERE workspace_id = ? AND validation_id = ?
+                    """,
+                    (self.workspace_id, str(row["validation_id"])),
+                ).fetchall()
+                item_cursor = connection.execute(
+                    """
+                    UPDATE apify_actor_canary_batch_items
+                    SET actual_cost_usd = ?, cost_final = 1, updated_at = ?
+                    WHERE workspace_id = ? AND validation_id = ?
+                    """,
+                    (
+                        actual,
+                        now,
+                        self.workspace_id,
+                        str(row["validation_id"]),
+                    ),
+                )
+                batch_items += int(item_cursor.rowcount)
+                batch_ids.update(str(item["batch_id"]) for item in item_rows)
+            for batch_id in batch_ids:
+                aggregate = connection.execute(
+                    """
+                    SELECT COALESCE(SUM(CASE WHEN cost_final = 1
+                               THEN COALESCE(actual_cost_usd, 0)
+                               ELSE 0 END), 0) AS actual_cost,
+                           COUNT(*) AS item_count,
+                           COALESCE(SUM(cost_final), 0) AS final_count
+                    FROM apify_actor_canary_batch_items
+                    WHERE workspace_id = ? AND batch_id = ?
+                    """,
+                    (self.workspace_id, batch_id),
+                ).fetchone()
+                connection.execute(
+                    """
+                    UPDATE apify_actor_canary_batches
+                    SET actual_cost_usd = ?, cost_final = ?, updated_at = ?
+                    WHERE workspace_id = ? AND batch_id = ?
+                    """,
+                    (
+                        float(aggregate["actual_cost"] or 0),
+                        int(
+                            int(aggregate["final_count"] or 0)
+                            == int(aggregate["item_count"] or 0)
+                        ),
+                        now,
+                        self.workspace_id,
+                        batch_id,
+                    ),
+                )
             ready_cursor = connection.execute(
                 """
                 UPDATE apify_actor_discovery_runs
@@ -5996,6 +6334,8 @@ class ApifyActorOpsService:
         return {
             "attempts": attempts,
             "validations": validations,
+            "batch_items": batch_items,
+            "batches": len(batch_ids),
             "cycles": cycles,
         }
 

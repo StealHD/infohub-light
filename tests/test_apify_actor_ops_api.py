@@ -1163,7 +1163,7 @@ def test_discovery_projection_reports_rank_rejections_and_committed_spend(
     )
     assert response.status_code == 200, response.text
     projected = response.json()["data"]
-    assert projected["schema_version"] == 4
+    assert projected["schema_version"] == 5
     assert projected["canary_attempts_used"] == 0
     assert projected["canary_attempts_limit"] == 5
     assert projected["canary_attempts_remaining"] == 5
@@ -1182,6 +1182,7 @@ def test_discovery_projection_reports_rank_rejections_and_committed_spend(
     }
     assert projected["spent_usd"] == 0
     assert projected["reserved_usd"] == 0.02
+    assert projected["unreconciled_cost_count"] == 0
     assert projected["rejections"] == [
         {"reason": "actor_full_permission", "count": 2}
     ]

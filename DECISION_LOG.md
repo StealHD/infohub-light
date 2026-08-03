@@ -973,3 +973,12 @@
 - 候选判定：定价事件名仍可作为频道资料型 Actor 的负证据，但精确 Build Dataset Schema 同时证明视频内容 ID、视频 URL、发布时间和标题/正文时优先采用 Schema，不再因 `youtube-channel-row` 等模糊计费名称误杀真实视频 Actor。Store 返回顺序不再代表质量；有完整 items Schema 的候选先进入有界 AI 排序集合。
 - 运行边界：上述修复不复活历史失败 Revision、不伪造成功 Canary，也不自动启动 Actor。重复排队的同一 Discovery Run 若已被另一 Worker 推进，后续 Job 作为幂等重放成功结束，不再生成误导性的 `ValueError`。原始 Dataset 仍不落库、不发给模型；开发排障只读取已有 Run 的无值字段路径与类型摘要。
 - 原因：真实 YouTube Run 已证明至少一个固定 Build 返回完整 `videoId/videoUrl/videoPublishedAt`，但旧 Manifest 被 Prompt 诱导加上不存在的 `/candidate/...`，并因仅看价格事件名被后续 Discovery 淘汰；另一个 Actor 的 `channelIds` 又收到 handle 字符串。这些是控制面映射错误，不是商城缺少 Actor。
+
+### D114 未知启动以账号级空窗口证明自愈，费用等待远端聚合稳定
+
+- 决策日期：2026-08-03
+- 当前状态：热修复分支实现与验证中；恢复过程不自动调用 Actor
+- 未知启动边界：付费 POST 的网络或 5xx 结果未知时仍立即阻断当前批次、Route 与 Key，绝不切 Actor 或重发 POST。30 秒安全窗后，Worker 使用原 reservation 的 Key 查询从预留前到当前的账号级 Run 列表；只有权威响应同时证明 `total=0` 和空 items，才把本地记录终结为 `apify_start_not_created/$0`、归还 Canary 次数并解除对应阻断。窗口内存在任何 Run、响应缺字段、分页/读取歧义或 Key 不可用都继续 fail closed。
+- 费用终结边界：Apify 首次报告 Run 终态后，以 `finishedAt + 10s` 为聚合稳定点再次读取同一 Run 的 `usageTotalUsd`；既有终态账本若在该窗口前写入，Worker 只做幂等 GET 补账并同步 attempt、validation 和 batch。刷新失败保持金额待对账，不显示为 0，也不启动新 Run。
+- 产品投影：Discovery schema v5 按 Route 分别返回已确认实际费用、待对账笔数、已审批但尚未运行的上限和认证预算上限；`$0.10` 明确是认证预算，不是预留或扣款。证明未创建的旧批次显示本次 `$0` 且未自动重跑，下一次付费仍需管理员重新确认。
+- 原因：生产证据显示最新 YouTube POST 被分类为 HTTP 5xx 未知启动，但相同时间窗的 Apify 账号 Run 列表为零；旧恢复器又在 pool blocked 时直接返回，导致可以证明未扣费的状态永久锁死。同时四个已知终态 Run 的首读费用合计低于十秒后远端聚合值，说明首次终态并不是可靠的最终账单。

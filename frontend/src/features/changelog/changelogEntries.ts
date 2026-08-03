@@ -88,6 +88,8 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '两路主备自动串行验证', description: '页面不再要求逐个候选点击。一次确认后，服务端最多选择三个不同 Actor 并逐项执行：每次付费启动前先免费核对公开 Actor 和精确 Build，两个不同发布者成功后立即停止，未启动候选费用为 0。' },
           { title: '候选用尽自动补位', description: '本批候选仍不足两路时会保留已经成功的证据，并自动创建一个不启动 Actor 的 Discovery 补位任务；未知启动结果仍会阻断整批、Route 与 Key，不会为了赶进度重复付费。' },
           { title: '批准上限不再冒充实际费用', description: '页面分别显示已终结实际费用与仍排队的批准上限。离线升级只把账本证明从未创建远端 Run/Dataset 的 start rejection 修复为 0 美元并停用失效 Build；不能证明未启动的旧记录继续显示费用未知。' },
+          { title: '未知启动可以安全自愈', description: '启动请求结果未知时仍立即阻断且不切 Actor；系统等待安全窗后查询账号级 Run 列表，只有明确没有创建任何 Run 才记为 0 美元、归还试跑次数并恢复入口。系统不会自动重跑，下一次付费仍需重新确认。' },
+          { title: '终态费用等待远端结算', description: 'Actor 终态后等待 Apify 费用聚合稳定并再次读取同一 Run；旧的过早费用记录会通过只读 GET 自动补账。页面将已确认实际费用、待对账笔数、尚未运行的批准上限和 0.10 美元认证预算分开显示，预算不是扣款。' },
           { title: '候选合格后只需确认启用', description: '页面不再暴露 Revision 下拉或手工排槽。服务端优先生成完整 2+1，也可生成两个 Canary 成功 Actor 的快速主备方案；管理员核对 Route、来源模式和费用上限后确认一次生效，浏览器不能指定候选。新来源按当前两或三路完成 2/2 或 3/3 验证。' },
           { title: 'Dataset 解码不重复付费', description: '所有 Apify 请求显式使用 identity encoding；已启动 X Run 的 Dataset 解码失败只会使用同一 Key 重读同一 Dataset，不会二次启动 Actor或切换槽位，耗尽后保留账本并安全阻断对账。' },
           { title: '支持组合固定', description: '首期支持检查只显示 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合。离线升级会在确认没有候选、费用、绑定、验证或活跃任务证据后安全清理误建的 YouTube Profile，并保留合法 Route 的 generation 单调性。' },

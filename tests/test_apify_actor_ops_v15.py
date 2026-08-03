@@ -1595,3 +1595,64 @@ def test_unknown_start_attempt_and_barriers_commit_atomically(
         (DEFAULT_WORKSPACE_ID,),
     ).fetchone()
     assert key["status"] != "blocked"
+
+
+def test_proven_no_start_restores_route_and_canary_attempt_budget(tmp_path) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops, route, _revisions = _ready_pool(store)
+    snapshot = ops.freeze_execution(route["route_id"])
+    attempt_id = ops.begin_attempt(
+        snapshot,
+        snapshot.slots[0],
+        attempt_group_id="proof-no-start",
+        attempt_index=1,
+    )
+    ops.finish_unknown_start(
+        snapshot,
+        attempt_id=attempt_id,
+        semantic_outcome="start_unknown",
+        error_code="apify_start_outcome_unknown",
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    store.connect().execute(
+        """
+        INSERT INTO apify_actor_runs (
+            id, workspace_id, logical_run_id, secret_id, secret_version,
+            pool_generation, remote_run_id, dataset_id, status,
+            last_error_code, charge_reserved_usd, charge_actual_usd,
+            charge_final, created_at, started_at, terminal_at, updated_at
+        ) VALUES (
+            'proof-no-start-run', ?, ?, 'proof-secret', 1, 1,
+            NULL, NULL, 'start_rejected', 'apify_start_not_created',
+            0, 0, 1, ?, NULL, ?, ?
+        )
+        """,
+        (DEFAULT_WORKSPACE_ID, attempt_id, now, now, now),
+    )
+    store.connect().commit()
+
+    result = ops.reconcile_proven_no_start_attempts()
+
+    assert result == {
+        "attempts": 1,
+        "validations": 0,
+        "batches": 0,
+        "routes": 1,
+    }
+    attempt = store.connect().execute(
+        """
+        SELECT status, semantic_outcome, actual_cost_usd, cost_final
+        FROM apify_actor_attempts WHERE id = ?
+        """,
+        (attempt_id,),
+    ).fetchone()
+    assert tuple(attempt) == (
+        "cancelled",
+        "apify_start_not_created",
+        0.0,
+        1,
+    )
+    restored = ops.get_route(route["route_id"])
+    assert restored["status"] == "ready"
+    assert restored["runtime"]["allowed"] is True

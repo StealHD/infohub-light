@@ -5094,21 +5094,39 @@ def create_app(
             """,
             (str(user["workspace_id"]), run_id),
         ).fetchall()
+        route_validation_rows = store.connect().execute(
+            """
+            SELECT validation.status, validation.cost_usd,
+                   validation.cost_final,
+                   validation.approved_max_cost_usd,
+                   validation.counts_toward_canary,
+                   revision.actor_id, revision.publisher
+            FROM apify_actor_validations AS validation
+            JOIN apify_actor_adapter_revisions AS revision
+              ON revision.workspace_id = validation.workspace_id
+             AND revision.revision_id = validation.revision_id
+            WHERE validation.workspace_id = ?
+              AND validation.route_id = ?
+              AND validation.kind = 'route_reference'
+            ORDER BY validation.created_at, validation.validation_id
+            """,
+            (str(user["workspace_id"]), str(run["route_id"])),
+        ).fetchall()
         latest_validation: dict[str, dict[str, Any]] = {}
         for row in validation_rows:
             latest_validation.setdefault(str(row["revision_id"]), dict(row))
         attempt_count = sum(
             int(row["counts_toward_canary"] or 0)
-            for row in validation_rows
+            for row in route_validation_rows
         )
         succeeded_actors = {
-            str(row["validation_actor_id"])
-            for row in validation_rows
+            str(row["actor_id"])
+            for row in route_validation_rows
             if str(row["status"]) == "succeeded"
         }
         succeeded_publishers = {
-            str(row["validation_publisher"]).casefold()
-            for row in validation_rows
+            str(row["publisher"]).casefold()
+            for row in route_validation_rows
             if str(row["status"]) == "succeeded"
         }
         effective_stage = str(run["stage"])
@@ -5210,20 +5228,20 @@ def create_app(
                 }
             )
         spent_usd = sum(
-            float(
-                row["actor_run_cost_usd"]
-                if row["actor_run_cost_usd"] is not None
-                else row["cost_usd"]
-                if bool(row["cost_final"])
-                and row["cost_usd"] is not None
-                else 0
-            )
-            for row in validation_rows
+            float(row["cost_usd"] or 0)
+            for row in route_validation_rows
+            if bool(row["cost_final"])
         )
         reserved_usd = sum(
             float(row["approved_max_cost_usd"] or 0)
-            for row in validation_rows
+            for row in route_validation_rows
             if str(row["status"]) in {"queued", "running"}
+        )
+        unreconciled_cost_count = sum(
+            1
+            for row in route_validation_rows
+            if str(row["status"]) in {"succeeded", "failed", "cancelled"}
+            and not bool(row["cost_final"])
         )
         settings = ops.get_discovery_settings()
         candidate_count = len(candidates)
@@ -5254,7 +5272,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "run_id": str(run["run_id"]),
                 "route_id": str(run["route_id"]),
                 "generation": int(
@@ -5267,6 +5285,7 @@ def create_app(
                 "budget_cap_usd": float(run["budget_usd"]),
                 "spent_usd": spent_usd,
                 "reserved_usd": reserved_usd,
+                "unreconciled_cost_count": unreconciled_cost_count,
                 "canary_attempts_used": attempt_count,
                 "canary_attempts_limit": ROUTE_CANARY_ATTEMPT_LIMIT,
                 "canary_attempts_remaining": max(

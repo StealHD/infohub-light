@@ -133,6 +133,7 @@ def test_existing_drain_still_aborts_registered_run_before_failover(
     assert requests == [
         ("POST", "/v2/actor-runs/remote-old/abort"),
         ("GET", "/v2/actor-runs/remote-old"),
+        ("GET", "/v2/actor-runs/remote-old"),
     ]
 
 
@@ -153,3 +154,121 @@ def test_restart_with_unregistered_reservation_blocks_without_needing_token(
     assert run["status"] == "start_outcome_unknown"
     assert run["last_error_code"] == "apify_restart_start_outcome_unknown"
     assert lease.reservation_id not in repr(state)
+
+
+def test_unknown_start_with_authoritative_empty_window_recovers_without_post(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="canary-attempt")
+    coordinator.report_start_outcome_unknown(
+        lease,
+        error_code="apify_start_http_outcome_unknown",
+    )
+    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    store.connect().execute(
+        "UPDATE apify_actor_runs SET created_at = ?, updated_at = ? WHERE id = ?",
+        (old, old, lease.reservation_id),
+    )
+    store.connect().commit()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.method == "GET"
+        assert request.url.path == "/v2/actor-runs"
+        assert request.url.params["limit"] == "1000"
+        return httpx.Response(
+            200,
+            json={"data": {"items": [], "total": 0, "count": 0}},
+        )
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert state["status"] == "ready"
+    assert len(requests) == 1
+    run = coordinator.get_run(lease.reservation_id)
+    assert run["status"] == "start_rejected"
+    assert run["last_error_code"] == "apify_start_not_created"
+    assert run["charge_actual_usd"] == 0
+    assert run["charge_final"] == 1
+
+
+def test_unknown_start_with_any_account_run_remains_blocked(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="canary-attempt")
+    coordinator.report_start_outcome_unknown(lease)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    store.connect().execute(
+        "UPDATE apify_actor_runs SET created_at = ?, updated_at = ? WHERE id = ?",
+        (old, old, lease.reservation_id),
+    )
+    store.connect().commit()
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "items": [{"id": "redacted-remote-run"}],
+                            "total": 1,
+                            "count": 1,
+                        }
+                    },
+                )
+            ),
+        )
+    )
+
+    assert state["status"] == "blocked"
+    assert coordinator.get_run(lease.reservation_id)["status"] == "start_outcome_unknown"
+
+
+def test_terminal_cost_is_refreshed_after_settlement_window(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    store, _secret_store, coordinator, _refs = _pool(tmp_path)
+    lease = coordinator.acquire_credential(logical_run_id="settled-attempt")
+    coordinator.register_run(lease, "remote-settlement", "dataset-settlement")
+    coordinator.record_run_accounting(
+        lease,
+        actual_cost_usd=0.00005,
+        cost_final=True,
+    )
+    coordinator.mark_run_terminal(lease, "remote-settlement", "SUCCEEDED")
+
+    state = asyncio.run(
+        reconcile_apify_pool(
+            coordinator,
+            quota_service=_Quota(),
+            http_transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "id": "remote-settlement",
+                            "status": "SUCCEEDED",
+                            "usageTotalUsd": 0.00505,
+                        }
+                    },
+                )
+            ),
+        )
+    )
+
+    assert state["status"] == "ready"
+    run = coordinator.get_run(lease.reservation_id)
+    assert run["charge_actual_usd"] == 0.00505
+    assert run["charge_final"] == 1

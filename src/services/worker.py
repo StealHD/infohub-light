@@ -1297,6 +1297,7 @@ def _run_apify_actor_canary_batch(
                             "batch_id": batch_id,
                             "status": "blocked_unknown_start",
                             "error_code": stop_reason,
+                            "_job_status": "failed",
                         }
                     continue
                 else:
@@ -1935,6 +1936,13 @@ def run_worker_once(
                 store,
                 workspace_id=str(outcome["workspace_id"]),
             )
+            no_start_reconcile = actor_ops.reconcile_proven_no_start_attempts()
+            if no_start_reconcile["attempts"]:
+                logger.info(
+                    "Apify Actor no-start proof reconciled workspace_id=%s count=%s",
+                    outcome["workspace_id"],
+                    no_start_reconcile["attempts"],
+                )
             actor_ops_reconcile = actor_ops.reconcile_unfinished_attempts()
             if actor_ops_reconcile["routes_blocked"]:
                 logger.warning(

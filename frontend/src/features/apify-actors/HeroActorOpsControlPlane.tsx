@@ -469,8 +469,8 @@ function DiscoveryPanel({
       />
       <Metric
         label="Route 认证费用"
-        value={formatActorUsd(run.spent_usd ?? 0)}
-        detail={`实际已终结；预留 ${formatActorUsd(run.reserved_usd ?? 0)}；总上限 ${formatActorUsd(run.budget_cap_usd)}`}
+        value={`${formatActorUsd(run.spent_usd ?? 0)} 已确认`}
+        detail={`待远端对账 ${run.unreconciled_cost_count ?? 0} 笔；已审批但未运行的费用上限 ${formatActorUsd(run.reserved_usd ?? 0)}；认证预算上限 ${formatActorUsd(run.budget_cap_usd)}（不是扣款）`}
       />
       <Metric
         label="候选完整度"
@@ -486,7 +486,9 @@ function DiscoveryPanel({
       {discoveryReasonLabel(run.error_code)}。安全错误码：<code>{run.error_code}</code>
     </HeroNotice>}
     {displayedBatch && <HeroNotice
-      title={displayedBatch.status === 'activation_ready'
+      title={displayedBatch.stop_reason === 'apify_start_not_created'
+        ? 'Apify 已确认未创建 Run：本次费用 $0，系统没有自动重跑'
+        : displayedBatch.status === 'activation_ready'
         ? '两路主备验证完成，可以确认启用'
         : paidBatchRunning
           ? `正在串行验证主备（${displayedBatch.success_count}/2 成功）`
