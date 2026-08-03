@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-03',
-  change: 'v2.2.2 修复 ActorOps 跨轮候选复用；补位不会丢失旧 Canary 证据',
+  change: 'v2.2.4 修复 YouTube Actor 未知启动阻断与终态费用对账',
 } as const
 
 export const manualSections: ManualSection[] = [
