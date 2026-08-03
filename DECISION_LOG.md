@@ -977,7 +977,7 @@
 ### D114 Settings 采用独立工作区并按路由渐进迁移
 
 - 决策日期：2026-08-03
-- 当前状态：第一阶段 UI 架构实现；不修改 API、数据库或业务逻辑
-- 决策内容：所有 `/settings/*` 路由不再挂载 Feed Workbench Shell，而由独立 Settings Workspace 接管同一左栏位置。桌面固定 260 px 设置侧栏，移动端使用全高 Drawer；顶部返回动作携带并校验来源应用的 path/query/hash，拒绝登录、设置循环和外部目的地，缺失时回退 `/feed`。设置导航固定分为概览、工作区 / 来源、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 高级，第一阶段不提供搜索，高级继续按 Owner/Admin 权限过滤。
-- 迁移边界：第一阶段只原生迁移 `/settings` Overview、`/settings/appearance` 和 `/settings/notifications`。Notifications 直接复用既有 query/mutation 组件，Appearance 复用 `inteliscope.ui.theme.v1`，Overview 不新增业务请求。AI、ignored、fetching/topic、storage/archive 和 secrets 继续由 `/settings/legacy#settings-*` 承载；旧 hash 确定性重定向，角色不可访问或未知 hash 回到 Overview。来源桥接到 `/subscriptions`。
-- 组件与兼容：`frontend/src/components/settings/` 统一拥有 SettingsSection、SettingsGroup、SettingsItem、SettingsCard、SettingsSidebar 和 StatusBadge，仍只消费项目 design-system，不引入 HeroUI Pro。Feed sidebar preference、API/DB schema、权限、脏草稿、原子保存、write-only 凭据和通知投递语义全部不变。D114 取代 D097 中“设置必须依赖主侧栏悬浮目录与整页相邻滚动激活”的页面架构；D096/D097 的按需查询与草稿语义仅在 legacy bridge 内继续适用，直至对应页面逐项迁移。
+- 当前状态：第二阶段 UI 原生化实现；不修改 API、数据库或业务逻辑
+- 决策内容：所有 `/settings/*` 路由不再挂载 Feed Workbench Shell，而由独立 Settings Workspace 接管同一左栏位置。桌面固定 260 px 设置侧栏，移动端使用全高 Drawer；顶部返回动作携带并校验来源应用的 path/query/hash，拒绝登录、设置循环和外部目的地，缺失时回退 `/feed`。设置导航固定分为概览、工作区 / 来源与已忽略内容、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 高级，不提供搜索，高级继续按 Owner/Admin 权限过滤。
+- 迁移边界：原生页面为 `/settings` Overview、`/settings/appearance`、`/settings/notifications`、`/settings/ai` 和 `/settings/ignored`。AI 保留既有 config payload/diff、分别或原子保存、Key write-only 和触底文案状态语义；Key 仅显示元数据，Member/Viewer 只显示说明且不请求 workspace config、Key 或状态。ignored 保留最多 200 条查询、逐项恢复、缓存失效与 Toast。fetching/topic、storage/archive 和 secrets 继续由 `/settings/legacy#settings-*` 承载；旧 AI/ignored hash 确定性重定向到原生页，角色不可访问或未知 hash 回到 Overview。来源桥接到 `/subscriptions`。
+- 组件与兼容：`frontend/src/components/settings/` 统一拥有 SettingsSection、SettingsGroup、SettingsItem、SettingsCard、SettingsSidebar、StatusBadge 和默认折叠但保留草稿的 SettingsDisclosure，仍只消费项目 design-system，不引入 HeroUI Pro。Feed sidebar preference、API/DB schema、权限、缓存、脏草稿、原子保存、write-only 凭据和通知投递语义全部不变。D114 取代 D097 中“设置必须依赖主侧栏悬浮目录与整页相邻滚动激活”的页面架构；D096/D097 的按需查询与草稿语义仅在剩余 legacy bridge 内继续适用，直至对应页面逐项迁移。

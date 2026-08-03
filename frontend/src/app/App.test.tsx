@@ -1813,6 +1813,27 @@ describe('App routes', () => {
     expect(document.querySelector('[data-settings-page="notifications"]')).toBeInTheDocument()
   })
 
+  it('keeps the native AI page read-only without requesting workspace configuration for members', async () => {
+    const config = vi.fn()
+    const secrets = vi.fn()
+    const feedEndMessages = vi.fn()
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-ai-readonly', username: 'member', role: 'member', enabled: true } }),
+      config,
+      secrets,
+      feedEndMessages,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/ai']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: 'AI', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByText('工作区设置只读')).toBeInTheDocument()
+    await act(async () => Promise.resolve())
+    expect(config).not.toHaveBeenCalled()
+    expect(secrets).not.toHaveBeenCalled()
+    expect(feedEndMessages).not.toHaveBeenCalled()
+  })
+
   it('keeps legacy settings reachable inside the workspace without mounting the Feed shell', async () => {
     const config = vi.fn().mockResolvedValue({
       config: { ai: {}, filtering: {}, feed_end_messages: {} },
@@ -1982,7 +2003,7 @@ describe('App routes', () => {
       expect(secretQuota).toHaveBeenCalledWith('apify-cached')
 
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '助手与 AI' }))
+      await browser.click(await screen.findByRole('option', { name: '获取与主题' }))
       now += (5 * 60 * 1000) - 1
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
       await browser.click(await screen.findByRole('option', { name: '密钥' }))
@@ -1990,7 +2011,7 @@ describe('App routes', () => {
       expect(secretQuota).toHaveBeenCalledOnce()
 
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
-      await browser.click(await screen.findByRole('option', { name: '助手与 AI' }))
+      await browser.click(await screen.findByRole('option', { name: '获取与主题' }))
       now += 2
       await browser.click(screen.getByRole('button', { name: /设置区域/ }))
       await browser.click(await screen.findByRole('option', { name: '密钥' }))
@@ -2068,7 +2089,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('heading', { name: '助手与 AI' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '高级', level: 1 })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.querySelector('[data-page-frame="settings"]')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
@@ -2125,22 +2146,13 @@ describe('App routes', () => {
     } as Partial<ServiceApi>)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries')
-    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/legacy#settings-fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    expect(screen.queryByRole('navigation', { name: '设置目录' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('navigation', { name: '设置导航' })).toBeInTheDocument()
     const sectionSelector = await screen.findByRole('button', { name: /设置区域/ })
     expect(sectionSelector).toBeInTheDocument()
     expect(document.querySelector('[data-mobile-settings-selector]')).toHaveClass('min-[768px]:pointer-fine:hidden')
-    const outputLanguage = await screen.findByRole('textbox', { name: '输出语言' })
-    await browser.clear(outputLanguage)
-    await browser.type(outputLanguage, 'zh-CN')
-    expect(await screen.findByText('有尚未保存的更改')).toBeInTheDocument()
-    await browser.clear(outputLanguage)
-    await browser.type(outputLanguage, 'zh')
-    await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
 
-    await browser.click(sectionSelector)
-    await browser.click(await screen.findByRole('option', { name: '获取与主题' }))
     const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
     expect(initialWindow).toHaveTextContent('7 天')
     await browser.click(initialWindow)
@@ -3214,7 +3226,7 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '助手与 AI' })
+    await screen.findByRole('heading', { name: '工作区 AI' })
     await browser.click(await screen.findByRole('button', { name: /Provider/ }))
     await browser.click(await screen.findByRole('option', { name: 'DeepSeek' }))
     expect(screen.getByRole('textbox', { name: '模型' })).toHaveValue('deepseek-v4-flash')

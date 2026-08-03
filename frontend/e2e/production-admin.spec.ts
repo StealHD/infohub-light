@@ -370,6 +370,7 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   const configResponse = {
     config: {
       ai: { enabled: true, provider: 'gemini', model: 'gemini-3.5-flash', api_key_env: 'GOOGLE_API_KEY', base_url: '', languages: 'zh', analysis_content_chars: 8000, analysis_comments_chars: 4000, summary_max_chars: 240, analysis_max_output_tokens: 800 },
+      feed_end_messages: { ai_generation_enabled: true, refresh_days: 7, style_preset: 'restrained', style_prompt: '', list_count: 12 },
       filtering: { ai_score_threshold: 6, homepage_min_score: 7, time_window_hours: 24, rss_initial_fetch_window_hours: 168, recent_item_limit: 200 },
       tags: ['AI Agent'],
     },
@@ -555,6 +556,18 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
       snapshots: [],
     }
     else if (url.pathname === '/api/me/feed-schedule') data = { schema_version: 1, enabled: true, interval_minutes: 360, allowed_intervals: [60, 180, 360, 720, 1440], worker_status: 'ready', next_run_at: '2026-07-17T12:00:00Z' }
+    else if (url.pathname === '/api/feed/end-messages') data = {
+      schema_version: 1,
+      source: 'builtin',
+      status: 'disabled',
+      generation: 0,
+      generated_at: null,
+      last_attempt_at: null,
+      next_refresh_at: null,
+      retry_at: null,
+      last_error_code: null,
+      scenes: { empty: ['这里暂时很安静。'], first_end: ['这一轮内容先到这里。'], repeat_end: ['又到末尾了。'] },
+    }
     else if (url.pathname === '/api/feed/ignored') data = {
       schema_version: 1,
       scope: 'user',
@@ -997,6 +1010,27 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /发送.*测试/ })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toHaveCount(0)
+
+  await page.goto('/settings#settings-ai')
+  await expect(page).toHaveURL(/\/settings\/ai$/)
+  await expect(page.getByRole('heading', { name: 'AI', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '助手连接', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '工作区 AI', exact: true })).toBeVisible()
+  const aiDisclosure = page.getByRole('button', { name: /高级配置/ })
+  await expect(aiDisclosure).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByLabel('Base URL')).toBeHidden()
+  await aiDisclosure.click()
+  await expect(page.getByLabel('Base URL')).toBeVisible()
+  await page.getByLabel('Base URL').fill('https://ai.example.test/v1')
+  await aiDisclosure.click()
+  await aiDisclosure.click()
+  await expect(page.getByLabel('Base URL')).toHaveValue('https://ai.example.test/v1')
+  await expect(page.getByTestId('live-workbench-shell')).toHaveCount(0)
+
+  await page.goto('/settings#settings-ignored')
+  await expect(page).toHaveURL(/\/settings\/ignored$/)
+  await expect(page.getByRole('heading', { name: '已忽略内容', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByText('暂无已忽略内容', { exact: true })).toBeVisible()
   await page.goto('/settings#settings-fetching')
   await expect(page.getByRole('heading', { name: '获取与主题' })).toBeVisible()
   await expect(page.getByLabel('日常抓取窗口（小时）')).toHaveValue('24')
@@ -1066,6 +1100,23 @@ test('settings landing defers hidden section requests and a direct hash loads on
     && (sectionQueryPaths.has(pathname) || pathname.endsWith('/quota'))
   ))).toEqual([])
 
+  const directAiStart = requests.length
+  await page.goto('/settings#settings-ai')
+  await expect(page).toHaveURL(/\/settings\/ai$/)
+  await expect(page.getByRole('heading', { name: '工作区 AI', exact: true })).toBeVisible()
+  const directAiRequests = requests.slice(directAiStart)
+    .filter(({ method }) => method === 'GET')
+    .map(({ pathname }) => pathname)
+  expect(directAiRequests).toEqual(expect.arrayContaining([
+    '/api/config',
+    '/api/admin/secrets',
+    '/api/feed/end-messages',
+  ]))
+  expect(directAiRequests.filter((pathname) => (
+    sectionQueryPaths.has(pathname)
+    && !['/api/config', '/api/admin/secrets', '/api/feed/end-messages'].includes(pathname)
+  ))).toEqual([])
+
   const directHashStart = requests.length
   await page.goto('/settings#settings-secrets')
   await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
@@ -1098,6 +1149,7 @@ test('settings mobile drawer navigates native pages and keeps the workspace boun
   await page.getByRole('button', { name: '打开设置导航' }).click()
   const drawer = page.getByRole('dialog', { name: '设置导航' })
   await expect(drawer).toBeVisible()
+  await expect(drawer.getByRole('link', { name: '已忽略内容' })).toBeVisible()
   await drawer.getByRole('link', { name: '外观' }).click()
   await expect(page).toHaveURL(/\/settings\/appearance$/)
   await expect(page.getByRole('heading', { name: '外观', level: 1 })).toBeVisible()

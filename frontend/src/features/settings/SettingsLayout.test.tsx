@@ -43,5 +43,6 @@ describe('SettingsLayout', () => {
     await browser.click(screen.getAllByRole('button', { name: '打开设置导航' })[0])
     expect(await screen.findByRole('dialog', { name: '设置导航' })).toBeInTheDocument()
     expect(screen.getAllByRole('link', { name: '通知' }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByRole('link', { name: '已忽略内容' }).length).toBeGreaterThanOrEqual(1)
   })
 })

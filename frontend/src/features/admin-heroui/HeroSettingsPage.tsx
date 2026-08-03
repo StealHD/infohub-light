@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -17,7 +17,6 @@ import {
   actionToast,
   Button,
   Card,
-  Checkbox,
   FieldError,
   Icons,
   Input,
@@ -30,7 +29,6 @@ import {
   TextField,
 } from '../../design-system'
 import {
-  aiDefaultsForProvider,
   canAdministerWorkspace,
   secretPresentation,
 } from '../settings/settingsModel'
@@ -62,8 +60,7 @@ type SecretDraft = {
   value: string
 }
 
-type CoreSettingsSection = 'ai' | 'feed_end_messages' | 'rsshub' | 'filtering' | 'topics'
-type FeedEndMessageScene = 'empty' | 'first_end' | 'repeat_end'
+type CoreSettingsSection = 'rsshub' | 'filtering' | 'topics'
 type CoreSettingsBundle = Partial<Record<CoreSettingsSection, Record<string, unknown>>>
 type CoreSettingsSave = {
   sections: CoreSettingsSection[]
@@ -71,9 +68,8 @@ type CoreSettingsSave = {
   revisions: Record<CoreSettingsSection, number>
 }
 
-const coreSettingsOrder: CoreSettingsSection[] = ['ai', 'feed_end_messages', 'rsshub', 'filtering', 'topics']
+const coreSettingsOrder: CoreSettingsSection[] = ['rsshub', 'filtering', 'topics']
 const emptySecretDraft: SecretDraft = { name: '', kind: 'ai', provider: '', envName: '', value: '' }
-const sameSettingsPayload = (left: Record<string, unknown>, right: Record<string, unknown>) => JSON.stringify(left) === JSON.stringify(right)
 
 type SecretField = keyof SecretDraft
 type SecretFieldErrors = Partial<Record<SecretField, string>>
@@ -161,23 +157,6 @@ const poolStatusLabels: Record<string, string> = {
   blocked: '已阻塞，等待人工核对',
   exhausted: '所有 Key 额度均已用尽',
   disabled: '尚未启用',
-}
-
-const feedEndMessageStatusLabels: Record<string, string> = {
-  disabled: '使用内置文案',
-  pending: '等待 Worker 刷新',
-  refreshing: '正在后台生成',
-  ready: 'AI 文案可用',
-  degraded: '生成失败，保留安全回退',
-}
-
-const feedEndMessageErrorLabels: Record<string, string> = {
-  feed_end_messages_invalid_output: '模型输出未通过安全校验',
-  feed_end_messages_timeout: '模型请求超过 60 秒',
-  feed_end_messages_no_admin: '没有可归属生成用量的管理员',
-  quota_exceeded: '工作区今日 AI 尝试额度已用尽',
-  feed_end_messages_generation_failed: '模型请求失败',
-  feed_end_messages_lease_lost: '生成租约已失效',
 }
 
 const memberStatusPresentation: Record<ApifyKeyPoolMember['status'], {
@@ -952,10 +931,10 @@ export function HeroSettingsPage() {
   const location = useLocation()
   const admin = canAdministerWorkspace(user)
   const [activeSection, setActiveSection] = useState<string>(
-    () => legacySettingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-ai',
+    () => legacySettingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-fetching',
   )
   const [activatedSections, setActivatedSections] = useState<Set<string>>(
-    () => new Set([legacySettingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-ai']),
+    () => new Set([legacySettingsSectionFromHash(location.hash, user.role)?.id ?? 'settings-fetching']),
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const activeSectionRef = useRef(activeSection)
@@ -965,36 +944,13 @@ export function HeroSettingsPage() {
   const lastScrollTopRef = useRef(0)
   const lastTouchYRef = useRef<number | null>(null)
   const explicitSectionNavigationRef = useRef(Boolean(legacySettingsSectionFromHash(location.hash, user.role)))
-  const configQueryEnabled = admin && (
-    activeSection === 'settings-ai'
-    || activeSection === 'settings-fetching'
-  )
-  const secretsQueryEnabled = admin && (
-    activeSection === 'settings-ai'
-    || activeSection === 'settings-secrets'
-  )
+  const configQueryEnabled = admin && activeSection === 'settings-fetching'
+  const secretsQueryEnabled = admin && activeSection === 'settings-secrets'
   const config = useQuery({
     queryKey: queryKeys.config(user.id),
     queryFn: ({ signal }) => api.config(signal),
     enabled: configQueryEnabled,
     staleTime: queryStaleTime.settings,
-  })
-  const feedEndMessagesStatus = useQuery({
-    queryKey: queryKeys.feedEndMessages(user.id),
-    queryFn: ({ signal }) => api.feedEndMessages(signal),
-    enabled: admin && activeSection === 'settings-ai',
-    staleTime: queryStaleTime.settings,
-    retry: false,
-    refetchInterval: (query) => (
-      activeSection === 'settings-ai'
-      && ['pending', 'refreshing'].includes(query.state.data?.status ?? '')
-    ) ? 2_000 : false,
-  })
-  const ignored = useQuery({
-    queryKey: queryKeys.ignored(user.id),
-    queryFn: ({ signal }) => api.ignoredFeed(200, 0, signal),
-    enabled: activeSection === 'settings-ignored',
-    staleTime: queryStaleTime.collection,
   })
   const secrets = useQuery({
     queryKey: queryKeys.secrets(user.id),
@@ -1002,10 +958,6 @@ export function HeroSettingsPage() {
     enabled: secretsQueryEnabled,
     staleTime: queryStaleTime.settings,
   })
-  const [aiOverride, setAiOverride] = useState<{ provider: string; model: string; apiKeyEnv: string } | null>(null)
-  const [feedEndRefreshDaysOverride, setFeedEndRefreshDaysOverride] = useState<string | null>(null)
-  const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
-  const [expandedFeedEndScenes, setExpandedFeedEndScenes] = useState<Set<FeedEndMessageScene>>(() => new Set())
   const [secretDraft, setSecretDraft] = useState<SecretDraft>(emptySecretDraft)
   const [secretFieldErrors, setSecretFieldErrors] = useState<SecretFieldErrors>({})
   const [secretFormError, setSecretFormError] = useState('')
@@ -1014,32 +966,12 @@ export function HeroSettingsPage() {
   const [topicsOverride, setTopicsOverride] = useState<string[] | null>(null)
   const [dirtyCoreSections, setDirtyCoreSections] = useState<Set<CoreSettingsSection>>(() => new Set())
   const coreRevisions = useRef<Record<CoreSettingsSection, number>>({
-    ai: 0,
-    feed_end_messages: 0,
     rsshub: 0,
     filtering: 0,
     topics: 0,
   })
-  const aiFormRef = useRef<HTMLFormElement>(null)
-  const feedEndMessagesFormRef = useRef<HTMLFormElement>(null)
   const rsshubFormRef = useRef<HTMLFormElement>(null)
   const filteringFormRef = useRef<HTMLFormElement>(null)
-  const ai = recordOf(config.data?.config.ai)
-  const configuredAiProvider = String(ai.provider ?? 'gemini')
-  const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
-  const configuredAiDraft = {
-    provider: configuredAiProvider,
-    model: String(ai.model ?? configuredAiDefaults.model),
-    apiKeyEnv: String(ai.api_key_env ?? ''),
-  }
-  const aiDraft = aiOverride ?? configuredAiDraft
-  const feedEndMessages = recordOf(config.data?.config.feed_end_messages)
-  const feedEndRefreshDays = feedEndRefreshDaysOverride
-    ?? String(feedEndMessages.refresh_days ?? 7)
-  const feedEndStyle = feedEndStyleOverride
-    ?? String(feedEndMessages.style_preset ?? 'restrained')
-  const savedFeedEndGenerationEnabled = ai.enabled !== false
-    && feedEndMessages.ai_generation_enabled === true
   const filtering = recordOf(config.data?.config.filtering)
   const rssInitialFetchWindow = rssInitialFetchWindowOverride
     ?? String(filtering.rss_initial_fetch_window_hours ?? 168)
@@ -1051,12 +983,10 @@ export function HeroSettingsPage() {
     return Array.isArray(topics) ? topics.filter((topic): topic is string => typeof topic === 'string') : []
   }, [config.data])
   const topicsDraft = topicsOverride ?? configuredTopics
-  const aiDraftRef = useRef(aiDraft)
   const topicsDraftRef = useRef(topicsDraft)
-  useLayoutEffect(() => {
-    aiDraftRef.current = aiDraft
+  useEffect(() => {
     topicsDraftRef.current = topicsDraft
-  }, [aiDraft, topicsDraft])
+  }, [topicsDraft])
   const rsshubAccessKeySet = (config.data?.env_status ?? []).some(
     (item) => item.name === 'RSSHUB_ACCESS_KEY' && item.set === true,
   )
@@ -1127,7 +1057,7 @@ export function HeroSettingsPage() {
       try {
         updateCoreSectionDirty(
           section,
-          !sameSettingsPayload(payloadFor(section), configuredPayloadFor(section)),
+          JSON.stringify(payloadFor(section)) !== JSON.stringify(configuredPayloadFor(section)),
         )
       } catch {
         updateCoreSectionDirty(section, true)
@@ -1316,11 +1246,6 @@ export function HeroSettingsPage() {
         savedWithoutNewerEdits.forEach((section) => next.delete(section))
         return next
       })
-      if (savedWithoutNewerEdits.includes('ai')) setAiOverride(null)
-      if (savedWithoutNewerEdits.includes('feed_end_messages')) {
-        setFeedEndRefreshDaysOverride(null)
-        setFeedEndStyleOverride(null)
-      }
       if (savedWithoutNewerEdits.includes('filtering')) {
         setRssInitialFetchWindowOverride(null)
         setFeedWindowDaysOverride(null)
@@ -1330,12 +1255,6 @@ export function HeroSettingsPage() {
       actionToast.success(submitted.sections.length > 1 ? '全部配置已保存' : '设置已保存')
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) }),
-        ...(submitted.sections.some((section) => section === 'ai' || section === 'feed_end_messages')
-          ? [queryClient.invalidateQueries({ queryKey: queryKeys.feedEndMessages(user.id) })]
-          : []),
-        ...(submitted.sections.includes('ai')
-          ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) })]
-          : []),
         ...(submitted.sections.includes('filtering')
           ? [
               queryClient.invalidateQueries({ queryKey: queryKeys.feedRoot(user.id) }),
@@ -1351,30 +1270,6 @@ export function HeroSettingsPage() {
       feedback.clear('config-save', 'set_settings_bundle')
       actionToast.danger('设置保存失败', { description: message })
     },
-  })
-  const feedEndMessagesRefreshMutation = useMutation({
-    mutationFn: () => api.refreshFeedEndMessages(),
-    onSuccess: (result) => {
-      queryClient.setQueryData(queryKeys.feedEndMessages(user.id), result)
-      actionToast.success('已标记触底文案刷新', {
-        description: 'Worker 会在普通任务队列空闲后处理。',
-      })
-    },
-    onError: (caught) => actionToast.danger('触底文案刷新请求失败', {
-      description: errorMessage(caught, '请稍后重试。'),
-    }),
-  })
-  const restoreMutation = useMutation({
-    mutationFn: (articleId: string) => api.updateItemState(articleId, { dismissed: false }),
-    onSuccess: async (_result, articleId) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.ignored(user.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.feed(user.id, { hideDismissed: false, unreadFirst: false }) }),
-      ])
-      const restored = ignored.data?.items.find((item) => item.id === articleId)
-      actionToast.success('已恢复到信息流', { description: restored?.presentation?.content?.title || restored?.title })
-    },
-    onError: (caught) => actionToast.danger('恢复失败', { description: errorMessage(caught, '请稍后重试。') }),
   })
 
   async function createSecret(event: FormEvent<HTMLFormElement>) {
@@ -1415,17 +1310,6 @@ export function HeroSettingsPage() {
     }
   }
 
-
-  function aiPayload(): Record<string, unknown> {
-    if (!aiFormRef.current) throw new Error('AI 设置表单尚未加载')
-    const data = new FormData(aiFormRef.current)
-    const currentAiDraft = aiDraftRef.current
-    return {
-      enabled: data.has('enabled'), provider: currentAiDraft.provider, model: currentAiDraft.model, api_key_env: currentAiDraft.apiKeyEnv, base_url: inputValue(data, 'base_url'), languages: inputValue(data, 'languages') || 'zh',
-      analysis_content_chars: Number(data.get('analysis_content_chars')), analysis_comments_chars: Number(data.get('analysis_comments_chars')), summary_max_chars: Number(data.get('summary_max_chars')), analysis_max_output_tokens: Number(data.get('analysis_max_output_tokens')), enrichment_content_chars: Number(ai.enrichment_content_chars ?? 4000),
-    }
-  }
-
   function filteringPayload(): Record<string, unknown> {
     if (!filteringFormRef.current) throw new Error('获取设置表单尚未加载')
     const data = new FormData(filteringFormRef.current)
@@ -1438,82 +1322,34 @@ export function HeroSettingsPage() {
     }
   }
 
-  function feedEndMessagesPayload(): Record<string, unknown> {
-    if (!feedEndMessagesFormRef.current) throw new Error('触底文案设置表单尚未加载')
-    const data = new FormData(feedEndMessagesFormRef.current)
-    return {
-      ai_generation_enabled: data.has('ai_generation_enabled'),
-      refresh_days: Number(data.get('refresh_days')),
-      style_preset: String(data.get('style_preset') || 'restrained'),
-      style_prompt: inputValue(data, 'style_prompt'),
-      list_count: Number(data.get('list_count')),
-    }
-  }
-
   function rsshubPayload(): Record<string, unknown> {
     if (!rsshubFormRef.current) throw new Error('RSSHub 设置表单尚未加载')
     return { base_url: inputValue(new FormData(rsshubFormRef.current), 'base_url') }
   }
 
   function reportSectionValidity(section: CoreSettingsSection): boolean {
-    const form = section === 'ai'
-      ? aiFormRef.current
-      : section === 'feed_end_messages'
-        ? feedEndMessagesFormRef.current
-      : section === 'rsshub'
-        ? rsshubFormRef.current
-        : section === 'filtering'
-          ? filteringFormRef.current
-          : null
+    const form = section === 'rsshub'
+      ? rsshubFormRef.current
+      : section === 'filtering'
+        ? filteringFormRef.current
+        : null
     if (form && !form.checkValidity()) {
       form.reportValidity()
       form.querySelector<HTMLElement>(':invalid')?.focus()
-      return false
-    }
-    if (section === 'ai' && !aiDraft.apiKeyEnv.trim()) {
-      document.getElementById('settings-ai')?.scrollIntoView({ block: 'start' })
-      document.querySelector<HTMLElement>('[aria-label^="AI Key"]')?.focus()
-      actionToast.warning('AI Key 不能为空', { description: '请选择已配置的 AI Key 后再保存。' })
       return false
     }
     return true
   }
 
   function payloadFor(section: CoreSettingsSection): Record<string, unknown> {
-    if (section === 'ai') return aiPayload()
-    if (section === 'feed_end_messages') return feedEndMessagesPayload()
     if (section === 'rsshub') return rsshubPayload()
     if (section === 'filtering') return filteringPayload()
     return { topics: topicsDraftRef.current }
   }
 
   function configuredPayloadFor(section: CoreSettingsSection): Record<string, unknown> {
-    if (section === 'ai') {
-      return {
-        enabled: ai.enabled !== false,
-        provider: configuredAiDraft.provider,
-        model: configuredAiDraft.model,
-        api_key_env: configuredAiDraft.apiKeyEnv,
-        base_url: String(ai.base_url ?? '').trim(),
-        languages: Array.isArray(ai.languages) ? ai.languages.join(',').trim() || 'zh' : 'zh',
-        analysis_content_chars: Number(ai.analysis_content_chars ?? 1000),
-        analysis_comments_chars: Number(ai.analysis_comments_chars ?? 1500),
-        summary_max_chars: Number(ai.summary_max_chars ?? 200),
-        analysis_max_output_tokens: Number(ai.analysis_max_output_tokens ?? 800),
-        enrichment_content_chars: Number(ai.enrichment_content_chars ?? 4000),
-      }
-    }
     if (section === 'rsshub') {
       return { base_url: String(rsshub.base_url ?? 'http://rsshub:1200').trim() }
-    }
-    if (section === 'feed_end_messages') {
-      return {
-        ai_generation_enabled: feedEndMessages.ai_generation_enabled === true,
-        refresh_days: Number(feedEndMessages.refresh_days ?? 7),
-        style_preset: String(feedEndMessages.style_preset ?? 'restrained'),
-        style_prompt: String(feedEndMessages.style_prompt ?? '').trim(),
-        list_count: Number(feedEndMessages.list_count ?? 12),
-      }
     }
     if (section === 'filtering') {
       return {
@@ -1541,16 +1377,6 @@ export function HeroSettingsPage() {
       payload,
       revisions: { ...coreRevisions.current },
     })
-  }
-
-  function saveAi(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    saveCoreSections(['ai'])
-  }
-
-  function saveFeedEndMessages(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    saveCoreSections(['feed_end_messages'])
   }
 
   function saveFiltering(event: FormEvent<HTMLFormElement>) {
@@ -1588,227 +1414,6 @@ export function HeroSettingsPage() {
       <HeroSelect label="设置区域" value={activeSection} onChange={jumpToSection} options={[...sectionOptions]} className="w-full" />
     </div>
     <div className="grid min-w-0 gap-5">
-
-    <AdminSection id="settings-ai" title="助手与 AI" description="本地助手通过只读 Remote MCP 使用当前账户的数据。">
-      {activatedSections.has('settings-ai') && <>
-      <Button size="sm" variant="secondary" onPress={() => navigate('/agents')}><Icons.Bot size={16} />管理助手连接</Button>
-      {!admin && <Card variant="transparent" className="mt-4 p-4"><Card.Title>工作区设置只读</Card.Title><Card.Description className="mt-1">全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。</Card.Description></Card>}
-      {admin && (config.isPending || secrets.isPending
-        ? <LoadingState label="正在读取 AI 设置" rows={2} />
-        : config.isError || secrets.isError
-          ? <HeroNotice title="AI 设置读取失败" status="warning">
-            <Button size="sm" variant="ghost" onPress={() => {
-              void config.refetch()
-              void secrets.refetch()
-            }}>重试此区域</Button>
-          </HeroNotice>
-          : <form ref={aiFormRef} className="mt-5 grid gap-4" onChange={() => refreshCoreDirty('ai')} onSubmit={saveAi}>
-        <Checkbox name="enabled" defaultSelected={ai.enabled !== false}><Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 分析</Checkbox.Content></Checkbox>
-        <div className="grid gap-4 min-[720px]:grid-cols-3">
-          <HeroSelect label="Provider" value={aiDraft.provider} onChange={(nextProvider) => {
-            const defaults = aiDefaultsForProvider(nextProvider)
-            const available = (secrets.data?.secrets ?? []).some((secret) => secret.kind === 'ai' && secret.env_name === defaults.apiKeyEnv)
-            setAiOverride({ provider: nextProvider, model: defaults.model, apiKeyEnv: available ? defaults.apiKeyEnv : aiDraft.apiKeyEnv })
-            refreshCoreDirty('ai')
-          }} options={[{ id: 'gemini', label: 'Gemini' }, { id: 'openai', label: 'OpenAI' }, { id: 'anthropic', label: 'Anthropic' }, { id: 'deepseek', label: 'DeepSeek' }]} />
-          <TextField fullWidth value={aiDraft.model} onChange={(model) => {
-            setAiOverride({ ...aiDraft, model })
-            refreshCoreDirty('ai')
-          }} isRequired><Label>模型</Label><Input /></TextField>
-          <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
-            setAiOverride({ ...aiDraft, apiKeyEnv })
-            refreshCoreDirty('ai')
-          }} options={[{ id: '', label: '请选择' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
-          <FormField name="base_url" label="Base URL" type="url" defaultValue={String(ai.base_url ?? '')} />
-          <FormField name="languages" label="输出语言" defaultValue={Array.isArray(ai.languages) ? ai.languages.join(',') : 'zh'} />
-          <FormField name="analysis_content_chars" label="正文输入字符" type="number" min={100} max={10000} defaultValue={Number(ai.analysis_content_chars ?? 1000)} />
-          <FormField name="analysis_comments_chars" label="评论输入字符" type="number" min={0} max={20000} defaultValue={Number(ai.analysis_comments_chars ?? 1500)} />
-          <FormField name="summary_max_chars" label="概括最多字符" type="number" min={100} max={500} defaultValue={Number(ai.summary_max_chars ?? 200)} />
-          <FormField name="analysis_max_output_tokens" label="最大输出 Token" type="number" min={256} max={2048} defaultValue={Number(ai.analysis_max_output_tokens ?? 800)} />
-        </div>
-        <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}><Icons.Save size={15} />{configMutation.isPending && configMutation.variables?.sections.includes('ai') ? '保存中…' : '保存 AI 设置'}</Button>
-      </form>)}
-      {admin && !config.isPending && !config.isError && <div className="mt-6 border-t border-separator pt-5">
-        <div>
-          <h3 className="type-control">信息流触底文案</h3>
-          <p className="type-meta mt-1 text-muted">内置中文文案始终可用；独立开关启用后，Worker 只会在普通任务队列空闲时生成三个共享场景。每句可选一个克制 Emoji 或颜文字。</p>
-        </div>
-        <form
-          ref={feedEndMessagesFormRef}
-          className="mt-4 grid gap-4"
-          onChange={() => refreshCoreDirty('feed_end_messages')}
-          onSubmit={saveFeedEndMessages}
-        >
-          <Checkbox
-            name="ai_generation_enabled"
-            defaultSelected={feedEndMessages.ai_generation_enabled === true}
-          >
-            <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 定期生成触底文案</Checkbox.Content>
-          </Checkbox>
-          <div className="grid gap-4 min-[720px]:grid-cols-3">
-            <HeroSelect
-              name="refresh_days"
-              label="更新周期"
-              value={feedEndRefreshDays}
-              onChange={(value) => {
-                setFeedEndRefreshDaysOverride(value)
-                refreshCoreDirty('feed_end_messages')
-              }}
-              options={[
-                { id: '1', label: '每天' },
-                { id: '7', label: '每 7 天（默认）' },
-                { id: '30', label: '每 30 天' },
-              ]}
-            />
-            <HeroSelect
-              name="style_preset"
-              label="文案风格"
-              value={feedEndStyle}
-              onChange={(value) => {
-                setFeedEndStyleOverride(value)
-                refreshCoreDirty('feed_end_messages')
-              }}
-              options={[
-                { id: 'restrained', label: '克制（默认）' },
-                { id: 'warm', label: '温和' },
-                { id: 'light_humor', label: '轻幽默' },
-              ]}
-            />
-            <FormField
-              name="list_count"
-              label="每场景条数"
-              type="number"
-              min={3}
-              max={30}
-              defaultValue={Number(feedEndMessages.list_count ?? 12)}
-              required
-            />
-          </div>
-          <TextField
-            fullWidth
-            name="style_prompt"
-            defaultValue={String(feedEndMessages.style_prompt ?? '')}
-          >
-            <Label>自定义风格补充</Label>
-            <Input maxLength={500} placeholder="可留空，最多 500 字；不能覆盖安全约束" />
-          </TextField>
-          <Button className="w-fit" type="submit" isDisabled={configMutation.isPending}>
-            <Icons.Save size={15} aria-hidden="true" />
-            {configMutation.isPending && configMutation.variables?.sections.includes('feed_end_messages')
-              ? '保存中…'
-              : '保存触底文案设置'}
-          </Button>
-        </form>
-
-        <Card variant="transparent" className="mt-5 border border-separator p-4">
-          {feedEndMessagesStatus.isPending
-            ? <LoadingState label="正在读取触底文案状态" rows={2} />
-            : feedEndMessagesStatus.isError || !feedEndMessagesStatus.data
-              ? <HeroNotice title="触底文案状态读取失败" status="warning">
-                <Button size="sm" variant="ghost" onPress={() => void feedEndMessagesStatus.refetch()}>重试状态读取</Button>
-              </HeroNotice>
-              : <>
-                <div className="flex flex-wrap items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <Card.Title>{feedEndMessageStatusLabels[feedEndMessagesStatus.data.status] ?? '状态未知'}</Card.Title>
-                    <Card.Description className="mt-1">
-                      来源：{feedEndMessagesStatus.data.source === 'ai' ? 'AI 文案池' : '内置文案'}
-                      {' · '}generation {feedEndMessagesStatus.data.generation}
-                      {' · '}最近生成 {formatDateTime(feedEndMessagesStatus.data.generated_at)}
-                      {' · '}下次更新 {formatDateTime(feedEndMessagesStatus.data.next_refresh_at)}
-                    </Card.Description>
-                    {feedEndMessagesStatus.data.last_error_code && <p className="type-meta mt-2 text-warning">
-                      {feedEndMessageErrorLabels[feedEndMessagesStatus.data.last_error_code] ?? '生成未成功，已保留安全文案。'}
-                      {feedEndMessagesStatus.data.retry_at ? `；后台重试 ${formatDateTime(feedEndMessagesStatus.data.retry_at)}` : ''}
-                    </p>}
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    isDisabled={
-                      !savedFeedEndGenerationEnabled
-                      || feedEndMessagesRefreshMutation.isPending
-                      || feedEndMessagesStatus.data.status === 'pending'
-                      || feedEndMessagesStatus.data.status === 'refreshing'
-                    }
-                    onPress={() => feedEndMessagesRefreshMutation.mutate()}
-                  >
-                    <Icons.RefreshCw
-                      size={14}
-                      className={feedEndMessagesRefreshMutation.isPending ? 'animate-spin motion-reduce:animate-none' : ''}
-                      aria-hidden="true"
-                    />
-                    {feedEndMessagesStatus.data.status === 'pending'
-                      ? '已等待刷新'
-                      : feedEndMessagesStatus.data.status === 'refreshing'
-                        ? '正在刷新'
-                        : '立即刷新'}
-                  </Button>
-                </div>
-                {!savedFeedEndGenerationEnabled && <p className="type-meta mt-3 text-muted">保存并启用全局 AI 与触底文案生成后，才可请求立即刷新。</p>}
-                <div className="mt-4 grid gap-3 min-[720px]:grid-cols-3">
-                  {([
-                    ['empty', '空列表'],
-                    ['first_end', '首次触底'],
-                    ['repeat_end', '多次触底'],
-                  ] as const).map(([scene, label]) => {
-                    const messages = feedEndMessagesStatus.data.scenes[scene]
-                    const expanded = expandedFeedEndScenes.has(scene)
-                    const listId = `feed-end-messages-${scene}`
-                    return <div key={scene} className="min-w-0 rounded-xl bg-surface-secondary p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="type-control">{label}</p>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <span className="type-meta text-muted">{messages.length} 条</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-controls={listId}
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? '隐藏' : '展开'}${label}完整文案列表`}
-                            onPress={() => setExpandedFeedEndScenes((current) => {
-                              const next = new Set(current)
-                              if (next.has(scene)) next.delete(scene)
-                              else next.add(scene)
-                              return next
-                            })}
-                          >
-                            {expanded ? '隐藏' : '展开'}
-                          </Button>
-                        </div>
-                      </div>
-                      <ol
-                        id={listId}
-                        aria-label={`${label}完整文案列表`}
-                        className={`${expanded ? 'grid' : 'hidden'} mt-2 max-h-72 gap-1.5 overflow-y-auto rounded-lg pr-1 focus-visible:outline-2 focus-visible:outline-focus`}
-                        hidden={!expanded}
-                        tabIndex={0}
-                      >
-                        {messages.map((message, index) => <li key={message} className="type-meta flex min-w-0 gap-2 text-muted">
-                          <span className="w-5 shrink-0 text-right tabular-nums" aria-hidden="true">{index + 1}.</span>
-                          <span className="min-w-0 break-words">{message}</span>
-                        </li>)}
-                      </ol>
-                    </div>
-                  })}
-                </div>
-              </>}
-        </Card>
-      </div>}
-      </>}
-    </AdminSection>
-
-    <AdminSection id="settings-ignored" title="已忽略内容" description="忽略后的信息只在这里恢复，不会继续占用日常浏览空间。">
-      {activatedSections.has('settings-ignored') && <>
-      {ignored.isPending && <LoadingState label="正在读取已忽略内容" rows={2} />}
-      {ignored.isError && <HeroNotice title="已忽略内容读取失败" />}
-      {!ignored.isPending && !ignored.isError && !ignored.data?.items.length && <Card variant="transparent" className="p-4"><Card.Title>暂无已忽略内容</Card.Title></Card>}
-      <div className="grid gap-2">{(ignored.data?.items ?? []).map((item) => <Card key={item.id} variant="transparent" className="flex-row items-center gap-3 p-3">
-        <div className="min-w-0 flex-1"><Card.Title className="truncate">{item.presentation?.content?.title || item.title || '无标题内容'}</Card.Title><Card.Description className="truncate">{item.presentation?.source?.name || item.source || '未知来源'}</Card.Description></div>
-        <Button size="sm" variant="ghost" isDisabled={restoreMutation.isPending && restoreMutation.variables === item.id} onPress={() => restoreMutation.mutate(item.id)}>{restoreMutation.isPending && restoreMutation.variables === item.id ? '恢复中…' : '恢复'}</Button>
-      </Card>)}</div>
-      </>}
-    </AdminSection>
 
     {admin && <>
       <AdminSection id="settings-fetching" title="获取与主题" description="控制抓取窗口和未来可选主题；兼容评分、精选与日报字段不在当前产品中显示。">

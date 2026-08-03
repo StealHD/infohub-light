@@ -1,4 +1,5 @@
 export { SettingsCard } from './SettingsCard'
+export { SettingsDisclosure } from './SettingsDisclosure'
 export { SettingsGroup } from './SettingsGroup'
 export { SettingsItem } from './SettingsItem'
 export { SettingsSection } from './SettingsSection'

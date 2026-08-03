@@ -1,4 +1,7 @@
 export { SettingsAppearancePage } from './SettingsAppearancePage'
+export { SettingsAIPage } from './SettingsAIPage'
+export { SettingsIgnoredPage } from './SettingsIgnoredPage'
 export { SettingsLayout } from './SettingsLayout'
+export { SettingsLegacyPage } from './SettingsLegacyPage'
 export { SettingsNotificationsPage } from './SettingsNotificationsPage'
 export { SettingsOverviewPage } from './SettingsOverviewPage'

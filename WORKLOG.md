@@ -471,3 +471,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-03",
+  "result": "Settings Workspace 第二阶段将 AI 与已忽略内容迁入原生路由；Legacy 仅保留获取、存储和密钥，并保持 API、缓存、权限、保存 payload 与 write-only 语义不变。",
+  "status": "completed",
+  "task_id": "2026-08-03-settings-intelligence-native-ui",
+  "unresolved": [
+    "分支按任务边界保持未合并、未推送"
+  ],
+  "validation": [
+    "新增 AI payload/diff 与折叠草稿保留单测；应用级回归覆盖旧 hash、只读零请求、AI/触底保存、已忽略内容恢复和高级设置桥接",
+    "Playwright 通过桌面原生 AI/ignored/hash/请求惰性、390/768/1024/1440、浅深主题与 Axe，以及移动 Drawer 验收",
+    "VITEST_MAX_WORKERS=4 python scripts/test_gate.py run --mode full：23/23 passed in 333.669 seconds"
+  ]
+}
+```

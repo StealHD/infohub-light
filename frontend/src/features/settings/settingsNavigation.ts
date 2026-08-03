@@ -1,7 +1,7 @@
 import { Icons, type LucideIcon } from '../../design-system'
 
 export type SettingsRole = 'owner' | 'admin' | 'member' | 'viewer'
-export type SettingsNavigationId = 'overview' | 'sources' | 'ai' | 'notifications' | 'appearance' | 'advanced'
+export type SettingsNavigationId = 'overview' | 'sources' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'advanced'
 
 export type SettingsNavigationItem = {
   id: SettingsNavigationId
@@ -26,12 +26,15 @@ export const SETTINGS_NAVIGATION_GROUPS: readonly SettingsNavigationGroup[] = [
   {
     id: 'workspace',
     label: '工作区',
-    items: [{ id: 'sources', label: '来源', href: '/subscriptions', icon: Icons.Rss, bridge: true }],
+    items: [
+      { id: 'sources', label: '来源', href: '/subscriptions', icon: Icons.Rss, bridge: true },
+      { id: 'ignored', label: '已忽略内容', href: '/settings/ignored', icon: Icons.EyeOff },
+    ],
   },
   {
     id: 'intelligence',
     label: '智能',
-    items: [{ id: 'ai', label: 'AI', href: '/settings/legacy#settings-ai', icon: Icons.Sparkles }],
+    items: [{ id: 'ai', label: 'AI', href: '/settings/ai', icon: Icons.Sparkles }],
   },
   {
     id: 'communication',
@@ -67,16 +70,17 @@ const advancedHashes = new Set(['settings-fetching', 'settings-storage', 'settin
 export function activeSettingsNavigationId(pathname: string, hash: string): SettingsNavigationId {
   if (pathname === '/settings/notifications') return 'notifications'
   if (pathname === '/settings/appearance') return 'appearance'
+  if (pathname === '/settings/ai') return 'ai'
+  if (pathname === '/settings/ignored') return 'ignored'
   if (pathname === '/settings/legacy') {
     const id = hash.replace(/^#/, '')
-    if (!id || id === 'settings-ai') return 'ai'
+    if (!id) return 'advanced'
     if (advancedHashes.has(id)) return 'advanced'
   }
   return 'overview'
 }
 
 export function settingsWorkspaceTitle(pathname: string, hash: string): string {
-  if (pathname === '/settings/legacy' && hash === '#settings-ignored') return '已忽略内容'
   const active = activeSettingsNavigationId(pathname, hash)
   return SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.items).find((item) => item.id === active)?.label ?? '设置'
 }
@@ -85,7 +89,8 @@ export function settingsDestinationFromLegacyHash(hash: string, role: SettingsRo
   const id = hash.replace(/^#/, '')
   if (!id || id === 'settings-about') return '/settings'
   if (id === 'settings-notifications') return '/settings/notifications'
-  if (id === 'settings-ai' || id === 'settings-ignored') return `/settings/legacy#${id}`
+  if (id === 'settings-ai') return '/settings/ai'
+  if (id === 'settings-ignored') return '/settings/ignored'
   if (advancedHashes.has(id) && canAdministerSettings(role)) return `/settings/legacy#${id}`
   return '/settings'
 }

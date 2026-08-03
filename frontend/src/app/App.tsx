@@ -19,12 +19,14 @@ import { clearBootstrapShellSnapshot, releaseBootstrapShell, writeBootstrapShell
 import { readSidebarPreference } from './sidebarPreference'
 
 const HeroAgentsPage = lazy(() => import('../features/admin-heroui/HeroAgentsPage').then((module) => ({ default: module.HeroAgentsPage })))
-const HeroSettingsPage = lazy(() => import('../features/admin-heroui/HeroSettingsPage').then((module) => ({ default: module.HeroSettingsPage })))
 const HeroSubscriptionsPage = lazy(() => import('../features/admin-heroui/HeroSubscriptionsPage').then((module) => ({ default: module.HeroSubscriptionsPage })))
 const HeroUsersPage = lazy(() => import('../features/admin-heroui/HeroUsersPage').then((module) => ({ default: module.HeroUsersPage })))
 const HeroChangelogPage = lazy(() => import('../features/changelog/HeroChangelogPage').then((module) => ({ default: module.HeroChangelogPage })))
 const HeroManualPage = lazy(() => import('../features/manual/HeroManualPage').then((module) => ({ default: module.HeroManualPage })))
 const SettingsAppearancePage = lazy(() => import('../features/settings/SettingsAppearancePage').then((module) => ({ default: module.SettingsAppearancePage })))
+const SettingsAIPage = lazy(() => import('../features/settings/SettingsAIPage').then((module) => ({ default: module.SettingsAIPage })))
+const SettingsIgnoredPage = lazy(() => import('../features/settings/SettingsIgnoredPage').then((module) => ({ default: module.SettingsIgnoredPage })))
+const SettingsLegacyPage = lazy(() => import('../features/settings/SettingsLegacyPage').then((module) => ({ default: module.SettingsLegacyPage })))
 const SettingsNotificationsPage = lazy(() => import('../features/settings/SettingsNotificationsPage').then((module) => ({ default: module.SettingsNotificationsPage })))
 const SettingsOverviewPage = lazy(() => import('../features/settings/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })))
 
@@ -173,9 +175,11 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/subscriptions" element={<HeroSubscriptionsPage />} />
         <Route path="/agents" element={<HeroAgentsPage />} />
         <Route path="/settings" element={<SettingsOverviewPage />} />
+        <Route path="/settings/ai" element={<SettingsAIPage />} />
         <Route path="/settings/appearance" element={<SettingsAppearancePage />} />
+        <Route path="/settings/ignored" element={<SettingsIgnoredPage />} />
         <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
-        <Route path="/settings/legacy" element={<HeroSettingsPage />} />
+        <Route path="/settings/legacy" element={<SettingsLegacyPage />} />
         <Route path="/users" element={<HeroUsersPage />} />
         <Route path="/manual" element={<HeroManualPage />} />
         <Route path="/changelog" element={<HeroChangelogPage />} />

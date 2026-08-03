@@ -62,8 +62,15 @@ export function SettingsOverviewPage() {
             title="AI"
             description={admin ? '配置分析模型、助手和内容生成。' : '查看 AI 能力与工作区配置状态。'}
             icon={<Icons.Sparkles size={18} aria-hidden="true" />}
-            status={!admin ? <StatusBadge>只读</StatusBadge> : undefined}
-            to="/settings/legacy#settings-ai"
+            status={!admin ? <StatusBadge>只读</StatusBadge> : <StatusBadge tone="accent">已迁移</StatusBadge>}
+            to="/settings/ai"
+            state={returnState}
+          />
+          <SettingsCard
+            title="已忽略内容"
+            description="查看并恢复暂时从信息流隐藏的内容。"
+            icon={<Icons.EyeOff size={18} aria-hidden="true" />}
+            to="/settings/ignored"
             state={returnState}
           />
           <SettingsCard
