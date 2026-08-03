@@ -87,32 +87,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [
     "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "Actor Discovery 改为从全局 AI Key 中人工选择；付费确认补齐 Route、来源、定价与预算；Canary 增加 300 秒有界超时、终态费用对账、五次耗尽状态，并在付费前校验 Manifest 输出 Pointer 与来源身份。",
-  "status": "partial",
-  "task_id": "2026-08-02-actor-discovery-ai-canary-diagnostics",
-  "unresolved": [
-    "Instagram 本轮五次 Route Canary 已耗尽；需管理员强制重新发现后，逐次确认新的付费 Canary",
-    "本次未发起新的真实 AI、付费 Canary、三槽激活，也未合并 main、推送或发布 VPS"
-  ],
-  "validation": [
-    "Backend targeted ActorOps/Discovery/Canary/Worker tests passed",
-    "Frontend ActorOps 18 tests passed and production build passed",
-    "Full Test Gate 23/23 passed；git diff --check 与 project-defaults JSON 校验通过",
-    "8080 API/Worker 已从任务 Worktree 重建并 healthy，worker_status=ready，scheduler containers=0",
-    "浏览器验收确认全局 AI 人工选择、Canary 5/5 耗尽阻断、300 秒超时与终态费用诊断；390px 无页面横向溢出，控制台 error/warn 为 0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
     "decisions"
   ],
   "recorded_on": "2026-08-02",
@@ -438,6 +412,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ActorOps 前端 22/22、通知设置 7/7 通过；全量前端串行 550/551，唯一无关 App 设置目录用例单独 1/1 通过",
     "未知启动恢复测试证明不发送第二次 Actor POST，只有账户时间窗权威为空才解除 Route/Key 阻断并结算 $0",
     "终态费用复核测试覆盖 0.00005 到 0.00505 的 Apify 最终值更新"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-03",
+  "result": "确认生产未知启动自愈失败源于 Apify Run 列表拒绝带 +00:00 的日期过滤；v2.2.5 改用 UTC Z 格式并固定 30 秒证明窗口，避免延迟对账混入无关 Run。",
+  "status": "partial",
+  "task_id": "2026-08-03-fix-youtube-apify-reconcile-date-format-v225",
+  "unresolved": [
+    "等待提交合并、Release Gate、Git Tag/Release、本地 amd64 镜像构建与 VPS 切换",
+    "部署后需确认旧未知启动结算为 0 美元并解除 YouTube Route 与 Key 阻断"
+  ],
+  "validation": [
+    "生产只读诊断返回 400 invalid-value，明确 startedAfter 不是接口接受的 ISO UTC 格式",
+    "修复格式后的生产只读查询返回 authoritative_empty=true，未启动 Actor 且未产生费用",
+    "Apify pool/key 定向 22 项通过，完整 Test Gate 23/23 通过"
   ]
 }
 ```
