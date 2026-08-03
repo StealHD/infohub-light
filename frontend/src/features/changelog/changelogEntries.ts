@@ -90,6 +90,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '批准上限不再冒充实际费用', description: '页面分别显示已终结实际费用与仍排队的批准上限。离线升级只把账本证明从未创建远端 Run/Dataset 的 start rejection 修复为 0 美元并停用失效 Build；不能证明未启动的旧记录继续显示费用未知。' },
           { title: '未知启动可以安全自愈', description: '启动请求结果未知时仍立即阻断且不切 Actor；系统等待安全窗后查询账号级 Run 列表，只有明确没有创建任何 Run 才记为 0 美元、归还试跑次数并恢复入口。系统不会自动重跑，下一次付费仍需重新确认。' },
           { title: '终态费用等待远端结算', description: 'Actor 终态后等待 Apify 费用聚合稳定并再次读取同一 Run；旧的过早费用记录会通过只读 GET 自动补账。页面将已确认实际费用、待对账笔数、尚未运行的批准上限和 0.10 美元认证预算分开显示，预算不是扣款。' },
+          { title: 'v2.2.4 发布基线', description: 'v2.2.3 Tag 因发布文档门禁未通过而不部署、不改写；v2.2.4 同步版本、产品手册与 Changelog 后作为本次 YouTube Actor 热修的正式发布版本。' },
           { title: '候选合格后只需确认启用', description: '页面不再暴露 Revision 下拉或手工排槽。服务端优先生成完整 2+1，也可生成两个 Canary 成功 Actor 的快速主备方案；管理员核对 Route、来源模式和费用上限后确认一次生效，浏览器不能指定候选。新来源按当前两或三路完成 2/2 或 3/3 验证。' },
           { title: 'Dataset 解码不重复付费', description: '所有 Apify 请求显式使用 identity encoding；已启动 X Run 的 Dataset 解码失败只会使用同一 Key 重读同一 Dataset，不会二次启动 Actor或切换槽位，耗尽后保留账本并安全阻断对账。' },
           { title: '支持组合固定', description: '首期支持检查只显示 X Profile、YouTube Channel 与 Instagram Profile 三种完整组合。离线升级会在确认没有候选、费用、绑定、验证或活跃任务证据后安全清理误建的 YouTube Profile，并保留合法 Route 的 generation 单调性。' },
