@@ -23,15 +23,6 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-03',
-        title: 'v2.2.1 修复 Linux 移动端发布验收',
-        summary: '订阅能力目录的新布局已同步到 Linux Chrome 的明暗主题视觉基线，避免正确界面被旧截图阻断发布。',
-        items: [
-          { title: '只修发布基线', description: '本补丁不改变 ActorOps 路由、费用、审批或运行逻辑；更新的两张移动端基线分别覆盖明暗主题，并由隔离 linux/amd64 Chrome 环境验收。' },
-          { title: '保留精确版本', description: '已公开的 v2.2.0 标签不改写；v2.2.1 作为可部署补丁版本保留相同功能和数据库迁移契约。' },
-        ],
-      },
-      {
-        date: '2026-08-03',
         title: 'YouTube Actor 不再因映射错误全军覆没',
         summary: '真实 Run 证明商城存在可返回完整视频字段的固定 Build；Discovery 现在使用正确频道 ID、Dataset 根路径和 Schema 优先证据。',
         items: [
@@ -39,6 +30,8 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '输出路径从真实根开始', description: 'Manifest 只从精确 Build Dataset row 根选择字段；若模型增加不存在的 candidate、item、data 或 result 包装，只有 Schema 能证明移除后路径精确存在时才安全修正。发布时间必须显式解析。' },
           { title: '完整视频 Schema 优先', description: '定价事件名仍用于淘汰明确的频道资料 Actor，但固定 Build 已证明视频 ID、视频 URL、发布时间和标题或正文时，不再被模糊的频道计费事件误杀；Store 的任意返回顺序也不再挤掉更强候选。' },
           { title: '重复发现不再伪报系统错误', description: '同一个 Discovery Run 被并发排队时，先执行的任务负责推进状态，后执行的任务幂等结束，不再产生与实际候选失败无关的 ValueError。' },
+          { title: 'Linux 发布基线同步', description: 'v2.2.1 将订阅能力目录的新布局同步到 Linux Chrome 的明暗主题移动端视觉基线；不改变 ActorOps 路由、费用、审批、运行逻辑或数据库迁移契约。' },
+          { title: '已公开版本不改写', description: 'v2.2.0 标签保持原样，v2.2.1 作为可部署补丁版本修复发布验收。' },
         ],
       },
     ],
