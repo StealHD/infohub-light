@@ -56,27 +56,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-07-31",
-  "result": "加固 ActorOps API/UI：新付费来源统一经过完整 2+1 capability gate，来源 Canary 使用独立费用输入与总预算，发现/来源异步验证持续轮询，并补齐 Discovery Secret 清除、真实 configured 状态、能力目录失效与错误态、活跃 legacy 回滚过滤及 exact-build Revision 差异投影。",
-  "status": "completed",
-  "task_id": "2026-07-31-apify-actor-ops-api-ui-hardening",
-  "unresolved": [
-    "完整 Test Gate 与本地 8080 cutover 由 ActorOps 集成任务统一执行"
-  ],
-  "validation": [
-    "backend ActorOps API/discovery/legacy compatibility: 24 passed",
-    "frontend ActorOps and App regressions: 113 passed",
-    "frontend typecheck and scoped ESLint passed; Python compile and scoped diff check passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "decisions",
     "interface",
@@ -474,6 +453,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "Release Playwright 定向 15 项：13 passed、2 skipped",
     "订阅 capability catalog 404 消失，既有 light/dark 三视口截图无需更新",
     "ActorOps 通用路由表、当前三槽主备、全局 Discovery AI 和告警区域通过三视口可访问性验收"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-03",
+  "result": "修复 v2.2.0 GitHub Linux UI Gate 暴露的移动端订阅视觉基线滞后；在隔离 linux/amd64 + Google Chrome 环境重生成 light/dark 基线，并将不可改写的公开失败标签后续版本升级为 2.2.1。",
+  "status": "partial",
+  "task_id": "2026-08-03-repair-v2.2.0-linux-visual-release-gate",
+  "unresolved": [
+    "v2.2.1 的 GitHub CI、Tag/Release、revision-locked 镜像与 VPS 正式切换尚待后续步骤完成",
+    "v2.2.0 已公开且不改写，将在 v2.2.1 发布后标记为被补丁版取代"
+  ],
+  "validation": [
+    "GitHub 后端与前端 Gate 均成功，唯一首错为 subscriptions-semantic-light-mobile-linux.png 的旧 UI 基线 2% 差异",
+    "人工核对 CI expected/actual/diff，actual 为预期的新 capability catalog 订阅布局",
+    "隔离 linux/amd64 + Google Chrome 151 重生成 light/dark 两张基线并通过 1/1；本机三视口复验 3/3 通过"
   ]
 }
 ```
