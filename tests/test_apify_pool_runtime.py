@@ -167,7 +167,8 @@ def test_unknown_start_with_authoritative_empty_window_recovers_without_post(
         lease,
         error_code="apify_start_http_outcome_unknown",
     )
-    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    old_dt = datetime.now(timezone.utc) - timedelta(minutes=2)
+    old = old_dt.isoformat()
     store.connect().execute(
         "UPDATE apify_actor_runs SET created_at = ?, updated_at = ? WHERE id = ?",
         (old, old, lease.reservation_id),
@@ -180,6 +181,16 @@ def test_unknown_start_with_authoritative_empty_window_recovers_without_post(
         assert request.method == "GET"
         assert request.url.path == "/v2/actor-runs"
         assert request.url.params["limit"] == "1000"
+        assert request.url.params["startedAfter"] == (
+            (old_dt - timedelta(seconds=5))
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        assert request.url.params["startedBefore"] == (
+            (old_dt + timedelta(seconds=30))
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
         return httpx.Response(
             200,
             json={"data": {"items": [], "total": 0, "count": 0}},

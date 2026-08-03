@@ -18,6 +18,16 @@ from .secret_quota import ApifySecretQuotaService, SecretQuotaError
 from .secret_store import SecretStore
 
 
+def _apify_utc_query_datetime(value: datetime) -> str:
+    """Serialize one Apify date filter in its accepted UTC ``Z`` form."""
+
+    return (
+        value.astimezone(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
 def apify_coordinator_for_workspace(
     store: ServiceStore,
     *,
@@ -92,15 +102,17 @@ async def reconcile_apify_pool(
                 if datetime.now(timezone.utc) < unknown_at + timedelta(seconds=30):
                     return coordinator.public_state(workspace_id)
                 lease = coordinator.lease_for_run(str(run["id"]))
-                proof_checked_at = datetime.now(timezone.utc)
                 proved_empty = await client.prove_no_user_run_in_window(
                     lease,
-                    started_after=(
-                        created_at.astimezone(timezone.utc) - timedelta(seconds=5)
-                    ).isoformat(),
-                    # Include the complete safety delay so a remotely queued
-                    # Run with a late startedAt cannot be missed.
-                    started_before=proof_checked_at.isoformat(),
+                    started_after=_apify_utc_query_datetime(
+                        created_at - timedelta(seconds=5)
+                    ),
+                    # Freeze the proof window at the same 30-second safety
+                    # boundary used above. A delayed Worker pass must not mix
+                    # unrelated account Runs into an old ambiguous start.
+                    started_before=_apify_utc_query_datetime(
+                        unknown_at + timedelta(seconds=30)
+                    ),
                 )
                 if not proved_empty:
                     return coordinator.public_state(workspace_id)
