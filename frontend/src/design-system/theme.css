@@ -423,6 +423,16 @@ html.inteliscope-design-system[data-inteliscope-theme="graphite-purple"] body {
   visibility: hidden;
 }
 
+/*
+ * React Aria keeps an exiting overlay in the accessibility tree until its
+ * leave animation completes. Hiding that transient Select surface prevents
+ * its fading foreground/background pair from being announced or evaluated
+ * as live content, while the next focused control already owns the input.
+ */
+.inteliscope-design-system :is(.select__popover, .combo-box__popover)[data-exiting="true"] {
+  visibility: hidden;
+}
+
 ::view-transition-new(.toast-bottom):only-child,
 ::view-transition-old(.toast-bottom):only-child,
 ::view-transition-new(.toast-top):only-child,
