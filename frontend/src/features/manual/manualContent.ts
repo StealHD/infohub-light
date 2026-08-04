@@ -14,7 +14,7 @@ export type ManualSection = {
 
 export const manualReview = {
   reviewedAt: '2026-08-04',
-  change: 'v2.2.6 Actor 对账安全修复与 Settings Workspace 原生化收尾',
+  change: 'v2.2.7 Settings Workspace 发布验证与无障碍修正',
 } as const
 
 export const manualSections: ManualSection[] = [

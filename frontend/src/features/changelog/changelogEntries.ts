@@ -23,6 +23,15 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-04',
+        title: 'v2.2.7 设置工作区发布验证修正',
+        summary: '补强原生设置路由的发布验证与选择器退出态，保持现有业务、接口和信息流不变。',
+        items: [
+          { title: '设置路由验证更稳定', description: '历史链接跳转到“获取与主题”页后会等待原生页面完成挂载，再验证 RSS 首次抓取窗口的保存行为。' },
+          { title: '选择器退出态保持可访问', description: '下拉菜单离场动画期间不再保留在可访问树中，避免瞬时低对比度内容影响辅助技术与无障碍检查。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
         title: 'v2.2.6 设置工作区发布基线',
         summary: '独立 Settings Workspace 完成全部原生迁移；不改变 API、数据库或信息流侧栏。',
         items: [
