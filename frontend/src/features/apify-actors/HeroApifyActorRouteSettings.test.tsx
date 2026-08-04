@@ -1311,6 +1311,7 @@ describe('HeroApifyActorRouteSettings', () => {
     })
 
     await screen.findByRole('list', { name: '当前 Actor 主备方案' })
+    await browser.click(screen.getByRole('button', { name: /Revision 差异与回滚/ }))
     await browser.click(screen.getByRole('button', { name: '回滚到此 Revision' }))
     await browser.click(within(
       screen.getByRole('dialog', { name: '回滚不可变 Revision' }),
@@ -1331,6 +1332,7 @@ describe('HeroApifyActorRouteSettings', () => {
   })
 
   it('does not offer an active legacy revision as rollback history', async () => {
+    const browser = userEvent.setup()
     const base = actorOpsDetail()
     const activeLegacy = {
       ...base.revisions[0],
@@ -1358,6 +1360,8 @@ describe('HeroApifyActorRouteSettings', () => {
       apifyActorRoute: vi.fn().mockResolvedValue(detail),
     })
 
+    await screen.findByRole('list', { name: '当前 Actor 主备方案' })
+    await browser.click(screen.getByRole('button', { name: /Revision 差异与回滚/ }))
     expect(await screen.findByText('当前没有可回滚的历史 Revision。')).toBeVisible()
     expect(screen.queryByRole('button', { name: '回滚到此 Revision' })).not.toBeInTheDocument()
   })
@@ -1518,6 +1522,8 @@ describe('HeroApifyActorRouteSettings', () => {
       updateApifyActorDiscoverySettings,
     })
 
+    await screen.findByRole('list', { name: '当前 Actor 主备方案' })
+    await browser.click(screen.getByRole('button', { name: /Actor Discovery AI 设置/ }))
     const selector = await screen.findByLabelText('Discovery 使用的全局 AI')
     expect(selector).toBeInTheDocument()
     expect(screen.queryByLabelText('SecretStore 引用')).not.toBeInTheDocument()

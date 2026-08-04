@@ -227,14 +227,14 @@ export function SettingsFetchingPage() {
 
   return <div data-settings-page="fetching" className="quiet-scroll-region h-full overflow-x-hidden overflow-y-auto">
     <PageFrame width="settings" className="grid gap-7 p-4 pb-10 min-[768px]:p-6 min-[768px]:pb-12">
-      {dirtySections.size > 0 && <StatusNotice title="有尚未保存的更改" status="warning" role="status">
+      {dirtySections.size > 0 && <div className="sticky top-3 z-10"><StatusNotice title="有尚未保存的更改" status="warning" role="status">
         <div className="flex flex-wrap items-center gap-3">
           <span className="min-w-0 flex-1">{dirtySections.size} 项设置待保存。</span>
           <Button size="sm" isDisabled={configMutation.isPending} onPress={() => saveSections([...dirtySections])}>
             <Icons.Save size={15} aria-hidden="true" />{configMutation.isPending ? '保存中…' : '保存全部配置'}
           </Button>
         </div>
-      </StatusNotice>}
+      </StatusNotice></div>}
 
       <SettingsSection title="RSSHub 服务" description="受控来源在运行时通过此服务地址访问，不会向浏览器暴露访问密钥。">
         {config.isPending

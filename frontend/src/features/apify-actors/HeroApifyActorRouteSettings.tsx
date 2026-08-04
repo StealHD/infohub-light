@@ -819,7 +819,7 @@ export function ApifyActorAlertSettingsForm({
   </form>
 }
 
-function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
+export function ApifyActorAlertSettingsPanel({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const queryClient = useQueryClient()
   const settings = useQuery({
@@ -997,7 +997,7 @@ function incidentDeliveryLabel(status: string | null): string {
   return '等待发送'
 }
 
-function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean }) {
+export function ApifyActorIncidentList({ queryEnabled }: { queryEnabled: boolean }) {
   const { api, user } = useAppContext()
   const incidents = useQuery({
     queryKey: queryKeys.apifyActorAlertIncidents(user.id),

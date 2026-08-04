@@ -7,7 +7,7 @@ import { queryKeys } from '../../api/queryKeys'
 import type { ApifyKeyPoolMember, SecretRef } from '../../api/types'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import { useAppContext } from '../../app/AppContext'
-import { SettingsGroup, SettingsItem, SettingsSection, StatusBadge } from '../../components/settings'
+import { SettingsDisclosure, SettingsGroup, SettingsItem, SettingsSection, StatusBadge } from '../../components/settings'
 import {
   actionToast,
   Button,
@@ -319,8 +319,10 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                 const controlsDisabled = !member || Boolean(poolQuery.isError) || orderMutation.isPending || drainMutation.isPending || poolBusy
                 const canDrain = Boolean(pool?.enabled && member && lifecycleLocked)
                 const draining = drainMutation.isPending && drainMutation.variables === secret.id
+                const memberPresentation = member ? memberStatusPresentation[member.status] : null
                 return <SettingsItem
                   key={secret.id}
+                  density="compact"
                   label={secret.name}
                   description={`${secret.provider} · ${secret.env_name}`}
                   icon={<Icons.KeyRound size={17} aria-hidden="true" />}
@@ -330,7 +332,16 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                     {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
                   </div>}
                 >
-                  <div className="grid gap-3"><ApifyMemberState member={member} /><SecretQuotaDetails secret={secret} userId={userId} /><SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lockMessage={poolStateUnknown ? '池状态确认前不可轮换或删除' : undefined} onChanged={onSecretChanged} /></div>
+                  <div className="grid gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
+                      {member && <span className="type-meta text-muted">顺位 {member.position} · {member.active_run_count > 0 ? `${member.active_run_count} 个运行中任务` : '当前无运行中任务'}</span>}
+                    </div>
+                    <SecretQuotaDetails secret={secret} userId={userId} />
+                    <SettingsDisclosure title="运行详情" description="查看检查时间、周期、错误和安全锁定状态。">
+                      <div className="grid gap-3"><ApifyMemberState member={member} /><SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lockMessage={poolStateUnknown ? '池状态确认前不可轮换或删除' : undefined} onChanged={onSecretChanged} /></div>
+                    </SettingsDisclosure>
+                  </div>
                 </SettingsItem>
               })}
           </SettingsGroup>
@@ -469,7 +480,7 @@ export function SettingsSecretsPage() {
                   ? <SettingsItem label="尚未配置 AI Key" description="新增 AI Key 后，可在 AI 设置中选择它作为工作区模型凭据。" icon={<Icons.Sparkles size={17} aria-hidden="true" />} />
                   : aiSecrets.map((secret) => {
                     const presentation = secretPresentation(secret)
-                    return <SettingsItem key={secret.id} label={presentation.name} description={`${presentation.provider} · ${secret.env_name}`} icon={<Icons.Sparkles size={17} aria-hidden="true" />} trailing={<SecretActions secret={secret} onChanged={secretChanged} />}>
+                    return <SettingsItem key={secret.id} density="compact" label={presentation.name} description={`${presentation.provider} · ${secret.env_name}`} icon={<Icons.Sparkles size={17} aria-hidden="true" />} trailing={<SecretActions secret={secret} onChanged={secretChanged} />}>
                       <div className="flex flex-wrap items-center gap-2"><StatusBadge tone={secret.is_set ? 'success' : 'warning'}>{presentation.status}</StatusBadge><span className="type-meta text-muted">{presentation.usage}</span>{secret.used_by.length > 0 && <span className="type-meta text-muted">正在被 {secret.used_by.map((usage) => usage.name).join('、')} 使用</span>}</div>
                     </SettingsItem>
                   })}

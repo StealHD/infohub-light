@@ -1,5 +1,6 @@
 export { SettingsAppearancePage } from './SettingsAppearancePage'
 export { SettingsAIPage } from './SettingsAIPage'
+export { SettingsActorOpsPage } from './SettingsActorOpsPage'
 export { SettingsFetchingPage } from './SettingsFetchingPage'
 export { SettingsIgnoredPage } from './SettingsIgnoredPage'
 export { SettingsLayout } from './SettingsLayout'

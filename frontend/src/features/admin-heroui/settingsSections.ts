@@ -18,7 +18,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 ]
 
 export const LEGACY_SETTINGS_SECTIONS: readonly SettingsSection[] = [
-  { id: 'settings-actorops', label: 'ActorOps', adminOnly: true },
   { id: 'settings-storage', label: '存储与归档', adminOnly: true },
 ]
 

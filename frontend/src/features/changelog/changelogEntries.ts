@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-04',
+        title: 'ActorOps 迁入设置工作区',
+        summary: 'Owner/Admin 现在可在独立 ActorOps 页面管理主备、发现、告警与事件；操作、权限和安全边界保持不变。',
+        items: [
+          { title: '独立路由与旧链接兼容', description: '新增 `/settings/actorops`，开发者分组顺序为“密钥、ActorOps、高级”。旧 ActorOps 书签会安全转到新页面，只有存储与归档继续保留在高级兼容页。' },
+          { title: '桌面紧凑、手机无横向滚动', description: '桌面保留高密度路由表，手机改为信息明确的列表卡片；Revision、费用上限和 Discovery AI 细节默认折叠。' },
+          { title: '查询只在需要时启动', description: '只有 Owner/Admin 打开 ActorOps 才读取对应数据；离开页面或收起 Discovery AI 后停止相关轮询与配置请求。' },
+          { title: '设置视觉更清晰', description: '设置页面统一为实色中性层级、细边框和紧凑控件；密钥与获取/主题也同步收紧信息密度，不影响信息流视觉系统。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
         title: '获取与主题迁入设置工作区',
         summary: 'Owner/Admin 现在可在独立“获取与主题”页配置 RSSHub、抓取窗口和阅读主题，保留原有保存与缓存语义。',
         items: [

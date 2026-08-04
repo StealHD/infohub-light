@@ -998,3 +998,12 @@
 - 决策内容：`/settings/fetching` 成为 Owner/Admin 专用的原生获取配置页，工作区组固定在“来源”后、“已忽略内容”前。它独占既有 config Query 和 `set_settings_bundle` mutation，并以 `rsshub`、`filtering`、`topics` 三个可独立或原子保存的分区呈现；payload/diff、主题规范化和保存 revision 归 `settingsFetchingModel.ts`，Legacy 不得保留重复的获取或主题业务实现。Member/Viewer 直接访问时返回 Overview，且不请求 config 或 ActorOps。
 - 兼容/边界：旧 `#settings-fetching` 对授权角色重定向 `/settings/fetching`；ActorOps 继续留在 `/settings/legacy#settings-actorops`，存储归档继续留在 `#settings-storage`。RSSHub 密钥仅投影 `RSSHUB_ACCESS_KEY` 配置状态并链接现有密钥页，浏览器不接收真实值。后端 API、Query key、配置字段、缓存失效范围和 `set_settings_bundle` payload 均不变。
 - 原因：抓取窗口、RSSHub 和主题是日常工作区配置，和高风险的 ActorOps/存储操作混在同一 Legacy 长页会削弱按路由加载和可读性。按配置域迁移可延续已验证的草稿与原子保存语义，同时将 ActorOps 留在其独立的兼容生命周期中，便于下一阶段单独原生化。
+
+### D117 ActorOps 原生化并采用 Default 实色设置表面
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现与验证中；不修改 ActorOps API、数据库、付费确认或运行策略
+- 决策内容：`/settings/actorops` 成为 Owner/Admin 专用的原生设置路由，开发者导航固定为“密钥、ActorOps、高级”，旧 `#settings-actorops` 仅为兼容重定向；Legacy Settings 只保留存储与归档。原生页只组合既有 `HeroActorOpsControlPlane`、告警和事件的 Query/mutation，不复制支持检查、路由选择、主备池、发现、验证、回滚、确认、generation 冲突、缓存失效或轮询业务。Member/Viewer 在任何请求开始前回到 Overview。
+- 交互与按需读取：桌面保留高密度 Route 表，768 px 以下使用无页面横向滚动的 SettingsItem 列表。Revision 历史/回滚、单次费用上限和 Discovery AI 默认折叠；Discovery AI 保持草稿挂载，但仅展开时请求配置，离开、任务结束或对话框关闭时停止对应轮询。告警与事件移入原生页的独立组，继续复用安全降级、Toast、确认与焦点恢复。
+- 视觉边界：Settings primitives 采用 HeroUI Default 的实色中性表面、细边框、中等圆角、轻量阴影和紧凑控件层级；`SettingsGroup/SettingsCard` 提供 surface/inset，`SettingsItem` 提供 comfortable/compact。该参考不引入或复制 HeroUI Pro，且不改变 Feed Sidebar 或 Feed 视觉系统。密钥的运行元数据归入折叠详情，获取页在有草稿时保留紧凑 sticky 保存条。
+- 原因：ActorOps 是管理者的独立运行控制面，不应继续隐藏在兼容长页；但其付费与 CAS 安全边界已被验证，不应在视觉迁移中重写。原生路由让请求、轮询与权限边界可按页收敛，同时统一既有设置页面的阅读层级。

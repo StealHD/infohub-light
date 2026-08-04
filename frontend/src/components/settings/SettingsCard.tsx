@@ -3,7 +3,7 @@ import { Link, type To } from 'react-router-dom'
 
 import { Card, Icons } from '../../design-system'
 
-export function SettingsCard({ title, description, icon, status, to, state, className = '' }: {
+export function SettingsCard({ title, description, icon, status, to, state, className = '', variant = 'surface' }: {
   title: string
   description: string
   icon: ReactNode
@@ -11,11 +11,12 @@ export function SettingsCard({ title, description, icon, status, to, state, clas
   to?: To
   state?: unknown
   className?: string
+  variant?: 'surface' | 'inset'
 }) {
   const card = <Card
     data-settings-card
     variant="secondary"
-    className={`group h-full gap-0 border border-separator bg-surface-secondary p-4 shadow-none transition-[border-color,transform] duration-[var(--inteliscope-motion-standard)] hover:border-accent/35 hover:bg-default/80 motion-reduce:transform-none ${className}`}
+    className={`group h-full gap-0 border border-separator p-4 shadow-sm transition-[border-color,background-color,transform] duration-[var(--inteliscope-motion-standard)] hover:border-accent/35 motion-reduce:transform-none ${variant === 'inset' ? 'bg-default hover:bg-default/80' : 'bg-surface-secondary hover:bg-surface'} ${className}`}
   >
     <Card.Content className="flex h-full min-w-0 items-start gap-3 p-0">
       <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-default text-muted transition-colors group-hover:text-foreground">{icon}</span>

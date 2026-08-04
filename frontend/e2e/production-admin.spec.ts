@@ -1258,23 +1258,30 @@ test('unified notification services stay bounded at 390, 768 and 1440 pixels', a
   }
 })
 
-test('ActorOps route control plane stays safe and bounded across settings layouts', async ({ page }) => {
+test('ActorOps route control plane stays safe and bounded across settings layouts', async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await mockAdminApi(page, true, { includeXProfileSource: true })
   await page.goto('/settings/legacy#settings-actorops')
 
+  await expect(page).toHaveURL(/\/settings\/actorops$/)
+  await expect(page.getByRole('heading', { name: 'ActorOps', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByText('ActorOps 路由控制面', { exact: true })).toBeVisible()
-  await expect(page.getByRole('grid', { name: 'ActorOps 路由列表' })).toBeVisible()
+  if (testInfo.project.name === 'mobile') {
+    await expect(page.getByLabel('ActorOps 路由列表（移动端）')).toBeVisible()
+  } else {
+    await expect(page.getByRole('grid', { name: 'ActorOps 路由列表' })).toBeVisible()
+  }
   await expect(page.getByRole('list', { name: '当前 Actor 主备方案' })).toBeVisible()
   await expect(page.getByText('Actor Discovery AI 设置', { exact: true })).toBeVisible()
   await expect(page.getByText('故障告警', { exact: true })).toBeVisible()
   await expect(page.getByRole('switch', { name: '启用 Apify 运行告警' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
-  const actorTableScroll = page.getByTestId('actor-ops-route-scroll')
-  expect(await actorTableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
-  if ((page.viewportSize()?.width ?? 0) <= 390) {
-    expect(await actorTableScroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  if (testInfo.project.name !== 'mobile') {
+    const actorTableScroll = page.getByTestId('actor-ops-route-scroll')
+    expect(await actorTableScroll.evaluate((element) => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/)
+  } else {
+    await expect(page.getByTestId('actor-ops-route-scroll')).toBeHidden()
   }
   expect(await page.locator('body').innerText()).not.toContain('not-rendered-by-actor-settings')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -1368,7 +1375,9 @@ test('settings key groups retain quota, refresh, safety locks and accessible mod
   await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
   apiState.releaseQuotaRefresh()
   await expect(refreshQuota).toBeEnabled()
-  const rotateTrigger = page.getByRole('button', { name: '轮换 Apify Primary' })
+  const apifyPrimaryItem = apifyGroup.getByText('Apify Primary', { exact: true }).locator('xpath=ancestor::*[@data-settings-item][1]')
+  await apifyPrimaryItem.getByRole('button', { name: /运行详情/ }).click()
+  const rotateTrigger = apifyPrimaryItem.getByRole('button', { name: '轮换 Apify Primary' })
   await rotateTrigger.click()
   await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toBeVisible()
   await page.keyboard.press('Escape')

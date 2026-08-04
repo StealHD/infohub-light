@@ -1865,6 +1865,27 @@ describe('App routes', () => {
     expect(apifyActorAlertSettings).not.toHaveBeenCalled()
   })
 
+  it('redirects members away from ActorOps without requesting routes, alerts, or incidents', async () => {
+    const apifyActorRoutes = vi.fn()
+    const apifyActorAlertSettings = vi.fn()
+    const apifyActorAlertIncidents = vi.fn()
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-actorops-readonly', username: 'member', role: 'member', enabled: true } }),
+      apifyActorRoutes,
+      apifyActorAlertSettings,
+      apifyActorAlertIncidents,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/actorops']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
+    expect(document.querySelector('[data-settings-page="actorops"]')).not.toBeInTheDocument()
+    await act(async () => Promise.resolve())
+    expect(apifyActorRoutes).not.toHaveBeenCalled()
+    expect(apifyActorAlertSettings).not.toHaveBeenCalled()
+    expect(apifyActorAlertIncidents).not.toHaveBeenCalled()
+  })
+
   it('keeps legacy settings reachable inside the workspace without mounting the Feed shell', async () => {
     const config = vi.fn().mockResolvedValue({
       config: { ai: {}, filtering: {}, feed_end_messages: {} },
@@ -2308,6 +2329,7 @@ describe('App routes', () => {
 
     expect(await screen.findByText('Apify Key 池尚未启用')).toBeInTheDocument()
     const primaryItem = screen.getByText('Legacy Primary').closest<HTMLElement>('[data-settings-item]')!
+    await browser.click(within(primaryItem).getByRole('button', { name: /运行详情/ }))
     const rotateTrigger = within(primaryItem).getByRole('button', { name: '轮换 Legacy Primary' })
     expect(rotateTrigger).toBeEnabled()
     expect(within(primaryItem).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
@@ -2415,6 +2437,7 @@ describe('App routes', () => {
       'apify-backup-two',
     ]))
     const primaryItem = screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!
+    await browser.click(within(primaryItem).getByRole('button', { name: /运行详情/ }))
     expect(within(primaryItem).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled()
     expect(within(primaryItem).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
     expect(within(primaryItem).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled()
@@ -2424,6 +2447,8 @@ describe('App routes', () => {
     renderSettings()
     expect((await screen.findAllByText('套餐剩余 $36.50')).length).toBe(3)
     expect(secretQuota).toHaveBeenCalledTimes(3)
+    const refreshedPrimaryItem = screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!
+    await browser.click(within(refreshedPrimaryItem).getByRole('button', { name: /运行详情/ }))
 
     deferPrimaryRefresh = true
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Primary 额度' }))
@@ -2445,6 +2470,7 @@ describe('App routes', () => {
     ))
 
     const secondBackupItem = screen.getByText('Apify Backup Two').closest<HTMLElement>('[data-settings-item]')!
+    await browser.click(within(secondBackupItem).getByRole('button', { name: /运行详情/ }))
     const rotateTrigger = within(secondBackupItem).getByRole('button', { name: '轮换 Apify Backup Two' })
     await browser.click(rotateTrigger)
     const rotateDialog = screen.getByRole('dialog', { name: '轮换 Apify Backup Two' })

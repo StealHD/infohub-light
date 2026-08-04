@@ -25,6 +25,7 @@ const HeroChangelogPage = lazy(() => import('../features/changelog/HeroChangelog
 const HeroManualPage = lazy(() => import('../features/manual/HeroManualPage').then((module) => ({ default: module.HeroManualPage })))
 const SettingsAppearancePage = lazy(() => import('../features/settings/SettingsAppearancePage').then((module) => ({ default: module.SettingsAppearancePage })))
 const SettingsAIPage = lazy(() => import('../features/settings/SettingsAIPage').then((module) => ({ default: module.SettingsAIPage })))
+const SettingsActorOpsPage = lazy(() => import('../features/settings/SettingsActorOpsPage').then((module) => ({ default: module.SettingsActorOpsPage })))
 const SettingsFetchingPage = lazy(() => import('../features/settings/SettingsFetchingPage').then((module) => ({ default: module.SettingsFetchingPage })))
 const SettingsIgnoredPage = lazy(() => import('../features/settings/SettingsIgnoredPage').then((module) => ({ default: module.SettingsIgnoredPage })))
 const SettingsLegacyPage = lazy(() => import('../features/settings/SettingsLegacyPage').then((module) => ({ default: module.SettingsLegacyPage })))
@@ -178,6 +179,7 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/agents" element={<HeroAgentsPage />} />
         <Route path="/settings" element={<SettingsOverviewPage />} />
         <Route path="/settings/ai" element={<SettingsAIPage />} />
+        <Route path="/settings/actorops" element={<SettingsActorOpsPage />} />
         <Route path="/settings/fetching" element={<SettingsFetchingPage />} />
         <Route path="/settings/appearance" element={<SettingsAppearancePage />} />
         <Route path="/settings/ignored" element={<SettingsIgnoredPage />} />

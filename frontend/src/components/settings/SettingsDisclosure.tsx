@@ -2,12 +2,13 @@ import { useId, useState, type ReactNode } from 'react'
 
 import { Icons } from '../../design-system'
 
-export function SettingsDisclosure({ title, description, children, defaultOpen = false, className = '' }: {
+export function SettingsDisclosure({ title, description, children, defaultOpen = false, className = '', onOpenChange }: {
   title: string
   description?: string
   children: ReactNode
   defaultOpen?: boolean
   className?: string
+  onOpenChange?: (open: boolean) => void
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const contentId = useId()
@@ -15,14 +16,18 @@ export function SettingsDisclosure({ title, description, children, defaultOpen =
   return <div
     data-settings-disclosure={title}
     data-disclosure-state={open ? 'open' : 'closed'}
-    className={`rounded-xl border border-separator bg-default/40 ${className}`}
+    className={`overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default shadow-sm ${className}`}
   >
     <button
       type="button"
       aria-expanded={open}
       aria-controls={contentId}
-      className="flex min-h-12 w-full items-center gap-3 px-3 text-left hover:bg-default/60 focus-visible:outline-2 focus-visible:outline-focus"
-      onClick={() => setOpen((current) => !current)}
+      className="flex min-h-12 w-full items-center gap-3 px-3 text-left hover:bg-surface-secondary focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-[-2px]"
+      onClick={() => setOpen((current) => {
+        const next = !current
+        onOpenChange?.(next)
+        return next
+      })}
     >
       <Icons.ChevronRight
         size={16}
@@ -39,7 +44,7 @@ export function SettingsDisclosure({ title, description, children, defaultOpen =
       hidden={!open}
       className="border-t border-separator"
     >
-      <div className="px-3 py-4">{children}</div>
+      <div className="bg-surface-secondary px-3 py-4">{children}</div>
     </div>
   </div>
 }

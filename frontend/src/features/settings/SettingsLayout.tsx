@@ -26,7 +26,7 @@ export function SettingsLayout({ user, children }: { user: User; children: React
       <SettingsSidebar role={user.role} returnTo={returnTo} onBack={goBack} />
     </aside>
 
-    <header className="flex h-[52px] min-w-0 items-center gap-1 border-b border-separator bg-surface/95 px-2.5 supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg min-[768px]:gap-2 min-[768px]:px-4">
+    <header className="flex h-[52px] min-w-0 items-center gap-1 border-b border-separator bg-surface px-2.5 min-[768px]:gap-2 min-[768px]:px-4">
       <Button
         size="sm"
         variant="ghost"

@@ -24,10 +24,7 @@ describe('settingsSections', () => {
   })
 
   it('limits the legacy bridge to settings that have not migrated yet', () => {
-    expect(legacySettingsSectionsForRole('owner').map((section) => section.id)).toEqual([
-      'settings-actorops',
-      'settings-storage',
-    ])
+    expect(legacySettingsSectionsForRole('owner').map((section) => section.id)).toEqual(['settings-storage'])
     expect(legacySettingsSectionsForRole('member')).toHaveLength(0)
     expect(legacySettingsSectionFromHash('#settings-ai', 'owner')).toBeNull()
     expect(legacySettingsSectionFromHash('#settings-notifications', 'owner')).toBeNull()

@@ -106,11 +106,19 @@ export function SettingsOverviewPage() {
             state={returnState}
           />}
           {admin && <SettingsCard
+            title="ActorOps"
+            description="管理 Actor 路由、主备池、运行告警和最近事件。"
+            icon={<Icons.Route size={18} aria-hidden="true" />}
+            status={<StatusBadge tone="warning">管理员</StatusBadge>}
+            to="/settings/actorops"
+            state={returnState}
+          />}
+          {admin && <SettingsCard
             title="高级"
-            description="管理 ActorOps、运行告警和存储归档。"
+            description="预演工作区存储清理、冷归档与恢复。"
             icon={<Icons.SlidersHorizontal size={18} aria-hidden="true" />}
             status={<StatusBadge tone="warning">管理员</StatusBadge>}
-            to="/settings/legacy#settings-actorops"
+            to="/settings/legacy#settings-storage"
             state={returnState}
           />}
         </div>

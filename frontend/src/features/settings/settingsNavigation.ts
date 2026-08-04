@@ -1,7 +1,7 @@
 import { Icons, type LucideIcon } from '../../design-system'
 
 export type SettingsRole = 'owner' | 'admin' | 'member' | 'viewer'
-export type SettingsNavigationId = 'overview' | 'sources' | 'fetching' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'secrets' | 'advanced'
+export type SettingsNavigationId = 'overview' | 'sources' | 'fetching' | 'ignored' | 'ai' | 'notifications' | 'appearance' | 'secrets' | 'actorops' | 'advanced'
 
 export type SettingsNavigationItem = {
   id: SettingsNavigationId
@@ -52,7 +52,8 @@ export const SETTINGS_NAVIGATION_GROUPS: readonly SettingsNavigationGroup[] = [
     label: '开发者',
     items: [
       { id: 'secrets', label: '密钥', href: '/settings/secrets', icon: Icons.KeyRound, adminOnly: true },
-      { id: 'advanced', label: '高级', href: '/settings/legacy#settings-actorops', icon: Icons.SlidersHorizontal, adminOnly: true },
+      { id: 'actorops', label: 'ActorOps', href: '/settings/actorops', icon: Icons.Route, adminOnly: true },
+      { id: 'advanced', label: '高级', href: '/settings/legacy#settings-storage', icon: Icons.SlidersHorizontal, adminOnly: true },
     ],
   },
 ]
@@ -69,7 +70,7 @@ export function settingsNavigationForRole(role: SettingsRole): readonly Settings
   })).filter((group) => group.items.length > 0)
 }
 
-const advancedHashes = new Set(['settings-actorops', 'settings-storage'])
+const advancedHashes = new Set(['settings-storage'])
 
 export function activeSettingsNavigationId(pathname: string, hash: string): SettingsNavigationId {
   if (pathname === '/settings/notifications') return 'notifications'
@@ -78,6 +79,7 @@ export function activeSettingsNavigationId(pathname: string, hash: string): Sett
   if (pathname === '/settings/fetching') return 'fetching'
   if (pathname === '/settings/ignored') return 'ignored'
   if (pathname === '/settings/secrets') return 'secrets'
+  if (pathname === '/settings/actorops') return 'actorops'
   if (pathname === '/settings/legacy') {
     const id = hash.replace(/^#/, '')
     if (!id) return 'advanced'
@@ -99,6 +101,7 @@ export function settingsDestinationFromLegacyHash(hash: string, role: SettingsRo
   if (id === 'settings-fetching' && canAdministerSettings(role)) return '/settings/fetching'
   if (id === 'settings-ignored') return '/settings/ignored'
   if (id === 'settings-secrets' && canAdministerSettings(role)) return '/settings/secrets'
+  if (id === 'settings-actorops' && canAdministerSettings(role)) return '/settings/actorops'
   if (advancedHashes.has(id) && canAdministerSettings(role)) return `/settings/legacy#${id}`
   return '/settings'
 }
