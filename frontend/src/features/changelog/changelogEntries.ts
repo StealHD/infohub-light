@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-04',
+        title: '设置工作区完成原生化收尾',
+        summary: '存储与归档已迁入独立设置页，通知服务改为紧凑表格与弹窗管理，旧设置页面不再保留业务界面。',
+        items: [
+          { title: '存储与归档有了独立入口', description: 'Owner/Admin 可直接打开 `/settings/storage` 查看占用、预演清理与冷归档；归档批次使用紧凑表格，恢复和删除先在确认框中生成预演，原有精确确认与服务端指纹核对不变。' },
+          { title: '通知服务改为表格管理', description: '桌面按服务、渠道、状态、使用情况和操作呈现；手机将次要信息合并到服务列。新增、编辑和归档均使用明确的弹窗，测试、启用和暂停收进每行“更多”菜单。' },
+          { title: '历史链接继续可用', description: '旧 storage hash 和 `/settings/legacy` 会安全重定向到原生页面；无权访问的 Member/Viewer 回到概览且不请求管理员数据。' },
+          { title: '设置视觉完成统一', description: '所有原生设置页继续采用实色中性表面、细边框、清晰状态和紧凑控件；不影响信息流侧栏或现有后端接口。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
         title: 'ActorOps 迁入设置工作区',
         summary: 'Owner/Admin 现在可在独立 ActorOps 页面管理主备、发现、告警与事件；操作、权限和安全边界保持不变。',
         items: [

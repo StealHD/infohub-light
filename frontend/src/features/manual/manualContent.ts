@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-03',
-  change: 'v2.2.2 修复 ActorOps 跨轮候选复用；补位不会丢失旧 Canary 证据',
+  reviewedAt: '2026-08-04',
+  change: 'Settings Workspace 已完成存储归档原生化与通知服务表格化',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -191,7 +191,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '进入设置后，左侧会完整替换应用主侧栏，并在顶部提供“返回应用”；返回时会恢复打开设置前的页面、查询条件和定位，直接打开设置链接时则回到信息流。桌面端按概览、工作区 / 来源、获取与主题与已忽略内容、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 密钥、ActorOps 与高级分组；手机端从顶部菜单打开同一套全高侧栏。概览、外观、通知、AI、获取与主题、已忽略内容、密钥和 ActorOps 均使用独立页面：概览不会额外读取业务接口，外观与右上角明暗模式按钮同步，通知继续使用原有服务配置和个人通知逻辑。Owner/Admin 可在“获取与主题”配置 RSSHub、抓取窗口和阅读主题；各区可单独保存，多个修改会原子保存。Member/Viewer 不能打开该页面，也不会请求工作区配置。AI 高级 Base URL、语言和长度限制默认折叠；Member/Viewer 只看到说明，不会读取工作区 AI 配置或 Key。已忽略内容最多读取 200 条并可逐项恢复到信息流。密钥页只显示名称、Provider、环境变量和使用关系；新增、轮换或失败时真实 Key 都会立即清空且永不回显。Apify Key 池会显示主备顺序、安全运行状态和安全额度投影，可手动刷新；排空期间会自动更新，运行中或排空中的 Key 必须先安全排空才能轮换或删除。ActorOps 在独立页面保留既有主备、发现、告警和事件操作；只有存储与归档仍在高级兼容页面。抓取/筛选仍可设置近 7、14 或 30 个上海自然日的工作区 Feed 范围。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的 RSSHub；自建公网实例可把访问密钥写入 SecretStore。收件地址、Webhook、Telegram Chat ID、Bot Token 和真实 Key 保存后都不会回显。',
+        description: '进入设置后，左侧会完整替换应用主侧栏，并在顶部提供“返回应用”；返回时会恢复打开设置前的页面、查询条件和定位，直接打开设置链接时则回到信息流。桌面端按概览、工作区 / 来源、获取与主题与已忽略内容、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 密钥、ActorOps 与存储与归档分组；手机端从顶部菜单打开同一套全高侧栏。概览、外观、通知、AI、获取与主题、已忽略内容、密钥、ActorOps 和存储与归档均使用独立页面：概览不会额外读取业务接口，外观与右上角明暗模式按钮同步，通知服务以紧凑表格展示，新增/编辑在弹窗中完成。Owner/Admin 可在“获取与主题”配置 RSSHub、抓取窗口和阅读主题；各区可单独保存，多个修改会原子保存。Member/Viewer 不能打开管理员页面，也不会请求工作区配置、ActorOps 或存储数据。AI 高级 Base URL、语言和长度限制默认折叠；Member/Viewer 只看到说明，不会读取工作区 AI 配置或 Key。已忽略内容最多读取 200 条并可逐项恢复到信息流。密钥页只显示名称、Provider、环境变量和使用关系；新增、轮换或失败时真实 Key 都会立即清空且永不回显。Apify Key 池会显示主备顺序、安全运行状态和安全额度投影，可手动刷新；排空期间会自动更新，运行中或排空中的 Key 必须先安全排空才能轮换或删除。存储页只提供固定的预演清理、90 日归档、恢复和所有者安全删除，不显示路径、SQL 或正文。抓取/筛选仍可设置近 7、14 或 30 个上海自然日的工作区 Feed 范围。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的 RSSHub；自建公网实例可把访问密钥写入 SecretStore。收件地址、Webhook、Telegram Chat ID、Bot Token 和真实 Key 保存后都不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
       },
@@ -204,12 +204,12 @@ export const manualSections: ManualSection[] = [
       {
         title: '预演清理与冷归档',
         description: '完成 Feed Storage v3 和内容时间索引迁移后，Owner/Admin 可在“存储与归档”先查看空间摘要，再预演固定策略清理、90 日冷归档或恢复。预演只显示有界计数和候选指纹，不会修改数据；应用前会再次核对候选。收藏、稍后读、当前 Feed、待通知内容和未提交归档受保护，系统永不自动永久删除。只有 Owner 能在归档已恢复且不再被在线内容引用后，输入页面给出的完整确认短语永久删除归档文件。',
-        href: '/settings/legacy#settings-storage',
+        href: '/settings/storage',
         linkLabel: '打开存储与归档',
       },
       {
         title: '管理员统一配置通知服务',
-        description: 'Owner/Admin 在“消息通知”的单一“通知服务”区域配置和维护工作区共享服务。首次创建 Telegram 服务时同时填写服务名称、Chat ID 和共享 Bot Token，之后可直接复用已配置 Token；首次创建邮件服务时同时选择 QQ、网易、Gmail、Resend 或 Amazon SES、填写发送凭据和收件地址，之后可复用发送凭据；Webhook 直接填写 Provider、URL 和可选签名。唯一主操作是“保存并测试”，接收端确认成功后自动启用，失败则保留不回显秘密的停用草稿供修改或重试。凭据、Bot Token、Chat ID、收件地址、Webhook URL 与签名提交后立即清空且不会回显。管理员应只把共享 Bot 加入获准会话；Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定。',
+        description: 'Owner/Admin 在“消息通知”的单一“通知服务”表格中配置和维护工作区共享服务。桌面显示服务、渠道、状态、使用情况和操作；窄屏将次要信息收进服务列，仍不横向滚动。新增和编辑使用弹窗，行操作收进“更多”菜单，归档会要求再次确认。首次创建 Telegram 服务时同时填写服务名称、Chat ID 和共享 Bot Token，之后可直接复用已配置 Token；首次创建邮件服务时同时选择 QQ、网易、Gmail、Resend 或 Amazon SES、填写发送凭据和收件地址，之后可复用发送凭据；Webhook 直接填写 Provider、URL 和可选签名。唯一主操作是“保存并测试”，接收端确认成功后自动启用，失败则保留不回显秘密的停用草稿供修改或重试。凭据、Bot Token、Chat ID、收件地址、Webhook URL 与签名提交后立即清空且不会回显。管理员应只把共享 Bot 加入获准会话；Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定。',
         href: '/settings/notifications',
         linkLabel: '配置通知发送服务',
       },

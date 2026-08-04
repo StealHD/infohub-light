@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../../api/queryKeys'
@@ -11,14 +11,19 @@ import type {
   WebhookProvider,
 } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
+import { StatusBadge, type StatusBadgeTone } from '../../components/settings'
 import {
   actionToast,
   Button,
-  Card,
   Description,
+  Icons,
   Input,
   Label,
   LoadingState,
+  Modal,
+  Popover,
+  Separator,
+  Table,
   TextField,
 } from '../../design-system'
 import { HeroNotice } from '../admin-heroui/HeroAdminControls'
@@ -47,6 +52,13 @@ function serviceStatus(service: NotificationService): string {
   if (service.last_test_status !== 'sent') return '待验证'
   if (!service.enabled) return '已暂停'
   return service.available ? '可用' : '暂不可用'
+}
+
+function serviceStatusTone(service: NotificationService): StatusBadgeTone {
+  if (service.available && service.enabled) return 'success'
+  if (service.last_test_status === 'failed' || !service.configured) return 'danger'
+  if (!service.enabled || service.last_test_status !== 'sent') return 'warning'
+  return 'neutral'
 }
 
 function serviceUnavailableReason(service: NotificationService): string {
@@ -93,6 +105,90 @@ function emailTransportPayload(draft: EmailDraft): NotificationServiceEmailTrans
   }
 }
 
+function NotificationServiceActions({
+  service,
+  busy,
+  admin,
+  onTestAndEnable,
+  onResume,
+  onPause,
+  onEdit,
+  onArchive,
+}: {
+  service: NotificationService
+  busy: boolean
+  admin: boolean
+  onTestAndEnable: (service: NotificationService) => void
+  onResume: (service: NotificationService) => void
+  onPause: (service: NotificationService) => void
+  onEdit: (service: NotificationService) => void
+  onArchive: (service: NotificationService, trigger: HTMLButtonElement | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const canManageShared = admin && !service.legacy_private
+  const canManageLegacy = service.legacy_private && service.can_edit
+  const canResumeWithoutTest = Boolean(!service.enabled && service.can_enable && service.transport_ready)
+  const canManage = canManageShared || canManageLegacy
+  const hasPrimaryAction = Boolean(
+    (canManageShared && !service.available && !canResumeWithoutTest)
+    || canResumeWithoutTest
+    || service.enabled
+    || canManageShared,
+  )
+
+  if (!canManage) return null
+
+  function choose(action: () => void) {
+    setOpen(false)
+    action()
+  }
+
+  return <Popover isOpen={open} onOpenChange={setOpen}>
+    <Popover.Trigger<'button'>
+      ref={triggerRef}
+      aria-label={`更多操作：${service.name}`}
+      className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus pointer-coarse:size-11"
+      render={(triggerProps) => <button {...triggerProps} type="button" disabled={busy} />}
+    ><Icons.MoreHorizontal size={17} aria-hidden="true" /></Popover.Trigger>
+    <Popover.Content placement="bottom end" offset={6} containerPadding={8} className="z-50 w-44 p-0">
+      <Popover.Dialog aria-label={`${service.name} 通知服务操作`} className="grid gap-0.5 p-2">
+        {canManageShared && !service.available && !canResumeWithoutTest && <Button
+          variant="ghost"
+          className="w-full justify-start"
+          isDisabled={!service.can_validate || busy}
+          onPress={() => choose(() => onTestAndEnable(service))}
+        ><Icons.Send size={15} aria-hidden="true" />{service.enabled ? '测试并恢复' : '测试并启用'}</Button>}
+        {canResumeWithoutTest && <Button
+          variant="ghost"
+          className="w-full justify-start"
+          isDisabled={busy}
+          onPress={() => choose(() => onResume(service))}
+        ><Icons.Play size={15} aria-hidden="true" />启用</Button>}
+        {service.enabled && <Button
+          variant="ghost"
+          className="w-full justify-start"
+          isDisabled={busy}
+          onPress={() => choose(() => onPause(service))}
+        ><Icons.Pause size={15} aria-hidden="true" />暂停</Button>}
+        {canManageShared && <Button
+          variant="ghost"
+          className="w-full justify-start"
+          isDisabled={busy}
+          onPress={() => choose(() => onEdit(service))}
+        ><Icons.Pencil size={15} aria-hidden="true" />编辑</Button>}
+        {hasPrimaryAction && <Separator className="my-1" />}
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-danger"
+          isDisabled={busy}
+          onPress={() => choose(() => onArchive(service, triggerRef.current))}
+        ><Icons.Archive size={15} aria-hidden="true" />归档</Button>
+      </Popover.Dialog>
+    </Popover.Content>
+  </Popover>
+}
+
 export function HeroNotificationTargets({
   queryEnabled = true,
 }: {
@@ -116,6 +212,7 @@ export function HeroNotificationTargets({
   const [replaceEmailCredential, setReplaceEmailCredential] = useState(false)
   const [busyService, setBusyService] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [editingService, setEditingService] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editDestination, setEditDestination] = useState('')
@@ -124,7 +221,8 @@ export function HeroNotificationTargets({
   const [editBotToken, setEditBotToken] = useState('')
   const [editEmailDraft, setEditEmailDraft] = useState<EmailDraft>(emptyEmailDraft)
   const [editReplaceEmailCredential, setEditReplaceEmailCredential] = useState(false)
-  const [confirmArchive, setConfirmArchive] = useState<string | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<NotificationService | null>(null)
+  const archiveTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [requestError, setRequestError] = useState('')
 
   const admin = Boolean(services.data?.can_manage)
@@ -245,6 +343,7 @@ export function HeroNotificationTargets({
       await api.testAndEnableNotificationService(created.id)
       setName('')
       setReplaceEmailCredential(false)
+      setCreateOpen(false)
       await refresh()
       actionToast.success('通知服务已保存并启用')
     } catch (caught) {
@@ -414,11 +513,22 @@ export function HeroNotificationTargets({
     }
   }
 
-  async function archive(service: NotificationService) {
-    if (confirmArchive !== service.id) {
-      setConfirmArchive(service.id)
-      return
-    }
+  function closeArchiveDialog() {
+    if (busyService === archiveTarget?.id) return
+    setArchiveTarget(null)
+    window.requestAnimationFrame(() => archiveTriggerRef.current?.focus())
+  }
+
+  function requestArchive(service: NotificationService, trigger: HTMLButtonElement | null) {
+    if (busyService) return
+    archiveTriggerRef.current = trigger
+    setRequestError('')
+    setArchiveTarget(service)
+  }
+
+  async function archive() {
+    const service = archiveTarget
+    if (!service) return
     setBusyService(service.id)
     setRequestError('')
     try {
@@ -427,9 +537,10 @@ export function HeroNotificationTargets({
       } else {
         await api.archiveNotificationService(service.id)
       }
-      setConfirmArchive(null)
+      setArchiveTarget(null)
       await refresh()
       actionToast.success('通知服务已归档')
+      window.requestAnimationFrame(() => archiveTriggerRef.current?.focus())
     } catch (caught) {
       const message = safeNotificationError(caught, '请先从所有业务中取消选择该服务。')
       setRequestError(message)
@@ -447,172 +558,60 @@ export function HeroNotificationTargets({
   const providerPreset = services.data.channel_credentials.email.providers.find(
     (option) => option.provider === emailDraft.provider,
   )
+  const editingTarget = services.data.services.find((service) => service.id === editingService && admin && !service.legacy_private) ?? null
 
   return <div className="grid min-w-0 gap-4">
-    <div>
-      <h3 className="type-title">通知服务</h3>
-      <Description>
-        管理员在这里一次性配置接收地址、共享凭据并完成测试；个人通知和系统告警只选择已配置服务。
-      </Description>
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h3 className="type-title">通知服务</h3>
+        <Description>
+          管理员在这里一次性配置接收地址、共享凭据并完成测试；个人通知和系统告警只选择已配置服务。
+        </Description>
+      </div>
+      {admin && <Button size="sm" onPress={() => { setRequestError(''); setCreateOpen(true) }}><Icons.Plus size={15} aria-hidden="true" />新增通知服务</Button>}
     </div>
 
-    <div className="grid min-w-0 gap-3 min-[768px]:grid-cols-2 min-[1280px]:grid-cols-3">
-      {services.data.services.map((service) => {
-        const busy = busyService === service.id
-        const usageCount = service.usage.user_binding_count + service.usage.alert_binding_count
-        const canManageShared = admin && !service.legacy_private
-        const canManageLegacy = service.legacy_private && service.can_edit
-        const canResumeWithoutTest = Boolean(
-          !service.enabled
-          && service.can_enable
-          && service.transport_ready
-        )
-        return <Card key={service.id} className="grid min-w-0 gap-3 p-4">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="min-w-0">
-              <Card.Title>{service.name}</Card.Title>
-              <Card.Description>
-                {service.legacy_private ? '历史私人服务' : '工作区共享'} · {channelLabels[service.channel]}
-              </Card.Description>
-            </div>
-            <span className="type-caption shrink-0 rounded-full bg-surface-secondary px-2 py-1 text-muted">
-              {serviceStatus(service)}
-            </span>
-          </div>
-          <Description>
-            generation {service.config_generation}
-            {usageCount > 0 ? ` · ${usageCount} 个业务正在使用` : ' · 尚未被业务选择'}
-          </Description>
-          {!service.available && <HeroNotice
-            title={serviceUnavailableReason(service)}
-            status="warning"
-            role="status"
-          />}
+    {services.data.services.length === 0
+      ? <HeroNotice title="还没有通知服务" status="default" role="status">管理员创建并测试一个服务后，个人通知和系统告警就能直接选择。</HeroNotice>
+      : <Table className="overflow-hidden rounded-[var(--inteliscope-radius-card)] border border-separator bg-surface-secondary shadow-sm" variant="secondary">
+        <Table.ScrollContainer className="max-w-full overflow-hidden">
+          <Table.Content aria-label="通知服务列表" className="w-full table-fixed">
+            <Table.Header className="bg-default/55">
+              <Table.Column id="service" isRowHeader className="h-11 px-3 type-meta text-muted min-[640px]:px-4">服务</Table.Column>
+              <Table.Column id="channel" className="hidden h-11 w-24 px-3 type-meta text-muted min-[640px]:table-cell">渠道</Table.Column>
+              <Table.Column id="status" className="h-11 w-20 px-2 type-meta text-muted min-[640px]:w-24">状态</Table.Column>
+              <Table.Column id="usage" className="hidden h-11 w-44 px-3 type-meta text-muted min-[640px]:table-cell">使用情况</Table.Column>
+              <Table.Column id="actions" className="h-11 w-12 px-2 text-right type-meta text-muted">操作</Table.Column>
+            </Table.Header>
+            <Table.Body>{services.data.services.map((service) => {
+              const usageCount = service.usage.user_binding_count + service.usage.alert_binding_count
+              const busy = busyService === service.id
+              const scope = service.legacy_private ? '历史私人服务' : '工作区共享'
+              const usage = usageCount > 0 ? `${usageCount} 个业务正在使用` : '尚未被业务选择'
+              return <Table.Row key={service.id} id={service.id} className="border-b border-separator bg-surface-secondary transition-colors last:border-b-0 hover:bg-default/35">
+                <Table.Cell className="px-3 py-3 align-top min-[640px]:px-4">
+                  <p className="type-control truncate text-foreground">{service.name}</p>
+                  <p className="type-meta mt-1 text-muted">{scope}<span className="min-[640px]:hidden"> · {channelLabels[service.channel]} · generation {service.config_generation} · {usage}</span></p>
+                  {!service.available && <p className="type-meta mt-1 text-warning">{serviceUnavailableReason(service)}</p>}
+                </Table.Cell>
+                <Table.Cell className="hidden px-3 py-3 align-top min-[640px]:table-cell"><p className="type-meta text-muted">{channelLabels[service.channel]}</p></Table.Cell>
+                <Table.Cell className="px-2 py-3 align-top"><StatusBadge tone={serviceStatusTone(service)}>{serviceStatus(service)}</StatusBadge></Table.Cell>
+                <Table.Cell className="hidden px-3 py-3 align-top min-[640px]:table-cell"><p className="type-meta text-muted">generation {service.config_generation} · {usage}</p></Table.Cell>
+                <Table.Cell className="px-2 py-2 text-right align-top"><NotificationServiceActions service={service} busy={busy} admin={admin} onTestAndEnable={(target) => void testAndEnable(target)} onResume={(target) => void resume(target)} onPause={(target) => void pause(target)} onEdit={beginEdit} onArchive={requestArchive} /></Table.Cell>
+              </Table.Row>
+            })}</Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
+      </Table>}
 
-          {editingService === service.id && canManageShared && <div className="grid gap-3 border-t border-separator pt-3">
-            <TextField fullWidth value={editName} onChange={setEditName}>
-              <Label>服务名称</Label>
-              <Input maxLength={80} />
-            </TextField>
-            <TextField fullWidth value={editDestination} onChange={setEditDestination}>
-              <Label>重新填写{destinationLabel(service.channel)}</Label>
-              <Input
-                type={service.channel === 'email' ? 'email' : 'password'}
-                autoComplete="off"
-                placeholder="留空保持当前值；保存后不会回显"
-              />
-            </TextField>
-            {service.channel === 'telegram' && <TextField
-              fullWidth
-              value={editBotToken}
-              onChange={setEditBotToken}
-            >
-              <Label>更换共享 Bot Token（可选）</Label>
-              <Input type="password" autoComplete="new-password" placeholder="留空复用当前 Token" />
-            </TextField>}
-            {service.channel === 'webhook' && <TextField
-              fullWidth
-              value={editSigningSecret}
-              onChange={setEditSigningSecret}
-            >
-              <Label>更换签名密钥（可选）</Label>
-              <Input type="password" autoComplete="new-password" placeholder="留空保持当前值" />
-            </TextField>}
-            {service.channel === 'webhook' && <label className="grid gap-1">
-              <span className="type-control">Webhook 类型</span>
-              <select
-                className="min-h-10 rounded-control border border-separator bg-surface px-3"
-                value={editWebhookProvider}
-                onChange={(event) => setEditWebhookProvider(event.target.value as WebhookProvider)}
-              >
-                {services.data.webhook_provider_options.map((option) => <option
-                  key={option.provider}
-                  value={option.provider}
-                >{option.label}</option>)}
-              </select>
-            </label>}
-            {service.channel === 'email'
-              && emailCredential?.configured
-              && !editReplaceEmailCredential
-              && <div className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3">
-                <Description>当前共享邮件凭据保持不变，测试会直接复用。</Description>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onPress={() => setEditReplaceEmailCredential(true)}
-                >更换共享邮件凭据</Button>
-              </div>}
-            {service.channel === 'email'
-              && (!emailCredential?.configured || editReplaceEmailCredential)
-              && <EmailCredentialFields
-                draft={editEmailDraft}
-                onChange={setEditEmailDraft}
-                providers={services.data.channel_credentials.email.providers}
-                credentialConfigured={false}
-              />}
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" isDisabled={busy} onPress={() => void saveAndTest(service)}>
-                {busy ? '处理中…' : '保存并测试'}
-              </Button>
-              <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => setEditingService(null)}>
-                取消
-              </Button>
-            </div>
-          </div>}
-
-          <div className="flex flex-wrap gap-2">
-            {canManageShared && !service.available && !canResumeWithoutTest && <Button
-              size="sm"
-              variant="secondary"
-              isDisabled={!service.can_validate || busy}
-              onPress={() => void testAndEnable(service)}
-            >{busy
-                ? '处理中…'
-                : service.enabled
-                  ? '测试并恢复'
-                  : '测试并启用'}</Button>}
-            {(canManageShared || canManageLegacy) && canResumeWithoutTest && <Button
-              size="sm"
-              variant="secondary"
-              isDisabled={busy}
-              onPress={() => void resume(service)}
-            >启用</Button>}
-            {canManageShared && service.enabled && <Button
-              size="sm"
-              variant="secondary"
-              isDisabled={busy}
-              onPress={() => void pause(service)}
-            >暂停</Button>}
-            {canManageLegacy && service.enabled && <Button
-              size="sm"
-              variant="secondary"
-              isDisabled={busy}
-              onPress={() => void pause(service)}
-            >暂停</Button>}
-            {canManageShared && <Button
-              size="sm"
-              variant="ghost"
-              isDisabled={busy}
-              onPress={() => beginEdit(service)}
-            >编辑</Button>}
-            {(canManageShared || canManageLegacy) && <Button
-              size="sm"
-              variant="ghost"
-              isDisabled={busy}
-              onPress={() => void archive(service)}
-            >{confirmArchive === service.id ? '再次点击确认归档' : '归档'}</Button>}
-          </div>
-        </Card>
-      })}
-      {services.data.services.length === 0 && <HeroNotice
-        title="还没有通知服务"
-        status="default"
-        role="status"
-      >管理员创建并测试一个服务后，个人通知和系统告警就能直接选择。</HeroNotice>}
-    </div>
-
-    {admin && <form
+    {admin && <Modal isOpen={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开新增通知服务</Modal.Trigger>
+      <Modal.Backdrop isDismissable={!creating} isKeyboardDismissDisabled={creating}>
+        <Modal.Container size="lg">
+          <Modal.Dialog>
+            <Modal.Header><Modal.Heading>新增通知服务</Modal.Heading></Modal.Header>
+            <Modal.Body>
+              <form
       className="grid min-w-0 gap-3 rounded-control border border-separator bg-surface-secondary p-4 min-[768px]:grid-cols-2"
       noValidate
       onSubmit={createService}
@@ -709,6 +708,8 @@ export function HeroNotificationTargets({
           credentialConfigured={false}
         />}
 
+      {requestError && <div className="min-[768px]:col-span-2"><HeroNotice title={requestError} /></div>}
+
       <div className="flex items-end min-[768px]:col-span-2">
         <Button type="submit" isDisabled={creating || !name.trim() || !destination.trim()}>
           {creating ? '保存并测试中…' : '保存并测试'}
@@ -720,7 +721,73 @@ export function HeroNotificationTargets({
         && <Description className="min-[768px]:col-span-2">
         {providerPreset.label} 使用 {providerPreset.security.toUpperCase()} / {providerPreset.smtp_port}；凭据只写入 SecretStore。
       </Description>}
-    </form>}
+              </form>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>}
+    <Modal isOpen={Boolean(editingTarget)} onOpenChange={(open) => {
+      if (!open && busyService !== editingTarget?.id) setEditingService(null)
+    }}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开编辑通知服务</Modal.Trigger>
+      <Modal.Backdrop isDismissable={busyService !== editingTarget?.id} isKeyboardDismissDisabled={busyService === editingTarget?.id}>
+        <Modal.Container size="lg">
+          <Modal.Dialog>
+            <Modal.Header><Modal.Heading>编辑通知服务</Modal.Heading></Modal.Header>
+            <Modal.Body>{editingTarget && <form id="notification-service-edit-form" className="grid gap-3 min-[640px]:grid-cols-2" noValidate onSubmit={(event) => { event.preventDefault(); void saveAndTest(editingTarget) }}>
+              <TextField fullWidth value={editName} onChange={setEditName}>
+                <Label>服务名称</Label>
+                <Input maxLength={80} />
+              </TextField>
+              <TextField fullWidth value={editDestination} onChange={setEditDestination}>
+                <Label>重新填写{destinationLabel(editingTarget.channel)}</Label>
+                <Input type={editingTarget.channel === 'email' ? 'email' : 'password'} autoComplete="off" placeholder="留空保持当前值；保存后不会回显" />
+              </TextField>
+              {editingTarget.channel === 'telegram' && <TextField fullWidth value={editBotToken} onChange={setEditBotToken}>
+                <Label>更换共享 Bot Token（可选）</Label>
+                <Input type="password" autoComplete="new-password" placeholder="留空复用当前 Token" />
+              </TextField>}
+              {editingTarget.channel === 'webhook' && <TextField fullWidth value={editSigningSecret} onChange={setEditSigningSecret}>
+                <Label>更换签名密钥（可选）</Label>
+                <Input type="password" autoComplete="new-password" placeholder="留空保持当前值" />
+              </TextField>}
+              {editingTarget.channel === 'webhook' && <label className="grid gap-1">
+                <span className="type-control">Webhook 类型</span>
+                <select className="min-h-10 rounded-control border border-separator bg-surface px-3" value={editWebhookProvider} onChange={(event) => setEditWebhookProvider(event.target.value as WebhookProvider)}>
+                  {services.data.webhook_provider_options.map((option) => <option key={option.provider} value={option.provider}>{option.label}</option>)}
+                </select>
+              </label>}
+              {editingTarget.channel === 'email' && emailCredential?.configured && !editReplaceEmailCredential && <div className="grid gap-2 rounded-control border border-separator bg-surface-secondary p-3 min-[640px]:col-span-2">
+                <Description>当前共享邮件凭据保持不变，测试会直接复用。</Description>
+                <Button type="button" size="sm" variant="ghost" onPress={() => setEditReplaceEmailCredential(true)}>更换共享邮件凭据</Button>
+              </div>}
+              {editingTarget.channel === 'email' && (!emailCredential?.configured || editReplaceEmailCredential) && <EmailCredentialFields draft={editEmailDraft} onChange={setEditEmailDraft} providers={services.data.channel_credentials.email.providers} credentialConfigured={false} />}
+              {requestError && <div className="min-[640px]:col-span-2"><HeroNotice title={requestError} /></div>}
+            </form>}</Modal.Body>
+            <Modal.Footer>
+              <Button variant="ghost" isDisabled={busyService === editingTarget?.id} onPress={() => setEditingService(null)}>取消</Button>
+              <Button type="submit" form="notification-service-edit-form" isDisabled={busyService === editingTarget?.id}>{busyService === editingTarget?.id ? '处理中…' : '保存并测试'}</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+    <Modal isOpen={Boolean(archiveTarget)} onOpenChange={(open) => !open && closeArchiveDialog()}>
+      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开归档通知服务确认</Modal.Trigger>
+      <Modal.Backdrop isDismissable={busyService !== archiveTarget?.id} isKeyboardDismissDisabled={busyService === archiveTarget?.id}>
+        <Modal.Container size="sm">
+          <Modal.Dialog>
+            <Modal.Header><Modal.Heading>归档通知服务</Modal.Heading></Modal.Header>
+            <Modal.Body><p className="type-body text-muted">归档“{archiveTarget?.name ?? ''}”后，个人通知和系统告警将无法继续选择它。若仍有业务正在使用，服务端会安全阻止归档。</p>{requestError && <HeroNotice title={requestError} />}</Modal.Body>
+            <Modal.Footer>
+              <Button variant="ghost" isDisabled={busyService === archiveTarget?.id} onPress={closeArchiveDialog}>取消</Button>
+              <Button variant="danger" isDisabled={busyService === archiveTarget?.id} onPress={() => void archive()}>{busyService === archiveTarget?.id ? '归档中…' : '确认归档'}</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
     {!admin && <HeroNotice title="通知服务由管理员统一维护" status="default" role="status">
       你无需重复配置或测试；在下方业务设置中选择已经可用的服务即可。历史私人服务仍保留原有可见范围。
     </HeroNotice>}

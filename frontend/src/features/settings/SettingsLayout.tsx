@@ -52,7 +52,7 @@ export function SettingsLayout({ user, children }: { user: User; children: React
 
     <Drawer isOpen={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
       <Drawer.Trigger aria-hidden="true" className="hidden">打开设置导航</Drawer.Trigger>
-      <Drawer.Backdrop variant="blur" className="min-[768px]:hidden">
+      <Drawer.Backdrop className="min-[768px]:hidden">
         <Drawer.Content placement="left">
           <Drawer.Dialog
             aria-label="设置导航"

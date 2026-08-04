@@ -11,6 +11,8 @@ import { useFeedActivity } from '../features/jobs/useFeedActivity'
 import { HeroWorkbenchPage } from '../features/workbench-live/HeroWorkbenchPage'
 import { HeroWorkbenchShell } from '../features/workbench-live/HeroWorkbenchShell'
 import { SettingsLayout } from '../features/settings/SettingsLayout'
+import { canAdministerSettings, settingsDestinationFromLegacyHash } from '../features/settings/settingsNavigation'
+import { preserveSettingsReturnState } from '../features/settings/settingsReturnState'
 import { clearUserCache } from './sessionCache'
 import { legacyViewDestination } from './legacyRoute'
 import { ActionGeneration, type ActionToken } from './actionGeneration'
@@ -28,10 +30,10 @@ const SettingsAIPage = lazy(() => import('../features/settings/SettingsAIPage').
 const SettingsActorOpsPage = lazy(() => import('../features/settings/SettingsActorOpsPage').then((module) => ({ default: module.SettingsActorOpsPage })))
 const SettingsFetchingPage = lazy(() => import('../features/settings/SettingsFetchingPage').then((module) => ({ default: module.SettingsFetchingPage })))
 const SettingsIgnoredPage = lazy(() => import('../features/settings/SettingsIgnoredPage').then((module) => ({ default: module.SettingsIgnoredPage })))
-const SettingsLegacyPage = lazy(() => import('../features/settings/SettingsLegacyPage').then((module) => ({ default: module.SettingsLegacyPage })))
 const SettingsNotificationsPage = lazy(() => import('../features/settings/SettingsNotificationsPage').then((module) => ({ default: module.SettingsNotificationsPage })))
 const SettingsOverviewPage = lazy(() => import('../features/settings/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })))
 const SettingsSecretsPage = lazy(() => import('../features/settings/SettingsSecretsPage').then((module) => ({ default: module.SettingsSecretsPage })))
+const SettingsStoragePage = lazy(() => import('../features/settings/SettingsStoragePage').then((module) => ({ default: module.SettingsStoragePage })))
 
 type AppErrorBoundaryProps = { children: ReactNode; surface?: 'app' | 'page' }
 type AppErrorBoundaryState = { failed: boolean }
@@ -69,6 +71,18 @@ function LegacyLaterRedirect() {
   const item = source.get('item')
   if (item) target.set('item', item)
   return <Navigate to={{ pathname: '/saved', search: target.toString() ? `?${target.toString()}` : '' }} replace />
+}
+
+function SettingsLegacyRedirect({ user }: { user: User }) {
+  const location = useLocation()
+  const returnState = preserveSettingsReturnState(location.state)
+  const destination = location.hash
+    ? settingsDestinationFromLegacyHash(location.hash, user.role)
+    : canAdministerSettings(user.role)
+      ? '/settings/storage'
+      : '/settings'
+
+  return <Navigate to={destination} state={returnState} replace />
 }
 
 function RouteLoadingState() {
@@ -185,7 +199,8 @@ function ServiceRoutes({ api }: { api: ServiceApi }) {
         <Route path="/settings/ignored" element={<SettingsIgnoredPage />} />
         <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
         <Route path="/settings/secrets" element={<SettingsSecretsPage />} />
-        <Route path="/settings/legacy" element={<SettingsLegacyPage />} />
+        <Route path="/settings/storage" element={<SettingsStoragePage />} />
+        <Route path="/settings/legacy" element={<SettingsLegacyRedirect user={user!} />} />
         <Route path="/users" element={<HeroUsersPage />} />
         <Route path="/manual" element={<HeroManualPage />} />
         <Route path="/changelog" element={<HeroChangelogPage />} />

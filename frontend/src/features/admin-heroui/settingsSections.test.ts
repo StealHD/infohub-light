@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  legacySettingsSectionFromHash,
-  legacySettingsSectionsForRole,
   settingsSectionFromHash,
   settingsSectionsForRole,
 } from './settingsSections'
@@ -21,12 +19,5 @@ describe('settingsSections', () => {
     expect(settingsSectionFromHash('#settings-secrets', 'owner')?.label).toBe('密钥')
     expect(settingsSectionFromHash('#settings-secrets', 'member')).toBeNull()
     expect(settingsSectionFromHash('#settings-unknown', 'owner')).toBeNull()
-  })
-
-  it('limits the legacy bridge to settings that have not migrated yet', () => {
-    expect(legacySettingsSectionsForRole('owner').map((section) => section.id)).toEqual(['settings-storage'])
-    expect(legacySettingsSectionsForRole('member')).toHaveLength(0)
-    expect(legacySettingsSectionFromHash('#settings-ai', 'owner')).toBeNull()
-    expect(legacySettingsSectionFromHash('#settings-notifications', 'owner')).toBeNull()
   })
 })

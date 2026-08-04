@@ -1886,6 +1886,24 @@ describe('App routes', () => {
     expect(apifyActorAlertIncidents).not.toHaveBeenCalled()
   })
 
+  it('redirects members away from storage without requesting summary or archives', async () => {
+    const storageSummary = vi.fn()
+    const storageArchives = vi.fn()
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-storage-readonly', username: 'member', role: 'member', enabled: true } }),
+      storageSummary,
+      storageArchives,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/storage']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
+    expect(document.querySelector('[data-settings-page="storage"]')).not.toBeInTheDocument()
+    await act(async () => Promise.resolve())
+    expect(storageSummary).not.toHaveBeenCalled()
+    expect(storageArchives).not.toHaveBeenCalled()
+  })
+
   it('keeps legacy settings reachable inside the workspace without mounting the Feed shell', async () => {
     const config = vi.fn().mockResolvedValue({
       config: { ai: {}, filtering: {}, feed_end_messages: {} },
@@ -2054,13 +2072,13 @@ describe('App routes', () => {
       expect(secretQuota).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledWith('apify-cached')
 
-      await browser.click(screen.getByRole('link', { name: '高级' }))
+      await browser.click(screen.getByRole('link', { name: '存储与归档' }))
       now += (5 * 60 * 1000) - 1
       await browser.click(screen.getByRole('link', { name: '密钥' }))
       await act(async () => Promise.resolve())
       expect(secretQuota).toHaveBeenCalledOnce()
 
-      await browser.click(screen.getByRole('link', { name: '高级' }))
+      await browser.click(screen.getByRole('link', { name: '存储与归档' }))
       now += 2
       await browser.click(screen.getByRole('link', { name: '密钥' }))
       await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(2))

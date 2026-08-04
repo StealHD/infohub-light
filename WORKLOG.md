@@ -438,3 +438,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-04",
+  "result": "完成 Settings Workspace 原生化收尾：存储与归档迁入 /settings/storage，Legacy Settings 页面及分包删除；通知服务改为响应式表格、行菜单和统一 Modal 流程。",
+  "status": "completed",
+  "task_id": "2026-08-04-settings-workspace-storage-finalization",
+  "unresolved": [],
+  "validation": [
+    "python3 scripts/test_gate.py run --mode full：23/23 通过（Python、Compose、legacy、React contract/lint/typecheck/Vitest/build）",
+    "Playwright 管理端回归覆盖通知表格 390/580/768/1440、原生 Storage 旧 hash/惰性请求/无横向溢出，以及三种设备的 Axe 验收",
+    "Member/Viewer 直达 /settings/storage 回到 Overview，且不会请求存储摘要或归档批次；未修改后端 API、数据库、Query Key 或安全确认语义。"
+  ]
+}
+```

@@ -1007,3 +1007,12 @@
 - 交互与按需读取：桌面保留高密度 Route 表，768 px 以下使用无页面横向滚动的 SettingsItem 列表。Revision 历史/回滚、单次费用上限和 Discovery AI 默认折叠；Discovery AI 保持草稿挂载，但仅展开时请求配置，离开、任务结束或对话框关闭时停止对应轮询。告警与事件移入原生页的独立组，继续复用安全降级、Toast、确认与焦点恢复。
 - 视觉边界：Settings primitives 采用 HeroUI Default 的实色中性表面、细边框、中等圆角、轻量阴影和紧凑控件层级；`SettingsGroup/SettingsCard` 提供 surface/inset，`SettingsItem` 提供 comfortable/compact。该参考不引入或复制 HeroUI Pro，且不改变 Feed Sidebar 或 Feed 视觉系统。密钥的运行元数据归入折叠详情，获取页在有草稿时保留紧凑 sticky 保存条。
 - 原因：ActorOps 是管理者的独立运行控制面，不应继续隐藏在兼容长页；但其付费与 CAS 安全边界已被验证，不应在视觉迁移中重写。原生路由让请求、轮询与权限边界可按页收敛，同时统一既有设置页面的阅读层级。
+
+### D118 Settings Workspace 完成存储归档原生化与通知服务表格化
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现与验证中；不修改 API、数据库、存储计划或通知服务 payload
+- 决策内容：`/settings/storage` 成为 Owner/Admin 专用原生路由，开发者导航固定为“密钥、ActorOps、存储与归档”。它只组合既有 storage summary/archive Query 与 preview/apply mutation，存储概览、安全治理和归档批次分别使用 Settings primitives；归档批次在桌面为紧凑表格、窄屏合并次要信息，More 菜单中的恢复和删除先打开确认 Modal，仍只创建已有 preview-first 计划。`/settings/legacy` 与旧 storage hash 只做角色安全重定向，不再挂载 Legacy Settings 业务页面。
+- 通知交互：通知服务由卡片集合改为语义表格，桌面固定为服务、渠道、状态、使用情况和操作五列，640 px 以下合并为服务、状态和操作三列且不产生横向滚动。新增与编辑统一采用紧凑 Modal 模式，测试/启用/暂停/编辑/归档收进每行 More 菜单；归档需确认 Modal 并将焦点恢复到原触发器。现有写入、测试、write-only 清空、失败草稿、权限、Toast 与缓存失效仍由原有服务逻辑拥有。
+- 安全与兼容边界：Member/Viewer 在 Storage 请求开始前回到 Overview；通知的 Member/Viewer 仍只能读取自己可见的服务且无管理菜单。存储的计划有效期、fingerprint 复核、零工作禁用、Owner 精确删除短语和缓存失效不变。没有新增 HeroUI Pro 依赖、后端接口、Query key 或数据库迁移；Feed Sidebar 和视觉系统不受影响。
+- 原因：最后残留的 Legacy 页让设置导航与请求边界不完整；通知服务卡片在高密度多服务场景下不利于比较状态、generation 和业务使用关系。将两者改为原生路由和响应式表格，能完成独立 Settings Workspace，同时保留已验证的业务安全边界。

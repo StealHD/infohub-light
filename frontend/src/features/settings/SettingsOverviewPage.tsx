@@ -114,11 +114,11 @@ export function SettingsOverviewPage() {
             state={returnState}
           />}
           {admin && <SettingsCard
-            title="高级"
-            description="预演工作区存储清理、冷归档与恢复。"
-            icon={<Icons.SlidersHorizontal size={18} aria-hidden="true" />}
+            title="存储与归档"
+            description="预演工作区清理、冷归档、恢复与安全删除。"
+            icon={<Icons.Archive size={18} aria-hidden="true" />}
             status={<StatusBadge tone="warning">管理员</StatusBadge>}
-            to="/settings/legacy#settings-storage"
+            to="/settings/storage"
             state={returnState}
           />}
         </div>

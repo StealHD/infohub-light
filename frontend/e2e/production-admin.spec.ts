@@ -1003,10 +1003,10 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.locator('[data-page-frame="settings"]')).toBeVisible()
   await expect(page.getByTestId('live-workbench-shell')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '通知服务', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '我的收件箱', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '工作区值班群', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '新增通知服务' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '保存并测试' })).toBeVisible()
+  await expect(page.getByRole('grid', { name: '通知服务列表' })).toBeVisible()
+  await expect(page.getByRole('grid', { name: '通知服务列表' }).getByText('我的收件箱', { exact: true })).toBeVisible()
+  await expect(page.getByRole('grid', { name: '通知服务列表' }).getByText('工作区值班群', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新增通知服务' })).toBeVisible()
   await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /发送.*测试/ })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '助手与 AI' })).toHaveCount(0)
@@ -1140,6 +1140,28 @@ test('settings landing defers hidden section requests and a direct hash loads on
       '/api/admin/apify-key-pool',
     ].includes(pathname)
   ))).toEqual([])
+
+  const storageHashStart = requests.length
+  await page.goto('/settings/legacy#settings-storage')
+  await expect(page).toHaveURL(/\/settings\/storage$/)
+  await expect(page.locator('[data-settings-page="storage"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '存储与归档', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '存储概览', exact: true })).toBeVisible()
+  await expect(page.getByText('尚无归档批次。', { exact: true })).toBeVisible()
+  const storageRequests = requests.slice(storageHashStart)
+    .filter(({ method }) => method === 'GET')
+    .map(({ pathname }) => pathname)
+  expect(storageRequests).toEqual(expect.arrayContaining([
+    '/api/admin/storage/summary',
+    '/api/admin/storage/archives',
+  ]))
+  expect(storageRequests.filter((pathname) => (
+    sectionQueryPaths.has(pathname)
+    && !['/api/admin/storage/summary', '/api/admin/storage/archives'].includes(pathname)
+  ))).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const storageAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(storageAccessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
 test('settings mobile drawer navigates native pages and keeps the workspace bounded', async ({ page }, testInfo) => {
@@ -1166,6 +1188,7 @@ test('settings workspace stays responsive and theme-safe at acceptance widths', 
 
   for (const viewport of [
     { width: 390, height: 844 },
+    { width: 580, height: 844 },
     { width: 768, height: 900 },
     { width: 1024, height: 768 },
     { width: 1440, height: 900 },
@@ -1229,11 +1252,12 @@ test('settings saves all dirty core sections in one bundle request', async ({ pa
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
 })
 
-test('unified notification services stay bounded at 390, 768 and 1440 pixels', async ({ page }) => {
+test('unified notification services stay bounded at 390, 580, 768 and 1440 pixels', async ({ page }) => {
   await mockAdminApi(page)
 
   for (const viewport of [
     { width: 390, height: 844 },
+    { width: 580, height: 844 },
     { width: 768, height: 900 },
     { width: 1440, height: 900 },
   ]) {
@@ -1241,7 +1265,9 @@ test('unified notification services stay bounded at 390, 768 and 1440 pixels', a
     await page.goto('/settings#settings-notifications')
 
     await expect(page.getByRole('heading', { name: '通知服务', exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: '新增通知服务' })).toBeVisible()
+    await expect(page.getByRole('grid', { name: '通知服务列表' })).toBeVisible()
+    await page.getByRole('button', { name: '新增通知服务' }).click()
+    await expect(page.getByRole('dialog', { name: '新增通知服务' })).toBeVisible()
     await expect(page.getByText('发送基础服务', { exact: true })).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
