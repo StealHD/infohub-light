@@ -273,6 +273,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-04",
+  "result": "为 Settings Workspace 发布补强选择器退出态可访问性，并消除原生 fetching 路由测试的异步挂载竞态；准备 v2.2.7 作为合规发布标签。",
+  "status": "partial",
+  "task_id": "2026-08-04-publish-settings-workspace-v227",
+  "unresolved": [
+    "等待最终 Release Gate、GitHub Release 与 VPS 安全切换。"
+  ],
+  "validation": [
+    "Release Gate 首轮仅在 Select 退出态触发 Axe 对比度告警，修正后针对性 Playwright 通过。",
+    "GitHub 首次 main 前端全量发现 fetching 路由断言竞态；修正后 App.test.tsx 定向 103/103 通过。"
+  ]
+}
+```
+
+```json
+{
   "control_topics": [],
   "recorded_on": "2026-08-03",
   "result": "将包含 Telegram 多渠道通知与通用 ActorOps 控制面的合并结果升级为 2.2.0，准备创建 v2.2.0 注释标签、GitHub Release 与 revision-locked VPS 升级。",
