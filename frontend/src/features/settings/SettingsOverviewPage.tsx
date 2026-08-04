@@ -58,6 +58,14 @@ export function SettingsOverviewPage() {
             status={<StatusBadge>工作区</StatusBadge>}
             to="/subscriptions"
           />
+          {admin && <SettingsCard
+            title="获取与主题"
+            description="配置 RSSHub、抓取窗口和工作区阅读主题。"
+            icon={<Icons.Clock3 size={18} aria-hidden="true" />}
+            status={<StatusBadge tone="accent">已迁移</StatusBadge>}
+            to="/settings/fetching"
+            state={returnState}
+          />}
           <SettingsCard
             title="AI"
             description={admin ? '配置分析模型、助手和内容生成。' : '查看 AI 能力与工作区配置状态。'}
@@ -99,10 +107,10 @@ export function SettingsOverviewPage() {
           />}
           {admin && <SettingsCard
             title="高级"
-            description="管理获取策略、存储归档和工作区运行参数。"
+            description="管理 ActorOps、运行告警和存储归档。"
             icon={<Icons.SlidersHorizontal size={18} aria-hidden="true" />}
             status={<StatusBadge tone="warning">管理员</StatusBadge>}
-            to="/settings/legacy#settings-fetching"
+            to="/settings/legacy#settings-actorops"
             state={returnState}
           />}
         </div>

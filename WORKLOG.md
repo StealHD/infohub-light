@@ -84,30 +84,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "decisions"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "修复 Instagram Actor Canary 对合法 Unix 时间和混合 Dataset 的误判：时间转换支持有界 Unix 秒/毫秒，账号元数据行不再阻断后续真实内容，全为元数据时使用独立安全错误码。",
-  "status": "completed",
-  "task_id": "2026-08-02-apify-canary-mixed-dataset-contract-repair",
-  "unresolved": [
-    "历史失败、费用与不可变 Revision 保持原样；生产认证仍需管理员对修复后的运行时逐次确认新的付费 Canary",
-    "本次排查只重读既有 Dataset，不新增 AI 或 Actor Run，不合并 main、不推送、不发布 VPS"
-  ],
-  "validation": [
-    "实测失败根因：一个 Actor 返回 Unix 整数时间，另一个 Dataset 首行为账号元数据、次行为有效帖子；第三个 Actor 在 300 秒后安全中止并结算 $0.01905",
-    "Actor Manifest/Canary/Runtime/Route/Discovery targeted tests passed",
-    "Full Test Gate 23/23 passed in 197.069 seconds",
-    "修复后只读重放两个既有 Dataset 均为 valid_nonempty：Unix 时间 Actor 映射 1 条，混合 Dataset 隔离 1 条元数据后映射 1 条；没有 Actor POST 或新增费用",
-    "8080 API/Worker 已运行提交 6c9e35d 并 healthy，worker_status=ready，scheduler containers=0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "ui"
   ],
@@ -436,6 +412,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 Vitest 567/567 通过；生产构建包含独立 SettingsSecretsPage 懒加载 chunk",
     "Member/Viewer 直达密钥页不请求 secrets、quota 或 Apify pool；旧 /settings/legacy#settings-secrets 重定向",
     "未修改 API、数据库、SecretStore 格式或 Query key"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-04",
+  "result": "将 RSSHub、获取窗口和阅读主题库迁入原生 Settings Workspace；Legacy Settings 收缩为 ActorOps 与存储归档，并保留独立/原子保存、旧 hash 重定向、角色过滤和缓存失效语义。",
+  "status": "completed",
+  "task_id": "2026-08-04-settings-fetching-native-workspace",
+  "unresolved": [
+    "ActorOps 原生化与存储归档原生化按后续阶段继续；本阶段未改后端接口、数据库或获取业务规则。"
+  ],
+  "validation": [
+    "前端 TypeScript、构建、UI 合同及 36 项 Playwright 浏览器回归通过（12 项按项目策略跳过）",
+    "python3 scripts/test_gate.py run --mode full：23/23 通过",
+    "当前工作树 ./scripts/up-latest.sh 已待提交后执行"
   ]
 }
 ```

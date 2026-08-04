@@ -1844,6 +1844,27 @@ describe('App routes', () => {
     expect(feedEndMessages).not.toHaveBeenCalled()
   })
 
+  it('redirects members away from fetching without requesting config or ActorOps data', async () => {
+    const config = vi.fn()
+    const apifyActorRoutes = vi.fn()
+    const apifyActorAlertSettings = vi.fn()
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'member-fetching-readonly', username: 'member', role: 'member', enabled: true } }),
+      config,
+      apifyActorRoutes,
+      apifyActorAlertSettings,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '概览', level: 1 })).toBeInTheDocument()
+    expect(document.querySelector('[data-settings-page="fetching"]')).not.toBeInTheDocument()
+    await act(async () => Promise.resolve())
+    expect(config).not.toHaveBeenCalled()
+    expect(apifyActorRoutes).not.toHaveBeenCalled()
+    expect(apifyActorAlertSettings).not.toHaveBeenCalled()
+  })
+
   it('keeps legacy settings reachable inside the workspace without mounting the Feed shell', async () => {
     const config = vi.fn().mockResolvedValue({
       config: { ai: {}, filtering: {}, feed_end_messages: {} },
@@ -2095,12 +2116,10 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    expect(await screen.findByRole('heading', { name: '高级', level: 1 })).toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(await screen.findByRole('heading', { name: '获取与主题' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'RSSHub 服务' })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'RSSHub Base URL' })).toBeInTheDocument()
+    expect(document.querySelector('[data-settings-page="fetching"]')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'RSSHub Base URL' })).toHaveValue('http://rsshub:1200')
-    expect(screen.getByText('RSSHub 访问密钥：已配置')).toBeInTheDocument()
+    expect(screen.getByText('访问密钥已配置')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '成员管理' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('live-workbench-shell')).not.toBeInTheDocument()
     expect(document.querySelector('[data-settings-workspace]')).toBeInTheDocument()
@@ -2152,9 +2171,7 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/legacy#settings-fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('navigation', { name: '设置导航' })).toBeInTheDocument()
-    const sectionSelector = await screen.findByRole('button', { name: /设置区域/ })
-    expect(sectionSelector).toBeInTheDocument()
-    expect(document.querySelector('[data-mobile-settings-selector]')).toHaveClass('min-[768px]:pointer-fine:hidden')
+    expect(document.querySelector('[data-settings-page="fetching"]')).toBeInTheDocument()
 
     const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
     expect(initialWindow).toHaveTextContent('7 天')
@@ -2169,7 +2186,7 @@ describe('App routes', () => {
     const rsshub = screen.getByRole('textbox', { name: 'RSSHub Base URL' })
     await browser.clear(rsshub)
     await browser.type(rsshub, 'https://rsshub.example.com/private')
-    expect(screen.getByText(/2 项核心配置待保存/)).toBeInTheDocument()
+    expect(screen.getByText(/2 项设置待保存/)).toBeInTheDocument()
     const beforeUnload = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(beforeUnload)
     expect(beforeUnload.defaultPrevented).toBe(true)

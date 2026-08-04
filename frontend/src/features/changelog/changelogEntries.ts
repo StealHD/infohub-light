@@ -23,13 +23,23 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-04',
+        title: '获取与主题迁入设置工作区',
+        summary: 'Owner/Admin 现在可在独立“获取与主题”页配置 RSSHub、抓取窗口和阅读主题，保留原有保存与缓存语义。',
+        items: [
+          { title: '工作区导航更完整', description: '“来源”之后新增“获取与主题”；概览也提供对应入口。Member/Viewer 不显示入口，直接打开链接会安全回到概览。' },
+          { title: '保存行为保持不变', description: 'RSSHub、获取窗口和主题可分别保存；多项修改仍通过同一原子配置请求保存，期间的新编辑不会被旧响应覆盖。' },
+          { title: '旧链接继续可用', description: '旧 `#settings-fetching` 书签会转到 `/settings/fetching`。ActorOps 移至高级兼容页的 `#settings-actorops`，存储归档保持原入口。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
         title: '密钥管理迁入设置工作区',
         summary: 'Owner/Admin 现在可在原生“密钥”页管理 AI Key 与 Apify 主备 Key 池，保留原有 SecretStore、权限和安全操作语义。',
         items: [
           { title: '密钥页不再打开旧设置', description: '新增 `/settings/secrets`，开发者分组内“密钥”排在“高级”前；AI 与概览的密钥入口也会直达原生页。旧密钥书签会自动转到新页面。' },
           { title: '真实值始终只写一次', description: '新增与轮换 Key 的真实值提交后立即清空，不会通过列表、提示、错误或缓存回显；失败时仍保留可安全编辑的元数据草稿。' },
           { title: 'Apify 池继续安全运行', description: '主备顺序、额度查询、排空、轮换和删除继续使用原有 API。额度保留五分钟缓存与刷新失败时的可信旧数据；运行中或排空中的 Key 必须先安全排空。' },
-          { title: '权限和请求更收敛', description: 'Member/Viewer 看不到密钥入口；直接打开链接会回到概览，并且不会请求 Key、额度或 Apify 池数据。获取与主题、存储与归档仍在兼容设置页。' },
+          { title: '权限和请求更收敛', description: 'Member/Viewer 看不到密钥入口；直接打开链接会回到概览，并且不会请求 Key、额度或 Apify 池数据。ActorOps 与存储归档仍在兼容设置页。' },
         ],
       },
       {
@@ -41,7 +51,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: '设置导航按职责分组', description: '概览、来源、已忽略内容、AI、通知、外观与高级按工作区、智能、通信、系统和开发者分组；高级仅对 Owner/Admin 显示，本阶段不增加设置搜索。' },
           { title: '五个页面原生迁移', description: '概览以统一卡片呈现角色和入口，外观继续写入原有明暗偏好，通知完整复用既有服务与个人通知组件；AI 与已忽略内容也保持现有 API、缓存和写入语义，没有新增数据库或业务写入。' },
           { title: '手机使用全高设置侧栏', description: '小于 768 px 时内容全屏显示，顶部按钮打开与桌面相同的角色过滤 Drawer；选择页面后自动关闭，并保持无横向溢出。' },
-          { title: '旧链接继续可用', description: '旧关于、通知、AI 与已忽略内容 hash 会转到对应原生页面；只有获取与主题、存储归档和密钥继续由兼容设置页承载，原有权限、草稿与保存逻辑不变。' },
+          { title: '旧链接继续可用', description: '旧关于、通知、AI 与已忽略内容 hash 会转到对应原生页面；当时只有获取与主题、存储归档和密钥继续由兼容设置页承载，后续迁移保持原有权限、草稿与保存逻辑。' },
         ],
       },
       {

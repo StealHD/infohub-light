@@ -990,3 +990,11 @@
 - 安全与交互：新增和轮换继续是 write-only；真实值在提交时同步清空，成功重置全草稿，失败只保留非秘密元数据。`used_by`、active/draining 和非终态 Run 均继续阻止危险操作；池排空状态每两秒轮询，generation 冲突刷新权威顺序。Apify 额度仍以用户/secret Query key 缓存五分钟，手动刷新失败时保留可信旧数据并提供重试。Modal 保留既有确认、pending 锁定、Toast、缓存失效和焦点恢复语义。
 - 原因：密钥与 Key 池是管理者高频、安全敏感且需要紧凑阅读的设置表面；放在 Legacy 长页造成导航割裂，也会让按页请求边界失效。将纯校验、展示状态和错误映射放入 `settingsSecretsModel.ts`，同时保留已验证的 Service API payload 与 SecretStore 边界，可避免复制业务逻辑或暴露 Token。
 - 兼容/边界：无新增后端路由、数据库迁移、SecretStore 字段、Query key 或服务 payload；AI、Overview 与工作台目录只改为链接到新路由。来源、获取与主题、ActorOps、存储与归档不在本阶段迁移；不新增设置搜索，不运行 scheduler、真实来源、AI、通知或付费调用。
+
+### D116 获取与主题按配置域迁入 Settings Workspace
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现与验证中；不修改 API、数据库、获取规则或 ActorOps 行为
+- 决策内容：`/settings/fetching` 成为 Owner/Admin 专用的原生获取配置页，工作区组固定在“来源”后、“已忽略内容”前。它独占既有 config Query 和 `set_settings_bundle` mutation，并以 `rsshub`、`filtering`、`topics` 三个可独立或原子保存的分区呈现；payload/diff、主题规范化和保存 revision 归 `settingsFetchingModel.ts`，Legacy 不得保留重复的获取或主题业务实现。Member/Viewer 直接访问时返回 Overview，且不请求 config 或 ActorOps。
+- 兼容/边界：旧 `#settings-fetching` 对授权角色重定向 `/settings/fetching`；ActorOps 继续留在 `/settings/legacy#settings-actorops`，存储归档继续留在 `#settings-storage`。RSSHub 密钥仅投影 `RSSHUB_ACCESS_KEY` 配置状态并链接现有密钥页，浏览器不接收真实值。后端 API、Query key、配置字段、缓存失效范围和 `set_settings_bundle` payload 均不变。
+- 原因：抓取窗口、RSSHub 和主题是日常工作区配置，和高风险的 ActorOps/存储操作混在同一 Legacy 长页会削弱按路由加载和可读性。按配置域迁移可延续已验证的草稿与原子保存语义，同时将 ActorOps 留在其独立的兼容生命周期中，便于下一阶段单独原生化。
