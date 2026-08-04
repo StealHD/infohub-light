@@ -2210,7 +2210,7 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/legacy#settings-fetching']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     expect(await screen.findByRole('navigation', { name: '设置导航' })).toBeInTheDocument()
-    expect(document.querySelector('[data-settings-page="fetching"]')).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('[data-settings-page="fetching"]')).toBeInTheDocument())
 
     const initialWindow = await screen.findByRole('button', { name: /RSS 首次抓取窗口/ })
     expect(initialWindow).toHaveTextContent('7 天')
