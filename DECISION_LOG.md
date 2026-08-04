@@ -982,3 +982,46 @@
 - 费用终结边界：Apify 首次报告 Run 终态后，以 `finishedAt + 10s` 为聚合稳定点再次读取同一 Run 的 `usageTotalUsd`；既有终态账本若在该窗口前写入，Worker 只做幂等 GET 补账并同步 attempt、validation 和 batch。刷新失败保持金额待对账，不显示为 0，也不启动新 Run。
 - 产品投影：Discovery schema v5 按 Route 分别返回已确认实际费用、待对账笔数、已审批但尚未运行的上限和认证预算上限；`$0.10` 明确是认证预算，不是预留或扣款。证明未创建的旧批次显示本次 `$0` 且未自动重跑，下一次付费仍需管理员重新确认。
 - 原因：生产证据显示最新 YouTube POST 被分类为 HTTP 5xx 未知启动，但相同时间窗的 Apify 账号 Run 列表为零；旧恢复器又在 pool blocked 时直接返回，导致可以证明未扣费的状态永久锁死。同时四个已知终态 Run 的首读费用合计低于十秒后远端聚合值，说明首次终态并不是可靠的最终账单。
+
+### D115 Settings 采用独立工作区并按路由渐进迁移
+
+- 决策日期：2026-08-03
+- 当前状态：第二阶段 UI 原生化实现；不修改 API、数据库或业务逻辑
+- 决策内容：所有 `/settings/*` 路由不再挂载 Feed Workbench Shell，而由独立 Settings Workspace 接管同一左栏位置。桌面固定 260 px 设置侧栏，移动端使用全高 Drawer；顶部返回动作携带并校验来源应用的 path/query/hash，拒绝登录、设置循环和外部目的地，缺失时回退 `/feed`。设置导航固定分为概览、工作区 / 来源与已忽略内容、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 高级，不提供搜索，高级继续按 Owner/Admin 权限过滤。
+- 迁移边界：原生页面为 `/settings` Overview、`/settings/appearance`、`/settings/notifications`、`/settings/ai` 和 `/settings/ignored`。AI 保留既有 config payload/diff、分别或原子保存、Key write-only 和触底文案状态语义；Key 仅显示元数据，Member/Viewer 只显示说明且不请求 workspace config、Key 或状态。ignored 保留最多 200 条查询、逐项恢复、缓存失效与 Toast。fetching/topic、storage/archive 和 secrets 继续由 `/settings/legacy#settings-*` 承载；旧 AI/ignored hash 确定性重定向到原生页，角色不可访问或未知 hash 回到 Overview。来源桥接到 `/subscriptions`。
+- 组件与兼容：`frontend/src/components/settings/` 统一拥有 SettingsSection、SettingsGroup、SettingsItem、SettingsCard、SettingsSidebar、StatusBadge 和默认折叠但保留草稿的 SettingsDisclosure，仍只消费项目 design-system，不引入 HeroUI Pro。Feed sidebar preference、API/DB schema、权限、缓存、脏草稿、原子保存、write-only 凭据和通知投递语义全部不变。D114 取代 D097 中“设置必须依赖主侧栏悬浮目录与整页相邻滚动激活”的页面架构；D096/D097 的按需查询与草稿语义仅在剩余 legacy bridge 内继续适用，直至对应页面逐项迁移。
+
+### D116 密钥管理按 SecretStore 语义原生迁入 Settings Workspace
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现和完整 Test Gate 已通过；等待本分支容器切换验证，不修改 API、数据库或 SecretStore 文件格式
+- 决策内容：`/settings/secrets` 成为 Owner/Admin 专用的原生密钥页，开发者组固定以“密钥、高级”排序；`#settings-secrets` 与 `/settings/legacy#settings-secrets` 对授权角色重定向到该路由，Member/Viewer 回到 Overview。原生页独占现有 secrets、quota 和 Apify pool Query/mutation；Legacy 只保留 fetching/topic 与 storage/archive，不能继续挂载或请求密钥实现。
+- 安全与交互：新增和轮换继续是 write-only；真实值在提交时同步清空，成功重置全草稿，失败只保留非秘密元数据。`used_by`、active/draining 和非终态 Run 均继续阻止危险操作；池排空状态每两秒轮询，generation 冲突刷新权威顺序。Apify 额度仍以用户/secret Query key 缓存五分钟，手动刷新失败时保留可信旧数据并提供重试。Modal 保留既有确认、pending 锁定、Toast、缓存失效和焦点恢复语义。
+- 原因：密钥与 Key 池是管理者高频、安全敏感且需要紧凑阅读的设置表面；放在 Legacy 长页造成导航割裂，也会让按页请求边界失效。将纯校验、展示状态和错误映射放入 `settingsSecretsModel.ts`，同时保留已验证的 Service API payload 与 SecretStore 边界，可避免复制业务逻辑或暴露 Token。
+- 兼容/边界：无新增后端路由、数据库迁移、SecretStore 字段、Query key 或服务 payload；AI、Overview 与工作台目录只改为链接到新路由。来源、获取与主题、ActorOps、存储与归档不在本阶段迁移；不新增设置搜索，不运行 scheduler、真实来源、AI、通知或付费调用。
+
+### D117 获取与主题按配置域迁入 Settings Workspace
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现与验证中；不修改 API、数据库、获取规则或 ActorOps 行为
+- 决策内容：`/settings/fetching` 成为 Owner/Admin 专用的原生获取配置页，工作区组固定在“来源”后、“已忽略内容”前。它独占既有 config Query 和 `set_settings_bundle` mutation，并以 `rsshub`、`filtering`、`topics` 三个可独立或原子保存的分区呈现；payload/diff、主题规范化和保存 revision 归 `settingsFetchingModel.ts`，Legacy 不得保留重复的获取或主题业务实现。Member/Viewer 直接访问时返回 Overview，且不请求 config 或 ActorOps。
+- 兼容/边界：旧 `#settings-fetching` 对授权角色重定向 `/settings/fetching`；ActorOps 继续留在 `/settings/legacy#settings-actorops`，存储归档继续留在 `#settings-storage`。RSSHub 密钥仅投影 `RSSHUB_ACCESS_KEY` 配置状态并链接现有密钥页，浏览器不接收真实值。后端 API、Query key、配置字段、缓存失效范围和 `set_settings_bundle` payload 均不变。
+- 原因：抓取窗口、RSSHub 和主题是日常工作区配置，和高风险的 ActorOps/存储操作混在同一 Legacy 长页会削弱按路由加载和可读性。按配置域迁移可延续已验证的草稿与原子保存语义，同时将 ActorOps 留在其独立的兼容生命周期中，便于下一阶段单独原生化。
+
+### D118 ActorOps 原生化并采用 Default 实色设置表面
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现与验证中；不修改 ActorOps API、数据库、付费确认或运行策略
+- 决策内容：`/settings/actorops` 成为 Owner/Admin 专用的原生设置路由，开发者导航固定为“密钥、ActorOps、高级”，旧 `#settings-actorops` 仅为兼容重定向；Legacy Settings 只保留存储与归档。原生页只组合既有 `HeroActorOpsControlPlane`、告警和事件的 Query/mutation，不复制支持检查、路由选择、主备池、发现、验证、回滚、确认、generation 冲突、缓存失效或轮询业务。Member/Viewer 在任何请求开始前回到 Overview。
+- 交互与按需读取：桌面保留高密度 Route 表，768 px 以下使用无页面横向滚动的 SettingsItem 列表。Revision 历史/回滚、单次费用上限和 Discovery AI 默认折叠；Discovery AI 保持草稿挂载，但仅展开时请求配置，离开、任务结束或对话框关闭时停止对应轮询。告警与事件移入原生页的独立组，继续复用安全降级、Toast、确认与焦点恢复。
+- 视觉边界：Settings primitives 采用 HeroUI Default 的实色中性表面、细边框、中等圆角、轻量阴影和紧凑控件层级；`SettingsGroup/SettingsCard` 提供 surface/inset，`SettingsItem` 提供 comfortable/compact。该参考不引入或复制 HeroUI Pro，且不改变 Feed Sidebar 或 Feed 视觉系统。密钥的运行元数据归入折叠详情，获取页在有草稿时保留紧凑 sticky 保存条。
+- 原因：ActorOps 是管理者的独立运行控制面，不应继续隐藏在兼容长页；但其付费与 CAS 安全边界已被验证，不应在视觉迁移中重写。原生路由让请求、轮询与权限边界可按页收敛，同时统一既有设置页面的阅读层级。
+
+### D119 Settings Workspace 完成存储归档原生化与通知服务表格化
+
+- 决策日期：2026-08-04
+- 当前状态：当前任务分支实现与验证中；不修改 API、数据库、存储计划或通知服务 payload
+- 决策内容：`/settings/storage` 成为 Owner/Admin 专用原生路由，开发者导航固定为“密钥、ActorOps、存储与归档”。它只组合既有 storage summary/archive Query 与 preview/apply mutation，存储概览、安全治理和归档批次分别使用 Settings primitives；归档批次在桌面为紧凑表格、窄屏合并次要信息，More 菜单中的恢复和删除先打开确认 Modal，仍只创建已有 preview-first 计划。`/settings/legacy` 与旧 storage hash 只做角色安全重定向，不再挂载 Legacy Settings 业务页面。
+- 通知交互：通知服务由卡片集合改为语义表格，桌面固定为服务、渠道、状态、使用情况和操作五列，640 px 以下合并为服务、状态和操作三列且不产生横向滚动。新增与编辑统一采用紧凑 Modal 模式，测试/启用/暂停/编辑/归档收进每行 More 菜单；归档需确认 Modal 并将焦点恢复到原触发器。现有写入、测试、write-only 清空、失败草稿、权限、Toast 与缓存失效仍由原有服务逻辑拥有。
+- 安全与兼容边界：Member/Viewer 在 Storage 请求开始前回到 Overview；通知的 Member/Viewer 仍只能读取自己可见的服务且无管理菜单。存储的计划有效期、fingerprint 复核、零工作禁用、Owner 精确删除短语和缓存失效不变。没有新增 HeroUI Pro 依赖、后端接口、Query key 或数据库迁移；Feed Sidebar 和视觉系统不受影响。
+- 原因：最后残留的 Legacy 页让设置导航与请求边界不完整；通知服务卡片在高密度多服务场景下不利于比较状态、generation 和业务使用关系。将两者改为原生路由和响应式表格，能完成独立 Settings Workspace，同时保留已验证的业务安全边界。

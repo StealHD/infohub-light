@@ -28,9 +28,17 @@ const requiredLazyRouteChunks = [
   'HeroAgentsPage',
   'HeroChangelogPage',
   'HeroManualPage',
-  'HeroSettingsPage',
   'HeroSubscriptionsPage',
   'HeroUsersPage',
+  'SettingsActorOpsPage',
+  'SettingsAIPage',
+  'SettingsAppearancePage',
+  'SettingsFetchingPage',
+  'SettingsIgnoredPage',
+  'SettingsNotificationsPage',
+  'SettingsOverviewPage',
+  'SettingsSecretsPage',
+  'SettingsStoragePage',
 ]
 const violations = []
 

@@ -20,6 +20,12 @@ import type {
 } from '../../api/types'
 import { useAppContext } from '../../app/AppContext'
 import {
+  SettingsDisclosure,
+  SettingsGroup,
+  SettingsItem,
+  StatusBadge,
+} from '../../components/settings'
+import {
   actionToast,
   Button,
   Card,
@@ -250,7 +256,9 @@ function RouteList({
   onSelect: (routeId: string) => void
   routes: ApifyActorRouteSummary[]
 }) {
-  return <Table variant="secondary" className="max-w-full">
+  return <>
+    <div className="hidden min-[768px]:block">
+      <Table variant="secondary" className="max-w-full">
     <Table.ScrollContainer className="max-w-full overflow-x-auto" data-testid="actor-ops-route-scroll">
       <Table.Content aria-label="ActorOps 路由列表">
         <Table.Header>
@@ -312,7 +320,33 @@ function RouteList({
         </Table.Body>
       </Table.Content>
     </Table.ScrollContainer>
-  </Table>
+      </Table>
+    </div>
+    <div className="min-[768px]:hidden">
+      {routes.length === 0
+        ? <SettingsGroup ariaLabel="ActorOps 路由列表（移动端）"><SettingsItem label="尚未建立 Actor Route" description="支持检查完成后会在这里显示可管理的 Route。" density="compact" /></SettingsGroup>
+        : <SettingsGroup ariaLabel="ActorOps 路由列表（移动端）">{routes.map((route) => {
+          const support = supportPresentation[route.support_status]
+          const runtime = runtimePresentation[route.runtime_status]
+          const selected = selectedRouteId === route.route_id
+          return <SettingsItem
+            key={route.route_id}
+            label={routeIdentity(route.platform, route.target_type, route.capability)}
+            description={route.route_key}
+            density="compact"
+            className={selected ? 'bg-default' : ''}
+            trailing={<Button size="sm" variant={selected ? 'secondary' : 'ghost'} aria-current={selected ? 'true' : undefined} onPress={() => onSelect(route.route_id)}>{selected ? '正在查看' : '查看详情'}</Button>}
+          >
+            <span className="flex flex-wrap items-center gap-2">
+              <StatusBadge tone={runtime.tone} icon={routeStatusIcon(runtime.tone)}>{runtime.label}</StatusBadge>
+              <StatusBadge tone={support.tone} icon={routeStatusIcon(support.tone)}>{support.label}</StatusBadge>
+              <span className="type-meta text-muted">{route.runnable_slots}/3 可用 · {route.publisher_count} 个发布者</span>
+              <span className="type-meta text-muted">{formatActorUsd(route.per_run_cap_usd)} / Run</span>
+            </span>
+          </SettingsItem>
+        })}</SettingsGroup>}
+    </div>
+  </>
 }
 
 function ActorPoolPlan({
@@ -1209,6 +1243,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
   const [activationOpen, setActivationOpen] = useState(false)
   const [rollbackRevision, setRollbackRevision] = useState<ApifyActorRevisionSummary | null>(null)
   const [rollbackSlot, setRollbackSlot] = useState<ApifyActorSlotName>('primary')
+  const [discoverySettingsOpen, setDiscoverySettingsOpen] = useState(false)
   const routesQuery = useQuery({
     queryKey: queryKeys.apifyActorRoutes(user.id),
     queryFn: ({ signal }) => api.apifyActorRoutes(signal),
@@ -1522,9 +1557,8 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
             actionPending={actionPending}
             onConfirm={() => setActivationOpen(true)}
           />
-          {detail.activation_recommendation?.already_active && activePoolDraft && <details className="mt-3 rounded-control border border-separator bg-surface-secondary p-3">
-            <summary className="type-meta cursor-pointer text-muted">调整 Route 单次费用上限</summary>
-            <div className="mt-3 flex flex-wrap items-end gap-3">
+          {detail.activation_recommendation?.already_active && activePoolDraft && <SettingsDisclosure title="调整 Route 单次费用上限" description="管理员明确调整后按当前 generation 热加载。" className="mt-3">
+            <div className="flex flex-wrap items-end gap-3">
               <div className="max-w-sm flex-1">
                 <TextField
                   fullWidth
@@ -1549,7 +1583,7 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
                 })}
               >{updatePool.isPending ? '保存中…' : '保存费用上限'}</Button>
             </div>
-          </details>}
+          </SettingsDisclosure>}
         </div>
       </section>
 
@@ -1580,21 +1614,22 @@ export function HeroActorOpsControlPlane({ queryEnabled = true }: { queryEnabled
         /></div>
       </section>
 
-      <section className="border-t border-separator pt-5" aria-labelledby="actor-ops-revision-heading">
-        <h3 id="actor-ops-revision-heading" className="type-page-title">Revision 差异与回滚</h3>
-        <p className="type-meta mt-1 text-muted">旧 Build 和 Manifest 保留为不可变 Revision；回滚也使用当前 generation。</p>
-        <div className="mt-3">
+      <section className="border-t border-separator pt-5" aria-label="Revision 差异与回滚">
+        <SettingsDisclosure title="Revision 差异与回滚" description="旧 Build 和 Manifest 保留为不可变 Revision；回滚也使用当前 generation。">
           <RevisionHistory detail={detail} onRollback={(revision) => {
             const matching = detail.slots.find((slot) => slot.revision?.actor_id === revision.actor_id)
             setRollbackSlot(matching?.slot ?? 'primary')
             setRollbackRevision(revision)
           }} actionPending={actionPending} />
-        </div>
+        </SettingsDisclosure>
       </section>
 
-      <section className="border-t border-separator pt-5" aria-labelledby="actor-ops-ai-settings-heading">
-        <h3 id="actor-ops-ai-settings-heading" className="type-page-title">Actor Discovery AI 设置</h3>
-        <div className="mt-3"><DiscoverySettingsPanel queryEnabled={queryEnabled} /></div>
+      <section className="border-t border-separator pt-5" aria-label="Actor Discovery AI 设置">
+        <SettingsDisclosure
+          title="Actor Discovery AI 设置"
+          description="继承工作区 AI 配置；仅在展开后读取和编辑低频参数。"
+          onOpenChange={setDiscoverySettingsOpen}
+        ><DiscoverySettingsPanel queryEnabled={queryEnabled && discoverySettingsOpen} /></SettingsDisclosure>
       </section>
     </div>}
 

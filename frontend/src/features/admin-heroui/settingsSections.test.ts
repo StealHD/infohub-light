@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { settingsSectionFromHash, settingsSectionsForRole } from './settingsSections'
+import {
+  settingsSectionFromHash,
+  settingsSectionsForRole,
+} from './settingsSections'
 
 describe('settingsSections', () => {
-  it('shows seven sections to administrators and four to members or viewers', () => {
-    expect(settingsSectionsForRole('owner')).toHaveLength(7)
-    expect(settingsSectionsForRole('admin')).toHaveLength(7)
+  it('shows eight sections to administrators and four to members or viewers', () => {
+    expect(settingsSectionsForRole('owner')).toHaveLength(8)
+    expect(settingsSectionsForRole('admin')).toHaveLength(8)
     expect(settingsSectionsForRole('member')).toHaveLength(4)
     expect(settingsSectionsForRole('viewer')).toHaveLength(4)
     expect(settingsSectionFromHash('#settings-storage', 'admin')?.label).toBe('存储与归档')

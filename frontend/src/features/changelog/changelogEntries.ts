@@ -22,6 +22,70 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-04',
+        title: 'v2.2.6 设置工作区发布基线',
+        summary: '独立 Settings Workspace 完成全部原生迁移；不改变 API、数据库或信息流侧栏。',
+        items: [
+          { title: '全部设置统一在独立工作区', description: '获取与主题、AI、密钥、ActorOps、存储与归档均使用独立路由和按页请求边界；历史链接会安全重定向。' },
+          { title: '通知服务更易比较与管理', description: '服务状态、渠道和使用情况在响应式表格中集中显示，新增、编辑与归档保持原有 write-only 与确认语义。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
+        title: '设置工作区完成原生化收尾',
+        summary: '存储与归档已迁入独立设置页，通知服务改为紧凑表格与弹窗管理，旧设置页面不再保留业务界面。',
+        items: [
+          { title: '存储与归档有了独立入口', description: 'Owner/Admin 可直接打开 `/settings/storage` 查看占用、预演清理与冷归档；归档批次使用紧凑表格，恢复和删除先在确认框中生成预演，原有精确确认与服务端指纹核对不变。' },
+          { title: '通知服务改为表格管理', description: '桌面按服务、渠道、状态、使用情况和操作呈现；手机将次要信息合并到服务列。新增、编辑和归档均使用明确的弹窗，测试、启用和暂停收进每行“更多”菜单。' },
+          { title: '历史链接继续可用', description: '旧 storage hash 和 `/settings/legacy` 会安全重定向到原生页面；无权访问的 Member/Viewer 回到概览且不请求管理员数据。' },
+          { title: '设置视觉完成统一', description: '所有原生设置页继续采用实色中性表面、细边框、清晰状态和紧凑控件；不影响信息流侧栏或现有后端接口。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
+        title: 'ActorOps 迁入设置工作区',
+        summary: 'Owner/Admin 现在可在独立 ActorOps 页面管理主备、发现、告警与事件；操作、权限和安全边界保持不变。',
+        items: [
+          { title: '独立路由与旧链接兼容', description: '新增 `/settings/actorops`，开发者分组顺序为“密钥、ActorOps、高级”。旧 ActorOps 书签会安全转到新页面，只有存储与归档继续保留在高级兼容页。' },
+          { title: '桌面紧凑、手机无横向滚动', description: '桌面保留高密度路由表，手机改为信息明确的列表卡片；Revision、费用上限和 Discovery AI 细节默认折叠。' },
+          { title: '查询只在需要时启动', description: '只有 Owner/Admin 打开 ActorOps 才读取对应数据；离开页面或收起 Discovery AI 后停止相关轮询与配置请求。' },
+          { title: '设置视觉更清晰', description: '设置页面统一为实色中性层级、细边框和紧凑控件；密钥与获取/主题也同步收紧信息密度，不影响信息流视觉系统。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
+        title: '获取与主题迁入设置工作区',
+        summary: 'Owner/Admin 现在可在独立“获取与主题”页配置 RSSHub、抓取窗口和阅读主题，保留原有保存与缓存语义。',
+        items: [
+          { title: '工作区导航更完整', description: '“来源”之后新增“获取与主题”；概览也提供对应入口。Member/Viewer 不显示入口，直接打开链接会安全回到概览。' },
+          { title: '保存行为保持不变', description: 'RSSHub、获取窗口和主题可分别保存；多项修改仍通过同一原子配置请求保存，期间的新编辑不会被旧响应覆盖。' },
+          { title: '旧链接继续可用', description: '旧 `#settings-fetching` 书签会转到 `/settings/fetching`。ActorOps 移至高级兼容页的 `#settings-actorops`，存储归档保持原入口。' },
+        ],
+      },
+      {
+        date: '2026-08-04',
+        title: '密钥管理迁入设置工作区',
+        summary: 'Owner/Admin 现在可在原生“密钥”页管理 AI Key 与 Apify 主备 Key 池，保留原有 SecretStore、权限和安全操作语义。',
+        items: [
+          { title: '密钥页不再打开旧设置', description: '新增 `/settings/secrets`，开发者分组内“密钥”排在“高级”前；AI 与概览的密钥入口也会直达原生页。旧密钥书签会自动转到新页面。' },
+          { title: '真实值始终只写一次', description: '新增与轮换 Key 的真实值提交后立即清空，不会通过列表、提示、错误或缓存回显；失败时仍保留可安全编辑的元数据草稿。' },
+          { title: 'Apify 池继续安全运行', description: '主备顺序、额度查询、排空、轮换和删除继续使用原有 API。额度保留五分钟缓存与刷新失败时的可信旧数据；运行中或排空中的 Key 必须先安全排空。' },
+          { title: '权限和请求更收敛', description: 'Member/Viewer 看不到密钥入口；直接打开链接会回到概览，并且不会请求 Key、额度或 Apify 池数据。ActorOps 与存储归档仍在兼容设置页。' },
+        ],
+      },
+      {
+        date: '2026-08-03',
+        title: '设置成为独立工作区',
+        summary: '设置现在使用类似系统设置的独立侧栏与内容区，不再占用或改变信息流主侧栏；概览、外观、通知、AI 和已忽略内容均已原生化。',
+        items: [
+          { title: '返回原来的应用位置', description: '进入设置后左侧完整切换为设置导航，顶部“返回应用”会恢复打开前的页面、查询条件与定位；直接打开设置深链时安全回到信息流。' },
+          { title: '设置导航按职责分组', description: '概览、来源、已忽略内容、AI、通知、外观与高级按工作区、智能、通信、系统和开发者分组；高级仅对 Owner/Admin 显示，本阶段不增加设置搜索。' },
+          { title: '五个页面原生迁移', description: '概览以统一卡片呈现角色和入口，外观继续写入原有明暗偏好，通知完整复用既有服务与个人通知组件；AI 与已忽略内容也保持现有 API、缓存和写入语义，没有新增数据库或业务写入。' },
+          { title: '手机使用全高设置侧栏', description: '小于 768 px 时内容全屏显示，顶部按钮打开与桌面相同的角色过滤 Drawer；选择页面后自动关闭，并保持无横向溢出。' },
+          { title: '旧链接继续可用', description: '旧关于、通知、AI 与已忽略内容 hash 会转到对应原生页面；当时只有获取与主题、存储归档和密钥继续由兼容设置页承载，后续迁移保持原有权限、草稿与保存逻辑。' },
+        ],
+      },
+      {
         date: '2026-08-03',
         title: 'YouTube Actor 不再因映射错误全军覆没',
         summary: '真实 Run 证明商城存在可返回完整视频字段的固定 Build；Discovery 现在使用正确频道 ID、Dataset 根路径和 Schema 优先证据。',

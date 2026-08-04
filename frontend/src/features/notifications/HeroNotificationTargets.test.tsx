@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -132,6 +132,7 @@ describe('HeroNotificationTargets', () => {
     const browser = userEvent.setup()
     const api = renderServices()
     await screen.findByRole('heading', { name: '通知服务' })
+    await browser.click(screen.getByRole('button', { name: '新增通知服务' }))
 
     await browser.type(screen.getByRole('textbox', { name: '服务名称' }), '群组 Telegram')
     await browser.selectOptions(screen.getByRole('combobox', { name: '发送方式' }), 'telegram')
@@ -166,6 +167,7 @@ describe('HeroNotificationTargets', () => {
       notificationServices: vi.fn().mockResolvedValue(response([existing])),
     })
 
+    await browser.click(await screen.findByRole('button', { name: '更多操作：值班 Telegram' }))
     await browser.click(await screen.findByRole('button', { name: '启用' }))
     await waitFor(() => expect(api.updateNotificationService).toHaveBeenCalledWith(
       existing.id,
@@ -185,8 +187,26 @@ describe('HeroNotificationTargets', () => {
       notificationServices: vi.fn().mockResolvedValue(response([existing])),
     })
 
+    await browser.click(await screen.findByRole('button', { name: '更多操作：值班 Telegram' }))
     await browser.click(await screen.findByRole('button', { name: '测试并启用' }))
     await waitFor(() => expect(api.testAndEnableNotificationService).toHaveBeenCalledWith(existing.id))
     expect(api.updateNotificationService).not.toHaveBeenCalled()
+  })
+
+  it('keeps services in a compact table and confirms archive in a modal', async () => {
+    const browser = userEvent.setup()
+    const existing = service({ enabled: true, available: true })
+    const api = renderServices({
+      notificationServices: vi.fn().mockResolvedValue(response([existing])),
+    })
+
+    expect(await screen.findByRole('grid', { name: '通知服务列表' })).toBeInTheDocument()
+    expect(screen.getByText('generation 2 · 尚未被业务选择')).toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '更多操作：值班 Telegram' }))
+    await browser.click(screen.getByRole('button', { name: '归档' }))
+    const dialog = await screen.findByRole('dialog', { name: '归档通知服务' })
+    await browser.click(within(dialog).getByRole('button', { name: '确认归档' }))
+
+    await waitFor(() => expect(api.archiveNotificationService).toHaveBeenCalledWith(existing.id))
   })
 })

@@ -22,7 +22,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
 ```json
 {
   "control_topics": [],
@@ -41,7 +40,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
-
 
 ```json
 {
@@ -427,6 +425,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "VPS 使用本地预构建 amd64 镜像 docker load 与 --no-build 切换；0600 数据库和 .env 备份完成，integrity ok、foreign keys 0",
     "生产未知启动变为 start_rejected、实际费用 0 且 Key Pool 解锁；补验只启动一次，实际费用 0.00145 美元并终结",
     "youtube/channel/items generation 4 为 ready，Primary/Backup 1 是两个不同 Actor 和两个发布者，Backup 2 留空；活动任务 0、API/Worker/RSSHub healthy、日志无 HTTPStatusError 或 Traceback"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-04",
+  "result": "将完整原生 Settings Workspace 合入本地 main，并准备 v2.2.6 发布版本；保留 v2.2.5 ActorOps 对账安全修复和现有生产运行边界。",
+  "status": "partial",
+  "task_id": "2026-08-04-integrate-settings-workspace-v226",
+  "unresolved": [
+    "等待 full/release Test Gate、GitHub Tag/Release 与 VPS 安全切换。"
+  ],
+  "validation": [
+    "合并冲突仅限控制文档和产品手册，已保留双方语义并将 Settings 决策编号顺延至 D115–D119。",
+    "集成后前端 typecheck、UI contract、lint（0 error）与相关 Vitest 117 项通过。"
   ]
 }
 ```

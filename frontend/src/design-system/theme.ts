@@ -26,6 +26,8 @@ export const designSystemTheme = {
   widths: {
     reading: 'var(--inteliscope-width-reading)',
     admin: 'var(--inteliscope-width-admin)',
+    settings: 'var(--inteliscope-width-settings)',
+    settingsSidebar: 'var(--inteliscope-width-settings-sidebar)',
     auth: 'var(--inteliscope-width-auth)',
   },
 } as const

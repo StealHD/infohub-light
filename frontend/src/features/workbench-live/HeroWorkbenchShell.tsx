@@ -66,6 +66,7 @@ import {
   writeRightRailWidth,
 } from './rightRailPreference'
 import { settingsSectionsForRole } from '../admin-heroui/settingsSections'
+import { settingsReturnStateForLocation } from '../settings/settingsReturnState'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
 
 export type RightRailMode = 'closed' | 'agent'
@@ -334,6 +335,7 @@ function SettingsSidebarNavigationItem({
         {sections.map((section) => <NavLink
           key={section.id}
           to={`/settings#${section.id}`}
+          state={settingsReturnStateForLocation(location)}
           aria-current={location.hash === `#${section.id}` ? 'location' : undefined}
           className="type-control min-h-9 rounded-xl px-3 py-2 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-[current=location]:bg-accent/10 aria-[current=location]:text-accent"
           onClick={() => {
@@ -350,6 +352,7 @@ function SettingsSidebarNavigationItem({
     <NavLink
       ref={triggerRef}
       to="/settings"
+      state={settingsReturnStateForLocation(location)}
       aria-label="设置"
       aria-haspopup="dialog"
       aria-expanded={open}
@@ -1350,7 +1353,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                   </div>
                   <Separator className="my-1" />
                   <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/users') }}><Icons.Users size={16} aria-hidden="true" />账户与成员</Button>
-                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/settings') }}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
+                  <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/settings', { state: settingsReturnStateForLocation(location) }) }}><Icons.Settings size={16} aria-hidden="true" />设置</Button>
                   <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/manual') }}><Icons.BookOpen size={16} aria-hidden="true" />操作手册</Button>
                   <Button variant="ghost" className="w-full justify-start" onPress={() => { setAccountMenuOpen(false); navigate('/changelog') }}><Icons.ScrollText size={16} aria-hidden="true" />更新日志</Button>
                   <a
@@ -1542,7 +1545,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
                     className="min-h-11 w-full justify-start"
                     onPress={() => {
                       setMobileMoreOpen(false)
-                      navigate(href)
+                      navigate(href, href === '/settings' ? { state: settingsReturnStateForLocation(location) } : undefined)
                     }}
                   ><Icon size={17} aria-hidden="true" />{label}</Button>)}
                   <a

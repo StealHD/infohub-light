@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-03',
-  change: 'v2.2.5 修复 YouTube Actor 未知启动时间窗格式并恢复自动对账',
+  reviewedAt: '2026-08-04',
+  change: 'v2.2.6 Actor 对账安全修复与 Settings Workspace 原生化收尾',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -89,8 +89,8 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → 获取与主题”中的 ActorOps 统一管理。首期只支持 X Profile、YouTube Channel 与 Instagram Profile。Discovery 使用全局 AI 排序并生成受限 Manifest，输入形状与输出字段都必须由精确 Build Schema 验证；单个候选不合格只淘汰该候选。Route 认证也不需要逐个 Actor 反复操作：页面只显示一次“验证两路主备”，确认框会列出 Route、候选发布者、精确 Build、商城定价、每项和本批费用上限。确认后系统先免费检查每个 Actor 与固定 Build，再严格串行试跑；两个不同发布者成功后立即停止，未启动或已失效的 Build 费用为 0 且不计次数。批次未凑齐两路时，系统会跨历次 Discovery 保留成功证据、次数、费用和尚未试跑的候选；若旧候选还能补齐第二发布者，会直接给出下一次人工确认，不会先重复 Discovery。只有现有候选确实不足时才创建不启动 Actor 的补位发现任务；未知启动会先安全阻断，系统仅在 Apify 账号级时间窗明确没有创建任何 Run 时自动记为 0 美元并恢复入口，绝不会自动重跑，其他情况继续要求核对。系统优先生成完整 2+1；如果已有两个不同 Actor、来自不同发布者、固定 Build 且各成功一次 Canary，就会直接给出“两路主备快速启用”，第三槽留空且不产生费用。管理员再独立确认一次生效，少于两个可运行 Actor 仍会阻断。新账号只串行验证当前实际运行的两个或三个 Actor，通过后分别显示 2/2 或 3/3；后续补第三槽只复验变化槽位。Canary 默认最长 300 秒且不自动重试；页面分开显示已确认实际费用、待远端对账笔数、尚未运行的批准上限和认证预算，其中 0.10 美元预算不是扣款。Actor、Build、Manifest、Route 费用和 Discovery 输出 Token 上限都按 generation 热加载。Actor Discovery 继承“助手与 AI”的 provider、model 与 Base URL，并由管理员从同 Provider 的 Key 中选择一个；全局 AI 不可用只阻断新发现。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
-        href: '/settings#settings-fetching',
+        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → ActorOps”统一管理。首期只支持 X Profile、YouTube Channel 与 Instagram Profile。Discovery 使用全局 AI 排序并生成受限 Manifest，输入形状与输出字段都必须由精确 Build Schema 验证；单个候选不合格只淘汰该候选。Route 认证也不需要逐个 Actor 反复操作：页面只显示一次“验证两路主备”，确认框会列出 Route、候选发布者、精确 Build、商城定价、每项和本批费用上限。确认后系统先免费检查每个 Actor 与固定 Build，再严格串行试跑；两个不同发布者成功后立即停止，未启动或已失效的 Build 费用为 0 且不计次数。批次未凑齐两路时，系统会跨历次 Discovery 保留成功证据、次数、费用和尚未试跑的候选；若旧候选还能补齐第二发布者，会直接给出下一次人工确认，不会先重复 Discovery。只有现有候选确实不足时才创建不启动 Actor 的补位发现任务；未知启动会先安全阻断，系统仅在 Apify 账号级时间窗明确没有创建任何 Run 时自动记为 0 美元并恢复入口，绝不会自动重跑，其他情况继续要求核对。系统优先生成完整 2+1；如果已有两个不同 Actor、来自不同发布者、固定 Build 且各成功一次 Canary，就会直接给出“两路主备快速启用”，第三槽留空且不产生费用。管理员再独立确认一次生效，少于两个可运行 Actor 仍会阻断。新账号只串行验证当前实际运行的两个或三个 Actor，通过后分别显示 2/2 或 3/3；后续补第三槽只复验变化槽位。Canary 默认最长 300 秒且不自动重试；页面分开显示已确认实际费用、待远端对账笔数、尚未运行的批准上限和认证预算，其中 0.10 美元预算不是扣款。Actor、Build、Manifest、Route 费用和 Discovery 输出 Token 上限都按 generation 热加载。Actor Discovery 继承“助手与 AI”的 provider、model 与 Base URL，并由管理员从同 Provider 的 Key 中选择一个；全局 AI 不可用只阻断新发现。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
+        href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
       {
@@ -104,7 +104,7 @@ export const manualSections: ManualSection[] = [
       {
         title: '只通知之后的新内容',
         description: '先由 Owner/Admin 在设置页“通知服务”中配置邮箱、Webhook 或 Telegram，并点击一次“保存并测试”；确认成功后会自动启用。以后个人新内容通知和其他业务只选择服务，不需要重复填写目的地或重复测试，还可同时选择多个相同渠道服务。历史私人目标仍只对原用户可见并可继续选择。Webhook 支持通用事件 JSON、通用文本 JSON、飞书/Lark V2、企业微信群机器人、钉钉、Slack/GovSlack 或 Discord。随后直接使用订阅卡片上的 Bell/BellRing 图标开启来源通知。服务、总开关或订阅停用期间发现的内容都不会补推；personal_only 来源不参与通知。',
-        href: '/settings',
+        href: '/settings/notifications',
         linkLabel: '配置消息通知',
       },
       {
@@ -191,26 +191,26 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '工作区设置',
-        description: '设置页集中管理主题、消息通知、恢复已忽略内容以及管理员可见的 AI、Key 与 RSSHub Base URL。顺着页面滚动时，相邻分区进入视口会自然加载正文，不需要点击标题或返回选择器；每个分区仍只在首次打开后读取自己的数据，离开后保留已加载内容但停止该分区轮询。首次打开“密钥”会自动读取已配置 Apify Key 的安全额度投影，并缓存五分钟，仍可手动刷新。“助手与 AI”中的“信息流触底文案”可独立开启 AI 定期生成，选择 1/7/30 天周期、克制/温和/轻幽默风格、最多 500 字的风格补充和每场景 3–30 条；默认关闭且内置中文文案始终可用。状态卡会显示来源、生成状态、generation、最近/下次时间和三个场景的实际条数；每个场景都可独立展开查看带序号的完整文案列表，再按“隐藏”收起，长列表只在场景内纵向滚动。“立即刷新”只提交后台请求，普通任务处理完后才生成。抓取/筛选可把全工作区 Feed 范围设为近 7、14 或 30 个上海自然日；它不会改变 24 小时日常抓取或 RSS 首次抓取窗口。AI、触底文案、RSSHub、抓取/筛选参数和主题库仍可局部保存；修改多个核心分区后，底部未保存提示会显示数量，并可用“保存全部配置”一次原子提交。任一分区校验或保存失败都不会清除其他草稿；通知服务和 Key 仍须走各自独立的安全保存/测试流程。电脑端正文保持单列，把鼠标移到左侧“设置”约 150 毫秒或用键盘聚焦会打开分区目录；手机和触摸设备继续使用页内“设置区域”选择器快速跳转。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的 RSSHub；自建公网实例可把访问密钥写入 SecretStore，来源测试与 Worker 只发送路由级 code。更新项目后重新运行本地 OpenClaw 初始化会自动刷新旧 Skill；收件地址、Webhook、Telegram Chat ID、Bot Token 和真实 Key 保存后都不会回显。',
+        description: '进入设置后，左侧会完整替换应用主侧栏，并在顶部提供“返回应用”；返回时会恢复打开设置前的页面、查询条件和定位，直接打开设置链接时则回到信息流。桌面端按概览、工作区 / 来源、获取与主题与已忽略内容、智能 / AI、通信 / 通知、系统 / 外观和开发者 / 密钥、ActorOps 与存储与归档分组；手机端从顶部菜单打开同一套全高侧栏。概览、外观、通知、AI、获取与主题、已忽略内容、密钥、ActorOps 和存储与归档均使用独立页面：概览不会额外读取业务接口，外观与右上角明暗模式按钮同步，通知服务以紧凑表格展示，新增/编辑在弹窗中完成。Owner/Admin 可在“获取与主题”配置 RSSHub、抓取窗口和阅读主题；各区可单独保存，多个修改会原子保存。Member/Viewer 不能打开管理员页面，也不会请求工作区配置、ActorOps 或存储数据。AI 高级 Base URL、语言和长度限制默认折叠；Member/Viewer 只看到说明，不会读取工作区 AI 配置或 Key。已忽略内容最多读取 200 条并可逐项恢复到信息流。密钥页只显示名称、Provider、环境变量和使用关系；新增、轮换或失败时真实 Key 都会立即清空且永不回显。Apify Key 池会显示主备顺序、安全运行状态和安全额度投影，可手动刷新；排空期间会自动更新，运行中或排空中的 Key 必须先安全排空才能轮换或删除。存储页只提供固定的预演清理、90 日归档、恢复和所有者安全删除，不显示路径、SQL 或正文。抓取/筛选仍可设置近 7、14 或 30 个上海自然日的工作区 Feed 范围。Bilibili 等受控来源只保存站点、路由和 UID，运行时使用这里配置的 RSSHub；自建公网实例可把访问密钥写入 SecretStore。收件地址、Webhook、Telegram Chat ID、Bot Token 和真实 Key 保存后都不会回显。',
         href: '/settings',
         linkLabel: '打开设置',
       },
       {
         title: '查看 X 抓取主备与告警',
-        description: 'Owner/Admin 可在“获取与主题”的“X 抓取主备”查看当前 Actor、三路健康、近 24 小时真实成功率与实际费用、冷却时间和 Apify 额度。系统会拦截 Demo、占位和付费墙记录，串行切换到下一路；恢复的 Actor 要连续两次返回真实帖子，且不会自动抢回主路。调整顺序会影响下一次选择。每次 Run 最多预留 0.02 美元，同一任务三路合计最多 0.06 美元；同一任务重试复用原费用组和已成功 Dataset，不会重新 POST，已经付费但因路由切换作废的结果仍会计入上限。全部可用 Key 的额度快照都在 60 秒内有效时才允许新的付费调用。付费 Canary 每次都要选择一个已启用的 X 账号并逐字二次确认，且不会与同候选的自然任务并发；普通任务重试不能代替确认。运行告警只选择“消息通知”中已经配置、测试并启用的工作区共享服务，可同时选择多个服务或多个相同渠道服务；历史私人目标不会出现在系统告警中。任一服务失败不会阻断其他服务或原抓取任务，结果未知不会自动重发。首报、全挂升级和恢复各发一次，地址、签名、Chat ID、Token、目标账号与远端 Run 都不会回显。',
-        href: '/settings#settings-fetching',
+        description: 'Owner/Admin 可在“设置 → ActorOps”的“X 抓取主备”查看当前 Actor、三路健康、近 24 小时真实成功率与实际费用、冷却时间和 Apify 额度。系统会拦截 Demo、占位和付费墙记录，串行切换到下一路；恢复的 Actor 要连续两次返回真实帖子，且不会自动抢回主路。调整顺序会影响下一次选择。每次 Run 最多预留 0.02 美元，同一任务三路合计最多 0.06 美元；同一任务重试复用原费用组和已成功 Dataset，不会重新 POST，已经付费但因路由切换作废的结果仍会计入上限。全部可用 Key 的额度快照都在 60 秒内有效时才允许新的付费调用。付费 Canary 每次都要选择一个已启用的 X 账号并逐字二次确认，且不会与同候选的自然任务并发；普通任务重试不能代替确认。运行告警只选择“消息通知”中已经配置、测试并启用的工作区共享服务，可同时选择多个服务或多个相同渠道服务；历史私人目标不会出现在系统告警中。任一服务失败不会阻断其他服务或原抓取任务，结果未知不会自动重发。首报、全挂升级和恢复各发一次，地址、签名、Chat ID、Token、目标账号与远端 Run 都不会回显。',
+        href: '/settings/actorops',
         linkLabel: '查看 X 抓取主备',
       },
       {
         title: '预演清理与冷归档',
         description: '完成 Feed Storage v3 和内容时间索引迁移后，Owner/Admin 可在“存储与归档”先查看空间摘要，再预演固定策略清理、90 日冷归档或恢复。预演只显示有界计数和候选指纹，不会修改数据；应用前会再次核对候选。收藏、稍后读、当前 Feed、待通知内容和未提交归档受保护，系统永不自动永久删除。只有 Owner 能在归档已恢复且不再被在线内容引用后，输入页面给出的完整确认短语永久删除归档文件。',
-        href: '/settings#settings-storage',
+        href: '/settings/storage',
         linkLabel: '打开存储与归档',
       },
       {
         title: '管理员统一配置通知服务',
-        description: 'Owner/Admin 在“消息通知”的单一“通知服务”区域配置和维护工作区共享服务。首次创建 Telegram 服务时同时填写服务名称、Chat ID 和共享 Bot Token，之后可直接复用已配置 Token；首次创建邮件服务时同时选择 QQ、网易、Gmail、Resend 或 Amazon SES、填写发送凭据和收件地址，之后可复用发送凭据；Webhook 直接填写 Provider、URL 和可选签名。唯一主操作是“保存并测试”，接收端确认成功后自动启用，失败则保留不回显秘密的停用草稿供修改或重试。凭据、Bot Token、Chat ID、收件地址、Webhook URL 与签名提交后立即清空且不会回显。管理员应只把共享 Bot 加入获准会话；Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定。',
-        href: '/settings',
+        description: 'Owner/Admin 在“消息通知”的单一“通知服务”表格中配置和维护工作区共享服务。桌面显示服务、渠道、状态、使用情况和操作；窄屏将次要信息收进服务列，仍不横向滚动。新增和编辑使用弹窗，行操作收进“更多”菜单，归档会要求再次确认。首次创建 Telegram 服务时同时填写服务名称、Chat ID 和共享 Bot Token，之后可直接复用已配置 Token；首次创建邮件服务时同时选择 QQ、网易、Gmail、Resend 或 Amazon SES、填写发送凭据和收件地址，之后可复用发送凭据；Webhook 直接填写 Provider、URL 和可选签名。唯一主操作是“保存并测试”，接收端确认成功后自动启用，失败则保留不回显秘密的停用草稿供修改或重试。凭据、Bot Token、Chat ID、收件地址、Webhook URL 与签名提交后立即清空且不会回显。管理员应只把共享 Bot 加入获准会话；Chat ID 的可投递范围由 Bot 在 Telegram 中已经拥有的成员与发言权限决定。',
+        href: '/settings/notifications',
         linkLabel: '配置通知发送服务',
       },
     ],
