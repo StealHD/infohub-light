@@ -606,3 +606,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "runtime"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "将 AI Key 独立连接地址与 Feed 稳健修复合入并推送 main，发布 GitHub v2.2.10，并用本地预构建 linux/amd64 镜像完成 VPS 从 v2.2.7 到 v2.2.10 的备份、迁移和 API/Worker 切换；scheduler 未启动。",
+  "status": "completed",
+  "task_id": "2026-08-05-release-v2.2.10-deploy",
+  "unresolved": [],
+  "validation": [
+    "本地 Release Gate 25/25、GitHub main Test Gate 与 v2.2.10 Tag Test Gate（含 release smoke）通过；GitHub Release 已发布。",
+    "本地镜像 inteliscope-service:v2.2.10-92637c48e2b6 为 linux/amd64，revision 标签精确；上传归档 SHA-256 为 39083b1e7d81fadae9a3f6b1c82c793049ce2e78094e0a09f259b31d62053ffd。",
+    "生产迁移备份位于 /opt/inteliscope/backups/v2.2.10-92637c48e2b6-20260805T115838Z，数据库与环境备份均为 0600，迁移前备份和迁移后数据库 integrity ok、foreign keys 0。",
+    "首次切换因 Docker health 尚在 starting 而按预案回滚 v2.2.7；旧服务恢复 ready 后重试成功，无活动作业或数据回退。最终 API/Worker healthy、restarts 0、worker_status=ready，公网根页和设置页 200、受保护接口 401、前端独立 Key URL 标记存在、严重级别错误日志 0。"
+  ]
+}
+```
