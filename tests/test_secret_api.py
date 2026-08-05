@@ -68,7 +68,7 @@ def test_admin_secret_crud_is_write_only_and_duplicate_env_is_rejected(tmp_path,
     created = _create_secret(client)
     assert created["is_set"] is True
     assert set(created) == {
-        "id", "name", "kind", "provider", "env_name", "is_set", "used_by", "created_at", "updated_at"
+        "id", "name", "kind", "provider", "env_name", "base_url", "is_set", "used_by", "created_at", "updated_at"
     }
     assert "private-apify-value" not in json.dumps(created)
 
@@ -128,6 +128,46 @@ def test_deepseek_secret_is_allowed_and_never_echoes_value(tmp_path, monkeypatch
     assert "deepseek-private-test-value" not in listed.text
 
 
+def test_ai_secret_owns_base_url_and_updates_current_global_connection(
+    tmp_path, monkeypatch
+) -> None:
+    client, _store = _client(tmp_path, monkeypatch)
+    _login(client)
+
+    created = _create_secret(
+        client,
+        name="Gemini through gateway",
+        kind="ai",
+        provider="gemini",
+        env_name="GOOGLE_API_KEY",
+        value="gemini-private-test-value",
+        base_url="https://gateway.example.test/gemini/",
+    )
+
+    assert created["base_url"] == "https://gateway.example.test/gemini"
+    assert client.get("/api/config").json()["data"]["config"]["ai"]["base_url"] == (
+        "https://gateway.example.test/gemini"
+    )
+
+    updated = client.patch(
+        f"/api/admin/secrets/{created['id']}/connection",
+        json={"base_url": "https://other-gateway.example.test/v1/"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["base_url"] == "https://other-gateway.example.test/v1"
+    assert client.get("/api/config").json()["data"]["config"]["ai"]["base_url"] == (
+        "https://other-gateway.example.test/v1"
+    )
+
+    cleared = client.patch(
+        f"/api/admin/secrets/{created['id']}/connection",
+        json={"base_url": ""},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["data"]["base_url"] == ""
+    assert "base_url" not in client.get("/api/config").json()["data"]["config"]["ai"]
+
+
 def test_secret_admin_routes_reject_member_and_viewer(tmp_path, monkeypatch) -> None:
     client, _store = _client(tmp_path, monkeypatch)
     _login(client)
@@ -148,6 +188,7 @@ def test_secret_admin_routes_reject_member_and_viewer(tmp_path, monkeypatch) -> 
                 "env_name": "BLOCKED_KEY", "value": "blocked-value",
             }),
             ("PUT", "/api/admin/secrets/missing/value", {"value": "blocked-value"}),
+            ("PATCH", "/api/admin/secrets/missing/connection", {"base_url": "https://gateway.example.test/v1"}),
             ("GET", "/api/admin/secrets/missing/quota", None),
             ("DELETE", "/api/admin/secrets/missing", None),
         ):
@@ -370,11 +411,19 @@ def test_feed_end_message_key_reference_blocks_deletion_until_cleared(tmp_path, 
     )
     feed_end_secret = _create_secret(
         client,
+        name="Feed end Gemini",
+        kind="ai",
+        provider="gemini",
+        env_name="GOOGLE_API_KEY_2",
+        value="feed-end-private-value",
+    )
+    incompatible_secret = _create_secret(
+        client,
         name="Feed end DeepSeek",
         kind="ai",
         provider="deepseek",
         env_name="DEEPSEEK_API_KEY",
-        value="feed-end-private-value",
+        value="deepseek-private-value",
     )
 
     def update_feed_end_key(env_name: str) -> None:
@@ -394,7 +443,24 @@ def test_feed_end_message_key_reference_blocks_deletion_until_cleared(tmp_path, 
         )
         assert response.status_code == 200, response.text
 
-    update_feed_end_key("DEEPSEEK_API_KEY")
+    incompatible = client.post(
+        "/api/config/action",
+        json={
+            "action": "set_feed_end_messages",
+            "payload": {
+                "ai_generation_enabled": True,
+                "refresh_days": 7,
+                "style_preset": "restrained",
+                "style_prompt": "",
+                "list_count": 12,
+                "ai_key_env": incompatible_secret["env_name"],
+            },
+        },
+    )
+    assert incompatible.status_code == 400
+    assert incompatible.json()["error"]["code"] == "invalid_feed_end_messages_ai_key"
+
+    update_feed_end_key(feed_end_secret["env_name"])
     listed = client.get("/api/admin/secrets").json()["data"]["secrets"]
     by_id = {secret["id"]: secret for secret in listed}
     assert by_id[feed_end_secret["id"]]["used_by"] == [

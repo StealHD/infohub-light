@@ -108,7 +108,7 @@ function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先�
   secret: SecretRef
   lifecycleLocked?: boolean
   lockMessage?: string
-  onChanged: (secretId: string, action: 'rotate' | 'delete') => void
+  onChanged: (secretId: string, action: 'rotate' | 'delete' | 'connection') => void
 }) {
   const { api } = useAppContext()
   const feedback = useActionFeedback()
@@ -218,6 +218,65 @@ function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先�
   </div>
 }
 
+function SecretConnectionEditor({ secret, onChanged }: {
+  secret: SecretRef
+  onChanged: (secretId: string, action: 'rotate' | 'delete' | 'connection') => void
+}) {
+  const { api } = useAppContext()
+  const feedback = useActionFeedback()
+  const [open, setOpen] = useState(false)
+  const [baseUrl, setBaseUrl] = useState(secret.base_url ?? '')
+  const [error, setError] = useState('')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const saving = feedback.isPending('secret-connection', secret.id)
+
+  function close() {
+    if (saving) return
+    setOpen(false)
+    setBaseUrl(secret.base_url ?? '')
+    setError('')
+    queueMicrotask(() => triggerRef.current?.focus())
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    feedback.begin('secret-connection', secret.id)
+    try {
+      await api.updateSecretConnection(secret.id, baseUrl.trim())
+      feedback.succeed('secret-connection', secret.id, `${secret.name} 的连接地址已保存。`)
+      setOpen(false)
+      actionToast.success('连接地址已保存', { description: secret.name })
+      onChanged(secret.id, 'connection')
+    } catch (caught) {
+      const message = secretActionError(caught, '连接地址保存失败，请稍后重试。')
+      setError(message)
+      feedback.fail('secret-connection', secret.id, message)
+    }
+  }
+
+  return <Modal isOpen={open} onOpenChange={(next) => next ? setOpen(true) : close()}>
+    <Button ref={triggerRef} size="sm" variant="ghost" aria-label={`编辑 ${secret.name} 的连接地址`}>连接地址</Button>
+    <Modal.Backdrop isDismissable={!saving} isKeyboardDismissDisabled={saving}>
+      <Modal.Container><Modal.Dialog>
+        <Modal.Header><Modal.Heading>{`编辑 ${secret.name} 的连接地址`}</Modal.Heading></Modal.Header>
+        <Modal.Body><form id={`secret-connection-${secret.id}`} className="grid gap-3" onSubmit={save}>
+          <TextField fullWidth value={baseUrl} onChange={setBaseUrl}>
+            <Label>Base URL</Label>
+            <Input type="url" placeholder="留空则沿用全局 AI Base URL" />
+          </TextField>
+          <p className="type-meta text-muted">仅保存此 Key 的连接地址；不保存真实 Key，也不会显示凭据。</p>
+          {error && <StatusNotice title={error} status="warning" />}
+        </form></Modal.Body>
+        <Modal.Footer>
+          <Button type="button" variant="ghost" isDisabled={saving} onPress={close}>取消</Button>
+          <Button type="submit" form={`secret-connection-${secret.id}`} isDisabled={saving}>{saving ? '保存中…' : '保存连接地址'}</Button>
+        </Modal.Footer>
+      </Modal.Dialog></Modal.Container>
+    </Modal.Backdrop>
+  </Modal>
+}
+
 function ApifyMemberState({ member }: { member: ApifyKeyPoolMember | null }) {
   if (!member) return <div className="grid gap-1"><StatusBadge>等待加入池</StatusBadge><span className="type-meta text-muted">刷新后仍未加入时，请检查服务状态。</span></div>
   const presentation = memberStatusPresentation[member.status]
@@ -230,7 +289,7 @@ function ApifyMemberState({ member }: { member: ApifyKeyPoolMember | null }) {
   </div>
 }
 
-function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: SecretRef[]; userId: string; onSecretChanged: (secretId: string, action: 'rotate' | 'delete') => void }) {
+function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: SecretRef[]; userId: string; onSecretChanged: (secretId: string, action: 'rotate' | 'delete' | 'connection') => void }) {
   const { api } = useAppContext()
   const queryClient = useQueryClient()
   const poolQuery = useQuery({
@@ -384,7 +443,7 @@ export function SettingsSecretsPage() {
 
   async function createSecret(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const submitted = { name: draft.name.trim(), kind: draft.kind, provider: draft.provider.trim(), env_name: draft.envName.trim(), value: draft.value }
+    const submitted = { name: draft.name.trim(), kind: draft.kind, provider: draft.provider.trim(), env_name: draft.envName.trim(), base_url: draft.baseUrl.trim(), value: draft.value }
     setDraft((current) => ({ ...current, value: '' }))
     setFieldErrors({})
     setFormError('')
@@ -419,11 +478,12 @@ export function SettingsSecretsPage() {
     }
   }
 
-  function secretChanged(secretId: string, action: 'rotate' | 'delete') {
+  function secretChanged(secretId: string, action: 'rotate' | 'delete' | 'connection') {
     const apifySecret = (secrets.data?.secrets ?? []).some((secret) => secret.id === secretId && isApifySecret(secret))
-    if (action === 'rotate') {
+    if (action !== 'delete') {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.secrets(user.id) }),
+        ...(action === 'connection' ? [queryClient.invalidateQueries({ queryKey: queryKeys.config(user.id) })] : []),
         queryClient.invalidateQueries({ queryKey: queryKeys.apifyActorDiscoverySettings(user.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.secretQuota(user.id, secretId) }),
         ...(apifySecret ? [queryClient.invalidateQueries({ queryKey: queryKeys.apifyKeyPool(user.id) })] : []),
@@ -455,10 +515,11 @@ export function SettingsSecretsPage() {
               <Modal.Header><Modal.Heading>新增 Key</Modal.Heading></Modal.Header>
               <Modal.Body><form id="create-secret" className="grid gap-3" noValidate onSubmit={createSecret}>
                 <TextField fullWidth value={draft.name} onChange={(name) => { setDraft((current) => ({ ...current, name })); clearFieldError('name') }} isRequired isInvalid={Boolean(fieldErrors.name)}><Label>Key 名称</Label><Input />{fieldErrors.name && <FieldError>{fieldErrors.name}</FieldError>}</TextField>
-                <HeroSelect label="Key 类型" value={draft.kind} onChange={(kind) => { setDraft((current) => ({ ...current, kind })); clearFieldError('kind'); clearFieldError('provider') }} options={[{ id: 'ai', label: 'AI' }, { id: 'apify', label: 'Apify' }]} />
+                <HeroSelect label="Key 类型" value={draft.kind} onChange={(kind) => { setDraft((current) => ({ ...current, kind, baseUrl: kind === 'ai' ? current.baseUrl : '' })); clearFieldError('kind'); clearFieldError('provider'); clearFieldError('baseUrl') }} options={[{ id: 'ai', label: 'AI' }, { id: 'apify', label: 'Apify' }]} />
                 {fieldErrors.kind && <FieldError>{fieldErrors.kind}</FieldError>}
                 <TextField fullWidth value={draft.provider} onChange={(provider) => { setDraft((current) => ({ ...current, provider })); clearFieldError('provider') }} isRequired isInvalid={Boolean(fieldErrors.provider)}><Label>Key provider</Label><Input />{fieldErrors.provider && <FieldError>{fieldErrors.provider}</FieldError>}</TextField>
                 <TextField fullWidth value={draft.envName} onChange={(envName) => { setDraft((current) => ({ ...current, envName })); clearFieldError('envName') }} isRequired isInvalid={Boolean(fieldErrors.envName)}><Label>环境变量名</Label><Input />{fieldErrors.envName && <FieldError>{fieldErrors.envName}</FieldError>}</TextField>
+                {draft.kind === 'ai' && <TextField fullWidth value={draft.baseUrl} onChange={(baseUrl) => { setDraft((current) => ({ ...current, baseUrl })); clearFieldError('baseUrl') }} isInvalid={Boolean(fieldErrors.baseUrl)}><Label>Base URL（可选）</Label><Input type="url" placeholder="留空则沿用全局 AI Base URL" />{fieldErrors.baseUrl && <FieldError>{fieldErrors.baseUrl}</FieldError>}</TextField>}
                 <TextField fullWidth value={draft.value} onChange={(value) => { setDraft((current) => ({ ...current, value })); clearFieldError('value') }} isRequired isInvalid={Boolean(fieldErrors.value)}><Label>Key 值</Label><Input type="password" autoComplete="new-password" />{fieldErrors.value && <FieldError>{fieldErrors.value}</FieldError>}</TextField>
                 {formError && <div data-testid="secret-form-feedback"><StatusNotice title={formError} status="warning" /></div>}
               </form></Modal.Body>
@@ -474,13 +535,13 @@ export function SettingsSecretsPage() {
           ? <StatusNotice title="密钥读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void secrets.refetch()}>重试此区域</Button></StatusNotice>
           : <>
             <ApifyKeyPoolGroup secrets={secrets.data?.secrets ?? []} userId={user.id} onSecretChanged={secretChanged} />
-            <SettingsSection title="AI Key" description="AI 配置仅引用环境变量名；Provider、状态与使用关系在此可见。">
+            <SettingsSection title="AI Key" description="每个 AI Key 可独立保存 Base URL；未设置时才沿用全局 AI Base URL。">
               <SettingsGroup ariaLabel="已配置 AI Key">
                 {!aiSecrets.length
                   ? <SettingsItem label="尚未配置 AI Key" description="新增 AI Key 后，可在 AI 设置中选择它作为工作区模型凭据。" icon={<Icons.Sparkles size={17} aria-hidden="true" />} />
                   : aiSecrets.map((secret) => {
                     const presentation = secretPresentation(secret)
-                    return <SettingsItem key={secret.id} density="compact" label={presentation.name} description={`${presentation.provider} · ${secret.env_name}`} icon={<Icons.Sparkles size={17} aria-hidden="true" />} trailing={<SecretActions secret={secret} onChanged={secretChanged} />}>
+                    return <SettingsItem key={secret.id} density="compact" label={presentation.name} description={`${presentation.provider} · ${secret.env_name}${secret.base_url ? ` · ${secret.base_url}` : ' · 使用全局 Base URL'}`} icon={<Icons.Sparkles size={17} aria-hidden="true" />} trailing={<div className="flex flex-wrap gap-2"><SecretConnectionEditor secret={secret} onChanged={secretChanged} /><SecretActions secret={secret} onChanged={secretChanged} /></div>}>
                       <div className="flex flex-wrap items-center gap-2"><StatusBadge tone={secret.is_set ? 'success' : 'warning'}>{presentation.status}</StatusBadge><span className="type-meta text-muted">{presentation.usage}</span>{secret.used_by.length > 0 && <span className="type-meta text-muted">正在被 {secret.used_by.map((usage) => usage.name).join('、')} 使用</span>}</div>
                     </SettingsItem>
                   })}

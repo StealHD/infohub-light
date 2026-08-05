@@ -532,13 +532,63 @@ def test_due_generation_makes_one_metered_model_call(tmp_path, monkeypatch):
     assert [tuple(row) for row in usage] == [("ai_attempt", "openai", 1)]
 
 
-def test_due_generation_uses_bound_ai_key_env(tmp_path, monkeypatch):
-    store, workspace, _owner = _store(tmp_path, monkeypatch)
+def test_due_generation_uses_bound_ai_key_env_and_base_url(tmp_path, monkeypatch):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
     data = _config_data()
     data["feed_end_messages"]["ai_key_env"] = "DEEPSEEK_API_KEY"
     (tmp_path / "config.json").write_text(
         json.dumps(data, ensure_ascii=False),
         encoding="utf-8",
+    )
+    fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
+    seen_key_envs: list[str] = []
+    seen_base_urls: list[str | None] = []
+
+    store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="OpenAI copy Key",
+        env_name="DEEPSEEK_API_KEY",
+        kind="ai",
+        provider="openai",
+        base_url="https://copy.example.test/v1",
+    )
+
+    def factory(ai_config):
+        seen_key_envs.append(ai_config.api_key_env)
+        seen_base_urls.append(ai_config.base_url)
+        return fake
+
+    result = run_due_feed_end_messages_generation(
+        data_dir=str(tmp_path),
+        store=store,
+        worker_id="copy-worker",
+        client_factory=factory,
+        now=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert seen_key_envs == ["DEEPSEEK_API_KEY"]
+    assert seen_base_urls == ["https://copy.example.test/v1"]
+
+
+def test_due_generation_falls_back_when_bound_key_provider_mismatches(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    data = _config_data()
+    data["feed_end_messages"]["ai_key_env"] = "GOOGLE_API_KEY_2"
+    (tmp_path / "config.json").write_text(
+        json.dumps(data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="Gemini secondary",
+        env_name="GOOGLE_API_KEY_2",
+        kind="ai",
+        provider="gemini",
     )
     fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
     seen_key_envs: list[str] = []
@@ -556,7 +606,7 @@ def test_due_generation_uses_bound_ai_key_env(tmp_path, monkeypatch):
     )
 
     assert result["ok"] is True
-    assert seen_key_envs == ["DEEPSEEK_API_KEY"]
+    assert seen_key_envs == ["OPENAI_API_KEY"]
 
 
 def test_due_generation_without_binding_falls_back_to_global_key(tmp_path, monkeypatch):

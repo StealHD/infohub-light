@@ -6,6 +6,7 @@ export type SecretDraft = {
   kind: string
   provider: string
   envName: string
+  baseUrl: string
   value: string
 }
 
@@ -18,7 +19,7 @@ const secretProviders: Record<string, string[]> = {
   apify: ['apify'],
 }
 
-export const emptySecretDraft: SecretDraft = { name: '', kind: 'ai', provider: '', envName: '', value: '' }
+export const emptySecretDraft: SecretDraft = { name: '', kind: 'ai', provider: '', envName: '', baseUrl: '', value: '' }
 export const secretQuotaStaleTime = 5 * 60 * 1000
 
 export const isApifySecret = (secret: SecretRef) => secret.kind === 'apify' || secret.provider === 'apify'
@@ -39,6 +40,19 @@ export function validateSecretDraft(draft: SecretDraft): SecretFieldErrors {
     errors.envName = '环境变量名不能为空。'
   } else if (!secretEnvPattern.test(draft.envName.trim())) {
     errors.envName = '环境变量名必须以字母或下划线开头，且只能包含字母、数字和下划线。'
+  }
+  const baseUrl = draft.baseUrl.trim()
+  if (draft.kind !== 'ai' && baseUrl) {
+    errors.baseUrl = '只有 AI Key 可以设置 Base URL。'
+  } else if (baseUrl) {
+    try {
+      const parsed = new URL(baseUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.host || parsed.username || parsed.password || parsed.search || parsed.hash) {
+        errors.baseUrl = 'Base URL 必须是无凭据、查询参数或片段的 http/https 地址。'
+      }
+    } catch {
+      errors.baseUrl = 'Base URL 必须是有效的 http/https 地址。'
+    }
   }
   if (!draft.value) {
     errors.value = 'Key 值不能为空。'

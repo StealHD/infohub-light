@@ -413,8 +413,9 @@ export function createServiceApi(client: ApiClient) {
       '/api/admin/apify-actor-alert-incidents?limit=20',
       signal,
     ),
-    createSecret: (payload: { name: string; kind: string; provider: string; env_name: string; value: string }) => client.post<SecretRef>('/api/admin/secrets', payload),
+    createSecret: (payload: { name: string; kind: string; provider: string; env_name: string; value: string; base_url?: string }) => client.post<SecretRef>('/api/admin/secrets', payload),
     rotateSecret: (secretId: string, value: string) => client.put<SecretRef>(`${resource('/api/admin/secrets', secretId)}/value`, { value }),
+    updateSecretConnection: (secretId: string, baseUrl: string) => client.patch<SecretRef>(`${resource('/api/admin/secrets', secretId)}/connection`, { base_url: baseUrl }),
     deleteSecret: (secretId: string) => client.delete<{ deleted: boolean }>(resource('/api/admin/secrets', secretId)),
   }
 }

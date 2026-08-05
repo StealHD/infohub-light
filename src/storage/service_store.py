@@ -1510,6 +1510,7 @@ class ServiceStore:
                 scope TEXT NOT NULL,
                 kind TEXT NOT NULL DEFAULT 'ai',
                 provider TEXT NOT NULL DEFAULT '',
+                base_url TEXT NOT NULL DEFAULT '',
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -2849,6 +2850,7 @@ class ServiceStore:
         self._ensure_column("fetch_jobs", "cancelled_at", "TEXT")
         self._ensure_column("secret_refs", "kind", "TEXT NOT NULL DEFAULT 'ai'")
         self._ensure_column("secret_refs", "provider", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("secret_refs", "base_url", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("secret_refs", "version", "INTEGER NOT NULL DEFAULT 1")
         if install_apify_actor_v13:
             self._ensure_column(
@@ -6788,6 +6790,7 @@ class ServiceStore:
         env_name: str,
         kind: str,
         provider: str,
+        base_url: str = "",
         scope: str = "workspace",
     ) -> dict[str, Any]:
         now = _now_iso()
@@ -6797,8 +6800,8 @@ class ServiceStore:
                 """
                 INSERT INTO secret_refs (
                     id, workspace_id, owner_user_id, name, env_name, scope,
-                    kind, provider, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    kind, provider, base_url, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     secret_id,
@@ -6809,6 +6812,7 @@ class ServiceStore:
                     scope,
                     kind,
                     provider,
+                    str(base_url or "").strip(),
                     now,
                     now,
                 ),
@@ -6821,6 +6825,21 @@ class ServiceStore:
         secret = self.get_secret_ref(secret_id)
         if secret is None:
             raise LookupError("created secret ref not found")
+        return secret
+
+    def update_secret_base_url(self, secret_id: str, *, base_url: str) -> dict[str, Any]:
+        self.connect().execute(
+            """
+            UPDATE secret_refs
+            SET base_url = ?, version = version + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (str(base_url or "").strip(), _now_iso(), secret_id),
+        )
+        self.connect().commit()
+        secret = self.get_secret_ref(secret_id)
+        if secret is None:
+            raise LookupError("secret ref not found")
         return secret
 
     def get_workspace_email_transport(

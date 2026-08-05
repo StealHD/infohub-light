@@ -1653,15 +1653,48 @@ describe('App routes', () => {
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
+    await browser.type(screen.getByRole('textbox', { name: 'Base URL（可选）' }), 'https://gateway.example.test/deepseek')
     await browser.type(screen.getByLabelText('Key 值'), 'write-only-value')
     await browser.click(screen.getByRole('button', { name: '安全保存 Key' }))
 
     await waitFor(() => expect(createSecret).toHaveBeenCalledOnce())
+    expect(createSecret).toHaveBeenCalledWith(expect.objectContaining({ base_url: 'https://gateway.example.test/deepseek' }))
     const successMessages = await screen.findAllByText('Key 已安全保存')
     expect(successMessages).toHaveLength(1)
     expect(successMessages[0].closest('[data-slot="toast-region"]')).not.toBeNull()
     expect(successMessages[0].closest('[data-page-frame]')).toBeNull()
     expect(screen.queryByText('Key 已保存，页面不会回显真实值。')).not.toBeInTheDocument()
+  }, 15_000)
+
+  it('edits an existing AI Key connection URL without exposing its value', async () => {
+    const browser = userEvent.setup()
+    const updateSecretConnection = vi.fn().mockResolvedValue({
+      id: 'secret-gateway',
+      name: 'Gateway Key',
+      kind: 'ai',
+      provider: 'openai',
+      env_name: 'OPENAI_GATEWAY_KEY',
+      base_url: 'https://gateway.example.test/v1',
+      is_set: true,
+      used_by: [],
+    })
+    const api = liveApi({
+      authStatus: vi.fn().mockResolvedValue({ authenticated: true, user: { id: 'owner-key-url', username: 'owner', role: 'owner', enabled: true } }),
+      config: vi.fn().mockResolvedValue({ config: { ai: {}, filtering: {} }, taxonomy: { channels: [], topics: [] } }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{
+        id: 'secret-gateway', name: 'Gateway Key', kind: 'ai', provider: 'openai', env_name: 'OPENAI_GATEWAY_KEY', base_url: '', is_set: true, used_by: [],
+      }] }),
+      updateSecretConnection,
+    } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByText('Gateway Key')
+    await browser.click(screen.getByRole('button', { name: '编辑 Gateway Key 的连接地址' }))
+    await browser.type(await screen.findByRole('textbox', { name: 'Base URL' }), 'https://gateway.example.test/v1')
+    await browser.click(screen.getByRole('button', { name: '保存连接地址' }))
+
+    await waitFor(() => expect(updateSecretConnection).toHaveBeenCalledWith('secret-gateway', 'https://gateway.example.test/v1'))
   }, 15_000)
 
   it('redirects legacy secret bookmarks and blocks direct secret access without data requests', async () => {
@@ -3325,7 +3358,7 @@ describe('App routes', () => {
         },
         taxonomy: { channels: [], topics: [] },
       }),
-      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'feed-end-deepseek-key', name: 'DeepSeek Key', kind: 'ai', provider: 'deepseek', env_name: 'DEEPSEEK_API_KEY', is_set: true, used_by: [] }] }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'feed-end-openai-key', name: 'OpenAI Copy Key', kind: 'ai', provider: 'openai', env_name: 'OPENAI_COPY_API_KEY', is_set: true, used_by: [] }] }),
       users: vi.fn().mockResolvedValue({ users: [] }),
       feedEndMessages: vi.fn().mockResolvedValue({
         schema_version: 1,
@@ -3377,10 +3410,10 @@ describe('App routes', () => {
     expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随全局 AI Key（默认）')
 
     await browser.click(screen.getByLabelText('生成用 AI Key'))
-    await browser.click(screen.getByRole('option', { name: 'DeepSeek Key · 已设置' }))
+    await browser.click(screen.getByRole('option', { name: /^OpenAI Copy Key · 已设置/ }))
     await browser.click(screen.getByRole('button', { name: '保存触底文案设置' }))
     expect(configAction).toHaveBeenLastCalledWith('set_settings_bundle', {
-      feed_end_messages: expect.objectContaining({ ai_key_env: 'DEEPSEEK_API_KEY' }),
+      feed_end_messages: expect.objectContaining({ ai_key_env: 'OPENAI_COPY_API_KEY' }),
     })
     await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
     expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随全局 AI Key（默认）')

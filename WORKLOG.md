@@ -551,3 +551,38 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "runtime"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "按 codex/workbuddy 工作树完成本地 8080 切换，仅重建 horizon-api 与 horizon-worker；未启动 scheduler。",
+  "status": "completed",
+  "task_id": "2026-08-05-start-workbuddy-local-containers",
+  "unresolved": [],
+  "validation": [
+    "API 和 Worker 运行 revision 4a66181fd303-dirty，两个容器均为 healthy。",
+    "/api/health/ready 返回 worker_status=ready；已加载前端资源 index-CIdTQQ7Q.js，包含本次 Feed 工具栏变更标记。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "runtime"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "AI Key 现在可独立保存并编辑 Base URL；全局 AI 和触底文案只允许引用相同 Provider 的已保存 Key，生成优先使用绑定 Key 的连接地址，旧的跨 Provider 绑定安全回退全局 Key。为本地升级增加带 0600 备份、Worker/运行中作业保护和 SQLite 完整性检查的离线迁移脚本。",
+  "status": "completed",
+  "task_id": "2026-08-05-ai-key-connection-profile",
+  "unresolved": [],
+  "validation": [
+    "后端 30 项定向 pytest（含迁移、触底生成和 Secret API）通过；前端 typecheck 与 UI contract 通过。",
+    "Full Test Gate 通过；git diff --check 通过。"
+  ]
+}
+```

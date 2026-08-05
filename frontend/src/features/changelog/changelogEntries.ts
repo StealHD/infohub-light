@@ -33,9 +33,9 @@ export const changelogMonths: ChangelogMonth[] = [
       {
         date: '2026-08-05',
         title: 'v2.2.9 触底文案 AI Key 绑定与工具栏透视',
-        summary: '信息流触底文案可单独绑定任意全局 AI Key；Feed 顶部工具栏改为半透明毛玻璃浮层。',
+        summary: '信息流触底文案可单独绑定同 Provider 的 AI Key，并使用该 Key 的独立连接地址；Feed 顶部工具栏改为半透明毛玻璃浮层。',
         items: [
-          { title: '触底文案不再强绑全局 AI Key', description: '“设置 → AI → 信息流触底文案”新增“生成用 AI Key”下拉，可绑定任意一个已保存的全局 AI Key；未选择时仍跟随全局 AI Key，保存后持久化并自动触发文案重新生成。' },
+          { title: '触底文案不再强绑全局 AI Key', description: '“设置 → AI → 信息流触底文案”新增“生成用 AI Key”下拉，只显示与当前 Provider 匹配的已保存 Key；每个 Key 可在密钥页保存独立 Base URL，未选择或未设置 URL 时才跟随全局配置。' },
           { title: '工具栏透明穿透且不遮挡内容', description: 'Feed 顶部工具栏改为 70% 半透明毛玻璃浮层，可透出后方内容；系统按实际工具栏高度动态避让列表、提示、加载和空态，筛选换行或移动端展开搜索时首张可见卡片不会被覆盖。' },
         ],
       },

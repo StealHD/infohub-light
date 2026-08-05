@@ -18,15 +18,19 @@ describe('settingsSecretsModel', () => {
       value: 'Key 值不能为空。',
     })
     expect(validateSecretDraft({
-      name: 'Apify', kind: 'apify', provider: 'openai', envName: '1BAD_NAME', value: 'line\nvalue',
+      name: 'Apify', kind: 'apify', provider: 'openai', envName: '1BAD_NAME', baseUrl: 'https://gateway.example.test/v1', value: 'line\nvalue',
     })).toMatchObject({
       provider: 'Apify Key 的 Provider 必须是 apify。',
       envName: '环境变量名必须以字母或下划线开头，且只能包含字母、数字和下划线。',
+      baseUrl: '只有 AI Key 可以设置 Base URL。',
       value: 'Key 值必须为不含换行或空字符的单行文本。',
     })
     expect(validateSecretDraft({
-      name: 'Apify', kind: 'apify', provider: 'apify', envName: 'APIFY_TOKEN', value: 'write-only',
+      name: 'Apify', kind: 'apify', provider: 'apify', envName: 'APIFY_TOKEN', baseUrl: '', value: 'write-only',
     })).toEqual({})
+    expect(validateSecretDraft({
+      name: 'Gateway', kind: 'ai', provider: 'openai', envName: 'OPENAI_KEY', baseUrl: 'https://gateway.example.test/v1?token=no', value: 'write-only',
+    })).toMatchObject({ baseUrl: 'Base URL 必须是无凭据、查询参数或片段的 http/https 地址。' })
   })
 
   it('keeps API error mapping and the five-minute quota cache policy deterministic', () => {

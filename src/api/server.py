@@ -15,7 +15,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 import uvicorn
 from dotenv import load_dotenv
@@ -594,12 +594,19 @@ class SecretCreateRequest(BaseModel):
     provider: str
     env_name: str
     value: str
+    base_url: str = ""
 
 
 class SecretRotateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: str
+
+
+class SecretConnectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = ""
 
 
 class ApifyKeyPoolOrderRequest(BaseModel):
@@ -1069,6 +1076,10 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("POST", "/api/admin/secrets"): ("secret", "create"),
     ("PUT", "/api/admin/secrets/{secret_id}/value"): ("secret", "rotate"),
+    ("PATCH", "/api/admin/secrets/{secret_id}/connection"): (
+        "secret",
+        "connection_update",
+    ),
     ("DELETE", "/api/admin/secrets/{secret_id}"): ("secret", "delete"),
     ("POST", "/api/admin/storage/plans"): ("storage", "plan_preview"),
     ("POST", "/api/admin/storage/plans/{plan_id}/apply"): (
@@ -1396,13 +1407,90 @@ def create_app(
             "kind": secret["kind"],
             "provider": secret["provider"],
             "env_name": secret["env_name"],
+            "base_url": str(secret.get("base_url") or ""),
             "is_set": bool(secret_values.status(secret["env_name"])["is_set"]),
             "used_by": secret_usage(secret),
             "created_at": secret["created_at"],
             "updated_at": secret["updated_at"],
         }
 
-    def validate_secret_metadata(payload: SecretCreateRequest) -> tuple[str, str, str, str]:
+    def validate_feed_end_messages_key_provider(
+        config: Config,
+        *,
+        workspace_id: str,
+    ) -> None:
+        """Keep an optional terminal-copy Key on the active AI provider."""
+
+        key_env = str(config.feed_end_messages.ai_key_env or "").strip()
+        if not key_env or key_env == config.ai.api_key_env:
+            return
+        secret = store.get_secret_ref_by_env(
+            workspace_id=workspace_id,
+            env_name=key_env,
+        )
+        if secret is None or str(secret.get("kind") or "").lower() != "ai":
+            raise ApiError(
+                "invalid_feed_end_messages_ai_key",
+                "触底文案 AI Key 必须选择已保存的 AI Key，或跟随全局 AI Key。",
+                status_code=400,
+            )
+        if str(secret.get("provider") or "").lower() != config.ai.provider.value:
+            raise ApiError(
+                "invalid_feed_end_messages_ai_key",
+                "触底文案 AI Key 必须与当前 AI Provider 匹配，或跟随全局 AI Key。",
+                status_code=400,
+            )
+
+    def validate_global_ai_key_provider(
+        config: Config,
+        *,
+        workspace_id: str,
+    ) -> dict[str, Any] | None:
+        secret = store.get_secret_ref_by_env(
+            workspace_id=workspace_id,
+            env_name=config.ai.api_key_env,
+        )
+        if secret is None:
+            return None
+        if (
+            str(secret.get("kind") or "").lower() != "ai"
+            or str(secret.get("provider") or "").lower()
+            != config.ai.provider.value
+        ):
+            raise ApiError(
+                "invalid_ai_key",
+                "AI Key 必须与当前 AI Provider 匹配。",
+                status_code=400,
+            )
+        return secret
+
+    def normalize_ai_secret_base_url(value: str) -> str:
+        base_url = str(value or "").strip()
+        if not base_url:
+            return ""
+        if len(base_url) > 2048:
+            raise ApiError(
+                "invalid_secret",
+                "AI Base URL must contain at most 2048 characters",
+                status_code=400,
+            )
+        parsed = urlparse(base_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ApiError(
+                "invalid_secret",
+                "AI Base URL must be an http/https URL without credentials, query, or fragment",
+                status_code=400,
+            )
+        return base_url.rstrip("/")
+
+    def validate_secret_metadata(payload: SecretCreateRequest) -> tuple[str, str, str, str, str]:
         name = str(payload.name or "").strip()
         kind = str(payload.kind or "").strip().lower()
         provider = str(payload.provider or "").strip().lower()
@@ -1422,7 +1510,14 @@ def create_app(
             secret_values.validate_value(payload.value)
         except SecretValueError as exc:
             raise ApiError("invalid_secret", str(exc), status_code=400) from exc
-        return name, kind, provider, env_name
+        if kind != "ai" and str(payload.base_url or "").strip():
+            raise ApiError(
+                "invalid_secret",
+                "Base URL is supported only for AI keys",
+                status_code=400,
+            )
+        base_url = normalize_ai_secret_base_url(payload.base_url) if kind == "ai" else ""
+        return name, kind, provider, env_name, base_url
 
     def public_source(source: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         item = dict(source)
@@ -4511,6 +4606,26 @@ def create_app(
 
         base_data, _base_config = read_base_config()
         updated = apply_config_action(base_data, action, payload)
+        if action in {"set_ai", "set_feed_end_messages"} or (
+            action == "set_settings_bundle"
+            and bool({"ai", "feed_end_messages"} & set(payload))
+        ):
+            updated_config = validate_config_data(updated)
+            global_ai_secret = validate_global_ai_key_provider(
+                updated_config,
+                workspace_id=user["workspace_id"],
+            )
+            if global_ai_secret is not None and str(
+                global_ai_secret.get("base_url") or ""
+            ).strip():
+                updated.setdefault("ai", {})["base_url"] = str(
+                    global_ai_secret["base_url"]
+                )
+                updated_config = validate_config_data(updated)
+            validate_feed_end_messages_key_provider(
+                updated_config,
+                workspace_id=user["workspace_id"],
+            )
         write_base_config(updated)
         return ok(config_response(user))
 
@@ -6482,7 +6597,7 @@ def create_app(
         payload: SecretCreateRequest,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
-        name, kind, provider, env_name = validate_secret_metadata(payload)
+        name, kind, provider, env_name, base_url = validate_secret_metadata(payload)
         if store.get_secret_ref_by_env(workspace_id=user["workspace_id"], env_name=env_name):
             raise ApiError(
                 "secret_env_conflict",
@@ -6500,10 +6615,17 @@ def create_app(
                 env_name=env_name,
                 kind=kind,
                 provider=provider,
+                base_url=base_url,
                 scope="workspace",
             )
             if kind == "apify" and provider == "apify":
                 apify_key_pool.append_secret(secret["id"])
+            if kind == "ai" and base_url:
+                base_data, base_config = read_base_config()
+                if base_config.ai.api_key_env == env_name:
+                    synchronized = deepcopy(base_data)
+                    synchronized.setdefault("ai", {})["base_url"] = base_url
+                    write_base_config(synchronized)
         except SecretEnvConflictError as exc:
             secret_values.delete(env_name)
             secret_values.load_into_environ()
@@ -6573,6 +6695,37 @@ def create_app(
                     workspace_id=user["workspace_id"],
                     source_id=source["id"],
                 )
+        return ok(public_secret(updated))
+
+    @app.patch("/api/admin/secrets/{secret_id}/connection")
+    async def admin_secrets_update_connection(
+        secret_id: str,
+        payload: SecretConnectionRequest,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        secret = store.get_secret_ref(secret_id)
+        if secret is None or secret["workspace_id"] != user["workspace_id"]:
+            raise ApiError("not_found", "secret reference not found", status_code=404)
+        if str(secret.get("kind") or "").lower() != "ai":
+            raise ApiError(
+                "invalid_secret",
+                "Base URL is supported only for AI keys",
+                status_code=400,
+            )
+        base_url = normalize_ai_secret_base_url(payload.base_url)
+        updated = store.update_secret_base_url(
+            secret_id,
+            base_url=base_url,
+        )
+        base_data, base_config = read_base_config()
+        if base_config.ai.api_key_env == secret["env_name"]:
+            synchronized = deepcopy(base_data)
+            ai_settings = synchronized.setdefault("ai", {})
+            if base_url:
+                ai_settings["base_url"] = base_url
+            else:
+                ai_settings.pop("base_url", None)
+            write_base_config(synchronized)
         return ok(public_secret(updated))
 
     @app.get("/api/admin/secrets/{secret_id}/quota")

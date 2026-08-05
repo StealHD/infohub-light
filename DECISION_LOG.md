@@ -1026,10 +1026,10 @@
 - 安全与兼容边界：Member/Viewer 在 Storage 请求开始前回到 Overview；通知的 Member/Viewer 仍只能读取自己可见的服务且无管理菜单。存储的计划有效期、fingerprint 复核、零工作禁用、Owner 精确删除短语和缓存失效不变。没有新增 HeroUI Pro 依赖、后端接口、Query key 或数据库迁移；Feed Sidebar 和视觉系统不受影响。
 - 原因：最后残留的 Legacy 页让设置导航与请求边界不完整；通知服务卡片在高密度多服务场景下不利于比较状态、generation 和业务使用关系。将两者改为原生路由和响应式表格，能完成独立 Settings Workspace，同时保留已验证的业务安全边界。
 
-### D120 触底文案可绑定任意全局 AI Key，Feed 浮层工具栏半透明化
+### D120 触底文案可绑定同 Provider 的独立 AI Key，Feed 浮层工具栏半透明化
 
 - 决策日期：2026-08-05
 - 当前状态：当前任务分支实现与验证中；不改变触底文案安全合同、生成时序或付费边界
-- 决策内容：`feed_end_messages` 配置新增可选 `ai_key_env`（合法环境变量名或空字符串，缺省为空）。`/settings/ai` 的触底文案表单提供“生成用 AI Key”下拉，列出全部 kind=ai 的 SecretStore 元数据；空值表示跟随全局 `ai.api_key_env`。Worker 生成时若该值非空，则以 `model_copy(update={"api_key_env": ...})` 覆盖全局 AI Key 创建客户端，Provider、模型与输出参数仍沿用全局 AI 配置；`ai_key_env` 计入既有配置指纹，变更后旧缓存自动标记待刷新，无需数据库迁移。
+- 决策内容：`feed_end_messages` 配置新增可选 `ai_key_env`（合法环境变量名或空字符串，缺省为空）。`/settings/ai` 的触底文案表单只列出与当前全局 Provider 相同的已保存 AI Key；空值表示跟随全局 `ai.api_key_env`。每个 AI SecretRef 可选保存自己的安全 `base_url`（无 userinfo/query/fragment 的 HTTP(S) URL）；Worker 生成时以 Key 覆盖全局环境变量名，并优先使用该 Key 的 URL，Provider、模型与输出参数仍沿用全局 AI 配置。跨 Provider 的历史绑定在运行时安全回退全局 Key，保存端拒绝再次写入。`ai_key_env` 计入既有配置指纹，变更后旧缓存自动标记待刷新；SecretRef 的非敏感 URL 元数据为 additive SQLite 列，既有 Key 为空时保持全局 URL 回退。
 - 视觉边界：Feed 顶部工具栏采用 absolute 半透明毛玻璃浮层（`bg-background/70` + `backdrop-blur-md`），颜色 token 随明暗主题自动适配。通过 `ResizeObserver` 以工具栏真实高度加 8px 计算内容避让，筛选标签换行、移动端搜索展开和字体尺寸变化都会更新；列表卡片可在浮层下滚动，但有效可视边界、深链/错误提示、加载和空态都只使用一次动态避让，不会被浮层覆盖。
-- 原因：触底文案此前强行绑定全局 AI Key，多 Key 工作区无法让低频后台生成使用独立配额；Feed 顶栏 95% 不透明度在滚动时几乎无透视感。两处均以最小改动满足需求，且不触碰已验证的生成安全合同。
+- 原因：触底文案此前强行绑定全局 AI Key，多 Key 工作区无法让低频后台生成使用独立配额；仅替换 Key 而继续使用全局 URL 会把中转或供应商 Key 发往错误端点。Feed 顶栏 95% 不透明度在滚动时几乎无透视感。两处均以最小改动满足需求，且不触碰已验证的生成安全合同。

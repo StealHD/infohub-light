@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from ..ai.client import AIClient, create_ai_client
-from ..models import Config
+from ..models import AIConfig, Config
 from ..storage.manager import StorageManager
 from ..storage.service_store import ServiceStore
 from .quota import QuotaService
@@ -698,6 +698,56 @@ def _generation_error_code(exc: Exception) -> str:
     return "feed_end_messages_generation_failed"
 
 
+def _generation_ai_config(
+    *,
+    config: Config,
+    store: ServiceStore,
+    workspace_id: str,
+) -> AIConfig:
+    """Resolve the selected Key's endpoint without crossing provider contracts."""
+
+    bound_key_env = str(config.feed_end_messages.ai_key_env or "").strip()
+    selected_key_env = bound_key_env or config.ai.api_key_env
+
+    def config_for_key(key_env: str) -> tuple[AIConfig | None, dict[str, Any] | None]:
+        secret = store.get_secret_ref_by_env(
+            workspace_id=workspace_id,
+            env_name=key_env,
+        )
+        if secret is None:
+            return (
+                config.ai
+                if key_env == config.ai.api_key_env
+                else config.ai.model_copy(update={"api_key_env": key_env}),
+                None,
+            )
+        if (
+            str(secret.get("kind") or "").lower() != "ai"
+            or str(secret.get("provider") or "").lower()
+            != config.ai.provider.value
+        ):
+            return None, secret
+        overrides: dict[str, Any] = {"api_key_env": key_env}
+        base_url = str(secret.get("base_url") or "").strip()
+        if base_url:
+            overrides["base_url"] = base_url
+        return config.ai.model_copy(update=overrides), secret
+
+    selected_config, selected_secret = config_for_key(selected_key_env)
+    if selected_config is not None:
+        return selected_config
+    if bound_key_env:
+        logger.warning(
+            "feed end message Key provider mismatch workspace_id=%s "
+            "bound_provider=%s active_provider=%s; using global AI Key",
+            workspace_id,
+            str((selected_secret or {}).get("provider") or "").lower(),
+            config.ai.provider.value,
+        )
+    global_config, _global_secret = config_for_key(config.ai.api_key_env)
+    return global_config or config.ai
+
+
 def run_due_feed_end_messages_generation(
     *,
     data_dir: str,
@@ -718,11 +768,10 @@ def run_due_feed_end_messages_generation(
         return None
 
     provider = config.ai.provider.value
-    bound_key_env = str(config.feed_end_messages.ai_key_env or "").strip()
-    ai_config = (
-        config.ai.model_copy(update={"api_key_env": bound_key_env})
-        if bound_key_env
-        else config.ai
+    ai_config = _generation_ai_config(
+        config=config,
+        store=store,
+        workspace_id=claim["workspace_id"],
     )
     try:
         QuotaService(

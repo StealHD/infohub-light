@@ -760,6 +760,7 @@ export type SecretRef = {
   kind: 'ai' | 'apify'
   provider: string
   env_name: string
+  base_url?: string
   is_set: boolean
   used_by: Array<{ type: string; id: string; name: string }>
 }

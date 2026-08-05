@@ -226,8 +226,9 @@ describe('service api', () => {
     } as unknown as ApiClient
     const api = createServiceApi(client)
 
-    await api.createSecret({ name: 'Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', value: 'write-only' })
+    await api.createSecret({ name: 'Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', value: 'write-only', base_url: 'https://gateway.example.test/v1' })
     await api.rotateSecret('secret/1', 'new-value')
+    await api.updateSecretConnection('secret/1', 'https://other-gateway.example.test/v1')
     await api.secretQuota('secret/1')
     await api.apifyKeyPool()
     await api.reorderApifyKeyPool(['secret/1', 'secret-2'], 7)
@@ -240,6 +241,7 @@ describe('service api', () => {
 
     expect(client.post).toHaveBeenCalledWith('/api/admin/secrets', expect.objectContaining({ value: 'write-only' }))
     expect(client.put).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/value', { value: 'new-value' })
+    expect(client.patch).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/connection', { base_url: 'https://other-gateway.example.test/v1' })
     expect(client.get).toHaveBeenCalledWith('/api/admin/secrets/secret%2F1/quota', undefined)
     expect(client.get).toHaveBeenCalledWith('/api/admin/apify-key-pool', undefined)
     expect(client.put).toHaveBeenCalledWith('/api/admin/apify-key-pool/order', {

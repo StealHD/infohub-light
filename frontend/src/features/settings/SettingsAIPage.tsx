@@ -151,6 +151,32 @@ export function SettingsAIPage() {
   const feedEndRefreshDays = feedEndRefreshDaysOverride ?? String(feedEndMessages.refresh_days ?? 7)
   const feedEndStyle = feedEndStyleOverride ?? String(feedEndMessages.style_preset ?? 'restrained')
   const feedEndAiKeyEnv = feedEndAiKeyEnvOverride ?? String(feedEndMessages.ai_key_env ?? '')
+  const aiSecrets = (secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai')
+  const compatibleGlobalAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
+  const compatibleFeedEndAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
+  const selectedFeedEndAiSecret = aiSecrets.find((secret) => secret.env_name === feedEndAiKeyEnv)
+  const feedEndKeyMismatch = Boolean(
+    feedEndAiKeyEnv
+    && (!selectedFeedEndAiSecret || selectedFeedEndAiSecret.provider !== aiDraft.provider),
+  )
+  const feedEndAiKeyOptions = [
+    { id: '', label: '跟随全局 AI Key（默认）' },
+    ...(feedEndKeyMismatch
+      ? [{
+          id: feedEndAiKeyEnv,
+          label: selectedFeedEndAiSecret
+            ? `${selectedFeedEndAiSecret.name} · 与当前 Provider 不兼容`
+            : '当前绑定 Key 已不可用',
+          description: '请改为跟随全局 Key，或选择同一 Provider 的已保存 Key。',
+          isDisabled: true,
+        }]
+      : []),
+    ...compatibleFeedEndAiSecrets.map((secret) => ({
+      id: secret.env_name,
+      label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`,
+      description: secret.base_url ? '使用 Key 的独立 Base URL' : '使用全局 Base URL',
+    })),
+  ]
   const savedFeedEndGenerationEnabled = ai.enabled !== false && feedEndMessages.ai_generation_enabled === true
 
   useLayoutEffect(() => {
@@ -327,8 +353,9 @@ export function SettingsAIPage() {
                 <div className="grid gap-4 min-[720px]:grid-cols-3">
                   <HeroSelect label="Provider" value={aiDraft.provider} onChange={(nextProvider) => {
                     const defaults = aiDefaultsForProvider(nextProvider)
-                    const available = (secrets.data?.secrets ?? []).some((secret) => secret.kind === 'ai' && secret.env_name === defaults.apiKeyEnv)
-                    setAiOverride({ provider: nextProvider, model: defaults.model, apiKeyEnv: available ? defaults.apiKeyEnv : aiDraft.apiKeyEnv })
+                    const compatibleSecrets = aiSecrets.filter((secret) => secret.provider === nextProvider)
+                    const preferredSecret = compatibleSecrets.find((secret) => secret.env_name === defaults.apiKeyEnv) ?? compatibleSecrets[0]
+                    setAiOverride({ provider: nextProvider, model: defaults.model, apiKeyEnv: preferredSecret?.env_name ?? '' })
                     refreshDirty('ai')
                   }} options={[{ id: 'gemini', label: 'Gemini' }, { id: 'openai', label: 'OpenAI' }, { id: 'anthropic', label: 'Anthropic' }, { id: 'deepseek', label: 'DeepSeek' }]} />
                   <TextField fullWidth value={aiDraft.model} onChange={(model) => {
@@ -338,7 +365,7 @@ export function SettingsAIPage() {
                   <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
                     setAiOverride({ ...aiDraft, apiKeyEnv })
                     refreshDirty('ai')
-                  }} options={[{ id: '', label: '请选择' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
+                  }} options={[{ id: '', label: '请选择' }, ...compatibleGlobalAiSecrets.map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`, description: secret.base_url ? '使用 Key 的独立 Base URL' : '使用全局 Base URL' }))]} />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>
@@ -381,7 +408,7 @@ export function SettingsAIPage() {
               <HeroSelect name="ai_key_env" label="生成用 AI Key" value={feedEndAiKeyEnv} onChange={(value) => {
                 setFeedEndAiKeyEnvOverride(value)
                 refreshDirty('feed_end_messages')
-              }} options={[{ id: '', label: '跟随全局 AI Key（默认）' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
+              }} options={feedEndAiKeyOptions} description={`仅显示与当前 ${aiDraft.provider} Provider 兼容的已保存 AI Key。`} errorMessage={feedEndKeyMismatch ? '当前绑定 Key 与全局 AI Provider 不匹配；请重新选择。' : undefined} />
               <FormField name="list_count" label="每场景条数" type="number" min={3} max={30} defaultValue={Number(feedEndMessages.list_count ?? 12)} required />
             </div>
             <TextField fullWidth name="style_prompt" defaultValue={String(feedEndMessages.style_prompt ?? '')}>
