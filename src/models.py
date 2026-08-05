@@ -111,6 +111,7 @@ class FeedEndMessagesConfig(BaseModel):
     style_preset: Literal["restrained", "warm", "light_humor"] = "restrained"
     style_prompt: str = ""
     list_count: int = Field(default=12, ge=3, le=30)
+    ai_key_env: str = ""
 
     @field_validator("refresh_days", "list_count", mode="before")
     @classmethod
@@ -129,6 +130,20 @@ class FeedEndMessagesConfig(BaseModel):
             raise ValueError("style_prompt must contain at most 500 characters")
         if "\x00" in normalized:
             raise ValueError("style_prompt must not contain null characters")
+        return normalized
+
+    @field_validator("ai_key_env", mode="before")
+    @classmethod
+    def validate_ai_key_env(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError("ai_key_env must be a string")
+        normalized = value.strip()
+        if len(normalized) > 128:
+            raise ValueError("ai_key_env must contain at most 128 characters")
+        if "\x00" in normalized:
+            raise ValueError("ai_key_env must not contain null characters")
         return normalized
 
 

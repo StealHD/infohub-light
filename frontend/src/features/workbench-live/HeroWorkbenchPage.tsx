@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -65,6 +65,9 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
   const [submittedSingleSearch, setSubmittedSingleSearch] = useState('')
   const [terminalEndMessage, setTerminalEndMessage] = useState<{ key: string; message: string } | null>(null)
   const reloadButtonRef = useRef<HTMLButtonElement>(null)
+  const feedToolbarRef = useRef<HTMLDivElement>(null)
+  const feedToolbarInsetRef = useRef(64)
+  const [feedToolbarInset, setFeedToolbarInset] = useState(64)
   const localDayReference = useLocalDayReference()
   const deepLinkNotice = Boolean((location.state as { staleItem?: boolean } | null)?.staleItem)
   const preference = preferenceState.userId === user.id ? preferenceState.value : readFeedPreference(user.id)
@@ -514,10 +517,40 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
     />
     : undefined
 
-  return <section aria-label="信息流工作区" data-feed-blank-region className="flex h-full min-h-0 flex-col">
-    <div className="shrink-0 bg-background/95 px-3 py-2 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md sm:px-5">
+  const detailErrorNotice = detailQuery.isError
+    && !selectedInSource
+    && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404)
+  const hasFeedNotice = deepLinkNotice || detailErrorNotice
+  const feedContentInset = hasFeedNotice ? 0 : feedToolbarInset
+
+  useLayoutEffect(() => {
+    const toolbar = feedToolbarRef.current
+    if (!toolbar) return
+    const updateInset = () => {
+      const measuredHeight = Math.ceil(toolbar.getBoundingClientRect().height)
+      const nextInset = measuredHeight > 0 ? measuredHeight + 8 : 64
+      if (feedToolbarInsetRef.current === nextInset) return
+      window.dispatchEvent(new Event(workbenchRefreshRequestEvent))
+      feedToolbarInsetRef.current = nextInset
+      setFeedToolbarInset(nextInset)
+    }
+    updateInset()
+    window.addEventListener('resize', updateInset)
+    if (typeof ResizeObserver === 'undefined') {
+      return () => window.removeEventListener('resize', updateInset)
+    }
+    const observer = new ResizeObserver(updateInset)
+    observer.observe(toolbar)
+    return () => {
+      window.removeEventListener('resize', updateInset)
+      observer.disconnect()
+    }
+  }, [])
+
+  return <section aria-label="信息流工作区" data-feed-blank-region className="relative flex h-full min-h-0 flex-col">
+    <div ref={feedToolbarRef} data-testid="workbench-feed-toolbar" className="quiet-scroll-region absolute inset-x-0 top-0 z-10 overflow-y-scroll px-3 py-2 sm:px-5">
       <PageFrame width="reading">
-        <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'}>
+        <div data-testid={collectionRoute ? 'collection-view-bar' : 'feed-view-bar'} className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
         <ViewBar>
         <LoadingReveal
           loading={loading}
@@ -641,42 +674,48 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           </SearchField>
         </div>}
         {activeFilterSummaries.length > 0 && <div aria-label="当前筛选条件" className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-          {activeFilterSummaries.map((filter) => <RemovableTag key={filter.id} label={filter.label} onRemove={filter.clear} />)}
-          <Button size="sm" variant="ghost" onPress={() => {
-            setSearchValue('')
-            if (historySourceId) clearHistorySource()
-            updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })
-          }}>清除全部</Button>
+          {activeFilterSummaries.map((filter) => <RemovableTag key={filter.id} label={filter.label} onRemove={filter.clear} transparent />)}
+          <button
+            type="button"
+            className="type-meta inline-flex min-h-7 items-center gap-1 rounded-lg border border-transparent px-2 text-muted transition-colors duration-[var(--inteliscope-motion-standard)] hover:border-separator/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus motion-reduce:transition-none"
+            onClick={() => {
+              setSearchValue('')
+              if (historySourceId) clearHistorySource()
+              updatePreference({ unreadFirst: false, source: '', channel: '', topic: '', dateScope: 'all', subscriptionScope: 'all' })
+            }}
+          ><Icons.X size={13} aria-hidden="true" />清除全部</button>
         </div>}
         </div>
       </PageFrame>
     </div>
 
-    {deepLinkNotice && <div role="status" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
-    {detailQuery.isError && !selectedInSource && !(detailQuery.error instanceof ApiError && detailQuery.error.status === 404) && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
+    {hasFeedNotice && <div className="flex flex-col" style={{ marginTop: feedToolbarInset }}>
+      {deepLinkNotice && <div role="status" className="type-body flex items-center gap-2 border-b border-separator px-4 py-2 text-muted"><span className="flex-1">这条信息已不可用，已移除失效链接；信息流仍可继续使用。</span><Button size="sm" variant="ghost" isIconOnly aria-label="关闭提示" onPress={() => navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { ...(location.state as object | null), staleItem: false } })}><Icons.X size={15} /></Button></div>}
+      {detailErrorNotice && <div role="alert" className="type-body border-b border-separator px-4 py-2 text-muted">无法读取深链条目；信息流仍可继续使用。</div>}
+    </div>}
     <LoadingReveal
       loading={loading}
       label="正在读取信息流"
       name="feed"
       className="min-h-0 flex-1"
-      skeleton={<WorkbenchFeedSkeleton />}
+      skeleton={<div className="min-h-0" style={{ paddingTop: feedContentInset }}><WorkbenchFeedSkeleton /></div>}
     >
-    {loadError ? <PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame>
-      : cards.length === 0 && hasUnloadedPages ? <PageFrame width="reading" className="m-auto">
+    {loadError ? <div className="flex min-h-0 flex-1" style={{ paddingTop: feedContentInset }}><PageFrame width="reading" className="p-5"><StatusNotice title="信息流加载失败">{loadError instanceof ApiError ? loadError.message : '请稍后重试。'}</StatusNotice></PageFrame></div>
+      : cards.length === 0 && hasUnloadedPages ? <div className="flex min-h-0 flex-1" style={{ paddingTop: feedContentInset }}><PageFrame width="reading" className="m-auto">
         <div className="grid gap-3 text-center">
           <p className="type-control text-foreground">已加载内容中没有符合条件的信息</p>
           <p className="type-meta text-muted">仍有内容尚未加载，可以继续查看下一页。</p>
           {paginationFooter}
         </div>
-      </PageFrame>
-      : cards.length === 0 && waitingForSingleCharacterSubmit ? <PageFrame width="reading" className="m-auto">
+      </PageFrame></div>
+      : cards.length === 0 && waitingForSingleCharacterSubmit ? <div className="flex min-h-0 flex-1" style={{ paddingTop: feedContentInset }}><PageFrame width="reading" className="m-auto">
         <FeedEndMessageLine
           data-testid="feed-search-submit-message"
           label="单字符搜索等待提交"
           message="输入单个字符后按回车搜索"
         />
-      </PageFrame>
-      : cards.length === 0 && terminalReady ? <PageFrame width="reading" className="m-auto">
+      </PageFrame></div>
+      : cards.length === 0 && terminalReady ? <div className="flex min-h-0 flex-1" style={{ paddingTop: feedContentInset }}><PageFrame width="reading" className="m-auto">
         <EmptyFeedEndMessage
           key={`${user.id}:${terminalContextKey}`}
           userId={user.id}
@@ -689,9 +728,10 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                 : '信息流为空'}
           messages={endMessageScenes.empty}
         />
-      </PageFrame>
+      </PageFrame></div>
       : cards.length === 0 ? null
       : <VirtualFeed
+      topInset={feedContentInset}
       freshEdge={preference.order === 'newest' ? 'start' : 'end'}
       resetToTopKey={`${preference.sortBasis}:${preference.order}:${debouncedHistoryQuery}:${historySourceId}`}
       cards={cards}

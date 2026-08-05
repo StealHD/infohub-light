@@ -56,7 +56,7 @@ export function SettingsLayout({ user, children }: { user: User; children: React
         <Drawer.Content placement="left">
           <Drawer.Dialog
             aria-label="设置导航"
-            className="h-dvh w-[min(320px,calc(100vw-32px))] overflow-hidden rounded-r-2xl border-r border-separator bg-surface p-0 outline-none"
+            className="h-dvh w-[min(260px,calc(100vw-32px))] overflow-hidden rounded-r-2xl border-r border-separator bg-surface p-0 outline-none"
           >
             <SettingsSidebar
               role={user.role}

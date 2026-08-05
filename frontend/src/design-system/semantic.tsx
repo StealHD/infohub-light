@@ -96,18 +96,20 @@ export function RemovableTag({
   onRemove,
   disabled = false,
   pending = false,
+  transparent = false,
   className = '',
 }: {
   label: string
   onRemove: () => void
   disabled?: boolean
   pending?: boolean
+  transparent?: boolean
   className?: string
 }) {
   return <span
     data-removable-tag
     aria-busy={pending || undefined}
-    className={`type-meta inline-flex min-h-7 min-w-0 items-center rounded-lg border border-separator bg-default/70 pl-2 text-foreground ${className}`}
+    className={`type-meta inline-flex min-h-7 min-w-0 items-center rounded-lg border pl-2 text-foreground ${transparent ? 'border-separator/70 bg-transparent' : 'border-separator bg-default/70'} ${className}`}
   >
     <span className="min-w-0 truncate">{label}</span>
     <button

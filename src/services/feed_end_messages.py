@@ -718,6 +718,12 @@ def run_due_feed_end_messages_generation(
         return None
 
     provider = config.ai.provider.value
+    bound_key_env = str(config.feed_end_messages.ai_key_env or "").strip()
+    ai_config = (
+        config.ai.model_copy(update={"api_key_env": bound_key_env})
+        if bound_key_env
+        else config.ai
+    )
     try:
         QuotaService(
             store,
@@ -737,7 +743,7 @@ def run_due_feed_end_messages_generation(
                 timeout_seconds=FEED_END_MESSAGE_TIMEOUT_SECONDS,
             )
         )
-        client = factory(config.ai)
+        client = factory(ai_config)
         system, user = feed_end_messages_prompt(config)
         response = asyncio.run(
             asyncio.wait_for(

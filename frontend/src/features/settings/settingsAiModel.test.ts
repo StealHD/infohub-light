@@ -52,8 +52,9 @@ describe('settingsAiModel', () => {
     })
     expect(sameSettingsPayload(configuredAi, { ...configuredAi })).toBe(true)
 
-    const feedEnd = buildFeedEndMessagesPayload(formWith({ ai_generation_enabled: true, refresh_days: '30', style_preset: 'warm', style_prompt: ' 编辑部语气 ', list_count: '8' }))
-    expect(feedEnd).toEqual({ ai_generation_enabled: true, refresh_days: 30, style_preset: 'warm', style_prompt: '编辑部语气', list_count: 8 })
-    expect(configuredFeedEndMessagesPayload({ refresh_days: 30, style_preset: 'warm', style_prompt: '编辑部语气', list_count: 8, ai_generation_enabled: true })).toEqual(feedEnd)
+    const feedEnd = buildFeedEndMessagesPayload(formWith({ ai_generation_enabled: true, refresh_days: '30', style_preset: 'warm', style_prompt: ' 编辑部语气 ', list_count: '8', ai_key_env: 'DEEPSEEK_API_KEY' }))
+    expect(feedEnd).toEqual({ ai_generation_enabled: true, refresh_days: 30, style_preset: 'warm', style_prompt: '编辑部语气', list_count: 8, ai_key_env: 'DEEPSEEK_API_KEY' })
+    expect(configuredFeedEndMessagesPayload({ refresh_days: 30, style_preset: 'warm', style_prompt: '编辑部语气', list_count: 8, ai_generation_enabled: true, ai_key_env: 'DEEPSEEK_API_KEY' })).toEqual(feedEnd)
+    expect(configuredFeedEndMessagesPayload({})).toEqual({ ai_generation_enabled: false, refresh_days: 7, style_preset: 'restrained', style_prompt: '', list_count: 12, ai_key_env: '' })
   })
 })

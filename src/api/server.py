@@ -1355,6 +1355,17 @@ def create_app(
                     "name": str(base_config.ai.provider.value),
                 }
             )
+        if (
+            base_config is not None
+            and base_config.feed_end_messages.ai_key_env == secret["env_name"]
+        ):
+            usages.append(
+                {
+                    "type": "ai",
+                    "id": "feed-end-messages",
+                    "name": "信息流触底文案",
+                }
+            )
         discovery_use = (
             store.connect().execute(
                 """

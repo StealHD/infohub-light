@@ -12,6 +12,6 @@ export function SettingsGroup({ children, className = '', ariaLabel, variant = '
     data-settings-group
     aria-label={ariaLabel}
     variant="secondary"
-    className={`overflow-hidden border border-separator p-0 shadow-sm [&>[data-settings-item]+[data-settings-item]]:border-t [&>[data-settings-item]+[data-settings-item]]:border-separator ${variant === 'inset' ? 'bg-default' : 'bg-surface-secondary'} ${className}`}
+    className={`gap-0 overflow-hidden border border-separator p-0 shadow-sm [&>[data-settings-item]+[data-settings-item]]:border-t [&>[data-settings-item]+[data-settings-item]]:border-separator ${variant === 'inset' ? 'bg-default' : 'bg-surface-secondary'} ${className}`}
   >{children}</Card>
 }

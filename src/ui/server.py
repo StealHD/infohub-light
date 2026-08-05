@@ -1211,6 +1211,7 @@ def apply_config_action(
             "style_preset",
             "style_prompt",
             "list_count",
+            "ai_key_env",
         }
         unknown_fields = sorted(set(payload) - allowed_fields)
         if unknown_fields:
@@ -1252,6 +1253,12 @@ def apply_config_action(
             "style_preset": style_preset,
             "style_prompt": style_prompt,
             "list_count": list_count,
+            "ai_key_env": _optional_env_name(
+                payload,
+                "ai_key_env",
+                "触底文案 AI Key 环境变量名",
+            )
+            or "",
         }
 
     elif action == "set_tags":
@@ -1297,6 +1304,11 @@ def build_env_status(config: Config) -> list[dict[str, Any]]:
     if getattr(config.ai, "enabled", True):
         add(config.ai.api_key_env, "ai.api_key_env")
         add(config.ai.azure_endpoint_env, "ai.azure_endpoint_env")
+        if config.feed_end_messages.ai_generation_enabled:
+            add(
+                config.feed_end_messages.ai_key_env,
+                "feed_end_messages.ai_key_env",
+            )
     if config.webhook and config.webhook.enabled:
         add(config.webhook.url_env, "webhook.url_env")
     if config.email and config.email.enabled:

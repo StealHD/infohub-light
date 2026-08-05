@@ -470,3 +470,84 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "设置工作区侧栏规格与主应用侧栏统一：宽度 260px→232px（token），导航内边距/分组标签字号/图标尺寸/条目间距对齐 HeroWorkbenchShell 展开态，移动端抽屉 320px→260px，外观主题预览侧栏占比 28%→20%。",
+  "status": "partial",
+  "task_id": "2026-08-05-unify-settings-sidebar-specs",
+  "unresolved": [
+    "等待 full Test Gate 与合并验证（e2e 断言已同步为 232px）。"
+  ],
+  "validation": [
+    "前端 typecheck、check:ui 通过；SettingsLayout/SettingsAppearance/HeroChangelog/HeroManual 4 个 Vitest 文件 11 项通过。",
+    "./scripts/up-latest.sh 重建完成，API/Worker healthy，线上 CSS 确认 --inteliscope-width-settings-sidebar:232px。",
+    "changelog 新增 v2.2.8 条目，manual 工作区设置描述同步，满足 check_product_docs 门禁。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "触底文案支持绑定任意全局 AI Key（新配置 ai_key_env，空值回退全局），/settings/ai 新增生成用 Key 下拉；Feed 顶部搜索栏背景 95%→70% 半透明并保留 backdrop-blur，明暗主题自适应。",
+  "status": "partial",
+  "task_id": "2026-08-05-feed-end-ai-key-binding-and-search-translucency",
+  "unresolved": [
+    "等待 full Test Gate 与合并验证。"
+  ],
+  "validation": [
+    "后端 pytest：test_feed_end_messages 17、test_config_server + test_api_permissions_matrix 85、test_api_service 92 全部通过，含新增绑定/回退用例。",
+    "前端 typecheck 与 39 项相关 Vitest 通过；API_CONTRACT 第 10 条、DECISION_LOG D120、changelog v2.2.9、manual 已同步。",
+    "./scripts/up-latest.sh 重建完成，API/Worker healthy，线上 SettingsAIPage chunk 确认包含 ai_key_env 与默认选项。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "Feed 顶栏透明穿透最终形态：悬浮 absolute 条 + 内层 data-view-bar 毛玻璃（bg-background/70 + backdrop-blur），quiet-scroll-region overflow-y-scroll 对齐滚动条 gutter 消除 5px 偏差；筛选行 RemovableTag 新增 transparent 变体，清除全部改为 28px 紧凑 meta 按钮；设置概览卡片去箭头、徽标固定右上角、去已迁移标记，帮助与版本整行可点跳转。",
+  "status": "partial",
+  "task_id": "2026-08-05-feed-glass-bar-and-overview-cards",
+  "unresolved": [
+    "等待 full Test Gate 与合并验证。"
+  ],
+  "validation": [
+    "workbench-live 106 项、design-system + settings + changelog/manual 相关 Vitest 全过，typecheck 与 check:ui 通过。",
+    "三次 ./scripts/up-latest.sh 重建均 healthy；线上 chunk 确认悬浮条、gutter 对齐、透明标签与新卡片结构。",
+    "changelog 新增 v2.2.10，manual 同步，产品文档门禁满足。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "闭环修复 Kimi K3 分支：触底文案独立 AI Key 现在进入 SecretStore 使用关系并阻止误删；Feed 悬浮工具栏按真实高度动态避让内容，筛选换行、移动搜索、提示、加载和空态均不会遮挡首项，阅读锚点按有效可视边界保持稳定。",
+  "status": "completed",
+  "task_id": "2026-08-05-workbuddy-stability-closure",
+  "unresolved": [],
+  "validation": [
+    "后端引用/删除/同 Key/空值回退定向 pytest 105 项通过；前端 App 与 VirtualFeed 定向 Vitest 138 项通过。",
+    "npm run typecheck、npm run check:ui 与 production-workbench desktop E2E 31 项通过。",
+    "Full Test Gate：23/23 命令通过（245.628 秒）；git diff --check 通过。"
+  ]
+}
+```

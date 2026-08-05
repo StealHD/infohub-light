@@ -130,6 +130,7 @@ export function SettingsAIPage() {
   const [aiOverride, setAiOverride] = useState<AiDraft | null>(null)
   const [feedEndRefreshDaysOverride, setFeedEndRefreshDaysOverride] = useState<string | null>(null)
   const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
+  const [feedEndAiKeyEnvOverride, setFeedEndAiKeyEnvOverride] = useState<string | null>(null)
   const [expandedFeedEndScenes, setExpandedFeedEndScenes] = useState<Set<string>>(() => new Set())
   const [dirtySections, setDirtySections] = useState<Set<AiSettingsSection>>(() => new Set())
   const revisions = useRef<Record<AiSettingsSection, number>>({ ai: 0, feed_end_messages: 0 })
@@ -149,6 +150,7 @@ export function SettingsAIPage() {
   const feedEndMessages = recordOf(config.data?.config.feed_end_messages)
   const feedEndRefreshDays = feedEndRefreshDaysOverride ?? String(feedEndMessages.refresh_days ?? 7)
   const feedEndStyle = feedEndStyleOverride ?? String(feedEndMessages.style_preset ?? 'restrained')
+  const feedEndAiKeyEnv = feedEndAiKeyEnvOverride ?? String(feedEndMessages.ai_key_env ?? '')
   const savedFeedEndGenerationEnabled = ai.enabled !== false && feedEndMessages.ai_generation_enabled === true
 
   useLayoutEffect(() => {
@@ -217,6 +219,7 @@ export function SettingsAIPage() {
       if (savedWithoutNewerEdits.includes('feed_end_messages')) {
         setFeedEndRefreshDaysOverride(null)
         setFeedEndStyleOverride(null)
+        setFeedEndAiKeyEnvOverride(null)
       }
       if (result?.config) queryClient.setQueryData(queryKeys.config(user.id), result)
       actionToast.success(submitted.sections.length > 1 ? '全部配置已保存' : '设置已保存')
@@ -375,6 +378,10 @@ export function SettingsAIPage() {
                 setFeedEndStyleOverride(value)
                 refreshDirty('feed_end_messages')
               }} options={[{ id: 'restrained', label: '克制（默认）' }, { id: 'warm', label: '温和' }, { id: 'light_humor', label: '轻幽默' }]} />
+              <HeroSelect name="ai_key_env" label="生成用 AI Key" value={feedEndAiKeyEnv} onChange={(value) => {
+                setFeedEndAiKeyEnvOverride(value)
+                refreshDirty('feed_end_messages')
+              }} options={[{ id: '', label: '跟随全局 AI Key（默认）' }, ...(secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai').map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}` }))]} />
               <FormField name="list_count" label="每场景条数" type="number" min={3} max={30} defaultValue={Number(feedEndMessages.list_count ?? 12)} required />
             </div>
             <TextField fullWidth name="style_prompt" defaultValue={String(feedEndMessages.style_prompt ?? '')}>

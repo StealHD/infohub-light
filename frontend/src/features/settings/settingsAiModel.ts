@@ -68,6 +68,7 @@ export function buildFeedEndMessagesPayload(form: HTMLFormElement): Record<strin
     style_preset: String(data.get('style_preset') || 'restrained'),
     style_prompt: inputValue(data, 'style_prompt'),
     list_count: Number(data.get('list_count')),
+    ai_key_env: inputValue(data, 'ai_key_env'),
   }
 }
 
@@ -78,5 +79,6 @@ export function configuredFeedEndMessagesPayload(configured: Record<string, unkn
     style_preset: String(configured.style_preset ?? 'restrained'),
     style_prompt: String(configured.style_prompt ?? '').trim(),
     list_count: Number(configured.list_count ?? 12),
+    ai_key_env: String(configured.ai_key_env ?? '').trim(),
   }
 }

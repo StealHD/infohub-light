@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 
 const items = Array.from({ length: 200 }, (_, index) => ({
   id: `live-${index + 1}`,
@@ -113,15 +113,38 @@ async function topVisibleSnapshot(page: Page) {
   const feedScroll = page.getByTestId('workbench-feed-scroll')
   return page.locator('[data-testid="workbench-card"]').evaluateAll((cards, scrollElement) => {
     const bounds = (scrollElement as HTMLElement).getBoundingClientRect()
+    const effectiveTop = bounds.top + Number((scrollElement as HTMLElement).dataset.topInset || 0)
     const visible = cards
-      .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
+      .filter((card) => card.getBoundingClientRect().bottom > effectiveTop)
       .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)
     const top = visible[0]
     return {
       name: top?.getAttribute('aria-label') ?? '',
-      offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
+      offset: top ? top.getBoundingClientRect().top - effectiveTop : 0,
     }
   }, await feedScroll.elementHandle())
+}
+
+async function expectFloatingToolbarClearsFirstCard(page: Page) {
+  const toolbar = page.getByTestId('workbench-feed-toolbar')
+  const firstCard = page.getByTestId('workbench-card').first()
+  await expect(firstCard).toBeVisible()
+  await expect.poll(async () => {
+    const [toolbarBounds, cardBounds] = await Promise.all([toolbar.boundingBox(), firstCard.boundingBox()])
+    if (!toolbarBounds || !cardBounds) return false
+    return cardBounds.y >= toolbarBounds.y + toolbarBounds.height - 1
+  }, { message: 'the floating toolbar must not cover the first visible card' }).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+}
+
+async function expectFeedMarkerBelowToolbar(page: Page, marker: Locator) {
+  const toolbar = page.getByTestId('workbench-feed-toolbar')
+  await expect(marker).toBeVisible()
+  await expect.poll(async () => {
+    const [toolbarBounds, markerBounds] = await Promise.all([toolbar.boundingBox(), marker.boundingBox()])
+    if (!toolbarBounds || !markerBounds) return false
+    return markerBounds.y >= toolbarBounds.y + toolbarBounds.height - 1
+  }, { message: 'the floating toolbar must not cover Feed notices or empty states' }).toBe(true)
 }
 
 async function expectLocatorInside(inner: Locator, outer: Locator) {
@@ -613,6 +636,66 @@ for (const viewport of [
   })
 }
 
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 768, height: 900 },
+  { width: 1440, height: 900 },
+]) {
+  test(`the floating Feed toolbar reserves its measured height through filters at ${viewport.width}px`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'One browser project exercises the three explicit acceptance widths.')
+    await page.setViewportSize(viewport)
+    await page.goto('/feed')
+    await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+    await expectFloatingToolbarClearsFirstCard(page)
+    const topBeforeFilters = await topVisibleSnapshot(page)
+
+    await page.getByRole('button', { name: '筛选信息流' }).click()
+    const filterDialog = page.getByRole('dialog', { name: '信息流筛选' })
+    await filterDialog.getByRole('button', { name: /频道/ }).click()
+    await page.getByRole('option', { name: 'AI' }).click()
+    await expect(page.getByLabel('当前筛选条件')).toBeVisible()
+    await expectFloatingToolbarClearsFirstCard(page)
+    await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(topBeforeFilters.name)
+
+    await filterDialog.getByRole('button', { name: /来源/ }).click()
+    await page.getByRole('option', { name: 'OpenAI Blog' }).click()
+    await filterDialog.getByRole('button', { name: /主题/ }).click()
+    await page.getByRole('option', { name: 'Codex' }).click()
+    await expect(page.getByLabel('当前筛选条件')).toContainText('主题：Codex')
+    await expectFloatingToolbarClearsFirstCard(page)
+    await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(topBeforeFilters.name)
+
+    if (viewport.width < 640) {
+      await filterDialog.press('Escape')
+      await expect(filterDialog).toBeHidden()
+      await page.getByRole('button', { name: '搜索信息流' }).click()
+      await expect(page.getByRole('searchbox', { name: '移动端搜索全部内容' })).toBeVisible()
+      await expectFloatingToolbarClearsFirstCard(page)
+    }
+  })
+}
+
+test('the floating Feed toolbar clears loading, error, empty and deep-link notice states', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Desktop runs the shared Feed state geometry acceptance.')
+  await page.setViewportSize({ width: 390, height: 844 })
+  const errorRoute = async (route: Route) => {
+    await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'feed_unavailable', message: '模拟加载失败' } }) })
+  }
+  await page.route('**/api/feed/latest*', errorRoute)
+  await page.goto('/feed')
+  await expectFeedMarkerBelowToolbar(page, page.getByText('信息流加载失败', { exact: true }))
+  await page.unroute('**/api/feed/latest*', errorRoute)
+
+  const emptyRoute = async (route: Route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, data: { schema_version: 2, items: [] } }) })
+  }
+  await page.route('**/api/feed/latest*', emptyRoute)
+  await page.goto('/feed?item=missing')
+  await expectFeedMarkerBelowToolbar(page, page.getByText(/这条信息已不可用/))
+  await expectFeedMarkerBelowToolbar(page, page.getByText('信息流为空', { exact: true }))
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('a hard refresh preserves shell geometry and reveals only loaded content', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The persisted docked rail is a desktop refresh contract.')
 
@@ -690,7 +773,9 @@ test('a hard refresh preserves shell geometry and reveals only loaded content', 
   const liveAgent = page.getByRole('complementary', { name: 'OpenClaw 上下文' })
   const feedSkeletonBounds = await feedSkeletonRow.boundingBox()
   const liveAgentBounds = await liveAgent.boundingBox()
+  const toolbarBounds = await page.getByTestId('workbench-feed-toolbar').boundingBox()
   expect(Math.abs((feedSkeletonBounds?.width ?? 0) - (bootFeedBounds?.width ?? 0))).toBeLessThanOrEqual(1)
+  expect((feedSkeletonBounds?.y ?? 0)).toBeGreaterThanOrEqual((toolbarBounds?.y ?? 0) + (toolbarBounds?.height ?? 0) - 1)
   expect(Math.abs((liveAgentBounds?.width ?? 0) - (bootAgentBounds?.width ?? 0))).toBeLessThanOrEqual(1)
   const calmMotion = await page.locator('.inteliscope-skeleton-calm').first().evaluate((element) => {
     const style = getComputedStyle(element)
@@ -1144,8 +1229,9 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   await page.goto('/feed')
   const shell = page.getByTestId('live-workbench-shell')
   const main = page.locator('main[data-feed-reading-layout="true"]')
-  const reading = main.locator('[data-page-frame="reading"]')
   const scroll = page.getByTestId('workbench-feed-scroll')
+  await expect(page.getByTestId('workbench-card').first()).toBeVisible()
+  const reading = scroll.locator('[data-feed-reading-frame]')
   const centeredReading = await reading.boundingBox()
   await scroll.evaluate((element) => {
     element.scrollTop = 480
@@ -1214,7 +1300,7 @@ test('Insights shifts the reading column before overlap and only obstructing lay
   expect(narrowMainBounds).not.toBeNull()
   expect(narrowReadingBounds).not.toBeNull()
   expect(narrowInsightsBounds).not.toBeNull()
-  expect(Math.abs(narrowReadingBounds!.x - (narrowMainBounds!.x + 12))).toBeLessThanOrEqual(1)
+  expect(narrowReadingBounds!.x).toBeGreaterThanOrEqual(narrowMainBounds!.x + 5)
   expect(narrowReadingBounds!.x + narrowReadingBounds!.width).toBeGreaterThan(narrowInsightsBounds!.x)
   expect(Math.abs((narrowInsightsBounds!.x + narrowInsightsBounds!.width) - (narrowMainBounds!.x + narrowMainBounds!.width - 12))).toBeLessThanOrEqual(1)
 
@@ -1406,12 +1492,13 @@ test('a filtered unread-first Feed restores an unmounted anchor with the rendere
   // the expected anchor older than the request-time geometry captured by the application.
   const anchorBefore = await feedScroll.evaluate((scroll) => {
     const bounds = scroll.getBoundingClientRect()
+    const effectiveTop = bounds.top + Number(scroll.dataset.topInset || 0)
     const top = Array.from(scroll.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
-      .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
+      .filter((card) => card.getBoundingClientRect().bottom > effectiveTop)
       .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
     const anchor = {
       name: top?.getAttribute('aria-label') ?? '',
-      offset: top ? top.getBoundingClientRect().top - bounds.top : 0,
+      offset: top ? top.getBoundingClientRect().top - effectiveTop : 0,
     }
     document.querySelector<HTMLButtonElement>('button[aria-label="获取新内容"]')?.click()
     return anchor

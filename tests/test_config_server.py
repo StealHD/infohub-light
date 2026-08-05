@@ -170,6 +170,50 @@ def test_build_env_status_reports_presence_without_secret_values(monkeypatch):
     assert "rsshub-master-secret" not in json.dumps(status)
 
 
+def test_build_env_status_reports_active_feed_end_message_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-global-secret")
+    monkeypatch.setenv("FEED_END_MESSAGE_API_KEY", "sk-feed-end-secret")
+    config_data = _minimal_config()
+    config_data["feed_end_messages"] = {
+        "ai_generation_enabled": True,
+        "refresh_days": 7,
+        "style_preset": "restrained",
+        "style_prompt": "",
+        "list_count": 12,
+        "ai_key_env": "FEED_END_MESSAGE_API_KEY",
+    }
+
+    status = build_env_status(validate_config_data(config_data))
+    by_name = {item["name"]: item for item in status}
+
+    assert by_name["OPENAI_API_KEY"]["used_by"] == ["ai.api_key_env"]
+    assert by_name["FEED_END_MESSAGE_API_KEY"] == {
+        "name": "FEED_END_MESSAGE_API_KEY",
+        "set": True,
+        "used_by": ["feed_end_messages.ai_key_env"],
+    }
+    assert "sk-feed-end-secret" not in json.dumps(status)
+
+    config_data["feed_end_messages"]["ai_key_env"] = "OPENAI_API_KEY"
+    shared_status = build_env_status(validate_config_data(config_data))
+    shared_by_name = {item["name"]: item for item in shared_status}
+    assert shared_by_name["OPENAI_API_KEY"]["used_by"] == [
+        "ai.api_key_env",
+        "feed_end_messages.ai_key_env",
+    ]
+
+    config_data["feed_end_messages"]["ai_generation_enabled"] = False
+    inactive_status = build_env_status(validate_config_data(config_data))
+    inactive_by_name = {item["name"]: item for item in inactive_status}
+    assert inactive_by_name["OPENAI_API_KEY"]["used_by"] == ["ai.api_key_env"]
+
+    config_data["feed_end_messages"]["ai_generation_enabled"] = True
+    config_data["feed_end_messages"]["ai_key_env"] = ""
+    fallback_status = build_env_status(validate_config_data(config_data))
+    fallback_by_name = {item["name"]: item for item in fallback_status}
+    assert fallback_by_name["OPENAI_API_KEY"]["used_by"] == ["ai.api_key_env"]
+
+
 def test_env_status_hides_ai_key_when_ai_disabled(monkeypatch):
     monkeypatch.delenv("XIAOMI_API_KEY", raising=False)
     config_data = _minimal_config()

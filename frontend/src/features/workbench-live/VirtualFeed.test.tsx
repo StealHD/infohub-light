@@ -183,6 +183,23 @@ describe('VirtualFeed', () => {
     expect(scroll.className).not.toContain('pl-16')
   })
 
+  it('uses the measured floating-toolbar inset instead of a fixed top padding', () => {
+    render(<VirtualFeed
+      topInset={94}
+      cards={[toWorkbenchCardModel(makeItem(1))]}
+      contextIds={[]}
+      onToggleExpanded={vi.fn()}
+      onToggleSaved={vi.fn()}
+      onToggleContext={vi.fn()}
+      onItemAction={vi.fn()}
+    />)
+
+    const scroll = screen.getByTestId('workbench-feed-scroll')
+    expect(scroll).toHaveAttribute('data-top-inset', '94')
+    expect(scroll).toHaveStyle({ paddingTop: '94px' })
+    expect(scroll.className).not.toContain('pt-16')
+  })
+
   it('uses the Quiet Studio surface without a reserved rail gutter for collection routes', () => {
     render(<VirtualFeed
       cards={Array.from({ length: 20 }, (_, index) => toWorkbenchCardModel(makeItem(index)))}

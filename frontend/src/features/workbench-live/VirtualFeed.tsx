@@ -21,6 +21,7 @@ import { workbenchRefreshRequestEvent } from './workbenchRefresh'
 import { WORKBENCH_COLLAPSED_ROW_PX, WORKBENCH_EXPANDED_ROW_PX } from './workbenchLayout'
 
 type VirtualFeedProps = {
+  topInset?: number
   freshEdge?: 'start' | 'end'
   resetToTopKey?: string
   cards: WorkbenchCardModel[]
@@ -55,14 +56,15 @@ type MediaViewerState = {
   index: number
 }
 
-function readViewportAnchor(scroll: HTMLDivElement): ViewportAnchor | null {
+function readViewportAnchor(scroll: HTMLDivElement, topInset: number): ViewportAnchor | null {
   const bounds = scroll.getBoundingClientRect()
+  const effectiveTop = bounds.top + topInset
   const topCard = Array.from(scroll.querySelectorAll<HTMLElement>('[data-testid="workbench-card"]'))
-    .filter((card) => card.getBoundingClientRect().bottom > bounds.top)
+    .filter((card) => card.getBoundingClientRect().bottom > effectiveTop)
     .sort((left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top)[0]
   const topRow = topCard?.closest<HTMLElement>('[data-item-id]')
   if (!topCard || !topRow?.dataset.itemId) return null
-  return { id: topRow.dataset.itemId, offset: topCard.getBoundingClientRect().top - bounds.top }
+  return { id: topRow.dataset.itemId, offset: topCard.getBoundingClientRect().top - effectiveTop }
 }
 
 function useMeasuredClampOverflow(
@@ -434,10 +436,12 @@ function WorkbenchCard({
 }
 
 export function VirtualFeed(props: VirtualFeedProps) {
+  const topInset = props.topInset ?? 64
   const freshEdge = props.freshEdge ?? 'end'
   const sourceItemIds = props.sourceItemIds ?? props.cards.map((card) => card.id)
   const sourceSignature = sourceItemIds.join('\u0000')
   const cardsSignature = props.cards.map((card) => card.id).join('\u0000')
+  const layoutSignature = `${cardsSignature}\u0000${topInset}`
   const scrollRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<HTMLDivElement>(null)
   const terminalVisible = useRef(false)
@@ -446,7 +450,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const previousFreshEdge = useRef(freshEdge)
   const previousResetToTopKey = useRef(props.resetToTopKey)
   const previousSourceIds = useRef(new Set(sourceItemIds))
-  const previousCardsSignature = useRef(cardsSignature)
+  const previousLayoutSignature = useRef(layoutSignature)
   const viewportAnchor = useRef<ViewportAnchor | null>(null)
   const requestedRefreshAnchor = useRef<ViewportAnchor | null>(null)
   const restorationAnchor = useRef<ViewportAnchor | null>(null)
@@ -586,7 +590,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
   useEffect(() => {
     const capture = () => {
-      const liveAnchor = scrollRef.current ? readViewportAnchor(scrollRef.current) : null
+      const liveAnchor = scrollRef.current ? readViewportAnchor(scrollRef.current, topInset) : null
       const storedAnchor = viewportAnchor.current
       const anchor = liveAnchor ?? storedAnchor
       releaseNavigationOwnership()
@@ -594,11 +598,11 @@ export function VirtualFeed(props: VirtualFeedProps) {
     }
     window.addEventListener(workbenchRefreshRequestEvent, capture)
     return () => window.removeEventListener(workbenchRefreshRequestEvent, capture)
-  }, [releaseNavigationOwnership])
+  }, [releaseNavigationOwnership, topInset])
 
   useLayoutEffect(() => {
-    if (previousCardsSignature.current === cardsSignature) return
-    previousCardsSignature.current = cardsSignature
+    if (previousLayoutSignature.current === layoutSignature) return
+    previousLayoutSignature.current = layoutSignature
     const navigation = pendingNavigation.current
     if (navigation) {
       requestedRefreshAnchor.current = null
@@ -644,7 +648,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       }
       const card = row.querySelector<HTMLElement>('[data-testid="workbench-card"]')
       if (!card) return
-      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top - topInset
       const correction = currentOffset - anchor.offset
       if (Math.abs(correction) > 0.5) {
         stableMeasurementFrames = 0
@@ -666,7 +670,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       observer.disconnect()
       window.cancelAnimationFrame(frame)
     }
-  }, [cardsSignature])
+  }, [layoutSignature, topInset])
 
   useLayoutEffect(() => {
     const anchor = inlineScrollAnchor.current
@@ -685,7 +689,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
         inlineAnchorFrame.current = window.requestAnimationFrame(restore)
         return
       }
-      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      const currentOffset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top - topInset
       const correction = currentOffset - anchor.offset
       if (Math.abs(correction) > 0.5) {
         stableFrames = 0
@@ -703,7 +707,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
     }
     restore()
     return () => window.cancelAnimationFrame(inlineAnchorFrame.current ?? 0)
-  }, [props.cards, props.expandedId])
+  }, [props.cards, props.expandedId, topInset])
 
   useEffect(() => () => releaseNavigationOwnership(), [releaseNavigationOwnership])
 
@@ -746,7 +750,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       stableFrames = scroll.scrollTop <= 0.5 ? stableFrames + 1 : 0
       scroll.scrollTop = 0
       if (props.cards.length > 0) virtualizerRef.current.scrollToIndex(0, { align: 'start' })
-      viewportAnchor.current = readViewportAnchor(scroll)
+      viewportAnchor.current = readViewportAnchor(scroll, topInset)
       remainingFrames -= 1
       if (stableFrames >= 6 || remainingFrames <= 0) {
         resetToTopRequest.current = null
@@ -761,7 +765,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
       window.cancelAnimationFrame(resetToTopFrame.current ?? 0)
       resetToTopFrame.current = undefined
     }
-  }, [freshEdge, props.cards.length, props.resetToTopKey, releaseNavigationOwnership])
+  }, [freshEdge, props.cards.length, props.resetToTopKey, releaseNavigationOwnership, topInset])
 
   useEffect(() => {
     if (previousFreshEdge.current === freshEdge) return
@@ -795,7 +799,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
       ? element.scrollTop <= 96
       : element.scrollHeight - element.scrollTop - element.clientHeight <= 96
     if (wasNearFreshEdge.current) setNewItemCount(0)
-    const visible = virtualizer.getVirtualItems().filter((item) => item.end >= element.scrollTop && item.start <= element.scrollTop + element.clientHeight)
+    const visibleStart = element.scrollTop + topInset
+    const visible = virtualizer.getVirtualItems().filter((item) => item.end >= visibleStart && item.start <= element.scrollTop + element.clientHeight)
     if (visible.length) {
       if (pendingNavigation.current && visible.some((item) => item.index === pendingNavigation.current?.index)) {
         pendingNavigation.current = null
@@ -807,11 +812,11 @@ export function VirtualFeed(props: VirtualFeedProps) {
         .find((candidate) => candidate.dataset.itemId === activeRestoration.id)
       const card = row?.querySelector<HTMLElement>('[data-testid="workbench-card"]')
       if (card) {
-        const correction = card.getBoundingClientRect().top - element.getBoundingClientRect().top - activeRestoration.offset
+        const correction = card.getBoundingClientRect().top - element.getBoundingClientRect().top - topInset - activeRestoration.offset
         if (Math.abs(correction) > 0.5) element.scrollTop += correction
       }
     }
-    viewportAnchor.current = readViewportAnchor(element)
+    viewportAnchor.current = readViewportAnchor(element, topInset)
     if (typeof IntersectionObserver === 'undefined' && terminalRef.current) {
       const rootBounds = element.getBoundingClientRect()
       const terminalBounds = terminalRef.current.getBoundingClientRect()
@@ -824,7 +829,7 @@ export function VirtualFeed(props: VirtualFeedProps) {
 
   function toggleExpandedInline(id: string) {
     releaseNavigationOwnership()
-    inlineScrollAnchor.current = scrollRef.current ? readViewportAnchor(scrollRef.current) : null
+    inlineScrollAnchor.current = scrollRef.current ? readViewportAnchor(scrollRef.current, topInset) : null
     props.onToggleExpanded(id)
   }
 
@@ -869,7 +874,9 @@ export function VirtualFeed(props: VirtualFeedProps) {
       data-testid="workbench-feed-scroll"
       data-feed-visual="quiet-studio"
       data-fresh-edge={freshEdge}
-      className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 [overflow-anchor:none] sm:px-5"
+      data-top-inset={topInset}
+      className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-4 [overflow-anchor:none] sm:px-5"
+      style={{ paddingTop: topInset }}
       onScroll={updateScrollState}
       onWheel={cancelInlineAnchor}
       onTouchStart={cancelInlineAnchor}

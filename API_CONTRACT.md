@@ -92,7 +92,7 @@ capability / degrade：
 7. `set_filtering` 的 additive `payload.rss_initial_fetch_window_hours` 只接受严格整数 `168` 或 `720`，boolean、浮点数、字符串及其他整数均返回可读配置错误；缺失配置按 `168` 处理。`payload.feed_window_days` 只接受严格整数 `7/14/30`，缺失按 `7` 处理；它只控制工作区统一的 Feed/History 展示边界。既有 `filtering.time_window_hours` 继续表示 24 小时日常抓取窗口，RSS 首次抓取窗口与 Feed 展示窗口互不替代。
 8. 删除主题只改变未来候选词和 AI 分类偏好，不级联修改 catalog source、用户订阅或历史 snapshot；这些对象中的旧引用继续按兼容值返回。
 9. `set_settings_bundle` 只接受非空 `payload`，其可选顶层字段精确为 `ai`、`feed_end_messages`、`rsshub`、`filtering`、`topics`，并分别复用 `set_ai`、`set_feed_end_messages`、`set_rsshub`、`set_filtering`、`set_tags` 的载荷与校验。每个已提交分区必须是 JSON object；空载荷、未知分区或任一非法分区返回 400。服务端必须在配置副本上完成全部分区的校验和应用，全部成功后只写盘一次；任一分区失败时不得写入任何分区。权限与响应结构保持不变，原有单项动作继续兼容。
-10. `set_feed_end_messages` 只接受 `ai_generation_enabled`、`refresh_days`、`style_preset`、`style_prompt`、`list_count`。缺省值依次为 `false`、`7`、`restrained`、空字符串和 `12`；`refresh_days` 只允许严格整数 `1/7/30`，`style_preset` 只允许 `restrained|warm|light_humor`，`style_prompt` trim 后最多 500 字且不得包含 NUL，`list_count` 只允许严格整数 `3..30`。该开关独立于全局 AI 开关；只有两者都开启时 Worker 才可生成。
+10. `set_feed_end_messages` 只接受 `ai_generation_enabled`、`refresh_days`、`style_preset`、`style_prompt`、`list_count`、`ai_key_env`。缺省值依次为 `false`、`7`、`restrained`、空字符串、`12` 和空字符串；`refresh_days` 只允许严格整数 `1/7/30`，`style_preset` 只允许 `restrained|warm|light_humor`，`style_prompt` trim 后最多 500 字且不得包含 NUL，`list_count` 只允许严格整数 `3..30`，`ai_key_env` 必须是合法环境变量名或空（空表示跟随全局 `ai.api_key_env`）。该开关独立于全局 AI 开关；只有两者都开启时 Worker 才可生成。Worker 生成时若 `ai_key_env` 非空，则用其覆盖全局 AI Key 环境变量名创建客户端，其余 Provider/模型/参数沿用全局 AI 配置；`ai_key_env` 计入配置指纹，变更后旧缓存自动标记为待刷新。
 
 响应规则：
 

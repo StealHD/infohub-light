@@ -11,7 +11,7 @@ function ThemePreview({ mode }: { mode: ThemeColorMode }) {
   return <span
     aria-hidden="true"
     data-settings-theme-preview={mode}
-    className="settings-theme-preview grid h-24 w-full grid-cols-[28%_1fr] overflow-hidden rounded-xl border"
+    className="settings-theme-preview grid h-24 w-full grid-cols-[20%_1fr] overflow-hidden rounded-xl border"
   >
     <span className="settings-theme-preview-sidebar border-r p-2">
       <span className="settings-theme-preview-bar block h-2 w-full rounded-full" />

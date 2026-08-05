@@ -1,4 +1,4 @@
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 
 import { useAppContext } from '../../app/AppContext'
 import {
@@ -8,7 +8,7 @@ import {
   SettingsSection,
   StatusBadge,
 } from '../../components/settings'
-import { Button, Icons, PageFrame, useThemePreference } from '../../design-system'
+import { Icons, PageFrame, useThemePreference } from '../../design-system'
 import { PRODUCT_RELEASES_URL } from '../documentation/documentationLinks'
 import { canAdministerSettings, settingsDestinationFromLegacyHash } from './settingsNavigation'
 import { preserveSettingsReturnState } from './settingsReturnState'
@@ -23,7 +23,6 @@ const roleLabels = {
 export function SettingsOverviewPage() {
   const { user } = useAppContext()
   const location = useLocation()
-  const navigate = useNavigate()
   const { colorMode } = useThemePreference()
   const returnState = preserveSettingsReturnState(location.state)
 
@@ -49,7 +48,7 @@ export function SettingsOverviewPage() {
         </SettingsGroup>
       </SettingsSection>
 
-      <SettingsSection title="设置" description="按职责进入对应区域；首批页面已经迁移到独立设置工作区。">
+      <SettingsSection title="设置" description="按职责进入对应区域。">
         <div className="grid gap-3 min-[640px]:grid-cols-2">
           <SettingsCard
             title="来源"
@@ -62,7 +61,6 @@ export function SettingsOverviewPage() {
             title="获取与主题"
             description="配置 RSSHub、抓取窗口和工作区阅读主题。"
             icon={<Icons.Clock3 size={18} aria-hidden="true" />}
-            status={<StatusBadge tone="accent">已迁移</StatusBadge>}
             to="/settings/fetching"
             state={returnState}
           />}
@@ -70,7 +68,7 @@ export function SettingsOverviewPage() {
             title="AI"
             description={admin ? '配置分析模型、助手和内容生成。' : '查看 AI 能力与工作区配置状态。'}
             icon={<Icons.Sparkles size={18} aria-hidden="true" />}
-            status={!admin ? <StatusBadge>只读</StatusBadge> : <StatusBadge tone="accent">已迁移</StatusBadge>}
+            status={!admin ? <StatusBadge>只读</StatusBadge> : undefined}
             to="/settings/ai"
             state={returnState}
           />
@@ -85,7 +83,6 @@ export function SettingsOverviewPage() {
             title="通知"
             description="管理通知服务和个人新内容通知。"
             icon={<Icons.Bell size={18} aria-hidden="true" />}
-            status={<StatusBadge tone="accent">已迁移</StatusBadge>}
             to="/settings/notifications"
             state={returnState}
           />
@@ -130,25 +127,19 @@ export function SettingsOverviewPage() {
             label="操作手册"
             description="了解 Feed、来源和设置的使用方式。"
             icon={<Icons.BookOpen size={17} aria-hidden="true" />}
-            trailing={<Button size="sm" variant="ghost" aria-label="查看操作手册" onPress={() => navigate('/manual')}>查看</Button>}
+            to="/manual"
           />
           <SettingsItem
             label="更新日志"
             description="查看产品界面与能力变化。"
             icon={<Icons.ScrollText size={17} aria-hidden="true" />}
-            trailing={<Button size="sm" variant="ghost" aria-label="查看更新日志" onPress={() => navigate('/changelog')}>查看</Button>}
+            to="/changelog"
           />
           <SettingsItem
             label="Release 发布页"
             description="查看正式版本与发布资产。"
             icon={<Icons.Rocket size={17} aria-hidden="true" />}
-            trailing={<a
-              href={PRODUCT_RELEASES_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="打开 Release 发布页"
-              className="type-control inline-flex min-h-8 items-center gap-2 rounded-xl px-3 text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
-            >打开<Icons.ExternalLink size={13} aria-hidden="true" /></a>}
+            href={PRODUCT_RELEASES_URL}
           />
         </SettingsGroup>
       </SettingsSection>

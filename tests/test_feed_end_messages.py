@@ -94,6 +94,7 @@ def test_feed_end_message_config_defaults_and_strict_boundaries():
         "style_preset": "restrained",
         "style_prompt": "",
         "list_count": 12,
+        "ai_key_env": "",
     }
 
     for field, value in [
@@ -104,6 +105,8 @@ def test_feed_end_message_config_defaults_and_strict_boundaries():
         ("list_count", 3.0),
         ("style_preset", "loud"),
         ("style_prompt", "字" * 501),
+        ("ai_key_env", 123),
+        ("ai_key_env", "x" * 129),
     ]:
         invalid = _config_data()
         invalid["feed_end_messages"][field] = value
@@ -123,6 +126,7 @@ def test_feed_end_message_settings_bundle_is_validated_atomically():
                 "style_preset": "warm",
                 "style_prompt": "像安静的图书管理员",
                 "list_count": 8,
+                "ai_key_env": "DEEPSEEK_API_KEY",
             }
         },
     )
@@ -133,7 +137,34 @@ def test_feed_end_message_settings_bundle_is_validated_atomically():
         "style_preset": "warm",
         "style_prompt": "像安静的图书管理员",
         "list_count": 8,
+        "ai_key_env": "DEEPSEEK_API_KEY",
     }
+    fallback = apply_config_action(
+        base,
+        "set_feed_end_messages",
+        {
+            "ai_generation_enabled": False,
+            "refresh_days": 7,
+            "style_preset": "restrained",
+            "style_prompt": "",
+            "list_count": 12,
+            "ai_key_env": "",
+        },
+    )
+    assert fallback["feed_end_messages"]["ai_key_env"] == ""
+    with pytest.raises(ValueError, match="触底文案 AI Key 环境变量名"):
+        apply_config_action(
+            base,
+            "set_feed_end_messages",
+            {
+                "ai_generation_enabled": True,
+                "refresh_days": 7,
+                "style_preset": "restrained",
+                "style_prompt": "",
+                "list_count": 12,
+                "ai_key_env": "sk-not-an-env-name",
+            },
+        )
     with pytest.raises(ValueError, match="list_count"):
         apply_config_action(
             base,
@@ -499,6 +530,58 @@ def test_due_generation_makes_one_metered_model_call(tmp_path, monkeypatch):
         (workspace["id"], owner["id"]),
     ).fetchall()
     assert [tuple(row) for row in usage] == [("ai_attempt", "openai", 1)]
+
+
+def test_due_generation_uses_bound_ai_key_env(tmp_path, monkeypatch):
+    store, workspace, _owner = _store(tmp_path, monkeypatch)
+    data = _config_data()
+    data["feed_end_messages"]["ai_key_env"] = "DEEPSEEK_API_KEY"
+    (tmp_path / "config.json").write_text(
+        json.dumps(data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
+    seen_key_envs: list[str] = []
+
+    def factory(ai_config):
+        seen_key_envs.append(ai_config.api_key_env)
+        return fake
+
+    result = run_due_feed_end_messages_generation(
+        data_dir=str(tmp_path),
+        store=store,
+        worker_id="copy-worker",
+        client_factory=factory,
+        now=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert seen_key_envs == ["DEEPSEEK_API_KEY"]
+
+
+def test_due_generation_without_binding_falls_back_to_global_key(tmp_path, monkeypatch):
+    store, workspace, _owner = _store(tmp_path, monkeypatch)
+    (tmp_path / "config.json").write_text(
+        json.dumps(_config_data(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
+    seen_key_envs: list[str] = []
+
+    def factory(ai_config):
+        seen_key_envs.append(ai_config.api_key_env)
+        return fake
+
+    result = run_due_feed_end_messages_generation(
+        data_dir=str(tmp_path),
+        store=store,
+        worker_id="copy-worker",
+        client_factory=factory,
+        now=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert seen_key_envs == ["OPENAI_API_KEY"]
 
 
 def test_due_generation_times_out_once_and_schedules_six_hour_retry(

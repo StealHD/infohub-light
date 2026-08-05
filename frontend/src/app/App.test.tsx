@@ -3325,7 +3325,7 @@ describe('App routes', () => {
         },
         taxonomy: { channels: [], topics: [] },
       }),
-      secrets: vi.fn().mockResolvedValue({ secrets: [] }),
+      secrets: vi.fn().mockResolvedValue({ secrets: [{ id: 'feed-end-deepseek-key', name: 'DeepSeek Key', kind: 'ai', provider: 'deepseek', env_name: 'DEEPSEEK_API_KEY', is_set: true, used_by: [] }] }),
       users: vi.fn().mockResolvedValue({ users: [] }),
       feedEndMessages: vi.fn().mockResolvedValue({
         schema_version: 1,
@@ -3370,8 +3370,20 @@ describe('App routes', () => {
         style_preset: 'restrained',
         style_prompt: '更像编辑部',
         list_count: 12,
+        ai_key_env: '',
       },
     })
+    await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随全局 AI Key（默认）')
+
+    await browser.click(screen.getByLabelText('生成用 AI Key'))
+    await browser.click(screen.getByRole('option', { name: 'DeepSeek Key · 已设置' }))
+    await browser.click(screen.getByRole('button', { name: '保存触底文案设置' }))
+    expect(configAction).toHaveBeenLastCalledWith('set_settings_bundle', {
+      feed_end_messages: expect.objectContaining({ ai_key_env: 'DEEPSEEK_API_KEY' }),
+    })
+    await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随全局 AI Key（默认）')
 
     await browser.click(screen.getByRole('button', { name: '立即刷新' }))
     expect(refreshFeedEndMessages).toHaveBeenCalledTimes(1)

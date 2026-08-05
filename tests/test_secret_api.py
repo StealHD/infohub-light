@@ -357,6 +357,63 @@ def test_referenced_secret_cannot_be_deleted_and_rotation_resets_only_its_health
     assert [row[0] for row in remaining] == [other_source_id]
 
 
+def test_feed_end_message_key_reference_blocks_deletion_until_cleared(tmp_path, monkeypatch) -> None:
+    client, _store = _client(tmp_path, monkeypatch)
+    _login(client)
+    global_secret = _create_secret(
+        client,
+        name="Global Gemini",
+        kind="ai",
+        provider="gemini",
+        env_name="GOOGLE_API_KEY",
+        value="global-private-value",
+    )
+    feed_end_secret = _create_secret(
+        client,
+        name="Feed end DeepSeek",
+        kind="ai",
+        provider="deepseek",
+        env_name="DEEPSEEK_API_KEY",
+        value="feed-end-private-value",
+    )
+
+    def update_feed_end_key(env_name: str) -> None:
+        response = client.post(
+            "/api/config/action",
+            json={
+                "action": "set_feed_end_messages",
+                "payload": {
+                    "ai_generation_enabled": True,
+                    "refresh_days": 7,
+                    "style_preset": "restrained",
+                    "style_prompt": "",
+                    "list_count": 12,
+                    "ai_key_env": env_name,
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    update_feed_end_key("DEEPSEEK_API_KEY")
+    listed = client.get("/api/admin/secrets").json()["data"]["secrets"]
+    by_id = {secret["id"]: secret for secret in listed}
+    assert by_id[feed_end_secret["id"]]["used_by"] == [
+        {"type": "ai", "id": "feed-end-messages", "name": "信息流触底文案"}
+    ]
+    assert client.delete(f"/api/admin/secrets/{feed_end_secret['id']}").status_code == 409
+
+    update_feed_end_key("GOOGLE_API_KEY")
+    listed = client.get("/api/admin/secrets").json()["data"]["secrets"]
+    by_id = {secret["id"]: secret for secret in listed}
+    assert by_id[global_secret["id"]]["used_by"] == [
+        {"type": "ai", "id": "global-ai", "name": "gemini"},
+        {"type": "ai", "id": "feed-end-messages", "name": "信息流触底文案"},
+    ]
+
+    update_feed_end_key("")
+    assert client.delete(f"/api/admin/secrets/{feed_end_secret['id']}").status_code == 200
+
+
 def test_non_admin_catalog_hides_env_name_and_cannot_assign_secret(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("MISSING_APIFY_KEY", raising=False)
     client, _store = _client(tmp_path, monkeypatch)

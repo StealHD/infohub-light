@@ -26,23 +26,23 @@ export function SettingsSidebar({ role, returnTo, onBack, onNavigate, className 
         onPress={onBack}
       ><Icons.ArrowLeft size={17} aria-hidden="true" />返回应用</Button>
     </div>
-    <nav aria-label="设置导航" className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4">
+    <nav aria-label="设置导航" className="quiet-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-3 pt-2">
       {groups.map((group, groupIndex) => <section
         key={group.id}
         aria-labelledby={group.label ? `settings-nav-${group.id}` : undefined}
-        className={groupIndex > 0 ? 'mt-5' : ''}
+        className={groupIndex > 0 ? 'mt-3' : ''}
       >
-        {group.label && <h2 id={`settings-nav-${group.id}`} className="type-meta mb-1.5 px-2 text-muted">{group.label}</h2>}
-        <div className="grid gap-1">
+        {group.label && <h2 id={`settings-nav-${group.id}`} className="type-label px-3 pb-1 text-muted">{group.label}</h2>}
+        <div className="grid gap-0.5">
           {group.items.map(({ id, label, href, icon: Icon, bridge }) => <NavLink
             key={id}
             to={href}
             state={bridge ? undefined : { settingsReturnTo: returnTo }}
             aria-current={activeId === id ? 'page' : undefined}
             onClick={onNavigate}
-            className="type-control flex min-h-10 items-center gap-3 rounded-xl px-2.5 text-muted hover:bg-default/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-[current=page]:bg-default aria-[current=page]:text-foreground"
+            className="type-control flex min-h-10 items-center gap-3 rounded-xl px-3 text-muted hover:bg-default/70 hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-[current=page]:bg-default aria-[current=page]:text-foreground"
           >
-            <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
+            <Icon size={17} aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{label}</span>
             {bridge && <Icons.ExternalLink size={13} aria-hidden="true" />}
           </NavLink>)}

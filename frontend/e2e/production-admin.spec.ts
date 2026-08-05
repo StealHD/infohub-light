@@ -1204,7 +1204,7 @@ test('settings workspace stays responsive and theme-safe at acceptance widths', 
     } else {
       await expect(page.getByRole('navigation', { name: '设置导航' })).toBeVisible()
       const sidebarBounds = await page.getByRole('complementary', { name: '设置侧栏' }).boundingBox()
-      expect(Math.round(sidebarBounds?.width ?? 0)).toBe(260)
+      expect(Math.round(sidebarBounds?.width ?? 0)).toBe(232)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   }

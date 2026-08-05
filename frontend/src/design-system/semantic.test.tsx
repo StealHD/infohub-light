@@ -48,4 +48,12 @@ describe('semantic indicators', () => {
     expect(screen.getByRole('button', { name: '移除 视觉系统' })).toBeDisabled()
     expect(screen.getByText('视觉系统').closest('[data-removable-tag]')).toHaveAttribute('aria-busy', 'true')
   })
+
+  it('offers a transparent removable tag for glass surfaces', () => {
+    render(<RemovableTag label="搜索：更新" onRemove={() => {}} transparent />)
+
+    const tag = screen.getByText('搜索：更新').closest('[data-removable-tag]')
+    expect(tag).toHaveClass('bg-transparent')
+    expect(tag).toHaveClass('border-separator/70')
+  })
 })
