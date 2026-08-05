@@ -263,7 +263,7 @@ function SecretConnectionEditor({ secret, onChanged }: {
         <Modal.Body><form id={`secret-connection-${secret.id}`} className="grid gap-3" onSubmit={save}>
           <TextField fullWidth value={baseUrl} onChange={setBaseUrl}>
             <Label>Base URL</Label>
-            <Input type="url" placeholder="留空则沿用全局 AI Base URL" />
+            <Input type="url" placeholder="留空则使用 Provider 默认地址" />
           </TextField>
           <p className="type-meta text-muted">仅保存此 Key 的连接地址；不保存真实 Key，也不会显示凭据。</p>
           {error && <StatusNotice title={error} status="warning" />}
@@ -519,7 +519,7 @@ export function SettingsSecretsPage() {
                 {fieldErrors.kind && <FieldError>{fieldErrors.kind}</FieldError>}
                 <TextField fullWidth value={draft.provider} onChange={(provider) => { setDraft((current) => ({ ...current, provider })); clearFieldError('provider') }} isRequired isInvalid={Boolean(fieldErrors.provider)}><Label>Key provider</Label><Input />{fieldErrors.provider && <FieldError>{fieldErrors.provider}</FieldError>}</TextField>
                 <TextField fullWidth value={draft.envName} onChange={(envName) => { setDraft((current) => ({ ...current, envName })); clearFieldError('envName') }} isRequired isInvalid={Boolean(fieldErrors.envName)}><Label>环境变量名</Label><Input />{fieldErrors.envName && <FieldError>{fieldErrors.envName}</FieldError>}</TextField>
-                {draft.kind === 'ai' && <TextField fullWidth value={draft.baseUrl} onChange={(baseUrl) => { setDraft((current) => ({ ...current, baseUrl })); clearFieldError('baseUrl') }} isInvalid={Boolean(fieldErrors.baseUrl)}><Label>Base URL（可选）</Label><Input type="url" placeholder="留空则沿用全局 AI Base URL" />{fieldErrors.baseUrl && <FieldError>{fieldErrors.baseUrl}</FieldError>}</TextField>}
+                {draft.kind === 'ai' && <TextField fullWidth value={draft.baseUrl} onChange={(baseUrl) => { setDraft((current) => ({ ...current, baseUrl })); clearFieldError('baseUrl') }} isInvalid={Boolean(fieldErrors.baseUrl)}><Label>独立 Base URL（可选）</Label><Input type="url" placeholder="留空则使用 Provider 默认地址" />{fieldErrors.baseUrl && <FieldError>{fieldErrors.baseUrl}</FieldError>}</TextField>}
                 <TextField fullWidth value={draft.value} onChange={(value) => { setDraft((current) => ({ ...current, value })); clearFieldError('value') }} isRequired isInvalid={Boolean(fieldErrors.value)}><Label>Key 值</Label><Input type="password" autoComplete="new-password" />{fieldErrors.value && <FieldError>{fieldErrors.value}</FieldError>}</TextField>
                 {formError && <div data-testid="secret-form-feedback"><StatusNotice title={formError} status="warning" /></div>}
               </form></Modal.Body>
@@ -535,13 +535,13 @@ export function SettingsSecretsPage() {
           ? <StatusNotice title="密钥读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void secrets.refetch()}>重试此区域</Button></StatusNotice>
           : <>
             <ApifyKeyPoolGroup secrets={secrets.data?.secrets ?? []} userId={user.id} onSecretChanged={secretChanged} />
-            <SettingsSection title="AI Key" description="每个 AI Key 可独立保存 Base URL；未设置时才沿用全局 AI Base URL。">
+            <SettingsSection title="AI Key" description="每个 AI Key 单独保存自己的连接地址；未填写时使用该 Provider 的默认地址。">
               <SettingsGroup ariaLabel="已配置 AI Key">
                 {!aiSecrets.length
                   ? <SettingsItem label="尚未配置 AI Key" description="新增 AI Key 后，可在 AI 设置中选择它作为工作区模型凭据。" icon={<Icons.Sparkles size={17} aria-hidden="true" />} />
                   : aiSecrets.map((secret) => {
                     const presentation = secretPresentation(secret)
-                    return <SettingsItem key={secret.id} density="compact" label={presentation.name} description={`${presentation.provider} · ${secret.env_name}${secret.base_url ? ` · ${secret.base_url}` : ' · 使用全局 Base URL'}`} icon={<Icons.Sparkles size={17} aria-hidden="true" />} trailing={<div className="flex flex-wrap gap-2"><SecretConnectionEditor secret={secret} onChanged={secretChanged} /><SecretActions secret={secret} onChanged={secretChanged} /></div>}>
+                    return <SettingsItem key={secret.id} density="compact" label={presentation.name} description={`${presentation.provider} · ${secret.env_name}${secret.base_url ? ` · ${secret.base_url}` : ' · Provider 默认地址'}`} icon={<Icons.Sparkles size={17} aria-hidden="true" />} trailing={<div className="flex flex-wrap gap-2"><SecretConnectionEditor secret={secret} onChanged={secretChanged} /><SecretActions secret={secret} onChanged={secretChanged} /></div>}>
                       <div className="flex flex-wrap items-center gap-2"><StatusBadge tone={secret.is_set ? 'success' : 'warning'}>{presentation.status}</StatusBadge><span className="type-meta text-muted">{presentation.usage}</span>{secret.used_by.length > 0 && <span className="type-meta text-muted">正在被 {secret.used_by.map((usage) => usage.name).join('、')} 使用</span>}</div>
                     </SettingsItem>
                   })}

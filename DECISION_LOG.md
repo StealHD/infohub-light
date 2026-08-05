@@ -911,7 +911,7 @@
 
 - 决策日期：2026-08-02
 - 当前状态：本地任务分支实现与验证中；不自动发起新的 AI 或付费 Actor
-- AI 配置边界：Discovery settings 不再把全局首选 Key 当作唯一只读选项。API 从当前全局 Provider 的已登记 AI Secret 中生成不含内部 ID 的 opaque 选项，管理员以 settings CAS 人工固定一个；provider/model/Base URL 继续继承全局配置，下一 Job 热加载且不回退其他 Key，被选 Secret 不允许删除。
+- AI 配置边界：Discovery settings 不再把工作区首选 Key 当作唯一只读选项。API 从当前工作区 Provider 的已登记 AI Secret 中生成不含内部 ID 的 opaque 选项，管理员以 settings CAS 人工固定一个；provider/model 继续继承工作区配置，连接地址只取被选 Key 自己保存的值（为空则使用 Provider 默认地址），下一 Job 热加载且不回退其他 Key，被选 Secret 不允许删除。
 - 付费前静态边界：AI 生成的每个输出 Pointer 必须能在精确 Build Dataset Schema 中解析；Profile/Channel items 不允许内容 URL 与来源身份共用同一路径。Prompt 改为优先使用 author/owner handle 或 source native ID，profile metadata-only Dataset 不得进入 Canary，避免用付费试跑发现本可静态淘汰的合同错误。
 - 超时与耗尽边界：Actor Canary 缺省等待 300 秒，可在 180–900 秒内为下一 Job 热加载；已知 Run 超时后中止且不自动重试。`apify_actor_runs` 的终态实际费用回写 attempt/validation，Worker 启动时幂等修复历史漏账。一个 Discovery cycle 的五次已启动 Route Canary 仍不足三个成功 Revision 时进入 `canary_exhausted`，页面停止审批并显示安全 outcome、耗时、远端终态与实际费用，只允许管理员显式重新发现。
 - 审批可见性：确认 Modal 必须在付费前显示 Route/来源类型、参考来源或 opaque source、Actor、精确 Build、商城定价、本次封顶和认证总预算；仍不回显真实 target、Actor input、Run/Dataset ID、凭据或上游正文。
@@ -1030,6 +1030,6 @@
 
 - 决策日期：2026-08-05
 - 当前状态：当前任务分支实现与验证中；不改变触底文案安全合同、生成时序或付费边界
-- 决策内容：`feed_end_messages` 配置新增可选 `ai_key_env`（合法环境变量名或空字符串，缺省为空）。`/settings/ai` 的触底文案表单只列出与当前全局 Provider 相同的已保存 AI Key；空值表示跟随全局 `ai.api_key_env`。每个 AI SecretRef 可选保存自己的安全 `base_url`（无 userinfo/query/fragment 的 HTTP(S) URL）；Worker 生成时以 Key 覆盖全局环境变量名，并优先使用该 Key 的 URL，Provider、模型与输出参数仍沿用全局 AI 配置。跨 Provider 的历史绑定在运行时安全回退全局 Key，保存端拒绝再次写入。`ai_key_env` 计入既有配置指纹，变更后旧缓存自动标记待刷新；SecretRef 的非敏感 URL 元数据为 additive SQLite 列，既有 Key 为空时保持全局 URL 回退。
+- 决策内容：`feed_end_messages` 配置新增可选 `ai_key_env`（合法环境变量名或空字符串，缺省为空）。`/settings/ai` 的触底文案表单只列出与当前工作区 Provider 相同的已保存 AI Key；空值表示跟随工作区 `ai.api_key_env`。每个 AI SecretRef 可选保存自己的安全 `base_url`（无 userinfo/query/fragment 的 HTTP(S) URL）；Worker 生成时以 Key 覆盖工作区环境变量名，并始终采用该 Key 自己的 URL，地址为空则使用 Provider 默认地址，Provider、模型与输出参数仍沿用工作区 AI 配置。跨 Provider 或已删除 Key 的历史绑定在运行时安全回退工作区 Key，保存端拒绝再次写入。`ai_key_env` 计入既有配置指纹，变更后旧缓存自动标记待刷新；SecretRef 的非敏感 URL 元数据为 additive SQLite 列，`ai.base_url` 只保留为所选工作区 Key 的后端兼容投影，不再是可编辑的全局连接概念。
 - 视觉边界：Feed 顶部工具栏采用 absolute 半透明毛玻璃浮层（`bg-background/70` + `backdrop-blur-md`），颜色 token 随明暗主题自动适配。通过 `ResizeObserver` 以工具栏真实高度加 8px 计算内容避让，筛选标签换行、移动端搜索展开和字体尺寸变化都会更新；列表卡片可在浮层下滚动，但有效可视边界、深链/错误提示、加载和空态都只使用一次动态避让，不会被浮层覆盖。
 - 原因：触底文案此前强行绑定全局 AI Key，多 Key 工作区无法让低频后台生成使用独立配额；仅替换 Key 而继续使用全局 URL 会把中转或供应商 Key 发往错误端点。Feed 顶栏 95% 不透明度在滚动时几乎无透视感。两处均以最小改动满足需求，且不触碰已验证的生成安全合同。

@@ -118,7 +118,7 @@ describe('HeroChangelogPage', () => {
     expect(latestEntries).toHaveLength(11)
     expect(latestEntries[0]).toHaveAttribute('aria-current', 'true')
     expect(within(latestEntries[0] as HTMLElement).getByText('帮助与版本整行可点')).toBeVisible()
-    expect(within(latestEntries[1] as HTMLElement).getByText('触底文案不再强绑全局 AI Key')).toBeVisible()
+    expect(within(latestEntries[1] as HTMLElement).getByText('触底文案不再强绑工作区 AI Key')).toBeVisible()
     expect(within(latestEntries[2] as HTMLElement).getByText('设置侧栏与主侧栏同规格')).toBeVisible()
     expect(within(latestEntries[3] as HTMLElement).getByText('设置路由验证更稳定')).toBeVisible()
     expect(within(latestEntries[4] as HTMLElement).getByText('全部设置统一在独立工作区')).toBeVisible()

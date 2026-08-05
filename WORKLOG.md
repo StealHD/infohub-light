@@ -586,3 +586,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-05",
+  "result": "移除工作区 AI 的全局 Base URL 配置概念；每个 AI Key 独立保存连接地址，空地址使用 Provider 默认端点，并在工作区分析、触底文案和 Actor Discovery 中一致生效。",
+  "status": "completed",
+  "task_id": "2026-08-05-ai-key-independent-connection-url",
+  "unresolved": [],
+  "validation": [
+    "Secret API、触底文案、Actor Discovery 与配置定向 pytest 154 项通过。",
+    "前端 typecheck、UI contract 与设置/更新日志定向 Vitest 111 项通过。",
+    "Full Test Gate 23/23 通过；git diff --check 通过。"
+  ]
+}
+```

@@ -128,7 +128,7 @@ def test_deepseek_secret_is_allowed_and_never_echoes_value(tmp_path, monkeypatch
     assert "deepseek-private-test-value" not in listed.text
 
 
-def test_ai_secret_owns_base_url_and_updates_current_global_connection(
+def test_ai_secret_owns_base_url_and_updates_workspace_connection_projection(
     tmp_path, monkeypatch
 ) -> None:
     client, _store = _client(tmp_path, monkeypatch)
@@ -166,6 +166,35 @@ def test_ai_secret_owns_base_url_and_updates_current_global_connection(
     assert cleared.status_code == 200, cleared.text
     assert cleared.json()["data"]["base_url"] == ""
     assert "base_url" not in client.get("/api/config").json()["data"]["config"]["ai"]
+
+    default_endpoint = _create_secret(
+        client,
+        name="Gemini provider default",
+        kind="ai",
+        provider="gemini",
+        env_name="GOOGLE_DEFAULT_API_KEY",
+        value="gemini-default-private-test-value",
+    )
+    assert default_endpoint["base_url"] == ""
+
+    selected = client.post(
+        "/api/config/action",
+        json={
+            "action": "set_ai",
+            "payload": {
+                "enabled": True,
+                "provider": "gemini",
+                "model": "gemini-2.5-flash",
+                "api_key_env": "GOOGLE_DEFAULT_API_KEY",
+                "base_url": "https://must-not-be-used.example.test/v1",
+                "languages": "zh",
+            },
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    selected_ai = selected.json()["data"]["config"]["ai"]
+    assert selected_ai["api_key_env"] == "GOOGLE_DEFAULT_API_KEY"
+    assert "base_url" not in selected_ai
 
 
 def test_secret_admin_routes_reject_member_and_viewer(tmp_path, monkeypatch) -> None:

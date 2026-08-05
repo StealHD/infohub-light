@@ -1,9 +1,8 @@
-"""Resolve an administrator-selected global AI key for Actor discovery.
+"""Resolve an administrator-selected workspace AI key for Actor discovery.
 
-Actor discovery deliberately has no independent provider, model, base URL, or
-key pool.  The selectable catalog is derived from the workspace's saved global
-AI provider/model and its registered SecretStore keys.  Each job freezes the
-chosen key together with the global configuration when that job begins.
+Actor discovery shares the workspace provider and model, while every selectable
+SecretStore Key retains its own connection URL. Each job freezes the chosen Key
+and its connection together with the workspace configuration when it begins.
 """
 
 from __future__ import annotations
@@ -110,7 +109,12 @@ def _selection_from_secret(
         model=model,
         key_name=str(secret.get("name") or "").strip() or None,
         config=(
-            global_config.model_copy(update={"api_key_env": env_name})
+            global_config.model_copy(
+                update={
+                    "api_key_env": env_name,
+                    "base_url": str(secret.get("base_url") or "").strip() or None,
+                }
+            )
             if reason is None
             else None
         ),

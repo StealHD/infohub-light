@@ -1431,13 +1431,13 @@ def create_app(
         if secret is None or str(secret.get("kind") or "").lower() != "ai":
             raise ApiError(
                 "invalid_feed_end_messages_ai_key",
-                "触底文案 AI Key 必须选择已保存的 AI Key，或跟随全局 AI Key。",
+                "触底文案 AI Key 必须选择已保存的 AI Key，或跟随工作区 AI Key。",
                 status_code=400,
             )
         if str(secret.get("provider") or "").lower() != config.ai.provider.value:
             raise ApiError(
                 "invalid_feed_end_messages_ai_key",
-                "触底文案 AI Key 必须与当前 AI Provider 匹配，或跟随全局 AI Key。",
+                "触底文案 AI Key 必须与当前 AI Provider 匹配，或跟随工作区 AI Key。",
                 status_code=400,
             )
 
@@ -1489,6 +1489,19 @@ def create_app(
                 status_code=400,
             )
         return base_url.rstrip("/")
+
+    def synchronize_ai_connection(
+        data: dict[str, Any],
+        secret: dict[str, Any],
+    ) -> None:
+        """Project the selected Key's connection into the legacy AI config field."""
+
+        ai_settings = data.setdefault("ai", {})
+        base_url = str(secret.get("base_url") or "").strip()
+        if base_url:
+            ai_settings["base_url"] = base_url
+        else:
+            ai_settings.pop("base_url", None)
 
     def validate_secret_metadata(payload: SecretCreateRequest) -> tuple[str, str, str, str, str]:
         name = str(payload.name or "").strip()
@@ -4615,12 +4628,8 @@ def create_app(
                 updated_config,
                 workspace_id=user["workspace_id"],
             )
-            if global_ai_secret is not None and str(
-                global_ai_secret.get("base_url") or ""
-            ).strip():
-                updated.setdefault("ai", {})["base_url"] = str(
-                    global_ai_secret["base_url"]
-                )
+            if global_ai_secret is not None:
+                synchronize_ai_connection(updated, global_ai_secret)
                 updated_config = validate_config_data(updated)
             validate_feed_end_messages_key_provider(
                 updated_config,
@@ -6620,11 +6629,11 @@ def create_app(
             )
             if kind == "apify" and provider == "apify":
                 apify_key_pool.append_secret(secret["id"])
-            if kind == "ai" and base_url:
+            if kind == "ai":
                 base_data, base_config = read_base_config()
                 if base_config.ai.api_key_env == env_name:
                     synchronized = deepcopy(base_data)
-                    synchronized.setdefault("ai", {})["base_url"] = base_url
+                    synchronize_ai_connection(synchronized, secret)
                     write_base_config(synchronized)
         except SecretEnvConflictError as exc:
             secret_values.delete(env_name)
@@ -6720,11 +6729,7 @@ def create_app(
         base_data, base_config = read_base_config()
         if base_config.ai.api_key_env == secret["env_name"]:
             synchronized = deepcopy(base_data)
-            ai_settings = synchronized.setdefault("ai", {})
-            if base_url:
-                ai_settings["base_url"] = base_url
-            else:
-                ai_settings.pop("base_url", None)
+            synchronize_ai_connection(synchronized, updated)
             write_base_config(synchronized)
         return ok(public_secret(updated))
 

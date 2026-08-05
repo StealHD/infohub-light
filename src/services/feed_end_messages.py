@@ -715,22 +715,18 @@ def _generation_ai_config(
             env_name=key_env,
         )
         if secret is None:
-            return (
-                config.ai
-                if key_env == config.ai.api_key_env
-                else config.ai.model_copy(update={"api_key_env": key_env}),
-                None,
-            )
+            return (config.ai if key_env == config.ai.api_key_env else None, None)
         if (
             str(secret.get("kind") or "").lower() != "ai"
             or str(secret.get("provider") or "").lower()
             != config.ai.provider.value
         ):
             return None, secret
-        overrides: dict[str, Any] = {"api_key_env": key_env}
         base_url = str(secret.get("base_url") or "").strip()
-        if base_url:
-            overrides["base_url"] = base_url
+        overrides: dict[str, Any] = {
+            "api_key_env": key_env,
+            "base_url": base_url or None,
+        }
         return config.ai.model_copy(update=overrides), secret
 
     selected_config, selected_secret = config_for_key(selected_key_env)

@@ -1653,7 +1653,7 @@ describe('App routes', () => {
     await browser.type(await screen.findByRole('textbox', { name: 'Key 名称' }), 'DeepSeek')
     await browser.type(screen.getByRole('textbox', { name: 'Key provider' }), 'deepseek')
     await browser.type(screen.getByRole('textbox', { name: '环境变量名' }), 'DEEPSEEK_API_KEY')
-    await browser.type(screen.getByRole('textbox', { name: 'Base URL（可选）' }), 'https://gateway.example.test/deepseek')
+    await browser.type(screen.getByRole('textbox', { name: '独立 Base URL（可选）' }), 'https://gateway.example.test/deepseek')
     await browser.type(screen.getByLabelText('Key 值'), 'write-only-value')
     await browser.click(screen.getByRole('button', { name: '安全保存 Key' }))
 
@@ -3313,10 +3313,13 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings#settings-ai']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '工作区 AI' })
+    expect(screen.getByText('选择工作区的 Provider、模型与 AI Key；连接地址随每个 Key 独立保存。')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Base URL' })).not.toBeInTheDocument()
     await browser.click(await screen.findByRole('button', { name: /Provider/ }))
     await browser.click(await screen.findByRole('option', { name: 'DeepSeek' }))
     expect(screen.getByRole('textbox', { name: '模型' })).toHaveValue('deepseek-v4-flash')
     expect(screen.getByLabelText('AI Key')).toHaveTextContent('DeepSeek Key')
+    expect(screen.getByLabelText('AI Key')).toHaveTextContent('使用 Provider 默认地址')
     await browser.click(screen.getByRole('button', { name: '保存 AI 设置' }))
     expect(configAction).toHaveBeenCalledWith('set_settings_bundle', {
       ai: expect.objectContaining({ provider: 'deepseek', model: 'deepseek-v4-flash', api_key_env: 'DEEPSEEK_API_KEY' }),
@@ -3407,7 +3410,7 @@ describe('App routes', () => {
       },
     })
     await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
-    expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随全局 AI Key（默认）')
+    expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随工作区 AI Key（默认）')
 
     await browser.click(screen.getByLabelText('生成用 AI Key'))
     await browser.click(screen.getByRole('option', { name: /^OpenAI Copy Key · 已设置/ }))
@@ -3416,7 +3419,7 @@ describe('App routes', () => {
       feed_end_messages: expect.objectContaining({ ai_key_env: 'OPENAI_COPY_API_KEY' }),
     })
     await waitFor(() => expect(screen.queryByText('有尚未保存的更改')).not.toBeInTheDocument())
-    expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随全局 AI Key（默认）')
+    expect(screen.getByLabelText('生成用 AI Key')).toHaveTextContent('跟随工作区 AI Key（默认）')
 
     await browser.click(screen.getByRole('button', { name: '立即刷新' }))
     expect(refreshFeedEndMessages).toHaveBeenCalledTimes(1)

@@ -73,17 +73,21 @@ def _write_global_ai_config(
     *,
     enabled: bool,
     api_key_env: str,
+    base_url: str | None = None,
 ) -> None:
+    ai_config = {
+        "enabled": enabled,
+        "provider": "gemini",
+        "model": "gemini-test-model",
+        "api_key_env": api_key_env,
+    }
+    if base_url:
+        ai_config["base_url"] = base_url
     (data_dir / "config.json").write_text(
         json.dumps(
             {
                 "version": "1.0",
-                "ai": {
-                    "enabled": enabled,
-                    "provider": "gemini",
-                    "model": "gemini-test-model",
-                    "api_key_env": api_key_env,
-                },
+                "ai": ai_config,
                 "tags": [],
                 "personal_tags": [],
                 "sources": {
@@ -418,22 +422,33 @@ def test_discovery_can_select_one_non_preferred_global_key(tmp_path) -> None:
         data_dir,
         enabled=True,
         api_key_env="GEMINI_PRIMARY_TEST_KEY",
+        base_url="https://workspace-key.example.test/v1",
     )
     store = ServiceStore(data_dir)
     store.initialize()
     now = FIXED_NOW.isoformat()
-    for secret_id, name, env_name in (
-        ("gemini-primary", "Gemini Primary", "GEMINI_PRIMARY_TEST_KEY"),
-        ("gemini-secondary", "Gemini Secondary", "GEMINI_SECONDARY_TEST_KEY"),
+    for secret_id, name, env_name, base_url in (
+        (
+            "gemini-primary",
+            "Gemini Primary",
+            "GEMINI_PRIMARY_TEST_KEY",
+            "https://primary.example.test/v1",
+        ),
+        (
+            "gemini-secondary",
+            "Gemini Secondary",
+            "GEMINI_SECONDARY_TEST_KEY",
+            "https://secondary.example.test/v1",
+        ),
     ):
         store.connect().execute(
             """
             INSERT INTO secret_refs (
                 id, workspace_id, owner_user_id, name, env_name, scope,
-                kind, provider, version, created_at, updated_at
-            ) VALUES (?, ?, NULL, ?, ?, 'workspace', 'ai', 'gemini', 1, ?, ?)
+                kind, provider, base_url, version, created_at, updated_at
+            ) VALUES (?, ?, NULL, ?, ?, 'workspace', 'ai', 'gemini', ?, 1, ?, ?)
             """,
-            (secret_id, DEFAULT_WORKSPACE_ID, name, env_name, now, now),
+            (secret_id, DEFAULT_WORKSPACE_ID, name, env_name, base_url, now, now),
         )
     store.connect().commit()
     SecretStore(data_dir).replace_many(
@@ -464,6 +479,7 @@ def test_discovery_can_select_one_non_preferred_global_key(tmp_path) -> None:
     assert secondary.secret_ref_id == "gemini-secondary"
     assert secondary.config is not None
     assert secondary.config.api_key_env == "GEMINI_SECONDARY_TEST_KEY"
+    assert secondary.config.base_url == "https://secondary.example.test/v1"
     assert "gemini-secondary" not in secondary.config_id
 
 

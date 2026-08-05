@@ -572,6 +572,42 @@ def test_due_generation_uses_bound_ai_key_env_and_base_url(tmp_path, monkeypatch
     assert seen_base_urls == ["https://copy.example.test/v1"]
 
 
+def test_due_generation_uses_provider_default_when_bound_key_has_no_url(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    data = _config_data()
+    data["ai"]["base_url"] = "https://workspace-key.example.test/v1"
+    data["feed_end_messages"]["ai_key_env"] = "OPENAI_COPY_DEFAULT_KEY"
+    (tmp_path / "config.json").write_text(
+        json.dumps(data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
+    seen_base_urls: list[str | None] = []
+    store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="OpenAI provider default Key",
+        env_name="OPENAI_COPY_DEFAULT_KEY",
+        kind="ai",
+        provider="openai",
+    )
+
+    result = run_due_feed_end_messages_generation(
+        data_dir=str(tmp_path),
+        store=store,
+        worker_id="copy-worker",
+        client_factory=lambda ai_config: (
+            seen_base_urls.append(ai_config.base_url) or fake
+        ),
+        now=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert seen_base_urls == [None]
+
+
 def test_due_generation_falls_back_when_bound_key_provider_mismatches(
     tmp_path, monkeypatch
 ):

@@ -152,7 +152,7 @@ export function SettingsAIPage() {
   const feedEndStyle = feedEndStyleOverride ?? String(feedEndMessages.style_preset ?? 'restrained')
   const feedEndAiKeyEnv = feedEndAiKeyEnvOverride ?? String(feedEndMessages.ai_key_env ?? '')
   const aiSecrets = (secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai')
-  const compatibleGlobalAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
+  const compatibleAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
   const compatibleFeedEndAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
   const selectedFeedEndAiSecret = aiSecrets.find((secret) => secret.env_name === feedEndAiKeyEnv)
   const feedEndKeyMismatch = Boolean(
@@ -160,21 +160,21 @@ export function SettingsAIPage() {
     && (!selectedFeedEndAiSecret || selectedFeedEndAiSecret.provider !== aiDraft.provider),
   )
   const feedEndAiKeyOptions = [
-    { id: '', label: '跟随全局 AI Key（默认）' },
+    { id: '', label: '跟随工作区 AI Key（默认）' },
     ...(feedEndKeyMismatch
       ? [{
           id: feedEndAiKeyEnv,
           label: selectedFeedEndAiSecret
             ? `${selectedFeedEndAiSecret.name} · 与当前 Provider 不兼容`
             : '当前绑定 Key 已不可用',
-          description: '请改为跟随全局 Key，或选择同一 Provider 的已保存 Key。',
+          description: '请改为跟随工作区 Key，或选择同一 Provider 的已保存 Key。',
           isDisabled: true,
         }]
       : []),
     ...compatibleFeedEndAiSecrets.map((secret) => ({
       id: secret.env_name,
       label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`,
-      description: secret.base_url ? '使用 Key 的独立 Base URL' : '使用全局 Base URL',
+      description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址',
     })),
   ]
   const savedFeedEndGenerationEnabled = ai.enabled !== false && feedEndMessages.ai_generation_enabled === true
@@ -330,11 +330,11 @@ export function SettingsAIPage() {
         </SettingsGroup>
       </SettingsSection>
 
-      <SettingsSection id="settings-ai" title="工作区 AI" description="选择全局分析模型与 AI Key；Key 保存后永不回显。">
+      <SettingsSection id="settings-ai" title="工作区 AI" description="选择工作区的 Provider、模型与 AI Key；连接地址随每个 Key 独立保存。">
         {!admin && <SettingsGroup ariaLabel="工作区 AI 访问权限">
           <SettingsItem
             label="工作区设置只读"
-            description="全局 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。"
+            description="工作区 AI、获取规则、主题、成员和 Key 仅 Owner/Admin 可管理；个人订阅参数仍可在订阅页维护。"
             icon={<Icons.LockKeyhole size={17} aria-hidden="true" />}
             trailing={<StatusBadge>只读</StatusBadge>}
           />
@@ -365,17 +365,16 @@ export function SettingsAIPage() {
                   <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
                     setAiOverride({ ...aiDraft, apiKeyEnv })
                     refreshDirty('ai')
-                  }} options={[{ id: '', label: '请选择' }, ...compatibleGlobalAiSecrets.map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`, description: secret.base_url ? '使用 Key 的独立 Base URL' : '使用全局 Base URL' }))]} />
+                  }} options={[{ id: '', label: '请选择' }, ...compatibleAiSecrets.map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`, description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址' }))]} />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>
                     <Icons.KeyRound size={15} aria-hidden="true" />管理密钥
                   </Button>
-                  <span className="type-meta text-muted">仅显示 Key 元数据，不会显示真实值。</span>
+                  <span className="type-meta text-muted">连接地址随 Key 独立保存；这里不会显示真实 Key 值。</span>
                 </div>
-                <SettingsDisclosure title="高级配置" description="Base URL、输出语言与输入/输出长度限制。">
+                <SettingsDisclosure title="高级配置" description="输出语言与输入/输出长度限制。">
                   <div className="grid gap-4 min-[720px]:grid-cols-3">
-                    <FormField name="base_url" label="Base URL" type="url" defaultValue={String(ai.base_url ?? '')} />
                     <FormField name="languages" label="输出语言" defaultValue={Array.isArray(ai.languages) ? ai.languages.join(',') : 'zh'} />
                     <FormField name="analysis_content_chars" label="正文输入字符" type="number" min={100} max={10000} defaultValue={Number(ai.analysis_content_chars ?? 1000)} />
                     <FormField name="analysis_comments_chars" label="评论输入字符" type="number" min={0} max={20000} defaultValue={Number(ai.analysis_comments_chars ?? 1500)} />
@@ -408,7 +407,7 @@ export function SettingsAIPage() {
               <HeroSelect name="ai_key_env" label="生成用 AI Key" value={feedEndAiKeyEnv} onChange={(value) => {
                 setFeedEndAiKeyEnvOverride(value)
                 refreshDirty('feed_end_messages')
-              }} options={feedEndAiKeyOptions} description={`仅显示与当前 ${aiDraft.provider} Provider 兼容的已保存 AI Key。`} errorMessage={feedEndKeyMismatch ? '当前绑定 Key 与全局 AI Provider 不匹配；请重新选择。' : undefined} />
+              }} options={feedEndAiKeyOptions} description={`仅显示与当前 ${aiDraft.provider} Provider 兼容的已保存 AI Key。`} errorMessage={feedEndKeyMismatch ? '当前绑定 Key 与工作区 AI Provider 不匹配；请重新选择。' : undefined} />
               <FormField name="list_count" label="每场景条数" type="number" min={3} max={30} defaultValue={Number(feedEndMessages.list_count ?? 12)} required />
             </div>
             <TextField fullWidth name="style_prompt" defaultValue={String(feedEndMessages.style_prompt ?? '')}>
@@ -451,7 +450,7 @@ export function SettingsAIPage() {
                       {feedEndMessagesStatus.data.status === 'pending' ? '已等待刷新' : feedEndMessagesStatus.data.status === 'refreshing' ? '正在刷新' : '立即刷新'}
                     </Button>
                   </div>
-                  {!savedFeedEndGenerationEnabled && <p className="type-meta mt-3 text-muted">保存并启用全局 AI 与触底文案生成后，才可请求立即刷新。</p>}
+                  {!savedFeedEndGenerationEnabled && <p className="type-meta mt-3 text-muted">保存并启用工作区 AI 与触底文案生成后，才可请求立即刷新。</p>}
                   <div className="mt-4 grid gap-3 min-[720px]:grid-cols-3">
                     {([
                       ['empty', '空列表'],

@@ -28,6 +28,7 @@ export const changelogMonths: ChangelogMonth[] = [
         items: [
           { title: '帮助与版本整行可点', description: '操作手册、更新日志与 Release 发布页不再需要点小按钮，点击整行即可打开；外部发布页保留外链图标。' },
           { title: '卡片徽标与箭头归位', description: '工作区、管理员、只读与外观模式徽标统一固定在卡片右上角，「已迁移」标记与标题行箭头移除，卡片视觉更干净。' },
+          { title: 'AI Key 连接地址真正独立', description: '工作区 AI 只选择 Provider、模型和 Key，不再编辑所谓全局 Base URL；每个 Key 在密钥页保存自己的连接地址，留空时使用 Provider 默认地址，触底文案与 Actor Discovery 也不会继承其他 Key 的地址。' },
         ],
       },
       {
@@ -35,7 +36,7 @@ export const changelogMonths: ChangelogMonth[] = [
         title: 'v2.2.9 触底文案 AI Key 绑定与工具栏透视',
         summary: '信息流触底文案可单独绑定同 Provider 的 AI Key，并使用该 Key 的独立连接地址；Feed 顶部工具栏改为半透明毛玻璃浮层。',
         items: [
-          { title: '触底文案不再强绑全局 AI Key', description: '“设置 → AI → 信息流触底文案”新增“生成用 AI Key”下拉，只显示与当前 Provider 匹配的已保存 Key；每个 Key 可在密钥页保存独立 Base URL，未选择或未设置 URL 时才跟随全局配置。' },
+          { title: '触底文案不再强绑工作区 AI Key', description: '“设置 → AI → 信息流触底文案”新增“生成用 AI Key”下拉，只显示与当前 Provider 匹配的已保存 Key；未选择时跟随工作区 Key，单独选择的 Key 使用自己的连接地址，地址为空则使用 Provider 默认地址。' },
           { title: '工具栏透明穿透且不遮挡内容', description: 'Feed 顶部工具栏改为 70% 半透明毛玻璃浮层，可透出后方内容；系统按实际工具栏高度动态避让列表、提示、加载和空态，筛选换行或移动端展开搜索时首张可见卡片不会被覆盖。' },
         ],
       },
@@ -175,7 +176,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: 'Route 试跑一次确认', description: 'AI 只搜索公开 Actor、排序并生成受限 JSON Manifest；Route 认证由管理员核对服务端候选和批次上限后一次确认，来源级试跑、首次来源启用、新 Build 或新 Manifest 激活仍保持各自明确审批。同一次确认若因网络超时重放只返回原任务，不会再次扣费。' },
           { title: '新来源逐槽验证', description: '每个新账号或频道依次验证当前实际运行的两个或三个 Actor，全部确认身份并返回真实内容或可信空结果后才启用；只更换一个 Revision 时只重验对应槽。' },
           { title: '原生链路优先', description: 'YouTube 继续保存为 RSS 来源，原生成功或可信空结果不调用 Apify；只有允许回退的超时、429、5xx、合同漂移等故障才进入三槽，来源身份和 Feed 稳定编号不变。' },
-          { title: '人工选择全局 AI Key', description: 'Actor Discovery 继承全局 provider、model 与 Base URL；管理员从同 Provider 的已登记 Key 中固定一个安全选项，下一次发现任务热生效，不另设模型配置，也不会自动换用其他 Key。' },
+          { title: '人工选择工作区 AI Key', description: 'Actor Discovery 继承工作区 provider 与 model；管理员从同 Provider 的已登记 Key 中固定一个安全选项，并使用该 Key 自己的连接地址，下一次发现任务热生效，不另设模型配置，也不会自动换用其他 Key。' },
           { title: '可测量的输出容量', description: 'Discovery 单次 AI 超时提高至 180 秒；管理员可确认后顺序执行 YouTube/Instagram 32K 容量测试，安全查看 Token、耗时、finish reason 与 Manifest 校验，系统给出但不会自动采用生产上限建议。测试不会运行 Actor 或付费 Canary。' },
           { title: '候选不足不再归零', description: 'AI 一次排序并生成 3–6 个候选，系统逐项验证并让后序候选补位；已通过的 1/3 或 2/3 Revision 会保留展示，只有凑齐三个 Actor和两个发布者才开放付费 Canary。' },
           { title: '按内容类型召回 Actor', description: 'YouTube 发现精确搜索频道视频，Instagram 精确搜索账号帖子和 Feed，避免只抓账户资料的 Actor 挤占候选；模型会按当前有界目标返回完整排序备选，安全门槛与 0.02 美元上限不变。' },

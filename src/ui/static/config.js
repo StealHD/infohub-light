@@ -357,7 +357,6 @@ function renderAiForm(ai) {
     fieldSelectOptions('provider', 'Provider', provider, AI_PROVIDER_OPTIONS),
     fieldAiModelSelect(provider, ai.model || ''),
     keyField,
-    fieldInput('base_url', 'Base URL 可选', ai.base_url || '', 'url'),
     fieldInput('languages', '输出语言，逗号分隔', (ai.languages || ['zh']).join(','), 'text'),
     fieldInput('analysis_content_chars', '评分正文截断字符', ai.analysis_content_chars || 1000, 'number', '1', '100', '10000'),
     fieldInput('analysis_comments_chars', '评分评论截断字符', ai.analysis_comments_chars || 1500, 'number', '1', '0', '20000'),
@@ -1302,24 +1301,22 @@ function updateNewSourceFields(form, type) {
 function applyProviderDefaults(form, provider) {
   if (!form || form.dataset.action !== 'set_ai') return;
   var apiKeyEnv = form.querySelector('[name="api_key_env"]');
-  var baseUrl = form.querySelector('[name="base_url"]');
   var defaults = {
-    openai: { model: 'gpt-4o-mini', env: 'OPENAI_API_KEY', baseUrl: '' },
-    anthropic: { model: 'claude-3-5-sonnet-latest', env: 'ANTHROPIC_API_KEY', baseUrl: '' },
-    gemini: { model: 'gemini-3.5-flash', env: 'GOOGLE_API_KEY', baseUrl: '' },
-    xiaomi: { model: 'mimo-v2.5-pro', env: 'XIAOMI_API_KEY', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
-    deepseek: { model: 'deepseek-v4-flash', env: 'DEEPSEEK_API_KEY', baseUrl: '' },
-    minimax: { model: 'MiniMax-Text-01', env: 'MINIMAX_API_KEY', baseUrl: '' },
-    ali: { model: 'qwen-plus', env: 'DASHSCOPE_API_KEY', baseUrl: '' },
-    doubao: { model: 'doubao-1-5-pro-32k-250115', env: 'DOUBAO_API_KEY', baseUrl: '' },
-    azure: { model: 'your-deployment-name', env: 'AZURE_OPENAI_API_KEY', baseUrl: '' },
-    ollama: { model: 'llama3.1', env: 'OLLAMA_API_KEY', baseUrl: 'http://localhost:11434/v1' },
+    openai: { model: 'gpt-4o-mini', env: 'OPENAI_API_KEY' },
+    anthropic: { model: 'claude-3-5-sonnet-latest', env: 'ANTHROPIC_API_KEY' },
+    gemini: { model: 'gemini-3.5-flash', env: 'GOOGLE_API_KEY' },
+    xiaomi: { model: 'mimo-v2.5-pro', env: 'XIAOMI_API_KEY' },
+    deepseek: { model: 'deepseek-v4-flash', env: 'DEEPSEEK_API_KEY' },
+    minimax: { model: 'MiniMax-Text-01', env: 'MINIMAX_API_KEY' },
+    ali: { model: 'qwen-plus', env: 'DASHSCOPE_API_KEY' },
+    doubao: { model: 'doubao-1-5-pro-32k-250115', env: 'DOUBAO_API_KEY' },
+    azure: { model: 'your-deployment-name', env: 'AZURE_OPENAI_API_KEY' },
+    ollama: { model: 'llama3.1', env: 'OLLAMA_API_KEY' },
   };
   var next = defaults[provider];
   if (!next) return;
   updateAiModelOptions(form, provider, next.model);
   if (apiKeyEnv) apiKeyEnv.value = next.env;
-  if (baseUrl) baseUrl.value = next.baseUrl;
 }
 
 function updateAiModelOptions(form, provider, preferredModel) {
