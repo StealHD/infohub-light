@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-04',
-  change: 'v2.2.7 Settings Workspace 发布验证与无障碍修正',
+  reviewedAt: '2026-08-05',
+  change: 'v2.2.10 信息流触底文案 Key 连接配置与动态工具栏避让',
 } as const
 
 export const manualSections: ManualSection[] = [
