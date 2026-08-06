@@ -104,28 +104,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-04",
-  "result": "将完整原生 Settings Workspace 合入本地 main，并准备 v2.2.6 发布版本；保留 v2.2.5 ActorOps 对账安全修复和现有生产运行边界。",
-  "status": "partial",
-  "task_id": "2026-08-04-integrate-settings-workspace-v226",
-  "unresolved": [
-    "等待 full/release Test Gate、GitHub Tag/Release 与 VPS 安全切换。"
-  ],
-  "validation": [
-    "合并冲突仅限控制文档和产品手册，已保留双方语义并将 Settings 决策编号顺延至 D115–D119。",
-    "集成后前端 typecheck、UI contract、lint（0 error）与相关 Vitest 117 项通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-05",
@@ -364,6 +342,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并冲突已解析，更新日志时间线保留两条 2026-08-06 记录并同步测试索引。",
     "WORKLOG 已安全归档轮转，控制工具在合并结果上校验通过。",
     "复用 key-driven-ai-bindings 虚拟环境重跑完整 Test Gate：23/23 命令通过（238.387 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "从本地 main 重建共享 8080 运行时，切换 YouTube 头像合并后的服务镜像。",
+  "status": "completed",
+  "task_id": "2026-08-06-rebuild-local-main-after-youtube-merge",
+  "unresolved": [],
+  "validation": [
+    "首次切换 revision b343d01647ce：horizon-api 与 horizon-worker 均 healthy，readiness 返回 API 和 Worker ready。",
+    "服务前端资源 index-oj-oGb1j.js 已验证由本地服务提供；未启动 scheduler。"
   ]
 }
 ```
