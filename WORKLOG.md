@@ -104,26 +104,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "Feed 顶栏透明穿透最终形态：悬浮 absolute 条 + 内层 data-view-bar 毛玻璃（bg-background/70 + backdrop-blur），quiet-scroll-region overflow-y-scroll 对齐滚动条 gutter 消除 5px 偏差；筛选行 RemovableTag 新增 transparent 变体，清除全部改为 28px 紧凑 meta 按钮；设置概览卡片去箭头、徽标固定右上角、去已迁移标记，帮助与版本整行可点跳转。",
-  "status": "partial",
-  "task_id": "2026-08-05-feed-glass-bar-and-overview-cards",
-  "unresolved": [
-    "等待 full Test Gate 与合并验证。"
-  ],
-  "validation": [
-    "workbench-live 106 项、design-system + settings + changelog/manual 相关 Vitest 全过，typecheck 与 check:ui 通过。",
-    "三次 ./scripts/up-latest.sh 重建均 healthy；线上 chunk 确认悬浮条、gutter 对齐、透明标签与新卡片结构。",
-    "changelog 新增 v2.2.10，manual 同步，产品文档门禁满足。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "decisions",
     "interface",
     "ui"
@@ -356,6 +336,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "定向 Playwright：12/12 项目组合通过，无失败附件。",
     "release Test Gate：25/25 命令通过（484.911 秒）；Playwright 93 passed、48 skipped，隔离 Docker API smoke 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "ui"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "在 release 门禁修复后将 v2.2.10-421464fc3f06 本地 amd64 镜像加载并切换到 VPS，随后仅对老高與小茉 YouTube 频道执行免费单源头像回填。",
+  "status": "completed",
+  "task_id": "2026-08-06-deploy-youtube-avatar-release",
+  "unresolved": [],
+  "validation": [
+    "生产 API/Worker 均运行 revision 421464fc3f06 且 healthy，readiness 返回 worker_status=ready；scheduler stopped。",
+    "生产数据库 integrity/foreign key 通过、迁移标记至 v19；release 前后无活跃作业。",
+    "目标频道头像回填返回 stored；ready 文件为 image/jpeg、110250 bytes、官方 yt3.googleusercontent.com，未创建 Feed、AI、通知或付费任务。"
   ]
 }
 ```
