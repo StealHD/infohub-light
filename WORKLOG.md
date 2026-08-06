@@ -357,15 +357,13 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ],
   "recorded_on": "2026-08-06",
   "result": "将 YouTube 频道头像解析、官方 CDN 安全缓存与单源回填修复合并到本地 main；保留 main 的 AI Key 更新日志和本分支的 YouTube 头像更新日志。",
-  "status": "partial",
+  "status": "completed",
   "task_id": "2026-08-06-merge-youtube-avatar-into-main",
-  "unresolved": [
-    "需要为 Test Gate 指定的 Python 3.14 环境安装 pytest 后重跑完整 Gate。"
-  ],
+  "unresolved": [],
   "validation": [
     "合并冲突已解析，更新日志时间线保留两条 2026-08-06 记录并同步测试索引。",
     "WORKLOG 已安全归档轮转，控制工具在合并结果上校验通过。",
-    "完整 Test Gate 已启动：23 项中的前 3 项通过，Python 阶段因本机指定 Python 3.14 缺少 pytest 未能继续。"
+    "复用 key-driven-ai-bindings 虚拟环境重跑完整 Test Gate：23/23 命令通过（238.387 秒）。"
   ]
 }
 ```
