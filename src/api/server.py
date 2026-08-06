@@ -1414,15 +1414,15 @@ def create_app(
             "updated_at": secret["updated_at"],
         }
 
-    def validate_feed_end_messages_key_provider(
+    def validate_feed_end_messages_key(
         config: Config,
         *,
         workspace_id: str,
     ) -> None:
-        """Keep an optional terminal-copy Key on the active AI provider."""
+        """Validate a direct terminal-copy Key binding without global coupling."""
 
         key_env = str(config.feed_end_messages.ai_key_env or "").strip()
-        if not key_env or key_env == config.ai.api_key_env:
+        if not key_env:
             return
         secret = store.get_secret_ref_by_env(
             workspace_id=workspace_id,
@@ -1431,13 +1431,7 @@ def create_app(
         if secret is None or str(secret.get("kind") or "").lower() != "ai":
             raise ApiError(
                 "invalid_feed_end_messages_ai_key",
-                "触底文案 AI Key 必须选择已保存的 AI Key，或跟随工作区 AI Key。",
-                status_code=400,
-            )
-        if str(secret.get("provider") or "").lower() != config.ai.provider.value:
-            raise ApiError(
-                "invalid_feed_end_messages_ai_key",
-                "触底文案 AI Key 必须与当前 AI Provider 匹配，或跟随工作区 AI Key。",
+                "触底文案 AI Key 必须选择已保存的 AI Key。",
                 status_code=400,
             )
 
@@ -1454,12 +1448,10 @@ def create_app(
             return None
         if (
             str(secret.get("kind") or "").lower() != "ai"
-            or str(secret.get("provider") or "").lower()
-            != config.ai.provider.value
         ):
             raise ApiError(
                 "invalid_ai_key",
-                "AI Key 必须与当前 AI Provider 匹配。",
+                "AI Key 必须选择已保存的 AI Key。",
                 status_code=400,
             )
         return secret
@@ -4617,6 +4609,25 @@ def create_app(
         if not _is_admin(user):
             raise ApiError("forbidden", "admin role required", status_code=403)
 
+        feed_end_payload = (
+            payload
+            if action == "set_feed_end_messages"
+            else payload.get("feed_end_messages", {})
+            if action == "set_settings_bundle"
+            else None
+        )
+        if isinstance(feed_end_payload, dict) and feed_end_payload.get(
+            "ai_generation_enabled"
+        ) is True and (
+            not str(feed_end_payload.get("ai_key_env") or "").strip()
+            or not str(feed_end_payload.get("model") or "").strip()
+        ):
+            raise ApiError(
+                "invalid_feed_end_messages_ai_key",
+                "启用触底文案 AI 生成时必须选择已保存的 AI Key 并填写模型。",
+                status_code=400,
+            )
+
         base_data, _base_config = read_base_config()
         updated = apply_config_action(base_data, action, payload)
         if action in {"set_ai", "set_feed_end_messages"} or (
@@ -4629,9 +4640,12 @@ def create_app(
                 workspace_id=user["workspace_id"],
             )
             if global_ai_secret is not None:
+                updated.setdefault("ai", {})["provider"] = str(
+                    global_ai_secret["provider"]
+                ).lower()
                 synchronize_ai_connection(updated, global_ai_secret)
                 updated_config = validate_config_data(updated)
-            validate_feed_end_messages_key_provider(
+            validate_feed_end_messages_key(
                 updated_config,
                 workspace_id=user["workspace_id"],
             )

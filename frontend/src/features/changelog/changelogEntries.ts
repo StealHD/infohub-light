@@ -22,6 +22,15 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-06',
+        title: 'AI Key 成为连接主导配置',
+        summary: 'AI Key 现在直接决定 Provider 和连接地址；工作区分析与触底文案分别绑定平级 Key 和模型。',
+        items: [
+          { title: 'Provider 不再是全局门槛', description: '工作区 AI 先选择 Key，再显示其 Provider；切换 Key 会按 Provider 填入默认模型，不再单独编辑 Provider。' },
+          { title: '触底文案不再跟随或回退', description: '触底文案可选择所有已保存 AI Key 并保存自己的模型；保存后不受工作区 AI 开关、Provider、模型或地址影响，异常时安全保留内置文案。' },
+        ],
+      },
+      {
         date: '2026-08-05',
         title: 'v2.2.10 设置概览卡片交互统一',
         summary: '设置概览与帮助入口点击整卡即可跳转，职责徽标固定到卡片右上角，移除迁移标记与箭头。',

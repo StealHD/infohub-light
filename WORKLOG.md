@@ -4,6 +4,23 @@
 
 Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not logged.
 
+```json
+{
+  "control_topics": ["api", "decisions", "ui"],
+  "recorded_on": "2026-08-06",
+  "result": "将工作区分析与触底文案改为 AI Key 主导的平级绑定：Key 决定 Provider/Base URL，两个场景各自保存模型，触底文案不再跟随、筛选或回退工作区 AI。",
+  "status": "completed",
+  "task_id": "2026-08-06-key-driven-ai-bindings",
+  "unresolved": [],
+  "validation": [
+    "定向 pytest 110 项通过",
+    "前端 Vitest 106 项、TypeScript 与 UI contract 检查通过",
+    "python scripts/test_gate.py run --mode full 通过",
+    "未调用真实 AI、未重建 8080、未部署"
+  ]
+}
+```
+
 
 ```json
 {

@@ -1212,6 +1212,7 @@ def apply_config_action(
             "style_prompt",
             "list_count",
             "ai_key_env",
+            "model",
         }
         unknown_fields = sorted(set(payload) - allowed_fields)
         if unknown_fields:
@@ -1259,6 +1260,7 @@ def apply_config_action(
                 "触底文案 AI Key 环境变量名",
             )
             or "",
+            "model": _optional_text(payload, "model") or "",
         }
 
     elif action == "set_tags":

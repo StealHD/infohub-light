@@ -95,6 +95,7 @@ def test_feed_end_message_config_defaults_and_strict_boundaries():
         "style_prompt": "",
         "list_count": 12,
         "ai_key_env": "",
+        "model": "",
     }
 
     for field, value in [
@@ -107,6 +108,8 @@ def test_feed_end_message_config_defaults_and_strict_boundaries():
         ("style_prompt", "字" * 501),
         ("ai_key_env", 123),
         ("ai_key_env", "x" * 129),
+        ("model", 123),
+        ("model", "x" * 257),
     ]:
         invalid = _config_data()
         invalid["feed_end_messages"][field] = value
@@ -127,6 +130,7 @@ def test_feed_end_message_settings_bundle_is_validated_atomically():
                 "style_prompt": "像安静的图书管理员",
                 "list_count": 8,
                 "ai_key_env": "DEEPSEEK_API_KEY",
+                "model": "deepseek-v4-flash",
             }
         },
     )
@@ -138,6 +142,7 @@ def test_feed_end_message_settings_bundle_is_validated_atomically():
         "style_prompt": "像安静的图书管理员",
         "list_count": 8,
         "ai_key_env": "DEEPSEEK_API_KEY",
+        "model": "deepseek-v4-flash",
     }
     fallback = apply_config_action(
         base,
@@ -149,6 +154,7 @@ def test_feed_end_message_settings_bundle_is_validated_atomically():
             "style_prompt": "",
             "list_count": 12,
             "ai_key_env": "",
+            "model": "",
         },
     )
     assert fallback["feed_end_messages"]["ai_key_env"] == ""
@@ -271,6 +277,25 @@ def test_feed_end_message_fingerprint_includes_copy_contract_version(monkeypatch
     )
 
     assert feed_end_messages_config_fingerprint(config) != initial
+
+
+def test_direct_feed_end_binding_ignores_workspace_ai_changes():
+    data = _config_data()
+    data["feed_end_messages"].update(
+        {"ai_key_env": "GEMINI_COPY_KEY", "model": "gemini-2.5-flash"}
+    )
+    config = validate_config_data(data)
+    initial = feed_end_messages_config_fingerprint(config)
+
+    changed = config.model_copy(
+        update={
+            "ai": config.ai.model_copy(
+                update={"enabled": False, "model": "another-workspace-model"}
+            )
+        }
+    )
+
+    assert feed_end_messages_config_fingerprint(changed) == initial
 
 
 def test_disabled_generation_uses_builtins_and_rejects_manual_refresh(
@@ -536,6 +561,7 @@ def test_due_generation_uses_bound_ai_key_env_and_base_url(tmp_path, monkeypatch
     store, workspace, owner = _store(tmp_path, monkeypatch)
     data = _config_data()
     data["feed_end_messages"]["ai_key_env"] = "DEEPSEEK_API_KEY"
+    data["feed_end_messages"]["model"] = "copy-model"
     (tmp_path / "config.json").write_text(
         json.dumps(data, ensure_ascii=False),
         encoding="utf-8",
@@ -543,6 +569,7 @@ def test_due_generation_uses_bound_ai_key_env_and_base_url(tmp_path, monkeypatch
     fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
     seen_key_envs: list[str] = []
     seen_base_urls: list[str | None] = []
+    seen_models: list[str] = []
 
     store.create_secret_ref(
         workspace_id=workspace["id"],
@@ -557,6 +584,7 @@ def test_due_generation_uses_bound_ai_key_env_and_base_url(tmp_path, monkeypatch
     def factory(ai_config):
         seen_key_envs.append(ai_config.api_key_env)
         seen_base_urls.append(ai_config.base_url)
+        seen_models.append(ai_config.model)
         return fake
 
     result = run_due_feed_end_messages_generation(
@@ -570,6 +598,7 @@ def test_due_generation_uses_bound_ai_key_env_and_base_url(tmp_path, monkeypatch
     assert result["ok"] is True
     assert seen_key_envs == ["DEEPSEEK_API_KEY"]
     assert seen_base_urls == ["https://copy.example.test/v1"]
+    assert seen_models == ["copy-model"]
 
 
 def test_due_generation_uses_provider_default_when_bound_key_has_no_url(
@@ -608,7 +637,7 @@ def test_due_generation_uses_provider_default_when_bound_key_has_no_url(
     assert seen_base_urls == [None]
 
 
-def test_due_generation_falls_back_when_bound_key_provider_mismatches(
+def test_due_generation_uses_bound_key_provider_without_global_fallback(
     tmp_path, monkeypatch
 ):
     store, workspace, owner = _store(tmp_path, monkeypatch)
@@ -628,9 +657,11 @@ def test_due_generation_falls_back_when_bound_key_provider_mismatches(
     )
     fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
     seen_key_envs: list[str] = []
+    seen_providers: list[str] = []
 
     def factory(ai_config):
         seen_key_envs.append(ai_config.api_key_env)
+        seen_providers.append(ai_config.provider.value)
         return fake
 
     result = run_due_feed_end_messages_generation(
@@ -642,7 +673,40 @@ def test_due_generation_falls_back_when_bound_key_provider_mismatches(
     )
 
     assert result["ok"] is True
-    assert seen_key_envs == ["OPENAI_API_KEY"]
+    assert seen_key_envs == ["GOOGLE_API_KEY_2"]
+    assert seen_providers == ["gemini"]
+
+
+def test_due_generation_with_direct_key_does_not_require_workspace_ai_enabled(
+    tmp_path, monkeypatch
+):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    data = _config_data(ai_enabled=False)
+    data["feed_end_messages"].update(
+        {"ai_key_env": "GEMINI_COPY_KEY", "model": "gemini-2.5-flash"}
+    )
+    (tmp_path / "config.json").write_text(json.dumps(data), encoding="utf-8")
+    store.create_secret_ref(
+        workspace_id=workspace["id"],
+        owner_user_id=owner["id"],
+        name="Gemini copy",
+        env_name="GEMINI_COPY_KEY",
+        kind="ai",
+        provider="gemini",
+    )
+    seen: list[tuple[str, str]] = []
+    fake = _FakeClient(json.dumps(_messages(), ensure_ascii=False))
+
+    result = run_due_feed_end_messages_generation(
+        data_dir=str(tmp_path),
+        store=store,
+        worker_id="copy-worker",
+        client_factory=lambda ai_config: (seen.append((ai_config.provider.value, ai_config.model)) or fake),
+        now=datetime(2026, 7, 29, tzinfo=timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert seen == [("gemini", "gemini-2.5-flash")]
 
 
 def test_due_generation_without_binding_falls_back_to_global_key(tmp_path, monkeypatch):

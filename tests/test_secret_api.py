@@ -467,27 +467,13 @@ def test_feed_end_message_key_reference_blocks_deletion_until_cleared(tmp_path, 
                     "style_prompt": "",
                     "list_count": 12,
                     "ai_key_env": env_name,
+                    "model": "gemini-3.5-flash",
                 },
             },
         )
         assert response.status_code == 200, response.text
 
-    incompatible = client.post(
-        "/api/config/action",
-        json={
-            "action": "set_feed_end_messages",
-            "payload": {
-                "ai_generation_enabled": True,
-                "refresh_days": 7,
-                "style_preset": "restrained",
-                "style_prompt": "",
-                "list_count": 12,
-                "ai_key_env": incompatible_secret["env_name"],
-            },
-        },
-    )
-    assert incompatible.status_code == 400
-    assert incompatible.json()["error"]["code"] == "invalid_feed_end_messages_ai_key"
+    update_feed_end_key(incompatible_secret["env_name"])
 
     update_feed_end_key(feed_end_secret["env_name"])
     listed = client.get("/api/admin/secrets").json()["data"]["secrets"]
@@ -505,7 +491,22 @@ def test_feed_end_message_key_reference_blocks_deletion_until_cleared(tmp_path, 
         {"type": "ai", "id": "feed-end-messages", "name": "信息流触底文案"},
     ]
 
-    update_feed_end_key("")
+    response = client.post(
+        "/api/config/action",
+        json={
+            "action": "set_feed_end_messages",
+            "payload": {
+                "ai_generation_enabled": False,
+                "refresh_days": 7,
+                "style_preset": "restrained",
+                "style_prompt": "",
+                "list_count": 12,
+                "ai_key_env": "",
+                "model": "",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
     assert client.delete(f"/api/admin/secrets/{feed_end_secret['id']}").status_code == 200
 
 

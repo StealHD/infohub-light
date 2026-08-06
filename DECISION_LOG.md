@@ -1033,3 +1033,10 @@
 - 决策内容：`feed_end_messages` 配置新增可选 `ai_key_env`（合法环境变量名或空字符串，缺省为空）。`/settings/ai` 的触底文案表单只列出与当前工作区 Provider 相同的已保存 AI Key；空值表示跟随工作区 `ai.api_key_env`。每个 AI SecretRef 可选保存自己的安全 `base_url`（无 userinfo/query/fragment 的 HTTP(S) URL）；Worker 生成时以 Key 覆盖工作区环境变量名，并始终采用该 Key 自己的 URL，地址为空则使用 Provider 默认地址，Provider、模型与输出参数仍沿用工作区 AI 配置。跨 Provider 或已删除 Key 的历史绑定在运行时安全回退工作区 Key，保存端拒绝再次写入。`ai_key_env` 计入既有配置指纹，变更后旧缓存自动标记待刷新；SecretRef 的非敏感 URL 元数据为 additive SQLite 列，`ai.base_url` 只保留为所选工作区 Key 的后端兼容投影，不再是可编辑的全局连接概念。
 - 视觉边界：Feed 顶部工具栏采用 absolute 半透明毛玻璃浮层（`bg-background/70` + `backdrop-blur-md`），颜色 token 随明暗主题自动适配。通过 `ResizeObserver` 以工具栏真实高度加 8px 计算内容避让，筛选标签换行、移动端搜索展开和字体尺寸变化都会更新；列表卡片可在浮层下滚动，但有效可视边界、深链/错误提示、加载和空态都只使用一次动态避让，不会被浮层覆盖。
 - 原因：触底文案此前强行绑定全局 AI Key，多 Key 工作区无法让低频后台生成使用独立配额；仅替换 Key 而继续使用全局 URL 会把中转或供应商 Key 发往错误端点。Feed 顶栏 95% 不透明度在滚动时几乎无透视感。两处均以最小改动满足需求，且不触碰已验证的生成安全合同。
+
+### D121 AI Key 主导 Provider 与场景模型绑定
+
+- 决策日期：2026-08-06
+- 当前状态：本地任务分支实现与验证中；不迁移数据库、不调用真实 AI 或部署。
+- 决策内容：所有 AI Key 是平级连接配置，Key 自己的 Provider、Base URL 与凭据共同决定实际客户端；工作区分析和触底文案各自直接保存 Key 与模型。工作区 AI 页不再编辑 Provider，Provider 由所选 Key 展示并回写既有兼容字段；触底文案列出全部 AI Key，不再跟随或校验工作区 Provider。显式触底绑定不读取工作区 AI 开关、Provider、模型、URL 或配额维度，也不得回退其他 Key；模型调用按所选 Key Provider 计量。旧空绑定只在读取时临时投影为工作区当前 Key/模型，旧有 Key 但无模型时按该 Key Provider 默认模型运行，下一次页面保存后写为显式绑定。
+- 兼容/边界：`feed_end_messages.model` 为 additive 配置字段；API 路径、SecretStore、数据库、文案安全合同、空闲 Worker 时序与失败退避不变。D121 取代 D120 中“同 Provider 限制、动态跟随工作区、工作区开关门槛、沿用工作区模型和跨 Provider 回退”的部分；D120 的 Key 级 URL 与 Feed 工具栏视觉结论仍有效。

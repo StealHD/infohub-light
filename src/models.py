@@ -112,6 +112,7 @@ class FeedEndMessagesConfig(BaseModel):
     style_prompt: str = ""
     list_count: int = Field(default=12, ge=3, le=30)
     ai_key_env: str = ""
+    model: str = ""
 
     @field_validator("refresh_days", "list_count", mode="before")
     @classmethod
@@ -144,6 +145,20 @@ class FeedEndMessagesConfig(BaseModel):
             raise ValueError("ai_key_env must contain at most 128 characters")
         if "\x00" in normalized:
             raise ValueError("ai_key_env must not contain null characters")
+        return normalized
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def validate_model(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError("model must be a string")
+        normalized = value.strip()
+        if len(normalized) > 256:
+            raise ValueError("model must contain at most 256 characters")
+        if "\x00" in normalized:
+            raise ValueError("model must not contain null characters")
         return normalized
 
 

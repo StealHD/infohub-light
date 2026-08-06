@@ -131,6 +131,7 @@ export function SettingsAIPage() {
   const [feedEndRefreshDaysOverride, setFeedEndRefreshDaysOverride] = useState<string | null>(null)
   const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
   const [feedEndAiKeyEnvOverride, setFeedEndAiKeyEnvOverride] = useState<string | null>(null)
+  const [feedEndModelOverride, setFeedEndModelOverride] = useState<string | null>(null)
   const [expandedFeedEndScenes, setExpandedFeedEndScenes] = useState<Set<string>>(() => new Set())
   const [dirtySections, setDirtySections] = useState<Set<AiSettingsSection>>(() => new Set())
   const revisions = useRef<Record<AiSettingsSection, number>>({ ai: 0, feed_end_messages: 0 })
@@ -138,46 +139,39 @@ export function SettingsAIPage() {
   const feedEndMessagesFormRef = useRef<HTMLFormElement>(null)
 
   const ai = recordOf(config.data?.config.ai)
-  const configuredAiProvider = String(ai.provider ?? 'gemini')
+  const aiSecrets = (secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai')
+  const configuredAiKeyEnv = String(ai.api_key_env ?? '')
+  const configuredAiSecret = aiSecrets.find((secret) => secret.env_name === configuredAiKeyEnv)
+  const configuredAiProvider = configuredAiSecret?.provider ?? String(ai.provider ?? 'gemini')
   const configuredAiDefaults = aiDefaultsForProvider(configuredAiProvider)
   const configuredAiDraft: AiDraft = {
     provider: configuredAiProvider,
     model: String(ai.model ?? configuredAiDefaults.model),
-    apiKeyEnv: String(ai.api_key_env ?? ''),
+    apiKeyEnv: configuredAiKeyEnv,
   }
   const aiDraft = aiOverride ?? configuredAiDraft
   const aiDraftRef = useRef(aiDraft)
   const feedEndMessages = recordOf(config.data?.config.feed_end_messages)
   const feedEndRefreshDays = feedEndRefreshDaysOverride ?? String(feedEndMessages.refresh_days ?? 7)
   const feedEndStyle = feedEndStyleOverride ?? String(feedEndMessages.style_preset ?? 'restrained')
-  const feedEndAiKeyEnv = feedEndAiKeyEnvOverride ?? String(feedEndMessages.ai_key_env ?? '')
-  const aiSecrets = (secrets.data?.secrets ?? []).filter((secret) => secret.kind === 'ai')
-  const compatibleAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
-  const compatibleFeedEndAiSecrets = aiSecrets.filter((secret) => secret.provider === aiDraft.provider)
+  const configuredFeedEndAiKeyEnv = String(feedEndMessages.ai_key_env ?? '').trim()
+  const initialFeedEndAiKeyEnv = aiSecrets.some((secret) => secret.env_name === aiDraft.apiKeyEnv)
+    ? aiDraft.apiKeyEnv
+    : aiSecrets[0]?.env_name ?? ''
+  const feedEndAiKeyEnv = feedEndAiKeyEnvOverride ?? (configuredFeedEndAiKeyEnv || initialFeedEndAiKeyEnv)
   const selectedFeedEndAiSecret = aiSecrets.find((secret) => secret.env_name === feedEndAiKeyEnv)
-  const feedEndKeyMismatch = Boolean(
-    feedEndAiKeyEnv
-    && (!selectedFeedEndAiSecret || selectedFeedEndAiSecret.provider !== aiDraft.provider),
-  )
-  const feedEndAiKeyOptions = [
-    { id: '', label: '跟随工作区 AI Key（默认）' },
-    ...(feedEndKeyMismatch
-      ? [{
-          id: feedEndAiKeyEnv,
-          label: selectedFeedEndAiSecret
-            ? `${selectedFeedEndAiSecret.name} · 与当前 Provider 不兼容`
-            : '当前绑定 Key 已不可用',
-          description: '请改为跟随工作区 Key，或选择同一 Provider 的已保存 Key。',
-          isDisabled: true,
-        }]
-      : []),
-    ...compatibleFeedEndAiSecrets.map((secret) => ({
+  const configuredFeedEndModel = String(feedEndMessages.model ?? '').trim()
+  const feedEndModel = feedEndModelOverride ?? (configuredFeedEndModel || (selectedFeedEndAiSecret
+      ? aiDefaultsForProvider(selectedFeedEndAiSecret.provider).model
+      : aiDraft.model))
+  const feedEndAiKeyOptions = aiSecrets.map((secret) => ({
       id: secret.env_name,
-      label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`,
+      label: `${secret.name} · ${secret.provider} · ${secret.is_set ? '已设置' : '未设置'}`,
       description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址',
-    })),
-  ]
-  const savedFeedEndGenerationEnabled = ai.enabled !== false && feedEndMessages.ai_generation_enabled === true
+    }))
+  const savedFeedEndGenerationEnabled = feedEndMessages.ai_generation_enabled === true
+    && Boolean(configuredFeedEndAiKeyEnv)
+    && Boolean(configuredFeedEndModel)
 
   useLayoutEffect(() => {
     aiDraftRef.current = aiDraft
@@ -246,6 +240,7 @@ export function SettingsAIPage() {
         setFeedEndRefreshDaysOverride(null)
         setFeedEndStyleOverride(null)
         setFeedEndAiKeyEnvOverride(null)
+        setFeedEndModelOverride(null)
       }
       if (result?.config) queryClient.setQueryData(queryKeys.config(user.id), result)
       actionToast.success(submitted.sections.length > 1 ? '全部配置已保存' : '设置已保存')
@@ -285,6 +280,14 @@ export function SettingsAIPage() {
       document.querySelector<HTMLElement>('[aria-label^="AI Key"]')?.focus()
       actionToast.warning('AI Key 不能为空', { description: '请选择已配置的 AI Key 后再保存。' })
       return false
+    }
+    if (section === 'feed_end_messages' && form) {
+      const data = new FormData(form)
+      if (data.has('ai_generation_enabled') && (!String(data.get('ai_key_env') ?? '').trim() || !String(data.get('model') ?? '').trim())) {
+        actionToast.warning('生成用 AI Key 和模型不能为空', { description: '启用触底文案生成前，请选择 AI Key 并填写模型。' })
+        form.querySelector<HTMLElement>('[aria-label^="生成用 AI Key"], [name="model"]')?.focus()
+        return false
+      }
     }
     return true
   }
@@ -330,7 +333,7 @@ export function SettingsAIPage() {
         </SettingsGroup>
       </SettingsSection>
 
-      <SettingsSection id="settings-ai" title="工作区 AI" description="选择工作区的 Provider、模型与 AI Key；连接地址随每个 Key 独立保存。">
+      <SettingsSection id="settings-ai" title="工作区 AI" description="选择 AI Key 与模型；Provider 和连接地址由所选 Key 决定。">
         {!admin && <SettingsGroup ariaLabel="工作区 AI 访问权限">
           <SettingsItem
             label="工作区设置只读"
@@ -351,21 +354,28 @@ export function SettingsAIPage() {
                   <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 分析</Checkbox.Content>
                 </Checkbox>
                 <div className="grid gap-4 min-[720px]:grid-cols-3">
-                  <HeroSelect label="Provider" value={aiDraft.provider} onChange={(nextProvider) => {
-                    const defaults = aiDefaultsForProvider(nextProvider)
-                    const compatibleSecrets = aiSecrets.filter((secret) => secret.provider === nextProvider)
-                    const preferredSecret = compatibleSecrets.find((secret) => secret.env_name === defaults.apiKeyEnv) ?? compatibleSecrets[0]
-                    setAiOverride({ provider: nextProvider, model: defaults.model, apiKeyEnv: preferredSecret?.env_name ?? '' })
+                  <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
+                    const selected = aiSecrets.find((secret) => secret.env_name === apiKeyEnv)
+                    const provider = selected?.provider ?? aiDraft.provider
+                    setAiOverride({
+                      provider,
+                      model: provider === aiDraft.provider ? aiDraft.model : aiDefaultsForProvider(provider).model,
+                      apiKeyEnv,
+                    })
                     refreshDirty('ai')
-                  }} options={[{ id: 'gemini', label: 'Gemini' }, { id: 'openai', label: 'OpenAI' }, { id: 'anthropic', label: 'Anthropic' }, { id: 'deepseek', label: 'DeepSeek' }]} />
+                  }} options={[{ id: '', label: '请选择' }, ...aiSecrets.map((secret) => ({
+                    id: secret.env_name,
+                    label: `${secret.name} · ${secret.provider} · ${secret.is_set ? '已设置' : '未设置'}`,
+                    description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址',
+                  }))]} />
                   <TextField fullWidth value={aiDraft.model} onChange={(model) => {
                     setAiOverride({ ...aiDraft, model })
                     refreshDirty('ai')
                   }} isRequired><Label>模型</Label><Input /></TextField>
-                  <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
-                    setAiOverride({ ...aiDraft, apiKeyEnv })
-                    refreshDirty('ai')
-                  }} options={[{ id: '', label: '请选择' }, ...compatibleAiSecrets.map((secret) => ({ id: secret.env_name, label: `${secret.name} · ${secret.is_set ? '已设置' : '未设置'}`, description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址' }))]} />
+                  <div className="rounded-xl border border-separator bg-surface-secondary px-3 py-2">
+                    <p className="type-meta text-muted">Provider</p>
+                    <p className="type-control mt-1">{aiDraft.provider}</p>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>
@@ -405,9 +415,17 @@ export function SettingsAIPage() {
                 refreshDirty('feed_end_messages')
               }} options={[{ id: 'restrained', label: '克制（默认）' }, { id: 'warm', label: '温和' }, { id: 'light_humor', label: '轻幽默' }]} />
               <HeroSelect name="ai_key_env" label="生成用 AI Key" value={feedEndAiKeyEnv} onChange={(value) => {
+                const selected = aiSecrets.find((secret) => secret.env_name === value)
                 setFeedEndAiKeyEnvOverride(value)
+                if (selected?.provider !== selectedFeedEndAiSecret?.provider) {
+                  setFeedEndModelOverride(aiDefaultsForProvider(selected?.provider ?? '').model)
+                }
                 refreshDirty('feed_end_messages')
-              }} options={feedEndAiKeyOptions} description={`仅显示与当前 ${aiDraft.provider} Provider 兼容的已保存 AI Key。`} errorMessage={feedEndKeyMismatch ? '当前绑定 Key 与工作区 AI Provider 不匹配；请重新选择。' : undefined} />
+              }} options={feedEndAiKeyOptions} description="Key 决定 Provider 和连接地址；所有已保存 AI Key 都可选择。" />
+              <TextField fullWidth name="model" value={feedEndModel} onChange={(model) => {
+                setFeedEndModelOverride(model)
+                refreshDirty('feed_end_messages')
+              }} isRequired><Label>生成用模型</Label><Input /></TextField>
               <FormField name="list_count" label="每场景条数" type="number" min={3} max={30} defaultValue={Number(feedEndMessages.list_count ?? 12)} required />
             </div>
             <TextField fullWidth name="style_prompt" defaultValue={String(feedEndMessages.style_prompt ?? '')}>

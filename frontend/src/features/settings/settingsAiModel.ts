@@ -67,6 +67,7 @@ export function buildFeedEndMessagesPayload(form: HTMLFormElement): Record<strin
     style_prompt: inputValue(data, 'style_prompt'),
     list_count: Number(data.get('list_count')),
     ai_key_env: inputValue(data, 'ai_key_env'),
+    model: inputValue(data, 'model'),
   }
 }
 
@@ -78,5 +79,6 @@ export function configuredFeedEndMessagesPayload(configured: Record<string, unkn
     style_prompt: String(configured.style_prompt ?? '').trim(),
     list_count: Number(configured.list_count ?? 12),
     ai_key_env: String(configured.ai_key_env ?? '').trim(),
+    model: String(configured.model ?? '').trim(),
   }
 }

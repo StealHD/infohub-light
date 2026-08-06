@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from ..ai.client import AIClient, create_ai_client
-from ..models import AIConfig, Config
+from ..models import AIConfig, AIProvider, Config
 from ..storage.manager import StorageManager
 from ..storage.service_store import ServiceStore
 from .quota import QuotaService
@@ -25,7 +25,13 @@ FEED_END_MESSAGE_SCENES = ("empty", "first_end", "repeat_end")
 FEED_END_MESSAGE_RETRY_HOURS = 6
 FEED_END_MESSAGE_TIMEOUT_SECONDS = 60
 FEED_END_MESSAGE_LEASE_SECONDS = 75
-FEED_END_MESSAGE_CONTRACT_VERSION = 2
+FEED_END_MESSAGE_CONTRACT_VERSION = 3
+_DEFAULT_MODELS_BY_PROVIDER = {
+    "gemini": "gemini-3.5-flash",
+    "openai": "gpt-5-mini",
+    "anthropic": "claude-sonnet-4-5",
+    "deepseek": "deepseek-v4-flash",
+}
 FEED_END_MESSAGE_DECORATIONS = (
     "🙂",
     "😊",
@@ -131,14 +137,19 @@ def _safe_error_code(value: Any) -> str | None:
 
 
 def feed_end_messages_config_fingerprint(config: Config) -> str:
-    """Hash only model identity and non-secret terminal-copy inputs."""
+    """Hash only the direct terminal-copy binding and non-secret inputs."""
 
     payload = {
         "contract_version": FEED_END_MESSAGE_CONTRACT_VERSION,
-        "provider": config.ai.provider.value,
-        "model": config.ai.model,
         "feed_end_messages": config.feed_end_messages.model_dump(mode="json"),
     }
+    if not config.feed_end_messages.ai_key_env.strip():
+        payload["legacy_workspace_ai"] = {
+            "enabled": config.ai.enabled,
+            "provider": config.ai.provider.value,
+            "model": config.ai.model,
+            "api_key_env": config.ai.api_key_env,
+        }
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -323,10 +334,13 @@ class FeedEndMessagesService:
 
     @staticmethod
     def _generation_enabled(config: Config) -> bool:
-        return bool(
-            config.ai.enabled
-            and config.feed_end_messages.ai_generation_enabled
-        )
+        if not config.feed_end_messages.ai_generation_enabled:
+            return False
+        # Empty values are the read-only compatibility projection for settings
+        # saved before feed-end copy owned a direct Key and model binding.
+        if not config.feed_end_messages.ai_key_env.strip():
+            return bool(config.ai.enabled)
+        return True
 
     def public_state(
         self,
@@ -704,44 +718,38 @@ def _generation_ai_config(
     store: ServiceStore,
     workspace_id: str,
 ) -> AIConfig:
-    """Resolve the selected Key's endpoint without crossing provider contracts."""
+    """Resolve one direct terminal-copy Key without a workspace fallback."""
 
-    bound_key_env = str(config.feed_end_messages.ai_key_env or "").strip()
-    selected_key_env = bound_key_env or config.ai.api_key_env
-
-    def config_for_key(key_env: str) -> tuple[AIConfig | None, dict[str, Any] | None]:
-        secret = store.get_secret_ref_by_env(
-            workspace_id=workspace_id,
-            env_name=key_env,
-        )
-        if secret is None:
-            return (config.ai if key_env == config.ai.api_key_env else None, None)
-        if (
-            str(secret.get("kind") or "").lower() != "ai"
-            or str(secret.get("provider") or "").lower()
-            != config.ai.provider.value
-        ):
-            return None, secret
-        base_url = str(secret.get("base_url") or "").strip()
-        overrides: dict[str, Any] = {
+    key_env = str(config.feed_end_messages.ai_key_env or "").strip()
+    if not key_env:
+        return config.ai
+    secret = store.get_secret_ref_by_env(
+        workspace_id=workspace_id,
+        env_name=key_env,
+    )
+    if (
+        secret is None
+        or str(secret.get("kind") or "").lower() != "ai"
+    ):
+        raise ValueError("feed end message AI Key or model is unavailable")
+    try:
+        provider = AIProvider(str(secret.get("provider") or "").lower())
+    except ValueError as exc:
+        raise ValueError("feed end message AI Key provider is invalid") from exc
+    model = str(config.feed_end_messages.model or "").strip() or _DEFAULT_MODELS_BY_PROVIDER.get(provider.value, "")
+    if not model:
+        raise ValueError("feed end message model is unavailable")
+    base_url = str(secret.get("base_url") or "").strip()
+    return config.ai.model_copy(
+        update={
+            "enabled": True,
+            "provider": provider,
+            "model": model,
             "api_key_env": key_env,
             "base_url": base_url or None,
+            "max_tokens": 4096,
         }
-        return config.ai.model_copy(update=overrides), secret
-
-    selected_config, selected_secret = config_for_key(selected_key_env)
-    if selected_config is not None:
-        return selected_config
-    if bound_key_env:
-        logger.warning(
-            "feed end message Key provider mismatch workspace_id=%s "
-            "bound_provider=%s active_provider=%s; using global AI Key",
-            workspace_id,
-            str((selected_secret or {}).get("provider") or "").lower(),
-            config.ai.provider.value,
-        )
-    global_config, _global_secret = config_for_key(config.ai.api_key_env)
-    return global_config or config.ai
+    )
 
 
 def run_due_feed_end_messages_generation(
@@ -763,7 +771,6 @@ def run_due_feed_end_messages_generation(
     if claim is None:
         return None
 
-    provider = config.ai.provider.value
     ai_config = _generation_ai_config(
         config=config,
         store=store,
@@ -778,7 +785,7 @@ def run_due_feed_end_messages_generation(
         ).admit_ai_attempt(
             workspace_id=claim["workspace_id"],
             user_id=claim["user_id"],
-            provider=provider,
+            provider=ai_config.provider.value,
             now=now,
         )
         factory = client_factory or (
@@ -796,10 +803,7 @@ def run_due_feed_end_messages_generation(
                     system,
                     user,
                     temperature=0.4,
-                    max_tokens=min(
-                        int(config.ai.max_tokens),
-                        max(1024, config.feed_end_messages.list_count * 150),
-                    ),
+                    max_tokens=min(4096, max(1024, config.feed_end_messages.list_count * 150)),
                 ),
                 timeout=FEED_END_MESSAGE_TIMEOUT_SECONDS,
             )
