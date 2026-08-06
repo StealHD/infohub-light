@@ -197,7 +197,7 @@ def test_openclaw_skill_readme_uses_access_specific_tool_filters():
     ] == [(13, READ_TOOLS), (17, TOOLS)]
 
 
-def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch():
+def test_openclaw_skill_pages_stored_article_bodies_and_fetches_the_exact_handoff_url():
     contract = _text("references/tool-contract.md")
     workflows = _text("references/workflows.md")
     combined = f"{contract}\n{workflows}"
@@ -215,6 +215,9 @@ def test_openclaw_skill_pages_stored_article_bodies_without_claiming_a_web_fetch
     assert "20,000" in combined or "20000" in combined
     assert "最多三段" in combined
     assert "完整原文未保存在 Inteliscope" in combined
+    assert "web_fetch exactly once" in combined
+    assert "same URL" in combined or "exact URL" in combined
+    assert "never search" in combined
     assert "不可信" in combined
 
 

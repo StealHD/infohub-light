@@ -121,3 +121,36 @@ Unless the user explicitly asks for expanded analysis, final responses should be
 阻塞：如果有，列 1~3 条；如果没有可省略
 文件：只列修改过的关键文件路径，最多 8 个
 ```
+
+<skills_system priority="1">
+
+## Available Skills
+
+<!-- SKILLS_TABLE_START -->
+<usage>
+When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
+
+How to use skills:
+- Invoke: `npx openskills read <skill-name>` (run in your shell)
+  - For multiple: `npx openskills read skill-one,skill-two`
+- The skill content will load with detailed instructions on how to complete the task
+- Base directory provided in output for resolving bundled resources (references/, scripts/, assets/)
+
+Usage notes:
+- Only use skills listed in <available_skills> below
+- Do not invoke a skill that is already loaded in your context
+- Each skill invocation is stateless
+</usage>
+
+<available_skills>
+
+<skill>
+<name>kaoyan-reading</name>
+<description>考研阅读长难句训练。给定日期后从 hehonghui/awesome-english-ebooks 抓取最近一期《The Economist》,挑出 20 个高价值长难句段落,产出主干/结构树/中英翻译/考研词汇/考点提示,再抽写作万能句型,并把词汇通过 AnkiConnect(http://127.0.0.1:8765)导入 Anki。牌组命名:经济学人::{文章标题}::{YYYY-MM-DD}。报告固定写到 ~/Documents/jie/word/output/。触发:考研阅读、长难句训练、经济学人精读、kaoyan-reading、考研英语精读。</description>
+<location>global</location>
+</skill>
+
+</available_skills>
+<!-- SKILLS_TABLE_END -->
+
+</skills_system>

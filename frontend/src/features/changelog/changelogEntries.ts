@@ -23,6 +23,16 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-06',
+        title: 'OpenClaw 原文分析与上下文引用优化',
+        summary: '附带的信息现在会主动读取原文网址；来源引用使用订阅头像并可在上方浮层中完整查看。',
+        items: [
+          { title: '原网页读取透明降级', description: 'OpenClaw 先读取 Inteliscope 已保存内容，再访问同一条已清洗的原文网址；网页受限或不可读时会明确说明并仅分析已保存部分。' },
+          { title: '来源更容易识别', description: '上下文引用优先显示受保护的订阅头像，缺少头像时继续使用来源图标；标题随可用空间自适应，长内容不会撑破面板。' },
+          { title: '全部信息向上轻柔展开', description: '“查看全部”会在触发点上方打开有界浮层，保留键盘焦点、滚动和移除操作，并遵循减少动态效果设置。' },
+        ],
+      },
+      {
+        date: '2026-08-06',
         title: 'AI Key 成为连接主导配置',
         summary: 'AI Key 现在直接决定 Provider 和连接地址；工作区分析与触底文案分别绑定平级 Key 和模型。',
         items: [

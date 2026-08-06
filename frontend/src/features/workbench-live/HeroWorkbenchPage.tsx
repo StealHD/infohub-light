@@ -768,6 +768,7 @@ export function HeroWorkbenchPage({ kind }: { kind: WorkbenchKind }) {
           title: card.displayKind === 'social' ? card.primaryText : card.title,
           sourceName: workbenchSourceLabels(card, true).join(' · ') || card.source,
           sourceUrl: card.url,
+          sourceAvatarUrl: card.sourceAvatar,
           publishedAt: card.publishedAt,
         })
         if (!alreadySelected) agent.openComposer()

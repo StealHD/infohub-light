@@ -40,7 +40,7 @@ import {
   sanitizeSourceUrl,
   updateAgentContextDraft,
   writeAgentContextDraft,
-  type AgentContextDraftV4,
+  type AgentContextDraftV5,
 } from './agentContext'
 import { OpenClawConversation } from '../openclaw/OpenClawConversation'
 import { useOpenClawChat } from '../openclaw/useOpenClawChat'
@@ -833,7 +833,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     navigate('/feed')
   }
 
-  const persistDraft = useCallback((next: AgentContextDraftV4) => {
+  const persistDraft = useCallback((next: AgentContextDraftV5) => {
     setDraft(writeAgentContextDraft(props.user.id, next))
   }, [props.user.id])
 

@@ -104,26 +104,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "闭环修复 Kimi K3 分支：触底文案独立 AI Key 现在进入 SecretStore 使用关系并阻止误删；Feed 悬浮工具栏按真实高度动态避让内容，筛选换行、移动搜索、提示、加载和空态均不会遮挡首项，阅读锚点按有效可视边界保持稳定。",
-  "status": "completed",
-  "task_id": "2026-08-05-workbuddy-stability-closure",
-  "unresolved": [],
-  "validation": [
-    "后端引用/删除/同 Key/空值回退定向 pytest 105 项通过；前端 App 与 VirtualFeed 定向 Vitest 138 项通过。",
-    "npm run typecheck、npm run check:ui 与 production-workbench desktop E2E 31 项通过。",
-    "Full Test Gate：23/23 命令通过（245.628 秒）；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "observability"
   ],
   "recorded_on": "2026-08-05",
@@ -355,6 +335,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产 API/Worker 均运行 revision 421464fc3f06 且 healthy，readiness 返回 worker_status=ready；scheduler stopped。",
     "生产数据库 integrity/foreign key 通过、迁移标记至 v19；release 前后无活跃作业。",
     "目标频道头像回填返回 stored；ready 文件为 image/jpeg、110250 bytes、官方 yt3.googleusercontent.com，未创建 Feed、AI、通知或付费任务。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "ui"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "OpenClaw V7 附带 Feed 内容先读 Inteliscope 存储证据，再对同一已清洗原文 URL 主动读取；上下文引用改为订阅头像、自适应标题与向上完整浮层。",
+  "status": "completed",
+  "task_id": "2026-08-06-openclaw-original-fetch-context-ui",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest：4 个文件、87 项通过；TypeScript 与 UI contract 检查通过。",
+    "OpenClaw Skill pytest：13 项通过；完整 Test Gate 命令成功；个人偏好规则 26 项通过。"
   ]
 }
 ```

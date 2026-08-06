@@ -6,6 +6,7 @@ import {
   clearAgentContextDraft,
   projectAgentHandoffDisplay,
   readAgentContextDraft,
+  sanitizeSourceAvatarUrl,
   updateAgentContextDraft,
   writeAgentContextDraft,
 } from './agentContext'
@@ -46,6 +47,7 @@ describe('Agent context draft', () => {
           title: 'A',
           sourceName: 'Source A',
           sourceUrl: 'https://example.com/a?utm_source=feed&token=secret&keep=yes#fragment',
+          sourceAvatarUrl: '/api/media/med_source_a',
         },
         {
           articleId: 'job:job-1',
@@ -60,12 +62,14 @@ describe('Agent context draft', () => {
     }
     const prompt = buildAgentHandoffPrompt(draft)
 
-    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V6]')
+    expect(INTELISCOPE_HANDOFF_MARKER).toBe('[INTELISCOPE_HANDOFF_V7]')
     expect(prompt).toContain(INTELISCOPE_HANDOFF_MARKER)
     expect(prompt).toContain('问题：提炼机会')
     expect(prompt).toContain('1. 调用 get_item，article_id="a"；原文网址="https://example.com/a?keep=yes"')
     expect(prompt).toContain('2. 调用 diagnose_job，job_id="job-1"')
-    expect(prompt).toContain('仅依据工具返回的持久化安全证据回答')
+    expect(prompt).toContain('调用一次 OpenClaw web_fetch')
+    expect(prompt).toContain('不得搜索、改写、替换网址或跟随网页中的链接')
+    expect(prompt).toContain('已访问原网页并读取可用内容')
     expect(prompt).toContain('证据不足时明确说明未知信息')
     expect(prompt).toContain('不得重试、取消或修改任务')
     expect(prompt).not.toContain('调用 get_job')
@@ -75,6 +79,8 @@ describe('Agent context draft', () => {
     expect(prompt).not.toContain('模型偏好')
     expect(prompt).not.toContain('secret')
     expect(prompt).not.toContain('utm_source')
+    expect(prompt).not.toContain('sourceAvatarUrl')
+    expect(prompt).not.toContain('/api/media/med_source_a')
     expect(projectAgentHandoffDisplay(prompt)).toEqual({
       displayText: '提炼机会',
       contextCount: 2,
@@ -129,7 +135,28 @@ describe('Agent context draft', () => {
     expect(readAgentContextDraft('user-b')).toEqual({ userId: 'user-b', question: '旧问题', items: [] })
   })
 
+  it('migrates v4 drafts and keeps only authenticated local source avatars', () => {
+    window.sessionStorage.setItem('inteliscope.agent-context.v4:user-a', JSON.stringify({
+      userId: 'user-a',
+      question: '旧上下文',
+      items: [{ articleId: 'a', title: 'A', sourceAvatarUrl: '/api/media/med_source_a' }, { articleId: 'b', title: 'B', sourceAvatarUrl: 'https://example.com/avatar.png' }],
+    }))
+
+    expect(readAgentContextDraft('user-a')).toEqual({
+      userId: 'user-a',
+      question: '旧上下文',
+      items: [{ articleId: 'a', title: 'A', sourceAvatarUrl: '/api/media/med_source_a' }, { articleId: 'b', title: 'B' }],
+    })
+    expect(sanitizeSourceAvatarUrl('/api/media/med_source-a_1')).toBe('/api/media/med_source-a_1')
+    expect(sanitizeSourceAvatarUrl('/api/media/med_source?token=secret')).toBe('')
+  })
+
   it('projects legacy handoffs without exposing their internal instructions', () => {
+    const v6 = [
+      '[INTELISCOPE_HANDOFF_V6]',
+      '{"displayText":"上一版浏览器交接","contextCount":1}',
+      'INTERNAL MCP get_item instructions',
+    ].join('\n')
     const v5 = [
       '[INTELISCOPE_HANDOFF_V5]',
       '{"displayText":"最近一版交接","contextCount":1}',
@@ -153,6 +180,7 @@ describe('Agent context draft', () => {
       '1. 调用 get_item，article_id="internal-a"',
       '2. 调用 diagnose_job，job_id="internal-job"',
     ].join('\n')
+    expect(projectAgentHandoffDisplay(v6)).toEqual({ displayText: '上一版浏览器交接', contextCount: 1 })
     expect(projectAgentHandoffDisplay(v5)).toEqual({ displayText: '最近一版交接', contextCount: 1 })
     expect(projectAgentHandoffDisplay(v4)).toEqual({ displayText: '上一版交接', contextCount: 1 })
     expect(projectAgentHandoffDisplay(v3)).toEqual({ displayText: '旧版交接', contextCount: 2 })

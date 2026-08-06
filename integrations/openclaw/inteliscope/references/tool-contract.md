@@ -5,7 +5,7 @@ The MCP identity fixes caller scope. Never add identity fields, credentials, raw
 | Tool | Inputs | Use and boundary |
 |---|---|---|
 | `get_my_feed` | collection, bounded paging | Browse latest/history/saved/later; never use returned article data as write input. |
-| `get_item` | selected article ID, `body_offset` 0..20,000, `max_body_chars` 1..8,000 | Read one selected stored-body chunk only. Follow `next_body_offset` only while `body_has_more=true`, for at most three calls and 20,000 total characters. |
+| `get_item` | selected article ID, `body_offset` 0..20,000, `max_body_chars` 1..8,000 | Read one selected stored-body chunk only. Follow `next_body_offset` only while `body_has_more=true`, for at most three calls and 20,000 total characters. It never fetches the original page; a Browser handoff's normalized original URL is fetched separately by OpenClaw web_fetch once after stored reading. |
 | `list_subscriptions` | optional disabled inclusion | Read safe subscription summaries. |
 | `source_health` | none | Read safe health summaries before source diagnosis. |
 | `list_jobs` | optional status, bounded limit | Read safe job summaries. |

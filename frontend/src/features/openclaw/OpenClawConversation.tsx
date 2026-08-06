@@ -445,7 +445,7 @@ function ContextRow({ item, onRemove }: { item: AgentContextItem; onRemove: () =
   if (item.resourceType !== 'job' && item.sourceUrl) {
     return <div data-composer-context-item className="min-w-0">
       <ChatSource
-        source={{ title: item.title, url: item.sourceUrl, sourceName: item.sourceName }}
+        source={{ title: item.title, url: item.sourceUrl, sourceName: item.sourceName, sourceAvatarUrl: item.sourceAvatarUrl }}
         onRemove={onRemove}
       />
     </div>
@@ -466,7 +466,7 @@ function ContextSummary({ value }: { value: WorkbenchAgentContextValue }) {
       <span className="type-label text-muted">已附带 {count} 条</span>
       <Popover>
         <Popover.Trigger className="type-label shrink-0 rounded-lg px-1.5 py-1 text-accent hover:bg-default focus-visible:outline-2 focus-visible:outline-focus">查看全部</Popover.Trigger>
-        <Popover.Content placement="top end" offset={8} className="z-50 w-[min(340px,calc(100vw-24px))] p-0">
+        <Popover.Content placement="top end" offset={8} className="context-summary-popover z-50 w-[min(420px,calc(100vw-24px))] p-0">
           <Popover.Dialog aria-label="管理全部上下文" className="max-h-[min(520px,70dvh)] min-w-0 overflow-x-hidden p-3">
             <Popover.Heading className="type-page-title mb-2">已附带 {count} 条信息</Popover.Heading>
             <div className="quiet-scroll-region grid min-w-0 gap-1.5 overflow-x-hidden overflow-y-auto">

@@ -1,9 +1,9 @@
 import { createContext, useContext } from 'react'
 
-import type { AgentContextDraftV4, AgentContextItem } from './agentContext'
+import type { AgentContextDraftV5, AgentContextItem } from './agentContext'
 
 export type WorkbenchAgentContextValue = {
-  draft: AgentContextDraftV4
+  draft: AgentContextDraftV5
   toggleItem: (item: AgentContextItem) => void
   removeItem: (id: string) => void
   openComposer: () => void

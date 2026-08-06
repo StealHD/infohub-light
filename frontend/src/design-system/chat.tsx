@@ -7,7 +7,10 @@ export type ChatSourceData = {
   title: string
   url: string
   sourceName?: string
+  sourceAvatarUrl?: string
 }
+
+const LOCAL_AVATAR_URL = /^\/api\/media\/[A-Za-z0-9_-]{1,128}$/u
 
 function sourceHost(url: string): string {
   try {
@@ -56,6 +59,9 @@ export function ChatSource({
   const host = sourceHost(source.url)
   const metadata = [source.sourceName, host].filter(Boolean).join(' · ')
   const tooltip = metadata ? `${source.title} · ${metadata}` : source.title
+  const sourceAvatarUrl = source.sourceAvatarUrl && LOCAL_AVATAR_URL.test(source.sourceAvatarUrl)
+    ? source.sourceAvatarUrl
+    : ''
   return <span
     data-chat-source
     className={`inline-flex min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-separator bg-default/75 text-foreground ${compact ? 'h-7' : 'h-8'}`}
@@ -69,8 +75,10 @@ export function ChatSource({
         className={`${triggerProps.className ?? ''} flex h-full min-w-0 items-center gap-1.5 px-2 outline-none hover:bg-surface-secondary focus-visible:outline-2 focus-visible:outline-focus`}
         aria-label={`打开来源：${source.title}`}
       >
-        <Globe2 size={compact ? 12 : 13} className="shrink-0 text-muted" aria-hidden="true" />
-        <span className="type-label min-w-0 max-w-[220px] truncate">{source.title}</span>
+        {sourceAvatarUrl
+          ? <img src={sourceAvatarUrl} alt="" className={`${compact ? 'size-3.5' : 'size-4'} shrink-0 rounded-full object-cover`} />
+          : <Globe2 size={compact ? 12 : 13} className="shrink-0 text-muted" aria-hidden="true" />}
+        <span className="type-label min-w-0 flex-1 truncate">{source.title}</span>
       </a>} />
       <Tooltip.Content placement="top" offset={8} className="max-w-[320px]">
         <span className="block break-words">{tooltip}</span>

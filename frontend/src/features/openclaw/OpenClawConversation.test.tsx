@@ -177,7 +177,7 @@ describe('OpenClaw conversation surface', () => {
 
   it('shows clickable Chat Sources before send and beneath the sent user message', async () => {
     const browser = userEvent.setup()
-    const source = { title: '标题一', sourceName: '来源一', url: 'https://example.com/article-1' }
+    const source = { title: '标题一', sourceName: '来源一', url: 'https://example.com/article-1', sourceAvatarUrl: '/api/media/med_source_1' }
     const value = contextValue({
       items: [{ articleId: 'article-1', title: source.title, sourceName: source.sourceName, sourceUrl: source.url }],
     })
@@ -199,9 +199,35 @@ describe('OpenClaw conversation surface', () => {
     const sourceLinks = screen.getAllByRole('link', { name: '打开来源：标题一' })
     expect(sourceLinks).toHaveLength(2)
     expect(sourceLinks.every((link) => link.getAttribute('href') === source.url)).toBe(true)
+    expect(document.querySelector('img[src="/api/media/med_source_1"]')).toBeInTheDocument()
+    expect(sourceLinks[0].querySelector('.type-label')).not.toHaveClass('max-w-[220px]')
     expect(screen.queryByText('附带 1 条信息')).not.toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '移除来源：标题一' }))
     expect(value.removeItem).toHaveBeenCalledWith('article-1')
+  })
+
+  it('opens every attachment in an upward, bounded source popover', async () => {
+    const browser = userEvent.setup()
+    const value = contextValue({
+      items: Array.from({ length: 3 }, (_, index) => ({
+        articleId: `article-${index + 1}`,
+        title: `标题 ${index + 1}`,
+        sourceName: `来源 ${index + 1}`,
+        sourceUrl: `https://example.com/article-${index + 1}`,
+        sourceAvatarUrl: `/api/media/med_source_${index + 1}`,
+      })),
+    })
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+
+    expect(document.querySelectorAll('[data-composer-context-item]')).toHaveLength(2)
+    expect(document.querySelectorAll('img[src^="/api/media/med_source_"]')).toHaveLength(2)
+    await browser.click(screen.getByRole('button', { name: '查看全部' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '管理全部上下文' })
+    expect(dialog).toHaveTextContent('已附带 3 条信息')
+    expect(dialog.closest('.context-summary-popover')).toHaveClass('w-[min(420px,calc(100vw-24px))]')
+    expect(document.querySelectorAll('img[src^="/api/media/med_source_"]')).toHaveLength(5)
   })
 
   it('does not send while an IME composition is being confirmed', () => {
@@ -291,7 +317,7 @@ describe('OpenClaw conversation surface', () => {
       displayText: '创建食贫道的 Bilibili 订阅',
       contextItems: [],
     })
-    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V6]')
+    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V7]')
     expect(request.gatewayPrompt).toContain('"mode":"direct"')
     expect(request.gatewayPrompt).toContain('prepare → preview → exact confirmation → apply')
     expect(request.gatewayPrompt).not.toContain('不得执行任何写操作')
