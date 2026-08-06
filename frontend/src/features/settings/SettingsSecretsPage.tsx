@@ -7,10 +7,11 @@ import { queryKeys } from '../../api/queryKeys'
 import type { ApifyKeyPoolMember, SecretRef } from '../../api/types'
 import { useActionFeedback } from '../../app/ActionFeedback'
 import { useAppContext } from '../../app/AppContext'
-import { SettingsDisclosure, SettingsGroup, SettingsItem, SettingsSection, StatusBadge } from '../../components/settings'
+import { SettingsGroup, SettingsItem, SettingsSection, StatusBadge } from '../../components/settings'
 import {
   actionToast,
   Button,
+  Card,
   FieldError,
   Icons,
   Input,
@@ -87,13 +88,27 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
   </div>
 
   const hardLimitConstrained = quota.data.remaining_hard_limit_usd < quota.data.remaining_included_credits_usd
-  return <div className="grid gap-1" aria-live="polite" aria-busy={refreshing || retryBusy}>
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="type-control">剩余 {formatUsd(quota.data.remaining_included_credits_usd)} · 已用 {formatUsd(quota.data.monthly_usage_usd)} · {formatCycleEnd(quota.data.cycle_end_at)} 重置</span>
+  return <div className="grid gap-2" aria-live="polite" aria-busy={refreshing || retryBusy}>
+    <div className="flex min-w-0 items-stretch gap-2">
+      <dl className="grid min-w-0 flex-1 grid-cols-3 divide-x divide-separator overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default">
+        <div className="min-w-0 px-2.5 py-2">
+          <dt className="type-meta text-muted">剩余</dt>
+          <dd className="type-control mt-0.5 truncate text-foreground">{formatUsd(quota.data.remaining_included_credits_usd)}</dd>
+        </div>
+        <div className="min-w-0 px-2.5 py-2">
+          <dt className="type-meta text-muted">已用</dt>
+          <dd className="type-control mt-0.5 truncate text-foreground">{formatUsd(quota.data.monthly_usage_usd)}</dd>
+        </div>
+        <div className="min-w-0 px-2.5 py-2">
+          <dt className="type-meta text-muted">重置</dt>
+          <dd className="type-control mt-0.5 truncate text-foreground">{formatCycleEnd(quota.data.cycle_end_at)}</dd>
+        </div>
+      </dl>
       <Button
         size="sm"
         variant="ghost"
         isIconOnly
+        className="h-auto shrink-0 self-stretch"
         aria-label={refreshing ? `正在刷新 ${secret.name} 额度` : failure ? `重试 ${secret.name} 额度` : `刷新 ${secret.name} 额度`}
         isDisabled={refreshing || retryBusy}
         onPress={() => void refetch(failure ? 'retry' : 'refresh')}
@@ -278,10 +293,9 @@ function SecretConnectionEditor({ secret, onChanged }: {
   </Modal>
 }
 
-function ApifyMemberState({ member }: { member: ApifyKeyPoolMember | null }) {
+function ApifyMemberAlerts({ member }: { member: ApifyKeyPoolMember | null }) {
   if (!member) return <div className="grid gap-1"><StatusBadge>等待加入池</StatusBadge><span className="type-meta text-muted">刷新后仍未加入时，请检查服务状态。</span></div>
   return <div className="grid gap-1">
-    <span className="type-meta text-muted">最近检查 {formatDateTime(member.last_checked_at)}</span>
     {member.blocked_until && <span className="type-meta text-muted">受阻至 {formatDateTime(member.blocked_until)}</span>}
     {member.last_error_code && <span className="type-meta text-danger">{memberErrorLabels[member.last_error_code] ?? 'Key 需要管理员检查'}</span>}
   </div>
@@ -364,7 +378,7 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
           <div className="mb-3 flex flex-wrap items-center gap-2"><StatusBadge tone={statusTone}>{status}</StatusBadge></div>
           {pool && !pool.enabled && <StatusNotice title="Apify Key 池尚未启用" status="warning">当前仍处于兼容阶段；可以预先维护备用顺序，但不会自动切换。</StatusNotice>}
           {unresolvedMembers && <div className="mt-3"><StatusNotice title="部分 Key 元数据尚未加载" status="warning">已隐藏无法安全识别的池成员，请刷新页面后再操作。</StatusNotice></div>}
-          <SettingsGroup ariaLabel="Apify Key 池" className="mt-3">
+          <div aria-label="Apify Key 池" className="mt-3 grid gap-3" role="list">
             {!rows.length
               ? <SettingsItem label="尚未配置 Apify Key" description="新增 Apify Key 后可在这里查看额度并维护主备顺序。" icon={<Icons.KeyRound size={17} aria-hidden="true" />} />
               : rows.map(({ secret, member }) => {
@@ -377,31 +391,43 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                 const canDrain = Boolean(pool?.enabled && member && lifecycleLocked)
                 const draining = drainMutation.isPending && drainMutation.variables === secret.id
                 const memberPresentation = member ? memberStatusPresentation[member.status] : null
-                return <SettingsItem
+                return <Card
                   key={secret.id}
-                  density="compact"
-                  label={secret.name}
-                  description={secret.name === secret.env_name ? undefined : secret.env_name}
-                  icon={<Icons.KeyRound size={17} aria-hidden="true" />}
-                  trailing={<div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="ghost" isIconOnly aria-label={`上移 ${secret.name}`} isDisabled={controlsDisabled || index <= 0 || lifecycleLocked || memberLocked(previous)} onPress={() => moveMember(secret.id, -1)}><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
-                    <Button size="sm" variant="ghost" isIconOnly aria-label={`下移 ${secret.name}`} isDisabled={controlsDisabled || index < 0 || index >= orderedMembers.length - 1 || lifecycleLocked || memberLocked(next)} onPress={() => moveMember(secret.id, 1)}><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
-                    {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
-                  </div>}
+                  data-apify-key-card
+                  role="listitem"
+                  aria-label={secret.name}
+                  variant="secondary"
+                  className="gap-0 border border-separator bg-surface-secondary p-0 shadow-sm"
                 >
-                  <div className="grid gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <Card.Header className="flex min-w-0 items-start justify-between gap-3 px-4 pb-3 pt-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-default text-muted"><Icons.KeyRound size={17} aria-hidden="true" /></span>
+                      <div className="min-w-0">
+                        <Card.Title className="type-control truncate text-foreground">{secret.name}</Card.Title>
+                        {secret.name !== secret.env_name && <Card.Description className="type-body mt-0.5 truncate text-muted">{secret.env_name}</Card.Description>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                       <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
                       {member && member.active_run_count > 0 && <span className="type-meta text-muted">{member.active_run_count} 个运行中任务</span>}
                     </div>
+                  </Card.Header>
+                  <Card.Content className="grid gap-2 px-4 pb-4 pt-0">
                     <SecretQuotaDetails secret={secret} userId={userId} />
-                    <SettingsDisclosure title="详情">
-                      <div className="grid gap-3"><ApifyMemberState member={member} /><SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} /></div>
-                    </SettingsDisclosure>
-                  </div>
-                </SettingsItem>
+                    <ApifyMemberAlerts member={member} />
+                  </Card.Content>
+                  <Card.Footer className="flex flex-col gap-3 border-t border-separator px-4 py-3 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between">
+                    <span className="type-meta text-muted">最近检查 {formatDateTime(member?.last_checked_at ?? null)}</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button size="sm" variant="ghost" isIconOnly aria-label={`上移 ${secret.name}`} isDisabled={controlsDisabled || index <= 0 || lifecycleLocked || memberLocked(previous)} onPress={() => moveMember(secret.id, -1)}><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
+                      <Button size="sm" variant="ghost" isIconOnly aria-label={`下移 ${secret.name}`} isDisabled={controlsDisabled || index < 0 || index >= orderedMembers.length - 1 || lifecycleLocked || memberLocked(next)} onPress={() => moveMember(secret.id, 1)}><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
+                      <SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} />
+                      {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
+                    </div>
+                  </Card.Footer>
+                </Card>
               })}
-          </SettingsGroup>
+          </div>
         </>}
   </SettingsSection>
 }

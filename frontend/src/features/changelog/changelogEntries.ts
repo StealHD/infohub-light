@@ -29,7 +29,7 @@ export const changelogMonths: ChangelogMonth[] = [
           { title: 'Provider 不再是全局门槛', description: '工作区 AI 先选择 Key，再显示其 Provider；切换 Key 会按 Provider 填入默认模型，不再单独编辑 Provider。' },
           { title: '触底文案不再跟随或回退', description: '触底文案可选择所有已保存 AI Key 并保存自己的模型；保存后不受工作区 AI 开关、Provider、模型或地址影响，异常时安全保留内置文案。' },
           { title: 'AI 设置更紧凑', description: '两个 Key 字段支持按名称和 Provider 搜索，连接元数据收为次级信息；触底文案状态点击整条才展开三个场景的完整列表。' },
-          { title: 'Apify Key 池去重', description: '正常 Key 行只保留状态与一行额度摘要，详情按需展示检查和异常；Ready 状态、空运行信息与重复额度不再占用页面。' },
+          { title: 'Apify Key 池卡片重排', description: '每个 Key 使用独立 HeroUI 卡片，额度拆为剩余、已用、重置三项；检查、异常与安全操作直接呈现，不再需要打开详情。' },
         ],
       },
       {

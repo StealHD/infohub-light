@@ -8,6 +8,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": ["decisions", "ui"],
   "recorded_on": "2026-08-06",
+  "result": "将 Apify Key 池重排为独立 HeroUI 卡片：身份与状态、三项额度指标、最近检查和生命周期操作直接分区呈现，移除详情 Disclosure。",
+  "status": "completed",
+  "task_id": "2026-08-06-apify-key-hero-card-layout",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 106 项、TypeScript、ESLint 与 UI contract 检查通过。",
+    "python3 scripts/test_gate.py run --mode full：23/23 命令通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": ["decisions", "ui"],
+  "recorded_on": "2026-08-06",
   "result": "将密钥页 Apify Key 池收敛为异常优先的紧凑摘要：正常行仅保留状态、额度和操作，详情按需显示检查、异常与生命周期管理。",
   "status": "completed",
   "task_id": "2026-08-06-apify-key-pool-simplification",
