@@ -104,27 +104,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "触底文案支持绑定任意全局 AI Key（新配置 ai_key_env，空值回退全局），/settings/ai 新增生成用 Key 下拉；Feed 顶部搜索栏背景 95%→70% 半透明并保留 backdrop-blur，明暗主题自适应。",
-  "status": "partial",
-  "task_id": "2026-08-05-feed-end-ai-key-binding-and-search-translucency",
-  "unresolved": [
-    "等待 full Test Gate 与合并验证。"
-  ],
-  "validation": [
-    "后端 pytest：test_feed_end_messages 17、test_config_server + test_api_permissions_matrix 85、test_api_service 92 全部通过，含新增绑定/回退用例。",
-    "前端 typecheck 与 39 项相关 Vitest 通过；API_CONTRACT 第 10 条、DECISION_LOG D120、changelog v2.2.9、manual 已同步。",
-    "./scripts/up-latest.sh 重建完成，API/Worker healthy，线上 SettingsAIPage chunk 确认包含 ai_key_env 与默认选项。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-05",
@@ -360,6 +339,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "VPS 预检：数据库 integrity/foreign key 通过、迁移标记至 v19、无活跃作业、API/Worker healthy、scheduler stopped。",
     "release Test Gate：23/24 命令通过；release_playwright 失败（83 passed、10 failed、48 skipped）。",
     "本地镜像 inteliscope-service:v2.2.10-2c86ba1473c8 已验证为 amd64，OCI revision=2c86ba1473c8。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "将 release Playwright 的管理页断言同步到当前 AI Key 主导设置与 Apify Key 卡片语义，清除原 10 条过期验收失败。",
+  "status": "completed",
+  "task_id": "2026-08-06-fix-release-playwright-admin-baseline",
+  "unresolved": [],
+  "validation": [
+    "定向 Playwright：12/12 项目组合通过，无失败附件。",
+    "release Test Gate：25/25 命令通过（484.911 秒）；Playwright 93 passed、48 skipped，隔离 Docker API smoke 通过。"
   ]
 }
 ```

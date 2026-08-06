@@ -1017,10 +1017,11 @@ test('production administration routes use the adaptive Quiet Studio page patter
   await expect(page.getByRole('heading', { name: '助手连接', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '工作区 AI', exact: true })).toBeVisible()
   const aiDisclosure = page.getByRole('button', { name: /高级配置/ })
-  const workspaceAiKey = page.locator('button[aria-label="AI Key"]')
+  const workspaceAiKey = page.getByRole('combobox', { name: 'AI Key', exact: true })
   await expect(aiDisclosure).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByLabel('Base URL')).toHaveCount(0)
-  await expect(workspaceAiKey).toContainText('使用 Provider 默认地址')
+  await expect(workspaceAiKey).toHaveValue('Gemini Primary')
+  await expect(page.getByLabel('工作区 AI 配置').getByText('gemini · 默认地址 · 已设置', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '管理密钥' })).toBeVisible()
   await aiDisclosure.click()
   await expect(page.getByLabel('Base URL')).toHaveCount(0)
@@ -1122,7 +1123,8 @@ test('settings landing defers hidden section requests and a direct hash loads on
 
   const directHashStart = requests.length
   await page.goto('/settings#settings-secrets')
-  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  const directHashApifyPrimary = page.getByRole('listitem', { name: 'Apify Primary', exact: true })
+  await expect(directHashApifyPrimary.getByText('$36.50', { exact: true })).toBeVisible()
   const directHashRequests = requests.slice(directHashStart)
     .filter(({ method }) => method === 'GET')
     .map(({ pathname }) => pathname)
@@ -1378,18 +1380,19 @@ test('account and documentation menus open upward and expose manual, changelog, 
   }
 })
 
-test('settings key groups retain quota, refresh, safety locks and accessible modal behavior', async ({ page }) => {
+test('settings key surfaces retain quota, refresh, safety locks and accessible modal behavior', async ({ page }) => {
   const apiState = await mockAdminApi(page)
   await page.goto('/settings/secrets')
 
   await expect(page.getByRole('heading', { name: '密钥' })).toBeVisible()
-  const apifyGroup = page.locator('[data-settings-group][aria-label="Apify Key 池"]')
+  const apifyGroup = page.getByRole('list', { name: 'Apify Key 池' })
   const aiGroup = page.locator('[data-settings-group][aria-label="已配置 AI Key"]')
   await expect(apifyGroup).toBeVisible()
   await expect(aiGroup).toBeVisible()
-  await expect(apifyGroup.getByText('Apify Primary', { exact: true })).toBeVisible()
+  const apifyPrimaryItem = apifyGroup.getByRole('listitem', { name: 'Apify Primary', exact: true })
+  await expect(apifyPrimaryItem).toBeVisible()
   await expect(aiGroup.getByText('Gemini Primary', { exact: true })).toBeVisible()
-  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  await expect(apifyPrimaryItem.getByText('$36.50', { exact: true })).toBeVisible()
   await expect.poll(apiState.quotaRequests).toBe(1)
   const refreshQuota = page.getByRole('button', { name: '刷新 Apify Primary 额度' })
   apiState.deferQuotaRefresh()
@@ -1399,11 +1402,9 @@ test('settings key groups retain quota, refresh, safety locks and accessible mod
   await expect(refreshingQuota).toBeDisabled()
   await expect(refreshingQuota.locator('svg')).toHaveClass(/animate-spin/)
   await expect(refreshingQuota.locator('xpath=ancestor::*[@aria-busy][1]')).toHaveAttribute('aria-busy', 'true')
-  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  await expect(apifyPrimaryItem.getByText('$36.50', { exact: true })).toBeVisible()
   apiState.releaseQuotaRefresh()
   await expect(refreshQuota).toBeEnabled()
-  const apifyPrimaryItem = apifyGroup.getByText('Apify Primary', { exact: true }).locator('xpath=ancestor::*[@data-settings-item][1]')
-  await apifyPrimaryItem.getByRole('button', { name: /运行详情/ }).click()
   const rotateTrigger = apifyPrimaryItem.getByRole('button', { name: '轮换 Apify Primary' })
   await rotateTrigger.click()
   await expect(page.getByRole('dialog', { name: '轮换 Apify Primary' })).toBeVisible()
@@ -1424,7 +1425,8 @@ test('successful Key creation uses a top overlay without moving settings content
   await page.evaluate(async () => {
     await document.fonts.ready
   })
-  await expect(page.getByText('套餐剩余 $36.50')).toBeVisible()
+  const apifyPrimaryItem = page.getByRole('listitem', { name: 'Apify Primary', exact: true })
+  await expect(apifyPrimaryItem.getByText('$36.50', { exact: true })).toBeVisible()
 
   const settingsFrame = page.locator('[data-page-frame="settings"]')
   const positionWithinPage = () => settingsFrame.evaluate((element) => {
