@@ -6,6 +6,22 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": ["decisions", "ui"],
+  "recorded_on": "2026-08-06",
+  "result": "将 AI 设置页收敛为 Key 搜索主导的紧凑 HeroUI 表单：Provider/地址状态成为 Key 次级元数据，触底文案状态改为整块下拉并一次展示三个场景列表。",
+  "status": "completed",
+  "task_id": "2026-08-06-ai-settings-heroui-simplification",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 111 项、TypeScript、ESLint 与 UI contract 检查通过。",
+    "python3 scripts/test_gate.py run --mode full：23/23 命令通过。",
+    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，桌面与 390px 浏览器实测通过。"
+  ]
+}
+```
+
+```json
+{
   "control_topics": ["api", "decisions", "ui"],
   "recorded_on": "2026-08-06",
   "result": "将工作区分析与触底文案改为 AI Key 主导的平级绑定：Key 决定 Provider/Base URL，两个场景各自保存模型，触底文案不再跟随、筛选或回退工作区 AI。",

@@ -17,7 +17,6 @@ import {
 import {
   actionToast,
   Button,
-  Card,
   Checkbox,
   Icons,
   Input,
@@ -27,7 +26,7 @@ import {
   StatusNotice,
   TextField,
 } from '../../design-system'
-import { HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
+import { HeroAutocomplete, HeroNotice, HeroSelect } from '../admin-heroui/HeroAdminControls'
 import { aiDefaultsForProvider, canAdministerWorkspace } from './settingsModel'
 import {
   aiSettingsOrder,
@@ -132,7 +131,6 @@ export function SettingsAIPage() {
   const [feedEndStyleOverride, setFeedEndStyleOverride] = useState<string | null>(null)
   const [feedEndAiKeyEnvOverride, setFeedEndAiKeyEnvOverride] = useState<string | null>(null)
   const [feedEndModelOverride, setFeedEndModelOverride] = useState<string | null>(null)
-  const [expandedFeedEndScenes, setExpandedFeedEndScenes] = useState<Set<string>>(() => new Set())
   const [dirtySections, setDirtySections] = useState<Set<AiSettingsSection>>(() => new Set())
   const revisions = useRef<Record<AiSettingsSection, number>>({ ai: 0, feed_end_messages: 0 })
   const aiFormRef = useRef<HTMLFormElement>(null)
@@ -164,11 +162,12 @@ export function SettingsAIPage() {
   const feedEndModel = feedEndModelOverride ?? (configuredFeedEndModel || (selectedFeedEndAiSecret
       ? aiDefaultsForProvider(selectedFeedEndAiSecret.provider).model
       : aiDraft.model))
-  const feedEndAiKeyOptions = aiSecrets.map((secret) => ({
-      id: secret.env_name,
-      label: `${secret.name} · ${secret.provider} · ${secret.is_set ? '已设置' : '未设置'}`,
-      description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址',
-    }))
+  const aiKeyOptions = aiSecrets.map((secret) => ({
+    id: secret.env_name,
+    label: secret.name,
+    description: `${secret.provider} · ${secret.base_url ? '独立地址' : '默认地址'} · ${secret.is_set ? '已设置' : '未设置'}`,
+    searchText: `${secret.name} ${secret.provider}`,
+  }))
   const savedFeedEndGenerationEnabled = feedEndMessages.ai_generation_enabled === true
     && Boolean(configuredFeedEndAiKeyEnv)
     && Boolean(configuredFeedEndModel)
@@ -333,7 +332,14 @@ export function SettingsAIPage() {
         </SettingsGroup>
       </SettingsSection>
 
-      <SettingsSection id="settings-ai" title="工作区 AI" description="选择 AI Key 与模型；Provider 和连接地址由所选 Key 决定。">
+      <SettingsSection
+        id="settings-ai"
+        title="工作区 AI"
+        description="选择用于分析的 Key 和模型。"
+        actions={admin ? <Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>
+          <Icons.KeyRound size={15} aria-hidden="true" />管理密钥
+        </Button> : undefined}
+      >
         {!admin && <SettingsGroup ariaLabel="工作区 AI 访问权限">
           <SettingsItem
             label="工作区设置只读"
@@ -353,8 +359,8 @@ export function SettingsAIPage() {
                 <Checkbox name="enabled" defaultSelected={ai.enabled !== false}>
                   <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 分析</Checkbox.Content>
                 </Checkbox>
-                <div className="grid gap-4 min-[720px]:grid-cols-3">
-                  <HeroSelect label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
+                <div className="grid gap-4 min-[720px]:grid-cols-2">
+                  <HeroAutocomplete label="AI Key" value={aiDraft.apiKeyEnv} onChange={(apiKeyEnv) => {
                     const selected = aiSecrets.find((secret) => secret.env_name === apiKeyEnv)
                     const provider = selected?.provider ?? aiDraft.provider
                     setAiOverride({
@@ -363,25 +369,11 @@ export function SettingsAIPage() {
                       apiKeyEnv,
                     })
                     refreshDirty('ai')
-                  }} options={[{ id: '', label: '请选择' }, ...aiSecrets.map((secret) => ({
-                    id: secret.env_name,
-                    label: `${secret.name} · ${secret.provider} · ${secret.is_set ? '已设置' : '未设置'}`,
-                    description: secret.base_url ? '使用此 Key 的独立连接地址' : '使用 Provider 默认地址',
-                  }))]} />
+                  }} options={aiKeyOptions} placeholder="搜索或选择 AI Key" />
                   <TextField fullWidth value={aiDraft.model} onChange={(model) => {
                     setAiOverride({ ...aiDraft, model })
                     refreshDirty('ai')
                   }} isRequired><Label>模型</Label><Input /></TextField>
-                  <div className="rounded-xl border border-separator bg-surface-secondary px-3 py-2">
-                    <p className="type-meta text-muted">Provider</p>
-                    <p className="type-control mt-1">{aiDraft.provider}</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="ghost" onPress={() => navigate('/settings/secrets', { state: returnState })}>
-                    <Icons.KeyRound size={15} aria-hidden="true" />管理密钥
-                  </Button>
-                  <span className="type-meta text-muted">连接地址随 Key 独立保存；这里不会显示真实 Key 值。</span>
                 </div>
                 <SettingsDisclosure title="高级配置" description="输出语言与输入/输出长度限制。">
                   <div className="grid gap-4 min-[720px]:grid-cols-3">
@@ -405,7 +397,7 @@ export function SettingsAIPage() {
             <Checkbox name="ai_generation_enabled" defaultSelected={feedEndMessages.ai_generation_enabled === true}>
               <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>启用 AI 定期生成触底文案</Checkbox.Content>
             </Checkbox>
-            <div className="grid gap-4 min-[720px]:grid-cols-3">
+            <div className="grid gap-4 min-[720px]:grid-cols-2">
               <HeroSelect name="refresh_days" label="更新周期" value={feedEndRefreshDays} onChange={(value) => {
                 setFeedEndRefreshDaysOverride(value)
                 refreshDirty('feed_end_messages')
@@ -414,14 +406,14 @@ export function SettingsAIPage() {
                 setFeedEndStyleOverride(value)
                 refreshDirty('feed_end_messages')
               }} options={[{ id: 'restrained', label: '克制（默认）' }, { id: 'warm', label: '温和' }, { id: 'light_humor', label: '轻幽默' }]} />
-              <HeroSelect name="ai_key_env" label="生成用 AI Key" value={feedEndAiKeyEnv} onChange={(value) => {
+              <HeroAutocomplete name="ai_key_env" label="生成用 AI Key" value={feedEndAiKeyEnv} onChange={(value) => {
                 const selected = aiSecrets.find((secret) => secret.env_name === value)
                 setFeedEndAiKeyEnvOverride(value)
                 if (selected?.provider !== selectedFeedEndAiSecret?.provider) {
                   setFeedEndModelOverride(aiDefaultsForProvider(selected?.provider ?? '').model)
                 }
                 refreshDirty('feed_end_messages')
-              }} options={feedEndAiKeyOptions} description="Key 决定 Provider 和连接地址；所有已保存 AI Key 都可选择。" />
+              }} options={aiKeyOptions} placeholder="搜索或选择 AI Key" />
               <TextField fullWidth name="model" value={feedEndModel} onChange={(model) => {
                 setFeedEndModelOverride(model)
                 refreshDirty('feed_end_messages')
@@ -438,27 +430,16 @@ export function SettingsAIPage() {
             </Button>
           </form>
 
-          <Card variant="transparent" className="mt-5 border border-separator p-4">
+          <div className="mt-5">
             {feedEndMessagesStatus.isPending
               ? <LoadingState label="正在读取触底文案状态" rows={2} />
               : feedEndMessagesStatus.isError || !feedEndMessagesStatus.data
                 ? <HeroNotice title="触底文案状态读取失败" status="warning"><Button size="sm" variant="ghost" onPress={() => void feedEndMessagesStatus.refetch()}>重试状态读取</Button></HeroNotice>
                 : <>
-                  <div className="flex flex-wrap items-start gap-3">
-                    <div className="min-w-0 flex-1">
-                      <Card.Title>{feedEndMessageStatusLabels[feedEndMessagesStatus.data.status] ?? '状态未知'}</Card.Title>
-                      <Card.Description className="mt-1">
-                        来源：{feedEndMessagesStatus.data.source === 'ai' ? 'AI 文案池' : '内置文案'}
-                        {' · '}generation {feedEndMessagesStatus.data.generation}
-                        {' · '}最近生成 {formatDateTime(feedEndMessagesStatus.data.generated_at)}
-                        {' · '}下次更新 {formatDateTime(feedEndMessagesStatus.data.next_refresh_at)}
-                      </Card.Description>
-                      {feedEndMessagesStatus.data.last_error_code && <p className="type-meta mt-2 text-warning">
-                        {feedEndMessageErrorLabels[feedEndMessagesStatus.data.last_error_code] ?? '生成未成功，已保留安全文案。'}
-                        {feedEndMessagesStatus.data.retry_at ? `；后台重试 ${formatDateTime(feedEndMessagesStatus.data.retry_at)}` : ''}
-                      </p>}
-                    </div>
-                    <Button size="sm" variant="secondary" isDisabled={
+                  <SettingsDisclosure
+                    title={feedEndMessageStatusLabels[feedEndMessagesStatus.data.status] ?? '状态未知'}
+                    description={`最近生成 ${formatDateTime(feedEndMessagesStatus.data.generated_at)} · 下次更新 ${formatDateTime(feedEndMessagesStatus.data.next_refresh_at)}`}
+                    trailing={<Button size="sm" variant="ghost" isDisabled={
                       !savedFeedEndGenerationEnabled
                       || feedEndMessagesRefreshMutation.isPending
                       || feedEndMessagesStatus.data.status === 'pending'
@@ -466,42 +447,37 @@ export function SettingsAIPage() {
                     } onPress={() => feedEndMessagesRefreshMutation.mutate()}>
                       <Icons.RefreshCw size={14} className={feedEndMessagesRefreshMutation.isPending ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />
                       {feedEndMessagesStatus.data.status === 'pending' ? '已等待刷新' : feedEndMessagesStatus.data.status === 'refreshing' ? '正在刷新' : '立即刷新'}
-                    </Button>
-                  </div>
-                  {!savedFeedEndGenerationEnabled && <p className="type-meta mt-3 text-muted">保存并启用工作区 AI 与触底文案生成后，才可请求立即刷新。</p>}
-                  <div className="mt-4 grid gap-3 min-[720px]:grid-cols-3">
-                    {([
-                      ['empty', '空列表'],
-                      ['first_end', '首次触底'],
-                      ['repeat_end', '多次触底'],
-                    ] as const).map(([scene, label]) => {
-                      const messages = feedEndMessagesStatus.data.scenes[scene]
-                      const expanded = expandedFeedEndScenes.has(scene)
-                      const listId = `feed-end-messages-${scene}`
-                      return <div key={scene} className="min-w-0 rounded-xl bg-surface-secondary p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="type-control">{label}</p>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <span className="type-meta text-muted">{messages.length} 条</span>
-                            <Button size="sm" variant="ghost" aria-controls={listId} aria-expanded={expanded} aria-label={`${expanded ? '隐藏' : '展开'}${label}完整文案列表`} onPress={() => setExpandedFeedEndScenes((current) => {
-                              const next = new Set(current)
-                              if (next.has(scene)) next.delete(scene)
-                              else next.add(scene)
-                              return next
-                            })}>{expanded ? '隐藏' : '展开'}</Button>
+                    </Button>}
+                  >
+                    {!savedFeedEndGenerationEnabled && <p className="type-meta text-muted">保存并启用触底文案生成后，才可请求立即刷新。</p>}
+                    {feedEndMessagesStatus.data.last_error_code && <p className="type-meta text-warning">
+                        {feedEndMessageErrorLabels[feedEndMessagesStatus.data.last_error_code] ?? '生成未成功，已保留安全文案。'}
+                        {feedEndMessagesStatus.data.retry_at ? `；后台重试 ${formatDateTime(feedEndMessagesStatus.data.retry_at)}` : ''}
+                      </p>}
+                    <div aria-label="触底文案完整列表" className="mt-4 grid max-h-96 gap-5 overflow-y-auto rounded-lg pr-1 focus-visible:outline-2 focus-visible:outline-focus" tabIndex={0}>
+                      {([
+                        ['empty', '空列表'],
+                        ['first_end', '首次触底'],
+                        ['repeat_end', '多次触底'],
+                      ] as const).map(([scene, label]) => {
+                        const messages = feedEndMessagesStatus.data.scenes[scene]
+                        return <section key={scene} aria-labelledby={`feed-end-messages-${scene}`} className="grid gap-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 id={`feed-end-messages-${scene}`} className="type-control">{label}</h3>
+                            <StatusBadge>{messages.length} 条</StatusBadge>
                           </div>
-                        </div>
-                        <ol id={listId} aria-label={`${label}完整文案列表`} className={`${expanded ? 'grid' : 'hidden'} mt-2 max-h-72 gap-1.5 overflow-y-auto rounded-lg pr-1 focus-visible:outline-2 focus-visible:outline-focus`} hidden={!expanded} tabIndex={0}>
-                          {messages.map((message, index) => <li key={message} className="type-meta flex min-w-0 gap-2 text-muted">
-                            <span className="w-5 shrink-0 text-right tabular-nums" aria-hidden="true">{index + 1}.</span>
-                            <span className="min-w-0 break-words">{message}</span>
-                          </li>)}
-                        </ol>
-                      </div>
-                    })}
-                  </div>
+                          <ol aria-label={`${label}完整文案列表`} className="grid gap-1.5">
+                            {messages.map((message, index) => <li key={message} className="type-meta flex min-w-0 gap-2 text-muted">
+                              <span className="w-5 shrink-0 text-right tabular-nums" aria-hidden="true">{index + 1}.</span>
+                              <span className="min-w-0 break-words">{message}</span>
+                            </li>)}
+                          </ol>
+                        </section>
+                      })}
+                    </div>
+                  </SettingsDisclosure>
                 </>}
-          </Card>
+          </div>
         </SettingsGroup>
       </SettingsSection>}
     </PageFrame>

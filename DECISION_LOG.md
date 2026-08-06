@@ -1040,3 +1040,10 @@
 - 当前状态：本地任务分支实现与验证中；不迁移数据库、不调用真实 AI 或部署。
 - 决策内容：所有 AI Key 是平级连接配置，Key 自己的 Provider、Base URL 与凭据共同决定实际客户端；工作区分析和触底文案各自直接保存 Key 与模型。工作区 AI 页不再编辑 Provider，Provider 由所选 Key 展示并回写既有兼容字段；触底文案列出全部 AI Key，不再跟随或校验工作区 Provider。显式触底绑定不读取工作区 AI 开关、Provider、模型、URL 或配额维度，也不得回退其他 Key；模型调用按所选 Key Provider 计量。旧空绑定只在读取时临时投影为工作区当前 Key/模型，旧有 Key 但无模型时按该 Key Provider 默认模型运行，下一次页面保存后写为显式绑定。
 - 兼容/边界：`feed_end_messages.model` 为 additive 配置字段；API 路径、SecretStore、数据库、文案安全合同、空闲 Worker 时序与失败退避不变。D121 取代 D120 中“同 Provider 限制、动态跟随工作区、工作区开关门槛、沿用工作区模型和跨 Provider 回退”的部分；D120 的 Key 级 URL 与 Feed 工具栏视觉结论仍有效。
+
+### D122 AI 设置以 Key 搜索和整块文案明细收敛
+
+- 决策日期：2026-08-06
+- 当前状态：本地任务分支实现与验证中；不改写 AI Key 绑定、API、Worker 或数据库。
+- 决策内容：`/settings/ai` 的工作区和触底文案 Key 统一使用项目内实现的 HeroUI Autocomplete，可按 Key 名称和 Provider 搜索；选中态只强调 Key 名称，Provider、地址类型和设置状态作为次级元数据。工作区表单不再占用独立 Provider 框或连接说明，密钥管理上移为区块操作。触底文案状态从嵌套卡片改为一条默认收起的 `SettingsDisclosure`，摘要保留状态和时间；点击整条才一次显示全部三个场景的有界完整列表，刷新操作保持在条目尾部。
+- 原因：Provider 是 Key 的连接元数据而非第二套配置，独立字段和重复说明会掩盖 Key 主导关系；三个场景各自展开会造成重复操作，状态整块下拉既保留按需阅读也使设置页和现有列表/Disclosure 语言一致。
