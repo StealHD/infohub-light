@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Callable, Iterable
-from urllib.parse import quote, urljoin
+from urllib.parse import parse_qsl, quote, urljoin, urlsplit
 
 import feedparser
 
@@ -22,6 +22,8 @@ from .bilibili_user_search import BilibiliUserSearchService
 from .feed_run import FeedRunResult, SourceAvatarHint
 from .media_cache import MediaCacheService, PostCommitMediaCleanup
 from .network_policy import fetch_public_http
+from .source_type_registry import SourceConfigError, normalize_youtube_channel_feed_url
+from .youtube_channel import YOUTUBE_RESOLVE_MAX_BYTES, YOUTUBE_RESOLVE_TIMEOUT_SECONDS
 
 
 MAX_AVATAR_METADATA_BYTES = 512_000
@@ -53,6 +55,26 @@ class _FaviconParser(HTMLParser):
         href = values.get("href", "").strip()
         if href and href not in self.hrefs:
             self.hrefs.append(href)
+
+
+class _OpenGraphImageParser(HTMLParser):
+    """Read the first Open Graph image without accepting arbitrary page data."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.image_url = ""
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag.casefold() != "meta" or self.image_url:
+            return
+        values = {key.casefold(): str(value or "") for key, value in attrs}
+        if values.get("property", "").casefold() != "og:image":
+            return
+        self.image_url = values.get("content", "").strip()
 
 
 def _http_url(base_url: str, value: Any) -> str:
@@ -105,6 +127,7 @@ class SourceAvatarService:
         media_cache: MediaCacheService | None = None,
         bilibili_search: BilibiliUserSearchService | None = None,
         fetch_metadata: Callable[[str, str, int], tuple[bytes, str]] | None = None,
+        fetch_youtube_metadata: Callable[[str], tuple[bytes, str]] | None = None,
     ) -> None:
         self.store = store
         self.media_cache = media_cache or MediaCacheService(
@@ -113,6 +136,9 @@ class SourceAvatarService:
         )
         self.bilibili_search = bilibili_search or BilibiliUserSearchService()
         self._fetch_metadata = fetch_metadata or self._download_metadata
+        self._fetch_youtube_metadata = (
+            fetch_youtube_metadata or self._download_youtube_metadata
+        )
 
     @staticmethod
     def hints_from_result(result: FeedRunResult) -> tuple[SourceAvatarHint, ...]:
@@ -271,6 +297,10 @@ class SourceAvatarService:
         source_id = str(source["id"])
         source_type = str(source.get("type") or "")
         config = source.get("config") if isinstance(source.get("config"), dict) else {}
+        if source_type == "rss":
+            youtube_hints = self._youtube_channel_hints(source_id, config)
+            if youtube_hints is not None:
+                return youtube_hints
         if source_type == "rss" and self._is_bilibili(config):
             uid = str((config.get("params") or {}).get("uid") or "")
             try:
@@ -341,6 +371,50 @@ class SourceAvatarService:
                 *self._favicon_hints(source_id, page_hints),
             ]
         return []
+
+    def _youtube_channel_hints(
+        self,
+        source_id: str,
+        config: dict[str, Any],
+    ) -> list[SourceAvatarHint] | None:
+        """Resolve a channel avatar only from the canonical YouTube identity."""
+
+        try:
+            feed_url = normalize_youtube_channel_feed_url(
+                str(config.get("url") or "")
+            )
+        except SourceConfigError:
+            return None
+        channel_id = dict(parse_qsl(urlsplit(feed_url).query)).get("channel_id", "")
+        if not channel_id:
+            return []
+        page_url = f"https://www.youtube.com/channel/{quote(channel_id, safe='')}"
+        try:
+            payload, content_type = self._fetch_youtube_metadata(page_url)
+        except Exception:
+            return []
+        if content_type and "text/html" not in content_type.casefold():
+            return []
+        parser = _OpenGraphImageParser()
+        try:
+            parser.feed(payload.decode("utf-8", errors="replace"))
+            parser.close()
+        except Exception:
+            return []
+        avatar_url = (
+            _http_url(page_url, parser.image_url) if parser.image_url else ""
+        )
+        return (
+            [
+                SourceAvatarHint(
+                    source_id=source_id,
+                    remote_url=avatar_url,
+                    origin="youtube_channel_og_image",
+                )
+            ]
+            if avatar_url
+            else []
+        )
 
     @staticmethod
     def _is_bilibili(config: dict[str, Any]) -> bool:
@@ -469,6 +543,30 @@ class SourceAvatarService:
                 },
                 timeout=10.0,
                 max_response_bytes=max_bytes,
+            )
+        )
+        response.raise_for_status()
+        return (
+            response.content,
+            str(response.headers.get("content-type") or ""),
+        )
+
+    @staticmethod
+    def _download_youtube_metadata(url: str) -> tuple[bytes, str]:
+        """Fetch one verified YouTube channel page with its resolver boundary."""
+
+        response = asyncio.run(
+            fetch_public_http(
+                url,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Encoding": "identity",
+                    "User-Agent": "Inteliscope-Source-Avatar/1.0",
+                },
+                timeout=YOUTUBE_RESOLVE_TIMEOUT_SECONDS,
+                max_redirects=0,
+                max_response_bytes=YOUTUBE_RESOLVE_MAX_BYTES,
+                allow_partial_response=True,
             )
         )
         response.raise_for_status()

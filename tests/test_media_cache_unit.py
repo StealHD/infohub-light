@@ -8,6 +8,7 @@ import pytest
 
 from src.models import ContentItem, SourceType
 from src.services import media_cache
+from src.services import network_policy
 from src.storage.service_store import ServiceStore
 
 
@@ -31,12 +32,14 @@ def test_media_cache_download_uses_narrow_known_media_synthetic_dns_suffixes() -
         "github.com",
         "githubusercontent.com",
     )
+    assert media_cache.YOUTUBE_MEDIA_HOST_SUFFIXES == ("googleusercontent.com",)
     assert media_cache.TRUSTED_MEDIA_HOST_SUFFIXES == (
         "cdninstagram.com",
         "fbcdn.net",
         "pbs.twimg.com",
         "github.com",
         "githubusercontent.com",
+        "googleusercontent.com",
     )
     assert fetch_public.await_args.kwargs["synthetic_dns_host_suffixes"] == (
         "cdninstagram.com",
@@ -44,7 +47,22 @@ def test_media_cache_download_uses_narrow_known_media_synthetic_dns_suffixes() -
         "pbs.twimg.com",
         "github.com",
         "githubusercontent.com",
+        "googleusercontent.com",
     )
+
+
+def test_media_cache_allows_youtube_avatar_cdn_synthetic_dns(monkeypatch) -> None:
+    def fake_getaddrinfo(_host, port, *, type):
+        return [(2, 1, 6, "", ("198.18.0.120", port))]
+
+    monkeypatch.setattr(network_policy.socket, "getaddrinfo", fake_getaddrinfo)
+
+    target = network_policy.resolve_public_http_url(
+        "https://yt3.googleusercontent.com/channel-avatar.png",
+        synthetic_dns_host_suffixes=media_cache.TRUSTED_MEDIA_HOST_SUFFIXES,
+    )
+
+    assert target.addresses == ("198.18.0.120",)
 
 
 def test_default_avatar_invalidation_inside_outer_transaction_fails_before_mutation(

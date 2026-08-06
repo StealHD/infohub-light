@@ -81,7 +81,11 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
-  "control_topics": ["api", "decisions", "ui"],
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
   "recorded_on": "2026-08-06",
   "result": "将工作区分析与触底文案改为 AI Key 主导的平级绑定：Key 决定 Provider/Base URL，两个场景各自保存模型，触底文案不再跟随、筛选或回退工作区 AI。",
   "status": "completed",
@@ -96,450 +100,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "在生产环境确认管理员所选全局 DeepSeek 配置 ready 后，通过 ActorOps 服务层 CAS 开启 Discovery；配置 generation 从 2 热更新为 3。",
-  "status": "completed",
-  "task_id": "2026-08-03-enable-production-actor-discovery",
-  "unresolved": [],
-  "validation": [
-    "启用前 selected_key=true、global AI ready=true，provider=deepseek、model=deepseek-v4-flash",
-    "启用后 enabled=true、generation=3，生产无需重启",
-    "操作前后 Discovery Run 仍为 8，未创建支持检查、未调用 AI、未启动 Actor 或付费 Canary",
-    "活跃 Fetch Job 为 0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "将通用 ActorOps 与通知服务合并到本地 main，发布不可变 v2.2.1 标签和 GitHub Release，并用本地构建的 revision-locked linux/amd64 镜像完成 VPS 离线迁移与生产切换。",
-  "status": "completed",
-  "task_id": "2026-08-03-publish-and-deploy-v2.2.1",
-  "unresolved": [],
-  "validation": [
-    "main 与 v2.2.1 GitHub Test Gate 均通过；标签门禁覆盖 backend-full、frontend-full、Linux UI E2E 和 release-smoke",
-    "发布镜像 inteliscope-service:v2.2.1-3a8f9f425db0 为 linux/amd64，上传哈希一致，并先在隔离 staging 返回 2.2.1/3a8f9f425db0",
-    "生产停机前无活跃 Fetch Job 或 Actor Attempt；0600 数据库/.env 回滚备份 integrity ok、foreign keys 0",
-    "离线迁移 15–19 全部成功且各自生成 0600 备份；迁移前后 fetch_jobs=649、apify_actor_attempts=105，未产生 AI、Actor 或付费 Canary 调用",
-    "VPS API/Worker 使用精确 v2.2.1 镜像且 healthy、restart=0、worker_status=ready；RSSHub healthy，scheduler/staging 容器为 0",
-    "https://rb.jiefs.top/、/feed、live、ready 均为 200，未登录 ActorOps 管理 API 为 401，API/Worker 严重日志计数均为 0"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "补齐 v2.2.1 Linux 移动端视觉基线修复的产品手册复核与 Changelog 说明，解除 GitHub impact 文档门禁。",
-  "status": "partial",
-  "task_id": "2026-08-03-complete-v2.2.1-product-doc-review",
-  "unresolved": [
-    "等待 GitHub Test Gate 通过后创建 v2.2.1 标签、GitHub Release 并部署 VPS"
-  ],
-  "validation": [
-    "首个 GitHub CI 错误仅为两个产品文档源未随补丁提交复核",
-    "ActorOps 运行、费用和审批契约未改变"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "将 Telegram 多渠道通知、v15/v16 迁移、统一通知服务交互与 fake-IP 精确网络策略从 codex/telegram-multichannel-notifications-20260730 fast-forward 合入本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-03-merge-telegram-notifications-to-local-main",
-  "unresolved": [
-    "按用户要求只合入本地 main，未推送远端，也未重建 8080"
-  ],
-  "validation": [
-    "fast-forward main: 308320b -> 536ae0d without conflicts",
-    "product documentation gate passed for 27 product-code paths",
-    "python scripts/test_gate.py run --mode full on merged main: 23/23 passed",
-    "git diff --check passed"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "排查确认 Instagram 三槽保存失败源于两个 probationary 与一个 static_valid Revision 不满足 2+1；ActorOps 现于付费、三槽保存和来源级验证前显示可达性并阻断无效操作。",
-  "status": "completed",
-  "task_id": "2026-08-02-actorops-certification-flow-guard",
-  "unresolved": [
-    "当前 Instagram discovery cycle 只剩一次 Canary，至少还需三次全部成功，必须由管理员强制重新发现；本次未触发 AI、Actor Run 或费用",
-    "分支未合并 main、未推送，也未发布 VPS"
-  ],
-  "validation": [
-    "日志确认两次 Active Pool 写入均以 apify_actor_active_pool_uncertified 原子拒绝；最新四次 Route Canary 为两次成功、一次 300 秒超时和一次远端 failed",
-    "ActorOps 前端测试 20/20、生产构建和完整 Test Gate 23/23 通过",
-    "页面按槽位禁用未认证 Revision、提前阻断数学上无法完成的 Canary cycle，并在 Route 未激活时锁定来源级验证"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "删除 ActorOps 手工 Revision 排槽；候选认证完成后由服务端确定性生成 2+1 主备方案，管理员只提交 generation 与独立确认短语使其生效。",
-  "status": "completed",
-  "task_id": "2026-08-02-actorops-server-recommended-activation",
-  "unresolved": [
-    "当前 Instagram 候选仍未达到两个 certified，需继续按现有规则逐次确认 Canary 或强制重新发现；本次未调用 AI、Apify Actor 或产生费用",
-    "分支未合并 main、未推送，也未发布 VPS"
-  ],
-  "validation": [
-    "后端 ActorOps/API 定向测试 44 passed；前端 ActorOps 21 passed，生产构建通过",
-    "完整 Test Gate 23/23 passed",
-    "8080 API/Worker 从当前任务提交重建并 healthy，worker_status=ready，scheduler containers=0；真实 Instagram Route 显示 0/2 已认证、3/3 不同 Actor、2/2 发布者，且不再出现 Revision 下拉或手工保存按钮"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "ActorOps 保持完整 2+1 优先，同时允许两个不同发布者、均已成功 Canary 的固定 Build 先以 2/3 降级主备上线；第三槽空缺且不运行、不产生费用。",
-  "status": "completed",
-  "task_id": "2026-08-02-actorops-expedited-two-actor-activation",
-  "unresolved": [
-    "新建具体 Instagram 来源后仍需按当前两个活动 Actor 依次完成来源级 2/2 Canary；本次实现与重建未调用 AI、Actor 或产生费用",
-    "第三槽后续按 generation 热补位；分支未合并 main、未推送，也未发布 VPS"
-  ],
-  "validation": [
-    "真实数据库只读核对：fetch_cat 与 alwaysprimedev 各有成功 Canary；超时的 krazee_kaushik 未进入推荐",
-    "Backend targeted 50 passed；Frontend ActorOps 21 passed；Changelog 5 passed；production build passed",
-    "Full Test Gate 23/23 passed",
-    "8080 已运行提交 fe56d9f，API/Worker healthy、worker_status=ready、scheduler=0；真实 Instagram Route generation 2 已为 ready，两个 probationary Actor 来自不同发布者，第三槽为空"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "修正 YouTube Channel Items 候选判定与审批可达性：频道资料/统计与频道自身 ID/URL 不再冒充视频内容，固定 Build 的永久输出失败停止重复付费，剩余次数按两个不同发布者的快速主备计算。",
-  "status": "partial",
-  "task_id": "2026-08-02-youtube-actor-items-capability-gate",
-  "unresolved": [
-    "真实 Route 仍需对剩余 streamers 与 apidojo 两个不同发布者的候选各执行一次管理员确认的付费 Canary；本次未调用 AI、Actor 或产生费用",
-    "分支未合并 main、未推送，也未发布 VPS"
-  ],
-  "validation": [
-    "真实数据库只读重判五个 YouTube 候选：三个以历史 metadata-only 或静态 item identity 冲突阻断，仅保留 streamers 与 apidojo 两个不同发布者候选",
-    "Backend targeted 70 passed；Frontend ActorOps 22 passed（含 3 个阻断候选、2 个有效候选仍显示两个付费入口）；Python compile、TypeScript typecheck 与 git diff check 通过",
-    "Full Test Gate 23/23 passed in 193.596 seconds"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-02",
-  "result": "ActorOps Route 认证改为一次管理员审批的服务端串行批次：每个候选付费前免费复核公开 Actor 与精确 Build，两位不同发布者成功即停，未启动项为零费用，候选不足自动创建不启动 Actor 的补位发现任务；批准上限与实际费用分账。",
-  "status": "completed",
-  "task_id": "2026-08-02-actorops-serial-canary-batches",
-  "unresolved": [
-    "真实 Route batch Canary 与后续生产激活仍需管理员分别确认；本次实现、测试和迁移未调用真实 AI、Store 或 Actor，也未产生新费用",
-    "分支不合并 main、不推送，也不发布 VPS"
-  ],
-  "validation": [
-    "ActorOps/Apify 定向后端 260+ 项、批次 Worker/API/迁移 32 项、前端 ActorOps 22 项及 Changelog 5 项通过",
-    "Full Test Gate 23/23 passed；observability contract、TypeScript typecheck、JSON 与 diff checks 通过",
-    "global migration 19 以 0600 SQLite backup 成功 apply，integrity/FK 通过；修复 3 条 proven-no-start 为 $0、对账 16 条真实终态费用，迁移前后 X Candidate/attempt/实际费用保持一致"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "decisions",
-    "architecture"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "修复 YouTube Actor Discovery 与 Canary 计划的控制面误杀：channelIds 使用真实 UC ID，Manifest 从 Dataset row 根映射并安全去除可证明不存在的模型包装，精确视频 Schema 可覆盖模糊定价事件，重复 Discovery Job 幂等结束。",
-  "status": "completed",
-  "task_id": "2026-08-03-youtube-actor-schema-recovery",
-  "unresolved": [
-    "真实 Route 批量 Canary（最多 $0.06，两个不同发布者成功即停）与生产激活仍必须分别由管理员确认；本轮未启动 Actor 或产生 Canary 费用",
-    "分支不合并 main、不推送，也不发布 VPS"
-  ],
-  "validation": [
-    "只读复核五个既有 YouTube Dataset 的无值字段路径/类型，确认 maximedupre Build 具备 videoId、videoUrl、videoPublishedAt 和视频正文，旧 Manifest 的 /candidate 前缀为误判根因",
-    "免费读取当前 Actor/Build 元数据，五个已知候选均通过修复后的确定性筛选，ninhothedev channelIds 已绑定 target.native_id",
-    "真实 Store/全局 AI Discovery 一次成功：5 个 static_valid Revision、5 个发布者，AI JSON/Manifest 均 valid；未启动 Actor，实际 Canary 费用 $0",
-    "修复后的付费计划为 ready，包含已实证返回视频内容的 maximedupre，最多批准 $0.06；定向后端 80 项及 Full Test Gate 23/23 passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "architecture"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "在管理员明确批准本轮 YouTube Canary 总上限 $0.06 后执行服务端串行批次；maximedupre 与 khadinakbar 两个不同发布者均返回 valid_nonempty，Route 已达到两路快速主备激活条件。",
-  "status": "partial",
-  "task_id": "2026-08-03-youtube-canary-two-provider-ready",
-  "unresolved": [
-    "生产 Active Pool 仍需管理员独立确认“确认启用 Actor 主备”；确认前 YouTube Actor Route 不参与运行",
-    "第三槽保持空缺且不运行、不产生费用，后续可按 generation 热补位；分支不合并 main、不推送，也不发布 VPS"
-  ],
-  "validation": [
-    "已有 maximedupre Build 0.0.10 成功 Route Canary，valid_nonempty、费用 $0.001；本轮 khadinakbar Build 1.4.5 成功，valid_nonempty、费用 $0.00005",
-    "本轮批次批准上限 $0.06、实际终结费用 $0.00015，两个不同 Actor/发布者成功后进入 activation_ready；失败候选未进入推荐池",
-    "服务端推荐为 expedited_2of3：Primary maximedupre、Backup 1 khadinakbar、Backup 2 空缺，runnable_actor_count=2、publisher_count=2"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "architecture",
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "由本地 main 作为唯一集成 owner 合入 ActorOps 任务分支，保留 Telegram 通知 logical v15/v16，并将 ActorOps logical v15/v16/v17 固定到全局 migration 17/18/19；API、Worker、初始化、发布脚本、控制文件与前端时间线均完成组合冲突处理。",
-  "status": "partial",
-  "task_id": "2026-08-03-integrate-actorops-into-local-main",
-  "unresolved": [
-    "v2.2.0 版本提交、Tag、GitHub 发布与 VPS 迁移部署尚待本任务后续步骤完成",
-    "VPS 发布只部署代码与安全迁移，不自动执行真实 AI、付费 Canary 或生产 Route 激活"
-  ],
-  "validation": [
-    "通知与 ActorOps 迁移/API/Worker/运行脚本定向后端回归通过",
-    "ActorOps 与 Changelog 冲突前端回归 27/27 通过；App 全文件连续三次 297/297 通过",
-    "python scripts/test_gate.py run --mode full: 23/23 passed in 214.465 seconds",
-    "worklog validator、JSON、git diff check 与 observability contract 通过"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-04",
-  "result": "为 Settings Workspace 发布补强选择器退出态可访问性，并消除原生 fetching 路由测试的异步挂载竞态；准备 v2.2.7 作为合规发布标签。",
-  "status": "partial",
-  "task_id": "2026-08-04-publish-settings-workspace-v227",
-  "unresolved": [
-    "等待最终 Release Gate、GitHub Release 与 VPS 安全切换。"
-  ],
-  "validation": [
-    "Release Gate 首轮仅在 Select 退出态触发 Axe 对比度告警，修正后针对性 Playwright 通过。",
-    "GitHub 首次 main 前端全量发现 fetching 路由断言竞态；修正后 App.test.tsx 定向 103/103 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "将包含 Telegram 多渠道通知与通用 ActorOps 控制面的合并结果升级为 2.2.0，准备创建 v2.2.0 注释标签、GitHub Release 与 revision-locked VPS 升级。",
-  "status": "partial",
-  "task_id": "2026-08-03-prepare-v2.2.0-actorops-release",
-  "unresolved": [
-    "release Test Gate、Git 推送、GitHub Release 与 VPS 部署尚待本任务后续步骤完成",
-    "生产数据库迁移不调用 AI/Actor；任何真实付费 Canary 与生产 Route 激活仍保持独立审批"
-  ],
-  "validation": [
-    "合并提交 5375da1 的 full Test Gate 23/23 通过",
-    "项目与锁文件版本同步为 2.2.0",
-    "v2.2.0 本地与远端 Tag 尚不存在"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "修正 v2.2.0 Release Gate 的 ActorOps、来源能力目录与 Changelog 浏览器验收契约，使验收脚本覆盖当前通用三槽控制面而非旧 X 专用界面。",
-  "status": "partial",
-  "task_id": "2026-08-03-align-v2.2.0-release-acceptance",
-  "unresolved": [
-    "完整 Release Test Gate、Tag、GitHub 发布与 VPS 部署尚待本任务后续步骤完成"
-  ],
-  "validation": [
-    "Release Playwright 定向 15 项：13 passed、2 skipped",
-    "订阅 capability catalog 404 消失，既有 light/dark 三视口截图无需更新",
-    "ActorOps 通用路由表、当前三槽主备、全局 Discovery AI 和告警区域通过三视口可访问性验收"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "修复 v2.2.0 GitHub Linux UI Gate 暴露的移动端订阅视觉基线滞后；在隔离 linux/amd64 + Google Chrome 环境重生成 light/dark 基线，并将不可改写的公开失败标签后续版本升级为 2.2.1。",
-  "status": "partial",
-  "task_id": "2026-08-03-repair-v2.2.0-linux-visual-release-gate",
-  "unresolved": [
-    "v2.2.1 的 GitHub CI、Tag/Release、revision-locked 镜像与 VPS 正式切换尚待后续步骤完成",
-    "v2.2.0 已公开且不改写，将在 v2.2.1 发布后标记为被补丁版取代"
-  ],
-  "validation": [
-    "GitHub 后端与前端 Gate 均成功，唯一首错为 subscriptions-semantic-light-mobile-linux.png 的旧 UI 基线 2% 差异",
-    "人工核对 CI expected/actual/diff，actual 为预期的新 capability catalog 订阅布局",
-    "隔离 linux/amd64 + Google Chrome 151 重生成 light/dark 两张基线并通过 1/1；本机三视口复验 3/3 通过"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "修复 ActorOps Route Canary 的跨 Discovery Run 断层：历史成功证据、未试 Revision、真实启动次数与费用预算统一按 Route 复用，candidate_shortfall 可继续生成最小补验计划。",
-  "status": "partial",
-  "task_id": "2026-08-03-fix-actorops-route-canary-history-reuse",
-  "unresolved": [
-    "v2.2.2 Git 推送、Tag、Release Gate 与 VPS 部署仍待本任务后续步骤完成",
-    "部署不自动运行新的 AI Discovery、付费 Canary 或 Route 激活"
-  ],
-  "validation": [
-    "补位 Run 自身 0 候选时仍读取旧 Run 的 1 路成功和不同发布者未试候选，并只生成 1 项 $0.02 补验计划",
-    "次数与 $0.10 Route 认证预算跨 Run 累计，已真实尝试 Revision 不会重复进入计划",
-    "ActorOps 后端 29 项、前端 22 项与 Changelog/ActorOps 定向 27 项通过",
-    "python scripts/test_gate.py run --mode full: 23/23 passed"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "发布 v2.2.2 并以本地预构建的 revision-locked linux/amd64 镜像完成 VPS 切换；生产 YouTube 补位 Run 现可跨 Discovery Run 复用历史候选并恢复最小续接 Canary 计划。",
-  "status": "completed",
-  "task_id": "2026-08-03-publish-deploy-v2.2.2-canary-history-reuse",
-  "unresolved": [],
-  "validation": [
-    "main 与 v2.2.2 Tag GitHub Test Gate 均成功，本地 full 23/23、release 25/25 通过",
-    "VPS 上传源码与镜像 SHA-256 一致，镜像为 amd64、version 2.2.2、revision aefcbae70d1df669e4b831fe38654594928edea8",
-    "停机前及心跳安全窗后活跃 Job/Attempt/Validation/Batch 均为 0；0600 数据库与 .env 回滚备份 integrity ok、foreign keys 0",
-    "API/Worker 使用精确 v2.2.2 镜像且 healthy、restart=0、worker_status=ready；RSSHub healthy，scheduler/staging 为 0，公网首页与 /feed 为 200",
-    "生产最新 youtube/channel/items Run 虽自身候选为 0，现已返回 ready=true、历史成功 1 路、补验候选 1 项、授权上限 $0.02；未自动调用 AI、Actor 或付费 Canary"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "修复 YouTube Actor Canary 的未知启动永久阻断与终态费用早结算：只读账户 Run 时间窗可证明未创建并安全解锁，已创建 Run 延迟复核真实费用，错误 Job 不再显示成功。",
-  "status": "partial",
-  "task_id": "2026-08-03-fix-youtube-apify-start-reconciliation",
-  "unresolved": [
-    "等待提交、Release Gate、本地 8080 切换、Git 发布与 VPS 部署",
-    "全量前端 551 项在组合运行中有 1 个无关设置目录用例抖动，但该用例单独通过；ActorOps 22/22 通过"
-  ],
-  "validation": [
-    "ActorOps/Apify 后端定向约 145 项通过，完整 Gate 后端及其余 21 组通过",
-    "ActorOps 前端 22/22、通知设置 7/7 通过；全量前端串行 550/551，唯一无关 App 设置目录用例单独 1/1 通过",
-    "未知启动恢复测试证明不发送第二次 Actor POST，只有账户时间窗权威为空才解除 Route/Key 阻断并结算 $0",
-    "终态费用复核测试覆盖 0.00005 到 0.00505 的 Apify 最终值更新"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "确认生产未知启动自愈失败源于 Apify Run 列表拒绝带 +00:00 的日期过滤；v2.2.5 改用 UTC Z 格式并固定 30 秒证明窗口，避免延迟对账混入无关 Run。",
-  "status": "partial",
-  "task_id": "2026-08-03-fix-youtube-apify-reconcile-date-format-v225",
-  "unresolved": [
-    "等待提交合并、Release Gate、Git Tag/Release、本地 amd64 镜像构建与 VPS 切换",
-    "部署后需确认旧未知启动结算为 0 美元并解除 YouTube Route 与 Key 阻断"
-  ],
-  "validation": [
-    "生产只读诊断返回 400 invalid-value，明确 startedAfter 不是接口接受的 ISO UTC 格式",
-    "修复格式后的生产只读查询返回 authoritative_empty=true，未启动 Actor 且未产生费用",
-    "Apify pool/key 定向 22 项通过，完整 Test Gate 23/23 通过"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "发布并部署 v2.2.5，修复 Apify 未知启动对账日期格式；生产旧未知启动以 0 美元安全终结，唯一补验成功后自动激活 YouTube 两路不同发布者 Actor 主备。",
-  "status": "completed",
-  "task_id": "2026-08-03-publish-deploy-v2.2.5-youtube-actor-ready",
-  "unresolved": [],
-  "validation": [
-    "定向 Apify pool/key 22 项、完整 Gate 23/23、Release Gate 25/25 通过；GitHub main 与 v2.2.5 Tag Test Gate 均成功",
-    "本地 8080 运行精确 f46e6a2497e0，API/Worker healthy、worker_status=ready、前端资产已更新；scheduler 未启动",
-    "VPS 使用本地预构建 amd64 镜像 docker load 与 --no-build 切换；0600 数据库和 .env 备份完成，integrity ok、foreign keys 0",
-    "生产未知启动变为 start_rejected、实际费用 0 且 Key Pool 解锁；补验只启动一次，实际费用 0.00145 美元并终结",
-    "youtube/channel/items generation 4 为 ready，Primary/Backup 1 是两个不同 Actor 和两个发布者，Backup 2 留空；活动任务 0、API/Worker/RSSHub healthy、日志无 HTTPStatusError 或 Traceback"
-  ]
-}
-```
 
 ```json
 {
@@ -647,7 +207,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "runtime"
+    "observability"
   ],
   "recorded_on": "2026-08-05",
   "result": "按 codex/workbuddy 工作树完成本地 8080 切换，仅重建 horizon-api 与 horizon-worker；未启动 scheduler。",
@@ -660,12 +220,11 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
-
 ```json
 {
   "control_topics": [
     "interface",
-    "runtime"
+    "observability"
   ],
   "recorded_on": "2026-08-05",
   "result": "AI Key 现在可独立保存并编辑 Base URL；全局 AI 和触底文案只允许引用相同 Provider 的已保存 Key，生成优先使用绑定 Key 的连接地址，旧的跨 Provider 绑定安全回退全局 Key。为本地升级增加带 0600 备份、Worker/运行中作业保护和 SQLite 完整性检查的离线迁移脚本。",
@@ -678,7 +237,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
-
 ```json
 {
   "control_topics": [
@@ -702,7 +260,7 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "runtime"
+    "observability"
   ],
   "recorded_on": "2026-08-05",
   "result": "将 AI Key 独立连接地址与 Feed 稳健修复合入并推送 main，发布 GitHub v2.2.10，并用本地预构建 linux/amd64 镜像完成 VPS 从 v2.2.7 到 v2.2.10 的备份、迁移和 API/Worker 切换；scheduler 未启动。",
@@ -714,6 +272,100 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "本地镜像 inteliscope-service:v2.2.10-92637c48e2b6 为 linux/amd64，revision 标签精确；上传归档 SHA-256 为 39083b1e7d81fadae9a3f6b1c82c793049ce2e78094e0a09f259b31d62053ffd。",
     "生产迁移备份位于 /opt/inteliscope/backups/v2.2.10-92637c48e2b6-20260805T115838Z，数据库与环境备份均为 0600，迁移前备份和迁移后数据库 integrity ok、foreign keys 0。",
     "首次切换因 Docker health 尚在 starting 而按预案回滚 v2.2.7；旧服务恢复 ready 后重试成功，无活动作业或数据回退。最终 API/Worker healthy、restarts 0、worker_status=ready，公网根页和设置页 200、受保护接口 401、前端独立 Key URL 标记存在、严重级别错误日志 0。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "YouTube 频道头像改为按已验证 UC Channel ID 从固定公开频道页有界解析并缓存为本地受保护媒体；工作日志 schema‑3 基线已通过事务化 topic 归一、重复恢复与归档轮转修复。",
+  "status": "completed",
+  "task_id": "2026-08-06-fix-youtube-avatar-and-repair-worklog",
+  "unresolved": [],
+  "validation": [
+    "YouTube/RSS/source-avatar 定向 pytest 69 项通过。",
+    "前端 Changelog 定向 Vitest、typecheck 与 UI contract 通过。",
+    "Full Test Gate 23/23 命令通过；worklogctl validate 返回 VALID。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "observability"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "从 codex/diagnose-youtube-avatar-20260806 工作树完成本地 8080 切换；只重建 horizon-api 与 horizon-worker，未启动 scheduler。",
+  "status": "completed",
+  "task_id": "2026-08-06-start-youtube-avatar-local-containers",
+  "unresolved": [],
+  "validation": [
+    "API 与 Worker 均 healthy，readiness 报告 worker_status=ready。",
+    "两个服务均运行 revision de82a29d55cc，前端资源 index-BwptAGhG.js 已由 8080 提供。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "修复 YouTube 官方频道头像在 yt3.googleusercontent.com 被媒体缓存安全 DNS 策略拒绝的问题；仅将 googleusercontent.com 纳入受信任媒体 CDN 后缀，并为已订阅频道准备单源免费回填。",
+  "status": "completed",
+  "task_id": "2026-08-06-fix-youtube-avatar-cdn-policy",
+  "unresolved": [],
+  "validation": [
+    "已用实际频道 UCMUnInmOkrWN4gof9KlhNmQ 复现：频道页可解析 og:image，但 Worker 记录 avatar_cache=failed。",
+    "安全网络策略模拟 198.18.0.0/15 合成 DNS 时允许 yt3.googleusercontent.com；常规非白名单策略未放宽。",
+    "全量 Test Gate 因本机 Python 3.14 缺少 pytest 在启动阶段失败，非测试断言失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "在完成 YouTube 官方 CDN 安全策略修复并重建本地服务后，仅对已订阅频道 src_f89d4d3d9960417da412aa218e51bdbb 执行免费单源头像回填。",
+  "status": "completed",
+  "task_id": "2026-08-06-backfill-youtube-avatar-source",
+  "unresolved": [],
+  "validation": [
+    "回填结果 stored；媒体资产为 image/jpeg、110250 bytes、status=ready。",
+    "未运行 Feed 抓取、AI、通知、计划任务或付费 Actor。",
+    "API 与 Worker 在 revision 5c71e3ef1991 上 healthy，Worker readiness=ready。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "将 YouTube 频道头像解析、官方 CDN 安全缓存与单源回填修复合并到本地 main；保留 main 的 AI Key 更新日志和本分支的 YouTube 头像更新日志。",
+  "status": "partial",
+  "task_id": "2026-08-06-merge-youtube-avatar-into-main",
+  "unresolved": [
+    "需要为 Test Gate 指定的 Python 3.14 环境安装 pytest 后重跑完整 Gate。"
+  ],
+  "validation": [
+    "合并冲突已解析，更新日志时间线保留两条 2026-08-06 记录并同步测试索引。",
+    "WORKLOG 已安全归档轮转，控制工具在合并结果上校验通过。",
+    "完整 Test Gate 已启动：23 项中的前 3 项通过，Python 阶段因本机指定 Python 3.14 缺少 pytest 未能继续。"
   ]
 }
 ```
