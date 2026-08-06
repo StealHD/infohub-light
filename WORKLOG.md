@@ -30,24 +30,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": [],
   "recorded_on": "2026-08-03",
-  "result": "修正 v2.2.0 Release Gate 的 ActorOps、来源能力目录与 Changelog 浏览器验收契约，使验收脚本覆盖当前通用三槽控制面而非旧 X 专用界面。",
-  "status": "partial",
-  "task_id": "2026-08-03-align-v2.2.0-release-acceptance",
-  "unresolved": [
-    "完整 Release Test Gate、Tag、GitHub 发布与 VPS 部署尚待本任务后续步骤完成"
-  ],
-  "validation": [
-    "Release Playwright 定向 15 项：13 passed、2 skipped",
-    "订阅 capability catalog 404 消失，既有 light/dark 三视口截图无需更新",
-    "ActorOps 通用路由表、当前三槽主备、全局 Discovery AI 和告警区域通过三视口可访问性验收"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
   "result": "修复 v2.2.0 GitHub Linux UI Gate 暴露的移动端订阅视觉基线滞后；在隔离 linux/amd64 + Google Chrome 环境重生成 light/dark 基线，并将不可改写的公开失败标签后续版本升级为 2.2.1。",
   "status": "partial",
   "task_id": "2026-08-03-repair-v2.2.0-linux-visual-release-gate",
@@ -391,6 +373,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "已用实际频道 UCMUnInmOkrWN4gof9KlhNmQ 复现：频道页可解析 og:image，但 Worker 记录 avatar_cache=failed。",
     "安全网络策略模拟 198.18.0.0/15 合成 DNS 时允许 yt3.googleusercontent.com；常规非白名单策略未放宽。",
     "全量 Test Gate 因本机 Python 3.14 缺少 pytest 在启动阶段失败，非测试断言失败。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "在完成 YouTube 官方 CDN 安全策略修复并重建本地服务后，仅对已订阅频道 src_f89d4d3d9960417da412aa218e51bdbb 执行免费单源头像回填。",
+  "status": "completed",
+  "task_id": "2026-08-06-backfill-youtube-avatar-source",
+  "unresolved": [],
+  "validation": [
+    "回填结果 stored；媒体资产为 image/jpeg、110250 bytes、status=ready。",
+    "未运行 Feed 抓取、AI、通知、计划任务或付费 Actor。",
+    "API 与 Worker 在 revision 5c71e3ef1991 上 healthy，Worker readiness=ready。"
   ]
 }
 ```
