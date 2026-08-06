@@ -8,32 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "architecture",
-    "capabilities",
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-03",
-  "result": "由本地 main 作为唯一集成 owner 合入 ActorOps 任务分支，保留 Telegram 通知 logical v15/v16，并将 ActorOps logical v15/v16/v17 固定到全局 migration 17/18/19；API、Worker、初始化、发布脚本、控制文件与前端时间线均完成组合冲突处理。",
-  "status": "partial",
-  "task_id": "2026-08-03-integrate-actorops-into-local-main",
-  "unresolved": [
-    "v2.2.0 版本提交、Tag、GitHub 发布与 VPS 迁移部署尚待本任务后续步骤完成",
-    "VPS 发布只部署代码与安全迁移，不自动执行真实 AI、付费 Canary 或生产 Route 激活"
-  ],
-  "validation": [
-    "通知与 ActorOps 迁移/API/Worker/运行脚本定向后端回归通过",
-    "ActorOps 与 Changelog 冲突前端回归 27/27 通过；App 全文件连续三次 297/297 通过",
-    "python scripts/test_gate.py run --mode full: 23/23 passed in 214.465 seconds",
-    "worklog validator、JSON、git diff check 与 observability contract 通过"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -400,6 +374,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "YouTube/RSS/source-avatar 定向 pytest 69 项通过。",
     "前端 Changelog 定向 Vitest、typecheck 与 UI contract 通过。",
     "Full Test Gate 23/23 命令通过；worklogctl validate 返回 VALID。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "observability"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "从 codex/diagnose-youtube-avatar-20260806 工作树完成本地 8080 切换；只重建 horizon-api 与 horizon-worker，未启动 scheduler。",
+  "status": "completed",
+  "task_id": "2026-08-06-start-youtube-avatar-local-containers",
+  "unresolved": [],
+  "validation": [
+    "API 与 Worker 均 healthy，readiness 报告 worker_status=ready。",
+    "两个服务均运行 revision de82a29d55cc，前端资源 index-BwptAGhG.js 已由 8080 提供。"
   ]
 }
 ```
