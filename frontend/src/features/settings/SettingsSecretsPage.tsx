@@ -89,26 +89,26 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
 
   const hardLimitConstrained = quota.data.remaining_hard_limit_usd < quota.data.remaining_included_credits_usd
   return <div className="grid gap-2" aria-live="polite" aria-busy={refreshing || retryBusy}>
-    <div className="flex min-w-0 items-stretch gap-2">
-      <dl className="grid min-w-0 flex-1 grid-cols-3 divide-x divide-separator overflow-hidden rounded-[var(--inteliscope-radius-control)] border border-separator bg-default">
-        <div className="min-w-0 px-2.5 py-2">
-          <dt className="type-meta text-muted">剩余</dt>
-          <dd className="type-control mt-0.5 truncate text-foreground">{formatUsd(quota.data.remaining_included_credits_usd)}</dd>
+    <div className="flex min-w-0 items-center gap-2">
+      <dl className="grid min-w-0 flex-1 grid-cols-3 gap-x-3 px-1 py-1">
+        <div className="flex min-w-0 items-baseline gap-1">
+          <dt className="type-meta shrink-0 text-muted">剩余：</dt>
+          <dd className="type-control truncate text-foreground">{formatUsd(quota.data.remaining_included_credits_usd)}</dd>
         </div>
-        <div className="min-w-0 px-2.5 py-2">
-          <dt className="type-meta text-muted">已用</dt>
-          <dd className="type-control mt-0.5 truncate text-foreground">{formatUsd(quota.data.monthly_usage_usd)}</dd>
+        <div className="flex min-w-0 items-baseline gap-1">
+          <dt className="type-meta shrink-0 text-muted">已用：</dt>
+          <dd className="type-control truncate text-foreground">{formatUsd(quota.data.monthly_usage_usd)}</dd>
         </div>
-        <div className="min-w-0 px-2.5 py-2">
-          <dt className="type-meta text-muted">重置</dt>
-          <dd className="type-control mt-0.5 truncate text-foreground">{formatCycleEnd(quota.data.cycle_end_at)}</dd>
+        <div className="flex min-w-0 items-baseline gap-1">
+          <dt className="type-meta shrink-0 text-muted">重置：</dt>
+          <dd className="type-control truncate text-foreground">{formatCycleEnd(quota.data.cycle_end_at)}</dd>
         </div>
       </dl>
       <Button
         size="sm"
         variant="ghost"
         isIconOnly
-        className="h-auto shrink-0 self-stretch"
+        className="size-8 shrink-0 self-center"
         aria-label={refreshing ? `正在刷新 ${secret.name} 额度` : failure ? `重试 ${secret.name} 额度` : `刷新 ${secret.name} 额度`}
         isDisabled={refreshing || retryBusy}
         onPress={() => void refetch(failure ? 'retry' : 'refresh')}
@@ -399,30 +399,30 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                   variant="secondary"
                   className="gap-0 border border-separator bg-surface-secondary p-0 shadow-sm"
                 >
-                  <Card.Header className="flex min-w-0 items-start justify-between gap-3 px-4 pb-3 pt-4">
+                  <Card.Header className="flex min-w-0 flex-row items-start justify-between gap-3 px-4 pb-2 pt-4">
                     <div className="flex min-w-0 items-start gap-3">
                       <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-default text-muted"><Icons.KeyRound size={17} aria-hidden="true" /></span>
                       <div className="min-w-0">
                         <Card.Title className="type-control truncate text-foreground">{secret.name}</Card.Title>
                         {secret.name !== secret.env_name && <Card.Description className="type-body mt-0.5 truncate text-muted">{secret.env_name}</Card.Description>}
+                        {member && member.active_run_count > 0 && <span className="type-meta mt-0.5 block text-muted">{member.active_run_count} 个运行中任务</span>}
                       </div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <div className="flex shrink-0 items-center justify-end gap-1.5">
                       <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
-                      {member && member.active_run_count > 0 && <span className="type-meta text-muted">{member.active_run_count} 个运行中任务</span>}
+                      {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
                     </div>
                   </Card.Header>
-                  <Card.Content className="grid gap-2 px-4 pb-4 pt-0">
+                  <Card.Content className="grid gap-2 px-4 pb-3 pt-0">
                     <SecretQuotaDetails secret={secret} userId={userId} />
                     <ApifyMemberAlerts member={member} />
                   </Card.Content>
-                  <Card.Footer className="flex flex-col gap-3 border-t border-separator px-4 py-3 min-[640px]:flex-row min-[640px]:items-center min-[640px]:justify-between">
+                  <Card.Footer className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-separator px-4 py-3">
                     <span className="type-meta text-muted">最近检查 {formatDateTime(member?.last_checked_at ?? null)}</span>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant="ghost" isIconOnly aria-label={`上移 ${secret.name}`} isDisabled={controlsDisabled || index <= 0 || lifecycleLocked || memberLocked(previous)} onPress={() => moveMember(secret.id, -1)}><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
                       <Button size="sm" variant="ghost" isIconOnly aria-label={`下移 ${secret.name}`} isDisabled={controlsDisabled || index < 0 || index >= orderedMembers.length - 1 || lifecycleLocked || memberLocked(next)} onPress={() => moveMember(secret.id, 1)}><Icons.ArrowDown size={14} aria-hidden="true" /></Button>
                       <SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} />
-                      {canDrain && <Button size="sm" variant="secondary" aria-label={`安全排空 ${secret.name}`} isDisabled={draining || member?.status === 'draining' || pool?.status === 'blocked'} onPress={() => drainMutation.mutate(secret.id)}><Icons.CircleStop size={14} aria-hidden="true" />{draining || member?.status === 'draining' ? '排空中…' : '安全排空'}</Button>}
                     </div>
                   </Card.Footer>
                 </Card>

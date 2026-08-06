@@ -8,6 +8,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": ["decisions", "ui"],
   "recorded_on": "2026-08-06",
+  "result": "收紧 Apify Key 卡片的视觉秩序：成员状态与安全排空固定在 Header 右侧，额度改为无底色单行指标，Footer 仅保留检查时间和一致的移动、轮换、删除操作。",
+  "status": "completed",
+  "task_id": "2026-08-06-apify-key-card-alignment",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 106 项、TypeScript、ESLint 与 UI contract 检查通过。",
+    "python3 scripts/test_gate.py run --mode full：23/23 命令通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": ["decisions", "ui"],
+  "recorded_on": "2026-08-06",
   "result": "将 Apify Key 池重排为独立 HeroUI 卡片：身份与状态、三项额度指标、最近检查和生命周期操作直接分区呈现，移除详情 Disclosure。",
   "status": "completed",
   "task_id": "2026-08-06-apify-key-hero-card-layout",
