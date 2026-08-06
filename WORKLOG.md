@@ -6,6 +6,20 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 
 ```json
 {
+  "control_topics": ["ui"],
+  "recorded_on": "2026-08-06",
+  "result": "将已验证的 AI Key 主导绑定、AI 设置简约化与 Apify Key 卡片重排快进合并到本地 main。",
+  "status": "completed",
+  "task_id": "2026-08-06-merge-key-driven-ai-bindings-to-main",
+  "unresolved": [],
+  "validation": [
+    "main worktree 完整 Test Gate：23/23 命令通过。"
+  ]
+}
+```
+
+```json
+{
   "control_topics": ["decisions", "ui"],
   "recorded_on": "2026-08-06",
   "result": "收紧 Apify Key 卡片的视觉秩序：成员状态与安全排空固定在 Header 右侧，额度改为无底色单行指标，Footer 仅保留检查时间和一致的移动、轮换、删除操作。",
