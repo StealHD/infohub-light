@@ -2100,7 +2100,7 @@ describe('App routes', () => {
     try {
       render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/settings/secrets']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-      expect(await screen.findByText('套餐剩余 $4.00')).toBeInTheDocument()
+      expect(await screen.findByText(/剩余 \$4\.00 · 已用 \$1\.00/)).toBeInTheDocument()
       expect(secrets).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledOnce()
       expect(secretQuota).toHaveBeenCalledWith('apify-cached')
@@ -2380,7 +2380,7 @@ describe('App routes', () => {
 
     expect(await screen.findByText('Apify Key 池尚未启用')).toBeInTheDocument()
     const primaryItem = screen.getByText('Legacy Primary').closest<HTMLElement>('[data-settings-item]')!
-    await browser.click(within(primaryItem).getByRole('button', { name: /运行详情/ }))
+    await browser.click(within(primaryItem).getByRole('button', { name: '详情' }))
     const rotateTrigger = within(primaryItem).getByRole('button', { name: '轮换 Legacy Primary' })
     expect(rotateTrigger).toBeEnabled()
     expect(within(primaryItem).getByRole('button', { name: '删除 Legacy Primary' })).toBeEnabled()
@@ -2412,7 +2412,7 @@ describe('App routes', () => {
       monthly_usage_usd: 12.5,
       remaining_included_credits_usd: 36.5,
       max_monthly_usage_usd: 100,
-      remaining_hard_limit_usd: 87.5,
+      remaining_hard_limit_usd: 20,
     })
     const primaryRefresh = deferred<ReturnType<typeof quotaResponse>>()
     let deferPrimaryRefresh = false
@@ -2459,7 +2459,7 @@ describe('App routes', () => {
       secrets: vi.fn().mockResolvedValue({ secrets: [
         { id: 'apify-primary', name: 'Apify Primary', kind: 'apify', provider: 'apify', env_name: 'APIFY_PRIMARY', is_set: true, used_by: [{ type: 'source', id: 'source-1', name: 'X' }] },
         { id: 'apify-backup-one', name: 'Apify Backup One', kind: 'apify', provider: 'apify', env_name: 'APIFY_BACKUP_ONE', is_set: true, used_by: [] },
-        { id: 'apify-backup-two', name: 'Apify Backup Two', kind: 'apify', provider: 'apify', env_name: 'APIFY_BACKUP_TWO', is_set: true, used_by: [] },
+        { id: 'apify-backup-two', name: 'APIFY_BACKUP_TWO', kind: 'apify', provider: 'apify', env_name: 'APIFY_BACKUP_TWO', is_set: true, used_by: [] },
         { id: 'ai-key', name: 'Gemini Primary', kind: 'ai', provider: 'gemini', env_name: 'GOOGLE_API_KEY', is_set: true, used_by: [] },
       ] }),
       users: vi.fn().mockResolvedValue({ users: [] }),
@@ -2479,16 +2479,24 @@ describe('App routes', () => {
     )
 
     const firstView = renderSettings()
-    expect(await screen.findByText(/当前主用：Apify Primary/)).toBeInTheDocument()
-    await waitFor(() => expect(screen.getAllByText('套餐剩余 $36.50')).toHaveLength(3))
-    expect(screen.getAllByText('本月已用 $12.50 · 硬上限剩余 $87.50')).toHaveLength(3)
+    expect(await screen.findByText('Ready')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText(/剩余 \$36\.50 · 已用 \$12\.50 · \d{2}\/\d{2} 重置/)).toHaveLength(3))
+    expect(screen.getAllByText('硬上限仅余 $20.00')).toHaveLength(3)
+    expect(screen.queryByText(/当前主用/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/顺位/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/当前无运行中任务/)).not.toBeInTheDocument()
     expect(new Set(secretQuota.mock.calls.map(([secretId]) => secretId))).toEqual(new Set([
       'apify-primary',
       'apify-backup-one',
       'apify-backup-two',
     ]))
     const primaryItem = screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!
-    await browser.click(within(primaryItem).getByRole('button', { name: /运行详情/ }))
+    expect(within(primaryItem).queryByText('apify · APIFY_PRIMARY')).not.toBeInTheDocument()
+    expect(within(primaryItem).queryByRole('button', { name: '轮换 Apify Primary' })).not.toBeInTheDocument()
+    await browser.click(within(primaryItem).getByRole('button', { name: '详情' }))
+    expect(within(primaryItem).getByText(/最近检查/)).toBeInTheDocument()
+    expect(within(primaryItem).queryByText(/额度周期至/)).not.toBeInTheDocument()
+    expect(within(primaryItem).queryByText('请先安全排空，再轮换或删除')).not.toBeInTheDocument()
     expect(within(primaryItem).getByRole('button', { name: '轮换 Apify Primary' })).toBeDisabled()
     expect(within(primaryItem).getByRole('button', { name: '删除 Apify Primary' })).toBeDisabled()
     expect(within(primaryItem).getByRole('button', { name: '下移 Apify Primary' })).toBeDisabled()
@@ -2496,10 +2504,10 @@ describe('App routes', () => {
 
     firstView.unmount()
     renderSettings()
-    expect((await screen.findAllByText('套餐剩余 $36.50')).length).toBe(3)
+    expect((await screen.findAllByText(/剩余 \$36\.50 · 已用 \$12\.50 · \d{2}\/\d{2} 重置/)).length).toBe(3)
     expect(secretQuota).toHaveBeenCalledTimes(3)
     const refreshedPrimaryItem = screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!
-    await browser.click(within(refreshedPrimaryItem).getByRole('button', { name: /运行详情/ }))
+    await browser.click(within(refreshedPrimaryItem).getByRole('button', { name: '详情' }))
 
     deferPrimaryRefresh = true
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Primary 额度' }))
@@ -2508,7 +2516,7 @@ describe('App routes', () => {
     expect(refreshingQuota).toBeDisabled()
     expect(refreshingQuota.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
     expect(refreshingQuota.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
-    expect(within(screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!).getByText('套餐剩余 $36.50')).toBeInTheDocument()
+    expect(within(screen.getByText('Apify Primary').closest<HTMLElement>('[data-settings-item]')!).getByText(/剩余 \$36\.50 · 已用 \$12\.50/)).toBeInTheDocument()
     await act(async () => primaryRefresh.resolve(quotaResponse('apify-primary')))
     await waitFor(() => expect(screen.getByRole('button', { name: '刷新 Apify Primary 额度' })).toBeEnabled())
 
@@ -2520,14 +2528,15 @@ describe('App routes', () => {
       7,
     ))
 
-    const secondBackupItem = screen.getByText('Apify Backup Two').closest<HTMLElement>('[data-settings-item]')!
-    await browser.click(within(secondBackupItem).getByRole('button', { name: /运行详情/ }))
-    const rotateTrigger = within(secondBackupItem).getByRole('button', { name: '轮换 Apify Backup Two' })
+    const secondBackupItem = screen.getByText('APIFY_BACKUP_TWO').closest<HTMLElement>('[data-settings-item]')!
+    expect(within(secondBackupItem).getAllByText('APIFY_BACKUP_TWO')).toHaveLength(1)
+    await browser.click(within(secondBackupItem).getByRole('button', { name: '详情' }))
+    const rotateTrigger = within(secondBackupItem).getByRole('button', { name: '轮换 APIFY_BACKUP_TWO' })
     await browser.click(rotateTrigger)
-    const rotateDialog = screen.getByRole('dialog', { name: '轮换 Apify Backup Two' })
+    const rotateDialog = screen.getByRole('dialog', { name: '轮换 APIFY_BACKUP_TWO' })
     await browser.type(within(rotateDialog).getByLabelText('新 Key 值'), 'rotated-write-only')
     await browser.click(within(rotateDialog).getByRole('button', { name: '确认轮换' }))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '轮换 Apify Backup Two' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '轮换 APIFY_BACKUP_TWO' })).not.toBeInTheDocument())
     await waitFor(() => expect(secretQuota.mock.calls.filter(([secretId]) => secretId === 'apify-backup-two')).toHaveLength(2))
     expect(rotateSecret).toHaveBeenCalledWith('apify-backup-two', 'rotated-write-only')
     expect(rotateTrigger).toHaveFocus()
@@ -2592,17 +2601,17 @@ describe('App routes', () => {
       max_monthly_usage_usd: 10,
       remaining_hard_limit_usd: 9,
     }))
-    expect(await screen.findByText('套餐剩余 $4.00')).toBeInTheDocument()
+    expect(await screen.findByText(/剩余 \$4\.00 · 已用 \$1\.00/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled()
 
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Retry 额度' }))
     const backgroundRetry = await screen.findByRole('button', { name: '重试 Apify Retry 额度' })
-    expect(screen.getByText('套餐剩余 $4.00')).toBeInTheDocument()
+    expect(screen.getByText(/剩余 \$4\.00 · 已用 \$1\.00/)).toBeInTheDocument()
     expect(screen.getByText('Apify 刷新暂时不可用')).toHaveAttribute('role', 'alert')
 
     await browser.click(backgroundRetry)
     await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(4))
-    expect(screen.getByText('套餐剩余 $4.00')).toBeInTheDocument()
+    expect(screen.getByText(/剩余 \$4\.00 · 已用 \$1\.00/)).toBeInTheDocument()
 
     await act(async () => backgroundRetryQuota.resolve({
       secret_id: 'apify-retry',
@@ -2617,7 +2626,7 @@ describe('App routes', () => {
       max_monthly_usage_usd: 10,
       remaining_hard_limit_usd: 8,
     }))
-    expect(await screen.findByText('套餐剩余 $3.00')).toBeInTheDocument()
+    expect(await screen.findByText(/剩余 \$3\.00 · 已用 \$2\.00/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '刷新 Apify Retry 额度' })).toBeEnabled()
 
     await browser.click(screen.getByRole('button', { name: '刷新 Apify Retry 额度' }))
@@ -2628,7 +2637,7 @@ describe('App routes', () => {
       })
     })
     await waitFor(() => expect(secretQuota).toHaveBeenCalledTimes(6))
-    expect(screen.getByText('套餐剩余 $3.00')).toBeInTheDocument()
+    expect(screen.getByText(/剩余 \$3\.00 · 已用 \$2\.00/)).toBeInTheDocument()
 
     await act(async () => invalidationRetryQuota.resolve({
       secret_id: 'apify-retry',
@@ -2643,7 +2652,7 @@ describe('App routes', () => {
       max_monthly_usage_usd: 10,
       remaining_hard_limit_usd: 7,
     }))
-    expect(await screen.findByText('套餐剩余 $2.00')).toBeInTheDocument()
+    expect(await screen.findByText(/剩余 \$2\.00 · 已用 \$3\.00/)).toBeInTheDocument()
   })
 
   it('keeps rotation failures inside the row modal and clears the submitted value', async () => {

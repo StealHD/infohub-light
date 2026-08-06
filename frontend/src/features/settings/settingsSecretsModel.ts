@@ -84,7 +84,7 @@ export function secretCreateErrorMessage(caught: unknown): string {
 
 export const poolStatusLabels: Record<string, string> = {
   empty: '尚未配置 Key',
-  ready: '可以启动新任务',
+  ready: 'Ready',
   active: '运行中',
   draining: '正在安全排空',
   blocked: '已阻塞，等待人工核对',
@@ -128,7 +128,7 @@ export function formatUsd(value: number) {
 export function formatCycleEnd(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '未知'
-  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date)
 }
 
 export function formatDateTime(value: string | null): string {

@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate } from 'react-router-dom'
 
@@ -86,11 +86,10 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
     </Button>
   </div>
 
+  const hardLimitConstrained = quota.data.remaining_hard_limit_usd < quota.data.remaining_included_credits_usd
   return <div className="grid gap-1" aria-live="polite" aria-busy={refreshing || retryBusy}>
-    <span className="type-control">套餐剩余 {formatUsd(quota.data.remaining_included_credits_usd)}</span>
-    <span className="type-meta text-muted">本月已用 {formatUsd(quota.data.monthly_usage_usd)} · 硬上限剩余 {formatUsd(quota.data.remaining_hard_limit_usd)}</span>
     <div className="flex flex-wrap items-center gap-2">
-      <span className="type-meta text-muted">周期至 {formatCycleEnd(quota.data.cycle_end_at)}</span>
+      <span className="type-control">剩余 {formatUsd(quota.data.remaining_included_credits_usd)} · 已用 {formatUsd(quota.data.monthly_usage_usd)} · {formatCycleEnd(quota.data.cycle_end_at)} 重置</span>
       <Button
         size="sm"
         variant="ghost"
@@ -100,14 +99,15 @@ function SecretQuotaDetails({ secret, userId }: { secret: SecretRef; userId: str
         onPress={() => void refetch(failure ? 'retry' : 'refresh')}
       ><Icons.RefreshCw size={14} className={refreshing || retryBusy ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></Button>
     </div>
+    {hardLimitConstrained && <span className="type-meta text-warning">硬上限仅余 {formatUsd(quota.data.remaining_hard_limit_usd)}</span>}
     {failure && <span className="type-meta text-danger" role="alert">{failure}</span>}
   </div>
 }
 
-function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先安全排空，再轮换或删除', onChanged }: {
+function SecretActions({ secret, lifecycleLocked = false, lifecycleDescription = '请先安全排空，再轮换或删除。', onChanged }: {
   secret: SecretRef
   lifecycleLocked?: boolean
-  lockMessage?: string
+  lifecycleDescription?: string
   onChanged: (secretId: string, action: 'rotate' | 'delete' | 'connection') => void
 }) {
   const { api } = useAppContext()
@@ -119,6 +119,7 @@ function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先�
   const [deleteError, setDeleteError] = useState('')
   const rotateTriggerRef = useRef<HTMLButtonElement>(null)
   const deleteTriggerRef = useRef<HTMLButtonElement>(null)
+  const lifecycleDescriptionId = useId()
   const rotating = feedback.isPending('secret-rotate', secret.id)
   const removing = feedback.isPending('secret-delete', secret.id)
 
@@ -175,13 +176,14 @@ function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先�
   }
 
   return <div className="grid gap-2">
+    {lifecycleLocked && <span id={lifecycleDescriptionId} className="sr-only">{lifecycleDescription}</span>}
     <div className="flex flex-wrap gap-2">
       <Modal isOpen={rotateOpen} onOpenChange={(open) => {
         if (rotating) return
         if (open) setRotateOpen(true)
         else closeRotate()
       }}>
-        <Button ref={rotateTriggerRef} size="sm" variant="ghost" isDisabled={lifecycleLocked} aria-label={`轮换 ${secret.name}`}>轮换</Button>
+        <Button ref={rotateTriggerRef} size="sm" variant="ghost" isDisabled={lifecycleLocked} aria-describedby={lifecycleLocked ? lifecycleDescriptionId : undefined} aria-label={`轮换 ${secret.name}`}>轮换</Button>
         <Modal.Backdrop isDismissable={!rotating} isKeyboardDismissDisabled={rotating}>
           <Modal.Container><Modal.Dialog>
             <Modal.Header><Modal.Heading>{`轮换 ${secret.name}`}</Modal.Heading></Modal.Header>
@@ -201,7 +203,7 @@ function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先�
         if (open) setDeleteOpen(true)
         else closeDelete()
       }}>
-        <Button ref={deleteTriggerRef} size="sm" variant="danger" isDisabled={lifecycleLocked || secret.used_by.length > 0 || removing} aria-label={`删除 ${secret.name}`}>删除</Button>
+        <Button ref={deleteTriggerRef} size="sm" variant="danger" isDisabled={lifecycleLocked || secret.used_by.length > 0 || removing} aria-describedby={lifecycleLocked ? lifecycleDescriptionId : undefined} aria-label={`删除 ${secret.name}`}>删除</Button>
         <Modal.Backdrop isDismissable={!removing} isKeyboardDismissDisabled={removing}>
           <Modal.Container><Modal.Dialog>
             <Modal.Header><Modal.Heading>{`删除 ${secret.name}？`}</Modal.Heading></Modal.Header>
@@ -214,7 +216,6 @@ function SecretActions({ secret, lifecycleLocked = false, lockMessage = '请先�
         </Modal.Backdrop>
       </Modal>
     </div>
-    {lifecycleLocked && <span className="type-meta text-muted">{lockMessage}</span>}
   </div>
 }
 
@@ -279,12 +280,9 @@ function SecretConnectionEditor({ secret, onChanged }: {
 
 function ApifyMemberState({ member }: { member: ApifyKeyPoolMember | null }) {
   if (!member) return <div className="grid gap-1"><StatusBadge>等待加入池</StatusBadge><span className="type-meta text-muted">刷新后仍未加入时，请检查服务状态。</span></div>
-  const presentation = memberStatusPresentation[member.status]
   return <div className="grid gap-1">
-    <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
-    <span className="type-meta text-muted">{member.active_run_count > 0 ? `${member.active_run_count} 个运行中任务` : '没有运行中任务'} · 最近检查 {formatDateTime(member.last_checked_at)}</span>
+    <span className="type-meta text-muted">最近检查 {formatDateTime(member.last_checked_at)}</span>
     {member.blocked_until && <span className="type-meta text-muted">受阻至 {formatDateTime(member.blocked_until)}</span>}
-    {member.cycle_end_at && <span className="type-meta text-muted">额度周期至 {formatDateTime(member.cycle_end_at)}</span>}
     {member.last_error_code && <span className="type-meta text-danger">{memberErrorLabels[member.last_error_code] ?? 'Key 需要管理员检查'}</span>}
   </div>
 }
@@ -357,13 +355,13 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
 
   const status = pool ? poolStatusLabels[pool.status] ?? '状态需要检查' : '正在读取'
   const statusTone = pool?.status === 'ready' ? 'success' : ['blocked', 'exhausted'].includes(pool?.status ?? '') ? 'danger' : pool?.status === 'draining' ? 'warning' : 'neutral'
-  return <SettingsSection title="Apify Key 池" description="所有 Apify 来源统一使用此池；额度不足时先停止旧 Key 的任务，再切换到下一备用 Key。">
+  return <SettingsSection title="Apify Key 池" description="统一管理 Apify Key 的顺序、额度和安全轮换。">
     {poolQuery.isPending
       ? <LoadingState label="正在读取 Apify Key 池" rows={2} />
       : poolQuery.isError
         ? <StatusNotice title="Apify Key 池读取失败" status="warning">为避免误操作，池状态恢复前不会提供排序或排空操作。</StatusNotice>
         : <>
-          <div className="mb-3 flex flex-wrap items-center gap-2"><StatusBadge tone={statusTone}>{status}</StatusBadge>{pool?.enabled && <span className="type-meta text-muted">当前主用：{pool.active_secret_id ? secretsById.get(pool.active_secret_id)?.name ?? '需要检查' : '无可用 Key'}</span>}</div>
+          <div className="mb-3 flex flex-wrap items-center gap-2"><StatusBadge tone={statusTone}>{status}</StatusBadge></div>
           {pool && !pool.enabled && <StatusNotice title="Apify Key 池尚未启用" status="warning">当前仍处于兼容阶段；可以预先维护备用顺序，但不会自动切换。</StatusNotice>}
           {unresolvedMembers && <div className="mt-3"><StatusNotice title="部分 Key 元数据尚未加载" status="warning">已隐藏无法安全识别的池成员，请刷新页面后再操作。</StatusNotice></div>}
           <SettingsGroup ariaLabel="Apify Key 池" className="mt-3">
@@ -383,7 +381,7 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                   key={secret.id}
                   density="compact"
                   label={secret.name}
-                  description={`${secret.provider} · ${secret.env_name}`}
+                  description={secret.name === secret.env_name ? undefined : secret.env_name}
                   icon={<Icons.KeyRound size={17} aria-hidden="true" />}
                   trailing={<div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="ghost" isIconOnly aria-label={`上移 ${secret.name}`} isDisabled={controlsDisabled || index <= 0 || lifecycleLocked || memberLocked(previous)} onPress={() => moveMember(secret.id, -1)}><Icons.ArrowUp size={14} aria-hidden="true" /></Button>
@@ -394,11 +392,11 @@ function ApifyKeyPoolGroup({ secrets, userId, onSecretChanged }: { secrets: Secr
                   <div className="grid gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge tone={memberPresentation?.tone ?? 'neutral'}>{memberPresentation?.label ?? '等待加入池'}</StatusBadge>
-                      {member && <span className="type-meta text-muted">顺位 {member.position} · {member.active_run_count > 0 ? `${member.active_run_count} 个运行中任务` : '当前无运行中任务'}</span>}
+                      {member && member.active_run_count > 0 && <span className="type-meta text-muted">{member.active_run_count} 个运行中任务</span>}
                     </div>
                     <SecretQuotaDetails secret={secret} userId={userId} />
-                    <SettingsDisclosure title="运行详情" description="查看检查时间、周期、错误和安全锁定状态。">
-                      <div className="grid gap-3"><ApifyMemberState member={member} /><SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lockMessage={poolStateUnknown ? '池状态确认前不可轮换或删除' : undefined} onChanged={onSecretChanged} /></div>
+                    <SettingsDisclosure title="详情">
+                      <div className="grid gap-3"><ApifyMemberState member={member} /><SecretActions secret={secret} lifecycleLocked={lifecycleLocked} lifecycleDescription={poolStateUnknown ? '池状态确认前不可轮换或删除。' : undefined} onChanged={onSecretChanged} /></div>
                     </SettingsDisclosure>
                   </div>
                 </SettingsItem>

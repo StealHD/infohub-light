@@ -8,6 +8,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": ["decisions", "ui"],
   "recorded_on": "2026-08-06",
+  "result": "将密钥页 Apify Key 池收敛为异常优先的紧凑摘要：正常行仅保留状态、额度和操作，详情按需显示检查、异常与生命周期管理。",
+  "status": "completed",
+  "task_id": "2026-08-06-apify-key-pool-simplification",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest 111 项、TypeScript、ESLint 与 UI contract 检查通过。",
+    "python3 scripts/test_gate.py run --mode full：23/23 命令通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": ["decisions", "ui"],
+  "recorded_on": "2026-08-06",
   "result": "将 AI 设置页收敛为 Key 搜索主导的紧凑 HeroUI 表单：Provider/地址状态成为 Key 次级元数据，触底文案状态改为整块下拉并一次展示三个场景列表。",
   "status": "completed",
   "task_id": "2026-08-06-ai-settings-heroui-simplification",
