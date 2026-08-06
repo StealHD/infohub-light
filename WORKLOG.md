@@ -104,26 +104,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "设置工作区侧栏规格与主应用侧栏统一：宽度 260px→232px（token），导航内边距/分组标签字号/图标尺寸/条目间距对齐 HeroWorkbenchShell 展开态，移动端抽屉 320px→260px，外观主题预览侧栏占比 28%→20%。",
-  "status": "partial",
-  "task_id": "2026-08-05-unify-settings-sidebar-specs",
-  "unresolved": [
-    "等待 full Test Gate 与合并验证（e2e 断言已同步为 232px）。"
-  ],
-  "validation": [
-    "前端 typecheck、check:ui 通过；SettingsLayout/SettingsAppearance/HeroChangelog/HeroManual 4 个 Vitest 文件 11 项通过。",
-    "./scripts/up-latest.sh 重建完成，API/Worker healthy，线上 CSS 确认 --inteliscope-width-settings-sidebar:232px。",
-    "changelog 新增 v2.2.8 条目，manual 工作区设置描述同步，满足 check_product_docs 门禁。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "interface",
     "ui"
   ],
@@ -360,6 +340,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "首次切换 revision b343d01647ce：horizon-api 与 horizon-worker 均 healthy，readiness 返回 API 和 Worker ready。",
     "服务前端资源 index-oj-oGb1j.js 已验证由本地服务提供；未启动 scheduler。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "已将本地 main 推送至 GitHub，并完成 VPS 预检及修订 2c86ba1473c8 的本地 linux/amd64 镜像构建；因发布级浏览器门禁失败，未上传镜像、未切换生产。",
+  "status": "blocked",
+  "task_id": "2026-08-06-youtube-avatar-production-release-gate",
+  "unresolved": [
+    "release Playwright 141 项中 10 条管理页验收失败，需修复或取得明确豁免后再部署。"
+  ],
+  "validation": [
+    "VPS 预检：数据库 integrity/foreign key 通过、迁移标记至 v19、无活跃作业、API/Worker healthy、scheduler stopped。",
+    "release Test Gate：23/24 命令通过；release_playwright 失败（83 passed、10 failed、48 skipped）。",
+    "本地镜像 inteliscope-service:v2.2.10-2c86ba1473c8 已验证为 amd64，OCI revision=2c86ba1473c8。"
   ]
 }
 ```
