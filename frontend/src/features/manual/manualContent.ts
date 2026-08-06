@@ -81,7 +81,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '识别来源头像',
-        description: '来源头像与本次是否出现新内容相互独立：Feed 或账号元数据可用时，即使时间窗口内为 0 条，后台也会先验证并保存头像。B 站按已保存 UID 精确匹配公开账号，GitHub、Reddit 和普通 RSS 使用免费且有界的账号图标或站点 favicon；X、Instagram 等付费来源只复用当前抓取已经返回的头像，不会为了补头像额外启动 Actor。页面只展示登录保护的本地图片；暂时没有头像或图片加载失败时，会稳定显示平台标识或来源简称。',
+        description: '来源头像与本次是否出现新内容相互独立：Feed 或账号元数据可用时，即使时间窗口内为 0 条，后台也会先验证并保存头像。YouTube 频道按已验证的 UC Channel ID 从固定公开频道页有界读取头像；B 站按已保存 UID 精确匹配公开账号，GitHub、Reddit 和普通 RSS 使用免费且有界的账号图标或站点 favicon；X、Instagram 等付费来源只复用当前抓取已经返回的头像，不会为了补头像额外启动 Actor。页面只展示登录保护的本地图片；暂时没有头像或图片加载失败时，会稳定显示平台标识或来源简称。',
       },
       {
         title: '订阅 YouTube 公开频道',

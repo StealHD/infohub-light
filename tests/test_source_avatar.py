@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import httpx
+
 from src.services.feed_run import (
     FeedRunResult,
     SourceAvatarHint,
@@ -308,6 +310,126 @@ def test_rss_favicon_fallback_is_bounded_and_accepts_ico(tmp_path, monkeypatch):
         source_id=source_id,
     )
     assert avatar["mime_type"] == "image/x-icon"
+
+
+def test_youtube_channel_avatar_uses_canonical_channel_identity(tmp_path, monkeypatch):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="Example Channel",
+        config={
+            "url": (
+                "https://www.youtube.com/feeds/videos.xml?"
+                f"channel_id={channel_id}"
+            )
+        },
+    )
+    requested_pages = []
+    requested_images = []
+    cache = MediaCacheService(
+        store,
+        data_dir=tmp_path,
+        fetch_image=lambda url: requested_images.append(url) or _png(b"youtube"),
+    )
+    service = SourceAvatarService(
+        store,
+        data_dir=str(tmp_path),
+        media_cache=cache,
+        fetch_metadata=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("YouTube must not fall back to a generic favicon")
+        ),
+        fetch_youtube_metadata=lambda url: (
+            requested_pages.append(url)
+            or (
+                b'<html><head><meta content="https://yt3.googleusercontent.com/'
+                b'channel-avatar=s900-c-k-c0x00ffffff-no-rj&amp;v=1" '
+                b'property="og:image"></head></html>',
+                "text/html; charset=utf-8",
+            )
+        ),
+    )
+
+    result = service.refresh_sources(
+        workspace_id=workspace["id"],
+        source_ids=[source_id],
+        resolve_missing_source_ids=[source_id],
+    )
+
+    assert requested_pages == [f"https://www.youtube.com/channel/{channel_id}"]
+    assert requested_images == [
+        "https://yt3.googleusercontent.com/"
+        "channel-avatar=s900-c-k-c0x00ffffff-no-rj&v=1"
+    ]
+    assert result[0].status == "stored"
+    assert result[0].origin == "youtube_channel_og_image"
+
+
+def test_youtube_channel_avatar_does_not_use_generic_favicon_when_missing(
+    tmp_path,
+    monkeypatch,
+):
+    store, workspace, owner = _store(tmp_path, monkeypatch)
+    source_id = store.create_source(
+        workspace_id=workspace["id"],
+        scope="private",
+        owner_user_id=owner["id"],
+        source_type="rss",
+        display_name="No avatar channel",
+        config={
+            "url": (
+                "https://www.youtube.com/feeds/videos.xml?"
+                "channel_id=UCabcdefghijklmnopqrstuv"
+            )
+        },
+    )
+    service = SourceAvatarService(
+        store,
+        data_dir=str(tmp_path),
+        fetch_metadata=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("YouTube must not use the generic RSS favicon path")
+        ),
+        fetch_youtube_metadata=lambda _url: (
+            b"<html><head><link rel='icon' href='/favicon.ico'></head></html>",
+            "text/html",
+        ),
+    )
+
+    result = service.refresh_sources(
+        workspace_id=workspace["id"],
+        source_ids=[source_id],
+        resolve_missing_source_ids=[source_id],
+    )
+
+    assert result[0].status == "candidate_missing"
+
+
+def test_youtube_channel_metadata_request_uses_bounded_no_redirect_fetch(monkeypatch):
+    calls = []
+
+    async def fetch(url, **kwargs):
+        calls.append((url, kwargs))
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b"<html></html>",
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr("src.services.source_avatar.fetch_public_http", fetch)
+
+    payload, content_type = SourceAvatarService._download_youtube_metadata(
+        "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"
+    )
+
+    assert payload == b"<html></html>"
+    assert content_type == "text/html"
+    assert calls[0][1]["max_redirects"] == 0
+    assert calls[0][1]["max_response_bytes"] == 2_000_000
+    assert calls[0][1]["allow_partial_response"] is True
 
 
 def test_current_avatar_projection_replaces_stale_snapshot_url(

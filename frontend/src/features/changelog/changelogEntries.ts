@@ -22,6 +22,15 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-06',
+        title: 'YouTube 频道头像恢复显示',
+        summary: 'YouTube 频道会按已验证的频道 ID 取得头像并缓存为受保护的本地图片，信息流和订阅卡不再只显示 YT 占位。',
+        items: [
+          { title: '只读取固定公开页面', description: '头像只从已验证 UC Channel ID 对应的固定 YouTube 频道页有界读取，禁止跳转；图片仍经过公共网络、文件格式和大小校验后才进入本地媒体库。' },
+          { title: '失败保持安全占位', description: '页面未提供头像、网络失败或图片校验失败时，不会改用通用 YouTube favicon 或外链图片，继续稳定显示 YT 占位。' },
+        ],
+      },
+      {
         date: '2026-08-05',
         title: 'v2.2.10 设置概览卡片交互统一',
         summary: '设置概览与帮助入口点击整卡即可跳转，职责徽标固定到卡片右上角，移除迁移标记与箭头。',
