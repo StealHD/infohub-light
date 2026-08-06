@@ -25,24 +25,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-```json
-{
-  "control_topics": [],
-  "recorded_on": "2026-08-03",
-  "result": "将包含 Telegram 多渠道通知与通用 ActorOps 控制面的合并结果升级为 2.2.0，准备创建 v2.2.0 注释标签、GitHub Release 与 revision-locked VPS 升级。",
-  "status": "partial",
-  "task_id": "2026-08-03-prepare-v2.2.0-actorops-release",
-  "unresolved": [
-    "release Test Gate、Git 推送、GitHub Release 与 VPS 部署尚待本任务后续步骤完成",
-    "生产数据库迁移不调用 AI/Actor；任何真实付费 Canary 与生产 Route 激活仍保持独立审批"
-  ],
-  "validation": [
-    "合并提交 5375da1 的 full Test Gate 23/23 通过",
-    "项目与锁文件版本同步为 2.2.0",
-    "v2.2.0 本地与远端 Tag 尚不存在"
-  ]
-}
-```
 
 ```json
 {
@@ -391,6 +373,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "API 与 Worker 均 healthy，readiness 报告 worker_status=ready。",
     "两个服务均运行 revision de82a29d55cc，前端资源 index-BwptAGhG.js 已由 8080 提供。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "interface"
+  ],
+  "recorded_on": "2026-08-06",
+  "result": "修复 YouTube 官方频道头像在 yt3.googleusercontent.com 被媒体缓存安全 DNS 策略拒绝的问题；仅将 googleusercontent.com 纳入受信任媒体 CDN 后缀，并为已订阅频道准备单源免费回填。",
+  "status": "completed",
+  "task_id": "2026-08-06-fix-youtube-avatar-cdn-policy",
+  "unresolved": [],
+  "validation": [
+    "已用实际频道 UCMUnInmOkrWN4gof9KlhNmQ 复现：频道页可解析 og:image，但 Worker 记录 avatar_cache=failed。",
+    "安全网络策略模拟 198.18.0.0/15 合成 DNS 时允许 yt3.googleusercontent.com；常规非白名单策略未放宽。",
+    "全量 Test Gate 因本机 Python 3.14 缺少 pytest 在启动阶段失败，非测试断言失败。"
   ]
 }
 ```
