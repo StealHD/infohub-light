@@ -67,6 +67,23 @@ export function ViewBar({ children, className = '' }: { children: ReactNode; cla
   return <div data-view-bar className={`flex min-h-10 w-full items-center gap-1 rounded-xl border border-separator/80 bg-surface-secondary/70 px-2.5 ${className}`}>{children}</div>
 }
 
+export type ScrollAdaptiveViewBarState = 'expanded' | 'floating'
+
+export function ScrollAdaptiveViewBar({ children, state, className = '' }: {
+  children: ReactNode
+  state: ScrollAdaptiveViewBarState
+  className?: string
+}) {
+  const floating = state === 'floating'
+  return <div
+    data-scroll-adaptive-view-bar
+    data-view-bar-state={state}
+    className={`mx-auto flex min-h-10 items-center gap-1 transition-[width,max-width,border-radius,border-color,background-color,box-shadow] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${floating
+      ? 'w-[calc(100%-16px)] max-w-[var(--inteliscope-width-reading)] rounded-full border border-separator/80 bg-surface-secondary/80 px-2.5 shadow-[inset_0_1px_0_var(--surface)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg'
+      : 'w-full max-w-full rounded-none border border-transparent bg-transparent px-2.5 shadow-none'} ${className}`}
+  >{children}</div>
+}
+
 export function PageSection({ title, description, children, className = '', id }: {
   title: string
   description?: string

@@ -413,3 +413,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "移除订阅页说明，并将来源工具栏改为与来源卡对齐、随滚动收为居中半透明胶囊的两态表面；新增来源在窄屏保留完整文字。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-scroll-adaptive-toolbar",
+  "unresolved": [
+    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
+  ],
+  "validation": [
+    "定向 Vitest 152 项、TypeScript、UI 合同检查、lint 和构建通过。",
+    "完整 Test Gate：23/23 命令通过（232.955 秒）；git diff --check 通过。"
+  ]
+}
+```

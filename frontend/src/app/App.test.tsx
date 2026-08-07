@@ -737,6 +737,7 @@ describe('App routes', () => {
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
+    expect(screen.queryByText('选择要持续关注的来源，并查看每次更新发生了什么。')).not.toBeInTheDocument()
     expect(await screen.findByRole('list', { name: '订阅来源' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '我的订阅频道' })).not.toBeInTheDocument()
@@ -757,10 +758,23 @@ describe('App routes', () => {
     expect(within(scheduleCard).getByRole('button', { name: /更新周期/ })).toBeInTheDocument()
     expect(within(scheduleCard).queryByRole('button', { name: '管理自动更新' })).not.toBeInTheDocument()
     const subscriptionToolbar = document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement
-    expect(subscriptionToolbar).toHaveClass('sticky', 'top-0', 'z-20')
+    expect(subscriptionToolbar).toHaveClass('sticky', 'top-0', 'z-20', 'px-2')
+    const adaptiveViewBar = subscriptionToolbar.querySelector('[data-scroll-adaptive-view-bar]') as HTMLElement
+    expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'expanded')
+    expect(adaptiveViewBar).toHaveClass('w-full', 'rounded-none', 'motion-reduce:transition-none')
     const sourceSearch = within(subscriptionToolbar).getByRole('searchbox', { name: '搜索来源' })
     expect(within(subscriptionToolbar).getByRole('button', { name: '筛选来源，已启用 0 项' })).toBeInTheDocument()
-    expect(within(subscriptionToolbar).getByRole('button', { name: '新增来源' })).toBeInTheDocument()
+    const createSource = within(subscriptionToolbar).getByRole('button', { name: '新增来源' })
+    expect(createSource).toHaveClass('w-auto', 'shrink-0', 'whitespace-nowrap', 'px-3')
+    expect(within(createSource).getByText('新增来源')).toBeVisible()
+    const subscriptionsScroller = subscriptionToolbar.closest('.quiet-scroll-region.h-full') as HTMLElement
+    Object.defineProperty(subscriptionsScroller, 'scrollTop', { configurable: true, value: 21, writable: true })
+    fireEvent.scroll(subscriptionsScroller)
+    await waitFor(() => expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'floating'))
+    expect(adaptiveViewBar).toHaveClass('w-[calc(100%-16px)]', 'rounded-full', 'supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg')
+    subscriptionsScroller.scrollTop = 0
+    fireEvent.scroll(subscriptionsScroller)
+    await waitFor(() => expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'expanded'))
     await userEvent.type(sourceSearch, '不存在')
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
     expect(sourceSearch).toHaveFocus()

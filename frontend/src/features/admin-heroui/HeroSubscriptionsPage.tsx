@@ -25,12 +25,12 @@ import {
   Icons,
   LoadingState,
   PageFrame,
+  ScrollAdaptiveViewBar,
   StatusIndicator,
   Switch,
   Tabs,
   Tooltip,
   TooltipTriggerButton,
-  ViewBar,
 } from '../../design-system'
 import { describeFeedJob, newItemCountOf } from '../jobs/jobModel'
 import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContext'
@@ -49,7 +49,7 @@ import {
   sourceUsesSecret,
   type HealthFilter,
 } from '../subscriptions/subscriptionModel'
-import { AdminPageHeader, HeroNotice, HeroSelect } from './HeroAdminControls'
+import { HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 import {
@@ -217,10 +217,31 @@ export function HeroSubscriptionsPage() {
   const [createType, setCreateType] = useState('')
   const [supportProfileId, setSupportProfileId] = useState('x/profile/items')
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
+  const [toolbarState, setToolbarState] = useState<'expanded' | 'floating'>('expanded')
+  const pageScrollerRef = useRef<HTMLDivElement>(null)
   const editingSubscriptionReturnFocus = useRef<HTMLElement | null>(null)
   const editingSourceReturnFocus = useRef<HTMLElement | null>(null)
   const shareSourceReturnFocus = useRef<HTMLElement | null>(null)
   const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string; token: ActionToken }>())
+
+  useEffect(() => {
+    const scroller = pageScrollerRef.current
+    if (!scroller) return
+    let frame: number | undefined
+    const syncToolbarState = () => {
+      frame = undefined
+      setToolbarState(scroller.scrollTop > 20 ? 'floating' : 'expanded')
+    }
+    const onScroll = () => {
+      if (frame === undefined) frame = window.requestAnimationFrame(syncToolbarState)
+    }
+    syncToolbarState()
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+    }
+  }, [])
 
   function rememberDialogTrigger(target: { current: HTMLElement | null }) {
     target.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -675,16 +696,14 @@ export function HeroSubscriptionsPage() {
     includeHealth: tab === 'subscriptions',
   }
 
-  return <div className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
-    <AdminPageHeader description="选择要持续关注的来源，并查看每次更新发生了什么。" />
+  return <div ref={pageScrollerRef} className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
     {capabilitiesQuery.isError && <HeroNotice title="Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。" status="warning">
       <Button size="sm" variant="ghost" onPress={() => void capabilitiesQuery.refetch()}>重试能力目录</Button>
     </HeroNotice>}
     <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key))}>
-      <div data-subscription-tabs-toolbar className="sticky top-0 z-20 py-2">
-        <div className="rounded-xl bg-background/70 supports-[backdrop-filter:blur(1px)]:backdrop-blur-md">
-          <ViewBar className={`min-w-0 ${tab === 'jobs' ? 'justify-start' : 'grid gap-2 min-[640px]:grid-cols-[auto_minmax(0,1fr)_auto_auto] min-[640px]:items-center'}`}>
+      <div data-subscription-tabs-toolbar className="sticky top-0 z-20 px-2 py-2">
+          <ScrollAdaptiveViewBar state={toolbarState} className={`min-w-0 ${tab === 'jobs' ? 'justify-start' : 'grid gap-2 min-[640px]:grid-cols-[auto_minmax(0,1fr)_auto_auto] min-[640px]:items-center'}`}>
             <div className="quiet-scroll-region min-w-0 max-w-full overflow-x-auto">
               <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
                 <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
@@ -695,13 +714,12 @@ export function HeroSubscriptionsPage() {
             {tab !== 'jobs' && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 min-[640px]:contents">
               <SourceSearchField value={search} onChange={setSearch} />
               <SourceFilterMenu filters={sourceFilters} />
-              {editable && <Button size="sm" aria-label="新增来源" className="size-8 min-w-8 shrink-0 px-0 min-[480px]:w-auto min-[480px]:px-3" onPress={() => setCreateOpen(true)}>
+              {editable && <Button size="sm" aria-label="新增来源" className="w-auto shrink-0 whitespace-nowrap px-3" onPress={() => setCreateOpen(true)}>
                 <Icons.Plus size={15} />
-                <span className="hidden min-[480px]:inline">新增来源</span>
+                <span>新增来源</span>
               </Button>}
             </div>}
-          </ViewBar>
-        </div>
+          </ScrollAdaptiveViewBar>
       </div>
       <Tabs.Panel id="subscriptions" className="grid gap-5 pt-5">
         {loading
