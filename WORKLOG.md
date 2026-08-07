@@ -26,24 +26,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-06",
-  "result": "从本地 main 重建共享 8080 运行时，切换 YouTube 头像合并后的服务镜像。",
-  "status": "completed",
-  "task_id": "2026-08-06-rebuild-local-main-after-youtube-merge",
-  "unresolved": [],
-  "validation": [
-    "首次切换 revision b343d01647ce：horizon-api 与 horizon-worker 均 healthy，readiness 返回 API 和 Worker ready。",
-    "服务前端资源 index-oj-oGb1j.js 已验证由本地服务提供；未启动 scheduler。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities"
   ],
   "recorded_on": "2026-08-06",
@@ -388,6 +370,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "up-latest 脚本语法与运行时回归：31 项通过。",
     "前端 typecheck 通过；受影响的 Release E2E 10 项通过、2 项按项目配置跳过。",
     "桌面、平板与移动端明暗订阅视觉基线已重新生成并人工抽检。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "发布 OpenClaw 安全图片对话 v2.2.13：修复 Linux 订阅页视觉基线，推送不可变标签，并以本地 linux/amd64 离线镜像切换 VPS API 与 Worker。",
+  "status": "completed",
+  "task_id": "2026-08-07-openclaw-image-v2-2-13-production-release",
+  "unresolved": [],
+  "validation": [
+    "本地 release Test Gate 25/25 通过；GitHub 标签 Test Gate（impact、前后端、Linux Chrome UI、release smoke）全部通过。",
+    "生产运行 revision 8ef4c6bf6491：API/Worker healthy，readiness 返回 worker_status=ready；scheduler 未运行，公网 /feed 返回 200。",
+    "生产数据库迁移 v19、integrity/foreign key 通过且无活跃作业；发布前生成 0600 的 .env 与 service.db 备份。",
+    "本地重建流程已默认在最终健康验证成功后清理旧 inteliscope-service:local-* 镜像标签，并保留当前或仍被容器引用的镜像。"
   ]
 }
 ```
