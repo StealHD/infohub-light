@@ -2,7 +2,7 @@
 
 Inteliscope is a small-group, multi-user information feed built from Horizon. Its current product surface is deliberately narrow: subscribe to sources, acquire new items, read a user-scoped Feed, and retain Feed history.
 
-[简体中文](README_zh.md) · [API contract](API_CONTRACT.md) · [Architecture](ARCHITECTURE_CONTRACT.md)
+[简体中文](README_zh.md) · [API contract](docs/contracts/api/) · [Architecture](docs/contracts/architecture/) · [UI contract](docs/contracts/ui/)
 
 ## Current product
 

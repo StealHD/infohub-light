@@ -1,0 +1,55 @@
+Feed retention / legacy archive compatibility 规则：
+
+1. `GET /api/feed/latest` 从当前用户隔离的 `user_content_items` 稳定索引投影 `feed_start <= effective_at <= now` 的内容，按 `effective_at DESC, article_id ASC` 稳定返回；最新 schema-v2 snapshot 只提供生成元数据和已保存集合成员证据。不得读取全局 `data/site/radar-data.json`、`history-data.json` 或 `article-graph.json`。响应增加 `window{timezone="Asia/Shanghai",feed_days,today_start,feed_start,now}`，`feed_days` 来自工作区 `filtering.feed_window_days` 且只允许 `7/14/30`。
+2. `effective_at` 是稳定展示时间：优先使用可解析且不超过当前时间五分钟的可信 `published_at`，否则使用首次入库时间。缺失、非法或异常未来发布时间不得进入未来；同一稳定 article ID 的重复抓取只更新展示内容和 `last_seen_at`，不得改写已有 `effective_at` 把旧内容重新移回 Feed。v11 以带备份的显式迁移回填 `effective_at/search_text` 和增量 FTS5 索引。
+3. 上海当天为当地 `00:00` 到 `window.now`，Feed 为当天及之前 N-1 个自然日，History 严格为 `effective_at < feed_start`。compat view 的 `today_items` 只是最终 `items` 中 `timeline_bucket=today` 的子集；canonical view 省略该重复集合，客户端必须从同一 `items` 过滤。Feed 与 History 必须无重叠、无遗漏。管理员调整 `feed_window_days` 后下一次读取立即重新分层，不抓取、不创建 snapshot，也不删除内容。
+4. `GET /api/feed/latest` 的 item 包含当前用户 `user_state`，最少表达 `is_read/is_saved/is_later/dismissed` 和对应时间字段；无状态时返回 false/空时间。每项增加 `timeline_bucket=today|feed` 和 `presentation.timing.effective_at`。
+5. `GET /api/feed/latest?hide_dismissed=true` 不返回当前用户已忽略 item；`unread_first=true` 将未读稳定排到已读前；`saved_first=true` 将收藏稳定排到未收藏前。默认参数全部为 false，保持稳定时间顺序。
+6. `GET /api/feed/history` 支持 `q`、`source_id`、`limit` 和 `offset`；`limit` 必须为 `1..200`，默认 200，`offset` 为非负整数。响应至少返回 `schema_version=2`、`scope=user`、`window`、`snapshots`、`items`、`featured_items`、`item_count`、`total_count`、`limit`、`offset` 和 `has_more`；`item_count == len(items)`，`total_count` 是分页前命中数。无历史时 items/featured 为空且两个计数为 0。
+7. `snapshots` 保留目标用户最近 20 个 snapshot 的摘要，按新到旧排列；每项包含 `snapshot_id/generated_at/item_count/job_id`。History item 真源是同用户稳定索引中 `effective_at < feed_start` 的行，不读取 `data/site/history-data.json`、`data/horizon.db`、`ArticleStore` 或旧 snapshot item 拼接结果，因此超过最近 20 份 snapshot 的稳定内容仍可达。
+8. History 先在完整历史集合上执行来源和文本过滤，再按稳定时间排序并分页。`source_id` 同时匹配稳定行标量、item 标量、Presentation source ID 与 `source_ids` 数组 provenance；查询来源对目标用户不可见时返回 404。`q` 最多 160 字符，覆盖标题、来源、作者、摘要/正文、频道和主题等公开展示字段，不得通过原始 JSON 模糊匹配泄露内部 ID 或配置。管理员 `user_id` 代查仍严格使用目标用户的 workspace/user 数据和可见来源权限。
+9. `featured_items` 只沿用最近 snapshot 中已有 `featured_items` / `featured_item_ids` 的历史成员证据，不按当前分数重新计算；顺序跟随最终 page items。每个 item 补充目标用户当前 `user_state` 和 `timeline_bucket=history`；sources/channels/categories/tags/topics/personal_tags 等筛选集合从当前 page items 稳定重建。
+10. `GET /api/feed/search?q=&limit=&cursor=&submitted=` 只搜索当前登录用户的 Feed、在线历史和冷归档元数据，不接受管理员 `user_id` 代理。结果按 `effective_at DESC, article_id ASC`，每项标记 `timeline_bucket=today|feed|history`，响应返回 `item_count/total_count/has_more/next_cursor/window`。`limit` 为 `1..50`，默认 50；空词或超过 160 字返回 400，单字符必须显式 `submitted=true`。三字符及以上走增量 FTS5 trigram，两个字符走用户隔离的有界 `LIKE`，任何 SQLite 搜索超过一秒中止并返回可重试 `503 search_timeout`。冷归档搜索只含永久保留的标题、来源、作者、摘要、频道和主题索引；搜索旧内容不改变其时间归属或 Feed 成员。
+10A. 跨 source URL 去重后的 item 必须保存完整 `source_ids/subscription_ids/source_keys` provenance；partial refresh 只要该 provenance 与失败的 active source 有交集，就保留窗口内旧 item。URL query 是内容身份的一部分，不得把不同 query identifier 的文章误合并。
+10B. 全量刷新把本次结果与当前用户稳定内容索引及最新 snapshot 中“仍属 active source 且仍在采集窗口内”的内容合并；同一 canonical identity 由本次结果覆盖展示字段，但窗口内的不同文章不得因该来源本次抓到新内容或成功返回空集合而消失。已取消订阅来源立即排除；失败来源同样保留窗口内旧内容。全部来源失败不生成 snapshot；只有 active source 没有任何本次或索引中的采集窗口内容时，全部成功且为空才生成空 snapshot。
+10C. `latest_per_source` 只对显式声明该 retention 的来源生效：序列化 item 以 additive `retention_policy_explicit=true` 标记该事实，同一 provenance 的新 latest 替换旧 latest。X/Instagram profile 未显式声明时统一采用 `time_window`；读取缺少该标记的遗留 `latest_per_source` 社交快照时按 `time_window` 规范化，并可从用户稳定内容索引恢复仍在采集窗口内但已被旧 snapshot 替换的帖子。该兼容不迁移或重写历史 snapshot。
+10D. X/Instagram profile adapter 只返回 acquisition time window 内的帖子；Actor 成功但只返回超窗旧帖时结果为成功空集合，Source Health 记录 `last_fetched_count=0`，内容未变化时复用 snapshot。Facebook page/group/post 与 Telegram channel 保留既有 stale fallback；本规则不触发额外 Actor 调用。
+10E. `source_fetch` 按 canonical identity 合并目标来源结果到最新采集 snapshot，不替换其他来源；目标来源的普通采集窗口内容继续累计，只有显式 `latest_per_source` 会替换其旧 latest。Service Feed 随后独立从稳定索引按 `feed_window_days` 投影；`personal_only` 内容进入用户稳定索引和 Feed，但跳过 AI、精选和推送。
+11. `GET /api/archive/graph` 固定返回 `{"nodes": [], "edges": [], "scope": "user", "capability": "disabled", "degraded": true, "reason": "user_scoped_graph_not_available"}`，不得读取全局图文件；默认 Service UI 无 Graph 入口。
+12. compatibility-only `GET /api/archive/items` 返回 `{items, page, filters, scope}`，支持 `channel/topic/source/date_from/date_to/min_score/limit/offset/sort/order`。
+13. compatibility-only `GET /api/archive/trends` 支持 `group_by=channel|topic|entity|source` 和 `bucket=none|day|week`。
+14. compatibility-only `GET /api/archive/facets` 返回既有 `channels/topics/sources/entities` 计数；`GET /api/archive/source-quality` 返回既有 source 质量字段。默认 UI 不调用这些路由。
+15. 兼容 archive 路由的非法 query 参数仍返回统一 error envelope，例如 `invalid_sort`、`invalid_order`、`invalid_date_range`、`invalid_group_by`、`invalid_bucket`。
+16. Service source config 把 subscription `priority` 以 `source_priority` 传入所有 adapter 输出；snapshot item 顶层保存整数 `source_priority`。旧 snapshot/item 缺该字段时按 `0` 处理。
+17. 跨 source URL 去重时，合并 item 的 `source_priority` 取参与组的最大值，并继续保留全部 `source_ids/subscription_ids/source_keys` provenance；不能因选择内容最丰富的 primary item 而丢失较高 priority。
+18. Feed finalizer 的 canonical `items/today_items` 排序精确为 `(score DESC, source_priority DESC, published_at 或 fetched_at 的 UTC instant DESC, id DESC)`。score 永远是第一排序键，较低 score 不得靠 priority 越过较高 score；全部 score 缺失或为零时自然变为 priority 优先。
+19. `source_fetch` 创建新 snapshot 前必须把目标源新结果与最新 Feed 的全部保留 item 合并后统一按上述规则重排；既有历史 snapshot 的 payload/items 不得被原地改写。
+20. latest/history 的每个新 item 必须提供 additive `presentation` 对象，`version=1`。该对象是 React 的规范展示投影，至少包含：
+   - `source{id,catalog_type,platform,name}`；
+   - `author{name,kind}`，其中 `kind=person|account|channel|organization|unknown`；
+   - `timing{published_at,fetched_at}` 和 `links{canonical_url,source_url}`；
+   - `content{title,title_origin,excerpt,content_kind,excerpt_truncated,format,format_origin}`；
+   - `taxonomy{channel,configured_topics,inferred_topics,topics,entities}`；
+   - `engagement{native_score,likes,comments,reposts,shares,upvote_ratio}`；
+   - `analysis{status,score,signal_strength,signal_type,summary_zh}`；旧 snapshot 可能附带可选 `action_suggestion`，仅供兼容读取。
+21. `presentation` 由 `src/services/content_presentation.py` 统一生成，不允许各 adapter 或前端自行拼不同结构。`content.excerpt` 必须清洗 HTML/脚本、排除评论附录并硬限制 600 字；`analysis.summary_zh` 遵守全局 100..500 字配置且默认不超过 200 字。新分析不得生成 `action_suggestion`，React 不得读取它；`presentation.analysis` 禁止出现 `reason`。内容格式按“上游明确类型 → 强确定性 URL/来源规则 → 同一次可选 AI 分析 → 安全来源兜底”解析，不得为了格式分类新增独立 AI 请求。YouTube channel Atom 条目沿用 RSS adapter，不过滤普通视频、Shorts、公开直播或回放；YouTube 内容链接必须确定性投影为 `source.platform=youtube`、`author.kind=channel`、`content.format=video`，既有 RSS snapshot 缺失或仍标成 RSS/person 时也按链接补全。
+21A. `GET /api/feed/items/{article_id}` 把规范详情升级为 `presentation.version=2`，在 v1 基础上增加 `source.avatar_url`、`content.body_text/body_truncated/body_completeness` 与 `media.images/count/total_image_count/truncated`。`source.avatar_url` 遵守第 12B 条的当前 ready 投影，不以条目是否在本次抓取窗口内为前置条件。`body_text` 只来自抓取器已经捕获的正文，清洗为纯文本并硬限制 20,000 字；旧 snapshot 只能回填已有摘要并标记 `excerpt_only`，不得请求网页代理或由 AI 编造正文。详情先按 checksum（缺失时回退 asset ID）去重 ready 内容图片，再按最新记录取最多 6 张；`count` 是实际可展示的唯一图片数，`total_image_count` 优先使用上游可信原始总数并至少为 `count`，`truncated=true` 仅表示确有图片未缓存。历史重复行不做破坏性删除，也不得重复投影。
+21B. 收藏和稍后读状态使对应 `user_content_items` 跨普通 snapshot retention 保留；取消两者后恢复普通内容保留策略。文章被选中或打开详情不得自动修改已读；只能由显式 PATCH 切换已读/未读。
+22. `content_kind` 只允许 `feed_summary|release_notes|event_description|post_body|message|caption|discussion|metadata_only`；它描述来源片段语义，不等同于展示格式。`content.format` 只允许 `article|video|image|gallery|audio|social_post|discussion|release|other`，`content.format_origin` 只允许 `upstream|deterministic|ai|fallback`；`title_origin` 只允许 `native|generated`；`analysis.status` 只允许 `ai|fallback|personal_only|disabled`。缺失的原生互动量以 `null` 表达，不得伪造为零；Service API item 不返回原始 `content`。
+23. 全量与增量合并必须共用 canonical URL merger；host 规范化不删除 query。合并保留全部 `source_ids/subscription_ids/source_keys`，优先复用最新 Feed 的 article id，再按 priority/source/native id 稳定选择内容。
+24. 每次 finalization 对有序公开 Feed 内容和 featured/daily/personal 成员集合计算 `content_hash`，排除生成时间、job/run 诊断和实时 user state。hash 未变化时复用最新 snapshot id 并返回 `snapshot_created=false`；内容变化才创建新版本。最后一个订阅失效只创建一个空版本，后续重复 reconciliation 为 no-op。
+25. 只有 `HORIZON_COMPACT_FEED_SNAPSHOTS_ENABLED=true` 且目标数据库已记录 Feed storage v3 migration 时，新 snapshot 才使用 `storage_version=2`：完整 item 只写 `user_feed_items.item_json`，snapshot payload 只留 metadata、item id 顺序及 featured/daily/personal id 集合。代码与示例配置对新空库默认 true，但 migration marker 仍是不可绕过的硬门禁；现存数据但未迁移的数据库继续写 legacy storage v1，既有部署也可显式设为 false 保持关闭。Reader 必须双读 legacy 完整 payload 与 compact payload，旧 snapshot 不原地重写。真正无 v3 遗留数据的新空库可在 additive 初始化时自动记录 marker。
+26. v3 migration 完成后，Worker 每小时至多一次执行固定轻量 retention：Feed snapshot 最长 30 天且每用户最多 20 份、source content snapshot 7 天、AI cache 30 天、usage 90 天、terminal jobs 14 天、过期 session/旧 proposal 和孤立媒体；始终保留每用户最新 Feed snapshot 与每 acquisition key 最新 source snapshot。该自动任务不得删除 `user_content_items` 或仍有稳定内容引用的媒体。存在旧数据但尚未记录 v3 时 Worker 不执行 retention，避免仅因部署新代码而自动删除历史。
+27. 存储治理必须先完成 Feed Storage v3 与 content timeline v11。`GET /api/admin/storage/summary` 返回固定策略、数据库/媒体/归档字节数、在线/冷归档内容及 snapshot/media/batch 计数、迁移 readiness 和最近清理时间；响应使用 `Cache-Control: no-store`，不得包含原始路径、SQL、正文或用户内容。
+28. `POST /api/admin/storage/plans` 接受 `{"operation":"cleanup|archive|restore|delete_archive","payload":{...}}`。cleanup/archive 不接受 payload 字段；restore/delete_archive 只接受字符串 `batch_id`。成功只创建当前 actor 绑定、10 分钟有效的 `previewed` 计划，返回有界计数、候选 SHA-256 指纹和有效期，不修改候选业务数据。执行只能调用 `POST /api/admin/storage/plans/{id}/apply`；目标 workspace、actor、状态、有效期和候选指纹任一变化均 fail closed，失败不得清除或归档部分候选。
+29. 标准 cleanup 只处理第 26 条轻量记录和孤立媒体，`permanent_content_deletes` 固定为 0；不提供任意 SQL、原始路径删除或在线 `VACUUM`。cleanup/archive/restore 允许 owner/admin，归档永久删除只允许 owner，且必须先恢复归档、确认没有在线冷引用，再提交精确短语 `永久删除归档 <batch_id>`。
+30. archive 只选择 `effective_at` 早于 90 天、仍在线且未被收藏/稍后读、未处于通知 pending/sending 的稳定内容。服务端先在私有 `data/archives` 写临时 ZIP（manifest、NDJSON、媒体），校验 batch/workspace/计数并计算文件 SHA-256，原子落位与数据库批次提交全部成功后，才把在线正文/分析输入/媒体降为可搜索冷元数据并在提交后移除本地媒体文件；任一步失败必须回滚数据库并删除未提交归档。
+31. 冷记录永久保留 article ID、标题、来源、链接、摘要、`effective_at`、频道、主题、搜索文本和归档批次，`GET /api/feed/search` 可继续命中；不得把它重新加入 Feed。restore 在读取前校验归档 SHA-256、manifest/workspace、条目数、媒体成员和每个媒体 checksum，安全原子恢复正文、搜索索引与媒体且保持幂等。`GET /api/admin/storage/archives` 只返回安全批次元数据；永不自动永久删除归档。
+
+用户行为规则：
+
+1. `GET /api/me/item-state?article_ids=a,b` 返回当前用户这些 article id 的状态 map；不可见或不存在的 id 返回默认 false 状态，不泄露其他用户数据。
+2. `PATCH /api/me/items/{article_id}/state` 只允许当前用户写自己 feed 中可见的 item；不可见 item 返回 `not_found`。
+3. compatibility-only `POST /api/me/items/{article_id}/feedback` 只允许当前用户对自己可见 item 提交 `more_like_this/less_like_this/not_relevant/wrong_topic/quality_issue`；默认 UI 不提供这些操作。
+4. feedback 只做兼容入库，不驱动 Feed 过滤、排序、推荐、archive trends 或 source-quality；当前产品行为只使用已读、收藏、稍后读和忽略状态。
+5. 忽略是当前用户作用域的可逆隐藏：设置 `dismissed=true` 后条目从默认 Feed 隐藏并进入 `/api/feed/ignored`；设置 `dismissed=false` 后从忽略集合移除。恢复只修改当前用户状态，不重抓来源、不重写其他用户数据。

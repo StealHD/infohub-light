@@ -17,6 +17,7 @@ DOCUMENTATION_SOURCES = {
 
 NON_PRODUCT_SCRIPT_PATHS = {
     "scripts/check_product_docs.py",
+    "scripts/check_markdown_controls.py",
     "scripts/test_gate.py",
 }
 

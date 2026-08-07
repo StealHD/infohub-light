@@ -345,6 +345,12 @@ def _control_specs(root: Path) -> list[CommandSpec]:
     python = _python(root)
     return [
         _spec(
+            "markdown_controls",
+            [python, "scripts/check_markdown_controls.py"],
+            root,
+            domain="control",
+        ),
+        _spec(
             "observability_contract",
             [python, "scripts/check_observability_contract.py"],
             root,

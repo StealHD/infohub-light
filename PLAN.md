@@ -1,113 +1,49 @@
 <!-- init-pro:control schema=3 profile=backend project=inteliscope-infohub-light file=PLAN.md -->
 # Inteliscope InfoHub Light 当前实施计划
 
-## 1. 计划用途
+## 当前能力状态
 
-本文件只保留下一轮开发需要的当前阶段、实施顺序、非目标和验证门禁。已完成阶段的完整原文保存在 `archive/project-history/control/PLAN-schema2-2026-07-28.md`；长期理由见 `DECISION_LOG.md`，历史执行证据见归档工作日志。
+- 核心：小团体账号与角色、来源订阅、共享获取、用户作用域 Feed/History、Worker 队列、React/HeroUI Service UI、受保护媒体、可观测性和本地 OpenClaw 直连。
+- 兼容：legacy CLI/static payload、archive/Graph/feedback API、旧设置 URL、schema 迁移读路径和首库 `release_rc1.sh`。兼容接口不等于默认产品能力。
+- 默认关闭：scheduler、Remote MCP、OpenClaw chat、图片 I/O、Apify Key 池、付费 Actor/AI、真实通知与生产 Remote MCP 写入。
+- 已实现但须独立批准：Feed storage v3、通知 schema v14–v16、ActorOps schema v17–v19、付费 Canary、外部 Webhook/Telegram/Email 验收。
 
-<!-- init-pro:section name=phase -->
-## 2. 当前阶段
+本任务代码基线为 `32fc41e`（发布流程优化）；最近记录的生产基线为 `8ef4c6bf6491` / `v2.2.13`，任何运行操作前必须以实际 API、Worker 和容器 revision 重新核对。
 
-当前产品主线仅为“小团体多人的信息获取 + Feed 留存”。
+## 迁移与发布矩阵
 
-当前基线：
+| 事项 | 先决条件 | 执行方式 | 通过条件 |
+| --- | --- | --- | --- |
+| Feed storage v3 | 停 API/Worker、无活跃任务 | dry-run、UTC `0600` backup、显式 apply | marker、hash backfill、integrity、foreign keys 与 readiness |
+| notification v14–v16 | 上一 schema 已完成 | 同上，不调用 Transport | 表/约束/历史映射、API 与 Worker ready |
+| ActorOps v17–v19 | 无 Discovery/Canary Job | 同上，不联网、不调用 AI/Actor | 精确 migration checksum、完整表形状与 readiness |
+| 付费 Actor/AI | operator 明确授权 | 单次有上限 canary | 费用、远端 Run、来源结果与回滚证据 |
+| 正式 VPS 升级 | 干净且等同 `origin/main` 的 main | `./scripts/release_vps.sh release vX.Y.Z` | 精确 SHA main Gate、Tag smoke、API/Worker/前端 revision |
 
-1. Feed 一次性通知、认证异步反馈、user content v5 备份/apply、免费来源修复和显式 reconcile 已完成。26 条历史内容为 24 条 captured、2 条 excerpt-only；旧 schema 空字符串占位已在 `0600` 备份后规范化，snapshot、Job、媒体和 AI usage 未变化。
-2. 公共源共享获取、既有部署数据库的 Feed storage v3 compact writer 和工作区 Apify Key 池 rollout flag 均保持关闭；新空库在自动记录 v3 marker 后默认使用 compact writer，未迁移数据库仍强制回退 storage v1。
-3. Apify Key 池 schema v8、固定凭证 Run ledger、30 秒排空屏障、重启对账、管理员 API 和设置页已在本地实现；启用仍需停 Worker、核对远端 Run、备份数据库和有上限 canary。
-4. X/profile 的 Apify 三 Actor 路由、schema v13 账本、语义占位拦截、费用熔断、管理员状态页与工作区告警已在本地实现；默认顺序为 ScrapeBadger、Dami、Xquik，真实付费 Canary 与 48 小时观察仍需 operator 单独确认。
-4A. 个人新内容通知与 Apify 运行告警的七类 Webhook Provider Registry、平台业务 ACK、飞书/钉钉可选签名和 schema v14 显式门禁已在本地实现并通过完整 Test Gate；未迁移数据库必须保持 API readiness 与 Worker fail closed，真实 Webhook 验收和部署均未执行。
-4B. 个人新内容通知与 Apify 运行告警升级为邮箱、Webhook、Telegram 可同时启用的多渠道投递；工作区共享 Telegram Bot Token，个人通知与运行告警分别保存 write-only Chat ID。schema v15 负责渠道状态、generation、水位和 delivery 唯一约束的显式迁移；本任务只使用伪造凭据与 Mock Transport，不触发真实通知。
-4C. Email、Webhook 与 Telegram 目的地已经统一进入 schema v16 目标与业务绑定模型：个人新内容通知选择可见目标，Apify 运行告警只选择共享目标，并允许同时选择多个相同渠道目标；既有私有目标继续保持原归属与绑定。
-4D. 产品交互统一称为“通知服务”：Owner/Admin 只在消息通知的单一入口新建共享服务，并通过“保存并测试”一次完成目的地、首次共享邮件/Telegram 凭据、验证和启用；成员不再新建私人服务，个人通知和系统告警只选择已配置服务。底层继续复用 v16 目标 ID、绑定、投递和历史，不新增迁移。Telegram 仅在固定 `api.telegram.org` 解析到 `198.18.0.0/15` 时使用应用内精确 fake-IP 例外，不读取或修改 Clash 配置。
-4E. 通用 ActorOps logical schema v15–v17（全局 migration 17–19）、受限 Manifest v1、三槽 Route Profile、来源级验证、发现设置与管理 UI 已完成并进入 main 集成；Discovery 继承全局 AI 的 provider/model/Base URL，并由管理员从同 Provider 的已登记 Key 中人工固定一个 opaque 选择，首期 tuple 只允许 X Profile、YouTube Channel 与 Instagram Profile。单次 AI 调用要求 3–6 个 best-first proposal，每个输出 Pointer 必须在精确 Build Dataset Schema 中可证，Profile/Channel items 不得复用内容 URL 证明来源身份；逐项验证并保留有效的部分 Revision。生产激活优先完整 2+1；若尚无完整池，但已有两个不同发布者、不同 Actor、固定 Build 且各成功一次 Canary 的 probationary/certified Revision，则允许管理员一次确认后以 `2/3 degraded` 快速上线，第三槽留空热补位，少于两路仍 fail closed。Route 认证使用服务端不可变计划，一次确认后 Worker 在每次付费启动前免费核对公开 Actor 与精确 Build、严格串行，并在两个不同发布者成功后立即停止；未启动或确定性失效项为 `$0` 且不计次数。新来源只串行验证当前实际运行的两或三槽。Discovery 输出上限可在 4096–65536 热配置，AI 单次调用超时 180 秒；Route Canary 默认等待 300 秒且不自动重试，终态费用从远端账本回写，批准上限与实际费用分开显示。生产数据库迁移、真实付费 Canary 与首次启用继续保持独立管理员审批。
-5. AI 目标预置为 `deepseek-v4-flash` 但保持 disabled；对话中旧 Key 视为泄露，只能使用用户重新写入 SecretStore 的轮换 Key。
-6. HeroUI 已完成全站生产切换；视觉、响应式、交互和浏览器验收只以 `UI_CONTRACT.md` 为真源。
-7. API、Worker、Scheduler 和 CLI 私有双流 JSONL 已完成故障排查加固：请求/Job/source/subscription/stage 可串联，未知 API 异常返回安全 request ID，Worker 覆盖边界、租约恢复、逐来源和通知终态，readiness 独立披露 sink 降级；OpenClaw 缺省只查本人，Owner/Admin 可在新连接上显式授权有界工作区诊断。静态日志合同已进入全部 Test Gate scope；不包含日志 REST API、前端日志页、自动修复或部署。
-8. 最近记录的 VPS 发布基线为 revision `74c7b16d715b` 的 API、Worker 与同机 RSSHub；执行任何运行操作前必须重新核对实际容器状态，legacy scheduler 继续保持关闭。
-9. 低 Token `test_gate` 仍处于 0/10 提交观察期，任务完成门禁保持 `python scripts/test_gate.py run --mode full`。
+## 推进顺序
 
-当前推进顺序：
+1. 先处理各项生产数据库迁移；普通发布拒绝隐式迁移。
+2. 只对免费公共来源启用 shared acquisition，观察自然周期和用户隔离。
+3. 经独立授权后再做 Key pool、Actor/AI 或真实通知的有界 canary。
+4. 维持 Feed/History、用户隔离、通知 outbox、存储预演/恢复和三视口 UI 回归。
+5. 继续记录 `test_gate` 的十个独立 CI 提交观察；观察期结束前完成门禁仍使用 full。
 
-1. 停止 API/Worker，对目标数据库再次 dry-run，使用 UTC `0600` backup 显式 apply Feed storage v3；验收 marker、hash backfill、integrity 和 foreign keys，并明确核对目标运行环境的 compact flag 后才允许既有部署打开 compact writer。
-2. 只对非付费公共源开启 shared acquisition，观察两个自然周期的 cache hit/miss、upstream attempt、Feed 用户隔离和 Source Health，通过后再扩大范围。
-3. 付费来源必须取得 operator 再次明确授权，并确认上游严格单次有界输入，才能进入独立 canary；X/profile Canary 每次只能从管理员路由卡二次确认启动，terminal Job 不允许通用 retry。
-4. 开启 `HORIZON_APIFY_KEY_POOL_ENABLED` 前暂停 Worker、确认无 running Job、核对并终止未登记远端 Run、备份 Service 数据库，只执行一次有上限 canary；无法核对的启动结果保持 blocked。
-5. X/profile 上线先迁移 schema v13，再分别对两个现有 X 来源执行一次 ScrapeBadger Canary；Dami 仅在各自 Canary 通过后进入 48 小时 probation，Xquik 保持 open 并只由自然任务探测。未经再次明确授权，不得触发这些付费调用。
-5A. 部署包含 Webhook Registry 的 revision 前必须先完成 schema v13，停止 API/Worker并跨过 heartbeat 安全窗，再对目标数据库执行 Webhook providers v14 dry-run、`0600` backup 与 apply；只有两表约束、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移与发布不得触发真实 Webhook。
-5B. 部署多渠道通知 revision 前必须在 v14 已完成的数据库上停止 API/Worker并跨过 heartbeat 安全窗，再执行 notification channels v15 dry-run、UTC `0600` backup 与 apply；只有渠道表、delivery 唯一约束、计数、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移不得触发或补发任何渠道。
-5C. 部署统一通知目标 revision 前必须在 v15 已完成的数据库上停止 API/Worker并跨过 heartbeat 安全窗，再执行 notification targets v16 dry-run、UTC `0600` backup 与 apply；只有目标/绑定表、按 target 的 delivery 唯一约束、历史映射、计数、integrity、foreign keys、API readiness 和 Worker ready 全部通过后才可恢复通知。迁移不得读取目的地真实值、调用 Transport 或补发旧事件。
-5D. ActorOps 引擎切换前必须在 notification targets v16 已完成后停止 API/Worker并跨过 heartbeat 安全窗，对目标数据库执行 logical-v15（global 17）dry-run、SQLite `0600` backup 与 apply；只有 X 历史/费用/健康保留、三条 Route Profile、attempt 冻结列、integrity、foreign keys、API/Worker readiness 全部通过后才可恢复。迁移不联网、不调用 AI 或付费 Actor。
-5E. Token 测量上线前必须在 global 17 已完成后停止 API/Worker并确认无活跃 Discovery/Canary Job，对目标数据库执行 logical-v16（global 18）dry-run、`0600` backup、apply、integrity 与 foreign-key check；旧 Run usage 保持 NULL。自动化验证不得调用真实 AI，真实 32K 测试仍由管理员单独确认。
-5F. Route batch Canary 上线前必须在 global 18 已完成后停止 API/Worker、跨过 heartbeat 安全窗并确认无 queued/running Discovery、单 Canary 或 batch Job，对目标数据库执行 logical-v17（global 19）dry-run、SQLite `0600` backup、apply、integrity 与 foreign-key check。迁移只可把 ledger 已证明 `start_rejected + 无 remote Run/Dataset + 零预留` 的历史记录修复为 `$0`；不能证明未启动的费用保持未知，失败恢复备份。迁移和自动测试均不得调用 Store、AI 或 Actor。
-6. 用户写入 DeepSeek 轮换 Key 后，只对一篇 captured article 执行零 Token 模型预检和一次省略 `temperature`、SDK/application retry 均关闭的 completion smoke；成功后才启用。
-7. Telegram adapter 与 fixture 已通过；本机到 `t.me:443` 的 TLS 仍失败，网络出口恢复后只做 1 条公开频道复验。
-8. VPS 的 Feed storage v3 apply、rollout flag 开启和任何付费 canary 必须分别满足门禁并取得对应授权；Bilibili 冷路由受风控时不得高频重试。
-9. HeroUI 生产体验继续按 `UI_CONTRACT.md` 的三视口、可访问性、锚点和构建产物门禁维护。
-10. 固定数据 `/__preview/workbench-heroui` 只用于开发验收并保持生产构建剔除；不得恢复已删除的 MUI 对照原型、真实数据 preview 或 `VITE_UI_EXPERIENCE` 分叉。
-11. 现有并行开发分支不做原地强改；由单一 integration owner 依次合入最新日志基线。每个分支一旦触及新增写路由、Job 类型或受保护运行路径，必须修复 observability contract 报错，并在组合结果上重跑 full；正式发布再跑 release。
+## 范围与非目标
 
-兼容说明：archive items/trends/facets/source-quality、feedback API/表、disabled Graph API 和旧 CLI 全局 archive/graph 可继续保留；兼容接口存在不等于当前产品能力或后续建设承诺。
+本阶段覆盖来源、订阅、Feed、稳定历史、任务、受控 AI/Apify、通知服务、React UI、Remote MCP、浏览器 OpenClaw、存储治理和可观测性。
 
-<!-- init-pro:section name=scope -->
-## 3. 当前范围
+不做 archive analytics、Graph、推荐/embedding、站内原文代理、多 workspace、商业计费、OAuth、客户间共享 OpenClaw、服务器代理 Gateway、未授权的真实外部调用或默认 scheduler。
 
-本阶段继续做：
+## 验证门禁
 
-1. 小团体用户、角色、公共源市场、个人订阅和用户作用域 Feed。
-2. Hub taxonomy 与 legacy alias 的兼容迁移。
-3. 来源配置、抓取任务、可选 AI、Service UI、Feed snapshot 和稳定历史的字段合同。
-4. 任务队列、配额、Source Health、确定性优先级及明确的 capability/degrade 表达。
-5. 管理员 write-only AI/Apify Key、默认关闭的 Apify Key 池、X/profile 三 Actor 路由、统一通知服务管理、底层 v16 私有目标兼容与多服务运行告警，以及受控长度概括。
-6. React/HeroUI Service UI、用户作用域 Query cache、任务轮询、三视口与浏览器验收。
-7. 默认关闭的 OpenClaw Remote MCP、用户自管 delegation、安全读工具、受控订阅流程和浏览器直连用户 Gateway。
-8. 上海自然日内容分层、用户隔离全局搜索，以及 Owner/Admin 的预演式标准清理、冷归档与恢复。
-9. `test_gate` 10 个不同 CI 提交的 selector、`mapping_miss` 和摘要一致性观察。
+1. 日常先跑任务相关测试；任务完成、合并前和观察期使用 `python scripts/test_gate.py run --mode full`。
+2. 文档-only 变更只运行 control scope；UI 合同目录仍触发 frontend full。未知可执行改动 fail closed。
+3. 正式发布复用精确 main SHA 的成功 Gate；Tag 仅做隔离 API Docker smoke。VPS 只 `docker load`，不得构建本仓库。
+4. 控制面变更必须运行 Markdown 控制检查、schema-v3 validator、worklog validator、JSON 校验和 `git diff --check`。
 
-本阶段不做：
+## 历史入口
 
-1. 第三方 AIHub/AIHOT 逆向或依赖。
-2. 私密群组、好友流、Cookie、Session 或账号密码采集。
-3. 未授权的生产通知 rollout、邮件群发、scheduler、Worker 启动、付费抓取或 AI 调用。
-4. Archive analytics、Graph、个性化推荐、站内原文代理、大规模 embedding、复杂可视化、任意 SQL 或路径级存储管理。
-5. 多 workspace、商业计费、自助注册、独立移动 App。
-6. 个人摘要、推荐型/评分型推送，或把 compatibility-only API 扩展为默认 UI 能力。
-7. 服务器侧 Agent/LLM/Gateway 代理、客户间共享 OpenClaw、生产 Remote MCP 写入、OAuth、ClawHub 或模型密钥托管。
-
-<!-- init-pro:section name=priorities -->
-## 4. 实施优先级
-
-1. 保持 `/api/*` envelope、鉴权、权限和错误语义稳定。
-2. 保持 Service SQLite schema、用户、catalog、订阅和 job queue 稳定。
-3. 保持 catalog/subscription 到现有 `Config`、source registry 和 Worker payload 的兼容路径稳定。
-4. 默认 UI 只使用用户 Feed、订阅、任务和配置 API，不调用 archive analytics、source-quality、Graph 或 feedback。
-5. 持续回归 Feed history、上海自然日分层、用户隔离搜索、通知 outbox 和 preview/apply 存储治理。
-6. 持续观察 API、Worker、RSSHub、数据库、资源和 React UI；legacy scheduler 保持停止。
-7. 每个兼容边界先补目标测试；观察期未完成前仍以 full gate 作为完成依据。
-
-## 5. 实现强约束
-
-1. 外部系统原始字段不得扩散到业务层；taxonomy、阈值和成本开关不得写死在入口层。
-2. 输出层不得直接访问运行时来源；能力缺口必须显式表达 capability/degrade、unsupported 或 unknown。
-3. `personal_tags` 不得进入 AI prompt；`category/tags` 只作兼容 alias，新实现优先使用 `channel/topics`。
-4. Service Worker 不得读写 legacy site/history/graph 静态产物，也不得使用旧全局历史去重。
-5. Feed snapshot finalize 必须持有有效 `worker_id + claim_token`；数据库迁移必须显式执行、先备份并做完整性检查。
-6. 未经任务明确要求，不得读取大历史数据、启动 scheduler、访问真实密钥或触发真实来源、AI、推送和付费调用。
-7. 存储治理只允许固定策略、预演式清理和冷归档；不开放任意 SQL、原始路径删除、在线 `VACUUM` 或自动永久删除。
-
-## 6. 验证顺序
-
-1. 日常迭代先运行任务相关测试；可用 `snapshot` 和 `plan` 查看影响映射。
-2. 观察期内任务完成和合并前统一运行 `python scripts/test_gate.py run --mode full`；PR/main 对每个受影响的后端/前端域运行完整 scope，全局依赖与构建改动 fail closed 到两域。targeted/full/release 的每个 scope 都先执行 `scripts/check_observability_contract.py`；文档-only main 只运行 control scope。
-3. UI 相关 main CI 将 Playwright 与前端 full 并行；正式 VPS 发布复用精确 main SHA 的成功 Test Gate，main 绿灯后才创建 Tag，Tag workflow 只追加隔离 API Docker smoke。标准发布脚本的本地阶段仅运行 control/product-doc preflight，不重复 full、Playwright 或 smoke。
-4. 完整日志只保存在 `.test-results/<run-id>/` 的脱敏 `0600` 文件；不得保留具名 raw 临时日志。先读限长摘要，仅在诊断需要时读取指定失败片段。
-5. 任何 test gate 都不得启动真实来源、AI、Worker 或 scheduler。
-6. 控制面变更同时运行 schema-v3 项目校验、紧凑工作日志校验、JSON 校验和 `git diff --check`。
-
-## 7. 历史入口
-
-1. schema-v2 完整计划：`archive/project-history/control/PLAN-schema2-2026-07-28.md`。
-2. 历史设计、规格和实施报告：`archive/project-history/superpowers/`、`archive/project-history/sdd-reports/`。
-3. 历史 init-pro 报告与项目地图：`archive/project-history/init-pro/`、`archive/project-history/reference/`。
-4. 旧原始工作日志：`archive/legacy-worklog/`；后续紧凑日志归档：`archive/worklog/`。
-5. 只有任务需要追溯历史时才对上述目录做定向 `rg`，不得默认整文件读取。
+- 历史计划与上下文读取规则：`archive/project-history/control/`。
+- 历史实施报告、设计与过期运行手册：`archive/project-history/` 下的索引目录。
+- 决策理由：`docs/decisions/`；仅在任务需要时按索引读取。
+- 工作执行记录：`WORKLOG.md` 与 `archive/worklog/`；原始旧日志在 `archive/legacy-worklog/`。

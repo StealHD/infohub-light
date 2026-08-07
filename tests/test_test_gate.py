@@ -205,7 +205,7 @@ def test_snapshot_corruption_fails_closed(tmp_path, payload, message):
         ),
         (["frontend/vite.config.ts"], {"control", "frontend_full"}, True, False),
         (["frontend/src/AppBootstrap.tsx"], {"control", "frontend_full"}, True, False),
-        (["UI_CONTRACT.md"], {"control", "frontend_full"}, True, False),
+        (["docs/contracts/ui/README.md"], {"control", "frontend_full"}, True, False),
         (["tests/test_worker.py"], {"control", "python_test_files"}, False, False),
         (["tests/conftest.py"], {"control", "full"}, False, False),
         (["tests/reading_ui_behavior.test.cjs"], {"control", "legacy_test_files"}, True, False),
@@ -320,6 +320,7 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
     assert {spec.domain for spec in control} == {"control"}
     assert {spec.command_id for spec in control} == {
+        "markdown_controls",
         "observability_contract",
         "control_json",
         "diff_check",
@@ -590,10 +591,15 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     for relative in (
         *PROTECTED_RUNTIME_FILES,
         "scripts/check_observability_contract.py",
+        "scripts/check_markdown_controls.py",
+        "AGENTS.md",
+        "PLAN.md",
     ):
         target = repo / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative, target)
+    for relative in ("docs/contracts", "docs/decisions"):
+        shutil.copytree(ROOT / relative, repo / relative)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     snapshot = tmp_path / "snapshot.json"
     plan_output = tmp_path / "plan.json"

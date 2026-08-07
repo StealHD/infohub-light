@@ -6,9 +6,9 @@
   },
   "topics": {
     "architecture": {
-      "kind": "file",
+      "kind": "directory",
       "managed": false,
-      "path": "ARCHITECTURE_CONTRACT.md",
+      "path": "docs/contracts/architecture",
       "watch": []
     },
     "capabilities": {
@@ -20,13 +20,13 @@
     "context": {
       "kind": "file",
       "managed": false,
-      "path": "CONTEXT_READ_RULES.md",
+      "path": "AGENTS.md",
       "watch": []
     },
     "decisions": {
-      "kind": "file",
+      "kind": "directory",
       "managed": false,
-      "path": "DECISION_LOG.md",
+      "path": "docs/decisions",
       "watch": []
     },
     "instructions": {
@@ -36,9 +36,9 @@
       "watch": []
     },
     "interface": {
-      "kind": "file",
+      "kind": "directory",
       "managed": false,
-      "path": "API_CONTRACT.md",
+      "path": "docs/contracts/api",
       "watch": []
     },
     "observability": {
@@ -54,9 +54,9 @@
       "watch": []
     },
     "ui": {
-      "kind": "file",
+      "kind": "directory",
       "managed": false,
-      "path": "UI_CONTRACT.md",
+      "path": "docs/contracts/ui",
       "watch": []
     }
   },

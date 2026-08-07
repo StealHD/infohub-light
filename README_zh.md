@@ -405,27 +405,18 @@ Service readiness 以数据库中是否存在至少一个启用用户为准。fr
 
 服务器可以额外使用 Nginx Basic Auth 保护整站。配置模板和步骤见 [deploy/nginx/README_zh.md](deploy/nginx/README_zh.md)。Basic Auth 只是外层门禁，不能替代应用登录和角色权限。
 
-### `rb.jiefs.top` RC1 发布
+### `rb.jiefs.top` 标准发布
 
-> 当前公网发布已暂停，先完成本地 AI 概括、密钥管理和正式订阅闭环。以下命令仅保留为后续经再次授权后的发布路径。
-
-公网目标固定为 `vps-tokyo:/opt/inteliscope` 和 `https://rb.jiefs.top/`。先生成不会修改本机正式库的脱敏副本：
+普通公网升级必须从干净、与 `origin/main` 完全一致的本地 `main` 发起：
 
 ```bash
-./.venv/bin/python scripts/prepare_service_deployment.py \
-  --source data/service.db \
-  --output /tmp/inteliscope-service-rc1.db
+./scripts/release_vps.sh preflight vX.Y.Z
+./scripts/release_vps.sh release vX.Y.Z
+./scripts/release_vps.sh status
+./scripts/release_vps.sh rollback [release-id]
 ```
 
-发布脚本要求工作区已经形成经授权的干净 release commit；它会先跑完整本地门槛，再用 `git archive` 上传候选：
-
-```bash
-./scripts/release_rc1.sh prepare /tmp/inteliscope-service-rc1.db
-./scripts/release_rc1.sh promote <release-id>
-./scripts/release_rc1.sh status
-```
-
-`prepare` 只在 VPS 的 `127.0.0.1:18080` 启动 API；确认 staging 后，`promote` 才停止旧 Web、保持旧 scheduler 关闭，并在 8080 启动 API + Worker。失败时使用 `./scripts/release_rc1.sh rollback <release-id>`，回滚不会恢复 scheduler。
+发布脚本复用精确 main SHA 的成功 Test Gate，本地构建并验证 `linux/amd64` 镜像，上传镜像和源包后由 VPS 执行 `docker load`。VPS 不得构建、编译或测试本仓库。切换前脚本确认没有活跃任务、scheduler 停止、生成私有备份，并验证 API/Worker readiness 和前端 revision；失败会恢复上一 release。包含数据库迁移的版本必须先走独立迁移手册，普通发布会拒绝隐式迁移。`release_rc1.sh` 只保留给首次空数据库引导，不是正常升级路径。
 
 注意：
 

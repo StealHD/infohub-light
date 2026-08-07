@@ -26,23 +26,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-06",
-  "result": "将 release Playwright 的管理页断言同步到当前 AI Key 主导设置与 Apify Key 卡片语义，清除原 10 条过期验收失败。",
-  "status": "completed",
-  "task_id": "2026-08-06-fix-release-playwright-admin-baseline",
-  "unresolved": [],
-  "validation": [
-    "定向 Playwright：12/12 项目组合通过，无失败附件。",
-    "release Test Gate：25/25 命令通过（484.911 秒）；Playwright 93 passed、48 skipped，隔离 Docker API smoke 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "capabilities",
     "ui"
   ],
@@ -391,6 +374,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "定向 pytest：tests/test_test_gate.py、tests/test_light_runtime_scripts.py、tests/test_product_docs_gate.py 全部通过。",
     "Changelog 定向 Vitest 5/5 通过；最终完整 Test Gate 23/23 通过（248.48 秒）。",
     "release_vps.sh bash 语法、workflow YAML、JSON 与 git diff 检查通过；真实 VPS status 验证 v2.2.13 API/Worker healthy、worker_status=ready、scheduler 未运行。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "context",
+    "decisions",
+    "interface",
+    "phase",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "将大型 API、架构、UI 与决策 Markdown 迁为目录型权威源，归档过期报告/运行手册，并将确定性 Markdown 控制检查纳入 Test Gate。",
+  "status": "completed",
+  "task_id": "2026-08-07-markdown-control-archive",
+  "unresolved": [],
+  "validation": [
+    "迁移验证：15 份归档 SHA-256 与 32fc41e 原文一致；合同分块与既有 132 条决策正文逐段覆盖，新增 D134。",
+    "init-pro 结构校验、WORKLOG 校验、Markdown 控制检查与完整 Test Gate 24/24 命令通过。"
   ]
 }
 ```

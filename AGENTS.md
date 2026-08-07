@@ -32,12 +32,14 @@ Current control plane files:
 1. `project-controls.json`: init-pro schema-v3 machine-readable topic map and compact worklog policy.
 2. `AGENTS.md`: highest-level project constraints, output format, worklog rule, and unique source-of-truth map.
 3. `PLAN.md`: current phase, implementation order, non-goals, and verification order.
-4. `API_CONTRACT.md`: Service Feed/retention API plus legacy CLI, static payload, archive, feedback, and Graph compatibility contracts.
-5. `ARCHITECTURE_CONTRACT.md`: module ownership and layering boundaries.
-6. `DECISION_LOG.md`: reasons for durable control-plane decisions.
-7. `CONTEXT_READ_RULES.md`: minimal context strategy and task-specific read expansion.
+4. `docs/contracts/api/`: Service, Gateway, legacy/static, storage and ActorOps interfaces.
+5. `docs/contracts/architecture/`: module ownership and layering boundaries.
+6. `docs/contracts/ui/`: React visual system, interaction and browser acceptance.
+7. `docs/decisions/`: durable decision reasons and compatibility rationale.
 8. `WORKLOG.md`: compact task execution record.
 9. `project-defaults.yaml`: editable capabilities, limits, and output behavior.
+
+`AGENTS.md` is intentionally both the `instructions` and `context` authority. Historical plans, former context rules, superseded runbooks and implementation reports live under `archive/project-history/` and are never default context.
 
 ## 4. 控制文件唯一真源
 Use one authoritative file for each topic:
@@ -47,25 +49,36 @@ Use one authoritative file for each topic:
 | Machine-readable control topic mapping and worklog policy | `project-controls.json` |
 | Overall goal, hard constraints, output format | `AGENTS.md` |
 | Current phase, priorities, non-goals | `PLAN.md` |
-| Service API and legacy compatibility interfaces | `API_CONTRACT.md` |
-| Layering and module boundaries | `ARCHITECTURE_CONTRACT.md` |
-| React visual system, UI components, layout, interaction and visual gates | `UI_CONTRACT.md` |
+| Service API and legacy compatibility interfaces | `docs/contracts/api/` |
+| Layering and module boundaries | `docs/contracts/architecture/` |
+| React visual system, UI components, layout, interaction and visual gates | `docs/contracts/ui/` |
 | Runtime/operation logging, redaction, retention and safe query rules | `docs/dev/observability-logging.md` |
-| Decision reasons and compatibility rationale | `DECISION_LOG.md` |
-| Context reading strategy | `CONTEXT_READ_RULES.md` |
+| Decision reasons and compatibility rationale | `docs/decisions/` |
+| Context reading strategy | this section of `AGENTS.md` |
 | Execution history | `WORKLOG.md` |
 | Editable defaults and capability vocabulary | `project-defaults.yaml` |
 
-Do not duplicate a rule across several Markdown files. Update the source of truth and record the reason in `DECISION_LOG.md` when the rule meaning changes.
+Do not duplicate a rule across several Markdown files. Update the source of truth and record the reason in `docs/decisions/` when the rule meaning changes.
 
-## 5. Agent 默认读取范围
+## 5. Agent 默认读取范围与任务读取路由
 For most coding tasks, start with:
 
-1. `PLAN.md`
-2. `API_CONTRACT.md`
-3. `project-defaults.yaml`
-4. Task-relevant code
-5. Task-relevant tests
+1. `AGENTS.md` (the applicable root or nested file)
+2. `PLAN.md`
+3. Task-relevant code and tests
+
+Read `project-defaults.yaml` only when capability, limit, degradation, provider or output vocabulary matters. Do not load a whole interface, architecture, UI or decision contract for an ordinary fix.
+
+| Task | Expand context with |
+| --- | --- |
+| API, CLI, public payload, auth, error, Job or compatibility | `docs/contracts/api/README.md`, then only the linked module |
+| Source/AI/frontend/store/tenant boundary | `docs/contracts/architecture/README.md`, then only the linked module |
+| React visual, layout, interaction or browser acceptance | `docs/contracts/ui/README.md`, its linked module, relevant `frontend/src/` and Vitest/Playwright |
+| Storage or migration | API Feed/storage module, architecture runtime/migration module, target migration and tests |
+| Remote MCP or Browser OpenClaw | API Remote MCP/Gateway module, target integration code and tests |
+| Durable reason, supersession or compatibility dispute | `docs/decisions/README.md`, then the matching record bucket |
+| Historical report or old runbook | `archive/project-history/README.md`, then a targeted `rg` result |
+| Control-plane change | `project-controls.json`, the affected authority and this section |
 
 For broad orientation or taxonomy/backend changes, also read:
 
@@ -75,7 +88,7 @@ For broad orientation or taxonomy/backend changes, also read:
 4. `src/ui/site.py`
 5. Task-relevant tests
 
-For React frontend work, read `UI_CONTRACT.md`, the relevant file under `frontend/src/`, and its matching Vitest or Playwright test. For legacy UI work, read only the relevant file under `src/ui/static/`: `state.js`, `utils.js`, `media.js`, `reader.js`, `config.js`, `subscriptions.js`, `auth.js`, or `app.js`.
+For legacy UI work, read only the relevant file under `src/ui/static/`: `state.js`, `utils.js`, `media.js`, `reader.js`, `config.js`, `subscriptions.js`, `auth.js`, or `app.js`.
 
 For scraper work, read the target adapter under `src/scrapers/` and its matching tests.
 
@@ -87,7 +100,7 @@ For scraper work, read the target adapter under `src/scrapers/` and its matching
 - Selector ownership is `tests/test_impact_map.json`. Unmapped executable code, dependency manifests, and build configuration fail closed to full.
 - Gate logs stay under ignored `.test-results/<run-id>/` with private permissions. Read only the named failing log section when the bounded first-failure summary is insufficient.
 - Rebuild the local web service by running `./scripts/up-latest.sh` from the target task Worktree. The script must build that Worktree while resolving `.env`, `data`, and `logs` from the primary checkout through Git's common directory; use `--runtime-root ABSOLUTE_PATH` only for an intentional alternate runtime. Do not replace this with a temporary Compose override, runtime symlinks, or a build from the primary checkout. The command holds one host-local lock for the shared Compose project and containers. A rebuild is complete only after the target revision, API readiness with a ready Worker, both container health checks, and the served React asset all pass and the terminal state is rechecked; image build alone is never completion. Required database migrations remain explicit, backup-producing actions and must not be applied automatically.
-- Control-plane validation: this repository uses init-pro schema 3. Run `validate_project_controls.py --project-root . --format markdown`, `worklogctl.py validate --project-root .`, `python3 -m json.tool project-controls.json`, `python3 -m json.tool project-defaults.yaml`, and `git diff --check`. Keep validator output on stdout unless a persistent report is explicitly requested.
+- Control-plane validation: this repository uses init-pro schema 3. Run `python scripts/check_markdown_controls.py`, `validate_project_controls.py --project-root . --format markdown`, `worklogctl.py validate --project-root .`, `python3 -m json.tool project-controls.json`, `python3 -m json.tool project-defaults.yaml`, and `git diff --check`. Keep validator output on stdout unless a persistent report is explicitly requested.
 
 <!-- init-pro:section name=ownership -->
 ## 7. 控制文件维护规则

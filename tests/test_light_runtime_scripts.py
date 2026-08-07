@@ -1174,7 +1174,9 @@ def test_compose_wires_user_feed_schedule_polling_without_a_new_default_service(
 def test_service_runtime_docs_require_owner_credentials_before_compose_startup():
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     readme = (ROOT / "README_zh.md").read_text(encoding="utf-8")
-    api_contract = (ROOT / "API_CONTRACT.md").read_text(encoding="utf-8")
+    api_contract = (ROOT / "docs/contracts/api/service-core.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "Service API always requires an owner login" in env_example
     assert "HORIZON_AUTH_ENABLED only controls the legacy horizon-web service" in env_example

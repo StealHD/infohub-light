@@ -31,7 +31,7 @@
     "deploy/**"
   ],
   "ui_globs": [
-    "UI_CONTRACT.md",
+    "docs/contracts/ui/**",
     "src/ui/**",
     "frontend/**",
     "tests/*.test.cjs"
@@ -292,9 +292,9 @@
       "groups": ["frontend_full"]
     },
     {
-      "id": "React UI contract (UI_CONTRACT.md authority)",
+      "id": "React UI contract directory authority",
       "globs": [
-        "UI_CONTRACT.md",
+        "docs/contracts/ui/**",
         "frontend/scripts/check-preview-build.mjs",
         "frontend/scripts/check-ui-contract.mjs",
         "frontend/src/design-system/**"

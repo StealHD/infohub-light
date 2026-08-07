@@ -68,7 +68,7 @@
 
 - `最新` 读取当前用户最新 snapshot。
 - `历史` 从当前账号自己的近期 snapshots 构造，避免把仍在最新 Feed 的内容重复显示。
-- 历史条目会补充当前账号最新的收藏、稍后读、已读和忽略状态；精确响应与留存算法以 `API_CONTRACT.md` 为准。
+- 历史条目会补充当前账号最新的收藏、稍后读、已读和忽略状态；精确响应与留存算法以 `docs/contracts/api/feed-history-presentation-storage.md` 为准。
 
 旧 CLI 的 `data/site/history-data.json` 是全局静态发布兼容文件，与多人 Service 历史不是同一数据层；默认 Service UI 不读取它，也不按“第二天搬运文件”的规则生成历史。
 
