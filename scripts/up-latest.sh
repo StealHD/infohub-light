@@ -338,6 +338,27 @@ final_worker_health="$(docker inspect --format '{{.State.Health.Status}}' "$WORK
 ]] || fail "API/Worker readiness changed before final completion verification"
 [[ "$final_api_health" == "healthy" && "$final_worker_health" == "healthy" ]] \
   || fail "container health changed before final completion verification"
+
+if [[ "$(read_setting HORIZON_PRUNE_OLD_LOCAL_BUILDS true)" == "true" ]]; then
+  stale_local_images=()
+  while IFS= read -r image_ref; do
+    [[ -n "$image_ref" && "$image_ref" != "$INTELISCOPE_IMAGE" ]] || continue
+    stale_local_images+=("$image_ref")
+  done < <(
+    docker image ls \
+      --filter "reference=inteliscope-service:local-*" \
+      --format '{{.Repository}}:{{.Tag}}'
+  )
+
+  if [[ "${#stale_local_images[@]}" -gt 0 ]]; then
+    echo "==> Removing ${#stale_local_images[@]} old local project image tag(s)"
+    # Do not force removal: Docker retains any image still referenced by a container.
+    docker image rm "${stale_local_images[@]}" >/dev/null || true
+  else
+    echo "==> No old local project images to remove"
+  fi
+fi
+
 echo "==> Local rebuild complete"
 echo "    revision: $INTELISCOPE_BUILD_REVISION"
 echo "    API and Worker: healthy"

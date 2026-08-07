@@ -1532,7 +1532,7 @@ test('historical terminal jobs do not trigger subscription request storms or eag
   expect(failedApiRequests).toEqual([])
 })
 
-test('subscription channels stay compact, actionable and accessible at every acceptance viewport', async ({ page }, testInfo) => {
+test('subscription sources stay compact, actionable and accessible at every acceptance viewport', async ({ page }, testInfo) => {
   const consoleErrors: string[] = []
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
@@ -1572,31 +1572,6 @@ test('subscription channels stay compact, actionable and accessible at every acc
   expect(switchBounds!.x).toBeGreaterThan(scheduleBounds!.x + scheduleBounds!.width / 2)
   expect(switchBounds!.y).toBeLessThan(selectBounds!.y)
   expect(Math.abs((selectBounds!.x + selectBounds!.width) - (scheduleBounds!.x + scheduleBounds!.width - 16))).toBeLessThanOrEqual(8)
-
-  await expect(page.getByRole('heading', { name: '全部', level: 2 })).toBeVisible()
-  if (testInfo.project.name === 'desktop') {
-    const subscriptionNavigation = page.getByRole('navigation', { name: '我的订阅频道' })
-    await expect(subscriptionNavigation.getByRole('button')).toHaveCount(4)
-    await expect(subscriptionNavigation.getByRole('button', { name: /^全部，/ })).toBeVisible()
-    await expect(subscriptionNavigation.getByRole('button', { name: /^异常，/ })).toBeVisible()
-    await expect(subscriptionNavigation.getByRole('button', { name: /^公共订阅，/ })).toBeVisible()
-    await expect(subscriptionNavigation.getByRole('button', { name: /^私人订阅，/ })).toBeVisible()
-    await expect(subscriptionNavigation.getByRole('button', { name: /^AI，/ })).toHaveCount(0)
-    await subscriptionNavigation.getByRole('button', { name: /^异常，/ }).click()
-    await expect(page.getByRole('heading', { name: '异常', level: 2 })).toBeVisible()
-    await expect(page.getByText('当前没有异常来源')).toBeVisible()
-    await subscriptionNavigation.getByRole('button', { name: /^全部，/ }).click()
-  } else {
-    const viewSelector = page.locator('[data-compact-channel-controls]').getByRole('button', { name: /订阅视图/ })
-    await viewSelector.click()
-    await expect(page.getByRole('option')).toHaveCount(4)
-    await expect(page.getByRole('option', { name: /AI/ })).toHaveCount(0)
-    await page.getByRole('option', { name: /异常 · 0/ }).click()
-    await expect(page.getByRole('heading', { name: '异常', level: 2 })).toBeVisible()
-    await expect(page.getByText('当前没有异常来源')).toBeVisible()
-    await viewSelector.click()
-    await page.getByRole('option', { name: /全部 · 1/ }).click()
-  }
 
   const subscriptionCard = page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })
   await expect(subscriptionCard.getByText('更新：全局')).toBeVisible()
@@ -1690,11 +1665,10 @@ test('subscription channels stay compact, actionable and accessible at every acc
     expect(Math.max(...tabWidths) - Math.min(...tabWidths)).toBeGreaterThan(1)
     expect(tabWidths.every((width) => width < viewportWidth / 2)).toBe(true)
     await expect(page.locator('[data-channel-rail]')).toBeHidden()
-    await expect(page.locator('[data-compact-channel-controls]')).toBeVisible()
+    await expect(page.locator('[data-compact-channel-controls]')).toHaveCount(0)
     await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeInViewport()
 
     await expect(toolbarSearch).toBeVisible()
-    await expect(page.locator('[data-compact-channel-controls]').getByRole('searchbox', { name: '搜索来源' })).toHaveCount(0)
     await page.getByRole('button', { name: '筛选来源，已启用 0 项' }).click()
     const filterDialog = page.getByRole('dialog', { name: '筛选来源' })
     await expect(filterDialog).toBeVisible()
@@ -1734,18 +1708,8 @@ test('subscription channels stay compact, actionable and accessible at every acc
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     if (originalViewport) await page.setViewportSize(originalViewport)
   } else {
-    await expect(page.getByRole('list', { name: '当前频道订阅' })).toBeVisible()
-    if (testInfo.project.name === 'desktop') {
-      const channelRail = page.locator('[data-channel-rail]')
-      await expect(channelRail).toBeVisible()
-      await expect(page.locator('[data-compact-channel-controls]')).toBeHidden()
-      const railBounds = await channelRail.boundingBox()
-      expect(railBounds).not.toBeNull()
-      expect(Math.abs(railBounds!.width - 236)).toBeLessThanOrEqual(1)
-    } else {
-      await expect(page.locator('[data-channel-rail]')).toBeHidden()
-      await expect(page.locator('[data-compact-channel-controls]')).toBeVisible()
-    }
+    await expect(page.locator('[data-channel-rail]')).toHaveCount(0)
+    await expect(page.locator('[data-compact-channel-controls]')).toHaveCount(0)
   }
 
   await expect(healthChip).toHaveText('正常')
@@ -1760,13 +1724,6 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(toolbarSearch).toHaveCount(0)
   await page.getByRole('tab', { name: '来源库' }).click()
   await expect(toolbarSearch).toBeVisible()
-  if (testInfo.project.name === 'desktop') {
-    await page.getByRole('navigation', { name: '来源库频道' }).getByRole('button', { name: /产品机会/ }).click()
-  } else {
-    const compactControls = page.locator('[data-compact-channel-controls]')
-    await compactControls.getByRole('button', { name: /频道/ }).click()
-    await page.getByRole('option', { name: /产品机会/ }).click()
-  }
   await expect(page.getByRole('listitem', { name: /Product Notes 来源/ })).toBeVisible()
   await page.getByRole('button', { name: '订阅 Product Notes' }).click()
   await expect(page.getByText('Product Notes 订阅成功', { exact: true })).toBeVisible()
@@ -1883,18 +1840,7 @@ test('public/private subscription views and direct share stay usable at 693, 645
   await expect(page.locator('[data-feed-schedule]').getByText(
     '覆盖 1 个订阅 · 1 个使用单源周期',
   )).toBeVisible()
-  const viewSelector = page.locator('[data-compact-channel-controls]').getByRole('button', { name: /订阅视图/ })
-  await viewSelector.click()
-  await expect(page.getByRole('option', { name: /公共订阅 · 1/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /私人订阅 · 1/ })).toBeVisible()
-  await page.getByRole('option', { name: /公共订阅 · 1/ }).click()
-  await expect(page.getByRole('heading', { name: '公共订阅', level: 2 })).toBeVisible()
   await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeVisible()
-  await expect(page.getByRole('listitem', { name: /私人研究源 订阅来源/ })).toHaveCount(0)
-
-  await viewSelector.click()
-  await page.getByRole('option', { name: /私人订阅 · 1/ }).click()
-  await expect(page.getByRole('heading', { name: '私人订阅', level: 2 })).toBeVisible()
   const privateCard = page.getByRole('listitem', { name: /私人研究源 订阅来源/ })
   const share = privateCard.getByRole('button', { name: '分享来源：私人研究源' })
   const history = privateCard.getByRole('link', { name: '查看 私人研究源 的 2 条历史内容' })

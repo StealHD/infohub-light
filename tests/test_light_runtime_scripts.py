@@ -76,6 +76,7 @@ def _create_linked_worktree_fixture(
                 "HORIZON_BUILD_NO_CACHE=false",
                 "HORIZON_PRUNE_OLD_IMAGES=false",
                 "HORIZON_PRUNE_BUILD_CACHE=false",
+                "HORIZON_PRUNE_OLD_LOCAL_BUILDS=false",
                 "INTELISCOPE_VERSION=0.0.0-stale-runtime-version",
                 "INTELISCOPE_BUILD_REVISION=stale-runtime-revision",
                 "INTELISCOPE_BUILT_AT=stale-runtime-time",
@@ -110,6 +111,9 @@ printf 'docker %s | runtime=%s version=%s revision=%s built_at=%s image=%s\\n' \
   "${INTELISCOPE_IMAGE-}" >> "$FAKE_EVENT_LOG"
 if [[ "$*" == *" stop "* && "${FAKE_STOP_FAIL-}" == "true" ]]; then
   exit 1
+fi
+if [[ "$*" == "image ls "* ]]; then
+  printf '%b' "${FAKE_LOCAL_IMAGES-}"
 fi
 if [[ "${1-}" == "inspect" ]]; then
   if [[ "$*" == *".State.Running"* ]]; then
@@ -278,6 +282,11 @@ def test_up_latest_prefers_light_compose_and_does_not_start_scheduler_by_default
     frontend_position = script.index("Verifying the served frontend asset")
     assert frontend_position < script.index("docker image prune")
     assert frontend_position < script.index("docker builder prune")
+    assert 'HORIZON_PRUNE_OLD_LOCAL_BUILDS true' in script
+    assert 'reference=inteliscope-service:local-*' in script
+    assert script.index("container health changed before final completion verification") < script.index(
+        "Removing ${#stale_local_images[@]} old local project image tag(s)"
+    )
 
 
 def test_up_latest_resolves_primary_runtime_from_a_linked_worktree(tmp_path: Path):
@@ -434,6 +443,41 @@ def test_up_latest_runs_one_verified_build_to_runtime_flow(tmp_path: Path):
         event_log.parent
         / f"inteliscope-infohub-light-{os.getuid()}.up-latest.lock"
     ).exists()
+
+
+def test_up_latest_prunes_only_stale_local_project_images_after_final_verification(
+    tmp_path: Path,
+):
+    _, linked, _, revision = _create_linked_worktree_fixture(tmp_path)
+    fake_bin, event_log = _install_fake_runtime_commands(tmp_path)
+    current_image = f"inteliscope-service:local-{revision}"
+    stale_image = "inteliscope-service:local-stale-revision"
+    env = _clean_runtime_environment()
+    env.update(
+        {
+            "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
+            "FAKE_EVENT_LOG": str(event_log),
+            "FAKE_DEPLOYED_REVISION": revision,
+            "FAKE_LOCAL_IMAGES": f"{current_image}\\n{stale_image}\\n",
+            "HORIZON_PRUNE_OLD_LOCAL_BUILDS": "true",
+            "TMPDIR": str(event_log.parent),
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/up-latest.sh"],
+        cwd=linked,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    events = event_log.read_text(encoding="utf-8")
+
+    assert "Removing 1 old local project image tag(s)" in result.stdout
+    assert "docker image rm inteliscope-service:local-stale-revision" in events
+    assert f"docker image rm {current_image}" not in events
+    assert events.rindex(" ps |") < events.index("docker image ls")
 
 
 def test_up_latest_stops_services_and_reports_explicit_migration(tmp_path: Path):

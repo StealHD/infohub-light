@@ -30,25 +30,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-06",
-  "result": "将 YouTube 频道头像解析、官方 CDN 安全缓存与单源回填修复合并到本地 main；保留 main 的 AI Key 更新日志和本分支的 YouTube 头像更新日志。",
-  "status": "completed",
-  "task_id": "2026-08-06-merge-youtube-avatar-into-main",
-  "unresolved": [],
-  "validation": [
-    "合并冲突已解析，更新日志时间线保留两条 2026-08-06 记录并同步测试索引。",
-    "WORKLOG 已安全归档轮转，控制工具在合并结果上校验通过。",
-    "复用 key-driven-ai-bindings 虚拟环境重跑完整 Test Gate：23/23 命令通过（238.387 秒）。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-06",
   "result": "从本地 main 重建共享 8080 运行时，切换 YouTube 头像合并后的服务镜像。",
   "status": "completed",
   "task_id": "2026-08-06-rebuild-local-main-after-youtube-merge",
@@ -387,6 +368,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "合并冲突已解析：保留 V5 原文抓取与头像防护，并叠加 V7 图片计数及不可信 OCR 处理。",
     "前端 typecheck 通过；相关 Vitest 4 个文件、68 项通过；lint 无错误（8 条既有 Fast Refresh 警告）。",
     "完整 Test Gate：23/23 命令通过（235.82 秒）。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "为 v2.2.11 发布准备 OpenClaw 图片输入与订阅页整合结果；本地重建流程在最终健康检查后安全清理旧 inteliscope-service:local-* 构建，并保留当前或仍被容器引用的镜像。",
+  "status": "completed",
+  "task_id": "2026-08-07-prepare-v2.2.11-openclaw-image-release",
+  "unresolved": [],
+  "validation": [
+    "up-latest 脚本语法与运行时回归：31 项通过。",
+    "前端 typecheck 通过；受影响的 Release E2E 10 项通过、2 项按项目配置跳过。",
+    "桌面、平板与移动端明暗订阅视觉基线已重新生成并人工抽检。"
   ]
 }
 ```

@@ -44,6 +44,11 @@ curl http://127.0.0.1:8080/api/health/live
 curl http://127.0.0.1:8080/api/health/ready
 ```
 
+Each successful local cutover removes stale `inteliscope-service:local-*` image
+tags after the final API/Worker health check. It never removes the image just
+started or forces removal of an image still referenced by a container. Set
+`HORIZON_PRUNE_OLD_LOCAL_BUILDS=false` in `.env` to retain old local builds.
+
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), log in, create or subscribe to a source, and select “获取新内容”.
 
 When this command runs from a linked task Worktree, it builds that Worktree and mounts `.env`, `data`, and `logs` from the primary checkout resolved through Git's common directory. Use `--runtime-root /absolute/path` only to select another runtime intentionally, and `--dry-run` to inspect the resolved roots without calling Docker. The authoritative completion and migration-safety rules are in [AGENTS.md](AGENTS.md#6-verification). Production images do not contain `.env`, `service.db`, `data/config.json`, logs, or backups.
