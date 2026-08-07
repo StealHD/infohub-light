@@ -488,8 +488,17 @@ describe('OpenClaw conversation surface', () => {
     })
     render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
 
-    expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(64px,auto)_36px]', 'gap-2')
-    expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-16', 'max-h-[160px]', '[field-sizing:content]')
+    expect(screen.getByTestId('openclaw-composer')).toHaveClass(
+      'grid',
+      'grid-rows-[minmax(80px,auto)_36px]',
+      'gap-2',
+      'border',
+      'focus-within:border-focus',
+    )
+    const composerInput = screen.getByLabelText('发送给 OpenClaw 的问题')
+    expect(composerInput).toHaveClass('!min-h-20', '!max-h-[180px]', '!border-0', '!bg-transparent', '!shadow-none', '[field-sizing:content]')
+    expect(screen.getByTestId('openclaw-composer-dock')).toHaveClass('p-2')
+    expect(screen.getByTestId('openclaw-composer-dock')).not.toHaveClass('border-t', 'border-separator')
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[36px_minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
@@ -581,6 +590,8 @@ describe('OpenClaw conversation surface', () => {
     await browser.click(screen.getByRole('button', { name: '诊断最近失败任务' }))
     expect(value.setQuestion).toHaveBeenCalledWith('诊断最近失败任务')
     expect(chat.send).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('问题建议')).toHaveClass('prompt-suggestion__items')
+    expect(screen.getByRole('button', { name: '查看异常来源' })).toHaveClass('prompt-suggestion__item')
     expect(screen.getByText('连接中断，正在重连 · 第 2 次')).toBeInTheDocument()
     await browser.click(screen.getByRole('button', { name: '立即重试' }))
     expect(chat.retryConnection).toHaveBeenCalledTimes(1)

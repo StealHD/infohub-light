@@ -69,6 +69,7 @@ export {
   PromptInput,
   PromptInputBody,
   PromptInputToolbar,
+  PromptSuggestion,
 } from './chat'
 export type { ChatSourceData } from './chat'
 export {

@@ -30,25 +30,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-06",
-  "result": "在 release 门禁修复后将 v2.2.10-421464fc3f06 本地 amd64 镜像加载并切换到 VPS，随后仅对老高與小茉 YouTube 频道执行免费单源头像回填。",
-  "status": "completed",
-  "task_id": "2026-08-06-deploy-youtube-avatar-release",
-  "unresolved": [],
-  "validation": [
-    "生产 API/Worker 均运行 revision 421464fc3f06 且 healthy，readiness 返回 worker_status=ready；scheduler stopped。",
-    "生产数据库 integrity/foreign key 通过、迁移标记至 v19；release 前后无活跃作业。",
-    "目标频道头像回填返回 stored；ready 文件为 image/jpeg、110250 bytes、官方 yt3.googleusercontent.com，未创建 Feed、AI、通知或付费任务。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "capabilities",
-    "ui"
-  ],
-  "recorded_on": "2026-08-06",
   "result": "OpenClaw V7 附带 Feed 内容先读 Inteliscope 存储证据，再对同一已清洗原文 URL 主动读取；上下文引用改为订阅头像、自适应标题与向上完整浮层。",
   "status": "completed",
   "task_id": "2026-08-06-openclaw-original-fetch-context-ui",
@@ -396,6 +377,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "迁移验证：15 份归档 SHA-256 与 32fc41e 原文一致；合同分块与既有 132 条决策正文逐段覆盖，新增 D134。",
     "init-pro 结构校验、WORKLOG 校验、Markdown 控制检查与完整 Test Gate 24/24 命令通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-08",
+  "result": "在独立分支完成 OpenClaw 输入区与空态建议优化：新增本地 PromptSuggestion 复合组件，composer 仅保留外层边框并扩至 80–180 px，建议项仅填充并聚焦输入框。",
+  "status": "completed",
+  "task_id": "2026-08-08-openclaw-composer-polish",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest：PromptSuggestion、OpenClaw 对话与更新日志测试通过。",
+    "完整 Test Gate 24/24 命令通过（260.07 秒）；前端构建、类型检查和 UI 合同检查通过。",
+    "本地 8080 已切换目标 revision：API/Worker healthy、readiness 返回 worker_status=ready；390、768、1440 px 与 320 px Agent 最小宽度无横向溢出，键盘建议填充和单层输入边框实测通过。"
   ]
 }
 ```

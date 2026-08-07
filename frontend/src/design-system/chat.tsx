@@ -1,4 +1,5 @@
-import type { HTMLAttributes, ReactNode } from 'react'
+import type { ComponentProps, HTMLAttributes, ReactNode } from 'react'
+import { Button } from '@heroui/react'
 import { Globe2, X } from 'lucide-react'
 
 import { Tooltip } from './AnchoredTooltip'
@@ -23,7 +24,7 @@ function sourceHost(url: string): string {
 export function PromptInput({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div
     {...props}
-    className={`min-w-0 rounded-2xl border border-separator bg-surface-secondary shadow-sm transition-colors focus-within:border-border ${className}`}
+    className={`min-w-0 rounded-2xl border border-separator bg-surface-secondary shadow-sm transition-colors focus-within:border-focus ${className}`}
   />
 }
 
@@ -34,6 +35,57 @@ export function PromptInputBody({ className = '', ...props }: HTMLAttributes<HTM
 export function PromptInputToolbar({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div {...props} className={`min-w-0 ${className}`} />
 }
+
+function PromptSuggestionRoot({ className = '', ...props }: HTMLAttributes<HTMLElement>) {
+  return <section
+    {...props}
+    className={`prompt-suggestion min-w-0 ${className}`}
+  />
+}
+
+function PromptSuggestionHeader({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} className={`prompt-suggestion__header min-w-0 ${className}`} />
+}
+
+function PromptSuggestionTitle({ className = '', ...props }: HTMLAttributes<HTMLHeadingElement>) {
+  return <h2 {...props} className={`prompt-suggestion__title type-page-title ${className}`} />
+}
+
+function PromptSuggestionDescription({ className = '', ...props }: HTMLAttributes<HTMLParagraphElement>) {
+  return <p {...props} className={`prompt-suggestion__description type-body text-muted ${className}`} />
+}
+
+function PromptSuggestionItems({ className = '', ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} className={`prompt-suggestion__items grid min-w-0 gap-2 ${className}`} />
+}
+
+function PromptSuggestionItem({ className = '', ...props }: ComponentProps<typeof Button>) {
+  return <Button
+    {...props}
+    variant="secondary"
+    className={`prompt-suggestion__item flex min-h-14 w-full min-w-0 items-center gap-3 rounded-xl border border-separator bg-surface-secondary px-3 py-2 text-left shadow-none hover:bg-default focus-visible:outline-2 focus-visible:outline-focus ${className}`}
+  />
+}
+
+function PromptSuggestionItemTitle({ className = '', ...props }: HTMLAttributes<HTMLSpanElement>) {
+  return <span {...props} className={`prompt-suggestion__item-title type-control block ${className}`} />
+}
+
+function PromptSuggestionItemDescription({ className = '', ...props }: HTMLAttributes<HTMLSpanElement>) {
+  return <span {...props} className={`prompt-suggestion__item-description type-meta block text-muted ${className}`} />
+}
+
+// This namespace-like export is intentional: it keeps the prompt-starter anatomy discoverable at call sites.
+// eslint-disable-next-line react-refresh/only-export-components
+export const PromptSuggestion = Object.assign(PromptSuggestionRoot, {
+  Header: PromptSuggestionHeader,
+  Title: PromptSuggestionTitle,
+  Description: PromptSuggestionDescription,
+  Items: PromptSuggestionItems,
+  Item: PromptSuggestionItem,
+  ItemTitle: PromptSuggestionItemTitle,
+  ItemDescription: PromptSuggestionItemDescription,
+})
 
 export function ChatSources({
   children,

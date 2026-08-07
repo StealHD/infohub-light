@@ -16,6 +16,7 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputToolbar,
+  PromptSuggestion,
   Select,
   StatusIndicator,
   TextArea,
@@ -884,15 +885,33 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
         <div className="flex shrink-0 gap-1"><Button size="sm" variant="ghost" isDisabled={chat.isRunning || chat.runtimeUpdating} onPress={() => void chat.newConversation()}><Icons.Plus size={14} />新对话</Button><Button size="sm" variant="ghost" onPress={chat.disconnect}>断开</Button></div>
       </div>
       {chat.toolsStatus === 'missing' && <Card variant="secondary" className="mb-3 min-w-0 border-warning/40 p-3" role="status"><Card.Title>未发现 Inteliscope 工具</Card.Title><Card.Description className="mt-1">OpenClaw 已连接，但还需要在助手连接页面配置 Remote MCP 与 Skill。</Card.Description><a className="type-control mt-2 inline-flex text-accent" href="/agents">打开助手连接</a></Card>}
-      {!chat.messages.length && !chat.streamText && !runTrace && <Card variant="transparent" className="min-w-0 p-4 text-center">
-        <Card.Description>可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</Card.Description>
-        <div className="mt-3 flex flex-wrap justify-center gap-1.5" aria-label="问题建议">
+      {!chat.messages.length && !chat.streamText && !runTrace && <PromptSuggestion className="mx-auto max-w-sm py-3 text-center">
+        <PromptSuggestion.Header>
+          <PromptSuggestion.Title>从哪里开始？</PromptSuggestion.Title>
+          <PromptSuggestion.Description className="mt-1">可以分析已选文章，也可以直接询问来源异常、任务失败或订阅配置。</PromptSuggestion.Description>
+        </PromptSuggestion.Header>
+        <PromptSuggestion.Items className="mt-4 text-left" aria-label="问题建议">
           {(value.draft.items.length
-            ? ['总结这些内容', '比较关键信号', '提炼行动线索']
-            : ['诊断最近失败任务', '查看异常来源', '我有哪些订阅']
-          ).map((suggestion) => <Button key={suggestion} size="sm" variant="ghost" onPress={() => fillSuggestion(suggestion)}>{suggestion}</Button>)}
-        </div>
-      </Card>}
+            ? [
+              { prompt: '总结这些内容', description: '归纳已选内容中的关键结论。', icon: Icons.FileText },
+              { prompt: '比较关键信号', description: '找出相同趋势与值得关注的差异。', icon: Icons.GitCompareArrows },
+              { prompt: '提炼行动线索', description: '把值得继续跟进的事项整理出来。', icon: Icons.ListChecks },
+            ]
+            : [
+              { prompt: '诊断最近失败任务', description: '定位失败原因并给出下一步。', icon: Icons.Stethoscope },
+              { prompt: '查看异常来源', description: '检查近期不可用或退化的来源。', icon: Icons.TriangleAlert },
+              { prompt: '我有哪些订阅', description: '汇总当前订阅与可见范围。', icon: Icons.Rss },
+            ]
+          ).map(({ prompt, description, icon: Icon }) => <PromptSuggestion.Item key={prompt} aria-label={prompt} onPress={() => fillSuggestion(prompt)}>
+            <Icon size={16} className="shrink-0 text-accent" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <PromptSuggestion.ItemTitle>{prompt}</PromptSuggestion.ItemTitle>
+              <PromptSuggestion.ItemDescription>{description}</PromptSuggestion.ItemDescription>
+            </span>
+            <Icons.ArrowUpRight size={15} className="shrink-0 text-muted" aria-hidden="true" />
+          </PromptSuggestion.Item>)}
+        </PromptSuggestion.Items>
+      </PromptSuggestion>}
       <div
         data-testid="openclaw-timeline"
         className="grid min-w-0 grid-cols-[12px_minmax(0,1fr)] gap-x-[9px] overflow-x-hidden"
@@ -969,7 +988,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
         if (viewer?.messageId && image.id) void chat.refreshMedia(viewer.messageId, image.id)
       }}
     />
-    <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-hidden border-t border-separator p-3">
+    <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-hidden p-2">
       {chat.status === 'reconnecting' && <div role="status" className="type-meta mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-warning/10 px-2 py-1.5 text-warning">
         <Icons.WifiOff size={14} className="shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">连接中断，正在重连{chat.reconnectAttempt > 0 ? ` · 第 ${chat.reconnectAttempt} 次` : ''}</span>
@@ -978,7 +997,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       <ContextSummary value={value} />
       <PromptInput
         data-testid="openclaw-composer"
-        className="grid grid-rows-[minmax(64px,auto)_36px] gap-2 p-2"
+        className="grid grid-rows-[minmax(80px,auto)_36px] gap-2 p-2"
         onDragOver={(event: DragEvent<HTMLDivElement>) => {
           if (!chat.imageInputAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return
           event.preventDefault()
@@ -1016,7 +1035,8 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
           <TextArea
             fullWidth
             variant="secondary"
-            className="type-body min-h-16 max-h-[160px] min-w-0 max-w-full resize-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]"
+            data-testid="openclaw-composer-textarea"
+            className="type-body !min-h-20 !max-h-[180px] min-w-0 max-w-full resize-none !rounded-none !border-0 !bg-transparent px-1 py-1 !shadow-none outline-none focus-visible:outline-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]"
             aria-label="发送给 OpenClaw 的问题"
             value={value.draft.question}
             maxLength={1200}
