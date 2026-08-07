@@ -741,7 +741,8 @@ describe('App routes', () => {
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
     expect(screen.getByRole('list', { name: '当前频道订阅' })).toBeInTheDocument()
     const sourceCard = screen.getByText('覆盖频道来源').closest('[data-compact-source-row="subscription"]') as HTMLElement
-    expect(sourceCard.querySelector('[data-source-card-header]')).toHaveClass('items-center')
+    expect(sourceCard.querySelector('[data-source-card-header]')).toHaveClass('items-start')
+    expect(sourceCard.querySelector('[data-source-counts]')?.closest('[data-source-card-status]')).not.toBeNull()
     const healthChip = await within(sourceCard).findByLabelText('健康状态：正常')
     expect(healthChip).toHaveTextContent('正常')
     expect(healthChip).toHaveAttribute('aria-label', '健康状态：正常')
@@ -754,8 +755,8 @@ describe('App routes', () => {
     expect(sourceCard).toHaveTextContent('每 1 小时')
     expect(within(scheduleCard).getByRole('button', { name: /更新周期/ })).toBeInTheDocument()
     expect(within(scheduleCard).queryByRole('button', { name: '管理自动更新' })).not.toBeInTheDocument()
-    const channelRail = document.querySelector('[data-channel-rail]') as HTMLElement
-    const sourceSearch = within(channelRail).getByRole('searchbox', { name: '搜索来源' })
+    const subscriptionToolbar = document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement
+    const sourceSearch = within(subscriptionToolbar).getByRole('searchbox', { name: '搜索来源' })
     await userEvent.type(sourceSearch, '不存在')
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
     expect(sourceSearch).toHaveFocus()
@@ -1024,7 +1025,7 @@ describe('App routes', () => {
     })
   })
 
-  it('keeps channel choices independent across tabs and falls back when filtering removes a channel', async () => {
+  it('keeps four subscription views while source-library channel choices and toolbar search remain independent', async () => {
     const browser = userEvent.setup()
     const sources = [
       { id: 'channel-ai', type: 'rss', display_name: 'AI 来源', scope: 'public' as const, default_channel: 'AI', enabled: true },
@@ -1055,8 +1056,11 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
     await screen.findByRole('heading', { name: '全部', level: 2 })
-    await browser.click(within(screen.getByRole('navigation', { name: '我的订阅频道' })).getByRole('button', { name: /工作\/项目/ }))
-    expect(screen.getByRole('heading', { name: '工作/项目' })).toBeInTheDocument()
+    const subscriptionNavigation = screen.getByRole('navigation', { name: '我的订阅频道' })
+    expect(within(subscriptionNavigation).getAllByRole('button')).toHaveLength(4)
+    expect(within(subscriptionNavigation).queryByRole('button', { name: /工作\/项目/ })).not.toBeInTheDocument()
+    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /公共订阅/ }))
+    expect(screen.getByRole('heading', { name: '公共订阅' })).toBeInTheDocument()
     expect(screen.getByText('项目来源')).toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
@@ -1065,14 +1069,22 @@ describe('App routes', () => {
     expect(screen.getByRole('heading', { name: '金融' })).toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
-    expect(screen.getByRole('heading', { name: '工作/项目' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '公共订阅' })).toBeInTheDocument()
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
     expect(screen.getByRole('heading', { name: '金融' })).toBeInTheDocument()
 
-    const compactControls = document.querySelector('[data-compact-channel-controls]') as HTMLElement
-    await browser.type(within(compactControls).getByRole('searchbox', { name: '搜索来源' }), 'AI 来源')
+    const toolbar = document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement
+    const sourceSearch = within(toolbar).getByRole('searchbox', { name: '搜索来源' })
+    await browser.type(sourceSearch, 'AI 来源')
     expect(screen.getByRole('heading', { name: 'AI' })).toBeInTheDocument()
     expect(screen.getByText('AI 来源')).toBeInTheDocument()
+    expect(document.querySelector('[data-channel-rail] [role="searchbox"]')).toBeNull()
+    expect(document.querySelector('[data-compact-channel-controls] [role="searchbox"]')).toBeNull()
+
+    await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
+    expect(within(document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement).getByRole('searchbox', { name: '搜索来源' })).toHaveValue('AI 来源')
+    await browser.click(screen.getByRole('tab', { name: '运行记录' }))
+    expect(screen.queryByRole('searchbox', { name: '搜索来源' })).not.toBeInTheDocument()
   })
 
   it('deep-links subscription tabs without permanent count badges', async () => {

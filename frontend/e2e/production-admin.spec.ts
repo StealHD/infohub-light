@@ -1541,6 +1541,9 @@ test('subscription channels stay compact, actionable and accessible at every acc
   const apiState = await mockAdminApi(page)
   await page.goto('/subscriptions')
   await expect(page.getByRole('tablist', { name: '订阅与来源页面' })).toBeVisible()
+  const subscriptionToolbar = page.locator('[data-subscription-tabs-toolbar]')
+  const toolbarSearch = subscriptionToolbar.getByRole('searchbox', { name: '搜索来源' })
+  await expect(toolbarSearch).toBeVisible()
 
   const viewportWidth = page.viewportSize()?.width ?? 0
   const tabWidths: number[] = []
@@ -1573,8 +1576,12 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(page.getByRole('heading', { name: '全部', level: 2 })).toBeVisible()
   if (testInfo.project.name === 'desktop') {
     const subscriptionNavigation = page.getByRole('navigation', { name: '我的订阅频道' })
+    await expect(subscriptionNavigation.getByRole('button')).toHaveCount(4)
     await expect(subscriptionNavigation.getByRole('button', { name: /^全部，/ })).toBeVisible()
     await expect(subscriptionNavigation.getByRole('button', { name: /^异常，/ })).toBeVisible()
+    await expect(subscriptionNavigation.getByRole('button', { name: /^公共订阅，/ })).toBeVisible()
+    await expect(subscriptionNavigation.getByRole('button', { name: /^私人订阅，/ })).toBeVisible()
+    await expect(subscriptionNavigation.getByRole('button', { name: /^AI，/ })).toHaveCount(0)
     await subscriptionNavigation.getByRole('button', { name: /^异常，/ }).click()
     await expect(page.getByRole('heading', { name: '异常', level: 2 })).toBeVisible()
     await expect(page.getByText('当前没有异常来源')).toBeVisible()
@@ -1582,6 +1589,8 @@ test('subscription channels stay compact, actionable and accessible at every acc
   } else {
     const viewSelector = page.locator('[data-compact-channel-controls]').getByRole('button', { name: /订阅视图/ })
     await viewSelector.click()
+    await expect(page.getByRole('option')).toHaveCount(4)
+    await expect(page.getByRole('option', { name: /AI/ })).toHaveCount(0)
     await page.getByRole('option', { name: /异常 · 0/ }).click()
     await expect(page.getByRole('heading', { name: '异常', level: 2 })).toBeVisible()
     await expect(page.getByText('当前没有异常来源')).toBeVisible()
@@ -1594,15 +1603,19 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(subscriptionCard.getByText('每 6 小时')).toBeVisible()
   const cardHeader = subscriptionCard.locator('[data-source-card-header]')
   const healthChip = cardHeader.locator('[data-source-health-chip]')
+  const countSummary = cardHeader.locator('[data-source-counts]')
   const editSource = subscriptionCard.getByRole('button', { name: '编辑来源：OpenAI Blog' })
-  const [headerBounds, healthBounds] = await Promise.all([
+  const [headerBounds, healthBounds, countBounds] = await Promise.all([
     cardHeader.boundingBox(),
     healthChip.boundingBox(),
+    countSummary.boundingBox(),
   ])
   expect(headerBounds).not.toBeNull()
   expect(healthBounds).not.toBeNull()
-  const headerCenter = headerBounds!.y + headerBounds!.height / 2
-  expect(Math.abs((healthBounds!.y + healthBounds!.height / 2) - headerCenter)).toBeLessThanOrEqual(1)
+  expect(countBounds).not.toBeNull()
+  expect(healthBounds!.y + healthBounds!.height).toBeLessThanOrEqual(countBounds!.y)
+  expect(countBounds!.x + countBounds!.width).toBeLessThanOrEqual(headerBounds!.x + headerBounds!.width)
+  await expect(countSummary).toHaveText(/今日\s*0\s*近7天\s*0\s*历史\s*7/)
   expect(await editSource.evaluate((element) => element.closest('[data-source-card-controls]') !== null)).toBe(true)
   const healthyStatus = subscriptionCard.getByRole('button', { name: '正常' })
   await healthyStatus.hover()
@@ -1680,7 +1693,8 @@ test('subscription channels stay compact, actionable and accessible at every acc
     await expect(page.locator('[data-compact-channel-controls]')).toBeVisible()
     await expect(page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ })).toBeInViewport()
 
-    await expect(page.getByRole('searchbox', { name: '搜索来源' })).toBeVisible()
+    await expect(toolbarSearch).toBeVisible()
+    await expect(page.locator('[data-compact-channel-controls]').getByRole('searchbox', { name: '搜索来源' })).toHaveCount(0)
     await page.getByRole('button', { name: '筛选来源，已启用 0 项' }).click()
     const filterDialog = page.getByRole('dialog', { name: '筛选来源' })
     await expect(filterDialog).toBeVisible()
@@ -1707,12 +1721,16 @@ test('subscription channels stay compact, actionable and accessible at every acc
     await expect(scheduleSelect).toBeVisible()
     const narrowScheduleBounds = await scheduleCard.boundingBox()
     const narrowSourceBounds = await page.getByRole('listitem', { name: /OpenAI Blog 订阅来源/ }).boundingBox()
+    const narrowSearchBounds = await toolbarSearch.boundingBox()
     expect(narrowScheduleBounds).not.toBeNull()
     expect(narrowSourceBounds).not.toBeNull()
+    expect(narrowSearchBounds).not.toBeNull()
     expect(narrowScheduleBounds!.x).toBeGreaterThanOrEqual(0)
     expect(narrowScheduleBounds!.x + narrowScheduleBounds!.width).toBeLessThanOrEqual(320)
     expect(narrowSourceBounds!.x).toBeGreaterThanOrEqual(0)
     expect(narrowSourceBounds!.x + narrowSourceBounds!.width).toBeLessThanOrEqual(320)
+    expect(narrowSearchBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(narrowSearchBounds!.x + narrowSearchBounds!.width).toBeLessThanOrEqual(320)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     if (originalViewport) await page.setViewportSize(originalViewport)
   } else {
@@ -1733,8 +1751,15 @@ test('subscription channels stay compact, actionable and accessible at every acc
   await expect(healthChip).toHaveText('正常')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
+  await toolbarSearch.fill('OpenAI')
   await page.getByRole('tab', { name: '来源库' }).click()
   await expect(page).toHaveURL(/\/subscriptions\?tab=library$/)
+  await expect(toolbarSearch).toHaveValue('OpenAI')
+  await toolbarSearch.fill('')
+  await page.getByRole('tab', { name: '运行记录' }).click()
+  await expect(toolbarSearch).toHaveCount(0)
+  await page.getByRole('tab', { name: '来源库' }).click()
+  await expect(toolbarSearch).toBeVisible()
   if (testInfo.project.name === 'desktop') {
     await page.getByRole('navigation', { name: '来源库频道' }).getByRole('button', { name: /产品机会/ }).click()
   } else {

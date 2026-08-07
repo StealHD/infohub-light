@@ -22,6 +22,16 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-07',
+        title: '订阅页收紧为四类视图',
+        summary: '订阅列表减少频道入口与卡片底部信息，搜索和状态统计回到更接近阅读位置的区域。',
+        items: [
+          { title: '四类固定视图', description: '“我的订阅”只保留全部、异常、公共订阅和私人订阅；来源库继续按实际频道浏览。' },
+          { title: '搜索置于页签行', description: '来源搜索位于“我的订阅 / 来源库 / 运行记录”页签行，前两个页签共享搜索条件，运行记录不显示无关搜索。' },
+          { title: '状态下方直接看条数', description: '今日、近 N 天和历史条数移到来源卡右上健康状态下方，底部集中保留更新摘要和操作。' },
+        ],
+      },
+      {
         date: '2026-08-06',
         title: 'AI Key 成为连接主导配置',
         summary: 'AI Key 现在直接决定 Provider 和连接地址；工作区分析与触底文案分别绑定平级 Key 和模型。',

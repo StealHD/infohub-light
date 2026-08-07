@@ -34,7 +34,6 @@ export type SubscriptionViewEntry = {
   source: CatalogSource
   subscription: Subscription
   health?: SourceHealthItem
-  channel: string
   fetchLabel: FetchLabel
   notificationPending: boolean
   canEdit: boolean
@@ -53,8 +52,6 @@ export type LibraryViewEntry = {
 }
 
 type FilterProps = {
-  search: string
-  onSearchChange: (value: string) => void
   definitions: SourceTypeDefinition[]
   typeFilter: string
   onTypeChange: (value: string) => void
@@ -265,7 +262,7 @@ function notificationDisabledReason({
   return ''
 }
 
-function ChannelSearch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function SourceSearchField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return <SearchField aria-label="搜索来源" value={value} onChange={onChange} fullWidth>
     <SearchField.Group>
       <SearchField.SearchIcon><Icons.Search size={15} /></SearchField.SearchIcon>
@@ -314,18 +311,15 @@ function ChannelFilterMenu({ filters, activeCount }: {
   </Popover>
 }
 
-function ChannelRail<T>({ groups, selectedChannel, onSelectChannel, detail, search, onSearchChange, viewLabel }: {
+function ChannelRail<T>({ groups, selectedChannel, onSelectChannel, detail, viewLabel }: {
   groups: ChannelViewGroup<T>[]
   selectedChannel: string
   onSelectChannel: (channel: string) => void
   detail: (items: T[], group: ChannelViewGroup<T>) => string
-  search: string
-  onSearchChange: (value: string) => void
   viewLabel: string
 }) {
   return <aside data-channel-rail className="sticky top-4 hidden self-start rounded-2xl border border-separator bg-surface-secondary p-3 min-[1200px]:block">
-    <ChannelSearch value={search} onChange={onSearchChange} />
-    <div className="type-label mb-1 mt-4 px-2 text-muted">{viewLabel === '我的订阅' ? '视图与频道' : '频道'}</div>
+    <div className="type-label mb-1 px-2 text-muted">{viewLabel === '我的订阅' ? '视图' : '频道'}</div>
     <nav aria-label={`${viewLabel}频道`} className="grid gap-1">
       {groups.map((group) => {
         const selected = group.id === selectedChannel
@@ -390,17 +384,14 @@ function ChannelLayout<T>({
   const emptyDescriptionText = activeGroup && typeof emptyDescription === 'function'
     ? emptyDescription(activeGroup)
     : typeof emptyDescription === 'string' ? emptyDescription : undefined
-  const controls = <div data-compact-channel-controls className="grid min-w-0 max-w-full gap-2 min-[1200px]:hidden">
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-      <ChannelSearch value={filters.search} onChange={filters.onSearchChange} />
-      <ChannelFilterMenu filters={filters} activeCount={activeCount} />
-    </div>
+  const controls = <div data-compact-channel-controls className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-end gap-2 min-[1200px]:hidden">
     {activeGroup && <HeroSelect
       label={selectorLabel}
       value={activeGroup.id}
       onChange={onSelectChannel}
       options={groups.map((group) => ({ id: group.id, label: `${group.label} · ${group.items.length}` }))}
     />}
+    <ChannelFilterMenu filters={filters} activeCount={activeCount} />
   </div>
 
   return <>
@@ -411,8 +402,6 @@ function ChannelLayout<T>({
         selectedChannel={activeGroup?.id ?? ''}
         onSelectChannel={onSelectChannel}
         detail={channelDetail}
-        search={filters.search}
-        onSearchChange={filters.onSearchChange}
         viewLabel={viewLabel}
       />
       <section aria-label={`${activeGroup?.label ?? '无匹配频道'} ${viewLabel}`} className="grid min-w-0 max-w-full gap-3">
@@ -485,22 +474,20 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
         variant="secondary"
         className="min-w-0 max-w-full border border-separator bg-surface-secondary p-3 shadow-none"
       >
-        <div data-source-card-header className="flex min-w-0 items-center gap-2">
+        <div data-source-card-header className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
           <div className="min-w-0 flex-1">
             <SourceIdentity source={source} detail={`${sourceTypeLabel(effectiveSourceType(source))} · ${sourceScopeLabel(source.scope)}`} />
           </div>
-          <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
-        </div>
-        <div className="mt-2 grid min-w-0 gap-2 border-t border-separator pt-2 min-[560px]:grid-cols-[minmax(0,1fr)_auto] min-[560px]:items-center">
-          <div className="grid min-w-0 gap-1.5 min-[680px]:flex min-[680px]:items-center min-[680px]:gap-3">
-            <dl data-source-counts className="grid min-w-0 grid-cols-3 gap-2 text-muted min-[560px]:flex min-[560px]:items-center min-[560px]:gap-3">
-              <div className="type-meta flex min-w-0 items-baseline justify-center gap-1 rounded-lg bg-default/45 px-2 py-1 min-[560px]:justify-start min-[560px]:bg-transparent min-[560px]:p-0">
+          <div data-source-card-status className="grid shrink-0 justify-items-end gap-1">
+            <SourceHealthStatus health={health} canRetry={editable} canEdit={entry.canEdit} />
+            <dl data-source-counts className="flex min-w-0 items-center justify-end gap-2 text-muted">
+              <div className="type-meta flex items-baseline gap-1 whitespace-nowrap">
                 <dt>今日</dt><dd className="type-label text-foreground">{health?.today_item_count ?? 0}</dd>
               </div>
-              <div className="type-meta flex min-w-0 items-baseline justify-center gap-1 rounded-lg bg-default/45 px-2 py-1 min-[560px]:justify-start min-[560px]:bg-transparent min-[560px]:p-0">
+              <div className="type-meta flex items-baseline gap-1 whitespace-nowrap">
                 <dt>近{feedWindowDays}天</dt><dd className="type-label text-foreground">{health?.feed_item_count ?? health?.current_item_count ?? 0}</dd>
               </div>
-              <div className="type-meta flex min-w-0 items-baseline justify-center gap-1 rounded-lg bg-default/45 px-2 py-1 min-[560px]:justify-start min-[560px]:bg-transparent min-[560px]:p-0">
+              <div className="type-meta flex items-baseline gap-1 whitespace-nowrap">
                 <dt>历史</dt>
                 <dd>{(health?.history_item_count ?? 0) > 0
                   ? <Link
@@ -511,19 +498,21 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
                   : <span className="type-label text-foreground">0</span>}</dd>
               </div>
             </dl>
-            <div className="type-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted min-[680px]:flex-nowrap">
-              {updateDetails.map((detail, index) => <span key={detail} className="whitespace-nowrap">
-                {index > 0 && <span className="mr-2" aria-hidden="true">·</span>}
-                {detail}
-              </span>)}
-              <span aria-hidden="true">·</span>
-              <time
-                dateTime={latestAt || undefined}
-                aria-label={`最近更新 ${formatUpdateTime(latestAt)}，上次抓取 ${health?.last_fetched_count ?? 0} 条`}
-                title={`上次抓取 ${health?.last_fetched_count ?? 0} 条`}
-                className="whitespace-nowrap"
-              >{formatUpdateTime(latestAt)}</time>
-            </div>
+          </div>
+        </div>
+        <div className="mt-2 grid min-w-0 gap-2 border-t border-separator pt-2 min-[560px]:grid-cols-[minmax(0,1fr)_auto] min-[560px]:items-center">
+          <div data-source-update-metadata className="type-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted min-[680px]:flex-nowrap">
+            {updateDetails.map((detail, index) => <span key={detail} className="whitespace-nowrap">
+              {index > 0 && <span className="mr-2" aria-hidden="true">·</span>}
+              {detail}
+            </span>)}
+            <span aria-hidden="true">·</span>
+            <time
+              dateTime={latestAt || undefined}
+              aria-label={`最近更新 ${formatUpdateTime(latestAt)}，上次抓取 ${health?.last_fetched_count ?? 0} 条`}
+              title={`上次抓取 ${health?.last_fetched_count ?? 0} 条`}
+              className="whitespace-nowrap"
+            >{formatUpdateTime(latestAt)}</time>
           </div>
           <div data-source-card-controls className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <Tooltip delay={250}>

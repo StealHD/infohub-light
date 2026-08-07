@@ -175,7 +175,7 @@ describe('subscription model', () => {
     expect(resolveChannelSelection([], 'AI')).toBe('')
   })
 
-  it('pins collision-safe all, exception and visibility views ahead of real channels', () => {
+  it('keeps only fixed all, exception and visibility views for subscriptions', () => {
     const items = [
       { id: 'healthy', channel: 'AI', status: 'healthy', visibility: 'private' as const },
       { id: 'degraded', channel: '全部', status: 'degraded', visibility: 'public' as const },
@@ -184,10 +184,8 @@ describe('subscription model', () => {
     ]
     const groups = subscriptionModel.subscriptionViewGroups(
       items,
-      (item) => item.channel,
       (item) => item.status === 'degraded' || item.status === 'failing',
       (item) => item.visibility,
-      ['AI', '工作/项目', '全部'],
     )
 
     expect(groups.map((group) => [group.id, group.label, group.items.map((item) => item.id)])).toEqual([
@@ -195,18 +193,14 @@ describe('subscription model', () => {
       ['exceptions', '异常', ['degraded', 'failing']],
       ['scope:public', '公共订阅', ['degraded', 'failing']],
       ['scope:private', '私人订阅', ['healthy', 'unknown']],
-      ['channel:AI', 'AI', ['healthy', 'unknown']],
-      ['channel:工作/项目', '工作/项目', ['failing']],
-      ['channel:全部', '全部', ['degraded']],
     ])
-    expect(subscriptionModel.resolveViewSelection(groups, 'channel:工作/项目')).toBe('channel:工作/项目')
+    expect(subscriptionModel.resolveViewSelection(groups, 'channel:工作/项目')).toBe('all')
     expect(subscriptionModel.resolveViewSelection(groups, 'channel:missing')).toBe('all')
   })
 
   it('keeps all fixed views visible when no subscription matches', () => {
     const groups = subscriptionModel.subscriptionViewGroups(
       [],
-      () => '其他',
       () => false,
       () => 'private',
     )

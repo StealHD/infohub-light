@@ -38,7 +38,6 @@ import {
   canMutateSubscriptions,
   channelViewGroupsByChannel,
   effectiveSourceType,
-  effectiveSubscriptionChannel,
   healthMatches,
   isPublicSubscriptionScope,
   presentJob,
@@ -55,6 +54,7 @@ import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 import {
   SourceLibraryChannelView,
+  SourceSearchField,
   SubscriptionChannelView,
   type LibraryViewEntry,
   type SubscriptionViewEntry,
@@ -500,7 +500,6 @@ export function HeroSubscriptionsPage() {
         source,
         subscription,
         health: healthMap.get(subscription.id),
-        channel: effectiveSubscriptionChannel(subscription, source),
       }
     })
     .filter(({ source }) => matchesSource(source))
@@ -538,10 +537,8 @@ export function HeroSubscriptionsPage() {
   })
   const subscriptionGroups = subscriptionViewGroups(
     subscriptionEntries,
-    (entry) => entry.channel,
     (entry) => entry.health?.status === 'degraded' || entry.health?.status === 'failing',
     (entry) => isPublicSubscriptionScope(entry.source.scope) ? 'public' : 'private',
-    taxonomy.channels,
   )
   const sourceGroups = channelViewGroupsByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
   const activeSubscriptionChannel = resolveViewSelection(subscriptionGroups, subscriptionChannel)
@@ -680,12 +677,15 @@ export function HeroSubscriptionsPage() {
       <Button size="sm" variant="ghost" onPress={() => void capabilitiesQuery.refetch()}>重试能力目录</Button>
     </HeroNotice>}
     <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key))}>
-      <div className="quiet-scroll-region max-w-full overflow-x-auto">
-        <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
-          <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
-          <Tabs.Tab id="library" aria-label="来源库" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">来源库<Tabs.Indicator /></Tabs.Tab>
-          <Tabs.Tab id="jobs" aria-label="运行记录" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">运行记录<Tabs.Indicator /></Tabs.Tab>
-        </Tabs.List>
+      <div data-subscription-tabs-toolbar className={`grid min-w-0 gap-2 ${tab === 'jobs' ? '' : 'min-[640px]:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] min-[640px]:items-center'}`}>
+        <div className="quiet-scroll-region min-w-0 max-w-full overflow-x-auto">
+          <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
+            <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
+            <Tabs.Tab id="library" aria-label="来源库" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">来源库<Tabs.Indicator /></Tabs.Tab>
+            <Tabs.Tab id="jobs" aria-label="运行记录" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">运行记录<Tabs.Indicator /></Tabs.Tab>
+          </Tabs.List>
+        </div>
+        {tab !== 'jobs' && <SourceSearchField value={search} onChange={setSearch} />}
       </div>
       <Tabs.Panel id="subscriptions" className="grid gap-5 pt-5">
         {loading
@@ -695,8 +695,6 @@ export function HeroSubscriptionsPage() {
               selectedChannel={activeSubscriptionChannel}
               onSelectChannel={setSubscriptionChannel}
               filters={{
-                search,
-                onSearchChange: setSearch,
                 definitions,
                 typeFilter,
                 onTypeChange: setTypeFilter,
@@ -735,8 +733,6 @@ export function HeroSubscriptionsPage() {
               selectedChannel={activeLibraryChannel}
               onSelectChannel={setLibraryChannel}
               filters={{
-                search,
-                onSearchChange: setSearch,
                 definitions,
                 typeFilter,
                 onTypeChange: setTypeFilter,

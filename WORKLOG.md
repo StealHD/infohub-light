@@ -358,3 +358,21 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "将订阅页收紧为四类固定视图：搜索移入页签工具栏，来源统计移至右上健康状态下方，来源库继续按真实频道浏览。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-layout-cleanup",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest、三视口订阅 Playwright 与 light/dark 视觉基线通过。",
+    "完整 Test Gate：23/23 命令通过（247.228 秒）；git diff --check 通过。"
+  ]
+}
+```
