@@ -36,7 +36,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     runtimeIssue: null,
     modelSwitchFallback: null,
     contextUsage: null,
-    imageIoAvailable: false,
+    imageInputAvailable: false,
     currentModelSupportsImages: false,
     sessionKey: null,
     isRunning: false,
@@ -308,6 +308,17 @@ describe('OpenClaw conversation surface', () => {
 
     await browser.click(screen.getByRole('button', { name: '发送给 OpenClaw' }))
     expect(chat.send).toHaveBeenCalledWith(expect.objectContaining({ displayText: '分析已附带的 1 条信息' }))
+  })
+
+  it('allows image selection with stock Gateway attachments even without an output media ticket', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      imageInputAvailable: true,
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    expect(screen.getByRole('button', { name: '添加图片' })).toBeEnabled()
   })
 
   it('uses an in-place icon-only stop action and keeps runtime controls disabled while generating', () => {

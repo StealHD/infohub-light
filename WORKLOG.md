@@ -104,22 +104,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "observability"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "按 codex/workbuddy 工作树完成本地 8080 切换，仅重建 horizon-api 与 horizon-worker；未启动 scheduler。",
-  "status": "completed",
-  "task_id": "2026-08-05-start-workbuddy-local-containers",
-  "unresolved": [],
-  "validation": [
-    "API 和 Worker 运行 revision 4a66181fd303-dirty，两个容器均为 healthy。",
-    "/api/health/ready 返回 worker_status=ready；已加载前端资源 index-CIdTQQ7Q.js，包含本次 Feed 工具栏变更标记。"
-  ]
-}
-```
-```json
-{
-  "control_topics": [
     "interface",
     "observability"
   ],
@@ -355,6 +339,28 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "前端 typecheck、lint、生产 build 与 581 项 Vitest 通过。",
     "完整 Test Gate：23/23 命令通过（226.05 秒）。",
     "Gateway 协议 61 项、媒体票据 88 项测试及上游构建通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "修正 OpenClaw 图片能力边界：原版 Gateway 的 chat.send.attachments 可直接用于模型图片输入；chat.media.ticket 仅保留为跨 Origin 助手与历史图片显示的可选安全扩展。",
+  "status": "completed",
+  "task_id": "2026-08-07-openclaw-stock-gateway-image-input-compatibility",
+  "unresolved": [
+    "原版 Gateway 没有 chat.media.ticket 时，Inteliscope 为避免跨 Origin 凭据泄露，不显示 Gateway 输出或历史图片。"
+  ],
+  "validation": [
+    "前端 typecheck、lint 与 OpenClaw 图片相关 60 项 Vitest 通过。",
+    "后端图片配置/API/运行脚本定向 pytest 通过。",
+    "完整 Test Gate：23/23 命令通过（234.07 秒）。"
   ]
 }
 ```

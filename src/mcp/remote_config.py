@@ -145,10 +145,9 @@ class OpenClawChatSettings:
                 raise ValueError(
                     "non-loopback OpenClaw media origins must use HTTPS"
                 )
-        if self.image_io_enabled and not self.media_origins:
-            raise ValueError(
-                "HORIZON_OPENCLAW_MEDIA_ORIGINS is required when image I/O is enabled"
-            )
+        # Image input uses the stable `chat.send.attachments` protocol and does
+        # not need a media origin.  Origins are only needed when the optional
+        # `chat.media.ticket` output/history extension is enabled by a Gateway.
 
     def public_config(self) -> dict[str, bool | int | str | list[str]]:
         return {

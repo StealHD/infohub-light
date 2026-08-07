@@ -28,7 +28,7 @@ export const changelogMonths: ChangelogMonth[] = [
         items: [
           { title: '图片只在浏览器规范化', description: 'JPEG、PNG 和 WebP 会在当前页面重新编码、移除 EXIF 与原文件名，限制为每轮最多 4 张、单张 5 MiB、总计 12 MiB；纯图片消息不会把内部分析提示显示在对话中。' },
           { title: '只显示受信任媒体', description: '页面拒绝正文中的外链和本地文件 URL，只使用 Gateway 对会话、消息和内容块授权的 5 分钟媒体票据；刷新或重连会重新申请，图片元素不发送 Referer。' },
-          { title: '兼容旧 Gateway 与云部署', description: '默认开关关闭。只有 Gateway 显式提供 `chat.media.ticket` 且当前模型声明图片输入时才启用；本机和云端沿用同一协议，云端只需配置 WSS/HTTPS Origin、共享媒体存储和票据密钥。' },
+          { title: '兼容原版 Gateway 与云部署', description: '默认开关关闭。原版 Gateway 通过既有附件协议即可接收模型图片输入；只有安全显示 Gateway 输出/历史图片才需要 `chat.media.ticket`。云端只需配置 WSS/HTTPS Origin、共享媒体存储和票据密钥。' },
         ],
       },
       {

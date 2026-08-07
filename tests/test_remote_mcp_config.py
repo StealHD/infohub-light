@@ -156,12 +156,11 @@ def test_openclaw_chat_accepts_loopback_ws_and_remote_wss(monkeypatch, gateway_u
     assert settings.default_gateway_url == gateway_url
 
 
-def test_openclaw_image_io_requires_safe_explicit_media_origins(monkeypatch):
+def test_openclaw_image_input_can_be_enabled_without_media_origins(monkeypatch):
     monkeypatch.setenv("HORIZON_OPENCLAW_IMAGE_IO_ENABLED", "true")
     monkeypatch.delenv("HORIZON_OPENCLAW_MEDIA_ORIGINS", raising=False)
 
-    with pytest.raises(ValueError, match="MEDIA_ORIGINS is required"):
-        OpenClawChatSettings.from_env()
+    assert OpenClawChatSettings.from_env().image_io_enabled is True
 
     monkeypatch.setenv(
         "HORIZON_OPENCLAW_MEDIA_ORIGINS",

@@ -927,6 +927,7 @@ async function createOpenClawSession(
 export function useOpenClawChat(options: OpenClawChatOptions) {
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const configurationKey = `${options.userId}\n${options.defaultGatewayUrl}`
+  const hasConfiguredMediaOrigins = Boolean(options.mediaOrigins?.length)
   const [gatewayState, setGatewayState] = useState(() => ({
     configurationKey,
     value: readSavedGatewayUrl(options.userId, options.defaultGatewayUrl),
@@ -960,7 +961,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [runtimeIssue, setRuntimeIssue] = useState<string | null>(null)
   const [modelSwitchFallback, setModelSwitchFallback] = useState<OpenClawModelSwitchFallback | null>(null)
   const [contextUsage, setContextUsage] = useState<OpenClawContextUsage | null>(null)
-  const [imageIoAvailable, setImageIoAvailable] = useState(false)
+  const [imageInputAvailable, setImageInputAvailable] = useState(false)
   const clientRef = useRef<OpenClawGatewayClient | null>(null)
   const agentIdRef = useRef<string | null>(null)
   const sessionKeyRef = useRef<string | null>(null)
@@ -1338,7 +1339,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setModelSwitchFallback(null)
     setContextUsage(null)
     mediaTicketSupportedRef.current = false
-    setImageIoAvailable(false)
+    setImageInputAvailable(false)
     thinkingLevelRef.current = null
     setToolsStatus('unknown')
     setStatus(options.enabled ? 'idle' : 'disabled')
@@ -1387,8 +1388,15 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       clientRef.current = client
       const hello: GatewayHello = await client.connect()
       if (generation !== generationRef.current) { client.close(); return false }
-      mediaTicketSupportedRef.current = Boolean(options.imageIoEnabled && gatewaySupportsMethod(hello, 'chat.media.ticket'))
-      setImageIoAvailable(mediaTicketSupportedRef.current)
+      // `chat.send.attachments` is part of the stock Gateway chat protocol.
+      // `chat.media.ticket` is only needed to render trusted assistant/history
+      // images across the Inteliscope and Gateway origins.
+      mediaTicketSupportedRef.current = Boolean(
+        options.imageIoEnabled
+        && hasConfiguredMediaOrigins
+        && gatewaySupportsMethod(hello, 'chat.media.ticket'),
+      )
+      setImageInputAvailable(Boolean(options.imageIoEnabled))
       const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
       if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
       const credential = {
@@ -1440,7 +1448,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       }
       return false
     }
-  }, [handleGatewayEvent, loadContextUsage, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.imageIoEnabled, options.userId, persistVisibleTranscript, setGatewayUrl, vault])
+  }, [handleGatewayEvent, hasConfiguredMediaOrigins, loadContextUsage, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.imageIoEnabled, options.userId, persistVisibleTranscript, setGatewayUrl, vault])
 
   useEffect(() => {
     reconnectRef.current = (reconnecting = true) => { void connectInternal(undefined, reconnecting) }
@@ -1529,7 +1537,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     const attachments = (request.attachments ?? []).slice(0, 4)
     const selectedModel = models.find((model) => model.id === runtimeSelection.modelId)
     if (!gatewayPrompt || (!displayText && !attachments.length)) return false
-    if (attachments.length && (!imageIoAvailable || selectedModel?.supportsImages !== true)) return false
+    if (attachments.length && (!imageInputAvailable || selectedModel?.supportsImages !== true)) return false
     const idempotencyKey = crypto.randomUUID()
     const contextItems = request.contextItems.map((item) => {
       const sourceUrl = sanitizeSourceUrl(item.sourceUrl)
@@ -1567,7 +1575,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     message.mergeId = messageMergeId(message)
     persistVisibleTranscript((current) => [...current, message])
     return submitSend(snapshot, message.id)
-  }, [imageIoAvailable, models, persistVisibleTranscript, runtimeSelection.modelId, runtimeSelection.thinkingLevel, sending, submitSend])
+  }, [imageInputAvailable, models, persistVisibleTranscript, runtimeSelection.modelId, runtimeSelection.thinkingLevel, sending, submitSend])
 
   const retry = useCallback(async (messageId: string): Promise<boolean> => {
     const message = messagesRef.current.find((candidate) => candidate.id === messageId)
@@ -1849,7 +1857,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     runtimeIssue,
     modelSwitchFallback,
     contextUsage,
-    imageIoAvailable,
+    imageInputAvailable,
     currentModelSupportsImages: models.find((model) => model.id === runtimeSelection.modelId)?.supportsImages === true,
     sessionKey,
     isRunning: sending || Boolean(runId),

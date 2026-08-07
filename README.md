@@ -83,6 +83,8 @@ Remote MCP is disabled by default and does not run an Agent or model on the serv
 
 Browser chat is a separate opt-in connection. The browser connects directly to the user's OpenClaw Gateway v4; Inteliscope never proxies the Gateway or stores its bootstrap token. Local development accepts only `ws://127.0.0.1` or `ws://localhost`, while a remote per-user Gateway must use `wss://`. Paired browser credentials are isolated by Inteliscope user and Gateway URL. Turning the chat flag off restores the copy-only handoff without affecting Remote MCP.
 
+Set `HORIZON_OPENCLAW_IMAGE_IO_ENABLED=true` to allow JPEG, PNG, and WebP input through the stock `chat.send.attachments` protocol when the selected model declares `image` input. `HORIZON_OPENCLAW_MEDIA_ORIGINS` is not required for input; it only allowlists Gateway media origins when the optional `chat.media.ticket` extension is available for assistant/history image display.
+
 For local development:
 
 ```bash

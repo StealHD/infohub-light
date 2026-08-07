@@ -740,7 +740,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
   }, [])
 
   async function appendImageFiles(files: File[]) {
-    if (!files.length || !chat.imageIoAvailable) return
+    if (!files.length || !chat.imageInputAvailable) return
     let next = [...attachments]
     const errors: string[] = []
     for (const file of files) {
@@ -940,11 +940,11 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
         data-testid="openclaw-composer"
         className="grid grid-rows-[minmax(64px,auto)_36px] gap-2 p-2"
         onDragOver={(event: DragEvent<HTMLDivElement>) => {
-          if (!chat.imageIoAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return
+          if (!chat.imageInputAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return
           event.preventDefault()
         }}
         onDrop={(event: DragEvent<HTMLDivElement>) => {
-          if (!chat.imageIoAvailable) return
+          if (!chat.imageInputAvailable) return
           event.preventDefault()
           void appendImageFiles(Array.from(event.dataTransfer.files))
         }}
@@ -985,7 +985,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             onChange={(event) => value.setQuestion(event.target.value)}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
-              if (!files.length || !chat.imageIoAvailable) return
+              if (!files.length || !chat.imageInputAvailable) return
               event.preventDefault()
               void appendImageFiles(files)
             }}
@@ -1008,12 +1008,12 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
           <Tooltip delay={250}>
             <TooltipTriggerButton
               aria-label="添加图片"
-              disabled={!chat.imageIoAvailable || chat.isRunning || attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN}
+              disabled={!chat.imageInputAvailable || chat.isRunning || attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN}
               onClick={() => fileInputRef.current?.click()}
               className="size-9 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground"
             ><Icons.ImagePlus size={17} aria-hidden="true" /></TooltipTriggerButton>
-            <Tooltip.Content {...anchoredTooltipProps}>{!chat.imageIoAvailable
-              ? '当前 Gateway 未提供安全图片媒体能力'
+            <Tooltip.Content {...anchoredTooltipProps}>{!chat.imageInputAvailable
+              ? '图片输入尚未启用'
               : attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN
                 ? `每次最多 ${OPENCLAW_MAX_IMAGES_PER_TURN} 张图片`
                 : '添加图片'}</Tooltip.Content>

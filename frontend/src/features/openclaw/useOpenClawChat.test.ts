@@ -797,6 +797,77 @@ describe('useOpenClawChat', () => {
     expect(result.current.messages.find((message) => message.text === '首字前停止')).toMatchObject({ status: 'sent' })
   })
 
+  it('sends image attachments through a stock Gateway without the optional media-ticket RPC', async () => {
+    const vault = new OpenClawCredentialVault(new MemoryAdapter())
+    await vault.save('user-image-input', 'ws://127.0.0.1:18789', {
+      identity: { deviceId: 'device-image', publicKey: 'public-image', privateKey: {} as CryptoKey },
+      deviceToken: 'device-token',
+      scopes: [...OPENCLAW_CURRENT_SCOPES],
+      sessionKey: 'session-image',
+    })
+    const imageModels = {
+      models: [{ ...models.models[0], input: ['text', 'image'] }],
+    }
+    const request = vi.fn(async (method: string) => {
+      if (method === 'tools.effective') return { groups: [] }
+      if (method === 'chat.history') return { messages: [] }
+      if (method === 'models.list') return imageModels
+      if (method === 'agents.list') return agents
+      if (method === 'sessions.describe') return session
+      if (method === 'chat.send') return { runId: 'run-image' }
+      throw new Error(`unexpected method ${method}`)
+    })
+    const clientFactory = vi.fn(() => ({
+      connect: async (): Promise<GatewayHello> => ({
+        protocol: 4,
+        auth: { deviceToken: 'device-token', role: 'operator', scopes: [...OPENCLAW_CURRENT_SCOPES] },
+        snapshot: { sessionDefaults: { defaultAgentId: 'main' } },
+      }),
+      request,
+      close: vi.fn(),
+    }))
+
+    const { result } = renderHook(() => useOpenClawChat({
+      enabled: true,
+      imageIoEnabled: true,
+      userId: 'user-image-input',
+      defaultGatewayUrl: 'ws://127.0.0.1:18789',
+      vault,
+      clientFactory: clientFactory as never,
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('connected'))
+    expect(result.current.imageInputAvailable).toBe(true)
+    await act(async () => {
+      await result.current.send({
+        displayText: '',
+        gatewayPrompt: '请分析所附图片',
+        contextItems: [],
+        attachments: [{
+          id: 'image-1',
+          mimeType: 'image/webp',
+          fileName: 'image-1.webp',
+          content: 'AAAA',
+          previewUrl: 'blob:image-1',
+          width: 1,
+          height: 1,
+          byteLength: 3,
+        }],
+      })
+    })
+
+    expect(request).toHaveBeenCalledWith('chat.send', expect.objectContaining({
+      sessionKey: 'session-image',
+      attachments: [{
+        type: 'image',
+        mimeType: 'image/webp',
+        fileName: 'image-1.webp',
+        content: 'AAAA',
+      }],
+    }))
+    expect(request).not.toHaveBeenCalledWith('chat.media.ticket', expect.anything())
+  })
+
   it('restores a session, uses real model metadata, sends separate display text and retains a partial aborted reply', async () => {
     const vault = new OpenClawCredentialVault(new MemoryAdapter())
     await vault.save('user-a', 'ws://127.0.0.1:18789', {
