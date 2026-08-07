@@ -980,7 +980,7 @@ wheels = [
 
 [[package]]
 name = "horizon"
-version = "2.2.11"
+version = "2.2.12"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
