@@ -4,34 +4,6 @@
 
 Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not logged.
 
-```json
-{
-  "control_topics": ["ui"],
-  "recorded_on": "2026-08-06",
-  "result": "将已验证的 AI Key 主导绑定、AI 设置简约化与 Apify Key 卡片重排快进合并到本地 main。",
-  "status": "completed",
-  "task_id": "2026-08-06-merge-key-driven-ai-bindings-to-main",
-  "unresolved": [],
-  "validation": [
-    "main worktree 完整 Test Gate：23/23 命令通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": ["decisions", "ui"],
-  "recorded_on": "2026-08-06",
-  "result": "收紧 Apify Key 卡片的视觉秩序：成员状态与安全排空固定在 Header 右侧，额度改为无底色单行指标，Footer 仅保留检查时间和一致的移动、轮换、删除操作。",
-  "status": "completed",
-  "task_id": "2026-08-06-apify-key-card-alignment",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 106 项、TypeScript、ESLint 与 UI contract 检查通过。",
-    "python3 scripts/test_gate.py run --mode full：23/23 命令通过。"
-  ]
-}
-```
 
 ```json
 {
@@ -100,78 +72,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
-
-```json
-{
-  "control_topics": [
-    "observability"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "按 codex/workbuddy 工作树完成本地 8080 切换，仅重建 horizon-api 与 horizon-worker；未启动 scheduler。",
-  "status": "completed",
-  "task_id": "2026-08-05-start-workbuddy-local-containers",
-  "unresolved": [],
-  "validation": [
-    "API 和 Worker 运行 revision 4a66181fd303-dirty，两个容器均为 healthy。",
-    "/api/health/ready 返回 worker_status=ready；已加载前端资源 index-CIdTQQ7Q.js，包含本次 Feed 工具栏变更标记。"
-  ]
-}
-```
-```json
-{
-  "control_topics": [
-    "interface",
-    "observability"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "AI Key 现在可独立保存并编辑 Base URL；全局 AI 和触底文案只允许引用相同 Provider 的已保存 Key，生成优先使用绑定 Key 的连接地址，旧的跨 Provider 绑定安全回退全局 Key。为本地升级增加带 0600 备份、Worker/运行中作业保护和 SQLite 完整性检查的离线迁移脚本。",
-  "status": "completed",
-  "task_id": "2026-08-05-ai-key-connection-profile",
-  "unresolved": [],
-  "validation": [
-    "后端 30 项定向 pytest（含迁移、触底生成和 Secret API）通过；前端 typecheck 与 UI contract 通过。",
-    "Full Test Gate 通过；git diff --check 通过。"
-  ]
-}
-```
-```json
-{
-  "control_topics": [
-    "decisions",
-    "interface",
-    "ui"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "移除工作区 AI 的全局 Base URL 配置概念；每个 AI Key 独立保存连接地址，空地址使用 Provider 默认端点，并在工作区分析、触底文案和 Actor Discovery 中一致生效。",
-  "status": "completed",
-  "task_id": "2026-08-05-ai-key-independent-connection-url",
-  "unresolved": [],
-  "validation": [
-    "Secret API、触底文案、Actor Discovery 与配置定向 pytest 154 项通过。",
-    "前端 typecheck、UI contract 与设置/更新日志定向 Vitest 111 项通过。",
-    "Full Test Gate 23/23 通过；git diff --check 通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "observability"
-  ],
-  "recorded_on": "2026-08-05",
-  "result": "将 AI Key 独立连接地址与 Feed 稳健修复合入并推送 main，发布 GitHub v2.2.10，并用本地预构建 linux/amd64 镜像完成 VPS 从 v2.2.7 到 v2.2.10 的备份、迁移和 API/Worker 切换；scheduler 未启动。",
-  "status": "completed",
-  "task_id": "2026-08-05-release-v2.2.10-deploy",
-  "unresolved": [],
-  "validation": [
-    "本地 Release Gate 25/25、GitHub main Test Gate 与 v2.2.10 Tag Test Gate（含 release smoke）通过；GitHub Release 已发布。",
-    "本地镜像 inteliscope-service:v2.2.10-92637c48e2b6 为 linux/amd64，revision 标签精确；上传归档 SHA-256 为 39083b1e7d81fadae9a3f6b1c82c793049ce2e78094e0a09f259b31d62053ffd。",
-    "生产迁移备份位于 /opt/inteliscope/backups/v2.2.10-92637c48e2b6-20260805T115838Z，数据库与环境备份均为 0600，迁移前备份和迁移后数据库 integrity ok、foreign keys 0。",
-    "首次切换因 Docker health 尚在 starting 而按预案回滚 v2.2.7；旧服务恢复 ready 后重试成功，无活动作业或数据回退。最终 API/Worker healthy、restarts 0、worker_status=ready，公网根页和设置页 200、受保护接口 401、前端独立 Key URL 标记存在、严重级别错误日志 0。"
-  ]
-}
-```
 
 ```json
 {
@@ -353,6 +253,127 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "定向 Vitest：4 个文件、87 项通过；TypeScript 与 UI contract 检查通过。",
     "OpenClaw Skill pytest：13 项通过；完整 Test Gate 命令成功；个人偏好规则 26 项通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "修正 OpenClaw Composer 附件摘要：所有来源行统一占满可用宽度并对齐右侧移除操作，超过两条时显示向上箭头并在上方柔和展开全部信息。",
+  "status": "partial",
+  "task_id": "2026-08-07-openclaw-context-row-alignment",
+  "unresolved": [
+    "当前分支改动尚未获得新的暂存与提交授权。"
+  ],
+  "validation": [
+    "相关 Vitest 44 项、TypeScript、lint、UI contract 与完整 Test Gate 23/23 通过。",
+    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；浏览器实测两条摘要行均为 357px，四条上浮列表右边线一致且浮层位于触发器上方。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "将多条上下文摘要改为保留前两条预览，使用图标化向上展开仅显示尚未出现的其余条目，移除“查看全部”及重复内容。",
+  "status": "partial",
+  "task_id": "2026-08-07-openclaw-context-upward-remainder",
+  "unresolved": [
+    "当前分支改动尚未获得新的暂存与提交授权。"
+  ],
+  "validation": [
+    "相关 Vitest 35 项、TypeScript、UI contract 与完整 Test Gate 23/23 通过。",
+    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；浏览器实测 4 条时预览 2 条、向上浮层仅含剩余 2 条，不重复前两条。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "将 OpenClaw 多附件的剩余信息从独立 Popover 改为原摘要容器向上拉伸，保留前两条预览、仅显示增量条目，并统一所有行右边线。",
+  "status": "partial",
+  "task_id": "2026-08-07-openclaw-context-inline-expansion",
+  "unresolved": [
+    "当前分支改动尚未获得新的暂存与提交授权。"
+  ],
+  "validation": [
+    "OpenClaw 与更新日志相关 Vitest 35 项、TypeScript、UI contract 检查通过。",
+    "完整 Test Gate 23/23 通过（250.607 秒）。",
+    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；已服务原位展开资源，代码中不再包含 context-summary-popover 或“查看全部”。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "OpenClaw 附件摘要改为数量、中央大点击区与一键清空三段布局；原容器仅向上展开增量附件，模型触发器与可滚动列表按紧凑尺寸收口。",
+  "status": "partial",
+  "task_id": "2026-08-07-openclaw-attachment-clear-and-model-selector",
+  "unresolved": [
+    "当前分支改动尚未获得新的暂存与提交授权。"
+  ],
+  "validation": [
+    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript、ESLint（仅既有 Fast Refresh 警告）和产品文档检查通过。",
+    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
+    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-Cmr-lcIw.js 已服务。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "调整 OpenClaw 多附件摘要头：包含“已附带 N 条”的整段成为原位向上展开按钮，Chevron 靠右提示，最右一键清空保持独立。",
+  "status": "partial",
+  "task_id": "2026-08-07-openclaw-context-header-click-target",
+  "unresolved": [
+    "当前分支改动尚未获得新的暂存与提交授权。"
+  ],
+  "validation": [
+    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript、ESLint（仅既有 Fast Refresh 警告）和产品文档检查通过。",
+    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
+    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-CevyEbnT.js 已服务。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "调整 OpenClaw 多附件摘要头的左侧顺序为“已附带 N 条 + 紧随其后的向上 Chevron”；整段继续作为原位展开点击区。",
+  "status": "partial",
+  "task_id": "2026-08-07-openclaw-context-header-left-chevron",
+  "unresolved": [
+    "当前分支改动尚未获得新的暂存与提交授权。"
+  ],
+  "validation": [
+    "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript 和产品文档检查通过。",
+    "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
+    "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-DMa1gCc_.js 已服务。"
   ]
 }
 ```

@@ -15,6 +15,7 @@ function contextValue(overrides: Partial<WorkbenchAgentContextValue['draft']> = 
     },
     toggleItem: vi.fn(),
     removeItem: vi.fn(),
+    clearItems: vi.fn(),
     openComposer: vi.fn(),
     setQuestion: vi.fn(),
     clearComposer: vi.fn(),
@@ -159,7 +160,8 @@ describe('OpenClaw conversation surface', () => {
     render(<OpenClawConversation chat={chat as never} value={value} />)
 
     expect(screen.getByLabelText('已附带 3 条信息')).toHaveTextContent('来源一 · 标题一')
-    expect(document.querySelectorAll('[data-composer-context-item]')).toHaveLength(2)
+    expect(document.querySelectorAll('[data-composer-context-item]')).toHaveLength(3)
+    expect(document.querySelector('[aria-hidden="true"][inert]')).toContainElement(screen.getByText('来源三 · 标题三'))
     await browser.click(screen.getByRole('button', { name: '发送给 OpenClaw' }))
 
     expect(value.clearComposer).toHaveBeenCalledTimes(1)
@@ -199,6 +201,7 @@ describe('OpenClaw conversation surface', () => {
     const sourceLinks = screen.getAllByRole('link', { name: '打开来源：标题一' })
     expect(sourceLinks).toHaveLength(2)
     expect(sourceLinks.every((link) => link.getAttribute('href') === source.url)).toBe(true)
+    expect(sourceLinks.every((link) => link.classList.contains('flex-1'))).toBe(true)
     expect(document.querySelector('img[src="/api/media/med_source_1"]')).toBeInTheDocument()
     expect(sourceLinks[0].querySelector('.type-label')).not.toHaveClass('max-w-[220px]')
     expect(screen.queryByText('附带 1 条信息')).not.toBeInTheDocument()
@@ -206,7 +209,7 @@ describe('OpenClaw conversation surface', () => {
     expect(value.removeItem).toHaveBeenCalledWith('article-1')
   })
 
-  it('opens every attachment in an upward, bounded source popover', async () => {
+  it('stretches the original summary upward for remaining attachments without a popover or duplicates', async () => {
     const browser = userEvent.setup()
     const value = contextValue({
       items: Array.from({ length: 3 }, (_, index) => ({
@@ -220,14 +223,63 @@ describe('OpenClaw conversation surface', () => {
     const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
     render(<OpenClawConversation chat={chat as never} value={value} />)
 
-    expect(document.querySelectorAll('[data-composer-context-item]')).toHaveLength(2)
-    expect(document.querySelectorAll('img[src^="/api/media/med_source_"]')).toHaveLength(2)
-    await browser.click(screen.getByRole('button', { name: '查看全部' }))
+    const summary = screen.getByLabelText('已附带 3 条信息')
+    expect(summary).toHaveAttribute('data-context-summary-expanded', 'false')
+    expect(document.querySelectorAll('[data-composer-context-item]')).toHaveLength(3)
+    expect(document.querySelectorAll('img[src^="/api/media/med_source_"]')).toHaveLength(3)
+    const expandRemaining = screen.getByRole('button', { name: '向上展开剩余 1 条信息' })
+    expect(expandRemaining.querySelector('svg')).toBeInTheDocument()
+    expect(expandRemaining).toHaveTextContent('已附带 3 条')
+    expect(expandRemaining).toHaveClass('w-full', 'min-h-8', 'justify-start', 'pointer-coarse:min-h-11')
+    expect(expandRemaining.firstElementChild?.textContent).toBe('已附带 3 条')
+    expect(expandRemaining.lastElementChild?.tagName).toBe('svg')
+    expect(screen.getByRole('button', { name: '移除全部 3 条信息' })).toHaveClass('size-8', 'pointer-coarse:size-11')
+    expect(screen.queryByText('查看全部')).not.toBeInTheDocument()
+    expect(Array.from(document.querySelectorAll('[data-composer-context-item] [data-chat-source]'))
+      .every((source) => source.classList.contains('w-full'))).toBe(true)
+    await browser.click(expandRemaining)
 
-    const dialog = await screen.findByRole('dialog', { name: '管理全部上下文' })
-    expect(dialog).toHaveTextContent('已附带 3 条信息')
-    expect(dialog.closest('.context-summary-popover')).toHaveClass('w-[min(420px,calc(100vw-24px))]')
-    expect(document.querySelectorAll('img[src^="/api/media/med_source_"]')).toHaveLength(5)
+    expect(summary).toHaveAttribute('data-context-summary-expanded', 'true')
+    expect(screen.getByRole('button', { name: '收起剩余 1 条信息' })).toHaveAttribute('aria-expanded', 'true')
+    const remainder = document.getElementById(expandRemaining.getAttribute('aria-controls')!)!
+    expect(remainder).toHaveAttribute('aria-hidden', 'false')
+    expect(remainder).toHaveClass('grid-rows-[1fr]', 'duration-[var(--inteliscope-motion-deliberate)]')
+    expect(remainder).toHaveTextContent('标题 3')
+    expect(remainder).not.toHaveTextContent('标题 1')
+    expect(remainder.querySelectorAll('[data-composer-context-item]')).toHaveLength(1)
+    expect(document.querySelector('.context-summary-popover')).not.toBeInTheDocument()
+  })
+
+  it('removes every attachment without changing the pending question or sending a message', async () => {
+    const browser = userEvent.setup()
+    const value = contextValue({
+      question: '保留这条问题',
+      items: Array.from({ length: 3 }, (_, index) => ({ articleId: `article-${index + 1}`, title: `标题 ${index + 1}` })),
+    })
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+
+    await browser.click(screen.getByRole('button', { name: '移除全部 3 条信息' }))
+
+    expect(value.clearItems).toHaveBeenCalledTimes(1)
+    expect(value.setQuestion).not.toHaveBeenCalled()
+    expect(value.clearComposer).not.toHaveBeenCalled()
+    expect(chat.send).not.toHaveBeenCalled()
+  })
+
+  it('omits the upward all-context action when both visible rows already show every attachment', () => {
+    const value = contextValue({
+      items: Array.from({ length: 2 }, (_, index) => ({
+        articleId: `article-${index + 1}`,
+        title: `标题 ${index + 1}`,
+        sourceUrl: `https://example.com/article-${index + 1}`,
+      })),
+    })
+    const chat = chatController({ status: 'connected', toolsStatus: 'available', sessionKey: 'session-1' })
+    render(<OpenClawConversation chat={chat as never} value={value} />)
+
+    expect(screen.queryByRole('button', { name: /向上展开剩余/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移除全部 2 条信息' })).toBeInTheDocument()
   })
 
   it('does not send while an IME composition is being confirmed', () => {
@@ -389,6 +441,11 @@ describe('OpenClaw conversation surface', () => {
     const runtime = screen.getByTestId('openclaw-runtime-controls')
     expect(runtime.firstElementChild).toBe(screen.getByRole('button', { name: '上下文占用 10k / 200k，5%' }))
     await browser.click(screen.getByRole('button', { name: 'OpenClaw 模型：GPT-5.4' }))
+    expect(screen.getByRole('listbox', { name: /OpenClaw 模型/u })).toHaveClass(
+      'max-h-[min(360px,calc(100dvh-24px))]',
+      'overflow-y-auto',
+      'overscroll-contain',
+    )
     expect(screen.getByText('openai')).toBeInTheDocument()
     expect(screen.getByText('local')).toBeInTheDocument()
     expect(screen.getByText('200k 上下文 · 思考：低、高')).toBeInTheDocument()
@@ -422,8 +479,8 @@ describe('OpenClaw conversation surface', () => {
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
-    expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('grid', 'grid-cols-[auto_minmax(0,1fr)_auto]')
-    expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name' })).toHaveClass('w-full', 'min-w-0')
+    expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('flex')
+    expect(screen.getByRole('button', { name: 'OpenClaw 模型：A deliberately long model name' })).toHaveClass('w-fit', 'min-w-0', 'max-w-[180px]')
     expect(screen.getByRole('button', { name: 'OpenClaw 思考程度：深度分析' })).toHaveClass('shrink-0')
   })
 

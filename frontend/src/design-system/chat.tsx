@@ -51,10 +51,12 @@ export function ChatSource({
   source,
   onRemove,
   compact = false,
+  fullWidth = false,
 }: {
   source: ChatSourceData
   onRemove?: () => void
   compact?: boolean
+  fullWidth?: boolean
 }) {
   const host = sourceHost(source.url)
   const metadata = [source.sourceName, host].filter(Boolean).join(' · ')
@@ -64,7 +66,7 @@ export function ChatSource({
     : ''
   return <span
     data-chat-source
-    className={`inline-flex min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-separator bg-default/75 text-foreground ${compact ? 'h-7' : 'h-8'}`}
+    className={`${fullWidth ? 'flex w-full' : 'inline-flex'} min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-separator bg-default/75 text-foreground ${compact ? 'h-7' : 'h-8'}`}
   >
     <Tooltip delay={250}>
       <Tooltip.Trigger<'a'> render={(triggerProps) => <a
@@ -72,7 +74,7 @@ export function ChatSource({
         href={source.url}
         target="_blank"
         rel="noopener noreferrer"
-        className={`${triggerProps.className ?? ''} flex h-full min-w-0 items-center gap-1.5 px-2 outline-none hover:bg-surface-secondary focus-visible:outline-2 focus-visible:outline-focus`}
+        className={`${triggerProps.className ?? ''} flex h-full min-w-0 flex-1 items-center gap-1.5 px-2 outline-none hover:bg-surface-secondary focus-visible:outline-2 focus-visible:outline-focus`}
         aria-label={`打开来源：${source.title}`}
       >
         {sourceAvatarUrl

@@ -205,7 +205,11 @@ export function buildAgentHandoffPrompt(draft: AgentContextDraftV5): string {
   const value = sanitizeDraft(draft.userId, draft)
   const question = value.question.trim() || '请基于这些信息提炼关键变化、机会和风险。'
   const sources = agentSourceReferences(value.items)
-  const gatewaySources = sources.map(({ sourceAvatarUrl: _sourceAvatarUrl, ...source }) => source)
+  const gatewaySources = sources.map((source) => ({
+    title: source.title,
+    url: source.url,
+    ...(source.sourceName ? { sourceName: source.sourceName } : {}),
+  }))
   if (!value.items.length) {
     return [
       INTELISCOPE_HANDOFF_MARKER,

@@ -908,6 +908,7 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
     draft,
     toggleItem: (item) => persistDraft(updateAgentContextDraft(draft, item)),
     removeItem: (id) => persistDraft({ ...draft, items: draft.items.filter((value) => value.articleId !== id) }),
+    clearItems: () => persistDraft({ ...draft, items: [] }),
     openComposer,
     setQuestion: (question) => persistDraft({ ...draft, question }),
     clearComposer: () => persistDraft({ ...draft, question: '', items: [] }),

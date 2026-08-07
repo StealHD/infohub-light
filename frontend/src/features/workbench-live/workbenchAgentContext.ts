@@ -6,6 +6,7 @@ export type WorkbenchAgentContextValue = {
   draft: AgentContextDraftV5
   toggleItem: (item: AgentContextItem) => void
   removeItem: (id: string) => void
+  clearItems: () => void
   openComposer: () => void
   setQuestion: (question: string) => void
   clearComposer: () => void
