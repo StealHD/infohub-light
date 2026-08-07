@@ -844,6 +844,8 @@ def test_openclaw_browser_chat_is_wired_off_with_a_loopback_default():
 
     assert "HORIZON_OPENCLAW_CHAT_ENABLED=false" in env_example
     assert "HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789" in env_example
+    assert "HORIZON_OPENCLAW_IMAGE_IO_ENABLED=false" in env_example
+    assert "HORIZON_OPENCLAW_MEDIA_ORIGINS=" in env_example
     for filename in ("docker-compose.yml", "docker-compose.light.yml"):
         compose = (ROOT / filename).read_text(encoding="utf-8")
         api = _compose_service_blocks(compose)["horizon-api"]
@@ -854,6 +856,14 @@ def test_openclaw_browser_chat_is_wired_off_with_a_loopback_default():
         assert (
             "HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL: "
             "${HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL:-ws://127.0.0.1:18789}"
+        ) in api
+        assert (
+            "HORIZON_OPENCLAW_IMAGE_IO_ENABLED: "
+            "${HORIZON_OPENCLAW_IMAGE_IO_ENABLED:-false}"
+        ) in api
+        assert (
+            "HORIZON_OPENCLAW_MEDIA_ORIGINS: "
+            "${HORIZON_OPENCLAW_MEDIA_ORIGINS:-}"
         ) in api
 
 

@@ -23,6 +23,16 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-07',
+        title: 'OpenClaw 对话支持安全图片收发',
+        summary: 'Agent 输入框可选择、粘贴和拖放图片；对话历史使用 Gateway 的短期媒体票据恢复，不把图片交给 Inteliscope 服务保存。',
+        items: [
+          { title: '图片只在浏览器规范化', description: 'JPEG、PNG 和 WebP 会在当前页面重新编码、移除 EXIF 与原文件名，限制为每轮最多 4 张、单张 5 MiB、总计 12 MiB；纯图片消息不会把内部分析提示显示在对话中。' },
+          { title: '只显示受信任媒体', description: '页面拒绝正文中的外链和本地文件 URL，只使用 Gateway 对会话、消息和内容块授权的 5 分钟媒体票据；刷新或重连会重新申请，图片元素不发送 Referer。' },
+          { title: '兼容原版 Gateway 与云部署', description: '默认开关关闭。原版 Gateway 通过既有附件协议即可接收模型图片输入；只有安全显示 Gateway 输出/历史图片才需要 `chat.media.ticket`。云端只需配置 WSS/HTTPS Origin、共享媒体存储和票据密钥。' },
+        ],
+      },
+      {
+        date: '2026-08-07',
         title: '订阅工具栏会随滚动聚焦',
         summary: '订阅与来源库都以完整列表展示，搜索、筛选和新增来源在顶部保持同一操作面，并会随滚动收为透明胶囊，状态统计继续留在卡片右上。',
         items: [

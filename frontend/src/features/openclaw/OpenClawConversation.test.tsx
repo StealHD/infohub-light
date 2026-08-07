@@ -37,6 +37,8 @@ function chatController(overrides: Record<string, unknown> = {}) {
     runtimeIssue: null,
     modelSwitchFallback: null,
     contextUsage: null,
+    imageInputAvailable: false,
+    currentModelSupportsImages: false,
     sessionKey: null,
     isRunning: false,
     isStopping: false,
@@ -58,6 +60,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     setThinking: vi.fn().mockResolvedValue(true),
     switchToBlankConversation: vi.fn().mockResolvedValue(true),
     newConversation: vi.fn(),
+    refreshMedia: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -385,6 +388,17 @@ describe('OpenClaw conversation surface', () => {
     expect(chat.send).toHaveBeenCalledWith(expect.objectContaining({ displayText: '分析已附带的 1 条信息' }))
   })
 
+  it('allows image selection with stock Gateway attachments even without an output media ticket', () => {
+    const chat = chatController({
+      status: 'connected',
+      sessionKey: 'session-1',
+      imageInputAvailable: true,
+    })
+    render(<OpenClawConversation chat={chat as never} value={contextValue()} />)
+
+    expect(screen.getByRole('button', { name: '添加图片' })).toBeEnabled()
+  })
+
   it('uses an in-place icon-only stop action and keeps runtime controls disabled while generating', () => {
     const chat = chatController({ status: 'connected', sessionKey: 'session-1', isRunning: true })
     render(<OpenClawConversation chat={chat as never} value={contextValue({ question: '继续' })} />)
@@ -476,7 +490,7 @@ describe('OpenClaw conversation surface', () => {
 
     expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(64px,auto)_36px]', 'gap-2')
     expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-16', 'max-h-[160px]', '[field-sizing:content]')
-    expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
+    expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[36px_minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
     expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('flex')

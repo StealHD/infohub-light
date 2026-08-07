@@ -111,6 +111,8 @@ def test_openclaw_chat_is_disabled_with_a_safe_local_default(monkeypatch):
     assert OpenClawChatSettings.from_env() == OpenClawChatSettings(
         enabled=False,
         default_gateway_url="ws://127.0.0.1:18789",
+        image_io_enabled=False,
+        media_origins=(),
         protocol_version=4,
         target_version="2026.7.1",
     )
@@ -152,3 +154,39 @@ def test_openclaw_chat_accepts_loopback_ws_and_remote_wss(monkeypatch, gateway_u
 
     assert settings.enabled is True
     assert settings.default_gateway_url == gateway_url
+
+
+def test_openclaw_image_input_can_be_enabled_without_media_origins(monkeypatch):
+    monkeypatch.setenv("HORIZON_OPENCLAW_IMAGE_IO_ENABLED", "true")
+    monkeypatch.delenv("HORIZON_OPENCLAW_MEDIA_ORIGINS", raising=False)
+
+    assert OpenClawChatSettings.from_env().image_io_enabled is True
+
+    monkeypatch.setenv(
+        "HORIZON_OPENCLAW_MEDIA_ORIGINS",
+        "http://127.0.0.1:18789,https://openclaw.example.com",
+    )
+    settings = OpenClawChatSettings.from_env()
+
+    assert settings.image_io_enabled is True
+    assert settings.media_origins == (
+        "http://127.0.0.1:18789",
+        "https://openclaw.example.com",
+    )
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://gateway.example.com",
+        "https://user:pass@gateway.example.com",
+        "https://gateway.example.com/path",
+        "https://gateway.example.com?ticket=bad",
+    ],
+)
+def test_openclaw_image_io_rejects_unsafe_media_origins(monkeypatch, origin):
+    monkeypatch.setenv("HORIZON_OPENCLAW_IMAGE_IO_ENABLED", "true")
+    monkeypatch.setenv("HORIZON_OPENCLAW_MEDIA_ORIGINS", origin)
+
+    with pytest.raises(ValueError):
+        OpenClawChatSettings.from_env()

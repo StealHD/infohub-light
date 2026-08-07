@@ -51,6 +51,8 @@ export { Tooltip } from './AnchoredTooltip'
 export { anchoredTooltipProps, bottomAnchoredTooltipProps, topAnchoredTooltipProps } from './tooltip'
 export { TooltipTriggerButton } from './TooltipTriggerButton'
 export { Timeline } from './Timeline'
+export { ImageGalleryModal } from './ImageGalleryModal'
+export type { ImageGalleryImage } from './ImageGalleryModal'
 export type {
   TimelineConnectorProps,
   TimelineContentProps,

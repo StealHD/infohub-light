@@ -798,7 +798,7 @@ describe('HeroWorkbenchShell OpenClaw composer', () => {
     expect(JSON.parse(window.sessionStorage.getItem('inteliscope.agent-context.v5:context-missing') || '{}')).toMatchObject({ items: [] })
   })
 
-  it('copies a v6 handoff with a safe source reference and no network side effect', async () => {
+  it('copies a v7 handoff with a safe source reference and no network side effect', async () => {
     const browser = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

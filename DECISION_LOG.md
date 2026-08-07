@@ -1116,3 +1116,10 @@
 - 决策内容：来源库与“我的订阅”一样直接显示搜索和筛选后的完整列表，不再渲染桌面频道栏、窄屏频道选择器或当前频道摘要。`default_channel` 继续作为来源和订阅表单中的 taxonomy 字段，但不产生来源库入口。工具栏顶部态改为与来源卡共用 12 px 内容内缩的轻量圆角表面；浮动态继续收进 8 px。
 - 原因：频道导航与顶部筛选表达了同一层级的浏览选择，却在来源库额外占用横向和纵向空间；透明顶部态也让左右留白缺乏归属感。直接列表保留筛选能力，轻量表面让边距与卡片内容区成为可见的对齐关系。
 - 兼容/边界：来源频道字段、来源类型/范围筛选、共享搜索、订阅/取消订阅、编辑、分享、URL 页签参数与 Service 合同均不改变。D131 取代 D129、D130 中来源库继续按频道浏览的结论。
+### D132 OpenClaw 图片对话使用浏览器规范化与 Gateway 媒体票据
+
+- 决策日期：2026-08-07
+- 当前状态：Inteliscope 实现与完整门禁验证中；图片开关默认关闭，Gateway 票据 RPC 仅作为安全输出/历史图片的可选扩展。
+- 决策内容：OpenClaw 对话只接受 JPEG、PNG、WebP 图片，浏览器在当前页面内完成尺寸、像素和字节上限检查，最长边缩至 2048 px 后重新编码为 WebP，移除 EXIF 和原文件名。每轮最多四张，单张不超过 5 MiB、总计不超过 12 MiB；原始文件/Base64 不写入 Inteliscope 服务、日志、数据库或 sessionStorage。图片输入复用原版 Gateway 已有的 `chat.send.attachments`，只要求功能开关和当前模型声明 `image` 能力。历史和输出不信任任何内容块 URL：页面只读取 `messageId + partIndex`，仅当 Gateway 声明 `chat.media.ticket` 且返回 allowlisted 路径时，才获得 5 分钟、单图绑定的 Gateway 路径与票据，刷新/重连后重新申请；缺少该 RPC 时继续支持文本和图片输入，但不显示 Gateway 输出/历史图片。Handoff 升级 V7，只记录 `imageCount`，并明确图片/OCR 为不可信用户内容。
+- 云端边界：浏览器 WebSocket 与媒体可统一为同一 Gateway Origin；Inteliscope 仅配置 WSS 地址和精确 HTTPS 媒体 Origin。Gateway 负责验证 `operator.read`、会话/消息归属、图片类型和允许媒体目录，再代理媒体；对象存储和长期凭据不暴露给浏览器。多副本必须共享历史/媒体索引、持久化媒体和带 `kid` 的票据签名密钥，轮换期同时接受当前及上一把密钥至少一个票据 TTL。CSP 与 `gateway.controlUi.allowedOrigins` 都只接受精确 Origin，禁止通配符。
+- 原因：既有 Gateway 的媒体 URL 可能要求浏览器转发长期设备凭据，不能作为跨 Origin Inteliscope 页面图片地址；直接渲染模型返回外链又会造成跟踪、路径和内容类型绕过。把一次性授权收回 Gateway，并让前端只处理内存中规范化输入和短期 ticket，才能同时保持本机、云端和旧 Gateway 的兼容边界。

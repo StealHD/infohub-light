@@ -15,11 +15,21 @@ import {
   GatewayRequestError,
   OpenClawGatewayClient,
   generateDeviceIdentity,
+  gatewaySupportsMethod,
   parseOpenClawConnectionInput,
   validateGatewayUrl,
   type GatewayEvent,
   type GatewayHello,
 } from './openclawGateway'
+import {
+  isSafeOpenClawImageDataUrl,
+  parseOpenClawMediaTicket,
+  releaseOpenClawImageUrl,
+  ticketUrlForOpenClawMedia,
+  type OpenClawImageAttachment,
+  type OpenClawImageMimeType,
+  type OpenClawMessageImage,
+} from './openclawMedia'
 import {
   createOpenClawSessionLabel,
   isOpenClawSessionLabelConflict,
@@ -68,12 +78,14 @@ export type OpenClawChatMessage = {
   origin?: 'local' | 'gateway'
   mergeId?: string
   clientTurnId?: string
+  images?: OpenClawMessageImage[]
 }
 
 export type OpenClawSendRequest = {
   displayText: string
   gatewayPrompt: string
   contextItems: AgentContextItem[]
+  attachments?: OpenClawImageAttachment[]
 }
 
 export type OpenClawSendSnapshot = OpenClawSendRequest & {
@@ -91,6 +103,7 @@ export type OpenClawModelOption = {
   reasoning?: boolean
   thinkingLevels?: OpenClawThinkingOption[]
   thinkingDefault?: string
+  supportsImages: boolean
 }
 
 export type OpenClawThinkingOption = {
@@ -131,6 +144,7 @@ type ChatEventPayload = {
   deltaText?: string
   replace?: boolean
   errorMessage?: string
+  message?: unknown
 }
 
 export type OpenClawSanitizedAgentEvent = {
@@ -147,6 +161,8 @@ export type OpenClawSanitizedAgentEvent = {
 
 type OpenClawChatOptions = {
   enabled: boolean
+  imageIoEnabled?: boolean
+  mediaOrigins?: string[]
   userId: string
   defaultGatewayUrl: string
   vault?: OpenClawCredentialVault
@@ -158,6 +174,7 @@ export const OPENCLAW_TRANSCRIPT_KEY_PREFIX = 'inteliscope.openclaw.transcript.v
 const MAX_MESSAGES = 100
 const MAX_HISTORY_CHARS = 100_000
 const MAX_RUN_ACTIVITIES = 20
+const MAX_IMAGES_PER_MESSAGE = 12
 
 const INTELISCOPE_TOOL_LABELS: Record<string, string> = {
   get_my_feed: '读取信息流',
@@ -189,11 +206,12 @@ export function boundChatMessages(messages: OpenClawChatMessage[]): OpenClawChat
   const newest = messages.slice(-MAX_MESSAGES)
   const bounded: OpenClawChatMessage[] = []
   let remaining = MAX_HISTORY_CHARS
-  for (let index = newest.length - 1; index >= 0 && remaining > 0; index -= 1) {
+  for (let index = newest.length - 1; index >= 0 && (remaining > 0 || newest[index]?.images?.length); index -= 1) {
     const message = newest[index]
     const text = message.text.slice(0, remaining)
-    if (!text) continue
-    bounded.unshift({ ...message, text })
+    const images = message.images?.slice(0, MAX_IMAGES_PER_MESSAGE) ?? []
+    if (!text && !images.length) continue
+    bounded.unshift({ ...message, text, ...(images.length ? { images } : {}) })
     remaining -= text.length
   }
   return bounded
@@ -223,6 +241,9 @@ function messageSignature(message: OpenClawChatMessage): string {
     normalizedMessageText(message.text),
     message.contextCount ?? 0,
     contextSources.map((source) => source.url).join('\n'),
+    (message.images ?? []).map((image) => image.reference
+      ? `${image.reference.messageId}:${image.reference.partIndex}`
+      : image.id).join('\n'),
   ].join('\n')
 }
 
@@ -234,8 +255,18 @@ function messageMergeId(message: OpenClawChatMessage): string {
 }
 
 function persistedMessage(message: OpenClawChatMessage): OpenClawChatMessage {
-  const keepRetrySnapshot = (message.status === 'pending' || message.status === 'failed') && Boolean(message.sendSnapshot)
+  const keepRetrySnapshot = (message.status === 'pending' || message.status === 'failed')
+    && Boolean(message.sendSnapshot)
+    && !message.sendSnapshot?.attachments?.length
   const contextSources = sanitizeAgentSourceReferences(message.contextSources)
+  const images = (message.images ?? []).flatMap((image) => image.reference ? [{
+    id: image.id,
+    alt: image.alt,
+    ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+    ...(image.width ? { width: image.width } : {}),
+    ...(image.height ? { height: image.height } : {}),
+    reference: { ...image.reference },
+  }] : [])
   return {
     id: message.id,
     role: message.role,
@@ -247,6 +278,7 @@ function persistedMessage(message: OpenClawChatMessage): OpenClawChatMessage {
     origin: message.origin,
     mergeId: message.mergeId || messageMergeId(message),
     clientTurnId: message.clientTurnId,
+    ...(images.length ? { images } : {}),
     ...(keepRetrySnapshot ? { sendSnapshot: message.sendSnapshot } : {}),
   }
 }
@@ -319,6 +351,7 @@ export function mergeOpenClawTranscript(
       origin: existing.origin ?? remote.origin,
       mergeId: existing.mergeId || remote.mergeId || remoteMergeId,
       clientTurnId: existing.clientTurnId ?? remote.clientTurnId,
+      images: remote.images?.length ? remote.images : existing.images,
       ...(remoteConfirmsDelivery ? { sendSnapshot: undefined } : { sendSnapshot: existing.sendSnapshot ?? remote.sendSnapshot }),
     }
   }
@@ -413,33 +446,111 @@ function messageCreatedAt(value: Record<string, unknown>): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function imageMimeType(value: unknown): OpenClawImageMimeType | undefined {
+  return value === 'image/jpeg' || value === 'image/png' || value === 'image/webp'
+    ? value
+    : undefined
+}
+
+function imageDimension(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined
+}
+
+function projectMessageImages(source: Record<string, unknown>, messageId: string): OpenClawMessageImage[] {
+  const content = Array.isArray(source.content) ? source.content : []
+  const images: OpenClawMessageImage[] = []
+  content.forEach((candidate, partIndex) => {
+    const part = recordOf(candidate)
+    if (!part) return
+    const type = stringOf(part.type)?.toLowerCase()
+    if (type !== 'image' && type !== 'image_url' && type !== 'input_image') return
+    const embedded = recordOf(part.image_url ?? part.imageUrl ?? part.media)
+    const rawUrl = stringOf(part.url ?? embedded?.url)
+    const mimeType = imageMimeType(part.mimeType ?? embedded?.mimeType)
+    const width = imageDimension(part.width ?? embedded?.width)
+    const height = imageDimension(part.height ?? embedded?.height)
+    const alt = stringOf(part.alt ?? part.name) ?? ''
+    if (rawUrl && isSafeOpenClawImageDataUrl(rawUrl)) {
+      images.push({
+        id: `${messageId}:image:${partIndex}`,
+        alt,
+        ...(mimeType ? { mimeType } : {}),
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+        url: rawUrl,
+      })
+      return
+    }
+    const mediaRef = recordOf(part.mediaRef ?? part.media_ref)
+    const refMessageId = stringOf(mediaRef?.messageId ?? mediaRef?.message_id) ?? messageId
+    const refPartIndex = mediaRef?.partIndex ?? mediaRef?.part_index ?? partIndex
+    if (!refMessageId || typeof refPartIndex !== 'number' || !Number.isInteger(refPartIndex) || refPartIndex < 0) return
+    images.push({
+      id: `${refMessageId}:image:${refPartIndex}`,
+      alt,
+      ...(mimeType ? { mimeType } : {}),
+      ...(width ? { width } : {}),
+      ...(height ? { height } : {}),
+      reference: { messageId: refMessageId, partIndex: refPartIndex },
+    })
+  })
+  return images.slice(0, MAX_IMAGES_PER_MESSAGE)
+}
+
+function projectChatMessage(
+  record: unknown,
+  fallback: { id: string; role: 'user' | 'assistant'; text?: string; createdAt?: number } | null = null,
+): OpenClawChatMessage | null {
+  const source = recordOf(record)
+  if (!source) {
+    if (!fallback?.text) return null
+    const message: OpenClawChatMessage = {
+      id: fallback.id,
+      role: fallback.role,
+      text: fallback.text,
+      status: 'sent',
+      origin: 'local',
+      createdAt: fallback.createdAt,
+    }
+    return { ...message, mergeId: messageMergeId(message) }
+  }
+  const role = source.role === 'user' || source.role === 'assistant' ? source.role : fallback?.role
+  if (!role) return null
+  const id = stringOf(source.id) ?? fallback?.id
+  if (!id) return null
+  const rawText = (messageText(record).trim() || fallback?.text || '').trim()
+  const images = projectMessageImages(source, id)
+  if (!rawText && !images.length) return null
+  const handoff = role === 'user' && rawText ? projectAgentHandoffDisplay(rawText) : null
+  const text = handoff?.displayText ?? rawText
+  const clientTurnId = stringOf(source.clientTurnId ?? source.client_turn_id ?? source.idempotencyKey)
+  const message: OpenClawChatMessage = {
+    id,
+    role,
+    text,
+    status: 'sent',
+    origin: 'gateway',
+    createdAt: messageCreatedAt(source) ?? fallback?.createdAt,
+    ...(clientTurnId ? { clientTurnId } : {}),
+    ...(handoff ? { contextCount: handoff.contextCount } : {}),
+    ...(handoff?.sources?.length ? { contextSources: handoff.sources } : {}),
+    ...(images.length ? { images } : {}),
+  }
+  return { ...message, mergeId: messageMergeId(message) }
+}
+
 export function projectChatHistory(value: unknown): OpenClawChatMessage[] {
   const records = value && typeof value === 'object' && Array.isArray((value as { messages?: unknown }).messages)
     ? (value as { messages: unknown[] }).messages
     : []
   return boundChatMessages(records.flatMap((record, index) => {
-    if (!record || typeof record !== 'object') return []
-    const source = record as Record<string, unknown>
-    const role = source.role
+    const source = recordOf(record)
+    const role = source?.role
     if (role !== 'user' && role !== 'assistant') return []
-    const rawText = messageText(record).trim()
-    if (!rawText) return []
-    const handoff = role === 'user' ? projectAgentHandoffDisplay(rawText) : null
-    const text = handoff?.displayText ?? rawText
-    const id = source.id
-    const clientTurnId = stringOf(source.clientTurnId ?? source.client_turn_id ?? source.idempotencyKey)
-    const message: OpenClawChatMessage = {
-      id: typeof id === 'string' ? id : `history-${index}`,
-      role,
-      text,
-      status: 'sent',
-      origin: 'gateway',
-      createdAt: messageCreatedAt(source),
-      ...(clientTurnId ? { clientTurnId } : {}),
-      ...(handoff ? { contextCount: handoff.contextCount } : {}),
-      ...(handoff?.sources?.length ? { contextSources: handoff.sources } : {}),
-    }
-    return [{ ...message, mergeId: messageMergeId(message) }]
+    const message = projectChatMessage(record, { id: `history-${index}`, role })
+    return message ? [message] : []
   }))
 }
 
@@ -637,10 +748,12 @@ function normalizeModels(value: unknown): OpenClawModelOption[] {
       : undefined
     const thinkingLevels = normalizeThinkingOptions(model.thinkingLevels)
     const thinkingDefault = stringOf(model.thinkingDefault)
+    const input = Array.isArray(model.input) ? model.input : []
     return [{
       id,
       name,
       provider,
+      supportsImages: input.some((capability) => capability === 'image'),
       ...(stringOf(model.alias) ? { alias: stringOf(model.alias)! } : {}),
       ...(contextWindow ? { contextWindow } : {}),
       ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
@@ -814,6 +927,7 @@ async function createOpenClawSession(
 export function useOpenClawChat(options: OpenClawChatOptions) {
   const vault = useMemo(() => options.vault ?? new OpenClawCredentialVault(), [options.vault])
   const configurationKey = `${options.userId}\n${options.defaultGatewayUrl}`
+  const hasConfiguredMediaOrigins = Boolean(options.mediaOrigins?.length)
   const [gatewayState, setGatewayState] = useState(() => ({
     configurationKey,
     value: readSavedGatewayUrl(options.userId, options.defaultGatewayUrl),
@@ -847,6 +961,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const [runtimeIssue, setRuntimeIssue] = useState<string | null>(null)
   const [modelSwitchFallback, setModelSwitchFallback] = useState<OpenClawModelSwitchFallback | null>(null)
   const [contextUsage, setContextUsage] = useState<OpenClawContextUsage | null>(null)
+  const [imageInputAvailable, setImageInputAvailable] = useState(false)
   const clientRef = useRef<OpenClawGatewayClient | null>(null)
   const agentIdRef = useRef<string | null>(null)
   const sessionKeyRef = useRef<string | null>(null)
@@ -869,6 +984,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
   const transcriptReadyKeyRef = useRef<string | null>(null)
   const terminalRunIdsRef = useRef(new Set<string>())
   const thinkingLevelRef = useRef<string | null>(null)
+  const mediaTicketRequestsRef = useRef(new Set<string>())
+  const mediaTicketSupportedRef = useRef(false)
   const setModelRef = useRef<(modelId: string | null) => Promise<boolean>>(async () => false)
 
   const updateRunTrace = useCallback((
@@ -931,6 +1048,12 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     keyOverride?: string,
   ): OpenClawChatMessage[] => {
     const next = boundChatMessages(typeof update === 'function' ? update(messagesRef.current) : update)
+    const retainedUrls = new Set(next.flatMap((message) => message.images?.map((image) => image.url).filter((url): url is string => Boolean(url)) ?? []))
+    for (const previous of messagesRef.current) {
+      for (const image of previous.images ?? []) {
+        if (image.url && !retainedUrls.has(image.url)) releaseOpenClawImageUrl(image.url)
+      }
+    }
     messagesRef.current = next
     const key = keyOverride ?? sessionKeyRef.current
     if (key && transcriptReadyKeyRef.current === key) {
@@ -942,6 +1065,12 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
 
   const replaceVisibleTranscript = useCallback((next: OpenClawChatMessage[]) => {
     const bounded = boundChatMessages(next)
+    const retainedUrls = new Set(bounded.flatMap((message) => message.images?.map((image) => image.url).filter((url): url is string => Boolean(url)) ?? []))
+    for (const previous of messagesRef.current) {
+      for (const image of previous.images ?? []) {
+        if (image.url && !retainedUrls.has(image.url)) releaseOpenClawImageUrl(image.url)
+      }
+    }
     messagesRef.current = bounded
     setMessages(bounded)
   }, [])
@@ -953,6 +1082,51 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     saveGatewayUrl(options.userId, normalized)
   }, [configurationKey, options.userId])
 
+  const resolveMediaTickets = useCallback(async (
+    client: OpenClawGatewayClient,
+    key: string,
+    sourceMessages: OpenClawChatMessage[],
+    force = false,
+  ) => {
+    if (!options.imageIoEnabled || !mediaTicketSupportedRef.current || sessionKeyRef.current !== key) return
+    const candidates = sourceMessages.flatMap((message) => (message.images ?? []).flatMap((image) => (
+      image.reference && (force || !image.url) ? [{ messageId: message.id, image }] : []
+    )))
+    await Promise.all(candidates.map(async ({ image }) => {
+      const reference = image.reference!
+      const requestKey = `${key}:${reference.messageId}:${reference.partIndex}`
+      if (mediaTicketRequestsRef.current.has(requestKey)) return
+      mediaTicketRequestsRef.current.add(requestKey)
+      try {
+        const ticket = parseOpenClawMediaTicket(await client.request('chat.media.ticket', {
+          sessionKey: key,
+          messageId: reference.messageId,
+          partIndex: reference.partIndex,
+        }))
+        const url = ticket ? ticketUrlForOpenClawMedia(gatewayUrlRef.current, ticket, options.mediaOrigins ?? []) : null
+        if (!url || sessionKeyRef.current !== key) return
+        persistVisibleTranscript((current) => current.map((message) => !message.images?.some((candidate) => candidate.id === image.id)
+          ? message
+          : {
+              ...message,
+              images: message.images?.map((candidate) => candidate.id === image.id
+                ? {
+                    ...candidate,
+                    ...(ticket?.mimeType ? { mimeType: ticket.mimeType } : {}),
+                    ...(ticket?.width ? { width: ticket.width } : {}),
+                    ...(ticket?.height ? { height: ticket.height } : {}),
+                    url,
+                  }
+                : candidate),
+            }))
+      } catch {
+        // A delayed history refresh or an expired media ticket must not fail the conversation.
+      } finally {
+        mediaTicketRequestsRef.current.delete(requestKey)
+      }
+    }))
+  }, [options.imageIoEnabled, options.mediaOrigins, persistVisibleTranscript])
+
   const loadHistory = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
     const history = await client.request('chat.history', { sessionKey: key, agentId, limit: MAX_MESSAGES, maxChars: MAX_HISTORY_CHARS })
     if (sessionKeyRef.current !== key) return
@@ -963,7 +1137,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       mergeOpenClawTranscript(stored, current),
       gatewayMessages,
     ), key)
-  }, [options.userId, persistVisibleTranscript])
+    void resolveMediaTickets(client, key, gatewayMessages)
+  }, [options.userId, persistVisibleTranscript, resolveMediaTickets])
 
   const readRuntime = useCallback(async (client: OpenClawGatewayClient, key: string, agentId: string) => {
     const [modelsValue, agentsValue, sessionValue] = await Promise.all([
@@ -1110,22 +1285,22 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         completedRunId,
       )
       if (client && key && agentId) void loadRuntime(client, key, agentId, true)
-      if (partialText) {
-        const assistantMessage: OpenClawChatMessage = {
-          id: `${payload.state}-${completedRunId}`,
-          role: 'assistant',
-          text: partialText,
-          status: payload.state === 'aborted' ? 'aborted' : payload.state === 'error' ? 'failed' : 'sent',
-          createdAt: partialCreatedAt,
-          origin: 'local',
-        }
-        assistantMessage.mergeId = messageMergeId(assistantMessage)
+      const assistantMessage = projectChatMessage(payload.message, {
+        id: `${payload.state}-${completedRunId}`,
+        role: 'assistant',
+        text: partialText,
+        createdAt: partialCreatedAt,
+      })
+      if (assistantMessage) {
+        assistantMessage.status = payload.state === 'aborted' ? 'aborted' : payload.state === 'error' ? 'failed' : 'sent'
+        assistantMessage.origin = 'local'
         persistVisibleTranscript((current) => mergeOpenClawTranscript(current, [assistantMessage]), key ?? undefined)
+        if (client && key) void resolveMediaTickets(client, key, [assistantMessage])
       }
       if (payload.state === 'aborted') return
       if (client && key && agentId) void loadHistory(client, key, agentId).catch(() => undefined)
     }
-  }, [finishRunTrace, loadHistory, loadRuntime, persistVisibleTranscript, updateRunTrace])
+  }, [finishRunTrace, loadHistory, loadRuntime, persistVisibleTranscript, resolveMediaTickets, updateRunTrace])
 
   const disconnect = useCallback(() => {
     manualCloseRef.current = true
@@ -1163,6 +1338,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     setRuntimeIssue(null)
     setModelSwitchFallback(null)
     setContextUsage(null)
+    mediaTicketSupportedRef.current = false
+    setImageInputAvailable(false)
     thinkingLevelRef.current = null
     setToolsStatus('unknown')
     setStatus(options.enabled ? 'idle' : 'disabled')
@@ -1211,6 +1388,15 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       clientRef.current = client
       const hello: GatewayHello = await client.connect()
       if (generation !== generationRef.current) { client.close(); return false }
+      // `chat.send.attachments` is part of the stock Gateway chat protocol.
+      // `chat.media.ticket` is only needed to render trusted assistant/history
+      // images across the Inteliscope and Gateway origins.
+      mediaTicketSupportedRef.current = Boolean(
+        options.imageIoEnabled
+        && hasConfiguredMediaOrigins
+        && gatewaySupportsMethod(hello, 'chat.media.ticket'),
+      )
+      setImageInputAvailable(Boolean(options.imageIoEnabled))
       const deviceToken = hello.auth?.deviceToken || stored?.deviceToken
       if (!deviceToken) throw new Error('OpenClaw 没有返回浏览器设备 token。')
       const credential = {
@@ -1262,7 +1448,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       }
       return false
     }
-  }, [handleGatewayEvent, loadContextUsage, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.userId, persistVisibleTranscript, setGatewayUrl, vault])
+  }, [handleGatewayEvent, hasConfiguredMediaOrigins, loadContextUsage, loadHistory, loadRuntime, options.clientFactory, options.enabled, options.imageIoEnabled, options.userId, persistVisibleTranscript, setGatewayUrl, vault])
 
   useEffect(() => {
     reconnectRef.current = (reconnecting = true) => { void connectInternal(undefined, reconnecting) }
@@ -1295,8 +1481,16 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
         agentId,
         message: snapshot.gatewayPrompt,
         deliver: false,
-        idempotencyKey: snapshot.idempotencyKey,
-        ...(snapshot.thinkingLevel ? { thinking: snapshot.thinkingLevel } : {}),
+      idempotencyKey: snapshot.idempotencyKey,
+      ...(snapshot.thinkingLevel ? { thinking: snapshot.thinkingLevel } : {}),
+      ...(snapshot.attachments?.length ? {
+        attachments: snapshot.attachments.map((attachment) => ({
+          type: 'image',
+          mimeType: attachment.mimeType,
+          fileName: attachment.fileName,
+          content: attachment.content,
+        })),
+      } : {}),
       })
       const terminatedBeforeResponse = terminalSendAttemptsRef.current.delete(sendAttempt)
       persistVisibleTranscript((current) => current.map((message) => (
@@ -1340,7 +1534,10 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     if (runIdRef.current || sending) return false
     const displayText = request.displayText.trim()
     const gatewayPrompt = request.gatewayPrompt.trim()
-    if (!displayText || !gatewayPrompt) return false
+    const attachments = (request.attachments ?? []).slice(0, 4)
+    const selectedModel = models.find((model) => model.id === runtimeSelection.modelId)
+    if (!gatewayPrompt || (!displayText && !attachments.length)) return false
+    if (attachments.length && (!imageInputAvailable || selectedModel?.supportsImages !== true)) return false
     const idempotencyKey = crypto.randomUUID()
     const contextItems = request.contextItems.map((item) => {
       const sourceUrl = sanitizeSourceUrl(item.sourceUrl)
@@ -1353,6 +1550,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       idempotencyKey,
       modelId: runtimeSelection.modelId,
       thinkingLevel: runtimeSelection.thinkingLevel,
+      ...(attachments.length ? { attachments } : {}),
     }
     const message: OpenClawChatMessage = {
       id: idempotencyKey,
@@ -1365,11 +1563,19 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
       createdAt: Date.now(),
       origin: 'local',
       clientTurnId: idempotencyKey,
+      ...(attachments.length ? { images: attachments.map((attachment, index) => ({
+        id: `${idempotencyKey}:image:${index}`,
+        alt: `你发送的第 ${index + 1} 张图片`,
+        mimeType: attachment.mimeType,
+        width: attachment.width,
+        height: attachment.height,
+        url: attachment.previewUrl,
+      })) } : {}),
     }
     message.mergeId = messageMergeId(message)
     persistVisibleTranscript((current) => [...current, message])
     return submitSend(snapshot, message.id)
-  }, [persistVisibleTranscript, runtimeSelection.modelId, runtimeSelection.thinkingLevel, sending, submitSend])
+  }, [imageInputAvailable, models, persistVisibleTranscript, runtimeSelection.modelId, runtimeSelection.thinkingLevel, sending, submitSend])
 
   const retry = useCallback(async (messageId: string): Promise<boolean> => {
     const message = messagesRef.current.find((candidate) => candidate.id === messageId)
@@ -1400,6 +1606,15 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     persistVisibleTranscript((current) => current.filter((candidate) => candidate.id !== messageId))
     return request
   }, [persistVisibleTranscript])
+
+  const refreshMedia = useCallback(async (messageId: string, imageId: string): Promise<void> => {
+    const client = clientRef.current
+    const key = sessionKeyRef.current
+    const message = messagesRef.current.find((candidate) => candidate.id === messageId)
+    const image = message?.images?.find((candidate) => candidate.id === imageId)
+    if (!client || !key || !message || !image?.reference) return
+    await resolveMediaTickets(client, key, [{ ...message, images: [image] }], true)
+  }, [resolveMediaTickets])
 
   const stop = useCallback(async () => {
     const client = clientRef.current
@@ -1642,6 +1857,8 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     runtimeIssue,
     modelSwitchFallback,
     contextUsage,
+    imageInputAvailable,
+    currentModelSupportsImages: models.find((model) => model.id === runtimeSelection.modelId)?.supportsImages === true,
     sessionKey,
     isRunning: sending || Boolean(runId),
     isStopping: stopping,
@@ -1659,6 +1876,7 @@ export function useOpenClawChat(options: OpenClawChatOptions) {
     send,
     retry,
     takeFailedMessage,
+    refreshMedia,
     stop,
     setModel,
     setThinking,

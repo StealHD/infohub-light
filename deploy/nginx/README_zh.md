@@ -117,6 +117,8 @@ HORIZON_REQUIRE_WORKER_FOR_READINESS=false
 ```bash
 HORIZON_OPENCLAW_CHAT_ENABLED=false
 HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=ws://127.0.0.1:18789
+HORIZON_OPENCLAW_IMAGE_IO_ENABLED=false
+HORIZON_OPENCLAW_MEDIA_ORIGINS=
 ```
 
 本机只允许 `ws://127.0.0.1` 或 `ws://localhost`；远程 Gateway 必须使用
@@ -131,3 +133,36 @@ HORIZON_OPENCLAW_CHAT_ENABLED=true
 
 该开关只改变浏览器对话面板；服务器仍不运行 Agent、模型或 OpenClaw，
 订阅写开关继续保持 `false`。
+
+### 安全图片与云端 Gateway
+
+图片能力默认关闭，且必须先发布包含 `chat.media.ticket` 的 OpenClaw Gateway 版本。
+该 RPC 只会对当前会话、消息和图片内容块签发 5 分钟票据；浏览器只渲染这个
+票据返回的路径，绝不使用消息正文中的外链或本地文件路径。
+
+本机 Canary 可显式配置：
+
+```bash
+HORIZON_OPENCLAW_IMAGE_IO_ENABLED=true
+HORIZON_OPENCLAW_MEDIA_ORIGINS=http://127.0.0.1:18789
+```
+
+云端建议把 WebSocket 和媒体放在同一 Gateway Origin，例如
+`wss://openclaw.example.com/gateway` 与 `https://openclaw.example.com`，再使用：
+
+```bash
+HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL=wss://openclaw.example.com/gateway
+HORIZON_OPENCLAW_IMAGE_IO_ENABLED=true
+HORIZON_OPENCLAW_MEDIA_ORIGINS=https://openclaw.example.com
+```
+
+同时必须把 `https://openclaw.example.com` 精确加入本文件 Nginx CSP 的 `img-src`
+（禁止 `*`），并把 Inteliscope 的精确站点 Origin 加入 Gateway
+`gateway.controlUi.allowedOrigins`。负载均衡器要透传 WebSocket Upgrade 与媒体 GET；
+Gateway 多副本必须共享会话/媒体索引、持久化媒体存储及票据签名密钥。签名密钥应由
+SecretStore 或环境引用提供；Gateway 使用 `OPENCLAW_MANAGED_MEDIA_TICKET_KEYS`，格式为
+`当前kid:base64url密钥,上一kid:base64url密钥`（每把至少 32 bytes，当前在前，最多两把），
+不要把实际值写入仓库或普通配置。轮换时至少同时接受当前和上一把密钥一个票据 TTL；对象
+存储不得直接暴露给浏览器，仍由 Gateway 在鉴权后代理。媒体响应应为 private/no-store
+并返回 `X-Content-Type-Options: nosniff`。发布顺序是先固定 Gateway、配置共享存储和
+密钥、发布但关闭 Inteliscope 开关、完成真实 Canary 后再开启。

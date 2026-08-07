@@ -5,6 +5,7 @@ import {
   OPENCLAW_LEGACY_SCOPES,
   OpenClawGatewayClient,
   buildDeviceAuthPayloadV3,
+  gatewaySupportsMethod,
   parseOpenClawConnectionInput,
   validateGatewayUrl,
   validateNegotiatedScopes,
@@ -30,6 +31,11 @@ class FakeSocket implements GatewaySocket {
 }
 
 describe('OpenClaw Gateway connection input', () => {
+  it('only enables optional media for a Gateway that explicitly advertises the RPC', () => {
+    expect(gatewaySupportsMethod({ features: { methods: ['chat.media.ticket'] } }, 'chat.media.ticket')).toBe(true)
+    expect(gatewaySupportsMethod({ snapshot: { features: { methods: ['chat.send'] } } }, 'chat.media.ticket')).toBe(false)
+  })
+
   it('accepts loopback WS and remote WSS but rejects credential-bearing or plain remote WS URLs', () => {
     expect(validateGatewayUrl('ws://127.0.0.1:18789')).toBe('ws://127.0.0.1:18789')
     expect(validateGatewayUrl('wss://agent.example.com/openclaw/ws')).toBe('wss://agent.example.com/openclaw/ws')

@@ -4,9 +4,9 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   Button,
   Card,
+  ImageGalleryModal,
   Icons,
   MetaTag,
-  Modal,
   Popover,
   Skeleton,
   Tooltip,
@@ -464,14 +464,8 @@ export function VirtualFeed(props: VirtualFeedProps) {
   const [newItemCount, setNewItemCount] = useState(0)
   const [openActionCardId, setOpenActionCardId] = useState<string | null>(null)
   const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null)
-  const [mediaLoading, setMediaLoading] = useState(false)
-  const [mediaError, setMediaError] = useState(false)
-  const [mediaRetryKey, setMediaRetryKey] = useState(0)
   const mediaTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const mediaSwipeStart = useRef<number | null>(null)
   const terminalEnabled = Boolean(props.terminal)
-  const mediaViewerOpen = mediaViewer !== null
-  const activeMediaUrl = mediaViewer?.images[mediaViewer.index]?.url
   const initialTargetIndex = props.navigationTargetId
     ? props.cards.findIndex((card) => card.id === props.navigationTargetId)
     : freshEdge === 'start' ? 0 : props.cards.length - 1
@@ -540,39 +534,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     })
     return () => window.cancelAnimationFrame(frame)
   }, [props.terminalKey, terminalEnabled])
-
-  useEffect(() => {
-    if (!mediaViewerOpen) return
-    const navigateWithArrowKey = (event: KeyboardEvent) => {
-      const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
-      if (!delta) return
-      event.preventDefault()
-      setMediaViewer((current) => {
-        if (!current || current.images.length < 2) return current
-        return {
-          ...current,
-          index: (current.index + delta + current.images.length) % current.images.length,
-        }
-      })
-    }
-    window.addEventListener('keydown', navigateWithArrowKey)
-    return () => window.removeEventListener('keydown', navigateWithArrowKey)
-  }, [mediaViewerOpen])
-
-  useEffect(() => {
-    if (!activeMediaUrl) return
-    setMediaLoading(true)
-    setMediaError(false)
-    if (!mediaViewer || mediaViewer.images.length < 2 || typeof Image === 'undefined') return
-    const neighborIndexes = [
-      (mediaViewer.index - 1 + mediaViewer.images.length) % mediaViewer.images.length,
-      (mediaViewer.index + 1) % mediaViewer.images.length,
-    ]
-    neighborIndexes.forEach((index) => {
-      const image = new Image()
-      image.src = mediaViewer.images[index]?.url ?? ''
-    })
-  }, [activeMediaUrl, mediaRetryKey, mediaViewer])
 
   const releaseNavigationOwnership = useCallback(() => {
     requestedRefreshAnchor.current = null
@@ -847,16 +808,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
     setMediaViewer({ cardLabel: cardLabelForViewer(card), images, index: safeIndex })
   }
 
-  function moveMediaViewer(delta: number) {
-    setMediaViewer((current) => {
-      if (!current || current.images.length < 2) return current
-      return {
-        ...current,
-        index: (current.index + delta + current.images.length) % current.images.length,
-      }
-    })
-  }
-
   function closeMediaViewer() {
     const trigger = mediaTriggerRef.current
     mediaTriggerRef.current = null
@@ -865,8 +816,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
       if (trigger?.isConnected) trigger.focus()
     })
   }
-
-  const activeMedia = mediaViewer?.images[mediaViewer.index]
 
   return <div className="relative flex min-h-0 flex-1 overflow-hidden">
     <div
@@ -936,114 +885,14 @@ export function VirtualFeed(props: VirtualFeedProps) {
         virtualizer.scrollToIndex(targetIndex, { align: freshEdge })
       }}
     >{newItemCount} 条新内容</Button>}
-    <Modal isOpen={Boolean(mediaViewer && activeMedia)} onOpenChange={(open) => !open && closeMediaViewer()}>
-      <Modal.Trigger aria-hidden="true" tabIndex={-1} className="sr-only">打开图片预览</Modal.Trigger>
-      <Modal.Backdrop variant="opaque" isDismissable>
-        <Modal.Container size="cover" placement="center" className="p-3 sm:w-full sm:p-6">
-          <Modal.Dialog className="h-full min-h-0 max-w-none overflow-hidden rounded-2xl bg-overlay p-0 text-foreground">
-            <div className="relative flex h-full min-h-0 flex-col">
-              <Modal.Header className="sr-only">
-                <Modal.Heading>{mediaViewer ? `${mediaViewer.cardLabel} 图片预览` : '图片预览'}</Modal.Heading>
-              </Modal.Header>
-              <Modal.CloseTrigger
-                aria-label="关闭图片预览"
-                className="z-20 size-11 rounded-full bg-background/80 text-foreground hover:bg-default"
-              />
-              <Modal.Body className="relative m-0 grid min-h-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden p-0 text-foreground">
-                <div
-                  id="media-viewer-stage"
-                  data-testid="media-viewer-stage"
-                  className="relative grid min-h-0 min-w-0 touch-pan-y place-items-center overflow-hidden bg-default/40"
-                  onPointerDown={(event) => {
-                    if (event.pointerType === 'mouse' || (event.target instanceof Element && event.target.closest('button'))) return
-                    mediaSwipeStart.current = event.clientX
-                    event.currentTarget.setPointerCapture?.(event.pointerId)
-                  }}
-                  onPointerUp={(event) => {
-                    const start = mediaSwipeStart.current
-                    mediaSwipeStart.current = null
-                    if (start === null || mediaViewer?.images.length === 1) return
-                    const distance = event.clientX - start
-                    if (Math.abs(distance) >= 48) moveMediaViewer(distance > 0 ? -1 : 1)
-                  }}
-                  onPointerCancel={() => { mediaSwipeStart.current = null }}
-                >
-                  {mediaLoading && !mediaError && <Skeleton aria-label="正在加载图片" className="absolute inset-[10%] rounded-2xl" />}
-                  {activeMedia && <img
-                    key={`${activeMedia.url}:${mediaRetryKey}`}
-                    data-testid="media-viewer-image"
-                    src={activeMedia.url}
-                    alt={activeMedia.alt || `${mediaViewer?.cardLabel || '内容'} 图片 ${(mediaViewer?.index ?? 0) + 1}`}
-                    className={`z-[1] block size-full min-h-0 min-w-0 object-contain transition-opacity motion-reduce:transition-none ${mediaLoading || mediaError ? 'opacity-0' : 'opacity-100'}`}
-                    width={activeMedia.width}
-                    height={activeMedia.height}
-                    onLoad={() => {
-                      setMediaLoading(false)
-                      setMediaError(false)
-                    }}
-                    onError={() => {
-                      setMediaLoading(false)
-                      setMediaError(true)
-                    }}
-                  />}
-                  {mediaError && <div role="alert" className="absolute left-1/2 top-1/2 z-[2] grid -translate-x-1/2 -translate-y-1/2 justify-items-center gap-3 rounded-2xl bg-background/90 p-5 text-center">
-                    <Icons.ImageOff size={28} className="text-muted" aria-hidden="true" />
-                    <p className="type-control">图片加载失败</p>
-                    <Button size="sm" variant="secondary" onPress={() => {
-                      setMediaError(false)
-                      setMediaLoading(true)
-                      setMediaRetryKey((value) => value + 1)
-                    }}>重试这张图片</Button>
-                  </div>}
-                  {mediaViewer && <p
-                    role="status"
-                    aria-live="polite"
-                    aria-atomic="true"
-                    className="type-control absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-background/80 px-3 py-1.5 text-foreground"
-                  >{mediaViewer.index + 1} / {mediaViewer.images.length}</p>}
-                  {mediaViewer && mediaViewer.images.length > 1 && <>
-                    <Button
-                      isIconOnly
-                      variant="secondary"
-                      className="absolute left-3 top-1/2 z-10 size-11 -translate-y-1/2 rounded-full bg-background/80 text-foreground hover:bg-default sm:left-5"
-                      aria-label="上一张图片"
-                      onPress={() => moveMediaViewer(-1)}
-                    ><Icons.ChevronLeft size={22} aria-hidden="true" /></Button>
-                    <Button
-                      isIconOnly
-                      variant="secondary"
-                      className="absolute right-3 top-1/2 z-10 size-11 -translate-y-1/2 rounded-full bg-background/80 text-foreground hover:bg-default sm:right-5"
-                      aria-label="下一张图片"
-                      onPress={() => moveMediaViewer(1)}
-                    ><Icons.ChevronRight size={22} aria-hidden="true" /></Button>
-                  </>}
-                </div>
-                {mediaViewer && mediaViewer.images.length > 1 && <div
-                  data-testid="media-viewer-thumbnails"
-                  role="group"
-                  aria-label="图片缩略图"
-                  className="quiet-scroll-region overflow-x-auto border-t border-separator bg-overlay px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3"
-                >
-                  <div className="flex w-max min-w-full justify-start gap-2 sm:justify-center">
-                    {mediaViewer.images.map((image, index) => <button
-                      key={image.url}
-                      type="button"
-                      aria-label={`切换到第 ${index + 1} 张图片`}
-                      aria-current={index === mediaViewer.index ? 'true' : undefined}
-                      aria-controls="media-viewer-stage"
-                      className={`size-12 shrink-0 overflow-hidden rounded-lg border-2 bg-background/80 focus-visible:outline-2 focus-visible:outline-focus transition-[opacity,transform,box-shadow] motion-reduce:transition-none ${index === mediaViewer.index ? 'border-transparent shadow-[0_0_0_2px_var(--accent)]' : 'border-transparent opacity-70 hover:opacity-100 active:scale-95'}`}
-                      onClick={() => setMediaViewer((current) => current ? { ...current, index } : current)}
-                    >
-                      <img src={image.url} alt="" className="size-full object-cover" loading="eager" />
-                    </button>)}
-                  </div>
-                </div>}
-              </Modal.Body>
-            </div>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <ImageGalleryModal
+      isOpen={Boolean(mediaViewer)}
+      heading={mediaViewer ? `${mediaViewer.cardLabel} 图片预览` : '图片预览'}
+      images={mediaViewer?.images ?? []}
+      index={mediaViewer?.index ?? 0}
+      onIndexChange={(index) => setMediaViewer((current) => current ? { ...current, index } : current)}
+      onOpenChange={(open) => { if (!open) closeMediaViewer() }}
+    />
   </div>
 }
 
