@@ -9,21 +9,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 {
   "control_topics": ["decisions", "ui"],
   "recorded_on": "2026-08-06",
-  "result": "将 Apify Key 池重排为独立 HeroUI 卡片：身份与状态、三项额度指标、最近检查和生命周期操作直接分区呈现，移除详情 Disclosure。",
-  "status": "completed",
-  "task_id": "2026-08-06-apify-key-hero-card-layout",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest 106 项、TypeScript、ESLint 与 UI contract 检查通过。",
-    "python3 scripts/test_gate.py run --mode full：23/23 命令通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": ["decisions", "ui"],
-  "recorded_on": "2026-08-06",
   "result": "将密钥页 Apify Key 池收敛为异常优先的紧凑摘要：正常行仅保留状态、额度和操作，详情按需显示检查、异常与生命周期管理。",
   "status": "completed",
   "task_id": "2026-08-06-apify-key-pool-simplification",
@@ -374,6 +359,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "OpenClaw/Changelog 定向 Vitest 36 项、TypeScript 和产品文档检查通过。",
     "使用项目虚拟环境运行完整 Test Gate：23/23 命令通过。",
     "当前 Worktree ./scripts/up-latest.sh 完成 8080 切换；API/Worker healthy，ready 返回 worker_status=ready，前端资源 index-DMa1gCc_.js 已服务。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "将 OpenClaw 原文主动读取、附件原位展开与一键清空、紧凑模型选择器快进合并到本地 main。",
+  "status": "completed",
+  "task_id": "2026-08-07-merge-openclaw-context-ui-to-local-main",
+  "unresolved": [],
+  "validation": [
+    "main 工作树完整 Test Gate：23/23 命令通过。",
+    "当前 main 包含 e0b96f5；随后会以此干净工作树切换本地 API 与 Worker。"
   ]
 }
 ```
