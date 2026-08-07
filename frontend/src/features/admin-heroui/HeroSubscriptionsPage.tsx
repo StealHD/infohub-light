@@ -25,6 +25,7 @@ import {
   Icons,
   LoadingState,
   PageFrame,
+  ScrollAdaptiveViewBar,
   StatusIndicator,
   Switch,
   Tabs,
@@ -36,26 +37,24 @@ import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContex
 import {
   canEditSource,
   canMutateSubscriptions,
-  channelViewGroupsByChannel,
   effectiveSourceType,
-  effectiveSubscriptionChannel,
   healthMatches,
   isPublicSubscriptionScope,
   presentJob,
-  resolveViewSelection,
   sourceForSubscription,
   sourceScopesForUser,
   sourceTypeLabel,
   sourceUsesSecret,
-  subscriptionViewGroups,
   type HealthFilter,
 } from '../subscriptions/subscriptionModel'
-import { AdminPageHeader, HeroNotice, HeroSelect } from './HeroAdminControls'
+import { HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 import {
-  SourceLibraryChannelView,
-  SubscriptionChannelView,
+  SourceLibraryListView,
+  SourceFilterMenu,
+  SourceSearchField,
+  SubscriptionListView,
   type LibraryViewEntry,
   type SubscriptionViewEntry,
 } from './HeroSubscriptionChannelViews'
@@ -208,8 +207,6 @@ export function HeroSubscriptionsPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [scopeFilter, setScopeFilter] = useState('all')
   const [healthFilter, setHealthFilter] = useState<HealthFilter>('all')
-  const [subscriptionChannel, setSubscriptionChannel] = useState('all')
-  const [libraryChannel, setLibraryChannel] = useState('')
   const [editingSubscription, setEditingSubscription] = useState<{ source: CatalogSource; subscription: Subscription } | null>(null)
   const [subscriptionDialogPending, setSubscriptionDialogPending] = useState(false)
   const [editingSource, setEditingSource] = useState<CatalogSource | null>(null)
@@ -217,10 +214,31 @@ export function HeroSubscriptionsPage() {
   const [createType, setCreateType] = useState('')
   const [supportProfileId, setSupportProfileId] = useState('x/profile/items')
   const [shareSource, setShareSource] = useState<CatalogSource | null>(null)
+  const [toolbarState, setToolbarState] = useState<'expanded' | 'floating'>('expanded')
+  const pageScrollerRef = useRef<HTMLDivElement>(null)
   const editingSubscriptionReturnFocus = useRef<HTMLElement | null>(null)
   const editingSourceReturnFocus = useRef<HTMLElement | null>(null)
   const shareSourceReturnFocus = useRef<HTMLElement | null>(null)
   const initiatedJobs = useRef(new Map<string, { action: string; entity: string; label: string; subscriptionId: string; token: ActionToken }>())
+
+  useEffect(() => {
+    const scroller = pageScrollerRef.current
+    if (!scroller) return
+    let frame: number | undefined
+    const syncToolbarState = () => {
+      frame = undefined
+      setToolbarState(scroller.scrollTop > 20 ? 'floating' : 'expanded')
+    }
+    const onScroll = () => {
+      if (frame === undefined) frame = window.requestAnimationFrame(syncToolbarState)
+    }
+    syncToolbarState()
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+    }
+  }, [])
 
   function rememberDialogTrigger(target: { current: HTMLElement | null }) {
     target.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -500,7 +518,6 @@ export function HeroSubscriptionsPage() {
         source,
         subscription,
         health: healthMap.get(subscription.id),
-        channel: effectiveSubscriptionChannel(subscription, source),
       }
     })
     .filter(({ source }) => matchesSource(source))
@@ -528,7 +545,6 @@ export function HeroSubscriptionsPage() {
     return {
       source,
       subscription,
-      channel: String(source.default_channel || '').trim() || '其他',
       subscribed: Boolean(subscription),
       subscribePending: feedback.isPending('subscribe', source.id),
       unsubscribePending: feedback.isPending('unsubscribe', source.id),
@@ -536,16 +552,6 @@ export function HeroSubscriptionsPage() {
       canShare: editable && source.scope === 'private' && source.owner_user_id === user.id,
     }
   })
-  const subscriptionGroups = subscriptionViewGroups(
-    subscriptionEntries,
-    (entry) => entry.channel,
-    (entry) => entry.health?.status === 'degraded' || entry.health?.status === 'failing',
-    (entry) => isPublicSubscriptionScope(entry.source.scope) ? 'public' : 'private',
-    taxonomy.channels,
-  )
-  const sourceGroups = channelViewGroupsByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
-  const activeSubscriptionChannel = resolveViewSelection(subscriptionGroups, subscriptionChannel)
-  const activeLibraryChannel = resolveViewSelection(sourceGroups, libraryChannel)
   const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || configQuery.error
   const loading = sourcesQuery.isLoading || typesQuery.isLoading || capabilitiesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
   const schedulePending = feedback.isPending('feed-schedule', 'global')
@@ -673,39 +679,47 @@ export function HeroSubscriptionsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  return <div className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
-    <AdminPageHeader description="选择要持续关注的来源，并查看每次更新发生了什么。" actions={editable && <Button size="sm" onPress={() => setCreateOpen(true)}><Icons.Plus size={15} />新增来源</Button>} />
+  const sourceFilters = {
+    definitions,
+    typeFilter,
+    onTypeChange: setTypeFilter,
+    scopeFilter,
+    onScopeChange: setScopeFilter,
+    healthFilter,
+    onHealthChange: setHealthFilter,
+    includeHealth: tab === 'subscriptions',
+  }
+
+  return <div ref={pageScrollerRef} className="quiet-scroll-region h-full min-w-0 overflow-x-hidden overflow-y-auto"><PageFrame width="admin" className="grid min-w-0 gap-5 p-4 min-[768px]:p-6">
     {loadError && <HeroNotice title="订阅数据加载失败，请刷新页面后重试。" />}
     {capabilitiesQuery.isError && <HeroNotice title="Actor Route 能力目录读取失败，付费来源创建已暂时隐藏。" status="warning">
       <Button size="sm" variant="ghost" onPress={() => void capabilitiesQuery.refetch()}>重试能力目录</Button>
     </HeroNotice>}
     <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key))}>
-      <div className="quiet-scroll-region max-w-full overflow-x-auto">
-        <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
-          <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
-          <Tabs.Tab id="library" aria-label="来源库" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">来源库<Tabs.Indicator /></Tabs.Tab>
-          <Tabs.Tab id="jobs" aria-label="运行记录" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">运行记录<Tabs.Indicator /></Tabs.Tab>
-        </Tabs.List>
+      <div data-subscription-tabs-toolbar className="sticky top-0 z-20 px-2 py-2">
+          <ScrollAdaptiveViewBar state={toolbarState} className={`min-w-0 ${tab === 'jobs' ? 'justify-start' : 'grid gap-2 min-[640px]:grid-cols-[auto_minmax(0,1fr)_auto_auto] min-[640px]:items-center'}`}>
+            <div className="quiet-scroll-region min-w-0 max-w-full overflow-x-auto">
+              <Tabs.List aria-label="订阅与来源页面" className="flex w-max min-w-0 gap-1 bg-transparent p-0">
+                <Tabs.Tab id="subscriptions" aria-label="我的订阅" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">我的订阅<Tabs.Indicator /></Tabs.Tab>
+                <Tabs.Tab id="library" aria-label="来源库" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">来源库<Tabs.Indicator /></Tabs.Tab>
+                <Tabs.Tab id="jobs" aria-label="运行记录" className="min-h-9 w-auto shrink-0 justify-center gap-2 rounded-lg px-3">运行记录<Tabs.Indicator /></Tabs.Tab>
+              </Tabs.List>
+            </div>
+            {tab !== 'jobs' && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 min-[640px]:contents">
+              <SourceSearchField value={search} onChange={setSearch} />
+              <SourceFilterMenu filters={sourceFilters} />
+              {editable && <Button size="sm" aria-label="新增来源" className="w-auto shrink-0 whitespace-nowrap px-3" onPress={() => setCreateOpen(true)}>
+                <Icons.Plus size={15} />
+                <span>新增来源</span>
+              </Button>}
+            </div>}
+          </ScrollAdaptiveViewBar>
       </div>
       <Tabs.Panel id="subscriptions" className="grid gap-5 pt-5">
         {loading
           ? <LoadingState label="正在读取订阅" rows={1} />
-          : <SubscriptionChannelView
-              groups={subscriptionGroups}
-              selectedChannel={activeSubscriptionChannel}
-              onSelectChannel={setSubscriptionChannel}
-              filters={{
-                search,
-                onSearchChange: setSearch,
-                definitions,
-                typeFilter,
-                onTypeChange: setTypeFilter,
-                scopeFilter,
-                onScopeChange: setScopeFilter,
-                healthFilter,
-                onHealthChange: setHealthFilter,
-                includeHealth: true,
-              }}
+          : <SubscriptionListView
+              items={subscriptionEntries}
               editable={editable}
               feedWindowDays={healthQuery.data?.window?.feed_days ?? 7}
               globalSchedule={scheduleQuery.data}
@@ -730,22 +744,8 @@ export function HeroSubscriptionsPage() {
       <Tabs.Panel id="library" className="grid gap-5 pt-5">
         {loading
           ? <LoadingState label="正在读取来源库" rows={1} />
-          : <SourceLibraryChannelView
-              groups={sourceGroups}
-              selectedChannel={activeLibraryChannel}
-              onSelectChannel={setLibraryChannel}
-              filters={{
-                search,
-                onSearchChange: setSearch,
-                definitions,
-                typeFilter,
-                onTypeChange: setTypeFilter,
-                scopeFilter,
-                onScopeChange: setScopeFilter,
-                healthFilter,
-                onHealthChange: setHealthFilter,
-                includeHealth: false,
-              }}
+          : <SourceLibraryListView
+              items={libraryEntries}
               editable={editable}
               hasSources={sources.length > 0}
               onSubscribe={(source) => subscribeMutation.mutate(source)}

@@ -41,7 +41,6 @@ function renderCard(
     items={[{
       source,
       subscription,
-      channel: '其他',
       fetchLabel: '立即获取',
       notificationPending: false,
       canEdit: false,
@@ -273,7 +272,7 @@ describe('subscription source card notifications', () => {
     expect(onShare).toHaveBeenCalledWith(source, expect.any(HTMLElement))
   })
 
-  it('shows today, feed-window and historical counts while keeping fetched count in metadata', () => {
+  it('places today, feed-window and historical counts below the header health status', () => {
     renderCard({
       id: 'subscription-counts',
       user_id: 'user-1',
@@ -293,7 +292,10 @@ describe('subscription source card notifications', () => {
       },
     })
 
-    expect(document.querySelector('[data-source-counts]')).toHaveTextContent('今日1近7天4历史2')
+    const counts = document.querySelector('[data-source-counts]')
+    expect(counts).toHaveTextContent('今日1近7天4历史2')
+    expect(counts?.closest('[data-source-card-status]')).not.toBeNull()
+    expect(counts?.closest('[data-source-update-metadata]')).toBeNull()
     expect(screen.getByLabelText('最近更新 尚未完成，上次抓取 2 条')).toBeInTheDocument()
     expect(screen.queryByText('上次抓取 2 条')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: '查看 通知来源 的 2 条历史内容' })).toHaveAttribute(

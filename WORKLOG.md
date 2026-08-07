@@ -57,6 +57,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 }
 ```
 
+```json
+{
+  "control_topics": [
+    "operations"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "从 subscriptions-layout-cleanup 任务分支重建本地 8080 运行时，切换已提交的订阅页布局镜像。",
+  "status": "completed",
+  "task_id": "2026-08-07-start-subscription-layout-container",
+  "unresolved": [],
+  "validation": [
+    "horizon-api 与 horizon-worker 均 healthy，readiness 返回 API 和 Worker ready。",
+    "127.0.0.1:8080 已提供 revision ce53c72cfe5b 的前端资源 index-BNbh5sci.js；未启动 scheduler。"
+  ]
+}
+```
+
 
 ```json
 {
@@ -328,6 +345,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
+  "result": "将订阅布局清理分支合并到本地 main，保留 OpenClaw 的同期更新，并整合来源库直接列表与两态顶部工具栏。",
+  "status": "completed",
+  "task_id": "2026-08-07-merge-subscriptions-layout-to-local-main",
+  "unresolved": [
+    "按既有约定，本次 main 合并未新增或运行 Playwright；浏览器断言与视觉快照仍留待最终发布整合阶段统一复核。"
+  ],
+  "validation": [
+    "合并后定向 Vitest：150 项通过。",
+    "main 工作树完整 Test Gate：23/23 命令通过（232.642 秒）；git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
   "result": "调整 OpenClaw 多附件摘要头：包含“已附带 N 条”的整段成为原位向上展开按钮，Chevron 靠右提示，最右一键清空保持独立。",
   "status": "partial",
   "task_id": "2026-08-07-openclaw-context-header-click-target",
@@ -377,6 +414,84 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "main 工作树完整 Test Gate：23/23 命令通过。",
     "当前 main 包含 e0b96f5；随后会以此干净工作树切换本地 API 与 Worker。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "将订阅页收紧为四类固定视图：搜索移入页签工具栏，来源统计移至右上健康状态下方，来源库继续按真实频道浏览。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-layout-cleanup",
+  "unresolved": [],
+  "validation": [
+    "定向 Vitest、三视口订阅 Playwright 与 light/dark 视觉基线通过。",
+    "完整 Test Gate：23/23 命令通过（247.228 秒）；git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "取消“我的订阅”的固定视图，搜索、筛选和新增来源收为滚动固定的半透明工具栏；来源库继续按真实频道浏览。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-toolbar-without-views",
+  "unresolved": [
+    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
+  ],
+  "validation": [
+    "定向 Vitest 152 项、TypeScript、UI 合同检查、lint 和构建通过。",
+    "完整 Test Gate：23/23 命令通过（233.256 秒）；git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "移除订阅页说明，并将来源工具栏改为与来源卡对齐、随滚动收为居中半透明胶囊的两态表面；新增来源在窄屏保留完整文字。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-scroll-adaptive-toolbar",
+  "unresolved": [
+    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
+  ],
+  "validation": [
+    "定向 Vitest 152 项、TypeScript、UI 合同检查、lint 和构建通过。",
+    "完整 Test Gate：23/23 命令通过（232.955 秒）；git diff --check 通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "来源库取消频道导航并改为直接列表；订阅工具栏顶部态改用与来源卡一致的 12 px 内容内缩和轻量圆角表面。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-library-without-channels",
+  "unresolved": [
+    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
+  ],
+  "validation": [
+    "定向 Vitest 150 项、TypeScript、UI 合同检查、lint 和构建通过。",
+    "完整 Test Gate：23/23 命令通过（234.661 秒）；git diff --check 通过。"
   ]
 }
 ```

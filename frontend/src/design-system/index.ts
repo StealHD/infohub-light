@@ -79,10 +79,11 @@ export {
   PageHeader,
   PageIntro,
   PageSection,
+  ScrollAdaptiveViewBar,
   StatusNotice,
   ViewBar,
 } from './patterns'
-export type { CompactSelectOption, LoadingRevealProps, PageFrameWidth, ViewBarAction } from './patterns'
+export type { CompactSelectOption, LoadingRevealProps, PageFrameWidth, ScrollAdaptiveViewBarState, ViewBarAction } from './patterns'
 export {
   CountBadge,
   MetaTag,
