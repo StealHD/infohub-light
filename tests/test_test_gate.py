@@ -220,6 +220,14 @@ def test_deterministic_impact_mapping(
 
     assert set(plan["selected_groups"]) == expected_groups
     assert plan["ui_impacted"] is ui_impacted
+    assert plan["backend_impacted"] is (
+        "full" in expected_groups
+        or any(group.startswith("python_") for group in expected_groups)
+    )
+    assert plan["frontend_impacted"] is (
+        "full" in expected_groups
+        or any(group.startswith(("frontend_", "legacy_")) for group in expected_groups)
+    )
     assert plan["mapping_miss"] is mapping_miss
     if "tests/test_worker.py" in changed_files:
         assert plan["python_test_targets"] == ["tests/test_worker.py"]
@@ -296,6 +304,7 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
     )
 
     targeted = build_command_specs(ROOT, plan, mapping, mode="targeted", scope="all")
+    control = build_command_specs(ROOT, plan, mapping, mode="targeted", scope="control")
     full = build_command_specs(ROOT, plan, mapping, mode="full", scope="all")
     release = build_command_specs(ROOT, plan, mapping, mode="release", scope="all")
 
@@ -309,6 +318,12 @@ def test_targeted_full_and_release_commands_have_expected_safety_boundaries():
             assert "-W" in spec.argv
             assert "default::ResourceWarning" in spec.argv
     assert {"python_full", "legacy_node_full", "frontend_vitest", "frontend_build"} <= full_ids
+    assert {spec.domain for spec in control} == {"control"}
+    assert {spec.command_id for spec in control} == {
+        "observability_contract",
+        "control_json",
+        "diff_check",
+    }
     assert all(
         "observability_contract" in {
             spec.command_id for spec in specs
@@ -480,6 +495,8 @@ def test_success_summary_is_at_most_two_kibibytes(tmp_path):
             "first_failure",
             "log_paths",
             "ui_impacted",
+            "backend_impacted",
+            "frontend_impacted",
             "mapping_miss",
         )
     ) <= json.loads(summary).keys()
@@ -638,6 +655,8 @@ def test_plan_and_targeted_cli_share_snapshot_and_write_result(tmp_path):
     result = json.loads((result_root / "cli-targeted" / "result.json").read_text(encoding="utf-8"))
     assert plan["changed_files"] == ["WORKLOG.md"]
     assert plan["selected_groups"] == ["control"]
+    assert plan["backend_impacted"] is False
+    assert plan["frontend_impacted"] is False
     assert result["status"] == "passed"
     assert result["changed_files"] == plan["changed_files"]
     assert result["selected_groups"] == plan["selected_groups"]

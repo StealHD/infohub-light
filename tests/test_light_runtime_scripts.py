@@ -999,6 +999,44 @@ def test_rc1_release_script_uses_clean_git_archive_and_staged_vps_cutover():
     assert "node --test" not in local_gates
 
 
+def test_normal_vps_release_reuses_main_ci_and_performs_bounded_cutover():
+    script = (ROOT / "scripts" / "release_vps.sh").read_text(encoding="utf-8")
+
+    assert "git fetch --prune origin main --tags" in script
+    assert "local main must exactly match origin/main" in script
+    assert "scripts/check_product_docs.py" in script
+    assert "scripts/test_gate.py run" in script
+    assert "--mode targeted --scope control" in script
+    assert "test-gate.yml" in script
+    assert 'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"' in script
+    assert "release-tag.yml" in script
+    assert script.index("wait_for_workflow_success test-gate.yml") < script.index(
+        'git -C "$ROOT_DIR" tag -a "$RELEASE_TAG"'
+    )
+    assert script.index("wait_for_workflow_success release-tag.yml") < script.rindex(
+        '  deploy_remote_release "$release_id"'
+    )
+    assert "docker buildx build" in script
+    assert '--platform "$PLATFORM"' in script
+    assert 'docker save "$image"' in script
+    assert script.count("docker run --rm --network none") == 2
+    assert 'transfer_with_retry "$archive"' in script
+    assert 'transfer_with_retry "$image_archive"' in script
+    assert "rsync --partial -az" in script
+    assert "source.backup(destination)" in script
+    assert 'install -m 600 "$base/.env"' in script
+    assert 'os.chmod(sys.argv[2], 0o600)' in script
+    assert 'docker load -i "$remote_stage/image.tar.gz"' in script
+    assert "docker compose -f docker-compose.light.yml build" not in script
+    assert "sleep 35" not in script
+    assert "docker stop --time 20 horizon-light-worker" in script
+    assert "horizon-api horizon-worker" in script
+    assert "worker_status" in script
+    assert "verify_frontend" in script
+    assert "rollback_cutover" in script
+    assert 'docker image rm "$LOCAL_RELEASE_IMAGE"' in script
+
+
 def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_store():
     script = (
         ROOT / "scripts" / "refresh_rsshub_bilibili_cookie.sh"
@@ -1021,6 +1059,7 @@ def test_rsshub_bilibili_cookie_refresh_uses_an_isolated_browser_and_secret_stor
 
 def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     workflow = (ROOT / ".github" / "workflows" / "test-gate.yml").read_text(encoding="utf-8")
+    tag_workflow = (ROOT / ".github" / "workflows" / "release-tag.yml").read_text(encoding="utf-8")
 
     assert 'python-version: "3.12"' in workflow
     assert 'node-version: "22"' in workflow
@@ -1032,12 +1071,23 @@ def test_test_gate_ci_runs_parallel_full_gates_and_conditional_release_checks():
     assert "--mode release --scope e2e" in workflow
     assert "--mode release --scope smoke" in workflow
     assert "needs.impact.outputs.ui_impacted == 'true'" in workflow
+    assert "needs.impact.outputs.backend_impacted == 'true'" in workflow
+    assert "needs.impact.outputs.frontend_impacted == 'true'" in workflow
+    assert "needs: [impact, frontend-full]" not in workflow
+    assert 'tags: ["v*"]' not in workflow
     assert "retention-days: 7" in workflow
     assert workflow.count("include-hidden-files: true") == 4
     assert workflow.count("if-no-files-found: error") == 4
     assert "frontend/test-results/**/*" in workflow
     assert "frontend/playwright-report/**/*" in workflow
     assert "service_real_source_smoke" not in workflow
+    assert 'tags: ["v*"]' in tag_workflow
+    assert "actions/workflows/test-gate.yml/runs?head_sha=$GITHUB_SHA" in tag_workflow
+    assert "git merge-base --is-ancestor" in tag_workflow
+    assert "--mode release --scope smoke" in tag_workflow
+    assert "--scope backend" not in tag_workflow
+    assert "--scope frontend" not in tag_workflow
+    assert "--scope e2e" not in tag_workflow
     assert "horizon-worker" not in workflow
 
 

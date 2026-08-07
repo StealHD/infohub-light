@@ -26,26 +26,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities"
-  ],
-  "recorded_on": "2026-08-06",
-  "result": "已将本地 main 推送至 GitHub，并完成 VPS 预检及修订 2c86ba1473c8 的本地 linux/amd64 镜像构建；因发布级浏览器门禁失败，未上传镜像、未切换生产。",
-  "status": "blocked",
-  "task_id": "2026-08-06-youtube-avatar-production-release-gate",
-  "unresolved": [
-    "release Playwright 141 项中 10 条管理页验收失败，需修复或取得明确豁免后再部署。"
-  ],
-  "validation": [
-    "VPS 预检：数据库 integrity/foreign key 通过、迁移标记至 v19、无活跃作业、API/Worker healthy、scheduler stopped。",
-    "release Test Gate：23/24 命令通过；release_playwright 失败（83 passed、10 failed、48 skipped）。",
-    "本地镜像 inteliscope-service:v2.2.10-2c86ba1473c8 已验证为 amd64，OCI revision=2c86ba1473c8。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-06",
@@ -391,6 +371,26 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "生产运行 revision 8ef4c6bf6491：API/Worker healthy，readiness 返回 worker_status=ready；scheduler 未运行，公网 /feed 返回 200。",
     "生产数据库迁移 v19、integrity/foreign key 通过且无活跃作业；发布前生成 0600 的 .env 与 service.db 备份。",
     "本地重建流程已默认在最终健康验证成功后清理旧 inteliscope-service:local-* 镜像标签，并保留当前或仍被容器引用的镜像。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "capabilities",
+    "observability",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "重构正式发布流程：main 按影响域运行完整门禁并并行 UI E2E，Tag 复用精确 main SHA 且只追加隔离 smoke；新增普通 VPS 升级脚本，并行构建/传输、在线备份、失败回滚并清理本地发布镜像。",
+  "status": "completed",
+  "task_id": "2026-08-07-optimize-vps-release-flow",
+  "unresolved": [],
+  "validation": [
+    "定向 pytest：tests/test_test_gate.py、tests/test_light_runtime_scripts.py、tests/test_product_docs_gate.py 全部通过。",
+    "Changelog 定向 Vitest 5/5 通过；最终完整 Test Gate 23/23 通过（248.48 秒）。",
+    "release_vps.sh bash 语法、workflow YAML、JSON 与 git diff 检查通过；真实 VPS status 验证 v2.2.13 API/Worker healthy、worker_status=ready、scheduler 未运行。"
   ]
 }
 ```

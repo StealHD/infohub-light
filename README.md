@@ -125,31 +125,20 @@ The local acceptance benchmark uses an isolated temporary database and 100 real 
 ./.venv/bin/python scripts/benchmark_remote_mcp.py
 ```
 
-## `rb.jiefs.top` RC deployment
+## `rb.jiefs.top` deployment
 
-Public deployment is currently paused while the local acquisition loop is being completed. The commands below remain the guarded release path and must not be run without renewed authorization.
-
-The repository includes a guarded two-phase deployment flow for `vps-tokyo`:
+Normal upgrades use one guarded command from a clean `main` that exactly matches `origin/main`:
 
 ```bash
-# Create a sanitized deployment copy. This does not mutate data/service.db.
-./.venv/bin/python scripts/prepare_service_deployment.py \
-  --source data/service.db \
-  --output /tmp/inteliscope-service-rc1.db
-
-# Requires a clean, authorized release commit. Runs all local gates, creates
-# a git archive, builds a linux/amd64 image locally, uploads it for docker load,
-# and starts API-only staging on port 18080. The VPS never builds this project.
-./scripts/release_rc1.sh prepare /tmp/inteliscope-service-rc1.db
-
-# After staging validation, switch 8080 and start API + Worker.
-./scripts/release_rc1.sh promote <release-id>
-
-./scripts/release_rc1.sh status
-./scripts/release_rc1.sh rollback <release-id>
+./scripts/release_vps.sh preflight vX.Y.Z
+./scripts/release_vps.sh release vX.Y.Z
+./scripts/release_vps.sh status
+./scripts/release_vps.sh rollback [release-id]
 ```
 
-The public target is `https://rb.jiefs.top/`. VPS releases live under `/opt/inteliscope/releases/<release-id>` and share `/opt/inteliscope/{data,logs,.env}`.
+The release command reuses the successful Test Gate for the exact main SHA, builds the pinned `linux/amd64` image locally while CI completes, uploads the source and image concurrently with resumable `rsync`, pushes the tag only after main is green, and waits for the tag's isolated API smoke before cutover. The VPS only performs `docker load`; it never builds this repository. Before replacing API and Worker it checks for active jobs, confirms the scheduler is stopped, creates private online database and environment backups, and automatically restarts the previous release if readiness or asset verification fails. A release that contains database migration work is refused and must use its explicit migration runbook.
+
+The public target is `https://rb.jiefs.top/`. VPS releases live under `/opt/inteliscope/releases/<release-id>` and share `/opt/inteliscope/{data,logs,.env}`. The local release image is removed after the command finishes so release builds do not accumulate. `scripts/release_rc1.sh` remains only for a first-time empty-database bootstrap; it is not the normal upgrade path.
 
 ## Verification
 

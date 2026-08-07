@@ -23,6 +23,17 @@ export const changelogMonths: ChangelogMonth[] = [
     entries: [
       {
         date: '2026-08-07',
+        title: 'VPS 发布流程缩短并可自动回滚',
+        summary: '发布不再重复执行 main 与 Tag 的整套门禁，构建、CI 和传输可以并行，普通切换保留数据库备份、精确 revision 验证与自动回滚。',
+        items: [
+          { title: '精确复用 main 绿灯', description: '发布只接受与 origin/main 完全一致且已通过 Test Gate 的 SHA；main 绿灯后才创建 Tag，Tag 只验证同一 SHA 并追加隔离 API smoke，不再重复后端、前端和 UI 全套检查。' },
+          { title: '耗时步骤并行执行', description: 'Linux 镜像构建与 main CI 同时进行，源包和镜像使用可恢复传输并行上传；UI E2E 也不再等待前端门禁结束。文档-only 变更不会启动无关的后端或前端作业。' },
+          { title: '普通升级不再套用首次引导', description: '标准脚本直接升级现有 Service 数据库，不再要求空库 RC1 流程；发现迁移改动时会明确阻断并转入独立迁移手册。' },
+          { title: '失败恢复与本地清理', description: '切换前在线备份 service.db 和环境文件，确认无活跃任务且 scheduler 关闭；API、Worker、readiness、前端资源或公网 revision 任一失败都会恢复上一 release。发布结束后删除本次本地镜像，避免旧 build 持续堆积。' },
+        ],
+      },
+      {
+        date: '2026-08-07',
         title: 'OpenClaw 对话支持安全图片收发',
         summary: 'v2.2.13 的 Agent 输入框可选择、粘贴和拖放图片；对话历史使用 Gateway 的短期媒体票据恢复，不把图片交给 Inteliscope 服务保存。',
         items: [

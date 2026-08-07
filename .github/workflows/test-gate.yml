@@ -4,7 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       release:
@@ -28,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ui_impacted: ${{ steps.plan.outputs.ui_impacted }}
+      backend_impacted: ${{ steps.plan.outputs.backend_impacted }}
+      frontend_impacted: ${{ steps.plan.outputs.frontend_impacted }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,6 +50,8 @@ jobs:
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             --output /tmp/impact-plan.json | tee /tmp/impact-summary.json
           echo "ui_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["ui_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
+          echo "backend_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["backend_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
+          echo "frontend_impacted=$(python -c 'import json; print(str(json.load(open("/tmp/impact-plan.json"))["frontend_impacted"]).lower())')" >> "$GITHUB_OUTPUT"
           cat /tmp/impact-summary.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
@@ -58,6 +61,7 @@ jobs:
 
   backend-full:
     needs: impact
+    if: needs.impact.outputs.backend_impacted == 'true' || github.event.inputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -94,6 +98,7 @@ jobs:
 
   frontend-full:
     needs: impact
+    if: needs.impact.outputs.frontend_impacted == 'true' || github.event.inputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -131,8 +136,8 @@ jobs:
           retention-days: 7
 
   ui-e2e:
-    needs: [impact, frontend-full]
-    if: needs.impact.outputs.ui_impacted == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+    needs: impact
+    if: needs.impact.outputs.ui_impacted == 'true' || github.event.inputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -175,7 +180,7 @@ jobs:
 
   release-smoke:
     needs: [impact, backend-full, frontend-full, ui-e2e]
-    if: always() && needs.backend-full.result == 'success' && needs.frontend-full.result == 'success' && needs.ui-e2e.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true')
+    if: always() && needs.backend-full.result == 'success' && needs.frontend-full.result == 'success' && needs.ui-e2e.result == 'success' && github.event.inputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

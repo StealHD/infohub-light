@@ -98,8 +98,8 @@
 ## 6. 验证顺序
 
 1. 日常迭代先运行任务相关测试；可用 `snapshot` 和 `plan` 查看影响映射。
-2. 观察期内任务完成、PR/main 和合并前统一运行 `python scripts/test_gate.py run --mode full`；targeted/full/release 的每个 scope 都先执行 `scripts/check_observability_contract.py`。
-3. UI 相关 CI 追加 Playwright；正式发布运行 `python scripts/test_gate.py run --mode release`，其中 Docker smoke 只启动隔离 API。
+2. 观察期内任务完成和合并前统一运行 `python scripts/test_gate.py run --mode full`；PR/main 对每个受影响的后端/前端域运行完整 scope，全局依赖与构建改动 fail closed 到两域。targeted/full/release 的每个 scope 都先执行 `scripts/check_observability_contract.py`；文档-only main 只运行 control scope。
+3. UI 相关 main CI 将 Playwright 与前端 full 并行；正式 VPS 发布复用精确 main SHA 的成功 Test Gate，main 绿灯后才创建 Tag，Tag workflow 只追加隔离 API Docker smoke。标准发布脚本的本地阶段仅运行 control/product-doc preflight，不重复 full、Playwright 或 smoke。
 4. 完整日志只保存在 `.test-results/<run-id>/` 的脱敏 `0600` 文件；不得保留具名 raw 临时日志。先读限长摘要，仅在诊断需要时读取指定失败片段。
 5. 任何 test gate 都不得启动真实来源、AI、Worker 或 scheduler。
 6. 控制面变更同时运行 schema-v3 项目校验、紧凑工作日志校验、JSON 校验和 `git diff --check`。

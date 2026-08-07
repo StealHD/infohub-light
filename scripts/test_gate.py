@@ -296,6 +296,12 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
         groups.discard("frontend_related")
     ui_impacted = any(_matches(relative, mapping.get("ui_globs", [])) for relative in changed)
     selected = sorted(groups)
+    backend_impacted = "full" in groups or any(
+        group.startswith("python_") for group in groups
+    )
+    frontend_impacted = "full" in groups or any(
+        group.startswith(("frontend_", "legacy_")) for group in groups
+    )
     return {
         "mode": "targeted",
         "status": "planned",
@@ -310,6 +316,8 @@ def build_plan(changed_files: list[str], mapping: dict[str, Any]) -> dict[str, A
         "first_failure": None,
         "log_paths": [],
         "ui_impacted": ui_impacted,
+        "backend_impacted": backend_impacted,
+        "frontend_impacted": frontend_impacted,
         "mapping_miss": mapping_miss,
         "python_test_targets": sorted(set(python_test_targets)),
         "legacy_test_targets": sorted(set(legacy_test_targets)),
@@ -587,7 +595,7 @@ def build_command_specs(
 ) -> list[CommandSpec]:
     if mode not in {"targeted", "full", "release"}:
         raise GateConfigError(f"unsupported run mode: {mode}")
-    if scope not in {"all", "backend", "frontend", "e2e", "smoke"}:
+    if scope not in {"all", "control", "backend", "frontend", "e2e", "smoke"}:
         raise GateConfigError(f"unsupported run scope: {scope}")
     specs = _control_specs(root)
     if mode == "targeted" and "full" not in set(plan["selected_groups"]):
@@ -885,6 +893,8 @@ def format_summary(result: dict[str, Any]) -> str:
         "first_failure": result.get("first_failure"),
         "log_paths": _bounded_array(result.get("log_paths", []), 8),
         "ui_impacted": bool(result.get("ui_impacted")),
+        "backend_impacted": bool(result.get("backend_impacted")),
+        "frontend_impacted": bool(result.get("frontend_impacted")),
         "mapping_miss": bool(result.get("mapping_miss")),
     }
 
@@ -951,6 +961,8 @@ def _load_plan_file(path: Path) -> dict[str, Any]:
         "first_failure",
         "log_paths",
         "ui_impacted",
+        "backend_impacted",
+        "frontend_impacted",
         "mapping_miss",
     }
     if not isinstance(payload, dict) or not required <= payload.keys():
@@ -970,6 +982,8 @@ def _blank_plan(mode: str) -> dict[str, Any]:
         "first_failure": None,
         "log_paths": [],
         "ui_impacted": mode == "release",
+        "backend_impacted": mode in {"full", "release"},
+        "frontend_impacted": mode in {"full", "release"},
         "mapping_miss": False,
         "python_test_targets": [],
         "legacy_test_targets": [],
@@ -982,8 +996,12 @@ def _run_plan(mode: str, impact_plan: dict[str, Any]) -> dict[str, Any]:
     plan["mode"] = mode
     if mode == "full":
         plan["selected_groups"] = ["full"]
+        plan["backend_impacted"] = True
+        plan["frontend_impacted"] = True
     elif mode == "release":
         plan["selected_groups"] = ["full", "release_api_docker_smoke", "release_playwright"]
+        plan["backend_impacted"] = True
+        plan["frontend_impacted"] = True
     return plan
 
 
@@ -1067,7 +1085,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--mapping", type=Path)
     run.add_argument("--impact-plan", type=Path)
     run.add_argument("--mode", choices=("targeted", "full", "release"), required=True)
-    run.add_argument("--scope", choices=("all", "backend", "frontend", "e2e", "smoke"), default="all")
+    run.add_argument(
+        "--scope",
+        choices=("all", "control", "backend", "frontend", "e2e", "smoke"),
+        default="all",
+    )
     run.add_argument("--result-root", type=Path)
     run.add_argument("--run-id")
     subparsers.add_parser("_validate-json", help=argparse.SUPPRESS)

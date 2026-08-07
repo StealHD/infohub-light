@@ -1123,3 +1123,10 @@
 - 决策内容：OpenClaw 对话只接受 JPEG、PNG、WebP 图片，浏览器在当前页面内完成尺寸、像素和字节上限检查，最长边缩至 2048 px 后重新编码为 WebP，移除 EXIF 和原文件名。每轮最多四张，单张不超过 5 MiB、总计不超过 12 MiB；原始文件/Base64 不写入 Inteliscope 服务、日志、数据库或 sessionStorage。图片输入复用原版 Gateway 已有的 `chat.send.attachments`，只要求功能开关和当前模型声明 `image` 能力。历史和输出不信任任何内容块 URL：页面只读取 `messageId + partIndex`，仅当 Gateway 声明 `chat.media.ticket` 且返回 allowlisted 路径时，才获得 5 分钟、单图绑定的 Gateway 路径与票据，刷新/重连后重新申请；缺少该 RPC 时继续支持文本和图片输入，但不显示 Gateway 输出/历史图片。Handoff 升级 V7，只记录 `imageCount`，并明确图片/OCR 为不可信用户内容。
 - 云端边界：浏览器 WebSocket 与媒体可统一为同一 Gateway Origin；Inteliscope 仅配置 WSS 地址和精确 HTTPS 媒体 Origin。Gateway 负责验证 `operator.read`、会话/消息归属、图片类型和允许媒体目录，再代理媒体；对象存储和长期凭据不暴露给浏览器。多副本必须共享历史/媒体索引、持久化媒体和带 `kid` 的票据签名密钥，轮换期同时接受当前及上一把密钥至少一个票据 TTL。CSP 与 `gateway.controlUi.allowedOrigins` 都只接受精确 Origin，禁止通配符。
 - 原因：既有 Gateway 的媒体 URL 可能要求浏览器转发长期设备凭据，不能作为跨 Origin Inteliscope 页面图片地址；直接渲染模型返回外链又会造成跟踪、路径和内容类型绕过。把一次性授权收回 Gateway，并让前端只处理内存中规范化输入和短期 ticket，才能同时保持本机、云端和旧 Gateway 的兼容边界。
+
+### D133 正式发布复用精确 main Gate 并将 Tag 收为隔离 smoke
+
+- 决策日期：2026-08-07
+- 当前状态：标准发布脚本、CI 拆分和文档已实现，等待完整门禁与 main 集成；不改变生产镜像必须在本地构建、VPS 只允许 `docker load` 的约束。
+- 决策内容：PR/main 继续承担受影响域的完整门禁，UI E2E 与前端 full 并行；文档-only revision 只运行 control。正式发布必须从与 `origin/main` 完全一致的干净 main 开始，复用该精确 SHA 已成功的 Test Gate，本地只补 control、产品文档和发布身份检查。Linux 镜像构建与 main CI 等待并行，源包与镜像并行可恢复传输；main 绿灯后才创建 Tag，Tag workflow 只验证同一 main SHA 并运行隔离 API Docker smoke。普通 VPS 升级在不停服阶段做 SQLite online backup，确认无活跃任务和 scheduler 关闭后只重建 API/Worker，验证失败恢复上一 release；检测到 migration 文件或 schema delta 时 fail closed 到独立迁移流程。首次空库引导继续保留 `release_rc1.sh`，不再用于普通升级。
+- 原因：此前本地 release、main push 与 Tag push 重复运行相同后端、前端和 UI 门禁，UI 又串行等待 frontend full；镜像和源包串行 `scp`，普通升级还借用只接受空数据库的首次引导流程，导致一次发布接近三小时且 Tag 容易在 main 未绿时留下红灯。精确 SHA 复用保持证据等价，隔离 smoke 保留 Tag/容器边界验证，并行构建/传输与有界切换将预计正常发布收敛到约 45–60 分钟，同时不削弱备份、回滚、revision、Worker 和资源验收。

@@ -1,0 +1,62 @@
+name: Release Tag
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  verify-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify tag identity and reuse the exact main SHA gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          expected_tag="v$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          [[ "$GITHUB_REF_NAME" == "$expected_tag" ]]
+          successful_runs="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/test-gate.yml/runs?head_sha=$GITHUB_SHA&branch=main&event=push&status=success&per_page=20" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+          [[ "$successful_runs" -ge 1 ]]
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra dev
+      - id: gate
+        name: Isolated API-only Docker smoke
+        run: |
+          set -o pipefail
+          uv run python scripts/test_gate.py run --mode release --scope smoke \
+            | tee /tmp/smoke-summary.json
+      - if: always()
+        run: cat /tmp/smoke-summary.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tag-smoke-failure
+          path: |
+            .test-results/**/*.log
+            .test-results/**/result.json
+            .test-results/**/service-api-smoke-latest.json
+            .test-results/**/service-stack-smoke.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
