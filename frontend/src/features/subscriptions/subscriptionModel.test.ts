@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CatalogSource, Job, SourceHealthItem, SourceTypeDefinition, User } from '../../api/types'
 import * as subscriptionModel from './subscriptionModel'
-import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, presentSourceHealthStatus, resolveChannelSelection, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
+import { canEditSource, canMutateSubscriptions, formValuesForSource, groupSourcesByScope, healthMatches, isPublicSubscriptionScope, isSourceSubscribed, presentJob, presentSourceHealthIssue, presentSourceHealthStatus, sourceForSubscription, sourceMutationPayload, sourceScopesForUser, sourceTypeLabel, sourceUsesSecret } from './subscriptionModel'
 
 const user = (role: User['role'], id = 'user-1'): User => ({ id, username: role, role, enabled: true })
 const source: CatalogSource = { id: 'src-1', type: 'rss', display_name: 'RSS', scope: 'workspace', enabled: true }
@@ -142,37 +142,6 @@ describe('subscription model', () => {
     expect(isPublicSubscriptionScope('public')).toBe(true)
     expect(isPublicSubscriptionScope('workspace')).toBe(true)
     expect(isPublicSubscriptionScope('private')).toBe(false)
-  })
-
-  it('groups subscriptions by effective channel with a stable uncategorized fallback', () => {
-    const groupSourcesByChannel = (subscriptionModel as unknown as {
-      groupSourcesByChannel?: <T>(items: T[], channel: (item: T) => string | null | undefined, order?: string[]) => Array<{ channel: string; items: T[] }>
-    }).groupSourcesByChannel
-    expect(groupSourcesByChannel).toBeTypeOf('function')
-    const groups = groupSourcesByChannel!([
-      { id: 'x', channel: '朋友动态' },
-      { id: 'openai', channel: 'AI' },
-      { id: 'unknown', channel: '' },
-      { id: 'apple', channel: '工作/项目' },
-    ], (item) => item.channel, ['AI', '工作/项目', '朋友动态', '其他'])
-
-    expect(groups.map((group) => [group.channel, group.items.map((item) => item.id)])).toEqual([
-      ['AI', ['openai']],
-      ['工作/项目', ['apple']],
-      ['朋友动态', ['x']],
-      ['其他', ['unknown']],
-    ])
-  })
-
-  it('keeps an available channel selection and falls back to the first non-empty group', () => {
-    const groups = [
-      { channel: 'AI', items: [{ id: 'openai' }] },
-      { channel: '工作/项目', items: [{ id: 'apple' }] },
-    ]
-
-    expect(resolveChannelSelection(groups, '工作/项目')).toBe('工作/项目')
-    expect(resolveChannelSelection(groups, '朋友动态')).toBe('AI')
-    expect(resolveChannelSelection([], 'AI')).toBe('')
   })
 
   it('presents source and job enums as user-facing Chinese copy', () => {

@@ -37,12 +37,10 @@ import { useWorkbenchAgentContext } from '../workbench-live/workbenchAgentContex
 import {
   canEditSource,
   canMutateSubscriptions,
-  channelViewGroupsByChannel,
   effectiveSourceType,
   healthMatches,
   isPublicSubscriptionScope,
   presentJob,
-  resolveViewSelection,
   sourceForSubscription,
   sourceScopesForUser,
   sourceTypeLabel,
@@ -53,7 +51,7 @@ import { HeroNotice, HeroSelect } from './HeroAdminControls'
 import { HeroResponseSchemaDetails } from './HeroResponseSchemaDetails'
 import { HeroSoftDisclosure } from './HeroSoftDisclosure'
 import {
-  SourceLibraryChannelView,
+  SourceLibraryListView,
   SourceFilterMenu,
   SourceSearchField,
   SubscriptionListView,
@@ -209,7 +207,6 @@ export function HeroSubscriptionsPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [scopeFilter, setScopeFilter] = useState('all')
   const [healthFilter, setHealthFilter] = useState<HealthFilter>('all')
-  const [libraryChannel, setLibraryChannel] = useState('')
   const [editingSubscription, setEditingSubscription] = useState<{ source: CatalogSource; subscription: Subscription } | null>(null)
   const [subscriptionDialogPending, setSubscriptionDialogPending] = useState(false)
   const [editingSource, setEditingSource] = useState<CatalogSource | null>(null)
@@ -548,7 +545,6 @@ export function HeroSubscriptionsPage() {
     return {
       source,
       subscription,
-      channel: String(source.default_channel || '').trim() || '其他',
       subscribed: Boolean(subscription),
       subscribePending: feedback.isPending('subscribe', source.id),
       unsubscribePending: feedback.isPending('unsubscribe', source.id),
@@ -556,8 +552,6 @@ export function HeroSubscriptionsPage() {
       canShare: editable && source.scope === 'private' && source.owner_user_id === user.id,
     }
   })
-  const sourceGroups = channelViewGroupsByChannel(libraryEntries, (entry) => entry.channel, taxonomy.channels)
-  const activeLibraryChannel = resolveViewSelection(sourceGroups, libraryChannel)
   const loadError = sourcesQuery.error || typesQuery.error || subscriptionsQuery.error || healthQuery.error || configQuery.error
   const loading = sourcesQuery.isLoading || typesQuery.isLoading || capabilitiesQuery.isLoading || subscriptionsQuery.isLoading || healthQuery.isLoading || configQuery.isLoading
   const schedulePending = feedback.isPending('feed-schedule', 'global')
@@ -750,10 +744,8 @@ export function HeroSubscriptionsPage() {
       <Tabs.Panel id="library" className="grid gap-5 pt-5">
         {loading
           ? <LoadingState label="正在读取来源库" rows={1} />
-          : <SourceLibraryChannelView
-              groups={sourceGroups}
-              selectedChannel={activeLibraryChannel}
-              onSelectChannel={setLibraryChannel}
+          : <SourceLibraryListView
+              items={libraryEntries}
               editable={editable}
               hasSources={sources.length > 0}
               onSubscribe={(source) => subscribeMutation.mutate(source)}

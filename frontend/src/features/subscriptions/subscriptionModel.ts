@@ -3,13 +3,6 @@ import { newItemCountOf } from '../jobs/jobModel'
 
 export type HealthFilter = SourceHealthStatus | 'all' | 'problem'
 
-export type ChannelViewGroup<T> = {
-  id: string
-  label: string
-  kind: 'view' | 'channel'
-  items: T[]
-}
-
 export const canMutateSubscriptions = (user: User) => user.role !== 'viewer'
 
 export const sourceUsesSecret = (definition: SourceTypeDefinition) => (
@@ -64,56 +57,6 @@ export function groupSourcesByScope<T extends Pick<CatalogSource, 'scope'>>(item
     description: sourceScopeDescription(scope),
     items: items.filter((item) => sourceMatchesSubscriptionVisibility(item, scope)),
   })).filter((group) => group.items.length > 0)
-}
-
-export function groupSourcesByChannel<T>(
-  items: T[],
-  channelFor: (item: T) => string | null | undefined,
-  channelOrder: string[] = [],
-) {
-  const groups = new Map<string, T[]>()
-  for (const item of items) {
-    const channel = String(channelFor(item) || '').trim() || '其他'
-    groups.set(channel, [...(groups.get(channel) ?? []), item])
-  }
-  const order = new Map(channelOrder.map((channel, index) => [channel, index]))
-  return Array.from(groups, ([channel, groupedItems]) => ({ channel, items: groupedItems })).sort((left, right) => {
-    const leftOrder = order.get(left.channel) ?? Number.MAX_SAFE_INTEGER
-    const rightOrder = order.get(right.channel) ?? Number.MAX_SAFE_INTEGER
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder
-    if (left.channel === '其他') return 1
-    if (right.channel === '其他') return -1
-    return left.channel.localeCompare(right.channel, 'zh-CN')
-  })
-}
-
-export function channelViewGroupsByChannel<T>(
-  items: T[],
-  channelFor: (item: T) => string | null | undefined,
-  channelOrder: string[] = [],
-): ChannelViewGroup<T>[] {
-  return groupSourcesByChannel(items, channelFor, channelOrder).map((group) => ({
-    id: `channel:${group.channel}`,
-    label: group.channel,
-    kind: 'channel',
-    items: group.items,
-  }))
-}
-
-export function resolveViewSelection<T>(
-  groups: Array<Pick<ChannelViewGroup<T>, 'id'>>,
-  preferredGroup: string,
-): string {
-  if (preferredGroup && groups.some((group) => group.id === preferredGroup)) return preferredGroup
-  return groups[0]?.id ?? ''
-}
-
-export function resolveChannelSelection<T>(
-  groups: Array<{ channel: string; items: T[] }>,
-  preferredChannel: string,
-): string {
-  if (preferredChannel && groups.some((group) => group.channel === preferredChannel)) return preferredChannel
-  return groups[0]?.channel ?? ''
 }
 
 export function effectiveSubscriptionChannel(subscription: Subscription, source: CatalogSource): string {

@@ -433,3 +433,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "来源库取消频道导航并改为直接列表；订阅工具栏顶部态改用与来源卡一致的 12 px 内容内缩和轻量圆角表面。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-library-without-channels",
+  "unresolved": [
+    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
+  ],
+  "validation": [
+    "定向 Vitest 150 项、TypeScript、UI 合同检查、lint 和构建通过。",
+    "完整 Test Gate：23/23 命令通过（234.661 秒）；git diff --check 通过。"
+  ]
+}
+```

@@ -79,8 +79,8 @@ export function ScrollAdaptiveViewBar({ children, state, className = '' }: {
     data-scroll-adaptive-view-bar
     data-view-bar-state={state}
     className={`mx-auto flex min-h-10 items-center gap-1 transition-[width,max-width,border-radius,border-color,background-color,box-shadow] duration-[var(--inteliscope-motion-deliberate)] ease-out motion-reduce:transition-none ${floating
-      ? 'w-[calc(100%-16px)] max-w-[var(--inteliscope-width-reading)] rounded-full border border-separator/80 bg-surface-secondary/80 px-2.5 shadow-[inset_0_1px_0_var(--surface)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg'
-      : 'w-full max-w-full rounded-none border border-transparent bg-transparent px-2.5 shadow-none'} ${className}`}
+      ? 'w-[calc(100%-16px)] max-w-[var(--inteliscope-width-reading)] rounded-full border border-separator/80 bg-surface-secondary/80 px-3 shadow-[inset_0_1px_0_var(--surface)] supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg'
+      : 'w-full max-w-full rounded-2xl border border-separator/70 bg-surface-secondary/55 px-3 shadow-[inset_0_1px_0_var(--surface)]'} ${className}`}
   >{children}</div>
 }
 

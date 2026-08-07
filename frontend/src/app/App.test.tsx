@@ -761,7 +761,7 @@ describe('App routes', () => {
     expect(subscriptionToolbar).toHaveClass('sticky', 'top-0', 'z-20', 'px-2')
     const adaptiveViewBar = subscriptionToolbar.querySelector('[data-scroll-adaptive-view-bar]') as HTMLElement
     expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'expanded')
-    expect(adaptiveViewBar).toHaveClass('w-full', 'rounded-none', 'motion-reduce:transition-none')
+    expect(adaptiveViewBar).toHaveClass('w-full', 'rounded-2xl', 'bg-surface-secondary/55', 'px-3', 'motion-reduce:transition-none')
     const sourceSearch = within(subscriptionToolbar).getByRole('searchbox', { name: '搜索来源' })
     expect(within(subscriptionToolbar).getByRole('button', { name: '筛选来源，已启用 0 项' })).toBeInTheDocument()
     const createSource = within(subscriptionToolbar).getByRole('button', { name: '新增来源' })
@@ -771,7 +771,7 @@ describe('App routes', () => {
     Object.defineProperty(subscriptionsScroller, 'scrollTop', { configurable: true, value: 21, writable: true })
     fireEvent.scroll(subscriptionsScroller)
     await waitFor(() => expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'floating'))
-    expect(adaptiveViewBar).toHaveClass('w-[calc(100%-16px)]', 'rounded-full', 'supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg')
+    expect(adaptiveViewBar).toHaveClass('w-[calc(100%-16px)]', 'rounded-full', 'px-3', 'supports-[backdrop-filter:blur(1px)]:backdrop-blur-lg')
     subscriptionsScroller.scrollTop = 0
     fireEvent.scroll(subscriptionsScroller)
     await waitFor(() => expect(adaptiveViewBar).toHaveAttribute('data-view-bar-state', 'expanded'))
@@ -1043,7 +1043,7 @@ describe('App routes', () => {
     })
   })
 
-  it('keeps subscriptions view-free while source-library channel choices and toolbar search remain independent', async () => {
+  it('keeps subscription and source-library lists view-free while toolbar search remains shared', async () => {
     const browser = userEvent.setup()
     const sources = [
       { id: 'channel-ai', type: 'rss', display_name: 'AI 来源', scope: 'public' as const, default_channel: 'AI', enabled: true },
@@ -1079,20 +1079,23 @@ describe('App routes', () => {
     expect(screen.getByText('项目来源')).toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
-    expect(screen.getByRole('heading', { name: 'AI' })).toBeInTheDocument()
-    await browser.click(within(screen.getByRole('navigation', { name: '来源库频道' })).getByRole('button', { name: /金融/ }))
-    expect(screen.getByRole('heading', { name: '金融' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '来源库来源' })).toBeInTheDocument()
+    expect(screen.getByText('AI 来源')).toBeInTheDocument()
+    expect(screen.getByText('项目来源')).toBeInTheDocument()
+    expect(screen.getByText('金融来源')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '来源库频道' })).not.toBeInTheDocument()
+    expect(document.querySelector('[data-channel-rail], [data-compact-channel-controls], [data-channel-header]')).toBeNull()
 
     await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
     expect(screen.getByRole('list', { name: '订阅来源' })).toBeInTheDocument()
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
-    expect(screen.getByRole('heading', { name: '金融' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '来源库来源' })).toBeInTheDocument()
 
     const toolbar = document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement
     const sourceSearch = within(toolbar).getByRole('searchbox', { name: '搜索来源' })
     await browser.type(sourceSearch, 'AI 来源')
-    expect(screen.getByRole('heading', { name: 'AI' })).toBeInTheDocument()
     expect(screen.getByText('AI 来源')).toBeInTheDocument()
+    expect(screen.queryByText('项目来源')).not.toBeInTheDocument()
     expect(document.querySelector('[data-channel-rail] [role="searchbox"]')).toBeNull()
     expect(document.querySelector('[data-compact-channel-controls] [role="searchbox"]')).toBeNull()
 

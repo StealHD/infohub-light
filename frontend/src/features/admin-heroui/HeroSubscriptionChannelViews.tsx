@@ -22,7 +22,6 @@ import {
   presentSourceHealthStatus,
   sourceScopeLabel,
   sourceTypeLabel,
-  type ChannelViewGroup,
   type HealthFilter,
 } from '../subscriptions/subscriptionModel'
 import { SourceAvatar } from '../source-avatar/SourceAvatar'
@@ -43,7 +42,6 @@ export type SubscriptionViewEntry = {
 export type LibraryViewEntry = {
   source: CatalogSource
   subscription?: Subscription
-  channel: string
   subscribed: boolean
   subscribePending: boolean
   unsubscribePending: boolean
@@ -60,20 +58,6 @@ export type SourceFilterProps = {
   healthFilter: HealthFilter
   onHealthChange: (value: HealthFilter) => void
   includeHealth: boolean
-}
-
-type ChannelLayoutProps<T> = {
-  groups: ChannelViewGroup<T>[]
-  selectedChannel: string
-  onSelectChannel: (channel: string) => void
-  viewLabel: string
-  selectorLabel: string
-  channelDetail: (items: T[], group: ChannelViewGroup<T>) => string
-  channelSummary: (items: T[], group: ChannelViewGroup<T>) => string
-  beforeList?: ReactNode
-  emptyTitle: string | ((group: ChannelViewGroup<T>) => string)
-  emptyDescription?: string | ((group: ChannelViewGroup<T>) => string)
-  renderList: (items: T[]) => ReactNode
 }
 
 const healthOptions = [
@@ -311,107 +295,6 @@ export function SourceFilterMenu({ filters }: {
   </Popover>
 }
 
-function ChannelRail<T>({ groups, selectedChannel, onSelectChannel, detail, viewLabel }: {
-  groups: ChannelViewGroup<T>[]
-  selectedChannel: string
-  onSelectChannel: (channel: string) => void
-  detail: (items: T[], group: ChannelViewGroup<T>) => string
-  viewLabel: string
-}) {
-  return <aside data-channel-rail className="sticky top-4 hidden self-start rounded-2xl border border-separator bg-surface-secondary p-3 min-[1200px]:block">
-    <div className="type-label mb-1 px-2 text-muted">{viewLabel === '我的订阅' ? '视图' : '频道'}</div>
-    <nav aria-label={`${viewLabel}频道`} className="grid gap-1">
-      {groups.map((group) => {
-        const selected = group.id === selectedChannel
-        return <button
-          key={group.id}
-          type="button"
-          aria-pressed={selected}
-          aria-label={`${group.label}，${detail(group.items, group)}，${group.items.length} 个来源`}
-          className={`grid min-h-14 w-full grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-focus ${selected ? 'bg-accent/15 text-foreground ring-1 ring-inset ring-accent/25' : 'text-muted hover:bg-default hover:text-foreground'}`}
-          onClick={() => onSelectChannel(group.id)}
-        >
-          <span aria-hidden="true" className={`grid size-8 place-items-center rounded-lg type-label ${selected ? 'bg-accent/15 text-foreground' : 'bg-default text-muted'}`}>
-            {group.id === 'all' ? '全' : group.id === 'exceptions' ? '异' : group.id === 'scope:public' ? '公' : group.id === 'scope:private' ? '私' : group.label === 'AI' ? 'AI' : Array.from(group.label)[0]}
-          </span>
-          <span className="min-w-0">
-            <span className="type-control block truncate">{group.label}</span>
-            <span className="type-meta block truncate text-muted">{detail(group.items, group)}</span>
-          </span>
-          <span className="type-meta tabular-nums">{group.items.length}</span>
-        </button>
-      })}
-    </nav>
-  </aside>
-}
-
-function ChannelHeader({ group, summary }: {
-  group: ChannelViewGroup<unknown>
-  summary: string
-}) {
-  return <Card data-channel-header variant="secondary" className="min-w-0 max-w-full border border-separator bg-surface-secondary p-4 shadow-none">
-    <div className="min-w-0">
-      <div className="type-label text-accent">当前频道</div>
-      <h2 className="type-section-title mt-1 truncate">{group.label}</h2>
-      <p className="type-meta mt-1 text-muted">{summary}</p>
-    </div>
-  </Card>
-}
-
-function ChannelLayout<T>({
-  groups,
-  selectedChannel,
-  onSelectChannel,
-  viewLabel,
-  selectorLabel,
-  channelDetail,
-  channelSummary,
-  beforeList,
-  emptyTitle,
-  emptyDescription,
-  renderList,
-}: ChannelLayoutProps<T>) {
-  const activeGroup = groups.find((group) => group.id === selectedChannel) ?? groups[0]
-  const emptyTitleText = activeGroup && typeof emptyTitle === 'function'
-    ? emptyTitle(activeGroup)
-    : typeof emptyTitle === 'string' ? emptyTitle : '没有匹配的来源'
-  const emptyDescriptionText = activeGroup && typeof emptyDescription === 'function'
-    ? emptyDescription(activeGroup)
-    : typeof emptyDescription === 'string' ? emptyDescription : undefined
-  const controls = <div data-compact-channel-controls className="min-w-0 max-w-full min-[1200px]:hidden">
-    {activeGroup && <HeroSelect
-      label={selectorLabel}
-      value={activeGroup.id}
-      onChange={onSelectChannel}
-      options={groups.map((group) => ({ id: group.id, label: `${group.label} · ${group.items.length}` }))}
-    />}
-  </div>
-
-  return <>
-    {controls}
-    <div data-channel-workspace={viewLabel} className="grid min-w-0 max-w-full items-start gap-4 min-[1200px]:grid-cols-[236px_minmax(0,1fr)]">
-      <ChannelRail
-        groups={groups}
-        selectedChannel={activeGroup?.id ?? ''}
-        onSelectChannel={onSelectChannel}
-        detail={channelDetail}
-        viewLabel={viewLabel}
-      />
-      <section aria-label={`${activeGroup?.label ?? '无匹配频道'} ${viewLabel}`} className="grid min-w-0 max-w-full gap-3">
-        {activeGroup && <ChannelHeader
-          group={activeGroup}
-          summary={channelSummary(activeGroup.items, activeGroup)}
-        />}
-        {beforeList}
-        {activeGroup && activeGroup.items.length > 0 ? renderList(activeGroup.items) : <Card variant="transparent" className="p-6 text-center">
-          <Card.Title>{emptyTitleText}</Card.Title>
-          {emptyDescriptionText && <Card.Description className="mt-1">{emptyDescriptionText}</Card.Description>}
-        </Card>}
-      </section>
-    </div>
-  </>
-}
-
 export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSchedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
   items: SubscriptionViewEntry[]
   editable: boolean
@@ -580,7 +463,7 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
 }) {
-  return <div role="list" aria-label="当前频道来源库" className="grid min-w-0 max-w-full gap-2">
+  return <div role="list" aria-label="来源库来源" className="grid min-w-0 max-w-full gap-2">
     {items.map((entry) => {
       const { source } = entry
       return <Card
@@ -657,10 +540,8 @@ export function SubscriptionListView({ items, editable, feedWindowDays = 7, glob
   </section>
 }
 
-export function SourceLibraryChannelView({ groups, selectedChannel, onSelectChannel, editable, hasSources, onSubscribe, onUnsubscribe, onEditSource, onShare }: {
-  groups: ChannelViewGroup<LibraryViewEntry>[]
-  selectedChannel: string
-  onSelectChannel: (channel: string) => void
+export function SourceLibraryListView({ items, editable, hasSources, onSubscribe, onUnsubscribe, onEditSource, onShare }: {
+  items: LibraryViewEntry[]
   editable: boolean
   hasSources: boolean
   onSubscribe: (source: CatalogSource) => void
@@ -668,23 +549,17 @@ export function SourceLibraryChannelView({ groups, selectedChannel, onSelectChan
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
 }) {
-  return <ChannelLayout
-    groups={groups}
-    selectedChannel={selectedChannel}
-    onSelectChannel={onSelectChannel}
-    viewLabel="来源库"
-    selectorLabel="频道"
-    channelDetail={(items) => `${items.filter((item) => item.subscribed).length}/${items.length} 已订阅`}
-    channelSummary={(items) => `${items.length} 个来源 · ${items.filter((item) => item.subscribed).length} 个已订阅`}
-    emptyTitle={hasSources ? '没有匹配的来源' : '来源库还是空的'}
-    emptyDescription={hasSources ? '调整搜索或筛选后重试。' : '创建来源后，它会按默认频道出现在这里。'}
-    renderList={(items) => <LibraryRows
+  return <section data-source-library-list-workspace aria-label="来源库列表" className="grid min-w-0 max-w-full gap-3">
+    {items.length > 0 ? <LibraryRows
       items={items}
       editable={editable}
       onSubscribe={onSubscribe}
       onUnsubscribe={onUnsubscribe}
       onEditSource={onEditSource}
       onShare={onShare}
-    />}
-  />
+    /> : <Card variant="transparent" className="p-6 text-center">
+      <Card.Title>{hasSources ? '没有匹配的来源' : '来源库还是空的'}</Card.Title>
+      <Card.Description className="mt-1">{hasSources ? '调整搜索或筛选后重试。' : '创建来源后，它会显示在这里。'}</Card.Description>
+    </Card>}
+  </section>
 }
