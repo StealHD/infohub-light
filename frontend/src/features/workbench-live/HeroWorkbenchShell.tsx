@@ -752,6 +752,8 @@ export function HeroWorkbenchShell(props: HeroWorkbenchShellProps) {
   })
   const openclawChat = useOpenClawChat({
     enabled: agentRoute && Boolean(delegations.data?.openclaw_chat?.enabled),
+    imageIoEnabled: Boolean(delegations.data?.openclaw_chat?.image_io_enabled),
+    mediaOrigins: delegations.data?.openclaw_chat?.media_origins ?? [],
     userId: props.user.id,
     defaultGatewayUrl: delegations.data?.openclaw_chat?.default_gateway_url ?? 'ws://127.0.0.1:18789',
   })

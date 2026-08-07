@@ -36,6 +36,8 @@ function chatController(overrides: Record<string, unknown> = {}) {
     runtimeIssue: null,
     modelSwitchFallback: null,
     contextUsage: null,
+    imageIoAvailable: false,
+    currentModelSupportsImages: false,
     sessionKey: null,
     isRunning: false,
     isStopping: false,
@@ -57,6 +59,7 @@ function chatController(overrides: Record<string, unknown> = {}) {
     setThinking: vi.fn().mockResolvedValue(true),
     switchToBlankConversation: vi.fn().mockResolvedValue(true),
     newConversation: vi.fn(),
+    refreshMedia: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -291,7 +294,7 @@ describe('OpenClaw conversation surface', () => {
       displayText: '创建食贫道的 Bilibili 订阅',
       contextItems: [],
     })
-    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V6]')
+    expect(request.gatewayPrompt).toContain('[INTELISCOPE_HANDOFF_V7]')
     expect(request.gatewayPrompt).toContain('"mode":"direct"')
     expect(request.gatewayPrompt).toContain('prepare → preview → exact confirmation → apply')
     expect(request.gatewayPrompt).not.toContain('不得执行任何写操作')
@@ -393,7 +396,7 @@ describe('OpenClaw conversation surface', () => {
 
     expect(screen.getByTestId('openclaw-composer')).toHaveClass('grid', 'grid-rows-[minmax(64px,auto)_36px]', 'gap-2')
     expect(screen.getByLabelText('发送给 OpenClaw 的问题')).toHaveClass('min-h-16', 'max-h-[160px]', '[field-sizing:content]')
-    expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)_36px]')
+    expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[36px_minmax(0,1fr)_36px]')
     expect(screen.getByTestId('openclaw-composer-toolbar')).not.toHaveClass('mt-2')
     expect(screen.getByRole('button', { name: '发送给 OpenClaw' })).toHaveClass('size-9', 'shrink-0')
     expect(screen.getByTestId('openclaw-runtime-controls')).toHaveClass('grid', 'grid-cols-[auto_minmax(0,1fr)_auto]')

@@ -61,6 +61,8 @@ def test_agent_delegation_api_lists_when_disabled_but_rejects_creation(
             "openclaw_chat": {
                 "enabled": False,
                 "default_gateway_url": "ws://127.0.0.1:18789",
+                "image_io_enabled": False,
+                "media_origins": [],
                 "protocol_version": 4,
                 "target_version": "2026.7.1",
             },
@@ -100,6 +102,8 @@ def test_agent_delegation_api_supports_rename_revoke_and_explicit_record_delete(
     assert listing["openclaw_chat"] == {
         "enabled": False,
         "default_gateway_url": "ws://127.0.0.1:18789",
+        "image_io_enabled": False,
+        "media_origins": [],
         "protocol_version": 4,
         "target_version": "2026.7.1",
     }

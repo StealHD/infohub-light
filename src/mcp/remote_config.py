@@ -84,6 +84,8 @@ class RemoteMCPSettings:
 class OpenClawChatSettings:
     enabled: bool
     default_gateway_url: str
+    image_io_enabled: bool = False
+    media_origins: tuple[str, ...] = ()
     protocol_version: int = 4
     target_version: str = "2026.7.1"
 
@@ -95,6 +97,12 @@ class OpenClawChatSettings:
                 "HORIZON_OPENCLAW_GATEWAY_DEFAULT_URL",
                 "ws://127.0.0.1:18789",
             ).strip(),
+            image_io_enabled=_boolean_env("HORIZON_OPENCLAW_IMAGE_IO_ENABLED"),
+            media_origins=tuple(
+                value.strip()
+                for value in os.getenv("HORIZON_OPENCLAW_MEDIA_ORIGINS", "").split(",")
+                if value.strip()
+            ),
         )
         settings.validate()
         return settings
@@ -119,11 +127,35 @@ class OpenClawChatSettings:
             raise ValueError(
                 "OpenClaw Gateway WS URLs must use 127.0.0.1 or localhost"
             )
+        for origin in self.media_origins:
+            media = urlsplit(origin)
+            if (
+                media.scheme not in {"http", "https"}
+                or not media.hostname
+                or media.username is not None
+                or media.password is not None
+                or media.path not in {"", "/"}
+                or media.query
+                or media.fragment
+            ):
+                raise ValueError(
+                    "HORIZON_OPENCLAW_MEDIA_ORIGINS must contain credential-free HTTP(S) origins"
+                )
+            if media.scheme == "http" and not _is_loopback(media.hostname):
+                raise ValueError(
+                    "non-loopback OpenClaw media origins must use HTTPS"
+                )
+        if self.image_io_enabled and not self.media_origins:
+            raise ValueError(
+                "HORIZON_OPENCLAW_MEDIA_ORIGINS is required when image I/O is enabled"
+            )
 
-    def public_config(self) -> dict[str, bool | int | str]:
+    def public_config(self) -> dict[str, bool | int | str | list[str]]:
         return {
             "enabled": self.enabled,
             "default_gateway_url": self.default_gateway_url,
+            "image_io_enabled": self.image_io_enabled,
+            "media_origins": list(self.media_origins),
             "protocol_version": self.protocol_version,
             "target_version": self.target_version,
         }

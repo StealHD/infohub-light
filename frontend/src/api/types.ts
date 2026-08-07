@@ -332,6 +332,8 @@ export type AgentDelegationsResponse = {
   openclaw_chat: {
     enabled: boolean
     default_gateway_url: string
+    image_io_enabled?: boolean
+    media_origins?: string[]
     protocol_version: 4
     target_version: string
   }

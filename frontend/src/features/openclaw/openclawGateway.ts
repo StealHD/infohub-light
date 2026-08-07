@@ -28,8 +28,27 @@ export type GatewayEvent = { type: 'event'; event: string; payload?: unknown; se
 export type GatewayHello = {
   protocol?: number
   auth?: { deviceToken?: string; role?: string; scopes?: string[] }
-  snapshot?: { sessionDefaults?: { defaultAgentId?: string } }
+  snapshot?: {
+    sessionDefaults?: { defaultAgentId?: string }
+    features?: { methods?: unknown[] }
+    methods?: unknown[]
+  }
   [key: string]: unknown
+}
+
+export function gatewaySupportsMethod(hello: GatewayHello | null | undefined, method: string): boolean {
+  if (!hello || !method) return false
+  const roots = [hello, hello.snapshot]
+  for (const root of roots) {
+    if (!root || typeof root !== 'object') continue
+    const record = root as Record<string, unknown>
+    const features = record.features
+    const methods = features && typeof features === 'object'
+      ? (features as Record<string, unknown>).methods
+      : record.methods
+    if (Array.isArray(methods) && methods.some((candidate) => candidate === method)) return true
+  }
+  return false
 }
 
 type GatewayErrorShape = {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type Key, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type Key, type ReactNode } from 'react'
 
 import {
   anchoredTooltipProps,
@@ -8,6 +8,7 @@ import {
   ChatSources,
   Form,
   Header,
+  ImageGalleryModal,
   Icons,
   Input,
   Label,
@@ -34,6 +35,14 @@ import type {
   OpenClawRunPhase,
   OpenClawRunTrace,
 } from './useOpenClawChat'
+import {
+  OPENCLAW_MAX_IMAGES_PER_TURN,
+  OPENCLAW_MAX_TOTAL_IMAGE_BYTES,
+  normalizeOpenClawImage,
+  releaseOpenClawImageAttachment,
+  type OpenClawImageAttachment,
+  type OpenClawMessageImage,
+} from './openclawMedia'
 
 type ChatController = ReturnType<typeof useOpenClawChat>
 
@@ -221,6 +230,59 @@ function ConversationTurn({
       {children}
     </article>
   </>
+}
+
+type OpenClawImageViewerState = {
+  label: string
+  images: OpenClawMessageImage[]
+  index: number
+  messageId?: string
+}
+
+function OpenClawImageGrid({
+  images,
+  role,
+  messageId,
+  onOpen,
+  onRefresh,
+}: {
+  images: OpenClawMessageImage[]
+  role: 'user' | 'assistant'
+  messageId?: string
+  onOpen: (index: number) => void
+  onRefresh?: (imageId: string) => void
+}) {
+  if (!images.length) return null
+  const label = role === 'assistant' ? 'OpenClaw 返回的图片' : '你发送的图片'
+  return <div className="mt-2 grid max-w-[520px] grid-cols-2 gap-2" role="group" aria-label={label}>
+    {images.slice(0, 4).map((image, index) => image.url ? <button
+      key={image.id}
+      type="button"
+      className={`relative min-w-0 overflow-hidden rounded-xl border border-separator bg-default/60 text-left outline-none focus-visible:outline-2 focus-visible:outline-focus ${images.length === 1 ? 'col-span-2 max-h-[320px]' : 'aspect-[4/3]'}`}
+      aria-label={`查看${label}第 ${index + 1} 张`}
+      onClick={() => onOpen(index)}
+    >
+      <img
+        src={image.url}
+        alt={image.alt || `${label}第 ${index + 1} 张`}
+        width={image.width}
+        height={image.height}
+        referrerPolicy="no-referrer"
+        className="size-full object-cover"
+        onError={() => messageId && onRefresh?.(image.id)}
+      />
+      {index === 3 && images.length > 4 && <span className="type-control absolute inset-0 grid place-items-center bg-background/70 text-foreground">+{images.length - 4}</span>}
+    </button> : <div
+      key={image.id}
+      className={`grid min-w-0 place-items-center rounded-xl border border-separator bg-default/60 p-3 text-center ${images.length === 1 ? 'col-span-2 min-h-32' : 'aspect-[4/3]'}`}
+    >
+      <div>
+        <Icons.ImageOff size={18} className="mx-auto text-muted" aria-hidden="true" />
+        <p className="type-label mt-1 text-muted">图片暂不可用</p>
+        {messageId && onRefresh && <Button size="sm" variant="ghost" className="mt-1" onPress={() => onRefresh(image.id)}>重试</Button>}
+      </div>
+    </div>)}
+  </div>
 }
 
 const runPhaseLabels: Record<OpenClawRunPhase, string> = {
@@ -495,6 +557,10 @@ function formatModelThinking(model: OpenClawModelOption): string {
   return ''
 }
 
+function formatModelCapabilities(model: OpenClawModelOption): string {
+  return [formatContextWindow(model.contextWindow), model.supportsImages ? '支持图片' : '', formatModelThinking(model)].filter(Boolean).join(' · ')
+}
+
 const AUTO_THINKING_KEY = '__auto__'
 
 function groupModelsByProvider(models: OpenClawModelOption[]) {
@@ -576,8 +642,8 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
             >
               <span className="min-w-0">
                 <span className="type-control block min-w-0 truncate">{model.name}</span>
-                {(formatContextWindow(model.contextWindow) || formatModelThinking(model)) && <span className="type-meta block min-w-0 truncate text-muted">
-                  {[formatContextWindow(model.contextWindow), formatModelThinking(model)].filter(Boolean).join(' · ')}
+                {formatModelCapabilities(model) && <span className="type-meta block min-w-0 truncate text-muted">
+                  {formatModelCapabilities(model)}
                 </span>}
               </span>
               <ListBox.ItemIndicator className="text-accent" />
@@ -631,11 +697,17 @@ function RuntimeControls({ chat }: { chat: ChatController }) {
 }
 
 function ConnectedConversation({ chat, value }: { chat: ChatController; value: WorkbenchAgentContextValue }) {
-  const canSend = Boolean(value.draft.question.trim() || value.draft.items.length)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composingRef = useRef(false)
   const followRef = useRef(true)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const draftAttachmentsRef = useRef<OpenClawImageAttachment[]>([])
   const [newOutputBelow, setNewOutputBelow] = useState(false)
+  const [attachments, setAttachments] = useState<OpenClawImageAttachment[]>([])
+  const [attachmentIssue, setAttachmentIssue] = useState<string | null>(null)
+  const [viewer, setViewer] = useState<OpenClawImageViewerState | null>(null)
+  const attachmentModelBlocked = Boolean(attachments.length && !chat.currentModelSupportsImages)
+  const canSend = Boolean(value.draft.question.trim() || value.draft.items.length || attachments.length) && !attachmentModelBlocked
   const runTrace = chat.runTrace
   const outputVersion = `${chat.messages.length}:${chat.streamText.length}:${runTrace?.phase ?? ''}:${runTrace?.activities.map((activity) => activity.status).join(',') ?? ''}`
   const attachTerminalTrace = Boolean(
@@ -659,6 +731,62 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
     })
   }, [outputVersion])
 
+  useEffect(() => {
+    draftAttachmentsRef.current = attachments
+  }, [attachments])
+
+  useEffect(() => () => {
+    draftAttachmentsRef.current.forEach(releaseOpenClawImageAttachment)
+  }, [])
+
+  async function appendImageFiles(files: File[]) {
+    if (!files.length || !chat.imageIoAvailable) return
+    let next = [...attachments]
+    const errors: string[] = []
+    for (const file of files) {
+      if (next.length >= OPENCLAW_MAX_IMAGES_PER_TURN) {
+        errors.push(`每次最多添加 ${OPENCLAW_MAX_IMAGES_PER_TURN} 张图片。`)
+        break
+      }
+      try {
+        const image = await normalizeOpenClawImage(file, next.length + 1)
+        if (next.reduce((total, candidate) => total + candidate.byteLength, 0) + image.byteLength > OPENCLAW_MAX_TOTAL_IMAGE_BYTES) {
+          releaseOpenClawImageAttachment(image)
+          errors.push('本次图片总大小超过 12 MiB 限制。')
+          continue
+        }
+        next = [...next, image]
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : '无法添加图片。')
+      }
+    }
+    setAttachments(next)
+    setAttachmentIssue(errors[0] ?? null)
+  }
+
+  function onImageInput(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    void appendImageFiles(files)
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => {
+      const removed = current.find((attachment) => attachment.id === id)
+      if (removed) releaseOpenClawImageAttachment(removed)
+      return current.filter((attachment) => attachment.id !== id)
+    })
+    setAttachmentIssue(null)
+  }
+
+  function openImages(label: string, images: OpenClawMessageImage[], index: number, messageId?: string) {
+    const selectedId = images[index]?.id
+    const availableImages = images.filter((image) => Boolean(image.url))
+    const availableIndex = availableImages.findIndex((image) => image.id === selectedId)
+    if (!availableImages.length) return
+    setViewer({ label, images: availableImages, index: Math.max(availableIndex, 0), messageId })
+  }
+
   function scrollToLatest() {
     const region = scrollRef.current
     if (!region) return
@@ -678,14 +806,18 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       ...value.draft,
       items: value.draft.items.map((item) => ({ ...item })),
     }
-    const displayText = draft.question.trim() || `分析已附带的 ${draft.items.length} 条信息`
-    const pending = chat.send({
+    const displayText = draft.question.trim() || (draft.items.length ? `分析已附带的 ${draft.items.length} 条信息` : '')
+    const sent = await chat.send({
       displayText,
-      gatewayPrompt: buildAgentHandoffPrompt(draft),
+      gatewayPrompt: buildAgentHandoffPrompt(draft, { imageCount: attachments.length }),
       contextItems: draft.items,
+      attachments,
     })
-    value.clearComposer()
-    await pending
+    if (sent) {
+      value.clearComposer()
+      setAttachments([])
+      setAttachmentIssue(null)
+    }
   }
 
   function editFailed(messageId: string) {
@@ -743,6 +875,13 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             {Boolean(remainingContextCount) && <div className="type-label mt-1.5 text-muted">
               另附 {remainingContextCount} 条任务信息
             </div>}
+            {Boolean(message.images?.length) && <OpenClawImageGrid
+              images={message.images ?? []}
+              role={message.role}
+              messageId={message.id}
+              onOpen={(imageIndex) => openImages(message.role === 'assistant' ? 'OpenClaw 返回的图片' : '你发送的图片', message.images ?? [], imageIndex, message.id)}
+              onRefresh={(imageId) => { void chat.refreshMedia(message.id, imageId) }}
+            />}
             {message.status === 'aborted' && <div className="type-label mt-1.5 text-muted">已停止</div>}
             {message.status === 'failed' && message.role === 'user' && <div className="mt-1.5 flex flex-wrap gap-1">
               <Button size="sm" variant="ghost" isDisabled={chat.isRunning} onPress={() => void chat.retry(message.id)}>重试</Button>
@@ -773,6 +912,23 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
       >有新回复 <Icons.ArrowDown size={14} aria-hidden="true" /></Button>}
       {chat.issue && <p role="alert" className="type-body mt-3 max-w-full break-words text-danger [overflow-wrap:anywhere]">{chat.issue.message}</p>}
     </div>
+    <ImageGalleryModal
+      isOpen={Boolean(viewer)}
+      heading={viewer?.label ?? '图片预览'}
+      images={(viewer?.images ?? []).flatMap((image) => image.url ? [{
+        id: image.id,
+        url: image.url,
+        alt: image.alt,
+        width: image.width,
+        height: image.height,
+      }] : [])}
+      index={viewer?.index ?? 0}
+      onIndexChange={(index) => setViewer((current) => current ? { ...current, index } : current)}
+      onOpenChange={(open) => { if (!open) setViewer(null) }}
+      onRefresh={(image) => {
+        if (viewer?.messageId && image.id) void chat.refreshMedia(viewer.messageId, image.id)
+      }}
+    />
     <div data-testid="openclaw-composer-dock" className="min-w-0 shrink-0 overflow-hidden border-t border-separator p-3">
       {chat.status === 'reconnecting' && <div role="status" className="type-meta mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-warning/10 px-2 py-1.5 text-warning">
         <Icons.WifiOff size={14} className="shrink-0" aria-hidden="true" />
@@ -780,8 +936,43 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
         <Button size="sm" variant="ghost" onPress={chat.retryConnection}>立即重试</Button>
       </div>}
       <ContextSummary value={value} />
-      <PromptInput data-testid="openclaw-composer" className="grid grid-rows-[minmax(64px,auto)_36px] gap-2 p-2">
-        <PromptInputBody>
+      <PromptInput
+        data-testid="openclaw-composer"
+        className="grid grid-rows-[minmax(64px,auto)_36px] gap-2 p-2"
+        onDragOver={(event: DragEvent<HTMLDivElement>) => {
+          if (!chat.imageIoAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return
+          event.preventDefault()
+        }}
+        onDrop={(event: DragEvent<HTMLDivElement>) => {
+          if (!chat.imageIoAvailable) return
+          event.preventDefault()
+          void appendImageFiles(Array.from(event.dataTransfer.files))
+        }}
+      >
+        <PromptInputBody className="grid gap-2">
+          {attachments.length > 0 && <div className="flex flex-wrap gap-2" aria-label={`已添加 ${attachments.length} 张图片`}>
+            {attachments.map((attachment, index) => <div key={attachment.id} className="relative size-14 overflow-hidden rounded-lg border border-separator bg-default">
+              <button
+                type="button"
+                className="size-full outline-none focus-visible:outline-2 focus-visible:outline-focus"
+                aria-label={`预览第 ${index + 1} 张图片`}
+                onClick={() => openImages('待发送图片', attachments.map((image, imageIndex) => ({
+                  id: image.id,
+                  alt: `待发送第 ${imageIndex + 1} 张图片`,
+                  mimeType: image.mimeType,
+                  width: image.width,
+                  height: image.height,
+                  url: image.previewUrl,
+                })), index)}
+              ><img src={attachment.previewUrl} alt="" className="size-full object-cover" /></button>
+              <button
+                type="button"
+                className="absolute right-0.5 top-0.5 inline-flex size-5 items-center justify-center rounded-full bg-background/90 text-foreground outline-none hover:bg-default focus-visible:outline-2 focus-visible:outline-focus"
+                aria-label={`移除第 ${index + 1} 张图片`}
+                onClick={() => removeAttachment(attachment.id)}
+              ><Icons.X size={12} aria-hidden="true" /></button>
+            </div>)}
+          </div>}
           <TextArea
             fullWidth
             variant="secondary"
@@ -792,6 +983,12 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             rows={2}
             placeholder="分析文章，或询问来源和任务…"
             onChange={(event) => value.setQuestion(event.target.value)}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
+              if (!files.length || !chat.imageIoAvailable) return
+              event.preventDefault()
+              void appendImageFiles(files)
+            }}
             onCompositionStart={() => { composingRef.current = true }}
             onCompositionEnd={() => { composingRef.current = false }}
             onKeyDown={(event) => {
@@ -807,7 +1004,29 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             }}
           />
         </PromptInputBody>
-        <PromptInputToolbar data-testid="openclaw-composer-toolbar" className="grid grid-cols-[minmax(0,1fr)_36px] px-1 pb-0.5">
+        <PromptInputToolbar data-testid="openclaw-composer-toolbar" className="grid grid-cols-[36px_minmax(0,1fr)_36px] px-1 pb-0.5">
+          <Tooltip delay={250}>
+            <TooltipTriggerButton
+              aria-label="添加图片"
+              disabled={!chat.imageIoAvailable || chat.isRunning || attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN}
+              onClick={() => fileInputRef.current?.click()}
+              className="size-9 shrink-0 rounded-lg text-muted hover:bg-default hover:text-foreground"
+            ><Icons.ImagePlus size={17} aria-hidden="true" /></TooltipTriggerButton>
+            <Tooltip.Content {...anchoredTooltipProps}>{!chat.imageIoAvailable
+              ? '当前 Gateway 未提供安全图片媒体能力'
+              : attachments.length >= OPENCLAW_MAX_IMAGES_PER_TURN
+                ? `每次最多 ${OPENCLAW_MAX_IMAGES_PER_TURN} 张图片`
+                : '添加图片'}</Tooltip.Content>
+          </Tooltip>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            className="sr-only"
+            aria-label="选择图片"
+            onChange={onImageInput}
+          />
           <RuntimeControls chat={chat} />
           <Tooltip delay={250}>
             <TooltipTriggerButton
@@ -822,6 +1041,8 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             <Tooltip.Content {...anchoredTooltipProps}>{chat.isRunning ? (chat.isStopping ? '正在停止…' : '停止生成') : '发送给 OpenClaw'}</Tooltip.Content>
           </Tooltip>
         </PromptInputToolbar>
+        {attachmentIssue && <p role="alert" className="type-label max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">{attachmentIssue}</p>}
+        {attachmentModelBlocked && <p role="status" className="type-label max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">当前模型不支持图片，请切换到标有“支持图片”的模型后发送。</p>}
         {chat.runtimeIssue && <p role="status" className="type-label mt-1 max-w-full break-words px-1 text-warning [overflow-wrap:anywhere]">{chat.runtimeIssue}</p>}
         {chat.modelSwitchFallback && <Button
           size="sm"

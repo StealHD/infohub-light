@@ -1063,3 +1063,11 @@
 - 原因：密钥的检查、异常与生命周期动作需要快速比对，折叠后反而打断操作并制造重复容器。独立卡片保留 HeroUI Default 的清晰层级，窄屏可让 Footer 自然分层而不牺牲三项额度指标。
 - 兼容/边界：本决策取代 D123 中“检查、异常和生命周期操作位于默认收起详情”的视觉结论；D123 的信息去重、额度警告和无障碍锁定结论继续有效。API、数据结构、Query Key、额度缓存、排序和安全排空协议不变。
 - 布局修正（2026-08-06）：成员状态固定在 Header 右上角；额度三项改为无 inset 容器的单行 `标签：值`；安全排空移到 Header 状态旁，使 Footer 在所有卡片中只保留最近检查和顺序一致的移动、轮换、删除操作。此修正仅收紧 D124 的卡片排版，不改变其语义或安全边界。
+
+### D125 OpenClaw 图片对话使用浏览器规范化与 Gateway 媒体票据
+
+- 决策日期：2026-08-07
+- 当前状态：Inteliscope 实现与完整门禁验证中；Gateway 票据 RPC 作为固定版本前置条件，图片开关默认关闭。
+- 决策内容：OpenClaw 对话只接受 JPEG、PNG、WebP 图片，浏览器在当前页面内完成尺寸、像素和字节上限检查，最长边缩至 2048 px 后重新编码为 WebP，移除 EXIF 和原文件名。每轮最多四张，单张不超过 5 MiB、总计不超过 12 MiB；原始文件/Base64 不写入 Inteliscope 服务、日志、数据库或 sessionStorage。输入仍复用 `chat.send.attachments`。历史和输出不信任任何内容块 URL：页面只读取 `messageId + partIndex`，经 `chat.media.ticket` 获得 5 分钟、单图绑定的 Gateway 路径与票据，刷新/重连后重新申请；旧 Gateway 未声明该 RPC 时保留文本对话并隐藏图片入口。Handoff 升级 V7，只记录 `imageCount`，并明确图片/OCR 为不可信用户内容。
+- 云端边界：浏览器 WebSocket 与媒体可统一为同一 Gateway Origin；Inteliscope 仅配置 WSS 地址和精确 HTTPS 媒体 Origin。Gateway 负责验证 `operator.read`、会话/消息归属、图片类型和允许媒体目录，再代理媒体；对象存储和长期凭据不暴露给浏览器。多副本必须共享历史/媒体索引、持久化媒体和带 `kid` 的票据签名密钥，轮换期同时接受当前及上一把密钥至少一个票据 TTL。CSP 与 `gateway.controlUi.allowedOrigins` 都只接受精确 Origin，禁止通配符。
+- 原因：既有 Gateway 的媒体 URL 可能要求浏览器转发长期设备凭据，不能作为跨 Origin Inteliscope 页面图片地址；直接渲染模型返回外链又会造成跟踪、路径和内容类型绕过。把一次性授权收回 Gateway，并让前端只处理内存中规范化输入和短期 ticket，才能同时保持本机、云端和旧 Gateway 的兼容边界。
