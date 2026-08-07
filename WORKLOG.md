@@ -393,3 +393,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-07",
+  "result": "取消“我的订阅”的固定视图，搜索、筛选和新增来源收为滚动固定的半透明工具栏；来源库继续按真实频道浏览。",
+  "status": "completed",
+  "task_id": "2026-08-07-subscription-toolbar-without-views",
+  "unresolved": [
+    "按用户约定，本分支未更新或运行 Playwright；最终集成分支再统一处理一次浏览器断言与视觉快照。"
+  ],
+  "validation": [
+    "定向 Vitest 152 项、TypeScript、UI 合同检查、lint 和构建通过。",
+    "完整 Test Gate：23/23 命令通过（233.256 秒）；git diff --check 通过。"
+  ]
+}
+```

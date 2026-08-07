@@ -737,9 +737,10 @@ describe('App routes', () => {
     expect(screen.queryByRole('complementary', { name: 'OpenClaw 上下文' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开 Agent 面板' })).toBeInTheDocument()
     expect(document.querySelector('[class*="Mui"]')).not.toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: '全部', level: 2 })).toBeInTheDocument()
+    expect(await screen.findByRole('list', { name: '订阅来源' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '工作/项目' })).not.toBeInTheDocument()
-    expect(screen.getByRole('list', { name: '当前频道订阅' })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '我的订阅频道' })).not.toBeInTheDocument()
+    expect(document.querySelector('[data-subscription-list-workspace]')).toBeInTheDocument()
     const sourceCard = screen.getByText('覆盖频道来源').closest('[data-compact-source-row="subscription"]') as HTMLElement
     expect(sourceCard.querySelector('[data-source-card-header]')).toHaveClass('items-start')
     expect(sourceCard.querySelector('[data-source-counts]')?.closest('[data-source-card-status]')).not.toBeNull()
@@ -756,7 +757,10 @@ describe('App routes', () => {
     expect(within(scheduleCard).getByRole('button', { name: /更新周期/ })).toBeInTheDocument()
     expect(within(scheduleCard).queryByRole('button', { name: '管理自动更新' })).not.toBeInTheDocument()
     const subscriptionToolbar = document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement
+    expect(subscriptionToolbar).toHaveClass('sticky', 'top-0', 'z-20')
     const sourceSearch = within(subscriptionToolbar).getByRole('searchbox', { name: '搜索来源' })
+    expect(within(subscriptionToolbar).getByRole('button', { name: '筛选来源，已启用 0 项' })).toBeInTheDocument()
+    expect(within(subscriptionToolbar).getByRole('button', { name: '新增来源' })).toBeInTheDocument()
     await userEvent.type(sourceSearch, '不存在')
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
     expect(sourceSearch).toHaveFocus()
@@ -1025,7 +1029,7 @@ describe('App routes', () => {
     })
   })
 
-  it('keeps four subscription views while source-library channel choices and toolbar search remain independent', async () => {
+  it('keeps subscriptions view-free while source-library channel choices and toolbar search remain independent', async () => {
     const browser = userEvent.setup()
     const sources = [
       { id: 'channel-ai', type: 'rss', display_name: 'AI 来源', scope: 'public' as const, default_channel: 'AI', enabled: true },
@@ -1055,12 +1059,9 @@ describe('App routes', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><DesignSystemProvider><AppRoutes api={api} /></DesignSystemProvider></MemoryRouter></QueryClientProvider>)
 
-    await screen.findByRole('heading', { name: '全部', level: 2 })
-    const subscriptionNavigation = screen.getByRole('navigation', { name: '我的订阅频道' })
-    expect(within(subscriptionNavigation).getAllByRole('button')).toHaveLength(4)
-    expect(within(subscriptionNavigation).queryByRole('button', { name: /工作\/项目/ })).not.toBeInTheDocument()
-    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /公共订阅/ }))
-    expect(screen.getByRole('heading', { name: '公共订阅' })).toBeInTheDocument()
+    await screen.findByRole('list', { name: '订阅来源' })
+    expect(screen.queryByRole('navigation', { name: '我的订阅频道' })).not.toBeInTheDocument()
+    expect(document.querySelector('[data-subscription-list-workspace]')).toBeInTheDocument()
     expect(screen.getByText('项目来源')).toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
@@ -1069,7 +1070,7 @@ describe('App routes', () => {
     expect(screen.getByRole('heading', { name: '金融' })).toBeInTheDocument()
 
     await browser.click(screen.getByRole('tab', { name: '我的订阅' }))
-    expect(screen.getByRole('heading', { name: '公共订阅' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '订阅来源' })).toBeInTheDocument()
     await browser.click(screen.getByRole('tab', { name: '来源库' }))
     expect(screen.getByRole('heading', { name: '金融' })).toBeInTheDocument()
 
@@ -1085,6 +1086,8 @@ describe('App routes', () => {
     expect(within(document.querySelector('[data-subscription-tabs-toolbar]') as HTMLElement).getByRole('searchbox', { name: '搜索来源' })).toHaveValue('AI 来源')
     await browser.click(screen.getByRole('tab', { name: '运行记录' }))
     expect(screen.queryByRole('searchbox', { name: '搜索来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /筛选来源/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新增来源' })).not.toBeInTheDocument()
   })
 
   it('deep-links subscription tabs without permanent count badges', async () => {
@@ -1132,39 +1135,33 @@ describe('App routes', () => {
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/subscriptions']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
 
     await screen.findByText('Workspace Failing')
-    const subscriptionNavigation = screen.getByRole('navigation', { name: '我的订阅频道' })
-    expect(within(subscriptionNavigation).getByRole('button', { name: /^全部，/ })).toBeInTheDocument()
-    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^公共订阅，/ }))
-    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
-    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
-    expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
-    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^私人订阅，/ }))
-    expect(screen.getByText('Private Healthy')).toBeInTheDocument()
-    expect(screen.queryByText('Workspace Failing')).not.toBeInTheDocument()
-    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^异常，/ }))
-    expect(screen.getByRole('heading', { name: '异常', level: 2 })).toBeInTheDocument()
-    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
-    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
-    expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
-    await browser.click(within(subscriptionNavigation).getByRole('button', { name: /^全部，/ }))
-    await browser.click(screen.getAllByRole('button', { name: '筛选来源，已启用 0 项' })[0])
+    expect(screen.queryByRole('navigation', { name: '我的订阅频道' })).not.toBeInTheDocument()
+    await browser.click(screen.getByRole('button', { name: '筛选来源，已启用 0 项' }))
     const filterDialog = await screen.findByRole('dialog', { name: '筛选来源' })
+    await browser.click(within(filterDialog).getByRole('button', { name: /健康状态/ }))
+    await browser.click(await screen.findByRole('option', { name: '需处理' }))
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
+    expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
+    await browser.click(within(filterDialog).getByRole('button', { name: /可见范围/ }))
+    await browser.click(await screen.findByRole('option', { name: '公共订阅' }))
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
+
     await browser.click(within(filterDialog).getByRole('button', { name: /来源类型/ }))
     await browser.click(await screen.findByRole('option', { name: 'GitHub 发布' }))
     expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
     expect(screen.queryByText('Private Healthy')).not.toBeInTheDocument()
     expect(screen.queryByText('Public Degraded')).not.toBeInTheDocument()
 
-    await browser.click(within(filterDialog).getByRole('button', { name: /健康状态/ }))
-    await browser.click(await screen.findByRole('option', { name: '连续失败' }))
     await browser.click(within(filterDialog).getByRole('button', { name: /可见范围/ }))
-    await browser.click(await screen.findByRole('option', { name: '公共订阅' }))
-    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
-
-    await browser.click(within(filterDialog).getByRole('button', { name: /健康状态/ }))
-    await browser.click(await screen.findByRole('option', { name: '正常' }))
+    await browser.click(await screen.findByRole('option', { name: '私人订阅' }))
     expect(screen.getByText('没有匹配的订阅')).toBeInTheDocument()
     expect(screen.getAllByText('全局自动更新').length).toBeGreaterThan(0)
+    await browser.click(within(filterDialog).getByRole('button', { name: '清除筛选' }))
+    expect(screen.getByText('Private Healthy')).toBeInTheDocument()
+    expect(screen.getByText('Workspace Failing')).toBeInTheDocument()
+    expect(screen.getByText('Public Degraded')).toBeInTheDocument()
   })
 
   it('keeps source failure details behind a status tooltip and dialog', async () => {

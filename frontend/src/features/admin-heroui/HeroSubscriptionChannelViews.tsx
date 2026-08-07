@@ -51,7 +51,7 @@ export type LibraryViewEntry = {
   canShare: boolean
 }
 
-type FilterProps = {
+export type SourceFilterProps = {
   definitions: SourceTypeDefinition[]
   typeFilter: string
   onTypeChange: (value: string) => void
@@ -66,7 +66,6 @@ type ChannelLayoutProps<T> = {
   groups: ChannelViewGroup<T>[]
   selectedChannel: string
   onSelectChannel: (channel: string) => void
-  filters: FilterProps
   viewLabel: string
   selectorLabel: string
   channelDetail: (items: T[], group: ChannelViewGroup<T>) => string
@@ -79,6 +78,7 @@ type ChannelLayoutProps<T> = {
 
 const healthOptions = [
   { id: 'all', label: '全部健康状态' },
+  { id: 'problem', label: '需处理' },
   { id: 'healthy', label: '正常' },
   { id: 'degraded', label: '需关注' },
   { id: 'failing', label: '连续失败' },
@@ -262,9 +262,9 @@ function notificationDisabledReason({
   return ''
 }
 
-export function SourceSearchField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <SearchField aria-label="搜索来源" value={value} onChange={onChange} fullWidth>
-    <SearchField.Group>
+export function SourceSearchField({ value, onChange, className = '' }: { value: string; onChange: (value: string) => void; className?: string }) {
+  return <SearchField aria-label="搜索来源" value={value} onChange={onChange} className={`min-w-0 ${className}`} fullWidth variant="secondary">
+    <SearchField.Group className="min-h-8 border-0 bg-transparent shadow-none">
       <SearchField.SearchIcon><Icons.Search size={15} /></SearchField.SearchIcon>
       <SearchField.Input placeholder="搜索来源" />
       <SearchField.ClearButton />
@@ -272,11 +272,11 @@ export function SourceSearchField({ value, onChange }: { value: string; onChange
   </SearchField>
 }
 
-function ChannelFilterMenu({ filters, activeCount }: {
-  filters: FilterProps
-  activeCount: number
+export function SourceFilterMenu({ filters }: {
+  filters: SourceFilterProps
 }) {
   const [open, setOpen] = useState(false)
+  const activeCount = Number(filters.typeFilter !== 'all') + Number(filters.scopeFilter !== 'all') + Number(filters.includeHealth && filters.healthFilter !== 'all')
   const typeOptions = [
     { id: 'all', label: '全部类型' },
     ...filters.definitions.map((definition) => ({ id: definition.type, label: definition.label || sourceTypeLabel(definition.type) })),
@@ -290,11 +290,11 @@ function ChannelFilterMenu({ filters, activeCount }: {
   return <Popover isOpen={open} onOpenChange={setOpen}>
     <Popover.Trigger
       aria-label={`筛选来源，已启用 ${activeCount} 项`}
-      className="type-control inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-default px-3 text-muted hover:bg-default/80 hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
+      title={activeCount > 0 ? `筛选来源 · 已启用 ${activeCount} 项` : '筛选来源'}
+      className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-default hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus"
     >
       <Icons.SlidersHorizontal size={15} aria-hidden="true" />
-      筛选
-      {activeCount > 0 && <span aria-label={`已启用 ${activeCount} 项筛选`} className="type-micro rounded-md bg-accent/15 px-1.5 text-accent">{activeCount}</span>}
+      {activeCount > 0 && <span aria-label={`已启用 ${activeCount} 项筛选`} className="type-micro absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-accent px-1 text-center text-accent-foreground">{activeCount}</span>}
     </Popover.Trigger>
     <Popover.Content placement="bottom end" offset={6} className="z-40 w-[min(340px,calc(100vw-24px))] p-0">
       <Popover.Dialog aria-label="筛选来源" className="grid gap-3 p-4">
@@ -345,19 +345,15 @@ function ChannelRail<T>({ groups, selectedChannel, onSelectChannel, detail, view
   </aside>
 }
 
-function ChannelHeader({ group, summary, filterControl }: {
+function ChannelHeader({ group, summary }: {
   group: ChannelViewGroup<unknown>
   summary: string
-  filterControl: ReactNode
 }) {
   return <Card data-channel-header variant="secondary" className="min-w-0 max-w-full border border-separator bg-surface-secondary p-4 shadow-none">
-    <div className="flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <div className="type-label text-accent">{group.kind === 'view' ? '当前视图' : '当前频道'}</div>
-        <h2 className="type-section-title mt-1 truncate">{group.label}</h2>
-        <p className="type-meta mt-1 text-muted">{summary}</p>
-      </div>
-      <div className="hidden shrink-0 min-[1200px]:block">{filterControl}</div>
+    <div className="min-w-0">
+      <div className="type-label text-accent">当前频道</div>
+      <h2 className="type-section-title mt-1 truncate">{group.label}</h2>
+      <p className="type-meta mt-1 text-muted">{summary}</p>
     </div>
   </Card>
 }
@@ -366,7 +362,6 @@ function ChannelLayout<T>({
   groups,
   selectedChannel,
   onSelectChannel,
-  filters,
   viewLabel,
   selectorLabel,
   channelDetail,
@@ -376,7 +371,6 @@ function ChannelLayout<T>({
   emptyDescription,
   renderList,
 }: ChannelLayoutProps<T>) {
-  const activeCount = Number(filters.typeFilter !== 'all') + Number(filters.scopeFilter !== 'all') + Number(filters.includeHealth && filters.healthFilter !== 'all')
   const activeGroup = groups.find((group) => group.id === selectedChannel) ?? groups[0]
   const emptyTitleText = activeGroup && typeof emptyTitle === 'function'
     ? emptyTitle(activeGroup)
@@ -384,14 +378,13 @@ function ChannelLayout<T>({
   const emptyDescriptionText = activeGroup && typeof emptyDescription === 'function'
     ? emptyDescription(activeGroup)
     : typeof emptyDescription === 'string' ? emptyDescription : undefined
-  const controls = <div data-compact-channel-controls className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto] items-end gap-2 min-[1200px]:hidden">
+  const controls = <div data-compact-channel-controls className="min-w-0 max-w-full min-[1200px]:hidden">
     {activeGroup && <HeroSelect
       label={selectorLabel}
       value={activeGroup.id}
       onChange={onSelectChannel}
       options={groups.map((group) => ({ id: group.id, label: `${group.label} · ${group.items.length}` }))}
     />}
-    <ChannelFilterMenu filters={filters} activeCount={activeCount} />
   </div>
 
   return <>
@@ -408,7 +401,6 @@ function ChannelLayout<T>({
         {activeGroup && <ChannelHeader
           group={activeGroup}
           summary={channelSummary(activeGroup.items, activeGroup)}
-          filterControl={<ChannelFilterMenu filters={filters} activeCount={activeCount} />}
         />}
         {beforeList}
         {activeGroup && activeGroup.items.length > 0 ? renderList(activeGroup.items) : <Card variant="transparent" className="p-6 text-center">
@@ -431,7 +423,7 @@ export function SubscriptionRows({ items, editable, feedWindowDays = 7, globalSc
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
 }) {
-  return <div role="list" aria-label="当前频道订阅" className="grid min-w-0 max-w-full gap-2">
+  return <div role="list" aria-label="订阅来源" className="grid min-w-0 max-w-full gap-2">
     {items.map((entry) => {
       const { source, subscription, health } = entry
       const schedule = subscription.schedule
@@ -634,11 +626,8 @@ function LibraryRows({ items, editable, onSubscribe, onUnsubscribe, onEditSource
   </div>
 }
 
-export function SubscriptionChannelView({ groups, selectedChannel, onSelectChannel, filters, editable, feedWindowDays = 7, globalSchedule, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
-  groups: ChannelViewGroup<SubscriptionViewEntry>[]
-  selectedChannel: string
-  onSelectChannel: (channel: string) => void
-  filters: FilterProps
+export function SubscriptionListView({ items, editable, feedWindowDays = 7, globalSchedule, schedule, onFetch, onToggleNotification, onEditSubscription, onEditSource, onShare }: {
+  items: SubscriptionViewEntry[]
   editable: boolean
   feedWindowDays?: number
   globalSchedule?: FeedSchedule
@@ -649,41 +638,9 @@ export function SubscriptionChannelView({ groups, selectedChannel, onSelectChann
   onEditSource: (source: CatalogSource, trigger: HTMLElement) => void
   onShare: (source: CatalogSource, trigger: HTMLElement) => void
 }) {
-  return <ChannelLayout
-    groups={groups}
-    selectedChannel={selectedChannel}
-    onSelectChannel={onSelectChannel}
-    filters={filters}
-    viewLabel="我的订阅"
-    selectorLabel="订阅视图"
-    channelDetail={(items, group) => {
-      if (group.id === 'exceptions') return `${items.length} 个需处理`
-      const problemCount = items.filter((item) => item.health?.status === 'degraded' || item.health?.status === 'failing').length
-      const unknownCount = items.filter((item) => !item.health || item.health.status === 'unknown').length
-      if (problemCount > 0) return `${problemCount} 个需处理`
-      if (unknownCount > 0) return `${unknownCount} 个待检查`
-      return '全部正常'
-    }}
-    channelSummary={(items) => {
-      const healthyCount = items.filter((item) => item.health?.status === 'healthy').length
-      const problemCount = items.filter((item) => item.health?.status === 'degraded' || item.health?.status === 'failing').length
-      const unknownCount = items.filter((item) => !item.health || item.health.status === 'unknown').length
-      return `${items.length} 个来源 · ${healthyCount} 个正常 · ${problemCount} 个需处理${unknownCount > 0 ? ` · ${unknownCount} 个待检查` : ''}`
-    }}
-    beforeList={schedule}
-    emptyTitle={(group) => group.id === 'exceptions'
-      ? '当前没有异常来源'
-      : group.id === 'scope:public'
-        ? '当前筛选条件下没有公共订阅'
-        : group.id === 'scope:private'
-          ? '当前筛选条件下没有私人订阅'
-          : '没有匹配的订阅'}
-    emptyDescription={(group) => group.id === 'exceptions'
-      ? '需关注或连续失败的来源会出现在这里。'
-      : group.id === 'scope:public' || group.id === 'scope:private'
-        ? '此视图会保留；调整搜索或筛选后可继续查看。'
-        : '调整搜索或筛选，或前往来源库选择要关注的来源。'}
-    renderList={(items) => <SubscriptionRows
+  return <section data-subscription-list-workspace aria-label="我的订阅列表" className="grid min-w-0 max-w-full gap-3">
+    {schedule}
+    {items.length > 0 ? <SubscriptionRows
       items={items}
       editable={editable}
       feedWindowDays={feedWindowDays}
@@ -693,15 +650,17 @@ export function SubscriptionChannelView({ groups, selectedChannel, onSelectChann
       onEditSubscription={onEditSubscription}
       onEditSource={onEditSource}
       onShare={onShare}
-    />}
-  />
+    /> : <Card variant="transparent" className="p-6 text-center">
+      <Card.Title>没有匹配的订阅</Card.Title>
+      <Card.Description className="mt-1">调整搜索或筛选，或前往来源库选择要关注的来源。</Card.Description>
+    </Card>}
+  </section>
 }
 
-export function SourceLibraryChannelView({ groups, selectedChannel, onSelectChannel, filters, editable, hasSources, onSubscribe, onUnsubscribe, onEditSource, onShare }: {
+export function SourceLibraryChannelView({ groups, selectedChannel, onSelectChannel, editable, hasSources, onSubscribe, onUnsubscribe, onEditSource, onShare }: {
   groups: ChannelViewGroup<LibraryViewEntry>[]
   selectedChannel: string
   onSelectChannel: (channel: string) => void
-  filters: FilterProps
   editable: boolean
   hasSources: boolean
   onSubscribe: (source: CatalogSource) => void
@@ -713,7 +672,6 @@ export function SourceLibraryChannelView({ groups, selectedChannel, onSelectChan
     groups={groups}
     selectedChannel={selectedChannel}
     onSelectChannel={onSelectChannel}
-    filters={filters}
     viewLabel="来源库"
     selectorLabel="频道"
     channelDetail={(items) => `${items.filter((item) => item.subscribed).length}/${items.length} 已订阅`}

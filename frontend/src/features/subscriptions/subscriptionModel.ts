@@ -100,19 +100,6 @@ export function channelViewGroupsByChannel<T>(
   }))
 }
 
-export function subscriptionViewGroups<T>(
-  items: T[],
-  isException: (item: T) => boolean,
-  visibilityFor: (item: T) => SubscriptionVisibility,
-): ChannelViewGroup<T>[] {
-  return [
-    { id: 'all', label: '全部', kind: 'view', items },
-    { id: 'exceptions', label: '异常', kind: 'view', items: items.filter(isException) },
-    { id: 'scope:public', label: '公共订阅', kind: 'view', items: items.filter((item) => visibilityFor(item) === 'public') },
-    { id: 'scope:private', label: '私人订阅', kind: 'view', items: items.filter((item) => visibilityFor(item) === 'private') },
-  ]
-}
-
 export function resolveViewSelection<T>(
   groups: Array<Pick<ChannelViewGroup<T>, 'id'>>,
   preferredGroup: string,

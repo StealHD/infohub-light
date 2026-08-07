@@ -175,44 +175,6 @@ describe('subscription model', () => {
     expect(resolveChannelSelection([], 'AI')).toBe('')
   })
 
-  it('keeps only fixed all, exception and visibility views for subscriptions', () => {
-    const items = [
-      { id: 'healthy', channel: 'AI', status: 'healthy', visibility: 'private' as const },
-      { id: 'degraded', channel: '全部', status: 'degraded', visibility: 'public' as const },
-      { id: 'failing', channel: '工作/项目', status: 'failing', visibility: 'public' as const },
-      { id: 'unknown', channel: 'AI', status: 'unknown', visibility: 'private' as const },
-    ]
-    const groups = subscriptionModel.subscriptionViewGroups(
-      items,
-      (item) => item.status === 'degraded' || item.status === 'failing',
-      (item) => item.visibility,
-    )
-
-    expect(groups.map((group) => [group.id, group.label, group.items.map((item) => item.id)])).toEqual([
-      ['all', '全部', ['healthy', 'degraded', 'failing', 'unknown']],
-      ['exceptions', '异常', ['degraded', 'failing']],
-      ['scope:public', '公共订阅', ['degraded', 'failing']],
-      ['scope:private', '私人订阅', ['healthy', 'unknown']],
-    ])
-    expect(subscriptionModel.resolveViewSelection(groups, 'channel:工作/项目')).toBe('all')
-    expect(subscriptionModel.resolveViewSelection(groups, 'channel:missing')).toBe('all')
-  })
-
-  it('keeps all fixed views visible when no subscription matches', () => {
-    const groups = subscriptionModel.subscriptionViewGroups(
-      [],
-      () => false,
-      () => 'private',
-    )
-
-    expect(groups.map((group) => [group.id, group.items.length])).toEqual([
-      ['all', 0],
-      ['exceptions', 0],
-      ['scope:public', 0],
-      ['scope:private', 0],
-    ])
-  })
-
   it('presents source and job enums as user-facing Chinese copy', () => {
     const queued: Job = { id: 'job-1', user_id: 'user-1', job_type: 'user_feed_refresh', status: 'queued', result: { item_count: 0 } }
     const failed: Job = { id: 'job-2', user_id: 'user-1', job_type: 'source_fetch', source_id: 'src-1', status: 'failed', error_message: '连接超时' }
