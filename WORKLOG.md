@@ -11,25 +11,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "ui"
   ],
   "recorded_on": "2026-08-07",
-  "result": "修正 OpenClaw Composer 附件摘要：所有来源行统一占满可用宽度并对齐右侧移除操作，超过两条时显示向上箭头并在上方柔和展开全部信息。",
-  "status": "partial",
-  "task_id": "2026-08-07-openclaw-context-row-alignment",
-  "unresolved": [
-    "当前分支改动尚未获得新的暂存与提交授权。"
-  ],
-  "validation": [
-    "相关 Vitest 44 项、TypeScript、lint、UI contract 与完整 Test Gate 23/23 通过。",
-    "8080 API/Worker 运行 896f47b78040-dirty 且 healthy/ready；浏览器实测两条摘要行均为 357px，四条上浮列表右边线一致且浮层位于触发器上方。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
-    "ui"
-  ],
-  "recorded_on": "2026-08-07",
   "result": "将多条上下文摘要改为保留前两条预览，使用图标化向上展开仅显示尚未出现的其余条目，移除“查看全部”及重复内容。",
   "status": "partial",
   "task_id": "2026-08-07-openclaw-context-upward-remainder",
@@ -396,6 +377,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   "validation": [
     "main 完整 Test Gate 24/24 命令通过（249.60 秒）。",
     "本地服务运行 da1c42b：API/Worker healthy，readiness 返回 worker_status=ready。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "decisions",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "为 /feed 新增按来源连续阅读的专题速览：用户可在时间流与专题速览间切换，前端按当前过滤结果分组并保留既有文章交互、阅读状态与搜索返回锚点。",
+  "status": "completed",
+  "task_id": "2026-08-09-topic-overview-feed",
+  "unresolved": [],
+  "validation": [
+    "UI contract、TypeScript、完整 Vitest、ESLint（仅既有 Fast Refresh 警告）、生产构建及专题 Playwright 三视口通过。",
+    "完整 Test Gate 24/24 通过（244.110 秒）；未请求部署或重建 8080。"
   ]
 }
 ```

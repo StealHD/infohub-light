@@ -282,6 +282,16 @@ test.beforeEach(async ({ page }) => {
         ? batchMode ? [...items.slice(80), ...batchRollingItems] : [...items.slice(1), rollingItem]
         : items }
     }
+    else if (url.pathname === '/api/feed/search') data = {
+      schema_version: 1,
+      scope: 'user',
+      items,
+      item_count: items.length,
+      total_count: items.length,
+      has_more: false,
+      next_cursor: null,
+      window: { timezone: 'Asia/Shanghai', feed_days: 7, today_start: '2026-07-01T00:00:00Z', feed_start: '2026-06-24T00:00:00Z', now: '2026-07-01T04:00:00Z' },
+    }
     else if (url.pathname === '/api/feed/saved') data = { items: [savedRouteItem] }
     else if (url.pathname === '/api/feed/history') {
       const sourceId = url.searchParams.get('source_id')
@@ -1086,6 +1096,58 @@ test('production HeroUI workbench preserves responsive shell, virtualization and
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Feed source overview keeps each source contiguous across supported viewports', async ({ page }) => {
+  await page.goto('/feed')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  const requestCountBeforeSwitch = await page.evaluate(() => (window as typeof window & {
+    feedRequestCounts: () => Promise<{ latest: number; updates: number }>
+  }).feedRequestCounts())
+
+  await page.getByRole('tab', { name: '专题速览' }).click()
+
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  const sections = page.locator('[data-source-section]')
+  await expect(sections).toHaveCount(2)
+  await expect(sections.nth(0)).toHaveAttribute('data-source-section-id', 'fallback:rss:openai blog')
+  await expect(sections.nth(0).getByRole('heading', { name: 'OpenAI Blog' })).toBeVisible()
+  await expect(sections.nth(1).getByRole('heading', { name: 'GitHub' })).toBeVisible()
+
+  const sourceItemIds = await Promise.all([0, 1].map((index) => sections.nth(index).locator('[data-item-id]').evaluateAll((items) => items.map((item) => item.getAttribute('data-item-id')))))
+  expect(sourceItemIds[0]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 0)).toBe(true)
+  expect(sourceItemIds[1]?.every((id) => Number((id || '').split('-').at(-1)) % 2 === 1)).toBe(true)
+  expect(await page.evaluate(() => window.localStorage.getItem('inteliscope.ui.feed-view.v1:e2e-user'))).toBe(JSON.stringify('source-overview'))
+  expect(await page.evaluate(() => (window as typeof window & {
+    feedRequestCounts: () => Promise<{ latest: number; updates: number }>
+  }).feedRequestCounts())).toEqual(requestCountBeforeSwitch)
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([])
+})
+
+test('source overview restores its article anchor after global search', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'source grouping and responsive behavior are covered in every viewport above')
+  await page.goto('/feed')
+  await expect(page.getByRole('article', { name: '实时条目 200' })).toBeVisible()
+  await page.getByRole('tab', { name: '专题速览' }).click()
+  const feed = page.getByTestId('workbench-feed-scroll')
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await feed.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 3)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const anchorBeforeSearch = await stableTopVisibleSnapshot(page)
+
+  const search = page.getByRole('searchbox', { name: '搜索全部内容' })
+  await search.fill('实时')
+  await expect(page.locator('[data-source-overview-frame]')).toHaveCount(0)
+  await search.fill('')
+  await expect(feed).toHaveAttribute('data-feed-mode', 'source-overview')
+  await expect.poll(async () => (await topVisibleSnapshot(page)).name).toBe(anchorBeforeSearch.name)
+  await expect.poll(async () => Math.abs((await topVisibleSnapshot(page)).offset - anchorBeforeSearch.offset)).toBeLessThanOrEqual(2)
 })
 
 test('a proven-stale initial deep link returns the real Feed viewport to the newest edge', async ({ page }) => {

@@ -371,6 +371,77 @@ describe('App routes', () => {
     expect(screen.queryByText('稍后读')).not.toBeInTheDocument()
   })
 
+  it('switches Feed to source overview without another Feed request and restores it after a global search', async () => {
+    const browser = userEvent.setup()
+    const viewModeKey = 'inteliscope.ui.feed-view.v1:user-live'
+    window.localStorage.removeItem(viewModeKey)
+    const overviewItems: FeedItem[] = [
+      {
+        ...basicFeedItem('source-a-old', '来源 A 的旧内容'),
+        source: '来源 A',
+        source_id: 'source-a',
+        published_at: '2026-07-15T00:00:00Z',
+        topics: ['产品'],
+      },
+      {
+        ...basicFeedItem('source-b-new', '来源 B 的最新内容'),
+        source: '来源 B',
+        source_id: 'source-b',
+        published_at: '2026-07-17T00:00:00Z',
+        topics: ['工程'],
+      },
+      {
+        ...basicFeedItem('source-a-new', '来源 A 的新内容'),
+        source: '来源 A',
+        source_id: 'source-a',
+        published_at: '2026-07-16T00:00:00Z',
+        topics: ['产品', 'AI'],
+      },
+    ]
+    const latestFeed = vi.fn().mockResolvedValue({ schema_version: 2, items: overviewItems })
+    const searchFeed = vi.fn().mockResolvedValue({
+      schema_version: 1,
+      scope: 'user',
+      items: [overviewItems[1]],
+      item_count: 1,
+      total_count: 1,
+      has_more: false,
+      next_cursor: null,
+      window: { timezone: 'Asia/Shanghai', feed_days: 7, today_start: '2026-07-17T00:00:00Z', feed_start: '2026-07-10T00:00:00Z', now: '2026-07-17T12:00:00Z' },
+    })
+    const api = liveApi({ latestFeed, searchFeed } as Partial<ServiceApi>)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    try {
+      render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/feed']}><AppRoutes api={api} /></MemoryRouter></QueryClientProvider>)
+
+      expect(await screen.findByRole('article', { name: '来源 B 的最新内容' })).toBeInTheDocument()
+      expect(document.querySelector('[data-feed-mode-switch]')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: '时间流' })).toHaveAttribute('aria-selected', 'true')
+      const initialRequestCount = latestFeed.mock.calls.length
+
+      await browser.click(screen.getByRole('tab', { name: '专题速览' }))
+
+      const sourceFeed = await screen.findByTestId('workbench-feed-scroll')
+      expect(sourceFeed).toHaveAttribute('data-feed-mode', 'source-overview')
+      expect(Array.from(document.querySelectorAll('[data-source-section]')).map((section) => section.getAttribute('data-source-section-id'))).toEqual(['source:source-b', 'source:source-a'])
+      expect(screen.getByText('近7天 · 2 篇内容 · 2 个主题')).toBeInTheDocument()
+      expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
+      expect(window.localStorage.getItem(viewModeKey)).toBe(JSON.stringify('source-overview'))
+
+      const search = screen.getByRole('searchbox', { name: '搜索全部内容' })
+      await browser.type(search, '专题')
+      await waitFor(() => expect(document.querySelector('[data-source-overview-frame]')).not.toBeInTheDocument())
+      expect(screen.getByRole('tab', { name: '专题速览' })).toHaveAttribute('aria-disabled', 'true')
+
+      await browser.clear(search)
+      await waitFor(() => expect(document.querySelector('[data-source-overview-frame]')).toBeInTheDocument())
+      expect(latestFeed).toHaveBeenCalledTimes(initialRequestCount)
+    } finally {
+      window.localStorage.removeItem(viewModeKey)
+    }
+  })
+
   it('replaces the deterministic empty card with one lightweight empty message', async () => {
     const api = liveApi({
       latestFeed: vi.fn().mockResolvedValue({ schema_version: 2, items: [] }),

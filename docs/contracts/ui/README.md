@@ -52,7 +52,7 @@ This file is the sole source of truth for production UI technology, visual langu
 
 | Route | Production experience |
 |---|---|
-| `/feed` | Hero workbench, all items |
+| `/feed` | Hero workbench, with time-flow and source-overview reading layouts |
 | `/saved` | Hero workbench, saved collection |
 | `/history` | Hero workbench, history collection |
 | `/subscriptions` | Quiet Studio adaptive administration page with the same on-demand Agent rail/Drawer as Feed |
@@ -64,7 +64,7 @@ This file is the sole source of truth for production UI technology, visual langu
 
 - `/later` permanently replaces to `/saved`, preserves only a valid `item` query value, and removes legacy `mode`.
 - Authenticated unknown routes resolve coherently to the production Feed; unauthenticated protected routes resolve through the standalone login flow.
-- `mode` is not part of the production Feed experience. Legacy `mode` query parameters are removed while preserving `item`.
+- `mode` is not a production Feed URL parameter. Legacy `mode` query parameters are removed while preserving `item`; `/feed` reading layout is instead a user-isolated browser preference.
 
 ## 模块索引
 

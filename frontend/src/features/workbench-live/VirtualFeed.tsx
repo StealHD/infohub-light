@@ -50,7 +50,7 @@ const expandedEstimate = WORKBENCH_EXPANDED_ROW_PX
 
 type ViewportAnchor = { id: string; offset: number }
 
-type MediaViewerState = {
+export type MediaViewerState = {
   cardLabel: string
   images: WorkbenchCardModel['mediaImages']
   index: number
@@ -100,7 +100,7 @@ function useMeasuredClampOverflow(
   }
 }
 
-function WorkbenchCard({
+export function WorkbenchCard({
   card,
   expanded,
   inContext,
@@ -118,6 +118,7 @@ function WorkbenchCard({
   onActionMenuOpenChange,
   onItemAction,
   onOpenMedia,
+  variant = 'timeline',
 }: {
   card: WorkbenchCardModel
   expanded: boolean
@@ -136,7 +137,9 @@ function WorkbenchCard({
   onActionMenuOpenChange: (open: boolean) => void
   onItemAction: (dismissed: boolean) => void
   onOpenMedia: (index: number, trigger: HTMLButtonElement) => void
+  variant?: 'timeline' | 'source-overview'
 }) {
+  const sourceOverview = variant === 'source-overview'
   const externalUrl = safeExternalUrl(card.url)
   const social = card.displayKind === 'social'
   const socialText = expanded ? card.detailBody || card.primaryText : card.primaryText
@@ -177,18 +180,24 @@ function WorkbenchCard({
       : card.item.timeline_bucket === 'history'
         ? '历史'
         : ''
-  const classificationMetadata = <>
-    <span>{card.formatLabel}</span>
-    {imageCountLabel && <>
-      <span aria-hidden="true">·</span>
-      <span>{card.mediaTruncated ? `图片 ${card.displayImageCount}/${card.totalImageCount}` : `图片 ${card.totalImageCount}`}</span>
-    </>}
-    <MetaTag tone="accent">{card.channel}</MetaTag>
-    {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
-    {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
-  </>
+  const classificationMetadata = sourceOverview
+    ? <>
+      <span>{relativeTime(card.publishedAt)}</span>
+      {card.topics.slice(0, 2).map((topic) => <Fragment key={topic}><span aria-hidden="true">·</span><span>#{topic.replace(/^#/, '')}</span></Fragment>)}
+      {card.topics.length > 2 && <><span aria-hidden="true">·</span><span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span></>}
+    </>
+    : <>
+      <span>{card.formatLabel}</span>
+      {imageCountLabel && <>
+        <span aria-hidden="true">·</span>
+        <span>{card.mediaTruncated ? `图片 ${card.displayImageCount}/${card.totalImageCount}` : `图片 ${card.totalImageCount}`}</span>
+      </>}
+      <MetaTag tone="accent">{card.channel}</MetaTag>
+      {card.topics.slice(0, 2).map((topic) => <span key={topic}>#{topic.replace(/^#/, '')}</span>)}
+      {card.topics.length > 2 && <span aria-label={`另有 ${card.topics.length - 2} 个主题`}>+{card.topics.length - 2}</span>}
+    </>
   const summaryContent = <>
-    <span aria-label="来源信息" className="type-meta mb-2 flex min-w-0 items-center gap-2 text-muted">
+    {!sourceOverview && <span aria-label="来源信息" className="type-meta mb-2 flex min-w-0 items-center gap-2 text-muted">
       <SourceAvatar
         name={card.source}
         avatarUrl={card.sourceAvatar}
@@ -202,7 +211,7 @@ function WorkbenchCard({
       <span aria-hidden="true">·</span>
       <span className="shrink-0">{relativeTime(card.publishedAt)}</span>
       {showTimelineBucket && timelineLabel && <span aria-label={`时间归属：${timelineLabel}`} className="shrink-0 rounded-full bg-default px-2 py-0.5 text-foreground">{timelineLabel}</span>}
-    </span>
+    </span>}
     {social
       ? <Card.Description ref={measurePrimary} className={`type-body whitespace-pre-wrap text-foreground ${expanded ? '' : 'line-clamp-3'}`}>{socialText}</Card.Description>
       : <>
@@ -244,18 +253,21 @@ function WorkbenchCard({
   return <Card
     data-testid="workbench-card"
     data-card-visual="quiet-studio"
+    data-card-variant={variant}
     data-card-expanded={expanded ? 'true' : 'false'}
     role="article"
     aria-label={cardLabel}
     variant="secondary"
-    className="group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none"
+    className={sourceOverview
+      ? 'group/card w-full gap-0 rounded-none border-0 border-b border-separator bg-transparent p-0 shadow-none focus-within:border-border'
+      : 'group/card w-full gap-0 rounded-[var(--inteliscope-radius-feed-card)] border border-separator bg-surface-secondary p-0 shadow-none transition-[background-color,border-color,transform,box-shadow] duration-[var(--inteliscope-motion-standard)] hover:-translate-y-px hover:border-border hover:bg-surface-tertiary focus-within:border-border motion-reduce:transform-none'}
     onClick={handleCardClick}
   >
     {canToggleExpansion
       ? showCompactMedia && mediaPreview
         ? <div
           data-card-media-layout="compact"
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-[19px] pt-[18px]"
+          className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${sourceOverview ? 'px-0 pt-4' : 'px-[19px] pt-[18px]'}`}
         >
           <button
             type="button"
@@ -301,13 +313,13 @@ function WorkbenchCard({
         </div>
         : <button
           type="button"
-          className="w-full cursor-pointer px-[19px] pt-[18px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          className={`w-full cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${sourceOverview ? 'px-0 pt-4' : 'px-[19px] pt-[18px]'}`}
           aria-label={`${expanded ? '收起详情' : '打开详情'} ${cardLabel}`}
           aria-controls={detailsId}
           aria-expanded={expanded}
           onClick={onToggleExpanded}
         >{summaryContent}</button>
-      : <div className="w-full px-[19px] pt-[18px] text-left">{summaryContent}</div>}
+      : <div className={`w-full text-left ${sourceOverview ? 'px-0 pt-4' : 'px-[19px] pt-[18px]'}`}>{summaryContent}</div>}
 
     <div
       id={detailsId}
@@ -315,7 +327,7 @@ function WorkbenchCard({
       data-state={expanded ? 'expanded' : 'collapsed'}
       aria-hidden={!expanded}
       inert={!expanded}
-      className={`grid px-[19px] transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+      className={`grid ${sourceOverview ? 'px-0' : 'px-[19px]'} transition-[grid-template-rows,opacity] duration-[var(--inteliscope-motion-deliberate)] ease-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
     >
       <div className="min-h-0 overflow-hidden">
         {detailLoading && <div role="status" aria-label="正在读取详情" className="grid gap-2 border-t border-separator py-3"><Skeleton className="h-4 w-4/5 rounded-md" /><Skeleton className="h-4 w-3/5 rounded-md" /></div>}
@@ -349,7 +361,7 @@ function WorkbenchCard({
       </div>
     </div>
 
-    <Card.Footer className="flex items-center gap-2 px-[19px] pb-[15px] pt-[10px]">
+    <Card.Footer className={`flex items-center gap-2 ${sourceOverview ? 'px-0 pb-3 pt-2' : 'px-[19px] pb-[15px] pt-[10px]'}`}>
       <div
         data-card-expand-zone={canToggleExpansion ? 'true' : 'false'}
         className={`type-meta flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 self-stretch py-1 text-left text-muted ${canToggleExpansion ? 'cursor-pointer' : ''}`}
@@ -896,6 +908,6 @@ export function VirtualFeed(props: VirtualFeedProps) {
   </div>
 }
 
-function cardLabelForViewer(card: WorkbenchCardModel): string {
+export function cardLabelForViewer(card: WorkbenchCardModel): string {
   return card.displayKind === 'social' ? `${card.sourceLabel}: ${card.primaryText}` : card.title
 }
