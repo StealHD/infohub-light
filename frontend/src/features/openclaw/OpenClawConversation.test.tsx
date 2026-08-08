@@ -496,7 +496,7 @@ describe('OpenClaw conversation surface', () => {
       'focus-within:border-focus',
     )
     const composerInput = screen.getByLabelText('发送给 OpenClaw 的问题')
-    expect(composerInput).toHaveClass('!min-h-20', '!max-h-[180px]', '!border-0', '!bg-transparent', '!shadow-none', '[field-sizing:content]')
+    expect(composerInput).toHaveClass('!min-h-20', '!max-h-[180px]', '!border-0', '!bg-transparent', '!shadow-none', 'focus:!ring-0', 'focus:!ring-offset-0', '[field-sizing:content]')
     expect(screen.getByTestId('openclaw-composer-dock')).toHaveClass('p-2')
     expect(screen.getByTestId('openclaw-composer-dock')).not.toHaveClass('border-t', 'border-separator')
     expect(screen.getByTestId('openclaw-composer-toolbar')).toHaveClass('grid', 'grid-cols-[36px_minmax(0,1fr)_36px]')

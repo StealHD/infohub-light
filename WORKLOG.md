@@ -26,24 +26,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "capabilities",
-    "ui"
-  ],
-  "recorded_on": "2026-08-06",
-  "result": "OpenClaw V7 附带 Feed 内容先读 Inteliscope 存储证据，再对同一已清洗原文 URL 主动读取；上下文引用改为订阅头像、自适应标题与向上完整浮层。",
-  "status": "completed",
-  "task_id": "2026-08-06-openclaw-original-fetch-context-ui",
-  "unresolved": [],
-  "validation": [
-    "定向 Vitest：4 个文件、87 项通过；TypeScript 与 UI contract 检查通过。",
-    "OpenClaw Skill pytest：13 项通过；完整 Test Gate 命令成功；个人偏好规则 26 项通过。"
-  ]
-}
-```
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-07",
@@ -397,6 +379,24 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "定向 Vitest：PromptSuggestion、OpenClaw 对话与更新日志测试通过。",
     "完整 Test Gate 24/24 命令通过（260.07 秒）；前端构建、类型检查和 UI 合同检查通过。",
     "本地 8080 已切换目标 revision：API/Worker healthy、readiness 返回 worker_status=ready；390、768、1440 px 与 320 px Agent 最小宽度无横向溢出，键盘建议填充和单层输入边框实测通过。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-08",
+  "result": "修复 OpenClaw composer 聚焦时 Textarea 叠加的内层紫色 ring；保留 PromptInput 外层单一焦点边框。",
+  "status": "completed",
+  "task_id": "2026-08-08-openclaw-composer-focus-ring",
+  "unresolved": [],
+  "validation": [
+    "OpenClaw composer 定向 Vitest 32/32 通过。",
+    "完整 Test Gate 24/24 命令通过（295.72 秒）；UI 合同、lint、类型检查与前端构建通过。",
+    "本地 8080 切换后实测：Textarea 无内层 focus ring，外层 PromptInput 焦点边框保留。"
   ]
 }
 ```

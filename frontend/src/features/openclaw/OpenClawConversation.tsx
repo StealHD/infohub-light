@@ -1036,7 +1036,7 @@ function ConnectedConversation({ chat, value }: { chat: ChatController; value: W
             fullWidth
             variant="secondary"
             data-testid="openclaw-composer-textarea"
-            className="type-body !min-h-20 !max-h-[180px] min-w-0 max-w-full resize-none !rounded-none !border-0 !bg-transparent px-1 py-1 !shadow-none outline-none focus-visible:outline-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]"
+            className="type-body !min-h-20 !max-h-[180px] min-w-0 max-w-full resize-none !rounded-none !border-0 !bg-transparent px-1 py-1 !shadow-none outline-none focus:!ring-0 focus:!ring-offset-0 focus-visible:outline-none overflow-y-auto overscroll-y-contain [field-sizing:content] [overflow-wrap:anywhere]"
             aria-label="发送给 OpenClaw 的问题"
             value={value.draft.question}
             maxLength={1200}
