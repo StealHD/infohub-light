@@ -8,24 +8,6 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
 ```json
 {
   "control_topics": [
-    "observability"
-  ],
-  "recorded_on": "2026-08-07",
-  "result": "从 subscriptions-layout-cleanup 任务分支重建本地 8080 运行时，切换已提交的订阅页布局镜像。",
-  "status": "completed",
-  "task_id": "2026-08-07-start-subscription-layout-container",
-  "unresolved": [],
-  "validation": [
-    "horizon-api 与 horizon-worker 均 healthy，readiness 返回 API 和 Worker ready。",
-    "127.0.0.1:8080 已提供 revision ce53c72cfe5b 的前端资源 index-BNbh5sci.js；未启动 scheduler。"
-  ]
-}
-```
-
-
-```json
-{
-  "control_topics": [
     "ui"
   ],
   "recorded_on": "2026-08-07",
@@ -397,6 +379,23 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
     "OpenClaw composer 定向 Vitest 32/32 通过。",
     "完整 Test Gate 24/24 命令通过（295.72 秒）；UI 合同、lint、类型检查与前端构建通过。",
     "本地 8080 切换后实测：Textarea 无内层 focus ring，外层 PromptInput 焦点边框保留。"
+  ]
+}
+```
+
+```json
+{
+  "control_topics": [
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "将 OpenClaw 输入区与空态建议优化及 textarea 内层焦点 ring 修复 fast-forward 集成到本地 main。",
+  "status": "completed",
+  "task_id": "2026-08-09-integrate-openclaw-composer-main",
+  "unresolved": [],
+  "validation": [
+    "main 完整 Test Gate 24/24 命令通过（249.60 秒）。",
+    "本地服务运行 da1c42b：API/Worker healthy，readiness 返回 worker_status=ready。"
   ]
 }
 ```
