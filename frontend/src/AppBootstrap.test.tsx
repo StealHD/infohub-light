@@ -20,6 +20,7 @@ describe('AppBootstrap', () => {
   it('ships a route-aware noninteractive shell in the initial HTML', () => {
     const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
     const css = readFileSync(resolve(process.cwd(), 'src/design-system/bootstrap.css'), 'utf8')
+    const favicon = readFileSync(resolve(process.cwd(), 'public/favicon.svg'), 'utf8')
 
     expect(html).toContain('id="inteliscope-bootstrap-shell"')
     expect(html).toContain('data-bootstrap-region="navigation"')
@@ -28,6 +29,7 @@ describe('AppBootstrap', () => {
     expect(html).toContain('data-bootstrap-region="agent"')
     expect(html).toContain('aria-hidden="true"')
     expect(html).toContain('/src/design-system/bootstrap.css')
+    expect(html).toContain('href="/favicon.svg"')
     expect(html).toContain("'inteliscope.ui.theme.v1'")
     expect(html).toContain("colorMode === 'light' || colorMode === 'dark'")
     expect(html).not.toContain("matchMedia('(prefers-color-scheme: dark)')")
@@ -36,5 +38,8 @@ describe('AppBootstrap', () => {
     expect(css).toContain(':root[data-theme="light"]')
     expect(css).toContain('min(var(--inteliscope-bootstrap-right-rail-width), calc(100vw - 72px - 650px))')
     expect(css).toContain('min(var(--inteliscope-bootstrap-right-rail-width), calc(100vw - 232px - 650px))')
+    expect(favicon).toContain('fill="currentColor"')
+    expect(favicon).toContain('@media (prefers-color-scheme: dark)')
+    expect(favicon.match(/<path /gu)).toHaveLength(2)
   })
 })

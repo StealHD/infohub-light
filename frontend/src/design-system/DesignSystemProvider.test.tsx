@@ -101,6 +101,17 @@ describe('DesignSystemProvider', () => {
     expect(readThemePreference()).toEqual(DEFAULT_THEME_PREFERENCE)
   })
 
+  it('renders the Inteliscope brand mark as a two-part current-color glyph', () => {
+    const { container } = render(<MemoryRouter><DesignSystemProvider><Icons.InteliscopeMark aria-hidden="true" /></DesignSystemProvider></MemoryRouter>)
+
+    const mark = container.querySelector('[data-inteliscope-mark]')
+    expect(mark).not.toBeNull()
+    if (!mark) throw new Error('Inteliscope mark was not rendered')
+    expect(mark).toHaveAttribute('fill', 'currentColor')
+    expect(mark.querySelectorAll('path')).toHaveLength(2)
+    expect(mark.querySelector('circle')).toBeNull()
+  })
+
   it('routes HeroUI links through React Router without a document navigation', async () => {
     const user = userEvent.setup()
     render(

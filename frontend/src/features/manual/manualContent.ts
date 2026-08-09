@@ -13,8 +13,8 @@ export type ManualSection = {
 }
 
 export const manualReview = {
-  reviewedAt: '2026-08-06',
-  change: '密钥页 Apify Key 卡片重排',
+  reviewedAt: '2026-08-09',
+  change: '品牌图标与明暗主题适配',
 } as const
 
 export const manualSections: ManualSection[] = [
@@ -35,7 +35,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '开始阅读',
-        description: '回到信息流后，页头会标明工作区统一的“近 7/14/30 天”范围；“全部”清除其他筛选但仍只显示这个窗口。“当天”按上海自然日计算，公共订阅、私人订阅等筛选可继续缩小范围。顶部搜索会查询当前 Feed、在线历史和冷归档索引，按新到旧标记“今天 / 近N天 / 历史”；清除关键词后恢复原来的信息流和阅读位置。也可用图标重新载入已有数据、获取新内容或切换普通 Feed 的时间口径与排序方向。',
+        description: '回到信息流后，页头会标明工作区统一的“近 7/14/30 天”范围；“全部”清除其他筛选但仍只显示这个窗口。“当天”按上海自然日计算，公共订阅、私人订阅等筛选可继续缩小范围。顶部搜索会查询当前 Feed、在线历史和冷归档索引，按新到旧标记“今天 / 近N天 / 历史”；清除关键词后恢复原来的信息流和阅读位置。也可用图标重新载入已有数据、获取新内容或切换普通 Feed 的时间口径与排序方向。浏览器标签与应用侧栏使用同一双弧品牌图形，浅色和深色环境会自动调整前景色。',
         href: '/feed',
         linkLabel: '打开信息流',
       },

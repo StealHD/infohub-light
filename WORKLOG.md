@@ -410,3 +410,18 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [],
+  "recorded_on": "2026-08-09",
+  "result": "将浏览器 favicon 与应用侧栏品牌标记统一为用户提供的双弧图形，并分别跟随浏览器明暗环境和应用前景色。",
+  "status": "completed",
+  "task_id": "2026-08-09-theme-aware-brand-icon",
+  "unresolved": [],
+  "validation": [
+    "favicon 与设计系统图标定向 Vitest 8/8 通过，SVG 透明边界和双弧轮廓完成本地渲染复核。",
+    "完整 Test Gate 24/24 通过（242.489 秒）。"
+  ]
+}
+```

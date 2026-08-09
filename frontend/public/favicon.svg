@@ -1,12 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Inteliscope">
-  <defs>
-    <linearGradient id="a" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8b5cf6"/>
-      <stop offset="1" stop-color="#4f46e5"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="16" fill="#11131a"/>
-  <circle cx="32" cy="32" r="20" fill="none" stroke="url(#a)" stroke-width="6"/>
-  <circle cx="32" cy="32" r="6" fill="#f8fafc"/>
-  <path d="M32 12v8M32 44v8M12 32h8M44 32h8" stroke="#c4b5fd" stroke-width="4" stroke-linecap="round"/>
+  <style>
+    :root { color: #18181b; }
+    @media (prefers-color-scheme: dark) { :root { color: #fafafa; } }
+  </style>
+  <path fill="currentColor" d="M56 10.5C46.5 12.5 35.5 16.3 29 20.5c-4.5 2.9-3.9 6.6-3.2 9.5.9 3 .1 5.6-3 6.3-4 1-8-1.5-10-4.5-2.8-4-1.9-8.5 1-12.3C20.5 10.9 39.3 8.9 53.8 9.9c2 .1 2.6.3 2.2.6Z"/>
+  <path fill="currentColor" d="M8.2 53.3c9-3.8 20.3-7.5 26.5-12.6 3.8-3.1 5.4-6.9 4.8-10-.6-3 1.6-5.3 5.1-5.5 4.2-.3 8.6 2.8 10.3 7.2 2.4 6.3-1.3 12.2-7.4 15.7-7.8 4.6-18.7 5.8-29.6 6.2-6.6.3-10.9.1-9.7-1Z"/>
 </svg>
