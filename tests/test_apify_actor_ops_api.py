@@ -1387,6 +1387,151 @@ def test_canary_batch_rejects_stale_plan_and_browser_candidate_override(
     assert store.connect().execute(
         "SELECT COUNT(*) FROM fetch_jobs WHERE job_type = 'apify_actor_canary_batch'"
     ).fetchone()[0] == 0
+
+
+def test_third_slot_api_is_server_selected_safe_and_applies_frozen_stage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops, route, base_revisions = _ready_route(
+        store,
+        route_key="youtube/channel/items",
+        activate=False,
+    )
+    active = ops.replace_active_pool(
+        str(route["route_id"]),
+        slots={
+            "primary": base_revisions[0],
+            "backup_1": base_revisions[1],
+            "backup_2": None,
+        },
+        expected_generation=int(route["generation"]),
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="api-third-slot",
+        expected_generation=int(active["generation"]),
+    )
+    actor_id = "publisher-c/api-third-slot"
+    candidate_id = ops.ensure_candidate(str(route["route_id"]), actor_id=actor_id)
+    revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id=actor_id,
+        publisher="publisher-c",
+        build_id="build-api-third-slot",
+        build_number="8.0.4",
+        manifest=_manifest(actor_id, "8.0.4"),
+        lifecycle="static_valid",
+        discovery_run_id=str(run["run_id"]),
+    )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+    plan_endpoint = (
+        f"/api/admin/apify-discovery-runs/{run['run_id']}"
+        "/canary-plan?goal=complete_third"
+    )
+    plan_response = client.get(plan_endpoint)
+    assert plan_response.status_code == 200, plan_response.text
+    plan = plan_response.json()["data"]
+    assert plan["schema_version"] == 2
+    assert plan["goal"] == "complete_third"
+    assert plan["required_success_count"] == 1
+    assert [item["revision_id"] for item in plan["items"]] == [revision_id]
+    assert "_source_snapshot" not in plan_response.text
+    assert "target_fingerprint" not in plan_response.text
+
+    endpoint = f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-batches"
+    request = {
+        "goal": "complete_third",
+        "expected_generation": active["generation"],
+        "expected_plan_hash": plan["plan_hash"],
+        "approval_id": "api-third-stage-approval-0001",
+        "confirmation": "确认付费验证主备",
+        "max_candidates": plan["max_candidates"],
+        "max_total_charge_usd": plan["max_total_charge_usd"],
+    }
+    forbidden = client.post(
+        endpoint,
+        json={**request, "revision_ids": [revision_id], "source_ids": []},
+    )
+    assert forbidden.status_code == 400
+    approved = client.post(endpoint, json=request)
+    assert approved.status_code == 200, approved.text
+    payload = approved.json()["data"]
+    batch = payload["batch"]
+    assert batch["goal"] == "complete_third"
+    assert batch["pool_stage"]["goal"] == "complete_third"
+    assert "target_fingerprint" not in approved.text
+    assert "source_name" not in approved.text
+
+    item = ops.get_canary_batch(str(batch["batch_id"]))["items"][0]
+    ops.record_validation(
+        str(item["validation_id"]),
+        status="succeeded",
+        semantic_outcome="valid_nonempty",
+        cost_usd=0.01,
+        cost_final=True,
+    )
+    ops.update_canary_batch_item(
+        str(batch["batch_id"]),
+        int(item["ordinal"]),
+        status="succeeded",
+        semantic_outcome="valid_nonempty",
+        actual_cost_usd=0.01,
+        cost_final=True,
+    )
+    ops.transition_revision(
+        revision_id,
+        expected_lifecycle="static_valid",
+        lifecycle="probationary",
+    )
+    assert ops.prepare_pool_stage_source_validations(
+        str(batch["pool_stage_id"])
+    ) == []
+    assert ops.finalize_canary_batch(str(batch["batch_id"]))["status"] == (
+        "activation_ready"
+    )
+    store.connect().execute(
+        """
+        UPDATE fetch_jobs
+        SET status = 'succeeded', finished_at = updated_at
+        WHERE id = ?
+        """,
+        (payload["job"]["id"],),
+    )
+    store.connect().commit()
+
+    before = client.get(f"/api/admin/apify-routes/{route['route_id']}")
+    assert before.status_code == 200
+    assert before.json()["data"]["workflow"]["kind"] == (
+        "backup_2_activation_approval_required"
+    )
+    activated = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/active-pool/activate",
+        json={
+            "expected_generation": active["generation"],
+            "confirmation": "确认启用 Actor 主备",
+            "stage_id": batch["pool_stage_id"],
+            "expected_plan_hash": plan["plan_hash"],
+            "apply_id": "api-third-stage-apply-0001",
+        },
+    )
+    assert activated.status_code == 200, activated.text
+    activated_data = activated.json()["data"]
+    assert [slot["revision_id"] for slot in activated_data["slots"][:2]] == (
+        base_revisions[:2]
+    )
+    assert activated_data["slots"][2]["revision_id"] == revision_id
+    assert activated_data["workflow"]["kind"] == "probation_observing"
+    assert "target_fingerprint" not in activated.text
+
+
 def test_discovery_projection_reports_persisted_partial_pool(
     tmp_path,
     monkeypatch,

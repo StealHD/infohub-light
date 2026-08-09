@@ -897,6 +897,52 @@ export type ApifyActorRevisionLifecycle =
   | 'superseded'
   | 'rejected'
 
+export type ApifyActorCertificationProgress = {
+  auto_promotes: boolean
+  lifecycle: ApifyActorRevisionLifecycle
+  success_identities: { current: number; required: number }
+  reference_targets: { current: number; required: number }
+  valid_samples: { current: number; successful: number; required: number }
+  success_rate: { current: number; required: number }
+  observation_started_at: string | null
+  eligible_at: string | null
+  remaining_seconds: number | null
+  blockers: string[]
+}
+
+export type ApifyActorWorkflowKind =
+  | 'setup_discovery_required'
+  | 'setup_discovery_running'
+  | 'setup_canary_approval_required'
+  | 'setup_canary_running'
+  | 'setup_activation_approval_required'
+  | 'backup_2_discovery_required'
+  | 'backup_2_discovery_running'
+  | 'backup_2_canary_approval_required'
+  | 'backup_2_canary_running'
+  | 'backup_2_activation_approval_required'
+  | 'legacy_discovery_required'
+  | 'legacy_discovery_running'
+  | 'legacy_canary_approval_required'
+  | 'legacy_canary_running'
+  | 'legacy_activation_approval_required'
+  | 'probation_observing'
+  | 'source_validation_required'
+  | 'runtime_degraded_monitoring'
+  | 'blocked_unknown_start'
+  | 'budget_blocked'
+  | 'complete'
+
+export type ApifyActorWorkflow = {
+  kind: ApifyActorWorkflowKind | string
+  goal: ApifyActorPoolGoal | null
+  stage_id?: string | null
+  run_id?: string | null
+  plan_hash?: string | null
+  progress: Record<string, unknown>
+  blockers: string[]
+}
+
 export type ApifyActorRevisionSummary = {
   revision_id: string
   actor_id: string
@@ -906,6 +952,7 @@ export type ApifyActorRevisionSummary = {
   build_number?: string | null
   manifest_hash?: string | null
   lifecycle: ApifyActorRevisionLifecycle
+  certification_progress?: ApifyActorCertificationProgress | null
   listed_price_usd_per_1000?: number | null
   pricing?: {
     model: string | null
@@ -949,6 +996,7 @@ export type ApifyActorRouteSummary = {
   discovery_run_id?: string | null
   blocked_reason?: string | null
   updated_at?: string | null
+  workflow?: ApifyActorWorkflow
 }
 
 export type ApifyActorSourceValidationSlot = {
@@ -966,6 +1014,13 @@ export type ApifyActorSourceValidation = {
   generation: number
   slots: ApifyActorSourceValidationSlot[]
   activation_confirmation?: string | null
+  staged_validation?: {
+    stage_id: string
+    status: string
+    required_count: number
+    passed_count: number
+    last_error_code?: string | null
+  }
 }
 
 export type ApifyActorRevisionDiff = {
@@ -1002,6 +1057,7 @@ export type ApifyActorRouteDetail = ApifyActorRouteSummary & {
       revision: ApifyActorRevisionSummary | null
     }>
   }
+  workflow?: ApifyActorWorkflow
 }
 
 export type ApifyActorRoutesResponse = {
@@ -1067,10 +1123,52 @@ export type ApifyActorCanaryPlanItem = {
   lifecycle: ApifyActorRevisionSummary['lifecycle']
   pricing?: ApifyActorRevisionSummary['pricing']
   authorized_cap_usd: number
+  already_validated?: boolean
+}
+
+export type ApifyActorPoolGoal =
+  | 'initial_pool'
+  | 'complete_third'
+  | 'upgrade_legacy'
+
+export type ApifyActorPoolStage = {
+  stage_id: string
+  route_id: string
+  discovery_run_id: string
+  initial_batch_id: string
+  goal: Exclude<ApifyActorPoolGoal, 'initial_pool'>
+  base_generation: number
+  base_pool_hash: string
+  plan_hash: string
+  max_total_charge_usd: number
+  route_validation_cap_usd: number
+  target_slots: Record<ApifyActorSlotName, string | null>
+  target_pool_hash?: string | null
+  status: string
+  applied_route_generation?: number | null
+  last_error_code?: string | null
+  source_summary: {
+    source_count: number
+    required_count: number
+    passed_count: number
+    succeeded_sources: number
+    failed_sources: number
+    active_sources: number
+  }
+  cost_summary: {
+    actual_cost_usd: number
+    reserved_cost_usd: number
+    validation_count: number
+    cost_final: boolean
+  }
+  created_at: string
+  updated_at: string
+  applied_at?: string | null
 }
 
 export type ApifyActorCanaryPlan = {
-  schema_version: 1
+  schema_version: 1 | 2
+  goal?: ApifyActorPoolGoal
   run_id: string
   route_id: string
   route_key: string
@@ -1092,6 +1190,12 @@ export type ApifyActorCanaryPlan = {
   attempts_remaining: number
   budget_remaining_usd: number
   items: ApifyActorCanaryPlanItem[]
+  base_pool_hash?: string
+  required_success_count?: number
+  route_validation_cap_usd?: number
+  source_validation_cap_usd?: number
+  source_count?: number
+  source_validation_count?: number
 }
 
 export type ApifyActorCanaryBatchRequest = {
@@ -1099,6 +1203,7 @@ export type ApifyActorCanaryBatchRequest = {
   expected_plan_hash: string
   approval_id: string
   confirmation: '确认付费验证主备'
+  goal?: ApifyActorPoolGoal
   max_candidates: number
   max_total_charge_usd: number
 }
@@ -1114,7 +1219,7 @@ export type ApifyActorCanaryBatchItem = ApifyActorCanaryPlanItem & {
 }
 
 export type ApifyActorCanaryBatch = {
-  schema_version: 1
+  schema_version: 1 | 2
   batch_id: string
   route_id: string
   discovery_run_id: string
@@ -1122,7 +1227,11 @@ export type ApifyActorCanaryBatch = {
   plan_hash: string
   max_candidates: number
   max_total_charge_usd: number
+  route_validation_cap_usd?: number
   per_candidate_cap_usd: number
+  goal?: ApifyActorPoolGoal
+  pool_stage_id?: string | null
+  pool_stage?: ApifyActorPoolStage | null
   status: string
   planned_count: number
   success_count: number
@@ -1138,7 +1247,7 @@ export type ApifyActorCanaryBatch = {
 }
 
 export type ApifyActorCanaryBatchResponse = {
-  schema_version: 1
+  schema_version: 1 | 2
   batch: ApifyActorCanaryBatch
   job: { id: string; status: string }
 }
@@ -1191,6 +1300,9 @@ export type ApifyActorActivePoolUpdate = {
 export type ApifyActorRecommendedPoolActivation = {
   expected_generation: number
   confirmation: '确认启用 Actor 主备'
+  stage_id?: string
+  expected_plan_hash?: string
+  apply_id?: string
 }
 
 export type ApifyActorPaidCanaryRequest = {

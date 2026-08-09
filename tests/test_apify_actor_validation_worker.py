@@ -449,6 +449,208 @@ def test_batch_worker_stops_after_two_publishers_and_finalizes_unused_as_free(
     assert tuple(unused) == (0.0, 1, 0)
 
 
+def test_legacy_stage_worker_validates_two_exact_publishers_without_stopping_on_old_pool(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    admin = store.create_user(
+        workspace_id="default",
+        username="legacy-stage-worker-admin",
+        password="safe-test-password",
+        role="admin",
+    )
+    ops = ApifyActorOpsService(store)
+    route = next(
+        item for item in ops.list_routes() if item["route_key"] == "x/profile"
+    )
+    old_slots = [slot["revision_id"] for slot in ops.get_route(str(route["route_id"]))["slots"]]
+    source_id = store.create_source(
+        workspace_id="default",
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name="Legacy stage source",
+        config={"platform": "x", "kind": "profile", "target": "stage-source"},
+    )
+    ops.bind_source(
+        source_id=source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint=hashlib.sha256(b"legacy-stage-source").hexdigest(),
+        mode="primary",
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="legacy-stage-worker-test",
+        expected_generation=int(route["generation"]),
+    )
+    revision_ids: list[str] = []
+    for index, publisher in enumerate(("stage-a", "stage-b"), start=1):
+        actor_id = f"{publisher}/exact-x"
+        candidate_id = ops.ensure_candidate(str(route["route_id"]), actor_id=actor_id)
+        revision_ids.append(
+            ops.create_adapter_revision(
+                candidate_id=candidate_id,
+                actor_id=actor_id,
+                publisher=publisher,
+                build_id=f"stage-build-{index}",
+                build_number="1.0.1",
+                manifest=_manifest(actor_id),
+                lifecycle="static_valid",
+                discovery_run_id=str(run["run_id"]),
+            )
+        )
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+    plan = ops.get_canary_plan(str(run["run_id"]), goal="upgrade_legacy")
+    assert plan["source_count"] == 1
+    assert plan["source_validation_count"] == 2
+    batch = ops.create_canary_batch(
+        str(run["run_id"]),
+        goal="upgrade_legacy",
+        expected_generation=int(route["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        approval_id="legacy-stage-worker-approval-0001",
+        confirmation=BATCH_CANARY_CONFIRMATION,
+        max_candidates=int(plan["max_candidates"]),
+        max_total_charge_usd=float(plan["max_total_charge_usd"]),
+        created_by_user_id=str(admin["id"]),
+        reference_fingerprints={
+            revision_id: hashlib.sha256(
+                f"legacy-stage-reference-{revision_id}".encode()
+            ).hexdigest()
+            for revision_id in revision_ids
+        },
+    )
+    job = JobQueue(store).create_job(
+        workspace_id=admin["workspace_id"],
+        user_id=admin["id"],
+        job_type="apify_actor_canary_batch",
+        payload={"batch_id": batch["batch_id"]},
+        priority=100,
+        max_attempts=1,
+    )
+    store.close()
+    _disable_background_actor_work(monkeypatch)
+    calls: list[tuple[str, str]] = []
+
+    class Coordinator:
+        def public_state(self, _workspace_id):
+            return {"active_secret_id": "secret-legacy-stage"}
+
+        def quota_candidate(self, _secret_id):
+            return SimpleNamespace(
+                env_name="APIFY_TOKEN_LEGACY_STAGE_TEST",
+                token="test-token-not-persisted",
+            )
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def preflight_actor_revision(
+            self,
+            actor_id,
+            *,
+            build_id,
+            build_number,
+        ):
+            calls.append(("preflight", actor_id))
+            assert build_id.startswith("stage-build-")
+            assert build_number == "1.0.1"
+
+    class FakeRunner:
+        def __init__(self, _store, stage_ops, _client):
+            self.ops = stage_ops
+
+        async def run(self, validation_id, *, job_id, skip_preflight):
+            calls.append(("run", validation_id))
+            assert job_id == job["id"]
+            current = self.ops.get_validation(validation_id)
+            assert skip_preflight is (current["source_id"] is None)
+            validation = self.ops.record_validation(
+                validation_id,
+                status="succeeded",
+                semantic_outcome="valid_nonempty",
+                cost_usd=0.001,
+                cost_final=True,
+                counts_toward_canary=True,
+            )
+            if current["source_id"] is None:
+                self.ops.transition_revision(
+                    str(validation["revision_id"]),
+                    expected_lifecycle="static_valid",
+                    lifecycle="probationary",
+                )
+            return SimpleNamespace(
+                semantic_outcome="valid_nonempty",
+                cost_usd=0.001,
+            )
+
+    monkeypatch.setattr(
+        "src.services.worker.apify_coordinator_for_workspace",
+        lambda *_args, **_kwargs: Coordinator(),
+    )
+    monkeypatch.setattr("src.scrapers.apify_client.ApifyClient", FakeClient)
+    monkeypatch.setattr(
+        "src.services.apify_actor_canary.ApifyActorCanaryRunner",
+        FakeRunner,
+    )
+
+    result = run_worker_once(
+        data_dir=str(tmp_path),
+        worker_id="legacy-stage-canary-worker",
+        enqueue_schedules=False,
+    )
+
+    assert result["id"] == job["id"]
+    assert result["status"] == "succeeded"
+    assert [kind for kind, _value in calls].count("run") == 4
+    verification_store = ServiceStore(tmp_path)
+    verification_store.initialize()
+    verification_ops = ApifyActorOpsService(verification_store)
+    persisted = verification_ops.get_canary_batch(str(batch["batch_id"]))
+    assert persisted["status"] == "activation_ready"
+    assert persisted["pool_stage"]["status"] == "apply_ready"
+    assert [
+        slot["revision_id"]
+        for slot in verification_ops.get_route(str(route["route_id"]))["slots"]
+    ] == old_slots
+    assert persisted["success_count"] == 2
+    assert persisted["publisher_count"] == 2
+    assert persisted["actual_cost_usd"] == 0.004
+    assert persisted["cost_final"] is True
+    assert [item["status"] for item in persisted["items"]] == [
+        "succeeded",
+        "succeeded",
+    ]
+    source_validations = verification_store.connect().execute(
+        """
+        SELECT status, cost_final FROM apify_actor_validations
+        WHERE workspace_id = 'default' AND source_id = ?
+          AND kind = 'source_canary'
+        ORDER BY revision_id
+        """,
+        (source_id,),
+    ).fetchall()
+    assert [tuple(row) for row in source_validations] == [
+        ("succeeded", 1),
+        ("succeeded", 1),
+    ]
+    assert persisted["pool_stage"]["source_summary"] == {
+        "source_count": 1,
+        "required_count": 2,
+        "passed_count": 2,
+        "succeeded_sources": 1,
+        "failed_sources": 0,
+        "active_sources": 0,
+    }
+
+
 def test_batch_unknown_start_is_a_failed_job_and_never_runs_next_candidate(
     tmp_path,
     monkeypatch,

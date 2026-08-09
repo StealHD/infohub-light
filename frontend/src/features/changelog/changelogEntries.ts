@@ -22,6 +22,17 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-09',
+        title: 'ActorOps 可引导补齐第三路并零中断升级旧配置',
+        summary: 'ActorOps 收为三项任务流程；第三槽和旧版 Actor 都先旁路验证全部来源，再由第二次确认原子生效。',
+        items: [
+          { title: '每次只有一个下一步', description: '页面改为抓取类型选择器与“主备配置、来源启用、运行与告警”三个页签；免费搜索、付费验证和生效确认依次出现，不再要求理解 Route 表、机器状态或来源 ID。' },
+          { title: '两路运行时安全补第三路', description: '主用与备用 1 正式认证后，可在不改变现有线路的情况下验证第三个不同 Actor 及全部已启用来源；第二次确认只把它加入备用 2。' },
+          { title: '旧版配置旁路升级', description: '兼容 Actor 不会伪装成正式认证。系统在旧池持续服务时建立两个固定 Build 的新 Actor，来源验证完成后一次切换，历史 Revision 继续可审计。' },
+          { title: '自动转正进度可见', description: '观察中的 Actor 已可运行；页面显示身份、参考来源、48 小时和成功率门槛，由系统自动认证，不提供误导性的手工转正操作。' },
+        ],
+      },
+      {
         date: '2026-08-08',
         title: 'OpenClaw 输入区与对话起始建议更清晰',
         summary: 'Agent 输入区收为单层圆角边框并扩大可编辑空间；空对话新增可直接继续编辑的结构化建议。',

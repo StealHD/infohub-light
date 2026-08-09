@@ -20,6 +20,7 @@ import type {
   ApifyActorDiscoverySettingsPatch,
   ApifyActorPaidCanaryRequest,
   ApifyActorPaidCanaryResponse,
+  ApifyActorPoolGoal,
   ApifyActorRecommendedPoolActivation,
   ApifyActorRoute,
   ApifyActorRouteDetail,
@@ -328,8 +329,12 @@ export function createServiceApi(client: ApiClient) {
       resource('/api/admin/apify-discovery-runs', runId),
       signal,
     ),
-    apifyActorCanaryPlan: (runId: string, signal?: AbortSignal) => client.get<ApifyActorCanaryPlan>(
-      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan`,
+    apifyActorCanaryPlan: (
+      runId: string,
+      goal: ApifyActorPoolGoal = 'initial_pool',
+      signal?: AbortSignal,
+    ) => client.get<ApifyActorCanaryPlan>(
+      `${resource('/api/admin/apify-discovery-runs', runId)}/canary-plan?goal=${encodeURIComponent(goal)}`,
       signal,
     ),
     createApifyActorCanaryBatch: (

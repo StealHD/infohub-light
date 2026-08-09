@@ -592,6 +592,30 @@ def _terminalize_unstarted_actor_validation(
                 batch_id,
             ),
         )
+        connection.execute(
+            """
+            UPDATE apify_actor_pool_stages
+            SET status = ?, last_error_code = ?, updated_at = ?
+            WHERE workspace_id = ?
+              AND stage_id = (
+                  SELECT pool_stage_id
+                  FROM apify_actor_canary_batches
+                  WHERE workspace_id = ? AND batch_id = ?
+              )
+              AND status IN ('queued', 'validating_route')
+            """,
+            (
+                status,
+                _safe_machine_code(
+                    semantic_outcome,
+                    "apify_actor_validation_not_started",
+                ),
+                now,
+                str(job.get("workspace_id") or ""),
+                str(job.get("workspace_id") or ""),
+                batch_id,
+            ),
+        )
         return updated.rowcount == 1
     validation_id = _actor_validation_id(job)
     if validation_id is None:
@@ -1171,6 +1195,22 @@ def _run_apify_actor_canary_batch(
             expected_statuses=("queued",),
             status="preflighting",
         )
+        goal = str(current.get("goal") or "initial_pool")
+        stage_id = (
+            str(current["pool_stage_id"])
+            if current.get("pool_stage_id")
+            else None
+        )
+        if goal != "initial_pool":
+            if stage_id is None:
+                raise PaidCanaryAuthorizationError(
+                    "Staged Actor Canary batch is missing its pool stage"
+                )
+            ops.set_pool_stage_status(
+                stage_id,
+                expected_statuses=("queued",),
+                status="validating_route",
+            )
         timeout = httpx.Timeout(30.0, connect=10.0)
         stop_reason: str | None = None
         async with httpx.AsyncClient(
@@ -1191,11 +1231,21 @@ def _run_apify_actor_canary_batch(
             runner = ApifyActorCanaryRunner(store, ops, client)
             items = list(ops.get_canary_batch(batch_id)["items"])
             for index, item in enumerate(items):
-                recommendation = ops.recommend_active_pool(
-                    str(current["route_id"])
+                route_ready = (
+                    ops.pool_stage_route_ready(stage_id)
+                    if stage_id is not None
+                    else bool(
+                        ops.recommend_active_pool(
+                            str(current["route_id"])
+                        ).get("ready")
+                    )
                 )
-                if bool(recommendation.get("ready")):
-                    stop_reason = "two_providers_ready"
+                if route_ready:
+                    stop_reason = (
+                        "staged_route_ready"
+                        if stage_id is not None
+                        else "two_providers_ready"
+                    )
                     cancel_remaining(items[index:], reason=stop_reason)
                     break
                 validation_id = str(item["validation_id"])
@@ -1285,6 +1335,8 @@ def _run_apify_actor_canary_batch(
                     if unknown:
                         stop_reason = "apify_start_outcome_unknown"
                         cancel_remaining(items[index + 1 :], reason=stop_reason)
+                        if stage_id is not None:
+                            ops.block_pool_stage_unknown_start(stage_id)
                         ops.set_canary_batch_status(
                             batch_id,
                             expected_statuses=("running",),
@@ -1311,12 +1363,68 @@ def _run_apify_actor_canary_batch(
                         cost_final=bool(validation.get("cost_final")),
                     )
 
+            if stage_id is not None:
+                source_validation_ids = (
+                    ops.prepare_pool_stage_source_validations(stage_id)
+                )
+                if source_validation_ids:
+                    batch_state = ops.get_canary_batch(batch_id)
+                    if str(batch_state["status"]) == "preflighting":
+                        ops.set_canary_batch_status(
+                            batch_id,
+                            expected_statuses=("preflighting",),
+                            status="running",
+                        )
+                for validation_id in source_validation_ids:
+                    try:
+                        await runner.run(
+                            validation_id,
+                            job_id=str(job["id"]),
+                            # A staged source may target an already-proven
+                            # Route revision that was not preflighted by this
+                            # batch iteration. Every paid POST therefore owns
+                            # its own fresh free Actor/Build preflight.
+                            skip_preflight=False,
+                        )
+                    except ActorOpsError as exc:
+                        unknown = str(exc.code) in {
+                            "apify_start_outcome_unknown",
+                            "apify_run_reconcile_required",
+                        }
+                        ops.refresh_pool_stage_sources(stage_id)
+                        if unknown:
+                            stop_reason = "apify_start_outcome_unknown"
+                            ops.block_pool_stage_unknown_start(stage_id)
+                            batch_state = ops.get_canary_batch(batch_id)
+                            ops.set_canary_batch_status(
+                                batch_id,
+                                expected_statuses=(str(batch_state["status"]),),
+                                status="blocked_unknown_start",
+                                stop_reason=stop_reason,
+                            )
+                            return {
+                                "ok": False,
+                                "job_type": "apify_actor_canary_batch",
+                                "batch_id": batch_id,
+                                "pool_stage_id": stage_id,
+                                "status": "blocked_unknown_start",
+                                "error_code": stop_reason,
+                                "_job_status": "failed",
+                            }
+                        continue
+                    else:
+                        ops.refresh_pool_stage_sources(stage_id)
+                ops.refresh_pool_stage_sources(stage_id)
+
         finalized = ops.finalize_canary_batch(
             batch_id,
             stop_reason=stop_reason,
         )
         replenishment_job_id: str | None = None
-        if str(finalized["status"]) == "partial":
+        if (
+            goal == "initial_pool"
+            and str(finalized["status"]) == "partial"
+        ):
             continuation = ops.get_canary_plan(
                 str(finalized["discovery_run_id"])
             )
@@ -1339,7 +1447,7 @@ def _run_apify_actor_canary_batch(
                     ),
                 )
                 replenishment_job_id = str(replenishment["id"])
-        return {
+        result = {
             "ok": True,
             "job_type": "apify_actor_canary_batch",
             "batch_id": batch_id,
@@ -1350,6 +1458,9 @@ def _run_apify_actor_canary_batch(
             "cost_final": bool(finalized.get("cost_final")),
             "replenishment_job_id": replenishment_job_id,
         }
+        if stage_id is not None:
+            result["pool_stage"] = ops.get_pool_stage(stage_id)
+        return result
 
     return asyncio.run(execute())
 
@@ -1906,6 +2017,17 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "apify_actor_canary_batches_v17",
             }
+        if store.apify_actor_pool_staging_v18_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_pool_staging_v18",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -1981,6 +2103,7 @@ def run_worker_once(
             and not store.apify_actor_ops_v15_migration_required()
             and not store.apify_discovery_limits_v16_migration_required()
             and not store.apify_actor_canary_batches_v17_migration_required()
+            and not store.apify_actor_pool_staging_v18_migration_required()
         ):
             update_observability_context(stage="maintenance")
             maintenance_result = MaintenanceService(store).run_if_due()
@@ -2192,6 +2315,10 @@ def run_worker_once(
                     if store.apify_actor_canary_batches_v17_migration_required():
                         raise MigrationRequiredError(
                             "Apify Actor Canary batch migration is required before jobs can run"
+                        )
+                    if store.apify_actor_pool_staging_v18_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify Actor pool staging migration is required before jobs can run"
                         )
                     result = _run_job(job, data_dir=data_dir, store=store)
                     raw_cleanup = result.pop("_media_cleanup", None)

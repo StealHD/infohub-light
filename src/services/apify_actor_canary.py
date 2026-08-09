@@ -23,6 +23,7 @@ from .apify_actor_ops import (
     ApifyActorOpsService,
     RouteExecutionSnapshot,
     RouteSlotSnapshot,
+    revision_set_hash,
     source_target_fingerprint,
 )
 
@@ -624,6 +625,7 @@ class ApifyActorCanaryRunner:
                 str(config.get("target") or config.get("url") or ""),
                 platform=str(row["platform"]),
             )
+            staged = self._staged_source_context(row)
             if (
                 binding is None
                 or str(binding["route_id"]) != str(row["route_id"])
@@ -632,7 +634,7 @@ class ApifyActorCanaryRunner:
                 or str(binding["target_fingerprint"]) != expected_fingerprint
                 or int(binding["generation"])
                 != int(row["approved_generation"] or -1)
-                or active is None
+                or (active is None and staged is None)
             ):
                 raise ActorOpsError(
                     "apify_actor_canary_approval_stale",
@@ -677,7 +679,10 @@ class ApifyActorCanaryRunner:
                 str(row["revision_id"]),
             ),
         ).fetchone()
-        return str(slot["slot_name"]) if slot is not None else "primary"
+        if slot is not None:
+            return str(slot["slot_name"])
+        staged = self._staged_source_context(row)
+        return str(staged["slot_name"]) if staged is not None else "primary"
 
     def _approval_still_authorized(self, row: Any) -> bool:
         lifecycle = str(row["lifecycle"])
@@ -687,6 +692,11 @@ class ApifyActorCanaryRunner:
                 lifecycle in {"static_valid", "probationary"}
                 and state != "open"
             )
+        staged = self._staged_source_context(row)
+        if staged is not None:
+            return lifecycle in {"probationary", "certified"} and state in {
+                "closed", "half_open", "probationary", "disabled"
+            }
         slot = self.store.connect().execute(
             """
             SELECT slot.slot_name
@@ -709,6 +719,83 @@ class ApifyActorCanaryRunner:
             else {"certified", "probationary", "legacy_builtin"}
         )
         return lifecycle in allowed
+
+    def _staged_source_context(self, row: Any) -> dict[str, Any] | None:
+        if row["source_id"] is None:
+            return None
+        connection = self.store.connect()
+        staged = connection.execute(
+            """
+            SELECT stage.stage_id, stage.route_id, stage.base_generation,
+                   stage.base_pool_hash, stage.status,
+                   source.binding_generation, source.target_fingerprint,
+                   CASE
+                     WHEN source.primary_validation_id = ? THEN 'primary'
+                     WHEN source.backup_1_validation_id = ? THEN 'backup_1'
+                     WHEN source.backup_2_validation_id = ? THEN 'backup_2'
+                   END AS slot_name,
+                   CASE
+                     WHEN source.primary_validation_id = ?
+                       THEN stage.target_primary_revision_id
+                     WHEN source.backup_1_validation_id = ?
+                       THEN stage.target_backup_1_revision_id
+                     WHEN source.backup_2_validation_id = ?
+                       THEN stage.target_backup_2_revision_id
+                   END AS staged_revision_id
+            FROM apify_actor_pool_stage_sources AS source
+            JOIN apify_actor_pool_stages AS stage
+              ON stage.workspace_id = source.workspace_id
+             AND stage.stage_id = source.stage_id
+            WHERE source.workspace_id = ? AND source.source_id = ?
+              AND ? IN (
+                  source.primary_validation_id,
+                  source.backup_1_validation_id,
+                  source.backup_2_validation_id
+              )
+              AND stage.status IN ('validating_sources', 'apply_ready')
+            LIMIT 1
+            """,
+            (
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                str(row["validation_id"]),
+                self.ops.workspace_id,
+                str(row["source_id"]),
+                str(row["validation_id"]),
+            ),
+        ).fetchone()
+        if staged is None:
+            return None
+        active_rows = connection.execute(
+            """
+            SELECT slot_name, revision_id
+            FROM apify_route_active_slots
+            WHERE workspace_id = ? AND route_id = ?
+            """,
+            (self.ops.workspace_id, str(row["route_id"])),
+        ).fetchall()
+        active_hash = revision_set_hash(
+            {
+                str(active["slot_name"]): str(active["revision_id"] or "")
+                for active in active_rows
+            }
+        )
+        if (
+            str(staged["route_id"]) != str(row["route_id"])
+            or int(staged["base_generation"]) != int(row["route_generation"])
+            or active_hash != str(staged["base_pool_hash"])
+            or int(staged["binding_generation"]) != int(row["approved_generation"])
+            or str(staged["target_fingerprint"])
+            != str(row["target_fingerprint"] or "")
+            or str(staged["staged_revision_id"] or "")
+            != str(row["revision_id"])
+            or not staged["slot_name"]
+        ):
+            return None
+        return dict(staged)
 
     def _advance_revision(self, revision_id: str) -> None:
         lifecycle = str(self.ops.get_revision(revision_id)["lifecycle"])

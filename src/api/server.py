@@ -710,6 +710,24 @@ class ApifyRecommendedPoolActivationRequest(BaseModel):
 
     expected_generation: StrictInt = Field(ge=1)
     confirmation: Literal["确认启用 Actor 主备"]
+    stage_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    expected_plan_hash: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    apply_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class ApifySupportCheckRequest(BaseModel):
@@ -750,8 +768,11 @@ class ApifyActorCanaryBatchRequest(BaseModel):
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
     confirmation: Literal["确认付费验证主备"]
+    goal: Literal[
+        "initial_pool", "complete_third", "upgrade_legacy"
+    ] = "initial_pool"
     max_candidates: StrictInt = Field(default=3, ge=1, le=3)
-    max_total_charge_usd: float = Field(default=0.06, gt=0, le=0.06)
+    max_total_charge_usd: float = Field(default=0.06, gt=0, le=6.06)
 
 
 class ApifySourceBindingActivateRequest(BaseModel):
@@ -1272,11 +1293,24 @@ def create_app(
                 ),
             )
 
+    def require_apify_actor_pool_staging_v18() -> None:
+        if store.apify_actor_pool_staging_v18_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor pool staging migration must be applied before Actor routes are used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_pool_staging_v18.py --apply."
+                ),
+            )
+
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
+        require_apify_actor_pool_staging_v18()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1293,6 +1327,7 @@ def create_app(
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
+        require_apify_actor_pool_staging_v18()
         return ApifyActorOpsService(
             store,
             workspace_id=str(workspace_id),
@@ -1596,6 +1631,7 @@ def create_app(
         route: dict[str, Any],
     ) -> dict[str, Any]:
         gate = ops.schedule_gate(str(route["route_id"]))
+        workflow = ops.workflow_state(str(route["route_id"]))
         profile_status = str(route["status"])
         if ops.source_capability_ready(str(route["route_id"])):
             support_status = "supported"
@@ -1649,6 +1685,7 @@ def create_app(
                 str(gate.error_code) if not gate.allowed and gate.error_code else None
             ),
             "updated_at": str(route["updated_at"]),
+            "workflow": workflow,
         }
 
     def public_actor_ops_revision(
@@ -1731,6 +1768,7 @@ def create_app(
             "build_number": revision.get("build_number"),
             "manifest_hash": revision.get("manifest_hash"),
             "lifecycle": str(revision["lifecycle"]),
+            "certification_progress": revision.get("certification_progress"),
             "listed_price_usd_per_1000": (
                 float(listed)
                 if isinstance(listed, (int, float))
@@ -1846,6 +1884,10 @@ def create_app(
         result = public_actor_ops_route(ops, route)
         revisions: dict[str, dict[str, Any]] = {}
         slots: list[dict[str, Any]] = []
+        populated_slot_count = sum(
+            slot.get("revision_id") is not None
+            for slot in route.get("slots", [])
+        )
         for slot in route.get("slots", []):
             revision_id = slot.get("revision_id")
             revision = (
@@ -1854,6 +1896,12 @@ def create_app(
                 else None
             )
             if revision is not None:
+                if str(revision.get("lifecycle")) in {
+                    "probationary", "certified"
+                }:
+                    revision["certification_progress"] = (
+                        ops.certification_progress(str(revision_id))
+                    )
                 revisions[str(revision_id)] = public_actor_ops_revision(revision)
             candidate_state = str(slot.get("candidate_state") or "")
             lifecycle = str(slot.get("lifecycle") or "")
@@ -1865,6 +1913,10 @@ def create_app(
                     in {"closed", "half_open", "probationary"}
                     and (
                         lifecycle in {"certified", "legacy_builtin"}
+                        or (
+                            populated_slot_count == 2
+                            and lifecycle == "probationary"
+                        )
                         or (
                             str(slot["slot_name"]) == "backup_2"
                             and lifecycle == "probationary"
@@ -1945,6 +1997,12 @@ def create_app(
         for row in revision_rows:
             revision = ops.get_revision(str(row["revision_id"]))
             revision["actor_public_name"] = str(row["display_name"] or "")
+            if str(revision.get("lifecycle")) in {
+                "probationary", "certified"
+            }:
+                revision["certification_progress"] = (
+                    ops.certification_progress(str(row["revision_id"]))
+                )
             public_revision = public_actor_ops_revision(revision)
             public_revision.update(
                 {
@@ -2171,6 +2229,32 @@ def create_app(
             )
         result["source_validations"] = source_validations
         result["source_validation_summary"] = source_summary
+        stage = ops.active_pool_stage(route_id)
+        if stage is not None:
+            stage_sources = {
+                str(row["source_id"]): dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT source_id, required_count, passed_count, status,
+                           last_error_code
+                    FROM apify_actor_pool_stage_sources
+                    WHERE workspace_id = ? AND stage_id = ?
+                    """,
+                    (ops.workspace_id, str(stage["stage_id"])),
+                ).fetchall()
+            }
+            for source_validation in source_validations:
+                staged = stage_sources.get(str(source_validation["source_id"]))
+                if staged is None:
+                    continue
+                source_validation["staged_validation"] = {
+                    "stage_id": str(stage["stage_id"]),
+                    "status": str(staged["status"]),
+                    "required_count": int(staged["required_count"]),
+                    "passed_count": int(staged["passed_count"]),
+                    "last_error_code": staged.get("last_error_code"),
+                }
+        result["workflow"] = ops.workflow_state(route_id)
         discovery = connection.execute(
             """
             SELECT run_id, stage, error_code, updated_at
@@ -3955,6 +4039,7 @@ def create_app(
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
+        require_apify_actor_pool_staging_v18()
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -5485,7 +5570,7 @@ def create_app(
         )
 
     def public_canary_plan(plan: dict[str, Any]) -> dict[str, Any]:
-        return {
+        result = {
             key: plan[key]
             for key in (
                 "schema_version",
@@ -5512,10 +5597,22 @@ def create_app(
                 "items",
             )
         }
+        for key in (
+            "goal",
+            "base_pool_hash",
+            "required_success_count",
+            "route_validation_cap_usd",
+            "source_validation_cap_usd",
+            "source_count",
+            "source_validation_count",
+        ):
+            if key in plan:
+                result[key] = plan[key]
+        return result
 
     def public_canary_batch(batch: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
+        result = {
+            "schema_version": 2,
             **{
                 key: batch[key]
                 for key in (
@@ -5527,6 +5624,8 @@ def create_app(
                     "max_candidates",
                     "max_total_charge_usd",
                     "per_candidate_cap_usd",
+                    "goal",
+                    "pool_stage_id",
                     "status",
                     "planned_count",
                     "success_count",
@@ -5565,6 +5664,13 @@ def create_app(
                 for item in batch["items"]
             ],
         }
+        if batch.get("pool_stage") is not None:
+            result["pool_stage"] = batch["pool_stage"]
+        if batch.get("route_validation_cap_usd") is not None:
+            result["route_validation_cap_usd"] = batch[
+                "route_validation_cap_usd"
+            ]
+        return result
 
     @app.get(
         "/api/admin/apify-discovery-runs/{run_id}/canary-plan"
@@ -5572,11 +5678,14 @@ def create_app(
     async def admin_apify_canary_plan(
         run_id: str,
         response: Response,
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy"
+        ] = Query(default="initial_pool"),
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
         plan = apify_actor_ops_for(
             str(user["workspace_id"])
-        ).get_canary_plan(run_id)
+        ).get_canary_plan(run_id, goal=goal)
         response.headers["Cache-Control"] = "no-store"
         return ok(public_canary_plan(plan))
 
@@ -5785,6 +5894,7 @@ def create_app(
         ops = apify_actor_ops_for(str(user["workspace_id"]))
         plan = ops.get_canary_plan(
             run_id,
+            goal=payload.goal,
             max_candidates=int(payload.max_candidates),
             max_total_charge_usd=float(payload.max_total_charge_usd),
         )
@@ -5811,6 +5921,7 @@ def create_app(
                 max_total_charge_usd=float(payload.max_total_charge_usd),
                 created_by_user_id=str(user["id"]),
                 reference_fingerprints=reference_fingerprints,
+                goal=payload.goal,
             ),
             user=user,
             request=request,
@@ -5818,7 +5929,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "batch": public_canary_batch(batch),
                 "job": {
                     "id": str(queued["id"]),
@@ -5947,13 +6058,41 @@ def create_app(
         response: Response,
         user: dict[str, Any] = Depends(current_admin),
     ) -> dict[str, Any]:
-        result = apify_actor_ops_for(
-            str(user["workspace_id"])
-        ).activate_recommended_pool(
-            route_id,
-            expected_generation=int(payload.expected_generation),
-            confirmation=payload.confirmation,
+        ops = apify_actor_ops_for(str(user["workspace_id"]))
+        staged_fields = (
+            payload.stage_id,
+            payload.expected_plan_hash,
+            payload.apply_id,
         )
+        if any(value is not None for value in staged_fields) and not all(
+            value is not None for value in staged_fields
+        ):
+            raise ApiError(
+                "invalid_request",
+                "stage_id, expected_plan_hash, and apply_id must be supplied together",
+                status_code=422,
+            )
+        if payload.stage_id is not None:
+            stage = ops.get_pool_stage(str(payload.stage_id))
+            if str(stage["route_id"]) != route_id:
+                raise ApiError(
+                    "not_found",
+                    "Actor pool stage was not found for this route",
+                    status_code=404,
+                )
+            result = ops.apply_pool_stage(
+                str(payload.stage_id),
+                expected_generation=int(payload.expected_generation),
+                expected_plan_hash=str(payload.expected_plan_hash),
+                apply_id=str(payload.apply_id),
+                confirmation=payload.confirmation,
+            )
+        else:
+            result = ops.activate_recommended_pool(
+                route_id,
+                expected_generation=int(payload.expected_generation),
+                confirmation=payload.confirmation,
+            )
         request.state.operation_changed_fields = [
             "recommended_slots",
             "generation",
@@ -5963,7 +6102,7 @@ def create_app(
             {
                 "schema_version": 1,
                 **public_actor_ops_detail(
-                    apify_actor_ops_for(str(user["workspace_id"])),
+                    ops,
                     str(result["route_id"]),
                 ),
             }

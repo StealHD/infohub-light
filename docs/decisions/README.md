@@ -139,3 +139,4 @@
 | D133 | 正式发布复用精确 main Gate 并将 Tag 收为隔离 smoke | 2026-08-07 | [查看](records/D126-D150.md#d133) |
 | D134 | 目录型控制真源与活动 Markdown 预算 | 2026-08-07 | [查看](records/D126-D150.md#d134) |
 | D135 | OpenClaw Composer 采用单层输入壳与本地建议组件 | 2026-08-08 | [查看](records/D126-D150.md#d135) |
+| D136 | ActorOps 以持久 Pool Stage 完成第三槽与零中断 legacy 升级 | 2026-08-09 | [查看](records/D126-D150.md#d136) |

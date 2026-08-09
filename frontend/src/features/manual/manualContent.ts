@@ -89,7 +89,7 @@ export const manualSections: ManualSection[] = [
       },
       {
         title: '验证 Actor 来源',
-        description: 'X、Instagram 以及 YouTube 的付费回退由“设置 → ActorOps”统一管理。首期只支持 X Profile、YouTube Channel 与 Instagram Profile。Discovery 使用工作区 AI 排序并生成受限 Manifest，输入形状与输出字段都必须由精确 Build Schema 验证；单个候选不合格只淘汰该候选。Route 认证也不需要逐个 Actor 反复操作：页面只显示一次“验证两路主备”，确认框会列出 Route、候选发布者、精确 Build、商城定价、每项和本批费用上限。确认后系统先免费检查每个 Actor 与固定 Build，再严格串行试跑；两个不同发布者成功后立即停止，未启动或已失效的 Build 费用为 0 且不计次数。批次未凑齐两路时，系统会跨历次 Discovery 保留成功证据、次数、费用和尚未试跑的候选；若旧候选还能补齐第二发布者，会直接给出下一次人工确认，不会先重复 Discovery。只有现有候选确实不足时才创建不启动 Actor 的补位发现任务；未知启动会先安全阻断，系统仅在 Apify 账号级时间窗明确没有创建任何 Run 时自动记为 0 美元并恢复入口，绝不会自动重跑，其他情况继续要求核对。系统优先生成完整 2+1；如果已有两个不同 Actor、来自不同发布者、固定 Build 且各成功一次 Canary，就会直接给出“两路主备快速启用”，第三槽留空且不产生费用。管理员再独立确认一次生效，少于两个可运行 Actor 仍会阻断。新账号只串行验证当前实际运行的两个或三个 Actor，通过后分别显示 2/2 或 3/3；后续补第三槽只复验变化槽位。Canary 默认最长 300 秒且不自动重试；页面分开显示已确认实际费用、待远端对账笔数、尚未运行的批准上限和认证预算，其中 0.10 美元预算不是扣款。Actor、Build、Manifest、Route 费用和 Discovery 输出 Token 上限都按 generation 热加载。Actor Discovery 继承“工作区 AI”的 provider 与 model，并由管理员从同 Provider 的 Key 中选择一个；连接地址只使用被选 Key 自己保存的值，留空时使用 Provider 默认地址。工作区 AI 不可用只阻断新发现。YouTube 始终先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
+        description: 'X、Instagram 和 YouTube 付费回退由“设置 → ActorOps”统一管理。先选择抓取类型，再按“主备配置 / 来源启用 / 运行与告警”完成任务；系统每次只显示一个安全的下一步，不需要也不允许粘贴 Actor ID。首次建立、补第三路和兼容模式升级都遵循“免费搜索 → 确认付费验证 → 确认生效”：免费搜索不启动 Actor，付费确认会列出服务端选择的发布者、精确 Build 与费用上限，生效确认不再产生验证费用。两路快速池可先运行；主用和备用 1 自动认证后，页面会引导补齐备用 2，原两路在候选与所有已启用来源完成旁路验证前保持不变。旧版内建 Actor 不能直接转正式，系统会旁路建立两个 exact-Build 新 Actor，验证全部来源后一次切换，旧 Revision 保留为历史。审批后新增、变化或失败的来源只补做缺失验证；unknown-start 会阻断并要求核对，绝不自动重发。Actor 通过付费验证后已经可以参与运行，满足参考来源、48 小时观察与至少 95% 成功率时由系统自动认证，页面不会提供伪造的手工转正按钮。YouTube 仍先使用免费原生 Feed，只有允许回退的网络或合同故障才进入 Actor Route。',
         href: '/settings/actorops',
         linkLabel: '打开 ActorOps',
       },
@@ -200,10 +200,10 @@ export const manualSections: ManualSection[] = [
         linkLabel: '打开设置',
       },
       {
-        title: '查看 X 抓取主备与告警',
-        description: 'Owner/Admin 可在“设置 → ActorOps”的“X 抓取主备”查看当前 Actor、三路健康、近 24 小时真实成功率与实际费用、冷却时间和 Apify 额度。系统会拦截 Demo、占位和付费墙记录，串行切换到下一路；恢复的 Actor 要连续两次返回真实帖子，且不会自动抢回主路。调整顺序会影响下一次选择。每次 Run 最多预留 0.02 美元，同一任务三路合计最多 0.06 美元；同一任务重试复用原费用组和已成功 Dataset，不会重新 POST，已经付费但因路由切换作废的结果仍会计入上限。全部可用 Key 的额度快照都在 60 秒内有效时才允许新的付费调用。付费 Canary 每次都要选择一个已启用的 X 账号并逐字二次确认，且不会与同候选的自然任务并发；普通任务重试不能代替确认。运行告警只选择“消息通知”中已经配置、测试并启用的工作区共享服务，可同时选择多个服务或多个相同渠道服务；历史私人目标不会出现在系统告警中。任一服务失败不会阻断其他服务或原抓取任务，结果未知不会自动重发。首报、全挂升级和恢复各发一次，地址、签名、Chat ID、Token、目标账号与远端 Run 都不会回显。',
+        title: '查看 ActorOps 运行与告警',
+        description: 'Owner/Admin 可在“设置 → ActorOps”切换 X、Instagram 或 YouTube 抓取类型。主备配置默认只显示三槽、人类可读生命周期和唯一下一步；候选、Build、费用账本、Revision/回滚与 Discovery AI 位于默认收起的高级详情。来源启用直接列出已经在“来源”页创建的账号或频道，不再要求复制来源 ID，也不会在这里新增 Actor 或显示真实目标。运行与告警只保留一个线路摘要；工作区告警通过编辑弹窗选择已经配置、测试并启用的共享通知服务，最近事件默认显示五条。任一通知服务失败不会阻断其他服务或抓取任务，结果未知不会自动重发；地址、签名、Chat ID、Token、目标账号与远端 Run 都不会回显。',
         href: '/settings/actorops',
-        linkLabel: '查看 X 抓取主备',
+        linkLabel: '打开 ActorOps',
       },
       {
         title: '预演清理与冷归档',

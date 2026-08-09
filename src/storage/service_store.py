@@ -47,6 +47,11 @@ APIFY_ACTOR_CANARY_BATCHES_MIGRATION_NAME = "apify_actor_canary_batches_v17"
 APIFY_ACTOR_CANARY_BATCHES_MIGRATION_CHECKSUM = (
     "apify-actor-canary-batches-v17-two-provider-approval"
 )
+APIFY_ACTOR_POOL_STAGING_MIGRATION_VERSION = 20
+APIFY_ACTOR_POOL_STAGING_MIGRATION_NAME = "apify_actor_pool_staging_v18"
+APIFY_ACTOR_POOL_STAGING_MIGRATION_CHECKSUM = (
+    "apify-actor-pool-staging-v18-zero-downtime-guided-flow"
+)
 ROLES = {"owner", "admin", "member", "viewer"}
 SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
@@ -299,6 +304,56 @@ def apify_actor_canary_batches_v17_schema_shapes_valid(
         in item_sql
         and "check(cost_finalin(0,1))" in validation_sql
         and "check(counts_toward_canaryin(0,1))" in validation_sql
+    )
+
+
+APIFY_ACTOR_POOL_STAGING_V18_COLUMNS = {
+    "apify_actor_canary_batches": {"goal", "pool_stage_id"},
+}
+APIFY_ACTOR_POOL_STAGING_V18_TABLES = {
+    "apify_actor_pool_stages",
+    "apify_actor_pool_stage_sources",
+}
+
+
+def apify_actor_pool_staging_v18_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate the zero-downtime staged-pool workflow schema."""
+
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if not APIFY_ACTOR_POOL_STAGING_V18_TABLES <= tables:
+        return False
+    for table, expected in APIFY_ACTOR_POOL_STAGING_V18_COLUMNS.items():
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if not expected <= columns:
+            return False
+    table_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    stage_sql = table_sql.get("apify_actor_pool_stages", "")
+    source_sql = table_sql.get("apify_actor_pool_stage_sources", "")
+    return (
+        "goalin('complete_third','upgrade_legacy')" in stage_sql
+        and "statusin('queued','validating_route','validating_sources','apply_ready','applied','replan_required','blocked_unknown_start','stale','failed','cancelled')"
+        in stage_sql
+        and "max_total_charge_usd<=6.06" in stage_sql
+        and "primarykey(stage_id,source_id)" in source_sql
+        and "statusin('snapshotted','queued','running','succeeded','failed','skipped')"
+        in source_sql
     )
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
@@ -724,6 +779,7 @@ class ServiceStore:
         prepare_apify_actor_ops_v15: bool = False,
         prepare_apify_discovery_limits_v16: bool = False,
         prepare_apify_actor_canary_batches_v17: bool = False,
+        prepare_apify_actor_pool_staging_v18: bool = False,
     ) -> None:
         conn = self.connect()
         existing_schema = bool(
@@ -892,6 +948,30 @@ class ServiceStore:
             or (
                 prepare_apify_actor_canary_batches_v17
                 and apify_discovery_limits_v16_migrated
+            )
+        )
+        apify_actor_pool_staging_v18_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_ACTOR_POOL_STAGING_MIGRATION_VERSION,
+                    APIFY_ACTOR_POOL_STAGING_MIGRATION_NAME,
+                    APIFY_ACTOR_POOL_STAGING_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
+        )
+        apify_actor_pool_staging_v18_upgrade_pending = bool(
+            existing_schema and not apify_actor_pool_staging_v18_migrated
+        )
+        install_apify_actor_pool_staging_v18 = bool(
+            not existing_schema
+            or (
+                prepare_apify_actor_pool_staging_v18
+                and apify_actor_canary_batches_v17_migrated
             )
         )
         schema_sql = """
@@ -2575,6 +2655,10 @@ class ServiceStore:
                         per_candidate_cap_usd > 0
                         AND per_candidate_cap_usd <= 0.02
                     ),
+                goal TEXT NOT NULL DEFAULT 'initial_pool' CHECK(goal IN (
+                    'initial_pool', 'complete_third', 'upgrade_legacy'
+                )),
+                pool_stage_id TEXT,
                 status TEXT NOT NULL CHECK(status IN (
                     'queued', 'preflighting', 'running',
                     'activation_ready', 'partial',
@@ -2664,6 +2748,124 @@ class ServiceStore:
                     workspace_id, batch_id, status, ordinal
                 );
             -- APIFY_ACTOR_CANARY_BATCHES_V17_END
+
+            -- APIFY_ACTOR_POOL_STAGING_V18_BEGIN
+            CREATE TABLE IF NOT EXISTS apify_actor_pool_stages (
+                stage_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                discovery_run_id TEXT NOT NULL,
+                initial_batch_id TEXT NOT NULL,
+                goal TEXT NOT NULL CHECK(goal IN (
+                    'complete_third', 'upgrade_legacy'
+                )),
+                base_generation INTEGER NOT NULL CHECK(base_generation >= 1),
+                base_pool_hash TEXT NOT NULL CHECK(
+                    length(base_pool_hash) = 64
+                    AND base_pool_hash NOT GLOB '*[^0-9a-f]*'
+                ),
+                plan_hash TEXT NOT NULL CHECK(
+                    length(plan_hash) = 64
+                    AND plan_hash NOT GLOB '*[^0-9a-f]*'
+                ),
+                approval_key_hash TEXT NOT NULL CHECK(
+                    length(approval_key_hash) = 64
+                    AND approval_key_hash NOT GLOB '*[^0-9a-f]*'
+                ),
+                max_total_charge_usd REAL NOT NULL CHECK(
+                    max_total_charge_usd > 0
+                    AND max_total_charge_usd <= 6.06
+                ),
+                route_validation_cap_usd REAL NOT NULL CHECK(
+                    route_validation_cap_usd > 0
+                    AND route_validation_cap_usd <= 0.06
+                ),
+                target_primary_revision_id TEXT,
+                target_backup_1_revision_id TEXT,
+                target_backup_2_revision_id TEXT,
+                target_pool_hash TEXT CHECK(
+                    target_pool_hash IS NULL OR (
+                        length(target_pool_hash) = 64
+                        AND target_pool_hash NOT GLOB '*[^0-9a-f]*'
+                    )
+                ),
+                status TEXT NOT NULL CHECK(status IN (
+                    'queued', 'validating_route', 'validating_sources',
+                    'apply_ready', 'applied', 'replan_required',
+                    'blocked_unknown_start', 'stale', 'failed', 'cancelled'
+                )),
+                apply_key_hash TEXT CHECK(
+                    apply_key_hash IS NULL OR (
+                        length(apply_key_hash) = 64
+                        AND apply_key_hash NOT GLOB '*[^0-9a-f]*'
+                    )
+                ),
+                applied_route_generation INTEGER,
+                last_error_code TEXT,
+                created_by_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                applied_at TEXT,
+                UNIQUE(workspace_id, stage_id),
+                UNIQUE(workspace_id, approval_key_hash),
+                FOREIGN KEY(workspace_id)
+                    REFERENCES workspaces(id) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, route_id)
+                    REFERENCES apify_actor_route_profiles(
+                        workspace_id, route_id
+                    ) ON DELETE CASCADE,
+                FOREIGN KEY(workspace_id, discovery_run_id)
+                    REFERENCES apify_actor_discovery_runs(
+                        workspace_id, run_id
+                    ) ON DELETE RESTRICT,
+                FOREIGN KEY(workspace_id, initial_batch_id)
+                    REFERENCES apify_actor_canary_batches(
+                        workspace_id, batch_id
+                    ) ON DELETE RESTRICT,
+                FOREIGN KEY(created_by_user_id)
+                    REFERENCES users(id) ON DELETE RESTRICT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_apify_actor_pool_stages_active
+                ON apify_actor_pool_stages(workspace_id, route_id)
+                WHERE status NOT IN (
+                    'applied', 'stale', 'failed', 'cancelled'
+                );
+
+            CREATE TABLE IF NOT EXISTS apify_actor_pool_stage_sources (
+                workspace_id TEXT NOT NULL,
+                stage_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                binding_generation INTEGER NOT NULL
+                    CHECK(binding_generation >= 1),
+                target_fingerprint TEXT NOT NULL CHECK(
+                    length(target_fingerprint) = 64
+                    AND target_fingerprint NOT GLOB '*[^0-9a-f]*'
+                ),
+                required_count INTEGER NOT NULL
+                    CHECK(required_count BETWEEN 1 AND 3),
+                passed_count INTEGER NOT NULL DEFAULT 0
+                    CHECK(passed_count BETWEEN 0 AND 3),
+                primary_validation_id TEXT,
+                backup_1_validation_id TEXT,
+                backup_2_validation_id TEXT,
+                status TEXT NOT NULL CHECK(status IN (
+                    'snapshotted', 'queued', 'running',
+                    'succeeded', 'failed', 'skipped'
+                )),
+                last_error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(stage_id, source_id),
+                FOREIGN KEY(workspace_id, stage_id)
+                    REFERENCES apify_actor_pool_stages(
+                        workspace_id, stage_id
+                    ) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_apify_actor_pool_stage_sources_status
+                ON apify_actor_pool_stage_sources(
+                    workspace_id, stage_id, status, source_id
+                );
+            -- APIFY_ACTOR_POOL_STAGING_V18_END
 
             CREATE TABLE IF NOT EXISTS source_acquisition_states (
                 acquisition_key TEXT PRIMARY KEY,
@@ -2829,6 +3031,16 @@ class ServiceStore:
                 1,
             )
             schema_sql = before_batches + after_batches
+        if not install_apify_actor_pool_staging_v18:
+            before_staging, after_marker = schema_sql.split(
+                "-- APIFY_ACTOR_POOL_STAGING_V18_BEGIN",
+                1,
+            )
+            _staging_sql, after_staging = after_marker.split(
+                "-- APIFY_ACTOR_POOL_STAGING_V18_END",
+                1,
+            )
+            schema_sql = before_staging + after_staging
         conn.executescript(schema_sql)
         self._ensure_column("source_catalog", "source_key", "TEXT")
         conn.execute(
@@ -2940,6 +3152,19 @@ class ServiceStore:
                 "apify_actor_validations",
                 "counts_toward_canary",
                 "INTEGER NOT NULL DEFAULT 0 CHECK(counts_toward_canary IN (0, 1))",
+            )
+        if install_apify_actor_pool_staging_v18:
+            self._ensure_column(
+                "apify_actor_canary_batches",
+                "goal",
+                """TEXT NOT NULL DEFAULT 'initial_pool' CHECK(goal IN (
+                    'initial_pool', 'complete_third', 'upgrade_legacy'
+                ))""",
+            )
+            self._ensure_column(
+                "apify_actor_canary_batches",
+                "pool_stage_id",
+                "TEXT",
             )
         if install_apify_actor_ops_v15:
             self._ensure_column(
@@ -3291,6 +3516,11 @@ class ServiceStore:
             and not apify_actor_canary_batches_v17_upgrade_pending
         ):
             self.mark_apify_actor_canary_batches_v17_migrated(commit=False)
+        if (
+            install_apify_actor_pool_staging_v18
+            and not apify_actor_pool_staging_v18_upgrade_pending
+        ):
+            self.mark_apify_actor_pool_staging_v18_migrated(commit=False)
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -3787,6 +4017,58 @@ class ServiceStore:
             ),
         ).fetchone()
         return not marker or not apify_actor_canary_batches_v17_schema_shapes_valid(
+            connection
+        )
+
+    def mark_apify_actor_pool_staging_v18_migrated(
+        self,
+        *,
+        commit: bool = True,
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (APIFY_ACTOR_POOL_STAGING_MIGRATION_VERSION,),
+        ).fetchone()
+        if existing is not None and str(existing["name"]) != (
+            APIFY_ACTOR_POOL_STAGING_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 20 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_ACTOR_POOL_STAGING_MIGRATION_VERSION,
+                APIFY_ACTOR_POOL_STAGING_MIGRATION_NAME,
+                APIFY_ACTOR_POOL_STAGING_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            connection.commit()
+
+    def apify_actor_pool_staging_v18_migration_required(self) -> bool:
+        connection = self.connect()
+        marker = connection.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_ACTOR_POOL_STAGING_MIGRATION_VERSION,
+                APIFY_ACTOR_POOL_STAGING_MIGRATION_NAME,
+                APIFY_ACTOR_POOL_STAGING_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone()
+        return not marker or not apify_actor_pool_staging_v18_schema_shapes_valid(
             connection
         )
 

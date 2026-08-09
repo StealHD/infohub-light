@@ -399,3 +399,25 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-09",
+  "result": "在独立分支完成 ActorOps 引导式配置：以持久 Pool Stage 安全补齐第三槽、旁路升级 legacy 池并预验证全部已启用来源；页面收敛为抓取类型选择器、三个任务页签和服务端权威的唯一下一步。",
+  "status": "completed",
+  "task_id": "2026-08-09-actorops-guided-flow",
+  "unresolved": [],
+  "validation": [
+    "ActorOps 后端回归全部通过，覆盖 schema 20 迁移、第三槽、legacy 旁路、来源预验证、增量重计划、原子 apply、费用/CAS 与 unknown-start。",
+    "前端类型检查、定向 ESLint 与 Vitest 54/54 通过。",
+    "ActorOps Playwright 10 通过、2 个预期 tablet 跳过；1440/1024/390 三视口、明暗视觉基线、零中断流程、无横向溢出与 Axe 门槛通过。",
+    "完整 Test Gate 24/24 命令通过（254.88 秒）。"
+  ]
+}
+```
