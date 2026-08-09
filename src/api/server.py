@@ -773,6 +773,29 @@ class ApifyActorCanaryBatchRequest(BaseModel):
     ] = "initial_pool"
     max_candidates: StrictInt = Field(default=3, ge=1, le=3)
     max_total_charge_usd: float = Field(default=0.06, gt=0, le=6.06)
+    candidate_ids: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=3,
+    )
+    target_slot_count: StrictInt | None = Field(default=None, ge=2, le=3)
+
+
+class ApifyActorManualCanaryPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: Literal[
+        "initial_pool", "complete_third", "upgrade_legacy"
+    ]
+    candidate_ids: list[str] = Field(min_length=1, max_length=3)
+    expected_generation: StrictInt = Field(ge=1)
+    target_slot_count: Literal[3] = 3
+
+
+class ApifyActorCandidateRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: StrictInt = Field(ge=1)
 
 
 class ApifySourceBindingActivateRequest(BaseModel):
@@ -1057,6 +1080,14 @@ MUTATION_OPERATION_ROUTES: dict[tuple[str, str], tuple[str, str]] = {
     ),
     (
         "POST",
+        "/api/admin/apify-routes/{route_id}/pool-candidates/refresh",
+    ): ("job", "actor_candidate_refresh"),
+    (
+        "POST",
+        "/api/admin/apify-discovery-runs/{run_id}/canary-plan",
+    ): ("source", "actor_manual_plan_preview"),
+    (
+        "POST",
         "/api/admin/apify-discovery-runs/{run_id}/candidates/{revision_id}/canary",
     ): ("job", "actor_revision_canary_queue"),
     (
@@ -1305,12 +1336,25 @@ def create_app(
                 ),
             )
 
+    def require_apify_actor_manual_pool_selection_v19() -> None:
+        if store.apify_actor_manual_pool_selection_v19_migration_required():
+            raise ApiError(
+                "migration_required",
+                "Apify Actor manual pool selection migration must be applied before Actor routes are used",
+                status_code=503,
+                action=(
+                    "Stop API and Worker, then run "
+                    "scripts/migrate_apify_actor_manual_pool_selection_v19.py --apply."
+                ),
+            )
+
     def apify_actor_route_for(workspace_id: str) -> ApifyActorRouteService:
         require_apify_actor_routing_v13()
         require_apify_actor_ops_v15()
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
         require_apify_actor_pool_staging_v18()
+        require_apify_actor_manual_pool_selection_v19()
         bridge = ApifyActorAlertBridge(
             store,
             apify_actor_alerts,
@@ -1328,6 +1372,7 @@ def create_app(
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
         require_apify_actor_pool_staging_v18()
+        require_apify_actor_manual_pool_selection_v19()
         return ApifyActorOpsService(
             store,
             workspace_id=str(workspace_id),
@@ -4040,6 +4085,7 @@ def create_app(
         require_apify_discovery_limits_v16()
         require_apify_actor_canary_batches_v17()
         require_apify_actor_pool_staging_v18()
+        require_apify_actor_manual_pool_selection_v19()
         if not store.has_enabled_user():
             raise ApiError(
                 "auth_not_configured",
@@ -5145,6 +5191,85 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return ok({"schema_version": 1, **result})
 
+    @app.get("/api/admin/apify-routes/{route_id}/pool-candidates")
+    async def admin_apify_pool_candidates(
+        route_id: str,
+        response: Response,
+        goal: Literal[
+            "initial_pool", "complete_third", "upgrade_legacy"
+        ] = Query(...),
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        result = apify_actor_ops_for(
+            str(user["workspace_id"])
+        ).list_pool_candidates(route_id, goal=goal)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(result)
+
+    @app.post(
+        "/api/admin/apify-routes/{route_id}/pool-candidates/refresh"
+    )
+    async def admin_apify_refresh_pool_candidates(
+        route_id: str,
+        payload: ApifyActorCandidateRefreshRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        quota.ensure_job_allowed(
+            workspace_id=str(user["workspace_id"]),
+            user_id=str(user["id"]),
+        )
+        ops = apify_actor_ops_for(str(user["workspace_id"]))
+        connection = store.connect()
+        owns_transaction = not connection.in_transaction
+        savepoint = f"actor_candidate_refresh_{uuid.uuid4().hex}"
+        try:
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            else:
+                connection.execute(f"SAVEPOINT {savepoint}")
+            discovery = ops.create_discovery_run(
+                route_id,
+                trigger_reason="manual_candidate_refresh",
+                expected_generation=int(payload.expected_generation),
+            )
+            queued = queue.create_job(
+                workspace_id=str(user["workspace_id"]),
+                user_id=str(user["id"]),
+                job_type="apify_actor_discovery",
+                payload={"run_id": str(discovery["run_id"])},
+                priority=50,
+                max_attempts=1,
+                retention_days=int(
+                    os.getenv("HORIZON_JOB_RETENTION_DAYS", "14")
+                ),
+                commit=False,
+            )
+            if owns_transaction:
+                connection.commit()
+            else:
+                connection.execute(f"RELEASE {savepoint}")
+        except Exception:
+            if owns_transaction and connection.in_transaction:
+                connection.rollback()
+            elif not owns_transaction:
+                connection.execute(f"ROLLBACK TO {savepoint}")
+                connection.execute(f"RELEASE {savepoint}")
+            raise
+        request.state.operation_job_id = str(queued["id"])
+        request.state.operation_changed_fields = ["candidate_refresh"]
+        request.state.operation_outcome = "queued"
+        response.headers["Cache-Control"] = "no-store"
+        return ok(
+            {
+                "schema_version": 1,
+                "route_id": route_id,
+                "run_id": str(discovery["run_id"]),
+                "status": "refreshing",
+            }
+        )
+
     @app.post("/api/admin/apify-support-checks")
     async def admin_apify_support_check(
         payload: ApifySupportCheckRequest,
@@ -5599,6 +5724,8 @@ def create_app(
         }
         for key in (
             "goal",
+            "selection_mode",
+            "target_slot_count",
             "base_pool_hash",
             "required_success_count",
             "route_validation_cap_usd",
@@ -5686,6 +5813,34 @@ def create_app(
         plan = apify_actor_ops_for(
             str(user["workspace_id"])
         ).get_canary_plan(run_id, goal=goal)
+        response.headers["Cache-Control"] = "no-store"
+        return ok(public_canary_plan(plan))
+
+    @app.post(
+        "/api/admin/apify-discovery-runs/{run_id}/canary-plan"
+    )
+    async def admin_apify_manual_canary_plan(
+        run_id: str,
+        payload: ApifyActorManualCanaryPlanRequest,
+        request: Request,
+        response: Response,
+        user: dict[str, Any] = Depends(current_admin),
+    ) -> dict[str, Any]:
+        plan = apify_actor_ops_for(
+            str(user["workspace_id"])
+        ).get_canary_plan(
+            run_id,
+            goal=payload.goal,
+            candidate_ids=payload.candidate_ids,
+            target_slot_count=int(payload.target_slot_count),
+        )
+        if int(plan["generation"]) != int(payload.expected_generation):
+            raise ActorOpsError(
+                "apify_actor_route_generation_conflict",
+                "Actor route changed; reload before selecting candidates",
+            )
+        request.state.operation_changed_fields = ["candidate_ids"]
+        request.state.operation_outcome = "previewed"
         response.headers["Cache-Control"] = "no-store"
         return ok(public_canary_plan(plan))
 
@@ -5897,6 +6052,12 @@ def create_app(
             goal=payload.goal,
             max_candidates=int(payload.max_candidates),
             max_total_charge_usd=float(payload.max_total_charge_usd),
+            candidate_ids=payload.candidate_ids,
+            target_slot_count=(
+                int(payload.target_slot_count)
+                if payload.target_slot_count is not None
+                else None
+            ),
         )
         from ..services.apify_actor_canary import next_reference_fingerprint
 
@@ -5922,6 +6083,12 @@ def create_app(
                 created_by_user_id=str(user["id"]),
                 reference_fingerprints=reference_fingerprints,
                 goal=payload.goal,
+                candidate_ids=payload.candidate_ids,
+                target_slot_count=(
+                    int(payload.target_slot_count)
+                    if payload.target_slot_count is not None
+                    else None
+                ),
             ),
             user=user,
             request=request,

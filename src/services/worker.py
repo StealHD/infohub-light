@@ -1201,11 +1201,11 @@ def _run_apify_actor_canary_batch(
             if current.get("pool_stage_id")
             else None
         )
-        if goal != "initial_pool":
-            if stage_id is None:
-                raise PaidCanaryAuthorizationError(
-                    "Staged Actor Canary batch is missing its pool stage"
-                )
+        if goal != "initial_pool" and stage_id is None:
+            raise PaidCanaryAuthorizationError(
+                "Staged Actor Canary batch is missing its pool stage"
+            )
+        if stage_id is not None:
             ops.set_pool_stage_status(
                 stage_id,
                 expected_statuses=("queued",),
@@ -1246,8 +1246,21 @@ def _run_apify_actor_canary_batch(
                         if stage_id is not None
                         else "two_providers_ready"
                     )
-                    cancel_remaining(items[index:], reason=stop_reason)
+                    cancel_remaining(
+                        [
+                            remaining
+                            for remaining in items[index:]
+                            if str(remaining.get("status"))
+                            not in {"succeeded", "not_needed_no_charge"}
+                        ],
+                        reason=stop_reason,
+                    )
                     break
+                if str(item.get("status")) in {
+                    "succeeded",
+                    "not_needed_no_charge",
+                }:
+                    continue
                 validation_id = str(item["validation_id"])
                 revision_id = str(item["revision_id"])
                 try:
@@ -1423,6 +1436,7 @@ def _run_apify_actor_canary_batch(
         replenishment_job_id: str | None = None
         if (
             goal == "initial_pool"
+            and stage_id is None
             and str(finalized["status"]) == "partial"
         ):
             continuation = ops.get_canary_plan(
@@ -2028,6 +2042,17 @@ def run_worker_once(
                 "error_code": "migration_required",
                 "migration": "apify_actor_pool_staging_v18",
             }
+        if store.apify_actor_manual_pool_selection_v19_migration_required():
+            store.upsert_worker_heartbeat(
+                worker_id,
+                "idle",
+                last_error_code="migration_required",
+            )
+            return {
+                "ok": False,
+                "error_code": "migration_required",
+                "migration": "apify_actor_manual_pool_selection_v19",
+            }
         SecretStore(data_dir).load_into_environ()
         update_observability_context(stage="provider_reconcile")
         apify_reconcile_outcomes = reconcile_all_apify_pools_sync(
@@ -2104,6 +2129,7 @@ def run_worker_once(
             and not store.apify_discovery_limits_v16_migration_required()
             and not store.apify_actor_canary_batches_v17_migration_required()
             and not store.apify_actor_pool_staging_v18_migration_required()
+            and not store.apify_actor_manual_pool_selection_v19_migration_required()
         ):
             update_observability_context(stage="maintenance")
             maintenance_result = MaintenanceService(store).run_if_due()
@@ -2319,6 +2345,10 @@ def run_worker_once(
                     if store.apify_actor_pool_staging_v18_migration_required():
                         raise MigrationRequiredError(
                             "Apify Actor pool staging migration is required before jobs can run"
+                        )
+                    if store.apify_actor_manual_pool_selection_v19_migration_required():
+                        raise MigrationRequiredError(
+                            "Apify Actor manual pool selection migration is required before jobs can run"
                         )
                     result = _run_job(job, data_dir=data_dir, store=store)
                     raw_cleanup = result.pop("_media_cleanup", None)

@@ -914,6 +914,90 @@ def test_paid_canary_job_failure_rolls_back_approval(
     ).fetchone()[0] == 0
 
 
+def test_candidate_refresh_queues_one_free_discovery_atomically(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops = ApifyActorOpsService(store)
+    route = next(
+        item
+        for item in ops.list_routes()
+        if item["route_key"] == "instagram/profile/items"
+    )
+
+    response = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates/refresh",
+        json={"expected_generation": int(route["generation"])},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["status"] == "refreshing"
+    assert data["route_id"] == route["route_id"]
+    run = store.connect().execute(
+        """
+        SELECT stage, trigger_reason FROM apify_actor_discovery_runs
+        WHERE workspace_id = ? AND run_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, data["run_id"]),
+    ).fetchone()
+    assert dict(run) == {
+        "stage": "queued",
+        "trigger_reason": "manual_candidate_refresh",
+    }
+    job = store.connect().execute(
+        """
+        SELECT status, max_attempts FROM fetch_jobs
+        WHERE workspace_id = ? AND job_type = 'apify_actor_discovery'
+          AND json_extract(payload_json, '$.run_id') = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, data["run_id"]),
+    ).fetchone()
+    assert dict(job) == {"status": "queued", "max_attempts": 1}
+
+
+def test_candidate_refresh_job_failure_rolls_back_discovery(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops = ApifyActorOpsService(store)
+    route = next(
+        item
+        for item in ops.list_routes()
+        if item["route_key"] == "instagram/profile/items"
+    )
+
+    def fail_create_job(*_args, **_kwargs):
+        raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(JobQueue, "create_job", fail_create_job)
+    response = client.post(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates/refresh",
+        json={"expected_generation": int(route["generation"])},
+    )
+
+    assert response.status_code == 500
+    assert store.connect().execute(
+        """
+        SELECT COUNT(*) FROM apify_actor_discovery_runs
+        WHERE workspace_id = ? AND route_id = ?
+          AND trigger_reason = 'manual_candidate_refresh'
+        """,
+        (DEFAULT_WORKSPACE_ID, route["route_id"]),
+    ).fetchone()[0] == 0
+    assert store.connect().execute(
+        """
+        SELECT COUNT(*) FROM fetch_jobs
+        WHERE workspace_id = ? AND job_type = 'apify_actor_discovery'
+        """,
+        (DEFAULT_WORKSPACE_ID,),
+    ).fetchone()[0] == 0
+
+
 def test_paid_canary_rejects_non_approval_discovery_stage(
     tmp_path,
     monkeypatch,
@@ -1530,6 +1614,164 @@ def test_third_slot_api_is_server_selected_safe_and_applies_frozen_stage(
     assert activated_data["slots"][2]["revision_id"] == revision_id
     assert activated_data["workflow"]["kind"] == "probation_observing"
     assert "target_fingerprint" not in activated.text
+
+
+def test_manual_third_slot_accepts_only_opaque_candidate_and_probationary_base(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HORIZON_APIFY_KEY_POOL_ENABLED", "true")
+    client, store = _client(tmp_path, monkeypatch)
+    _login(client)
+    ops, route, base_revisions = _ready_route(
+        store,
+        route_key="youtube/channel/items",
+        activate=False,
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_adapter_revisions SET lifecycle = 'probationary'
+        WHERE workspace_id = ? AND revision_id IN (?, ?)
+        """,
+        (DEFAULT_WORKSPACE_ID, base_revisions[0], base_revisions[1]),
+    )
+    store.connect().commit()
+    active = ops.replace_active_pool(
+        str(route["route_id"]),
+        slots={
+            "primary": base_revisions[0],
+            "backup_1": base_revisions[1],
+            "backup_2": None,
+        },
+        expected_generation=int(route["generation"]),
+    )
+    run = ops.create_discovery_run(
+        str(route["route_id"]),
+        trigger_reason="api-manual-third-slot",
+        expected_generation=int(active["generation"]),
+    )
+    actor_id = "publisher-c/api-manual-third-slot"
+    candidate_id = ops.ensure_candidate(str(route["route_id"]), actor_id=actor_id)
+    older_revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id=actor_id,
+        publisher="publisher-c",
+        build_id="build-api-manual-third-slot",
+        build_number="9.0.1",
+        manifest=_manifest(actor_id, "9.0.1"),
+        lifecycle="static_valid",
+        discovery_run_id=str(run["run_id"]),
+    )
+    revision_id = ops.create_adapter_revision(
+        candidate_id=candidate_id,
+        actor_id=actor_id,
+        publisher="publisher-c",
+        build_id="build-api-manual-third-slot-latest",
+        build_number="9.0.2",
+        manifest=_manifest(actor_id, "9.0.2"),
+        lifecycle="static_valid",
+        discovery_run_id=str(run["run_id"]),
+    )
+    assert revision_id != older_revision_id
+    ops.update_discovery_run(
+        str(run["run_id"]),
+        expected_stage="queued",
+        stage="awaiting_canary_approval",
+    )
+
+    candidates_response = client.get(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates"
+        "?goal=complete_third"
+    )
+    assert candidates_response.status_code == 200, candidates_response.text
+    candidates = candidates_response.json()["data"]
+    assert candidates["required_selection_count"] == 1
+    assert candidates["candidates"] == [
+        {
+            "candidate_id": candidate_id,
+            "actor_public_name": "publisher-c Actor",
+            "publisher": "publisher-c",
+            "pricing": {},
+            "max_validation_charge_usd": 0.02,
+            "selectable": True,
+            "unavailable_reason": None,
+        }
+    ]
+    assert "revision_id" not in candidates_response.text
+    assert "manifest_hash" not in candidates_response.text
+    assert actor_id not in candidates_response.text
+
+    store.connect().execute(
+        """
+        UPDATE apify_actor_candidates
+        SET state = 'disabled',
+            last_error_code = 'apify_actor_candidate_unavailable'
+        WHERE workspace_id = ? AND id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, candidate_id),
+    )
+    store.connect().commit()
+    disabled = client.get(
+        f"/api/admin/apify-routes/{route['route_id']}/pool-candidates"
+        "?goal=complete_third"
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["data"]["candidates"][0] == {
+        **candidates["candidates"][0],
+        "selectable": False,
+        "unavailable_reason": "apify_actor_candidate_unavailable",
+    }
+    store.connect().execute(
+        """
+        UPDATE apify_actor_candidates
+        SET state = 'closed', last_error_code = NULL
+        WHERE workspace_id = ? AND id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, candidate_id),
+    )
+    store.connect().commit()
+
+    plan_endpoint = f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-plan"
+    plan_request = {
+        "goal": "complete_third",
+        "candidate_ids": [candidate_id],
+        "expected_generation": active["generation"],
+        "target_slot_count": 3,
+    }
+    forbidden = client.post(
+        plan_endpoint,
+        json={**plan_request, "revision_id": revision_id},
+    )
+    assert forbidden.status_code == 400
+    planned = client.post(plan_endpoint, json=plan_request)
+    assert planned.status_code == 200, planned.text
+    plan = planned.json()["data"]
+    assert plan["schema_version"] == 3
+    assert plan["selection_mode"] == "manual"
+    assert plan["target_slot_count"] == 3
+    assert plan["items"][0]["candidate_id"] == candidate_id
+    assert plan["items"][0]["revision_id"] == revision_id
+    assert plan["items"][0]["build_number"] == "9.0.2"
+
+    approved = client.post(
+        f"/api/admin/apify-discovery-runs/{run['run_id']}/canary-batches",
+        json={
+            "goal": "complete_third",
+            "candidate_ids": [candidate_id],
+            "target_slot_count": 3,
+            "expected_generation": active["generation"],
+            "expected_plan_hash": plan["plan_hash"],
+            "approval_id": "api-manual-third-stage-0001",
+            "confirmation": "确认付费验证主备",
+            "max_candidates": 1,
+            "max_total_charge_usd": plan["max_total_charge_usd"],
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    stage = approved.json()["data"]["batch"]["pool_stage"]
+    assert stage["goal"] == "complete_third"
+    assert stage["selection_mode"] == "manual"
+    assert stage["target_slot_count"] == 3
 
 
 def test_discovery_projection_reports_persisted_partial_pool(

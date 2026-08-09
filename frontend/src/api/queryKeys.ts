@@ -78,6 +78,9 @@ export const queryKeys = {
   apifyActorCanaryPlan: (userId: string, runId: string, goal = 'initial_pool') => [
     ...userKey(userId), 'apify-actor-discovery-runs', runId, 'canary-plan', goal,
   ] as const,
+  apifyActorPoolCandidates: (userId: string, routeId: string, goal: string) => [
+    ...userKey(userId), 'apify-actor-routes', routeId, 'pool-candidates', goal,
+  ] as const,
   apifyActorCanaryBatch: (userId: string, batchId: string) => [
     ...userKey(userId), 'apify-actor-canary-batches', batchId,
   ] as const,

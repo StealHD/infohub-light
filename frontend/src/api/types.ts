@@ -913,16 +913,19 @@ export type ApifyActorCertificationProgress = {
 export type ApifyActorWorkflowKind =
   | 'setup_discovery_required'
   | 'setup_discovery_running'
+  | 'setup_candidate_selection_required'
   | 'setup_canary_approval_required'
   | 'setup_canary_running'
   | 'setup_activation_approval_required'
   | 'backup_2_discovery_required'
   | 'backup_2_discovery_running'
+  | 'backup_2_candidate_selection_required'
   | 'backup_2_canary_approval_required'
   | 'backup_2_canary_running'
   | 'backup_2_activation_approval_required'
   | 'legacy_discovery_required'
   | 'legacy_discovery_running'
+  | 'legacy_candidate_selection_required'
   | 'legacy_canary_approval_required'
   | 'legacy_canary_running'
   | 'legacy_activation_approval_required'
@@ -1115,6 +1118,8 @@ export type ApifyActorDiscoveryRun = {
 
 export type ApifyActorCanaryPlanItem = {
   ordinal: number
+  candidate_id?: string
+  actor_public_name?: string
   revision_id: string
   actor_id: string
   publisher: string
@@ -1136,7 +1141,9 @@ export type ApifyActorPoolStage = {
   route_id: string
   discovery_run_id: string
   initial_batch_id: string
-  goal: Exclude<ApifyActorPoolGoal, 'initial_pool'>
+  goal: ApifyActorPoolGoal
+  target_slot_count: 2 | 3
+  selection_mode: 'server' | 'manual'
   base_generation: number
   base_pool_hash: string
   plan_hash: string
@@ -1167,8 +1174,10 @@ export type ApifyActorPoolStage = {
 }
 
 export type ApifyActorCanaryPlan = {
-  schema_version: 1 | 2
+  schema_version: 1 | 2 | 3
   goal?: ApifyActorPoolGoal
+  selection_mode?: 'server' | 'manual'
+  target_slot_count?: 2 | 3
   run_id: string
   route_id: string
   route_key: string
@@ -1206,6 +1215,36 @@ export type ApifyActorCanaryBatchRequest = {
   goal?: ApifyActorPoolGoal
   max_candidates: number
   max_total_charge_usd: number
+  candidate_ids?: string[]
+  target_slot_count?: 2 | 3
+}
+
+export type ApifyActorPoolCandidate = {
+  candidate_id: string
+  actor_public_name: string
+  publisher: string
+  pricing?: ApifyActorRevisionSummary['pricing']
+  max_validation_charge_usd: number
+  selectable: boolean
+  unavailable_reason?: string | null
+}
+
+export type ApifyActorPoolCandidates = {
+  schema_version: 1
+  route_id: string
+  generation: number
+  goal: ApifyActorPoolGoal
+  run_id: string | null
+  required_selection_count: 1 | 3
+  candidates: ApifyActorPoolCandidate[]
+  blockers: string[]
+}
+
+export type ApifyActorPoolCandidateRefresh = {
+  schema_version: 1
+  route_id: string
+  run_id: string
+  status: 'refreshing'
 }
 
 export type ApifyActorCanaryBatchItem = ApifyActorCanaryPlanItem & {
@@ -1219,7 +1258,7 @@ export type ApifyActorCanaryBatchItem = ApifyActorCanaryPlanItem & {
 }
 
 export type ApifyActorCanaryBatch = {
-  schema_version: 1 | 2
+  schema_version: 1 | 2 | 3
   batch_id: string
   route_id: string
   discovery_run_id: string

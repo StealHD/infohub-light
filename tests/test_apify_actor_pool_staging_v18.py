@@ -239,6 +239,58 @@ def _approve_stage(
     return plan, batch
 
 
+def _approve_manual_stage(
+    store: ServiceStore,
+    ops: ApifyActorOpsService,
+    owner_id: str,
+    run_id: str,
+    revision_ids: list[str],
+    *,
+    goal: str,
+    approval_id: str,
+) -> tuple[dict, dict]:
+    candidate_ids = [
+        str(
+            store.connect().execute(
+                """
+                SELECT candidate_id FROM apify_actor_adapter_revisions
+                WHERE workspace_id = ? AND revision_id = ?
+                """,
+                (DEFAULT_WORKSPACE_ID, revision_id),
+            ).fetchone()["candidate_id"]
+        )
+        for revision_id in revision_ids
+    ]
+    plan = ops.get_canary_plan(
+        run_id,
+        goal=goal,
+        candidate_ids=candidate_ids,
+        target_slot_count=3,
+    )
+    assert plan["ready"] is True
+    references = {
+        str(item["revision_id"]): hashlib.sha256(
+            f"reference:{item['revision_id']}".encode()
+        ).hexdigest()
+        for item in plan["items"]
+    }
+    batch = ops.create_canary_batch(
+        run_id,
+        goal=goal,
+        candidate_ids=candidate_ids,
+        target_slot_count=3,
+        expected_generation=int(plan["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        approval_id=approval_id,
+        confirmation=BATCH_CANARY_CONFIRMATION,
+        max_candidates=len(candidate_ids),
+        max_total_charge_usd=float(plan["max_total_charge_usd"]),
+        created_by_user_id=owner_id,
+        reference_fingerprints=references,
+    )
+    return plan, batch
+
+
 def _succeed_route_items(
     store: ServiceStore,
     ops: ApifyActorOpsService,
@@ -270,6 +322,11 @@ def _succeed_route_items(
 
 def _reuse_route_items(ops: ApifyActorOpsService, batch: dict) -> None:
     for item in batch["items"]:
+        if item["status"] == "succeeded":
+            assert item["semantic_outcome"] == "evidence_reused"
+            assert item["actual_cost_usd"] == 0.0
+            assert item["cost_final"] is True
+            continue
         ops.record_validation(
             str(item["validation_id"]),
             status="cancelled",
@@ -710,7 +767,117 @@ def test_new_source_replans_only_missing_proofs_before_third_slot_apply(tmp_path
     assert ops.get_source_binding(new_source_id)["validation_status"] == "ready_3of3"
 
 
-def test_legacy_workflow_keeps_paid_confirmation_hidden_until_pair_is_ready(
+@pytest.mark.parametrize(
+    ("route_key", "goal", "host"),
+    (
+        ("instagram/profile/items", "initial_pool", "instagram.com"),
+        ("x/profile", "upgrade_legacy", "x.com"),
+    ),
+)
+def test_manual_initial_and_legacy_apply_three_selected_actors_atomically(
+    tmp_path,
+    route_key: str,
+    goal: str,
+    host: str,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    owner = store.create_user(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        username=f"manual-three-{goal}",
+        password="safe-test-password",
+        role="owner",
+    )
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = ops.get_route(str(_route(store, route_key)["route_id"]))
+    original_slots = [slot["revision_id"] for slot in route["slots"]]
+    run, revisions = _discovery_with_revisions(
+        store,
+        ops,
+        route,
+        (
+            (f"publisher-a/{goal}-primary", "publisher-a"),
+            (f"publisher-b/{goal}-backup", "publisher-b"),
+            (f"publisher-c/{goal}-backup-2", "publisher-c"),
+        ),
+        host=host,
+    )
+    plan, batch = _approve_manual_stage(
+        store,
+        ops,
+        str(owner["id"]),
+        str(run["run_id"]),
+        revisions,
+        goal=goal,
+        approval_id=f"manual-three-{goal}-approval",
+    )
+
+    assert plan["schema_version"] == 3
+    assert plan["selection_mode"] == "manual"
+    assert plan["target_slot_count"] == 3
+    assert plan["required_success_count"] == 3
+    assert [slot["revision_id"] for slot in ops.get_route(route["route_id"])["slots"]] == original_slots
+
+    _succeed_route_items(store, ops, batch)
+    assert _succeed_stage_sources(ops, str(batch["pool_stage_id"])) == []
+    ops.finalize_canary_batch(str(batch["batch_id"]))
+    applied = ops.apply_pool_stage(
+        str(batch["pool_stage_id"]),
+        expected_generation=int(route["generation"]),
+        expected_plan_hash=str(plan["plan_hash"]),
+        apply_id=f"manual-three-{goal}-apply",
+        confirmation=ROUTE_POOL_ACTIVATION_CONFIRMATION,
+    )
+
+    assert [slot["revision_id"] for slot in applied["slots"]] == revisions
+    assert {slot["lifecycle"] for slot in applied["slots"]} == {"probationary"}
+    assert ops.workflow_state(str(route["route_id"]))["kind"] == "probation_observing"
+    pending_source_id = store.create_source(
+        workspace_id=DEFAULT_WORKSPACE_ID,
+        scope="workspace",
+        owner_user_id=None,
+        source_type="apify_social",
+        display_name=f"Pending source {goal}",
+        config={
+            "platform": route_key.split("/", 1)[0],
+            "kind": "profile",
+            "target": f"pending-{goal}",
+        },
+    )
+    ops.bind_source(
+        source_id=pending_source_id,
+        route_id=str(route["route_id"]),
+        target_fingerprint=hashlib.sha256(
+            f"pending:{goal}".encode()
+        ).hexdigest(),
+        mode="fallback",
+    )
+    source_action = ops.workflow_state(str(route["route_id"]))
+    assert source_action["kind"] == "source_validation_required"
+    assert source_action["progress"] == {"pending_sources": 1}
+    store.connect().execute(
+        "UPDATE source_catalog SET enabled = 0 WHERE id = ?",
+        (pending_source_id,),
+    )
+    store.connect().commit()
+    assert ops.workflow_state(str(route["route_id"]))["kind"] == (
+        "probation_observing"
+    )
+    if goal == "upgrade_legacy":
+        persisted = {
+            str(row["lifecycle"])
+            for row in store.connect().execute(
+                """
+                SELECT lifecycle FROM apify_actor_adapter_revisions
+                WHERE workspace_id = ? AND revision_id IN (?, ?, ?)
+                """,
+                (DEFAULT_WORKSPACE_ID, *original_slots),
+            ).fetchall()
+        }
+        assert persisted == {"legacy_builtin"}
+
+
+def test_legacy_workflow_requires_three_explicit_candidates_before_paid_confirmation(
     tmp_path,
 ) -> None:
     store = ServiceStore(tmp_path)
@@ -731,26 +898,88 @@ def test_legacy_workflow_keeps_paid_confirmation_hidden_until_pair_is_ready(
     assert shortfall["run_id"] == first_run["run_id"]
     assert shortfall["progress"] == {
         "eligible_candidate_count": 1,
-        "required_success_count": 2,
+        "required_selection_count": 3,
     }
     assert shortfall["blockers"] == ["candidate_shortfall"]
 
-    second_run, _second_revision = _discovery_with_revisions(
+    second_run, second_revisions = _discovery_with_revisions(
         store,
         ops,
         seeded,
-        (("publisher-new-b/x-backup", "publisher-new-b"),),
+        (
+            ("publisher-new-a/x-primary-v2", "publisher-new-a"),
+            ("publisher-new-b/x-backup", "publisher-new-b"),
+            ("publisher-new-c/x-backup-2", "publisher-new-c"),
+        ),
         host="x.com",
     )
 
     ready = ops.workflow_state(str(seeded["route_id"]))
-    assert ready["kind"] == "legacy_canary_approval_required"
-    assert ready["run_id"] in {first_run["run_id"], second_run["run_id"]}
-    assert ready["progress"] == {}
+    assert ready["kind"] == "legacy_candidate_selection_required"
+    assert ready["run_id"] == second_run["run_id"]
+    assert ready["progress"] == {
+        "eligible_candidate_count": 3,
+        "required_selection_count": 3,
+    }
     assert ready["blockers"] == []
-    assert ops.get_canary_plan(
-        str(ready["run_id"]), goal="upgrade_legacy"
-    )["ready"] is True
+    candidate_ids = [
+        str(
+            store.connect().execute(
+                """
+                SELECT candidate_id FROM apify_actor_adapter_revisions
+                WHERE workspace_id = ? AND revision_id = ?
+                """,
+                (DEFAULT_WORKSPACE_ID, revision_id),
+            ).fetchone()["candidate_id"]
+        )
+        for revision_id in second_revisions
+    ]
+    plan = ops.get_canary_plan(
+        str(ready["run_id"]),
+        goal="upgrade_legacy",
+        candidate_ids=candidate_ids,
+        target_slot_count=3,
+    )
+    assert plan["ready"] is True
+    assert plan["selection_mode"] == "manual"
+    assert plan["target_slot_count"] == 3
+    assert plan["required_success_count"] == 3
+
+
+def test_initial_route_does_not_offer_legacy_two_actor_activation(
+    tmp_path,
+) -> None:
+    store = ServiceStore(tmp_path)
+    store.initialize()
+    ops = ApifyActorOpsService(store, now=lambda: FIXED_NOW)
+    route = ops.get_route(str(_route(store, "youtube/channel/items")["route_id"]))
+    run, _revisions = _discovery_with_revisions(
+        store,
+        ops,
+        route,
+        (
+            ("publisher-a/initial-primary", "publisher-a"),
+            ("publisher-b/initial-backup", "publisher-b"),
+        ),
+        host="youtube.com",
+    )
+    store.connect().execute(
+        """
+        UPDATE apify_actor_discovery_runs SET stage = 'activation_ready'
+        WHERE workspace_id = ? AND run_id = ?
+        """,
+        (DEFAULT_WORKSPACE_ID, run["run_id"]),
+    )
+    store.connect().commit()
+
+    workflow = ops.workflow_state(str(route["route_id"]))
+
+    assert workflow["kind"] == "setup_discovery_required"
+    assert workflow["progress"] == {
+        "eligible_candidate_count": 2,
+        "required_selection_count": 3,
+    }
+    assert workflow["blockers"] == ["candidate_shortfall"]
 
 
 def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
@@ -827,4 +1056,6 @@ def test_legacy_sidecar_keeps_old_pool_live_then_atomically_switches_exact_pair(
         ).fetchall()
     }
     assert persisted_legacy == {"legacy_builtin"}
-    assert ops.workflow_state(str(seeded["route_id"]))["kind"] == "probation_observing"
+    follow_up = ops.workflow_state(str(seeded["route_id"]))
+    assert follow_up["kind"] == "backup_2_discovery_required"
+    assert follow_up["goal"] == "complete_third"

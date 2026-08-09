@@ -99,6 +99,10 @@
       "apify_discovery_limits_global_migration_version": 18,
       "explicit_apify_actor_canary_batches_v17_migration_enabled": true,
       "apify_actor_canary_batches_global_migration_version": 19,
+      "explicit_apify_actor_pool_staging_v18_migration_enabled": true,
+      "apify_actor_pool_staging_global_migration_version": 20,
+      "explicit_apify_actor_manual_pool_selection_v19_migration_enabled": true,
+      "apify_actor_manual_pool_selection_global_migration_version": 21,
       "apify_discovery_ai_timeout_seconds": 180,
       "apify_discovery_max_output_tokens_default": 4096,
       "apify_actor_manifest_v1_enabled": true,
@@ -536,6 +540,8 @@
       "notification_channels_v15_migration_check": "./.venv/bin/python scripts/migrate_notification_channels_v15.py --data-dir data --backup-dir data/backups --dry-run",
       "notification_targets_v16_migration_check": "./.venv/bin/python scripts/migrate_notification_targets_v16.py --data-dir data --backup-dir data/backups --dry-run",
       "apify_actor_canary_batches_v17_migration_check": "./.venv/bin/python scripts/migrate_apify_actor_canary_batches_v17.py --data-dir data",
+      "apify_actor_pool_staging_v18_migration_check": "./.venv/bin/python scripts/migrate_apify_actor_pool_staging_v18.py --data-dir data",
+      "apify_actor_manual_pool_selection_v19_migration_check": "./.venv/bin/python scripts/migrate_apify_actor_manual_pool_selection_v19.py --data-dir data",
       "multi_user_feed_e2e": "./.venv/bin/pytest -q tests/test_multi_user_feed_e2e.py",
       "service_feed_schedule": "./.venv/bin/pytest -q tests/test_feed_schedule.py tests/test_light_runtime_scripts.py"
     }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -41,6 +41,7 @@ import {
   healthMatches,
   isPublicSubscriptionScope,
   presentJob,
+  shouldShowJob,
   sourceForSubscription,
   sourceScopesForUser,
   sourceTypeLabel,
@@ -197,6 +198,7 @@ export function HeroSubscriptionsPage() {
   const { api, user, reloadFeed, beginAction, isActionCurrent } = useAppContext()
   const feedback = useActionFeedback()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const agent = useWorkbenchAgentContext()
   const editable = canMutateSubscriptions(user)
   const isAdmin = adminRole(user.role)
@@ -494,6 +496,9 @@ export function HeroSubscriptionsPage() {
   )
   const taxonomy: TaxonomyOptions = configQuery.data?.taxonomy ?? { channels: [], topics: Array.isArray(configQuery.data?.config.tags) ? configQuery.data.config.tags.filter((topic): topic is string => typeof topic === 'string') : [] }
   const sourceMap = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources])
+  const visibleJobs = useMemo(() => (
+    (jobsQuery.data?.jobs ?? []).filter((job) => job.user_id === user.id && shouldShowJob(job))
+  ), [jobsQuery.data, user.id])
   const scheduleCoverage = useMemo(() => subscriptions.reduce(
     (counts, subscription) => {
       const source = sourceForSubscription(
@@ -757,13 +762,13 @@ export function HeroSubscriptionsPage() {
             />}
       </Tabs.Panel>
       <Tabs.Panel id="jobs" className="grid gap-3 pt-5">
-        <p className="type-body text-muted">任务类型和状态使用中文展示；可加入 OpenClaw 分析，仅管理员可展开技术详情。</p>
+        <p className="type-body text-muted">这里只展示你需要关心的运行结果；Actor 内部调度成功记录会自动隐藏。</p>
         {jobsQuery.isLoading && <LoadingState label="正在读取运行记录" rows={2} />}
         {jobsQuery.isError && <HeroNotice title="运行记录读取失败" status="warning">
           <span>订阅和来源仍可继续使用。</span>
           <Button size="sm" variant="ghost" className="ml-2" onPress={() => void jobsQuery.refetch()}>重试</Button>
         </HeroNotice>}
-        {(jobsQuery.data?.jobs ?? []).filter((job) => job.user_id === user.id).map((job) => {
+        {visibleJobs.map((job) => {
           const presented = presentJob(job, sourceMap)
           const feedActivity = job.job_type === 'user_feed_refresh' ? describeFeedJob(job, scheduleQuery.data?.worker_status) : undefined
           const retryPending = feedback.isPending('retry-job', job.id)
@@ -788,7 +793,7 @@ export function HeroSubscriptionsPage() {
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Card.Title className="min-w-0 flex-1">{presented.title}</Card.Title>
               <StatusIndicator iconOnly label={presented.statusLabel} tone={statusTone} icon={statusIcon} />
-              <Tooltip delay={600}>
+              {!presented.actorOpsIssue && <Tooltip delay={600}>
                 <TooltipTriggerButton
                   data-context-state={inContext ? 'selected' : 'idle'}
                   className="size-8 shrink-0 rounded-lg bg-transparent text-muted hover:bg-default hover:text-foreground data-[context-state=selected]:bg-accent/15 data-[context-state=selected]:text-accent data-[context-state=selected]:ring-1 data-[context-state=selected]:ring-accent/45 data-[context-state=selected]:hover:bg-accent/25 data-[context-state=selected]:hover:text-accent"
@@ -797,21 +802,26 @@ export function HeroSubscriptionsPage() {
                   onClick={() => toggleJobContext(job, presented.title, presented.sourceName, presented.statusLabel, resultDetail)}
                 ><Icons.Sparkles size={15} fill="currentColor" aria-hidden="true" /></TooltipTriggerButton>
                 <Tooltip.Content {...anchoredTooltipProps}>{inContext ? '从 OpenClaw 上下文移除' : '加入 OpenClaw 分析'}</Tooltip.Content>
-              </Tooltip>
+              </Tooltip>}
             </div>
             <Card.Description className="type-meta mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span className="min-w-0 flex-1 truncate">{presented.sourceName ? `${presented.sourceName} · ` : ''}{resultSummary}</span>
               <span className="shrink-0">创建 {formatCompactTime(job.created_at)} · {job.finished_at ? `完成 ${formatCompactTime(job.finished_at)}` : '进行中'}</span>
             </Card.Description>
             {extraDetail && <p className="type-meta mt-1 line-clamp-2 text-muted">{extraDetail}</p>}
+            {presented.actorOpsIssue && <div className="type-meta mt-2 grid gap-1 rounded-control bg-default p-3">
+              <p><strong>影响：</strong>{presented.actorOpsIssue.impact}</p>
+              <p><strong>下一步：</strong>{presented.actorOpsIssue.next}</p>
+            </div>}
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-separator pt-2">
-              {isAdmin && <HeroSoftDisclosure label="技术详情"><pre className="type-meta whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify({ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }, null, 2)}</pre></HeroSoftDisclosure>}
-              {!['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} api={api} userId={user.id} className="m-0" />}
-              {editable && job.retryable && <Button size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
+              {isAdmin && !presented.actorOpsIssue && <HeroSoftDisclosure label="技术详情"><pre className="type-meta whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify({ id: job.id, job_type: job.job_type, status: job.status, error_code: job.error_code }, null, 2)}</pre></HeroSoftDisclosure>}
+              {!presented.actorOpsIssue && !['queued', 'running'].includes(job.status) && <HeroResponseSchemaDetails job={job} sourceNames={sourceMap} api={api} userId={user.id} className="m-0" />}
+              {editable && job.retryable && !presented.actorOpsIssue && <Button size="sm" variant="ghost" className="ml-auto" aria-label={retryPending ? `重试中 ${presented.title}` : undefined} isDisabled={retryPending} onPress={() => retryMutation.mutate(job)}>{retryPending ? '重试中' : '重试'}</Button>}
+              {presented.actorOpsHref && <Button size="sm" className="ml-auto" onPress={() => navigate(presented.actorOpsHref || '/settings/actorops?tab=pool')}>返回 ActorOps 处理</Button>}
             </div>
           </Card>
         })}
-        {!jobsQuery.isLoading && !(jobsQuery.data?.jobs ?? []).some((job) => job.user_id === user.id) && <Card variant="transparent" className="p-6 text-center"><Card.Title>还没有运行记录</Card.Title></Card>}
+        {!jobsQuery.isLoading && visibleJobs.length === 0 && <Card variant="transparent" className="p-6 text-center"><Card.Title>还没有需要查看的运行记录</Card.Title></Card>}
       </Tabs.Panel>
     </Tabs>
   </PageFrame>

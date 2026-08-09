@@ -22,6 +22,17 @@ export const changelogMonths: ChangelogMonth[] = [
     label: '2026 年 8 月',
     entries: [
       {
+        date: '2026-08-10',
+        title: 'ActorOps 可以直接手选候选并补满三路',
+        summary: '首次配置、旧版升级和第三路补位统一为候选手选、一次付费验证、一次确认生效，不再被内部流程或认证等待卡住。',
+        items: [
+          { title: '池成员由管理员决定', description: '首次配置和旧版升级从安全候选列表选择 3 个 Actor，补第三路选择 1 个；页面没有 Actor ID 粘贴框，版本与槽位仍由服务端安全固定。' },
+          { title: '验证后即可运行', description: '固定 Build 的 Actor 通过付费验证后立即显示“已验证，可运行”并可确认生效；48 小时、参考来源和成功率认证转为后台观察，不再阻塞配置。' },
+          { title: '旧线路全程不中断', description: '旧版池和现有两路会持续服务到新 Actor 与所有已启用来源验证完成；第二次确认才原子切换完整 3/3 或只补入备用 2。' },
+          { title: '报错直接说明怎么处理', description: '失败统一显示原因、影响和下一步；运行记录隐藏成功的内部 Discovery/批次任务，付费失败只引导返回 ActorOps，不再展示原始 JSON 或通用重试。' },
+        ],
+      },
+      {
         date: '2026-08-09',
         title: 'ActorOps 可引导补齐第三路并零中断升级旧配置',
         summary: 'ActorOps 收为三项任务流程；第三槽和旧版 Actor 都先旁路验证全部来源，再由第二次确认原子生效。',

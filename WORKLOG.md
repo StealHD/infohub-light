@@ -478,3 +478,27 @@ Entries are maintained by `worklogctl.py`; read-only and no-op tasks are not log
   ]
 }
 ```
+
+```json
+{
+  "control_topics": [
+    "architecture",
+    "decisions",
+    "interface",
+    "ui"
+  ],
+  "recorded_on": "2026-08-10",
+  "result": "完成人类化 ActorOps 配置闭环：首次配置与旧版升级手选 3 个安全候选，第三槽手选 1 个；一次限额验证覆盖 Route 与已启用来源，第二次确认原子生效，后台认证不再阻塞运行。",
+  "status": "completed",
+  "task_id": "2026-08-10-actorops-manual-pool-selection",
+  "unresolved": [
+    "共享 schema 21 迁移与 8080 切换等待单独授权。"
+  ],
+  "validation": [
+    "ActorOps 后端定向回归 49/49 通过，覆盖 schema 21、人工候选、最新 exact Build、原子入队、来源预验证与 apply。",
+    "前端定向 Vitest 179/179、类型检查、ESLint、UI 合同与生产构建通过。",
+    "ActorOps Playwright 12 通过、3 个预期视口跳过；初始 3/3、第三槽、legacy 3/3、明暗视觉与无障碍验收通过。",
+    "完整 Test Gate 24/24 命令通过（326.58 秒）。"
+  ]
+}
+```

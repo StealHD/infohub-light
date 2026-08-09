@@ -1011,8 +1011,8 @@ async function mockAdminApi(page: Page, authenticated = true, options: {
   }
 }
 
-async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgrade_legacy') {
-  let phase: 'discovery' | 'canary' | 'activation' | 'complete' = 'discovery'
+async function mockGuidedActorOpsFlow(page: Page, goal: 'initial_pool' | 'complete_third' | 'upgrade_legacy') {
+  let phase: 'selection' | 'activation' | 'complete' = 'selection'
   let paidApprovals = 0
   let applies = 0
   const revision = (id: string, publisher: string, lifecycle: string, publicName: string) => ({
@@ -1036,12 +1036,24 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgr
   const third = revision('backup-2', 'publisher-c', 'static_valid', 'Exact Backup 2')
   const legacyPrimary = revision('legacy-primary', 'builtin-a', 'legacy_builtin', 'Legacy Primary')
   const legacyBackup = revision('legacy-backup', 'builtin-b', 'legacy_builtin', 'Legacy Backup')
+  const legacyBackup2 = revision('legacy-backup-2', 'builtin-a', 'legacy_builtin', 'Legacy Backup 2')
+  const initialPrimary = revision('initial-primary', 'publisher-new-a', 'static_valid', 'Selected Primary')
+  const initialBackup = revision('initial-backup', 'publisher-new-b', 'static_valid', 'Selected Backup 1')
+  const initialBackup2 = revision('initial-backup-2', 'publisher-new-a', 'static_valid', 'Selected Backup 2')
   const replacementPrimary = revision('replacement-primary', 'publisher-new-a', 'static_valid', 'New Exact Primary')
   const replacementBackup = revision('replacement-backup', 'publisher-new-b', 'static_valid', 'New Exact Backup')
-  const planItems = (goal === 'complete_third' ? [third] : [replacementPrimary, replacementBackup]).map((item, index) => ({
+  const replacementBackup2 = revision('replacement-backup-2', 'publisher-new-a', 'static_valid', 'New Exact Backup 2')
+  const selectedRevisions = goal === 'complete_third'
+    ? [third]
+    : goal === 'upgrade_legacy'
+      ? [replacementPrimary, replacementBackup, replacementBackup2]
+      : [initialPrimary, initialBackup, initialBackup2]
+  const planItems = selectedRevisions.map((item, index) => ({
     ordinal: index + 1,
+    candidate_id: `candidate-e2e-${index + 1}`,
     revision_id: item.revision_id,
     actor_id: item.actor_id,
+    actor_public_name: item.actor_public_name,
     publisher: item.publisher,
     build_id: item.build_id,
     build_number: item.build_number,
@@ -1053,17 +1065,16 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgr
     const applied = phase === 'complete'
     const baseRevisions = goal === 'complete_third'
       ? [exactPrimary, exactBackup]
-      : [legacyPrimary, legacyBackup]
+      : goal === 'upgrade_legacy'
+        ? [legacyPrimary, legacyBackup, legacyBackup2]
+        : []
     const appliedRevisions = goal === 'complete_third'
       ? [exactPrimary, exactBackup, { ...third, lifecycle: 'probationary', can_canary: false, can_activate: true }]
-      : [
-          { ...replacementPrimary, lifecycle: 'probationary', can_canary: false, can_activate: true },
-          { ...replacementBackup, lifecycle: 'probationary', can_canary: false, can_activate: true },
-        ]
+      : selectedRevisions.map((item) => ({ ...item, lifecycle: 'probationary', can_canary: false, can_activate: true }))
     const active = applied ? appliedRevisions : baseRevisions
     const workflowKind = applied
       ? 'probation_observing'
-      : `${goal === 'complete_third' ? 'backup_2' : 'legacy'}_${phase === 'discovery' ? 'discovery_required' : phase === 'canary' ? 'canary_approval_required' : 'activation_approval_required'}`
+      : `${goal === 'complete_third' ? 'backup_2' : goal === 'upgrade_legacy' ? 'legacy' : 'setup'}_${phase === 'selection' ? 'candidate_selection_required' : 'activation_approval_required'}`
     return {
       route_id: 'route-x-profile',
       route_key: 'x/profile',
@@ -1079,13 +1090,13 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgr
       min_runtime_healthy: 2,
       publisher_count: new Set(active.map((item) => item.publisher)).size,
       per_run_cap_usd: 0.02,
-      discovery_run_id: phase === 'discovery' ? null : 'run-e2e',
+      discovery_run_id: 'run-e2e',
       blocked_reason: null,
       updated_at: '2026-08-09T08:00:00Z',
       workflow: {
         kind: workflowKind,
         goal: applied ? null : goal,
-        run_id: phase === 'discovery' ? null : 'run-e2e',
+        run_id: 'run-e2e',
         stage_id: phase === 'activation' ? 'stage-e2e' : null,
         plan_hash: phase === 'activation' ? 'plan-e2e' : null,
         progress: {},
@@ -1096,9 +1107,7 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgr
         { slot: 'backup_1', revision_id: active[1]?.revision_id ?? null, runnable: Boolean(active[1]), revision: active[1] ?? null },
         { slot: 'backup_2', revision_id: active[2]?.revision_id ?? null, runnable: Boolean(active[2]), revision: active[2] ?? null },
       ],
-      revisions: [...baseRevisions, ...planItems.map((item) => (
-        goal === 'complete_third' ? third : item.revision_id === replacementPrimary.revision_id ? replacementPrimary : replacementBackup
-      ))],
+      revisions: [...baseRevisions, ...selectedRevisions],
       source_validations: [],
       source_validation_summary: { ready: 0, pending: 0, failed: 0 },
       replacement_needed: goal === 'upgrade_legacy' && !applied,
@@ -1133,8 +1142,10 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgr
     }
   }
   const plan = {
-    schema_version: 2,
+    schema_version: 3,
     goal,
+    selection_mode: 'manual',
+    target_slot_count: 3,
     run_id: 'run-e2e',
     route_id: 'route-x-profile',
     route_key: 'x/profile',
@@ -1194,11 +1205,37 @@ async function mockGuidedActorOpsFlow(page: Page, goal: 'complete_third' | 'upgr
     let data: unknown
     if (url.pathname === '/api/admin/apify-routes' && method === 'GET') data = currentRoutes()
     else if (url.pathname === '/api/admin/apify-routes/route-x-profile' && method === 'GET') data = currentDetail()
+    else if (url.pathname === '/api/admin/apify-routes/route-x-profile/pool-candidates' && method === 'GET') {
+      data = {
+        schema_version: 1,
+        route_id: 'route-x-profile',
+        generation: 12,
+        goal,
+        run_id: 'run-e2e',
+        required_selection_count: planItems.length,
+        blockers: [],
+        candidates: planItems.map((item) => ({
+          candidate_id: item.candidate_id,
+          actor_public_name: item.actor_public_name,
+          publisher: item.publisher,
+          pricing: {
+            model: 'PAY_PER_EVENT',
+            billing_unit: 'event',
+            unit_price_min_usd: 0.001,
+            unit_price_max_usd: 0.001,
+            minimum_charge_usd: null,
+            minimum_run_cap_usd: 0.02,
+          },
+          max_validation_charge_usd: 0.02,
+          selectable: true,
+          unavailable_reason: null,
+        })),
+      }
+    }
     else if (url.pathname === '/api/admin/apify-support-checks' && method === 'POST') {
-      phase = 'canary'
       data = { schema_version: 1, kind: 'discovery', generation: 23, route_generation: 12, discovery_run_id: 'run-e2e' }
     }
-    else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-plan' && method === 'GET') data = plan
+    else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-plan' && method === 'POST') data = plan
     else if (url.pathname === '/api/admin/apify-discovery-runs/run-e2e/canary-batches' && method === 'POST') {
       paidApprovals += 1
       phase = 'activation'
@@ -1616,42 +1653,55 @@ test('ActorOps route control plane stays safe and bounded across settings layout
 })
 
 for (const guidedFlow of [{
+  goal: 'initial_pool' as const,
+  select: '选择 Actor',
+  selectionHeading: '选择 3 个 Actor',
+  candidateNames: ['Selected Primary', 'Selected Backup 1', 'Selected Backup 2'],
+  activation: '查看并确认启用',
+  activationHeading: '确认启用 Actor 主备',
+  oldNames: [],
+  finalNames: ['Selected Primary', 'Selected Backup 1', 'Selected Backup 2'],
+}, {
   goal: 'complete_third' as const,
-  discovery: '开始补齐备用 2',
-  paid: '查看并确认第三路验证',
-  paidHeading: '确认付费验证第三路备用',
+  select: '补充备用 Actor',
+  selectionHeading: '选择第三个备用 Actor',
+  candidateNames: ['Exact Backup 2'],
   activation: '查看并确认补位生效',
   activationHeading: '确认补齐备用 2',
   oldNames: ['Exact Primary', 'Exact Backup'],
-  finalName: 'Exact Backup 2',
+  finalNames: ['Exact Primary', 'Exact Backup', 'Exact Backup 2'],
 }, {
   goal: 'upgrade_legacy' as const,
-  discovery: '开始旁路升级',
-  paid: '查看并确认新版验证',
-  paidHeading: '确认付费验证新版主备',
+  select: '选择新版 Actor',
+  selectionHeading: '选择 3 个新版 Actor',
+  candidateNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
   activation: '查看并确认切换',
   activationHeading: '确认切换到新版主备',
-  oldNames: ['Legacy Primary', 'Legacy Backup'],
-  finalName: 'New Exact Primary',
+  oldNames: ['Legacy Primary', 'Legacy Backup', 'Legacy Backup 2'],
+  finalNames: ['New Exact Primary', 'New Exact Backup', 'New Exact Backup 2'],
 }]) {
-  test(`ActorOps ${guidedFlow.goal} keeps the live pool until paid validation and atomic apply`, async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === 'tablet', 'The complete guided flows run at desktop and mobile; tablet is covered by layout and visual acceptance.')
+  test(`ActorOps ${guidedFlow.goal} uses manual candidates and applies an atomic 3/3 pool`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === 'tablet', 'The complete manual flows run at desktop and mobile; tablet is covered by layout and visual acceptance.')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await mockAdminApi(page, true, { includeXProfileSource: true })
     const state = await mockGuidedActorOpsFlow(page, guidedFlow.goal)
     await page.goto('/settings/actorops?route=x%2Fprofile%2Fitems&tab=pool')
 
     for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: guidedFlow.discovery }).click()
-    await expect(page.getByRole('button', { name: guidedFlow.paid })).toBeVisible()
-    for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
-
-    await page.getByRole('button', { name: guidedFlow.paid }).click()
-    const paidDialog = page.getByRole('dialog', { name: guidedFlow.paidHeading })
+    await page.getByRole('button', { name: guidedFlow.select }).click()
+    const selectionDialog = page.getByRole('dialog', { name: guidedFlow.selectionHeading })
+    await expect(selectionDialog).toBeVisible()
+    for (const name of guidedFlow.candidateNames) {
+      await selectionDialog.getByText(name, { exact: true }).click()
+    }
+    await selectionDialog.getByRole('button', { name: '继续' }).click()
+    const paidDialog = page.getByRole('dialog', { name: '验证所选 Actor' })
     await expect(paidDialog).toBeVisible()
-    await expect(paidDialog).toContainText('现有线路继续运行')
+    await expect(paidDialog).toContainText('当前配置不会改变')
+    await expect(page.getByRole('textbox', { name: /Actor ID/ })).toHaveCount(0)
+    await expect(page.locator('body')).not.toContainText('build-replacement')
     expect(state.paidApprovals()).toBe(0)
-    await paidDialog.getByRole('button', { name: /确认付费验证（最高/ }).click()
+    await paidDialog.getByRole('button', { name: /确认验证（最高/ }).click()
     await expect.poll(state.paidApprovals).toBe(1)
 
     await expect(page.getByRole('button', { name: guidedFlow.activation })).toBeVisible()
@@ -1664,13 +1714,12 @@ for (const guidedFlow of [{
     await activationDialog.getByRole('button', { name: '确认生效' }).click()
     await expect.poll(state.applies).toBe(1)
 
-    await expect(page.getByText(guidedFlow.finalName, { exact: true })).toBeVisible()
-    if (guidedFlow.goal === 'complete_third') {
-      await expect(page.getByText('3/3 路可用', { exact: false }).first()).toBeVisible()
-      for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
-    } else {
+    for (const name of guidedFlow.finalNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
+    await expect(page.getByText('3/3 路可用', { exact: false }).first()).toBeVisible()
+    if (guidedFlow.goal === 'upgrade_legacy') {
       for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toHaveCount(0)
-      await expect(page.getByText('New Exact Backup', { exact: true })).toBeVisible()
+    } else {
+      for (const name of guidedFlow.oldNames) await expect(page.getByText(name, { exact: true })).toBeVisible()
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     const accessibility = await new AxeBuilder({ page }).analyze()

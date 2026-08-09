@@ -52,6 +52,13 @@ APIFY_ACTOR_POOL_STAGING_MIGRATION_NAME = "apify_actor_pool_staging_v18"
 APIFY_ACTOR_POOL_STAGING_MIGRATION_CHECKSUM = (
     "apify-actor-pool-staging-v18-zero-downtime-guided-flow"
 )
+APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_VERSION = 21
+APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_NAME = (
+    "apify_actor_manual_pool_selection_v19"
+)
+APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_CHECKSUM = (
+    "apify-actor-manual-pool-selection-v19-three-slot-guided-flow"
+)
 ROLES = {"owner", "admin", "member", "viewer"}
 SOURCE_SCOPES = {"public", "workspace", "private"}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed", "partial", "cancelled"}
@@ -346,14 +353,57 @@ def apify_actor_pool_staging_v18_schema_shapes_valid(
     }
     stage_sql = table_sql.get("apify_actor_pool_stages", "")
     source_sql = table_sql.get("apify_actor_pool_stage_sources", "")
-    return (
+    goal_shape_valid = (
         "goalin('complete_third','upgrade_legacy')" in stage_sql
+        or "goalin('initial_pool','complete_third','upgrade_legacy')"
+        in stage_sql
+    )
+    return (
+        goal_shape_valid
         and "statusin('queued','validating_route','validating_sources','apply_ready','applied','replan_required','blocked_unknown_start','stale','failed','cancelled')"
         in stage_sql
         and "max_total_charge_usd<=6.06" in stage_sql
         and "primarykey(stage_id,source_id)" in source_sql
         and "statusin('snapshotted','queued','running','succeeded','failed','skipped')"
         in source_sql
+    )
+
+
+APIFY_ACTOR_MANUAL_POOL_SELECTION_V19_COLUMNS = {
+    "apify_actor_pool_stages": {"target_slot_count", "selection_mode"},
+}
+
+
+def apify_actor_manual_pool_selection_v19_schema_shapes_valid(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Validate manual three-slot selection fields and constraints."""
+
+    if not apify_actor_pool_staging_v18_schema_shapes_valid(connection):
+        return False
+    for table, expected in (
+        APIFY_ACTOR_MANUAL_POOL_SELECTION_V19_COLUMNS.items()
+    ):
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if not expected <= columns:
+            return False
+    table_sql = {
+        str(row[0]): _normalized_schema_sql(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    stage_sql = table_sql.get("apify_actor_pool_stages", "")
+    return (
+        "goalin('initial_pool','complete_third','upgrade_legacy')"
+        in stage_sql
+        and "check(target_slot_countbetween2and3)" in stage_sql
+        and "selection_modein('server','manual')" in stage_sql
     )
 WEBHOOK_PROVIDERS = {
     "legacy_auto",
@@ -973,6 +1023,20 @@ class ServiceStore:
                 prepare_apify_actor_pool_staging_v18
                 and apify_actor_canary_batches_v17_migrated
             )
+        )
+        apify_actor_manual_pool_selection_v19_migrated = bool(
+            has_migration_table
+            and conn.execute(
+                """
+                SELECT 1 FROM schema_migrations
+                WHERE version = ? AND name = ? AND checksum = ?
+                """,
+                (
+                    APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_VERSION,
+                    APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_NAME,
+                    APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_CHECKSUM,
+                ),
+            ).fetchone()
         )
         schema_sql = """
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -2757,8 +2821,12 @@ class ServiceStore:
                 discovery_run_id TEXT NOT NULL,
                 initial_batch_id TEXT NOT NULL,
                 goal TEXT NOT NULL CHECK(goal IN (
-                    'complete_third', 'upgrade_legacy'
+                    'initial_pool', 'complete_third', 'upgrade_legacy'
                 )),
+                target_slot_count INTEGER NOT NULL DEFAULT 3
+                    CHECK(target_slot_count BETWEEN 2 AND 3),
+                selection_mode TEXT NOT NULL DEFAULT 'server'
+                    CHECK(selection_mode IN ('server', 'manual')),
                 base_generation INTEGER NOT NULL CHECK(base_generation >= 1),
                 base_pool_hash TEXT NOT NULL CHECK(
                     length(base_pool_hash) = 64
@@ -3521,6 +3589,14 @@ class ServiceStore:
             and not apify_actor_pool_staging_v18_upgrade_pending
         ):
             self.mark_apify_actor_pool_staging_v18_migrated(commit=False)
+        if (
+            not existing_schema
+            and install_apify_actor_pool_staging_v18
+            and not apify_actor_manual_pool_selection_v19_migrated
+        ):
+            self.mark_apify_actor_manual_pool_selection_v19_migrated(
+                commit=False
+            )
         conn.commit()
 
     def mark_feed_v2_migrated(self, *, commit: bool = True) -> None:
@@ -4070,6 +4146,63 @@ class ServiceStore:
         ).fetchone()
         return not marker or not apify_actor_pool_staging_v18_schema_shapes_valid(
             connection
+        )
+
+    def mark_apify_actor_manual_pool_selection_v19_migrated(
+        self,
+        *,
+        commit: bool = True,
+    ) -> None:
+        connection = self.connect()
+        existing = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_VERSION,),
+        ).fetchone()
+        if existing is not None and str(existing["name"]) != (
+            APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_NAME
+        ):
+            raise RuntimeError(
+                "global schema migration version 21 is already occupied"
+            )
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(version) DO UPDATE SET
+                checksum = excluded.checksum,
+                applied_at = excluded.applied_at
+            WHERE schema_migrations.name = excluded.name
+            """,
+            (
+                APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_VERSION,
+                APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_NAME,
+                APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_CHECKSUM,
+                _now_iso(),
+            ),
+        )
+        if commit:
+            connection.commit()
+
+    def apify_actor_manual_pool_selection_v19_migration_required(
+        self,
+    ) -> bool:
+        connection = self.connect()
+        marker = connection.execute(
+            """
+            SELECT 1 FROM schema_migrations
+            WHERE version = ? AND name = ? AND checksum = ?
+            """,
+            (
+                APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_VERSION,
+                APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_NAME,
+                APIFY_ACTOR_MANUAL_POOL_SELECTION_MIGRATION_CHECKSUM,
+            ),
+        ).fetchone()
+        return (
+            not marker
+            or not apify_actor_manual_pool_selection_v19_schema_shapes_valid(
+                connection
+            )
         )
 
     def mark_apify_key_pool_v8_migrated(self, *, commit: bool = True) -> None:
